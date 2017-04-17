@@ -80,6 +80,7 @@ fn usage(builder: &Builder, maybe_zig_exe: ?[]const u8, already_ran_build: bool,
 
     // run the build script to collect the options
     if (!already_ran_build) {
+        builder.setInstallPrefix(null);
         root.build(builder);
     }
 

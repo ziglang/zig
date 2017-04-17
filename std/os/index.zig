@@ -10,6 +10,7 @@ pub const posix = switch(@compileVar("os")) {
 
 pub const max_noalloc_path_len = 1024;
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
+pub const path = @import("path.zig");
 
 const debug = @import("../debug.zig");
 const assert = debug.assert;
@@ -23,6 +24,8 @@ const Allocator = mem.Allocator;
 
 const BufMap = @import("../buf_map.zig").BufMap;
 const cstr = @import("../cstr.zig");
+
+const io = @import("../io.zig");
 
 error Unexpected;
 error SystemResources;
@@ -134,21 +137,21 @@ pub fn posixWrite(fd: i32, bytes: []const u8) -> %void {
 }
 
 
-/// ::path may need to be copied in memory to add a null terminating byte. In this case
+/// ::file_path may need to be copied in memory to add a null terminating byte. In this case
 /// a fixed size buffer of size ::max_noalloc_path_len is an attempted solution. If the fixed
 /// size buffer is too small, and the provided allocator is null, ::error.NameTooLong is returned.
 /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
 /// Calls POSIX open, keeps trying if it gets interrupted, and translates
 /// the return value into zig errors.
-pub fn posixOpen(path: []const u8, flags: usize, perm: usize, allocator: ?&Allocator) -> %i32 {
+pub fn posixOpen(file_path: []const u8, flags: usize, perm: usize, allocator: ?&Allocator) -> %i32 {
     var stack_buf: [max_noalloc_path_len]u8 = undefined;
     var path0: []u8 = undefined;
     var need_free = false;
 
-    if (path.len < stack_buf.len) {
-        path0 = stack_buf[0...path.len + 1];
+    if (file_path.len < stack_buf.len) {
+        path0 = stack_buf[0...file_path.len + 1];
     } else if (const a ?= allocator) {
-        path0 = %return a.alloc(u8, path.len + 1);
+        path0 = %return a.alloc(u8, file_path.len + 1);
         need_free = true;
     } else {
         return error.NameTooLong;
@@ -156,8 +159,8 @@ pub fn posixOpen(path: []const u8, flags: usize, perm: usize, allocator: ?&Alloc
     defer if (need_free) {
         (??allocator).free(path0);
     };
-    mem.copy(u8, path0, path);
-    path0[path.len] = 0;
+    mem.copy(u8, path0, file_path);
+    path0[file_path.len] = 0;
 
     while (true) {
         const result = posix.open(path0.ptr, flags, perm);
@@ -416,12 +419,12 @@ pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []con
     }
 }
 
-pub fn deleteFile(allocator: &Allocator, path: []const u8) -> %void {
-    const buf = %return allocator.alloc(u8, path.len + 1);
+pub fn deleteFile(allocator: &Allocator, file_path: []const u8) -> %void {
+    const buf = %return allocator.alloc(u8, file_path.len + 1);
     defer allocator.free(buf);
 
-    mem.copy(u8, buf, path);
-    buf[path.len] = 0;
+    mem.copy(u8, buf, file_path);
+    buf[file_path.len] = 0;
 
     const err = posix.getErrno(posix.unlink(buf.ptr));
     if (err > 0) {
@@ -438,5 +441,21 @@ pub fn deleteFile(allocator: &Allocator, path: []const u8) -> %void {
             errno.EROFS => error.ReadOnlyFileSystem,
             else => error.Unexpected,
         };
+    }
+}
+
+pub fn copyFile(allocator: &Allocator, source_path: []const u8, dest_path: []const u8) -> %void {
+    var in_stream = %return io.InStream.open(source_path, allocator);
+    defer in_stream.close();
+    var out_stream = %return io.OutStream.open(dest_path, allocator);
+    defer out_stream.close();
+
+    const buf = out_stream.buffer[0...];
+    while (true) {
+        const amt = %return in_stream.read(buf);
+        out_stream.index = amt;
+        %return out_stream.flush();
+        if (amt != out_stream.buffer.len)
+            return;
     }
 }

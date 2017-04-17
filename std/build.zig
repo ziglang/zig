@@ -19,6 +19,8 @@ error DependencyLoopDetected;
 error NoCompilerFound;
 
 pub const Builder = struct {
+    uninstall_tls: TopLevelStep,
+    have_uninstall_step: bool,
     allocator: &Allocator,
     lib_paths: List([]const u8),
     include_paths: List([]const u8),
@@ -33,7 +35,9 @@ pub const Builder = struct {
     env_map: BufMap,
     top_level_steps: List(&TopLevelStep),
     prefix: []const u8,
+    lib_dir: []const u8,
     out_dir: []u8,
+    installed_files: List([]const u8),
 
     const UserInputOptionsMap = HashMap([]const u8, UserInputOption, mem.hash_slice_u8, mem.eql_slice_u8);
     const AvailableOptionsMap = HashMap([]const u8, AvailableOption, mem.hash_slice_u8, mem.eql_slice_u8);
@@ -85,7 +89,14 @@ pub const Builder = struct {
             .default_step = undefined,
             .env_map = %%os.getEnvMap(allocator),
             .prefix = undefined,
+            .lib_dir = undefined,
             .out_dir = %%os.getCwd(allocator),
+            .installed_files = List([]const u8).init(allocator),
+            .uninstall_tls = TopLevelStep {
+                .step = Step.init("uninstall", allocator, makeUninstall),
+                .description = "Remove build artifacts from prefix path",
+            },
+            .have_uninstall_step = false,
         };
         self.processNixOSEnvVars();
         self.default_step = self.step("default", "Build the project");
@@ -102,12 +113,8 @@ pub const Builder = struct {
     }
 
     pub fn setInstallPrefix(self: &Builder, maybe_prefix: ?[]const u8) {
-        if (const prefix ?= maybe_prefix) {
-            self.prefix = prefix;
-            return;
-        }
-        // TODO better default
-        self.prefix = "/usr/local";
+        self.prefix = maybe_prefix ?? "/usr/local"; // TODO better default
+        self.lib_dir = %%os.path.join(self.allocator, self.prefix, "lib");
     }
 
     pub fn addExecutable(self: &Builder, name: []const u8, root_src: []const u8) -> &Exe {
@@ -178,6 +185,27 @@ pub const Builder = struct {
         for (wanted_steps.toSliceConst()) |s| {
             %return self.makeOneStep(s);
         }
+    }
+
+    pub fn getUninstallStep(self: &Builder) -> &Step {
+        if (self.have_uninstall_step)
+            return &self.uninstall_tls.step;
+
+        %%self.top_level_steps.append(&self.uninstall_tls);
+        self.have_uninstall_step = true;
+        return &self.uninstall_tls.step;
+    }
+
+    fn makeUninstall(uninstall_step: &Step) -> %void {
+        // TODO
+        // const self = @fieldParentPtr(Exe, "step", step);
+        const self = @ptrcast(&Builder, uninstall_step);
+
+        for (self.installed_files.toSliceConst()) |installed_file| {
+            _ = os.deleteFile(self.allocator, installed_file);
+        }
+
+        // TODO remove empty directories
     }
 
     fn makeOneStep(self: &Builder, s: &Step) -> %void {
@@ -426,6 +454,34 @@ pub const Builder = struct {
         };
 
     }
+
+    pub fn installCLibrary(self: &Builder, lib: &CLibrary) -> &InstallCLibraryStep {
+        const install_step = %%self.allocator.create(InstallCLibraryStep);
+        *install_step = InstallCLibraryStep.init(self, lib);
+        install_step.step.dependOn(&lib.step);
+        return install_step;
+    }
+
+    ///::dest_rel_path is relative to prefix path
+    pub fn installFile(self: &Builder, src_path: []const u8, dest_rel_path: []const u8) -> &InstallFileStep {
+        const full_dest_path = %%os.path.join(self.allocator, self.prefix, dest_rel_path);
+        self.addInstalledFile(full_dest_path);
+
+        const install_step = %%self.allocator.create(InstallFileStep);
+        *install_step = InstallFileStep.init(self, src_path, full_dest_path);
+        return install_step;
+    }
+
+    pub fn addInstalledFile(self: &Builder, full_path: []const u8) {
+        _ = self.getUninstallStep();
+        %%self.installed_files.append(full_path);
+    }
+
+    fn copyFile(self: &Builder, source_path: []const u8, dest_path: []const u8) {
+        os.copyFile(self.allocator, source_path, dest_path) %% |err| {
+            debug.panic("Unable to copy {} to {}: {}", source_path, dest_path, @errorName(err));
+        };
+    }
 };
 
 const Version = struct {
@@ -616,6 +672,8 @@ const CLibrary = struct {
     target: Target,
     builder: &Builder,
     include_dirs: List([]const u8),
+    major_only_filename: []const u8,
+    name_only_filename: []const u8,
 
     pub fn initShared(builder: &Builder, name: []const u8, version: &const Version) -> CLibrary {
         return init(builder, name, version, false);
@@ -639,6 +697,8 @@ const CLibrary = struct {
             .link_libs = BufSet.init(builder.allocator),
             .include_dirs = List([]const u8).init(builder.allocator),
             .out_filename = undefined,
+            .major_only_filename = undefined,
+            .name_only_filename = undefined,
         };
         clib.computeOutFileName();
         return clib;
@@ -650,6 +710,10 @@ const CLibrary = struct {
         } else {
             self.out_filename = %%fmt.allocPrint(self.builder.allocator, "lib{}.so.{d}.{d}.{d}",
                 self.name, self.version.major, self.version.minor, self.version.patch);
+            self.major_only_filename = %%fmt.allocPrint(self.builder.allocator,
+                "lib{}.so.{d}", self.name, self.version.major);
+            self.name_only_filename = %%fmt.allocPrint(self.builder.allocator,
+                "lib{}.so", self.name);
         }
     }
 
@@ -752,15 +816,11 @@ const CLibrary = struct {
             builder.spawnChild(cc, cc_args.toSliceConst());
 
             // sym link for libfoo.so.1 to libfoo.so.1.2.3
-            const major_only = %%fmt.allocPrint(builder.allocator, "lib{}.so.{d}", self.name, self.version.major);
-            defer builder.allocator.free(major_only);
-            _ = os.deleteFile(builder.allocator, major_only);
-            %%os.symLink(builder.allocator, self.out_filename, major_only);
+            _ = os.deleteFile(builder.allocator, self.major_only_filename);
+            %%os.symLink(builder.allocator, self.out_filename, self.major_only_filename);
             // sym link for libfoo.so to libfoo.so.1
-            const name_only = %%fmt.allocPrint(builder.allocator, "lib{}.so", self.name);
-            defer builder.allocator.free(name_only);
-            _ = os.deleteFile(builder.allocator, name_only);
-            %%os.symLink(builder.allocator, major_only, name_only);
+            _ = os.deleteFile(builder.allocator, self.name_only_filename);
+            %%os.symLink(builder.allocator, self.major_only_filename, self.name_only_filename);
         }
     }
 
@@ -938,6 +998,71 @@ const CommandStep = struct {
     }
 };
 
+const InstallCLibraryStep = struct {
+    step: Step,
+    builder: &Builder,
+    lib: &CLibrary,
+    dest_file: []const u8,
+
+    pub fn init(builder: &Builder, lib: &CLibrary) -> InstallCLibraryStep {
+        var self = InstallCLibraryStep {
+            .builder = builder,
+            .step = Step.init(
+                %%fmt.allocPrint(builder.allocator, "install {}", lib.step.name),
+                builder.allocator, make),
+            .lib = lib,
+            .dest_file = undefined,
+        };
+        self.dest_file = %%os.path.join(builder.allocator, builder.lib_dir, lib.out_filename);
+        builder.addInstalledFile(self.dest_file);
+        if (!self.lib.static) {
+            builder.addInstalledFile(%%os.path.join(builder.allocator, builder.lib_dir, lib.major_only_filename));
+            builder.addInstalledFile(%%os.path.join(builder.allocator, builder.lib_dir, lib.name_only_filename));
+        }
+        return self;
+    }
+
+    fn make(step: &Step) -> %void {
+        // TODO issue #320
+        //const self = @fieldParentPtr(InstallCLibraryStep, "step", step);
+        const self = @ptrcast(&InstallCLibraryStep, step);
+
+        self.builder.copyFile(self.lib.out_filename, self.dest_file);
+        if (!self.lib.static) {
+            _ = os.deleteFile(self.builder.allocator, self.lib.major_only_filename);
+            %%os.symLink(self.builder.allocator, self.lib.out_filename, self.lib.major_only_filename);
+            _ = os.deleteFile(self.builder.allocator, self.lib.name_only_filename);
+            %%os.symLink(self.builder.allocator, self.lib.major_only_filename, self.lib.name_only_filename);
+        }
+    }
+};
+
+const InstallFileStep = struct {
+    step: Step,
+    builder: &Builder,
+    src_path: []const u8,
+    dest_path: []const u8,
+
+    pub fn init(builder: &Builder, src_path: []const u8, dest_path: []const u8) -> InstallFileStep {
+        return InstallFileStep {
+            .builder = builder,
+            .step = Step.init(
+                %%fmt.allocPrint(builder.allocator, "install {}", src_path),
+                builder.allocator, make),
+            .src_path = src_path,
+            .dest_path = dest_path,
+        };
+    }
+
+    fn make(step: &Step) -> %void {
+        // TODO issue #320
+        //const self = @fieldParentPtr(InstallFileStep, "step", step);
+        const self = @ptrcast(&InstallFileStep, step);
+
+        debug.panic("TODO install file");
+    }
+};
+
 const Step = struct {
     name: []const u8,
     makeFn: fn(self: &Step) -> %void,
@@ -972,25 +1097,3 @@ const Step = struct {
 
     fn makeNoOp(self: &Step) -> %void {}
 };
-
-fn printInvocation(exe_name: []const u8, args: &const List([]const u8)) {
-    %%io.stderr.printf("{}", exe_name);
-    for (args.toSliceConst()) |arg| {
-        %%io.stderr.printf(" {}", arg);
-    }
-    %%io.stderr.printf("\n");
-}
-
-fn waitForCleanExit(child: &os.ChildProcess) -> %void {
-    const term = %%child.wait();
-    switch (term) {
-        Term.Clean => |code| {
-            if (code != 0) {
-                return error.UncleanExit;
-            }
-        },
-        else => {
-            return error.UncleanExit;
-        },
-    };
-}
