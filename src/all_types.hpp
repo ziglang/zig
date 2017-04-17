@@ -1211,7 +1211,6 @@ enum PanicMsgId {
     PanicMsgIdExactDivisionRemainder,
     PanicMsgIdSliceWidenRemainder,
     PanicMsgIdUnwrapMaybeFail,
-    PanicMsgIdUnwrapErrFail,
     PanicMsgIdInvalidErrorCode,
 
     PanicMsgIdCount,
@@ -1445,6 +1444,8 @@ struct CodeGen {
     ZigList<AstNode *> error_decls;
     bool generate_error_name_table;
     LLVMValueRef err_name_table;
+    size_t largest_err_name_len;
+    LLVMValueRef safety_crash_err_fn;
 
     IrInstruction *invalid_instruction;
     ConstExprValue const_void_val;

@@ -287,6 +287,10 @@ pub fn read(fd: i32, buf: &u8, count: usize) -> usize {
     arch.syscall3(arch.SYS_read, usize(fd), usize(buf), count)
 }
 
+pub fn symlink(existing: &const u8, new: &const u8) -> usize {
+    arch.syscall2(arch.SYS_symlink, usize(existing), usize(new))
+}
+
 pub fn pread(fd: i32, buf: &u8, count: usize, offset: usize) -> usize {
     arch.syscall4(arch.SYS_pread, usize(fd), usize(buf), count, offset)
 }
@@ -338,6 +342,10 @@ pub fn getrandom(buf: &u8, count: usize, flags: u32) -> usize {
 
 pub fn kill(pid: i32, sig: i32) -> usize {
     arch.syscall2(arch.SYS_kill, usize(pid), usize(sig))
+}
+
+pub fn unlink(path: &const u8) -> usize {
+    arch.syscall1(arch.SYS_unlink, usize(path))
 }
 
 pub fn waitpid(pid: i32, status: &i32, options: i32) -> usize {

@@ -395,6 +395,33 @@ pub const Builder = struct {
 
         return self.invalid_user_input;
     }
+
+    fn spawnChild(self: &Builder, exe_path: []const u8, args: []const []const u8) {
+        if (self.verbose) {
+            %%io.stderr.printf("{}", exe_path);
+            for (args) |arg| {
+                %%io.stderr.printf(" {}", arg);
+            }
+            %%io.stderr.printf("\n");
+        }
+
+        var child = os.ChildProcess.spawn(exe_path, args, &self.env_map,
+            StdIo.Ignore, StdIo.Inherit, StdIo.Inherit, self.allocator)
+            %% |err| debug.panic("Unable to spawn {}: {}\n", exe_path, @errorName(err));
+
+        const term = %%child.wait();
+        switch (term) {
+            Term.Clean => |code| {
+                if (code != 0) {
+                    debug.panic("Process {} exited with error code {}\n", exe_path, code);
+                }
+            },
+            else => {
+                debug.panic("Process {} terminated unexpectedly\n", exe_path);
+            },
+        };
+
+    }
 };
 
 const Version = struct {
@@ -568,14 +595,7 @@ const Exe = struct {
             %return zig_args.append(lib_path);
         }
 
-        if (builder.verbose) {
-            printInvocation(builder.zig_exe, zig_args);
-        }
-        // TODO issue #301
-        var child = os.ChildProcess.spawn(builder.zig_exe, zig_args.toSliceConst(), &builder.env_map,
-            StdIo.Ignore, StdIo.Inherit, StdIo.Inherit, builder.allocator)
-            %% |err| debug.panic("Unable to spawn zig compiler: {}\n", @errorName(err));
-        %return waitForCleanExit(&child);
+        builder.spawnChild(builder.zig_exe, zig_args.toSliceConst());
     }
 };
 
@@ -700,14 +720,7 @@ const CLibrary = struct {
                 %%cc_args.append(dir);
             }
 
-            if (builder.verbose) {
-                printInvocation(cc, cc_args);
-            }
-
-            var child = os.ChildProcess.spawn(cc, cc_args.toSliceConst(), &builder.env_map,
-                StdIo.Ignore, StdIo.Inherit, StdIo.Inherit, builder.allocator)
-                %% |err| debug.panic("Unable to spawn compiler: {}\n", @errorName(err));
-            %return waitForCleanExit(&child);
+            builder.spawnChild(cc, cc_args.toSliceConst());
 
             %%self.object_files.append(o_file);
         }
@@ -732,14 +745,18 @@ const CLibrary = struct {
                 %%cc_args.append(object_file);
             }
 
-            if (builder.verbose) {
-                printInvocation(cc, cc_args);
-            }
+            builder.spawnChild(cc, cc_args.toSliceConst());
 
-            var child = os.ChildProcess.spawn(cc, cc_args.toSliceConst(), &builder.env_map,
-                StdIo.Ignore, StdIo.Inherit, StdIo.Inherit, builder.allocator)
-                %% |err| debug.panic("Unable to spawn compiler: {}\n", @errorName(err));
-            %return waitForCleanExit(&child);
+            // sym link for libfoo.so.1 to libfoo.so.1.2.3
+            const major_only = %%fmt.allocPrint(builder.allocator, "lib{}.so.{d}", self.name, self.version.major);
+            defer builder.allocator.free(major_only);
+            _ = os.deleteFile(builder.allocator, major_only);
+            %%os.symLink(builder.allocator, self.out_filename, major_only);
+            // sym link for libfoo.so to libfoo.so.1
+            const name_only = %%fmt.allocPrint(builder.allocator, "lib{}.so", self.name);
+            defer builder.allocator.free(name_only);
+            _ = os.deleteFile(builder.allocator, name_only);
+            %%os.symLink(builder.allocator, major_only, name_only);
         }
     }
 
@@ -848,14 +865,7 @@ const CExecutable = struct {
                 %%cc_args.append(dir);
             }
 
-            if (builder.verbose) {
-                printInvocation(cc, cc_args);
-            }
-
-            var child = os.ChildProcess.spawn(cc, cc_args.toSliceConst(), &builder.env_map,
-                StdIo.Ignore, StdIo.Inherit, StdIo.Inherit, builder.allocator)
-                %% |err| debug.panic("Unable to spawn compiler: {}\n", @errorName(err));
-            %return waitForCleanExit(&child);
+            builder.spawnChild(cc, cc_args.toSliceConst());
 
             %%self.object_files.append(o_file);
         }
@@ -879,14 +889,7 @@ const CExecutable = struct {
             %%cc_args.append(full_path_lib);
         }
 
-        if (builder.verbose) {
-            printInvocation(cc, cc_args);
-        }
-
-        var child = os.ChildProcess.spawn(cc, cc_args.toSliceConst(), &builder.env_map,
-            StdIo.Ignore, StdIo.Inherit, StdIo.Inherit, builder.allocator)
-            %% |err| debug.panic("Unable to spawn compiler: {}\n", @errorName(err));
-        %return waitForCleanExit(&child);
+        builder.spawnChild(cc, cc_args.toSliceConst());
     }
 
     pub fn setTarget(self: &CExecutable, target_arch: Arch, target_os: Os, target_environ: Environ) {

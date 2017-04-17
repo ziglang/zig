@@ -142,7 +142,7 @@ pub const ChildProcess = struct {
         const pid_err = posix.getErrno(pid);
         if (pid_err > 0) {
             return switch (pid_err) {
-                errno.EAGAIN, errno.ENOMEM, errno.ENOSYS => error.SysResources,
+                errno.EAGAIN, errno.ENOMEM, errno.ENOSYS => error.SystemResources,
                 else => error.Unexpected,
             };
         }
@@ -210,7 +210,7 @@ fn makePipe() -> %[2]i32 {
     const err = posix.getErrno(posix.pipe(&fds));
     if (err > 0) {
         return switch (err) {
-            errno.EMFILE, errno.ENFILE => error.SysResources,
+            errno.EMFILE, errno.ENFILE => error.SystemResources,
             else => error.Unexpected,
         }
     }
@@ -242,7 +242,7 @@ fn writeIntFd(fd: i32, value: ErrInt) -> %void {
             switch (err) {
                 errno.EINTR => continue,
                 errno.EINVAL => unreachable,
-                else => return error.SysResources,
+                else => return error.SystemResources,
             }
         }
         index += amt_written;
@@ -260,7 +260,7 @@ fn readIntFd(fd: i32) -> %ErrInt {
             switch (err) {
                 errno.EINTR => continue,
                 errno.EINVAL => unreachable,
-                else => return error.SysResources,
+                else => return error.SystemResources,
             }
         }
         index += amt_written;

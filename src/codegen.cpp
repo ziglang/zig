@@ -255,6 +255,7 @@ void codegen_set_linker_script(CodeGen *g, const char *linker_script) {
 static void render_const_val(CodeGen *g, ConstExprValue *const_val);
 static void render_const_val_global(CodeGen *g, ConstExprValue *const_val, const char *name);
 static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val);
+static void generate_error_name_table(CodeGen *g);
 
 static void addLLVMAttr(LLVMValueRef val, LLVMAttributeIndex attr_index, const char *attr_name) {
     unsigned kind_id = LLVMGetEnumAttributeKindForName(attr_name, strlen(attr_name));
@@ -545,6 +546,34 @@ static bool ir_want_debug_safety(CodeGen *g, IrInstruction *instruction) {
     return true;
 }
 
+static bool is_array_of_at_least_n_bytes(CodeGen *g, TypeTableEntry *type_entry, uint32_t n) {
+    if (type_entry->id != TypeTableEntryIdArray)
+        return false;
+
+    TypeTableEntry *child_type = type_entry->data.array.child_type;
+    if (child_type->id != TypeTableEntryIdInt)
+        return false;
+
+    if (child_type != g->builtin_types.entry_u8)
+        return false;
+
+    if (type_entry->data.array.len < n)
+        return false;
+
+    return true;
+}
+
+static uint32_t get_type_alignment(CodeGen *g, TypeTableEntry *type_entry) {
+    uint32_t alignment = ZigLLVMGetPrefTypeAlignment(g->target_data_ref, type_entry->type_ref);
+    uint32_t dbl_ptr_bytes = g->pointer_size_bytes * 2;
+    if (is_array_of_at_least_n_bytes(g, type_entry, dbl_ptr_bytes)) {
+        return (alignment < dbl_ptr_bytes) ? dbl_ptr_bytes : alignment;
+    } else {
+        return alignment;
+    }
+}
+
+
 static Buf *panic_msg_buf(PanicMsgId msg_id) {
     switch (msg_id) {
         case PanicMsgIdCount:
@@ -569,8 +598,6 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
             return buf_create_from_str("slice widening size mismatch");
         case PanicMsgIdUnwrapMaybeFail:
             return buf_create_from_str("attempt to unwrap null");
-        case PanicMsgIdUnwrapErrFail:
-            return buf_create_from_str("attempt to unwrap error");
         case PanicMsgIdUnreachable:
             return buf_create_from_str("reached unreachable code");
         case PanicMsgIdInvalidErrorCode:
@@ -595,26 +622,126 @@ static LLVMValueRef get_panic_msg_ptr_val(CodeGen *g, PanicMsgId msg_id) {
     return val->llvm_global;
 }
 
-static void gen_panic(CodeGen *g, LLVMValueRef msg_arg) {
+static void gen_panic_raw(CodeGen *g, LLVMValueRef msg_ptr, LLVMValueRef msg_len) {
     FnTableEntry *panic_fn = get_extern_panic_fn(g);
     LLVMValueRef fn_val = fn_llvm_value(g, panic_fn);
+    LLVMValueRef args[] = { msg_ptr, msg_len };
+    ZigLLVMBuildCall(g->builder, fn_val, args, 2, panic_fn->type_entry->data.fn.calling_convention, false, "");
+    LLVMBuildUnreachable(g->builder);
+}
 
+static void gen_panic(CodeGen *g, LLVMValueRef msg_arg) {
     TypeTableEntry *str_type = get_slice_type(g, g->builtin_types.entry_u8, true);
     size_t ptr_index = str_type->data.structure.fields[slice_ptr_index].gen_index;
     size_t len_index = str_type->data.structure.fields[slice_len_index].gen_index;
     LLVMValueRef ptr_ptr = LLVMBuildStructGEP(g->builder, msg_arg, (unsigned)ptr_index, "");
     LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, msg_arg, (unsigned)len_index, "");
 
-    LLVMValueRef args[] = {
-        LLVMBuildLoad(g->builder, ptr_ptr, ""),
-        LLVMBuildLoad(g->builder, len_ptr, ""),
-    };
-    ZigLLVMBuildCall(g->builder, fn_val, args, 2, panic_fn->type_entry->data.fn.calling_convention, false, "");
-    LLVMBuildUnreachable(g->builder);
+    LLVMValueRef msg_ptr = LLVMBuildLoad(g->builder, ptr_ptr, "");
+    LLVMValueRef msg_len = LLVMBuildLoad(g->builder, len_ptr, "");
+    gen_panic_raw(g, msg_ptr, msg_len);
 }
 
 static void gen_debug_safety_crash(CodeGen *g, PanicMsgId msg_id) {
     gen_panic(g, get_panic_msg_ptr_val(g, msg_id));
+}
+
+static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
+    if (g->safety_crash_err_fn != nullptr)
+        return g->safety_crash_err_fn;
+
+    static const char *unwrap_err_msg_text = "attempt to unwrap error: ";
+
+    g->generate_error_name_table = true;
+    generate_error_name_table(g);
+
+    size_t unwrap_err_msg_text_len = strlen(unwrap_err_msg_text);
+    size_t err_buf_len = strlen(unwrap_err_msg_text) + g->largest_err_name_len;
+    LLVMValueRef *err_buf_vals = allocate<LLVMValueRef>(err_buf_len);
+    size_t i = 0;
+    for (; i < unwrap_err_msg_text_len; i += 1) {
+        err_buf_vals[i] = LLVMConstInt(LLVMInt8Type(), unwrap_err_msg_text[i], false);
+    }
+    for (; i < err_buf_len; i += 1) {
+        err_buf_vals[i] = LLVMGetUndef(LLVMInt8Type());
+    }
+    LLVMValueRef init_value = LLVMConstArray(LLVMInt8Type(), err_buf_vals, err_buf_len);
+    Buf *global_name = get_mangled_name(g, buf_create_from_str("__zig_panic_buf"), false);
+    LLVMValueRef global_value = LLVMAddGlobal(g->module, LLVMTypeOf(init_value), buf_ptr(global_name));
+    LLVMSetInitializer(global_value, init_value);
+    LLVMSetLinkage(global_value, LLVMInternalLinkage);
+    LLVMSetGlobalConstant(global_value, false);
+    LLVMSetUnnamedAddr(global_value, true);
+    LLVMSetAlignment(global_value, get_type_alignment(g, g->builtin_types.entry_u8));
+
+    TypeTableEntry *usize = g->builtin_types.entry_usize;
+    LLVMValueRef full_buf_ptr_indices[] = {
+        LLVMConstNull(usize->type_ref),
+        LLVMConstNull(usize->type_ref),
+    };
+    LLVMValueRef full_buf_ptr = LLVMConstInBoundsGEP(global_value, full_buf_ptr_indices, 2);
+
+    LLVMValueRef offset_ptr_indices[] = {
+        LLVMConstNull(usize->type_ref),
+        LLVMConstInt(usize->type_ref, unwrap_err_msg_text_len, false),
+    };
+    LLVMValueRef offset_buf_ptr = LLVMConstInBoundsGEP(global_value, offset_ptr_indices, 2);
+
+    Buf *fn_name = get_mangled_name(g, buf_create_from_str("__zig_fail_unwrap"), false);
+    LLVMTypeRef fn_type_ref = LLVMFunctionType(LLVMVoidType(), &g->err_tag_type->type_ref, 1, false);
+    LLVMValueRef fn_val = LLVMAddFunction(g->module, buf_ptr(fn_name), fn_type_ref);
+    addLLVMFnAttr(fn_val, "noreturn");
+    addLLVMFnAttr(fn_val, "cold");
+    LLVMSetLinkage(fn_val, LLVMInternalLinkage);
+    LLVMSetFunctionCallConv(fn_val, LLVMFastCallConv);
+
+    LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn_val, "Entry");
+    LLVMBasicBlockRef prev_block = LLVMGetInsertBlock(g->builder);
+    LLVMValueRef prev_debug_location = LLVMGetCurrentDebugLocation(g->builder);
+    LLVMPositionBuilderAtEnd(g->builder, entry_block);
+    ZigLLVMClearCurrentDebugLocation(g->builder);
+
+    LLVMValueRef err_val = LLVMGetParam(fn_val, 0);
+
+    LLVMValueRef err_table_indices[] = {
+        LLVMConstNull(g->builtin_types.entry_usize->type_ref),
+        err_val,
+    };
+    LLVMValueRef err_name_val = LLVMBuildInBoundsGEP(g->builder, g->err_name_table, err_table_indices, 2, "");
+
+    LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, err_name_val, slice_ptr_index, "");
+    LLVMValueRef err_name_ptr = LLVMBuildLoad(g->builder, ptr_field_ptr, "");
+
+    LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, err_name_val, slice_len_index, "");
+    LLVMValueRef err_name_len = LLVMBuildLoad(g->builder, len_field_ptr, "");
+
+    LLVMValueRef params[] = {
+        offset_buf_ptr, // dest pointer
+        err_name_ptr, // source pointer
+        err_name_len, // size bytes
+        LLVMConstInt(LLVMInt32Type(), 1, false), // align bytes
+        LLVMConstNull(LLVMInt1Type()), // is volatile
+    };
+
+    LLVMBuildCall(g->builder, g->memcpy_fn_val, params, 5, "");
+
+    LLVMValueRef const_prefix_len = LLVMConstInt(LLVMTypeOf(err_name_len), strlen(unwrap_err_msg_text), false);
+    LLVMValueRef full_buf_len = LLVMBuildNUWAdd(g->builder, const_prefix_len, err_name_len, "");
+
+    gen_panic_raw(g, full_buf_ptr, full_buf_len);
+
+    LLVMPositionBuilderAtEnd(g->builder, prev_block);
+    LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
+
+    g->safety_crash_err_fn = fn_val;
+    return fn_val;
+}
+
+static void gen_debug_safety_crash_for_err(CodeGen *g, LLVMValueRef err_val) {
+    LLVMValueRef safety_crash_err_fn = get_safety_crash_err_fn(g);
+    LLVMBuildCall(g->builder, safety_crash_err_fn, &err_val, 1, "");
+    LLVMBuildUnreachable(g->builder);
+
 }
 
 static void add_bounds_check(CodeGen *g, LLVMValueRef target_val,
@@ -787,33 +914,6 @@ static LLVMRealPredicate cmp_op_to_real_predicate(IrBinOp cmp_op) {
             return LLVMRealOGE;
         default:
             zig_unreachable();
-    }
-}
-
-static bool is_array_of_at_least_n_bytes(CodeGen *g, TypeTableEntry *type_entry, uint32_t n) {
-    if (type_entry->id != TypeTableEntryIdArray)
-        return false;
-
-    TypeTableEntry *child_type = type_entry->data.array.child_type;
-    if (child_type->id != TypeTableEntryIdInt)
-        return false;
-
-    if (child_type != g->builtin_types.entry_u8)
-        return false;
-
-    if (type_entry->data.array.len < n)
-        return false;
-
-    return true;
-}
-
-static uint32_t get_type_alignment(CodeGen *g, TypeTableEntry *type_entry) {
-    uint32_t alignment = ZigLLVMGetPrefTypeAlignment(g->target_data_ref, type_entry->type_ref);
-    uint32_t dbl_ptr_bytes = g->pointer_size_bytes * 2;
-    if (is_array_of_at_least_n_bytes(g, type_entry, dbl_ptr_bytes)) {
-        return (alignment < dbl_ptr_bytes) ? dbl_ptr_bytes : alignment;
-    } else {
-        return alignment;
     }
 }
 
@@ -2522,7 +2622,7 @@ static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutable *execu
         LLVMBuildCondBr(g->builder, cond_val, ok_block, err_block);
 
         LLVMPositionBuilderAtEnd(g->builder, err_block);
-        gen_debug_safety_crash(g, PanicMsgIdUnwrapErrFail);
+        gen_debug_safety_crash_for_err(g, err_val);
 
         LLVMPositionBuilderAtEnd(g->builder, ok_block);
     }
@@ -3384,7 +3484,7 @@ static LLVMValueRef gen_test_fn_val(CodeGen *g, FnTableEntry *fn_entry) {
 }
 
 static void generate_error_name_table(CodeGen *g) {
-    if (!g->generate_error_name_table || g->error_decls.length == 1) {
+    if (g->err_name_table != nullptr || !g->generate_error_name_table || g->error_decls.length == 1) {
         return;
     }
 
@@ -3399,6 +3499,8 @@ static void generate_error_name_table(CodeGen *g) {
         AstNode *error_decl_node = g->error_decls.at(i);
         assert(error_decl_node->type == NodeTypeErrorValueDecl);
         Buf *name = error_decl_node->data.error_value_decl.name;
+
+        g->largest_err_name_len = max(g->largest_err_name_len, buf_len(name));
 
         LLVMValueRef str_init = LLVMConstString(buf_ptr(name), (unsigned)buf_len(name), true);
         LLVMValueRef str_global = LLVMAddGlobal(g->module, LLVMTypeOf(str_init), "");
@@ -3417,7 +3519,7 @@ static void generate_error_name_table(CodeGen *g) {
     LLVMValueRef err_name_table_init = LLVMConstArray(str_type->type_ref, values, (unsigned)g->error_decls.length);
 
     g->err_name_table = LLVMAddGlobal(g->module, LLVMTypeOf(err_name_table_init),
-            buf_ptr(get_mangled_name(g, buf_create_from_str("err_name_table"), false)));
+            buf_ptr(get_mangled_name(g, buf_create_from_str("__zig_err_name_table"), false)));
     LLVMSetInitializer(g->err_name_table, err_name_table_init);
     LLVMSetLinkage(g->err_name_table, LLVMPrivateLinkage);
     LLVMSetGlobalConstant(g->err_name_table, true);

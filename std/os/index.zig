@@ -25,13 +25,16 @@ const BufMap = @import("../buf_map.zig").BufMap;
 const cstr = @import("../cstr.zig");
 
 error Unexpected;
-error SysResources;
+error SystemResources;
 error AccessDenied;
 error InvalidExe;
 error FileSystem;
 error IsDir;
 error FileNotFound;
 error FileBusy;
+error LinkPathAlreadyExists;
+error SymLinkLoop;
+error ReadOnlyFileSystem;
 
 /// Fills `buf` with random bytes. If linking against libc, this calls the
 /// appropriate OS-specific library call. Otherwise it uses the zig standard
@@ -174,7 +177,7 @@ pub fn posixOpen(path: []const u8, flags: usize, perm: usize, allocator: ?&Alloc
                 errno.ENFILE => error.SystemFdQuotaExceeded,
                 errno.ENODEV => error.NoDevice,
                 errno.ENOENT => error.PathNotFound,
-                errno.ENOMEM => error.NoMem,
+                errno.ENOMEM => error.SystemResources,
                 errno.ENOSPC => error.NoSpaceLeft,
                 errno.ENOTDIR => error.NotDir,
                 errno.EPERM => error.BadPerm,
@@ -191,7 +194,7 @@ pub fn posixDup2(old_fd: i32, new_fd: i32) -> %void {
         if (err > 0) {
             return switch (err) {
                 errno.EBUSY, errno.EINTR => continue,
-                errno.EMFILE => error.SysResources,
+                errno.EMFILE => error.SystemResources,
                 errno.EINVAL => unreachable,
                 else => error.Unexpected,
             };
@@ -305,7 +308,7 @@ fn posixExecveErrnoToErr(err: usize) -> error {
     assert(err > 0);
     return switch (err) {
         errno.EFAULT => unreachable,
-        errno.E2BIG, errno.EMFILE, errno.ENAMETOOLONG, errno.ENFILE, errno.ENOMEM => error.SysResources,
+        errno.E2BIG, errno.EMFILE, errno.ENAMETOOLONG, errno.ENFILE, errno.ENOMEM => error.SystemResources,
         errno.EACCES, errno.EPERM => error.AccessDenied,
         errno.EINVAL, errno.ENOEXEC => error.InvalidExe,
         errno.EIO, errno.ELOOP => error.FileSystem,
@@ -379,5 +382,61 @@ pub fn getCwd(allocator: &Allocator) -> %[]u8 {
         }
 
         return buf;
+    }
+}
+
+pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) -> %void {
+    const full_buf = %return allocator.alloc(u8, existing_path.len + new_path.len + 2);
+    defer allocator.free(full_buf);
+
+    const existing_buf = full_buf;
+    mem.copy(u8, existing_buf, existing_path);
+    existing_buf[existing_path.len] = 0;
+
+    const new_buf = full_buf[existing_path.len + 1...];
+    mem.copy(u8, new_buf, new_path);
+    new_buf[new_path.len] = 0;
+
+    const err = posix.getErrno(posix.symlink(existing_buf.ptr, new_buf.ptr));
+    if (err > 0) {
+        return switch (err) {
+            errno.EFAULT, errno.EINVAL => unreachable,
+            errno.EACCES, errno.EPERM => error.AccessDenied,
+            errno.EDQUOT => error.DiskQuota,
+            errno.EEXIST => error.LinkPathAlreadyExists,
+            errno.EIO => error.FileSystem,
+            errno.ELOOP => error.SymLinkLoop,
+            errno.ENAMETOOLONG => error.NameTooLong,
+            errno.ENOENT, errno.ENOTDIR => error.FileNotFound,
+            errno.ENOMEM => error.SystemResources,
+            errno.ENOSPC => error.NoSpaceLeft,
+            errno.EROFS => error.ReadOnlyFileSystem,
+            else => error.Unexpected,
+        };
+    }
+}
+
+pub fn deleteFile(allocator: &Allocator, path: []const u8) -> %void {
+    const buf = %return allocator.alloc(u8, path.len + 1);
+    defer allocator.free(buf);
+
+    mem.copy(u8, buf, path);
+    buf[path.len] = 0;
+
+    const err = posix.getErrno(posix.unlink(buf.ptr));
+    if (err > 0) {
+        return switch (err) {
+            errno.EACCES, errno.EPERM => error.AccessDenied,
+            errno.EBUSY => error.FileBusy,
+            errno.EFAULT, errno.EINVAL => unreachable,
+            errno.EIO => error.FileSystem,
+            errno.EISDIR => error.IsDir,
+            errno.ELOOP => error.SymLinkLoop,
+            errno.ENAMETOOLONG => error.NameTooLong,
+            errno.ENOENT, errno.ENOTDIR => error.FileNotFound,
+            errno.ENOMEM => error.SystemResources,
+            errno.EROFS => error.ReadOnlyFileSystem,
+            else => error.Unexpected,
+        };
     }
 }
