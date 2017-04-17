@@ -211,6 +211,28 @@ static TestCase *add_parseh_case(const char *case_name, AllowWarnings allow_warn
     return test_case;
 }
 
+static TestCase *add_example_compile_extra(const char *root_source_file, bool libc) {
+    TestCase *test_case = allocate<TestCase>(1);
+    test_case->case_name = buf_ptr(buf_sprintf("build example %s", root_source_file));
+    test_case->output = nullptr;
+    test_case->special = TestSpecialNone;
+
+    test_case->compiler_args.append("build_exe");
+    test_case->compiler_args.append(buf_ptr(buf_sprintf("../%s", root_source_file)));
+
+    test_cases.append(test_case);
+
+    return test_case;
+}
+
+static TestCase *add_example_compile(const char *root_source_file) {
+    return add_example_compile_extra(root_source_file, false);
+}
+
+static TestCase *add_example_compile_libc(const char *root_source_file) {
+    return add_example_compile_extra(root_source_file, true);
+}
+
 static void add_compiling_test_cases(void) {
     add_simple_case_libc("hello world with libc", R"SOURCE(
 const c = @cImport(@cInclude("stdio.h"));
@@ -615,6 +637,15 @@ pub fn main() -> %void {
 
         add_source_file(tc, "foo.txt", "1234\nabcd\n");
     }
+}
+
+////////////////////////////////////////////////////////////////////////////////////
+
+static void add_build_examples(void) {
+    add_example_compile("example/hello_world/hello.zig");
+    add_example_compile_libc("example/hello_world/hello_libc.zig");
+    add_example_compile("example/cat/main.zig");
+    add_example_compile("example/guess_number/main.zig");
 }
 
 
@@ -2825,7 +2856,7 @@ static void run_test(TestCase *test_case) {
                 exit(1);
             }
 
-            if (!buf_eql_str(&program_stdout, test_case->output)) {
+            if (test_case->output != nullptr && !buf_eql_str(&program_stdout, test_case->output)) {
                 printf("\n");
                 print_compiler_invocation(test_case);
                 print_exe_invocation(test_case);
@@ -2887,6 +2918,7 @@ int main(int argc, char **argv) {
         }
     }
     add_compiling_test_cases();
+    add_build_examples();
     add_debug_safety_test_cases();
     add_compile_failure_test_cases();
     add_parse_error_tests();
