@@ -25,8 +25,10 @@ pub const Rand = struct {
     rng: Rng,
 
     /// Initialize random state with the given seed.
-    pub fn init(r: &Rand, seed: usize) {
-        r.rng.init(seed);
+    pub fn init(seed: usize) -> Rand {
+        Rand {
+            .rng = Rng.init(seed),
+        }
     }
 
     /// Get an integer or boolean with random bits.
@@ -110,15 +112,20 @@ fn MersenneTwister(
         array: [n]int,
         index: usize,
 
-        pub fn init(mt: &Self, seed: int) {
-            mt.index = n;
+        pub fn init(seed: int) -> Self {
+            var mt = Self {
+                .array = undefined,
+                .index = n,
+            };
 
             var prev_value = seed;
             mt.array[0] = prev_value;
-            {var i: usize = 1; while (i < n; i += 1) {
+            var i: usize = 1;
+            while (i < n; i += 1) {
                 prev_value = int(i) +% f *% (prev_value ^ (prev_value >> (int.bit_count - 2)));
                 mt.array[i] = prev_value;
-            }};
+            }
+            return mt;
         }
 
         pub fn get(mt: &Self) -> int {
@@ -158,28 +165,25 @@ fn MersenneTwister(
     }
 }
 
-test "testFloat32" {
-    var r: Rand = undefined;
-    r.init(42);
-
-    {var i: usize = 0; while (i < 1000; i += 1) {
+test "rand float 32" {
+    var r = Rand.init(42);
+    var i: usize = 0;
+    while (i < 1000; i += 1) {
         const val = r.float(f32);
         assert(val >= 0.0);
         assert(val < 1.0);
-    }}
+    }
 }
 
 test "testMT19937_64" {
-    var rng: MT19937_64 = undefined;
-    rng.init(rand_test.mt64_seed);
+    var rng = MT19937_64.init(rand_test.mt64_seed);
     for (rand_test.mt64_data) |value| {
         assert(value == rng.get());
     }
 }
 
 test "testMT19937_32" {
-    var rng: MT19937_32 = undefined;
-    rng.init(rand_test.mt32_seed);
+    var rng = MT19937_32.init(rand_test.mt32_seed);
     for (rand_test.mt32_data) |value| {
         assert(value == rng.get());
     }
