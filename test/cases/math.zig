@@ -152,7 +152,7 @@ fn testBinaryNot(x: u16) {
 }
 
 test "smallIntAddition" {
-    var x: @intType(false, 2) = 0;
+    var x: @IntType(false, 2) = 0;
     assert(x == 0);
 
     x += 1;

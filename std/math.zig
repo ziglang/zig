@@ -62,7 +62,7 @@ pub fn abs(x: var) -> @typeOf(x) {
 }
 fn getReturnTypeForAbs(comptime T: type) -> type {
     if (@isInteger(T)) {
-        return @intType(false, T.bit_count);
+        return @IntType(false, T.bit_count);
     } else {
         return T;
     }

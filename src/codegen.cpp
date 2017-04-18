@@ -4500,7 +4500,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdTruncate, "truncate", 2);
     create_builtin_fn(g, BuiltinFnIdCompileErr, "compileError", 1);
     create_builtin_fn(g, BuiltinFnIdCompileLog, "compileLog", SIZE_MAX);
-    create_builtin_fn(g, BuiltinFnIdIntType, "intType", 2);
+    create_builtin_fn(g, BuiltinFnIdIntType, "IntType", 2);
     create_builtin_fn(g, BuiltinFnIdSetDebugSafety, "setDebugSafety", 2);
     create_builtin_fn(g, BuiltinFnIdSetGlobalAlign, "setGlobalAlign", 2);
     create_builtin_fn(g, BuiltinFnIdSetGlobalSection, "setGlobalSection", 2);

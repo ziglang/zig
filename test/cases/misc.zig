@@ -19,16 +19,16 @@ test "callDisabledExternFn" {
     disabledExternFn();
 }
 
-test "intTypeBuiltin" {
-    assert(@intType(true, 8) == i8);
-    assert(@intType(true, 16) == i16);
-    assert(@intType(true, 32) == i32);
-    assert(@intType(true, 64) == i64);
+test "@IntType builtin" {
+    assert(@IntType(true, 8) == i8);
+    assert(@IntType(true, 16) == i16);
+    assert(@IntType(true, 32) == i32);
+    assert(@IntType(true, 64) == i64);
 
-    assert(@intType(false, 8) == u8);
-    assert(@intType(false, 16) == u16);
-    assert(@intType(false, 32) == u32);
-    assert(@intType(false, 64) == u64);
+    assert(@IntType(false, 8) == u8);
+    assert(@IntType(false, 16) == u16);
+    assert(@IntType(false, 32) == u32);
+    assert(@IntType(false, 64) == u64);
 
     assert(i8.bit_count == 8);
     assert(i16.bit_count == 16);
@@ -48,10 +48,10 @@ test "intTypeBuiltin" {
     assert(!usize.is_signed);
 }
 
-const u1 = @intType(false, 1);
-const u63 = @intType(false, 63);
-const i1 = @intType(true, 1);
-const i63 = @intType(true, 63);
+const u1 = @IntType(false, 1);
+const u63 = @IntType(false, 63);
+const i1 = @IntType(true, 1);
+const i63 = @IntType(true, 63);
 
 test "minValueAndMaxValue" {
     assert(@maxValue(u1) == 1);

@@ -602,7 +602,7 @@ static void ir_print_truncate(IrPrint *irp, IrInstructionTruncate *instruction) 
 }
 
 static void ir_print_int_type(IrPrint *irp, IrInstructionIntType *instruction) {
-    fprintf(irp->f, "@intType(");
+    fprintf(irp->f, "@IntType(");
     ir_print_other_instruction(irp, instruction->is_signed);
     fprintf(irp->f, ", ");
     ir_print_other_instruction(irp, instruction->bit_count);

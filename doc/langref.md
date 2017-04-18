@@ -584,7 +584,7 @@ to stderr, and then a newline at the end.
 This function can be used to do "printf debugging" on compile-time executing
 code.
 
-### @intType(comptime is_signed: bool, comptime bit_count: u8) -> type
+### @IntType(comptime is_signed: bool, comptime bit_count: u8) -> type
 
 This function returns an integer type with the given signness and bit count.
 

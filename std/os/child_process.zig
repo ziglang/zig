@@ -229,7 +229,7 @@ fn forkChildErrReport(fd: i32, err: error) -> noreturn {
     posix.exit(1);
 }
 
-const ErrInt = @intType(false, @sizeOf(error) * 8);
+const ErrInt = @IntType(false, @sizeOf(error) * 8);
 fn writeIntFd(fd: i32, value: ErrInt) -> %void {
     var bytes: [@sizeOf(ErrInt)]u8 = undefined;
     mem.writeInt(bytes[0...], value, true);

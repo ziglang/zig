@@ -167,7 +167,7 @@ pub fn readInt(bytes: []const u8, comptime T: type, big_endian: bool) -> T {
 /// to fill the entire buffer provided.
 /// value must be an integer.
 pub fn writeInt(buf: []u8, value: var, big_endian: bool) {
-    const uint = @intType(false, @typeOf(value).bit_count);
+    const uint = @IntType(false, @typeOf(value).bit_count);
     var bits = @truncate(uint, value);
     if (big_endian) {
         var index: usize = buf.len;

@@ -201,8 +201,8 @@ test "packedStruct" {
 }
 
 
-const u2 = @intType(false, 2);
-const u3 = @intType(false, 3);
+const u2 = @IntType(false, 2);
+const u3 = @IntType(false, 3);
 
 const BitField1 = packed struct {
     a: u3,
@@ -243,7 +243,7 @@ fn getC(data: &const BitField1) -> u2 {
     return data.c;
 }
 
-const u24 = @intType(false, 24);
+const u24 = @IntType(false, 24);
 const Foo24Bits = packed struct {
     field: u24,
 };
@@ -374,7 +374,7 @@ test "runtime struct initialization of bitfield" {
     assert(s2.y == u4(x2));
 }
 
-const u4 = @intType(false, 4);
+const u4 = @IntType(false, 4);
 
 var x1 = u4(1);
 var x2 = u8(2);

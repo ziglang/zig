@@ -1736,8 +1736,8 @@ fn bar(a: i32, b: []const u8) {
         ".tmp_source.zig:3:17: note: called from here");
 
     add_compile_fail_case("casting bit offset pointer to regular pointer", R"SOURCE(
-const u2 = @intType(false, 2);
-const u3 = @intType(false, 3);
+const u2 = @IntType(false, 2);
+const u3 = @IntType(false, 3);
 
 const BitField = packed struct {
     a: u3,
@@ -1869,7 +1869,7 @@ export fn entry(a: &i32) -> usize {
 
     add_compile_fail_case("too many error values to cast to small integer", R"SOURCE(
 error A; error B; error C; error D; error E; error F; error G; error H;
-const u2 = @intType(false, 2);
+const u2 = @IntType(false, 2);
 fn foo(e: error) -> u2 {
     return u2(e);
 }

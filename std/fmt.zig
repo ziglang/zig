@@ -222,7 +222,7 @@ pub fn formatInt(value: var, base: u8, uppercase: bool, width: usize,
 fn formatIntSigned(value: var, base: u8, uppercase: bool, width: usize,
     context: var, output: fn(@typeOf(context), []const u8)->bool) -> bool
 {
-    const uint = @intType(false, @typeOf(value).bit_count);
+    const uint = @IntType(false, @typeOf(value).bit_count);
     if (value < 0) {
         const minus_sign: u8 = '-';
         if (!output(context, (&minus_sign)[0...1]))

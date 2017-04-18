@@ -84,7 +84,7 @@ pub const Rand = struct {
         // const mask = ((1 << @float_mantissa_bit_count(T)) - 1);
         // const rand_bits = r.rng.scalar(int) & mask;
         // return @float_compose(T, false, 0, rand_bits) - 1.0
-        const int_type = @intType(false, @sizeOf(T) * 8);
+        const int_type = @IntType(false, @sizeOf(T) * 8);
         const precision = if (T == f32) {
             16777216
         } else if (T == f64) {
