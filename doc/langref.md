@@ -630,3 +630,7 @@ Converts an integer to a pointer. To convert the other way, use `usize(ptr)`.
 ### @enumTagName(value: var) -> []const u8
 
 Converts an enum tag name to a slice of bytes. Example:
+
+### @fieldParentPtr(comptime ParentType: type, comptime field_name: []const u8, field_ptr: &T) -> &ParentType
+
+Given a pointer to a field, returns the base pointer of a struct.

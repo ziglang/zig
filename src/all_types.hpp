@@ -1189,6 +1189,7 @@ enum BuiltinFnId {
     BuiltinFnIdPtrCast,
     BuiltinFnIdIntToPtr,
     BuiltinFnIdEnumTagName,
+    BuiltinFnIdFieldParentPtr,
 };
 
 struct BuiltinFnEntry {
@@ -1736,6 +1737,7 @@ enum IrInstructionId {
     IrInstructionIdPanic,
     IrInstructionIdEnumTagName,
     IrInstructionIdSetFnRefInline,
+    IrInstructionIdFieldParentPtr,
 };
 
 struct IrInstruction {
@@ -2486,6 +2488,15 @@ struct IrInstructionSetFnRefInline {
     IrInstruction base;
 
     IrInstruction *fn_ref;
+};
+
+struct IrInstructionFieldParentPtr {
+    IrInstruction base;
+
+    IrInstruction *type_value;
+    IrInstruction *field_name;
+    IrInstruction *field_ptr;
+    TypeStructField *field;
 };
 
 static const size_t slice_ptr_index = 0;

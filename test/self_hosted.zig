@@ -10,6 +10,7 @@ comptime {
     _ = @import("cases/enum_with_members.zig");
     _ = @import("cases/error.zig");
     _ = @import("cases/eval.zig");
+    _ = @import("cases/field_parent_ptr.zig");
     _ = @import("cases/fn.zig");
     _ = @import("cases/for.zig");
     _ = @import("cases/generics.zig");

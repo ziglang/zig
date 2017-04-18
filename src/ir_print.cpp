@@ -875,6 +875,16 @@ static void ir_print_set_fn_ref_inline(IrPrint *irp, IrInstructionSetFnRefInline
     ir_print_other_instruction(irp, instruction->fn_ref);
 }
 
+static void ir_print_field_parent_ptr(IrPrint *irp, IrInstructionFieldParentPtr *instruction) {
+    fprintf(irp->f, "@fieldParentPtr(");
+    ir_print_other_instruction(irp, instruction->type_value);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->field_name);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->field_ptr);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1161,6 +1171,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdSetFnRefInline:
             ir_print_set_fn_ref_inline(irp, (IrInstructionSetFnRefInline *)instruction);
+            break;
+        case IrInstructionIdFieldParentPtr:
+            ir_print_field_parent_ptr(irp, (IrInstructionFieldParentPtr *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

@@ -2261,6 +2261,34 @@ static LLVMValueRef ir_render_enum_tag_name(CodeGen *g, IrExecutable *executable
     return LLVMBuildInBoundsGEP(g->builder, enum_tag_type->data.enum_tag.name_table, indices, 2, "");
 }
 
+static LLVMValueRef ir_render_field_parent_ptr(CodeGen *g, IrExecutable *executable,
+        IrInstructionFieldParentPtr *instruction)
+{
+    TypeTableEntry *container_ptr_type = instruction->base.value.type;
+    assert(container_ptr_type->id == TypeTableEntryIdPointer);
+
+    TypeTableEntry *container_type = container_ptr_type->data.pointer.child_type;
+
+    size_t byte_offset = LLVMOffsetOfElement(g->target_data_ref,
+            container_type->type_ref, instruction->field->gen_index);
+
+    LLVMValueRef field_ptr_val = ir_llvm_value(g, instruction->field_ptr);
+
+    if (byte_offset == 0) {
+        return LLVMBuildBitCast(g->builder, field_ptr_val, container_ptr_type->type_ref, "");
+    } else {
+        TypeTableEntry *usize = g->builtin_types.entry_usize;
+
+        LLVMValueRef field_ptr_int = LLVMBuildPtrToInt(g->builder, field_ptr_val,
+                usize->type_ref, "");
+
+        LLVMValueRef base_ptr_int = LLVMBuildNUWSub(g->builder, field_ptr_int,
+                LLVMConstInt(usize->type_ref, byte_offset, false), "");
+
+        return LLVMBuildIntToPtr(g->builder, base_ptr_int, container_ptr_type->type_ref, "");
+    }
+}
+
 
 static LLVMAtomicOrdering to_LLVMAtomicOrdering(AtomicOrder atomic_order) {
     switch (atomic_order) {
@@ -2963,6 +2991,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_panic(g, executable, (IrInstructionPanic *)instruction);
         case IrInstructionIdEnumTagName:
             return ir_render_enum_tag_name(g, executable, (IrInstructionEnumTagName *)instruction);
+        case IrInstructionIdFieldParentPtr:
+            return ir_render_field_parent_ptr(g, executable, (IrInstructionFieldParentPtr *)instruction);
     }
     zig_unreachable();
 }
@@ -4509,6 +4539,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdPtrCast, "ptrcast", 2);
     create_builtin_fn(g, BuiltinFnIdIntToPtr, "intToPtr", 2);
     create_builtin_fn(g, BuiltinFnIdEnumTagName, "enumTagName", 1);
+    create_builtin_fn(g, BuiltinFnIdFieldParentPtr, "fieldParentPtr", 3);
 }
 
 static void add_compile_var(CodeGen *g, const char *name, ConstExprValue *value) {

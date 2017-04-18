@@ -1902,6 +1902,56 @@ export fn foo() {
     var y: &void = @intToPtr(&void, x);
 }
     )SOURCE", 1, ".tmp_source.zig:4:31: error: type '&void' has 0 bits and cannot store information");
+
+    add_compile_fail_case("@fieldParentPtr - non struct", R"SOURCE(
+const Foo = i32;
+export fn foo(a: &i32) -> &Foo {
+    return @fieldParentPtr(Foo, "a", a);
+}
+    )SOURCE", 1, ".tmp_source.zig:4:28: error: expected struct type, found 'i32'");
+
+    add_compile_fail_case("@fieldParentPtr - bad field name", R"SOURCE(
+const Foo = struct {
+    derp: i32,
+};
+export fn foo(a: &i32) -> &Foo {
+    return @fieldParentPtr(Foo, "a", a);
+}
+    )SOURCE", 1, ".tmp_source.zig:6:33: error: struct 'Foo' has no field 'a'");
+
+    add_compile_fail_case("@fieldParentPtr - field pointer is not pointer", R"SOURCE(
+const Foo = struct {
+    a: i32,
+};
+export fn foo(a: i32) -> &Foo {
+    return @fieldParentPtr(Foo, "a", a);
+}
+    )SOURCE", 1, ".tmp_source.zig:6:38: error: expected pointer, found 'i32'");
+
+    add_compile_fail_case("@fieldParentPtr - comptime field ptr not based on struct", R"SOURCE(
+const Foo = struct {
+    a: i32,
+    b: i32,
+};
+const foo = Foo { .a = 1, .b = 2, };
+
+comptime {
+    const field_ptr = @intToPtr(&i32, 0x1234);
+    const another_foo_ptr = @fieldParentPtr(Foo, "b", field_ptr);
+}
+    )SOURCE", 1, ".tmp_source.zig:10:55: error: pointer value not based on parent struct");
+
+    add_compile_fail_case("@fieldParentPtr - comptime wrong field index", R"SOURCE(
+const Foo = struct {
+    a: i32,
+    b: i32,
+};
+const foo = Foo { .a = 1, .b = 2, };
+
+comptime {
+    const another_foo_ptr = @fieldParentPtr(Foo, "b", &foo.a);
+}
+    )SOURCE", 1, ".tmp_source.zig:9:29: error: field 'b' has index 1 but pointer value is index 0 of struct 'Foo'");
 }
 
 //////////////////////////////////////////////////////////////////////////////

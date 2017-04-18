@@ -580,9 +580,7 @@ const Exe = struct {
     }
 
     fn make(step: &Step) -> %void {
-        // TODO issue #320
-        //const self = @fieldParentPtr(Exe, "step", step);
-        const exe = @ptrcast(&Exe, step);
+        const exe = @fieldParentPtr(Exe, "step", step);
         const builder = exe.builder;
 
         var zig_args = List([]const u8).init(builder.allocator);
@@ -754,9 +752,7 @@ const CLibrary = struct {
     }
 
     fn make(step: &Step) -> %void {
-        // TODO issue #320
-        //const self = @fieldParentPtr(CLibrary, "step", step);
-        const self = @ptrcast(&CLibrary, step);
+        const self = @fieldParentPtr(CLibrary, "step", step);
         const cc = os.getEnv("CC") ?? "cc";
         const builder = self.builder;
 
@@ -897,9 +893,7 @@ const CExecutable = struct {
     }
 
     fn make(step: &Step) -> %void {
-        // TODO issue #320
-        //const self = @fieldParentPtr(CExecutable, "step", step);
-        const self = @ptrcast(&CExecutable, step);
+        const self = @fieldParentPtr(CExecutable, "step", step);
         const cc = os.getEnv("CC") ?? "cc";
         const builder = self.builder;
 
@@ -987,9 +981,7 @@ const CommandStep = struct {
     }
 
     fn make(step: &Step) -> %void {
-        // TODO issue #320
-        //const self = @fieldParentPtr(CExecutable, "step", step);
-        const self = @ptrcast(&CommandStep, step);
+        const self = @fieldParentPtr(CommandStep, "step", step);
 
         // TODO set cwd
         self.builder.spawnChildEnvMap(self.env_map, self.exe_path, self.args);
@@ -1021,9 +1013,7 @@ const InstallCLibraryStep = struct {
     }
 
     fn make(step: &Step) -> %void {
-        // TODO issue #320
-        //const self = @fieldParentPtr(InstallCLibraryStep, "step", step);
-        const self = @ptrcast(&InstallCLibraryStep, step);
+        const self = @fieldParentPtr(InstallCLibraryStep, "step", step);
 
         self.builder.copyFile(self.lib.out_filename, self.dest_file);
         if (!self.lib.static) {
@@ -1051,9 +1041,7 @@ const InstallFileStep = struct {
     }
 
     fn make(step: &Step) -> %void {
-        // TODO issue #320
-        //const self = @fieldParentPtr(InstallFileStep, "step", step);
-        const self = @ptrcast(&InstallFileStep, step);
+        const self = @fieldParentPtr(InstallFileStep, "step", step);
 
         debug.panic("TODO install file");
     }
