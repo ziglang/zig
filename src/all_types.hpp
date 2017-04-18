@@ -1362,6 +1362,7 @@ struct CodeGen {
     bool strip_debug_symbols;
     bool want_h_file;
     bool have_pub_main;
+    bool have_c_main;
     bool have_pub_panic;
     bool link_libc;
     Buf *libc_lib_dir;

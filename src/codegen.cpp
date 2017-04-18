@@ -4726,7 +4726,9 @@ void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *sou
     assert(g->root_out_name);
     assert(g->out_type != OutTypeUnknown);
 
-    if (!g->is_test_build && g->have_pub_main && (g->out_type == OutTypeObj || g->out_type == OutTypeExe)) {
+    if (!g->is_test_build && g->zig_target.os != ZigLLVM_UnknownOS && !g->have_c_main &&
+        ((g->have_pub_main && g->out_type == OutTypeObj) || g->out_type == OutTypeExe))
+    {
         g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g), "bootstrap.zig");
     }
     if (!g->omit_zigrt) {

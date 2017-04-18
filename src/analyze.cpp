@@ -2911,7 +2911,12 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
                 } else if (buf_eql_str(proto_name, "panic")) {
                     g->have_pub_panic = true;
                 }
+            } else if (proto_node->data.fn_proto.visib_mod == VisibModExport && buf_eql_str(proto_name, "main") &&
+                    g->link_libc)
+            {
+                g->have_c_main = true;
             }
+
         }
     }
 

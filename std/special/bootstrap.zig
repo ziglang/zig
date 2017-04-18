@@ -12,8 +12,8 @@ const exit = std.os.posix.exit;
 var argc_ptr: &usize = undefined;
 
 export nakedcc fn _start() -> noreturn {
-    @setGlobalLinkage(_start, if (want_start_symbol) GlobalLinkage.Strong else GlobalLinkage.Internal);
     if (!want_start_symbol) {
+        @setGlobalLinkage(_start, GlobalLinkage.Internal);
         unreachable;
     }
 
@@ -48,8 +48,8 @@ fn callMain(argc: usize, argv: &&u8, envp: &?&u8) -> %void {
 }
 
 export fn main(c_argc: i32, c_argv: &&u8, c_envp: &?&u8) -> i32 {
-    @setGlobalLinkage(main, if (want_main_symbol) GlobalLinkage.Strong else GlobalLinkage.Internal);
     if (!want_main_symbol) {
+        @setGlobalLinkage(main, GlobalLinkage.Internal);
         unreachable;
     }
 

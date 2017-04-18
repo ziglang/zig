@@ -161,6 +161,38 @@ static TestCase *add_compile_fail_case(const char *case_name, const char *source
     return test_case;
 }
 
+static TestCase *add_compile_fail_case_exe(const char *case_name, const char *source, size_t count, ...) {
+    va_list ap;
+    va_start(ap, count);
+
+    TestCase *test_case = allocate<TestCase>(1);
+    test_case->case_name = case_name;
+    test_case->source_files.resize(1);
+    test_case->source_files.at(0).relative_path = tmp_source_path;
+    test_case->source_files.at(0).source_code = source;
+
+    for (size_t i = 0; i < count; i += 1) {
+        const char *arg = va_arg(ap, const char *);
+        test_case->compile_errors.append(arg);
+    }
+
+    test_case->compiler_args.append("build_exe");
+    test_case->compiler_args.append(tmp_source_path);
+
+    test_case->compiler_args.append("--name");
+    test_case->compiler_args.append("test");
+
+    test_case->compiler_args.append("--output");
+    test_case->compiler_args.append(tmp_exe_path);
+
+    test_case->compiler_args.append("--release");
+    test_case->compiler_args.append("--strip");
+
+    test_cases.append(test_case);
+
+    return test_case;
+}
+
 static void add_debug_safety_case(const char *case_name, const char *source) {
     TestCase *test_case = allocate<TestCase>(1);
     test_case->is_debug_safety = true;
@@ -219,6 +251,11 @@ static TestCase *add_example_compile_extra(const char *root_source_file, bool li
 
     test_case->compiler_args.append("build_exe");
     test_case->compiler_args.append(buf_ptr(buf_sprintf("../%s", root_source_file)));
+
+    if (libc) {
+        test_case->compiler_args.append("--library");
+        test_case->compiler_args.append("c");
+    }
 
     test_cases.append(test_case);
 
@@ -1952,6 +1989,16 @@ comptime {
     const another_foo_ptr = @fieldParentPtr(Foo, "b", &foo.a);
 }
     )SOURCE", 1, ".tmp_source.zig:9:29: error: field 'b' has index 1 but pointer value is index 0 of struct 'Foo'");
+
+    add_compile_fail_case_exe("missing main fn in executable", R"SOURCE(
+    )SOURCE", 1, "error: no member named 'main' in '");
+
+    add_compile_fail_case_exe("private main fn", R"SOURCE(
+fn main() {}
+    )SOURCE", 2,
+            "error: 'main' is private",
+            ".tmp_source.zig:2:1: note: declared here");
+
 }
 
 //////////////////////////////////////////////////////////////////////////////
