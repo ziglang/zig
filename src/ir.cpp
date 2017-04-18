@@ -5849,7 +5849,7 @@ static IrInstruction *ir_exec_const_result(CodeGen *codegen, IrExecutable *exec)
             return codegen->invalid_instruction;
         }
     }
-    zig_unreachable();
+    return codegen->invalid_instruction;
 }
 
 static bool ir_emit_global_runtime_side_effect(IrAnalyze *ira, IrInstruction *source_instruction) {
@@ -7741,7 +7741,11 @@ static int ir_eval_bignum(ConstExprValue *op1_val, ConstExprValue *op2_val,
 
     bool overflow = bignum_fn(&out_val->data.x_bignum, &op1_val->data.x_bignum, &op2_val->data.x_bignum);
     if (overflow) {
-        return ErrorOverflow;
+        if (wrapping_op) {
+            zig_panic("TODO compiler bug, implement compile-time wrapping arithmetic for >= 64 bit ints");
+        } else {
+            return ErrorOverflow;
+        }
     }
 
     if (type->id == TypeTableEntryIdInt && !bignum_fits_in_bits(&out_val->data.x_bignum,
@@ -12985,6 +12989,9 @@ TypeTableEntry *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutabl
         }
 
         TypeTableEntry *return_type = ir_analyze_instruction(ira, old_instruction);
+        if (type_is_invalid(return_type) && ir_should_inline(new_exec, old_instruction->scope)) {
+            break;
+        }
 
         // unreachable instructions do their own control flow.
         if (return_type->id == TypeTableEntryIdUnreachable)
