@@ -168,6 +168,7 @@ int main(int argc, char **argv) {
 
         ZigList<const char *> args = {0};
         args.append(zig_exe_path);
+        args.append(NULL); // placeholder
         for (int i = 2; i < argc; i += 1) {
             if (strcmp(argv[i], "--debug-build-verbose") == 0) {
                 verbose = true;
@@ -201,6 +202,8 @@ int main(int argc, char **argv) {
         Buf build_file_basename = BUF_INIT;
         Buf build_file_dirname = BUF_INIT;
         os_path_split(&build_file_abs, &build_file_dirname, &build_file_basename);
+
+        args.items[1] = buf_ptr(&build_file_dirname);
 
         bool build_file_exists;
         if ((err = os_file_exists(&build_file_abs, &build_file_exists))) {

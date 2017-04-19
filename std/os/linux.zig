@@ -273,6 +273,10 @@ pub fn getcwd(buf: &u8, size: usize) -> usize {
     arch.syscall2(arch.SYS_getcwd, usize(buf), size)
 }
 
+pub fn mkdir(path: &const u8, mode: usize) -> usize {
+    arch.syscall2(arch.SYS_mkdir, usize(path), mode)
+}
+
 pub fn mmap(address: ?&u8, length: usize, prot: usize, flags: usize, fd: i32, offset: usize)
     -> usize
 {

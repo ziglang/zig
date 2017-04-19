@@ -12,6 +12,11 @@ pub const max_noalloc_path_len = 1024;
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
 pub const path = @import("path.zig");
 
+pub const line_sep = switch (@compileVar("os")) {
+    Os.windows => "\r\n",
+    else => "\n",
+};
+
 const debug = @import("../debug.zig");
 const assert = debug.assert;
 
@@ -319,7 +324,8 @@ fn posixExecveErrnoToErr(err: usize) -> error {
         errno.EINVAL, errno.ENOEXEC => error.InvalidExe,
         errno.EIO, errno.ELOOP => error.FileSystem,
         errno.EISDIR => error.IsDir,
-        errno.ENOENT, errno.ENOTDIR => error.FileNotFound,
+        errno.ENOENT => error.FileNotFound,
+        errno.ENOTDIR => error.NotDir,
         errno.ETXTBSY => error.FileBusy,
         else => error.Unexpected,
     };
@@ -413,7 +419,8 @@ pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []con
             errno.EIO => error.FileSystem,
             errno.ELOOP => error.SymLinkLoop,
             errno.ENAMETOOLONG => error.NameTooLong,
-            errno.ENOENT, errno.ENOTDIR => error.FileNotFound,
+            errno.ENOENT => error.FileNotFound,
+            errno.ENOTDIR => error.NotDir,
             errno.ENOMEM => error.SystemResources,
             errno.ENOSPC => error.NoSpaceLeft,
             errno.EROFS => error.ReadOnlyFileSystem,
@@ -471,7 +478,8 @@ pub fn deleteFile(allocator: &Allocator, file_path: []const u8) -> %void {
             errno.EISDIR => error.IsDir,
             errno.ELOOP => error.SymLinkLoop,
             errno.ENAMETOOLONG => error.NameTooLong,
-            errno.ENOENT, errno.ENOTDIR => error.FileNotFound,
+            errno.ENOENT => error.FileNotFound,
+            errno.ENOTDIR => error.NotDir,
             errno.ENOMEM => error.SystemResources,
             errno.EROFS => error.ReadOnlyFileSystem,
             else => error.Unexpected,
@@ -518,7 +526,8 @@ pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8)
             errno.ELOOP => error.SymLinkLoop,
             errno.EMLINK => error.LinkQuotaExceeded,
             errno.ENAMETOOLONG => error.NameTooLong,
-            errno.ENOENT, errno.ENOTDIR => error.FileNotFound,
+            errno.ENOENT => error.FileNotFound,
+            errno.ENOTDIR => error.NotDir,
             errno.ENOMEM => error.SystemResources,
             errno.ENOSPC => error.NoSpaceLeft,
             errno.EEXIST, errno.ENOTEMPTY => error.PathAlreadyExists,
@@ -527,4 +536,52 @@ pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8)
             else => error.Unexpected,
         };
     }
+}
+
+pub fn makeDir(allocator: &Allocator, dir_path: []const u8) -> %void {
+    const path_buf = %return allocator.alloc(u8, dir_path.len + 1);
+    defer allocator.free(path_buf);
+
+    mem.copy(u8, path_buf, dir_path);
+    path_buf[dir_path.len] = 0;
+
+    const err = posix.getErrno(posix.mkdir(path_buf.ptr, 0o755));
+    if (err > 0) {
+        return switch (err) {
+            errno.EACCES, errno.EPERM => error.AccessDenied,
+            errno.EDQUOT => error.DiskQuota,
+            errno.EEXIST => error.PathAlreadyExists,
+            errno.EFAULT => unreachable,
+            errno.ELOOP => error.SymLinkLoop,
+            errno.EMLINK => error.LinkQuotaExceeded,
+            errno.ENAMETOOLONG => error.NameTooLong,
+            errno.ENOENT => error.FileNotFound,
+            errno.ENOMEM => error.SystemResources,
+            errno.ENOSPC => error.NoSpaceLeft,
+            errno.ENOTDIR => error.NotDir,
+            errno.EROFS => error.ReadOnlyFileSystem,
+            else => error.Unexpected,
+        };
+    }
+}
+
+/// Calls makeDir recursively to make an entire path. Returns success if the path
+/// already exists and is a directory.
+pub fn makePath(allocator: &Allocator, full_path: []const u8) -> %void {
+    const child_dir = %return path.dirname(allocator, full_path);
+    defer allocator.free(child_dir);
+
+    if (mem.eql(u8, child_dir, full_path))
+        return;
+
+    makePath(allocator, child_dir) %% |err| {
+        if (err != error.PathAlreadyExists)
+            return err;
+    };
+
+    makeDir(allocator, full_path) %% |err| {
+        if (err != error.PathAlreadyExists)
+            return err;
+        // TODO stat the file and return an error if it's not a directory
+    };
 }
