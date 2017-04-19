@@ -40,7 +40,6 @@ struct TestCase {
     bool is_parseh;
     TestSpecial special;
     bool is_release_mode;
-    bool is_debug_safety;
     AllowWarnings allow_warnings;
 };
 
@@ -57,26 +56,6 @@ static const char *tmp_exe_path = "./.tmp_exe";
 static const char *zig_exe = "./zig";
 #define NL "\n"
 #endif
-
-static void add_debug_safety_case(const char *case_name, const char *source) {
-    TestCase *test_case = allocate<TestCase>(1);
-    test_case->is_debug_safety = true;
-    test_case->case_name = buf_ptr(buf_sprintf("%s", case_name));
-    test_case->source_files.resize(1);
-    test_case->source_files.at(0).relative_path = tmp_source_path;
-    test_case->source_files.at(0).source_code = source;
-
-    test_case->compiler_args.append("build_exe");
-    test_case->compiler_args.append(tmp_source_path);
-
-    test_case->compiler_args.append("--name");
-    test_case->compiler_args.append("test");
-
-    test_case->compiler_args.append("--output");
-    test_case->compiler_args.append(tmp_exe_path);
-
-    test_cases.append(test_case);
-}
 
 static TestCase *add_parseh_case(const char *case_name, AllowWarnings allow_warnings,
     const char *source, size_t count, ...)
@@ -106,240 +85,6 @@ static TestCase *add_parseh_case(const char *case_name, AllowWarnings allow_warn
 
     va_end(ap);
     return test_case;
-}
-//////////////////////////////////////////////////////////////////////////////
-
-static void add_debug_safety_test_cases(void) {
-    add_debug_safety_case("calling panic", R"SOURCE(
-pub fn panic(message: []const u8) -> noreturn {
-    @breakpoint();
-    while (true) {}
-}
-pub fn main() -> %void {
-    @panic("oh no");
-}
-    )SOURCE");
-
-    add_debug_safety_case("out of bounds slice access", R"SOURCE(
-pub fn panic(message: []const u8) -> noreturn {
-    @breakpoint();
-    while (true) {}
-}
-pub fn main() -> %void {
-    const a = []i32{1, 2, 3, 4};
-    baz(bar(a));
-}
-fn bar(a: []const i32) -> i32 {
-    a[4]
-}
-fn baz(a: i32) { }
-    )SOURCE");
-
-    add_debug_safety_case("integer addition overflow", R"SOURCE(
-pub fn panic(message: []const u8) -> noreturn {
-    @breakpoint();
-    while (true) {}
-}
-error Whatever;
-pub fn main() -> %void {
-    const x = add(65530, 10);
-    if (x == 0) return error.Whatever;
-}
-fn add(a: u16, b: u16) -> u16 {
-    a + b
-}
-    )SOURCE");
-
-    add_debug_safety_case("integer subtraction overflow", R"SOURCE(
-pub fn panic(message: []const u8) -> noreturn {
-    @breakpoint();
-    while (true) {}
-}
-error Whatever;
-pub fn main() -> %void {
-    const x = sub(10, 20);
-    if (x == 0) return error.Whatever;
-}
-fn sub(a: u16, b: u16) -> u16 {
-    a - b
-}
-    )SOURCE");
-
-    add_debug_safety_case("integer multiplication overflow", R"SOURCE(
-pub fn panic(message: []const u8) -> noreturn {
-    @breakpoint();
-    while (true) {}
-}
-error Whatever;
-pub fn main() -> %void {
-    const x = mul(300, 6000);
-    if (x == 0) return error.Whatever;
-}
-fn mul(a: u16, b: u16) -> u16 {
-    a * b
-}
-    )SOURCE");
-
-    add_debug_safety_case("integer negation overflow", R"SOURCE(
-pub fn panic(message: []const u8) -> noreturn {
-    @breakpoint();
-    while (true) {}
-}
-error Whatever;
-pub fn main() -> %void {
-    const x = neg(-32768);
-    if (x == 32767) return error.Whatever;
-}
-fn neg(a: i16) -> i16 {
-    -a
-}
-    )SOURCE");
-
-    add_debug_safety_case("signed integer division overflow", R"SOURCE(
-pub fn panic(message: []const u8) -> noreturn {
-    @breakpoint();
-    while (true) {}
-}
-error Whatever;
-pub fn main() -> %void {
-    const x = div(-32768, -1);
-    if (x == 32767) return error.Whatever;
-}
-fn div(a: i16, b: i16) -> i16 {
-    a / b
-}
-    )SOURCE");
-
-    add_debug_safety_case("signed shift left overflow", R"SOURCE(
-pub fn panic(message: []const u8) -> noreturn {
-    @breakpoint();
-    while (true) {}
-}
-error Whatever;
-pub fn main() -> %void {
-    const x = shl(-16385, 1);
-    if (x == 0) return error.Whatever;
-}
-fn shl(a: i16, b: i16) -> i16 {
-    a << b
-}
-    )SOURCE");
-
-    add_debug_safety_case("unsigned shift left overflow", R"SOURCE(
-pub fn panic(message: []const u8) -> noreturn {
-    @breakpoint();
-    while (true) {}
-}
-error Whatever;
-pub fn main() -> %void {
-    const x = shl(0b0010111111111111, 3);
-    if (x == 0) return error.Whatever;
-}
-fn shl(a: u16, b: u16) -> u16 {
-    a << b
-}
-    )SOURCE");
-
-    add_debug_safety_case("integer division by zero", R"SOURCE(
-pub fn panic(message: []const u8) -> noreturn {
-    @breakpoint();
-    while (true) {}
-}
-error Whatever;
-pub fn main() -> %void {
-    const x = div0(999, 0);
-}
-fn div0(a: i32, b: i32) -> i32 {
-    a / b
-}
-    )SOURCE");
-
-    add_debug_safety_case("exact division failure", R"SOURCE(
-pub fn panic(message: []const u8) -> noreturn {
-    @breakpoint();
-    while (true) {}
-}
-error Whatever;
-pub fn main() -> %void {
-    const x = divExact(10, 3);
-    if (x == 0) return error.Whatever;
-}
-fn divExact(a: i32, b: i32) -> i32 {
-    @divExact(a, b)
-}
-    )SOURCE");
-
-    add_debug_safety_case("cast []u8 to bigger slice of wrong size", R"SOURCE(
-pub fn panic(message: []const u8) -> noreturn {
-    @breakpoint();
-    while (true) {}
-}
-error Whatever;
-pub fn main() -> %void {
-    const x = widenSlice([]u8{1, 2, 3, 4, 5});
-    if (x.len == 0) return error.Whatever;
-}
-fn widenSlice(slice: []const u8) -> []const i32 {
-    ([]const i32)(slice)
-}
-    )SOURCE");
-
-    add_debug_safety_case("value does not fit in shortening cast", R"SOURCE(
-pub fn panic(message: []const u8) -> noreturn {
-    @breakpoint();
-    while (true) {}
-}
-error Whatever;
-pub fn main() -> %void {
-    const x = shorten_cast(200);
-    if (x == 0) return error.Whatever;
-}
-fn shorten_cast(x: i32) -> i8 {
-    i8(x)
-}
-    )SOURCE");
-
-    add_debug_safety_case("signed integer not fitting in cast to unsigned integer", R"SOURCE(
-pub fn panic(message: []const u8) -> noreturn {
-    @breakpoint();
-    while (true) {}
-}
-error Whatever;
-pub fn main() -> %void {
-    const x = unsigned_cast(-10);
-    if (x == 0) return error.Whatever;
-}
-fn unsigned_cast(x: i32) -> u32 {
-    u32(x)
-}
-    )SOURCE");
-
-    add_debug_safety_case("unwrap error", R"SOURCE(
-pub fn panic(message: []const u8) -> noreturn {
-    @breakpoint();
-    while (true) {}
-}
-error Whatever;
-pub fn main() -> %void {
-    %%bar();
-}
-fn bar() -> %void {
-    return error.Whatever;
-}
-    )SOURCE");
-
-    add_debug_safety_case("cast integer to error and no code matches", R"SOURCE(
-pub fn panic(message: []const u8) -> noreturn {
-    @breakpoint();
-    while (true) {}
-}
-pub fn main() -> %void {
-    _ = bar(9999);
-}
-fn bar(x: u32) -> error {
-    return error(x);
-}
-    )SOURCE");
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -653,43 +398,24 @@ static void run_test(TestCase *test_case) {
         Buf program_stdout = BUF_INIT;
         os_exec_process(tmp_exe_path, test_case->program_args, &term, &program_stderr, &program_stdout);
 
-        if (test_case->is_debug_safety) {
-            int debug_trap_signal = 5;
-            if (term.how != TerminationIdSignaled || term.code != debug_trap_signal) {
-                if (term.how == TerminationIdClean) {
-                    printf("\nProgram expected to hit debug trap (signal %d) but exited with return code %d\n",
-                            debug_trap_signal, term.code);
-                } else if (term.how == TerminationIdSignaled) {
-                    printf("\nProgram expected to hit debug trap (signal %d) but signaled with code %d\n",
-                            debug_trap_signal, term.code);
-                } else {
-                    printf("\nProgram expected to hit debug trap (signal %d) exited in an unexpected way\n",
-                            debug_trap_signal);
-                }
-                print_compiler_invocation(test_case);
-                print_exe_invocation(test_case);
-                exit(1);
-            }
-        } else {
-            if (term.how != TerminationIdClean || term.code != 0) {
-                printf("\nProgram exited with error\n");
-                print_compiler_invocation(test_case);
-                print_exe_invocation(test_case);
-                printf("%s\n", buf_ptr(&program_stderr));
-                exit(1);
-            }
+        if (term.how != TerminationIdClean || term.code != 0) {
+            printf("\nProgram exited with error\n");
+            print_compiler_invocation(test_case);
+            print_exe_invocation(test_case);
+            printf("%s\n", buf_ptr(&program_stderr));
+            exit(1);
+        }
 
-            if (test_case->output != nullptr && !buf_eql_str(&program_stdout, test_case->output)) {
-                printf("\n");
-                print_compiler_invocation(test_case);
-                print_exe_invocation(test_case);
-                printf("==== Test failed. Expected output: ====\n");
-                printf("%s\n", test_case->output);
-                printf("========= Actual output: ==============\n");
-                printf("%s\n", buf_ptr(&program_stdout));
-                printf("=======================================\n");
-                exit(1);
-            }
+        if (test_case->output != nullptr && !buf_eql_str(&program_stdout, test_case->output)) {
+            printf("\n");
+            print_compiler_invocation(test_case);
+            print_exe_invocation(test_case);
+            printf("==== Test failed. Expected output: ====\n");
+            printf("%s\n", test_case->output);
+            printf("========= Actual output: ==============\n");
+            printf("%s\n", buf_ptr(&program_stdout));
+            printf("=======================================\n");
+            exit(1);
         }
     }
 
@@ -740,7 +466,6 @@ int main(int argc, char **argv) {
             }
         }
     }
-    add_debug_safety_test_cases();
     add_parseh_test_cases();
     run_all_tests(grep_text);
     cleanup();
