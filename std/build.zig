@@ -17,6 +17,7 @@ error UncleanExit;
 error InvalidStepName;
 error DependencyLoopDetected;
 error NoCompilerFound;
+error NeedAnObject;
 
 pub const Builder = struct {
     uninstall_tls: TopLevelStep,
@@ -129,6 +130,30 @@ pub const Builder = struct {
         const test_step = %%self.allocator.create(TestStep);
         *test_step = TestStep.init(self, root_src);
         return test_step;
+    }
+
+    pub fn addAssemble(self: &Builder, name: []const u8, src: []const u8) -> &AsmStep {
+        const asm_step = %%self.allocator.create(AsmStep);
+        *asm_step = AsmStep.init(self, name, src);
+        return asm_step;
+    }
+
+    pub fn addLinkExecutable(self: &Builder, name: []const u8) -> &LinkStep {
+        const exe = %%self.allocator.create(LinkStep);
+        *exe = LinkStep.initExecutable(self, name);
+        return exe;
+    }
+
+    pub fn addLinkStaticLibrary(self: &Builder, name: []const u8) -> &LinkStep {
+        const exe = %%self.allocator.create(LinkStep);
+        *exe = LinkStep.initStaticLibrary(self, name);
+        return exe;
+    }
+
+    pub fn addLinkSharedLibrary(self: &Builder, name: []const u8, ver: &const Version) -> &LinkStep {
+        const exe = %%self.allocator.create(LinkStep);
+        *exe = LinkStep.initSharedLibrary(self, name, ver);
+        return exe;
     }
 
     pub fn addCStaticLibrary(self: &Builder, name: []const u8) -> &CLibrary {
@@ -546,6 +571,17 @@ const Target = enum {
             else => ".o",
         };
     }
+
+    pub fn exeFileExt(self: &const Target) -> []const u8 {
+        const target_os = switch (*self) {
+            Target.Native => @compileVar("os"),
+            Target.Cross => |t| t.os,
+        };
+        return switch (target_os) {
+            Os.windows => ".exe",
+            else => "",
+        };
+    }
 };
 
 const LinkerScript = enum {
@@ -704,6 +740,310 @@ pub const Exe = struct {
     }
 };
 
+pub const AsmStep = struct {
+    step: Step,
+    builder: &Builder,
+    name: []const u8,
+    target: Target,
+    verbose: bool,
+    release: bool,
+    output_path: ?[]const u8,
+    src_path: []const u8,
+
+    pub fn init(builder: &Builder, name: []const u8, src_path: []const u8) -> AsmStep {
+        var self = AsmStep {
+            .step = Step.init(name, builder.allocator, make),
+            .builder = builder,
+            .name = name,
+            .target = Target.Native,
+            .verbose = false,
+            .release = false,
+            .output_path = null,
+            .src_path = src_path,
+        };
+        return self;
+    }
+
+    pub fn setTarget(self: &AsmStep, target_arch: Arch, target_os: Os, target_environ: Environ) {
+        self.target = Target.Cross {
+            CrossTarget {
+                .arch = target_arch,
+                .os = target_os,
+                .environ = target_environ,
+            }
+        };
+    }
+
+    pub fn setVerbose(self: &AsmStep, value: bool) {
+        self.verbose = value;
+    }
+
+    pub fn setRelease(self: &AsmStep, value: bool) {
+        self.release = value;
+    }
+
+    pub fn setOutputPath(self: &AsmStep, value: []const u8) {
+        self.output_path = value;
+    }
+
+    fn make(step: &Step) -> %void {
+        const self = @fieldParentPtr(AsmStep, "step", step);
+        const builder = self.builder;
+
+        var zig_args = List([]const u8).init(builder.allocator);
+        defer zig_args.deinit();
+
+        %%zig_args.append("asm");
+        %%zig_args.append(builder.pathFromRoot(self.src_path));
+
+        if (self.verbose) {
+            %%zig_args.append("--verbose");
+        }
+
+        if (self.release) {
+            %%zig_args.append("--release");
+        }
+
+        if (const output_path ?= self.output_path) {
+            %%zig_args.append("--output");
+            %%zig_args.append(builder.pathFromRoot(output_path));
+        }
+
+        %%zig_args.append("--name");
+        %%zig_args.append(self.name);
+
+        switch (self.target) {
+            Target.Native => {},
+            Target.Cross => |cross_target| {
+                %%zig_args.append("--target-arch");
+                %%zig_args.append(@enumTagName(cross_target.arch));
+
+                %%zig_args.append("--target-os");
+                %%zig_args.append(@enumTagName(cross_target.os));
+
+                %%zig_args.append("--target-environ");
+                %%zig_args.append(@enumTagName(cross_target.environ));
+            },
+        }
+
+        builder.spawnChild(builder.zig_exe, zig_args.toSliceConst());
+    }
+};
+
+pub const LinkStep = struct {
+    step: Step,
+    builder: &Builder,
+    name: []const u8,
+    target: Target,
+    linker_script: LinkerScript,
+    link_libs: BufSet,
+    verbose: bool,
+    release: bool,
+    output_path: ?[]const u8,
+    object_files: List([]const u8),
+    static: bool,
+    out_filename: []const u8,
+    out_type: OutType,
+    version: Version,
+    major_only_filename: []const u8,
+    name_only_filename: []const u8,
+
+    const OutType = enum {
+        Exe,
+        Lib,
+    };
+
+    pub fn initExecutable(builder: &Builder, name: []const u8) -> LinkStep {
+        return init(builder, name, OutType.Exe, builder.version(0, 0, 0), false)
+    }
+
+    pub fn initSharedLibrary(builder: &Builder, name: []const u8, version: &const Version) -> LinkStep {
+        return init(builder, name, OutType.Lib, version, false)
+    }
+
+    pub fn initStaticLibrary(builder: &Builder, name: []const u8) -> LinkStep {
+        return init(builder, name, OutType.Lib, builder.version(0, 0, 0), true)
+    }
+
+    fn init(builder: &Builder, name: []const u8, out_type: OutType, version: &const Version, static: bool) -> LinkStep {
+        var self = LinkStep {
+            .builder = builder,
+            .verbose = false,
+            .release = false,
+            .name = name,
+            .target = Target.Native,
+            .linker_script = LinkerScript.None,
+            .link_libs = BufSet.init(builder.allocator),
+            .step = Step.init(name, builder.allocator, make),
+            .output_path = null,
+            .object_files = List([]const u8).init(builder.allocator),
+            .out_type = out_type,
+            .version = *version,
+            .static = static,
+            .out_filename = undefined,
+            .major_only_filename = undefined,
+            .name_only_filename = undefined,
+        };
+        self.computeOutFileName();
+        return self;
+    }
+
+    fn computeOutFileName(self: &LinkStep) {
+        switch (self.out_type) {
+            OutType.Exe => {
+                self.out_filename = %%fmt.allocPrint(self.builder.allocator, "{}{}",
+                    self.name, self.target.exeFileExt());
+            },
+            OutType.Lib => {
+                if (self.static) {
+                    self.out_filename = %%fmt.allocPrint(self.builder.allocator, "lib{}.a", self.name);
+                } else {
+                    self.out_filename = %%fmt.allocPrint(self.builder.allocator, "lib{}.so.{d}.{d}.{d}",
+                        self.name, self.version.major, self.version.minor, self.version.patch);
+                    self.major_only_filename = %%fmt.allocPrint(self.builder.allocator,
+                        "lib{}.so.{d}", self.name, self.version.major);
+                    self.name_only_filename = %%fmt.allocPrint(self.builder.allocator,
+                        "lib{}.so", self.name);
+                }
+            },
+        }
+    }
+
+    pub fn addObjectFile(self: &LinkStep, file: []const u8) {
+        %%self.object_files.append(file);
+    }
+
+    pub fn setTarget(self: &LinkStep, target_arch: Arch, target_os: Os, target_environ: Environ) {
+        self.target = Target.Cross {
+            CrossTarget {
+                .arch = target_arch,
+                .os = target_os,
+                .environ = target_environ,
+            }
+        };
+        self.computeOutFileName();
+    }
+
+    /// LinkStep keeps a reference to script for its lifetime or until this function
+    /// is called again.
+    pub fn setLinkerScriptContents(self: &LinkStep, script: []const u8) {
+        self.linker_script = LinkerScript.Embed { script };
+    }
+
+    pub fn setLinkerScriptPath(self: &LinkStep, path: []const u8) {
+        self.linker_script = LinkerScript.Path { path };
+    }
+
+    pub fn linkLibrary(self: &LinkStep, name: []const u8) {
+        %%self.link_libs.put(name);
+    }
+
+    pub fn setVerbose(self: &LinkStep, value: bool) {
+        self.verbose = value;
+    }
+
+    pub fn setRelease(self: &LinkStep, value: bool) {
+        self.release = value;
+    }
+
+    pub fn setOutputPath(self: &LinkStep, value: []const u8) {
+        self.output_path = value;
+    }
+
+    fn make(step: &Step) -> %void {
+        const self = @fieldParentPtr(LinkStep, "step", step);
+        const builder = self.builder;
+
+        if (self.object_files.len == 0) {
+            %%io.stderr.printf("{}: linker needs 1 or more objects to link\n", step.name);
+            return error.NeedAnObject;
+        }
+
+        var zig_args = List([]const u8).init(builder.allocator);
+        defer zig_args.deinit();
+
+        const cmd = switch (self.out_type) {
+            OutType.Exe => "link_exe",
+            OutType.Lib => "link_lib",
+        };
+        %%zig_args.append(cmd);
+
+        for (self.object_files.toSliceConst()) |object_file| {
+            %%zig_args.append(builder.pathFromRoot(object_file));
+        }
+
+        if (self.verbose) {
+            %%zig_args.append("--verbose");
+        }
+
+        if (self.release) {
+            %%zig_args.append("--release");
+        }
+
+        if (self.static) {
+            %%zig_args.append("--static");
+        }
+
+        if (const output_path ?= self.output_path) {
+            %%zig_args.append("--output");
+            %%zig_args.append(builder.pathFromRoot(output_path));
+        }
+
+        %%zig_args.append("--name");
+        %%zig_args.append(self.name);
+
+        switch (self.target) {
+            Target.Native => {},
+            Target.Cross => |cross_target| {
+                %%zig_args.append("--target-arch");
+                %%zig_args.append(@enumTagName(cross_target.arch));
+
+                %%zig_args.append("--target-os");
+                %%zig_args.append(@enumTagName(cross_target.os));
+
+                %%zig_args.append("--target-environ");
+                %%zig_args.append(@enumTagName(cross_target.environ));
+            },
+        }
+
+        switch (self.linker_script) {
+            LinkerScript.None => {},
+            LinkerScript.Embed => |script| {
+                const tmp_file_name = "linker.ld.tmp"; // TODO issue #298
+                io.writeFile(tmp_file_name, script, builder.allocator)
+                    %% |err| debug.panic("unable to write linker script: {}\n", @errorName(err));
+                %%zig_args.append("--linker-script");
+                %%zig_args.append(tmp_file_name);
+            },
+            LinkerScript.Path => |path| {
+                %%zig_args.append("--linker-script");
+                %%zig_args.append(path);
+            },
+        }
+
+        {
+            var it = self.link_libs.iterator();
+            while (true) {
+                const entry = it.next() ?? break;
+                %%zig_args.append("--library");
+                %%zig_args.append(entry.key);
+            }
+        }
+
+        for (builder.rpaths.toSliceConst()) |rpath| {
+            %%zig_args.append("-rpath");
+            %%zig_args.append(rpath);
+        }
+
+        for (builder.lib_paths.toSliceConst()) |lib_path| {
+            %%zig_args.append("--library-path");
+            %%zig_args.append(lib_path);
+        }
+
+        builder.spawnChild(builder.zig_exe, zig_args.toSliceConst());
+    }
+};
+
 pub const TestStep = struct {
     step: Step,
     builder: &Builder,
@@ -803,7 +1143,7 @@ pub const CLibrary = struct {
     }
 
     pub fn initStatic(builder: &Builder, name: []const u8) -> CLibrary {
-        return init(builder, name, undefined, true);
+        return init(builder, name, builder.version(0, 0, 0), true);
     }
 
     fn init(builder: &Builder, name: []const u8, version: &const Version, static: bool) -> CLibrary {
@@ -931,7 +1271,7 @@ pub const CLibrary = struct {
             %%cc_args.append(self.out_filename);
 
             for (self.object_files.toSliceConst()) |object_file| {
-                %%cc_args.append(object_file);
+                %%cc_args.append(builder.pathFromRoot(object_file));
             }
 
             builder.spawnChild(cc, cc_args.toSliceConst());

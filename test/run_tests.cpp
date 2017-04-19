@@ -58,37 +58,6 @@ static const char *zig_exe = "./zig";
 #define NL "\n"
 #endif
 
-static TestCase *add_asm_case(const char *case_name, const char *source, const char *output) {
-    TestCase *test_case = allocate<TestCase>(1);
-    test_case->case_name = case_name;
-    test_case->output = output;
-    test_case->special = TestSpecialLinkStep;
-
-    test_case->source_files.resize(1);
-    test_case->source_files.at(0).relative_path = ".tmp_source.s";
-    test_case->source_files.at(0).source_code = source;
-
-    test_case->compiler_args.append("asm");
-    test_case->compiler_args.append(".tmp_source.s");
-    test_case->compiler_args.append("--name");
-    test_case->compiler_args.append("test");
-    test_case->compiler_args.append("--color");
-    test_case->compiler_args.append("on");
-
-    test_case->linker_args.append("link_exe");
-    test_case->linker_args.append("test.o");
-    test_case->linker_args.append("--name");
-    test_case->linker_args.append("test");
-    test_case->linker_args.append("--output");
-    test_case->linker_args.append(tmp_exe_path);
-    test_case->linker_args.append("--color");
-    test_case->linker_args.append("on");
-
-    test_cases.append(test_case);
-
-    return test_case;
-}
-
 static void add_debug_safety_case(const char *case_name, const char *source) {
     TestCase *test_case = allocate<TestCase>(1);
     test_case->is_debug_safety = true;
@@ -566,33 +535,6 @@ struct comptime {
             R"(pub const FOO_CHAR = 63;)");
 }
 
-static void add_asm_tests(void) {
-#if defined(ZIG_OS_LINUX) && defined(ZIG_ARCH_X86_64)
-    add_asm_case("assemble and link hello world linux x86_64", R"SOURCE(
-.text
-.globl _start
-
-_start:
-    mov rax, 1
-    mov rdi, 1
-    lea rsi, msg
-    mov rdx, 14
-    syscall
-
-    mov rax, 60
-    mov rdi, 0
-    syscall
-
-.data
-
-msg:
-    .ascii "Hello, world!\n"
-    )SOURCE", "Hello, world!\n");
-
-#endif
-}
-
-
 static void print_compiler_invocation(TestCase *test_case) {
     printf("%s", zig_exe);
     for (size_t i = 0; i < test_case->compiler_args.length; i += 1) {
@@ -800,7 +742,6 @@ int main(int argc, char **argv) {
     }
     add_debug_safety_test_cases();
     add_parseh_test_cases();
-    add_asm_tests();
     run_all_tests(grep_text);
     cleanup();
 }
