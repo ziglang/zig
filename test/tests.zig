@@ -10,13 +10,14 @@ const mem = std.mem;
 const fmt = std.fmt;
 const List = std.list.List;
 
-error TestFailed;
+const compare_output = @import("compare_output.zig");
+const build_examples = @import("build_examples.zig");
+const compile_errors = @import("compile_errors.zig");
+const assemble_and_link = @import("assemble_and_link.zig");
+const debug_safety = @import("debug_safety.zig");
+const parseh = @import("parseh.zig");
 
-pub const compare_output = @import("compare_output.zig");
-pub const build_examples = @import("build_examples.zig");
-pub const compile_errors = @import("compile_errors.zig");
-pub const assemble_and_link = @import("assemble_and_link.zig");
-pub const debug_safety = @import("debug_safety.zig");
+error TestFailed;
 
 pub fn addCompareOutputTests(b: &build.Builder, test_filter: ?[]const u8) -> &build.Step {
     const cases = %%b.allocator.create(CompareOutputContext);
@@ -84,6 +85,20 @@ pub fn addAssembleAndLinkTests(b: &build.Builder, test_filter: ?[]const u8) -> &
     };
 
     assemble_and_link.addCases(cases);
+
+    return cases.step;
+}
+
+pub fn addParseHTests(b: &build.Builder, test_filter: ?[]const u8) -> &build.Step {
+    const cases = %%b.allocator.create(ParseHContext);
+    *cases = ParseHContext {
+        .b = b,
+        .step = b.step("test-parseh", "Run the C header file parsing tests"),
+        .test_index = 0,
+        .test_filter = test_filter,
+    };
+
+    parseh.addCases(cases);
 
     return cases.step;
 }
@@ -642,6 +657,191 @@ pub const BuildExamplesContext = struct {
             log_step.step.dependOn(&exe.step);
 
             self.step.dependOn(&log_step.step);
+        }
+    }
+};
+
+pub const ParseHContext = struct {
+    b: &build.Builder,
+    step: &build.Step,
+    test_index: usize,
+    test_filter: ?[]const u8,
+
+    const TestCase = struct {
+        name: []const u8,
+        sources: List(SourceFile),
+        expected_lines: List([]const u8),
+        allow_warnings: bool,
+
+        const SourceFile = struct {
+            filename: []const u8,
+            source: []const u8,
+        };
+
+        pub fn addSourceFile(self: &TestCase, filename: []const u8, source: []const u8) {
+            %%self.sources.append(SourceFile {
+                .filename = filename,
+                .source = source,
+            });
+        }
+
+        pub fn addExpectedError(self: &TestCase, text: []const u8) {
+            %%self.expected_lines.append(text);
+        }
+    };
+
+    const ParseHCmpOutputStep = struct {
+        step: build.Step,
+        context: &ParseHContext,
+        name: []const u8,
+        test_index: usize,
+        case: &const TestCase,
+
+        pub fn create(context: &ParseHContext, name: []const u8, case: &const TestCase) -> &ParseHCmpOutputStep {
+            const allocator = context.b.allocator;
+            const ptr = %%allocator.create(ParseHCmpOutputStep);
+            *ptr = ParseHCmpOutputStep {
+                .step = build.Step.init("ParseHCmpOutput", allocator, make),
+                .context = context,
+                .name = name,
+                .test_index = context.test_index,
+                .case = case,
+            };
+            context.test_index += 1;
+            return ptr;
+        }
+
+        fn make(step: &build.Step) -> %void {
+            const self = @fieldParentPtr(ParseHCmpOutputStep, "step", step);
+            const b = self.context.b;
+
+            const root_src = %%os.path.join(b.allocator, "test_artifacts", self.case.sources.items[0].filename);
+
+            var zig_args = List([]const u8).init(b.allocator);
+            %%zig_args.append("parseh");
+            %%zig_args.append(b.pathFromRoot(root_src));
+
+            %%io.stderr.printf("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
+
+            if (b.verbose) {
+                printInvocation(b.zig_exe, zig_args.toSliceConst());
+            }
+
+            var child = os.ChildProcess.spawn(b.zig_exe, zig_args.toSliceConst(), &b.env_map,
+                StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, b.allocator) %% |err|
+            {
+                debug.panic("Unable to spawn {}: {}\n", b.zig_exe, @errorName(err));
+            };
+
+            const term = child.wait() %% |err| {
+                debug.panic("Unable to spawn {}: {}\n", b.zig_exe, @errorName(err));
+            };
+            switch (term) {
+                Term.Clean => |code| {
+                    if (code != 0) {
+                        %%io.stderr.printf("Compilation failed with exit code {}\n", code);
+                        return error.TestFailed;
+                    }
+                },
+                Term.Signal => |code| {
+                    %%io.stderr.printf("Compilation failed with signal {}\n", code);
+                    return error.TestFailed;
+                },
+                else => {
+                    %%io.stderr.printf("Compilation terminated unexpectedly\n");
+                    return error.TestFailed;
+                },
+            };
+
+            var stdout_buf = %%Buffer0.initEmpty(b.allocator);
+            var stderr_buf = %%Buffer0.initEmpty(b.allocator);
+
+            %%(??child.stdout).readAll(&stdout_buf);
+            %%(??child.stderr).readAll(&stderr_buf);
+
+            const stdout = stdout_buf.toSliceConst();
+            const stderr = stderr_buf.toSliceConst();
+
+            if (stderr.len != 0 and !self.case.allow_warnings) {
+                %%io.stderr.printf(
+                    \\====== parseh emitted warnings: ============
+                    \\{}
+                    \\============================================
+                    \\
+                , stderr);
+                return error.TestFailed;
+            }
+
+            for (self.case.expected_lines.toSliceConst()) |expected_line| {
+                if (mem.indexOf(u8, stdout, expected_line) == null) {
+                    %%io.stderr.printf(
+                        \\
+                        \\========= Expected this output: ================
+                        \\{}
+                        \\================================================
+                        \\{}
+                        \\
+                    , expected_line, stdout);
+                    return error.TestFailed;
+                }
+            }
+            %%io.stderr.printf("OK\n");
+        }
+    };
+
+    fn printInvocation(exe_path: []const u8, args: []const []const u8) {
+        %%io.stderr.printf("{}", exe_path);
+        for (args) |arg| {
+            %%io.stderr.printf(" {}", arg);
+        }
+        %%io.stderr.printf("\n");
+    }
+
+    pub fn create(self: &ParseHContext, allow_warnings: bool, name: []const u8,
+        source: []const u8, expected_lines: ...) -> &TestCase
+    {
+        const tc = %%self.b.allocator.create(TestCase);
+        *tc = TestCase {
+            .name = name,
+            .sources = List(TestCase.SourceFile).init(self.b.allocator),
+            .expected_lines = List([]const u8).init(self.b.allocator),
+            .allow_warnings = allow_warnings,
+        };
+        tc.addSourceFile("source.h", source);
+        comptime var arg_i = 0;
+        inline while (arg_i < expected_lines.len; arg_i += 1) {
+            // TODO mem.dupe is because of issue #336
+            tc.addExpectedError(%%mem.dupe(self.b.allocator, u8, expected_lines[arg_i]));
+        }
+        return tc;
+    }
+
+    pub fn add(self: &ParseHContext, name: []const u8, source: []const u8, expected_lines: ...) {
+        const tc = self.create(false, name, source, expected_lines);
+        self.addCase(tc);
+    }
+
+    pub fn addAllowWarnings(self: &ParseHContext, name: []const u8, source: []const u8, expected_lines: ...) {
+        const tc = self.create(true, name, source, expected_lines);
+        self.addCase(tc);
+    }
+
+    pub fn addCase(self: &ParseHContext, case: &const TestCase) {
+        const b = self.b;
+
+        const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "parseh {}", case.name);
+        if (const filter ?= self.test_filter) {
+            if (mem.indexOf(u8, annotated_case_name, filter) == null)
+                return;
+        }
+
+        const parseh_and_cmp = ParseHCmpOutputStep.create(self, annotated_case_name, case);
+        self.step.dependOn(&parseh_and_cmp.step);
+
+        for (case.sources.toSliceConst()) |src_file| {
+            const expanded_src_path = %%os.path.join(b.allocator, "test_artifacts", src_file.filename);
+            const write_src = b.addWriteFile(expanded_src_path, src_file.source);
+            parseh_and_cmp.step.dependOn(&write_src.step);
         }
     }
 };
