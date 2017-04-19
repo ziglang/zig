@@ -64,6 +64,9 @@ static int usage(const char *arg0) {
         "  -mwindows                    (windows only) --subsystem windows to the linker\n"
         "  -rdynamic                    add all symbols to the dynamic symbol table\n"
         "  -rpath [path]                add directory to the runtime library search path\n"
+        "Test Options:\n"
+        "  --test-filter [text]         skip tests that do not match filter\n"
+        "  --test-name-prefix [text]    add prefix to all tests\n"
     , arg0);
     return EXIT_FAILURE;
 }
@@ -151,6 +154,8 @@ int main(int argc, char **argv) {
     ZigList<const char *> rpath_list = {0};
     bool each_lib_rpath = false;
     ZigList<const char *> objects = {0};
+    const char *test_filter = nullptr;
+    const char *test_name_prefix = nullptr;
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         const char *zig_exe_path = arg0;
@@ -341,6 +346,10 @@ int main(int argc, char **argv) {
                     linker_script = argv[i];
                 } else if (strcmp(arg, "-rpath") == 0) {
                     rpath_list.append(argv[i]);
+                } else if (strcmp(arg, "--test-filter") == 0) {
+                    test_filter = argv[i];
+                } else if (strcmp(arg, "--test-name-prefix") == 0) {
+                    test_name_prefix = argv[i];
                 } else {
                     fprintf(stderr, "Invalid argument: %s\n", arg);
                     return usage(arg0);
@@ -560,6 +569,14 @@ int main(int argc, char **argv) {
 
             if (mios_version_min) {
                 codegen_set_mios_version_min(g, buf_create_from_str(mios_version_min));
+            }
+
+            if (test_filter) {
+                codegen_set_test_filter(g, buf_create_from_str(test_filter));
+            }
+
+            if (test_name_prefix) {
+                codegen_set_test_name_prefix(g, buf_create_from_str(test_name_prefix));
             }
 
             if (cmd == CmdBuild) {

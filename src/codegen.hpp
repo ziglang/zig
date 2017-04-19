@@ -44,6 +44,8 @@ void codegen_set_mmacosx_version_min(CodeGen *g, Buf *mmacosx_version_min);
 void codegen_set_mios_version_min(CodeGen *g, Buf *mios_version_min);
 void codegen_set_linker_script(CodeGen *g, const char *linker_script);
 void codegen_set_omit_zigrt(CodeGen *g, bool omit_zigrt);
+void codegen_set_test_filter(CodeGen *g, Buf *filter);
+void codegen_set_test_name_prefix(CodeGen *g, Buf *prefix);
 
 PackageTableEntry *new_package(const char *root_src_dir, const char *root_src_path);
 void codegen_add_root_code(CodeGen *g, Buf *source_dir, Buf *source_basename, Buf *source_code);

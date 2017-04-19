@@ -147,6 +147,14 @@ void codegen_set_omit_zigrt(CodeGen *g, bool omit_zigrt) {
     g->omit_zigrt = omit_zigrt;
 }
 
+void codegen_set_test_filter(CodeGen *g, Buf *filter) {
+    g->test_filter = filter;
+}
+
+void codegen_set_test_name_prefix(CodeGen *g, Buf *prefix) {
+    g->test_name_prefix = prefix;
+}
+
 void codegen_set_is_test(CodeGen *g, bool is_test_build) {
     g->is_test_build = is_test_build;
 }

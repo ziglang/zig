@@ -5,18 +5,20 @@ pub fn build(b: &Builder) {
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
     const test_step = b.step("test", "Run all the tests");
 
-    const self_hosted_tests = b.step("test-self-hosted", "Run the self-hosted tests");
-    test_step.dependOn(self_hosted_tests);
+    const behavior_tests = b.step("test-behavior", "Run the behavior tests");
+    test_step.dependOn(behavior_tests);
     for ([]bool{false, true}) |release| {
         for ([]bool{false, true}) |link_libc| {
-            const these_tests = b.addTest("test/self_hosted.zig");
-            // TODO add prefix to test names
-            // TODO pass test_filter to these_tests
+            const these_tests = b.addTest("test/behavior.zig");
+            these_tests.setNamePrefix(b.fmt("behavior-{}-{} ",
+                if (release) "release" else "debug",
+                if (link_libc) "c" else "bare"));
+            these_tests.setFilter(test_filter);
             these_tests.setRelease(release);
             if (link_libc) {
                 these_tests.linkLibrary("c");
             }
-            self_hosted_tests.dependOn(&these_tests.step);
+            behavior_tests.dependOn(&these_tests.step);
         }
     }
 
@@ -25,8 +27,10 @@ pub fn build(b: &Builder) {
     for ([]bool{false, true}) |release| {
         for ([]bool{false, true}) |link_libc| {
             const these_tests = b.addTest("std/index.zig");
-            // TODO add prefix to test names
-            // TODO pass test_filter to these_tests
+            these_tests.setNamePrefix(b.fmt("std-{}-{} ",
+                if (release) "release" else "debug",
+                if (link_libc) "c" else "bare"));
+            these_tests.setFilter(test_filter);
             these_tests.setRelease(release);
             if (link_libc) {
                 these_tests.linkLibrary("c");

@@ -10,7 +10,7 @@ const StdIo = os.ChildProcess.StdIo;
 const Term = os.ChildProcess.Term;
 const BufSet = @import("buf_set.zig").BufSet;
 const BufMap = @import("buf_map.zig").BufMap;
-const fmt = @import("fmt.zig");
+const fmt_lib = @import("fmt.zig");
 
 error ExtraArg;
 error UncleanExit;
@@ -189,7 +189,7 @@ pub const Builder = struct {
     }
 
     pub fn addLog(self: &Builder, comptime format: []const u8, args: ...) -> &LogStep {
-        const data = %%fmt.allocPrint(self.allocator, format, args);
+        const data = self.fmt(format, args);
         const log_step = %%self.allocator.create(LogStep);
         *log_step = LogStep.init(self, data);
         return log_step;
@@ -543,6 +543,10 @@ pub const Builder = struct {
     fn pathFromRoot(self: &Builder, rel_path: []const u8) -> []u8 {
         return %%os.path.join(self.allocator, self.build_root, rel_path);
     }
+
+    pub fn fmt(self: &Builder, comptime format: []const u8, args: ...) -> []u8 {
+        return %%fmt_lib.allocPrint(self.allocator, format, args);
+    }
 };
 
 const Version = struct {
@@ -891,19 +895,16 @@ pub const LinkStep = struct {
     fn computeOutFileName(self: &LinkStep) {
         switch (self.out_type) {
             OutType.Exe => {
-                self.out_filename = %%fmt.allocPrint(self.builder.allocator, "{}{}",
-                    self.name, self.target.exeFileExt());
+                self.out_filename = self.builder.fmt("{}{}", self.name, self.target.exeFileExt());
             },
             OutType.Lib => {
                 if (self.static) {
-                    self.out_filename = %%fmt.allocPrint(self.builder.allocator, "lib{}.a", self.name);
+                    self.out_filename = self.builder.fmt("lib{}.a", self.name);
                 } else {
-                    self.out_filename = %%fmt.allocPrint(self.builder.allocator, "lib{}.so.{d}.{d}.{d}",
+                    self.out_filename = self.builder.fmt("lib{}.so.{d}.{d}.{d}",
                         self.name, self.version.major, self.version.minor, self.version.patch);
-                    self.major_only_filename = %%fmt.allocPrint(self.builder.allocator,
-                        "lib{}.so.{d}", self.name, self.version.major);
-                    self.name_only_filename = %%fmt.allocPrint(self.builder.allocator,
-                        "lib{}.so", self.name);
+                    self.major_only_filename = self.builder.fmt("lib{}.so.{d}", self.name, self.version.major);
+                    self.name_only_filename = self.builder.fmt("lib{}.so", self.name);
                 }
             },
         }
@@ -1051,15 +1052,19 @@ pub const TestStep = struct {
     release: bool,
     verbose: bool,
     link_libs: BufSet,
+    name_prefix: []const u8,
+    filter: ?[]const u8,
 
     pub fn init(builder: &Builder, root_src: []const u8) -> TestStep {
-        const step_name = %%fmt.allocPrint(builder.allocator, "test {}", root_src);
+        const step_name = builder.fmt("test {}", root_src);
         TestStep {
             .step = Step.init(step_name, builder.allocator, make),
             .builder = builder,
             .root_src = root_src,
             .release = false,
             .verbose = false,
+            .name_prefix = "",
+            .filter = null,
             .link_libs = BufSet.init(builder.allocator),
         }
     }
@@ -1074,6 +1079,14 @@ pub const TestStep = struct {
 
     pub fn linkLibrary(self: &TestStep, name: []const u8) {
         %%self.link_libs.put(name);
+    }
+
+    pub fn setNamePrefix(self: &TestStep, text: []const u8) {
+        self.name_prefix = text;
+    }
+
+    pub fn setFilter(self: &TestStep, text: ?[]const u8) {
+        self.filter = text;
     }
 
     fn make(step: &Step) -> %void {
@@ -1092,6 +1105,16 @@ pub const TestStep = struct {
 
         if (self.release) {
             %%zig_args.append("--release");
+        }
+
+        if (const filter ?= self.filter) {
+            %%zig_args.append("--test-filter");
+            %%zig_args.append(filter);
+        }
+
+        if (self.name_prefix.len != 0) {
+            %%zig_args.append("--test-name-prefix");
+            %%zig_args.append(self.name_prefix);
         }
 
         {
@@ -1169,14 +1192,12 @@ pub const CLibrary = struct {
 
     fn computeOutFileName(self: &CLibrary) {
         if (self.static) {
-            self.out_filename = %%fmt.allocPrint(self.builder.allocator, "lib{}.a", self.name);
+            self.out_filename = self.builder.fmt("lib{}.a", self.name);
         } else {
-            self.out_filename = %%fmt.allocPrint(self.builder.allocator, "lib{}.so.{d}.{d}.{d}",
+            self.out_filename = self.builder.fmt("lib{}.so.{d}.{d}.{d}",
                 self.name, self.version.major, self.version.minor, self.version.patch);
-            self.major_only_filename = %%fmt.allocPrint(self.builder.allocator,
-                "lib{}.so.{d}", self.name, self.version.major);
-            self.name_only_filename = %%fmt.allocPrint(self.builder.allocator,
-                "lib{}.so", self.name);
+            self.major_only_filename = self.builder.fmt("lib{}.so.{d}", self.name, self.version.major);
+            self.name_only_filename = self.builder.fmt("lib{}.so", self.name);
         }
     }
 
@@ -1235,7 +1256,7 @@ pub const CLibrary = struct {
             %%cc_args.append(source_file);
 
             // TODO don't dump the .o file in the same place as the source file
-            const o_file = %%fmt.allocPrint(builder.allocator, "{}{}", source_file, self.target.oFileExt());
+            const o_file = builder.fmt("{}{}", source_file, self.target.oFileExt());
             defer builder.allocator.free(o_file);
             %%cc_args.append("-o");
             %%cc_args.append(o_file);
@@ -1262,8 +1283,7 @@ pub const CLibrary = struct {
             %%cc_args.append("-fPIC");
             %%cc_args.append("-shared");
 
-            const soname_arg = %%fmt.allocPrint(builder.allocator, "-Wl,-soname,lib{}.so.{d}",
-                self.name, self.version.major);
+            const soname_arg = builder.fmt("-Wl,-soname,lib{}.so.{d}", self.name, self.version.major);
             defer builder.allocator.free(soname_arg);
             %%cc_args.append(soname_arg);
 
@@ -1372,7 +1392,7 @@ pub const CExecutable = struct {
             %%cc_args.append(source_file);
 
             // TODO don't dump the .o file in the same place as the source file
-            const o_file = %%fmt.allocPrint(builder.allocator, "{}{}", source_file, self.target.oFileExt());
+            const o_file = builder.fmt("{}{}", source_file, self.target.oFileExt());
             defer builder.allocator.free(o_file);
             %%cc_args.append("-o");
             %%cc_args.append(o_file);
@@ -1400,7 +1420,7 @@ pub const CExecutable = struct {
         %%cc_args.append("-o");
         %%cc_args.append(self.name);
 
-        const rpath_arg = %%fmt.allocPrint(builder.allocator, "-Wl,-rpath,{}", builder.out_dir);
+        const rpath_arg = builder.fmt("-Wl,-rpath,{}", builder.out_dir);
         defer builder.allocator.free(rpath_arg);
         %%cc_args.append(rpath_arg);
 
@@ -1462,9 +1482,7 @@ pub const InstallCLibraryStep = struct {
     pub fn init(builder: &Builder, lib: &CLibrary) -> InstallCLibraryStep {
         var self = InstallCLibraryStep {
             .builder = builder,
-            .step = Step.init(
-                %%fmt.allocPrint(builder.allocator, "install {}", lib.step.name),
-                builder.allocator, make),
+            .step = Step.init(builder.fmt("install {}", lib.step.name), builder.allocator, make),
             .lib = lib,
             .dest_file = undefined,
         };
@@ -1497,9 +1515,7 @@ pub const InstallFileStep = struct {
     pub fn init(builder: &Builder, src_path: []const u8, dest_path: []const u8) -> InstallFileStep {
         return InstallFileStep {
             .builder = builder,
-            .step = Step.init(
-                %%fmt.allocPrint(builder.allocator, "install {}", src_path),
-                builder.allocator, make),
+            .step = Step.init(builder.fmt("install {}", src_path), builder.allocator, make),
             .src_path = src_path,
             .dest_path = dest_path,
         };
@@ -1521,9 +1537,7 @@ pub const WriteFileStep = struct {
     pub fn init(builder: &Builder, file_path: []const u8, data: []const u8) -> WriteFileStep {
         return WriteFileStep {
             .builder = builder,
-            .step = Step.init(
-                %%fmt.allocPrint(builder.allocator, "writefile {}", file_path),
-                builder.allocator, make),
+            .step = Step.init(builder.fmt("writefile {}", file_path), builder.allocator, make),
             .file_path = file_path,
             .data = data,
         };
@@ -1550,9 +1564,7 @@ pub const LogStep = struct {
     pub fn init(builder: &Builder, data: []const u8) -> LogStep {
         return LogStep {
             .builder = builder,
-            .step = Step.init(
-                %%fmt.allocPrint(builder.allocator, "log {}", data),
-                builder.allocator, make),
+            .step = Step.init(builder.fmt("log {}", data), builder.allocator, make),
             .data = data,
         };
     }

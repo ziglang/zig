@@ -341,8 +341,8 @@ pub const CompareOutputContext = struct {
             },
             Special.None => {
                 for ([]bool{false, true}) |release| {
-                    const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "{} ({})",
-                        case.name, if (release) "release" else "debug");
+                    const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "{} {} ({})",
+                        "compare-output", case.name, if (release) "release" else "debug");
                     if (const filter ?= self.test_filter) {
                         if (mem.indexOf(u8, annotated_case_name, filter) == null)
                             continue;
