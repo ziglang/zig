@@ -217,11 +217,14 @@ int main(int argc, char **argv) {
                         "Usage: %s build [options]\n"
                         "\n"
                         "General Options:\n"
-                        "  --help                 Print this help and exit.\n"
-                        "  --build-file [file]    Override path to build.zig.\n"
-                        "  --verbose              Print commands before executing them.\n"
-                        "  --debug-build-verbose  Print verbose debugging information for the build system itself.\n"
-                        "  --prefix [prefix]      Override default install prefix.\n"
+                        "  --help                 Print this help and exit\n"
+                        "  --build-file [file]    Override path to build.zig\n"
+                        "  --verbose              Print commands before executing them\n"
+                        "  --debug-build-verbose  Print verbose debugging information for the build system itself\n"
+                        "  --prefix [prefix]      Override default install prefix\n"
+                        "\n"
+                        "More options become available when the build file is found.\n"
+                        "Run this command with no options to generate a build.zig template.\n"
                 , zig_exe_path);
                 return 0;
             }
