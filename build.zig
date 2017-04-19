@@ -11,6 +11,7 @@ pub fn build(b: &Builder) {
     run_tests_cmd.step.dependOn(&run_tests_exe.step);
 
     const self_hosted_tests = b.step("test-self-hosted", "Run the self-hosted tests");
+    test_step.dependOn(self_hosted_tests);
     for ([]bool{false, true}) |release| {
         for ([]bool{false, true}) |link_libc| {
             const these_tests = b.addTest("test/self_hosted.zig");
@@ -24,9 +25,24 @@ pub fn build(b: &Builder) {
         }
     }
 
-    test_step.dependOn(self_hosted_tests);
+    const std_lib_tests = b.step("test-std", "Run the standard library tests");
+    test_step.dependOn(std_lib_tests);
+    for ([]bool{false, true}) |release| {
+        for ([]bool{false, true}) |link_libc| {
+            const these_tests = b.addTest("std/index.zig");
+            // TODO add prefix to test names
+            // TODO pass test_filter to these_tests
+            these_tests.setRelease(release);
+            if (link_libc) {
+                these_tests.linkLibrary("c");
+            }
+            std_lib_tests.dependOn(&these_tests.step);
+        }
+    }
+
     //test_step.dependOn(&run_tests_cmd.step);
 
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter));
     test_step.dependOn(tests.addBuildExampleTests(b, test_filter));
+    test_step.dependOn(tests.addCompileErrorTests(b, test_filter));
 }
