@@ -272,13 +272,6 @@ static TestCase *add_example_compile_libc(const char *root_source_file) {
 
 ////////////////////////////////////////////////////////////////////////////////////
 
-static void add_build_examples(void) {
-    add_example_compile("example/hello_world/hello.zig");
-    add_example_compile_libc("example/hello_world/hello_libc.zig");
-    add_example_compile("example/cat/main.zig");
-    add_example_compile("example/guess_number/main.zig");
-}
-
 
 ////////////////////////////////////////////////////////////////////////////////////
 
@@ -2615,7 +2608,6 @@ int main(int argc, char **argv) {
             }
         }
     }
-    add_build_examples();
     add_debug_safety_test_cases();
     add_compile_failure_test_cases();
     add_parse_error_tests();
