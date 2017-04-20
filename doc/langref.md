@@ -314,6 +314,10 @@ for the current target.
 
 The result is a target-specific compile time constant.
 
+### @offsetOf(comptime T: type, comptime field_name: [] const u8) -> (number literal)
+
+This function returns the byte offset of a field relative to its containing struct.
+
 ### Overflow Arithmetic
 
 These functions take an integer type, two variables of the specified type,

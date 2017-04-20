@@ -2888,6 +2888,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdDeclRef:
         case IrInstructionIdSwitchVar:
         case IrInstructionIdSetFnRefInline:
+        case IrInstructionIdOffsetOf:        
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -4548,6 +4549,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdIntToPtr, "intToPtr", 2);
     create_builtin_fn(g, BuiltinFnIdEnumTagName, "enumTagName", 1);
     create_builtin_fn(g, BuiltinFnIdFieldParentPtr, "fieldParentPtr", 3);
+    create_builtin_fn(g, BuiltinFnIdOffsetOf, "offsetOf", 2);
 }
 
 static void add_compile_var(CodeGen *g, const char *name, ConstExprValue *value) {
