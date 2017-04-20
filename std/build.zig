@@ -195,6 +195,12 @@ pub const Builder = struct {
         return log_step;
     }
 
+    pub fn addRemoveDirTree(self: &Builder, dir_path: []const u8) -> &RemoveDirStep {
+        const remove_dir_step = %%self.allocator.create(RemoveDirStep);
+        *remove_dir_step = RemoveDirStep.init(self, dir_path);
+        return remove_dir_step;
+    }
+
     pub fn version(self: &const Builder, major: u32, minor: u32, patch: u32) -> Version {
         Version {
             .major = major,
@@ -1548,10 +1554,12 @@ pub const WriteFileStep = struct {
         const full_path = self.builder.pathFromRoot(self.file_path);
         const full_path_dir = %%os.path.dirname(self.builder.allocator, full_path);
         os.makePath(self.builder.allocator, full_path_dir) %% |err| {
-            debug.panic("unable to make path {}: {}\n", full_path_dir, @errorName(err));
+            %%io.stderr.printf("unable to make path {}: {}\n", full_path_dir, @errorName(err));
+            return err;
         };
         io.writeFile(full_path, self.data, self.builder.allocator) %% |err| {
-            debug.panic("unable to write {}: {}\n", full_path, @errorName(err));
+            %%io.stderr.printf("unable to write {}: {}\n", full_path, @errorName(err));
+            return err;
         };
     }
 };
@@ -1573,6 +1581,30 @@ pub const LogStep = struct {
         const self = @fieldParentPtr(LogStep, "step", step);
         %%io.stderr.write(self.data);
         %%io.stderr.flush();
+    }
+};
+
+pub const RemoveDirStep = struct {
+    step: Step,
+    builder: &Builder,
+    dir_path: []const u8,
+
+    pub fn init(builder: &Builder, dir_path: []const u8) -> RemoveDirStep {
+        return RemoveDirStep {
+            .builder = builder,
+            .step = Step.init(builder.fmt("RemoveDir {}", dir_path), builder.allocator, make),
+            .dir_path = dir_path,
+        };
+    }
+
+    fn make(step: &Step) -> %void {
+        const self = @fieldParentPtr(RemoveDirStep, "step", step);
+
+        const full_path = self.builder.pathFromRoot(self.dir_path);
+        os.deleteTree(self.builder.allocator, full_path) %% |err| {
+            %%io.stderr.printf("Unable to remove {}: {}\n", full_path, @errorName(err));
+            return err;
+        };
     }
 };
 

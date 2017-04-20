@@ -9,6 +9,8 @@ error NoMem;
 
 pub const Allocator = struct {
     allocFn: fn (self: &Allocator, n: usize) -> %[]u8,
+    /// Note that old_mem may be a slice of length 0, in which case reallocFn
+    /// should simply call allocFn
     reallocFn: fn (self: &Allocator, old_mem: []u8, new_size: usize) -> %[]u8,
     freeFn: fn (self: &Allocator, mem: []u8),
 

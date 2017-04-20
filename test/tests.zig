@@ -103,6 +103,27 @@ pub fn addParseHTests(b: &build.Builder, test_filter: ?[]const u8) -> &build.Ste
     return cases.step;
 }
 
+pub fn addPkgTests(b: &build.Builder, test_filter: ?[]const u8, root_src: []const u8,
+    name:[] const u8, desc: []const u8) -> &build.Step
+{
+    const step = b.step(b.fmt("test-{}", name), desc);
+    for ([]bool{false, true}) |release| {
+        for ([]bool{false, true}) |link_libc| {
+            const these_tests = b.addTest(root_src);
+            these_tests.setNamePrefix(b.fmt("{}-{}-{} ", name,
+                if (release) "release" else "debug",
+                if (link_libc) "c" else "bare"));
+            these_tests.setFilter(test_filter);
+            these_tests.setRelease(release);
+            if (link_libc) {
+                these_tests.linkLibrary("c");
+            }
+            step.dependOn(&these_tests.step);
+        }
+    }
+    return step;
+}
+
 pub const CompareOutputContext = struct {
     b: &build.Builder,
     step: &build.Step,

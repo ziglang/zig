@@ -241,6 +241,15 @@ pub const AF_NFC = PF_NFC;
 pub const AF_VSOCK = PF_VSOCK;
 pub const AF_MAX = PF_MAX;
 
+pub const DT_UNKNOWN = 0;
+pub const DT_FIFO = 1;
+pub const DT_CHR = 2;
+pub const DT_DIR = 4;
+pub const DT_BLK = 6;
+pub const DT_REG = 8;
+pub const DT_LNK = 10;
+pub const DT_SOCK = 12;
+pub const DT_WHT = 14;
 
 fn unsigned(s: i32) -> u32 { *@ptrcast(&u32, &s) }
 fn signed(s: u32) -> i32 { *@ptrcast(&i32, &s) }
@@ -273,6 +282,10 @@ pub fn getcwd(buf: &u8, size: usize) -> usize {
     arch.syscall2(arch.SYS_getcwd, usize(buf), size)
 }
 
+pub fn getdents(fd: i32, dirp: &u8, count: usize) -> usize {
+    arch.syscall3(arch.SYS_getdents, usize(fd), usize(dirp), usize(count))
+}
+
 pub fn mkdir(path: &const u8, mode: usize) -> usize {
     arch.syscall2(arch.SYS_mkdir, usize(path), mode)
 }
@@ -289,6 +302,10 @@ pub fn munmap(address: &u8, length: usize) -> usize {
 
 pub fn read(fd: i32, buf: &u8, count: usize) -> usize {
     arch.syscall3(arch.SYS_read, usize(fd), usize(buf), count)
+}
+
+pub fn rmdir(path: &const u8) -> usize {
+    arch.syscall1(arch.SYS_rmdir, usize(path))
 }
 
 pub fn symlink(existing: &const u8, new: &const u8) -> usize {

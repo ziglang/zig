@@ -61,10 +61,15 @@ pub fn List(comptime T: type) -> type{
             l.len = new_length;
             return result;
         }
+
+        pub fn pop(self: &Self) -> T {
+            self.len -= 1;
+            return self.items[self.len];
+        }
     }
 }
 
-test "basicListTest" {
+test "basic list test" {
     var list = List(i32).init(&debug.global_allocator);
     defer list.deinit();
 
@@ -75,4 +80,7 @@ test "basicListTest" {
     {var i: usize = 0; while (i < 10; i += 1) {
         assert(list.items[i] == i32(i + 1));
     }}
+
+    assert(list.pop() == 10);
+    assert(list.len == 9);
 }
