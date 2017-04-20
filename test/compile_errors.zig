@@ -1565,6 +1565,22 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     , ".tmp_source.zig:8:29: error: field 'b' has index 1 but pointer value is index 0 of struct 'Foo'");
 
+    cases.add("@offsetOf - non struct",
+        \\const Foo = i32;
+        \\export fn foo() -> usize {
+        \\    return @offsetOf(Foo, "a");
+        \\}
+    , ".tmp_source.zig:3:22: error: expected struct type, found 'i32'");
+
+    cases.add("@offsetOf - bad field name",
+        \\const Foo = struct {
+        \\    derp: i32,
+        \\};
+        \\export fn foo() -> usize {
+        \\    return @offsetOf(Foo, "a");
+        \\}
+    , ".tmp_source.zig:5:27: error: struct 'Foo' has no field 'a'");
+
     cases.addExe("missing main fn in executable",
         \\
     , "error: no member named 'main' in '");
