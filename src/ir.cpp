@@ -553,6 +553,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionFieldParentPtr *
     return IrInstructionIdFieldParentPtr;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionOffsetOf *) {
+    return IrInstructionIdOffsetOf;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -2183,6 +2187,19 @@ static IrInstruction *ir_build_field_parent_ptr(IrBuilder *irb, Scope *scope, As
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_offset_of(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *type_value, IrInstruction *field_name)
+{
+    IrInstructionOffsetOf *instruction = ir_build_instruction<IrInstructionOffsetOf>(irb, scope, source_node);
+    instruction->type_value = type_value;
+    instruction->field_name = field_name;
+
+    ir_ref_instruction(type_value, irb->current_basic_block);
+    ir_ref_instruction(field_name, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_instruction_br_get_dep(IrInstructionBr *instruction, size_t index) {
     return nullptr;
 }
@@ -2863,6 +2880,13 @@ static IrInstruction *ir_instruction_fieldparentptr_get_dep(IrInstructionFieldPa
     }
 }
 
+static IrInstruction *ir_instruction_offsetof_get_dep(IrInstructionOffsetOf *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->type_value;
+        case 1: return instruction->field_name;
+        default: return nullptr;
+    }
+}
 
 static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t index) {
     switch (instruction->id) {
@@ -3058,6 +3082,8 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_setfnrefinline_get_dep((IrInstructionSetFnRefInline *) instruction, index);
         case IrInstructionIdFieldParentPtr:
             return ir_instruction_fieldparentptr_get_dep((IrInstructionFieldParentPtr *) instruction, index);
+        case IrInstructionIdOffsetOf:
+            return ir_instruction_offsetof_get_dep((IrInstructionOffsetOf *) instruction, index);
     }
     zig_unreachable();
 }
@@ -4383,6 +4409,20 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg2_value;
 
                 return ir_build_field_parent_ptr(irb, scope, node, arg0_value, arg1_value, arg2_value, nullptr);
+            }
+        case BuiltinFnIdOffsetOf:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                return ir_build_offset_of(irb, scope, node, arg0_value, arg1_value);
             }
     }
     zig_unreachable();
@@ -11401,6 +11441,41 @@ static TypeTableEntry *ir_analyze_instruction_field_parent_ptr(IrAnalyze *ira,
     return result_type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_offset_of(IrAnalyze *ira,
+        IrInstructionOffsetOf *instruction)
+{
+    IrInstruction *type_value = instruction->type_value->other;
+    TypeTableEntry *container_type = ir_resolve_type(ira, type_value);
+    if (type_is_invalid(container_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    ensure_complete_type(ira->codegen, container_type);
+
+    IrInstruction *field_name_value = instruction->field_name->other;
+    Buf *field_name = ir_resolve_str(ira, field_name_value);
+    if (!field_name)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (container_type->id != TypeTableEntryIdStruct) {
+        ir_add_error(ira, type_value,
+                buf_sprintf("expected struct type, found '%s'", buf_ptr(&container_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    TypeStructField *field = find_struct_type_field(container_type, field_name);
+    if (field == nullptr) {
+        ir_add_error(ira, field_name_value,
+                buf_sprintf("struct '%s' has no field '%s'",
+                    buf_ptr(&container_type->name), buf_ptr(field_name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    size_t byte_offset = LLVMOffsetOfElement(ira->codegen->target_data_ref, container_type->type_ref, field->gen_index);
+    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+    bignum_init_unsigned(&out_val->data.x_bignum, byte_offset);
+    return ira->codegen->builtin_types.entry_num_lit_int;
+}
+
 static TypeTableEntry *ir_analyze_instruction_type_name(IrAnalyze *ira, IrInstructionTypeName *instruction) {
     IrInstruction *type_value = instruction->type_value->other;
     TypeTableEntry *type_entry = ir_resolve_type(ira, type_value);
@@ -12921,6 +12996,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_set_fn_ref_inline(ira, (IrInstructionSetFnRefInline *)instruction);
         case IrInstructionIdFieldParentPtr:
             return ir_analyze_instruction_field_parent_ptr(ira, (IrInstructionFieldParentPtr *)instruction);
+        case IrInstructionIdOffsetOf:
+            return ir_analyze_instruction_offset_of(ira, (IrInstructionOffsetOf *)instruction);
         case IrInstructionIdMaybeWrap:
         case IrInstructionIdErrWrapCode:
         case IrInstructionIdErrWrapPayload:
@@ -13108,6 +13185,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdEnumTagName:
         case IrInstructionIdSetFnRefInline:
         case IrInstructionIdFieldParentPtr:
+        case IrInstructionIdOffsetOf:
             return false;
         case IrInstructionIdAsm:
             {

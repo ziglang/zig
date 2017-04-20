@@ -90,15 +90,20 @@ fn castToMaybeTypeError(z: i32) {
     const f = z;
     const g: %?i32 = f;
 
-    const a = A{ .a = 1 };
+    const a = A{ .a = z };
     const b: %?A = a;
     assert((??%%b).a == 1);
 }
 
 test "implicitly cast from int to %?T" {
-    const f: %?i32 = 1;
-    comptime const g: %?i32 = 1;
+    implicitIntLitToMaybe();
+    comptime implicitIntLitToMaybe();
 }
+fn implicitIntLitToMaybe() {
+    const f: ?i32 = 1;
+    const g: %?i32 = 1;
+}
+
 
 test "return null from fn() -> %?&T" {
     const a = returnNullFromMaybeTypeErrorRef();

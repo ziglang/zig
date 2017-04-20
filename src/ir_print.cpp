@@ -885,6 +885,14 @@ static void ir_print_field_parent_ptr(IrPrint *irp, IrInstructionFieldParentPtr 
     fprintf(irp->f, ")");
 }
 
+static void ir_print_offset_of(IrPrint *irp, IrInstructionOffsetOf *instruction) {
+    fprintf(irp->f, "@offset_of(");
+    ir_print_other_instruction(irp, instruction->type_value);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->field_name);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1174,6 +1182,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdFieldParentPtr:
             ir_print_field_parent_ptr(irp, (IrInstructionFieldParentPtr *)instruction);
+            break;
+        case IrInstructionIdOffsetOf:
+            ir_print_offset_of(irp, (IrInstructionOffsetOf *)instruction);
             break;
     }
     fprintf(irp->f, "\n");
