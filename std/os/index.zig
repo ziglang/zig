@@ -12,6 +12,13 @@ pub const max_noalloc_path_len = 1024;
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
 pub const path = @import("path.zig");
 
+pub const line_sep = switch (@compileVar("os")) {
+    Os.windows => "\r\n",
+    else => "\n",
+};
+
+pub const page_size = 4 * 1024;
+
 const debug = @import("../debug.zig");
 const assert = debug.assert;
 
@@ -27,6 +34,7 @@ const cstr = @import("../cstr.zig");
 
 const io = @import("../io.zig");
 const base64 = @import("../base64.zig");
+const List = @import("../list.zig").List;
 
 error Unexpected;
 error SystemResources;
@@ -41,6 +49,7 @@ error SymLinkLoop;
 error ReadOnlyFileSystem;
 error LinkQuotaExceeded;
 error RenameAcrossMountPoints;
+error DirNotEmpty;
 
 /// Fills `buf` with random bytes. If linking against libc, this calls the
 /// appropriate OS-specific library call. Otherwise it uses the zig standard
@@ -319,7 +328,8 @@ fn posixExecveErrnoToErr(err: usize) -> error {
         errno.EINVAL, errno.ENOEXEC => error.InvalidExe,
         errno.EIO, errno.ELOOP => error.FileSystem,
         errno.EISDIR => error.IsDir,
-        errno.ENOENT, errno.ENOTDIR => error.FileNotFound,
+        errno.ENOENT => error.FileNotFound,
+        errno.ENOTDIR => error.NotDir,
         errno.ETXTBSY => error.FileBusy,
         else => error.Unexpected,
     };
@@ -413,7 +423,8 @@ pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []con
             errno.EIO => error.FileSystem,
             errno.ELOOP => error.SymLinkLoop,
             errno.ENAMETOOLONG => error.NameTooLong,
-            errno.ENOENT, errno.ENOTDIR => error.FileNotFound,
+            errno.ENOENT => error.FileNotFound,
+            errno.ENOTDIR => error.NotDir,
             errno.ENOMEM => error.SystemResources,
             errno.ENOSPC => error.NoSpaceLeft,
             errno.EROFS => error.ReadOnlyFileSystem,
@@ -471,7 +482,8 @@ pub fn deleteFile(allocator: &Allocator, file_path: []const u8) -> %void {
             errno.EISDIR => error.IsDir,
             errno.ELOOP => error.SymLinkLoop,
             errno.ENAMETOOLONG => error.NameTooLong,
-            errno.ENOENT, errno.ENOTDIR => error.FileNotFound,
+            errno.ENOENT => error.FileNotFound,
+            errno.ENOTDIR => error.NotDir,
             errno.ENOMEM => error.SystemResources,
             errno.EROFS => error.ReadOnlyFileSystem,
             else => error.Unexpected,
@@ -518,7 +530,8 @@ pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8)
             errno.ELOOP => error.SymLinkLoop,
             errno.EMLINK => error.LinkQuotaExceeded,
             errno.ENAMETOOLONG => error.NameTooLong,
-            errno.ENOENT, errno.ENOTDIR => error.FileNotFound,
+            errno.ENOENT => error.FileNotFound,
+            errno.ENOTDIR => error.NotDir,
             errno.ENOMEM => error.SystemResources,
             errno.ENOSPC => error.NoSpaceLeft,
             errno.EEXIST, errno.ENOTEMPTY => error.PathAlreadyExists,
@@ -528,3 +541,225 @@ pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8)
         };
     }
 }
+
+pub fn makeDir(allocator: &Allocator, dir_path: []const u8) -> %void {
+    const path_buf = %return allocator.alloc(u8, dir_path.len + 1);
+    defer allocator.free(path_buf);
+
+    mem.copy(u8, path_buf, dir_path);
+    path_buf[dir_path.len] = 0;
+
+    const err = posix.getErrno(posix.mkdir(path_buf.ptr, 0o755));
+    if (err > 0) {
+        return switch (err) {
+            errno.EACCES, errno.EPERM => error.AccessDenied,
+            errno.EDQUOT => error.DiskQuota,
+            errno.EEXIST => error.PathAlreadyExists,
+            errno.EFAULT => unreachable,
+            errno.ELOOP => error.SymLinkLoop,
+            errno.EMLINK => error.LinkQuotaExceeded,
+            errno.ENAMETOOLONG => error.NameTooLong,
+            errno.ENOENT => error.FileNotFound,
+            errno.ENOMEM => error.SystemResources,
+            errno.ENOSPC => error.NoSpaceLeft,
+            errno.ENOTDIR => error.NotDir,
+            errno.EROFS => error.ReadOnlyFileSystem,
+            else => error.Unexpected,
+        };
+    }
+}
+
+/// Calls makeDir recursively to make an entire path. Returns success if the path
+/// already exists and is a directory.
+pub fn makePath(allocator: &Allocator, full_path: []const u8) -> %void {
+    const child_dir = %return path.dirname(allocator, full_path);
+    defer allocator.free(child_dir);
+
+    if (mem.eql(u8, child_dir, full_path))
+        return;
+
+    makePath(allocator, child_dir) %% |err| {
+        if (err != error.PathAlreadyExists)
+            return err;
+    };
+
+    makeDir(allocator, full_path) %% |err| {
+        if (err != error.PathAlreadyExists)
+            return err;
+        // TODO stat the file and return an error if it's not a directory
+    };
+}
+
+/// Returns ::error.DirNotEmpty if the directory is not empty.
+/// To delete a directory recursively, see ::deleteTree
+pub fn deleteDir(allocator: &Allocator, dir_path: []const u8) -> %void {
+    const path_buf = %return allocator.alloc(u8, dir_path.len + 1);
+    defer allocator.free(path_buf);
+
+    mem.copy(u8, path_buf, dir_path);
+    path_buf[dir_path.len] = 0;
+
+    const err = posix.getErrno(posix.rmdir(path_buf.ptr));
+    if (err > 0) {
+        return switch (err) {
+            errno.EACCES, errno.EPERM => error.AccessDenied,
+            errno.EBUSY => error.FileBusy,
+            errno.EFAULT, errno.EINVAL => unreachable,
+            errno.ELOOP => error.SymLinkLoop,
+            errno.ENAMETOOLONG => error.NameTooLong,
+            errno.ENOENT => error.FileNotFound,
+            errno.ENOMEM => error.SystemResources,
+            errno.ENOTDIR => error.NotDir,
+            errno.EEXIST, errno.ENOTEMPTY => error.DirNotEmpty,
+            errno.EROFS => error.ReadOnlyFileSystem,
+            else => error.Unexpected,
+        };
+    }
+}
+
+/// Whether ::full_path describes a symlink, file, or directory, this function
+/// removes it. If it cannot be removed because it is a non-empty directory,
+/// this function recursively removes its entries and then tries again.
+// TODO non-recursive implementation
+pub fn deleteTree(allocator: &Allocator, full_path: []const u8) -> %void {
+start_over:
+    // First, try deleting the item as a file. This way we don't follow sym links.
+    try (deleteFile(allocator, full_path)) {
+        return;
+    } else |err| {
+        if (err == error.FileNotFound)
+            return;
+        if (err != error.IsDir)
+            return err;
+    }
+    {
+        var dir = Dir.open(allocator, full_path) %% |err| {
+            if (err == error.FileNotFound)
+                return;
+            if (err == error.NotDir)
+                goto start_over;
+            return err;
+        };
+        defer dir.close();
+
+        var full_entry_buf = List(u8).init(allocator);
+        defer full_entry_buf.deinit();
+
+        while (true) {
+            const entry = (%return dir.next()) ?? break;
+
+            %return full_entry_buf.resize(full_path.len + entry.name.len + 1);
+            const full_entry_path = full_entry_buf.toSlice();
+            mem.copy(u8, full_entry_path, full_path);
+            full_entry_path[full_path.len] = '/';
+            mem.copy(u8, full_entry_path[full_path.len + 1...], entry.name);
+
+            %return deleteTree(allocator, full_entry_path);
+        }
+    }
+    return deleteDir(allocator, full_path);
+}
+
+pub const Dir = struct {
+    fd: i32,
+    allocator: &Allocator,
+    buf: []u8,
+    index: usize,
+    end_index: usize,
+
+    const LinuxEntry = extern struct {
+        d_ino: usize,
+        d_off: usize,
+        d_reclen: u16,
+        d_name: u8, // field address is the address of first byte of name
+    };
+
+    pub const Entry = struct {
+        name: []const u8,
+        kind: Kind,
+
+        pub const Kind = enum {
+            BlockDevice,
+            CharacterDevice,
+            Directory,
+            NamedPipe,
+            SymLink,
+            File,
+            UnixDomainSocket,
+            Unknown,
+        };
+    };
+
+    pub fn open(allocator: &Allocator, dir_path: []const u8) -> %Dir {
+        const fd = %return posixOpen(dir_path, posix.O_RDONLY|posix.O_DIRECTORY|posix.O_CLOEXEC, 0, allocator);
+        return Dir {
+            .allocator = allocator,
+            .fd = fd,
+            .index = 0,
+            .end_index = 0,
+            .buf = []u8{},
+        };
+    }
+
+    pub fn close(self: &Dir) {
+        self.allocator.free(self.buf);
+        posixClose(self.fd);
+    }
+
+    /// Memory such as file names referenced in this returned entry becomes invalid
+    /// with subsequent calls to next, as well as when this ::Dir is deinitialized.
+    pub fn next(self: &Dir) -> %?Entry {
+    start_over:
+        if (self.index >= self.end_index) {
+            if (self.buf.len == 0) {
+                self.buf = %return self.allocator.alloc(u8, 2); //page_size);
+            }
+
+            while (true) {
+                const result = posix.getdents(self.fd, self.buf.ptr, self.buf.len);
+                const err = linux.getErrno(result);
+                if (err > 0) {
+                    switch (err) {
+                        errno.EBADF, errno.EFAULT, errno.ENOTDIR => unreachable,
+                        errno.EINVAL => {
+                            self.buf = %return self.allocator.realloc(u8, self.buf, self.buf.len * 2);
+                            continue;
+                        },
+                        else => return error.Unexpected,
+                    };
+                }
+                if (result == 0)
+                    return null;
+                self.index = 0;
+                self.end_index = result;
+                break;
+            }
+        }
+        const linux_entry = @ptrcast(&LinuxEntry, &self.buf[self.index]);
+        const next_index = self.index + linux_entry.d_reclen;
+        self.index = next_index;
+
+        const name = (&linux_entry.d_name)[0...cstr.len(&linux_entry.d_name)];
+
+        // skip . and .. entries
+        if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
+            goto start_over;
+        }
+
+        const type_char = self.buf[next_index - 1];
+        const entry_kind = switch (type_char) {
+            posix.DT_BLK => Entry.Kind.BlockDevice,
+            posix.DT_CHR => Entry.Kind.CharacterDevice,
+            posix.DT_DIR => Entry.Kind.Directory,
+            posix.DT_FIFO => Entry.Kind.NamedPipe,
+            posix.DT_LNK => Entry.Kind.SymLink,
+            posix.DT_REG => Entry.Kind.File,
+            posix.DT_SOCK => Entry.Kind.UnixDomainSocket,
+            else => Entry.Kind.Unknown,
+        };
+        return Entry {
+            .name = name,
+            .kind = entry_kind,
+        };
+    }
+};

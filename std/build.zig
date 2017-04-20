@@ -10,13 +10,14 @@ const StdIo = os.ChildProcess.StdIo;
 const Term = os.ChildProcess.Term;
 const BufSet = @import("buf_set.zig").BufSet;
 const BufMap = @import("buf_map.zig").BufMap;
-const fmt = @import("fmt.zig");
+const fmt_lib = @import("fmt.zig");
 
 error ExtraArg;
 error UncleanExit;
 error InvalidStepName;
 error DependencyLoopDetected;
 error NoCompilerFound;
+error NeedAnObject;
 
 pub const Builder = struct {
     uninstall_tls: TopLevelStep,
@@ -38,6 +39,7 @@ pub const Builder = struct {
     lib_dir: []const u8,
     out_dir: []u8,
     installed_files: List([]const u8),
+    build_root: []const u8,
 
     const UserInputOptionsMap = HashMap([]const u8, UserInputOption, mem.hash_slice_u8, mem.eql_slice_u8);
     const AvailableOptionsMap = HashMap([]const u8, AvailableOption, mem.hash_slice_u8, mem.eql_slice_u8);
@@ -73,8 +75,10 @@ pub const Builder = struct {
         description: []const u8,
     };
 
-    pub fn init(allocator: &Allocator) -> Builder {
+    pub fn init(allocator: &Allocator, zig_exe: []const u8, build_root: []const u8) -> Builder {
         var self = Builder {
+            .zig_exe = zig_exe,
+            .build_root = build_root,
             .verbose = false,
             .invalid_user_input = false,
             .allocator = allocator,
@@ -85,7 +89,6 @@ pub const Builder = struct {
             .available_options_map = AvailableOptionsMap.init(allocator),
             .available_options_list = List(AvailableOption).init(allocator),
             .top_level_steps = List(&TopLevelStep).init(allocator),
-            .zig_exe = undefined,
             .default_step = undefined,
             .env_map = %%os.getEnvMap(allocator),
             .prefix = undefined,
@@ -123,6 +126,36 @@ pub const Builder = struct {
         return exe;
     }
 
+    pub fn addTest(self: &Builder, root_src: []const u8) -> &TestStep {
+        const test_step = %%self.allocator.create(TestStep);
+        *test_step = TestStep.init(self, root_src);
+        return test_step;
+    }
+
+    pub fn addAssemble(self: &Builder, name: []const u8, src: []const u8) -> &AsmStep {
+        const asm_step = %%self.allocator.create(AsmStep);
+        *asm_step = AsmStep.init(self, name, src);
+        return asm_step;
+    }
+
+    pub fn addLinkExecutable(self: &Builder, name: []const u8) -> &LinkStep {
+        const exe = %%self.allocator.create(LinkStep);
+        *exe = LinkStep.initExecutable(self, name);
+        return exe;
+    }
+
+    pub fn addLinkStaticLibrary(self: &Builder, name: []const u8) -> &LinkStep {
+        const exe = %%self.allocator.create(LinkStep);
+        *exe = LinkStep.initStaticLibrary(self, name);
+        return exe;
+    }
+
+    pub fn addLinkSharedLibrary(self: &Builder, name: []const u8, ver: &const Version) -> &LinkStep {
+        const exe = %%self.allocator.create(LinkStep);
+        *exe = LinkStep.initSharedLibrary(self, name, ver);
+        return exe;
+    }
+
     pub fn addCStaticLibrary(self: &Builder, name: []const u8) -> &CLibrary {
         const lib = %%self.allocator.create(CLibrary);
         *lib = CLibrary.initStatic(self, name);
@@ -147,6 +180,25 @@ pub const Builder = struct {
         const cmd = %%self.allocator.create(CommandStep);
         *cmd = CommandStep.init(self, cwd, env_map, path, args);
         return cmd;
+    }
+
+    pub fn addWriteFile(self: &Builder, file_path: []const u8, data: []const u8) -> &WriteFileStep {
+        const write_file_step = %%self.allocator.create(WriteFileStep);
+        *write_file_step = WriteFileStep.init(self, file_path, data);
+        return write_file_step;
+    }
+
+    pub fn addLog(self: &Builder, comptime format: []const u8, args: ...) -> &LogStep {
+        const data = self.fmt(format, args);
+        const log_step = %%self.allocator.create(LogStep);
+        *log_step = LogStep.init(self, data);
+        return log_step;
+    }
+
+    pub fn addRemoveDirTree(self: &Builder, dir_path: []const u8) -> &RemoveDirStep {
+        const remove_dir_step = %%self.allocator.create(RemoveDirStep);
+        *remove_dir_step = RemoveDirStep.init(self, dir_path);
+        return remove_dir_step;
     }
 
     pub fn version(self: &const Builder, major: u32, minor: u32, patch: u32) -> Version {
@@ -197,9 +249,8 @@ pub const Builder = struct {
     }
 
     fn makeUninstall(uninstall_step: &Step) -> %void {
-        // TODO
-        // const self = @fieldParentPtr(Exe, "step", step);
-        const self = @ptrcast(&Builder, uninstall_step);
+        const uninstall_tls = @fieldParentPtr(TopLevelStep, "step", uninstall_step);
+        const self = @fieldParentPtr(Builder, "uninstall_tls", uninstall_tls);
 
         for (self.installed_files.toSliceConst()) |installed_file| {
             _ = os.deleteFile(self.allocator, installed_file);
@@ -278,7 +329,7 @@ pub const Builder = struct {
     }
 
     pub fn option(self: &Builder, comptime T: type, name: []const u8, description: []const u8) -> ?T {
-        const type_id = typeToEnum(T);
+        const type_id = comptime typeToEnum(T);
         const available_option = AvailableOption {
             .name = name,
             .type_id = type_id,
@@ -313,7 +364,19 @@ pub const Builder = struct {
             },
             TypeId.Int => debug.panic("TODO integer options to build script"),
             TypeId.Float => debug.panic("TODO float options to build script"),
-            TypeId.String => debug.panic("TODO string options to build script"),
+            TypeId.String => switch (entry.value.value) {
+                UserValue.Flag => {
+                    %%io.stderr.printf("Expected -D{} to be a string, but received a boolean.\n", name);
+                    self.markInvalidUserInput();
+                    return null;
+                },
+                UserValue.List => {
+                    %%io.stderr.printf("Expected -D{} to be a string, but received a list.\n", name);
+                    self.markInvalidUserInput();
+                    return null;
+                },
+                UserValue.Scalar => |s| return s,
+            },
             TypeId.List => debug.panic("TODO list options to build script"),
         }
     }
@@ -482,6 +545,14 @@ pub const Builder = struct {
             debug.panic("Unable to copy {} to {}: {}", source_path, dest_path, @errorName(err));
         };
     }
+
+    fn pathFromRoot(self: &Builder, rel_path: []const u8) -> []u8 {
+        return %%os.path.join(self.allocator, self.build_root, rel_path);
+    }
+
+    pub fn fmt(self: &Builder, comptime format: []const u8, args: ...) -> []u8 {
+        return %%fmt_lib.allocPrint(self.allocator, format, args);
+    }
 };
 
 const Version = struct {
@@ -510,6 +581,17 @@ const Target = enum {
             else => ".o",
         };
     }
+
+    pub fn exeFileExt(self: &const Target) -> []const u8 {
+        const target_os = switch (*self) {
+            Target.Native => @compileVar("os"),
+            Target.Cross => |t| t.os,
+        };
+        return switch (target_os) {
+            Os.windows => ".exe",
+            else => "",
+        };
+    }
 };
 
 const LinkerScript = enum {
@@ -518,7 +600,7 @@ const LinkerScript = enum {
     Path: []const u8,
 };
 
-const Exe = struct {
+pub const Exe = struct {
     step: Step,
     builder: &Builder,
     root_src: []const u8,
@@ -528,6 +610,7 @@ const Exe = struct {
     link_libs: BufSet,
     verbose: bool,
     release: bool,
+    output_path: ?[]const u8,
 
     pub fn init(builder: &Builder, name: []const u8, root_src: []const u8) -> Exe {
         Exe {
@@ -540,6 +623,7 @@ const Exe = struct {
             .linker_script = LinkerScript.None,
             .link_libs = BufSet.init(builder.allocator),
             .step = Step.init(name, builder.allocator, make),
+            .output_path = null,
         }
     }
 
@@ -579,6 +663,10 @@ const Exe = struct {
         self.release = value;
     }
 
+    pub fn setOutputPath(self: &Exe, value: []const u8) {
+        self.output_path = value;
+    }
+
     fn make(step: &Step) -> %void {
         const exe = @fieldParentPtr(Exe, "step", step);
         const builder = exe.builder;
@@ -586,31 +674,36 @@ const Exe = struct {
         var zig_args = List([]const u8).init(builder.allocator);
         defer zig_args.deinit();
 
-        %return zig_args.append("build_exe");
-        %return zig_args.append(exe.root_src);
+        %%zig_args.append("build_exe");
+        %%zig_args.append(builder.pathFromRoot(exe.root_src));
 
         if (exe.verbose) {
-            %return zig_args.append("--verbose");
+            %%zig_args.append("--verbose");
         }
 
         if (exe.release) {
-            %return zig_args.append("--release");
+            %%zig_args.append("--release");
         }
 
-        %return zig_args.append("--name");
-        %return zig_args.append(exe.name);
+        if (const output_path ?= exe.output_path) {
+            %%zig_args.append("--output");
+            %%zig_args.append(builder.pathFromRoot(output_path));
+        }
+
+        %%zig_args.append("--name");
+        %%zig_args.append(exe.name);
 
         switch (exe.target) {
             Target.Native => {},
             Target.Cross => |cross_target| {
-                %return zig_args.append("--target-arch");
-                %return zig_args.append(@enumTagName(cross_target.arch));
+                %%zig_args.append("--target-arch");
+                %%zig_args.append(@enumTagName(cross_target.arch));
 
-                %return zig_args.append("--target-os");
-                %return zig_args.append(@enumTagName(cross_target.os));
+                %%zig_args.append("--target-os");
+                %%zig_args.append(@enumTagName(cross_target.os));
 
-                %return zig_args.append("--target-environ");
-                %return zig_args.append(@enumTagName(cross_target.environ));
+                %%zig_args.append("--target-environ");
+                %%zig_args.append(@enumTagName(cross_target.environ));
             },
         }
 
@@ -620,12 +713,12 @@ const Exe = struct {
                 const tmp_file_name = "linker.ld.tmp"; // TODO issue #298
                 io.writeFile(tmp_file_name, script, builder.allocator)
                     %% |err| debug.panic("unable to write linker script: {}\n", @errorName(err));
-                %return zig_args.append("--linker-script");
-                %return zig_args.append(tmp_file_name);
+                %%zig_args.append("--linker-script");
+                %%zig_args.append(tmp_file_name);
             },
             LinkerScript.Path => |path| {
-                %return zig_args.append("--linker-script");
-                %return zig_args.append(path);
+                %%zig_args.append("--linker-script");
+                %%zig_args.append(path);
             },
         }
 
@@ -633,31 +726,432 @@ const Exe = struct {
             var it = exe.link_libs.iterator();
             while (true) {
                 const entry = it.next() ?? break;
-                %return zig_args.append("--library");
-                %return zig_args.append(entry.key);
+                %%zig_args.append("--library");
+                %%zig_args.append(entry.key);
             }
         }
 
         for (builder.include_paths.toSliceConst()) |include_path| {
-            %return zig_args.append("-isystem");
-            %return zig_args.append(include_path);
+            %%zig_args.append("-isystem");
+            %%zig_args.append(include_path);
         }
 
         for (builder.rpaths.toSliceConst()) |rpath| {
-            %return zig_args.append("-rpath");
-            %return zig_args.append(rpath);
+            %%zig_args.append("-rpath");
+            %%zig_args.append(rpath);
         }
 
         for (builder.lib_paths.toSliceConst()) |lib_path| {
-            %return zig_args.append("--library-path");
-            %return zig_args.append(lib_path);
+            %%zig_args.append("--library-path");
+            %%zig_args.append(lib_path);
         }
 
         builder.spawnChild(builder.zig_exe, zig_args.toSliceConst());
     }
 };
 
-const CLibrary = struct {
+pub const AsmStep = struct {
+    step: Step,
+    builder: &Builder,
+    name: []const u8,
+    target: Target,
+    verbose: bool,
+    release: bool,
+    output_path: ?[]const u8,
+    src_path: []const u8,
+
+    pub fn init(builder: &Builder, name: []const u8, src_path: []const u8) -> AsmStep {
+        var self = AsmStep {
+            .step = Step.init(name, builder.allocator, make),
+            .builder = builder,
+            .name = name,
+            .target = Target.Native,
+            .verbose = false,
+            .release = false,
+            .output_path = null,
+            .src_path = src_path,
+        };
+        return self;
+    }
+
+    pub fn setTarget(self: &AsmStep, target_arch: Arch, target_os: Os, target_environ: Environ) {
+        self.target = Target.Cross {
+            CrossTarget {
+                .arch = target_arch,
+                .os = target_os,
+                .environ = target_environ,
+            }
+        };
+    }
+
+    pub fn setVerbose(self: &AsmStep, value: bool) {
+        self.verbose = value;
+    }
+
+    pub fn setRelease(self: &AsmStep, value: bool) {
+        self.release = value;
+    }
+
+    pub fn setOutputPath(self: &AsmStep, value: []const u8) {
+        self.output_path = value;
+    }
+
+    fn make(step: &Step) -> %void {
+        const self = @fieldParentPtr(AsmStep, "step", step);
+        const builder = self.builder;
+
+        var zig_args = List([]const u8).init(builder.allocator);
+        defer zig_args.deinit();
+
+        %%zig_args.append("asm");
+        %%zig_args.append(builder.pathFromRoot(self.src_path));
+
+        if (self.verbose) {
+            %%zig_args.append("--verbose");
+        }
+
+        if (self.release) {
+            %%zig_args.append("--release");
+        }
+
+        if (const output_path ?= self.output_path) {
+            %%zig_args.append("--output");
+            %%zig_args.append(builder.pathFromRoot(output_path));
+        }
+
+        %%zig_args.append("--name");
+        %%zig_args.append(self.name);
+
+        switch (self.target) {
+            Target.Native => {},
+            Target.Cross => |cross_target| {
+                %%zig_args.append("--target-arch");
+                %%zig_args.append(@enumTagName(cross_target.arch));
+
+                %%zig_args.append("--target-os");
+                %%zig_args.append(@enumTagName(cross_target.os));
+
+                %%zig_args.append("--target-environ");
+                %%zig_args.append(@enumTagName(cross_target.environ));
+            },
+        }
+
+        builder.spawnChild(builder.zig_exe, zig_args.toSliceConst());
+    }
+};
+
+pub const LinkStep = struct {
+    step: Step,
+    builder: &Builder,
+    name: []const u8,
+    target: Target,
+    linker_script: LinkerScript,
+    link_libs: BufSet,
+    verbose: bool,
+    release: bool,
+    output_path: ?[]const u8,
+    object_files: List([]const u8),
+    static: bool,
+    out_filename: []const u8,
+    out_type: OutType,
+    version: Version,
+    major_only_filename: []const u8,
+    name_only_filename: []const u8,
+
+    const OutType = enum {
+        Exe,
+        Lib,
+    };
+
+    pub fn initExecutable(builder: &Builder, name: []const u8) -> LinkStep {
+        return init(builder, name, OutType.Exe, builder.version(0, 0, 0), false)
+    }
+
+    pub fn initSharedLibrary(builder: &Builder, name: []const u8, version: &const Version) -> LinkStep {
+        return init(builder, name, OutType.Lib, version, false)
+    }
+
+    pub fn initStaticLibrary(builder: &Builder, name: []const u8) -> LinkStep {
+        return init(builder, name, OutType.Lib, builder.version(0, 0, 0), true)
+    }
+
+    fn init(builder: &Builder, name: []const u8, out_type: OutType, version: &const Version, static: bool) -> LinkStep {
+        var self = LinkStep {
+            .builder = builder,
+            .verbose = false,
+            .release = false,
+            .name = name,
+            .target = Target.Native,
+            .linker_script = LinkerScript.None,
+            .link_libs = BufSet.init(builder.allocator),
+            .step = Step.init(name, builder.allocator, make),
+            .output_path = null,
+            .object_files = List([]const u8).init(builder.allocator),
+            .out_type = out_type,
+            .version = *version,
+            .static = static,
+            .out_filename = undefined,
+            .major_only_filename = undefined,
+            .name_only_filename = undefined,
+        };
+        self.computeOutFileName();
+        return self;
+    }
+
+    fn computeOutFileName(self: &LinkStep) {
+        switch (self.out_type) {
+            OutType.Exe => {
+                self.out_filename = self.builder.fmt("{}{}", self.name, self.target.exeFileExt());
+            },
+            OutType.Lib => {
+                if (self.static) {
+                    self.out_filename = self.builder.fmt("lib{}.a", self.name);
+                } else {
+                    self.out_filename = self.builder.fmt("lib{}.so.{d}.{d}.{d}",
+                        self.name, self.version.major, self.version.minor, self.version.patch);
+                    self.major_only_filename = self.builder.fmt("lib{}.so.{d}", self.name, self.version.major);
+                    self.name_only_filename = self.builder.fmt("lib{}.so", self.name);
+                }
+            },
+        }
+    }
+
+    pub fn addObjectFile(self: &LinkStep, file: []const u8) {
+        %%self.object_files.append(file);
+    }
+
+    pub fn setTarget(self: &LinkStep, target_arch: Arch, target_os: Os, target_environ: Environ) {
+        self.target = Target.Cross {
+            CrossTarget {
+                .arch = target_arch,
+                .os = target_os,
+                .environ = target_environ,
+            }
+        };
+        self.computeOutFileName();
+    }
+
+    /// LinkStep keeps a reference to script for its lifetime or until this function
+    /// is called again.
+    pub fn setLinkerScriptContents(self: &LinkStep, script: []const u8) {
+        self.linker_script = LinkerScript.Embed { script };
+    }
+
+    pub fn setLinkerScriptPath(self: &LinkStep, path: []const u8) {
+        self.linker_script = LinkerScript.Path { path };
+    }
+
+    pub fn linkLibrary(self: &LinkStep, name: []const u8) {
+        %%self.link_libs.put(name);
+    }
+
+    pub fn setVerbose(self: &LinkStep, value: bool) {
+        self.verbose = value;
+    }
+
+    pub fn setRelease(self: &LinkStep, value: bool) {
+        self.release = value;
+    }
+
+    pub fn setOutputPath(self: &LinkStep, value: []const u8) {
+        self.output_path = value;
+    }
+
+    fn make(step: &Step) -> %void {
+        const self = @fieldParentPtr(LinkStep, "step", step);
+        const builder = self.builder;
+
+        if (self.object_files.len == 0) {
+            %%io.stderr.printf("{}: linker needs 1 or more objects to link\n", step.name);
+            return error.NeedAnObject;
+        }
+
+        var zig_args = List([]const u8).init(builder.allocator);
+        defer zig_args.deinit();
+
+        const cmd = switch (self.out_type) {
+            OutType.Exe => "link_exe",
+            OutType.Lib => "link_lib",
+        };
+        %%zig_args.append(cmd);
+
+        for (self.object_files.toSliceConst()) |object_file| {
+            %%zig_args.append(builder.pathFromRoot(object_file));
+        }
+
+        if (self.verbose) {
+            %%zig_args.append("--verbose");
+        }
+
+        if (self.release) {
+            %%zig_args.append("--release");
+        }
+
+        if (self.static) {
+            %%zig_args.append("--static");
+        }
+
+        if (const output_path ?= self.output_path) {
+            %%zig_args.append("--output");
+            %%zig_args.append(builder.pathFromRoot(output_path));
+        }
+
+        %%zig_args.append("--name");
+        %%zig_args.append(self.name);
+
+        switch (self.target) {
+            Target.Native => {},
+            Target.Cross => |cross_target| {
+                %%zig_args.append("--target-arch");
+                %%zig_args.append(@enumTagName(cross_target.arch));
+
+                %%zig_args.append("--target-os");
+                %%zig_args.append(@enumTagName(cross_target.os));
+
+                %%zig_args.append("--target-environ");
+                %%zig_args.append(@enumTagName(cross_target.environ));
+            },
+        }
+
+        switch (self.linker_script) {
+            LinkerScript.None => {},
+            LinkerScript.Embed => |script| {
+                const tmp_file_name = "linker.ld.tmp"; // TODO issue #298
+                io.writeFile(tmp_file_name, script, builder.allocator)
+                    %% |err| debug.panic("unable to write linker script: {}\n", @errorName(err));
+                %%zig_args.append("--linker-script");
+                %%zig_args.append(tmp_file_name);
+            },
+            LinkerScript.Path => |path| {
+                %%zig_args.append("--linker-script");
+                %%zig_args.append(path);
+            },
+        }
+
+        {
+            var it = self.link_libs.iterator();
+            while (true) {
+                const entry = it.next() ?? break;
+                %%zig_args.append("--library");
+                %%zig_args.append(entry.key);
+            }
+        }
+
+        for (builder.rpaths.toSliceConst()) |rpath| {
+            %%zig_args.append("-rpath");
+            %%zig_args.append(rpath);
+        }
+
+        for (builder.lib_paths.toSliceConst()) |lib_path| {
+            %%zig_args.append("--library-path");
+            %%zig_args.append(lib_path);
+        }
+
+        builder.spawnChild(builder.zig_exe, zig_args.toSliceConst());
+    }
+};
+
+pub const TestStep = struct {
+    step: Step,
+    builder: &Builder,
+    root_src: []const u8,
+    release: bool,
+    verbose: bool,
+    link_libs: BufSet,
+    name_prefix: []const u8,
+    filter: ?[]const u8,
+
+    pub fn init(builder: &Builder, root_src: []const u8) -> TestStep {
+        const step_name = builder.fmt("test {}", root_src);
+        TestStep {
+            .step = Step.init(step_name, builder.allocator, make),
+            .builder = builder,
+            .root_src = root_src,
+            .release = false,
+            .verbose = false,
+            .name_prefix = "",
+            .filter = null,
+            .link_libs = BufSet.init(builder.allocator),
+        }
+    }
+
+    pub fn setVerbose(self: &TestStep, value: bool) {
+        self.verbose = value;
+    }
+
+    pub fn setRelease(self: &TestStep, value: bool) {
+        self.release = value;
+    }
+
+    pub fn linkLibrary(self: &TestStep, name: []const u8) {
+        %%self.link_libs.put(name);
+    }
+
+    pub fn setNamePrefix(self: &TestStep, text: []const u8) {
+        self.name_prefix = text;
+    }
+
+    pub fn setFilter(self: &TestStep, text: ?[]const u8) {
+        self.filter = text;
+    }
+
+    fn make(step: &Step) -> %void {
+        const self = @fieldParentPtr(TestStep, "step", step);
+        const builder = self.builder;
+
+        var zig_args = List([]const u8).init(builder.allocator);
+        defer zig_args.deinit();
+
+        %%zig_args.append("test");
+        %%zig_args.append(builder.pathFromRoot(self.root_src));
+
+        if (self.verbose) {
+            %%zig_args.append("--verbose");
+        }
+
+        if (self.release) {
+            %%zig_args.append("--release");
+        }
+
+        if (const filter ?= self.filter) {
+            %%zig_args.append("--test-filter");
+            %%zig_args.append(filter);
+        }
+
+        if (self.name_prefix.len != 0) {
+            %%zig_args.append("--test-name-prefix");
+            %%zig_args.append(self.name_prefix);
+        }
+
+        {
+            var it = self.link_libs.iterator();
+            while (true) {
+                const entry = it.next() ?? break;
+                %%zig_args.append("--library");
+                %%zig_args.append(entry.key);
+            }
+        }
+
+        for (builder.include_paths.toSliceConst()) |include_path| {
+            %%zig_args.append("-isystem");
+            %%zig_args.append(include_path);
+        }
+
+        for (builder.rpaths.toSliceConst()) |rpath| {
+            %%zig_args.append("-rpath");
+            %%zig_args.append(rpath);
+        }
+
+        for (builder.lib_paths.toSliceConst()) |lib_path| {
+            %%zig_args.append("--library-path");
+            %%zig_args.append(lib_path);
+        }
+
+        builder.spawnChild(builder.zig_exe, zig_args.toSliceConst());
+    }
+};
+
+pub const CLibrary = struct {
     step: Step,
     name: []const u8,
     out_filename: []const u8,
@@ -678,7 +1172,7 @@ const CLibrary = struct {
     }
 
     pub fn initStatic(builder: &Builder, name: []const u8) -> CLibrary {
-        return init(builder, name, undefined, true);
+        return init(builder, name, builder.version(0, 0, 0), true);
     }
 
     fn init(builder: &Builder, name: []const u8, version: &const Version, static: bool) -> CLibrary {
@@ -704,14 +1198,12 @@ const CLibrary = struct {
 
     fn computeOutFileName(self: &CLibrary) {
         if (self.static) {
-            self.out_filename = %%fmt.allocPrint(self.builder.allocator, "lib{}.a", self.name);
+            self.out_filename = self.builder.fmt("lib{}.a", self.name);
         } else {
-            self.out_filename = %%fmt.allocPrint(self.builder.allocator, "lib{}.so.{d}.{d}.{d}",
+            self.out_filename = self.builder.fmt("lib{}.so.{d}.{d}.{d}",
                 self.name, self.version.major, self.version.minor, self.version.patch);
-            self.major_only_filename = %%fmt.allocPrint(self.builder.allocator,
-                "lib{}.so.{d}", self.name, self.version.major);
-            self.name_only_filename = %%fmt.allocPrint(self.builder.allocator,
-                "lib{}.so", self.name);
+            self.major_only_filename = self.builder.fmt("lib{}.so.{d}", self.name, self.version.major);
+            self.name_only_filename = self.builder.fmt("lib{}.so", self.name);
         }
     }
 
@@ -770,7 +1262,7 @@ const CLibrary = struct {
             %%cc_args.append(source_file);
 
             // TODO don't dump the .o file in the same place as the source file
-            const o_file = %%fmt.allocPrint(builder.allocator, "{}{}", source_file, self.target.oFileExt());
+            const o_file = builder.fmt("{}{}", source_file, self.target.oFileExt());
             defer builder.allocator.free(o_file);
             %%cc_args.append("-o");
             %%cc_args.append(o_file);
@@ -797,8 +1289,7 @@ const CLibrary = struct {
             %%cc_args.append("-fPIC");
             %%cc_args.append("-shared");
 
-            const soname_arg = %%fmt.allocPrint(builder.allocator, "-Wl,-soname,lib{}.so.{d}",
-                self.name, self.version.major);
+            const soname_arg = builder.fmt("-Wl,-soname,lib{}.so.{d}", self.name, self.version.major);
             defer builder.allocator.free(soname_arg);
             %%cc_args.append(soname_arg);
 
@@ -806,7 +1297,7 @@ const CLibrary = struct {
             %%cc_args.append(self.out_filename);
 
             for (self.object_files.toSliceConst()) |object_file| {
-                %%cc_args.append(object_file);
+                %%cc_args.append(builder.pathFromRoot(object_file));
             }
 
             builder.spawnChild(cc, cc_args.toSliceConst());
@@ -829,7 +1320,7 @@ const CLibrary = struct {
     }
 };
 
-const CExecutable = struct {
+pub const CExecutable = struct {
     step: Step,
     builder: &Builder,
     name: []const u8,
@@ -907,7 +1398,7 @@ const CExecutable = struct {
             %%cc_args.append(source_file);
 
             // TODO don't dump the .o file in the same place as the source file
-            const o_file = %%fmt.allocPrint(builder.allocator, "{}{}", source_file, self.target.oFileExt());
+            const o_file = builder.fmt("{}{}", source_file, self.target.oFileExt());
             defer builder.allocator.free(o_file);
             %%cc_args.append("-o");
             %%cc_args.append(o_file);
@@ -935,7 +1426,7 @@ const CExecutable = struct {
         %%cc_args.append("-o");
         %%cc_args.append(self.name);
 
-        const rpath_arg = %%fmt.allocPrint(builder.allocator, "-Wl,-rpath,{}", builder.out_dir);
+        const rpath_arg = builder.fmt("-Wl,-rpath,{}", builder.out_dir);
         defer builder.allocator.free(rpath_arg);
         %%cc_args.append(rpath_arg);
 
@@ -959,7 +1450,7 @@ const CExecutable = struct {
     }
 };
 
-const CommandStep = struct {
+pub const CommandStep = struct {
     step: Step,
     builder: &Builder,
     exe_path: []const u8,
@@ -988,7 +1479,7 @@ const CommandStep = struct {
     }
 };
 
-const InstallCLibraryStep = struct {
+pub const InstallCLibraryStep = struct {
     step: Step,
     builder: &Builder,
     lib: &CLibrary,
@@ -997,9 +1488,7 @@ const InstallCLibraryStep = struct {
     pub fn init(builder: &Builder, lib: &CLibrary) -> InstallCLibraryStep {
         var self = InstallCLibraryStep {
             .builder = builder,
-            .step = Step.init(
-                %%fmt.allocPrint(builder.allocator, "install {}", lib.step.name),
-                builder.allocator, make),
+            .step = Step.init(builder.fmt("install {}", lib.step.name), builder.allocator, make),
             .lib = lib,
             .dest_file = undefined,
         };
@@ -1023,7 +1512,7 @@ const InstallCLibraryStep = struct {
     }
 };
 
-const InstallFileStep = struct {
+pub const InstallFileStep = struct {
     step: Step,
     builder: &Builder,
     src_path: []const u8,
@@ -1032,9 +1521,7 @@ const InstallFileStep = struct {
     pub fn init(builder: &Builder, src_path: []const u8, dest_path: []const u8) -> InstallFileStep {
         return InstallFileStep {
             .builder = builder,
-            .step = Step.init(
-                %%fmt.allocPrint(builder.allocator, "install {}", src_path),
-                builder.allocator, make),
+            .step = Step.init(builder.fmt("install {}", src_path), builder.allocator, make),
             .src_path = src_path,
             .dest_path = dest_path,
         };
@@ -1047,7 +1534,81 @@ const InstallFileStep = struct {
     }
 };
 
-const Step = struct {
+pub const WriteFileStep = struct {
+    step: Step,
+    builder: &Builder,
+    file_path: []const u8,
+    data: []const u8,
+
+    pub fn init(builder: &Builder, file_path: []const u8, data: []const u8) -> WriteFileStep {
+        return WriteFileStep {
+            .builder = builder,
+            .step = Step.init(builder.fmt("writefile {}", file_path), builder.allocator, make),
+            .file_path = file_path,
+            .data = data,
+        };
+    }
+
+    fn make(step: &Step) -> %void {
+        const self = @fieldParentPtr(WriteFileStep, "step", step);
+        const full_path = self.builder.pathFromRoot(self.file_path);
+        const full_path_dir = %%os.path.dirname(self.builder.allocator, full_path);
+        os.makePath(self.builder.allocator, full_path_dir) %% |err| {
+            %%io.stderr.printf("unable to make path {}: {}\n", full_path_dir, @errorName(err));
+            return err;
+        };
+        io.writeFile(full_path, self.data, self.builder.allocator) %% |err| {
+            %%io.stderr.printf("unable to write {}: {}\n", full_path, @errorName(err));
+            return err;
+        };
+    }
+};
+
+pub const LogStep = struct {
+    step: Step,
+    builder: &Builder,
+    data: []const u8,
+
+    pub fn init(builder: &Builder, data: []const u8) -> LogStep {
+        return LogStep {
+            .builder = builder,
+            .step = Step.init(builder.fmt("log {}", data), builder.allocator, make),
+            .data = data,
+        };
+    }
+
+    fn make(step: &Step) -> %void {
+        const self = @fieldParentPtr(LogStep, "step", step);
+        %%io.stderr.write(self.data);
+        %%io.stderr.flush();
+    }
+};
+
+pub const RemoveDirStep = struct {
+    step: Step,
+    builder: &Builder,
+    dir_path: []const u8,
+
+    pub fn init(builder: &Builder, dir_path: []const u8) -> RemoveDirStep {
+        return RemoveDirStep {
+            .builder = builder,
+            .step = Step.init(builder.fmt("RemoveDir {}", dir_path), builder.allocator, make),
+            .dir_path = dir_path,
+        };
+    }
+
+    fn make(step: &Step) -> %void {
+        const self = @fieldParentPtr(RemoveDirStep, "step", step);
+
+        const full_path = self.builder.pathFromRoot(self.dir_path);
+        os.deleteTree(self.builder.allocator, full_path) %% |err| {
+            %%io.stderr.printf("Unable to remove {}: {}\n", full_path, @errorName(err));
+            return err;
+        };
+    }
+};
+
+pub const Step = struct {
     name: []const u8,
     makeFn: fn(self: &Step) -> %void,
     dependencies: List(&Step),

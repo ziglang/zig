@@ -45,8 +45,8 @@ compromises backward compatibility.
  * Release mode produces heavily optimized code. What other projects call
    "Link Time Optimization" Zig does automatically.
  * Mark functions as tests and automatically run them with `zig test`.
- * Currently supported architectures: `x86_64`, `i386`
- * Currently supported operating systems: linux, macosx
+ * Currently supported architectures: `x86_64`
+ * Currently supported operating systems: linux
  * Friendly toward package maintainers. Reproducible build, bootstrapping
    process carefully documented. Issues filed by package maintainers are
    considered especially important.
@@ -103,7 +103,7 @@ cd build
 cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd) -DZIG_LIBC_LIB_DIR=$(dirname $(cc -print-file-name=crt1.o)) -DZIG_LIBC_INCLUDE_DIR=$(echo -n | cc -E -x c - -v 2>&1 | grep -B1 "End of search list." | head -n1 | cut -c 2- | sed "s/ .*//") -DZIG_LIBC_STATIC_LIB_DIR=$(dirname $(cc -print-file-name=crtbegin.o))
 make
 make install
-./run_tests
+./zig build --build-file ../build.zig test
 ```
 
 ### Release / Install Build

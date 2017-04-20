@@ -770,6 +770,14 @@ void codegen_link(CodeGen *g, const char *out_file) {
         if (g->want_h_file) {
             codegen_generate_h_file(g);
         }
+        if (override_out_file) {
+            assert(g->link_objects.length == 1);
+            Buf *o_file_path = g->link_objects.at(0);
+            int err;
+            if ((err = os_rename(o_file_path, &lj.out_file))) {
+                zig_panic("unable to rename object file into final output: %s", err_str(err));
+            }
+        }
         if (g->verbose) {
             fprintf(stderr, "OK\n");
         }

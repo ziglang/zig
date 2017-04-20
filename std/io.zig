@@ -57,8 +57,6 @@ error NoMem;
 error Unseekable;
 error Eof;
 
-const buffer_size = 4 * 1024;
-
 pub const OpenRead     = 0b0001;
 pub const OpenWrite    = 0b0010;
 pub const OpenCreate   = 0b0100;
@@ -66,7 +64,7 @@ pub const OpenTruncate = 0b1000;
 
 pub const OutStream = struct {
     fd: i32,
-    buffer: [buffer_size]u8,
+    buffer: [os.page_size]u8,
     index: usize,
 
     /// `path` may need to be copied in memory to add a null terminating byte. In this case
@@ -97,7 +95,7 @@ pub const OutStream = struct {
     }
 
     pub fn write(self: &OutStream, bytes: []const u8) -> %void {
-        if (bytes.len >= buffer_size) {
+        if (bytes.len >= self.buffer.len) {
             %return self.flush();
             return os.posixWrite(self.fd, bytes);
         }
@@ -329,7 +327,7 @@ pub const InStream = struct {
     }
 
     pub fn readAll(is: &InStream, buf: &Buffer0) -> %void {
-        %return buf.resize(buffer_size);
+        %return buf.resize(os.page_size);
 
         var actual_buf_len: usize = 0;
         while (true) {
@@ -341,7 +339,7 @@ pub const InStream = struct {
                 return buf.resize(actual_buf_len);
             }
 
-            %return buf.resize(actual_buf_len + buffer_size);
+            %return buf.resize(actual_buf_len + os.page_size);
         }
     }
 };

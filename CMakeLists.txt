@@ -63,14 +63,6 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
 )
 
-set(TEST_SOURCES
-    "${CMAKE_SOURCE_DIR}/src/buffer.cpp"
-    "${CMAKE_SOURCE_DIR}/src/util.cpp"
-    "${CMAKE_SOURCE_DIR}/src/os.cpp"
-    "${CMAKE_SOURCE_DIR}/src/error.cpp"
-    "${CMAKE_SOURCE_DIR}/test/run_tests.cpp"
-)
-
 set(C_HEADERS
     "${CMAKE_SOURCE_DIR}/c_headers/Intrin.h"
     "${CMAKE_SOURCE_DIR}/c_headers/__stddef_max_align_t.h"
@@ -248,19 +240,12 @@ install(FILES "${CMAKE_SOURCE_DIR}/std/special/test_runner.zig" DESTINATION "${Z
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/zigrt.zig" DESTINATION "${ZIG_STD_DEST}/special")
 install(FILES "${CMAKE_SOURCE_DIR}/std/target.zig" DESTINATION "${ZIG_STD_DEST}")
 
-add_executable(run_tests ${TEST_SOURCES})
-target_link_libraries(run_tests)
-set_target_properties(run_tests PROPERTIES
-    COMPILE_FLAGS ${EXE_CFLAGS}
-    LINK_FLAGS ${EXE_LDFLAGS}
-)
-
 if (ZIG_TEST_COVERAGE)
     add_custom_target(coverage
         DEPENDS run_tests
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
         COMMAND lcov --directory . --zerocounters --rc lcov_branch_coverage=1
-        COMMAND ./run_tests
+        COMMAND ./zig build --build-file ../build.zig test
         COMMAND lcov --directory . --capture --output-file coverage.info --rc lcov_branch_coverage=1
         COMMAND lcov --remove coverage.info '/usr/*' --output-file coverage.info.cleaned --rc lcov_branch_coverage=1
         COMMAND genhtml -o coverage coverage.info.cleaned --rc lcov_branch_coverage=1

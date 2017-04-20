@@ -683,3 +683,10 @@ int os_delete_file(Buf *path) {
 void os_init(void) {
     srand((unsigned)time(NULL));
 }
+
+int os_rename(Buf *src_path, Buf *dest_path) {
+    if (rename(buf_ptr(src_path), buf_ptr(dest_path)) == -1) {
+        return ErrorFileSystem;
+    }
+    return 0;
+}

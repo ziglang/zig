@@ -64,6 +64,9 @@ static int usage(const char *arg0) {
         "  -mwindows                    (windows only) --subsystem windows to the linker\n"
         "  -rdynamic                    add all symbols to the dynamic symbol table\n"
         "  -rpath [path]                add directory to the runtime library search path\n"
+        "Test Options:\n"
+        "  --test-filter [text]         skip tests that do not match filter\n"
+        "  --test-name-prefix [text]    add prefix to all tests\n"
     , arg0);
     return EXIT_FAILURE;
 }
@@ -151,6 +154,8 @@ int main(int argc, char **argv) {
     ZigList<const char *> rpath_list = {0};
     bool each_lib_rpath = false;
     ZigList<const char *> objects = {0};
+    const char *test_filter = nullptr;
+    const char *test_name_prefix = nullptr;
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         const char *zig_exe_path = arg0;
@@ -168,6 +173,7 @@ int main(int argc, char **argv) {
 
         ZigList<const char *> args = {0};
         args.append(zig_exe_path);
+        args.append(NULL); // placeholder
         for (int i = 2; i < argc; i += 1) {
             if (strcmp(argv[i], "--debug-build-verbose") == 0) {
                 verbose = true;
@@ -202,6 +208,8 @@ int main(int argc, char **argv) {
         Buf build_file_dirname = BUF_INIT;
         os_path_split(&build_file_abs, &build_file_dirname, &build_file_basename);
 
+        args.items[1] = buf_ptr(&build_file_dirname);
+
         bool build_file_exists;
         if ((err = os_file_exists(&build_file_abs, &build_file_exists))) {
             fprintf(stderr, "unable to open '%s': %s\n", buf_ptr(&build_file_abs), err_str(err));
@@ -214,11 +222,14 @@ int main(int argc, char **argv) {
                         "Usage: %s build [options]\n"
                         "\n"
                         "General Options:\n"
-                        "  --help                 Print this help and exit.\n"
-                        "  --build-file [file]    Override path to build.zig.\n"
-                        "  --verbose              Print commands before executing them.\n"
-                        "  --debug-build-verbose  Print verbose debugging information for the build system itself.\n"
-                        "  --prefix [prefix]      Override default install prefix.\n"
+                        "  --help                 Print this help and exit\n"
+                        "  --build-file [file]    Override path to build.zig\n"
+                        "  --verbose              Print commands before executing them\n"
+                        "  --debug-build-verbose  Print verbose debugging information for the build system itself\n"
+                        "  --prefix [prefix]      Override default install prefix\n"
+                        "\n"
+                        "More options become available when the build file is found.\n"
+                        "Run this command with no options to generate a build.zig template.\n"
                 , zig_exe_path);
                 return 0;
             }
@@ -335,6 +346,10 @@ int main(int argc, char **argv) {
                     linker_script = argv[i];
                 } else if (strcmp(arg, "-rpath") == 0) {
                     rpath_list.append(argv[i]);
+                } else if (strcmp(arg, "--test-filter") == 0) {
+                    test_filter = argv[i];
+                } else if (strcmp(arg, "--test-name-prefix") == 0) {
+                    test_name_prefix = argv[i];
                 } else {
                     fprintf(stderr, "Invalid argument: %s\n", arg);
                     return usage(arg0);
@@ -554,6 +569,14 @@ int main(int argc, char **argv) {
 
             if (mios_version_min) {
                 codegen_set_mios_version_min(g, buf_create_from_str(mios_version_min));
+            }
+
+            if (test_filter) {
+                codegen_set_test_filter(g, buf_create_from_str(test_filter));
+            }
+
+            if (test_name_prefix) {
+                codegen_set_test_name_prefix(g, buf_create_from_str(test_name_prefix));
             }
 
             if (cmd == CmdBuild) {

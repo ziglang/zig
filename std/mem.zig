@@ -9,6 +9,8 @@ error NoMem;
 
 pub const Allocator = struct {
     allocFn: fn (self: &Allocator, n: usize) -> %[]u8,
+    /// Note that old_mem may be a slice of length 0, in which case reallocFn
+    /// should simply call allocFn
     reallocFn: fn (self: &Allocator, old_mem: []u8, new_size: usize) -> %[]u8,
     freeFn: fn (self: &Allocator, mem: []u8),
 
@@ -134,6 +136,13 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) -> bool {
     return true;
 }
 
+/// Copies ::m to newly allocated memory. Caller is responsible to free it.
+pub fn dupe(allocator: &Allocator, comptime T: type, m: []const T) -> %[]T {
+    const new_buf = %return allocator.alloc(T, m.len);
+    copy(T, new_buf, m);
+    return new_buf;
+}
+
 /// Linear search for the index of a scalar value inside a slice.
 pub fn indexOfScalar(comptime T: type, slice: []const T, value: T) -> ?usize {
     for (slice) |item, i| {
@@ -142,6 +151,27 @@ pub fn indexOfScalar(comptime T: type, slice: []const T, value: T) -> ?usize {
         }
     }
     return null;
+}
+
+// TODO boyer-moore algorithm
+pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) -> ?usize {
+    if (needle.len > haystack.len)
+        return null;
+
+    var i: usize = 0;
+    const end = haystack.len - needle.len;
+    while (i <= end; i += 1) {
+        if (eql(T, haystack[i...i + needle.len], needle))
+            return i;
+    }
+    return null;
+}
+
+test "mem.indexOf" {
+    assert(??indexOf(u8, "one two three four", "four") == 14);
+    assert(indexOf(u8, "one two three four", "gour") == null);
+    assert(??indexOf(u8, "foo", "foo") == 0);
+    assert(indexOf(u8, "foo", "fool") == null);
 }
 
 /// Reads an integer from memory with size equal to bytes.len.

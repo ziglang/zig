@@ -1959,7 +1959,14 @@ static void preview_test_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope
     if (import->package != g->root_package)
         return;
 
-    Buf *test_name = node->data.test_decl.name;
+    Buf *decl_name_buf = node->data.test_decl.name;
+
+    Buf *test_name = g->test_name_prefix ?
+        buf_sprintf("%s%s", buf_ptr(g->test_name_prefix), buf_ptr(decl_name_buf)) : decl_name_buf;
+
+    if (g->test_filter != nullptr && strstr(buf_ptr(test_name), buf_ptr(g->test_filter)) == nullptr) {
+        return;
+    }
 
     TldFn *tld_fn = allocate<TldFn>(1);
     init_tld(&tld_fn->base, TldIdFn, test_name, VisibModPrivate, node, &decls_scope->base);
