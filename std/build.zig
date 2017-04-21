@@ -128,7 +128,7 @@ pub const Builder = struct {
 
     pub fn addObject(self: &Builder, name: []const u8, root_src: []const u8) -> &ObjectStep {
         const obj_step = %%self.allocator.create(ObjectStep);
-        *obj_step = ObjectStep.init(self, name, src);
+        *obj_step = ObjectStep.init(self, name, root_src);
         return obj_step;
     }
 
@@ -1563,6 +1563,17 @@ pub const CExecutable = struct {
         assert(lib.kind == LibOrExeStep.Kind.Lib);
         self.step.dependOn(&lib.step);
         %%self.full_path_libs.append(lib.out_filename);
+        // TODO should be some kind of isolated directory that only has this header in it
+        %%self.include_dirs.append(self.builder.out_dir);
+    }
+
+    pub fn addObject(self: &CExecutable, obj: &ObjectStep) {
+        self.step.dependOn(&obj.step);
+
+        // TODO make it so we always know where this will be
+        %%self.object_files.append(%%os.path.join(self.builder.allocator, self.builder.out_dir,
+            self.builder.fmt("{}{}", obj.name, obj.target.oFileExt())));
+
         // TODO should be some kind of isolated directory that only has this header in it
         %%self.include_dirs.append(self.builder.out_dir);
     }
