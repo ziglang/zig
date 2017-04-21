@@ -16,7 +16,7 @@ test "numLitIntToPtrCast" {
 test "pointerReinterpretConstFloatToInt" {
     const float: f64 = 5.99999999999994648725e-01;
     const float_ptr = &float;
-    const int_ptr = @ptrcast(&i32, float_ptr);
+    const int_ptr = @ptrCast(&i32, float_ptr);
     const int_val = *int_ptr;
     assert(int_val == 858993411);
 }

@@ -1475,7 +1475,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("ptrcast to non-pointer",
         \\export fn entry(a: &i32) -> usize {
-        \\    return @ptrcast(usize, a);
+        \\    return @ptrCast(usize, a);
         \\}
     , ".tmp_source.zig:2:21: error: expected pointer, found 'usize'");
 

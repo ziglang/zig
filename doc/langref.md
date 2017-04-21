@@ -623,7 +623,7 @@ calls the public `panic` function exposed in the root source file, or
 if there is not one specified, invokes the one provided in
 `std/special/panic.zig`.
 
-### @ptrcast(comptime DestType: type, value: var) -> DestType
+### @ptrCast(comptime DestType: type, value: var) -> DestType
 
 Converts a pointer of one type to a pointer of another type.
 

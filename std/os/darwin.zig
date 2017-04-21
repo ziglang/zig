@@ -59,7 +59,7 @@ pub fn exit(status: usize) -> noreturn {
 
 /// Get the errno from a syscall return value, or 0 for no error.
 pub fn getErrno(r: usize) -> usize {
-    const signed_r = *@ptrcast(&const isize, &r);
+    const signed_r = *@ptrCast(&const isize, &r);
     if (signed_r > -4096 and signed_r < 0) usize(-signed_r) else 0
 }
 

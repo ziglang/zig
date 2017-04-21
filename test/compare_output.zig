@@ -262,8 +262,8 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\const c = @cImport(@cInclude("stdlib.h"));
         \\
         \\export fn compare_fn(a: ?&const c_void, b: ?&const c_void) -> c_int {
-        \\    const a_int = @ptrcast(&i32, a ?? unreachable);
-        \\    const b_int = @ptrcast(&i32, b ?? unreachable);
+        \\    const a_int = @ptrCast(&i32, a ?? unreachable);
+        \\    const b_int = @ptrCast(&i32, b ?? unreachable);
         \\    if (*a_int < *b_int) {
         \\        -1
         \\    } else if (*a_int > *b_int) {
@@ -276,7 +276,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\export fn main() -> c_int {
         \\    var array = []u32 { 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
         \\
-        \\    c.qsort(@ptrcast(&c_void, &array[0]), c_ulong(array.len), @sizeOf(i32), compare_fn);
+        \\    c.qsort(@ptrCast(&c_void, &array[0]), c_ulong(array.len), @sizeOf(i32), compare_fn);
         \\
         \\    for (array) |item, i| {
         \\        if (item != i) {

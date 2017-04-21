@@ -31,8 +31,8 @@ export nakedcc fn _start() -> noreturn {
 
 fn callMainAndExit() -> noreturn {
     const argc = *argc_ptr;
-    const argv = @ptrcast(&&u8, &argc_ptr[1]);
-    const envp = @ptrcast(&?&u8, &argv[argc + 1]);
+    const argv = @ptrCast(&&u8, &argc_ptr[1]);
+    const envp = @ptrCast(&?&u8, &argv[argc + 1]);
     callMain(argc, argv, envp) %% exit(1);
     exit(0);
 }
@@ -42,7 +42,7 @@ fn callMain(argc: usize, argv: &&u8, envp: &?&u8) -> %void {
 
     var env_count: usize = 0;
     while (envp[env_count] != null; env_count += 1) {}
-    std.os.environ_raw = @ptrcast(&&u8, envp)[0...env_count];
+    std.os.environ_raw = @ptrCast(&&u8, envp)[0...env_count];
 
     return root.main();
 }

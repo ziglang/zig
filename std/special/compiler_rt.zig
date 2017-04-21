@@ -15,7 +15,7 @@ export fn __udivdi3(a: du_int, b: du_int) -> du_int {
 
 fn du_int_to_udwords(x: du_int) -> udwords {
     @setDebugSafety(this, false);
-    return *@ptrcast(&udwords, &x);
+    return *@ptrCast(&udwords, &x);
 }
 
 export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
@@ -66,7 +66,7 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
             if (var rem ?= maybe_rem) {
                 r[high] = n[high] % d[high];
                 r[low] = 0;
-                *rem = *@ptrcast(&du_int, &r[0]);
+                *rem = *@ptrCast(&du_int, &r[0]);
             }
             return n[high] / d[high];
         }
@@ -78,7 +78,7 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
             if (var rem ?= maybe_rem) {
                 r[low] = n[low];
                 r[high] = n[high] & (d[high] - 1);
-                *rem = *@ptrcast(&du_int, &r[0]);
+                *rem = *@ptrCast(&du_int, &r[0]);
             }
             return n[high] >> @ctz(d[high]);
         }
@@ -89,7 +89,7 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
         // 0 <= sr <= n_uword_bits - 2 or sr large
         if (sr > n_uword_bits - 2) {
             if (var rem ?= maybe_rem) {
-                *rem = *@ptrcast(&du_int, &n[0]);
+                *rem = *@ptrCast(&du_int, &n[0]);
             }
             return 0;
         }
@@ -113,12 +113,12 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
                     *rem = n[low] & (d[low] - 1);
                 }
                 if (d[low] == 1) {
-                    return *@ptrcast(&du_int, &n[0]);
+                    return *@ptrCast(&du_int, &n[0]);
                 }
                 sr = @ctz(d[low]);
                 q[high] = n[high] >> sr;
                 q[low] = (n[high] << (n_uword_bits - sr)) | (n[low] >> sr);
-                return *@ptrcast(&du_int, &q[0]);
+                return *@ptrCast(&du_int, &q[0]);
             }
             // K X
             // ---
@@ -154,7 +154,7 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
             // 0 <= sr <= n_uword_bits - 1 or sr large
             if (sr > n_uword_bits - 1) {
                 if (var rem ?= maybe_rem) {
-                    *rem = *@ptrcast(&du_int, &n[0]);
+                    *rem = *@ptrCast(&du_int, &n[0]);
                 }
                 return 0;
             }
@@ -191,17 +191,17 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
         //      r.all -= d.all;
         //      carry = 1;
         // }
-        const s: di_int = (di_int)(*@ptrcast(&du_int, &d[0]) - *@ptrcast(&du_int, &r[0]) - 1) >> (n_udword_bits - 1);
+        const s: di_int = (di_int)(*@ptrCast(&du_int, &d[0]) - *@ptrCast(&du_int, &r[0]) - 1) >> (n_udword_bits - 1);
         carry = su_int(s & 1);
-        *@ptrcast(&du_int, &r[0]) -= *@ptrcast(&du_int, &d[0]) & u64(s);
+        *@ptrCast(&du_int, &r[0]) -= *@ptrCast(&du_int, &d[0]) & u64(s);
 
         sr -= 1;
     }
-    *@ptrcast(&du_int, &q[0]) = (*@ptrcast(&du_int, &q[0]) << 1) | u64(carry);
+    *@ptrCast(&du_int, &q[0]) = (*@ptrCast(&du_int, &q[0]) << 1) | u64(carry);
     if (var rem ?= maybe_rem) {
-        *rem = *@ptrcast(&du_int, &r[0]);
+        *rem = *@ptrCast(&du_int, &r[0]);
     }
-    return *@ptrcast(&du_int, &q[0]);
+    return *@ptrCast(&du_int, &q[0]);
 }
 
 export fn __umoddi3(a: du_int, b: du_int) -> du_int {

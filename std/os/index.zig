@@ -752,7 +752,7 @@ pub const Dir = struct {
                 break;
             }
         }
-        const linux_entry = @ptrcast(&LinuxEntry, &self.buf[self.index]);
+        const linux_entry = @ptrCast(&LinuxEntry, &self.buf[self.index]);
         const next_index = self.index + linux_entry.d_reclen;
         self.index = next_index;
 

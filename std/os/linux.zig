@@ -251,8 +251,8 @@ pub const DT_LNK = 10;
 pub const DT_SOCK = 12;
 pub const DT_WHT = 14;
 
-fn unsigned(s: i32) -> u32 { *@ptrcast(&u32, &s) }
-fn signed(s: u32) -> i32 { *@ptrcast(&i32, &s) }
+fn unsigned(s: i32) -> u32 { *@ptrCast(&u32, &s) }
+fn signed(s: u32) -> i32 { *@ptrCast(&i32, &s) }
 pub fn WEXITSTATUS(s: i32) -> i32 { signed((unsigned(s) & 0xff00) >> 8) }
 pub fn WTERMSIG(s: i32) -> i32 { signed(unsigned(s) & 0x7f) }
 pub fn WSTOPSIG(s: i32) -> i32 { WEXITSTATUS(s) }
@@ -262,7 +262,7 @@ pub fn WIFSIGNALED(s: i32) -> bool { (unsigned(s)&0xffff)-%1 < 0xff }
 
 /// Get the errno from a syscall return value, or 0 for no error.
 pub fn getErrno(r: usize) -> usize {
-    const signed_r = *@ptrcast(&const isize, &r);
+    const signed_r = *@ptrCast(&const isize, &r);
     if (signed_r > -4096 and signed_r < 0) usize(-signed_r) else 0
 }
 
