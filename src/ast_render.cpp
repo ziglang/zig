@@ -92,7 +92,6 @@ static const char *return_string(ReturnKind kind) {
     switch (kind) {
         case ReturnKindUnconditional: return "return";
         case ReturnKindError: return "%return";
-        case ReturnKindMaybe: return "?return";
     }
     zig_unreachable();
 }
@@ -101,7 +100,6 @@ static const char *defer_string(ReturnKind kind) {
     switch (kind) {
         case ReturnKindUnconditional: return "defer";
         case ReturnKindError: return "%defer";
-        case ReturnKindMaybe: return "?defer";
     }
     zig_unreachable();
 }

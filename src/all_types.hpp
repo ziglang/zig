@@ -408,7 +408,6 @@ struct AstNodeBlock {
 
 enum ReturnKind {
     ReturnKindUnconditional,
-    ReturnKindMaybe,
     ReturnKindError,
 };
 

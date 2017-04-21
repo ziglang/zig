@@ -42,7 +42,7 @@ test "rhsMaybeUnwrapReturn" {
 }
 
 
-test "maybeReturn" {
+test "maybe return" {
     maybeReturnImpl();
     comptime maybeReturnImpl();
 }
@@ -54,7 +54,7 @@ fn maybeReturnImpl() {
 }
 
 fn foo(x: ?i32) -> ?bool {
-    const value = ?return x;
+    const value = x ?? return null;
     return value > 1234;
 }
 

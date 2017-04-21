@@ -3091,7 +3091,6 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
 static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope, size_t *results) {
     results[ReturnKindUnconditional] = 0;
     results[ReturnKindError] = 0;
-    results[ReturnKindMaybe] = 0;
 
     while (inner_scope != outer_scope) {
         assert(inner_scope);
@@ -3111,9 +3110,7 @@ static IrInstruction *ir_mark_gen(IrInstruction *instruction) {
     return instruction;
 }
 
-static bool ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope,
-        bool gen_error_defers, bool gen_maybe_defers)
-{
+static bool ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope, bool gen_error_defers) {
     Scope *scope = inner_scope;
     while (scope != outer_scope) {
         if (!scope)
@@ -3124,8 +3121,7 @@ static bool ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *o
             assert(defer_node->type == NodeTypeDefer);
             ReturnKind defer_kind = defer_node->data.defer.kind;
             if (defer_kind == ReturnKindUnconditional ||
-                (gen_error_defers && defer_kind == ReturnKindError) ||
-                (gen_maybe_defers && defer_kind == ReturnKindMaybe))
+                (gen_error_defers && defer_kind == ReturnKindError))
             {
                 AstNode *defer_expr_node = defer_node->data.defer.expr;
                 ir_gen_node(irb, defer_expr_node, defer_node->data.defer.expr_scope);
@@ -3188,7 +3184,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                     return_value = ir_build_const_void(irb, scope, node);
                 }
 
-                size_t defer_counts[3];
+                size_t defer_counts[2];
                 ir_count_defers(irb, scope, outer_scope, defer_counts);
                 if (defer_counts[ReturnKindError] > 0) {
                     IrBasicBlock *err_block = ir_build_basic_block(irb, scope, "ErrRetErr");
@@ -3206,37 +3202,15 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                     ir_mark_gen(ir_build_cond_br(irb, scope, node, is_err, err_block, ok_block, is_comptime));
 
                     ir_set_cursor_at_end(irb, err_block);
-                    ir_gen_defers_for_block(irb, scope, outer_scope, true, false);
+                    ir_gen_defers_for_block(irb, scope, outer_scope, true);
                     ir_build_return(irb, scope, node, return_value);
 
                     ir_set_cursor_at_end(irb, ok_block);
-                    ir_gen_defers_for_block(irb, scope, outer_scope, false, false);
-                    return ir_build_return(irb, scope, node, return_value);
-                } else if (defer_counts[ReturnKindMaybe] > 0) {
-                    IrBasicBlock *null_block = ir_build_basic_block(irb, scope, "MaybeRetNull");
-                    IrBasicBlock *ok_block = ir_build_basic_block(irb, scope, "MaybeRetOk");
-
-                    IrInstruction *is_non_null = ir_build_test_nonnull(irb, scope, node, return_value);
-
-                    IrInstruction *is_comptime;
-                    if (ir_should_inline(irb->exec, scope)) {
-                        is_comptime = ir_build_const_bool(irb, scope, node, true);
-                    } else {
-                        is_comptime = ir_build_test_comptime(irb, scope, node, is_non_null);
-                    }
-
-                    ir_mark_gen(ir_build_cond_br(irb, scope, node, is_non_null, ok_block, null_block, is_comptime));
-
-                    ir_set_cursor_at_end(irb, null_block);
-                    ir_gen_defers_for_block(irb, scope, outer_scope, false, true);
-                    ir_build_return(irb, scope, node, return_value);
-
-                    ir_set_cursor_at_end(irb, ok_block);
-                    ir_gen_defers_for_block(irb, scope, outer_scope, false, false);
+                    ir_gen_defers_for_block(irb, scope, outer_scope, false);
                     return ir_build_return(irb, scope, node, return_value);
                 } else {
                     // generate unconditional defers
-                    ir_gen_defers_for_block(irb, scope, outer_scope, false, false);
+                    ir_gen_defers_for_block(irb, scope, outer_scope, false);
                     return ir_build_return(irb, scope, node, return_value);
                 }
             }
@@ -3255,38 +3229,12 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 ir_mark_gen(ir_build_cond_br(irb, scope, node, is_err_val, return_block, continue_block, is_comptime));
 
                 ir_set_cursor_at_end(irb, return_block);
-                ir_gen_defers_for_block(irb, scope, outer_scope, true, false);
+                ir_gen_defers_for_block(irb, scope, outer_scope, true);
                 IrInstruction *err_val = ir_build_unwrap_err_code(irb, scope, node, err_union_ptr);
                 ir_build_return(irb, scope, node, err_val);
 
                 ir_set_cursor_at_end(irb, continue_block);
                 IrInstruction *unwrapped_ptr = ir_build_unwrap_err_payload(irb, scope, node, err_union_ptr, false);
-                if (lval.is_ptr)
-                    return unwrapped_ptr;
-                else
-                    return ir_build_load_ptr(irb, scope, node, unwrapped_ptr);
-            }
-        case ReturnKindMaybe:
-            {
-                assert(expr_node);
-                IrInstruction *maybe_val_ptr = ir_gen_node_extra(irb, expr_node, scope, LVAL_PTR);
-                if (maybe_val_ptr == irb->codegen->invalid_instruction)
-                    return irb->codegen->invalid_instruction;
-                IrInstruction *maybe_val = ir_build_load_ptr(irb, scope, node, maybe_val_ptr);
-                IrInstruction *is_non_null = ir_build_test_nonnull(irb, scope, node, maybe_val);
-
-                IrBasicBlock *return_block = ir_build_basic_block(irb, scope, "MaybeRetReturn");
-                IrBasicBlock *continue_block = ir_build_basic_block(irb, scope, "MaybeRetContinue");
-                IrInstruction *is_comptime = ir_build_const_bool(irb, scope, node, ir_should_inline(irb->exec, scope));
-                ir_mark_gen(ir_build_cond_br(irb, scope, node, is_non_null, continue_block, return_block, is_comptime));
-
-                ir_set_cursor_at_end(irb, return_block);
-                ir_gen_defers_for_block(irb, scope, outer_scope, false, true);
-                IrInstruction *null = ir_build_const_null(irb, scope, node);
-                ir_build_return(irb, scope, node, null);
-
-                ir_set_cursor_at_end(irb, continue_block);
-                IrInstruction *unwrapped_ptr = ir_build_unwrap_maybe(irb, scope, node, maybe_val_ptr, false);
                 if (lval.is_ptr)
                     return unwrapped_ptr;
                 else
@@ -3490,7 +3438,7 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
             return_value = ir_mark_gen(ir_build_const_void(irb, child_scope, block_node));
         }
 
-        ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false, false);
+        ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
     }
 
     assert(return_value != nullptr);
@@ -5420,7 +5368,7 @@ static IrInstruction *ir_gen_break(IrBuilder *irb, Scope *scope, AstNode *node) 
     }
 
     IrBasicBlock *dest_block = loop_stack_item->break_block;
-    ir_gen_defers_for_block(irb, scope, dest_block->scope, false, false);
+    ir_gen_defers_for_block(irb, scope, dest_block->scope, false);
     return ir_build_br(irb, scope, node, dest_block, is_comptime);
 }
 
@@ -5443,7 +5391,7 @@ static IrInstruction *ir_gen_continue(IrBuilder *irb, Scope *scope, AstNode *nod
     }
 
     IrBasicBlock *dest_block = loop_stack_item->continue_block;
-    ir_gen_defers_for_block(irb, scope, dest_block->scope, false, false);
+    ir_gen_defers_for_block(irb, scope, dest_block->scope, false);
     return ir_build_br(irb, scope, node, dest_block, is_comptime);
 }
 
@@ -5784,7 +5732,7 @@ static bool ir_goto_pass2(IrBuilder *irb) {
 
         IrInstruction *is_comptime = ir_build_const_bool(irb, goto_item->scope, source_node,
             ir_should_inline(irb->exec, goto_item->scope) || source_node->data.goto_expr.is_inline);
-        if (!ir_gen_defers_for_block(irb, goto_item->scope, label->bb->scope, false, false)) {
+        if (!ir_gen_defers_for_block(irb, goto_item->scope, label->bb->scope, false)) {
             add_node_error(irb->codegen, source_node,
                 buf_sprintf("no label in scope named '%s'", buf_ptr(label_name)));
             return false;

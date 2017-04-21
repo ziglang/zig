@@ -11,8 +11,6 @@
    libc.
  * **cat** - implementation of the `cat` UNIX utility in Zig, with no dependency
    on libc.
-
-## Work-In-Progress Examples
-
  * **shared_library** - demonstration of building a shared library and generating
-   a header file and documentation for interop with C code.
+   a header file for interop with C code.
+ * **mix_o_files** - how to mix .zig and .c files together as object files

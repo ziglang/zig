@@ -1483,7 +1483,7 @@ static AstNode *ast_parse_if_expr(ParseContext *pc, size_t *token_index, bool ma
 }
 
 /*
-ReturnExpression : option("%" | "?") "return" option(Expression)
+ReturnExpression : option("%") "return" option(Expression)
 */
 static AstNode *ast_parse_return_expr(ParseContext *pc, size_t *token_index) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1495,15 +1495,6 @@ static AstNode *ast_parse_return_expr(ParseContext *pc, size_t *token_index) {
         Token *next_token = &pc->tokens->at(*token_index + 1);
         if (next_token->id == TokenIdKeywordReturn) {
             kind = ReturnKindError;
-            node_type = NodeTypeReturnExpr;
-            *token_index += 2;
-        } else {
-            return nullptr;
-        }
-    } else if (token->id == TokenIdMaybe) {
-        Token *next_token = &pc->tokens->at(*token_index + 1);
-        if (next_token->id == TokenIdKeywordReturn) {
-            kind = ReturnKindMaybe;
             node_type = NodeTypeReturnExpr;
             *token_index += 2;
         } else {
@@ -1525,7 +1516,7 @@ static AstNode *ast_parse_return_expr(ParseContext *pc, size_t *token_index) {
 }
 
 /*
-Defer(body) = option("%" | "?") "defer" body
+Defer(body) = option("%") "defer" body
 */
 static AstNode *ast_parse_defer_expr(ParseContext *pc, size_t *token_index) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1537,15 +1528,6 @@ static AstNode *ast_parse_defer_expr(ParseContext *pc, size_t *token_index) {
         Token *next_token = &pc->tokens->at(*token_index + 1);
         if (next_token->id == TokenIdKeywordDefer) {
             kind = ReturnKindError;
-            node_type = NodeTypeDefer;
-            *token_index += 2;
-        } else {
-            return nullptr;
-        }
-    } else if (token->id == TokenIdMaybe) {
-        Token *next_token = &pc->tokens->at(*token_index + 1);
-        if (next_token->id == TokenIdKeywordDefer) {
-            kind = ReturnKindMaybe;
             node_type = NodeTypeDefer;
             *token_index += 2;
         } else {

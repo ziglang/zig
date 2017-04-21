@@ -85,9 +85,9 @@ ForExpression(body) = "for" "(" Expression ")" option("|" option("*") Symbol opt
 
 BoolOrExpression = BoolAndExpression "or" BoolOrExpression | BoolAndExpression
 
-ReturnExpression = option("%" | "?") "return" option(Expression)
+ReturnExpression = option("%") "return" option(Expression)
 
-Defer(body) = option("%" | "?") "defer" body
+Defer(body) = option("%") "defer" body
 
 IfExpression(body) = IfVarExpression(body) | IfBoolExpression(body)
 
