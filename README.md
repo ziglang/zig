@@ -72,6 +72,8 @@ compromises backward compatibility.
 
 ## Building
 
+[![Build Status](https://travis-ci.org/andrewrk/zig.svg?branch=master)](https://travis-ci.org/andrewrk/zig)
+
 ### Dependencies
 
 #### Build Dependencies

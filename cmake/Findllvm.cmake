@@ -7,16 +7,14 @@
 # LLVM_LIBRARIES
 # LLVM_LIBDIRS
 
-find_program(LLVM_CONFIG_EXE NAMES llvm-config llvm-config-4.0)
+find_program(LLVM_CONFIG_EXE
+    NAMES llvm-config llvm-config-4.0
+    PATHS
+        "C:/Libraries/llvm-4.0.0/bin")
 
 execute_process(
     COMMAND ${LLVM_CONFIG_EXE} --libs
     OUTPUT_VARIABLE LLVM_LIBRARIES
-    OUTPUT_STRIP_TRAILING_WHITESPACE)
-
-execute_process(
-    COMMAND ${LLVM_CONFIG_EXE} --system-libs
-    OUTPUT_VARIABLE LLVM_SYSTEM_LIBS
     OUTPUT_STRIP_TRAILING_WHITESPACE)
 
 execute_process(
