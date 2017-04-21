@@ -46,6 +46,7 @@ void codegen_set_linker_script(CodeGen *g, const char *linker_script);
 void codegen_set_omit_zigrt(CodeGen *g, bool omit_zigrt);
 void codegen_set_test_filter(CodeGen *g, Buf *filter);
 void codegen_set_test_name_prefix(CodeGen *g, Buf *prefix);
+void codegen_set_lib_version(CodeGen *g, size_t major, size_t minor, size_t patch);
 
 PackageTableEntry *new_package(const char *root_src_dir, const char *root_src_path);
 void codegen_add_root_code(CodeGen *g, Buf *source_dir, Buf *source_basename, Buf *source_code);

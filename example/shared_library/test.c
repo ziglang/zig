@@ -1,7 +1,7 @@
 #include "mathtest.h"
-#include <stdio.h>
+#include <assert.h>
 
 int main(int argc, char **argv) {
-    printf("%d\n", add(42, 1137));
+    assert(add(42, 1337) == 1379);
     return 0;
 }

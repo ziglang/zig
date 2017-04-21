@@ -44,6 +44,11 @@ pub fn List(comptime T: type) -> type{
             l.len = new_len;
         }
 
+        pub fn resizeDown(l: &Self, new_len: usize) {
+            assert(new_len <= l.len);
+            l.len = new_len;
+        }
+
         pub fn ensureCapacity(l: &Self, new_capacity: usize) -> %void {
             var better_capacity = l.items.len;
             if (better_capacity >= new_capacity) return;

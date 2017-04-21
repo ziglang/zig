@@ -67,6 +67,10 @@ static int usage(const char *arg0) {
         "Test Options:\n"
         "  --test-filter [text]         skip tests that do not match filter\n"
         "  --test-name-prefix [text]    add prefix to all tests\n"
+        "Dynamic Library Options:\n"
+        "  --ver-major [ver]            semver major version\n"
+        "  --ver-minor [ver]            semver minor version\n"
+        "  --ver-patch [ver]            semver patch version\n"
     , arg0);
     return EXIT_FAILURE;
 }
@@ -156,6 +160,9 @@ int main(int argc, char **argv) {
     ZigList<const char *> objects = {0};
     const char *test_filter = nullptr;
     const char *test_name_prefix = nullptr;
+    size_t ver_major = 0;
+    size_t ver_minor = 0;
+    size_t ver_patch = 0;
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         const char *zig_exe_path = arg0;
@@ -350,6 +357,12 @@ int main(int argc, char **argv) {
                     test_filter = argv[i];
                 } else if (strcmp(arg, "--test-name-prefix") == 0) {
                     test_name_prefix = argv[i];
+                } else if (strcmp(arg, "--ver-major") == 0) {
+                    ver_major = atoi(argv[i]);
+                } else if (strcmp(arg, "--ver-minor") == 0) {
+                    ver_minor = atoi(argv[i]);
+                } else if (strcmp(arg, "--ver-patch") == 0) {
+                    ver_patch = atoi(argv[i]);
                 } else {
                     fprintf(stderr, "Invalid argument: %s\n", arg);
                     return usage(arg0);
@@ -509,6 +522,7 @@ int main(int argc, char **argv) {
             }
 
             CodeGen *g = codegen_create(&root_source_dir, target);
+            codegen_set_lib_version(g, ver_major, ver_minor, ver_patch);
             codegen_set_is_release(g, is_release_build);
             codegen_set_is_test(g, cmd == CmdTest);
             codegen_set_linker_script(g, linker_script);

@@ -4,7 +4,7 @@ const build = std.build;
 const os = std.os;
 const StdIo = os.ChildProcess.StdIo;
 const Term = os.ChildProcess.Term;
-const Buffer0 = std.cstr.Buffer0;
+const Buffer = std.buffer.Buffer;
 const io = std.io;
 const mem = std.mem;
 const fmt = std.fmt;
@@ -116,7 +116,7 @@ pub fn addPkgTests(b: &build.Builder, test_filter: ?[]const u8, root_src: []cons
             these_tests.setFilter(test_filter);
             these_tests.setRelease(release);
             if (link_libc) {
-                these_tests.linkLibrary("c");
+                these_tests.linkSystemLibrary("c");
             }
             step.dependOn(&these_tests.step);
         }
@@ -211,8 +211,8 @@ pub const CompareOutputContext = struct {
                 },
             };
 
-            var stdout = %%Buffer0.initEmpty(b.allocator);
-            var stderr = %%Buffer0.initEmpty(b.allocator);
+            var stdout = Buffer.initNull(b.allocator);
+            var stderr = Buffer.initNull(b.allocator);
 
             %%(??child.stdout).readAll(&stdout);
             %%(??child.stderr).readAll(&stderr);
@@ -388,7 +388,7 @@ pub const CompareOutputContext = struct {
                     exe.setOutputPath(exe_path);
                     exe.setRelease(release);
                     if (case.link_libc) {
-                        exe.linkLibrary("c");
+                        exe.linkSystemLibrary("c");
                     }
 
                     for (case.sources.toSliceConst()) |src_file| {
@@ -415,7 +415,7 @@ pub const CompareOutputContext = struct {
                 const exe = b.addExecutable("test", root_src);
                 exe.setOutputPath(exe_path);
                 if (case.link_libc) {
-                    exe.linkLibrary("c");
+                    exe.linkSystemLibrary("c");
                 }
 
                 for (case.sources.toSliceConst()) |src_file| {
@@ -537,8 +537,8 @@ pub const CompileErrorContext = struct {
                 },
             };
 
-            var stdout_buf = %%Buffer0.initEmpty(b.allocator);
-            var stderr_buf = %%Buffer0.initEmpty(b.allocator);
+            var stdout_buf = Buffer.initNull(b.allocator);
+            var stderr_buf = Buffer.initNull(b.allocator);
 
             %%(??child.stdout).readAll(&stdout_buf);
             %%(??child.stderr).readAll(&stderr_buf);
@@ -657,6 +657,35 @@ pub const BuildExamplesContext = struct {
         self.addAllArgs(root_src, false);
     }
 
+    pub fn addBuildFile(self: &BuildExamplesContext, build_file: []const u8) {
+        const b = self.b;
+
+        const annotated_case_name = b.fmt("build {}", build_file);
+        if (const filter ?= self.test_filter) {
+            if (mem.indexOf(u8, annotated_case_name, filter) == null)
+                return;
+        }
+
+        var zig_args = List([]const u8).init(b.allocator);
+        %%zig_args.append("build");
+
+        %%zig_args.append("--build-file");
+        %%zig_args.append(b.pathFromRoot(build_file));
+
+        %%zig_args.append("test");
+
+        if (b.verbose) {
+            %%zig_args.append("--verbose");
+        }
+
+        const run_cmd = b.addCommand(b.out_dir, b.env_map, b.zig_exe, zig_args.toSliceConst());
+
+        const log_step = b.addLog("PASS {}\n", annotated_case_name);
+        log_step.step.dependOn(&run_cmd.step);
+
+        self.step.dependOn(&log_step.step);
+    }
+
     pub fn addAllArgs(self: &BuildExamplesContext, root_src: []const u8, link_libc: bool) {
         const b = self.b;
 
@@ -671,7 +700,7 @@ pub const BuildExamplesContext = struct {
             const exe = b.addExecutable("test", root_src);
             exe.setRelease(release);
             if (link_libc) {
-                exe.linkLibrary("c");
+                exe.linkSystemLibrary("c");
             }
 
             const log_step = b.addLog("PASS {}\n", annotated_case_name);
@@ -774,8 +803,8 @@ pub const ParseHContext = struct {
                 },
             };
 
-            var stdout_buf = %%Buffer0.initEmpty(b.allocator);
-            var stderr_buf = %%Buffer0.initEmpty(b.allocator);
+            var stdout_buf = Buffer.initNull(b.allocator);
+            var stderr_buf = Buffer.initNull(b.allocator);
 
             %%(??child.stdout).readAll(&stdout_buf);
             %%(??child.stderr).readAll(&stderr_buf);

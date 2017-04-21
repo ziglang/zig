@@ -226,11 +226,11 @@ pub fn posixDup2(old_fd: i32, new_fd: i32) -> %void {
 pub fn posixExecve(exe_path: []const u8, argv: []const []const u8, env_map: &const BufMap,
     allocator: &Allocator) -> %void
 {
-    const argv_buf = %return allocator.alloc(?&const u8, argv.len + 2);
-    mem.set(?&const u8, argv_buf, null);
+    const argv_buf = %return allocator.alloc(?&u8, argv.len + 2);
+    mem.set(?&u8, argv_buf, null);
     defer {
         for (argv_buf) |arg| {
-            const arg_buf = if (const ptr ?= arg) ptr[0...cstr.len(ptr)] else break;
+            const arg_buf = if (const ptr ?= arg) cstr.toSlice(ptr) else break;
             allocator.free(arg_buf);
         }
         allocator.free(argv_buf);
@@ -253,11 +253,11 @@ pub fn posixExecve(exe_path: []const u8, argv: []const []const u8, env_map: &con
     argv_buf[argv.len + 1] = null;
 
     const envp_count = env_map.count();
-    const envp_buf = %return allocator.alloc(?&const u8, envp_count + 1);
-    mem.set(?&const u8, envp_buf, null);
+    const envp_buf = %return allocator.alloc(?&u8, envp_count + 1);
+    mem.set(?&u8, envp_buf, null);
     defer {
         for (envp_buf) |env| {
-            const env_buf = if (const ptr ?= env) ptr[0...cstr.len(ptr)] else break;
+            const env_buf = if (const ptr ?= env) cstr.toSlice(ptr) else break;
             allocator.free(env_buf);
         }
         allocator.free(envp_buf);
@@ -380,7 +380,7 @@ pub const args = struct {
     }
     pub fn at(i: usize) -> []const u8 {
         const s = raw[i];
-        return s[0...cstr.len(s)];
+        return cstr.toSlice(s);
     }
 };
 
@@ -397,7 +397,7 @@ pub fn getCwd(allocator: &Allocator) -> %[]u8 {
             return error.Unexpected;
         }
 
-        return buf;
+        return cstr.toSlice(buf.ptr);
     }
 }
 
@@ -572,22 +572,39 @@ pub fn makeDir(allocator: &Allocator, dir_path: []const u8) -> %void {
 /// Calls makeDir recursively to make an entire path. Returns success if the path
 /// already exists and is a directory.
 pub fn makePath(allocator: &Allocator, full_path: []const u8) -> %void {
-    const child_dir = %return path.dirname(allocator, full_path);
-    defer allocator.free(child_dir);
+    const resolved_path = %return path.resolve(allocator, full_path);
+    defer allocator.free(resolved_path);
 
-    if (mem.eql(u8, child_dir, full_path))
-        return;
-
-    makePath(allocator, child_dir) %% |err| {
-        if (err != error.PathAlreadyExists)
-            return err;
-    };
-
-    makeDir(allocator, full_path) %% |err| {
-        if (err != error.PathAlreadyExists)
-            return err;
-        // TODO stat the file and return an error if it's not a directory
-    };
+    var end_index: usize = resolved_path.len;
+    while (true) {
+        makeDir(allocator, resolved_path[0...end_index]) %% |err| {
+            if (err == error.PathAlreadyExists) {
+                // TODO stat the file and return an error if it's not a directory
+                // this is important because otherwise a dangling symlink
+                // could cause an infinite loop
+                if (end_index == resolved_path.len)
+                    return;
+            } else if (err == error.FileNotFound) {
+                // march end_index backward until next path component
+                while (true) {
+                    end_index -= 1;
+                    if (resolved_path[end_index] == '/')
+                        break;
+                }
+                continue;
+            } else {
+                return err;
+            }
+        };
+        if (end_index == resolved_path.len)
+            return;
+        // march end_index forward until next path component
+        while (true) {
+            end_index += 1;
+            if (end_index == resolved_path.len or resolved_path[end_index] == '/')
+                break;
+        }
+    }
 }
 
 /// Returns ::error.DirNotEmpty if the directory is not empty.
@@ -739,7 +756,7 @@ pub const Dir = struct {
         const next_index = self.index + linux_entry.d_reclen;
         self.index = next_index;
 
-        const name = (&linux_entry.d_name)[0...cstr.len(&linux_entry.d_name)];
+        const name = cstr.toSlice(&linux_entry.d_name);
 
         // skip . and .. entries
         if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {

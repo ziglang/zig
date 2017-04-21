@@ -10,7 +10,7 @@ const debug = @import("debug.zig");
 const assert = debug.assert;
 const os = @import("os/index.zig");
 const mem = @import("mem.zig");
-const Buffer0 = @import("cstr.zig").Buffer0;
+const Buffer = @import("buffer.zig").Buffer;
 const fmt = @import("fmt.zig");
 
 pub var stdin = InStream {
@@ -326,7 +326,7 @@ pub const InStream = struct {
         return usize(stat.size);
     }
 
-    pub fn readAll(is: &InStream, buf: &Buffer0) -> %void {
+    pub fn readAll(is: &InStream, buf: &Buffer) -> %void {
         %return buf.resize(os.page_size);
 
         var actual_buf_len: usize = 0;

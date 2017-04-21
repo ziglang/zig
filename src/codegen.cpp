@@ -155,6 +155,12 @@ void codegen_set_test_name_prefix(CodeGen *g, Buf *prefix) {
     g->test_name_prefix = prefix;
 }
 
+void codegen_set_lib_version(CodeGen *g, size_t major, size_t minor, size_t patch) {
+    g->version_major = major;
+    g->version_minor = minor;
+    g->version_patch = patch;
+}
+
 void codegen_set_is_test(CodeGen *g, bool is_test_build) {
     g->is_test_build = is_test_build;
 }
