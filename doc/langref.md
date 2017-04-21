@@ -69,7 +69,7 @@ AssignmentExpression = UnwrapExpression AssignmentOperator UnwrapExpression | Un
 
 AssignmentOperator = "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | "&=" | "^=" | "|=" | "*%=" | "+%=" | "-%=" | "<<%="
 
-BlockExpression(body) = Block | IfExpression(body) | TryExpression(body) | WhileExpression(body) | ForExpression(body) | SwitchExpression | CompTimeExpression(body)
+BlockExpression(body) = Block | IfExpression(body) | TryExpression(body) | TestExpression(body) | WhileExpression(body) | ForExpression(body) | SwitchExpression | CompTimeExpression(body)
 
 CompTimeExpression(body) = "comptime" body
 
@@ -89,13 +89,11 @@ ReturnExpression = option("%") "return" option(Expression)
 
 Defer(body) = option("%") "defer" body
 
-IfExpression(body) = IfVarExpression(body) | IfBoolExpression(body)
+IfExpression(body) = "if" "(" Expression ")" body option("else" BlockExpression(body))
 
-IfBoolExpression(body) = "if" "(" Expression ")" body option("else" BlockExpression(body))
+TryExpression(body) = "try" "(" Expression ")" option("|" option("*") Symbol "|") body option("else" option("|" Symbol "|") BlockExpression(body))
 
-TryExpression(body) = "try" "(" option(("const" | "var") option("*") Symbol "=") Expression  ")" body option("else" option("|" Symbol "|") BlockExpression(body))
-
-IfVarExpression(body) = "if" "(" ("const" | "var") option("*") Symbol option(":" TypeExpr) "?=" Expression ")" body Option("else" BlockExpression(body))
+TestExpression(body) = "test" "(" Expression ")" option("|" option("*") Symbol "|") body option("else" option("|" Symbol "|") BlockExpression(body))
 
 BoolAndExpression = ComparisonExpression "and" BoolAndExpression | ComparisonExpression
 

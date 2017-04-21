@@ -192,8 +192,6 @@ static const char *node_type_str(NodeType node_type) {
             return "ThisLiteral";
         case NodeTypeIfBoolExpr:
             return "IfBoolExpr";
-        case NodeTypeIfVarExpr:
-            return "IfVarExpr";
         case NodeTypeWhileExpr:
             return "WhileExpr";
         case NodeTypeForExpr:
@@ -236,6 +234,8 @@ static const char *node_type_str(NodeType node_type) {
             return "VarLiteral";
         case NodeTypeTryExpr:
             return "TryExpr";
+        case NodeTypeTestExpr:
+            return "TestExpr";
         case NodeTypeInlineExpr:
             return "InlineExpr";
     }
@@ -760,38 +760,16 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 fprintf(ar->f, "null");
                 break;
             }
-        case NodeTypeIfVarExpr:
-            {
-                AstNodeVariableDeclaration *var_decl = &node->data.if_var_expr.var_decl;
-                const char *var_str = var_decl->is_const ? "const" : "var";
-                const char *var_name = buf_ptr(var_decl->symbol);
-                const char *ptr_str = node->data.if_var_expr.var_is_ptr ? "*" : "";
-                fprintf(ar->f, "if (%s %s%s", var_str, ptr_str, var_name);
-                if (var_decl->type) {
-                    fprintf(ar->f, ": ");
-                    render_node_ungrouped(ar, var_decl->type);
-                }
-                fprintf(ar->f, " ?= ");
-                render_node_grouped(ar, var_decl->expr);
-                fprintf(ar->f, ") ");
-                render_node_grouped(ar, node->data.if_var_expr.then_block);
-                if (node->data.if_var_expr.else_node) {
-                    fprintf(ar->f, " else ");
-                    render_node_grouped(ar, node->data.if_var_expr.else_node);
-                }
-                break;
-            }
         case NodeTypeTryExpr:
             {
                 fprintf(ar->f, "try (");
-                if (node->data.try_expr.var_symbol) {
-                    const char *var_str = node->data.try_expr.var_is_const ? "const" : "var";
-                    const char *var_name = buf_ptr(node->data.try_expr.var_symbol);
-                    const char *ptr_str = node->data.try_expr.var_is_ptr ? "*" : "";
-                    fprintf(ar->f, "%s %s%s = ", var_str, ptr_str, var_name);
-                }
                 render_node_grouped(ar, node->data.try_expr.target_node);
                 fprintf(ar->f, ") ");
+                if (node->data.try_expr.var_symbol) {
+                    const char *ptr_str = node->data.try_expr.var_is_ptr ? "*" : "";
+                    const char *var_name = buf_ptr(node->data.try_expr.var_symbol);
+                    fprintf(ar->f, "|%s%s| ", ptr_str, var_name);
+                }
                 render_node_grouped(ar, node->data.try_expr.then_node);
                 if (node->data.try_expr.else_node) {
                     fprintf(ar->f, " else ");
@@ -799,6 +777,23 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                         fprintf(ar->f, "|%s| ", buf_ptr(node->data.try_expr.err_symbol));
                     }
                     render_node_grouped(ar, node->data.try_expr.else_node);
+                }
+                break;
+            }
+        case NodeTypeTestExpr:
+            {
+                fprintf(ar->f, "test (");
+                render_node_grouped(ar, node->data.test_expr.target_node);
+                fprintf(ar->f, ") ");
+                if (node->data.test_expr.var_symbol) {
+                    const char *ptr_str = node->data.test_expr.var_is_ptr ? "*" : "";
+                    const char *var_name = buf_ptr(node->data.test_expr.var_symbol);
+                    fprintf(ar->f, "|%s%s| ", ptr_str, var_name);
+                }
+                render_node_grouped(ar, node->data.test_expr.then_node);
+                if (node->data.test_expr.else_node) {
+                    fprintf(ar->f, " else ");
+                    render_node_grouped(ar, node->data.test_expr.else_node);
                 }
                 break;
             }

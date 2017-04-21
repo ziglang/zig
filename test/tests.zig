@@ -350,7 +350,7 @@ pub const CompareOutputContext = struct {
             Special.Asm => {
                 const obj_path = %%os.path.join(b.allocator, "test_artifacts", "test.o");
                 const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "assemble-and-link {}", case.name);
-                if (const filter ?= self.test_filter) {
+                test (self.test_filter) |filter| {
                     if (mem.indexOf(u8, annotated_case_name, filter) == null)
                         return;
                 }
@@ -379,7 +379,7 @@ pub const CompareOutputContext = struct {
                 for ([]bool{false, true}) |release| {
                     const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "{} {} ({})",
                         "compare-output", case.name, if (release) "release" else "debug");
-                    if (const filter ?= self.test_filter) {
+                    test (self.test_filter) |filter| {
                         if (mem.indexOf(u8, annotated_case_name, filter) == null)
                             continue;
                     }
@@ -407,7 +407,7 @@ pub const CompareOutputContext = struct {
             Special.DebugSafety => {
                 const obj_path = %%os.path.join(b.allocator, "test_artifacts", "test.o");
                 const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "debug-safety {}", case.name);
-                if (const filter ?= self.test_filter) {
+                test (self.test_filter) |filter| {
                     if (mem.indexOf(u8, annotated_case_name, filter) == null)
                         return;
                 }
@@ -626,7 +626,7 @@ pub const CompileErrorContext = struct {
         for ([]bool{false, true}) |release| {
             const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "compile-error {} ({})",
                 case.name, if (release) "release" else "debug");
-            if (const filter ?= self.test_filter) {
+            test (self.test_filter) |filter| {
                 if (mem.indexOf(u8, annotated_case_name, filter) == null)
                     continue;
             }
@@ -661,7 +661,7 @@ pub const BuildExamplesContext = struct {
         const b = self.b;
 
         const annotated_case_name = b.fmt("build {}", build_file);
-        if (const filter ?= self.test_filter) {
+        test (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null)
                 return;
         }
@@ -692,7 +692,7 @@ pub const BuildExamplesContext = struct {
         for ([]bool{false, true}) |release| {
             const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "build {} ({})",
                 root_src, if (release) "release" else "debug");
-            if (const filter ?= self.test_filter) {
+            test (self.test_filter) |filter| {
                 if (mem.indexOf(u8, annotated_case_name, filter) == null)
                     continue;
             }
@@ -880,7 +880,7 @@ pub const ParseHContext = struct {
         const b = self.b;
 
         const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "parseh {}", case.name);
-        if (const filter ?= self.test_filter) {
+        test (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null)
                 return;
         }

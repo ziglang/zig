@@ -2099,7 +2099,6 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeSymbol:
         case NodeTypePrefixOpExpr:
         case NodeTypeIfBoolExpr:
-        case NodeTypeIfVarExpr:
         case NodeTypeWhileExpr:
         case NodeTypeForExpr:
         case NodeTypeSwitchExpr:
@@ -2119,6 +2118,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeErrorType:
         case NodeTypeVarLiteral:
         case NodeTypeTryExpr:
+        case NodeTypeTestExpr:
         case NodeTypeInlineExpr:
             zig_unreachable();
     }

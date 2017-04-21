@@ -128,16 +128,6 @@ fn testTruncate(x: u32) -> u8 {
     @truncate(u8, x)
 }
 
-test "assignToIfVarPtr" {
-    var maybe_bool: ?bool = true;
-
-    if (const *b ?= maybe_bool) {
-        *b = false;
-    }
-
-    assert(??maybe_bool == false);
-}
-
 fn first4KeysOfHomeRow() -> []const u8 {
     "aoeu"
 }

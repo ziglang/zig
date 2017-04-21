@@ -118,92 +118,38 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     , ".tmp_source.zig:5:5: error: invalid token: 'var'");
 
-    cases.add("implicit semicolon - if(var) statement",
-        \\export fn entry() {
-        \\    if(_=foo()) {}
-        \\    var good = {};
-        \\    if(_=foo()) ({})
-        \\    var bad = {};
-        \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
-
-    cases.add("implicit semicolon - if(var) expression",
-        \\export fn entry() {
-        \\    _ = if(_=foo()) {};
-        \\    var good = {};
-        \\    _ = if(_=foo()) {}
-        \\    var bad = {};
-        \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
-
-    cases.add("implicit semicolon - if(var)-else statement",
-        \\export fn entry() {
-        \\    if(_=foo()) {} else {}
-        \\    var good = {};
-        \\    if(_=foo()) ({}) else ({})
-        \\    var bad = {};
-        \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
-
-    cases.add("implicit semicolon - if(var)-else expression",
-        \\export fn entry() {
-        \\    _ = if(_=foo()) {} else {};
-        \\    var good = {};
-        \\    _ = if(_=foo()) {} else {}
-        \\    var bad = {};
-        \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
-
-    cases.add("implicit semicolon - if(var)-else-if(var) statement",
-        \\export fn entry() {
-        \\    if(_=foo()) {} else if(_=foo()) {}
-        \\    var good = {};
-        \\    if(_=foo()) ({}) else if(_=foo()) ({})
-        \\    var bad = {};
-        \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
-
-    cases.add("implicit semicolon - if(var)-else-if(var) expression",
-        \\export fn entry() {
-        \\    _ = if(_=foo()) {} else if(_=foo()) {};
-        \\    var good = {};
-        \\    _ = if(_=foo()) {} else if(_=foo()) {}
-        \\    var bad = {};
-        \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
-
-    cases.add("implicit semicolon - if(var)-else-if(var)-else statement",
-        \\export fn entry() {
-        \\    if(_=foo()) {} else if(_=foo()) {} else {}
-        \\    var good = {};
-        \\    if(_=foo()) ({}) else if(_=foo()) ({}) else ({})
-        \\    var bad = {};
-        \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
-
-    cases.add("implicit semicolon - if(var)-else-if(var)-else expression",
-        \\export fn entry() {
-        \\    _ = if(_=foo()) {} else if(_=foo()) {} else {};
-        \\    var good = {};
-        \\    _ = if(_=foo()) {} else if(_=foo()) {} else {}
-        \\    var bad = {};
-        \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
-
     cases.add("implicit semicolon - try statement",
         \\export fn entry() {
-        \\    try (_ = foo()) {}
+        \\    try (foo()) {}
         \\    var good = {};
-        \\    try (_ = foo()) ({})
+        \\    try (foo()) ({})
         \\    var bad = {};
         \\}
     , ".tmp_source.zig:5:5: error: invalid token: 'var'");
 
     cases.add("implicit semicolon - try expression",
         \\export fn entry() {
-        \\    _ = try (_ = foo()) {};
+        \\    _ = try (foo()) {};
         \\    var good = {};
-        \\    _ = try (_ = foo()) {}
+        \\    _ = try (foo()) {}
+        \\    var bad = {};
+        \\}
+    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
+
+    cases.add("implicit semicolon - test statement",
+        \\export fn entry() {
+        \\    test (foo()) {}
+        \\    var good = {};
+        \\    test (foo()) ({})
+        \\    var bad = {};
+        \\}
+    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
+
+    cases.add("implicit semicolon - test expression",
+        \\export fn entry() {
+        \\    _ = test (foo()) {};
+        \\    var good = {};
+        \\    _ = test (foo()) {}
         \\    var bad = {};
         \\}
     , ".tmp_source.zig:5:5: error: invalid token: 'var'");
@@ -554,9 +500,9 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("invalid maybe type",
         \\export fn f() {
-        \\    if (const x ?= true) { }
+        \\    test (true) |x| { }
         \\}
-    , ".tmp_source.zig:2:20: error: expected nullable type, found 'bool'");
+    , ".tmp_source.zig:2:11: error: expected nullable type, found 'bool'");
 
     cases.add("cast unreachable",
         \\fn f() -> i32 {

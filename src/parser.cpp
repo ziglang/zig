@@ -640,7 +640,7 @@ static AstNode *ast_parse_comptime_expr(ParseContext *pc, size_t *token_index, b
 }
 
 /*
-TryExpression(body) = "try" "(" option(("const" | "var") option("*") Symbol "=") Expression  ")" body option("else" option("|" Symbol "|") body)
+TryExpression(body) = "try" "(" Expression ")" option("|" option("*") Symbol "|") body option("else" option("|" Symbol "|") BlockExpression(body))
 */
 static AstNode *ast_parse_try_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *try_token = &pc->tokens->at(*token_index);
@@ -656,37 +656,24 @@ static AstNode *ast_parse_try_expr(ParseContext *pc, size_t *token_index, bool m
     AstNode *node = ast_create_node(pc, NodeTypeTryExpr, try_token);
 
     ast_eat_token(pc, token_index, TokenIdLParen);
+    node->data.try_expr.target_node = ast_parse_expression(pc, token_index, true);
+    ast_eat_token(pc, token_index, TokenIdRParen);
 
-    Token *var_token = &pc->tokens->at(*token_index);
-    bool have_vars;
-    if (var_token->id == TokenIdKeywordVar) {
-        node->data.try_expr.var_is_const = false;
+    Token *open_bar_tok = &pc->tokens->at(*token_index);
+    if (open_bar_tok->id == TokenIdBinOr) {
         *token_index += 1;
-        have_vars = true;
-    } else if (var_token->id == TokenIdKeywordConst) {
-        node->data.try_expr.var_is_const = true;
-        *token_index += 1;
-        have_vars = true;
-    } else {
-        have_vars = false;
-    }
 
-    if (have_vars) {
-        Token *star_token = &pc->tokens->at(*token_index);
-        if (star_token->id == TokenIdStar) {
-            node->data.try_expr.var_is_ptr = true;
+        Token *star_tok = &pc->tokens->at(*token_index);
+        if (star_tok->id == TokenIdStar) {
             *token_index += 1;
+            node->data.try_expr.var_is_ptr = true;
         }
 
         Token *var_name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
         node->data.try_expr.var_symbol = token_buf(var_name_tok);
 
-        ast_eat_token(pc, token_index, TokenIdEq);
+        ast_eat_token(pc, token_index, TokenIdBinOr);
     }
-
-    node->data.try_expr.target_node = ast_parse_expression(pc, token_index, true);
-
-    ast_eat_token(pc, token_index, TokenIdRParen);
 
     node->data.try_expr.then_node = ast_parse_block_or_expression(pc, token_index, true);
 
@@ -704,6 +691,53 @@ static AstNode *ast_parse_try_expr(ParseContext *pc, size_t *token_index, bool m
         }
 
         node->data.try_expr.else_node = ast_parse_block_expr_or_expression(pc, token_index, true);
+    }
+
+    return node;
+}
+
+/*
+TestExpression(body) = "test" "(" Expression ")" option("|" option("*") Symbol "|") body option("else" BlockExpression(body))
+*/
+static AstNode *ast_parse_test_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
+    Token *test_token = &pc->tokens->at(*token_index);
+    if (test_token->id == TokenIdKeywordTest) {
+        *token_index += 1;
+    } else if (mandatory) {
+        ast_expect_token(pc, test_token, TokenIdKeywordTest);
+        zig_unreachable();
+    } else {
+        return nullptr;
+    }
+
+    AstNode *node = ast_create_node(pc, NodeTypeTestExpr, test_token);
+
+    ast_eat_token(pc, token_index, TokenIdLParen);
+    node->data.test_expr.target_node = ast_parse_expression(pc, token_index, true);
+    ast_eat_token(pc, token_index, TokenIdRParen);
+
+    Token *open_bar_tok = &pc->tokens->at(*token_index);
+    if (open_bar_tok->id == TokenIdBinOr) {
+        *token_index += 1;
+
+        Token *star_tok = &pc->tokens->at(*token_index);
+        if (star_tok->id == TokenIdStar) {
+            *token_index += 1;
+            node->data.test_expr.var_is_ptr = true;
+        }
+
+        Token *var_name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
+        node->data.test_expr.var_symbol = token_buf(var_name_tok);
+
+        ast_eat_token(pc, token_index, TokenIdBinOr);
+    }
+
+    node->data.test_expr.then_node = ast_parse_block_or_expression(pc, token_index, true);
+
+    Token *else_token = &pc->tokens->at(*token_index);
+    if (else_token->id == TokenIdKeywordElse) {
+        *token_index += 1;
+        node->data.test_expr.else_node = ast_parse_block_expr_or_expression(pc, token_index, true);
     }
 
     return node;
@@ -1405,9 +1439,7 @@ static AstNode *ast_parse_bool_and_expr(ParseContext *pc, size_t *token_index, b
 }
 
 /*
-IfExpression(body) = IfVarExpression(body) | IfBoolExpression(body)
-IfBoolExpression(body) = "if" "(" Expression ")" body option("else" body)
-IfVarExpression(body) = "if" "(" ("const" | "var") option("*") Symbol option(":" TypeExpr) "?=" Expression ")" body Option("else" body)
+IfExpression(body) = "if" "(" Expression ")" body option("else" BlockExpression(body))
 */
 static AstNode *ast_parse_if_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *if_token = &pc->tokens->at(*token_index);
@@ -1423,63 +1455,18 @@ static AstNode *ast_parse_if_expr(ParseContext *pc, size_t *token_index, bool ma
 
     ast_eat_token(pc, token_index, TokenIdLParen);
 
-    Token *token = &pc->tokens->at(*token_index);
-    if (token->id == TokenIdKeywordConst || token->id == TokenIdKeywordVar) {
-        AstNode *node = ast_create_node(pc, NodeTypeIfVarExpr, if_token);
-        node->data.if_var_expr.var_decl.is_const = (token->id == TokenIdKeywordConst);
+    AstNode *node = ast_create_node(pc, NodeTypeIfBoolExpr, if_token);
+    node->data.if_bool_expr.condition = ast_parse_expression(pc, token_index, true);
+    ast_eat_token(pc, token_index, TokenIdRParen);
+    node->data.if_bool_expr.then_block = ast_parse_block_or_expression(pc, token_index, true);
+
+    Token *else_token = &pc->tokens->at(*token_index);
+    if (else_token->id == TokenIdKeywordElse) {
         *token_index += 1;
-
-        Token *star_or_symbol = &pc->tokens->at(*token_index);
-        if (star_or_symbol->id == TokenIdStar) {
-            *token_index += 1;
-            node->data.if_var_expr.var_is_ptr = true;
-            Token *name_token = ast_eat_token(pc, token_index, TokenIdSymbol);
-            node->data.if_var_expr.var_decl.symbol = token_buf(name_token);
-        } else if (star_or_symbol->id == TokenIdSymbol) {
-            *token_index += 1;
-            node->data.if_var_expr.var_decl.symbol = token_buf(star_or_symbol);
-        } else {
-            ast_invalid_token_error(pc, star_or_symbol);
-        }
-
-
-        Token *eq_or_colon = &pc->tokens->at(*token_index);
-        if (eq_or_colon->id == TokenIdMaybeAssign) {
-            *token_index += 1;
-            node->data.if_var_expr.var_decl.expr = ast_parse_expression(pc, token_index, true);
-        } else if (eq_or_colon->id == TokenIdColon) {
-            *token_index += 1;
-            node->data.if_var_expr.var_decl.type = ast_parse_type_expr(pc, token_index, true);
-
-            ast_eat_token(pc, token_index, TokenIdMaybeAssign);
-            node->data.if_var_expr.var_decl.expr = ast_parse_expression(pc, token_index, true);
-        } else {
-            ast_invalid_token_error(pc, eq_or_colon);
-        }
-        ast_eat_token(pc, token_index, TokenIdRParen);
-        node->data.if_var_expr.then_block = ast_parse_block_or_expression(pc, token_index, true);
-
-        Token *else_token = &pc->tokens->at(*token_index);
-        if (else_token->id == TokenIdKeywordElse) {
-            *token_index += 1;
-            node->data.if_var_expr.else_node = ast_parse_block_expr_or_expression(pc, token_index, true);
-        }
-
-        return node;
-    } else {
-        AstNode *node = ast_create_node(pc, NodeTypeIfBoolExpr, if_token);
-        node->data.if_bool_expr.condition = ast_parse_expression(pc, token_index, true);
-        ast_eat_token(pc, token_index, TokenIdRParen);
-        node->data.if_bool_expr.then_block = ast_parse_block_or_expression(pc, token_index, true);
-
-        Token *else_token = &pc->tokens->at(*token_index);
-        if (else_token->id == TokenIdKeywordElse) {
-            *token_index += 1;
-            node->data.if_bool_expr.else_node = ast_parse_block_expr_or_expression(pc, token_index, true);
-        }
-
-        return node;
+        node->data.if_bool_expr.else_node = ast_parse_block_expr_or_expression(pc, token_index, true);
     }
+
+    return node;
 }
 
 /*
@@ -1862,7 +1849,7 @@ static AstNode *ast_parse_switch_expr(ParseContext *pc, size_t *token_index, boo
 }
 
 /*
-BlockExpression(body) = Block | IfExpression(body) | TryExpression(body) | WhileExpression(body) | ForExpression(body) | SwitchExpression | CompTimeExpression(body)
+BlockExpression(body) = Block | IfExpression(body) | TryExpression(body) | TestExpression(body) | WhileExpression(body) | ForExpression(body) | SwitchExpression | CompTimeExpression(body)
 */
 static AstNode *ast_parse_block_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1894,6 +1881,10 @@ static AstNode *ast_parse_block_expr(ParseContext *pc, size_t *token_index, bool
     AstNode *try_node = ast_parse_try_expr(pc, token_index, false);
     if (try_node)
         return try_node;
+
+    AstNode *test_node = ast_parse_test_expr(pc, token_index, false);
+    if (test_node)
+        return test_node;
 
     if (mandatory)
         ast_invalid_token_error(pc, token);
@@ -2079,14 +2070,14 @@ static bool statement_terminates_without_semicolon(AstNode *node) {
             if (node->data.if_bool_expr.else_node)
                 return statement_terminates_without_semicolon(node->data.if_bool_expr.else_node);
             return node->data.if_bool_expr.then_block->type == NodeTypeBlock;
-        case NodeTypeIfVarExpr:
-            if (node->data.if_var_expr.else_node)
-                return statement_terminates_without_semicolon(node->data.if_var_expr.else_node);
-            return node->data.if_var_expr.then_block->type == NodeTypeBlock;
         case NodeTypeTryExpr:
             if (node->data.try_expr.else_node)
                 return statement_terminates_without_semicolon(node->data.try_expr.else_node);
             return node->data.try_expr.then_node->type == NodeTypeBlock;
+        case NodeTypeTestExpr:
+            if (node->data.test_expr.else_node)
+                return statement_terminates_without_semicolon(node->data.test_expr.else_node);
+            return node->data.test_expr.then_node->type == NodeTypeBlock;
         case NodeTypeWhileExpr:
             return node->data.while_expr.body->type == NodeTypeBlock;
         case NodeTypeForExpr:
@@ -2667,16 +2658,15 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_field(&node->data.if_bool_expr.then_block, visit, context);
             visit_field(&node->data.if_bool_expr.else_node, visit, context);
             break;
-        case NodeTypeIfVarExpr:
-            visit_field(&node->data.if_var_expr.var_decl.type, visit, context);
-            visit_field(&node->data.if_var_expr.var_decl.expr, visit, context);
-            visit_field(&node->data.if_var_expr.then_block, visit, context);
-            visit_field(&node->data.if_var_expr.else_node, visit, context);
-            break;
         case NodeTypeTryExpr:
             visit_field(&node->data.try_expr.target_node, visit, context);
             visit_field(&node->data.try_expr.then_node, visit, context);
             visit_field(&node->data.try_expr.else_node, visit, context);
+            break;
+        case NodeTypeTestExpr:
+            visit_field(&node->data.test_expr.target_node, visit, context);
+            visit_field(&node->data.test_expr.then_node, visit, context);
+            visit_field(&node->data.test_expr.else_node, visit, context);
             break;
         case NodeTypeWhileExpr:
             visit_field(&node->data.while_expr.condition, visit, context);

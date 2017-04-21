@@ -309,7 +309,7 @@ pub const Builder = struct {
     }
 
     fn processNixOSEnvVars(self: &Builder) {
-        if (const nix_cflags_compile ?= os.getEnv("NIX_CFLAGS_COMPILE")) {
+        test (os.getEnv("NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {
             var it = mem.split(nix_cflags_compile, ' ');
             while (true) {
                 const word = it.next() ?? break;
@@ -325,7 +325,7 @@ pub const Builder = struct {
                 }
             }
         }
-        if (const nix_ldflags ?= os.getEnv("NIX_LDFLAGS")) {
+        test (os.getEnv("NIX_LDFLAGS")) |nix_ldflags| {
             var it = mem.split(nix_ldflags, ' ');
             while (true) {
                 const word = it.next() ?? break;
@@ -353,7 +353,7 @@ pub const Builder = struct {
             .type_id = type_id,
             .description = description,
         };
-        if (const _ ?= %%self.available_options_map.put(name, available_option)) {
+        test (%%self.available_options_map.put(name, available_option)) {
             debug.panic("Option '{}' declared twice", name);
         }
         %%self.available_options_list.append(available_option);
@@ -410,11 +410,11 @@ pub const Builder = struct {
     }
 
     pub fn addUserInputOption(self: &Builder, name: []const u8, value: []const u8) -> bool {
-        if (var prev_value ?= %%self.user_input_options.put(name, UserInputOption {
+        test (%%self.user_input_options.put(name, UserInputOption {
             .name = name,
             .value = UserValue.Scalar { value },
             .used = false,
-        })) {
+        })) |*prev_value| {
             switch (prev_value.value) {
                 UserValue.Scalar => |s| {
                     var list = List([]const u8).init(self.allocator);
@@ -444,11 +444,11 @@ pub const Builder = struct {
     }
 
     pub fn addUserInputFlag(self: &Builder, name: []const u8) -> bool {
-        if (const prev_value ?= %%self.user_input_options.put(name, UserInputOption {
+        test (%%self.user_input_options.put(name, UserInputOption {
             .name = name,
             .value = UserValue.Flag,
             .used = false,
-        })) {
+        })) |*prev_value| {
             switch (prev_value.value) {
                 UserValue.Scalar => |s| {
                     %%io.stderr.printf("Flag '-D{}' conflicts with option '-D{}={}'.\n", name, name, s);
@@ -766,7 +766,7 @@ pub const LibOrExeStep = struct {
             %%zig_args.append("--release");
         }
 
-        if (const output_path ?= self.output_path) {
+        test (self.output_path) |output_path| {
             %%zig_args.append("--output");
             %%zig_args.append(builder.pathFromRoot(output_path));
         }
@@ -912,7 +912,7 @@ pub const ObjectStep = struct {
             %%zig_args.append("--release");
         }
 
-        if (const output_path ?= self.output_path) {
+        test (self.output_path) |output_path| {
             %%zig_args.append("--output");
             %%zig_args.append(builder.pathFromRoot(output_path));
         }
@@ -1017,7 +1017,7 @@ pub const AsmStep = struct {
             %%zig_args.append("--release");
         }
 
-        if (const output_path ?= self.output_path) {
+        test (self.output_path) |output_path| {
             %%zig_args.append("--output");
             %%zig_args.append(builder.pathFromRoot(output_path));
         }
@@ -1194,7 +1194,7 @@ pub const LinkStep = struct {
             %%zig_args.append("--static");
         }
 
-        if (const output_path ?= self.output_path) {
+        test (self.output_path) |output_path| {
             %%zig_args.append("--output");
             %%zig_args.append(builder.pathFromRoot(output_path));
         }
@@ -1316,7 +1316,7 @@ pub const TestStep = struct {
             %%zig_args.append("--release");
         }
 
-        if (const filter ?= self.filter) {
+        test (self.filter) |filter| {
             %%zig_args.append("--test-filter");
             %%zig_args.append(filter);
         }

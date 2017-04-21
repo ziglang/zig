@@ -4941,14 +4941,14 @@ static IrInstruction *ir_gen_asm_expr(IrBuilder *irb, Scope *scope, AstNode *nod
     return ir_build_asm(irb, scope, node, input_list, output_types, output_vars, return_count, is_volatile);
 }
 
-static IrInstruction *ir_gen_if_var_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
-    assert(node->type == NodeTypeIfVarExpr);
+static IrInstruction *ir_gen_test_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
+    assert(node->type == NodeTypeTestExpr);
 
-    AstNodeVariableDeclaration *var_decl = &node->data.if_var_expr.var_decl;
-    AstNode *expr_node = var_decl->expr;
-    AstNode *then_node = node->data.if_var_expr.then_block;
-    AstNode *else_node = node->data.if_var_expr.else_node;
-    bool var_is_ptr = node->data.if_var_expr.var_is_ptr;
+    Buf *var_symbol = node->data.test_expr.var_symbol;
+    AstNode *expr_node = node->data.test_expr.target_node;
+    AstNode *then_node = node->data.test_expr.then_node;
+    AstNode *else_node = node->data.test_expr.else_node;
+    bool var_is_ptr = node->data.test_expr.var_is_ptr;
 
     IrInstruction *maybe_val_ptr = ir_gen_node_extra(irb, expr_node, scope, LVAL_PTR);
     if (maybe_val_ptr == irb->codegen->invalid_instruction)
@@ -4970,21 +4970,23 @@ static IrInstruction *ir_gen_if_var_expr(IrBuilder *irb, Scope *scope, AstNode *
     ir_build_cond_br(irb, scope, node, is_non_null, then_block, else_block, is_comptime);
 
     ir_set_cursor_at_end(irb, then_block);
-    IrInstruction *var_type = nullptr;
-    if (var_decl->type) {
-        var_type = ir_gen_node(irb, var_decl->type, scope);
-        if (var_type == irb->codegen->invalid_instruction)
-            return irb->codegen->invalid_instruction;
-    }
-    bool is_shadowable = false;
-    bool is_const = var_decl->is_const;
-    VariableTableEntry *var = ir_create_var(irb, node, scope,
-            var_decl->symbol, is_const, is_const, is_shadowable, is_comptime);
 
-    IrInstruction *var_ptr_value = ir_build_unwrap_maybe(irb, scope, node, maybe_val_ptr, false);
-    IrInstruction *var_value = var_is_ptr ? var_ptr_value : ir_build_load_ptr(irb, scope, node, var_ptr_value);
-    ir_build_var_decl(irb, scope, node, var, var_type, var_value);
-    IrInstruction *then_expr_result = ir_gen_node(irb, then_node, var->child_scope);
+    Scope *var_scope;
+    if (var_symbol) {
+        IrInstruction *var_type = nullptr;
+        bool is_shadowable = false;
+        bool is_const = true;
+        VariableTableEntry *var = ir_create_var(irb, node, scope,
+                var_symbol, is_const, is_const, is_shadowable, is_comptime);
+
+        IrInstruction *var_ptr_value = ir_build_unwrap_maybe(irb, scope, node, maybe_val_ptr, false);
+        IrInstruction *var_value = var_is_ptr ? var_ptr_value : ir_build_load_ptr(irb, scope, node, var_ptr_value);
+        ir_build_var_decl(irb, scope, node, var, var_type, var_value);
+        var_scope = var->child_scope;
+    } else {
+        var_scope = scope;
+    }
+    IrInstruction *then_expr_result = ir_gen_node(irb, then_node, var_scope);
     if (then_expr_result == irb->codegen->invalid_instruction)
         return then_expr_result;
     IrBasicBlock *after_then_block = irb->current_basic_block;
@@ -5022,7 +5024,7 @@ static IrInstruction *ir_gen_try_expr(IrBuilder *irb, Scope *scope, AstNode *nod
     AstNode *then_node = node->data.try_expr.then_node;
     AstNode *else_node = node->data.try_expr.else_node;
     bool var_is_ptr = node->data.try_expr.var_is_ptr;
-    bool var_is_const = node->data.try_expr.var_is_const;
+    bool var_is_const = true;
     Buf *var_symbol = node->data.try_expr.var_symbol;
     Buf *err_symbol = node->data.try_expr.err_symbol;
 
@@ -5659,10 +5661,10 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_null_literal(irb, scope, node), lval);
         case NodeTypeVarLiteral:
             return ir_lval_wrap(irb, scope, ir_gen_var_literal(irb, scope, node), lval);
-        case NodeTypeIfVarExpr:
-            return ir_lval_wrap(irb, scope, ir_gen_if_var_expr(irb, scope, node), lval);
         case NodeTypeTryExpr:
             return ir_lval_wrap(irb, scope, ir_gen_try_expr(irb, scope, node), lval);
+        case NodeTypeTestExpr:
+            return ir_lval_wrap(irb, scope, ir_gen_test_expr(irb, scope, node), lval);
         case NodeTypeSwitchExpr:
             return ir_lval_wrap(irb, scope, ir_gen_switch_expr(irb, scope, node), lval);
         case NodeTypeGoto:

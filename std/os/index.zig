@@ -162,7 +162,7 @@ pub fn posixOpen(file_path: []const u8, flags: usize, perm: usize, allocator: ?&
 
     if (file_path.len < stack_buf.len) {
         path0 = stack_buf[0...file_path.len + 1];
-    } else if (const a ?= allocator) {
+    } else test (allocator) |a| {
         path0 = %return a.alloc(u8, file_path.len + 1);
         need_free = true;
     } else {
@@ -230,7 +230,7 @@ pub fn posixExecve(exe_path: []const u8, argv: []const []const u8, env_map: &con
     mem.set(?&u8, argv_buf, null);
     defer {
         for (argv_buf) |arg| {
-            const arg_buf = if (const ptr ?= arg) cstr.toSlice(ptr) else break;
+            const arg_buf = test (arg) |ptr| cstr.toSlice(ptr) else break;
             allocator.free(arg_buf);
         }
         allocator.free(argv_buf);
@@ -257,7 +257,7 @@ pub fn posixExecve(exe_path: []const u8, argv: []const []const u8, env_map: &con
     mem.set(?&u8, envp_buf, null);
     defer {
         for (envp_buf) |env| {
-            const env_buf = if (const ptr ?= env) cstr.toSlice(ptr) else break;
+            const env_buf = test (env) |ptr| cstr.toSlice(ptr) else break;
             allocator.free(env_buf);
         }
         allocator.free(envp_buf);

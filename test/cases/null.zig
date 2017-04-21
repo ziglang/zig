@@ -3,7 +3,7 @@ const assert = @import("std").debug.assert;
 test "nullableType" {
     const x : ?bool = @generatedCode(true);
 
-    if (const y ?= x) {
+    test (x) |y| {
         if (y) {
             // OK
         } else {
@@ -26,15 +26,16 @@ test "nullableType" {
     assert(num == 13);
 }
 
-test "assignToIfVarPtr" {
+test "test maybe object and get a pointer to the inner value" {
     var maybe_bool: ?bool = true;
 
-    if (const *b ?= maybe_bool) {
+    test (maybe_bool) |*b| {
         *b = false;
     }
 
     assert(??maybe_bool == false);
 }
+
 
 test "rhsMaybeUnwrapReturn" {
     const x: ?bool = @generatedCode(true);
@@ -49,7 +50,8 @@ test "maybe return" {
 
 fn maybeReturnImpl() {
     assert(??foo(1235));
-    assert(if (const _ ?= foo(null)) false else true);
+    test (foo(null))
+        unreachable;
     assert(!??foo(1234));
 }
 
@@ -64,10 +66,10 @@ test "ifVarMaybePointer" {
 }
 fn shouldBeAPlus1(p: &const Particle) -> u64 {
     var maybe_particle: ?Particle = *p;
-    if (const *particle ?= maybe_particle) {
+    test (maybe_particle) |*particle| {
         particle.a += 1;
     }
-    if (const particle ?= maybe_particle) {
+    test (maybe_particle) |particle| {
         return particle.a;
     }
     return 0;
@@ -114,7 +116,7 @@ fn nullableVoidImpl() {
 }
 
 fn bar(x: ?void) -> ?void {
-    if (const _  ?= x) {
+    test (x) {
         return {};
     } else {
         return null;

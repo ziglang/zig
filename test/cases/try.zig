@@ -7,7 +7,7 @@ test "tryOnErrorUnion" {
 }
 
 fn tryOnErrorUnionImpl() {
-    const x = try (const val = returnsTen()) {
+    const x = try (returnsTen()) |val| {
         val + 1
     } else |err| switch (err) {
         error.ItBroke, error.NoMem => 1,
@@ -51,7 +51,7 @@ fn failIfTrue(ok: bool) -> %void {
 //fn tryThenNotExecutedWithAssignment() {
 //    @setFnTest(this);
 //
-//    try (_ = failIfTrue(true)) {
+//    try (failIfTrue(true)) {
 //        unreachable;
 //    } else |err| {
 //        assert(err == error.ItBroke);
