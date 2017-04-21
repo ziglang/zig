@@ -304,7 +304,7 @@ pub fn posixExecve(exe_path: []const u8, argv: []const []const u8, env_map: &con
         mem.copy(u8, path_buf, search_path);
         path_buf[search_path.len] = '/';
         mem.copy(u8, path_buf[search_path.len + 1 ...], exe_path);
-        path_buf[search_path.len + exe_path.len + 2] = 0;
+        path_buf[search_path.len + exe_path.len + 1] = 0;
         err = posix.getErrno(posix.execve(path_buf.ptr, argv_buf.ptr, envp_buf.ptr));
         assert(err > 0);
         if (err == errno.EACCES) {
