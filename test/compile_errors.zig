@@ -1267,12 +1267,12 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     , ".tmp_source.zig:2:24: error: integer value 753664 cannot be implicitly casted to type 'u16'");
 
     cases.add("set global variable alignment to non power of 2",
-        \\const some_data: [100]u8 = {
+        \\const some_data: [100]u8 = undefined;
+        \\comptime {
         \\    @setGlobalAlign(some_data, 3);
-        \\    undefined
-        \\};
+        \\}
         \\export fn entry() -> usize { @sizeOf(@typeOf(some_data)) }
-    , ".tmp_source.zig:2:32: error: alignment value must be power of 2");
+    , ".tmp_source.zig:3:32: error: alignment value must be power of 2");
 
     cases.add("compile log",
         \\export fn foo() {
@@ -1536,4 +1536,40 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     ,
         "error: 'main' is private",
         ".tmp_source.zig:1:1: note: declared here");
+
+    cases.add("@setGlobalAlign extern variable",
+        \\extern var foo: i32;
+        \\comptime {
+        \\    @setGlobalAlign(foo, 4);
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: cannot set alignment of external variable 'foo'",
+        ".tmp_source.zig:1:8: note: declared here");
+
+    cases.add("@setGlobalAlign extern fn",
+        \\extern fn foo();
+        \\comptime {
+        \\    @setGlobalAlign(foo, 4);
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: cannot set alignment of external function 'foo'",
+        ".tmp_source.zig:1:8: note: declared here");
+
+    cases.add("@setGlobalSection extern variable",
+        \\extern var foo: i32;
+        \\comptime {
+        \\    @setGlobalSection(foo, ".text2");
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: cannot set section of external variable 'foo'",
+        ".tmp_source.zig:1:8: note: declared here");
+
+    cases.add("@setGlobalSection extern fn",
+        \\extern fn foo();
+        \\comptime {
+        \\    @setGlobalSection(foo, ".text2");
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: cannot set section of external function 'foo'",
+        ".tmp_source.zig:1:8: note: declared here");
 }

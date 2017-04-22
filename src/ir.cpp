@@ -9887,6 +9887,10 @@ static TypeTableEntry *ir_analyze_instruction_set_global_align(IrAnalyze *ira,
     Tld *tld = instruction->tld;
     IrInstruction *align_value = instruction->value->other;
 
+    resolve_top_level_decl(ira->codegen, tld, true);
+    if (tld->resolution == TldResolutionInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
     uint64_t scalar_align;
     if (!ir_resolve_usize(ira, align_value, &scalar_align))
         return ira->codegen->builtin_types.entry_invalid;
@@ -9902,11 +9906,25 @@ static TypeTableEntry *ir_analyze_instruction_set_global_align(IrAnalyze *ira,
         TldVar *tld_var = (TldVar *)tld;
         set_global_align_node = &tld_var->set_global_align_node;
         alignment_ptr = &tld_var->alignment;
+
+        if (tld_var->var->linkage == VarLinkageExternal) {
+            ErrorMsg *msg = ir_add_error(ira, &instruction->base,
+                    buf_sprintf("cannot set alignment of external variable '%s'", buf_ptr(&tld_var->var->name)));
+            add_error_note(ira->codegen, msg, tld->source_node, buf_sprintf("declared here"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
     } else if (tld->id == TldIdFn) {
         TldFn *tld_fn = (TldFn *)tld;
         FnTableEntry *fn_entry = tld_fn->fn_entry;
         set_global_align_node = &fn_entry->set_global_align_node;
         alignment_ptr = &fn_entry->alignment;
+
+        if (fn_entry->def_scope == nullptr) {
+            ErrorMsg *msg = ir_add_error(ira, &instruction->base,
+                    buf_sprintf("cannot set alignment of external function '%s'", buf_ptr(&fn_entry->symbol_name)));
+            add_error_note(ira->codegen, msg, tld->source_node, buf_sprintf("declared here"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
     } else {
         // error is caught in pass1 IR gen
         zig_unreachable();
@@ -9932,6 +9950,10 @@ static TypeTableEntry *ir_analyze_instruction_set_global_section(IrAnalyze *ira,
     Tld *tld = instruction->tld;
     IrInstruction *section_value = instruction->value->other;
 
+    resolve_top_level_decl(ira->codegen, tld, true);
+    if (tld->resolution == TldResolutionInvalid)
+        return ira->codegen->builtin_types.entry_invalid;
+
     Buf *section_name = ir_resolve_str(ira, section_value);
     if (!section_name)
         return ira->codegen->builtin_types.entry_invalid;
@@ -9942,11 +9964,25 @@ static TypeTableEntry *ir_analyze_instruction_set_global_section(IrAnalyze *ira,
         TldVar *tld_var = (TldVar *)tld;
         set_global_section_node = &tld_var->set_global_section_node;
         section_name_ptr = &tld_var->section_name;
+
+        if (tld_var->var->linkage == VarLinkageExternal) {
+            ErrorMsg *msg = ir_add_error(ira, &instruction->base,
+                    buf_sprintf("cannot set section of external variable '%s'", buf_ptr(&tld_var->var->name)));
+            add_error_note(ira->codegen, msg, tld->source_node, buf_sprintf("declared here"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
     } else if (tld->id == TldIdFn) {
         TldFn *tld_fn = (TldFn *)tld;
         FnTableEntry *fn_entry = tld_fn->fn_entry;
         set_global_section_node = &fn_entry->set_global_section_node;
         section_name_ptr = &fn_entry->section_name;
+
+        if (fn_entry->def_scope == nullptr) {
+            ErrorMsg *msg = ir_add_error(ira, &instruction->base,
+                    buf_sprintf("cannot set section of external function '%s'", buf_ptr(&fn_entry->symbol_name)));
+            add_error_note(ira->codegen, msg, tld->source_node, buf_sprintf("declared here"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
     } else {
         // error is caught in pass1 IR gen
         zig_unreachable();
