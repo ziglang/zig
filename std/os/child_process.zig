@@ -66,10 +66,9 @@ pub const ChildProcess = struct {
             break;
         }
 
-        // TODO oops!
         test (self.stdin) |*stdin| { stdin.close(); }
-        test (self.stdin) |*stdout| { stdout.close(); }
-        test (self.stdin) |*stderr| { stderr.close(); }
+        test (self.stdout) |*stdout| { stdout.close(); }
+        test (self.stderr) |*stderr| { stderr.close(); }
 
         // Write @maxValue(ErrInt) to the write end of the err_pipe. This is after
         // waitpid, so this write is guaranteed to be after the child

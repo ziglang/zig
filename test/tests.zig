@@ -195,6 +195,12 @@ pub const CompareOutputContext = struct {
                 debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
             };
 
+            var stdout = Buffer.initNull(b.allocator);
+            var stderr = Buffer.initNull(b.allocator);
+
+            %%(??child.stdout).readAll(&stdout);
+            %%(??child.stderr).readAll(&stderr);
+
             const term = child.wait() %% |err| {
                 debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
             };
@@ -211,11 +217,6 @@ pub const CompareOutputContext = struct {
                 },
             };
 
-            var stdout = Buffer.initNull(b.allocator);
-            var stderr = Buffer.initNull(b.allocator);
-
-            %%(??child.stdout).readAll(&stdout);
-            %%(??child.stderr).readAll(&stderr);
 
             if (!mem.eql(u8, self.expected_output, stdout.toSliceConst())) {
                 %%io.stderr.printf(
@@ -521,6 +522,12 @@ pub const CompileErrorContext = struct {
                 debug.panic("Unable to spawn {}: {}\n", b.zig_exe, @errorName(err));
             };
 
+            var stdout_buf = Buffer.initNull(b.allocator);
+            var stderr_buf = Buffer.initNull(b.allocator);
+
+            %%(??child.stdout).readAll(&stdout_buf);
+            %%(??child.stderr).readAll(&stderr_buf);
+
             const term = child.wait() %% |err| {
                 debug.panic("Unable to spawn {}: {}\n", b.zig_exe, @errorName(err));
             };
@@ -537,11 +544,6 @@ pub const CompileErrorContext = struct {
                 },
             };
 
-            var stdout_buf = Buffer.initNull(b.allocator);
-            var stderr_buf = Buffer.initNull(b.allocator);
-
-            %%(??child.stdout).readAll(&stdout_buf);
-            %%(??child.stderr).readAll(&stderr_buf);
 
             const stdout = stdout_buf.toSliceConst();
             const stderr = stderr_buf.toSliceConst();
@@ -783,6 +785,12 @@ pub const ParseHContext = struct {
                 debug.panic("Unable to spawn {}: {}\n", b.zig_exe, @errorName(err));
             };
 
+            var stdout_buf = Buffer.initNull(b.allocator);
+            var stderr_buf = Buffer.initNull(b.allocator);
+
+            %%(??child.stdout).readAll(&stdout_buf);
+            %%(??child.stderr).readAll(&stderr_buf);
+
             const term = child.wait() %% |err| {
                 debug.panic("Unable to spawn {}: {}\n", b.zig_exe, @errorName(err));
             };
@@ -802,12 +810,6 @@ pub const ParseHContext = struct {
                     return error.TestFailed;
                 },
             };
-
-            var stdout_buf = Buffer.initNull(b.allocator);
-            var stderr_buf = Buffer.initNull(b.allocator);
-
-            %%(??child.stdout).readAll(&stdout_buf);
-            %%(??child.stderr).readAll(&stderr_buf);
 
             const stdout = stdout_buf.toSliceConst();
             const stderr = stderr_buf.toSliceConst();
