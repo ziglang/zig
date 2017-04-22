@@ -6120,6 +6120,15 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         {
             prev_inst = cur_inst;
             continue;
+        } else if (prev_type->id == TypeTableEntryIdMaybe &&
+                   types_match_const_cast_only(prev_type->data.maybe.child_type, cur_type))
+        {
+            continue;
+        } else if (cur_type->id == TypeTableEntryIdMaybe &&
+                   types_match_const_cast_only(cur_type->data.maybe.child_type, prev_type))
+        {
+            prev_inst = cur_inst;
+            continue;
         } else if (prev_type->id == TypeTableEntryIdNumLitInt ||
                     prev_type->id == TypeTableEntryIdNumLitFloat)
         {

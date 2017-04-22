@@ -117,3 +117,14 @@ fn returnNullFromMaybeTypeErrorRef() -> %?&A {
 fn returnNullLitFromMaybeTypeErrorRef() -> %?&A {
     return null;
 }
+
+test "peer type resolution: ?T and T" {
+    assert(??peerTypeTAndMaybeT(true, false) == 0);
+}
+fn peerTypeTAndMaybeT(c: bool, b: bool) -> ?usize {
+    if (c) {
+        return if (b) null else usize(0);
+    }
+
+    return usize(3);
+}
