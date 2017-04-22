@@ -894,8 +894,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 if (node->data.slice_expr.end)
                     render_node_grouped(ar, node->data.slice_expr.end);
                 fprintf(ar->f, "]");
-                if (node->data.slice_expr.is_const)
-                    fprintf(ar->f, "const");
                 break;
             }
         case NodeTypeUnwrapErrorExpr:

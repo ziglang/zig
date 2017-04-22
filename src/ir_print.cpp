@@ -642,8 +642,6 @@ static void ir_print_slice(IrPrint *irp, IrInstructionSlice *instruction) {
     if (instruction->end)
         ir_print_other_instruction(irp, instruction->end);
     fprintf(irp->f, "]");
-    if (instruction->is_const)
-        fprintf(irp->f, "const");
 }
 
 static void ir_print_member_count(IrPrint *irp, IrInstructionMemberCount *instruction) {

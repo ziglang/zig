@@ -532,7 +532,6 @@ struct AstNodeSliceExpr {
     AstNode *array_ref_expr;
     AstNode *start;
     AstNode *end;
-    bool is_const;
 };
 
 struct AstNodeFieldAccessExpr {
@@ -2260,7 +2259,6 @@ struct IrInstructionSlice {
     IrInstruction *ptr;
     IrInstruction *start;
     IrInstruction *end;
-    bool is_const;
     bool safety_check_on;
     LLVMValueRef tmp_ptr;
 };

@@ -120,6 +120,11 @@ fn returnNullLitFromMaybeTypeErrorRef() -> %?&A {
 
 test "peer type resolution: ?T and T" {
     assert(??peerTypeTAndMaybeT(true, false) == 0);
+    assert(??peerTypeTAndMaybeT(false, false) == 3);
+    comptime {
+        assert(??peerTypeTAndMaybeT(true, false) == 0);
+        assert(??peerTypeTAndMaybeT(false, false) == 3);
+    }
 }
 fn peerTypeTAndMaybeT(c: bool, b: bool) -> ?usize {
     if (c) {
@@ -127,4 +132,21 @@ fn peerTypeTAndMaybeT(c: bool, b: bool) -> ?usize {
     }
 
     return usize(3);
+}
+
+
+test "peer type resolution: [0]u8 and []const u8" {
+    assert(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
+    assert(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
+    comptime {
+        assert(peerTypeEmptyArrayAndSlice(true, "hi").len == 0);
+        assert(peerTypeEmptyArrayAndSlice(false, "hi").len == 1);
+    }
+}
+fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) -> []const u8 {
+    if (a) {
+        return []const u8 {};
+    }
+
+    return slice[0...1];
 }

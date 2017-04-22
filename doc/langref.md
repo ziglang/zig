@@ -133,7 +133,7 @@ FnCallExpression = "(" list(Expression, ",") ")"
 
 ArrayAccessExpression = "[" Expression "]"
 
-SliceExpression = "[" Expression "..." option(Expression) "]" option("const")
+SliceExpression = "[" Expression "..." option(Expression) "]"
 
 ContainerInitExpression = "{" ContainerInitBody "}"
 

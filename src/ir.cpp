@@ -1729,13 +1729,12 @@ static IrInstruction *ir_build_memcpy_from(IrBuilder *irb, IrInstruction *old_in
 }
 
 static IrInstruction *ir_build_slice(IrBuilder *irb, Scope *scope, AstNode *source_node,
-    IrInstruction *ptr, IrInstruction *start, IrInstruction *end, bool is_const, bool safety_check_on)
+    IrInstruction *ptr, IrInstruction *start, IrInstruction *end, bool safety_check_on)
 {
     IrInstructionSlice *instruction = ir_build_instruction<IrInstructionSlice>(irb, scope, source_node);
     instruction->ptr = ptr;
     instruction->start = start;
     instruction->end = end;
-    instruction->is_const = is_const;
     instruction->safety_check_on = safety_check_on;
 
     ir_ref_instruction(ptr, irb->current_basic_block);
@@ -1746,10 +1745,10 @@ static IrInstruction *ir_build_slice(IrBuilder *irb, Scope *scope, AstNode *sour
 }
 
 static IrInstruction *ir_build_slice_from(IrBuilder *irb, IrInstruction *old_instruction,
-    IrInstruction *ptr, IrInstruction *start, IrInstruction *end, bool is_const, bool safety_check_on)
+    IrInstruction *ptr, IrInstruction *start, IrInstruction *end, bool safety_check_on)
 {
     IrInstruction *new_instruction = ir_build_slice(irb, old_instruction->scope,
-            old_instruction->source_node, ptr, start, end, is_const, safety_check_on);
+            old_instruction->source_node, ptr, start, end, safety_check_on);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
 }
@@ -5439,7 +5438,7 @@ static IrInstruction *ir_gen_slice(IrBuilder *irb, Scope *scope, AstNode *node) 
         end_value = nullptr;
     }
 
-    return ir_build_slice(irb, scope, node, ptr_value, start_value, end_value, slice_expr->is_const, true);
+    return ir_build_slice(irb, scope, node, ptr_value, start_value, end_value, true);
 }
 
 static IrInstruction *ir_gen_err_ok_or(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
@@ -5901,6 +5900,11 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
 
 static bool is_slice(TypeTableEntry *type) {
     return type->id == TypeTableEntryIdStruct && type->data.structure.is_slice;
+}
+
+static bool slice_is_const(TypeTableEntry *type) {
+    assert(is_slice(type));
+    return type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const;
 }
 
 enum ImplicitCastMatchResult {
@@ -6778,7 +6782,7 @@ static IrInstruction *ir_analyze_array_to_slice(IrAnalyze *ira, IrInstruction *s
     IrInstruction *array_ptr = ir_get_ref(ira, source_instr, array, true, false);
 
     IrInstruction *result = ir_build_slice(&ira->new_irb, source_instr->scope,
-            source_instr->source_node, array_ptr, start, end, false, false);
+            source_instr->source_node, array_ptr, start, end, false);
     TypeTableEntry *child_type = array_type->data.array.child_type;
     result->value.type = get_slice_type(ira->codegen, child_type, true);
     ir_add_alloca(ira, result, result->value.type);
@@ -12076,17 +12080,17 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
     TypeTableEntry *return_type;
 
     if (array_type->id == TypeTableEntryIdArray) {
-        return_type = get_slice_type(ira->codegen, array_type->data.array.child_type, instruction->is_const);
+        return_type = get_slice_type(ira->codegen, array_type->data.array.child_type, ptr_type->data.pointer.is_const);
     } else if (array_type->id == TypeTableEntryIdPointer) {
-        return_type = get_slice_type(ira->codegen, array_type->data.pointer.child_type, instruction->is_const);
+        return_type = get_slice_type(ira->codegen, array_type->data.pointer.child_type,
+                array_type->data.pointer.is_const);
         if (!end) {
             ir_add_error(ira, &instruction->base, buf_sprintf("slice of pointer must include end value"));
             return ira->codegen->builtin_types.entry_invalid;
         }
     } else if (is_slice(array_type)) {
-        return_type = get_slice_type(ira->codegen,
-                array_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type,
-                instruction->is_const);
+        TypeTableEntry *ptr_type = array_type->data.structure.fields[slice_ptr_index].type_entry;
+        return_type = get_slice_type(ira->codegen, ptr_type->data.pointer.child_type, ptr_type->data.pointer.is_const);
     } else {
         ir_add_error(ira, &instruction->base,
             buf_sprintf("slice of non-array type '%s'", buf_ptr(&array_type->name)));
@@ -12186,7 +12190,8 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
 
             if (array_val) {
                 size_t index = abs_offset + start_scalar;
-                init_const_ptr_array(ira->codegen, ptr_val, array_val, index, instruction->is_const);
+                bool is_const = slice_is_const(return_type);
+                init_const_ptr_array(ira->codegen, ptr_val, array_val, index, is_const);
                 if (array_type->id == TypeTableEntryIdArray) {
                     ptr_val->data.x_ptr.mut = ptr_ptr->value.data.x_ptr.mut;
                 }
@@ -12197,7 +12202,7 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
                         zig_unreachable();
                     case ConstPtrSpecialRef:
                         init_const_ptr_ref(ira->codegen, ptr_val,
-                                parent_ptr->data.x_ptr.data.ref.pointee, instruction->is_const);
+                                parent_ptr->data.x_ptr.data.ref.pointee, slice_is_const(return_type));
                         break;
                     case ConstPtrSpecialBaseArray:
                         zig_unreachable();
@@ -12216,7 +12221,7 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
     }
 
     IrInstruction *new_instruction = ir_build_slice_from(&ira->new_irb, &instruction->base, ptr_ptr,
-            casted_start, end, instruction->is_const, instruction->safety_check_on);
+            casted_start, end, instruction->safety_check_on);
     ir_add_alloca(ira, new_instruction, return_type);
 
     return return_type;

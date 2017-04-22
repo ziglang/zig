@@ -21,7 +21,7 @@ fn foo(args: [][]const u8) {
 }
 
 fn bar(argc: usize) {
-    const args = %%debug.global_allocator.alloc([]u8, argc);
+    const args = %%debug.global_allocator.alloc([]const u8, argc);
     for (args) |_, i| {
         const ptr = argv[i];
         args[i] = ptr[0...strlen(ptr)];

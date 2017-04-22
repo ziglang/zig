@@ -986,7 +986,7 @@ static AstNode *ast_parse_inline_expr(ParseContext *pc, size_t *token_index, boo
 SuffixOpExpression = InlineExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
 FnCallExpression : token(LParen) list(Expression, token(Comma)) token(RParen)
 ArrayAccessExpression : token(LBracket) Expression token(RBracket)
-SliceExpression : token(LBracket) Expression token(Ellipsis) option(Expression) token(RBracket) option(token(Const))
+SliceExpression = "[" Expression "..." option(Expression) "]"
 FieldAccessExpression : token(Dot) token(Symbol)
 StructLiteralField : token(Dot) token(Symbol) token(Eq) Expression
 */
@@ -1021,12 +1021,6 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, 
                 node->data.slice_expr.end = ast_parse_expression(pc, token_index, false);
 
                 ast_eat_token(pc, token_index, TokenIdRBracket);
-
-                Token *const_tok = &pc->tokens->at(*token_index);
-                if (const_tok->id == TokenIdKeywordConst) {
-                    *token_index += 1;
-                    node->data.slice_expr.is_const = true;
-                }
 
                 inline_expr = node;
             } else if (ellipsis_or_r_bracket->id == TokenIdRBracket) {
