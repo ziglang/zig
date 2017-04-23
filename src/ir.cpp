@@ -3350,6 +3350,7 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
     }
 
     bool is_continuation_unreachable = false;
+    IrInstruction *noreturn_return_value = nullptr;
     IrInstruction *return_value = nullptr;
     for (size_t i = 0; i < block_node->data.block.statements.length; i += 1) {
         AstNode *statement_node = block_node->data.block.statements.at(i);
@@ -3383,16 +3384,15 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
 
             // a label is an entry point
             is_continuation_unreachable = false;
-            return_value = nullptr;
             continue;
         }
 
         IrInstruction *statement_value = ir_gen_node(irb, statement_node, child_scope);
         is_continuation_unreachable = instr_is_unreachable(statement_value);
-        if (is_continuation_unreachable)
-            return_value = statement_value;
-        else
-            return_value = nullptr;
+        if (is_continuation_unreachable) {
+            // keep the last noreturn statement value around in case we need to return it
+            noreturn_return_value = statement_value;
+        }
         if (statement_node->type == NodeTypeDefer && statement_value != irb->codegen->invalid_instruction) {
             // defer starts a new scope
             child_scope = statement_node->data.defer.child_scope;
@@ -3420,18 +3420,23 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
         }
     }
 
-    if (!is_continuation_unreachable) {
-        // control flow falls out of block
+    if (is_continuation_unreachable) {
+        assert(noreturn_return_value != nullptr);
+        return noreturn_return_value;
+    }
+    // control flow falls out of block
 
-        if (!block_node->data.block.last_statement_is_result_expression) {
-            assert(return_value == nullptr);
-            return_value = ir_mark_gen(ir_build_const_void(irb, child_scope, block_node));
-        }
-
-        ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
+    if (block_node->data.block.last_statement_is_result_expression) {
+        // return value was determined by the last statement
+        assert(return_value != nullptr);
+    } else {
+        // return value is implicitly void
+        assert(return_value == nullptr);
+        return_value = ir_mark_gen(ir_build_const_void(irb, child_scope, block_node));
     }
 
-    assert(return_value != nullptr);
+    ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
+
     return return_value;
 }
 
