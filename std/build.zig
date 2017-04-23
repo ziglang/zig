@@ -569,6 +569,10 @@ pub const Builder = struct {
     }
 
     fn copyFile(self: &Builder, source_path: []const u8, dest_path: []const u8) {
+        const dirname = os.path.dirname(dest_path);
+        os.makePath(self.allocator, dirname) %% |err| {
+            debug.panic("Unable to create path {}: {}", dirname, @errorName(err));
+        };
         os.copyFile(self.allocator, source_path, dest_path) %% |err| {
             debug.panic("Unable to copy {} to {}: {}", source_path, dest_path, @errorName(err));
         };
@@ -1725,11 +1729,14 @@ pub const InstallCLibraryStep = struct {
 
     fn make(step: &Step) -> %void {
         const self = @fieldParentPtr(InstallCLibraryStep, "step", step);
+        const builder = self.builder;
 
         self.builder.copyFile(self.lib.out_filename, self.dest_file);
         if (!self.lib.static) {
-            %%os.atomicSymLink(self.builder.allocator, self.lib.out_filename, self.lib.major_only_filename);
-            %%os.atomicSymLink(self.builder.allocator, self.lib.major_only_filename, self.lib.name_only_filename);
+            const dest_major_only = %%os.path.join(builder.allocator, builder.lib_dir, self.lib.major_only_filename);
+            const dest_name_only = %%os.path.join(builder.allocator, builder.lib_dir, self.lib.name_only_filename);
+            %%os.atomicSymLink(self.builder.allocator, self.lib.out_filename, dest_major_only);
+            %%os.atomicSymLink(self.builder.allocator, self.lib.major_only_filename, dest_name_only);
         }
     }
 };
@@ -1751,8 +1758,7 @@ pub const InstallFileStep = struct {
 
     fn make(step: &Step) -> %void {
         const self = @fieldParentPtr(InstallFileStep, "step", step);
-
-        debug.panic("TODO install file");
+        self.builder.copyFile(self.src_path, self.dest_path);
     }
 };
 
