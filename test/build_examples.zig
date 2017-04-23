@@ -7,4 +7,5 @@ pub fn addCases(cases: &tests.BuildExamplesContext) {
     cases.add("example/guess_number/main.zig");
     cases.addBuildFile("example/shared_library/build.zig");
     cases.addBuildFile("example/mix_o_files/build.zig");
+    cases.addBuildFile("test/standalone/issue_339/build.zig");
 }

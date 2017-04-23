@@ -668,6 +668,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
 
     g->generate_error_name_table = true;
     generate_error_name_table(g);
+    assert(g->err_name_table != nullptr);
 
     size_t unwrap_err_msg_text_len = strlen(unwrap_err_msg_text);
     size_t err_buf_len = strlen(unwrap_err_msg_text) + g->largest_err_name_len;
@@ -755,7 +756,6 @@ static void gen_debug_safety_crash_for_err(CodeGen *g, LLVMValueRef err_val) {
     LLVMValueRef safety_crash_err_fn = get_safety_crash_err_fn(g);
     LLVMBuildCall(g->builder, safety_crash_err_fn, &err_val, 1, "");
     LLVMBuildUnreachable(g->builder);
-
 }
 
 static void add_bounds_check(CodeGen *g, LLVMValueRef target_val,
@@ -2649,7 +2649,7 @@ static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutable *execu
     LLVMValueRef err_union_ptr = ir_llvm_value(g, instruction->value);
     LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type, is_volatile);
 
-    if (ir_want_debug_safety(g, &instruction->base) && instruction->safety_check_on) {
+    if (ir_want_debug_safety(g, &instruction->base) && instruction->safety_check_on && g->error_decls.length > 1) {
         LLVMValueRef err_val;
         if (type_has_bits(child_type)) {
             LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, err_union_handle, err_union_err_index, "");
