@@ -28,7 +28,7 @@ pub const BufSet = struct {
         if (self.hash_map.get(key) == null) {
             const key_copy = %return self.copy(key);
             %defer self.free(key_copy);
-            %return self.hash_map.put(key_copy, {});
+            _ = %return self.hash_map.put(key_copy, {});
         }
     }
 

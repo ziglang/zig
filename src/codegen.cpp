@@ -2885,6 +2885,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdTestComptime:
         case IrInstructionIdGeneratedCode:
         case IrInstructionIdCheckSwitchProngs:
+        case IrInstructionIdCheckStatementIsVoid:
         case IrInstructionIdTestType:
         case IrInstructionIdTypeName:
         case IrInstructionIdCanImplicitCast:

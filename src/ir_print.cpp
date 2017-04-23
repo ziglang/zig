@@ -814,6 +814,12 @@ static void ir_print_check_switch_prongs(IrPrint *irp, IrInstructionCheckSwitchP
     fprintf(irp->f, ")");
 }
 
+static void ir_print_check_statement_is_void(IrPrint *irp, IrInstructionCheckStatementIsVoid *instruction) {
+    fprintf(irp->f, "@checkStatementIsVoid(");
+    ir_print_other_instruction(irp, instruction->statement_value);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_test_type(IrPrint *irp, IrInstructionTestType *instruction) {
     fprintf(irp->f, "testtype ");
     ir_print_other_instruction(irp, instruction->type_value);
@@ -1148,6 +1154,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdCheckSwitchProngs:
             ir_print_check_switch_prongs(irp, (IrInstructionCheckSwitchProngs *)instruction);
+            break;
+        case IrInstructionIdCheckStatementIsVoid:
+            ir_print_check_statement_is_void(irp, (IrInstructionCheckStatementIsVoid *)instruction);
             break;
         case IrInstructionIdTestType:
             ir_print_test_type(irp, (IrInstructionTestType *)instruction);

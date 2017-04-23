@@ -31,14 +31,14 @@ pub const BufMap = struct {
         test (self.hash_map.get(key)) |entry| {
             const value_copy = %return self.copy(value);
             %defer self.free(value_copy);
-            %return self.hash_map.put(key, value_copy);
+            _ = %return self.hash_map.put(key, value_copy);
             self.free(entry.value);
         } else {
             const key_copy = %return self.copy(key);
             %defer self.free(key_copy);
             const value_copy = %return self.copy(value);
             %defer self.free(value_copy);
-            %return self.hash_map.put(key_copy, value_copy);
+            _ = %return self.hash_map.put(key_copy, value_copy);
         }
     }
 

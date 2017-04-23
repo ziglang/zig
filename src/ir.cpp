@@ -510,6 +510,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionCheckSwitchProng
     return IrInstructionIdCheckSwitchProngs;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCheckStatementIsVoid *) {
+    return IrInstructionIdCheckStatementIsVoid;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionTestType *) {
     return IrInstructionIdTestType;
 }
@@ -2803,6 +2807,15 @@ static IrInstruction *ir_instruction_checkswitchprongs_get_dep(IrInstructionChec
     return nullptr;
 }
 
+static IrInstruction *ir_instruction_checkstatementisvoid_get_dep(IrInstructionCheckStatementIsVoid *instruction,
+        size_t index)
+{
+    switch (index) {
+        case 0: return instruction->statement_value;
+        default: return nullptr;
+    }
+}
+
 static IrInstruction *ir_instruction_testtype_get_dep(IrInstructionTestType *instruction, size_t index) {
     switch (index) {
         case 0: return instruction->type_value;
@@ -3060,6 +3073,8 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_errtoint_get_dep((IrInstructionErrToInt *) instruction, index);
         case IrInstructionIdCheckSwitchProngs:
             return ir_instruction_checkswitchprongs_get_dep((IrInstructionCheckSwitchProngs *) instruction, index);
+        case IrInstructionIdCheckStatementIsVoid:
+            return ir_instruction_checkstatementisvoid_get_dep((IrInstructionCheckStatementIsVoid *) instruction, index);
         case IrInstructionIdTestType:
             return ir_instruction_testtype_get_dep((IrInstructionTestType *) instruction, index);
         case IrInstructionIdTypeName:
@@ -3333,6 +3348,18 @@ static ScopeBlock *find_block_scope(IrExecutable *exec, Scope *scope) {
     return nullptr;
 }
 
+static IrInstruction *ir_build_check_statement_is_void(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction* statement_value)
+{
+    IrInstructionCheckStatementIsVoid *instruction = ir_build_instruction<IrInstructionCheckStatementIsVoid>(
+            irb, scope, source_node);
+    instruction->statement_value = statement_value;
+
+    ir_ref_instruction(statement_value, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode *block_node) {
     assert(block_node->type == NodeTypeBlock);
 
@@ -3410,12 +3437,8 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
                 return_value = statement_value;
             } else {
                 // there are more statements ahead of this one. this statement's value must be void
-                TypeTableEntry *instruction_type = statement_value->value.type;
-                if (instruction_type &&
-                    instruction_type->id != TypeTableEntryIdInvalid &&
-                    instruction_type->id != TypeTableEntryIdVoid &&
-                    instruction_type->id != TypeTableEntryIdUnreachable) {
-                    add_node_error(irb->codegen, statement_node, buf_sprintf("expression valued ignored"));
+                if (statement_value != irb->codegen->invalid_instruction) {
+                    ir_mark_gen(ir_build_check_statement_is_void(irb, child_scope, statement_node, statement_value));
                 }
             }
         }
@@ -12640,6 +12663,22 @@ static TypeTableEntry *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira
     return ira->codegen->builtin_types.entry_void;
 }
 
+static TypeTableEntry *ir_analyze_instruction_check_statement_is_void(IrAnalyze *ira,
+        IrInstructionCheckStatementIsVoid *instruction)
+{
+    IrInstruction *statement_value = instruction->statement_value;
+    TypeTableEntry *statement_type = statement_value->value.type;
+    if (type_is_invalid(statement_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (statement_type->id != TypeTableEntryIdVoid) {
+        ir_add_error(ira, &instruction->base, buf_sprintf("expression value is ignored"));
+    }
+
+    ir_build_const_from(ira, &instruction->base);
+    return ira->codegen->builtin_types.entry_void;
+}
+
 static TypeTableEntry *ir_analyze_instruction_test_type(IrAnalyze *ira, IrInstructionTestType *instruction) {
     IrInstruction *type_value = instruction->type_value->other;
     TypeTableEntry *type_entry = ir_resolve_type(ira, type_value);
@@ -12987,6 +13026,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_test_comptime(ira, (IrInstructionTestComptime *)instruction);
         case IrInstructionIdCheckSwitchProngs:
             return ir_analyze_instruction_check_switch_prongs(ira, (IrInstructionCheckSwitchProngs *)instruction);
+        case IrInstructionIdCheckStatementIsVoid:
+            return ir_analyze_instruction_check_statement_is_void(ira, (IrInstructionCheckStatementIsVoid *)instruction);
         case IrInstructionIdTestType:
             return ir_analyze_instruction_test_type(ira, (IrInstructionTestType *)instruction);
         case IrInstructionIdCanImplicitCast:
@@ -13025,13 +13066,6 @@ static TypeTableEntry *ir_analyze_instruction(IrAnalyze *ira, IrInstruction *ins
         assert(instruction_type->id == TypeTableEntryIdInvalid ||
                instruction_type->id == TypeTableEntryIdUnreachable);
         instruction->other = instruction;
-    }
-    if (instruction_type->id != TypeTableEntryIdInvalid &&
-        instruction_type->id != TypeTableEntryIdVoid &&
-        instruction_type->id != TypeTableEntryIdUnreachable &&
-        instruction->ref_count == 0)
-    {
-        ir_add_error(ira, instruction, buf_sprintf("return value ignored"));
     }
 
     return instruction_type;
@@ -13123,6 +13157,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdBreakpoint:
         case IrInstructionIdOverflowOp: // TODO when we support multiple returns this can be side effect free
         case IrInstructionIdCheckSwitchProngs:
+        case IrInstructionIdCheckStatementIsVoid:
         case IrInstructionIdSetGlobalAlign:
         case IrInstructionIdSetGlobalSection:
         case IrInstructionIdSetGlobalLinkage:

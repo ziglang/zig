@@ -415,20 +415,23 @@ pub const Builder = struct {
             .value = UserValue.Scalar { value },
             .used = false,
         })) |*prev_value| {
+            // option already exists
             switch (prev_value.value) {
                 UserValue.Scalar => |s| {
+                    // turn it into a list
                     var list = List([]const u8).init(self.allocator);
                     %%list.append(s);
                     %%list.append(value);
-                    %%self.user_input_options.put(name, UserInputOption {
+                    _ = %%self.user_input_options.put(name, UserInputOption {
                         .name = name,
                         .value = UserValue.List { list },
                         .used = false,
                     });
                 },
                 UserValue.List => |*list| {
+                    // append to the list
                     %%list.append(value);
-                    %%self.user_input_options.put(name, UserInputOption {
+                    _ = %%self.user_input_options.put(name, UserInputOption {
                         .name = name,
                         .value = UserValue.List { *list },
                         .used = false,

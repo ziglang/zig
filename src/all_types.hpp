@@ -1738,6 +1738,7 @@ enum IrInstructionId {
     IrInstructionIdIntToErr,
     IrInstructionIdErrToInt,
     IrInstructionIdCheckSwitchProngs,
+    IrInstructionIdCheckStatementIsVoid,
     IrInstructionIdTestType,
     IrInstructionIdTypeName,
     IrInstructionIdCanImplicitCast,
@@ -2433,6 +2434,12 @@ struct IrInstructionCheckSwitchProngs {
     IrInstruction *target_value;
     IrInstructionCheckSwitchProngsRange *ranges;
     size_t range_count;
+};
+
+struct IrInstructionCheckStatementIsVoid {
+    IrInstruction base;
+
+    IrInstruction *statement_value;
 };
 
 struct IrInstructionTestType {

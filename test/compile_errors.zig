@@ -1346,7 +1346,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    bar();
         \\}
         \\fn bar() -> i32 { 0 }
-    , ".tmp_source.zig:2:8: error: return value ignored");
+    , ".tmp_source.zig:2:8: error: expression value is ignored");
 
     cases.add("integer literal on a non-comptime var",
         \\export fn foo() {

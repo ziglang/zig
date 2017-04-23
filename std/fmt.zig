@@ -386,7 +386,7 @@ fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, width: u
 }
 
 test "testParseU64DigitTooBig" {
-    parseUnsigned(u64, "123a", 10) %% |err| {
+    _ = parseUnsigned(u64, "123a", 10) %% |err| {
         if (err == error.InvalidChar) return;
         unreachable;
     };
