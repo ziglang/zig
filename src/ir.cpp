@@ -3387,15 +3387,6 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
             continue;
         }
 
-        if (is_continuation_unreachable) {
-            // if you put a semicolon after a return statement,
-            // then we get a void statement in the unreachable area.
-            // this is fine. ignore any void blocks we get from this happening.
-            if (statement_node->type == NodeTypeBlock && statement_node->data.block.statements.length == 0)
-                continue;
-            add_node_error(irb->codegen, statement_node, buf_sprintf("unreachable code"));
-        }
-
         IrInstruction *statement_value = ir_gen_node(irb, statement_node, child_scope);
         is_continuation_unreachable = instr_is_unreachable(statement_value);
         if (is_continuation_unreachable)
@@ -3411,7 +3402,7 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
             IrInstructionDeclVar *decl_var_instruction = (IrInstructionDeclVar *)statement_value;
             child_scope = decl_var_instruction->var->child_scope;
         } else {
-            // label, defer, variable declaration will never be the last statement
+            // label, defer, variable declaration will never be the result expression
             if (block_node->data.block.last_statement_is_result_expression &&
                 i == block_node->data.block.statements.length - 1) {
                 // this is the result value statement

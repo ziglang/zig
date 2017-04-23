@@ -254,7 +254,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
         \\
         \\fn b() {}
-    , ".tmp_source.zig:3:6: error: unreachable code");
+    , ".tmp_source.zig:3:5: error: unreachable code");
 
     cases.add("bad import",
         \\const bogus = @import("bogus-does-not-exist.zig");
