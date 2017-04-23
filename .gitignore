@@ -3,3 +3,4 @@ build-release/
 /.cproject
 /.project
 /.settings/
+/test_artifacts/
