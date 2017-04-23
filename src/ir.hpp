@@ -22,7 +22,7 @@ TypeTableEntry *ir_analyze(CodeGen *g, IrExecutable *old_executable, IrExecutabl
         TypeTableEntry *expected_type, AstNode *expected_type_source_node);
 
 bool ir_has_side_effects(IrInstruction *instruction);
-ConstExprValue *const_ptr_pointee(ConstExprValue *const_val);
+ConstExprValue *const_ptr_pointee(CodeGen *codegen, ConstExprValue *const_val);
 
 FnTableEntry *ir_create_inline_fn(CodeGen *codegen, Buf *fn_name, VariableTableEntry *var, Scope *parent_scope);
 

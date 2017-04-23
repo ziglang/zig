@@ -273,6 +273,7 @@ void ast_print(FILE *f, AstNode *node, int indent) {
 
 
 struct AstRender {
+    CodeGen *codegen;
     int indent;
     int indent_size;
     FILE *f;
@@ -924,8 +925,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
 }
 
 
-void ast_render(FILE *f, AstNode *node, int indent_size) {
+void ast_render(CodeGen *codegen, FILE *f, AstNode *node, int indent_size) {
     AstRender ar = {0};
+    ar.codegen = codegen;
     ar.f = f;
     ar.indent_size = indent_size;
     ar.indent = 0;
@@ -1030,15 +1032,16 @@ static void ast_render_tld_var(AstRender *ar, Buf *name, TldVar *tld_var) {
     } else {
         Buf buf = BUF_INIT;
         buf_resize(&buf, 0);
-        render_const_value(&buf, var->value);
+        render_const_value(ar->codegen, &buf, var->value);
         fprintf(ar->f, "%s", buf_ptr(&buf));
     }
 
     fprintf(ar->f, ";\n");
 }
 
-void ast_render_decls(FILE *f, int indent_size, ImportTableEntry *import) {
+void ast_render_decls(CodeGen *codegen, FILE *f, int indent_size, ImportTableEntry *import) {
     AstRender ar = {0};
+    ar.codegen = codegen;
     ar.f = f;
     ar.indent_size = indent_size;
     ar.indent = 0;

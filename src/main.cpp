@@ -609,7 +609,7 @@ int main(int argc, char **argv) {
                 return EXIT_SUCCESS;
             } else if (cmd == CmdParseH) {
                 codegen_parseh(g, &root_source_dir, &root_source_name, &root_source_code);
-                ast_render_decls(stdout, 4, g->root_import);
+                ast_render_decls(g, stdout, 4, g->root_import);
                 return EXIT_SUCCESS;
             } else if (cmd == CmdTest) {
                 codegen_add_root_code(g, &root_source_dir, &root_source_name, &root_source_code);

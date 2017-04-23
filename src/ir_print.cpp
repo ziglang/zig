@@ -10,6 +10,7 @@
 #include "ir_print.hpp"
 
 struct IrPrint {
+    CodeGen *codegen;
     FILE *f;
     int indent;
     int indent_size;
@@ -34,7 +35,7 @@ static void ir_print_prefix(IrPrint *irp, IrInstruction *instruction) {
 static void ir_print_const_value(IrPrint *irp, ConstExprValue *const_val) {
     Buf buf = BUF_INIT;
     buf_resize(&buf, 0);
-    render_const_value(&buf, const_val);
+    render_const_value(irp->codegen, &buf, const_val);
     fprintf(irp->f, "%s", buf_ptr(&buf));
 }
 
@@ -1188,9 +1189,10 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     fprintf(irp->f, "\n");
 }
 
-void ir_print(FILE *f, IrExecutable *executable, int indent_size) {
+void ir_print(CodeGen *codegen, FILE *f, IrExecutable *executable, int indent_size) {
     IrPrint ir_print = {};
     IrPrint *irp = &ir_print;
+    irp->codegen = codegen;
     irp->f = f;
     irp->indent = indent_size;
     irp->indent_size = indent_size;

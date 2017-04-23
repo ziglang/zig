@@ -3051,7 +3051,8 @@ static LLVMValueRef gen_parent_ptr(CodeGen *g, ConstExprValue *val, ConstParent 
 }
 
 static LLVMValueRef gen_const_ptr_array_recursive(CodeGen *g, ConstExprValue *array_const_val, size_t index) {
-    ConstParent *parent = &array_const_val->data.x_array.parent;
+    expand_undef_array(g, array_const_val);
+    ConstParent *parent = &array_const_val->data.x_array.s_none.parent;
     LLVMValueRef base_ptr = gen_parent_ptr(g, array_const_val, parent);
 
     TypeTableEntry *usize = g->builtin_types.entry_usize;
@@ -3283,9 +3284,13 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
         case TypeTableEntryIdArray:
             {
                 uint64_t len = type_entry->data.array.len;
+                if (const_val->data.x_array.special == ConstArraySpecialUndef) {
+                    return LLVMGetUndef(type_entry->type_ref);
+                }
+
                 LLVMValueRef *values = allocate<LLVMValueRef>(len);
                 for (uint64_t i = 0; i < len; i += 1) {
-                    ConstExprValue *elem_value = &const_val->data.x_array.elements[i];
+                    ConstExprValue *elem_value = &const_val->data.x_array.s_none.elements[i];
                     values[i] = gen_const_val(g, elem_value);
                 }
                 return LLVMConstArray(LLVMTypeOf(values[0]), values, (unsigned)len);
@@ -4577,11 +4582,11 @@ static void define_builtin_compile_vars(CodeGen *g) {
         ConstExprValue *const_val = allocate<ConstExprValue>(1);
         const_val->special = ConstValSpecialStatic;
         const_val->type = get_array_type(g, str_type, g->link_libs.length);
-        const_val->data.x_array.elements = allocate<ConstExprValue>(g->link_libs.length);
+        const_val->data.x_array.s_none.elements = allocate<ConstExprValue>(g->link_libs.length);
         for (size_t i = 0; i < g->link_libs.length; i += 1) {
             Buf *link_lib_buf = g->link_libs.at(i);
             ConstExprValue *array_val = create_const_str_lit(g, link_lib_buf);
-            init_const_slice(g, &const_val->data.x_array.elements[i], array_val, 0, buf_len(link_lib_buf), true);
+            init_const_slice(g, &const_val->data.x_array.s_none.elements[i], array_val, 0, buf_len(link_lib_buf), true);
         }
 
         add_compile_var(g, "link_libs", const_val);

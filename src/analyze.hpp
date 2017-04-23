@@ -84,7 +84,7 @@ void eval_min_max_value(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *
 int64_t min_signed_val(TypeTableEntry *type_entry);
 uint64_t max_unsigned_val(TypeTableEntry *type_entry);
 
-void render_const_value(Buf *buf, ConstExprValue *const_val);
+void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val);
 void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entry, VariableTableEntry **arg_vars);
 void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_type_node);
 
@@ -145,8 +145,9 @@ ConstExprValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_
 void init_const_undefined(CodeGen *g, ConstExprValue *const_val);
 
 TypeTableEntry *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits);
-ConstParent *get_const_val_parent(ConstExprValue *value);
+ConstParent *get_const_val_parent(CodeGen *g, ConstExprValue *value);
 FnTableEntry *get_extern_panic_fn(CodeGen *g);
 TypeTableEntry *create_enum_tag_type(CodeGen *g, TypeTableEntry *enum_type, TypeTableEntry *int_type);
+void expand_undef_array(CodeGen *g, ConstExprValue *const_val);
 
 #endif

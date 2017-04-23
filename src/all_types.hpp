@@ -98,9 +98,17 @@ struct ConstStructValue {
     ConstParent parent;
 };
 
+enum ConstArraySpecial {
+    ConstArraySpecialNone,
+    ConstArraySpecialUndef,
+};
+
 struct ConstArrayValue {
-    ConstExprValue *elements;
-    ConstParent parent;
+    ConstArraySpecial special;
+    struct {
+        ConstExprValue *elements;
+        ConstParent parent;
+    } s_none;
 };
 
 enum ConstPtrSpecial {

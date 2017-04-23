@@ -2727,7 +2727,7 @@ void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_typ
 
     if (g->verbose) {
         fprintf(stderr, "{ // (analyzed)\n");
-        ir_print(stderr, &fn_table_entry->analyzed_executable, 4);
+        ir_print(g, stderr, &fn_table_entry->analyzed_executable, 4);
         fprintf(stderr, "}\n");
     }
 
@@ -2766,9 +2766,9 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
     }
     if (g->verbose) {
         fprintf(stderr, "\n");
-        ast_render(stderr, fn_table_entry->body_node, 4);
+        ast_render(g, stderr, fn_table_entry->body_node, 4);
         fprintf(stderr, "\n{ // (IR)\n");
-        ir_print(stderr, &fn_table_entry->ir_executable, 4);
+        ir_print(g, stderr, &fn_table_entry->ir_executable, 4);
         fprintf(stderr, "}\n");
     }
 
@@ -3355,10 +3355,10 @@ bool type_requires_comptime(TypeTableEntry *type_entry) {
 void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = get_array_type(g, g->builtin_types.entry_u8, buf_len(str));
-    const_val->data.x_array.elements = allocate<ConstExprValue>(buf_len(str));
+    const_val->data.x_array.s_none.elements = allocate<ConstExprValue>(buf_len(str));
 
     for (size_t i = 0; i < buf_len(str); i += 1) {
-        ConstExprValue *this_char = &const_val->data.x_array.elements[i];
+        ConstExprValue *this_char = &const_val->data.x_array.s_none.elements[i];
         this_char->special = ConstValSpecialStatic;
         this_char->type = g->builtin_types.entry_u8;
         bignum_init_unsigned(&this_char->data.x_bignum, (uint8_t)buf_ptr(str)[i]);
@@ -3377,14 +3377,14 @@ void init_const_c_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
     ConstExprValue *array_val = allocate<ConstExprValue>(1);
     array_val->special = ConstValSpecialStatic;
     array_val->type = get_array_type(g, g->builtin_types.entry_u8, len_with_null);
-    array_val->data.x_array.elements = allocate<ConstExprValue>(len_with_null);
+    array_val->data.x_array.s_none.elements = allocate<ConstExprValue>(len_with_null);
     for (size_t i = 0; i < buf_len(str); i += 1) {
-        ConstExprValue *this_char = &array_val->data.x_array.elements[i];
+        ConstExprValue *this_char = &array_val->data.x_array.s_none.elements[i];
         this_char->special = ConstValSpecialStatic;
         this_char->type = g->builtin_types.entry_u8;
         bignum_init_unsigned(&this_char->data.x_bignum, (uint8_t)buf_ptr(str)[i]);
     }
-    ConstExprValue *null_char = &array_val->data.x_array.elements[len_with_null - 1];
+    ConstExprValue *null_char = &array_val->data.x_array.s_none.elements[len_with_null - 1];
     null_char->special = ConstValSpecialStatic;
     null_char->type = g->builtin_types.entry_u8;
     bignum_init_unsigned(&null_char->data.x_bignum, 0);
@@ -3564,19 +3564,7 @@ void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
     TypeTableEntry *wanted_type = const_val->type;
     if (wanted_type->id == TypeTableEntryIdArray) {
         const_val->special = ConstValSpecialStatic;
-        size_t elem_count = wanted_type->data.array.len;
-        const_val->data.x_array.elements = allocate<ConstExprValue>(elem_count);
-        for (size_t i = 0; i < elem_count; i += 1) {
-            ConstExprValue *element_val = &const_val->data.x_array.elements[i];
-            element_val->type = wanted_type->data.array.child_type;
-            init_const_undefined(g, element_val);
-            ConstParent *parent = get_const_val_parent(element_val);
-            if (parent != nullptr) {
-                parent->id = ConstParentIdArray;
-                parent->data.p_array.array_val = const_val;
-                parent->data.p_array.elem_index = i;
-            }
-        }
+        const_val->data.x_array.special = ConstArraySpecialUndef;
     } else if (wanted_type->id == TypeTableEntryIdStruct) {
         ensure_complete_type(g, wanted_type);
 
@@ -3588,7 +3576,7 @@ void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
             field_val->type = wanted_type->data.structure.fields[i].type_entry;
             assert(field_val->type);
             init_const_undefined(g, field_val);
-            ConstParent *parent = get_const_val_parent(field_val);
+            ConstParent *parent = get_const_val_parent(g, field_val);
             if (parent != nullptr) {
                 parent->id = ConstParentIdStruct;
                 parent->data.p_struct.struct_val = const_val;
@@ -3802,7 +3790,7 @@ void eval_min_max_value(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *
     }
 }
 
-void render_const_value(Buf *buf, ConstExprValue *const_val) {
+void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
     switch (const_val->special) {
         case ConstValSpecialRuntime:
             buf_appendf(buf, "(runtime value)");
@@ -3872,7 +3860,7 @@ void render_const_value(Buf *buf, ConstExprValue *const_val) {
                 case ConstPtrSpecialRef:
                 case ConstPtrSpecialBaseStruct:
                     buf_appendf(buf, "&");
-                    render_const_value(buf, const_ptr_pointee(const_val));
+                    render_const_value(g, buf, const_ptr_pointee(g, const_val));
                     return;
                 case ConstPtrSpecialBaseArray:
                     if (const_val->data.x_ptr.data.base_array.is_cstr) {
@@ -3880,7 +3868,7 @@ void render_const_value(Buf *buf, ConstExprValue *const_val) {
                         return;
                     } else {
                         buf_appendf(buf, "&");
-                        render_const_value(buf, const_ptr_pointee(const_val));
+                        render_const_value(g, buf, const_ptr_pointee(g, const_val));
                         return;
                     }
                 case ConstPtrSpecialHardCodedAddr:
@@ -3910,6 +3898,11 @@ void render_const_value(Buf *buf, ConstExprValue *const_val) {
                 TypeTableEntry *child_type = type_entry->data.array.child_type;
                 uint64_t len = type_entry->data.array.len;
 
+                if (const_val->data.x_array.special == ConstArraySpecialUndef) {
+                    buf_append_str(buf, "undefined");
+                    return;
+                }
+
                 // if it's []u8, assume UTF-8 and output a string
                 if (child_type->id == TypeTableEntryIdInt &&
                     child_type->data.integral.bit_count == 8 &&
@@ -3917,7 +3910,7 @@ void render_const_value(Buf *buf, ConstExprValue *const_val) {
                 {
                     buf_append_char(buf, '"');
                     for (uint64_t i = 0; i < len; i += 1) {
-                        ConstExprValue *child_value = &const_val->data.x_array.elements[i];
+                        ConstExprValue *child_value = &const_val->data.x_array.s_none.elements[i];
                         uint64_t big_c = child_value->data.x_bignum.data.x_uint;
                         assert(big_c <= UINT8_MAX);
                         uint8_t c = (uint8_t)big_c;
@@ -3935,8 +3928,8 @@ void render_const_value(Buf *buf, ConstExprValue *const_val) {
                 for (uint64_t i = 0; i < len; i += 1) {
                     if (i != 0)
                         buf_appendf(buf, ",");
-                    ConstExprValue *child_value = &const_val->data.x_array.elements[i];
-                    render_const_value(buf, child_value);
+                    ConstExprValue *child_value = &const_val->data.x_array.s_none.elements[i];
+                    render_const_value(g, buf, child_value);
                 }
                 buf_appendf(buf, "}");
                 return;
@@ -3954,7 +3947,7 @@ void render_const_value(Buf *buf, ConstExprValue *const_val) {
         case TypeTableEntryIdMaybe:
             {
                 if (const_val->data.x_maybe) {
-                    render_const_value(buf, const_val->data.x_maybe);
+                    render_const_value(g, buf, const_val->data.x_maybe);
                 } else {
                     buf_appendf(buf, "null");
                 }
@@ -4167,11 +4160,32 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
     zig_unreachable();
 }
 
-ConstParent *get_const_val_parent(ConstExprValue *value) {
+void expand_undef_array(CodeGen *g, ConstExprValue *const_val) {
+    assert(const_val->type->id == TypeTableEntryIdArray);
+    if (const_val->data.x_array.special == ConstArraySpecialUndef) {
+        const_val->data.x_array.special = ConstArraySpecialNone;
+        size_t elem_count = const_val->type->data.array.len;
+        const_val->data.x_array.s_none.elements = allocate<ConstExprValue>(elem_count);
+        for (size_t i = 0; i < elem_count; i += 1) {
+            ConstExprValue *element_val = &const_val->data.x_array.s_none.elements[i];
+            element_val->type = const_val->type->data.array.child_type;
+            init_const_undefined(g, element_val);
+            ConstParent *parent = get_const_val_parent(g, element_val);
+            if (parent != nullptr) {
+                parent->id = ConstParentIdArray;
+                parent->data.p_array.array_val = const_val;
+                parent->data.p_array.elem_index = i;
+            }
+        }
+    }
+}
+
+ConstParent *get_const_val_parent(CodeGen *g, ConstExprValue *value) {
     assert(value->type);
     TypeTableEntry *type_entry = value->type;
     if (type_entry->id == TypeTableEntryIdArray) {
-        return &value->data.x_array.parent;
+        expand_undef_array(g, value);
+        return &value->data.x_array.s_none.parent;
     } else if (type_entry->id == TypeTableEntryIdStruct) {
         return &value->data.x_struct.parent;
     }
