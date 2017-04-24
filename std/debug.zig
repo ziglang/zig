@@ -217,7 +217,7 @@ fn getString(st: &ElfStackTrace, offset: u64) -> %[]u8 {
 fn readAllocBytes(in_stream: &io.InStream, size: usize) -> %[]u8 {
     const buf = %return global_allocator.alloc(u8, size);
     %defer global_allocator.free(buf);
-    if (size < %return in_stream.read(buf)) return error.Eof;
+    if ((%return in_stream.read(buf)) < size) return error.Eof;
     return buf;
 }
 

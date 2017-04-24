@@ -12666,7 +12666,7 @@ static TypeTableEntry *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira
 static TypeTableEntry *ir_analyze_instruction_check_statement_is_void(IrAnalyze *ira,
         IrInstructionCheckStatementIsVoid *instruction)
 {
-    IrInstruction *statement_value = instruction->statement_value;
+    IrInstruction *statement_value = instruction->statement_value->other;
     TypeTableEntry *statement_type = statement_value->value.type;
     if (type_is_invalid(statement_type))
         return ira->codegen->builtin_types.entry_invalid;
