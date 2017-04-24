@@ -2051,6 +2051,18 @@ static IrInstruction *ir_build_check_switch_prongs(IrBuilder *irb, Scope *scope,
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_check_statement_is_void(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction* statement_value)
+{
+    IrInstructionCheckStatementIsVoid *instruction = ir_build_instruction<IrInstructionCheckStatementIsVoid>(
+            irb, scope, source_node);
+    instruction->statement_value = statement_value;
+
+    ir_ref_instruction(statement_value, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_build_test_type(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *type_value, TypeTableEntryId type_id)
 {
@@ -3139,7 +3151,11 @@ static bool ir_gen_defers_for_block(IrBuilder *irb, Scope *inner_scope, Scope *o
                 (gen_error_defers && defer_kind == ReturnKindError))
             {
                 AstNode *defer_expr_node = defer_node->data.defer.expr;
-                ir_gen_node(irb, defer_expr_node, defer_node->data.defer.expr_scope);
+                Scope *defer_expr_scope = defer_node->data.defer.expr_scope;
+                IrInstruction *defer_expr_value = ir_gen_node(irb, defer_expr_node, defer_expr_scope);
+                if (defer_expr_value != irb->codegen->invalid_instruction) {
+                    ir_mark_gen(ir_build_check_statement_is_void(irb, defer_expr_scope, defer_expr_node, defer_expr_value));
+                }
             }
 
         }
@@ -3346,18 +3362,6 @@ static ScopeBlock *find_block_scope(IrExecutable *exec, Scope *scope) {
         scope = scope->parent;
     }
     return nullptr;
-}
-
-static IrInstruction *ir_build_check_statement_is_void(IrBuilder *irb, Scope *scope, AstNode *source_node,
-    IrInstruction* statement_value)
-{
-    IrInstructionCheckStatementIsVoid *instruction = ir_build_instruction<IrInstructionCheckStatementIsVoid>(
-            irb, scope, source_node);
-    instruction->statement_value = statement_value;
-
-    ir_ref_instruction(statement_value, irb->current_basic_block);
-
-    return &instruction->base;
 }
 
 static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode *block_node) {

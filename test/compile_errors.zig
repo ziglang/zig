@@ -1379,6 +1379,13 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     , ".tmp_source.zig:2:12: error: expression value is ignored");
 
+    cases.add("ignored defered statement value",
+        \\export fn foo() {
+        \\    defer bar();
+        \\}
+        \\fn bar() -> %i32 { 0 }
+    , ".tmp_source.zig:2:14: error: expression value is ignored");
+
     cases.add("integer literal on a non-comptime var",
         \\export fn foo() {
         \\    var i = 0;
