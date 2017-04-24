@@ -157,4 +157,4 @@ To fix this, you have 2 options:
 ### Related Projects
 
  * [zig-mode](https://github.com/AndreaOrru/zig-mode) - Emacs integration
- * [zig.vim](https://github.com/andrewrk/zig.vim) - Vim configuration files
+ * [zig.vim](https://github.com/zig-lang/zig.vim) - Vim configuration files

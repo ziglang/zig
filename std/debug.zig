@@ -10,7 +10,7 @@ error InvalidDebugInfo;
 error UnsupportedDebugInfo;
 
 pub fn assert(ok: bool) {
-    if (!ok) unreachable
+    if (!ok) unreachable // assertion failure
 }
 
 var panicking = false;
