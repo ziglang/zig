@@ -19,9 +19,10 @@ Zig instead of e.g. cmake.
  * Compile units do not depend on libc unless explicitly linked.
  * Provides standard library which competes with the C standard library and is
    always compiled against statically in source form.
- * Pointer types do not allow the null value. Instead you can use a maybe type
-   which has several syntactic constructs to ensure that the null pointer is
-   not missed.
+ * Nullable type instead of null pointers.
+ * Tagged union type instead of raw unions.
+ * Generics so that one can write efficient data structures that work for any
+   data type.
  * Provides an error type with several syntatic constructs which makes writing
    robust code convenient and straightforward. Writing correct code is easier
    than writing buggy code.
@@ -30,15 +31,10 @@ Zig instead of e.g. cmake.
  * Compile-time code execution. Compile-time reflection.
  * Partial compile-time function evaluation with eliminates the need for
    a preprocessor or macros.
- * Tagged union enum type. No more accidentally reading the wrong union field.
- * Generics so that one can write efficient data structures that work for any
-   data type.
- * Easy to parse language so that humans and machines have no trouble with the
-   syntax.
  * The binaries produced by Zig have complete debugging information so you can,
    for example, use GDB to debug your software.
- * Debug mode optimizes for fast compilation time and crashing when undefined
-   behavior *would* happen.
+ * Debug mode optimizes for fast compilation time and crashing with a stack trace
+   when undefined behavior *would* happen.
  * Release mode produces heavily optimized code. What other projects call
    "Link Time Optimization" Zig does automatically.
  * Mark functions as tests and automatically run them with `zig test`.
@@ -49,12 +45,12 @@ Zig instead of e.g. cmake.
  * Zig Build System competes with make, cmake, autotools, SCons, etc.
  * In addition to creating executables, creating a C library is a primary use
    case. You can export an auto-generated .h file.
- * Currently supported architectures:
-   * `x86_64`
- * Currently supported operating systems:
-   * `linux`
-   * `freestanding`
- * Support for all popular operating systems and architectures is planned.
+ * Standard library supports OS abstractions for:
+   * `x86_64` `linux`
+   * Support for all popular operating systems and architectures is planned.
+ * For Operating System development, Zig supports all architectures that LLVM
+   does. All the standard library that does not depend on an OS is available
+   to you in freestanding mode.
 
 ## Community
 
