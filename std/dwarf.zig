@@ -620,3 +620,24 @@ pub const CFA_GNU_negative_offset_extended = 0x2f;
 
 pub const CHILDREN_no = 0x00;
 pub const CHILDREN_yes = 0x01;
+
+pub const LNS_extended_op = 0x00;
+pub const LNS_copy = 0x01;
+pub const LNS_advance_pc = 0x02;
+pub const LNS_advance_line = 0x03;
+pub const LNS_set_file = 0x04;
+pub const LNS_set_column = 0x05;
+pub const LNS_negate_stmt = 0x06;
+pub const LNS_set_basic_block = 0x07;
+pub const LNS_const_add_pc = 0x08;
+pub const LNS_fixed_advance_pc = 0x09;
+pub const LNS_set_prologue_end = 0x0a;
+pub const LNS_set_epilogue_begin = 0x0b;
+pub const LNS_set_isa = 0x0c;
+
+pub const LNE_end_sequence = 0x01;
+pub const LNE_set_address = 0x02;
+pub const LNE_define_file = 0x03;
+pub const LNE_set_discriminator = 0x04;
+pub const LNE_lo_user = 0x80;
+pub const LNE_hi_user = 0xff;

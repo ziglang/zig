@@ -475,7 +475,7 @@ int main(int argc, char **argv) {
                 }
             }
 
-            bool need_name = (cmd == CmdBuild || cmd == CmdAsm || cmd == CmdLink);
+            bool need_name = (cmd == CmdBuild || cmd == CmdAsm || cmd == CmdLink || cmd == CmdParseH);
 
             Buf in_file_buf = BUF_INIT;
 

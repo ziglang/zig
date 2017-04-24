@@ -4647,7 +4647,7 @@ static void init(CodeGen *g, Buf *source_path) {
     bool is_optimized = g->is_release_build;
     const char *flags = "";
     unsigned runtime_version = 0;
-    ZigLLVMDIFile *compile_unit_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(source_path),
+    ZigLLVMDIFile *compile_unit_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(g->root_out_name),
             buf_ptr(&g->root_package->root_src_dir));
     g->compile_unit = ZigLLVMCreateCompileUnit(g->dbuilder, ZigLLVMLang_DW_LANG_C99(),
             compile_unit_file, buf_ptr(producer), is_optimized, flags, runtime_version,

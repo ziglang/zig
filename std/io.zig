@@ -55,7 +55,7 @@ error NoDevice;
 error PathNotFound;
 error NoMem;
 error Unseekable;
-error Eof;
+error EndOfFile;
 
 pub const OpenRead     = 0b0001;
 pub const OpenWrite    = 0b0010;
@@ -153,6 +153,10 @@ pub const OutStream = struct {
         assert(self.index == 0);
         os.posixClose(self.fd);
     }
+
+    pub fn isTty(self: &const OutStream) -> bool {
+        return os.posix.isatty(self.fd);
+    }
 };
 
 // TODO created a BufferedInStream struct and move some of this code there
@@ -219,12 +223,18 @@ pub const InStream = struct {
 
     pub fn readNoEof(is: &InStream, buf: []u8) -> %void {
         const amt_read = %return is.read(buf);
-        if (amt_read < buf.len) return error.Eof;
+        if (amt_read < buf.len) return error.EndOfFile;
     }
 
     pub fn readByte(is: &InStream) -> %u8 {
         var result: [1]u8 = undefined;
         %return is.readNoEof(result[0...]);
+        return result[0];
+    }
+
+    pub fn readByteSigned(is: &InStream) -> %i8 {
+        var result: [1]i8 = undefined;
+        %return is.readNoEof(([]u8)(result[0...]));
         return result[0];
     }
 
@@ -341,6 +351,10 @@ pub const InStream = struct {
 
             %return buf.resize(actual_buf_len + os.page_size);
         }
+    }
+
+    pub fn isTty(self: &const InStream) -> bool {
+        return os.posix.isatty(self.fd);
     }
 };
 

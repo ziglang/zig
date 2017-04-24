@@ -30,7 +30,7 @@ pub fn join(allocator: &Allocator, paths: ...) -> %[]u8 {
         mem.copy(u8, buf[buf_index...], arg);
         buf_index += arg.len;
         if (path_i >= paths.len) break;
-        if (arg[arg.len - 1] != sep) {
+        if (buf[buf_index - 1] != sep) {
             buf[buf_index] = sep;
             buf_index += 1;
         }
@@ -45,6 +45,9 @@ test "os.path.join" {
 
     assert(mem.eql(u8, %%join(&debug.global_allocator, "/", "a", "b/", "c"), "/a/b/c"));
     assert(mem.eql(u8, %%join(&debug.global_allocator, "/a/", "b/", "c"), "/a/b/c"));
+
+    assert(mem.eql(u8, %%join(&debug.global_allocator, "/home/andy/dev/zig/build/lib/zig/std", "io.zig"),
+        "/home/andy/dev/zig/build/lib/zig/std/io.zig"));
 }
 
 pub fn isAbsolute(path: []const u8) -> bool {

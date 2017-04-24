@@ -250,14 +250,13 @@ pub const Elf = struct {
 
             {
                 const null_byte = %return elf.in_stream.readByte();
-                if (null_byte == 0) return (?&SectionHeader)(section);
+                if (null_byte == 0) return section;
             }
 
             next_section:
         }
 
-        const null_sh: ?&SectionHeader = null;
-        return null_sh;
+        return null;
     }
 
     pub fn seekToSection(elf: &Elf, section: &SectionHeader) -> %void {

@@ -251,6 +251,63 @@ pub const DT_LNK = 10;
 pub const DT_SOCK = 12;
 pub const DT_WHT = 14;
 
+
+pub const TCGETS = 0x5401;
+pub const TCSETS = 0x5402;
+pub const TCSETSW = 0x5403;
+pub const TCSETSF = 0x5404;
+pub const TCGETA = 0x5405;
+pub const TCSETA = 0x5406;
+pub const TCSETAW = 0x5407;
+pub const TCSETAF = 0x5408;
+pub const TCSBRK = 0x5409;
+pub const TCXONC = 0x540A;
+pub const TCFLSH = 0x540B;
+pub const TIOCEXCL = 0x540C;
+pub const TIOCNXCL = 0x540D;
+pub const TIOCSCTTY = 0x540E;
+pub const TIOCGPGRP = 0x540F;
+pub const TIOCSPGRP = 0x5410;
+pub const TIOCOUTQ = 0x5411;
+pub const TIOCSTI = 0x5412;
+pub const TIOCGWINSZ = 0x5413;
+pub const TIOCSWINSZ = 0x5414;
+pub const TIOCMGET = 0x5415;
+pub const TIOCMBIS = 0x5416;
+pub const TIOCMBIC = 0x5417;
+pub const TIOCMSET = 0x5418;
+pub const TIOCGSOFTCAR = 0x5419;
+pub const TIOCSSOFTCAR = 0x541A;
+pub const FIONREAD = 0x541B;
+pub const TIOCINQ = FIONREAD;
+pub const TIOCLINUX = 0x541C;
+pub const TIOCCONS = 0x541D;
+pub const TIOCGSERIAL = 0x541E;
+pub const TIOCSSERIAL = 0x541F;
+pub const TIOCPKT = 0x5420;
+pub const FIONBIO = 0x5421;
+pub const TIOCNOTTY = 0x5422;
+pub const TIOCSETD = 0x5423;
+pub const TIOCGETD = 0x5424;
+pub const TCSBRKP = 0x5425;
+pub const TIOCSBRK = 0x5427;
+pub const TIOCCBRK = 0x5428;
+pub const TIOCGSID = 0x5429;
+pub const TIOCGRS485 = 0x542E;
+pub const TIOCSRS485 = 0x542F;
+pub const TIOCGPTN = 0x80045430;
+pub const TIOCSPTLCK = 0x40045431;
+pub const TIOCGDEV = 0x80045432;
+pub const TCGETX = 0x5432;
+pub const TCSETX = 0x5433;
+pub const TCSETXF = 0x5434;
+pub const TCSETXW = 0x5435;
+pub const TIOCSIG = 0x40045436;
+pub const TIOCVHANGUP = 0x5437;
+pub const TIOCGPKT = 0x80045438;
+pub const TIOCGPTLCK = 0x80045439;
+pub const TIOCGEXCL = 0x80045440;
+
 fn unsigned(s: i32) -> u32 { *@ptrCast(&u32, &s) }
 fn signed(s: u32) -> i32 { *@ptrCast(&i32, &s) }
 pub fn WEXITSTATUS(s: i32) -> i32 { signed((unsigned(s) & 0xff00) >> 8) }
@@ -259,6 +316,14 @@ pub fn WSTOPSIG(s: i32) -> i32 { WEXITSTATUS(s) }
 pub fn WIFEXITED(s: i32) -> bool { WTERMSIG(s) == 0 }
 pub fn WIFSTOPPED(s: i32) -> bool { (u16)(((unsigned(s)&0xffff)*%0x10001)>>8) > 0x7f00 }
 pub fn WIFSIGNALED(s: i32) -> bool { (unsigned(s)&0xffff)-%1 < 0xff }
+
+
+pub const winsize = extern struct {
+    ws_row: u16,
+    ws_col: u16,
+    ws_xpixel: u16,
+    ws_ypixel: u16,
+};
 
 /// Get the errno from a syscall return value, or 0 for no error.
 pub fn getErrno(r: usize) -> usize {
@@ -284,6 +349,11 @@ pub fn getcwd(buf: &u8, size: usize) -> usize {
 
 pub fn getdents(fd: i32, dirp: &u8, count: usize) -> usize {
     arch.syscall3(arch.SYS_getdents, usize(fd), usize(dirp), usize(count))
+}
+
+pub fn isatty(fd: i32) -> bool {
+    var wsz: winsize = undefined;
+    return arch.syscall3(arch.SYS_ioctl, usize(fd), TIOCGWINSZ, usize(&wsz)) == 0;
 }
 
 pub fn mkdir(path: &const u8, mode: usize) -> usize {
@@ -440,7 +510,7 @@ pub const iovec = extern struct {
 //
 //export struct ifreq {
 //    ifrn_name: [IF_NAMESIZE]u8,
-//	union {
+//    union {
 //        ifru_addr: sockaddr,
 //        ifru_dstaddr: sockaddr,
 //        ifru_broadaddr: sockaddr,
@@ -453,7 +523,7 @@ pub const iovec = extern struct {
 //        ifru_slave: [IF_NAMESIZE]u8,
 //        ifru_newname: [IF_NAMESIZE]u8,
 //        ifru_data: &u8,
-//	} ifr_ifru;
+//    } ifr_ifru;
 //}
 //
 

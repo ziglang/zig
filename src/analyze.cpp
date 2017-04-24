@@ -2894,6 +2894,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
         ast_print(stderr, import_entry->root, 0);
     }
 
+    // TODO: assert that src_basename has no '/' in it
     import_entry->di_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
     g->import_table.put(abs_full_path, import_entry);
     g->import_queue.append(import_entry);
