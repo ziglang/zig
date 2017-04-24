@@ -185,12 +185,17 @@ const ElfStackTrace = struct {
     }
 };
 
+const PcRange = struct {
+    start: u64,
+    end: u64,
+};
+
 const CompileUnit = struct {
+    version: u16,
     is_64: bool,
     die: &Die,
-    pc_start: u64,
-    pc_end: u64,
     index: usize,
+    pc_range: ?PcRange,
 };
 
 const AbbrevTable = List(AbbrevTableEntry);
@@ -259,7 +264,7 @@ const Die = struct {
     }
 
     fn getAttrAddr(self: &const Die, id: u64) -> %u64 {
-        const form_value = self.getAttr(id) ?? return error.InvalidDebugInfo;
+        const form_value = self.getAttr(id) ?? return error.MissingDebugInfo;
         return switch (*form_value) {
             FormValue.Address => |value| value,
             else => error.InvalidDebugInfo,
@@ -267,7 +272,7 @@ const Die = struct {
     }
 
     fn getAttrUnsignedLe(self: &const Die, id: u64) -> %u64 {
-        const form_value = self.getAttr(id) ?? return error.InvalidDebugInfo;
+        const form_value = self.getAttr(id) ?? return error.MissingDebugInfo;
         return switch (*form_value) {
             FormValue.Const => |value| value.asUnsignedLe(),
             else => error.InvalidDebugInfo,
@@ -275,7 +280,7 @@ const Die = struct {
     }
 
     fn getAttrString(self: &const Die, st: &ElfStackTrace, id: u64) -> %[]u8 {
-        const form_value = self.getAttr(id) ?? return error.InvalidDebugInfo;
+        const form_value = self.getAttr(id) ?? return error.MissingDebugInfo;
         return switch (*form_value) {
             FormValue.String => |value| value,
             FormValue.StrPtr => |offset| getString(st, offset),
@@ -794,7 +799,7 @@ fn scanAllCompileUnits(st: &ElfStackTrace) -> %void {
         const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
 
         const version = %return st.self_exe_stream.readInt(st.elf.is_big_endian, u16);
-        if (version != 4) return error.InvalidDebugInfo;
+        if (version < 2 or version > 5) return error.InvalidDebugInfo;
 
         const debug_abbrev_offset = if (is_64) {
             %return st.self_exe_stream.readInt(st.elf.is_big_endian, u64)
@@ -815,22 +820,36 @@ fn scanAllCompileUnits(st: &ElfStackTrace) -> %void {
 
         if (compile_unit_die.tag_id != DW.TAG_compile_unit)
             return error.InvalidDebugInfo;
-        const low_pc = %return compile_unit_die.getAttrAddr(DW.AT_low_pc);
 
-        const high_pc_value = compile_unit_die.getAttr(DW.AT_high_pc) ?? return error.MissingDebugInfo;
-        const pc_end = switch (*high_pc_value) {
-            FormValue.Address => |value| value,
-            FormValue.Const => |value| {
-                const offset = %return value.asUnsignedLe();
-                low_pc + offset
-            },
-            else => return error.InvalidDebugInfo,
+        const pc_range = {
+            try (compile_unit_die.getAttrAddr(DW.AT_low_pc)) |low_pc| {
+                test (compile_unit_die.getAttr(DW.AT_high_pc)) |high_pc_value| {
+                    const pc_end = switch (*high_pc_value) {
+                        FormValue.Address => |value| value,
+                        FormValue.Const => |value| {
+                            const offset = %return value.asUnsignedLe();
+                            low_pc + offset
+                        },
+                        else => return error.InvalidDebugInfo,
+                    };
+                    PcRange {
+                        .start = low_pc,
+                        .end = pc_end,
+                    }
+                } else {
+                    null
+                }
+            } else |err| {
+                if (err != error.MissingDebugInfo)
+                    return err;
+                null
+            }
         };
 
         %return st.compile_unit_list.append(CompileUnit {
+            .version = version,
             .is_64 = is_64,
-            .pc_start = low_pc,
-            .pc_end = pc_end,
+            .pc_range = pc_range,
             .die = compile_unit_die,
             .index = cu_index,
         });
@@ -842,8 +861,10 @@ fn scanAllCompileUnits(st: &ElfStackTrace) -> %void {
 
 fn findCompileUnit(st: &ElfStackTrace, target_address: u64) -> ?&const CompileUnit {
     for (st.compile_unit_list.toSlice()) |*compile_unit| {
-        if (target_address >= compile_unit.pc_start and target_address < compile_unit.pc_end)
-            return compile_unit;
+        test (compile_unit.pc_range) |range| {
+            if (target_address >= range.start and target_address < range.end)
+                return compile_unit;
+        }
     }
     return null;
 }
