@@ -3,19 +3,16 @@
 A system programming language which prioritizes optimality, safety, and
 readability.
 
-Zig is a small language, yet powerful enough to solve any computing problem.
+Zig is a small, simple language, yet powerful. Zig fits into the same niche
+as C, except does everything better.
 
-Zig intends to replace C. Therefore, porting a C project to Zig should be a
-pleasant experience. For every use case C can solve, the same use case must
-be handled in Zig in an equally or more satisfying way.
-
-Zig is not afraid to roll the major version number of the language if it
-improves simplicity, fixes poor design decisions, or adds a new feature which
-compromises backward compatibility.
+Zig ships with a build system that obviates the need for a configure script
+or a makefile. In fact, existing C and C++ projects may choose to depend on
+Zig instead of e.g. cmake.
 
 [ziglang.org](http://ziglang.org)
 
-## Existing Features
+## Feature Highlights
 
  * Compatible with C libraries with no wrapper necessary. Directly include
    C .h files and get access to the functions and symbols therein.
@@ -45,24 +42,19 @@ compromises backward compatibility.
  * Release mode produces heavily optimized code. What other projects call
    "Link Time Optimization" Zig does automatically.
  * Mark functions as tests and automatically run them with `zig test`.
- * Currently supported architectures: `x86_64`
- * Currently supported operating systems: linux
  * Friendly toward package maintainers. Reproducible build, bootstrapping
    process carefully documented. Issues filed by package maintainers are
    considered especially important.
- * Easy cross-compiling.
-
-## Planned Features
-
+ * Cross-compiling is a primary use case.
+ * Zig Build System competes with make, cmake, autotools, SCons, etc.
  * In addition to creating executables, creating a C library is a primary use
    case. You can export an auto-generated .h file.
- * Eliminate the need for configure, make, cmake, etc.
- * Automatically provide test coverage.
- * Ability to declare dependencies as Git URLS with commit locking (can
-   provide a tag or sha256).
- * Include documentation generator.
- * Compiler exposes itself as a library.
- * Support for all popular architectures and operating systems.
+ * Currently supported architectures:
+   * `x86_64`
+ * Currently supported operating systems:
+   * `linux`
+   * `freestanding`
+ * Support for all popular operating systems and architectures is planned.
 
 ## Community
 
@@ -134,25 +126,6 @@ With GCC you will get a nice HTML view of the coverage data. With clang,
 the last step will fail, but you can execute
 `llvm-cov gcov $(find CMakeFiles/ -name "*.gcda")` and then inspect the
 produced .gcov files.
-
-### Troubleshooting
-
-If you get one of these:
-
-```
-undefined reference to `_ZNK4llvm17SubtargetFeatures9getStringB5cxx11Ev'
-undefined reference to `llvm::SubtargetFeatures::getString() const'
-```
-
-This is because of
-[C++'s Dual ABI](https://gcc.gnu.org/onlinedocs/libstdc++/manual/using_dual_abi.html).
-Most likely LLVM was compiled with one compiler while Zig was compiled with a
-different one, for example GCC vs clang.
-
-To fix this, you have 2 options:
-
- * Compile Zig with the same compiler that LLVM was compiled with.
- * Add `-DZIG_LLVM_OLD_CXX_ABI=yes` to the cmake configure line.
 
 ### Related Projects
 
