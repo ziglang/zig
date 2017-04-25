@@ -732,6 +732,8 @@ static void construct_linker_job(LinkJob *lj) {
 }
 
 void codegen_link(CodeGen *g, const char *out_file) {
+    codegen_add_time_event(g, "Build Dependencies");
+
     LinkJob lj = {0};
 
     // even though we're calling LLD as a library it thinks the first
@@ -808,16 +810,20 @@ void codegen_link(CodeGen *g, const char *out_file) {
 
     Buf diag = BUF_INIT;
 
+    codegen_add_time_event(g, "LLVM Link");
     if (!ZigLLDLink(g->zig_target.oformat, lj.args.items, lj.args.length, &diag)) {
         fprintf(stderr, "%s\n", buf_ptr(&diag));
         exit(1);
     }
+    codegen_add_time_event(g, "Generate .h");
 
     if (g->out_type == OutTypeLib ||
         g->out_type == OutTypeObj)
     {
         codegen_generate_h_file(g);
     }
+
+    codegen_add_time_event(g, "Done");
 
     if (g->verbose) {
         fprintf(stderr, "OK\n");

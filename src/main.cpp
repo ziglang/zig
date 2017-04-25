@@ -64,6 +64,7 @@ static int usage(const char *arg0) {
         "  -mwindows                    (windows only) --subsystem windows to the linker\n"
         "  -rdynamic                    add all symbols to the dynamic symbol table\n"
         "  -rpath [path]                add directory to the runtime library search path\n"
+        "  --enable-timing-info         print timing diagnostics\n"
         "Test Options:\n"
         "  --test-filter [text]         skip tests that do not match filter\n"
         "  --test-name-prefix [text]    add prefix to all tests\n"
@@ -163,6 +164,7 @@ int main(int argc, char **argv) {
     size_t ver_major = 0;
     size_t ver_minor = 0;
     size_t ver_patch = 0;
+    bool timing_info = false;
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         const char *zig_exe_path = arg0;
@@ -292,6 +294,8 @@ int main(int argc, char **argv) {
                 rdynamic = true;
             } else if (strcmp(arg, "--each-lib-rpath") == 0) {
                 each_lib_rpath = true;
+            } else if (strcmp(arg, "--enable-timing-info") == 0) {
+                timing_info = true;
             } else if (arg[1] == 'L' && arg[2] != 0) {
                 // alias for --library-path
                 lib_dirs.append(&arg[2]);
@@ -596,20 +600,28 @@ int main(int argc, char **argv) {
             if (cmd == CmdBuild) {
                 codegen_add_root_code(g, &root_source_dir, &root_source_name, &root_source_code);
                 codegen_link(g, out_file);
+                if (timing_info)
+                    codegen_print_timing_report(g, stderr);
                 return EXIT_SUCCESS;
             } else if (cmd == CmdLink) {
                 for (size_t i = 0; i < objects.length; i += 1) {
                     codegen_add_object(g, buf_create_from_str(objects.at(i)));
                 }
                 codegen_link(g, out_file);
+                if (timing_info)
+                    codegen_print_timing_report(g, stderr);
                 return EXIT_SUCCESS;
             } else if (cmd == CmdAsm) {
                 codegen_add_root_assembly(g, &root_source_dir, &root_source_name, &root_source_code);
                 codegen_link(g, out_file);
+                if (timing_info)
+                    codegen_print_timing_report(g, stderr);
                 return EXIT_SUCCESS;
             } else if (cmd == CmdParseH) {
                 codegen_parseh(g, &root_source_dir, &root_source_name, &root_source_code);
                 ast_render_decls(g, stdout, 4, g->root_import);
+                if (timing_info)
+                    codegen_print_timing_report(g, stderr);
                 return EXIT_SUCCESS;
             } else if (cmd == CmdTest) {
                 codegen_add_root_code(g, &root_source_dir, &root_source_name, &root_source_code);
@@ -620,6 +632,8 @@ int main(int argc, char **argv) {
                 if (term.how != TerminationIdClean || term.code != 0) {
                     fprintf(stderr, "\nTests failed. Use the following command to reproduce the failure:\n");
                     fprintf(stderr, "./test\n");
+                } else if (timing_info) {
+                    codegen_print_timing_report(g, stderr);
                 }
                 return (term.how == TerminationIdClean) ? term.code : -1;
             } else {

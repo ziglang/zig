@@ -56,6 +56,7 @@ int os_delete_file(Buf *path);
 int os_file_exists(Buf *full_path, bool *result);
 
 int os_rename(Buf *src_path, Buf *dest_path);
+double os_get_time(void);
 
 #if defined(__APPLE__)
 #define ZIG_OS_DARWIN

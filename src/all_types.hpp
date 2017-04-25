@@ -1285,6 +1285,11 @@ struct ZigLLVMFnKey {
 uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey);
 bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b);
 
+struct TimeEvent {
+    double time;
+    const char *name;
+};
+
 struct CodeGen {
     LLVMModuleRef module;
     ZigList<ErrorMsg*> errors;
@@ -1468,6 +1473,8 @@ struct CodeGen {
 
     Buf *test_filter;
     Buf *test_name_prefix;
+
+    ZigList<TimeEvent> timing_events;
 };
 
 enum VarLinkage {

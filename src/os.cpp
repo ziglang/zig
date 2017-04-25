@@ -38,6 +38,11 @@
 
 #endif
 
+#if defined(__MACH__)
+#include <mach/clock.h>
+#include <mach/mach.h>
+#endif
+
 #include <stdlib.h>
 #include <errno.h>
 #include <time.h>
@@ -689,4 +694,28 @@ int os_rename(Buf *src_path, Buf *dest_path) {
         return ErrorFileSystem;
     }
     return 0;
+}
+
+double os_get_time(void) {
+#if defined(ZIG_OS_WINDOWS)
+    unsigned __int64 time;
+    QueryPerformanceCounter((LARGE_INTEGER*) &time);
+    return time * win32_time_resolution;
+#elif defined(__MACH__)
+    mach_timespec_t mts;
+
+    kern_return_t err = clock_get_time(cclock, &mts);
+    assert(!err);
+
+    double seconds = (double)mts.tv_sec;
+    seconds += ((double)mts.tv_nsec) / 1000000000.0;
+
+    return seconds;
+#else
+    struct timespec tms;
+    clock_gettime(CLOCK_MONOTONIC, &tms);
+    double seconds = (double)tms.tv_sec;
+    seconds += ((double)tms.tv_nsec) / 1000000000.0;
+    return seconds;
+#endif
 }

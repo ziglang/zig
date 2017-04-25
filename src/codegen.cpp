@@ -57,6 +57,9 @@ PackageTableEntry *new_package(const char *root_src_dir, const char *root_src_pa
 
 CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     CodeGen *g = allocate<CodeGen>(1);
+
+    codegen_add_time_event(g, "Initialize");
+
     g->import_table.init(32);
     g->builtin_fn_table.init(32);
     g->primitive_type_table.init(32);
@@ -3654,6 +3657,8 @@ static LLVMValueRef build_alloca(CodeGen *g, TypeTableEntry *type_entry, const c
 static void do_code_gen(CodeGen *g) {
     assert(!g->errors.length);
 
+    codegen_add_time_event(g, "Code Generation");
+
     delete_unused_builtin_fns(g);
     generate_error_name_table(g);
     generate_enum_name_tables(g);
@@ -3976,6 +3981,8 @@ static void do_code_gen(CodeGen *g) {
     char *error = nullptr;
     LLVMVerifyModule(g->module, LLVMAbortProcessAction, &error);
 #endif
+
+    codegen_add_time_event(g, "LLVM Emit Object");
 
     char *err_msg = nullptr;
     Buf *out_file_o = buf_create_from_buf(g->root_out_name);
@@ -4730,6 +4737,8 @@ static PackageTableEntry *create_zigrt_pkg(CodeGen *g) {
 }
 
 void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *source_code) {
+    codegen_add_time_event(g, "Semantic Analysis");
+
     Buf source_path = BUF_INIT;
     os_path_join(src_dir, src_basename, &source_path);
 
@@ -5019,4 +5028,25 @@ void codegen_generate_h_file(CodeGen *g) {
 
     if (fclose(out_h))
         zig_panic("unable to close h file: %s", strerror(errno));
+}
+
+void codegen_print_timing_report(CodeGen *g, FILE *f) {
+    double start_time = g->timing_events.at(0).time;
+    double end_time = g->timing_events.last().time;
+    double total = end_time - start_time;
+    fprintf(f, "%20s%12s%12s%12s%12s\n", "Name", "Start", "End", "Duration", "Percent");
+    for (size_t i = 0; i < g->timing_events.length - 1; i += 1) {
+        TimeEvent *te = &g->timing_events.at(i);
+        TimeEvent *next_te = &g->timing_events.at(i + 1);
+        fprintf(f, "%20s%12.4f%12.4f%12.4f%12.4f\n", te->name,
+                te->time - start_time,
+                next_te->time - start_time,
+                next_te->time - te->time,
+                (next_te->time - te->time) / total);
+    }
+    fprintf(f, "%20s%12.4f%12.4f%12.4f%12.4f\n", "Total", 0.0, total, total, 1.0);
+}
+
+void codegen_add_time_event(CodeGen *g, const char *name) {
+    g->timing_events.append({os_get_time(), name});
 }
