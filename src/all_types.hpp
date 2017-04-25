@@ -1257,6 +1257,7 @@ enum ZigLLVMFnId {
     ZigLLVMFnIdClz,
     ZigLLVMFnIdOverflowArithmetic,
     ZigLLVMFnIdOverflowArithmeticPanic,
+    ZigLLVMFnIdBoundsCheck,
 };
 
 enum AddSubMul {
@@ -1280,6 +1281,10 @@ struct ZigLLVMFnKey {
             uint32_t bit_count;
             bool is_signed;
         } overflow_arithmetic;
+        struct {
+            LLVMIntPredicate pred;
+            uint32_t bit_count;
+        } bounds_check;
     } data;
 };
 

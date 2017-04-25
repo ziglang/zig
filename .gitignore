@@ -1,4 +1,5 @@
 build/
+build2/
 build-release/
 /.cproject
 /.project
