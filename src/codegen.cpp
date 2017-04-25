@@ -647,8 +647,28 @@ static void gen_panic_raw(CodeGen *g, LLVMValueRef msg_ptr, LLVMValueRef msg_len
     LLVMBuildUnreachable(g->builder);
 }
 
-static void gen_panic(CodeGen *g, LLVMValueRef msg_arg) {
+static LLVMValueRef get_panic_slice_fn(CodeGen *g) {
+    if (g->panic_slice_fn != nullptr)
+        return g->panic_slice_fn;
+
     TypeTableEntry *str_type = get_slice_type(g, g->builtin_types.entry_u8, true);
+    TypeTableEntry *ptr_to_str_type = get_pointer_to_type(g, str_type, true);
+
+    Buf *fn_name = get_mangled_name(g, buf_create_from_str("__zig_panic_slice"), false);
+    LLVMTypeRef fn_type_ref = LLVMFunctionType(LLVMVoidType(), &ptr_to_str_type->type_ref, 1, false);
+    LLVMValueRef fn_val = LLVMAddFunction(g->module, buf_ptr(fn_name), fn_type_ref);
+    addLLVMFnAttr(fn_val, "noreturn");
+    addLLVMFnAttr(fn_val, "cold");
+    LLVMSetLinkage(fn_val, LLVMInternalLinkage);
+    LLVMSetFunctionCallConv(fn_val, LLVMFastCallConv);
+
+    LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn_val, "Entry");
+    LLVMBasicBlockRef prev_block = LLVMGetInsertBlock(g->builder);
+    LLVMValueRef prev_debug_location = LLVMGetCurrentDebugLocation(g->builder);
+    LLVMPositionBuilderAtEnd(g->builder, entry_block);
+
+    LLVMValueRef msg_arg = LLVMGetParam(fn_val, 0);
+
     size_t ptr_index = str_type->data.structure.fields[slice_ptr_index].gen_index;
     size_t len_index = str_type->data.structure.fields[slice_len_index].gen_index;
     LLVMValueRef ptr_ptr = LLVMBuildStructGEP(g->builder, msg_arg, (unsigned)ptr_index, "");
@@ -657,6 +677,17 @@ static void gen_panic(CodeGen *g, LLVMValueRef msg_arg) {
     LLVMValueRef msg_ptr = LLVMBuildLoad(g->builder, ptr_ptr, "");
     LLVMValueRef msg_len = LLVMBuildLoad(g->builder, len_ptr, "");
     gen_panic_raw(g, msg_ptr, msg_len);
+
+    LLVMPositionBuilderAtEnd(g->builder, prev_block);
+    LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
+    g->panic_slice_fn = fn_val;
+    return g->panic_slice_fn;
+}
+
+static void gen_panic(CodeGen *g, LLVMValueRef msg_arg) {
+    LLVMValueRef fn_val = get_panic_slice_fn(g);
+    LLVMBuildCall(g->builder, fn_val, &msg_arg, 1, "");
+    LLVMBuildUnreachable(g->builder);
 }
 
 static void gen_debug_safety_crash(CodeGen *g, PanicMsgId msg_id) {
