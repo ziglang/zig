@@ -16,9 +16,9 @@ Zig instead of e.g. cmake.
 
  * Compatible with C libraries with no wrapper necessary. Directly include
    C .h files and get access to the functions and symbols therein.
- * Compile units do not depend on libc unless explicitly linked.
  * Provides standard library which competes with the C standard library and is
-   always compiled against statically in source form.
+   always compiled against statically in source form. Compile units do not
+   depend on libc unless explicitly linked.
  * Nullable type instead of null pointers.
  * Tagged union type instead of raw unions.
  * Generics so that one can write efficient data structures that work for any
@@ -45,12 +45,12 @@ Zig instead of e.g. cmake.
  * Zig Build System competes with make, cmake, autotools, SCons, etc.
  * In addition to creating executables, creating a C library is a primary use
    case. You can export an auto-generated .h file.
- * Standard library supports OS abstractions for:
+ * Standard library supports Operating System abstractions for:
    * `x86_64` `linux`
    * Support for all popular operating systems and architectures is planned.
- * For Operating System development, Zig supports all architectures that LLVM
-   does. All the standard library that does not depend on an OS is available
-   to you in freestanding mode.
+ * For OS development, Zig supports all architectures that LLVM does. All the
+   standard library that does not depend on an OS is available to you in
+   freestanding mode.
 
 ## Community
 
@@ -60,7 +60,7 @@ Zig instead of e.g. cmake.
 
 ## Building
 
-[![Build Status](https://travis-ci.org/andrewrk/zig.svg?branch=master)](https://travis-ci.org/andrewrk/zig)
+[![Build Status](https://travis-ci.org/zig-lang/zig.svg?branch=master)](https://travis-ci.org/zig-lang/zig)
 
 ### Dependencies
 
