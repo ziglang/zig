@@ -1256,8 +1256,6 @@ enum ZigLLVMFnId {
     ZigLLVMFnIdCtz,
     ZigLLVMFnIdClz,
     ZigLLVMFnIdOverflowArithmetic,
-    ZigLLVMFnIdOverflowArithmeticPanic,
-    ZigLLVMFnIdBoundsCheck,
 };
 
 enum AddSubMul {
@@ -1281,10 +1279,6 @@ struct ZigLLVMFnKey {
             uint32_t bit_count;
             bool is_signed;
         } overflow_arithmetic;
-        struct {
-            LLVMIntPredicate pred;
-            uint32_t bit_count;
-        } bounds_check;
     } data;
 };
 
@@ -1430,7 +1424,6 @@ struct CodeGen {
     FnTableEntry *extern_panic_fn;
     LLVMValueRef cur_ret_ptr;
     LLVMValueRef cur_fn_val;
-    bool dbg_clear;
     ZigList<LLVMBasicBlockRef> break_block_stack;
     ZigList<LLVMBasicBlockRef> continue_block_stack;
     bool c_want_stdint;
@@ -1467,7 +1460,6 @@ struct CodeGen {
     LLVMValueRef err_name_table;
     size_t largest_err_name_len;
     LLVMValueRef safety_crash_err_fn;
-    LLVMValueRef panic_slice_fn;
 
     IrInstruction *invalid_instruction;
     ConstExprValue const_void_val;
