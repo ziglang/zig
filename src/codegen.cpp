@@ -474,6 +474,31 @@ static void clear_debug_source_node(CodeGen *g) {
     ZigLLVMClearCurrentDebugLocation(g->builder);
 }
 
+struct BuilderState {
+    LLVMValueRef debug_loc;
+    LLVMBasicBlockRef basic_block;
+    bool is_clear;
+};
+
+static BuilderState save_and_clear_builder_state(CodeGen *g) {
+    BuilderState prev_state;
+    prev_state.debug_loc = LLVMGetCurrentDebugLocation(g->builder);
+    prev_state.basic_block = LLVMGetInsertBlock(g->builder);
+    prev_state.is_clear = g->dbg_clear;
+
+    ZigLLVMClearCurrentDebugLocation(g->builder);
+    g->dbg_clear = true;
+
+    return prev_state;
+}
+
+static void restore_builder_state(CodeGen *g, const BuilderState &prev_state) {
+    LLVMPositionBuilderAtEnd(g->builder, prev_state.basic_block);
+    if (!prev_state.is_clear)
+        LLVMSetCurrentDebugLocation(g->builder, prev_state.debug_loc);
+    g->dbg_clear = prev_state.is_clear;
+}
+
 static LLVMValueRef get_arithmetic_overflow_fn(CodeGen *g, TypeTableEntry *type_entry,
         const char *signed_name, const char *unsigned_name)
 {
@@ -662,9 +687,8 @@ static LLVMValueRef get_panic_slice_fn(CodeGen *g) {
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
     LLVMSetFunctionCallConv(fn_val, LLVMFastCallConv);
 
+    auto prev_state = save_and_clear_builder_state(g);
     LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn_val, "Entry");
-    LLVMBasicBlockRef prev_block = LLVMGetInsertBlock(g->builder);
-    LLVMValueRef prev_debug_location = LLVMGetCurrentDebugLocation(g->builder);
     LLVMPositionBuilderAtEnd(g->builder, entry_block);
 
     LLVMValueRef msg_arg = LLVMGetParam(fn_val, 0);
@@ -678,8 +702,7 @@ static LLVMValueRef get_panic_slice_fn(CodeGen *g) {
     LLVMValueRef msg_len = LLVMBuildLoad(g->builder, len_ptr, "");
     gen_panic_raw(g, msg_ptr, msg_len);
 
-    LLVMPositionBuilderAtEnd(g->builder, prev_block);
-    LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
+    restore_builder_state(g, prev_state);
     g->panic_slice_fn = fn_val;
     return g->panic_slice_fn;
 }
@@ -744,11 +767,9 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
     LLVMSetFunctionCallConv(fn_val, LLVMFastCallConv);
 
+    auto prev_state = save_and_clear_builder_state(g);
     LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn_val, "Entry");
-    LLVMBasicBlockRef prev_block = LLVMGetInsertBlock(g->builder);
-    LLVMValueRef prev_debug_location = LLVMGetCurrentDebugLocation(g->builder);
     LLVMPositionBuilderAtEnd(g->builder, entry_block);
-    ZigLLVMClearCurrentDebugLocation(g->builder);
 
     LLVMValueRef err_val = LLVMGetParam(fn_val, 0);
 
@@ -779,8 +800,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
 
     gen_panic_raw(g, full_buf_ptr, full_buf_len);
 
-    LLVMPositionBuilderAtEnd(g->builder, prev_block);
-    LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
+    restore_builder_state(g, prev_state);
 
     g->safety_crash_err_fn = fn_val;
     return fn_val;
@@ -905,26 +925,74 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_debug_safety, Typ
     }
 }
 
-static LLVMValueRef gen_overflow_op(CodeGen *g, TypeTableEntry *type_entry, AddSubMul op,
-        LLVMValueRef val1, LLVMValueRef val2)
-{
-    LLVMValueRef fn_val = get_int_overflow_fn(g, type_entry, op);
+static const char *add_sub_mul_name(AddSubMul op) {
+    switch (op) {
+        case AddSubMulAdd: return "add";
+        case AddSubMulSub: return "sub";
+        case AddSubMulMul: return "mul";
+    }
+    zig_unreachable();
+}
+static LLVMValueRef get_int_overflow_panic_fn(CodeGen *g, TypeTableEntry *type_entry, AddSubMul op) {
+    ZigLLVMFnKey key = {};
+    key.id = ZigLLVMFnIdOverflowArithmeticPanic;
+    key.data.overflow_arithmetic.is_signed = type_entry->data.integral.is_signed;
+    key.data.overflow_arithmetic.add_sub_mul = op;
+    key.data.overflow_arithmetic.bit_count = (uint32_t)type_entry->data.integral.bit_count;
+
+    auto existing_entry = g->llvm_fn_table.maybe_get(key);
+    if (existing_entry)
+        return existing_entry->value;
+
+    Buf *desired_name = buf_sprintf("__zig_checked_%s_%c%" PRIu32, add_sub_mul_name(op),
+            type_entry->data.integral.is_signed ? 'i' : 'u', type_entry->data.integral.bit_count);
+    Buf *fn_name = get_mangled_name(g, desired_name, false);
+    LLVMTypeRef arg_types[] = { type_entry->type_ref, type_entry->type_ref };
+    LLVMTypeRef fn_type_ref = LLVMFunctionType(type_entry->type_ref, arg_types, 2, false);
+    LLVMValueRef fn_val = LLVMAddFunction(g->module, buf_ptr(fn_name), fn_type_ref);
+    LLVMSetLinkage(fn_val, LLVMInternalLinkage);
+    LLVMSetFunctionCallConv(fn_val, LLVMFastCallConv);
+
+    auto prev_state = save_and_clear_builder_state(g);
+
+    LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn_val, "Entry");
+    LLVMPositionBuilderAtEnd(g->builder, entry_block);
+
+    LLVMValueRef val1 = LLVMGetParam(fn_val, 0);
+    LLVMValueRef val2 = LLVMGetParam(fn_val, 1);
+
+    LLVMValueRef overflow_fn_val = get_int_overflow_fn(g, type_entry, op);
     LLVMValueRef params[] = {
         val1,
         val2,
     };
-    LLVMValueRef result_struct = LLVMBuildCall(g->builder, fn_val, params, 2, "");
-    LLVMValueRef result = LLVMBuildExtractValue(g->builder, result_struct, 0, "");
+    LLVMValueRef result_struct = LLVMBuildCall(g->builder, overflow_fn_val, params, 2, "");
     LLVMValueRef overflow_bit = LLVMBuildExtractValue(g->builder, result_struct, 1, "");
-    LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "OverflowFail");
-    LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "OverflowOk");
+    LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(fn_val, "OverflowFail");
+    LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(fn_val, "OverflowOk");
     LLVMBuildCondBr(g->builder, overflow_bit, fail_block, ok_block);
 
     LLVMPositionBuilderAtEnd(g->builder, fail_block);
     gen_debug_safety_crash(g, PanicMsgIdIntegerOverflow);
 
     LLVMPositionBuilderAtEnd(g->builder, ok_block);
-    return result;
+    LLVMValueRef result = LLVMBuildExtractValue(g->builder, result_struct, 0, "");
+    LLVMBuildRet(g->builder, result);
+
+    restore_builder_state(g, prev_state);
+    g->llvm_fn_table.put(key, fn_val);
+    return fn_val;
+}
+
+static LLVMValueRef gen_overflow_op(CodeGen *g, TypeTableEntry *type_entry, AddSubMul op,
+        LLVMValueRef val1, LLVMValueRef val2)
+{
+    LLVMValueRef fn_val = get_int_overflow_panic_fn(g, type_entry, op);
+    LLVMValueRef params[] = {
+        val1,
+        val2,
+    };
+    return LLVMBuildCall(g->builder, fn_val, params, 2, "");
 }
 
 static LLVMIntPredicate cmp_op_to_int_predicate(IrBinOp cmp_op, bool is_signed) {
@@ -2882,6 +2950,7 @@ static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
 
     ZigLLVMSetCurrentDebugLocation(g->builder, (int)source_node->line + 1,
             (int)source_node->column + 1, get_di_scope(g, scope));
+    g->dbg_clear = false;
 }
 
 static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, IrInstruction *instruction) {

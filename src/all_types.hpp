@@ -1256,6 +1256,7 @@ enum ZigLLVMFnId {
     ZigLLVMFnIdCtz,
     ZigLLVMFnIdClz,
     ZigLLVMFnIdOverflowArithmetic,
+    ZigLLVMFnIdOverflowArithmeticPanic,
 };
 
 enum AddSubMul {
@@ -1424,6 +1425,7 @@ struct CodeGen {
     FnTableEntry *extern_panic_fn;
     LLVMValueRef cur_ret_ptr;
     LLVMValueRef cur_fn_val;
+    bool dbg_clear;
     ZigList<LLVMBasicBlockRef> break_block_stack;
     ZigList<LLVMBasicBlockRef> continue_block_stack;
     bool c_want_stdint;
