@@ -1296,6 +1296,7 @@ struct CodeGen {
     LLVMBuilderRef builder;
     ZigLLVMDIBuilder *dbuilder;
     ZigLLVMDICompileUnit *compile_unit;
+    ZigLLVMDIFile *compile_unit_file;
 
     ZigList<Buf *> link_libs; // non-libc link libs
     // add -framework [name] args to linker
@@ -1468,6 +1469,7 @@ struct CodeGen {
 
     Buf global_asm;
     ZigList<Buf *> link_objects;
+    ZigList<Buf *> assembly_files;
 
     ZigList<TypeTableEntry *> name_table_enums;
 

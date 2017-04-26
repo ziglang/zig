@@ -55,7 +55,7 @@ PackageTableEntry *new_package(const char *root_src_dir, const char *root_src_pa
     return entry;
 }
 
-CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
+CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target) {
     CodeGen *g = allocate<CodeGen>(1);
 
     codegen_add_time_event(g, "Initialize");
@@ -81,9 +81,17 @@ CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target) {
     // reserve index 0 to indicate no error
     g->error_decls.append(nullptr);
 
-    g->root_package = new_package(buf_ptr(root_source_dir), "");
-    g->std_package = new_package(ZIG_STD_DIR, "index.zig");
-    g->root_package->package_table.put(buf_create_from_str("std"), g->std_package);
+    if (root_src_path) {
+        Buf *src_basename = buf_alloc();
+        Buf *src_dir = buf_alloc();
+        os_path_split(root_src_path, src_dir, src_basename);
+
+        g->root_package = new_package(buf_ptr(src_dir), buf_ptr(src_basename));
+        g->std_package = new_package(ZIG_STD_DIR, "index.zig");
+        g->root_package->package_table.put(buf_create_from_str("std"), g->std_package);
+    } else {
+        g->root_package = new_package(".", "");
+    }
     g->zig_std_dir = buf_create_from_str(ZIG_STD_DIR);
 
     g->zig_std_special_dir = buf_alloc();
@@ -757,7 +765,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
 
 static void gen_debug_safety_crash_for_err(CodeGen *g, LLVMValueRef err_val) {
     LLVMValueRef safety_crash_err_fn = get_safety_crash_err_fn(g);
-    LLVMBuildCall(g->builder, safety_crash_err_fn, &err_val, 1, "");
+    ZigLLVMBuildCall(g->builder, safety_crash_err_fn, &err_val, 1, LLVMFastCallConv, false, "");
     LLVMBuildUnreachable(g->builder);
 }
 
@@ -3655,6 +3663,10 @@ static LLVMValueRef build_alloca(CodeGen *g, TypeTableEntry *type_entry, const c
 }
 
 static void do_code_gen(CodeGen *g) {
+    if (g->verbose) {
+        fprintf(stderr, "\nCode Generation:\n");
+        fprintf(stderr, "------------------\n");
+    }
     assert(!g->errors.length);
 
     codegen_add_time_event(g, "Code Generation");
@@ -4602,8 +4614,9 @@ static void define_builtin_compile_vars(CodeGen *g) {
     add_compile_var(g, "panic_implementation_provided", create_const_bool(g, false));
 }
 
-static void init(CodeGen *g, Buf *source_path) {
-    g->module = LLVMModuleCreateWithName(buf_ptr(source_path));
+static void init(CodeGen *g) {
+    assert(g->root_out_name);
+    g->module = LLVMModuleCreateWithName(buf_ptr(g->root_out_name));
 
     get_target_triple(&g->triple_str, &g->zig_target);
 
@@ -4674,23 +4687,25 @@ static void init(CodeGen *g, Buf *source_path) {
     g->const_void_val.type = g->builtin_types.entry_void;
 }
 
-void codegen_parseh(CodeGen *g, Buf *src_dirname, Buf *src_basename, Buf *source_code) {
+void codegen_parseh(CodeGen *g, Buf *full_path) {
     find_libc_include_path(g);
-    Buf *full_path = buf_alloc();
-    os_path_join(src_dirname, src_basename, full_path);
+
+    Buf *src_basename = buf_alloc();
+    Buf *src_dirname = buf_alloc();
+    os_path_split(full_path, src_dirname, src_basename);
 
     ImportTableEntry *import = allocate<ImportTableEntry>(1);
-    import->source_code = source_code;
+    import->source_code = nullptr;
     import->path = full_path;
     g->root_import = import;
     import->decls_scope = create_decls_scope(nullptr, nullptr, nullptr, import);
 
-    init(g, full_path);
+    init(g);
 
     import->di_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
 
     ZigList<ErrorMsg *> errors = {0};
-    int err = parse_h_buf(import, &errors, source_code, g, nullptr);
+    int err = parse_h_file(import, &errors, buf_ptr(full_path), g, nullptr);
     if (err) {
         fprintf(stderr, "unable to parse .h file: %s\n", err_str(err));
         exit(1);
@@ -4719,7 +4734,7 @@ static ImportTableEntry *add_special_code(CodeGen *g, PackageTableEntry *package
         zig_panic("unable to open '%s': %s", buf_ptr(&path_to_code_src), err_str(err));
     }
 
-    return add_source_file(g, package, abs_full_path, g->zig_std_special_dir, code_basename, import_code);
+    return add_source_file(g, package, abs_full_path, import_code);
 }
 
 static PackageTableEntry *create_bootstrap_pkg(CodeGen *g) {
@@ -4736,23 +4751,27 @@ static PackageTableEntry *create_zigrt_pkg(CodeGen *g) {
     return package;
 }
 
-void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *source_code) {
+static void gen_root_source(CodeGen *g) {
+    if (buf_len(&g->root_package->root_src_path) == 0)
+        return;
+
     codegen_add_time_event(g, "Semantic Analysis");
 
-    Buf source_path = BUF_INIT;
-    os_path_join(src_dir, src_basename, &source_path);
-
-    buf_init_from_buf(&g->root_package->root_src_path, src_basename);
-
-    init(g, &source_path);
+    Buf *rel_full_path = buf_alloc();
+    os_path_join(&g->root_package->root_src_dir, &g->root_package->root_src_path, rel_full_path);
 
     Buf *abs_full_path = buf_alloc();
     int err;
-    if ((err = os_path_real(&source_path, abs_full_path))) {
-        zig_panic("unable to open '%s': %s", buf_ptr(&source_path), err_str(err));
+    if ((err = os_path_real(rel_full_path, abs_full_path))) {
+        zig_panic("unable to open '%s': %s", buf_ptr(rel_full_path), err_str(err));
     }
 
-    g->root_import = add_source_file(g, g->root_package, abs_full_path, src_dir, src_basename, source_code);
+    Buf *source_code = buf_alloc();
+    if ((err = os_fetch_file_path(rel_full_path, source_code))) {
+        zig_panic("unable to open '%s': %s", buf_ptr(rel_full_path), err_str(err));
+    }
+
+    g->root_import = add_source_file(g, g->root_package, abs_full_path, source_code);
 
     assert(g->root_out_name);
     assert(g->out_type != OutTypeUnknown);
@@ -4787,27 +4806,33 @@ void codegen_add_root_code(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *sou
         exit(1);
     }
 
-    if (g->verbose) {
-        fprintf(stderr, "\nCode Generation:\n");
-        fprintf(stderr, "------------------\n");
-
-    }
-
-    do_code_gen(g);
 }
 
-void codegen_add_root_assembly(CodeGen *g, Buf *src_dir, Buf *src_basename, Buf *source_code) {
-    Buf source_path = BUF_INIT;
-    os_path_join(src_dir, src_basename, &source_path);
+void codegen_add_assembly(CodeGen *g, Buf *path) {
+    g->assembly_files.append(path);
+}
 
-    init(g, &source_path);
+static void gen_global_asm(CodeGen *g) {
+    Buf contents = BUF_INIT;
+    int err;
+    for (size_t i = 0; i < g->assembly_files.length; i += 1) {
+        Buf *asm_file = g->assembly_files.at(i);
+        if ((err = os_fetch_file_path(asm_file, &contents))) {
+            zig_panic("Unable to read %s: %s", buf_ptr(asm_file), err_str(err));
+        }
+        if (g->zig_target.arch.arch == ZigLLVM_x86 || g->zig_target.arch.arch == ZigLLVM_x86_64) {
+            buf_append_str(&g->global_asm, ".intel_syntax noprefix\n");
+        }
+        buf_append_buf(&g->global_asm, &contents);
+    }
+}
 
-    assert(g->root_out_name);
+void codegen_build(CodeGen *g) {
     assert(g->out_type != OutTypeUnknown);
+    init(g);
 
-    buf_init_from_str(&g->global_asm, ".intel_syntax noprefix\n");
-    buf_append_buf(&g->global_asm, source_code);
-
+    gen_global_asm(g);
+    gen_root_source(g);
     do_code_gen(g);
 }
 

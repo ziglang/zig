@@ -120,28 +120,22 @@ pub const Builder = struct {
         self.lib_dir = %%os.path.join(self.allocator, self.prefix, "lib");
     }
 
-    pub fn addExecutable(self: &Builder, name: []const u8, root_src: []const u8) -> &LibOrExeStep {
-        const exe = %%self.allocator.create(LibOrExeStep);
-        *exe = LibOrExeStep.initExecutable(self, name, root_src);
-        return exe;
+    pub fn addExecutable(self: &Builder, name: []const u8, root_src: ?[]const u8) -> &LibExeObjStep {
+        return LibExeObjStep.createExecutable(self, name, root_src);
     }
 
-    pub fn addObject(self: &Builder, name: []const u8, root_src: []const u8) -> &ObjectStep {
-        const obj_step = %%self.allocator.create(ObjectStep);
-        *obj_step = ObjectStep.init(self, name, root_src);
-        return obj_step;
+    pub fn addObject(self: &Builder, name: []const u8, root_src: []const u8) -> &LibExeObjStep {
+        return LibExeObjStep.createObject(self, name, root_src);
     }
 
-    pub fn addSharedLibrary(self: &Builder, name: []const u8, root_src: []const u8, ver: &const Version) -> &LibOrExeStep {
-        const lib_step = %%self.allocator.create(LibOrExeStep);
-        *lib_step = LibOrExeStep.initSharedLibrary(self, name, root_src, ver);
-        return lib_step;
+    pub fn addSharedLibrary(self: &Builder, name: []const u8, root_src: ?[]const u8,
+        ver: &const Version) -> &LibExeObjStep
+    {
+        return LibExeObjStep.createSharedLibrary(self, name, root_src, ver);
     }
 
-    pub fn addStaticLibrary(self: &Builder, name: []const u8, root_src: []const u8) -> &LibOrExeStep {
-        const lib_step = %%self.allocator.create(LibOrExeStep);
-        *lib_step = LibOrExeStep.initStaticLibrary(self, name, root_src);
-        return lib_step;
+    pub fn addStaticLibrary(self: &Builder, name: []const u8, root_src: ?[]const u8) -> &LibExeObjStep {
+        return LibExeObjStep.createStaticLibrary(self, name, root_src);
     }
 
     pub fn addTest(self: &Builder, root_src: []const u8) -> &TestStep {
@@ -150,28 +144,10 @@ pub const Builder = struct {
         return test_step;
     }
 
-    pub fn addAssemble(self: &Builder, name: []const u8, src: []const u8) -> &AsmStep {
-        const asm_step = %%self.allocator.create(AsmStep);
-        *asm_step = AsmStep.init(self, name, src);
-        return asm_step;
-    }
-
-    pub fn addLinkExecutable(self: &Builder, name: []const u8) -> &LinkStep {
-        const exe = %%self.allocator.create(LinkStep);
-        *exe = LinkStep.initExecutable(self, name);
-        return exe;
-    }
-
-    pub fn addLinkStaticLibrary(self: &Builder, name: []const u8) -> &LinkStep {
-        const exe = %%self.allocator.create(LinkStep);
-        *exe = LinkStep.initStaticLibrary(self, name);
-        return exe;
-    }
-
-    pub fn addLinkSharedLibrary(self: &Builder, name: []const u8, ver: &const Version) -> &LinkStep {
-        const exe = %%self.allocator.create(LinkStep);
-        *exe = LinkStep.initSharedLibrary(self, name, ver);
-        return exe;
+    pub fn addAssemble(self: &Builder, name: []const u8, src: []const u8) -> &LibExeObjStep {
+        const obj_step = LibExeObjStep.createObject(self, name, null);
+        obj_step.addAssemblyFile(src);
+        return obj_step;
     }
 
     pub fn addCStaticLibrary(self: &Builder, name: []const u8) -> &CLibrary {
@@ -635,10 +611,10 @@ const LinkerScript = enum {
     Path: []const u8,
 };
 
-pub const LibOrExeStep = struct {
+pub const LibExeObjStep = struct {
     step: Step,
     builder: &Builder,
-    root_src: []const u8,
+    root_src: ?[]const u8,
     name: []const u8,
     target: Target,
     linker_script: LinkerScript,
@@ -652,30 +628,45 @@ pub const LibOrExeStep = struct {
     out_filename: []const u8,
     out_filename_major_only: []const u8,
     out_filename_name_only: []const u8,
+    object_files: List([]const u8),
+    assembly_files: List([]const u8),
 
     const Kind = enum {
         Exe,
         Lib,
+        Obj,
     };
 
-    pub fn initExecutable(builder: &Builder, name: []const u8, root_src: []const u8) -> LibOrExeStep {
-        return initExtraArgs(builder, name, root_src, Kind.Exe, false, builder.version(0, 0, 0));
-    }
-
-    pub fn initSharedLibrary(builder: &Builder, name: []const u8, root_src: []const u8,
-        ver: &const Version) -> LibOrExeStep
+    pub fn createSharedLibrary(builder: &Builder, name: []const u8, root_src: ?[]const u8,
+        ver: &const Version) -> &LibExeObjStep
     {
-        return initExtraArgs(builder, name, root_src, Kind.Lib, false, ver);
+        const self = %%builder.allocator.create(LibExeObjStep);
+        *self = initExtraArgs(builder, name, root_src, Kind.Lib, false, ver);
+        return self;
     }
 
-    pub fn initStaticLibrary(builder: &Builder, name: []const u8, root_src: []const u8) -> LibOrExeStep {
-        return initExtraArgs(builder, name, root_src, Kind.Lib, true, builder.version(0, 0, 0));
+    pub fn createStaticLibrary(builder: &Builder, name: []const u8, root_src: ?[]const u8) -> &LibExeObjStep {
+        const self = %%builder.allocator.create(LibExeObjStep);
+        *self = initExtraArgs(builder, name, root_src, Kind.Lib, true, builder.version(0, 0, 0));
+        return self;
     }
 
-    fn initExtraArgs(builder: &Builder, name: []const u8, root_src: []const u8, kind: Kind,
-        static: bool, ver: &const Version) -> LibOrExeStep
+    pub fn createObject(builder: &Builder, name: []const u8, root_src: []const u8) -> &LibExeObjStep {
+        const self = %%builder.allocator.create(LibExeObjStep);
+        *self = initExtraArgs(builder, name, root_src, Kind.Obj, false, builder.version(0, 0, 0));
+        return self;
+    }
+
+    pub fn createExecutable(builder: &Builder, name: []const u8, root_src: ?[]const u8) -> &LibExeObjStep {
+        const self = %%builder.allocator.create(LibExeObjStep);
+        *self = initExtraArgs(builder, name, root_src, Kind.Exe, false, builder.version(0, 0, 0));
+        return self;
+    }
+
+    fn initExtraArgs(builder: &Builder, name: []const u8, root_src: ?[]const u8, kind: Kind,
+        static: bool, ver: &const Version) -> LibExeObjStep
     {
-        var self = LibOrExeStep {
+        var self = LibExeObjStep {
             .builder = builder,
             .verbose = false,
             .release = false,
@@ -692,13 +683,18 @@ pub const LibOrExeStep = struct {
             .out_filename = undefined,
             .out_filename_major_only = undefined,
             .out_filename_name_only = undefined,
+            .object_files = List([]const u8).init(builder.allocator),
+            .assembly_files = List([]const u8).init(builder.allocator),
         };
         self.computeOutFileNames();
         return self;
     }
 
-    fn computeOutFileNames(self: &LibOrExeStep) {
+    fn computeOutFileNames(self: &LibExeObjStep) {
         switch (self.kind) {
+            Kind.Obj => {
+                self.out_filename = self.builder.fmt("{}{}", self.name, self.target.oFileExt());
+            },
             Kind.Exe => {
                 self.out_filename = self.builder.fmt("{}{}", self.name, self.target.exeFileExt());
             },
@@ -715,7 +711,7 @@ pub const LibOrExeStep = struct {
         }
     }
 
-    pub fn setTarget(self: &LibOrExeStep, target_arch: Arch, target_os: Os, target_environ: Environ) {
+    pub fn setTarget(self: &LibExeObjStep, target_arch: Arch, target_os: Os, target_environ: Environ) {
         self.target = Target.Cross {
             CrossTarget {
                 .arch = target_arch,
@@ -723,37 +719,69 @@ pub const LibOrExeStep = struct {
                 .environ = target_environ,
             }
         };
+        self.computeOutFileNames();
     }
 
-    /// LibOrExeStep keeps a reference to script for its lifetime or until this function
+    /// LibExeObjStep keeps a reference to script for its lifetime or until this function
     /// is called again.
-    pub fn setLinkerScriptContents(self: &LibOrExeStep, script: []const u8) {
+    pub fn setLinkerScriptContents(self: &LibExeObjStep, script: []const u8) {
         self.linker_script = LinkerScript.Embed { script };
     }
 
-    pub fn setLinkerScriptPath(self: &LibOrExeStep, path: []const u8) {
+    pub fn setLinkerScriptPath(self: &LibExeObjStep, path: []const u8) {
         self.linker_script = LinkerScript.Path { path };
     }
 
-    pub fn linkSystemLibrary(self: &LibOrExeStep, name: []const u8) {
+    pub fn linkSystemLibrary(self: &LibExeObjStep, name: []const u8) {
         %%self.link_libs.put(name);
     }
 
-    pub fn setVerbose(self: &LibOrExeStep, value: bool) {
+    pub fn setVerbose(self: &LibExeObjStep, value: bool) {
         self.verbose = value;
     }
 
-    pub fn setRelease(self: &LibOrExeStep, value: bool) {
+    pub fn setRelease(self: &LibExeObjStep, value: bool) {
         self.release = value;
     }
 
-    pub fn setOutputPath(self: &LibOrExeStep, value: []const u8) {
+    pub fn setOutputPath(self: &LibExeObjStep, value: []const u8) {
         self.output_path = value;
     }
 
+    pub fn addAssemblyFile(self: &LibExeObjStep, path: []const u8) {
+        %%self.assembly_files.append(path);
+    }
+
+    pub fn addObjectFile(self: &LibExeObjStep, path: []const u8) {
+        assert(self.kind != Kind.Obj);
+
+        %%self.object_files.append(path);
+    }
+
+    pub fn addObject(self: &LibExeObjStep, obj: &LibExeObjStep) {
+        assert(obj.kind == Kind.Obj);
+        assert(self.kind != Kind.Obj);
+
+        self.step.dependOn(&obj.step);
+
+        const path_to_obj = test (obj.output_path) |explicit_out_path| {
+            explicit_out_path
+        } else {
+            // TODO make it so we always know where this will be
+            %%os.path.join(self.builder.allocator, self.builder.out_dir,
+                self.builder.fmt("{}{}", obj.name, obj.target.oFileExt()))
+        };
+        %%self.object_files.append(path_to_obj);
+    }
+
     fn make(step: &Step) -> %void {
-        const self = @fieldParentPtr(LibOrExeStep, "step", step);
+        const self = @fieldParentPtr(LibExeObjStep, "step", step);
         const builder = self.builder;
+
+        if (self.root_src == null and self.object_files.len == 0 and self.assembly_files.len == 0) {
+            %%io.stderr.printf("{}: linker needs 1 or more objects to link\n", step.name);
+            return error.NeedAnObject;
+        }
 
         var zig_args = List([]const u8).init(builder.allocator);
         defer zig_args.deinit();
@@ -761,9 +789,23 @@ pub const LibOrExeStep = struct {
         const cmd = switch (self.kind) {
             Kind.Lib => "build_lib",
             Kind.Exe => "build_exe",
+            Kind.Obj => "build_obj",
         };
         %%zig_args.append(cmd);
-        %%zig_args.append(builder.pathFromRoot(self.root_src));
+
+        test (self.root_src) |root_src| {
+            %%zig_args.append(builder.pathFromRoot(root_src));
+        }
+
+        for (self.object_files.toSliceConst()) |object_file| {
+            %%zig_args.append("--object");
+            %%zig_args.append(builder.pathFromRoot(object_file));
+        }
+
+        for (self.assembly_files.toSliceConst()) |asm_file| {
+            %%zig_args.append("--assembly");
+            %%zig_args.append(builder.pathFromRoot(asm_file));
+        }
 
         if (self.verbose) {
             %%zig_args.append("--verbose");
@@ -853,437 +895,6 @@ pub const LibOrExeStep = struct {
             // sym link for libfoo.so to libfoo.so.1
             %%os.atomicSymLink(builder.allocator, self.out_filename_major_only, self.out_filename_name_only);
         }
-    }
-};
-
-pub const ObjectStep = struct {
-    step: Step,
-    builder: &Builder,
-    root_src: []const u8,
-    name: []const u8,
-    target: Target,
-    verbose: bool,
-    release: bool,
-    output_path: ?[]const u8,
-
-    pub fn init(builder: &Builder, name: []const u8, root_src: []const u8) -> ObjectStep {
-        ObjectStep {
-            .builder = builder,
-            .verbose = false,
-            .release = false,
-            .root_src = root_src,
-            .name = name,
-            .target = Target.Native,
-            .step = Step.init(name, builder.allocator, make),
-            .output_path = null,
-        }
-    }
-
-    pub fn setTarget(self: &ObjectStep, target_arch: Arch, target_os: Os, target_environ: Environ) {
-        self.target = Target.Cross {
-            CrossTarget {
-                .arch = target_arch,
-                .os = target_os,
-                .environ = target_environ,
-            }
-        };
-    }
-
-    pub fn setVerbose(self: &ObjectStep, value: bool) {
-        self.verbose = value;
-    }
-
-    pub fn setRelease(self: &ObjectStep, value: bool) {
-        self.release = value;
-    }
-
-    pub fn setOutputPath(self: &ObjectStep, value: []const u8) {
-        self.output_path = value;
-    }
-
-    fn make(step: &Step) -> %void {
-        const self = @fieldParentPtr(ObjectStep, "step", step);
-        const builder = self.builder;
-
-        var zig_args = List([]const u8).init(builder.allocator);
-        defer zig_args.deinit();
-
-        %%zig_args.append("build_obj");
-        %%zig_args.append(builder.pathFromRoot(self.root_src));
-
-        if (self.verbose) {
-            %%zig_args.append("--verbose");
-        }
-
-        if (self.release) {
-            %%zig_args.append("--release");
-        }
-
-        test (self.output_path) |output_path| {
-            %%zig_args.append("--output");
-            %%zig_args.append(builder.pathFromRoot(output_path));
-        }
-
-        %%zig_args.append("--name");
-        %%zig_args.append(self.name);
-
-        switch (self.target) {
-            Target.Native => {},
-            Target.Cross => |cross_target| {
-                %%zig_args.append("--target-arch");
-                %%zig_args.append(@enumTagName(cross_target.arch));
-
-                %%zig_args.append("--target-os");
-                %%zig_args.append(@enumTagName(cross_target.os));
-
-                %%zig_args.append("--target-environ");
-                %%zig_args.append(@enumTagName(cross_target.environ));
-            },
-        }
-
-        for (builder.include_paths.toSliceConst()) |include_path| {
-            %%zig_args.append("-isystem");
-            %%zig_args.append(include_path);
-        }
-
-        for (builder.rpaths.toSliceConst()) |rpath| {
-            %%zig_args.append("-rpath");
-            %%zig_args.append(rpath);
-        }
-
-        for (builder.lib_paths.toSliceConst()) |lib_path| {
-            %%zig_args.append("--library-path");
-            %%zig_args.append(lib_path);
-        }
-
-        %%builder.spawnChild(builder.zig_exe, zig_args.toSliceConst());
-    }
-};
-
-pub const AsmStep = struct {
-    step: Step,
-    builder: &Builder,
-    name: []const u8,
-    target: Target,
-    verbose: bool,
-    release: bool,
-    output_path: ?[]const u8,
-    src_path: []const u8,
-
-    pub fn init(builder: &Builder, name: []const u8, src_path: []const u8) -> AsmStep {
-        var self = AsmStep {
-            .step = Step.init(name, builder.allocator, make),
-            .builder = builder,
-            .name = name,
-            .target = Target.Native,
-            .verbose = false,
-            .release = false,
-            .output_path = null,
-            .src_path = src_path,
-        };
-        return self;
-    }
-
-    pub fn setTarget(self: &AsmStep, target_arch: Arch, target_os: Os, target_environ: Environ) {
-        self.target = Target.Cross {
-            CrossTarget {
-                .arch = target_arch,
-                .os = target_os,
-                .environ = target_environ,
-            }
-        };
-    }
-
-    pub fn setVerbose(self: &AsmStep, value: bool) {
-        self.verbose = value;
-    }
-
-    pub fn setRelease(self: &AsmStep, value: bool) {
-        self.release = value;
-    }
-
-    pub fn setOutputPath(self: &AsmStep, value: []const u8) {
-        self.output_path = value;
-    }
-
-    fn make(step: &Step) -> %void {
-        const self = @fieldParentPtr(AsmStep, "step", step);
-        const builder = self.builder;
-
-        var zig_args = List([]const u8).init(builder.allocator);
-        defer zig_args.deinit();
-
-        %%zig_args.append("asm");
-        %%zig_args.append(builder.pathFromRoot(self.src_path));
-
-        if (self.verbose) {
-            %%zig_args.append("--verbose");
-        }
-
-        if (self.release) {
-            %%zig_args.append("--release");
-        }
-
-        test (self.output_path) |output_path| {
-            %%zig_args.append("--output");
-            %%zig_args.append(builder.pathFromRoot(output_path));
-        }
-
-        %%zig_args.append("--name");
-        %%zig_args.append(self.name);
-
-        switch (self.target) {
-            Target.Native => {},
-            Target.Cross => |cross_target| {
-                %%zig_args.append("--target-arch");
-                %%zig_args.append(@enumTagName(cross_target.arch));
-
-                %%zig_args.append("--target-os");
-                %%zig_args.append(@enumTagName(cross_target.os));
-
-                %%zig_args.append("--target-environ");
-                %%zig_args.append(@enumTagName(cross_target.environ));
-            },
-        }
-
-        %%builder.spawnChild(builder.zig_exe, zig_args.toSliceConst());
-    }
-};
-
-pub const LinkStep = struct {
-    step: Step,
-    builder: &Builder,
-    name: []const u8,
-    target: Target,
-    linker_script: LinkerScript,
-    link_libs: BufSet,
-    verbose: bool,
-    release: bool,
-    output_path: ?[]const u8,
-    object_files: List([]const u8),
-    static: bool,
-    out_filename: []const u8,
-    out_type: OutType,
-    version: Version,
-    major_only_filename: []const u8,
-    name_only_filename: []const u8,
-
-    const OutType = enum {
-        Exe,
-        Lib,
-    };
-
-    pub fn initExecutable(builder: &Builder, name: []const u8) -> LinkStep {
-        return init(builder, name, OutType.Exe, builder.version(0, 0, 0), false)
-    }
-
-    pub fn initSharedLibrary(builder: &Builder, name: []const u8, version: &const Version) -> LinkStep {
-        return init(builder, name, OutType.Lib, version, false)
-    }
-
-    pub fn initStaticLibrary(builder: &Builder, name: []const u8) -> LinkStep {
-        return init(builder, name, OutType.Lib, builder.version(0, 0, 0), true)
-    }
-
-    fn init(builder: &Builder, name: []const u8, out_type: OutType, version: &const Version, static: bool) -> LinkStep {
-        var self = LinkStep {
-            .builder = builder,
-            .verbose = false,
-            .release = false,
-            .name = name,
-            .target = Target.Native,
-            .linker_script = LinkerScript.None,
-            .link_libs = BufSet.init(builder.allocator),
-            .step = Step.init(name, builder.allocator, make),
-            .output_path = null,
-            .object_files = List([]const u8).init(builder.allocator),
-            .out_type = out_type,
-            .version = *version,
-            .static = static,
-            .out_filename = undefined,
-            .major_only_filename = undefined,
-            .name_only_filename = undefined,
-        };
-        self.computeOutFileName();
-        return self;
-    }
-
-    fn computeOutFileName(self: &LinkStep) {
-        switch (self.out_type) {
-            OutType.Exe => {
-                self.out_filename = self.builder.fmt("{}{}", self.name, self.target.exeFileExt());
-            },
-            OutType.Lib => {
-                if (self.static) {
-                    self.out_filename = self.builder.fmt("lib{}.a", self.name);
-                } else {
-                    self.out_filename = self.builder.fmt("lib{}.so.{d}.{d}.{d}",
-                        self.name, self.version.major, self.version.minor, self.version.patch);
-                    self.major_only_filename = self.builder.fmt("lib{}.so.{d}", self.name, self.version.major);
-                    self.name_only_filename = self.builder.fmt("lib{}.so", self.name);
-                }
-            },
-        }
-    }
-
-    pub fn addObjectFile(self: &LinkStep, file: []const u8) {
-        %%self.object_files.append(file);
-    }
-
-    pub fn addObject(self: &LinkStep, obj: &ObjectStep) {
-        self.step.dependOn(&obj.step);
-
-        const path_to_obj = test (obj.output_path) |explicit_out_path| {
-            explicit_out_path
-        } else {
-            // TODO make it so we always know where this will be
-            %%os.path.join(self.builder.allocator, self.builder.out_dir,
-                self.builder.fmt("{}{}", obj.name, obj.target.oFileExt()))
-        };
-        %%self.object_files.append(path_to_obj);
-    }
-
-    pub fn addAssembly(self: &LinkStep, assembly: &AsmStep) {
-        self.step.dependOn(&assembly.step);
-
-        const path_to_obj = test (assembly.output_path) |explicit_out_path| {
-            explicit_out_path
-        } else {
-            // TODO make it so we always know where this will be
-            %%os.path.join(self.builder.allocator, self.builder.out_dir,
-                self.builder.fmt("{}{}", assembly.name, assembly.target.oFileExt()))
-        };
-        %%self.object_files.append(path_to_obj);
-    }
-
-    pub fn setTarget(self: &LinkStep, target_arch: Arch, target_os: Os, target_environ: Environ) {
-        self.target = Target.Cross {
-            CrossTarget {
-                .arch = target_arch,
-                .os = target_os,
-                .environ = target_environ,
-            }
-        };
-        self.computeOutFileName();
-    }
-
-    /// LinkStep keeps a reference to script for its lifetime or until this function
-    /// is called again.
-    pub fn setLinkerScriptContents(self: &LinkStep, script: []const u8) {
-        self.linker_script = LinkerScript.Embed { script };
-    }
-
-    pub fn setLinkerScriptPath(self: &LinkStep, path: []const u8) {
-        self.linker_script = LinkerScript.Path { path };
-    }
-
-    pub fn linkSystemLibrary(self: &LinkStep, name: []const u8) {
-        %%self.link_libs.put(name);
-    }
-
-    pub fn setVerbose(self: &LinkStep, value: bool) {
-        self.verbose = value;
-    }
-
-    pub fn setRelease(self: &LinkStep, value: bool) {
-        self.release = value;
-    }
-
-    pub fn setOutputPath(self: &LinkStep, value: []const u8) {
-        self.output_path = value;
-    }
-
-    fn make(step: &Step) -> %void {
-        const self = @fieldParentPtr(LinkStep, "step", step);
-        const builder = self.builder;
-
-        if (self.object_files.len == 0) {
-            %%io.stderr.printf("{}: linker needs 1 or more objects to link\n", step.name);
-            return error.NeedAnObject;
-        }
-
-        var zig_args = List([]const u8).init(builder.allocator);
-        defer zig_args.deinit();
-
-        const cmd = switch (self.out_type) {
-            OutType.Exe => "link_exe",
-            OutType.Lib => "link_lib",
-        };
-        %%zig_args.append(cmd);
-
-        for (self.object_files.toSliceConst()) |object_file| {
-            %%zig_args.append(builder.pathFromRoot(object_file));
-        }
-
-        if (self.verbose) {
-            %%zig_args.append("--verbose");
-        }
-
-        if (self.release) {
-            %%zig_args.append("--release");
-        }
-
-        if (self.static) {
-            %%zig_args.append("--static");
-        }
-
-        test (self.output_path) |output_path| {
-            %%zig_args.append("--output");
-            %%zig_args.append(builder.pathFromRoot(output_path));
-        }
-
-        %%zig_args.append("--name");
-        %%zig_args.append(self.name);
-
-        switch (self.target) {
-            Target.Native => {},
-            Target.Cross => |cross_target| {
-                %%zig_args.append("--target-arch");
-                %%zig_args.append(@enumTagName(cross_target.arch));
-
-                %%zig_args.append("--target-os");
-                %%zig_args.append(@enumTagName(cross_target.os));
-
-                %%zig_args.append("--target-environ");
-                %%zig_args.append(@enumTagName(cross_target.environ));
-            },
-        }
-
-        switch (self.linker_script) {
-            LinkerScript.None => {},
-            LinkerScript.Embed => |script| {
-                const tmp_file_name = "linker.ld.tmp"; // TODO issue #298
-                io.writeFile(tmp_file_name, script, builder.allocator)
-                    %% |err| debug.panic("unable to write linker script: {}\n", @errorName(err));
-                %%zig_args.append("--linker-script");
-                %%zig_args.append(tmp_file_name);
-            },
-            LinkerScript.Path => |path| {
-                %%zig_args.append("--linker-script");
-                %%zig_args.append(path);
-            },
-        }
-
-        {
-            var it = self.link_libs.iterator();
-            while (true) {
-                const entry = it.next() ?? break;
-                %%zig_args.append("--library");
-                %%zig_args.append(entry.key);
-            }
-        }
-
-        for (builder.rpaths.toSliceConst()) |rpath| {
-            %%zig_args.append("-rpath");
-            %%zig_args.append(rpath);
-        }
-
-        for (builder.lib_paths.toSliceConst()) |lib_path| {
-            %%zig_args.append("--library-path");
-            %%zig_args.append(lib_path);
-        }
-
-        %%builder.spawnChild(builder.zig_exe, zig_args.toSliceConst());
     }
 };
 
@@ -1592,15 +1203,17 @@ pub const CExecutable = struct {
         %%self.full_path_libs.append(clib.out_filename);
     }
 
-    pub fn linkLibrary(self: &CExecutable, lib: &LibOrExeStep) {
-        assert(lib.kind == LibOrExeStep.Kind.Lib);
+    pub fn linkLibrary(self: &CExecutable, lib: &LibExeObjStep) {
+        assert(lib.kind == LibExeObjStep.Kind.Lib);
         self.step.dependOn(&lib.step);
         %%self.full_path_libs.append(lib.out_filename);
         // TODO should be some kind of isolated directory that only has this header in it
         %%self.include_dirs.append(self.builder.out_dir);
     }
 
-    pub fn addObject(self: &CExecutable, obj: &ObjectStep) {
+    pub fn addObject(self: &CExecutable, obj: &LibExeObjStep) {
+        assert(obj.kind == LibExeObjStep.Kind.Obj);
+
         self.step.dependOn(&obj.step);
 
         // TODO make it so we always know where this will be

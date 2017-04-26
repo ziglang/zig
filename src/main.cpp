@@ -19,29 +19,19 @@
 static int usage(const char *arg0) {
     fprintf(stderr, "Usage: %s [command] [options]\n"
         "Commands:\n"
-        "  asm [source]                 create object from assembly\n"
         "  build                        build project from build.zig\n"
-        "  build_exe [source]           create executable from source\n"
-        "  build_lib [source]           create library from source\n"
-        "  build_obj [source]           create object from source\n"
-        "  link_exe [objects]           create executable from objects\n"
-        "  link_lib [objects]           create library from objects\n"
+        "  build_exe [source]           create executable from source or object files\n"
+        "  build_lib [source]           create library from source or object files\n"
+        "  build_obj [source]           create object from source or assembly\n"
         "  parseh [source]              convert a c header file to zig extern declarations\n"
         "  targets                      list available compilation targets\n"
         "  test [source]                create and run a test build\n"
         "  version                      print version number and exit\n"
-        "Options:\n"
-        "  --ar-path [path]             set the path to ar\n"
+        "Compile Options:\n"
+        "  --assembly [source]          add assembly file to build\n"
         "  --color [auto|off|on]        enable or disable colored error messages\n"
-        "  --dynamic-linker [path]      set the path to ld.so\n"
-        "  --each-lib-rpath             add rpath for each used dynamic library\n"
-        "  --ld-path [path]             set the path to the linker\n"
+        "  --enable-timing-info         print timing diagnostics\n"
         "  --libc-include-dir [path]    directory where libc stdlib.h resides\n"
-        "  --libc-lib-dir [path]        directory where libc crt1.o resides\n"
-        "  --libc-static-lib-dir [path] directory where libc crtbegin.o resides\n"
-        "  --library [lib]              link against lib\n"
-        "  --library-path [dir]         add a directory to the library search path\n"
-        "  --linker-script [path]       use a custom linker script\n"
         "  --name [name]                override output name\n"
         "  --output [file]              override destination path\n"
         "  --release                    build with optimizations on and debug protection off\n"
@@ -52,26 +42,34 @@ static int usage(const char *arg0) {
         "  --target-os [name]           specify target operating system\n"
         "  --verbose                    turn on compiler debug output\n"
         "  --zig-std-dir [path]         directory where zig standard library resides\n"
-        "  -L[dir]                      alias for --library-path\n"
         "  -dirafter [dir]              same as -isystem but do it last\n"
-        "  -framework [name]            (darwin only) link against framework\n"
         "  -isystem [dir]               add additional search path for other .h files\n"
-        "  -mconsole                    (windows only) --subsystem console to the linker\n"
-        "  -mios-version-min [ver]      (darwin only) set iOS deployment target\n"
-        "  -mlinker-version [ver]       (darwin only) override linker version\n"
-        "  -mmacosx-version-min [ver]   (darwin only) set Mac OS X deployment target\n"
-        "  -municode                    (windows only) link with unicode\n"
-        "  -mwindows                    (windows only) --subsystem windows to the linker\n"
+        "Link Options:\n"
+        "  --ar-path [path]             set the path to ar\n"
+        "  --dynamic-linker [path]      set the path to ld.so\n"
+        "  --each-lib-rpath             add rpath for each used dynamic library\n"
+        "  --libc-lib-dir [path]        directory where libc crt1.o resides\n"
+        "  --libc-static-lib-dir [path] directory where libc crtbegin.o resides\n"
+        "  --library [lib]              link against lib\n"
+        "  --library-path [dir]         add a directory to the library search path\n"
+        "  --linker-script [path]       use a custom linker script\n"
+        "  --object [obj]               add object file to build\n"
+        "  -L[dir]                      alias for --library-path\n"
         "  -rdynamic                    add all symbols to the dynamic symbol table\n"
         "  -rpath [path]                add directory to the runtime library search path\n"
-        "  --enable-timing-info         print timing diagnostics\n"
+        "  -mconsole                    (windows) --subsystem console to the linker\n"
+        "  -mwindows                    (windows) --subsystem windows to the linker\n"
+        "  -municode                    (windows) link with unicode\n"
+        "  -framework [name]            (darwin) link against framework\n"
+        "  -mios-version-min [ver]      (darwin) set iOS deployment target\n"
+        "  -mlinker-version [ver]       (darwin) override linker version\n"
+        "  -mmacosx-version-min [ver]   (darwin) set Mac OS X deployment target\n"
+        "  --ver-major [ver]            dynamic library semver major version\n"
+        "  --ver-minor [ver]            dynamic library semver minor version\n"
+        "  --ver-patch [ver]            dynamic library semver patch version\n"
         "Test Options:\n"
         "  --test-filter [text]         skip tests that do not match filter\n"
         "  --test-name-prefix [text]    add prefix to all tests\n"
-        "Dynamic Library Options:\n"
-        "  --ver-major [ver]            semver major version\n"
-        "  --ver-minor [ver]            semver minor version\n"
-        "  --ver-patch [ver]            semver patch version\n"
     , arg0);
     return EXIT_FAILURE;
 }
@@ -117,8 +115,6 @@ enum Cmd {
     CmdVersion,
     CmdParseH,
     CmdTargets,
-    CmdAsm,
-    CmdLink,
 };
 
 int main(int argc, char **argv) {
@@ -159,6 +155,7 @@ int main(int argc, char **argv) {
     ZigList<const char *> rpath_list = {0};
     bool each_lib_rpath = false;
     ZigList<const char *> objects = {0};
+    ZigList<const char *> asm_files = {0};
     const char *test_filter = nullptr;
     const char *test_name_prefix = nullptr;
     size_t ver_major = 0;
@@ -197,16 +194,7 @@ int main(int argc, char **argv) {
             }
         }
 
-
-        Buf root_source_dir = BUF_INIT;
-        Buf root_source_code = BUF_INIT;
-        Buf root_source_name = BUF_INIT;
-        os_path_split(build_runner_path, &root_source_dir, &root_source_name);
-        if ((err = os_fetch_file_path(build_runner_path, &root_source_code))) {
-            fprintf(stderr, "unable to open '%s': %s\n", buf_ptr(build_runner_path), err_str(err));
-            return 1;
-        }
-        CodeGen *g = codegen_create(&root_source_dir, nullptr);
+        CodeGen *g = codegen_create(build_runner_path, nullptr);
         codegen_set_out_name(g, buf_create_from_str("build"));
         codegen_set_out_type(g, OutTypeExe);
         codegen_set_verbose(g, verbose);
@@ -256,7 +244,7 @@ int main(int argc, char **argv) {
         PackageTableEntry *build_pkg = new_package(buf_ptr(&build_file_dirname), buf_ptr(&build_file_basename));
         build_pkg->package_table.put(buf_create_from_str("std"), g->std_package);
         g->root_package->package_table.put(buf_create_from_str("@build"), build_pkg);
-        codegen_add_root_code(g, &root_source_dir, &root_source_name, &root_source_code);
+        codegen_build(g);
         codegen_link(g, "build");
 
         Termination term;
@@ -339,6 +327,10 @@ int main(int argc, char **argv) {
                     lib_dirs.append(argv[i]);
                 } else if (strcmp(arg, "--library") == 0) {
                     link_libs.append(argv[i]);
+                } else if (strcmp(arg, "--object") == 0) {
+                    objects.append(argv[i]);
+                } else if (strcmp(arg, "--assembly") == 0) {
+                    asm_files.append(argv[i]);
                 } else if (strcmp(arg, "--target-arch") == 0) {
                     target_arch = argv[i];
                 } else if (strcmp(arg, "--target-os") == 0) {
@@ -382,12 +374,6 @@ int main(int argc, char **argv) {
             } else if (strcmp(arg, "build_lib") == 0) {
                 cmd = CmdBuild;
                 out_type = OutTypeLib;
-            } else if (strcmp(arg, "link_lib") == 0) {
-                cmd = CmdLink;
-                out_type = OutTypeLib;
-            } else if (strcmp(arg, "link_exe") == 0) {
-                cmd = CmdLink;
-                out_type = OutTypeExe;
             } else if (strcmp(arg, "version") == 0) {
                 cmd = CmdVersion;
             } else if (strcmp(arg, "parseh") == 0) {
@@ -396,8 +382,6 @@ int main(int argc, char **argv) {
                 cmd = CmdTest;
             } else if (strcmp(arg, "targets") == 0) {
                 cmd = CmdTargets;
-            } else if (strcmp(arg, "asm") == 0) {
-                cmd = CmdAsm;
             } else {
                 fprintf(stderr, "Unrecognized command: %s\n", arg);
                 return usage(arg0);
@@ -407,15 +391,11 @@ int main(int argc, char **argv) {
                 case CmdBuild:
                 case CmdParseH:
                 case CmdTest:
-                case CmdAsm:
                     if (!in_file) {
                         in_file = arg;
                     } else {
                         return usage(arg0);
                     }
-                    break;
-                case CmdLink:
-                    objects.append(arg);
                     break;
                 case CmdVersion:
                 case CmdTargets:
@@ -430,25 +410,19 @@ int main(int argc, char **argv) {
     case CmdBuild:
     case CmdParseH:
     case CmdTest:
-    case CmdAsm:
-    case CmdLink:
         {
-            bool one_source_input = (cmd == CmdBuild || cmd == CmdParseH || cmd == CmdTest || cmd == CmdAsm);
-            if (one_source_input) {
-                if (!in_file) {
-                    fprintf(stderr, "Expected source file argument.\n");
-                    return usage(arg0);
-                }
-            } else if (cmd == CmdLink) {
-                if (objects.length == 0) {
-                    fprintf(stderr, "Expected one or more object arguments.\n");
-                    return usage(arg0);
-                }
-            } else {
-                zig_unreachable();
+            if (cmd == CmdBuild && !in_file && objects.length == 0 && asm_files.length == 0) {
+                fprintf(stderr, "Expected source file argument or at least one --object or --assembly argument.\n");
+                return usage(arg0);
+            } else if ((cmd == CmdParseH || cmd == CmdTest) && !in_file) {
+                fprintf(stderr, "Expected source file argument.\n");
+                return usage(arg0);
+            } else if (cmd == CmdBuild && out_type == OutTypeObj && objects.length != 0) {
+                fprintf(stderr, "When building an object file, --object arguments are invalid.\n");
+                return usage(arg0);
             }
 
-            assert((cmd != CmdBuild && cmd != CmdLink) || out_type != OutTypeUnknown);
+            assert(cmd != CmdBuild || out_type != OutTypeUnknown);
 
             init_all_targets();
 
@@ -479,45 +453,22 @@ int main(int argc, char **argv) {
                 }
             }
 
-            bool need_name = (cmd == CmdBuild || cmd == CmdAsm || cmd == CmdLink || cmd == CmdParseH);
+            bool need_name = (cmd == CmdBuild || cmd == CmdParseH);
 
-            Buf in_file_buf = BUF_INIT;
-
-            Buf root_source_dir = BUF_INIT;
-            Buf root_source_code = BUF_INIT;
-            Buf root_source_name = BUF_INIT;
+            Buf *in_file_buf = nullptr;
 
             Buf *buf_out_name = (cmd == CmdTest) ? buf_create_from_str("test") :
                 (out_name == nullptr) ? nullptr : buf_create_from_str(out_name);
 
-            if (one_source_input) {
-                buf_init_from_str(&in_file_buf, in_file);
+            if (in_file) {
+                in_file_buf = buf_create_from_str(in_file);
 
-                if (buf_eql_str(&in_file_buf, "-")) {
-                    os_get_cwd(&root_source_dir);
-                    if ((err = os_fetch_file(stdin, &root_source_code))) {
-                        fprintf(stderr, "unable to read stdin: %s\n", err_str(err));
-                        return 1;
-                    }
-                    buf_init_from_str(&root_source_name, "");
-
-                } else {
-                    os_path_split(&in_file_buf, &root_source_dir, &root_source_name);
-                    if ((err = os_fetch_file_path(buf_create_from_str(in_file), &root_source_code))) {
-                        fprintf(stderr, "unable to open '%s': %s\n", in_file, err_str(err));
-                        return 1;
-                    }
-
-                    if (need_name && buf_out_name == nullptr) {
-                        buf_out_name = buf_alloc();
-                        Buf ext_name = BUF_INIT;
-                        os_path_extname(&root_source_name, buf_out_name, &ext_name);
-                    }
+                if (need_name && buf_out_name == nullptr) {
+                    Buf basename = BUF_INIT;
+                    os_path_split(in_file_buf, nullptr, &basename);
+                    buf_out_name = buf_alloc();
+                    os_path_extname(&basename, buf_out_name, nullptr);
                 }
-            } else if (cmd == CmdLink) {
-                os_get_cwd(&root_source_dir);
-            } else {
-                zig_unreachable();
             }
 
             if (need_name && buf_out_name == nullptr) {
@@ -525,7 +476,10 @@ int main(int argc, char **argv) {
                 return usage(arg0);
             }
 
-            CodeGen *g = codegen_create(&root_source_dir, target);
+            Buf *zig_root_source_file = (cmd == CmdParseH) ? nullptr : in_file_buf;
+
+            CodeGen *g = codegen_create(zig_root_source_file, target);
+            codegen_set_out_name(g, buf_out_name);
             codegen_set_lib_version(g, ver_major, ver_minor, ver_patch);
             codegen_set_is_release(g, is_release_build);
             codegen_set_is_test(g, cmd == CmdTest);
@@ -536,14 +490,11 @@ int main(int argc, char **argv) {
             codegen_set_clang_argv(g, clang_argv.items, clang_argv.length);
             codegen_set_strip(g, strip);
             codegen_set_is_static(g, is_static);
-            if (cmd == CmdAsm) {
-                codegen_set_out_type(g, OutTypeObj);
-            } else if (out_type != OutTypeUnknown) {
+            if (out_type != OutTypeUnknown) {
                 codegen_set_out_type(g, out_type);
             } else if (cmd == CmdTest) {
                 codegen_set_out_type(g, OutTypeExe);
             }
-            codegen_set_out_name(g, buf_out_name);
             if (libc_lib_dir)
                 codegen_set_libc_lib_dir(g, buf_create_from_str(libc_lib_dir));
             if (libc_static_lib_dir)
@@ -598,33 +549,25 @@ int main(int argc, char **argv) {
             }
 
             if (cmd == CmdBuild) {
-                codegen_add_root_code(g, &root_source_dir, &root_source_name, &root_source_code);
-                codegen_link(g, out_file);
-                if (timing_info)
-                    codegen_print_timing_report(g, stderr);
-                return EXIT_SUCCESS;
-            } else if (cmd == CmdLink) {
                 for (size_t i = 0; i < objects.length; i += 1) {
                     codegen_add_object(g, buf_create_from_str(objects.at(i)));
                 }
-                codegen_link(g, out_file);
-                if (timing_info)
-                    codegen_print_timing_report(g, stderr);
-                return EXIT_SUCCESS;
-            } else if (cmd == CmdAsm) {
-                codegen_add_root_assembly(g, &root_source_dir, &root_source_name, &root_source_code);
+                for (size_t i = 0; i < asm_files.length; i += 1) {
+                    codegen_add_assembly(g, buf_create_from_str(asm_files.at(i)));
+                }
+                codegen_build(g);
                 codegen_link(g, out_file);
                 if (timing_info)
                     codegen_print_timing_report(g, stderr);
                 return EXIT_SUCCESS;
             } else if (cmd == CmdParseH) {
-                codegen_parseh(g, &root_source_dir, &root_source_name, &root_source_code);
+                codegen_parseh(g, in_file_buf);
                 ast_render_decls(g, stdout, 4, g->root_import);
                 if (timing_info)
                     codegen_print_timing_report(g, stderr);
                 return EXIT_SUCCESS;
             } else if (cmd == CmdTest) {
-                codegen_add_root_code(g, &root_source_dir, &root_source_name, &root_source_code);
+                codegen_build(g);
                 codegen_link(g, "./test");
                 ZigList<const char *> args = {0};
                 Termination term;

@@ -355,17 +355,15 @@ pub const CompareOutputContext = struct {
                         return;
                 }
 
-                const assembly = b.addAssemble("test", root_src);
+                const exe = b.addExecutable("test", null);
+                exe.addAssemblyFile(root_src);
+                exe.setOutputPath(exe_path);
 
                 for (case.sources.toSliceConst()) |src_file| {
                     const expanded_src_path = %%os.path.join(b.allocator, "test_artifacts", src_file.filename);
                     const write_src = b.addWriteFile(expanded_src_path, src_file.source);
-                    assembly.step.dependOn(&write_src.step);
+                    exe.step.dependOn(&write_src.step);
                 }
-
-                const exe = b.addLinkExecutable("test");
-                exe.addAssembly(assembly);
-                exe.setOutputPath(exe_path);
 
                 const run_and_cmp_output = RunCompareOutputStep.create(self, exe_path, annotated_case_name,
                     case.expected_output);

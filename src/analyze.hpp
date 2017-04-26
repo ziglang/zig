@@ -40,8 +40,7 @@ void find_libc_lib_path(CodeGen *g);
 bool type_has_bits(TypeTableEntry *type_entry);
 
 
-ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
-        Buf *abs_full_path, Buf *src_dirname, Buf *src_basename, Buf *source_code);
+ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *abs_full_path, Buf *source_code);
 
 
 // TODO move these over, these used to be static

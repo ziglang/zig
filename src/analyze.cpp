@@ -2851,9 +2851,7 @@ void preview_use_decl(CodeGen *g, AstNode *node) {
     node->data.use.value = result;
 }
 
-ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
-        Buf *abs_full_path, Buf *src_dirname, Buf *src_basename, Buf *source_code)
-{
+ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *abs_full_path, Buf *source_code) {
     if (g->verbose) {
         fprintf(stderr, "\nOriginal Source (%s):\n", buf_ptr(abs_full_path));
         fprintf(stderr, "----------------\n");
@@ -2894,7 +2892,10 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package,
         ast_print(stderr, import_entry->root, 0);
     }
 
-    // TODO: assert that src_basename has no '/' in it
+    Buf *src_dirname = buf_alloc();
+    Buf *src_basename = buf_alloc();
+    os_path_split(abs_full_path, src_dirname, src_basename);
+
     import_entry->di_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(src_basename), buf_ptr(src_dirname));
     g->import_table.put(abs_full_path, import_entry);
     g->import_queue.append(import_entry);

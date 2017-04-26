@@ -146,24 +146,28 @@ void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename) {
 
 void os_path_extname(Buf *full_path, Buf *out_basename, Buf *out_extname) {
     if (buf_len(full_path) == 0) {
-        buf_init_from_str(out_basename, "");
-        buf_init_from_str(out_extname, "");
+        if (out_basename) buf_init_from_str(out_basename, "");
+        if (out_extname) buf_init_from_str(out_extname, "");
         return;
     }
     size_t i = buf_len(full_path) - 1;
     while (true) {
         if (buf_ptr(full_path)[i] == '.') {
-            buf_resize(out_basename, 0);
-            buf_append_mem(out_basename, buf_ptr(full_path), i);
+            if (out_basename) {
+                buf_resize(out_basename, 0);
+                buf_append_mem(out_basename, buf_ptr(full_path), i);
+            }
 
-            buf_resize(out_extname, 0);
-            buf_append_mem(out_extname, buf_ptr(full_path) + i, buf_len(full_path) - i);
+            if (out_extname) {
+                buf_resize(out_extname, 0);
+                buf_append_mem(out_extname, buf_ptr(full_path) + i, buf_len(full_path) - i);
+            }
             return;
         }
 
         if (i == 0) {
-            buf_init_from_buf(out_basename, full_path);
-            buf_init_from_str(out_extname, "");
+            if (out_basename) buf_init_from_buf(out_basename, full_path);
+            if (out_extname) buf_init_from_str(out_extname, "");
             return;
         }
         i -= 1;

@@ -90,7 +90,11 @@ pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty
                 // at compile time. I'll call it issue #313
                 const ptr_hex = if (@sizeOf(usize) == 4) "0x{x8}" else "0x{x16}";
 
-                const compile_unit = findCompileUnit(st, return_address) ?? return error.MissingDebugInfo;
+                const compile_unit = findCompileUnit(st, return_address) ?? {
+                    %return out_stream.print(DIM ++ ptr_hex ++ " in ??? (???)" ++ RESET ++ "\n\n\n", return_address);
+                    %return out_stream.flush();
+                    continue;
+                };
                 const compile_unit_name = %return compile_unit.die.getAttrString(st, DW.AT_name);
                 try (getLineNumberInfo(st, compile_unit, usize(return_address) - 1)) |line_info| {
                     defer line_info.deinit();

@@ -14,7 +14,7 @@
 
 #include <stdio.h>
 
-CodeGen *codegen_create(Buf *root_source_dir, const ZigTarget *target);
+CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target);
 
 void codegen_set_clang_argv(CodeGen *codegen, const char **args, size_t len);
 void codegen_set_is_release(CodeGen *codegen, bool is_release);
@@ -49,13 +49,13 @@ void codegen_set_test_name_prefix(CodeGen *g, Buf *prefix);
 void codegen_set_lib_version(CodeGen *g, size_t major, size_t minor, size_t patch);
 void codegen_add_time_event(CodeGen *g, const char *name);
 void codegen_print_timing_report(CodeGen *g, FILE *f);
+void codegen_build(CodeGen *g);
 
 PackageTableEntry *new_package(const char *root_src_dir, const char *root_src_path);
-void codegen_add_root_code(CodeGen *g, Buf *source_dir, Buf *source_basename, Buf *source_code);
-void codegen_add_root_assembly(CodeGen *g, Buf *source_dir, Buf *source_basename, Buf *source_code);
+void codegen_add_assembly(CodeGen *g, Buf *path);
 void codegen_add_object(CodeGen *g, Buf *object_path);
 
-void codegen_parseh(CodeGen *g, Buf *src_dirname, Buf *src_basename, Buf *source_code);
+void codegen_parseh(CodeGen *g, Buf *path);
 void codegen_render_ast(CodeGen *g, FILE *f, int indent_size);
 
 void codegen_generate_h_file(CodeGen *g);

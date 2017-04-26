@@ -6043,6 +6043,21 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
         }
     }
 
+    // implicit [N]T to ?[]const N
+    if (expected_type->id == TypeTableEntryIdMaybe &&
+        is_slice(expected_type->data.maybe.child_type) &&
+        actual_type->id == TypeTableEntryIdArray)
+    {
+        TypeTableEntry *ptr_type =
+            expected_type->data.maybe.child_type->data.structure.fields[slice_ptr_index].type_entry;
+        assert(ptr_type->id == TypeTableEntryIdPointer);
+        if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
+                types_match_const_cast_only(ptr_type->data.pointer.child_type, actual_type->data.array.child_type))
+        {
+            return ImplicitCastMatchResultYes;
+        }
+    }
+
     // implicit number literal to typed number
     // implicit number literal to &const integer
     if (actual_type->id == TypeTableEntryIdNumLitFloat ||
@@ -7082,6 +7097,29 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
                 types_match_const_cast_only(ptr_type->data.pointer.child_type, actual_type->data.array.child_type))
         {
             IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.pointer.child_type, value);
+            if (type_is_invalid(cast1->value.type))
+                return ira->codegen->invalid_instruction;
+
+            IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
+            if (type_is_invalid(cast2->value.type))
+                return ira->codegen->invalid_instruction;
+
+            return cast2;
+        }
+    }
+
+    // explicit cast from [N]T to ?[]const N
+    if (wanted_type->id == TypeTableEntryIdMaybe &&
+        is_slice(wanted_type->data.maybe.child_type) &&
+        actual_type->id == TypeTableEntryIdArray)
+    {
+        TypeTableEntry *ptr_type =
+            wanted_type->data.maybe.child_type->data.structure.fields[slice_ptr_index].type_entry;
+        assert(ptr_type->id == TypeTableEntryIdPointer);
+        if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
+                types_match_const_cast_only(ptr_type->data.pointer.child_type, actual_type->data.array.child_type))
+        {
+            IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.maybe.child_type, value);
             if (type_is_invalid(cast1->value.type))
                 return ira->codegen->invalid_instruction;
 
@@ -10880,8 +10918,7 @@ static TypeTableEntry *ir_analyze_instruction_import(IrAnalyze *ira, IrInstructi
             return ira->codegen->builtin_types.entry_invalid;
         }
     }
-    ImportTableEntry *target_import = add_source_file(ira->codegen, target_package,
-            abs_full_path, search_dir, import_target_path, import_code);
+    ImportTableEntry *target_import = add_source_file(ira->codegen, target_package, abs_full_path, import_code);
 
     scan_decls(ira->codegen, target_import->decls_scope, target_import->root);
 
