@@ -349,25 +349,22 @@ pub const CompareOutputContext = struct {
 
         switch (case.special) {
             Special.Asm => {
-                const obj_path = %%os.path.join(b.allocator, "test_artifacts", "test.o");
                 const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "assemble-and-link {}", case.name);
                 test (self.test_filter) |filter| {
                     if (mem.indexOf(u8, annotated_case_name, filter) == null)
                         return;
                 }
 
-                const obj = b.addAssemble("test", root_src);
-                obj.setOutputPath(obj_path);
+                const assembly = b.addAssemble("test", root_src);
 
                 for (case.sources.toSliceConst()) |src_file| {
                     const expanded_src_path = %%os.path.join(b.allocator, "test_artifacts", src_file.filename);
                     const write_src = b.addWriteFile(expanded_src_path, src_file.source);
-                    obj.step.dependOn(&write_src.step);
+                    assembly.step.dependOn(&write_src.step);
                 }
 
                 const exe = b.addLinkExecutable("test");
-                exe.step.dependOn(&obj.step);
-                exe.addObjectFile(obj_path);
+                exe.addAssembly(assembly);
                 exe.setOutputPath(exe_path);
 
                 const run_and_cmp_output = RunCompareOutputStep.create(self, exe_path, annotated_case_name,

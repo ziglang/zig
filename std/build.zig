@@ -1130,6 +1130,32 @@ pub const LinkStep = struct {
         %%self.object_files.append(file);
     }
 
+    pub fn addObject(self: &LinkStep, obj: &ObjectStep) {
+        self.step.dependOn(&obj.step);
+
+        const path_to_obj = test (obj.output_path) |explicit_out_path| {
+            explicit_out_path
+        } else {
+            // TODO make it so we always know where this will be
+            %%os.path.join(self.builder.allocator, self.builder.out_dir,
+                self.builder.fmt("{}{}", obj.name, obj.target.oFileExt()))
+        };
+        %%self.object_files.append(path_to_obj);
+    }
+
+    pub fn addAssembly(self: &LinkStep, assembly: &AsmStep) {
+        self.step.dependOn(&assembly.step);
+
+        const path_to_obj = test (assembly.output_path) |explicit_out_path| {
+            explicit_out_path
+        } else {
+            // TODO make it so we always know where this will be
+            %%os.path.join(self.builder.allocator, self.builder.out_dir,
+                self.builder.fmt("{}{}", assembly.name, assembly.target.oFileExt()))
+        };
+        %%self.object_files.append(path_to_obj);
+    }
+
     pub fn setTarget(self: &LinkStep, target_arch: Arch, target_os: Os, target_environ: Environ) {
         self.target = Target.Cross {
             CrossTarget {
