@@ -201,6 +201,12 @@ enum RuntimeHintMaybe {
     RuntimeHintMaybeNonNull,
 };
 
+enum RuntimeHintPtr {
+    RuntimeHintPtrUnknown,
+    RuntimeHintPtrStack,
+    RuntimeHintPtrNonStack,
+};
+
 struct ConstFn {
     FnTableEntry *fn_entry;
     bool is_inline;
@@ -233,6 +239,7 @@ struct ConstExprValue {
         // populated if special == ConstValSpecialRuntime
         RuntimeHintErrorUnion rh_error_union;
         RuntimeHintMaybe rh_maybe;
+        RuntimeHintPtr rh_ptr;
     } data;
 };
 

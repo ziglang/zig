@@ -7538,6 +7538,13 @@ static TypeTableEntry *ir_analyze_instruction_return(IrAnalyze *ira,
     if (casted_value == ira->codegen->invalid_instruction)
         return ir_unreach_error(ira);
 
+    if (casted_value->value.special == ConstValSpecialRuntime &&
+        casted_value->value.type->id == TypeTableEntryIdPointer &&
+        casted_value->value.data.rh_ptr == RuntimeHintPtrStack)
+    {
+        ir_add_error(ira, casted_value, buf_sprintf("function returns address of local variable"));
+        return ir_unreach_error(ira);
+    }
     ir_build_return_from(&ira->new_irb, &return_instruction->base, casted_value);
     return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
 }
@@ -8467,6 +8474,10 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
                 instruction->scope, instruction->source_node, var, is_const, is_volatile);
         var_ptr_instruction->value.type = get_pointer_to_type(ira->codegen, var->value->type, var->src_is_const);
         type_ensure_zero_bits_known(ira->codegen, var->value->type);
+
+        bool in_fn_scope = (scope_fn_entry(var->parent_scope) != nullptr);
+        var_ptr_instruction->value.data.rh_ptr = in_fn_scope ? RuntimeHintPtrStack : RuntimeHintPtrNonStack;
+
         return var_ptr_instruction;
     }
 }

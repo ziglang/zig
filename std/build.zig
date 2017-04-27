@@ -887,7 +887,7 @@ pub const LibExeObjStep = struct {
             %%zig_args.append(lib_path);
         }
 
-        %%builder.spawnChild(builder.zig_exe, zig_args.toSliceConst());
+        %return builder.spawnChild(builder.zig_exe, zig_args.toSliceConst());
 
         if (self.kind == Kind.Lib and !self.static) {
             // sym link for libfoo.so.1 to libfoo.so.1.2.3
@@ -994,7 +994,7 @@ pub const TestStep = struct {
             %%zig_args.append(lib_path);
         }
 
-        %%builder.spawnChild(builder.zig_exe, zig_args.toSliceConst());
+        %return builder.spawnChild(builder.zig_exe, zig_args.toSliceConst());
     }
 };
 
