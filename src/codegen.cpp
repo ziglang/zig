@@ -720,6 +720,11 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     addLLVMFnAttr(fn_val, "cold");
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
     LLVMSetFunctionCallConv(fn_val, LLVMFastCallConv);
+    addLLVMFnAttr(fn_val, "nounwind");
+    if (!g->is_release_build) {
+        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
+        ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
+    }
 
     LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn_val, "Entry");
     LLVMBasicBlockRef prev_block = LLVMGetInsertBlock(g->builder);

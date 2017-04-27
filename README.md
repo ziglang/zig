@@ -75,7 +75,7 @@ the Zig compiler itself:
 #### Library Dependencies
 
 These libraries must be installed on your system, with the development files
-available. The Zig compiler dynamically links against them.
+available. The Zig compiler links against them.
 
  * LLVM, Clang, and LLD libraries == 4.x
 
