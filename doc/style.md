@@ -29,6 +29,9 @@ rules in written English are subject to naming conventions just like any other
 word. Even acronyms that are only 2 letters long are subject to these
 conventions.
 
+These are general rules of thumb; if it makes sense to do something different,
+do what makes sense.
+
 Examples:
 
 ```zig

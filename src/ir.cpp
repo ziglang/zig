@@ -10920,7 +10920,7 @@ static TypeTableEntry *ir_analyze_instruction_import(IrAnalyze *ira, IrInstructi
     }
     ImportTableEntry *target_import = add_source_file(ira->codegen, target_package, abs_full_path, import_code);
 
-    scan_decls(ira->codegen, target_import->decls_scope, target_import->root);
+    scan_import(ira->codegen, target_import);
 
     ConstExprValue *out_val = ir_build_const_from(ira, &import_instruction->base);
     out_val->data.x_import = target_import;

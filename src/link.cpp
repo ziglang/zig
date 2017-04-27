@@ -263,11 +263,6 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));
     }
 
-    if (g->is_test_build) {
-        Buf *test_runner_o_path = build_o(g, "test_runner");
-        lj->args.append(buf_ptr(test_runner_o_path));
-    }
-
     if (!g->link_libc && (g->out_type == OutTypeExe || g->out_type == OutTypeLib)) {
         Buf *builtin_o_path = build_o(g, "builtin");
         lj->args.append(buf_ptr(builtin_o_path));
@@ -406,11 +401,6 @@ static void construct_linker_job_coff(LinkJob *lj) {
 
     for (size_t i = 0; i < g->link_objects.length; i += 1) {
         lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));
-    }
-
-    if (g->is_test_build) {
-        Buf *test_runner_o_path = build_o(g, "test_runner");
-        lj->args.append(buf_ptr(test_runner_o_path));
     }
 
     if (!g->link_libc && (g->out_type == OutTypeExe || g->out_type == OutTypeLib)) {
@@ -672,11 +662,6 @@ static void construct_linker_job_macho(LinkJob *lj) {
 
     for (size_t i = 0; i < g->link_objects.length; i += 1) {
         lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));
-    }
-
-    if (g->is_test_build) {
-        Buf *test_runner_o_path = build_o(g, "test_runner");
-        lj->args.append(buf_ptr(test_runner_o_path));
     }
 
     for (size_t i = 0; i < g->link_libs.length; i += 1) {

@@ -2906,7 +2906,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdDeclRef:
         case IrInstructionIdSwitchVar:
         case IrInstructionIdSetFnRefInline:
-        case IrInstructionIdOffsetOf:        
+        case IrInstructionIdOffsetOf:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -3087,7 +3087,7 @@ static LLVMValueRef gen_const_ptr_struct_recursive(CodeGen *g, ConstExprValue *s
     return LLVMConstInBoundsGEP(base_ptr, indices, 2);
 }
 
-static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, ConstExprValue *const_val) { 
+static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, ConstExprValue *const_val) {
     switch (const_val->special) {
         case ConstValSpecialRuntime:
             zig_unreachable();
@@ -3501,50 +3501,6 @@ static void delete_unused_builtin_fns(CodeGen *g) {
     }
 }
 
-static bool should_skip_fn_codegen(CodeGen *g, FnTableEntry *fn_entry) {
-    if (g->is_test_build) {
-        if (fn_entry->is_test) {
-            return false;
-        }
-        if (fn_entry == g->main_fn) {
-            return true;
-        }
-        return false;
-    }
-
-    if (fn_entry->is_test) {
-        return true;
-    }
-
-    return false;
-}
-
-static LLVMValueRef gen_test_fn_val(CodeGen *g, FnTableEntry *fn_entry) {
-    // Must match TestFn struct from test_runner.zig
-    Buf *fn_name = &fn_entry->symbol_name;
-    LLVMValueRef str_init = LLVMConstString(buf_ptr(fn_name), (unsigned)buf_len(fn_name), true);
-    LLVMValueRef str_global_val = LLVMAddGlobal(g->module, LLVMTypeOf(str_init), "");
-    LLVMSetInitializer(str_global_val, str_init);
-    LLVMSetLinkage(str_global_val, LLVMPrivateLinkage);
-    LLVMSetGlobalConstant(str_global_val, true);
-    LLVMSetUnnamedAddr(str_global_val, true);
-
-    LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, buf_len(fn_name), false);
-
-    LLVMTypeRef ptr_type = LLVMPointerType(g->builtin_types.entry_u8->type_ref, 0);
-    LLVMValueRef name_fields[] = {
-        LLVMConstBitCast(str_global_val, ptr_type),
-        len_val,
-    };
-
-    LLVMValueRef name_val = LLVMConstStruct(name_fields, 2, false);
-    LLVMValueRef fields[] = {
-        name_val,
-        fn_llvm_value(g, fn_entry),
-    };
-    return LLVMConstStruct(fields, 2, false);
-}
-
 static void generate_error_name_table(CodeGen *g) {
     if (g->err_name_table != nullptr || !g->generate_error_name_table || g->error_decls.length == 1) {
         return;
@@ -3740,17 +3696,9 @@ static void do_code_gen(CodeGen *g) {
         var->value_ref = global_value;
     }
 
-    LLVMValueRef *test_fn_vals = nullptr;
-    uint32_t next_test_index = 0;
-    if (g->is_test_build) {
-        test_fn_vals = allocate<LLVMValueRef>(g->test_fn_count);
-    }
-
     // Generate function prototypes
     for (size_t fn_proto_i = 0; fn_proto_i < g->fn_protos.length; fn_proto_i += 1) {
         FnTableEntry *fn_table_entry = g->fn_protos.at(fn_proto_i);
-        if (should_skip_fn_codegen(g, fn_table_entry))
-            continue;
 
         TypeTableEntry *fn_type = fn_table_entry->type_entry;
         FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
@@ -3797,51 +3745,11 @@ static void do_code_gen(CodeGen *g) {
                 addLLVMArgAttr(fn_val, (unsigned)gen_index, "byval");
             }
         }
-
-        if (fn_table_entry->is_test) {
-            test_fn_vals[next_test_index] = gen_test_fn_val(g, fn_table_entry);
-            next_test_index += 1;
-        }
-    }
-
-    // Generate the list of test function pointers.
-    if (g->is_test_build) {
-        if (g->test_fn_count == 0) {
-            fprintf(stderr, "No tests to run.\n");
-            exit(0);
-        }
-        assert(g->test_fn_count > 0);
-        assert(next_test_index == g->test_fn_count);
-
-        LLVMValueRef test_fn_array_init = LLVMConstArray(LLVMTypeOf(test_fn_vals[0]),
-                test_fn_vals, g->test_fn_count);
-        LLVMValueRef test_fn_array_val = LLVMAddGlobal(g->module,
-                LLVMTypeOf(test_fn_array_init), "");
-        LLVMSetInitializer(test_fn_array_val, test_fn_array_init);
-        LLVMSetLinkage(test_fn_array_val, LLVMInternalLinkage);
-        LLVMSetGlobalConstant(test_fn_array_val, true);
-        LLVMSetUnnamedAddr(test_fn_array_val, true);
-
-        LLVMValueRef len_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, g->test_fn_count, false);
-        LLVMTypeRef ptr_type = LLVMPointerType(LLVMTypeOf(test_fn_vals[0]), 0);
-        LLVMValueRef fields[] = {
-            LLVMConstBitCast(test_fn_array_val, ptr_type),
-            len_val,
-        };
-        LLVMValueRef test_fn_slice_init = LLVMConstStruct(fields, 2, false);
-        LLVMValueRef test_fn_slice_val = LLVMAddGlobal(g->module,
-                LLVMTypeOf(test_fn_slice_init), "zig_test_fn_list");
-        LLVMSetInitializer(test_fn_slice_val, test_fn_slice_init);
-        LLVMSetLinkage(test_fn_slice_val, LLVMExternalLinkage);
-        LLVMSetGlobalConstant(test_fn_slice_val, true);
-        LLVMSetUnnamedAddr(test_fn_slice_val, true);
     }
 
     // Generate function definitions.
     for (size_t fn_i = 0; fn_i < g->fn_defs.length; fn_i += 1) {
         FnTableEntry *fn_table_entry = g->fn_defs.at(fn_i);
-        if (should_skip_fn_codegen(g, fn_table_entry))
-            continue;
 
         LLVMValueRef fn = fn_llvm_value(g, fn_table_entry);
         g->cur_fn = fn_table_entry;
@@ -4737,10 +4645,16 @@ static ImportTableEntry *add_special_code(CodeGen *g, PackageTableEntry *package
     return add_source_file(g, package, abs_full_path, import_code);
 }
 
-static PackageTableEntry *create_bootstrap_pkg(CodeGen *g) {
+static PackageTableEntry *create_bootstrap_pkg(CodeGen *g, PackageTableEntry *pkg_with_main) {
     PackageTableEntry *package = new_package(buf_ptr(g->zig_std_special_dir), "");
     package->package_table.put(buf_create_from_str("std"), g->std_package);
-    package->package_table.put(buf_create_from_str("@root"), g->root_package);
+    package->package_table.put(buf_create_from_str("@root"), pkg_with_main);
+    return package;
+}
+
+static PackageTableEntry *create_test_runner_pkg(CodeGen *g) {
+    PackageTableEntry *package = new_package(buf_ptr(g->zig_std_special_dir), "test_runner.zig");
+    package->package_table.put(buf_create_from_str("std"), g->std_package);
     return package;
 }
 
@@ -4749,6 +4663,54 @@ static PackageTableEntry *create_zigrt_pkg(CodeGen *g) {
     package->package_table.put(buf_create_from_str("std"), g->std_package);
     package->package_table.put(buf_create_from_str("@root"), g->root_package);
     return package;
+}
+
+static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
+    assert(g->is_test_build);
+
+    if (g->test_fns.length == 0) {
+        fprintf(stderr, "No tests to run.\n");
+        exit(0);
+    }
+
+    TypeTableEntry *str_type = get_slice_type(g, g->builtin_types.entry_u8, true);
+    TypeTableEntry *fn_type = get_test_fn_type(g);
+
+    const char *field_names[] = { "name", "func", };
+    TypeTableEntry *field_types[] = { str_type, fn_type, };
+    TypeTableEntry *struct_type = get_struct_type(g, "ZigTestFn", field_names, field_types, 2);
+
+    ConstExprValue *test_fn_array = allocate<ConstExprValue>(1);
+    test_fn_array->type = get_array_type(g, struct_type, g->test_fns.length);
+    test_fn_array->special = ConstValSpecialStatic;
+    test_fn_array->data.x_array.s_none.elements = allocate<ConstExprValue>(g->test_fns.length);
+
+    for (size_t i = 0; i < g->test_fns.length; i += 1) {
+        FnTableEntry *test_fn_entry = g->test_fns.at(i);
+
+        ConstExprValue *this_val = &test_fn_array->data.x_array.s_none.elements[i];
+        this_val->special = ConstValSpecialStatic;
+        this_val->type = struct_type;
+        this_val->data.x_struct.parent.id = ConstParentIdArray;
+        this_val->data.x_struct.parent.data.p_array.array_val = test_fn_array;
+        this_val->data.x_struct.parent.data.p_array.elem_index = i;
+        this_val->data.x_struct.fields = allocate<ConstExprValue>(2);
+
+        ConstExprValue *name_field = &this_val->data.x_struct.fields[0];
+        ConstExprValue *name_array_val = create_const_str_lit(g, &test_fn_entry->symbol_name);
+        init_const_slice(g, name_field, name_array_val, 0, buf_len(&test_fn_entry->symbol_name), true);
+
+        ConstExprValue *fn_field = &this_val->data.x_struct.fields[1];
+        fn_field->type = fn_type;
+        fn_field->special = ConstValSpecialStatic;
+        fn_field->data.x_fn.fn_entry = test_fn_entry;
+    }
+
+    ConstExprValue *test_fn_slice = create_const_slice(g, test_fn_array, 0, g->test_fns.length, true);
+
+    g->compile_vars.put(buf_create_from_str("zig_test_fn_slice"), test_fn_slice);
+    g->test_runner_package = create_test_runner_pkg(g);
+    g->test_runner_import = add_special_code(g, g->test_runner_package, "test_runner.zig");
 }
 
 static void gen_root_source(CodeGen *g) {
@@ -4779,7 +4741,7 @@ static void gen_root_source(CodeGen *g) {
     if (!g->is_test_build && g->zig_target.os != ZigLLVM_UnknownOS && !g->have_c_main &&
         ((g->have_pub_main && g->out_type == OutTypeObj) || g->out_type == OutTypeExe))
     {
-        g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g), "bootstrap.zig");
+        g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g, g->root_package), "bootstrap.zig");
     }
     if (!g->omit_zigrt) {
         g->zigrt_package = create_zigrt_pkg(g);
@@ -4792,6 +4754,14 @@ static void gen_root_source(CodeGen *g) {
     }
     if (!g->error_during_imports) {
         semantic_analyze(g);
+    }
+    if (g->is_test_build) {
+        create_test_compile_var_and_add_test_runner(g);
+        g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g, g->test_runner_package), "bootstrap.zig");
+
+        if (!g->error_during_imports) {
+            semantic_analyze(g);
+        }
     }
 
     if (g->errors.length == 0) {

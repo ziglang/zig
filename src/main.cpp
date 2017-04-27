@@ -558,13 +558,13 @@ int main(int argc, char **argv) {
                 codegen_build(g);
                 codegen_link(g, out_file);
                 if (timing_info)
-                    codegen_print_timing_report(g, stderr);
+                    codegen_print_timing_report(g, stdout);
                 return EXIT_SUCCESS;
             } else if (cmd == CmdParseH) {
                 codegen_parseh(g, in_file_buf);
                 ast_render_decls(g, stdout, 4, g->root_import);
                 if (timing_info)
-                    codegen_print_timing_report(g, stderr);
+                    codegen_print_timing_report(g, stdout);
                 return EXIT_SUCCESS;
             } else if (cmd == CmdTest) {
                 codegen_build(g);
@@ -576,7 +576,7 @@ int main(int argc, char **argv) {
                     fprintf(stderr, "\nTests failed. Use the following command to reproduce the failure:\n");
                     fprintf(stderr, "./test\n");
                 } else if (timing_info) {
-                    codegen_print_timing_report(g, stderr);
+                    codegen_print_timing_report(g, stdout);
                 }
                 return (term.how == TerminationIdClean) ? term.code : -1;
             } else {

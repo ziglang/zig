@@ -1095,6 +1095,7 @@ struct ImportTableEntry {
     ScopeDecls *decls_scope;
     AstNode *c_import_node;
     bool any_imports_failed;
+    bool scanned;
 
     ZigList<AstNode *> use_decls;
 };
@@ -1398,6 +1399,7 @@ struct CodeGen {
     PackageTableEntry *root_package;
     PackageTableEntry *std_package;
     PackageTableEntry *zigrt_package;
+    PackageTableEntry *test_runner_package;
     Buf *root_out_name;
     bool windows_subsystem_windows;
     bool windows_subsystem_console;
@@ -1451,7 +1453,7 @@ struct CodeGen {
     size_t clang_argv_len;
     ZigList<const char *> lib_dirs;
 
-    uint32_t test_fn_count;
+    ZigList<FnTableEntry *> test_fns;
     TypeTableEntry *test_fn_type;
 
     bool each_lib_rpath;

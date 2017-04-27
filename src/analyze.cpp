@@ -1413,6 +1413,71 @@ static bool type_allowed_in_packed_struct(TypeTableEntry *type_entry) {
     zig_unreachable();
 }
 
+TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *field_names[],
+        TypeTableEntry *field_types[], size_t field_count)
+{
+    TypeTableEntry *struct_type = new_type_table_entry(TypeTableEntryIdStruct);
+
+    buf_init_from_str(&struct_type->name, type_name);
+
+    struct_type->data.structure.src_field_count = field_count;
+    struct_type->data.structure.gen_field_count = field_count;
+    struct_type->data.structure.zero_bits_known = true;
+    struct_type->data.structure.complete = true;
+    struct_type->data.structure.fields = allocate<TypeStructField>(field_count);
+
+    ZigLLVMDIType **di_element_types = allocate<ZigLLVMDIType*>(field_count);
+    LLVMTypeRef *element_types = allocate<LLVMTypeRef>(field_count);
+    for (size_t i = 0; i < field_count; i += 1) {
+        element_types[i] = field_types[i]->type_ref;
+
+        TypeStructField *field = &struct_type->data.structure.fields[i];
+        field->name = buf_create_from_str(field_names[i]);
+        field->type_entry = field_types[i];
+        field->src_index = i;
+        field->gen_index = i;
+    }
+
+    struct_type->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), type_name);
+    LLVMStructSetBody(struct_type->type_ref, element_types, field_count, false);
+
+    struct_type->di_type = ZigLLVMCreateReplaceableCompositeType(g->dbuilder,
+        ZigLLVMTag_DW_structure_type(), type_name,
+        ZigLLVMCompileUnitToScope(g->compile_unit), nullptr, 0);
+
+    for (size_t i = 0; i < field_count; i += 1) {
+        TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
+        TypeTableEntry *field_type = type_struct_field->type_entry;
+        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, field_type->type_ref);
+        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, field_type->type_ref);
+        uint64_t debug_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, struct_type->type_ref, i);
+        di_element_types[i] = ZigLLVMCreateDebugMemberType(g->dbuilder,
+                ZigLLVMTypeToScope(struct_type->di_type), buf_ptr(type_struct_field->name),
+                nullptr, 0,
+                debug_size_in_bits,
+                debug_align_in_bits,
+                debug_offset_in_bits,
+                0, field_type->di_type);
+
+        assert(di_element_types[i]);
+    }
+
+    uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, struct_type->type_ref);
+    uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, struct_type->type_ref);
+    ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
+            ZigLLVMCompileUnitToScope(g->compile_unit),
+            type_name, nullptr, 0,
+            debug_size_in_bits,
+            debug_align_in_bits,
+            0,
+            nullptr, di_element_types, field_count, 0, nullptr, "");
+
+    ZigLLVMReplaceTemporary(g->dbuilder, struct_type->di_type, replacement_di_type);
+    struct_type->di_type = replacement_di_type;
+
+    return struct_type;
+}
+
 static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
     // if you change the logic of this function likely you must make a similar change in
     // parseh.cpp
@@ -1823,7 +1888,7 @@ static void typecheck_panic_fn(CodeGen *g, FnTableEntry *panic_fn) {
     }
 }
 
-static TypeTableEntry *get_test_fn_type(CodeGen *g) {
+TypeTableEntry *get_test_fn_type(CodeGen *g) {
     if (g->test_fn_type)
         return g->test_fn_type;
 
@@ -1875,7 +1940,10 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
             if (fn_def_node)
                 g->fn_defs.append(fn_table_entry);
 
-            if (g->have_pub_main && import == g->root_import && scope_is_root_decls(tld_fn->base.parent_scope)) {
+            if (g->have_pub_main && scope_is_root_decls(tld_fn->base.parent_scope) &&
+                ((!g->is_test_build && import == g->root_import) ||
+                (g->is_test_build && import == g->test_runner_import)))
+            {
                 if (buf_eql_str(&fn_table_entry->symbol_name, "main")) {
                     g->main_fn = fn_table_entry;
 
@@ -1909,10 +1977,10 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         fn_table_entry->type_entry = get_test_fn_type(g);
         fn_table_entry->body_node = source_node->data.test_decl.body;
         fn_table_entry->is_test = true;
-        g->test_fn_count += 1;
 
         g->fn_protos.append(fn_table_entry);
         g->fn_defs.append(fn_table_entry);
+        g->test_fns.append(fn_table_entry);
 
     } else {
         zig_unreachable();
@@ -1926,7 +1994,7 @@ static void resolve_decl_comptime(CodeGen *g, TldCompTime *tld_comptime) {
 }
 
 static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
-    if (tld->visib_mod == VisibModExport || (tld->id == TldIdVar && g->is_test_build)) {
+    if (tld->visib_mod == VisibModExport) {
         g->resolve_queue.append(tld);
     }
 
@@ -2932,11 +3000,17 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *a
     return import_entry;
 }
 
+void scan_import(CodeGen *g, ImportTableEntry *import) {
+    if (!import->scanned) {
+        import->scanned = true;
+        scan_decls(g, import->decls_scope, import->root);
+    }
+}
 
 void semantic_analyze(CodeGen *g) {
     for (; g->import_queue_index < g->import_queue.length; g->import_queue_index += 1) {
         ImportTableEntry *import = g->import_queue.at(g->import_queue_index);
-        scan_decls(g, import->decls_scope, import->root);
+        scan_import(g, import);
     }
 
     for (; g->use_queue_index < g->use_queue.length; g->use_queue_index += 1) {

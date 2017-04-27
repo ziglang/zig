@@ -16,3 +16,24 @@ pub const os = @import("os/index.zig");
 pub const rand = @import("rand.zig");
 pub const sort = @import("sort.zig");
 pub const target = @import("target.zig");
+
+test "std" {
+    // run tests from these
+    _ = @import("base64.zig");
+    _ = @import("buffer.zig");
+    _ = @import("build.zig");
+    _ = @import("c/index.zig");
+    _ = @import("cstr.zig");
+    _ = @import("debug.zig");
+    _ = @import("fmt.zig");
+    _ = @import("hash_map.zig");
+    _ = @import("io.zig");
+    _ = @import("list.zig");
+    _ = @import("math.zig");
+    _ = @import("mem.zig");
+    _ = @import("net.zig");
+    _ = @import("os/index.zig");
+    _ = @import("rand.zig");
+    _ = @import("sort.zig");
+    _ = @import("target.zig");
+}

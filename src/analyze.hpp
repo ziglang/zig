@@ -33,6 +33,9 @@ TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x);
 TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type);
 TypeTableEntry *get_bound_fn_type(CodeGen *g, FnTableEntry *fn_entry);
 TypeTableEntry *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, const char *name);
+TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *field_names[],
+        TypeTableEntry *field_types[], size_t field_count);
+TypeTableEntry *get_test_fn_type(CodeGen *g);
 bool handle_is_ptr(TypeTableEntry *type_entry);
 void find_libc_include_path(CodeGen *g);
 void find_libc_lib_path(CodeGen *g);
@@ -60,6 +63,7 @@ ScopeDecls *get_container_scope(TypeTableEntry *type_entry);
 TypeEnumField *find_enum_type_field(TypeTableEntry *enum_type, Buf *name);
 bool is_container_ref(TypeTableEntry *type_entry);
 void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node);
+void scan_import(CodeGen *g, ImportTableEntry *import);
 void preview_use_decl(CodeGen *g, AstNode *node);
 void resolve_use_decl(CodeGen *g, AstNode *node);
 FnTableEntry *scope_fn_entry(Scope *scope);
