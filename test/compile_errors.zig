@@ -1611,11 +1611,21 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         ".tmp_source.zig:3:5: error: cannot set section of external function 'foo'",
         ".tmp_source.zig:1:8: note: declared here");
 
-    cases.add("returning address of local variable",
+    cases.add("returning address of local variable - simple",
         \\export fn foo() -> &i32 {
         \\    var a: i32 = undefined;
         \\    return &a;
         \\}
     ,
         ".tmp_source.zig:3:13: error: function returns address of local variable");
+
+    cases.add("returning address of local variable - phi",
+        \\export fn foo(c: bool) -> &i32 {
+        \\    var a: i32 = undefined;
+        \\    var b: i32 = undefined;
+        \\    return if (c) &a else &b;
+        \\}
+    ,
+        ".tmp_source.zig:4:12: error: function returns address of local variable");
+
 }

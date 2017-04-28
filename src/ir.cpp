@@ -9226,6 +9226,8 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
         return ira->codegen->builtin_types.entry_invalid;
     }
 
+    bool all_stack_ptrs = (resolved_type->id == TypeTableEntryIdPointer);
+
     // cast all values to the resolved type. however we can't put cast instructions in front of the phi instruction.
     // so we go back and insert the casts as the last instruction in the corresponding predecessor blocks, and
     // then make sure the branch instruction is preserved.
@@ -9238,11 +9240,22 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
         IrInstruction *casted_value = ir_implicit_cast(ira, new_value, resolved_type);
         new_incoming_values.items[i] = casted_value;
         predecessor->instruction_list.append(branch_instruction);
+
+        if (all_stack_ptrs && (casted_value->value.special != ConstValSpecialRuntime ||
+            casted_value->value.data.rh_ptr != RuntimeHintPtrStack))
+        {
+            all_stack_ptrs = false;
+        }
     }
     ir_set_cursor_at_end(&ira->new_irb, cur_bb);
 
-    ir_build_phi_from(&ira->new_irb, &phi_instruction->base, new_incoming_blocks.length,
+    IrInstruction *result = ir_build_phi_from(&ira->new_irb, &phi_instruction->base, new_incoming_blocks.length,
             new_incoming_blocks.items, new_incoming_values.items);
+
+    if (all_stack_ptrs) {
+        assert(result->value.special == ConstValSpecialRuntime);
+        result->value.data.rh_ptr = RuntimeHintPtrStack;
+    }
 
     return resolved_type;
 }
