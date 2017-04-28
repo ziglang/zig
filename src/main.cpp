@@ -29,6 +29,7 @@ static int usage(const char *arg0) {
         "  version                      print version number and exit\n"
         "Compile Options:\n"
         "  --assembly [source]          add assembly file to build\n"
+        "  --cache-dir [path]           override the cache directory\n"
         "  --color [auto|off|on]        enable or disable colored error messages\n"
         "  --enable-timing-info         print timing diagnostics\n"
         "  --libc-include-dir [path]    directory where libc stdlib.h resides\n"
@@ -162,6 +163,7 @@ int main(int argc, char **argv) {
     size_t ver_minor = 0;
     size_t ver_patch = 0;
     bool timing_info = false;
+    const char *cache_dir = "zig-cache";
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         const char *zig_exe_path = arg0;
@@ -180,6 +182,7 @@ int main(int argc, char **argv) {
         ZigList<const char *> args = {0};
         args.append(zig_exe_path);
         args.append(NULL); // placeholder
+        args.append(NULL); // placeholder
         for (int i = 2; i < argc; i += 1) {
             if (strcmp(argv[i], "--debug-build-verbose") == 0) {
                 verbose = true;
@@ -188,6 +191,9 @@ int main(int argc, char **argv) {
                 args.append(argv[i]);
             } else if (i + 1 < argc && strcmp(argv[i], "--build-file") == 0) {
                 build_file = argv[i + 1];
+                i += 1;
+            } else if (i + 1 < argc && strcmp(argv[i], "--cache-dir") == 0) {
+                cache_dir = argv[i + 1];
                 i += 1;
             } else {
                 args.append(argv[i]);
@@ -205,7 +211,14 @@ int main(int argc, char **argv) {
         Buf build_file_dirname = BUF_INIT;
         os_path_split(&build_file_abs, &build_file_dirname, &build_file_basename);
 
+        Buf *full_cache_dir = buf_alloc();
+        os_path_resolve(buf_create_from_str("."), buf_create_from_str(cache_dir), full_cache_dir);
+        Buf *path_to_build_exe = buf_alloc();
+        os_path_join(full_cache_dir, buf_create_from_str("build"), path_to_build_exe);
+        codegen_set_cache_dir(g, full_cache_dir);
+
         args.items[1] = buf_ptr(&build_file_dirname);
+        args.items[2] = buf_ptr(full_cache_dir);
 
         bool build_file_exists;
         if ((err = os_file_exists(&build_file_abs, &build_file_exists))) {
@@ -221,6 +234,7 @@ int main(int argc, char **argv) {
                         "General Options:\n"
                         "  --help                 Print this help and exit\n"
                         "  --build-file [file]    Override path to build.zig\n"
+                        "  --cache-dir [path]     Override path to cache directory\n"
                         "  --verbose              Print commands before executing them\n"
                         "  --debug-build-verbose  Print verbose debugging information for the build system itself\n"
                         "  --prefix [prefix]      Override default install prefix\n"
@@ -245,13 +259,13 @@ int main(int argc, char **argv) {
         build_pkg->package_table.put(buf_create_from_str("std"), g->std_package);
         g->root_package->package_table.put(buf_create_from_str("@build"), build_pkg);
         codegen_build(g);
-        codegen_link(g, "build");
+        codegen_link(g, buf_ptr(path_to_build_exe));
 
         Termination term;
-        os_spawn_process("./build", args, &term);
+        os_spawn_process(buf_ptr(path_to_build_exe), args, &term);
         if (term.how != TerminationIdClean || term.code != 0) {
             fprintf(stderr, "\nBuild failed. Use the following command to reproduce the failure:\n");
-            fprintf(stderr, "./build");
+            fprintf(stderr, "%s", buf_ptr(path_to_build_exe));
             for (size_t i = 0; i < args.length; i += 1) {
                 fprintf(stderr, " %s", args.at(i));
             }
@@ -331,6 +345,8 @@ int main(int argc, char **argv) {
                     objects.append(argv[i]);
                 } else if (strcmp(arg, "--assembly") == 0) {
                     asm_files.append(argv[i]);
+                } else if (strcmp(arg, "--cache-dir") == 0) {
+                    cache_dir = argv[i];
                 } else if (strcmp(arg, "--target-arch") == 0) {
                     target_arch = argv[i];
                 } else if (strcmp(arg, "--target-os") == 0) {
@@ -478,12 +494,16 @@ int main(int argc, char **argv) {
 
             Buf *zig_root_source_file = (cmd == CmdParseH) ? nullptr : in_file_buf;
 
+            Buf *full_cache_dir = buf_alloc();
+            os_path_resolve(buf_create_from_str("."), buf_create_from_str(cache_dir), full_cache_dir);
+
             CodeGen *g = codegen_create(zig_root_source_file, target);
             codegen_set_out_name(g, buf_out_name);
             codegen_set_lib_version(g, ver_major, ver_minor, ver_patch);
             codegen_set_is_release(g, is_release_build);
             codegen_set_is_test(g, cmd == CmdTest);
             codegen_set_linker_script(g, linker_script);
+            codegen_set_cache_dir(g, full_cache_dir);
             if (each_lib_rpath)
                 codegen_set_each_lib_rpath(g, each_lib_rpath);
 

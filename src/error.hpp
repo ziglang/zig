@@ -20,7 +20,9 @@ enum Error {
     ErrorFileSystem,
     ErrorFileTooBig,
     ErrorDivByZero,
-    ErrorOverflow
+    ErrorOverflow,
+    ErrorPathAlreadyExists,
+    ErrorUnexpected,
 };
 
 const char *err_str(int err);

@@ -723,3 +723,51 @@ double os_get_time(void) {
     return seconds;
 #endif
 }
+
+int os_make_path(Buf *path) {
+    Buf *resolved_path = buf_alloc();
+    os_path_resolve(buf_create_from_str("."), path, resolved_path);
+
+    size_t end_index = buf_len(resolved_path);
+    int err;
+    while (true) {
+        if ((err = os_make_dir(buf_slice(resolved_path, 0, end_index)))) {
+            if (err == ErrorPathAlreadyExists) {
+                if (end_index == buf_len(resolved_path))
+                    return 0;
+            } else if (err == ErrorFileNotFound) {
+                // march end_index backward until next path component
+                while (true) {
+                    end_index -= 1;
+                    if (buf_ptr(resolved_path)[end_index] == '/')
+                        break;
+                }
+                continue;
+            } else {
+                return err;
+            }
+        }
+        if (end_index == buf_len(resolved_path))
+            return 0;
+        // march end_index forward until next path component
+        while (true) {
+            end_index += 1;
+            if (end_index == buf_len(resolved_path) || buf_ptr(resolved_path)[end_index] == '/')
+                break;
+        }
+    }
+    return 0;
+}
+
+int os_make_dir(Buf *path) {
+    if (mkdir(buf_ptr(path), 0755) == -1) {
+        if (errno == EEXIST)
+            return ErrorPathAlreadyExists;
+        if (errno == ENOENT)
+            return ErrorFileNotFound;
+        if (errno == EACCES)
+            return ErrorAccess;
+        return ErrorUnexpected;
+    }
+    return 0;
+}

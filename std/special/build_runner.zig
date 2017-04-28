@@ -32,13 +32,23 @@ pub fn main() -> %void {
         result
     };
 
+    const cache_root = {
+        if (arg_i >= os.args.count()) {
+            %%io.stderr.printf("Expected third argument to be cache root directory path\n");
+            return error.InvalidArgs;
+        }
+        const result = os.args.at(arg_i);
+        arg_i += 1;
+        result
+    };
+
     // TODO use a more general purpose allocator here
     var inc_allocator = %%mem.IncrementingAllocator.init(10 * 1024 * 1024);
     defer inc_allocator.deinit();
 
     const allocator = &inc_allocator.allocator;
 
-    var builder = Builder.init(allocator, zig_exe, build_root);
+    var builder = Builder.init(allocator, zig_exe, build_root, cache_root);
     defer builder.deinit();
 
     var targets = List([]const u8).init(allocator);
@@ -113,6 +123,7 @@ fn usage(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) 
         \\General Options:
         \\  --help                 Print this help and exit
         \\  --build-file [file]    Override path to build.zig
+        \\  --cache-dir [path]     Override path to cache directory
         \\  --verbose              Print commands before executing them
         \\  --debug-build-verbose  Print verbose debugging information for the build system itself
         \\  --prefix [prefix]      Override default install prefix

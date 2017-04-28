@@ -1486,6 +1486,8 @@ struct CodeGen {
     Buf *test_name_prefix;
 
     ZigList<TimeEvent> timing_events;
+
+    Buf *cache_dir;
 };
 
 enum VarLinkage {

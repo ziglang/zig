@@ -204,6 +204,10 @@ void codegen_set_out_name(CodeGen *g, Buf *out_name) {
     g->root_out_name = out_name;
 }
 
+void codegen_set_cache_dir(CodeGen *g, Buf *cache_dir) {
+    g->cache_dir = cache_dir;
+}
+
 void codegen_set_libc_lib_dir(CodeGen *g, Buf *libc_lib_dir) {
     g->libc_lib_dir = libc_lib_dir;
 }
@@ -3910,16 +3914,22 @@ static void do_code_gen(CodeGen *g) {
     codegen_add_time_event(g, "LLVM Emit Object");
 
     char *err_msg = nullptr;
-    Buf *out_file_o = buf_create_from_buf(g->root_out_name);
+    Buf *o_basename = buf_create_from_buf(g->root_out_name);
     const char *o_ext = target_o_file_ext(&g->zig_target);
-    buf_append_str(out_file_o, o_ext);
-    if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(out_file_o),
+    buf_append_str(o_basename, o_ext);
+    Buf *output_path = buf_alloc();
+    os_path_join(g->cache_dir, o_basename, output_path);
+    int err;
+    if ((err = os_make_path(g->cache_dir))) {
+        zig_panic("unable to make cache dir: %s", err_str(err));
+    }
+    if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
                 LLVMObjectFile, &err_msg, !g->is_release_build))
     {
         zig_panic("unable to write object file: %s", err_msg);
     }
 
-    g->link_objects.append(out_file_o);
+    g->link_objects.append(output_path);
 }
 
 static const uint8_t int_sizes_in_bits[] = {

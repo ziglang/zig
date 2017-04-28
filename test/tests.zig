@@ -675,7 +675,7 @@ pub const BuildExamplesContext = struct {
             %%zig_args.append("--verbose");
         }
 
-        const run_cmd = b.addCommand(b.out_dir, b.env_map, b.zig_exe, zig_args.toSliceConst());
+        const run_cmd = b.addCommand(b.cache_root, b.env_map, b.zig_exe, zig_args.toSliceConst());
 
         const log_step = b.addLog("PASS {}\n", annotated_case_name);
         log_step.step.dependOn(&run_cmd.step);

@@ -48,6 +48,8 @@ static Buf *build_o(CodeGen *parent_gen, const char *oname) {
     codegen_set_omit_zigrt(child_gen, true);
     child_gen->want_h_file = false;
 
+    codegen_set_cache_dir(child_gen, parent_gen->cache_dir);
+
     codegen_set_is_release(child_gen, parent_gen->is_release_build);
 
     codegen_set_strip(child_gen, parent_gen->strip_debug_symbols);
@@ -64,10 +66,12 @@ static Buf *build_o(CodeGen *parent_gen, const char *oname) {
 
     codegen_build(child_gen);
     const char *o_ext = target_o_file_ext(&child_gen->zig_target);
-    Buf *o_out = buf_sprintf("%s%s", oname, o_ext);
-    codegen_link(child_gen, buf_ptr(o_out));
+    Buf *o_out_name = buf_sprintf("%s%s", oname, o_ext);
+    Buf *output_path = buf_alloc();
+    os_path_join(parent_gen->cache_dir, o_out_name, output_path);
+    codegen_link(child_gen, buf_ptr(output_path));
 
-    return o_out;
+    return output_path;
 }
 
 static const char *get_exe_file_extension(CodeGen *g) {

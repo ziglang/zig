@@ -37,9 +37,10 @@ pub const Builder = struct {
     top_level_steps: List(&TopLevelStep),
     prefix: []const u8,
     lib_dir: []const u8,
-    out_dir: []u8,
+    out_dir: []u8, // TODO get rid of this
     installed_files: List([]const u8),
     build_root: []const u8,
+    cache_root: []const u8,
 
     const UserInputOptionsMap = HashMap([]const u8, UserInputOption, mem.hash_slice_u8, mem.eql_slice_u8);
     const AvailableOptionsMap = HashMap([]const u8, AvailableOption, mem.hash_slice_u8, mem.eql_slice_u8);
@@ -75,10 +76,13 @@ pub const Builder = struct {
         description: []const u8,
     };
 
-    pub fn init(allocator: &Allocator, zig_exe: []const u8, build_root: []const u8) -> Builder {
+    pub fn init(allocator: &Allocator, zig_exe: []const u8, build_root: []const u8,
+        cache_root: []const u8) -> Builder
+    {
         var self = Builder {
             .zig_exe = zig_exe,
             .build_root = build_root,
+            .cache_root = cache_root,
             .verbose = false,
             .invalid_user_input = false,
             .allocator = allocator,
@@ -768,7 +772,7 @@ pub const LibExeObjStep = struct {
             explicit_out_path
         } else {
             // TODO make it so we always know where this will be
-            %%os.path.join(self.builder.allocator, self.builder.out_dir,
+            %%os.path.join(self.builder.allocator, self.builder.cache_root,
                 self.builder.fmt("{}{}", obj.name, obj.target.oFileExt()))
         };
         %%self.object_files.append(path_to_obj);
@@ -1217,7 +1221,7 @@ pub const CExecutable = struct {
         self.step.dependOn(&obj.step);
 
         // TODO make it so we always know where this will be
-        %%self.object_files.append(%%os.path.join(self.builder.allocator, self.builder.out_dir,
+        %%self.object_files.append(%%os.path.join(self.builder.allocator, self.builder.cache_root,
             self.builder.fmt("{}{}", obj.name, obj.target.oFileExt())));
 
         // TODO should be some kind of isolated directory that only has this header in it

@@ -21,6 +21,8 @@ const char *err_str(int err) {
         case ErrorFileTooBig: return "file too big";
         case ErrorDivByZero: return "division by zero";
         case ErrorOverflow: return "overflow";
+        case ErrorPathAlreadyExists: return "path already exists";
+        case ErrorUnexpected: return "unexpected error";
     }
     return "(invalid error)";
 }

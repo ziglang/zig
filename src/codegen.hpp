@@ -47,6 +47,7 @@ void codegen_set_omit_zigrt(CodeGen *g, bool omit_zigrt);
 void codegen_set_test_filter(CodeGen *g, Buf *filter);
 void codegen_set_test_name_prefix(CodeGen *g, Buf *prefix);
 void codegen_set_lib_version(CodeGen *g, size_t major, size_t minor, size_t patch);
+void codegen_set_cache_dir(CodeGen *g, Buf *cache_dir);
 void codegen_add_time_event(CodeGen *g, const char *name);
 void codegen_print_timing_report(CodeGen *g, FILE *f);
 void codegen_build(CodeGen *g);
