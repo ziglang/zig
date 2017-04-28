@@ -609,19 +609,13 @@ const Target = enum {
     }
 };
 
-const LinkerScript = enum {
-    None,
-    Embed: []const u8,
-    Path: []const u8,
-};
-
 pub const LibExeObjStep = struct {
     step: Step,
     builder: &Builder,
     root_src: ?[]const u8,
     name: []const u8,
     target: Target,
-    linker_script: LinkerScript,
+    linker_script: ?[]const u8,
     link_libs: BufSet,
     verbose: bool,
     release: bool,
@@ -679,7 +673,7 @@ pub const LibExeObjStep = struct {
             .root_src = root_src,
             .name = name,
             .target = Target.Native,
-            .linker_script = LinkerScript.None,
+            .linker_script = null,
             .link_libs = BufSet.init(builder.allocator),
             .step = Step.init(name, builder.allocator, make),
             .output_path = null,
@@ -726,14 +720,8 @@ pub const LibExeObjStep = struct {
         self.computeOutFileNames();
     }
 
-    /// LibExeObjStep keeps a reference to script for its lifetime or until this function
-    /// is called again.
-    pub fn setLinkerScriptContents(self: &LibExeObjStep, script: []const u8) {
-        self.linker_script = LinkerScript.Embed { script };
-    }
-
     pub fn setLinkerScriptPath(self: &LibExeObjStep, path: []const u8) {
-        self.linker_script = LinkerScript.Path { path };
+        self.linker_script = path;
     }
 
     pub fn linkSystemLibrary(self: &LibExeObjStep, name: []const u8) {
@@ -852,19 +840,9 @@ pub const LibExeObjStep = struct {
             },
         }
 
-        switch (self.linker_script) {
-            LinkerScript.None => {},
-            LinkerScript.Embed => |script| {
-                const tmp_file_name = "linker.ld.tmp"; // TODO issue #298
-                io.writeFile(tmp_file_name, script, builder.allocator)
-                    %% |err| debug.panic("unable to write linker script: {}\n", @errorName(err));
-                %%zig_args.append("--linker-script");
-                %%zig_args.append(tmp_file_name);
-            },
-            LinkerScript.Path => |path| {
-                %%zig_args.append("--linker-script");
-                %%zig_args.append(path);
-            },
+        test (self.linker_script) |linker_script| {
+            %%zig_args.append("--linker-script");
+            %%zig_args.append(linker_script);
         }
 
         {
