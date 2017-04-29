@@ -159,3 +159,17 @@ test "implicitly cast from [N]T to ?[]const T" {
 fn castToMaybeSlice() -> ?[]const u8 {
     return "hi";
 }
+
+
+test "implicitly cast from [0]T to %[]T" {
+    testCastZeroArrayToErrSliceMut();
+    comptime testCastZeroArrayToErrSliceMut();
+}
+
+fn testCastZeroArrayToErrSliceMut() {
+    assert((%%gimmeErrOrSlice()).len == 0);
+}
+
+fn gimmeErrOrSlice() -> %[]u8 {
+    return []u8{};
+}

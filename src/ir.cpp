@@ -5963,7 +5963,7 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
         return ImplicitCastMatchResultYes;
     }
 
-    // implicit conversion from error child type to error type
+    // implicit T to %T
     if (expected_type->id == TypeTableEntryIdErrorUnion &&
         ir_types_match_with_implicit_cast(ira, expected_type->data.error.child_type, actual_type, value))
     {
@@ -6012,7 +6012,7 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
         return ImplicitCastMatchResultYes;
     }
 
-    // implicit array to slice conversion
+    // implicit [N]T to []const T
     if (expected_type->id == TypeTableEntryIdStruct &&
         expected_type->data.structure.is_slice &&
         actual_type->id == TypeTableEntryIdArray)
@@ -6026,6 +6026,21 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
             return ImplicitCastMatchResultYes;
         }
     }
+
+    //// implicit [N]T to %[]const T
+    //if (expected_type->id == TypeTableEntryIdErrorUnion &&
+    //    is_slice(expected_type->data.error.child_type) &&
+    //    actual_type->id == TypeTableEntryIdArray)
+    //{
+    //    TypeTableEntry *ptr_type =
+    //        expected_type->data.error.child_type->data.structure.fields[slice_ptr_index].type_entry;
+    //    assert(ptr_type->id == TypeTableEntryIdPointer);
+    //    if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
+    //            types_match_const_cast_only(ptr_type->data.pointer.child_type, actual_type->data.array.child_type))
+    //    {
+    //        return ImplicitCastMatchResultYes;
+    //    }
+    //}
 
     // implicit [N]T to &const []const N
     if (expected_type->id == TypeTableEntryIdPointer &&
@@ -6799,6 +6814,8 @@ static IrInstruction *ir_analyze_array_to_slice(IrAnalyze *ira, IrInstruction *s
         IrInstruction *array, TypeTableEntry *wanted_type)
 {
     assert(is_slice(wanted_type));
+    // In this function we honor the const-ness of wanted_type, because
+    // we may be casting [0]T to []const T which is perfectly valid.
 
     TypeTableEntry *array_type = array->value.type;
     assert(array_type->id == TypeTableEntryIdArray);
@@ -6807,6 +6824,7 @@ static IrInstruction *ir_analyze_array_to_slice(IrAnalyze *ira, IrInstruction *s
         IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
                 source_instr->source_node, wanted_type);
         init_const_slice(ira->codegen, &result->value, &array->value, 0, array_type->data.array.len, true);
+        result->value.type = wanted_type;
         return result;
     }
 
@@ -6822,8 +6840,7 @@ static IrInstruction *ir_analyze_array_to_slice(IrAnalyze *ira, IrInstruction *s
 
     IrInstruction *result = ir_build_slice(&ira->new_irb, source_instr->scope,
             source_instr->source_node, array_ptr, start, end, false);
-    TypeTableEntry *child_type = array_type->data.array.child_type;
-    result->value.type = get_slice_type(ira->codegen, child_type, true);
+    result->value.type = wanted_type;
     ir_add_alloca(ira, result, result->value.type);
 
     return result;
@@ -7197,6 +7214,29 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
             } else {
                 return ira->codegen->invalid_instruction;
             }
+        }
+    }
+
+    // explicit cast from [N]T to %[]const T
+    if (wanted_type->id == TypeTableEntryIdErrorUnion &&
+        is_slice(wanted_type->data.error.child_type) &&
+        actual_type->id == TypeTableEntryIdArray)
+    {
+        TypeTableEntry *ptr_type =
+            wanted_type->data.error.child_type->data.structure.fields[slice_ptr_index].type_entry;
+        assert(ptr_type->id == TypeTableEntryIdPointer);
+        if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
+                types_match_const_cast_only(ptr_type->data.pointer.child_type, actual_type->data.array.child_type))
+        {
+            IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.error.child_type, value);
+            if (type_is_invalid(cast1->value.type))
+                return ira->codegen->invalid_instruction;
+
+            IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
+            if (type_is_invalid(cast2->value.type))
+                return ira->codegen->invalid_instruction;
+
+            return cast2;
         }
     }
 

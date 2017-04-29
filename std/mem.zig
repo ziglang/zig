@@ -10,8 +10,10 @@ error NoMem;
 pub const Allocator = struct {
     allocFn: fn (self: &Allocator, n: usize) -> %[]u8,
     /// Note that old_mem may be a slice of length 0, in which case reallocFn
-    /// should simply call allocFn
+    /// should simply call allocFn.
     reallocFn: fn (self: &Allocator, old_mem: []u8, new_size: usize) -> %[]u8,
+    /// Note that mem may be a slice of length 0, in which case freeFn
+    /// should do nothing.
     freeFn: fn (self: &Allocator, mem: []u8),
 
     /// Aborts the program if an allocation fails.
@@ -228,12 +230,24 @@ pub fn eql_slice_u8(a: []const u8, b: []const u8) -> bool {
     return eql(u8, a, b);
 }
 
+/// Returns an iterator that iterates over the slices of ::s that are not
+/// the byte ::c.
+/// split("   abc def    ghi  ")
+/// Will return slices for "abc", "def", "ghi", null, in that order.
 pub fn split(s: []const u8, c: u8) -> SplitIterator {
     SplitIterator {
         .index = 0,
         .s = s,
         .c = c,
     }
+}
+
+test "mem.split" {
+    var it = split("   abc def   ghi  ", ' ');
+    assert(eql(u8, ??it.next(), "abc"));
+    assert(eql(u8, ??it.next(), "def"));
+    assert(eql(u8, ??it.next(), "ghi"));
+    assert(it.next() == null);
 }
 
 pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) -> bool {
@@ -258,6 +272,14 @@ const SplitIterator = struct {
         const end = self.index;
 
         return self.s[start...end];
+    }
+
+    /// Returns a slice of the remaining bytes. Does not affect iterator state.
+    pub fn rest(self: &const SplitIterator) -> []const u8 {
+        // move to beginning of token
+        var index: usize = self.index;
+        while (index < self.s.len and self.s[index] == self.c; index += 1) {}
+        return self.s[index...];
     }
 };
 

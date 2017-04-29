@@ -3,8 +3,16 @@ const assert = debug.assert;
 const mem = @import("../mem.zig");
 const Allocator = mem.Allocator;
 const os = @import("index.zig");
+const math = @import("../math.zig");
 
-pub const sep = '/';
+pub const sep = switch (@compileVar("os")) {
+    Os.windows => '\\',
+    else => '/',
+};
+pub const delimiter = switch (@compileVar("os")) {
+    Os.windows => ';',
+    else => ':',
+};
 
 /// Naively combines a series of paths with the native path seperator.
 /// Allocates memory for the result, which must be freed by the caller.
@@ -134,6 +142,7 @@ test "os.path.resolve" {
     assert(mem.eql(u8, testResolve("/a/b", "c", "//d", "e///"), "/d/e"));
     assert(mem.eql(u8, testResolve("/a/b/c", "..", "../"), "/a"));
     assert(mem.eql(u8, testResolve("/", "..", ".."), "/"));
+    assert(mem.eql(u8, testResolve("/a/b/c/"), "/a/b/c"));
 }
 fn testResolve(args: ...) -> []u8 {
     return %%resolve(&debug.global_allocator, args);
@@ -174,4 +183,72 @@ test "os.path.dirname" {
 }
 fn testDirname(input: []const u8, expected_output: []const u8) {
     assert(mem.eql(u8, dirname(input), expected_output));
+}
+
+/// Returns the relative path from ::from to ::to. If ::from and ::to each
+/// resolve to the same path (after calling ::resolve on each), a zero-length
+/// string is returned.
+pub fn relative(allocator: &Allocator, from: []const u8, to: []const u8) -> %[]u8 {
+    const resolved_from = %return resolve(allocator, from);
+    defer allocator.free(resolved_from);
+
+    const resolved_to = %return resolve(allocator, to);
+    defer allocator.free(resolved_to);
+
+    var from_it = mem.split(resolved_from, '/');
+    var to_it = mem.split(resolved_to, '/');
+    while (true) {
+        const from_component = from_it.next() ?? return mem.dupe(allocator, u8, to_it.rest());
+        const to_rest = to_it.rest();
+        test(to_it.next()) |to_component| {
+            if (mem.eql(u8, from_component, to_component))
+                continue;
+        }
+        var up_count: usize = 1;
+        while (true) {
+            _ = from_it.next() ?? break;
+            up_count += 1;
+        }
+        const up_index_end = up_count * "../".len;
+        const result = %return allocator.alloc(u8, up_index_end + to_rest.len);
+        %defer allocator.free(result);
+
+        var result_index: usize = 0;
+        while (result_index < up_index_end) {
+            result[result_index] = '.';
+            result_index += 1;
+            result[result_index] = '.';
+            result_index += 1;
+            result[result_index] = '/';
+            result_index += 1;
+        }
+        if (to_rest.len == 0) {
+            // shave off the trailing slash
+            return result[0...result_index - 1];
+        }
+
+        mem.copy(u8, result[result_index...], to_rest);
+        return result;
+    }
+
+    return []u8{};
+}
+
+test "os.path.relative" {
+    testRelative("/var/lib", "/var", "..");
+    testRelative("/var/lib", "/bin", "../../bin");
+    testRelative("/var/lib", "/var/lib", "");
+    testRelative("/var/lib", "/var/apache", "../apache");
+    testRelative("/var/", "/var/lib", "lib");
+    testRelative("/", "/var/lib", "var/lib");
+    testRelative("/foo/test", "/foo/test/bar/package.json", "bar/package.json");
+    testRelative("/Users/a/web/b/test/mails", "/Users/a/web/b", "../..");
+    testRelative("/foo/bar/baz-quux", "/foo/bar/baz", "../baz");
+    testRelative("/foo/bar/baz", "/foo/bar/baz-quux", "../baz-quux");
+    testRelative("/baz-quux", "/baz", "../baz");
+    testRelative("/baz", "/baz-quux", "../baz-quux");
+}
+fn testRelative(from: []const u8, to: []const u8, expected_output: []const u8) {
+    const result = %%relative(&debug.global_allocator, from, to);
+    assert(mem.eql(u8, result, expected_output));
 }
