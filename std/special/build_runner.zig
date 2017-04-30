@@ -95,7 +95,12 @@ pub fn main() -> %void {
     if (builder.validateUserInputDidItFail())
         return usage(&builder, true, &io.stderr);
 
-    %return builder.make(targets.toSliceConst());
+    builder.make(targets.toSliceConst()) %% |err| {
+        if (err == error.InvalidStepName) {
+            return usage(&builder, true, &io.stderr);
+        }
+        return err;
+    };
 }
 
 fn usage(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) -> %void {

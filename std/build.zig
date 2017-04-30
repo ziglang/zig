@@ -284,7 +284,7 @@ pub const Builder = struct {
                 return &top_level_step.step;
             }
         }
-        %%io.stderr.printf("Cannot run step '{}' because it does not exist.", name);
+        %%io.stderr.printf("Cannot run step '{}' because it does not exist\n", name);
         return error.InvalidStepName;
     }
 
@@ -527,6 +527,13 @@ pub const Builder = struct {
             },
         };
 
+    }
+
+    pub fn makePath(self: &Builder, path: []const u8) -> %void {
+        os.makePath(self.allocator, path) %% |err| {
+            %%io.stderr.printf("Unable to create path {}: {}\n", path, @errorName(err));
+            return err;
+        };
     }
 
     pub fn installCLibrary(self: &Builder, lib: &CLibrary) -> &InstallCLibraryStep {
@@ -1090,11 +1097,13 @@ pub const CLibrary = struct {
             %%cc_args.append("-c");
             %%cc_args.append(source_file);
 
-            // TODO don't dump the .o file in the same place as the source file
-            const o_file = builder.fmt("{}{}", source_file, self.target.oFileExt());
-            defer builder.allocator.free(o_file);
+            const rel_src_path = %%os.path.relative(builder.allocator, builder.build_root, source_file);
+            const cache_o_src = %%os.path.join(builder.allocator, builder.cache_root, rel_src_path);
+            const cache_o_dir = os.path.dirname(cache_o_src);
+            %return builder.makePath(cache_o_dir);
+            const cache_o_file = builder.fmt("{}{}", cache_o_src, self.target.oFileExt());
             %%cc_args.append("-o");
-            %%cc_args.append(o_file);
+            %%cc_args.append(cache_o_file);
 
             for (self.cflags.toSliceConst()) |cflag| {
                 %%cc_args.append(cflag);
@@ -1107,7 +1116,7 @@ pub const CLibrary = struct {
 
             %return builder.spawnChild(cc, cc_args.toSliceConst());
 
-            %%self.object_files.append(o_file);
+            %%self.object_files.append(cache_o_file);
         }
 
         if (self.static) {
@@ -1248,10 +1257,13 @@ pub const CExecutable = struct {
             %%cc_args.append(builder.pathFromRoot(source_file));
 
             // TODO don't dump the .o file in the same place as the source file
-            const o_file = builder.fmt("{}{}", source_file, self.target.oFileExt());
-            defer builder.allocator.free(o_file);
+            const rel_src_path = %%os.path.relative(builder.allocator, builder.build_root, source_file);
+            const cache_o_src = %%os.path.join(builder.allocator, builder.cache_root, rel_src_path);
+            const cache_o_dir = os.path.dirname(cache_o_src);
+            %return builder.makePath(cache_o_dir);
+            const cache_o_file = builder.fmt("{}{}", cache_o_src, self.target.oFileExt());
             %%cc_args.append("-o");
-            %%cc_args.append(o_file);
+            %%cc_args.append(cache_o_file);
 
             for (self.cflags.toSliceConst()) |cflag| {
                 %%cc_args.append(cflag);
@@ -1264,7 +1276,7 @@ pub const CExecutable = struct {
 
             %return builder.spawnChild(cc, cc_args.toSliceConst());
 
-            %%self.object_files.append(o_file);
+            %%self.object_files.append(cache_o_file);
         }
 
         %%cc_args.resize(0);

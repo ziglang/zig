@@ -17,7 +17,7 @@ pub const delimiter = switch (@compileVar("os")) {
 /// Naively combines a series of paths with the native path seperator.
 /// Allocates memory for the result, which must be freed by the caller.
 pub fn join(allocator: &Allocator, paths: ...) -> %[]u8 {
-    assert(paths.len >= 2);
+    comptime assert(paths.len >= 2);
     var total_paths_len: usize = paths.len; // 1 slash per path
     {
         comptime var path_i = 0;
