@@ -5,7 +5,17 @@ const Node = struct {
     children: []Node,
 };
 
-test "structContainsSliceOfItself" {
+test "struct contains slice of itself" {
+    var other_nodes = []Node{
+        Node {
+            .payload = 31,
+            .children = []Node{},
+        },
+        Node {
+            .payload = 32,
+            .children = []Node{},
+        },
+    };
     var nodes = []Node {
         Node {
             .payload = 1,
@@ -17,16 +27,7 @@ test "structContainsSliceOfItself" {
         },
         Node {
             .payload = 3,
-            .children = ([]Node{
-                Node {
-                    .payload = 31,
-                    .children = []Node{},
-                },
-                Node {
-                    .payload = 32,
-                    .children = []Node{},
-                },
-            })[0...],
+            .children = other_nodes[0...],
         },
     };
     const root = Node {

@@ -173,3 +173,25 @@ fn testCastZeroArrayToErrSliceMut() {
 fn gimmeErrOrSlice() -> %[]u8 {
     return []u8{};
 }
+
+test "peer type resolution: [0]u8, []const u8, and %[]u8" {
+    {
+        var data = "hi";
+        const slice = data[0...];
+        assert((%%peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
+        assert((%%peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
+    }
+    comptime {
+        var data = "hi";
+        const slice = data[0...];
+        assert((%%peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
+        assert((%%peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
+    }
+}
+fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) -> %[]u8 {
+    if (a) {
+        return []u8{};
+    }
+
+    return slice[0...1];
+}

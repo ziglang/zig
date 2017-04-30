@@ -6218,16 +6218,18 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             convert_to_const_slice = true;
             continue;
         } else if (cur_type->id == TypeTableEntryIdArray && is_slice(prev_type) &&
-                prev_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const &&
-                types_match_const_cast_only(prev_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type,
-                    cur_type->data.array.child_type))
+            (prev_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const ||
+            cur_type->data.array.len == 0) &&
+            types_match_const_cast_only(prev_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type,
+                cur_type->data.array.child_type))
         {
             convert_to_const_slice = false;
             continue;
         } else if (prev_type->id == TypeTableEntryIdArray && is_slice(cur_type) &&
-                cur_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const &&
-                types_match_const_cast_only(cur_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type,
-                    prev_type->data.array.child_type))
+            (cur_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const ||
+            prev_type->data.array.len == 0) &&
+            types_match_const_cast_only(cur_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type,
+            prev_type->data.array.child_type))
         {
             prev_inst = cur_inst;
             convert_to_const_slice = false;
@@ -6796,8 +6798,9 @@ static IrInstruction *ir_get_ref(IrAnalyze *ira, IrInstruction *source_instructi
         ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
         if (!val)
             return ira->codegen->invalid_instruction;
+        bool final_is_const = (value->value.type->id == TypeTableEntryIdMetaType) ? is_const : true;
         return ir_get_const_ptr(ira, source_instruction, val, value->value.type,
-                ConstPtrMutComptimeConst, is_const, is_volatile);
+                ConstPtrMutComptimeConst, final_is_const, is_volatile);
     }
 
     TypeTableEntry *ptr_type = get_pointer_to_type_extra(ira->codegen, value->value.type, is_const, is_volatile, 0, 0);
@@ -6806,6 +6809,7 @@ static IrInstruction *ir_get_ref(IrAnalyze *ira, IrInstruction *source_instructi
     IrInstruction *new_instruction = ir_build_ref(&ira->new_irb, source_instruction->scope,
             source_instruction->source_node, value, is_const, is_volatile);
     new_instruction->value.type = ptr_type;
+    new_instruction->value.data.rh_ptr = RuntimeHintPtrStack;
     fn_entry->alloca_list.append(new_instruction);
     return new_instruction;
 }

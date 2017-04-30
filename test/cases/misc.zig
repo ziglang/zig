@@ -486,3 +486,11 @@ test "volatileLoadAndStore" {
     *ptr += 1;
     assert(*ptr == 1235);
 }
+
+test "slice string literal has type []const u8" {
+    comptime {
+        assert(@typeOf("aoeu"[0...]) == []const u8);
+        const array = []i32{1, 2, 3, 4};
+        assert(@typeOf(array[0...]) == []const i32);
+    }
+}
