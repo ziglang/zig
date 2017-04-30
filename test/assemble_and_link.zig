@@ -7,18 +7,17 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
             \\.globl _start
             \\
             \\_start:
-            \\    mov rax, 1
-            \\    mov rdi, 1
-            \\    lea rsi, msg
-            \\    mov rdx, 14
+            \\    mov $1, %rax
+            \\    mov $1, %rdi
+            \\    mov $msg, %rsi
+            \\    mov $14, %rdx
             \\    syscall
             \\
-            \\    mov rax, 60
-            \\    mov rdi, 0
+            \\    mov $60, %rax
+            \\    mov $0, %rdi
             \\    syscall
             \\
             \\.data
-            \\
             \\msg:
             \\    .ascii "Hello, world!\n"
         , "Hello, world!\n");

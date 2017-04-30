@@ -2088,10 +2088,9 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
     }
     LLVMTypeRef function_type = LLVMFunctionType(ret_type, param_types, (unsigned)input_and_output_count, false);
 
-    bool is_x86 = (g->zig_target.arch.arch == ZigLLVM_x86 || g->zig_target.arch.arch == ZigLLVM_x86_64);
     bool is_volatile = asm_expr->is_volatile || (asm_expr->output_list.length == 0);
-    LLVMValueRef asm_fn = ZigLLVMConstInlineAsm(function_type, buf_ptr(&llvm_template),
-            buf_ptr(&constraint_buf), is_volatile, false, is_x86);
+    LLVMValueRef asm_fn = LLVMConstInlineAsm(function_type, buf_ptr(&llvm_template),
+            buf_ptr(&constraint_buf), is_volatile, false);
 
     return LLVMBuildCall(g->builder, asm_fn, param_values, (unsigned)input_and_output_count, "");
 }
@@ -4804,9 +4803,6 @@ static void gen_global_asm(CodeGen *g) {
         Buf *asm_file = g->assembly_files.at(i);
         if ((err = os_fetch_file_path(asm_file, &contents))) {
             zig_panic("Unable to read %s: %s", buf_ptr(asm_file), err_str(err));
-        }
-        if (g->zig_target.arch.arch == ZigLLVM_x86 || g->zig_target.arch.arch == ZigLLVM_x86_64) {
-            buf_append_str(&g->global_asm, ".intel_syntax noprefix\n");
         }
         buf_append_buf(&g->global_asm, &contents);
     }

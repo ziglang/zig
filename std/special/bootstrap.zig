@@ -19,10 +19,10 @@ export nakedcc fn _start() -> noreturn {
 
     switch (@compileVar("arch")) {
         Arch.x86_64 => {
-            argc_ptr = asm("lea %[argc], [rsp]": [argc] "=r" (-> &usize));
+            argc_ptr = asm("lea (%%rsp), %[argc]": [argc] "=r" (-> &usize));
         },
         Arch.i386 => {
-            argc_ptr = asm("lea %[argc], [esp]": [argc] "=r" (-> &usize));
+            argc_ptr = asm("lea (%%esp), %[argc]": [argc] "=r" (-> &usize));
         },
         else => @compileError("unsupported arch"),
     }

@@ -40,9 +40,6 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
 LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
         unsigned NumArgs, unsigned CC, bool always_inline, const char *Name);
 
-LLVMValueRef ZigLLVMConstInlineAsm(LLVMTypeRef Ty, const char *AsmString,
-        const char *Constraints, bool HasSideEffects, bool IsAlignStack, bool is_x86);
-
 LLVMValueRef ZigLLVMBuildCmpXchg(LLVMBuilderRef builder, LLVMValueRef ptr, LLVMValueRef cmp,
         LLVMValueRef new_val, LLVMAtomicOrdering success_ordering,
         LLVMAtomicOrdering failure_ordering);

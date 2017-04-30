@@ -186,18 +186,6 @@ LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *A
     return wrap(unwrap(B)->Insert(call_inst));
 }
 
-LLVMValueRef ZigLLVMConstInlineAsm(LLVMTypeRef Ty, const char *AsmString,
-        const char *Constraints, bool HasSideEffects, bool IsAlignStack, bool is_x86)
-{
-    if (is_x86) {
-        return wrap(InlineAsm::get(dyn_cast<FunctionType>(unwrap(Ty)), AsmString,
-                                Constraints, HasSideEffects, IsAlignStack, InlineAsm::AD_Intel));
-    } else {
-        return wrap(InlineAsm::get(dyn_cast<FunctionType>(unwrap(Ty)), AsmString,
-                                Constraints, HasSideEffects, IsAlignStack));
-    }
-}
-
 void ZigLLVMFnSetSubprogram(LLVMValueRef fn, ZigLLVMDISubprogram *subprogram) {
     assert( isa<Function>(unwrap(fn)) );
     Function *unwrapped_function = reinterpret_cast<Function*>(unwrap(fn));
