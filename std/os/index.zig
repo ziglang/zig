@@ -780,3 +780,60 @@ pub const Dir = struct {
         };
     }
 };
+
+pub fn changeCurDir(allocator: &Allocator, dir_path: []const u8) -> %void {
+    const path_buf = %return allocator.alloc(u8, dir_path.len + 1);
+    defer allocator.free(path_buf);
+
+    mem.copy(u8, path_buf, dir_path);
+    path_buf[dir_path.len] = 0;
+
+    const err = posix.getErrno(posix.chdir(path_buf.ptr));
+    if (err > 0) {
+        return switch (err) {
+            errno.EACCES => error.AccessDenied,
+            errno.EFAULT => unreachable,
+            errno.EIO => error.FileSystem,
+            errno.ELOOP => error.SymLinkLoop,
+            errno.ENAMETOOLONG => error.NameTooLong,
+            errno.ENOENT => error.FileNotFound,
+            errno.ENOMEM => error.SystemResources,
+            errno.ENOTDIR => error.NotDir,
+            else => error.Unexpected,
+        };
+    }
+}
+
+/// Read value of a symbolic link.
+pub fn readLink(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
+    const path_buf = %return allocator.alloc(u8, pathname.len + 1);
+    defer allocator.free(path_buf);
+
+    mem.copy(u8, path_buf, pathname);
+    path_buf[pathname.len] = 0;
+
+    var result_buf = %return allocator.alloc(u8, 1024);
+    %defer allocator.free(result_buf);
+    while (true) {
+        const ret_val = posix.readlink(path_buf.ptr, result_buf.ptr, result_buf.len);
+        const err = posix.getErrno(ret_val);
+        if (err > 0) {
+            return switch (err) {
+                errno.EACCES => error.AccessDenied,
+                errno.EFAULT, errno.EINVAL => unreachable,
+                errno.EIO => error.FileSystem,
+                errno.ELOOP => error.SymLinkLoop,
+                errno.ENAMETOOLONG => error.NameTooLong,
+                errno.ENOENT => error.FileNotFound,
+                errno.ENOMEM => error.SystemResources,
+                errno.ENOTDIR => error.NotDir,
+                else => error.Unexpected,
+            };
+        }
+        if (ret_val == result_buf.len) {
+            result_buf = %return allocator.realloc(u8, result_buf, result_buf.len * 2);
+            continue;
+        }
+        return result_buf[0...ret_val];
+    }
+}

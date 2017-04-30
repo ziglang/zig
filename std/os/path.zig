@@ -1,9 +1,11 @@
 const debug = @import("../debug.zig");
 const assert = debug.assert;
 const mem = @import("../mem.zig");
+const fmt = @import("../fmt.zig");
 const Allocator = mem.Allocator;
 const os = @import("index.zig");
 const math = @import("../math.zig");
+const posix = os.posix;
 
 pub const sep = switch (@compileVar("os")) {
     Os.windows => '\\',
@@ -185,6 +187,45 @@ fn testDirname(input: []const u8, expected_output: []const u8) {
     assert(mem.eql(u8, dirname(input), expected_output));
 }
 
+pub fn basename(path: []const u8) -> []const u8 {
+    if (path.len == 0)
+        return []u8{};
+
+    var end_index: usize = path.len - 1;
+    while (path[end_index] == '/') {
+        if (end_index == 0)
+            return []u8{};
+        end_index -= 1;
+    }
+    var start_index: usize = end_index;
+    end_index += 1;
+    while (path[start_index] != '/') {
+        if (start_index == 0)
+            return path[0...end_index];
+        start_index -= 1;
+    }
+
+    return path[start_index + 1...end_index];
+}
+
+test "os.path.basename" {
+    testBasename("", "");
+    testBasename("/", "");
+    testBasename("/dir/basename.ext", "basename.ext");
+    testBasename("/basename.ext", "basename.ext");
+    testBasename("basename.ext", "basename.ext");
+    testBasename("basename.ext/", "basename.ext");
+    testBasename("basename.ext//", "basename.ext");
+    testBasename("/aaa/bbb", "bbb");
+    testBasename("/aaa/", "aaa");
+    testBasename("/aaa/b", "b");
+    testBasename("/a/b", "b");
+    testBasename("//a", "a");
+}
+fn testBasename(input: []const u8, expected_output: []const u8) {
+    assert(mem.eql(u8, basename(input), expected_output));
+}
+
 /// Returns the relative path from ::from to ::to. If ::from and ::to each
 /// resolve to the same path (after calling ::resolve on each), a zero-length
 /// string is returned.
@@ -251,4 +292,18 @@ test "os.path.relative" {
 fn testRelative(from: []const u8, to: []const u8, expected_output: []const u8) {
     const result = %%relative(&debug.global_allocator, from, to);
     assert(mem.eql(u8, result, expected_output));
+}
+
+/// Return the canonicalized absolute pathname.
+/// Expands all symbolic links and resolves references to `.`, `..`, and
+/// extra `/` characters in ::pathname.
+/// Caller must deallocate result.
+pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
+    const fd = %return os.posixOpen(pathname, posix.O_PATH|posix.O_NONBLOCK|posix.O_CLOEXEC, 0, allocator);
+    defer os.posixClose(fd);
+
+    var buf: ["/proc/self/fd/-2147483648".len]u8 = undefined;
+    const proc_path = fmt.bufPrint(buf[0...], "/proc/self/fd/{}", fd);
+
+    return os.readLink(allocator, proc_path);
 }

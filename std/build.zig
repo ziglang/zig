@@ -37,7 +37,6 @@ pub const Builder = struct {
     top_level_steps: List(&TopLevelStep),
     prefix: []const u8,
     lib_dir: []const u8,
-    out_dir: []u8, // TODO get rid of this
     installed_files: List([]const u8),
     build_root: []const u8,
     cache_root: []const u8,
@@ -97,7 +96,6 @@ pub const Builder = struct {
             .env_map = %%os.getEnvMap(allocator),
             .prefix = undefined,
             .lib_dir = undefined,
-            .out_dir = %%os.getCwd(allocator),
             .installed_files = List([]const u8).init(allocator),
             .uninstall_tls = TopLevelStep {
                 .step = Step.init("uninstall", allocator, makeUninstall),
@@ -111,7 +109,6 @@ pub const Builder = struct {
     }
 
     pub fn deinit(self: &Builder) {
-        self.allocator.free(self.out_dir);
         self.lib_paths.deinit();
         self.include_paths.deinit();
         self.rpaths.deinit();
@@ -172,12 +169,10 @@ pub const Builder = struct {
         return exe;
     }
 
-    pub fn addCommand(self: &Builder, cwd: []const u8, env_map: &const BufMap,
+    pub fn addCommand(self: &Builder, cwd: ?[]const u8, env_map: &const BufMap,
         path: []const u8, args: []const []const u8) -> &CommandStep
     {
-        const cmd = %%self.allocator.create(CommandStep);
-        *cmd = CommandStep.init(self, cwd, env_map, path, args);
-        return cmd;
+        return CommandStep.create(self, cwd, env_map, path, args);
     }
 
     pub fn addWriteFile(self: &Builder, file_path: []const u8, data: []const u8) -> &WriteFileStep {
@@ -489,21 +484,22 @@ pub const Builder = struct {
     }
 
     fn spawnChild(self: &Builder, exe_path: []const u8, args: []const []const u8) -> %void {
-        return self.spawnChildEnvMap(&self.env_map, exe_path, args);
+        return self.spawnChildEnvMap(null, &self.env_map, exe_path, args);
     }
 
-    fn spawnChildEnvMap(self: &Builder, env_map: &const BufMap, exe_path: []const u8,
-        args: []const []const u8) -> %void
+    fn spawnChildEnvMap(self: &Builder, cwd: ?[]const u8, env_map: &const BufMap,
+        exe_path: []const u8, args: []const []const u8) -> %void
     {
         if (self.verbose) {
-            %%io.stderr.printf("{}", exe_path);
+            test (cwd) |yes_cwd| %%io.stderr.print("cd {}; ", yes_cwd);
+            %%io.stderr.print("{}", exe_path);
             for (args) |arg| {
-                %%io.stderr.printf(" {}", arg);
+                %%io.stderr.print(" {}", arg);
             }
             %%io.stderr.printf("\n");
         }
 
-        var child = os.ChildProcess.spawn(exe_path, args, env_map,
+        var child = os.ChildProcess.spawn(exe_path, args, cwd, env_map,
             StdIo.Ignore, StdIo.Inherit, StdIo.Inherit, self.allocator) %% |err|
         {
             %%io.stderr.printf("Unable to spawn {}: {}\n", exe_path, @errorName(err));
@@ -511,6 +507,7 @@ pub const Builder = struct {
         };
 
         const term = child.wait() %% |err| {
+            test (cwd) |yes_cwd| %%io.stderr.printf("cwd: {}\n", yes_cwd);
             %%io.stderr.printf("Unable to spawn {}: {}\n", exe_path, @errorName(err));
             return err;
         };
@@ -560,11 +557,12 @@ pub const Builder = struct {
 
     fn copyFile(self: &Builder, source_path: []const u8, dest_path: []const u8) {
         const dirname = os.path.dirname(dest_path);
+        const abs_source_path = self.pathFromRoot(source_path);
         os.makePath(self.allocator, dirname) %% |err| {
             debug.panic("Unable to create path {}: {}", dirname, @errorName(err));
         };
-        os.copyFile(self.allocator, source_path, dest_path) %% |err| {
-            debug.panic("Unable to copy {} to {}: {}", source_path, dest_path, @errorName(err));
+        os.copyFile(self.allocator, abs_source_path, dest_path) %% |err| {
+            debug.panic("Unable to copy {} to {}: {}", abs_source_path, dest_path, @errorName(err));
         };
     }
 
@@ -628,8 +626,10 @@ pub const LibExeObjStep = struct {
     release: bool,
     static: bool,
     output_path: ?[]const u8,
+    output_h_path: ?[]const u8,
     kind: Kind,
     version: Version,
+    out_h_filename: []const u8,
     out_filename: []const u8,
     out_filename_major_only: []const u8,
     out_filename_name_only: []const u8,
@@ -684,8 +684,10 @@ pub const LibExeObjStep = struct {
             .link_libs = BufSet.init(builder.allocator),
             .step = Step.init(name, builder.allocator, make),
             .output_path = null,
+            .output_h_path = null,
             .version = *ver,
             .out_filename = undefined,
+            .out_h_filename = builder.fmt("{}.h", name),
             .out_filename_major_only = undefined,
             .out_filename_name_only = undefined,
             .object_files = List([]const u8).init(builder.allocator),
@@ -747,6 +749,27 @@ pub const LibExeObjStep = struct {
         self.output_path = value;
     }
 
+    pub fn getOutputPath(self: &LibExeObjStep) -> []const u8 {
+        test (self.output_path) |output_path| {
+            output_path
+        } else {
+            const wanted_path = %%os.path.join(self.builder.allocator, self.builder.cache_root, self.out_filename);
+            %%os.path.relative(self.builder.allocator, self.builder.build_root, wanted_path)
+        }
+    }
+
+    pub fn setOutputHPath(self: &LibExeObjStep, value: []const u8) {
+        self.output_h_path = value;
+    }
+
+    pub fn getOutputHPath(self: &LibExeObjStep) -> []const u8 {
+        test (self.output_h_path) |output_h_path| {
+            output_h_path
+        } else {
+            %%os.path.join(self.builder.allocator, self.builder.cache_root, self.out_h_filename)
+        }
+    }
+
     pub fn addAssemblyFile(self: &LibExeObjStep, path: []const u8) {
         %%self.assembly_files.append(path);
     }
@@ -763,14 +786,7 @@ pub const LibExeObjStep = struct {
 
         self.step.dependOn(&obj.step);
 
-        const path_to_obj = test (obj.output_path) |explicit_out_path| {
-            explicit_out_path
-        } else {
-            // TODO make it so we always know where this will be
-            %%os.path.join(self.builder.allocator, self.builder.cache_root,
-                self.builder.fmt("{}{}", obj.name, obj.target.oFileExt()))
-        };
-        %%self.object_files.append(path_to_obj);
+        %%self.object_files.append(obj.getOutputPath());
     }
 
     fn make(step: &Step) -> %void {
@@ -814,10 +830,16 @@ pub const LibExeObjStep = struct {
             %%zig_args.append("--release");
         }
 
-        test (self.output_path) |output_path| {
-            %%zig_args.append("--output");
-            %%zig_args.append(builder.pathFromRoot(output_path));
-        }
+        %%zig_args.append("--cache-dir");
+        %%zig_args.append(builder.cache_root);
+
+        const output_path = builder.pathFromRoot(self.getOutputPath());
+        %%zig_args.append("--output");
+        %%zig_args.append(output_path);
+
+        const output_h_path = self.getOutputHPath();
+        %%zig_args.append("--output-h");
+        %%zig_args.append(builder.pathFromRoot(output_h_path));
 
         %%zig_args.append("--name");
         %%zig_args.append(self.name);
@@ -879,10 +901,8 @@ pub const LibExeObjStep = struct {
         %return builder.spawnChild(builder.zig_exe, zig_args.toSliceConst());
 
         if (self.kind == Kind.Lib and !self.static) {
-            // sym link for libfoo.so.1 to libfoo.so.1.2.3
-            %%os.atomicSymLink(builder.allocator, self.out_filename, self.out_filename_major_only);
-            // sym link for libfoo.so to libfoo.so.1
-            %%os.atomicSymLink(builder.allocator, self.out_filename_major_only, self.out_filename_name_only);
+            %return doAtomicSymLinks(builder.allocator, output_path, self.out_filename_major_only,
+                self.out_filename_name_only);
         }
     }
 };
@@ -987,10 +1007,12 @@ pub const TestStep = struct {
     }
 };
 
+// TODO merge with CExecutable
 pub const CLibrary = struct {
     step: Step,
     name: []const u8,
     out_filename: []const u8,
+    output_path: ?[]const u8,
     static: bool,
     version: Version,
     cflags: List([]const u8),
@@ -1024,6 +1046,7 @@ pub const CLibrary = struct {
             .step = Step.init(name, builder.allocator, make),
             .link_libs = BufSet.init(builder.allocator),
             .include_dirs = List([]const u8).init(builder.allocator),
+            .output_path = null,
             .out_filename = undefined,
             .major_only_filename = undefined,
             .name_only_filename = undefined,
@@ -1040,6 +1063,19 @@ pub const CLibrary = struct {
                 self.name, self.version.major, self.version.minor, self.version.patch);
             self.major_only_filename = self.builder.fmt("lib{}.so.{d}", self.name, self.version.major);
             self.name_only_filename = self.builder.fmt("lib{}.so", self.name);
+        }
+    }
+
+    pub fn setOutputPath(self: &CLibrary, value: []const u8) {
+        self.output_path = value;
+    }
+
+    pub fn getOutputPath(self: &CLibrary) -> []const u8 {
+        test (self.output_path) |output_path| {
+            output_path
+        } else {
+            const wanted_path = %%os.path.join(self.builder.allocator, self.builder.cache_root, self.out_filename);
+            %%os.path.relative(self.builder.allocator, self.builder.build_root, wanted_path)
         }
     }
 
@@ -1131,8 +1167,9 @@ pub const CLibrary = struct {
             defer builder.allocator.free(soname_arg);
             %%cc_args.append(soname_arg);
 
+            const output_path = builder.pathFromRoot(self.getOutputPath());
             %%cc_args.append("-o");
-            %%cc_args.append(self.out_filename);
+            %%cc_args.append(output_path);
 
             for (self.object_files.toSliceConst()) |object_file| {
                 %%cc_args.append(builder.pathFromRoot(object_file));
@@ -1140,10 +1177,8 @@ pub const CLibrary = struct {
 
             %return builder.spawnChild(cc, cc_args.toSliceConst());
 
-            // sym link for libfoo.so.1 to libfoo.so.1.2.3
-            %%os.atomicSymLink(builder.allocator, self.out_filename, self.major_only_filename);
-            // sym link for libfoo.so to libfoo.so.1
-            %%os.atomicSymLink(builder.allocator, self.major_only_filename, self.name_only_filename);
+            %return doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename,
+                self.name_only_filename);
         }
     }
 
@@ -1169,9 +1204,11 @@ pub const CExecutable = struct {
     link_libs: BufSet,
     target: Target,
     include_dirs: List([]const u8),
+    output_path: ?[]const u8,
+    out_filename: []const u8,
 
     pub fn init(builder: &Builder, name: []const u8) -> CExecutable {
-        CExecutable {
+        var self = CExecutable {
             .builder = builder,
             .name = name,
             .target = Target.Native,
@@ -1182,6 +1219,27 @@ pub const CExecutable = struct {
             .step = Step.init(name, builder.allocator, make),
             .link_libs = BufSet.init(builder.allocator),
             .include_dirs = List([]const u8).init(builder.allocator),
+            .output_path = null,
+            .out_filename = undefined,
+        };
+        self.computeOutFileName();
+        return self;
+    }
+
+    fn computeOutFileName(self: &CExecutable) {
+        self.out_filename = self.builder.fmt("{}{}", self.name, self.target.exeFileExt());
+    }
+
+    pub fn setOutputPath(self: &CExecutable, value: []const u8) {
+        self.output_path = value;
+    }
+
+    pub fn getOutputPath(self: &CExecutable) -> []const u8 {
+        test (self.output_path) |output_path| {
+            self.builder.pathFromRoot(output_path)
+        } else {
+            const wanted_path = %%os.path.join(self.builder.allocator, self.builder.cache_root, self.out_filename);
+            %%os.path.relative(self.builder.allocator, self.builder.build_root, wanted_path)
         }
     }
 
@@ -1191,15 +1249,15 @@ pub const CExecutable = struct {
 
     pub fn linkCLibrary(self: &CExecutable, clib: &CLibrary) {
         self.step.dependOn(&clib.step);
-        %%self.full_path_libs.append(clib.out_filename);
+        %%self.full_path_libs.append(clib.getOutputPath());
     }
 
     pub fn linkLibrary(self: &CExecutable, lib: &LibExeObjStep) {
         assert(lib.kind == LibExeObjStep.Kind.Lib);
         self.step.dependOn(&lib.step);
-        %%self.full_path_libs.append(lib.out_filename);
+        %%self.full_path_libs.append(lib.getOutputPath());
         // TODO should be some kind of isolated directory that only has this header in it
-        %%self.include_dirs.append(self.builder.out_dir);
+        %%self.include_dirs.append(self.builder.cache_root);
     }
 
     pub fn addObject(self: &CExecutable, obj: &LibExeObjStep) {
@@ -1207,12 +1265,10 @@ pub const CExecutable = struct {
 
         self.step.dependOn(&obj.step);
 
-        // TODO make it so we always know where this will be
-        %%self.object_files.append(%%os.path.join(self.builder.allocator, self.builder.cache_root,
-            self.builder.fmt("{}{}", obj.name, obj.target.oFileExt())));
+        %%self.object_files.append(obj.getOutputPath());
 
         // TODO should be some kind of isolated directory that only has this header in it
-        %%self.include_dirs.append(self.builder.out_dir);
+        %%self.include_dirs.append(self.builder.cache_root);
     }
 
     pub fn addSourceFile(self: &CExecutable, file: []const u8) {
@@ -1256,7 +1312,6 @@ pub const CExecutable = struct {
             %%cc_args.append("-c");
             %%cc_args.append(builder.pathFromRoot(source_file));
 
-            // TODO don't dump the .o file in the same place as the source file
             const rel_src_path = %%os.path.relative(builder.allocator, builder.build_root, source_file);
             const cache_o_src = %%os.path.join(builder.allocator, builder.cache_root, rel_src_path);
             const cache_o_dir = os.path.dirname(cache_o_src);
@@ -1276,26 +1331,28 @@ pub const CExecutable = struct {
 
             %return builder.spawnChild(cc, cc_args.toSliceConst());
 
-            %%self.object_files.append(cache_o_file);
+            %%self.object_files.append(%%os.path.relative(builder.allocator, builder.build_root, cache_o_file));
         }
 
         %%cc_args.resize(0);
 
         for (self.object_files.toSliceConst()) |object_file| {
-            %%cc_args.append(object_file);
+            %%cc_args.append(builder.pathFromRoot(object_file));
         }
 
+        const output_path = builder.pathFromRoot(self.getOutputPath());
         %%cc_args.append("-o");
-        %%cc_args.append(self.name);
+        %%cc_args.append(output_path);
 
-        const rpath_arg = builder.fmt("-Wl,-rpath,{}", builder.out_dir);
+        const rpath_arg = builder.fmt("-Wl,-rpath,{}",
+            %%os.path.real(builder.allocator, builder.cache_root));
         defer builder.allocator.free(rpath_arg);
         %%cc_args.append(rpath_arg);
 
         %%cc_args.append("-rdynamic");
 
         for (self.full_path_libs.toSliceConst()) |full_path_lib| {
-            %%cc_args.append(full_path_lib);
+            %%cc_args.append(builder.pathFromRoot(full_path_lib));
         }
 
         %return builder.spawnChild(cc, cc_args.toSliceConst());
@@ -1317,27 +1374,29 @@ pub const CommandStep = struct {
     builder: &Builder,
     exe_path: []const u8,
     args: []const []const u8,
-    cwd: []const u8,
+    cwd: ?[]const u8,
     env_map: &const BufMap,
 
-    pub fn init(builder: &Builder, cwd: []const u8, env_map: &const BufMap,
-        exe_path: []const u8, args: []const []const u8) -> CommandStep
+    pub fn create(builder: &Builder, cwd: ?[]const u8, env_map: &const BufMap,
+        exe_path: []const u8, args: []const []const u8) -> &CommandStep
     {
-        CommandStep {
+        const self = %%builder.allocator.create(CommandStep);
+        *self = CommandStep {
             .builder = builder,
             .step = Step.init(exe_path, builder.allocator, make),
             .exe_path = exe_path,
             .args = args,
             .cwd = cwd,
             .env_map = env_map,
-        }
+        };
+        return self;
     }
 
     fn make(step: &Step) -> %void {
         const self = @fieldParentPtr(CommandStep, "step", step);
 
-        // TODO set cwd
-        return self.builder.spawnChildEnvMap(self.env_map, self.exe_path, self.args);
+        const cwd = test (self.cwd) |cwd| self.builder.pathFromRoot(cwd) else null;
+        return self.builder.spawnChildEnvMap(cwd, self.env_map, self.exe_path, self.args);
     }
 };
 
@@ -1367,12 +1426,10 @@ pub const InstallCLibraryStep = struct {
         const self = @fieldParentPtr(InstallCLibraryStep, "step", step);
         const builder = self.builder;
 
-        self.builder.copyFile(self.lib.out_filename, self.dest_file);
+        self.builder.copyFile(self.lib.getOutputPath(), self.dest_file);
         if (!self.lib.static) {
-            const dest_major_only = %%os.path.join(builder.allocator, builder.lib_dir, self.lib.major_only_filename);
-            const dest_name_only = %%os.path.join(builder.allocator, builder.lib_dir, self.lib.name_only_filename);
-            %%os.atomicSymLink(self.builder.allocator, self.lib.out_filename, dest_major_only);
-            %%os.atomicSymLink(self.builder.allocator, self.lib.major_only_filename, dest_name_only);
+            %return doAtomicSymLinks(self.builder.allocator, self.dest_file, self.lib.major_only_filename,
+                self.lib.name_only_filename);
         }
     }
 };
@@ -1506,3 +1563,22 @@ pub const Step = struct {
 
     fn makeNoOp(self: &Step) -> %void {}
 };
+
+fn doAtomicSymLinks(allocator: &Allocator, output_path: []const u8, filename_major_only: []const u8,
+    filename_name_only: []const u8) -> %void
+{
+    const out_dir = os.path.dirname(output_path);
+    const out_basename = os.path.basename(output_path);
+    // sym link for libfoo.so.1 to libfoo.so.1.2.3
+    const major_only_path = %%os.path.join(allocator, out_dir, filename_major_only);
+    os.atomicSymLink(allocator, out_basename, major_only_path) %% |err| {
+        %%io.stderr.printf("Unable to symlink {} -> {}\n", major_only_path, out_basename);
+        return err;
+    };
+    // sym link for libfoo.so to libfoo.so.1
+    const name_only_path = %%os.path.join(allocator, out_dir, filename_name_only);
+    os.atomicSymLink(allocator, filename_major_only, name_only_path) %% |err| {
+        %%io.stderr.printf("Unable to symlink {} -> {}\n", name_only_path, filename_major_only);
+        return err;
+    };
+}

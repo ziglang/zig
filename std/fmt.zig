@@ -345,17 +345,17 @@ fn bufPrintWrite(context: &BufPrintContext, bytes: []const u8) -> bool {
     return true;
 }
 
-pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: ...) {
+pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: ...) -> []u8 {
     var context = BufPrintContext { .remaining = buf, };
     _ = format(&context, bufPrintWrite, fmt, args);
+    return buf[0...buf.len - context.remaining.len];
 }
 
 pub fn allocPrint(allocator: &mem.Allocator, comptime fmt: []const u8, args: ...) -> %[]u8 {
     var size: usize = 0;
     _ = format(&size, countSize, fmt, args);
     const buf = %return allocator.alloc(u8, size);
-    bufPrint(buf, fmt, args);
-    return buf;
+    return bufPrint(buf, fmt, args);
 }
 
 fn countSize(size: &usize, bytes: []const u8) -> bool {

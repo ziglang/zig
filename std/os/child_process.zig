@@ -30,12 +30,13 @@ pub const ChildProcess = struct {
         Close,
     };
 
-    pub fn spawn(exe_path: []const u8, args: []const []const u8, env_map: &const BufMap,
+    pub fn spawn(exe_path: []const u8, args: []const []const u8,
+        cwd: ?[]const u8, env_map: &const BufMap,
         stdin: StdIo, stdout: StdIo, stderr: StdIo, allocator: &Allocator) -> %ChildProcess
     {
         switch (@compileVar("os")) {
             Os.linux, Os.macosx, Os.ios, Os.darwin => {
-                return spawnPosix(exe_path, args, env_map, stdin, stdout, stderr, allocator);
+                return spawnPosix(exe_path, args, cwd, env_map, stdin, stdout, stderr, allocator);
             },
             else => @compileError("Unsupported OS"),
         }
@@ -98,7 +99,8 @@ pub const ChildProcess = struct {
         };
     }
 
-    fn spawnPosix(exe_path: []const u8, args: []const []const u8, env_map: &const BufMap,
+    fn spawnPosix(exe_path: []const u8, args: []const []const u8,
+        maybe_cwd: ?[]const u8, env_map: &const BufMap,
         stdin: StdIo, stdout: StdIo, stderr: StdIo, allocator: &Allocator) -> %ChildProcess
     {
         // TODO issue #295
@@ -154,6 +156,11 @@ pub const ChildProcess = struct {
                 |err| forkChildErrReport(err_pipe[1], err);
             setUpChildIo(stderr, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) %%
                 |err| forkChildErrReport(err_pipe[1], err);
+
+            test (maybe_cwd) |cwd| {
+                os.changeCurDir(allocator, cwd) %%
+                    |err| forkChildErrReport(err_pipe[1], err);
+            }
 
             os.posixExecve(exe_path, args, env_map, allocator) %%
                 |err| forkChildErrReport(err_pipe[1], err);

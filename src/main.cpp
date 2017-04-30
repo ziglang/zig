@@ -35,6 +35,7 @@ static int usage(const char *arg0) {
         "  --libc-include-dir [path]    directory where libc stdlib.h resides\n"
         "  --name [name]                override output name\n"
         "  --output [file]              override destination path\n"
+        "  --output-h [file]            override generated header file path\n"
         "  --release                    build with optimizations on and debug protection off\n"
         "  --static                     output will be statically linked\n"
         "  --strip                      exclude debug symbols\n"
@@ -118,6 +119,8 @@ enum Cmd {
     CmdTargets,
 };
 
+static const char *default_zig_cache_name = "zig-cache";
+
 int main(int argc, char **argv) {
     os_init();
 
@@ -125,6 +128,7 @@ int main(int argc, char **argv) {
     Cmd cmd = CmdInvalid;
     const char *in_file = nullptr;
     const char *out_file = nullptr;
+    const char *out_file_h = nullptr;
     bool is_release_build = false;
     bool strip = false;
     bool is_static = false;
@@ -163,7 +167,7 @@ int main(int argc, char **argv) {
     size_t ver_minor = 0;
     size_t ver_patch = 0;
     bool timing_info = false;
-    const char *cache_dir = "zig-cache";
+    const char *cache_dir = nullptr;
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         const char *zig_exe_path = arg0;
@@ -200,9 +204,8 @@ int main(int argc, char **argv) {
             }
         }
 
-        CodeGen *g = codegen_create(build_runner_path, nullptr);
+        CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe);
         codegen_set_out_name(g, buf_create_from_str("build"));
-        codegen_set_out_type(g, OutTypeExe);
         codegen_set_verbose(g, verbose);
 
         Buf build_file_abs = BUF_INIT;
@@ -212,7 +215,12 @@ int main(int argc, char **argv) {
         os_path_split(&build_file_abs, &build_file_dirname, &build_file_basename);
 
         Buf *full_cache_dir = buf_alloc();
-        os_path_resolve(buf_create_from_str("."), buf_create_from_str(cache_dir), full_cache_dir);
+        if (cache_dir == nullptr) {
+            os_path_join(&build_file_dirname, buf_create_from_str(default_zig_cache_name), full_cache_dir);
+        } else {
+            os_path_resolve(buf_create_from_str("."), buf_create_from_str(cache_dir), full_cache_dir);
+        }
+
         Buf *path_to_build_exe = buf_alloc();
         os_path_join(full_cache_dir, buf_create_from_str("build"), path_to_build_exe);
         codegen_set_cache_dir(g, full_cache_dir);
@@ -309,6 +317,8 @@ int main(int argc, char **argv) {
                     return usage(arg0);
                 } else if (strcmp(arg, "--output") == 0) {
                     out_file = argv[i];
+                } else if (strcmp(arg, "--output-h") == 0) {
+                    out_file_h = argv[i];
                 } else if (strcmp(arg, "--color") == 0) {
                     if (strcmp(argv[i], "auto") == 0) {
                         color = ErrColorAuto;
@@ -396,6 +406,7 @@ int main(int argc, char **argv) {
                 cmd = CmdParseH;
             } else if (strcmp(arg, "test") == 0) {
                 cmd = CmdTest;
+                out_type = OutTypeExe;
             } else if (strcmp(arg, "targets") == 0) {
                 cmd = CmdTargets;
             } else {
@@ -495,9 +506,11 @@ int main(int argc, char **argv) {
             Buf *zig_root_source_file = (cmd == CmdParseH) ? nullptr : in_file_buf;
 
             Buf *full_cache_dir = buf_alloc();
-            os_path_resolve(buf_create_from_str("."), buf_create_from_str(cache_dir), full_cache_dir);
+            os_path_resolve(buf_create_from_str("."),
+                    buf_create_from_str((cache_dir == nullptr) ? default_zig_cache_name : cache_dir),
+                    full_cache_dir);
 
-            CodeGen *g = codegen_create(zig_root_source_file, target);
+            CodeGen *g = codegen_create(zig_root_source_file, target, out_type);
             codegen_set_out_name(g, buf_out_name);
             codegen_set_lib_version(g, ver_major, ver_minor, ver_patch);
             codegen_set_is_release(g, is_release_build);
@@ -510,11 +523,6 @@ int main(int argc, char **argv) {
             codegen_set_clang_argv(g, clang_argv.items, clang_argv.length);
             codegen_set_strip(g, strip);
             codegen_set_is_static(g, is_static);
-            if (out_type != OutTypeUnknown) {
-                codegen_set_out_type(g, out_type);
-            } else if (cmd == CmdTest) {
-                codegen_set_out_type(g, OutTypeExe);
-            }
             if (libc_lib_dir)
                 codegen_set_libc_lib_dir(g, buf_create_from_str(libc_lib_dir));
             if (libc_static_lib_dir)
@@ -567,6 +575,9 @@ int main(int argc, char **argv) {
             if (test_name_prefix) {
                 codegen_set_test_name_prefix(g, buf_create_from_str(test_name_prefix));
             }
+
+            if (out_file_h)
+                codegen_set_output_h_path(g, buf_create_from_str(out_file_h));
 
             if (cmd == CmdBuild) {
                 for (size_t i = 0; i < objects.length; i += 1) {

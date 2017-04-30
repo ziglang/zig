@@ -12,7 +12,7 @@ pub fn build(b: &Builder) {
 
     b.default_step.dependOn(&exe.step);
 
-    const run_cmd = b.addCommand(b.out_dir, b.env_map, "./test", [][]const u8{});
+    const run_cmd = b.addCommand(b.cache_root, b.env_map, "./test", [][]const u8{});
     run_cmd.step.dependOn(&exe.step);
 
     const test_step = b.step("test", "Test the program");

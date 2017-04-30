@@ -335,6 +335,10 @@ pub fn dup2(old: i32, new: i32) -> usize {
     arch.syscall2(arch.SYS_dup2, usize(old), usize(new))
 }
 
+pub fn chdir(path: &const u8) -> usize {
+    arch.syscall1(arch.SYS_chdir, usize(path))
+}
+
 pub fn execve(path: &const u8, argv: &const ?&const u8, envp: &const ?&const u8) -> usize {
     arch.syscall3(arch.SYS_execve, usize(path), usize(argv), usize(envp))
 }
@@ -354,6 +358,10 @@ pub fn getdents(fd: i32, dirp: &u8, count: usize) -> usize {
 pub fn isatty(fd: i32) -> bool {
     var wsz: winsize = undefined;
     return arch.syscall3(arch.SYS_ioctl, usize(fd), TIOCGWINSZ, usize(&wsz)) == 0;
+}
+
+pub fn readlink(noalias path: &const u8, noalias buf_ptr: &u8, buf_len: usize) -> usize {
+    arch.syscall3(arch.SYS_readlink, usize(path), usize(buf_ptr), buf_len)
 }
 
 pub fn mkdir(path: &const u8, mode: usize) -> usize {

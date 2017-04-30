@@ -37,7 +37,7 @@ static Buf *build_o(CodeGen *parent_gen, const char *oname) {
     os_path_join(parent_gen->zig_std_special_dir, source_basename, full_path);
 
     ZigTarget *child_target = parent_gen->is_native_target ? nullptr : &parent_gen->zig_target;
-    CodeGen *child_gen = codegen_create(full_path, child_target);
+    CodeGen *child_gen = codegen_create(full_path, child_target, OutTypeObj);
     child_gen->link_libc = parent_gen->link_libc;
 
     child_gen->link_libs.resize(parent_gen->link_libs.length);
@@ -55,7 +55,6 @@ static Buf *build_o(CodeGen *parent_gen, const char *oname) {
     codegen_set_strip(child_gen, parent_gen->strip_debug_symbols);
     codegen_set_is_static(child_gen, parent_gen->is_static);
 
-    codegen_set_out_type(child_gen, OutTypeObj);
     codegen_set_out_name(child_gen, buf_create_from_str(oname));
 
     codegen_set_verbose(child_gen, parent_gen->verbose);
@@ -186,9 +185,10 @@ static void construct_linker_job_elf(LinkJob *lj) {
     } else if (shared) {
         lj->args.append("-shared");
 
-        buf_resize(&lj->out_file, 0);
-        buf_appendf(&lj->out_file, "lib%s.so.%zu.%zu.%zu",
-                buf_ptr(g->root_out_name), g->version_major, g->version_minor, g->version_patch);
+        if (buf_len(&lj->out_file) == 0) {
+            buf_appendf(&lj->out_file, "lib%s.so.%zu.%zu.%zu",
+                    buf_ptr(g->root_out_name), g->version_major, g->version_minor, g->version_patch);
+        }
         soname = buf_sprintf("lib%s.so.%zu", buf_ptr(g->root_out_name), g->version_major);
     }
 
@@ -752,9 +752,6 @@ void codegen_link(CodeGen *g, const char *out_file) {
     }
 
     if (g->out_type == OutTypeObj) {
-        if (g->want_h_file) {
-            codegen_generate_h_file(g);
-        }
         if (override_out_file) {
             assert(g->link_objects.length == 1);
             Buf *o_file_path = g->link_objects.at(0);
@@ -797,13 +794,6 @@ void codegen_link(CodeGen *g, const char *out_file) {
     if (!ZigLLDLink(g->zig_target.oformat, lj.args.items, lj.args.length, &diag)) {
         fprintf(stderr, "%s\n", buf_ptr(&diag));
         exit(1);
-    }
-    codegen_add_time_event(g, "Generate .h");
-
-    if (g->out_type == OutTypeLib ||
-        g->out_type == OutTypeObj)
-    {
-        codegen_generate_h_file(g);
     }
 
     codegen_add_time_event(g, "Done");

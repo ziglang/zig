@@ -14,7 +14,7 @@
 
 #include <stdio.h>
 
-CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target);
+CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type);
 
 void codegen_set_clang_argv(CodeGen *codegen, const char **args, size_t len);
 void codegen_set_is_release(CodeGen *codegen, bool is_release);
@@ -25,7 +25,6 @@ void codegen_set_is_static(CodeGen *codegen, bool is_static);
 void codegen_set_strip(CodeGen *codegen, bool strip);
 void codegen_set_verbose(CodeGen *codegen, bool verbose);
 void codegen_set_errmsg_color(CodeGen *codegen, ErrColor err_color);
-void codegen_set_out_type(CodeGen *codegen, OutType out_type);
 void codegen_set_out_name(CodeGen *codegen, Buf *out_name);
 void codegen_set_libc_lib_dir(CodeGen *codegen, Buf *libc_lib_dir);
 void codegen_set_libc_static_lib_dir(CodeGen *g, Buf *libc_static_lib_dir);
@@ -48,6 +47,7 @@ void codegen_set_test_filter(CodeGen *g, Buf *filter);
 void codegen_set_test_name_prefix(CodeGen *g, Buf *prefix);
 void codegen_set_lib_version(CodeGen *g, size_t major, size_t minor, size_t patch);
 void codegen_set_cache_dir(CodeGen *g, Buf *cache_dir);
+void codegen_set_output_h_path(CodeGen *g, Buf *h_path);
 void codegen_add_time_event(CodeGen *g, const char *name);
 void codegen_print_timing_report(CodeGen *g, FILE *f);
 void codegen_build(CodeGen *g);
@@ -59,6 +59,5 @@ void codegen_add_object(CodeGen *g, Buf *object_path);
 void codegen_parseh(CodeGen *g, Buf *path);
 void codegen_render_ast(CodeGen *g, FILE *f, int indent_size);
 
-void codegen_generate_h_file(CodeGen *g);
 
 #endif

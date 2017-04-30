@@ -1,6 +1,6 @@
+zig-cache/
 build/
 build-release/
 /.cproject
 /.project
 /.settings/
-/test_artifacts/

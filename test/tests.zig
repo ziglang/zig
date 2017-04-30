@@ -189,7 +189,7 @@ pub const CompareOutputContext = struct {
 
             %%io.stderr.printf("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
 
-            var child = os.ChildProcess.spawn(full_exe_path, [][]u8{}, &b.env_map,
+            var child = os.ChildProcess.spawn(full_exe_path, [][]u8{}, null, &b.env_map,
                 StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, b.allocator) %% |err|
             {
                 debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
@@ -264,7 +264,7 @@ pub const CompareOutputContext = struct {
 
             %%io.stderr.printf("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
 
-            var child = os.ChildProcess.spawn(full_exe_path, [][]u8{}, &b.env_map,
+            var child = os.ChildProcess.spawn(full_exe_path, [][]u8{}, null, &b.env_map,
                 StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, b.allocator) %% |err|
             {
                 debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
@@ -344,8 +344,8 @@ pub const CompareOutputContext = struct {
     pub fn addCase(self: &CompareOutputContext, case: &const TestCase) {
         const b = self.b;
 
-        const root_src = %%os.path.join(b.allocator, "test_artifacts", case.sources.items[0].filename);
-        const exe_path = %%os.path.join(b.allocator, "test_artifacts", "test");
+        const root_src = %%os.path.join(b.allocator, b.cache_root, case.sources.items[0].filename);
+        const exe_path = %%os.path.join(b.allocator, b.cache_root, "test");
 
         switch (case.special) {
             Special.Asm => {
@@ -360,7 +360,7 @@ pub const CompareOutputContext = struct {
                 exe.setOutputPath(exe_path);
 
                 for (case.sources.toSliceConst()) |src_file| {
-                    const expanded_src_path = %%os.path.join(b.allocator, "test_artifacts", src_file.filename);
+                    const expanded_src_path = %%os.path.join(b.allocator, b.cache_root, src_file.filename);
                     const write_src = b.addWriteFile(expanded_src_path, src_file.source);
                     exe.step.dependOn(&write_src.step);
                 }
@@ -388,7 +388,7 @@ pub const CompareOutputContext = struct {
                     }
 
                     for (case.sources.toSliceConst()) |src_file| {
-                        const expanded_src_path = %%os.path.join(b.allocator, "test_artifacts", src_file.filename);
+                        const expanded_src_path = %%os.path.join(b.allocator, b.cache_root, src_file.filename);
                         const write_src = b.addWriteFile(expanded_src_path, src_file.source);
                         exe.step.dependOn(&write_src.step);
                     }
@@ -401,7 +401,7 @@ pub const CompareOutputContext = struct {
                 }
             },
             Special.DebugSafety => {
-                const obj_path = %%os.path.join(b.allocator, "test_artifacts", "test.o");
+                const obj_path = %%os.path.join(b.allocator, b.cache_root, "test.o");
                 const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "debug-safety {}", case.name);
                 test (self.test_filter) |filter| {
                     if (mem.indexOf(u8, annotated_case_name, filter) == null)
@@ -415,7 +415,7 @@ pub const CompareOutputContext = struct {
                 }
 
                 for (case.sources.toSliceConst()) |src_file| {
-                    const expanded_src_path = %%os.path.join(b.allocator, "test_artifacts", src_file.filename);
+                    const expanded_src_path = %%os.path.join(b.allocator, b.cache_root, src_file.filename);
                     const write_src = b.addWriteFile(expanded_src_path, src_file.source);
                     exe.step.dependOn(&write_src.step);
                 }
@@ -488,8 +488,8 @@ pub const CompileErrorContext = struct {
             const self = @fieldParentPtr(CompileCmpOutputStep, "step", step);
             const b = self.context.b;
 
-            const root_src = %%os.path.join(b.allocator, "test_artifacts", self.case.sources.items[0].filename);
-            const obj_path = %%os.path.join(b.allocator, "test_artifacts", "test.o");
+            const root_src = %%os.path.join(b.allocator, b.cache_root, self.case.sources.items[0].filename);
+            const obj_path = %%os.path.join(b.allocator, b.cache_root, "test.o");
 
             var zig_args = List([]const u8).init(b.allocator);
             %%zig_args.append(if (self.case.is_exe) "build_exe" else "build_obj");
@@ -511,7 +511,7 @@ pub const CompileErrorContext = struct {
                 printInvocation(b.zig_exe, zig_args.toSliceConst());
             }
 
-            var child = os.ChildProcess.spawn(b.zig_exe, zig_args.toSliceConst(), &b.env_map,
+            var child = os.ChildProcess.spawn(b.zig_exe, zig_args.toSliceConst(), null, &b.env_map,
                 StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, b.allocator) %% |err|
             {
                 debug.panic("Unable to spawn {}: {}\n", b.zig_exe, @errorName(err));
@@ -632,7 +632,7 @@ pub const CompileErrorContext = struct {
             self.step.dependOn(&compile_and_cmp_errors.step);
 
             for (case.sources.toSliceConst()) |src_file| {
-                const expanded_src_path = %%os.path.join(b.allocator, "test_artifacts", src_file.filename);
+                const expanded_src_path = %%os.path.join(b.allocator, b.cache_root, src_file.filename);
                 const write_src = b.addWriteFile(expanded_src_path, src_file.source);
                 compile_and_cmp_errors.step.dependOn(&write_src.step);
             }
@@ -675,7 +675,7 @@ pub const BuildExamplesContext = struct {
             %%zig_args.append("--verbose");
         }
 
-        const run_cmd = b.addCommand(b.cache_root, b.env_map, b.zig_exe, zig_args.toSliceConst());
+        const run_cmd = b.addCommand(null, b.env_map, b.zig_exe, zig_args.toSliceConst());
 
         const log_step = b.addLog("PASS {}\n", annotated_case_name);
         log_step.step.dependOn(&run_cmd.step);
@@ -762,7 +762,7 @@ pub const ParseHContext = struct {
             const self = @fieldParentPtr(ParseHCmpOutputStep, "step", step);
             const b = self.context.b;
 
-            const root_src = %%os.path.join(b.allocator, "test_artifacts", self.case.sources.items[0].filename);
+            const root_src = %%os.path.join(b.allocator, b.cache_root, self.case.sources.items[0].filename);
 
             var zig_args = List([]const u8).init(b.allocator);
             %%zig_args.append("parseh");
@@ -774,7 +774,7 @@ pub const ParseHContext = struct {
                 printInvocation(b.zig_exe, zig_args.toSliceConst());
             }
 
-            var child = os.ChildProcess.spawn(b.zig_exe, zig_args.toSliceConst(), &b.env_map,
+            var child = os.ChildProcess.spawn(b.zig_exe, zig_args.toSliceConst(), null, &b.env_map,
                 StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, b.allocator) %% |err|
             {
                 debug.panic("Unable to spawn {}: {}\n", b.zig_exe, @errorName(err));
@@ -886,7 +886,7 @@ pub const ParseHContext = struct {
         self.step.dependOn(&parseh_and_cmp.step);
 
         for (case.sources.toSliceConst()) |src_file| {
-            const expanded_src_path = %%os.path.join(b.allocator, "test_artifacts", src_file.filename);
+            const expanded_src_path = %%os.path.join(b.allocator, b.cache_root, src_file.filename);
             const write_src = b.addWriteFile(expanded_src_path, src_file.source);
             parseh_and_cmp.step.dependOn(&write_src.step);
         }

@@ -55,11 +55,12 @@ PackageTableEntry *new_package(const char *root_src_dir, const char *root_src_pa
     return entry;
 }
 
-CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target) {
+CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type) {
     CodeGen *g = allocate<CodeGen>(1);
 
     codegen_add_time_event(g, "Initialize");
 
+    g->out_type = out_type;
     g->import_table.init(32);
     g->builtin_fn_table.init(32);
     g->primitive_type_table.init(32);
@@ -74,7 +75,7 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target) {
     g->external_prototypes.init(8);
     g->is_release_build = false;
     g->is_test_build = false;
-    g->want_h_file = true;
+    g->want_h_file = (out_type == OutTypeObj || out_type == OutTypeLib);
 
     buf_resize(&g->global_asm, 0);
 
@@ -145,6 +146,10 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target) {
     return g;
 }
 
+void codegen_set_output_h_path(CodeGen *g, Buf *h_path) {
+    g->out_h_path = h_path;
+}
+
 void codegen_set_clang_argv(CodeGen *g, const char **args, size_t len) {
     g->clang_argv = args;
     g->clang_argv_len = len;
@@ -194,10 +199,6 @@ void codegen_set_errmsg_color(CodeGen *g, ErrColor err_color) {
 
 void codegen_set_strip(CodeGen *g, bool strip) {
     g->strip_debug_symbols = strip;
-}
-
-void codegen_set_out_type(CodeGen *g, OutType out_type) {
-    g->out_type = out_type;
 }
 
 void codegen_set_out_name(CodeGen *g, Buf *out_name) {
@@ -4808,15 +4809,6 @@ static void gen_global_asm(CodeGen *g) {
     }
 }
 
-void codegen_build(CodeGen *g) {
-    assert(g->out_type != OutTypeUnknown);
-    init(g);
-
-    gen_global_asm(g);
-    gen_root_source(g);
-    do_code_gen(g);
-}
-
 void codegen_add_object(CodeGen *g, Buf *object_path) {
     g->link_objects.append(object_path);
 }
@@ -4946,13 +4938,21 @@ static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
     }
 }
 
-void codegen_generate_h_file(CodeGen *g) {
+static void gen_h_file(CodeGen *g) {
+    if (!g->want_h_file)
+        return;
+
+    codegen_add_time_event(g, "Generate .h");
+
     assert(!g->is_test_build);
 
-    Buf *h_file_out_path = buf_sprintf("%s.h", buf_ptr(g->root_out_name));
-    FILE *out_h = fopen(buf_ptr(h_file_out_path), "wb");
+    if (!g->out_h_path) {
+        g->out_h_path = buf_sprintf("%s.h", buf_ptr(g->root_out_name));
+    }
+
+    FILE *out_h = fopen(buf_ptr(g->out_h_path), "wb");
     if (!out_h)
-        zig_panic("unable to open %s: %s", buf_ptr(h_file_out_path), strerror(errno));
+        zig_panic("unable to open %s: %s", buf_ptr(g->out_h_path), strerror(errno));
 
     Buf *export_macro = buf_sprintf("%s_EXPORT", buf_ptr(g->root_out_name));
     buf_upcase(export_macro);
@@ -5055,4 +5055,14 @@ void codegen_print_timing_report(CodeGen *g, FILE *f) {
 
 void codegen_add_time_event(CodeGen *g, const char *name) {
     g->timing_events.append({os_get_time(), name});
+}
+
+void codegen_build(CodeGen *g) {
+    assert(g->out_type != OutTypeUnknown);
+    init(g);
+
+    gen_global_asm(g);
+    gen_root_source(g);
+    do_code_gen(g);
+    gen_h_file(g);
 }
