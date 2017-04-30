@@ -151,22 +151,20 @@ pub const Builder = struct {
         return obj_step;
     }
 
-    pub fn addCStaticLibrary(self: &Builder, name: []const u8) -> &CLibrary {
-        const lib = %%self.allocator.create(CLibrary);
-        *lib = CLibrary.initStatic(self, name);
-        return lib;
+    pub fn addCStaticLibrary(self: &Builder, name: []const u8) -> &CLibExeObjStep {
+        return CLibExeObjStep.createStaticLibrary(self, name);
     }
 
-    pub fn addCSharedLibrary(self: &Builder, name: []const u8, ver: &const Version) -> &CLibrary {
-        const lib = %%self.allocator.create(CLibrary);
-        *lib = CLibrary.initShared(self, name, ver);
-        return lib;
+    pub fn addCSharedLibrary(self: &Builder, name: []const u8, ver: &const Version) -> &CLibExeObjStep {
+        return CLibExeObjStep.createSharedLibrary(self, name, ver);
     }
 
-    pub fn addCExecutable(self: &Builder, name: []const u8) -> &CExecutable {
-        const exe = %%self.allocator.create(CExecutable);
-        *exe = CExecutable.init(self, name);
-        return exe;
+    pub fn addCExecutable(self: &Builder, name: []const u8) -> &CLibExeObjStep {
+        return CLibExeObjStep.createExecutable(self, name);
+    }
+
+    pub fn addCObject(self: &Builder, name: []const u8, src: []const u8) -> &CLibExeObjStep {
+        return CLibExeObjStep.createObject(self, name, src);
     }
 
     pub fn addCommand(self: &Builder, cwd: ?[]const u8, env_map: &const BufMap,
@@ -533,7 +531,7 @@ pub const Builder = struct {
         };
     }
 
-    pub fn installCLibrary(self: &Builder, lib: &CLibrary) -> &InstallCLibraryStep {
+    pub fn installCLibrary(self: &Builder, lib: &CLibExeObjStep) -> &InstallCLibraryStep {
         const install_step = %%self.allocator.create(InstallCLibraryStep);
         *install_step = InstallCLibraryStep.init(self, lib);
         install_step.step.dependOn(&lib.step);
@@ -1007,8 +1005,7 @@ pub const TestStep = struct {
     }
 };
 
-// TODO merge with CExecutable
-pub const CLibrary = struct {
+pub const CLibExeObjStep = struct {
     step: Step,
     name: []const u8,
     out_filename: []const u8,
@@ -1019,24 +1016,51 @@ pub const CLibrary = struct {
     source_files: List([]const u8),
     object_files: List([]const u8),
     link_libs: BufSet,
+    full_path_libs: List([]const u8),
     target: Target,
     builder: &Builder,
     include_dirs: List([]const u8),
     major_only_filename: []const u8,
     name_only_filename: []const u8,
+    object_src: []const u8,
+    kind: Kind,
 
-    pub fn initShared(builder: &Builder, name: []const u8, version: &const Version) -> CLibrary {
-        return init(builder, name, version, false);
+    const Kind = enum {
+        Exe,
+        Lib,
+        Obj,
+    };
+
+    pub fn createSharedLibrary(builder: &Builder, name: []const u8, version: &const Version) -> &CLibExeObjStep {
+        const self = %%builder.allocator.create(CLibExeObjStep);
+        *self = init(builder, name, Kind.Lib, builder.version(0, 0, 0), false);
+        return self;
     }
 
-    pub fn initStatic(builder: &Builder, name: []const u8) -> CLibrary {
-        return init(builder, name, builder.version(0, 0, 0), true);
+    pub fn createStaticLibrary(builder: &Builder, name: []const u8) -> &CLibExeObjStep {
+        const self = %%builder.allocator.create(CLibExeObjStep);
+        *self = init(builder, name, Kind.Lib, builder.version(0, 0, 0), true);
+        return self;
     }
 
-    fn init(builder: &Builder, name: []const u8, version: &const Version, static: bool) -> CLibrary {
-        var clib = CLibrary {
+    pub fn createObject(builder: &Builder, name: []const u8, src: []const u8) -> &CLibExeObjStep {
+        const self = %%builder.allocator.create(CLibExeObjStep);
+        *self = init(builder, name, Kind.Obj, builder.version(0, 0, 0), false);
+        self.object_src = src;
+        return self;
+    }
+
+    pub fn createExecutable(builder: &Builder, name: []const u8) -> &CLibExeObjStep {
+        const self = %%builder.allocator.create(CLibExeObjStep);
+        *self = init(builder, name, Kind.Exe, builder.version(0, 0, 0), false);
+        return self;
+    }
+
+    fn init(builder: &Builder, name: []const u8, kind: Kind, version: &const Version, static: bool) -> CLibExeObjStep {
+        var clib = CLibExeObjStep {
             .builder = builder,
             .name = name,
+            .kind = kind,
             .version = *version,
             .static = static,
             .target = Target.Native,
@@ -1045,32 +1069,44 @@ pub const CLibrary = struct {
             .object_files = List([]const u8).init(builder.allocator),
             .step = Step.init(name, builder.allocator, make),
             .link_libs = BufSet.init(builder.allocator),
+            .full_path_libs = List([]const u8).init(builder.allocator),
             .include_dirs = List([]const u8).init(builder.allocator),
             .output_path = null,
             .out_filename = undefined,
             .major_only_filename = undefined,
             .name_only_filename = undefined,
+            .object_src = undefined,
         };
-        clib.computeOutFileName();
+        clib.computeOutFileNames();
         return clib;
     }
 
-    fn computeOutFileName(self: &CLibrary) {
-        if (self.static) {
-            self.out_filename = self.builder.fmt("lib{}.a", self.name);
-        } else {
-            self.out_filename = self.builder.fmt("lib{}.so.{d}.{d}.{d}",
-                self.name, self.version.major, self.version.minor, self.version.patch);
-            self.major_only_filename = self.builder.fmt("lib{}.so.{d}", self.name, self.version.major);
-            self.name_only_filename = self.builder.fmt("lib{}.so", self.name);
+    fn computeOutFileNames(self: &CLibExeObjStep) {
+        switch (self.kind) {
+            Kind.Obj => {
+                self.out_filename = self.builder.fmt("{}{}", self.name, self.target.oFileExt());
+            },
+            Kind.Exe => {
+                self.out_filename = self.builder.fmt("{}{}", self.name, self.target.exeFileExt());
+            },
+            Kind.Lib => {
+                if (self.static) {
+                    self.out_filename = self.builder.fmt("lib{}.a", self.name);
+                } else {
+                    self.out_filename = self.builder.fmt("lib{}.so.{d}.{d}.{d}",
+                        self.name, self.version.major, self.version.minor, self.version.patch);
+                    self.major_only_filename = self.builder.fmt("lib{}.so.{d}", self.name, self.version.major);
+                    self.name_only_filename = self.builder.fmt("lib{}.so", self.name);
+                }
+            },
         }
     }
 
-    pub fn setOutputPath(self: &CLibrary, value: []const u8) {
+    pub fn setOutputPath(self: &CLibExeObjStep, value: []const u8) {
         self.output_path = value;
     }
 
-    pub fn getOutputPath(self: &CLibrary) -> []const u8 {
+    pub fn getOutputPath(self: &CLibExeObjStep) -> []const u8 {
         test (self.output_path) |output_path| {
             output_path
         } else {
@@ -1079,180 +1115,8 @@ pub const CLibrary = struct {
         }
     }
 
-    pub fn linkSystemLibrary(self: &CLibrary, name: []const u8) {
-        %%self.link_libs.put(name);
-    }
-
-    pub fn linkCLibrary(self: &CLibrary, other: &CLibrary) {
-        self.step.dependOn(&other.step);
-        %%self.link_libs.put(other.name);
-    }
-
-    pub fn addSourceFile(self: &CLibrary, file: []const u8) {
-        %%self.source_files.append(file);
-    }
-
-    pub fn addObjectFile(self: &CLibrary, file: []const u8) {
-        %%self.object_files.append(file);
-    }
-
-    pub fn addIncludeDir(self: &CLibrary, path: []const u8) {
-        %%self.include_dirs.append(path);
-    }
-
-    pub fn addCompileFlagsForRelease(self: &CLibrary, release: bool) {
-        if (release) {
-            %%self.cflags.append("-g");
-            %%self.cflags.append("-O2");
-        } else {
-            %%self.cflags.append("-g");
-        }
-    }
-
-    pub fn addCompileFlags(self: &CLibrary, flags: []const []const u8) {
-        for (flags) |flag| {
-            %%self.cflags.append(flag);
-        }
-    }
-
-    fn make(step: &Step) -> %void {
-        const self = @fieldParentPtr(CLibrary, "step", step);
-        const cc = os.getEnv("CC") ?? "cc";
-        const builder = self.builder;
-
-        var cc_args = List([]const u8).init(builder.allocator);
-        defer cc_args.deinit();
-
-        for (self.source_files.toSliceConst()) |source_file| {
-            %%cc_args.resize(0);
-
-            if (!self.static) {
-                %%cc_args.append("-fPIC");
-            }
-
-            %%cc_args.append("-c");
-            %%cc_args.append(source_file);
-
-            const rel_src_path = %%os.path.relative(builder.allocator, builder.build_root, source_file);
-            const cache_o_src = %%os.path.join(builder.allocator, builder.cache_root, rel_src_path);
-            const cache_o_dir = os.path.dirname(cache_o_src);
-            %return builder.makePath(cache_o_dir);
-            const cache_o_file = builder.fmt("{}{}", cache_o_src, self.target.oFileExt());
-            %%cc_args.append("-o");
-            %%cc_args.append(cache_o_file);
-
-            for (self.cflags.toSliceConst()) |cflag| {
-                %%cc_args.append(cflag);
-            }
-
-            for (self.include_dirs.toSliceConst()) |dir| {
-                %%cc_args.append("-I");
-                %%cc_args.append(dir);
-            }
-
-            %return builder.spawnChild(cc, cc_args.toSliceConst());
-
-            %%self.object_files.append(cache_o_file);
-        }
-
-        if (self.static) {
-            debug.panic("TODO static library");
-        } else {
-            %%cc_args.resize(0);
-
-            %%cc_args.append("-fPIC");
-            %%cc_args.append("-shared");
-
-            const soname_arg = builder.fmt("-Wl,-soname,lib{}.so.{d}", self.name, self.version.major);
-            defer builder.allocator.free(soname_arg);
-            %%cc_args.append(soname_arg);
-
-            const output_path = builder.pathFromRoot(self.getOutputPath());
-            %%cc_args.append("-o");
-            %%cc_args.append(output_path);
-
-            for (self.object_files.toSliceConst()) |object_file| {
-                %%cc_args.append(builder.pathFromRoot(object_file));
-            }
-
-            %return builder.spawnChild(cc, cc_args.toSliceConst());
-
-            %return doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename,
-                self.name_only_filename);
-        }
-    }
-
-    pub fn setTarget(self: &CLibrary, target_arch: Arch, target_os: Os, target_environ: Environ) {
-        self.target = Target.Cross {
-            CrossTarget {
-                .arch = target_arch,
-                .os = target_os,
-                .environ = target_environ,
-            }
-        };
-    }
-};
-
-pub const CExecutable = struct {
-    step: Step,
-    builder: &Builder,
-    name: []const u8,
-    cflags: List([]const u8),
-    source_files: List([]const u8),
-    object_files: List([]const u8),
-    full_path_libs: List([]const u8),
-    link_libs: BufSet,
-    target: Target,
-    include_dirs: List([]const u8),
-    output_path: ?[]const u8,
-    out_filename: []const u8,
-
-    pub fn init(builder: &Builder, name: []const u8) -> CExecutable {
-        var self = CExecutable {
-            .builder = builder,
-            .name = name,
-            .target = Target.Native,
-            .cflags = List([]const u8).init(builder.allocator),
-            .source_files = List([]const u8).init(builder.allocator),
-            .object_files = List([]const u8).init(builder.allocator),
-            .full_path_libs = List([]const u8).init(builder.allocator),
-            .step = Step.init(name, builder.allocator, make),
-            .link_libs = BufSet.init(builder.allocator),
-            .include_dirs = List([]const u8).init(builder.allocator),
-            .output_path = null,
-            .out_filename = undefined,
-        };
-        self.computeOutFileName();
-        return self;
-    }
-
-    fn computeOutFileName(self: &CExecutable) {
-        self.out_filename = self.builder.fmt("{}{}", self.name, self.target.exeFileExt());
-    }
-
-    pub fn setOutputPath(self: &CExecutable, value: []const u8) {
-        self.output_path = value;
-    }
-
-    pub fn getOutputPath(self: &CExecutable) -> []const u8 {
-        test (self.output_path) |output_path| {
-            self.builder.pathFromRoot(output_path)
-        } else {
-            const wanted_path = %%os.path.join(self.builder.allocator, self.builder.cache_root, self.out_filename);
-            %%os.path.relative(self.builder.allocator, self.builder.build_root, wanted_path)
-        }
-    }
-
-    pub fn linkSystemLibrary(self: &CExecutable, name: []const u8) {
-        %%self.link_libs.put(name);
-    }
-
-    pub fn linkCLibrary(self: &CExecutable, clib: &CLibrary) {
-        self.step.dependOn(&clib.step);
-        %%self.full_path_libs.append(clib.getOutputPath());
-    }
-
-    pub fn linkLibrary(self: &CExecutable, lib: &LibExeObjStep) {
+    pub fn linkLibrary(self: &CLibExeObjStep, lib: &LibExeObjStep) {
+        assert(self.kind != Kind.Obj);
         assert(lib.kind == LibExeObjStep.Kind.Lib);
         self.step.dependOn(&lib.step);
         %%self.full_path_libs.append(lib.getOutputPath());
@@ -1260,7 +1124,30 @@ pub const CExecutable = struct {
         %%self.include_dirs.append(self.builder.cache_root);
     }
 
-    pub fn addObject(self: &CExecutable, obj: &LibExeObjStep) {
+    pub fn linkSystemLibrary(self: &CLibExeObjStep, name: []const u8) {
+        assert(self.kind != Kind.Obj);
+        %%self.link_libs.put(name);
+    }
+
+    pub fn linkCLibrary(self: &CLibExeObjStep, other: &CLibExeObjStep) {
+        assert(self.kind != Kind.Obj);
+        assert(other.kind == Kind.Lib);
+        self.step.dependOn(&other.step);
+        %%self.full_path_libs.append(other.getOutputPath());
+    }
+
+    pub fn addSourceFile(self: &CLibExeObjStep, file: []const u8) {
+        assert(self.kind != Kind.Obj);
+        %%self.source_files.append(file);
+    }
+
+    pub fn addObjectFile(self: &CLibExeObjStep, file: []const u8) {
+        assert(self.kind != Kind.Obj);
+        %%self.object_files.append(file);
+    }
+
+    pub fn addObject(self: &CLibExeObjStep, obj: &LibExeObjStep) {
+        assert(self.kind != Kind.Obj);
         assert(obj.kind == LibExeObjStep.Kind.Obj);
 
         self.step.dependOn(&obj.step);
@@ -1271,19 +1158,11 @@ pub const CExecutable = struct {
         %%self.include_dirs.append(self.builder.cache_root);
     }
 
-    pub fn addSourceFile(self: &CExecutable, file: []const u8) {
-        %%self.source_files.append(file);
-    }
-
-    pub fn addObjectFile(self: &CExecutable, file: []const u8) {
-        %%self.object_files.append(file);
-    }
-
-    pub fn addIncludeDir(self: &CExecutable, path: []const u8) {
+    pub fn addIncludeDir(self: &CLibExeObjStep, path: []const u8) {
         %%self.include_dirs.append(path);
     }
 
-    pub fn addCompileFlagsForRelease(self: &CExecutable, release: bool) {
+    pub fn addCompileFlagsForRelease(self: &CLibExeObjStep, release: bool) {
         if (release) {
             %%self.cflags.append("-g");
             %%self.cflags.append("-O2");
@@ -1292,73 +1171,164 @@ pub const CExecutable = struct {
         }
     }
 
-    pub fn addCompileFlags(self: &CExecutable, flags: []const []const u8) {
+    pub fn addCompileFlags(self: &CLibExeObjStep, flags: []const []const u8) {
         for (flags) |flag| {
             %%self.cflags.append(flag);
         }
     }
 
     fn make(step: &Step) -> %void {
-        const self = @fieldParentPtr(CExecutable, "step", step);
+        const self = @fieldParentPtr(CLibExeObjStep, "step", step);
         const cc = os.getEnv("CC") ?? "cc";
         const builder = self.builder;
 
         var cc_args = List([]const u8).init(builder.allocator);
         defer cc_args.deinit();
 
-        for (self.source_files.toSliceConst()) |source_file| {
-            %%cc_args.resize(0);
+        switch (self.kind) {
+            Kind.Obj => {
+                %%cc_args.append("-c");
+                %%cc_args.append(builder.pathFromRoot(self.object_src));
 
-            %%cc_args.append("-c");
-            %%cc_args.append(builder.pathFromRoot(source_file));
+                const output_path = builder.pathFromRoot(self.getOutputPath());
+                %%cc_args.append("-o");
+                %%cc_args.append(output_path);
 
-            const rel_src_path = %%os.path.relative(builder.allocator, builder.build_root, source_file);
-            const cache_o_src = %%os.path.join(builder.allocator, builder.cache_root, rel_src_path);
-            const cache_o_dir = os.path.dirname(cache_o_src);
-            %return builder.makePath(cache_o_dir);
-            const cache_o_file = builder.fmt("{}{}", cache_o_src, self.target.oFileExt());
-            %%cc_args.append("-o");
-            %%cc_args.append(cache_o_file);
+                for (self.cflags.toSliceConst()) |cflag| {
+                    %%cc_args.append(cflag);
+                }
 
-            for (self.cflags.toSliceConst()) |cflag| {
-                %%cc_args.append(cflag);
-            }
+                for (self.include_dirs.toSliceConst()) |dir| {
+                    %%cc_args.append("-I");
+                    %%cc_args.append(builder.pathFromRoot(dir));
+                }
 
-            for (self.include_dirs.toSliceConst()) |dir| {
-                %%cc_args.append("-I");
-                %%cc_args.append(builder.pathFromRoot(dir));
-            }
+                %return builder.spawnChild(cc, cc_args.toSliceConst());
+            },
+            Kind.Lib => {
+                for (self.source_files.toSliceConst()) |source_file| {
+                    %%cc_args.resize(0);
 
-            %return builder.spawnChild(cc, cc_args.toSliceConst());
+                    if (!self.static) {
+                        %%cc_args.append("-fPIC");
+                    }
 
-            %%self.object_files.append(%%os.path.relative(builder.allocator, builder.build_root, cache_o_file));
+                    %%cc_args.append("-c");
+                    %%cc_args.append(source_file);
+
+                    const rel_src_path = %%os.path.relative(builder.allocator, builder.build_root, source_file);
+                    const cache_o_src = %%os.path.join(builder.allocator, builder.cache_root, rel_src_path);
+                    const cache_o_dir = os.path.dirname(cache_o_src);
+                    %return builder.makePath(cache_o_dir);
+                    const cache_o_file = builder.fmt("{}{}", cache_o_src, self.target.oFileExt());
+                    %%cc_args.append("-o");
+                    %%cc_args.append(cache_o_file);
+
+                    for (self.cflags.toSliceConst()) |cflag| {
+                        %%cc_args.append(cflag);
+                    }
+
+                    for (self.include_dirs.toSliceConst()) |dir| {
+                        %%cc_args.append("-I");
+                        %%cc_args.append(dir);
+                    }
+
+                    %return builder.spawnChild(cc, cc_args.toSliceConst());
+
+                    %%self.object_files.append(cache_o_file);
+                }
+
+                if (self.static) {
+                    debug.panic("TODO static library");
+                } else {
+                    %%cc_args.resize(0);
+
+                    %%cc_args.append("-fPIC");
+                    %%cc_args.append("-shared");
+
+                    const soname_arg = builder.fmt("-Wl,-soname,lib{}.so.{d}", self.name, self.version.major);
+                    defer builder.allocator.free(soname_arg);
+                    %%cc_args.append(soname_arg);
+
+                    const output_path = builder.pathFromRoot(self.getOutputPath());
+                    %%cc_args.append("-o");
+                    %%cc_args.append(output_path);
+
+                    for (self.object_files.toSliceConst()) |object_file| {
+                        %%cc_args.append(builder.pathFromRoot(object_file));
+                    }
+
+                    const rpath_arg = builder.fmt("-Wl,-rpath,{}",
+                        %%os.path.real(builder.allocator, builder.cache_root));
+                    defer builder.allocator.free(rpath_arg);
+                    %%cc_args.append(rpath_arg);
+
+                    %%cc_args.append("-rdynamic");
+
+                    for (self.full_path_libs.toSliceConst()) |full_path_lib| {
+                        %%cc_args.append(builder.pathFromRoot(full_path_lib));
+                    }
+
+                    %return builder.spawnChild(cc, cc_args.toSliceConst());
+
+                    %return doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename,
+                        self.name_only_filename);
+                }
+            },
+            Kind.Exe => {
+                for (self.source_files.toSliceConst()) |source_file| {
+                    %%cc_args.resize(0);
+
+                    %%cc_args.append("-c");
+                    %%cc_args.append(builder.pathFromRoot(source_file));
+
+                    const rel_src_path = %%os.path.relative(builder.allocator, builder.build_root, source_file);
+                    const cache_o_src = %%os.path.join(builder.allocator, builder.cache_root, rel_src_path);
+                    const cache_o_dir = os.path.dirname(cache_o_src);
+                    %return builder.makePath(cache_o_dir);
+                    const cache_o_file = builder.fmt("{}{}", cache_o_src, self.target.oFileExt());
+                    %%cc_args.append("-o");
+                    %%cc_args.append(cache_o_file);
+
+                    for (self.cflags.toSliceConst()) |cflag| {
+                        %%cc_args.append(cflag);
+                    }
+
+                    for (self.include_dirs.toSliceConst()) |dir| {
+                        %%cc_args.append("-I");
+                        %%cc_args.append(builder.pathFromRoot(dir));
+                    }
+
+                    %return builder.spawnChild(cc, cc_args.toSliceConst());
+
+                    %%self.object_files.append(%%os.path.relative(builder.allocator, builder.build_root, cache_o_file));
+                }
+
+                %%cc_args.resize(0);
+
+                for (self.object_files.toSliceConst()) |object_file| {
+                    %%cc_args.append(builder.pathFromRoot(object_file));
+                }
+
+                const output_path = builder.pathFromRoot(self.getOutputPath());
+                %%cc_args.append("-o");
+                %%cc_args.append(output_path);
+
+                const rpath_arg = builder.fmt("-Wl,-rpath,{}",
+                    %%os.path.real(builder.allocator, builder.cache_root));
+                defer builder.allocator.free(rpath_arg);
+                %%cc_args.append(rpath_arg);
+
+                %%cc_args.append("-rdynamic");
+
+                for (self.full_path_libs.toSliceConst()) |full_path_lib| {
+                    %%cc_args.append(builder.pathFromRoot(full_path_lib));
+                }
+            },
         }
-
-        %%cc_args.resize(0);
-
-        for (self.object_files.toSliceConst()) |object_file| {
-            %%cc_args.append(builder.pathFromRoot(object_file));
-        }
-
-        const output_path = builder.pathFromRoot(self.getOutputPath());
-        %%cc_args.append("-o");
-        %%cc_args.append(output_path);
-
-        const rpath_arg = builder.fmt("-Wl,-rpath,{}",
-            %%os.path.real(builder.allocator, builder.cache_root));
-        defer builder.allocator.free(rpath_arg);
-        %%cc_args.append(rpath_arg);
-
-        %%cc_args.append("-rdynamic");
-
-        for (self.full_path_libs.toSliceConst()) |full_path_lib| {
-            %%cc_args.append(builder.pathFromRoot(full_path_lib));
-        }
-
-        %return builder.spawnChild(cc, cc_args.toSliceConst());
     }
 
-    pub fn setTarget(self: &CExecutable, target_arch: Arch, target_os: Os, target_environ: Environ) {
+    pub fn setTarget(self: &CLibExeObjStep, target_arch: Arch, target_os: Os, target_environ: Environ) {
         self.target = Target.Cross {
             CrossTarget {
                 .arch = target_arch,
@@ -1403,10 +1373,10 @@ pub const CommandStep = struct {
 pub const InstallCLibraryStep = struct {
     step: Step,
     builder: &Builder,
-    lib: &CLibrary,
+    lib: &CLibExeObjStep,
     dest_file: []const u8,
 
-    pub fn init(builder: &Builder, lib: &CLibrary) -> InstallCLibraryStep {
+    pub fn init(builder: &Builder, lib: &CLibExeObjStep) -> InstallCLibraryStep {
         var self = InstallCLibraryStep {
             .builder = builder,
             .step = Step.init(builder.fmt("install {}", lib.step.name), builder.allocator, make),
