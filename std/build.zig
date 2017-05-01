@@ -505,7 +505,6 @@ pub const Builder = struct {
         };
 
         const term = child.wait() %% |err| {
-            test (cwd) |yes_cwd| %%io.stderr.printf("cwd: {}\n", yes_cwd);
             %%io.stderr.printf("Unable to spawn {}: {}\n", exe_path, @errorName(err));
             return err;
         };
@@ -1213,11 +1212,11 @@ pub const CLibExeObjStep = struct {
                         %%cc_args.append("-fPIC");
                     }
 
+                    const abs_source_file = builder.pathFromRoot(source_file);
                     %%cc_args.append("-c");
-                    %%cc_args.append(source_file);
+                    %%cc_args.append(abs_source_file);
 
-                    const rel_src_path = %%os.path.relative(builder.allocator, builder.build_root, source_file);
-                    const cache_o_src = %%os.path.join(builder.allocator, builder.cache_root, rel_src_path);
+                    const cache_o_src = %%os.path.join(builder.allocator, builder.cache_root, source_file);
                     const cache_o_dir = os.path.dirname(cache_o_src);
                     %return builder.makePath(cache_o_dir);
                     const cache_o_file = builder.fmt("{}{}", cache_o_src, self.target.oFileExt());
@@ -1230,7 +1229,7 @@ pub const CLibExeObjStep = struct {
 
                     for (self.include_dirs.toSliceConst()) |dir| {
                         %%cc_args.append("-I");
-                        %%cc_args.append(dir);
+                        %%cc_args.append(builder.pathFromRoot(dir));
                     }
 
                     %return builder.spawnChild(cc, cc_args.toSliceConst());
@@ -1279,11 +1278,11 @@ pub const CLibExeObjStep = struct {
                 for (self.source_files.toSliceConst()) |source_file| {
                     %%cc_args.resize(0);
 
+                    const abs_source_file = builder.pathFromRoot(source_file);
                     %%cc_args.append("-c");
-                    %%cc_args.append(builder.pathFromRoot(source_file));
+                    %%cc_args.append(abs_source_file);
 
-                    const rel_src_path = %%os.path.relative(builder.allocator, builder.build_root, source_file);
-                    const cache_o_src = %%os.path.join(builder.allocator, builder.cache_root, rel_src_path);
+                    const cache_o_src = %%os.path.join(builder.allocator, builder.cache_root, source_file);
                     const cache_o_dir = os.path.dirname(cache_o_src);
                     %return builder.makePath(cache_o_dir);
                     const cache_o_file = builder.fmt("{}{}", cache_o_src, self.target.oFileExt());
@@ -1324,6 +1323,8 @@ pub const CLibExeObjStep = struct {
                 for (self.full_path_libs.toSliceConst()) |full_path_lib| {
                     %%cc_args.append(builder.pathFromRoot(full_path_lib));
                 }
+
+                %return builder.spawnChild(cc, cc_args.toSliceConst());
             },
         }
     }
