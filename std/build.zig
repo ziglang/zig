@@ -1032,7 +1032,7 @@ pub const CLibExeObjStep = struct {
 
     pub fn createSharedLibrary(builder: &Builder, name: []const u8, version: &const Version) -> &CLibExeObjStep {
         const self = %%builder.allocator.create(CLibExeObjStep);
-        *self = init(builder, name, Kind.Lib, builder.version(0, 0, 0), false);
+        *self = init(builder, name, Kind.Lib, version, false);
         return self;
     }
 
@@ -1238,7 +1238,24 @@ pub const CLibExeObjStep = struct {
                 }
 
                 if (self.static) {
-                    debug.panic("TODO static library");
+                    // ar
+                    %%cc_args.resize(0);
+                    %%cc_args.append("qc");
+
+                    const output_path = builder.pathFromRoot(self.getOutputPath());
+                    %%cc_args.append(output_path);
+
+                    for (self.object_files.toSliceConst()) |object_file| {
+                        %%cc_args.append(builder.pathFromRoot(object_file));
+                    }
+
+                    %return builder.spawnChild("ar", cc_args.toSliceConst());
+
+                    // ranlib
+                    %%cc_args.resize(0);
+                    %%cc_args.append(output_path);
+
+                    %return builder.spawnChild("ranlib", cc_args.toSliceConst());
                 } else {
                     %%cc_args.resize(0);
 
