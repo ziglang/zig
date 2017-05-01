@@ -21,7 +21,9 @@ error NeedAnObject;
 
 pub const Builder = struct {
     uninstall_tls: TopLevelStep,
+    install_tls: TopLevelStep,
     have_uninstall_step: bool,
+    have_install_step: bool,
     allocator: &Allocator,
     lib_paths: List([]const u8),
     include_paths: List([]const u8),
@@ -37,6 +39,7 @@ pub const Builder = struct {
     top_level_steps: List(&TopLevelStep),
     prefix: []const u8,
     lib_dir: []const u8,
+    exe_dir: []const u8,
     installed_files: List([]const u8),
     build_root: []const u8,
     cache_root: []const u8,
@@ -96,12 +99,18 @@ pub const Builder = struct {
             .env_map = %%os.getEnvMap(allocator),
             .prefix = undefined,
             .lib_dir = undefined,
+            .exe_dir = undefined,
             .installed_files = List([]const u8).init(allocator),
             .uninstall_tls = TopLevelStep {
                 .step = Step.init("uninstall", allocator, makeUninstall),
                 .description = "Remove build artifacts from prefix path",
             },
             .have_uninstall_step = false,
+            .install_tls = TopLevelStep {
+                .step = Step.initNoOp("install", allocator),
+                .description = "Copy build artifacts to prefix path",
+            },
+            .have_install_step = false,
         };
         self.processNixOSEnvVars();
         self.default_step = self.step("default", "Build the project");
@@ -119,6 +128,7 @@ pub const Builder = struct {
     pub fn setInstallPrefix(self: &Builder, maybe_prefix: ?[]const u8) {
         self.prefix = maybe_prefix ?? "/usr/local"; // TODO better default
         self.lib_dir = %%os.path.join(self.allocator, self.prefix, "lib");
+        self.exe_dir = %%os.path.join(self.allocator, self.prefix, "bin");
     }
 
     pub fn addExecutable(self: &Builder, name: []const u8, root_src: ?[]const u8) -> &LibExeObjStep {
@@ -230,6 +240,15 @@ pub const Builder = struct {
         }
     }
 
+    pub fn getInstallStep(self: &Builder) -> &Step {
+        if (self.have_install_step)
+            return &self.install_tls.step;
+
+        %%self.top_level_steps.append(&self.install_tls);
+        self.have_install_step = true;
+        return &self.install_tls.step;
+    }
+
     pub fn getUninstallStep(self: &Builder) -> &Step {
         if (self.have_uninstall_step)
             return &self.uninstall_tls.step;
@@ -244,6 +263,9 @@ pub const Builder = struct {
         const self = @fieldParentPtr(Builder, "uninstall_tls", uninstall_tls);
 
         for (self.installed_files.toSliceConst()) |installed_file| {
+            if (self.verbose) {
+                %%io.stderr.printf("rm {}\n", installed_file);
+            }
             _ = os.deleteFile(self.allocator, installed_file);
         }
 
@@ -530,24 +552,38 @@ pub const Builder = struct {
         };
     }
 
-    pub fn installCLibrary(self: &Builder, lib: &CLibExeObjStep) -> &InstallCLibraryStep {
-        const install_step = %%self.allocator.create(InstallCLibraryStep);
-        *install_step = InstallCLibraryStep.init(self, lib);
-        install_step.step.dependOn(&lib.step);
-        return install_step;
+    pub fn installCLibrary(self: &Builder, lib: &CLibExeObjStep) {
+        self.getInstallStep().dependOn(&self.addInstallCLibrary(lib).step);
     }
 
-    ///::dest_rel_path is relative to prefix path
-    pub fn installFile(self: &Builder, src_path: []const u8, dest_rel_path: []const u8) -> &InstallFileStep {
-        const full_dest_path = %%os.path.join(self.allocator, self.prefix, dest_rel_path);
-        self.addInstalledFile(full_dest_path);
+    pub fn addInstallCLibrary(self: &Builder, lib: &CLibExeObjStep) -> &InstallCArtifactStep {
+        return InstallCArtifactStep.create(self, lib);
+    }
+
+    pub fn installCExecutable(self: &Builder, exe: &CLibExeObjStep) {
+        self.getInstallStep().dependOn(&self.addInstallCExecutable(exe).step);
+    }
+
+    pub fn addInstallCExecutable(self: &Builder, exe: &CLibExeObjStep) -> &InstallCArtifactStep {
+        return InstallCArtifactStep.create(self, exe);
+    }
+
+    ///::dest_rel_path is relative to prefix path or it can be an absolute path
+    pub fn installFile(self: &Builder, src_path: []const u8, dest_rel_path: []const u8) {
+        self.getInstallStep().dependOn(&self.addInstallFile(src_path, dest_rel_path).step);
+    }
+
+    ///::dest_rel_path is relative to prefix path or it can be an absolute path
+    pub fn addInstallFile(self: &Builder, src_path: []const u8, dest_rel_path: []const u8) -> &InstallFileStep {
+        const full_dest_path = %%os.path.resolve(self.allocator, self.prefix, dest_rel_path);
+        self.pushInstalledFile(full_dest_path);
 
         const install_step = %%self.allocator.create(InstallFileStep);
         *install_step = InstallFileStep.init(self, src_path, full_dest_path);
         return install_step;
     }
 
-    pub fn addInstalledFile(self: &Builder, full_path: []const u8) {
+    pub fn pushInstalledFile(self: &Builder, full_path: []const u8) {
         _ = self.getUninstallStep();
         %%self.installed_files.append(full_path);
     }
@@ -1388,36 +1424,42 @@ pub const CommandStep = struct {
     }
 };
 
-pub const InstallCLibraryStep = struct {
+pub const InstallCArtifactStep = struct {
     step: Step,
     builder: &Builder,
-    lib: &CLibExeObjStep,
+    artifact: &CLibExeObjStep,
     dest_file: []const u8,
 
-    pub fn init(builder: &Builder, lib: &CLibExeObjStep) -> InstallCLibraryStep {
-        var self = InstallCLibraryStep {
-            .builder = builder,
-            .step = Step.init(builder.fmt("install {}", lib.step.name), builder.allocator, make),
-            .lib = lib,
-            .dest_file = undefined,
+    pub fn create(builder: &Builder, artifact: &CLibExeObjStep) -> &InstallCArtifactStep {
+        const self = %%builder.allocator.create(InstallCArtifactStep);
+        const dest_dir = switch (artifact.kind) {
+            CLibExeObjStep.Kind.Obj => unreachable,
+            CLibExeObjStep.Kind.Exe => builder.exe_dir,
+            CLibExeObjStep.Kind.Lib => builder.lib_dir,
         };
-        self.dest_file = %%os.path.join(builder.allocator, builder.lib_dir, lib.out_filename);
-        builder.addInstalledFile(self.dest_file);
-        if (!self.lib.static) {
-            builder.addInstalledFile(%%os.path.join(builder.allocator, builder.lib_dir, lib.major_only_filename));
-            builder.addInstalledFile(%%os.path.join(builder.allocator, builder.lib_dir, lib.name_only_filename));
+        *self = InstallCArtifactStep {
+            .builder = builder,
+            .step = Step.init(builder.fmt("install {}", artifact.step.name), builder.allocator, make),
+            .artifact = artifact,
+            .dest_file = %%os.path.join(builder.allocator, builder.lib_dir, artifact.out_filename),
+        };
+        self.step.dependOn(&artifact.step);
+        builder.pushInstalledFile(self.dest_file);
+        if (self.artifact.kind == CLibExeObjStep.Kind.Lib and !self.artifact.static) {
+            builder.pushInstalledFile(%%os.path.join(builder.allocator, builder.lib_dir, artifact.major_only_filename));
+            builder.pushInstalledFile(%%os.path.join(builder.allocator, builder.lib_dir, artifact.name_only_filename));
         }
         return self;
     }
 
     fn make(step: &Step) -> %void {
-        const self = @fieldParentPtr(InstallCLibraryStep, "step", step);
+        const self = @fieldParentPtr(InstallCArtifactStep, "step", step);
         const builder = self.builder;
 
-        self.builder.copyFile(self.lib.getOutputPath(), self.dest_file);
-        if (!self.lib.static) {
-            %return doAtomicSymLinks(self.builder.allocator, self.dest_file, self.lib.major_only_filename,
-                self.lib.name_only_filename);
+        builder.copyFile(self.artifact.getOutputPath(), self.dest_file);
+        if (self.artifact.kind == CLibExeObjStep.Kind.Lib and !self.artifact.static) {
+            %return doAtomicSymLinks(builder.allocator, self.dest_file,
+                self.artifact.major_only_filename, self.artifact.name_only_filename);
         }
     }
 };
