@@ -657,7 +657,7 @@ pub const BuildExamplesContext = struct {
     pub fn addBuildFile(self: &BuildExamplesContext, build_file: []const u8) {
         const b = self.b;
 
-        const annotated_case_name = b.fmt("build {}", build_file);
+        const annotated_case_name = b.fmt("build {} (debug)", build_file);
         test (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null)
                 return;

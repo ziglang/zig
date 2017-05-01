@@ -679,6 +679,12 @@ pub const LibExeObjStep = struct {
     name_only_filename: []const u8,
     object_files: List([]const u8),
     assembly_files: List([]const u8),
+    packages: List(Pkg),
+
+    const Pkg = struct {
+        name: []const u8,
+        path: []const u8,
+    };
 
     const Kind = enum {
         Exe,
@@ -736,6 +742,7 @@ pub const LibExeObjStep = struct {
             .name_only_filename = undefined,
             .object_files = List([]const u8).init(builder.allocator),
             .assembly_files = List([]const u8).init(builder.allocator),
+            .packages = List(Pkg).init(builder.allocator),
         };
         self.computeOutFileNames();
         return self;
@@ -835,6 +842,13 @@ pub const LibExeObjStep = struct {
         %%self.object_files.append(obj.getOutputPath());
     }
 
+    pub fn addPackagePath(self: &LibExeObjStep, name: []const u8, pkg_index_path: []const u8) {
+        %%self.packages.append(Pkg {
+            .name = name,
+            .path = pkg_index_path,
+        });
+    }
+
     fn make(step: &Step) -> %void {
         const self = @fieldParentPtr(LibExeObjStep, "step", step);
         const builder = self.builder;
@@ -883,9 +897,11 @@ pub const LibExeObjStep = struct {
         %%zig_args.append("--output");
         %%zig_args.append(output_path);
 
-        const output_h_path = self.getOutputHPath();
-        %%zig_args.append("--output-h");
-        %%zig_args.append(builder.pathFromRoot(output_h_path));
+        if (self.kind != Kind.Exe) {
+            const output_h_path = self.getOutputHPath();
+            %%zig_args.append("--output-h");
+            %%zig_args.append(builder.pathFromRoot(output_h_path));
+        }
 
         %%zig_args.append("--name");
         %%zig_args.append(self.name);
@@ -927,6 +943,13 @@ pub const LibExeObjStep = struct {
                 %%zig_args.append("--library");
                 %%zig_args.append(entry.key);
             }
+        }
+
+        for (self.packages.toSliceConst()) |pkg| {
+            %%zig_args.append("--pkg-begin");
+            %%zig_args.append(pkg.name);
+            %%zig_args.append(builder.pathFromRoot(pkg.path));
+            %%zig_args.append("--pkg-end");
         }
 
         for (builder.include_paths.toSliceConst()) |include_path| {

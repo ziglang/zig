@@ -36,6 +36,8 @@ static int usage(const char *arg0) {
         "  --name [name]                override output name\n"
         "  --output [file]              override destination path\n"
         "  --output-h [file]            override generated header file path\n"
+        "  --pkg-begin [name] [path]    make package available to import and push current pkg\n"
+        "  --pkg-end                    pop current pkg\n"
         "  --release                    build with optimizations on and debug protection off\n"
         "  --static                     output will be statically linked\n"
         "  --strip                      exclude debug symbols\n"
@@ -121,6 +123,36 @@ enum Cmd {
 
 static const char *default_zig_cache_name = "zig-cache";
 
+struct CliPkg {
+    const char *name;
+    const char *path;
+    ZigList<CliPkg *> children;
+    CliPkg *parent;
+};
+
+static void add_package(CodeGen *g, CliPkg *cli_pkg, PackageTableEntry *pkg) {
+    for (size_t i = 0; i < cli_pkg->children.length; i += 1) {
+        CliPkg *child_cli_pkg = cli_pkg->children.at(i);
+
+        Buf *dirname = buf_alloc();
+        Buf *basename = buf_alloc();
+        os_path_split(buf_create_from_str(child_cli_pkg->path), dirname, basename);
+
+        PackageTableEntry *child_pkg = codegen_create_package(g, buf_ptr(dirname), buf_ptr(basename));
+        auto entry = pkg->package_table.put_unique(buf_create_from_str(child_cli_pkg->name), child_pkg);
+        if (entry) {
+            PackageTableEntry *existing_pkg = entry->value;
+            Buf *full_path = buf_alloc();
+            os_path_join(&existing_pkg->root_src_dir, &existing_pkg->root_src_path, full_path);
+            fprintf(stderr, "Unable to add package '%s'->'%s': already exists as '%s'\n",
+                    child_cli_pkg->name, child_cli_pkg->path, buf_ptr(full_path));
+            exit(EXIT_FAILURE);
+        }
+
+        add_package(g, child_cli_pkg, child_pkg);
+    }
+}
+
 int main(int argc, char **argv) {
     os_init();
 
@@ -168,6 +200,7 @@ int main(int argc, char **argv) {
     size_t ver_patch = 0;
     bool timing_info = false;
     const char *cache_dir = nullptr;
+    CliPkg *cur_pkg = allocate<CliPkg>(1);
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         const char *zig_exe_path = arg0;
@@ -309,13 +342,31 @@ int main(int argc, char **argv) {
             } else if (arg[1] == 'L' && arg[2] != 0) {
                 // alias for --library-path
                 lib_dirs.append(&arg[2]);
+            } else if (strcmp(arg, "--pkg-begin") == 0) {
+                if (i + 2 >= argc) {
+                    fprintf(stderr, "Expected 2 arguments after --pkg-begin\n");
+                    return usage(arg0);
+                }
+                CliPkg *new_cur_pkg = allocate<CliPkg>(1);
+                i += 1;
+                new_cur_pkg->name = argv[i];
+                i += 1;
+                new_cur_pkg->path = argv[i];
+                new_cur_pkg->parent = cur_pkg;
+                cur_pkg->children.append(new_cur_pkg);
+                cur_pkg = new_cur_pkg;
+            } else if (strcmp(arg, "--pkg-end") == 0) {
+                if (cur_pkg->parent == nullptr) {
+                    fprintf(stderr, "Encountered --pkg-end with no matching --pkg-begin\n");
+                    return EXIT_FAILURE;
+                }
+                cur_pkg = cur_pkg->parent;
             } else if (i + 1 >= argc) {
+                fprintf(stderr, "Expected another argument after %s\n", arg);
                 return usage(arg0);
             } else {
                 i += 1;
-                if (i >= argc) {
-                    return usage(arg0);
-                } else if (strcmp(arg, "--output") == 0) {
+                if (strcmp(arg, "--output") == 0) {
                     out_file = argv[i];
                 } else if (strcmp(arg, "--output-h") == 0) {
                     out_file_h = argv[i];
@@ -327,6 +378,7 @@ int main(int argc, char **argv) {
                     } else if (strcmp(argv[i], "off") == 0) {
                         color = ErrColorOff;
                     } else {
+                        fprintf(stderr, "--color options are 'auto', 'on', or 'off'\n");
                         return usage(arg0);
                     }
                 } else if (strcmp(arg, "--name") == 0) {
@@ -421,16 +473,23 @@ int main(int argc, char **argv) {
                     if (!in_file) {
                         in_file = arg;
                     } else {
+                        fprintf(stderr, "Unexpected extra parameter: %s\n", arg);
                         return usage(arg0);
                     }
                     break;
                 case CmdVersion:
                 case CmdTargets:
+                    fprintf(stderr, "Unexpected extra parameter: %s\n", arg);
                     return usage(arg0);
                 case CmdInvalid:
                     zig_unreachable();
             }
         }
+    }
+
+    if (cur_pkg->parent != nullptr) {
+        fprintf(stderr, "Unmatched --pkg-begin\n");
+        return EXIT_FAILURE;
     }
 
     switch (cmd) {
@@ -578,6 +637,9 @@ int main(int argc, char **argv) {
 
             if (out_file_h)
                 codegen_set_output_h_path(g, buf_create_from_str(out_file_h));
+
+
+            add_package(g, cur_pkg, g->root_package);
 
             if (cmd == CmdBuild) {
                 for (size_t i = 0; i < objects.length; i += 1) {
