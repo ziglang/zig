@@ -1,6 +1,7 @@
 const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 const cstr = @import("std").cstr;
+const builtin = @import("builtin");
 
 // normal comment
 /// this is a documentation comment
@@ -12,7 +13,7 @@ test "emptyFunctionWithComments" {
 }
 
 export fn disabledExternFn() {
-    @setGlobalLinkage(disabledExternFn, GlobalLinkage.Internal);
+    @setGlobalLinkage(disabledExternFn, builtin.GlobalLinkage.Internal);
 }
 
 test "callDisabledExternFn" {

@@ -688,9 +688,9 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
 
     cases.add("bogus compile var",
-        \\const x = @compileVar("bogus");
+        \\const x = @import("builtin").bogus;
         \\export fn entry() -> usize { @sizeOf(@typeOf(x)) }
-    , ".tmp_source.zig:1:23: error: unrecognized compile variable: 'bogus'");
+    , ".tmp_source.zig:1:29: error: no member named 'bogus' in '");
 
 
     cases.add("non constant expression in array size outside function",
@@ -910,18 +910,20 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     , ".tmp_source.zig:2:15: error: unable to infer expression type");
 
     cases.add("atomic orderings of cmpxchg - failure stricter than success",
+        \\const AtomicOrder = @import("builtin").AtomicOrder;
         \\export fn f() {
         \\    var x: i32 = 1234;
         \\    while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.Monotonic, AtomicOrder.SeqCst)) {}
         \\}
-    , ".tmp_source.zig:3:72: error: failure atomic ordering must be no stricter than success");
+    , ".tmp_source.zig:4:72: error: failure atomic ordering must be no stricter than success");
 
     cases.add("atomic orderings of cmpxchg - success Monotonic or stricter",
+        \\const AtomicOrder = @import("builtin").AtomicOrder;
         \\export fn f() {
         \\    var x: i32 = 1234;
         \\    while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.Unordered, AtomicOrder.Unordered)) {}
         \\}
-    , ".tmp_source.zig:3:49: error: success atomic ordering must be Monotonic or stricter");
+    , ".tmp_source.zig:4:49: error: success atomic ordering must be Monotonic or stricter");
 
     cases.add("negation overflow in function evaluation",
         \\const y = neg(-128);
@@ -1487,10 +1489,11 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     , ".tmp_source.zig:6:5: error: unable to evaluate constant expression");
 
     cases.add("invalid member of builtin enum",
+        \\const builtin = @import("builtin");
         \\export fn entry() {
-        \\    const foo = Arch.x86;
+        \\    const foo = builtin.Arch.x86;
         \\}
-    , ".tmp_source.zig:2:21: error: container 'Arch' has no member called 'x86'");
+    , ".tmp_source.zig:3:29: error: container 'Arch' has no member called 'x86'");
 
     cases.add("int to ptr of 0 bits",
         \\export fn foo() {

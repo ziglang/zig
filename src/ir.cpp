@@ -294,10 +294,6 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionAsm *) {
     return IrInstructionIdAsm;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionCompileVar *) {
-    return IrInstructionIdCompileVar;
-}
-
 static constexpr IrInstructionId ir_instruction_id(IrInstructionSizeOf *) {
     return IrInstructionIdSizeOf;
 }
@@ -1247,15 +1243,6 @@ static IrInstruction *ir_build_asm_from(IrBuilder *irb, IrInstruction *old_instr
             old_instruction->source_node, input_list, output_types, output_vars, return_count, has_side_effects);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
-}
-
-static IrInstruction *ir_build_compile_var(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *name) {
-    IrInstructionCompileVar *instruction = ir_build_instruction<IrInstructionCompileVar>(irb, scope, source_node);
-    instruction->name = name;
-
-    ir_ref_instruction(name, irb->current_basic_block);
-
-    return &instruction->base;
 }
 
 static IrInstruction *ir_build_size_of(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *type_value) {
@@ -2431,13 +2418,6 @@ static IrInstruction *ir_instruction_asm_get_dep(IrInstructionAsm *instruction, 
     return nullptr;
 }
 
-static IrInstruction *ir_instruction_compilevar_get_dep(IrInstructionCompileVar *instruction, size_t index) {
-    switch (index) {
-        case 0: return instruction->name;
-        default: return nullptr;
-    }
-}
-
 static IrInstruction *ir_instruction_sizeof_get_dep(IrInstructionSizeOf *instruction, size_t index) {
     switch (index) {
         case 0: return instruction->type_value;
@@ -2979,8 +2959,6 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_slicetype_get_dep((IrInstructionSliceType *) instruction, index);
         case IrInstructionIdAsm:
             return ir_instruction_asm_get_dep((IrInstructionAsm *) instruction, index);
-        case IrInstructionIdCompileVar:
-            return ir_instruction_compilevar_get_dep((IrInstructionCompileVar *) instruction, index);
         case IrInstructionIdSizeOf:
             return ir_instruction_sizeof_get_dep((IrInstructionSizeOf *) instruction, index);
         case IrInstructionIdTestNonNull:
@@ -3936,15 +3914,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 return ir_build_set_debug_safety(irb, scope, node, arg0_value, arg1_value);
-            }
-        case BuiltinFnIdCompileVar:
-            {
-                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
-                if (arg0_value == irb->codegen->invalid_instruction)
-                    return arg0_value;
-
-                return ir_build_compile_var(irb, scope, node, arg0_value);
             }
         case BuiltinFnIdSizeof:
             {
@@ -10409,27 +10378,6 @@ static TypeTableEntry *ir_analyze_instruction_array_type(IrAnalyze *ira,
     zig_unreachable();
 }
 
-static TypeTableEntry *ir_analyze_instruction_compile_var(IrAnalyze *ira,
-        IrInstructionCompileVar *compile_var_instruction)
-{
-    IrInstruction *name_value = compile_var_instruction->name->other;
-    Buf *var_name = ir_resolve_str(ira, name_value);
-    if (!var_name)
-        return ira->codegen->builtin_types.entry_invalid;
-
-    ConstExprValue *out_val = ir_build_const_from(ira, &compile_var_instruction->base);
-    auto entry = ira->codegen->compile_vars.maybe_get(var_name);
-    if (entry) {
-        *out_val = *entry->value;
-        return out_val->type;
-    } else {
-        ir_add_error_node(ira, name_value->source_node,
-            buf_sprintf("unrecognized compile variable: '%s'", buf_ptr(var_name)));
-        return ira->codegen->builtin_types.entry_invalid;
-    }
-    zig_unreachable();
-}
-
 static TypeTableEntry *ir_analyze_instruction_size_of(IrAnalyze *ira,
         IrInstructionSizeOf *size_of_instruction)
 {
@@ -13039,8 +12987,6 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_asm(ira, (IrInstructionAsm *)instruction);
         case IrInstructionIdArrayType:
             return ir_analyze_instruction_array_type(ira, (IrInstructionArrayType *)instruction);
-        case IrInstructionIdCompileVar:
-            return ir_analyze_instruction_compile_var(ira, (IrInstructionCompileVar *)instruction);
         case IrInstructionIdSizeOf:
             return ir_analyze_instruction_size_of(ira, (IrInstructionSizeOf *)instruction);
         case IrInstructionIdTestNonNull:
@@ -13292,7 +13238,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdEnumFieldPtr:
         case IrInstructionIdArrayType:
         case IrInstructionIdSliceType:
-        case IrInstructionIdCompileVar:
         case IrInstructionIdSizeOf:
         case IrInstructionIdTestNonNull:
         case IrInstructionIdUnwrapMaybe:

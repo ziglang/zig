@@ -1173,7 +1173,6 @@ enum BuiltinFnId {
     BuiltinFnIdCInclude,
     BuiltinFnIdCDefine,
     BuiltinFnIdCUndef,
-    BuiltinFnIdCompileVar,
     BuiltinFnIdCompileErr,
     BuiltinFnIdCompileLog,
     BuiltinFnIdGeneratedCode,
@@ -1323,7 +1322,6 @@ struct CodeGen {
     HashMap<GenericFnTypeId *, FnTableEntry *, generic_fn_type_id_hash, generic_fn_type_id_eql> generic_table;
     HashMap<Scope *, IrInstruction *, fn_eval_hash, fn_eval_eql> memoized_fn_eval_table;
     HashMap<ZigLLVMFnKey, LLVMValueRef, zig_llvm_fn_key_hash, zig_llvm_fn_key_eql> llvm_fn_table;
-    HashMap<Buf *, ConstExprValue *, buf_hash, buf_eql_buf> compile_vars;
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> exported_symbol_names;
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_prototypes;
 
@@ -1407,6 +1405,8 @@ struct CodeGen {
     PackageTableEntry *std_package;
     PackageTableEntry *zigrt_package;
     PackageTableEntry *test_runner_package;
+    PackageTableEntry *compile_var_package;
+    ImportTableEntry *compile_var_import;
     Buf *root_out_name;
     bool windows_subsystem_windows;
     bool windows_subsystem_console;
@@ -1635,6 +1635,7 @@ struct ScopeFnDef {
     FnTableEntry *fn_entry;
 };
 
+// synchronized with code in define_builtin_compile_vars
 enum AtomicOrder {
     AtomicOrderUnordered,
     AtomicOrderMonotonic,
@@ -1706,7 +1707,6 @@ enum IrInstructionId {
     IrInstructionIdArrayType,
     IrInstructionIdSliceType,
     IrInstructionIdAsm,
-    IrInstructionIdCompileVar,
     IrInstructionIdSizeOf,
     IrInstructionIdTestNonNull,
     IrInstructionIdUnwrapMaybe,
@@ -2083,12 +2083,6 @@ struct IrInstructionAsm {
     VariableTableEntry **output_vars;
     size_t return_count;
     bool has_side_effects;
-};
-
-struct IrInstructionCompileVar {
-    IrInstruction base;
-
-    IrInstruction *name;
 };
 
 struct IrInstructionSizeOf {

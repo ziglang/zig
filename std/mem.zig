@@ -2,6 +2,8 @@ const assert = @import("debug.zig").assert;
 const math = @import("math.zig");
 const os = @import("os/index.zig");
 const io = @import("io.zig");
+const builtin = @import("builtin");
+const Os = builtin.Os;
 
 pub const Cmp = math.Cmp;
 
@@ -53,7 +55,7 @@ pub const IncrementingAllocator = struct {
     end_index: usize,
 
     fn init(capacity: usize) -> %IncrementingAllocator {
-        switch (@compileVar("os")) {
+        switch (builtin.os) {
             Os.linux, Os.darwin, Os.macosx, Os.ios => {
                 const p = os.posix;
                 const addr = p.mmap(null, capacity, p.PROT_READ|p.PROT_WRITE,

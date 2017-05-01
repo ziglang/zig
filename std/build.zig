@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const io = @import("io.zig");
 const mem = @import("mem.zig");
 const debug = @import("debug.zig");
@@ -625,9 +626,9 @@ const Version = struct {
 };
 
 const CrossTarget = struct {
-    arch: Arch,
-    os: Os,
-    environ: Environ,
+    arch: builtin.Arch,
+    os: builtin.Os,
+    environ: builtin.Environ,
 };
 
 const Target = enum {
@@ -636,22 +637,22 @@ const Target = enum {
 
     pub fn oFileExt(self: &const Target) -> []const u8 {
         const environ = switch (*self) {
-            Target.Native => @compileVar("environ"),
+            Target.Native => builtin.environ,
             Target.Cross => |t| t.environ,
         };
         return switch (environ) {
-            Environ.msvc => ".obj",
+            builtin.Environ.msvc => ".obj",
             else => ".o",
         };
     }
 
     pub fn exeFileExt(self: &const Target) -> []const u8 {
         const target_os = switch (*self) {
-            Target.Native => @compileVar("os"),
+            Target.Native => builtin.os,
             Target.Cross => |t| t.os,
         };
         return switch (target_os) {
-            Os.windows => ".exe",
+            builtin.Os.windows => ".exe",
             else => "",
         };
     }
@@ -761,7 +762,9 @@ pub const LibExeObjStep = struct {
         }
     }
 
-    pub fn setTarget(self: &LibExeObjStep, target_arch: Arch, target_os: Os, target_environ: Environ) {
+    pub fn setTarget(self: &LibExeObjStep, target_arch: builtin.Arch, target_os: builtin.Os,
+        target_environ: builtin.Environ)
+    {
         self.target = Target.Cross {
             CrossTarget {
                 .arch = target_arch,
@@ -1392,7 +1395,9 @@ pub const CLibExeObjStep = struct {
         }
     }
 
-    pub fn setTarget(self: &CLibExeObjStep, target_arch: Arch, target_os: Os, target_environ: Environ) {
+    pub fn setTarget(self: &CLibExeObjStep, target_arch: builtin.Arch, target_os: builtin.Os,
+        target_environ: builtin.Environ)
+    {
         self.target = Target.Cross {
             CrossTarget {
                 .arch = target_arch,

@@ -1,3 +1,5 @@
+const builtin = @import("builtin");
+const Os = builtin.Os;
 const debug = @import("../debug.zig");
 const assert = debug.assert;
 const mem = @import("../mem.zig");
@@ -7,11 +9,11 @@ const os = @import("index.zig");
 const math = @import("../math.zig");
 const posix = os.posix;
 
-pub const sep = switch (@compileVar("os")) {
+pub const sep = switch (builtin.os) {
     Os.windows => '\\',
     else => '/',
 };
-pub const delimiter = switch (@compileVar("os")) {
+pub const delimiter = switch (builtin.os) {
     Os.windows => ';',
     else => ':',
 };
@@ -61,7 +63,7 @@ test "os.path.join" {
 }
 
 pub fn isAbsolute(path: []const u8) -> bool {
-    switch (@compileVar("os")) {
+    switch (builtin.os) {
         Os.windows => @compileError("Unsupported OS"),
         else => return path[0] == sep,
     }

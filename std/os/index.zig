@@ -1,7 +1,9 @@
+const builtin = @import("builtin");
+const Os = builtin.Os;
 pub const windows = @import("windows.zig");
 pub const darwin = @import("darwin.zig");
 pub const linux = @import("linux.zig");
-pub const posix = switch(@compileVar("os")) {
+pub const posix = switch(builtin.os) {
     Os.linux => linux,
     Os.darwin, Os.macosx, Os.ios => darwin,
     Os.windows => windows,
@@ -12,7 +14,7 @@ pub const max_noalloc_path_len = 1024;
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
 pub const path = @import("path.zig");
 
-pub const line_sep = switch (@compileVar("os")) {
+pub const line_sep = switch (builtin.os) {
     Os.windows => "\r\n",
     else => "\n",
 };
@@ -56,7 +58,7 @@ error DirNotEmpty;
 /// library implementation.
 pub fn getRandomBytes(buf: []u8) -> %void {
     while (true) {
-        const err = switch (@compileVar("os")) {
+        const err = switch (builtin.os) {
             Os.linux => {
                 if (linking_libc) {
                     if (c.getrandom(buf.ptr, buf.len, 0) == -1) *c._errno() else 0
@@ -104,7 +106,7 @@ pub coldcc fn abort() -> noreturn {
     if (linking_libc) {
         c.abort();
     }
-    switch (@compileVar("os")) {
+    switch (builtin.os) {
         Os.linux, Os.darwin, Os.macosx, Os.ios => {
             _ = posix.raise(posix.SIGABRT);
             _ = posix.raise(posix.SIGKILL);

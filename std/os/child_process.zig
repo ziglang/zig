@@ -7,6 +7,8 @@ const errno = @import("errno.zig");
 const debug = @import("../debug.zig");
 const assert = debug.assert;
 const BufMap = @import("../buf_map.zig").BufMap;
+const builtin = @import("builtin");
+const Os = builtin.Os;
 
 pub const ChildProcess = struct {
     pid: i32,
@@ -34,7 +36,7 @@ pub const ChildProcess = struct {
         cwd: ?[]const u8, env_map: &const BufMap,
         stdin: StdIo, stdout: StdIo, stderr: StdIo, allocator: &Allocator) -> %ChildProcess
     {
-        switch (@compileVar("os")) {
+        switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios, Os.darwin => {
                 return spawnPosix(exe_path, args, cwd, env_map, stdin, stdout, stderr, allocator);
             },

@@ -3,6 +3,7 @@
 
 const root = @import("@root");
 const std = @import("std");
+const builtin = @import("builtin");
 
 const want_main_symbol = std.target.linking_libc;
 const want_start_symbol = !want_main_symbol;
@@ -13,15 +14,15 @@ var argc_ptr: &usize = undefined;
 
 export nakedcc fn _start() -> noreturn {
     if (!want_start_symbol) {
-        @setGlobalLinkage(_start, GlobalLinkage.Internal);
+        @setGlobalLinkage(_start, builtin.GlobalLinkage.Internal);
         unreachable;
     }
 
-    switch (@compileVar("arch")) {
-        Arch.x86_64 => {
+    switch (builtin.arch) {
+        builtin.Arch.x86_64 => {
             argc_ptr = asm("lea (%%rsp), %[argc]": [argc] "=r" (-> &usize));
         },
-        Arch.i386 => {
+        builtin.Arch.i386 => {
             argc_ptr = asm("lea (%%esp), %[argc]": [argc] "=r" (-> &usize));
         },
         else => @compileError("unsupported arch"),
@@ -51,7 +52,7 @@ fn callMain(argc: usize, argv: &&u8, envp: &?&u8) -> %void {
 
 export fn main(c_argc: i32, c_argv: &&u8, c_envp: &?&u8) -> i32 {
     if (!want_main_symbol) {
-        @setGlobalLinkage(main, GlobalLinkage.Internal);
+        @setGlobalLinkage(main, builtin.GlobalLinkage.Internal);
         unreachable;
     }
 

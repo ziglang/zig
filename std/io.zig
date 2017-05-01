@@ -1,4 +1,6 @@
-const system = switch(@compileVar("os")) {
+const builtin = @import("builtin");
+const Os = builtin.Os;
+const system = switch(builtin.os) {
     Os.linux => @import("os/linux.zig"),
     Os.darwin => @import("os/darwin.zig"),
     else => @compileError("Unsupported OS"),
@@ -79,7 +81,7 @@ pub const OutStream = struct {
     /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
     /// Call close to clean up.
     pub fn openMode(path: []const u8, mode: usize, allocator: ?&mem.Allocator) -> %OutStream {
-        switch (@compileVar("os")) {
+        switch (builtin.os) {
             Os.linux, Os.darwin, Os.macosx, Os.ios => {
                 const flags = system.O_LARGEFILE|system.O_WRONLY|system.O_CREAT|system.O_CLOEXEC|system.O_TRUNC;
                 const fd = %return os.posixOpen(path, flags, mode, allocator);
@@ -176,7 +178,7 @@ pub const InStream = struct {
     /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
     /// Call close to clean up.
     pub fn open(path: []const u8, allocator: ?&mem.Allocator) -> %InStream {
-        switch (@compileVar("os")) {
+        switch (builtin.os) {
             Os.linux, Os.darwin, Os.macosx, Os.ios => {
                 const flags = system.O_LARGEFILE|system.O_RDONLY;
                 const fd = %return os.posixOpen(path, flags, 0, allocator);
@@ -191,7 +193,7 @@ pub const InStream = struct {
     /// Upon success, the stream is in an uninitialized state. To continue using it,
     /// you must use the open() function.
     pub fn close(self: &InStream) {
-        switch (@compileVar("os")) {
+        switch (builtin.os) {
             Os.linux, Os.darwin, Os.macosx, Os.ios => {
                 os.posixClose(self.fd);
             },
@@ -202,7 +204,7 @@ pub const InStream = struct {
     /// Returns the number of bytes read. If the number read is smaller than buf.len, then
     /// the stream reached End Of File.
     pub fn read(is: &InStream, buf: []u8) -> %usize {
-        switch (@compileVar("os")) {
+        switch (builtin.os) {
             Os.linux, Os.darwin => {
                 var index: usize = 0;
                 while (index < buf.len) {
@@ -268,7 +270,7 @@ pub const InStream = struct {
     }
 
     pub fn seekForward(is: &InStream, amount: usize) -> %void {
-        switch (@compileVar("os")) {
+        switch (builtin.os) {
             Os.linux, Os.darwin => {
                 const result = system.lseek(is.fd, amount, system.SEEK_CUR);
                 const err = system.getErrno(result);
@@ -288,7 +290,7 @@ pub const InStream = struct {
     }
 
     pub fn seekTo(is: &InStream, pos: usize) -> %void {
-        switch (@compileVar("os")) {
+        switch (builtin.os) {
             Os.linux, Os.darwin => {
                 const result = system.lseek(is.fd, pos, system.SEEK_SET);
                 const err = system.getErrno(result);
@@ -308,7 +310,7 @@ pub const InStream = struct {
     }
 
     pub fn getPos(is: &InStream) -> %usize {
-        switch (@compileVar("os")) {
+        switch (builtin.os) {
             Os.linux, Os.darwin => {
                 const result = system.lseek(is.fd, 0, system.SEEK_CUR);
                 const err = system.getErrno(result);
@@ -365,7 +367,7 @@ pub const InStream = struct {
 };
 
 pub fn openSelfExe() -> %InStream {
-    switch (@compileVar("os")) {
+    switch (builtin.os) {
         Os.linux => {
             return InStream.open("/proc/self/exe", null);
         },

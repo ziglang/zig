@@ -263,8 +263,8 @@ int main(int argc, char **argv) {
             return 1;
         }
 
-        PackageTableEntry *build_pkg = new_package(buf_ptr(&build_file_dirname), buf_ptr(&build_file_basename));
-        build_pkg->package_table.put(buf_create_from_str("std"), g->std_package);
+        PackageTableEntry *build_pkg = codegen_create_package(g, buf_ptr(&build_file_dirname),
+                buf_ptr(&build_file_basename));
         g->root_package->package_table.put(buf_create_from_str("@build"), build_pkg);
         codegen_build(g);
         codegen_link(g, buf_ptr(path_to_build_exe));

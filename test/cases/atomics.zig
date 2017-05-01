@@ -1,4 +1,5 @@
 const assert = @import("std").debug.assert;
+const AtomicOrder = @import("builtin").AtomicOrder;
 
 test "cmpxchg" {
     var x: i32 = 1234;

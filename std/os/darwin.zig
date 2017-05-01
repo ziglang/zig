@@ -1,6 +1,7 @@
 
-const arch = switch (@compileVar("arch")) {
-    Arch.x86_64 => @import("darwin_x86_64.zig"),
+const builtin = @import("builtin");
+const arch = switch (builtin.arch) {
+    builtin.Arch.x86_64 => @import("darwin_x86_64.zig"),
     else => @compileError("unsupported arch"),
 };
 

@@ -1,3 +1,5 @@
+const builtin = @import("builtin");
+
 const CHAR_BIT = 8;
 const du_int = u64;
 const di_int = i64;
@@ -5,7 +7,7 @@ const si_int = c_int;
 const su_int = c_uint;
 
 const udwords = [2]su_int;
-const low = if (@compileVar("is_big_endian")) 1 else 0;
+const low = if (builtin.is_big_endian) 1 else 0;
 const high = 1 - low;
 
 export fn __udivdi3(a: du_int, b: du_int) -> du_int {
@@ -213,25 +215,25 @@ export fn __umoddi3(a: du_int, b: du_int) -> du_int {
 }
 
 fn isArmArch() -> bool {
-    return switch (@compileVar("arch")) {
-        Arch.armv8_2a,
-        Arch.armv8_1a,
-        Arch.armv8,
-        Arch.armv8m_baseline,
-        Arch.armv8m_mainline,
-        Arch.armv7,
-        Arch.armv7em,
-        Arch.armv7m,
-        Arch.armv7s,
-        Arch.armv7k,
-        Arch.armv6,
-        Arch.armv6m,
-        Arch.armv6k,
-        Arch.armv6t2,
-        Arch.armv5,
-        Arch.armv5te,
-        Arch.armv4t,
-        Arch.armeb => true,
+    return switch (builtin.arch) {
+        builtin.Arch.armv8_2a,
+        builtin.Arch.armv8_1a,
+        builtin.Arch.armv8,
+        builtin.Arch.armv8m_baseline,
+        builtin.Arch.armv8m_mainline,
+        builtin.Arch.armv7,
+        builtin.Arch.armv7em,
+        builtin.Arch.armv7m,
+        builtin.Arch.armv7s,
+        builtin.Arch.armv7k,
+        builtin.Arch.armv6,
+        builtin.Arch.armv6m,
+        builtin.Arch.armv6k,
+        builtin.Arch.armv6t2,
+        builtin.Arch.armv5,
+        builtin.Arch.armv5te,
+        builtin.Arch.armv4t,
+        builtin.Arch.armeb => true,
         else => false,
     };
 }
@@ -252,7 +254,7 @@ export nakedcc fn __aeabi_uidivmod() {
         unreachable;
     }
 
-    @setGlobalLinkage(__aeabi_uidivmod, GlobalLinkage.Internal);
+    @setGlobalLinkage(__aeabi_uidivmod, builtin.GlobalLinkage.Internal);
 }
 
 export fn __udivmodsi4(a: su_int, b: su_int, rem: &su_int) -> su_int {

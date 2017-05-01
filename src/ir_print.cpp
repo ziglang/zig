@@ -403,12 +403,6 @@ static void ir_print_asm(IrPrint *irp, IrInstructionAsm *instruction) {
     fprintf(irp->f, ")");
 }
 
-static void ir_print_compile_var(IrPrint *irp, IrInstructionCompileVar *instruction) {
-    fprintf(irp->f, "@compileVar(");
-    ir_print_other_instruction(irp, instruction->name);
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_size_of(IrPrint *irp, IrInstructionSizeOf *instruction) {
     fprintf(irp->f, "@sizeOf(");
     ir_print_other_instruction(irp, instruction->type_value);
@@ -986,9 +980,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdAsm:
             ir_print_asm(irp, (IrInstructionAsm *)instruction);
-            break;
-        case IrInstructionIdCompileVar:
-            ir_print_compile_var(irp, (IrInstructionCompileVar *)instruction);
             break;
         case IrInstructionIdSizeOf:
             ir_print_size_of(irp, (IrInstructionSizeOf *)instruction);

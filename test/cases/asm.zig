@@ -1,7 +1,8 @@
+const config = @import("builtin");
 const assert = @import("std").debug.assert;
 
 comptime {
-    if (@compileVar("arch") == Arch.x86_64) {
+    if (config.arch == config.Arch.x86_64) {
         asm volatile (
             \\.globl aoeu;
             \\.type aoeu, @function;
@@ -11,7 +12,7 @@ comptime {
 }
 
 test "module level assembly" {
-    if (@compileVar("arch") == Arch.x86_64) {
+    if (config.arch == config.Arch.x86_64) {
         assert(aoeu() == 1234);
     }
 }

@@ -3,8 +3,9 @@ const assert = debug.assert;
 const math = @import("math.zig");
 const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
+const builtin = @import("builtin");
 
-const want_modification_safety = !@compileVar("is_release");
+const want_modification_safety = !builtin.is_release;
 const debug_u32 = if (want_modification_safety) u32 else void;
 
 pub fn HashMap(comptime K: type, comptime V: type,

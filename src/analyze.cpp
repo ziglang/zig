@@ -2084,6 +2084,14 @@ void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source
     tld->parent_scope = parent_scope;
 }
 
+void update_compile_var(CodeGen *g, Buf *name, ConstExprValue *value) {
+    Tld *tld = g->compile_var_import->decls_scope->decl_table.get(name);
+    resolve_top_level_decl(g, tld, false);
+    assert(tld->id == TldIdVar);
+    TldVar *tld_var = (TldVar *)tld;
+    tld_var->var->value = value;
+}
+
 void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
     switch (node->type) {
         case NodeTypeRoot:
@@ -2122,7 +2130,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
                 if (import == g->root_import && scope_is_root_decls(&decls_scope->base) &&
                     buf_eql_str(fn_name, "panic"))
                 {
-                    g->compile_vars.put(buf_create_from_str("panic_implementation_provided"),
+                    update_compile_var(g, buf_create_from_str("__zig_panic_implementation_provided"),
                             create_const_bool(g, true));
                 }
 

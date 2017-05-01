@@ -446,23 +446,6 @@ This function can only occur inside `@c_import`.
 
 This appends `#undef $name` to the `c_import` temporary buffer.
 
-### @compileVar(comptime name: []u8) -> (varying type)
-
-This function returns a compile-time variable. There are built in compile
-variables:
-
- * "is_big_endian" `bool` - either `true` for big endian or `false` for little endian.
- * "is_release" `bool`- either `true` for release mode builds or `false` for debug mode builds.
- * "is_test" `bool`- either `true` for test builds or `false` otherwise.
- * "os" `Os` - use `zig targets` to see what enum values are possible here.
- * "arch" `Arch` - use `zig targets` to see what enum values are possible here.
- * "environ" `Environ` - use `zig targets` to see what enum values are possible here.
-
-Build scripts can set additional compile variables of any name and type.
-
-The result of this function is a compile time constant that is marked as
-depending on a compile variable.
-
 ### @generatedCode(expression) -> @typeOf(expression)
 
 This function wraps an expression and returns the result of the expression

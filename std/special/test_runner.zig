@@ -1,5 +1,6 @@
 const io = @import("std").io;
-const test_fn_list = @compileVar("zig_test_fn_slice");
+const builtin = @import("builtin");
+const test_fn_list = builtin.__zig_test_fn_slice;
 
 pub fn main() -> %void {
     for (test_fn_list) |test_fn, i| {

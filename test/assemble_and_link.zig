@@ -1,7 +1,8 @@
+const builtin = @import("builtin");
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompareOutputContext) {
-    if (@compileVar("os") == Os.linux and @compileVar("arch") == Arch.x86_64) {
+    if (builtin.os == builtin.Os.linux and builtin.arch == builtin.Arch.x86_64) {
         cases.addAsm("hello world linux x86_64",
             \\.text
             \\.globl _start

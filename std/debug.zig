@@ -4,6 +4,7 @@ const os = @import("os/index.zig");
 const elf = @import("elf.zig");
 const DW = @import("dwarf.zig");
 const List = @import("list.zig").List;
+const builtin = @import("builtin");
 
 error MissingDebugInfo;
 error InvalidDebugInfo;
@@ -50,8 +51,8 @@ pub var user_main_fn: ?fn() -> %void = null;
 pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty_color: bool,
     ignore_frame_count: usize) -> %void
 {
-    switch (@compileVar("object_format")) {
-        ObjectFormat.elf => {
+    switch (builtin.object_format) {
+        builtin.ObjectFormat.elf => {
             var stack_trace = ElfStackTrace {
                 .self_exe_stream = undefined,
                 .elf = undefined,
@@ -125,13 +126,13 @@ pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty
                 %return out_stream.flush();
             }
         },
-        ObjectFormat.coff => {
+        builtin.ObjectFormat.coff => {
             %return out_stream.write("(stack trace unavailable for COFF object format)\n");
         },
-        ObjectFormat.macho => {
+        builtin.ObjectFormat.macho => {
             %return out_stream.write("(stack trace unavailable for Mach-O object format)\n");
         },
-        ObjectFormat.unknown => {
+        builtin.ObjectFormat.unknown => {
             %return out_stream.write("(stack trace unavailable for unknown object format)\n");
         },
     }

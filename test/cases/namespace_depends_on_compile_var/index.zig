@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const assert = @import("std").debug.assert;
 
 test "namespaceDependsOnCompileVar" {
@@ -7,7 +8,7 @@ test "namespaceDependsOnCompileVar" {
         assert(!some_namespace.a_bool);
     }
 }
-const some_namespace = switch(@compileVar("os")) {
-    Os.linux => @import("a.zig"),
+const some_namespace = switch(builtin.os) {
+    builtin.Os.linux => @import("a.zig"),
     else => @import("b.zig"),
 };

@@ -47,7 +47,7 @@ static void init_darwin_native(CodeGen *g) {
     }
 }
 
-PackageTableEntry *new_package(const char *root_src_dir, const char *root_src_path) {
+static PackageTableEntry *new_package(const char *root_src_dir, const char *root_src_path) {
     PackageTableEntry *entry = allocate<PackageTableEntry>(1);
     entry->package_table.init(4);
     buf_init_from_str(&entry->root_src_dir, root_src_dir);
@@ -70,7 +70,6 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
     g->generic_table.init(16);
     g->llvm_fn_table.init(16);
     g->memoized_fn_eval_table.init(16);
-    g->compile_vars.init(16);
     g->exported_symbol_names.init(8);
     g->external_prototypes.init(8);
     g->is_release_build = false;
@@ -2883,7 +2882,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdSetDebugSafety:
         case IrInstructionIdArrayType:
         case IrInstructionIdSliceType:
-        case IrInstructionIdCompileVar:
         case IrInstructionIdSizeOf:
         case IrInstructionIdSwitchTarget:
         case IrInstructionIdContainerInitFields:
@@ -3627,6 +3625,13 @@ static LLVMValueRef build_alloca(CodeGen *g, TypeTableEntry *type_entry, const c
     return result;
 }
 
+static void ensure_cache_dir(CodeGen *g) {
+    int err;
+    if ((err = os_make_path(g->cache_dir))) {
+        zig_panic("unable to make cache dir: %s", err_str(err));
+    }
+}
+
 static void do_code_gen(CodeGen *g) {
     if (g->verbose) {
         fprintf(stderr, "\nCode Generation:\n");
@@ -3919,10 +3924,7 @@ static void do_code_gen(CodeGen *g) {
     buf_append_str(o_basename, o_ext);
     Buf *output_path = buf_alloc();
     os_path_join(g->cache_dir, o_basename, output_path);
-    int err;
-    if ((err = os_make_path(g->cache_dir))) {
-        zig_panic("unable to make cache dir: %s", err_str(err));
-    }
+    ensure_cache_dir(g);
     if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
                 LLVMObjectFile, &err_msg, !g->is_release_build))
     {
@@ -3969,36 +3971,6 @@ static const GlobalLinkageValue global_linkage_values[] = {
     {GlobalLinkageIdWeak, "Weak"},
     {GlobalLinkageIdLinkOnce, "LinkOnce"},
 };
-
-static void init_enum_debug_info(CodeGen *g, TypeTableEntry *enum_type) {
-    uint32_t field_count = enum_type->data.enumeration.src_field_count;
-
-    TypeTableEntry *tag_int_type = get_smallest_unsigned_int_type(g, field_count);
-    TypeTableEntry *tag_type_entry = create_enum_tag_type(g, enum_type, tag_int_type);
-    enum_type->data.enumeration.tag_type = tag_type_entry;
-
-    ZigLLVMDIEnumerator **di_enumerators = allocate<ZigLLVMDIEnumerator*>(field_count);
-    for (uint32_t i = 0; i < field_count; i += 1) {
-        TypeEnumField *field = &enum_type->data.enumeration.fields[i];
-        di_enumerators[i] = ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(field->name), i);
-    }
-
-    // create debug type for tag
-    uint64_t tag_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, tag_type_entry->type_ref);
-    uint64_t tag_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, tag_type_entry->type_ref);
-    enum_type->di_type = ZigLLVMCreateDebugEnumerationType(g->dbuilder,
-            nullptr, buf_ptr(&enum_type->name),
-            nullptr, 0,
-            tag_debug_size_in_bits,
-            tag_debug_align_in_bits,
-            di_enumerators, field_count,
-            tag_type_entry->di_type, "");
-
-    enum_type->type_ref = tag_type_entry->type_ref;
-
-    enum_type->data.enumeration.complete = true;
-    enum_type->data.enumeration.zero_bits_known = true;
-}
 
 static void define_builtin_types(CodeGen *g) {
     {
@@ -4218,167 +4190,6 @@ static void define_builtin_types(CodeGen *g) {
         g->primitive_type_table.put(&entry->name, entry);
     }
 
-    {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
-        buf_init_from_str(&entry->name, "Os");
-        uint32_t field_count = (uint32_t)target_os_count();
-        entry->data.enumeration.src_field_count = field_count;
-        entry->data.enumeration.fields = allocate<TypeEnumField>(field_count);
-        for (uint32_t i = 0; i < field_count; i += 1) {
-            TypeEnumField *type_enum_field = &entry->data.enumeration.fields[i];
-            ZigLLVM_OSType os_type = get_target_os(i);
-            type_enum_field->name = buf_create_from_str(get_target_os_name(os_type));
-            type_enum_field->value = i;
-            type_enum_field->type_entry = g->builtin_types.entry_void;
-
-            if (os_type == g->zig_target.os) {
-                g->target_os_index = i;
-            }
-        }
-
-        init_enum_debug_info(g, entry);
-
-        g->builtin_types.entry_os_enum = entry;
-        g->primitive_type_table.put(&entry->name, entry);
-    }
-
-    {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
-        buf_init_from_str(&entry->name, "Arch");
-        uint32_t field_count = (uint32_t)target_arch_count();
-        entry->data.enumeration.src_field_count = field_count;
-        entry->data.enumeration.fields = allocate<TypeEnumField>(field_count);
-        for (uint32_t i = 0; i < field_count; i += 1) {
-            TypeEnumField *type_enum_field = &entry->data.enumeration.fields[i];
-            const ArchType *arch_type = get_target_arch(i);
-            type_enum_field->name = buf_alloc();
-            buf_resize(type_enum_field->name, 50);
-            get_arch_name(buf_ptr(type_enum_field->name), arch_type);
-            buf_resize(type_enum_field->name, strlen(buf_ptr(type_enum_field->name)));
-
-            type_enum_field->value = i;
-            type_enum_field->type_entry = g->builtin_types.entry_void;
-
-            if (arch_type->arch == g->zig_target.arch.arch &&
-                arch_type->sub_arch == g->zig_target.arch.sub_arch)
-            {
-                g->target_arch_index = i;
-            }
-        }
-
-        init_enum_debug_info(g, entry);
-
-        g->builtin_types.entry_arch_enum = entry;
-        g->primitive_type_table.put(&entry->name, entry);
-    }
-
-    {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
-        buf_init_from_str(&entry->name, "Environ");
-        uint32_t field_count = (uint32_t)target_environ_count();
-        entry->data.enumeration.src_field_count = field_count;
-        entry->data.enumeration.fields = allocate<TypeEnumField>(field_count);
-        for (uint32_t i = 0; i < field_count; i += 1) {
-            TypeEnumField *type_enum_field = &entry->data.enumeration.fields[i];
-            ZigLLVM_EnvironmentType environ_type = get_target_environ(i);
-            type_enum_field->name = buf_create_from_str(ZigLLVMGetEnvironmentTypeName(environ_type));
-            type_enum_field->value = i;
-            type_enum_field->type_entry = g->builtin_types.entry_void;
-
-            if (environ_type == g->zig_target.env_type) {
-                g->target_environ_index = i;
-            }
-        }
-
-        init_enum_debug_info(g, entry);
-
-        g->builtin_types.entry_environ_enum = entry;
-        g->primitive_type_table.put(&entry->name, entry);
-    }
-
-    {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
-        buf_init_from_str(&entry->name, "ObjectFormat");
-        uint32_t field_count = (uint32_t)target_oformat_count();
-        entry->data.enumeration.src_field_count = field_count;
-        entry->data.enumeration.fields = allocate<TypeEnumField>(field_count);
-        for (uint32_t i = 0; i < field_count; i += 1) {
-            TypeEnumField *type_enum_field = &entry->data.enumeration.fields[i];
-            ZigLLVM_ObjectFormatType oformat = get_target_oformat(i);
-            type_enum_field->name = buf_create_from_str(get_target_oformat_name(oformat));
-            type_enum_field->value = i;
-            type_enum_field->type_entry = g->builtin_types.entry_void;
-
-            if (oformat == g->zig_target.oformat) {
-                g->target_oformat_index = i;
-            }
-        }
-
-        init_enum_debug_info(g, entry);
-
-        g->builtin_types.entry_oformat_enum = entry;
-        g->primitive_type_table.put(&entry->name, entry);
-    }
-
-    {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
-        entry->zero_bits = true; // only allowed at compile time
-        buf_init_from_str(&entry->name, "GlobalLinkage");
-        uint32_t field_count = array_length(global_linkage_values);
-        entry->data.enumeration.src_field_count = field_count;
-        entry->data.enumeration.fields = allocate<TypeEnumField>(field_count);
-        for (uint32_t i = 0; i < field_count; i += 1) {
-            TypeEnumField *type_enum_field = &entry->data.enumeration.fields[i];
-            const GlobalLinkageValue *value = &global_linkage_values[i];
-            type_enum_field->name = buf_create_from_str(value->name);
-            type_enum_field->value = i;
-            type_enum_field->type_entry = g->builtin_types.entry_void;
-        }
-        entry->data.enumeration.complete = true;
-        entry->data.enumeration.zero_bits_known = true;
-
-        TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
-        entry->data.enumeration.tag_type = tag_type_entry;
-
-        g->builtin_types.entry_global_linkage_enum = entry;
-        g->primitive_type_table.put(&entry->name, entry);
-    }
-
-    {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnum);
-        entry->zero_bits = true; // only allowed at compile time
-        buf_init_from_str(&entry->name, "AtomicOrder");
-        uint32_t field_count = 6;
-        entry->data.enumeration.src_field_count = field_count;
-        entry->data.enumeration.fields = allocate<TypeEnumField>(field_count);
-        entry->data.enumeration.fields[0].name = buf_create_from_str("Unordered");
-        entry->data.enumeration.fields[0].value = AtomicOrderUnordered;
-        entry->data.enumeration.fields[0].type_entry = g->builtin_types.entry_void;
-        entry->data.enumeration.fields[1].name = buf_create_from_str("Monotonic");
-        entry->data.enumeration.fields[1].value = AtomicOrderMonotonic;
-        entry->data.enumeration.fields[1].type_entry = g->builtin_types.entry_void;
-        entry->data.enumeration.fields[2].name = buf_create_from_str("Acquire");
-        entry->data.enumeration.fields[2].value = AtomicOrderAcquire;
-        entry->data.enumeration.fields[2].type_entry = g->builtin_types.entry_void;
-        entry->data.enumeration.fields[3].name = buf_create_from_str("Release");
-        entry->data.enumeration.fields[3].value = AtomicOrderRelease;
-        entry->data.enumeration.fields[3].type_entry = g->builtin_types.entry_void;
-        entry->data.enumeration.fields[4].name = buf_create_from_str("AcqRel");
-        entry->data.enumeration.fields[4].value = AtomicOrderAcqRel;
-        entry->data.enumeration.fields[4].type_entry = g->builtin_types.entry_void;
-        entry->data.enumeration.fields[5].name = buf_create_from_str("SeqCst");
-        entry->data.enumeration.fields[5].value = AtomicOrderSeqCst;
-        entry->data.enumeration.fields[5].type_entry = g->builtin_types.entry_void;
-
-        entry->data.enumeration.complete = true;
-        entry->data.enumeration.zero_bits_known = true;
-
-        TypeTableEntry *tag_type_entry = get_smallest_unsigned_int_type(g, field_count);
-        entry->data.enumeration.tag_type = tag_type_entry;
-
-        g->builtin_types.entry_atomic_order_enum = entry;
-        g->primitive_type_table.put(&entry->name, entry);
-    }
 }
 
 
@@ -4475,7 +4286,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCInclude, "cInclude", 1);
     create_builtin_fn(g, BuiltinFnIdCDefine, "cDefine", 2);
     create_builtin_fn(g, BuiltinFnIdCUndef, "cUndef", 1);
-    create_builtin_fn(g, BuiltinFnIdCompileVar, "compileVar", 1);
     create_builtin_fn(g, BuiltinFnIdGeneratedCode, "generatedCode", 1);
     create_builtin_fn(g, BuiltinFnIdCtz, "ctz", 1);
     create_builtin_fn(g, BuiltinFnIdClz, "clz", 1);
@@ -4506,38 +4316,159 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdOffsetOf, "offsetOf", 2);
 }
 
-static void add_compile_var(CodeGen *g, const char *name, ConstExprValue *value) {
-    g->compile_vars.put_unique(buf_create_from_str(name), value);
+static const char *bool_to_str(bool b) {
+    return b ? "true" : "false";
 }
 
 static void define_builtin_compile_vars(CodeGen *g) {
-    add_compile_var(g, "is_big_endian", create_const_bool(g, g->is_big_endian));
-    add_compile_var(g, "is_release", create_const_bool(g, g->is_release_build));
-    add_compile_var(g, "is_test", create_const_bool(g, g->is_test_build));
-    add_compile_var(g, "os", create_const_enum_tag(g->builtin_types.entry_os_enum, g->target_os_index));
-    add_compile_var(g, "arch", create_const_enum_tag(g->builtin_types.entry_arch_enum, g->target_arch_index));
-    add_compile_var(g, "environ", create_const_enum_tag(g->builtin_types.entry_environ_enum, g->target_environ_index));
-    add_compile_var(g, "object_format", create_const_enum_tag(
-                g->builtin_types.entry_oformat_enum, g->target_oformat_index));
+    if (g->std_package == nullptr)
+        return;
 
+    const char *builtin_zig_basename = "builtin.zig";
+    Buf *builtin_zig_path = buf_alloc();
+    os_path_join(g->cache_dir, buf_create_from_str(builtin_zig_basename), builtin_zig_path);
+    Buf *contents = buf_alloc();
+
+    const char *cur_os = nullptr;
     {
-        TypeTableEntry *str_type = get_slice_type(g, g->builtin_types.entry_u8, true);
-        ConstExprValue *const_val = allocate<ConstExprValue>(1);
-        const_val->special = ConstValSpecialStatic;
-        const_val->type = get_array_type(g, str_type, g->link_libs.length);
-        const_val->data.x_array.s_none.elements = allocate<ConstExprValue>(g->link_libs.length);
-        for (size_t i = 0; i < g->link_libs.length; i += 1) {
-            Buf *link_lib_buf = g->link_libs.at(i);
-            ConstExprValue *array_val = create_const_str_lit(g, link_lib_buf);
-            init_const_slice(g, &const_val->data.x_array.s_none.elements[i], array_val, 0, buf_len(link_lib_buf), true);
+        buf_appendf(contents, "pub const Os = enum {\n");
+        uint32_t field_count = (uint32_t)target_os_count();
+        for (uint32_t i = 0; i < field_count; i += 1) {
+            ZigLLVM_OSType os_type = get_target_os(i);
+            const char *name = get_target_os_name(os_type);
+            buf_appendf(contents, "    %s,\n", name);
+
+            if (os_type == g->zig_target.os) {
+                g->target_os_index = i;
+                cur_os = name;
+            }
+        }
+        buf_appendf(contents, "};\n\n");
+    }
+    assert(cur_os != nullptr);
+
+    const char *cur_arch = nullptr;
+    {
+        buf_appendf(contents, "pub const Arch = enum {\n");
+        uint32_t field_count = (uint32_t)target_arch_count();
+        for (uint32_t i = 0; i < field_count; i += 1) {
+            const ArchType *arch_type = get_target_arch(i);
+            Buf *arch_name = buf_alloc();
+            buf_resize(arch_name, 50);
+            get_arch_name(buf_ptr(arch_name), arch_type);
+            buf_resize(arch_name, strlen(buf_ptr(arch_name)));
+
+            buf_appendf(contents, "    %s,\n", buf_ptr(arch_name));
+
+            if (arch_type->arch == g->zig_target.arch.arch &&
+                arch_type->sub_arch == g->zig_target.arch.sub_arch)
+            {
+                g->target_arch_index = i;
+                cur_arch = buf_ptr(arch_name);
+            }
+        }
+        buf_appendf(contents, "};\n\n");
+    }
+    assert(cur_arch != nullptr);
+
+    const char *cur_environ = nullptr;
+    {
+        buf_appendf(contents, "pub const Environ = enum {\n");
+        uint32_t field_count = (uint32_t)target_environ_count();
+        for (uint32_t i = 0; i < field_count; i += 1) {
+            ZigLLVM_EnvironmentType environ_type = get_target_environ(i);
+            const char *name = ZigLLVMGetEnvironmentTypeName(environ_type);
+            buf_appendf(contents, "    %s,\n", name);
+
+            if (environ_type == g->zig_target.env_type) {
+                g->target_environ_index = i;
+                cur_environ = name;
+            }
+        }
+        buf_appendf(contents, "};\n\n");
+    }
+    assert(cur_environ != nullptr);
+
+    const char *cur_obj_fmt = nullptr;
+    {
+        buf_appendf(contents, "pub const ObjectFormat = enum {\n");
+        uint32_t field_count = (uint32_t)target_oformat_count();
+        for (uint32_t i = 0; i < field_count; i += 1) {
+            ZigLLVM_ObjectFormatType oformat = get_target_oformat(i);
+            const char *name = get_target_oformat_name(oformat);
+            buf_appendf(contents, "    %s,\n", name);
+
+            if (oformat == g->zig_target.oformat) {
+                g->target_oformat_index = i;
+                cur_obj_fmt = name;
+            }
         }
 
-        add_compile_var(g, "link_libs", const_val);
+        buf_appendf(contents, "};\n\n");
     }
-    add_compile_var(g, "panic_implementation_provided", create_const_bool(g, false));
+    assert(cur_obj_fmt != nullptr);
+
+    {
+        buf_appendf(contents, "pub const GlobalLinkage = enum {\n");
+        uint32_t field_count = array_length(global_linkage_values);
+        for (uint32_t i = 0; i < field_count; i += 1) {
+            const GlobalLinkageValue *value = &global_linkage_values[i];
+            buf_appendf(contents, "    %s,\n", value->name);
+        }
+        buf_appendf(contents, "};\n\n");
+    }
+    {
+        buf_appendf(contents,
+            "pub const AtomicOrder = enum {\n"
+            "    Unordered,\n"
+            "    Monotonic,\n"
+            "    Acquire,\n"
+            "    Release,\n"
+            "    AcqRel,\n"
+            "    SeqCst,\n"
+            "};\n\n");
+    }
+    buf_appendf(contents, "pub const is_big_endian = %s;\n", bool_to_str(g->is_big_endian));
+    buf_appendf(contents, "pub const is_release = %s;\n", bool_to_str(g->is_release_build));
+    buf_appendf(contents, "pub const is_test = %s;\n", bool_to_str(g->is_test_build));
+    buf_appendf(contents, "pub const os = Os.%s;\n", cur_os);
+    buf_appendf(contents, "pub const arch = Arch.%s;\n", cur_arch);
+    buf_appendf(contents, "pub const environ = Environ.%s;\n", cur_environ);
+    buf_appendf(contents, "pub const object_format = ObjectFormat.%s;\n", cur_obj_fmt);
+
+    {
+        buf_appendf(contents, "pub const link_libs = [][]const u8 {\n");
+        for (size_t i = 0; i < g->link_libs.length; i += 1) {
+            Buf *link_lib_buf = g->link_libs.at(i);
+            buf_appendf(contents, "    \"%s\",\n", buf_ptr(link_lib_buf));
+        }
+        buf_appendf(contents, "};\n");
+    }
+
+    buf_appendf(contents, "pub const __zig_panic_implementation_provided = %s; // overwritten later\n",
+            bool_to_str(false));
+    buf_appendf(contents, "pub const __zig_test_fn_slice = {}; // overwritten later\n");
+
+    ensure_cache_dir(g);
+    os_write_file(builtin_zig_path, contents);
+
+    int err;
+    Buf *abs_full_path = buf_alloc();
+    if ((err = os_path_real(builtin_zig_path, abs_full_path))) {
+        zig_panic("unable to open '%s': %s", buf_ptr(builtin_zig_path), err_str(err));
+    }
+
+    assert(g->root_package);
+    assert(g->std_package);
+    g->compile_var_package = new_package(buf_ptr(g->cache_dir), builtin_zig_basename);
+    g->root_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
+    g->std_package->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
+    g->compile_var_import = add_source_file(g, g->compile_var_package, abs_full_path, contents);
 }
 
 static void init(CodeGen *g) {
+    if (g->module)
+        return;
     assert(g->root_out_name);
     g->module = LLVMModuleCreateWithName(buf_ptr(g->root_out_name));
 
@@ -4600,14 +4531,15 @@ static void init(CodeGen *g) {
     g->dummy_di_file = nullptr;
 
     define_builtin_types(g);
-    define_builtin_fns(g);
-    define_builtin_compile_vars(g);
 
     g->invalid_instruction = allocate<IrInstruction>(1);
     g->invalid_instruction->value.type = g->builtin_types.entry_invalid;
 
     g->const_void_val.special = ConstValSpecialStatic;
     g->const_void_val.type = g->builtin_types.entry_void;
+
+    define_builtin_fns(g);
+    define_builtin_compile_vars(g);
 }
 
 void codegen_parseh(CodeGen *g, Buf *full_path) {
@@ -4661,21 +4593,17 @@ static ImportTableEntry *add_special_code(CodeGen *g, PackageTableEntry *package
 }
 
 static PackageTableEntry *create_bootstrap_pkg(CodeGen *g, PackageTableEntry *pkg_with_main) {
-    PackageTableEntry *package = new_package(buf_ptr(g->zig_std_special_dir), "");
-    package->package_table.put(buf_create_from_str("std"), g->std_package);
+    PackageTableEntry *package = codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "bootstrap.zig");
     package->package_table.put(buf_create_from_str("@root"), pkg_with_main);
     return package;
 }
 
 static PackageTableEntry *create_test_runner_pkg(CodeGen *g) {
-    PackageTableEntry *package = new_package(buf_ptr(g->zig_std_special_dir), "test_runner.zig");
-    package->package_table.put(buf_create_from_str("std"), g->std_package);
-    return package;
+    return codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "test_runner.zig");
 }
 
 static PackageTableEntry *create_zigrt_pkg(CodeGen *g) {
-    PackageTableEntry *package = new_package(buf_ptr(g->zig_std_special_dir), "");
-    package->package_table.put(buf_create_from_str("std"), g->std_package);
+    PackageTableEntry *package = codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "zigrt.zig");
     package->package_table.put(buf_create_from_str("@root"), g->root_package);
     return package;
 }
@@ -4723,7 +4651,7 @@ static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
 
     ConstExprValue *test_fn_slice = create_const_slice(g, test_fn_array, 0, g->test_fns.length, true);
 
-    g->compile_vars.put(buf_create_from_str("zig_test_fn_slice"), test_fn_slice);
+    update_compile_var(g, buf_create_from_str("__zig_test_fn_slice"), test_fn_slice);
     g->test_runner_package = create_test_runner_pkg(g);
     g->test_runner_import = add_special_code(g, g->test_runner_package, "test_runner.zig");
 }
@@ -5065,4 +4993,15 @@ void codegen_build(CodeGen *g) {
     gen_root_source(g);
     do_code_gen(g);
     gen_h_file(g);
+}
+
+PackageTableEntry *codegen_create_package(CodeGen *g, const char *root_src_dir, const char *root_src_path) {
+    init(g);
+    PackageTableEntry *pkg = new_package(root_src_dir, root_src_path);
+    if (g->std_package != nullptr) {
+        assert(g->compile_var_package != nullptr);
+        pkg->package_table.put(buf_create_from_str("std"), g->std_package);
+        pkg->package_table.put(buf_create_from_str("builtin"), g->compile_var_package);
+    }
+    return pkg;
 }
