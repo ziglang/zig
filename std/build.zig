@@ -552,20 +552,20 @@ pub const Builder = struct {
         };
     }
 
-    pub fn installCLibrary(self: &Builder, lib: &CLibExeObjStep) {
-        self.getInstallStep().dependOn(&self.addInstallCLibrary(lib).step);
+    pub fn installArtifact(self: &Builder, artifact: &LibExeObjStep) {
+        self.getInstallStep().dependOn(&self.addInstallArtifact(artifact).step);
     }
 
-    pub fn addInstallCLibrary(self: &Builder, lib: &CLibExeObjStep) -> &InstallCArtifactStep {
-        return InstallCArtifactStep.create(self, lib);
+    pub fn addInstallArtifact(self: &Builder, artifact: &LibExeObjStep) -> &InstallArtifactStep(LibExeObjStep) {
+        return InstallArtifactStep(LibExeObjStep).create(self, artifact);
     }
 
-    pub fn installCExecutable(self: &Builder, exe: &CLibExeObjStep) {
-        self.getInstallStep().dependOn(&self.addInstallCExecutable(exe).step);
+    pub fn installCArtifact(self: &Builder, artifact: &CLibExeObjStep) {
+        self.getInstallStep().dependOn(&self.addInstallCArtifact(artifact).step);
     }
 
-    pub fn addInstallCExecutable(self: &Builder, exe: &CLibExeObjStep) -> &InstallCArtifactStep {
-        return InstallCArtifactStep.create(self, exe);
+    pub fn addInstallCArtifact(self: &Builder, artifact: &CLibExeObjStep) -> &InstallArtifactStep(CLibExeObjStep) {
+        return InstallArtifactStep(CLibExeObjStep).create(self, artifact);
     }
 
     ///::dest_rel_path is relative to prefix path or it can be an absolute path
@@ -588,14 +588,24 @@ pub const Builder = struct {
         %%self.installed_files.append(full_path);
     }
 
-    fn copyFile(self: &Builder, source_path: []const u8, dest_path: []const u8) {
+    fn copyFile(self: &Builder, source_path: []const u8, dest_path: []const u8) -> %void {
+        return self.copyFileMode(source_path, dest_path, 0o666);
+    }
+
+    fn copyFileMode(self: &Builder, source_path: []const u8, dest_path: []const u8, mode: usize) -> %void {
+        if (self.verbose) {
+            %%io.stderr.printf("cp {} {}\n", source_path, dest_path);
+        }
+
         const dirname = os.path.dirname(dest_path);
         const abs_source_path = self.pathFromRoot(source_path);
         os.makePath(self.allocator, dirname) %% |err| {
-            debug.panic("Unable to create path {}: {}", dirname, @errorName(err));
+            %%io.stderr.printf("Unable to create path {}: {}\n", dirname, @errorName(err));
+            return err;
         };
-        os.copyFile(self.allocator, abs_source_path, dest_path) %% |err| {
-            debug.panic("Unable to copy {} to {}: {}", abs_source_path, dest_path, @errorName(err));
+        os.copyFileMode(self.allocator, abs_source_path, dest_path, mode) %% |err| {
+            %%io.stderr.printf("Unable to copy {} to {}: {}\n", abs_source_path, dest_path, @errorName(err));
+            return err;
         };
     }
 
@@ -664,8 +674,8 @@ pub const LibExeObjStep = struct {
     version: Version,
     out_h_filename: []const u8,
     out_filename: []const u8,
-    out_filename_major_only: []const u8,
-    out_filename_name_only: []const u8,
+    major_only_filename: []const u8,
+    name_only_filename: []const u8,
     object_files: List([]const u8),
     assembly_files: List([]const u8),
 
@@ -721,8 +731,8 @@ pub const LibExeObjStep = struct {
             .version = *ver,
             .out_filename = undefined,
             .out_h_filename = builder.fmt("{}.h", name),
-            .out_filename_major_only = undefined,
-            .out_filename_name_only = undefined,
+            .major_only_filename = undefined,
+            .name_only_filename = undefined,
             .object_files = List([]const u8).init(builder.allocator),
             .assembly_files = List([]const u8).init(builder.allocator),
         };
@@ -744,8 +754,8 @@ pub const LibExeObjStep = struct {
                 } else {
                     self.out_filename = self.builder.fmt("lib{}.so.{d}.{d}.{d}",
                         self.name, self.version.major, self.version.minor, self.version.patch);
-                    self.out_filename_major_only = self.builder.fmt("lib{}.so.{d}", self.name, self.version.major);
-                    self.out_filename_name_only = self.builder.fmt("lib{}.so", self.name);
+                    self.major_only_filename = self.builder.fmt("lib{}.so.{d}", self.name, self.version.major);
+                    self.name_only_filename = self.builder.fmt("lib{}.so", self.name);
                 }
             },
         }
@@ -934,8 +944,8 @@ pub const LibExeObjStep = struct {
         %return builder.spawnChild(builder.zig_exe, zig_args.toSliceConst());
 
         if (self.kind == Kind.Lib and !self.static) {
-            %return doAtomicSymLinks(builder.allocator, output_path, self.out_filename_major_only,
-                self.out_filename_name_only);
+            %return doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename,
+                self.name_only_filename);
         }
     }
 };
@@ -1424,45 +1434,56 @@ pub const CommandStep = struct {
     }
 };
 
-pub const InstallCArtifactStep = struct {
-    step: Step,
-    builder: &Builder,
-    artifact: &CLibExeObjStep,
-    dest_file: []const u8,
+fn InstallArtifactStep(comptime Artifact: type) -> type {
+    struct {
+        step: Step,
+        builder: &Builder,
+        artifact: &Artifact,
+        dest_file: []const u8,
 
-    pub fn create(builder: &Builder, artifact: &CLibExeObjStep) -> &InstallCArtifactStep {
-        const self = %%builder.allocator.create(InstallCArtifactStep);
-        const dest_dir = switch (artifact.kind) {
-            CLibExeObjStep.Kind.Obj => unreachable,
-            CLibExeObjStep.Kind.Exe => builder.exe_dir,
-            CLibExeObjStep.Kind.Lib => builder.lib_dir,
-        };
-        *self = InstallCArtifactStep {
-            .builder = builder,
-            .step = Step.init(builder.fmt("install {}", artifact.step.name), builder.allocator, make),
-            .artifact = artifact,
-            .dest_file = %%os.path.join(builder.allocator, builder.lib_dir, artifact.out_filename),
-        };
-        self.step.dependOn(&artifact.step);
-        builder.pushInstalledFile(self.dest_file);
-        if (self.artifact.kind == CLibExeObjStep.Kind.Lib and !self.artifact.static) {
-            builder.pushInstalledFile(%%os.path.join(builder.allocator, builder.lib_dir, artifact.major_only_filename));
-            builder.pushInstalledFile(%%os.path.join(builder.allocator, builder.lib_dir, artifact.name_only_filename));
+        const Self = this;
+
+        pub fn create(builder: &Builder, artifact: &Artifact) -> &Self {
+            const self = %%builder.allocator.create(Self);
+            const dest_dir = switch (artifact.kind) {
+                Artifact.Kind.Obj => unreachable,
+                Artifact.Kind.Exe => builder.exe_dir,
+                Artifact.Kind.Lib => builder.lib_dir,
+            };
+            *self = Self {
+                .builder = builder,
+                .step = Step.init(builder.fmt("install {}", artifact.step.name), builder.allocator, make),
+                .artifact = artifact,
+                .dest_file = %%os.path.join(builder.allocator, dest_dir, artifact.out_filename),
+            };
+            self.step.dependOn(&artifact.step);
+            builder.pushInstalledFile(self.dest_file);
+            if (self.artifact.kind == Artifact.Kind.Lib and !self.artifact.static) {
+                builder.pushInstalledFile(%%os.path.join(builder.allocator, builder.lib_dir,
+                    artifact.major_only_filename));
+                builder.pushInstalledFile(%%os.path.join(builder.allocator, builder.lib_dir,
+                    artifact.name_only_filename));
+            }
+            return self;
         }
-        return self;
-    }
 
-    fn make(step: &Step) -> %void {
-        const self = @fieldParentPtr(InstallCArtifactStep, "step", step);
-        const builder = self.builder;
+        fn make(step: &Step) -> %void {
+            const self = @fieldParentPtr(Self, "step", step);
+            const builder = self.builder;
 
-        builder.copyFile(self.artifact.getOutputPath(), self.dest_file);
-        if (self.artifact.kind == CLibExeObjStep.Kind.Lib and !self.artifact.static) {
-            %return doAtomicSymLinks(builder.allocator, self.dest_file,
-                self.artifact.major_only_filename, self.artifact.name_only_filename);
+            const mode = switch (self.artifact.kind) {
+                Artifact.Kind.Obj => unreachable,
+                Artifact.Kind.Exe => usize(0o755),
+                Artifact.Kind.Lib => if (self.artifact.static) usize(0o666) else usize(0o755),
+            };
+            %return builder.copyFileMode(self.artifact.getOutputPath(), self.dest_file, mode);
+            if (self.artifact.kind == Artifact.Kind.Lib and !self.artifact.static) {
+                %return doAtomicSymLinks(builder.allocator, self.dest_file,
+                    self.artifact.major_only_filename, self.artifact.name_only_filename);
+            }
         }
     }
-};
+}
 
 pub const InstallFileStep = struct {
     step: Step,
@@ -1481,7 +1502,7 @@ pub const InstallFileStep = struct {
 
     fn make(step: &Step) -> %void {
         const self = @fieldParentPtr(InstallFileStep, "step", step);
-        self.builder.copyFile(self.src_path, self.dest_path);
+        %return self.builder.copyFile(self.src_path, self.dest_path);
     }
 };
 

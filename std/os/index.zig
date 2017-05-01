@@ -491,11 +491,27 @@ pub fn deleteFile(allocator: &Allocator, file_path: []const u8) -> %void {
     }
 }
 
+/// Calls ::copyFileMode with 0o666 for the mode.
 pub fn copyFile(allocator: &Allocator, source_path: []const u8, dest_path: []const u8) -> %void {
+    return copyFileMode(allocator, source_path, dest_path, 0o666);
+}
+
+// TODO instead of accepting a mode argument, use the mode from fstat'ing the source path once open
+/// Guaranteed to be atomic.
+pub fn copyFileMode(allocator: &Allocator, source_path: []const u8, dest_path: []const u8, mode: usize) -> %void {
+    var rand_buf: [12]u8 = undefined;
+    const tmp_path = %return allocator.alloc(u8, dest_path.len + base64.calcEncodedSize(rand_buf.len));
+    defer allocator.free(tmp_path);
+    mem.copy(u8, tmp_path[0...], dest_path);
+    %return getRandomBytes(rand_buf[0...]);
+    _ = base64.encodeWithAlphabet(tmp_path[dest_path.len...], rand_buf, b64_fs_alphabet);
+
+    var out_stream = %return io.OutStream.openMode(tmp_path, mode, allocator);
+    defer out_stream.close();
+    %defer _ = deleteFile(allocator, tmp_path);
+
     var in_stream = %return io.InStream.open(source_path, allocator);
     defer in_stream.close();
-    var out_stream = %return io.OutStream.open(dest_path, allocator);
-    defer out_stream.close();
 
     const buf = out_stream.buffer[0...];
     while (true) {
@@ -503,7 +519,7 @@ pub fn copyFile(allocator: &Allocator, source_path: []const u8, dest_path: []con
         out_stream.index = amt;
         %return out_stream.flush();
         if (amt != out_stream.buffer.len)
-            return;
+            return rename(allocator, tmp_path, dest_path);
     }
 }
 

@@ -67,16 +67,22 @@ pub const OutStream = struct {
     buffer: [os.page_size]u8,
     index: usize,
 
+    /// Calls ::openMode with 0o666 for the mode.
+    pub fn open(path: []const u8, allocator: ?&mem.Allocator) -> %OutStream {
+        return openMode(path, 0o666, allocator);
+
+    }
+
     /// `path` may need to be copied in memory to add a null terminating byte. In this case
     /// a fixed size buffer of size std.os.max_noalloc_path_len is an attempted solution. If the fixed
     /// size buffer is too small, and the provided allocator is null, error.NameTooLong is returned.
     /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
     /// Call close to clean up.
-    pub fn open(path: []const u8, allocator: ?&mem.Allocator) -> %OutStream {
+    pub fn openMode(path: []const u8, mode: usize, allocator: ?&mem.Allocator) -> %OutStream {
         switch (@compileVar("os")) {
             Os.linux, Os.darwin, Os.macosx, Os.ios => {
                 const flags = system.O_LARGEFILE|system.O_WRONLY|system.O_CREAT|system.O_CLOEXEC|system.O_TRUNC;
-                const fd = %return os.posixOpen(path, flags, 0o666, allocator);
+                const fd = %return os.posixOpen(path, flags, mode, allocator);
                 return OutStream {
                     .fd = fd,
                     .index = 0,
