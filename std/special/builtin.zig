@@ -4,6 +4,7 @@
 // Note that these functions do not return `dest`, like the libc API.
 // The semantics of these functions is dictated by the corresponding
 // LLVM intrinsics, not by the libc API.
+const builtin = @import("builtin");
 
 export fn memset(dest: ?&u8, c: u8, n: usize) {
     @setDebugSafety(this, false);
@@ -31,5 +32,9 @@ export fn memcpy(noalias dest: ?&u8, noalias src: ?&const u8, n: usize) {
 }
 
 export fn __stack_chk_fail() {
+    if (builtin.is_release) {
+        @setGlobalLinkage(__stack_chk_fail, builtin.GlobalLinkage.Internal);
+        unreachable;
+    }
     @panic("stack smashing detected");
 }

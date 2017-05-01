@@ -381,10 +381,10 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
             LLVMSetLinkage(fn_table_entry->llvm_value, LLVMExternalLinkage);
             break;
         case GlobalLinkageIdWeak:
-            LLVMSetLinkage(fn_table_entry->llvm_value, LLVMWeakODRLinkage);
+            LLVMSetLinkage(fn_table_entry->llvm_value, LLVMWeakAnyLinkage);
             break;
         case GlobalLinkageIdLinkOnce:
-            LLVMSetLinkage(fn_table_entry->llvm_value, LLVMLinkOnceODRLinkage);
+            LLVMSetLinkage(fn_table_entry->llvm_value, LLVMLinkOnceAnyLinkage);
             break;
     }
 

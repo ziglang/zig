@@ -52,6 +52,7 @@ error ReadOnlyFileSystem;
 error LinkQuotaExceeded;
 error RenameAcrossMountPoints;
 error DirNotEmpty;
+error WouldBlock;
 
 /// Fills `buf` with random bytes. If linking against libc, this calls the
 /// appropriate OS-specific library call. Otherwise it uses the zig standard
@@ -128,6 +129,11 @@ pub fn posixClose(fd: i32) {
     }
 }
 
+error WouldBlock;
+error FileClosed;
+error DestinationAddressRequired;
+error FileSystem;
+
 /// Calls POSIX write, and keeps trying if it gets interrupted.
 pub fn posixWrite(fd: i32, bytes: []const u8) -> %void {
     while (true) {
@@ -136,12 +142,15 @@ pub fn posixWrite(fd: i32, bytes: []const u8) -> %void {
         if (write_err > 0) {
             return switch (write_err) {
                 errno.EINTR  => continue,
-                errno.EINVAL => unreachable,
+                errno.EINVAL, errno.EFAULT => unreachable,
+                errno.EAGAIN => error.WouldBlock,
+                errno.EBADF => error.FileClosed,
+                errno.EDESTADDRREQ => error.DestinationAddressRequired,
                 errno.EDQUOT => error.DiskQuota,
                 errno.EFBIG  => error.FileTooBig,
-                errno.EIO    => error.Io,
+                errno.EIO    => error.FileSystem,
                 errno.ENOSPC => error.NoSpaceLeft,
-                errno.EPERM  => error.BadPerm,
+                errno.EPERM  => error.AccessDenied,
                 errno.EPIPE  => error.PipeFail,
                 else         => error.Unexpected,
             }
@@ -185,7 +194,7 @@ pub fn posixOpen(file_path: []const u8, flags: usize, perm: usize, allocator: ?&
 
                 errno.EFAULT => unreachable,
                 errno.EINVAL => unreachable,
-                errno.EACCES => error.BadPerm,
+                errno.EACCES => error.AccessDenied,
                 errno.EFBIG, errno.EOVERFLOW => error.FileTooBig,
                 errno.EISDIR => error.IsDir,
                 errno.ELOOP => error.SymLinkLoop,
@@ -197,7 +206,7 @@ pub fn posixOpen(file_path: []const u8, flags: usize, perm: usize, allocator: ?&
                 errno.ENOMEM => error.SystemResources,
                 errno.ENOSPC => error.NoSpaceLeft,
                 errno.ENOTDIR => error.NotDir,
-                errno.EPERM => error.BadPerm,
+                errno.EPERM => error.AccessDenied,
                 else => error.Unexpected,
             }
         }

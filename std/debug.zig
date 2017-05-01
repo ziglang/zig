@@ -92,7 +92,8 @@ pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty
                 const ptr_hex = if (@sizeOf(usize) == 4) "0x{x8}" else "0x{x16}";
 
                 const compile_unit = findCompileUnit(st, return_address) ?? {
-                    %return out_stream.print(DIM ++ ptr_hex ++ " in ??? (???)" ++ RESET ++ "\n\n\n", return_address);
+                    %return out_stream.print("???:?:?: " ++ DIM ++ ptr_hex ++ " in ??? (???)" ++ RESET ++ "\n    ???\n\n",
+                        return_address);
                     %return out_stream.flush();
                     continue;
                 };

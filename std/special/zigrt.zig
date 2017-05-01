@@ -5,7 +5,7 @@
 const builtin = @import("builtin");
 
 export coldcc fn __zig_panic(message_ptr: &const u8, message_len: usize) -> noreturn {
-    @setGlobalLinkage(__zig_panic, builtin.GlobalLinkage.Weak);
+    @setGlobalLinkage(__zig_panic, builtin.GlobalLinkage.LinkOnce);
     @setDebugSafety(this, false);
 
     if (builtin.__zig_panic_implementation_provided) {
