@@ -1516,6 +1516,7 @@ struct VariableTableEntry {
     size_t mem_slot_index;
     size_t ref_count;
     VarLinkage linkage;
+    IrInstruction *decl_instruction;
 };
 
 struct ErrorTableEntry {

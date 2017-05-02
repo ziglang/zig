@@ -2311,7 +2311,10 @@ static IrInstruction *ir_instruction_elemptr_get_dep(IrInstructionElemPtr *instr
 }
 
 static IrInstruction *ir_instruction_varptr_get_dep(IrInstructionVarPtr *instruction, size_t index) {
-    return nullptr;
+    switch (index) {
+        case 0: return instruction->var->decl_instruction; // can be null
+        default: return nullptr;
+    }
 }
 
 static IrInstruction *ir_instruction_call_get_dep(IrInstructionCall *instruction, size_t index) {
@@ -4646,7 +4649,10 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
     if (init_value == irb->codegen->invalid_instruction)
         return init_value;
 
-    return ir_build_var_decl(irb, scope, node, var, type_instruction, init_value);
+
+    IrInstruction *result = ir_build_var_decl(irb, scope, node, var, type_instruction, init_value);
+    var->decl_instruction = result;
+    return result;
 }
 
 static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
