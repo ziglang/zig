@@ -38,7 +38,8 @@ static int usage(const char *arg0) {
         "  --output-h [file]            override generated header file path\n"
         "  --pkg-begin [name] [path]    make package available to import and push current pkg\n"
         "  --pkg-end                    pop current pkg\n"
-        "  --release                    build with optimizations on and debug protection off\n"
+        "  --release-fast               build with optimizations on and safety off\n"
+        "  --release-safe               build with optimizations on and safety on\n"
         "  --static                     output will be statically linked\n"
         "  --strip                      exclude debug symbols\n"
         "  --target-arch [name]         specify target architecture\n"
@@ -161,7 +162,6 @@ int main(int argc, char **argv) {
     const char *in_file = nullptr;
     const char *out_file = nullptr;
     const char *out_file_h = nullptr;
-    bool is_release_build = false;
     bool strip = false;
     bool is_static = false;
     OutType out_type = OutTypeUnknown;
@@ -201,6 +201,7 @@ int main(int argc, char **argv) {
     bool timing_info = false;
     const char *cache_dir = nullptr;
     CliPkg *cur_pkg = allocate<CliPkg>(1);
+    BuildMode build_mode = BuildModeDebug;
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         const char *zig_exe_path = arg0;
@@ -237,7 +238,7 @@ int main(int argc, char **argv) {
             }
         }
 
-        CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe);
+        CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe, BuildModeDebug);
         codegen_set_out_name(g, buf_create_from_str("build"));
         codegen_set_verbose(g, verbose);
 
@@ -319,8 +320,10 @@ int main(int argc, char **argv) {
         char *arg = argv[i];
 
         if (arg[0] == '-') {
-            if (strcmp(arg, "--release") == 0) {
-                is_release_build = true;
+            if (strcmp(arg, "--release-fast") == 0) {
+                build_mode = BuildModeFastRelease;
+            } else if (strcmp(arg, "--release-safe") == 0) {
+                build_mode = BuildModeSafeRelease;
             } else if (strcmp(arg, "--strip") == 0) {
                 strip = true;
             } else if (strcmp(arg, "--static") == 0) {
@@ -569,10 +572,9 @@ int main(int argc, char **argv) {
                     buf_create_from_str((cache_dir == nullptr) ? default_zig_cache_name : cache_dir),
                     full_cache_dir);
 
-            CodeGen *g = codegen_create(zig_root_source_file, target, out_type);
+            CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode);
             codegen_set_out_name(g, buf_out_name);
             codegen_set_lib_version(g, ver_major, ver_minor, ver_patch);
-            codegen_set_is_release(g, is_release_build);
             codegen_set_is_test(g, cmd == CmdTest);
             codegen_set_linker_script(g, linker_script);
             codegen_set_cache_dir(g, full_cache_dir);

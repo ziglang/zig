@@ -9,6 +9,7 @@ const io = std.io;
 const mem = std.mem;
 const fmt = std.fmt;
 const List = std.list.List;
+const Mode = @import("builtin").Mode;
 
 const compare_output = @import("compare_output.zig");
 const build_examples = @import("build_examples.zig");
@@ -107,14 +108,13 @@ pub fn addPkgTests(b: &build.Builder, test_filter: ?[]const u8, root_src: []cons
     name:[] const u8, desc: []const u8) -> &build.Step
 {
     const step = b.step(b.fmt("test-{}", name), desc);
-    for ([]bool{false, true}) |release| {
+    for ([]Mode{Mode.Debug, Mode.ReleaseFast}) |mode| {
         for ([]bool{false, true}) |link_libc| {
             const these_tests = b.addTest(root_src);
-            these_tests.setNamePrefix(b.fmt("{}-{}-{} ", name,
-                if (release) "release" else "debug",
+            these_tests.setNamePrefix(b.fmt("{}-{}-{} ", name, @enumTagName(mode),
                 if (link_libc) "c" else "bare"));
             these_tests.setFilter(test_filter);
-            these_tests.setRelease(release);
+            these_tests.setBuildMode(mode);
             if (link_libc) {
                 these_tests.linkSystemLibrary("c");
             }
@@ -372,9 +372,9 @@ pub const CompareOutputContext = struct {
                 self.step.dependOn(&run_and_cmp_output.step);
             },
             Special.None => {
-                for ([]bool{false, true}) |release| {
+                for ([]Mode{Mode.Debug, Mode.ReleaseFast}) |mode| {
                     const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "{} {} ({})",
-                        "compare-output", case.name, if (release) "release" else "debug");
+                        "compare-output", case.name, @enumTagName(mode));
                     test (self.test_filter) |filter| {
                         if (mem.indexOf(u8, annotated_case_name, filter) == null)
                             continue;
@@ -382,7 +382,7 @@ pub const CompareOutputContext = struct {
 
                     const exe = b.addExecutable("test", root_src);
                     exe.setOutputPath(exe_path);
-                    exe.setRelease(release);
+                    exe.setBuildMode(mode);
                     if (case.link_libc) {
                         exe.linkSystemLibrary("c");
                     }
@@ -465,10 +465,10 @@ pub const CompileErrorContext = struct {
         name: []const u8,
         test_index: usize,
         case: &const TestCase,
-        release: bool,
+        build_mode: Mode,
 
         pub fn create(context: &CompileErrorContext, name: []const u8,
-            case: &const TestCase, release: bool) -> &CompileCmpOutputStep
+            case: &const TestCase, build_mode: Mode) -> &CompileCmpOutputStep
         {
             const allocator = context.b.allocator;
             const ptr = %%allocator.create(CompileCmpOutputStep);
@@ -478,7 +478,7 @@ pub const CompileErrorContext = struct {
                 .name = name,
                 .test_index = context.test_index,
                 .case = case,
-                .release = release,
+                .build_mode = build_mode,
             };
             context.test_index += 1;
             return ptr;
@@ -501,8 +501,10 @@ pub const CompileErrorContext = struct {
             %%zig_args.append("--output");
             %%zig_args.append(b.pathFromRoot(obj_path));
 
-            if (self.release) {
-                %%zig_args.append("--release");
+            switch (self.build_mode) {
+                Mode.Debug => {},
+                Mode.ReleaseSafe => %%zig_args.append("--release-safe"),
+                Mode.ReleaseFast => %%zig_args.append("--release-fast"),
             }
 
             %%io.stderr.printf("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
@@ -620,15 +622,15 @@ pub const CompileErrorContext = struct {
     pub fn addCase(self: &CompileErrorContext, case: &const TestCase) {
         const b = self.b;
 
-        for ([]bool{false, true}) |release| {
+        for ([]Mode{Mode.Debug, Mode.ReleaseFast}) |mode| {
             const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "compile-error {} ({})",
-                case.name, if (release) "release" else "debug");
+                case.name, @enumTagName(mode));
             test (self.test_filter) |filter| {
                 if (mem.indexOf(u8, annotated_case_name, filter) == null)
                     continue;
             }
 
-            const compile_and_cmp_errors = CompileCmpOutputStep.create(self, annotated_case_name, case, release);
+            const compile_and_cmp_errors = CompileCmpOutputStep.create(self, annotated_case_name, case, mode);
             self.step.dependOn(&compile_and_cmp_errors.step);
 
             for (case.sources.toSliceConst()) |src_file| {
@@ -657,7 +659,7 @@ pub const BuildExamplesContext = struct {
     pub fn addBuildFile(self: &BuildExamplesContext, build_file: []const u8) {
         const b = self.b;
 
-        const annotated_case_name = b.fmt("build {} (debug)", build_file);
+        const annotated_case_name = b.fmt("build {} (Debug)", build_file);
         test (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null)
                 return;
@@ -686,16 +688,16 @@ pub const BuildExamplesContext = struct {
     pub fn addAllArgs(self: &BuildExamplesContext, root_src: []const u8, link_libc: bool) {
         const b = self.b;
 
-        for ([]bool{false, true}) |release| {
+        for ([]Mode{Mode.Debug, Mode.ReleaseFast}) |mode| {
             const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "build {} ({})",
-                root_src, if (release) "release" else "debug");
+                root_src, @enumTagName(mode));
             test (self.test_filter) |filter| {
                 if (mem.indexOf(u8, annotated_case_name, filter) == null)
                     continue;
             }
 
             const exe = b.addExecutable("test", root_src);
-            exe.setRelease(release);
+            exe.setBuildMode(mode);
             if (link_libc) {
                 exe.linkSystemLibrary("c");
             }

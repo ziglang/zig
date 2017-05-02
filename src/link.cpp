@@ -37,7 +37,7 @@ static Buf *build_o(CodeGen *parent_gen, const char *oname) {
     os_path_join(parent_gen->zig_std_special_dir, source_basename, full_path);
 
     ZigTarget *child_target = parent_gen->is_native_target ? nullptr : &parent_gen->zig_target;
-    CodeGen *child_gen = codegen_create(full_path, child_target, OutTypeObj);
+    CodeGen *child_gen = codegen_create(full_path, child_target, OutTypeObj, parent_gen->build_mode);
     child_gen->link_libc = parent_gen->link_libc;
 
     child_gen->link_libs.resize(parent_gen->link_libs.length);
@@ -49,8 +49,6 @@ static Buf *build_o(CodeGen *parent_gen, const char *oname) {
     child_gen->want_h_file = false;
 
     codegen_set_cache_dir(child_gen, parent_gen->cache_dir);
-
-    codegen_set_is_release(child_gen, parent_gen->is_release_build);
 
     codegen_set_strip(child_gen, parent_gen->strip_debug_symbols);
     codegen_set_is_static(child_gen, parent_gen->is_static);

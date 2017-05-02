@@ -405,6 +405,23 @@ pub const Builder = struct {
         return &step_info.step;
     }
 
+    pub fn standardReleaseOptions(self: &Builder) -> builtin.Mode {
+        const release_safe = self.option(bool, "release-safe", "optimizations on and safety on") ?? false;
+        const release_fast = self.option(bool, "release-fast", "optimizations on and safety off") ?? false;
+
+        if (release_safe and !release_fast) {
+            return builtin.Mode.ReleaseSafe;
+        } else if (release_fast and !release_safe) {
+            return builtin.Mode.ReleaseFast;
+        } else if (!release_fast and !release_safe) {
+            return builtin.Mode.Debug;
+        } else {
+            %%io.stderr.printf("Both -Drelease-safe and -Drelease-fast specified");
+            self.markInvalidUserInput();
+            return builtin.Mode.Debug;
+        }
+    }
+
     pub fn addUserInputOption(self: &Builder, name: []const u8, value: []const u8) -> bool {
         test (%%self.user_input_options.put(name, UserInputOption {
             .name = name,
@@ -667,7 +684,7 @@ pub const LibExeObjStep = struct {
     linker_script: ?[]const u8,
     link_libs: BufSet,
     verbose: bool,
-    release: bool,
+    build_mode: builtin.Mode,
     static: bool,
     output_path: ?[]const u8,
     output_h_path: ?[]const u8,
@@ -724,7 +741,7 @@ pub const LibExeObjStep = struct {
         var self = LibExeObjStep {
             .builder = builder,
             .verbose = false,
-            .release = false,
+            .build_mode = builtin.Mode.Debug,
             .static = static,
             .kind = kind,
             .root_src = root_src,
@@ -794,8 +811,8 @@ pub const LibExeObjStep = struct {
         self.verbose = value;
     }
 
-    pub fn setRelease(self: &LibExeObjStep, value: bool) {
-        self.release = value;
+    pub fn setBuildMode(self: &LibExeObjStep, mode: builtin.Mode) {
+        self.build_mode = mode;
     }
 
     pub fn setOutputPath(self: &LibExeObjStep, value: []const u8) {
@@ -886,8 +903,10 @@ pub const LibExeObjStep = struct {
             %%zig_args.append("--verbose");
         }
 
-        if (self.release) {
-            %%zig_args.append("--release");
+        switch (self.build_mode) {
+            builtin.Mode.Debug => {},
+            builtin.Mode.ReleaseSafe => %%zig_args.append("--release-safe"),
+            builtin.Mode.ReleaseFast => %%zig_args.append("--release-fast"),
         }
 
         %%zig_args.append("--cache-dir");
@@ -980,7 +999,7 @@ pub const TestStep = struct {
     step: Step,
     builder: &Builder,
     root_src: []const u8,
-    release: bool,
+    build_mode: builtin.Mode,
     verbose: bool,
     link_libs: BufSet,
     name_prefix: []const u8,
@@ -992,7 +1011,7 @@ pub const TestStep = struct {
             .step = Step.init(step_name, builder.allocator, make),
             .builder = builder,
             .root_src = root_src,
-            .release = false,
+            .build_mode = builtin.Mode.Debug,
             .verbose = false,
             .name_prefix = "",
             .filter = null,
@@ -1004,8 +1023,8 @@ pub const TestStep = struct {
         self.verbose = value;
     }
 
-    pub fn setRelease(self: &TestStep, value: bool) {
-        self.release = value;
+    pub fn setBuildMode(self: &TestStep, mode: builtin.Mode) {
+        self.build_mode = mode;
     }
 
     pub fn linkSystemLibrary(self: &TestStep, name: []const u8) {
@@ -1034,8 +1053,10 @@ pub const TestStep = struct {
             %%zig_args.append("--verbose");
         }
 
-        if (self.release) {
-            %%zig_args.append("--release");
+        switch (self.build_mode) {
+            builtin.Mode.Debug => {},
+            builtin.Mode.ReleaseSafe => %%zig_args.append("--release-safe"),
+            builtin.Mode.ReleaseFast => %%zig_args.append("--release-fast"),
         }
 
         test (self.filter) |filter| {
@@ -1095,6 +1116,8 @@ pub const CLibExeObjStep = struct {
     name_only_filename: []const u8,
     object_src: []const u8,
     kind: Kind,
+    build_mode: builtin.Mode,
+    strip: bool,
 
     const Kind = enum {
         Exe,
@@ -1147,6 +1170,8 @@ pub const CLibExeObjStep = struct {
             .major_only_filename = undefined,
             .name_only_filename = undefined,
             .object_src = undefined,
+            .build_mode = builtin.Mode.Debug,
+            .strip = false,
         };
         clib.computeOutFileNames();
         return clib;
@@ -1233,18 +1258,41 @@ pub const CLibExeObjStep = struct {
         %%self.include_dirs.append(path);
     }
 
-    pub fn addCompileFlagsForRelease(self: &CLibExeObjStep, release: bool) {
-        if (release) {
-            %%self.cflags.append("-g");
-            %%self.cflags.append("-O2");
-        } else {
-            %%self.cflags.append("-g");
-        }
+    pub fn setBuildMode(self: &CLibExeObjStep, build_mode: builtin.Mode) {
+        self.build_mode = build_mode;
     }
 
     pub fn addCompileFlags(self: &CLibExeObjStep, flags: []const []const u8) {
         for (flags) |flag| {
             %%self.cflags.append(flag);
+        }
+    }
+
+    fn appendCompileFlags(self: &CLibExeObjStep, args: &List([]const u8)) {
+        if (!self.strip) {
+            %%args.append("-g");
+        }
+        switch (self.build_mode) {
+            builtin.Mode.Debug => {},
+            builtin.Mode.ReleaseSafe => {
+                %%args.append("-O2");
+                %%args.append("-D_FORTIFY_SOURCE=2");
+                %%args.append("-fstack-protector-strong");
+                %%args.append("--param");
+                %%args.append("ssp-buffer-size=4");
+            },
+            builtin.Mode.ReleaseFast => {
+                %%args.append("-O2");
+            },
+        }
+
+        for (self.include_dirs.toSliceConst()) |dir| {
+            %%args.append("-I");
+            %%args.append(self.builder.pathFromRoot(dir));
+        }
+
+        for (self.cflags.toSliceConst()) |cflag| {
+            %%args.append(cflag);
         }
     }
 
@@ -1265,14 +1313,7 @@ pub const CLibExeObjStep = struct {
                 %%cc_args.append("-o");
                 %%cc_args.append(output_path);
 
-                for (self.cflags.toSliceConst()) |cflag| {
-                    %%cc_args.append(cflag);
-                }
-
-                for (self.include_dirs.toSliceConst()) |dir| {
-                    %%cc_args.append("-I");
-                    %%cc_args.append(builder.pathFromRoot(dir));
-                }
+                self.appendCompileFlags(&cc_args);
 
                 %return builder.spawnChild(cc, cc_args.toSliceConst());
             },
@@ -1295,14 +1336,7 @@ pub const CLibExeObjStep = struct {
                     %%cc_args.append("-o");
                     %%cc_args.append(cache_o_file);
 
-                    for (self.cflags.toSliceConst()) |cflag| {
-                        %%cc_args.append(cflag);
-                    }
-
-                    for (self.include_dirs.toSliceConst()) |dir| {
-                        %%cc_args.append("-I");
-                        %%cc_args.append(builder.pathFromRoot(dir));
-                    }
+                    self.appendCompileFlags(&cc_args);
 
                     %return builder.spawnChild(cc, cc_args.toSliceConst());
 

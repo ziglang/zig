@@ -1297,6 +1297,12 @@ struct TimeEvent {
     const char *name;
 };
 
+enum BuildMode {
+    BuildModeDebug,
+    BuildModeFastRelease,
+    BuildModeSafeRelease,
+};
+
 struct CodeGen {
     LLVMModuleRef module;
     ZigList<ErrorMsg*> errors;
@@ -1392,7 +1398,7 @@ struct CodeGen {
     Buf *dynamic_linker;
     Buf *ar_path;
     Buf triple_str;
-    bool is_release_build;
+    BuildMode build_mode;
     bool is_test_build;
     uint32_t target_os_index;
     uint32_t target_arch_index;

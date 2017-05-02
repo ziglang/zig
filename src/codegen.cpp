@@ -55,11 +55,12 @@ static PackageTableEntry *new_package(const char *root_src_dir, const char *root
     return entry;
 }
 
-CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type) {
+CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type, BuildMode build_mode) {
     CodeGen *g = allocate<CodeGen>(1);
 
     codegen_add_time_event(g, "Initialize");
 
+    g->build_mode = build_mode;
     g->out_type = out_type;
     g->import_table.init(32);
     g->builtin_fn_table.init(32);
@@ -72,7 +73,6 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
     g->memoized_fn_eval_table.init(16);
     g->exported_symbol_names.init(8);
     g->external_prototypes.init(8);
-    g->is_release_build = false;
     g->is_test_build = false;
     g->want_h_file = (out_type == OutTypeObj || out_type == OutTypeLib);
 
@@ -152,10 +152,6 @@ void codegen_set_output_h_path(CodeGen *g, Buf *h_path) {
 void codegen_set_clang_argv(CodeGen *g, const char **args, size_t len) {
     g->clang_argv = args;
     g->clang_argv_len = len;
-}
-
-void codegen_set_is_release(CodeGen *g, bool is_release_build) {
-    g->is_release_build = is_release_build;
 }
 
 void codegen_set_omit_zigrt(CodeGen *g, bool omit_zigrt) {
@@ -393,7 +389,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     }
 
     if (fn_table_entry->body_node != nullptr) {
-        bool want_fn_safety = !g->is_release_build && !fn_table_entry->def_scope->safety_off;
+        bool want_fn_safety = g->build_mode != BuildModeFastRelease && !fn_table_entry->def_scope->safety_off;
         if (want_fn_safety) {
             if (g->link_libc) {
                 addLLVMFnAttr(fn_table_entry->llvm_value, "sspstrong");
@@ -407,7 +403,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
         ZigLLVMAddFunctionAttrCold(fn_table_entry->llvm_value);
     }
     addLLVMFnAttr(fn_table_entry->llvm_value, "nounwind");
-    if (!g->is_release_build && fn_table_entry->fn_inline != FnInlineAlways) {
+    if (g->build_mode == BuildModeDebug && fn_table_entry->fn_inline != FnInlineAlways) {
         ZigLLVMAddFunctionAttr(fn_table_entry->llvm_value, "no-frame-pointer-elim", "true");
         ZigLLVMAddFunctionAttr(fn_table_entry->llvm_value, "no-frame-pointer-elim-non-leaf", nullptr);
     }
@@ -440,7 +436,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
             unsigned scope_line = line_number;
             bool is_definition = fn_table_entry->body_node != nullptr;
             unsigned flags = 0;
-            bool is_optimized = g->is_release_build;
+            bool is_optimized = g->build_mode != BuildModeDebug;
             bool is_internal_linkage = (fn_table_entry->linkage == GlobalLinkageIdInternal);
             ZigLLVMDISubprogram *subprogram = ZigLLVMCreateFunction(g->dbuilder,
                 get_di_scope(g, scope->parent), buf_ptr(&fn_table_entry->symbol_name), "",
@@ -555,7 +551,7 @@ static LLVMValueRef get_handle_value(CodeGen *g, LLVMValueRef ptr, TypeTableEntr
 }
 
 static bool ir_want_debug_safety(CodeGen *g, IrInstruction *instruction) {
-    if (g->is_release_build)
+    if (g->build_mode == BuildModeFastRelease)
         return false;
 
     // TODO memoize
@@ -725,7 +721,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
     LLVMSetFunctionCallConv(fn_val, LLVMFastCallConv);
     addLLVMFnAttr(fn_val, "nounwind");
-    if (!g->is_release_build) {
+    if (g->build_mode == BuildModeDebug) {
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
     }
@@ -1697,7 +1693,7 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
     if (!type_has_bits(var->value->type))
         return nullptr;
 
-    if (var->ref_count == 0 && g->is_release_build)
+    if (var->ref_count == 0 && g->build_mode != BuildModeDebug)
         return nullptr;
 
     IrInstruction *init_value = decl_var_instruction->init_value;
@@ -3926,7 +3922,7 @@ static void do_code_gen(CodeGen *g) {
     os_path_join(g->cache_dir, o_basename, output_path);
     ensure_cache_dir(g);
     if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
-                LLVMObjectFile, &err_msg, !g->is_release_build))
+                LLVMObjectFile, &err_msg, g->build_mode == BuildModeDebug))
     {
         zig_panic("unable to write object file: %s", err_msg);
     }
@@ -4320,6 +4316,15 @@ static const char *bool_to_str(bool b) {
     return b ? "true" : "false";
 }
 
+static const char *build_mode_to_str(BuildMode build_mode) {
+    switch (build_mode) {
+        case BuildModeDebug: return "Mode.Debug";
+        case BuildModeSafeRelease: return "Mode.ReleaseSafe";
+        case BuildModeFastRelease: return "Mode.ReleaseFast";
+    }
+    zig_unreachable();
+}
+
 static void define_builtin_compile_vars(CodeGen *g) {
     if (g->std_package == nullptr)
         return;
@@ -4428,13 +4433,21 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "    SeqCst,\n"
             "};\n\n");
     }
+    {
+        buf_appendf(contents,
+            "pub const Mode = enum {\n"
+            "    Debug,\n"
+            "    ReleaseSafe,\n"
+            "    ReleaseFast,\n"
+            "};\n\n");
+    }
     buf_appendf(contents, "pub const is_big_endian = %s;\n", bool_to_str(g->is_big_endian));
-    buf_appendf(contents, "pub const is_release = %s;\n", bool_to_str(g->is_release_build));
     buf_appendf(contents, "pub const is_test = %s;\n", bool_to_str(g->is_test_build));
     buf_appendf(contents, "pub const os = Os.%s;\n", cur_os);
     buf_appendf(contents, "pub const arch = Arch.%s;\n", cur_arch);
     buf_appendf(contents, "pub const environ = Environ.%s;\n", cur_environ);
     buf_appendf(contents, "pub const object_format = ObjectFormat.%s;\n", cur_obj_fmt);
+    buf_appendf(contents, "pub const mode = %s;\n", build_mode_to_str(g->build_mode));
 
     {
         buf_appendf(contents, "pub const link_libs = [][]const u8 {\n");
@@ -4484,8 +4497,8 @@ static void init(CodeGen *g) {
         zig_panic("unable to create target based on: %s", buf_ptr(&g->triple_str));
     }
 
-
-    LLVMCodeGenOptLevel opt_level = g->is_release_build ? LLVMCodeGenLevelAggressive : LLVMCodeGenLevelNone;
+    bool is_optimized = g->build_mode != BuildModeDebug;
+    LLVMCodeGenOptLevel opt_level = is_optimized ? LLVMCodeGenLevelAggressive : LLVMCodeGenLevelNone;
 
     LLVMRelocMode reloc_mode = g->is_static ? LLVMRelocStatic : LLVMRelocPIC;
 
@@ -4518,7 +4531,6 @@ static void init(CodeGen *g) {
 
 
     Buf *producer = buf_sprintf("zig %s", ZIG_VERSION_STRING);
-    bool is_optimized = g->is_release_build;
     const char *flags = "";
     unsigned runtime_version = 0;
     ZigLLVMDIFile *compile_unit_file = ZigLLVMCreateFile(g->dbuilder, buf_ptr(g->root_out_name),

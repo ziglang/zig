@@ -4649,7 +4649,6 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
     if (init_value == irb->codegen->invalid_instruction)
         return init_value;
 
-
     IrInstruction *result = ir_build_var_decl(irb, scope, node, var, type_instruction, init_value);
     var->decl_instruction = result;
     return result;
