@@ -9,26 +9,17 @@ const builtin = @import("builtin");
 export fn memset(dest: ?&u8, c: u8, n: usize) {
     @setDebugSafety(this, false);
 
-    if (n == 0)
-        return;
-
-    const d = ??dest;
     var index: usize = 0;
     while (index != n; index += 1)
-        d[index] = c;
+        (??dest)[index] = c;
 }
 
 export fn memcpy(noalias dest: ?&u8, noalias src: ?&const u8, n: usize) {
     @setDebugSafety(this, false);
 
-    if (n == 0)
-        return;
-
-    const d = ??dest;
-    const s = ??src;
     var index: usize = 0;
     while (index != n; index += 1)
-        d[index] = s[index];
+        (??dest)[index] = (??src)[index];
 }
 
 export fn __stack_chk_fail() {
