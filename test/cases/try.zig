@@ -47,13 +47,10 @@ fn failIfTrue(ok: bool) -> %void {
     }
 }
 
-// TODO
-//fn tryThenNotExecutedWithAssignment() {
-//    @setFnTest(this);
-//
-//    try (failIfTrue(true)) {
-//        unreachable;
-//    } else |err| {
-//        assert(err == error.ItBroke);
-//    }
-//}
+test "try then not executed with assignment" {
+    try (failIfTrue(true)) {
+        unreachable;
+    } else |err| {
+        assert(err == error.ItBroke);
+    }
+}

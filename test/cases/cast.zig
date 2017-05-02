@@ -195,3 +195,14 @@ fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) -> %[]u8 {
 
     return slice[0...1];
 }
+
+test "resolve undefined with integer" {
+    testResolveUndefWithInt(true, 1234);
+    comptime testResolveUndefWithInt(true, 1234);
+}
+fn testResolveUndefWithInt(b: bool, x: i32) {
+    const value = if (b) x else undefined;
+    if (b) {
+        assert(value == x);
+    }
+}

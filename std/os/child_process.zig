@@ -105,37 +105,21 @@ pub const ChildProcess = struct {
         maybe_cwd: ?[]const u8, env_map: &const BufMap,
         stdin: StdIo, stdout: StdIo, stderr: StdIo, allocator: &Allocator) -> %ChildProcess
     {
-        // TODO issue #295
-        //const stdin_pipe = if (stdin == StdIo.Pipe) %return makePipe() else undefined;
-        var stdin_pipe: [2]i32 = undefined;
-        if (stdin == StdIo.Pipe)
-            stdin_pipe = %return makePipe();
+        const stdin_pipe = if (stdin == StdIo.Pipe) %return makePipe() else undefined;
         %defer if (stdin == StdIo.Pipe) { destroyPipe(stdin_pipe); };
 
-        // TODO issue #295
-        //const stdout_pipe = if (stdout == StdIo.Pipe) %return makePipe() else undefined;
-        var stdout_pipe: [2]i32 = undefined;
-        if (stdout == StdIo.Pipe) 
-            stdout_pipe = %return makePipe();
+        const stdout_pipe = if (stdout == StdIo.Pipe) %return makePipe() else undefined;
         %defer if (stdout == StdIo.Pipe) { destroyPipe(stdout_pipe); };
 
-        // TODO issue #295
-        //const stderr_pipe = if (stderr == StdIo.Pipe) %return makePipe() else undefined;
-        var stderr_pipe: [2]i32 = undefined;
-        if (stderr == StdIo.Pipe) 
-            stderr_pipe = %return makePipe();
+        const stderr_pipe = if (stderr == StdIo.Pipe) %return makePipe() else undefined;
         %defer if (stderr == StdIo.Pipe) { destroyPipe(stderr_pipe); };
 
         const any_ignore = (stdin == StdIo.Ignore or stdout == StdIo.Ignore or stderr == StdIo.Ignore);
-        // TODO issue #295
-        //const dev_null_fd = if (any_ignore) {
-        //    %return os.posixOpen("/dev/null", posix.O_RDWR, 0, null)
-        //} else {
-        //    undefined
-        //};
-        var dev_null_fd: i32 = undefined;
-        if (any_ignore)
-            dev_null_fd = %return os.posixOpen("/dev/null", posix.O_RDWR, 0, null);
+        const dev_null_fd = if (any_ignore) {
+            %return os.posixOpen("/dev/null", posix.O_RDWR, 0, null)
+        } else {
+            undefined
+        };
 
         // This pipe is used to communicate errors between the time of fork
         // and execve from the child process to the parent process.
