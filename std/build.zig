@@ -178,6 +178,7 @@ pub const Builder = struct {
         return CLibExeObjStep.createObject(self, name, src);
     }
 
+    /// ::args are copied.
     pub fn addCommand(self: &Builder, cwd: ?[]const u8, env_map: &const BufMap,
         path: []const u8, args: []const []const u8) -> &CommandStep
     {
@@ -1469,10 +1470,11 @@ pub const CommandStep = struct {
     step: Step,
     builder: &Builder,
     exe_path: []const u8,
-    args: []const []const u8,
+    args: [][]const u8,
     cwd: ?[]const u8,
     env_map: &const BufMap,
 
+    /// ::args are copied.
     pub fn create(builder: &Builder, cwd: ?[]const u8, env_map: &const BufMap,
         exe_path: []const u8, args: []const []const u8) -> &CommandStep
     {
@@ -1481,10 +1483,11 @@ pub const CommandStep = struct {
             .builder = builder,
             .step = Step.init(exe_path, builder.allocator, make),
             .exe_path = exe_path,
-            .args = args,
+            .args = %%builder.allocator.alloc([]u8, args.len),
             .cwd = cwd,
             .env_map = env_map,
         };
+        mem.copy([]const u8, self.args, args);
         return self;
     }
 
