@@ -459,7 +459,7 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
                         maybe_debug_size_in_bits,
                         maybe_debug_align_in_bits,
                         maybe_offset_in_bits,
-                        0, child_type->di_type),
+                        0, bool_type->di_type),
             };
             ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
                     compile_unit_scope,
