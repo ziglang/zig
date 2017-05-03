@@ -8,6 +8,7 @@ pub const empty_import = @import("empty.zig");
 pub const fmt = @import("fmt.zig");
 pub const hash_map = @import("hash_map.zig");
 pub const io = @import("io.zig");
+pub const linked_list = @import("linked_list.zig");
 pub const list = @import("list.zig");
 pub const math = @import("math.zig");
 pub const mem = @import("mem.zig");
@@ -28,6 +29,7 @@ test "std" {
     _ = @import("fmt.zig");
     _ = @import("hash_map.zig");
     _ = @import("io.zig");
+    _ = @import("linked_list.zig");
     _ = @import("list.zig");
     _ = @import("math.zig");
     _ = @import("mem.zig");
