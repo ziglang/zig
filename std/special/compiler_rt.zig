@@ -296,7 +296,7 @@ export fn __udivsi3(n: su_int, d: su_int) -> su_int {
     var q: su_int = n << (n_uword_bits - sr);
     var r: su_int = n >> sr;
     var carry: su_int = 0;
-    while (sr > 0; sr -= 1) {
+    while (sr > 0) : (sr -= 1) {
         // r:q = ((r:q)  << 1) | carry
         r = (r << 1) | (q >> (n_uword_bits - 1));
         q = (q << 1) | carry;

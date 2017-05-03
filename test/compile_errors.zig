@@ -156,18 +156,18 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("implicit semicolon - while-continue statement",
         \\export fn entry() {
-        \\    while(true;{}) {}
+        \\    while(true):({}) {}
         \\    var good = {};
-        \\    while(true;{}) ({})
+        \\    while(true):({}) ({})
         \\    var bad = {};
         \\}
     , ".tmp_source.zig:5:5: error: invalid token: 'var'");
 
     cases.add("implicit semicolon - while-continue expression",
         \\export fn entry() {
-        \\    _ = while(true;{}) {};
+        \\    _ = while(true):({}) {};
         \\    var good = {};
-        \\    _ = while(true;{}) {}
+        \\    _ = while(true):({}) {}
         \\    var bad = {};
         \\}
     , ".tmp_source.zig:5:5: error: invalid token: 'var'");
@@ -1231,7 +1231,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     cases.add("pass integer literal to var args",
         \\fn add(args: ...) -> i32 {
         \\    var sum = i32(0);
-        \\    {comptime var i: usize = 0; inline while (i < args.len; i += 1) {
+        \\    {comptime var i: usize = 0; inline while (i < args.len) : (i += 1) {
         \\        sum += args[i];
         \\    }}
         \\    return sum;
@@ -1315,7 +1315,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     cases.add("control flow uses comptime var at runtime",
         \\export fn foo() {
         \\    comptime var i = 0;
-        \\    while (i < 5; i += 1) {
+        \\    while (i < 5) : (i += 1) {
         \\        bar();
         \\    }
         \\}
@@ -1323,7 +1323,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\fn bar() { }
     ,
             ".tmp_source.zig:3:5: error: control flow attempts to use compile-time variable at runtime",
-            ".tmp_source.zig:3:21: note: compile-time variable assigned here");
+            ".tmp_source.zig:3:24: note: compile-time variable assigned here");
 
     cases.add("ignored return value",
         \\export fn foo() {
@@ -1373,7 +1373,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     cases.add("integer literal on a non-comptime var",
         \\export fn foo() {
         \\    var i = 0;
-        \\    while (i < 10; i += 1) { }
+        \\    while (i < 10) : (i += 1) { }
         \\}
     , ".tmp_source.zig:2:5: error: unable to infer variable type");
 

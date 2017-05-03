@@ -7,7 +7,7 @@ pub fn main() -> %void {
     const exe = os.args.at(0);
     var catted_anything = false;
     var arg_i: usize = 1;
-    while (arg_i < os.args.count(); arg_i += 1) {
+    while (arg_i < os.args.count()) : (arg_i += 1) {
         const arg = os.args.at(arg_i);
         if (mem.eql(u8, arg, "-")) {
             catted_anything = true;

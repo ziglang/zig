@@ -25,7 +25,7 @@ pub fn join(allocator: &Allocator, paths: ...) -> %[]u8 {
     var total_paths_len: usize = paths.len; // 1 slash per path
     {
         comptime var path_i = 0;
-        inline while (path_i < paths.len; path_i += 1) {
+        inline while (path_i < paths.len) : (path_i += 1) {
             const arg = ([]const u8)(paths[path_i]);
             total_paths_len += arg.len;
         }
@@ -74,7 +74,7 @@ pub fn isAbsolute(path: []const u8) -> bool {
 pub fn resolve(allocator: &Allocator, args: ...) -> %[]u8 {
     var paths: [args.len][]const u8 = undefined;
     comptime var arg_i = 0;
-    inline while (arg_i < args.len; arg_i += 1) {
+    inline while (arg_i < args.len) : (arg_i += 1) {
         paths[arg_i] = args[arg_i];
     }
     return resolveSlice(allocator, paths);

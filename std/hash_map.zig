@@ -43,7 +43,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
                     assert(it.initial_modification_count == it.hm.modification_count); // concurrent modification
                 }
                 if (it.count >= it.hm.size) return null;
-                while (it.index < it.hm.entries.len; it.index += 1) {
+                while (it.index < it.hm.entries.len) : (it.index += 1) {
                     const entry = &it.hm.entries[it.index];
                     if (entry.used) {
                         it.index += 1;
@@ -112,7 +112,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
         pub fn remove(hm: &Self, key: K) -> ?&Entry {
             hm.incrementModificationCount();
             const start_index = hm.keyToIndex(key);
-            {var roll_over: usize = 0; while (roll_over <= hm.max_distance_from_start_index; roll_over += 1) {
+            {var roll_over: usize = 0; while (roll_over <= hm.max_distance_from_start_index) : (roll_over += 1) {
                 const index = (start_index + roll_over) % hm.entries.len;
                 var entry = &hm.entries[index];
 
@@ -121,7 +121,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
 
                 if (!eql(entry.key, key)) continue;
 
-                while (roll_over < hm.entries.len; roll_over += 1) {
+                while (roll_over < hm.entries.len) : (roll_over += 1) {
                     const next_index = (start_index + roll_over + 1) % hm.entries.len;
                     const next_entry = &hm.entries[next_index];
                     if (!next_entry.used or next_entry.distance_from_start_index == 0) {
@@ -169,7 +169,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
             const start_index = hm.keyToIndex(key);
             var roll_over: usize = 0;
             var distance_from_start_index: usize = 0;
-            while (roll_over < hm.entries.len; {roll_over += 1; distance_from_start_index += 1}) {
+            while (roll_over < hm.entries.len) : ({roll_over += 1; distance_from_start_index += 1}) {
                 const index = (start_index + roll_over) % hm.entries.len;
                 const entry = &hm.entries[index];
 
@@ -215,7 +215,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
 
         fn internalGet(hm: &Self, key: K) -> ?&Entry {
             const start_index = hm.keyToIndex(key);
-            {var roll_over: usize = 0; while (roll_over <= hm.max_distance_from_start_index; roll_over += 1) {
+            {var roll_over: usize = 0; while (roll_over <= hm.max_distance_from_start_index) : (roll_over += 1) {
                 const index = (start_index + roll_over) % hm.entries.len;
                 const entry = &hm.entries[index];
 

@@ -58,7 +58,7 @@ fn returnWithImplicitCastFromWhileLoopTest() -> %void {
 
 test "whileWithContinueExpr" {
     var sum: i32 = 0;
-    {var i: i32 = 0; while (i < 10; i += 1) {
+    {var i: i32 = 0; while (i < 10) : (i += 1) {
         if (i == 5) continue;
         sum += i;
     }}

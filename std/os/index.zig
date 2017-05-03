@@ -276,7 +276,7 @@ pub fn posixExecve(exe_path: []const u8, argv: []const []const u8, env_map: &con
     {
         var it = env_map.iterator();
         var i: usize = 0;
-        while (true; i += 1) {
+        while (true) : (i += 1) {
             const pair = it.next() ?? break;
 
             const env_buf = %return allocator.alloc(u8, pair.key.len + pair.value.len + 2);
@@ -354,11 +354,11 @@ pub fn getEnvMap(allocator: &Allocator) -> %BufMap {
 
     for (environ_raw) |ptr| {
         var line_i: usize = 0;
-        while (ptr[line_i] != 0 and ptr[line_i] != '='; line_i += 1) {}
+        while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
         const key = ptr[0...line_i];
 
         var end_i: usize = line_i;
-        while (ptr[end_i] != 0; end_i += 1) {}
+        while (ptr[end_i] != 0) : (end_i += 1) {}
         const value = ptr[line_i + 1...end_i];
 
         %return result.set(key, value);
@@ -369,13 +369,13 @@ pub fn getEnvMap(allocator: &Allocator) -> %BufMap {
 pub fn getEnv(key: []const u8) -> ?[]const u8 {
     for (environ_raw) |ptr| {
         var line_i: usize = 0;
-        while (ptr[line_i] != 0 and ptr[line_i] != '='; line_i += 1) {}
+        while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
         const this_key = ptr[0...line_i];
         if (!mem.eql(u8, key, this_key))
             continue;
 
         var end_i: usize = line_i;
-        while (ptr[end_i] != 0; end_i += 1) {}
+        while (ptr[end_i] != 0) : (end_i += 1) {}
         const this_value = ptr[line_i + 1...end_i];
 
         return this_value;

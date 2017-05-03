@@ -78,11 +78,11 @@ test "basic list test" {
     var list = List(i32).init(&debug.global_allocator);
     defer list.deinit();
 
-    {var i: usize = 0; while (i < 10; i += 1) {
+    {var i: usize = 0; while (i < 10) : (i += 1) {
         %%list.append(i32(i + 1));
     }}
 
-    {var i: usize = 0; while (i < 10; i += 1) {
+    {var i: usize = 0; while (i < 10) : (i += 1) {
         assert(list.items[i] == i32(i + 1));
     }}
 

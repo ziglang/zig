@@ -79,8 +79,6 @@ SwitchProng = (list(SwitchItem, ",") | "else") "=>" option("|" option("*") Symbo
 
 SwitchItem = Expression | (Expression "..." Expression)
 
-WhileExpression(body) = "while" "(" Expression option(";" Expression) ")" body
-
 ForExpression(body) = "for" "(" Expression ")" option("|" option("*") Symbol option("," Symbol) "|") body
 
 BoolOrExpression = BoolAndExpression "or" BoolOrExpression | BoolAndExpression
@@ -94,6 +92,8 @@ IfExpression(body) = "if" "(" Expression ")" body option("else" BlockExpression(
 TryExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|") body "else" "|" Symbol "|" BlockExpression(body)
 
 TestExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|") body option("else" BlockExpression(body))
+
+WhileExpression(body) = "while" "(" Expression ")" option("|" option("*") Symbol "|") option(":" "(" Expression ")") body option("else" option("|" Symbol "|") BlockExpression(body))
 
 BoolAndExpression = ComparisonExpression "and" BoolAndExpression | ComparisonExpression
 

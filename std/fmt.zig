@@ -200,7 +200,7 @@ pub fn formatBuf(buf: []const u8, width: usize,
 
     var leftover_padding = if (width > buf.len) (width - buf.len) else return true;
     const pad_byte: u8 = ' ';
-    while (leftover_padding > 0; leftover_padding -= 1) {
+    while (leftover_padding > 0) : (leftover_padding -= 1) {
         if (!output(context, (&pad_byte)[0...1]))
             return false;
     }

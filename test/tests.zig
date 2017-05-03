@@ -590,7 +590,7 @@ pub const CompileErrorContext = struct {
         };
         tc.addSourceFile(".tmp_source.zig", source);
         comptime var arg_i = 0;
-        inline while (arg_i < expected_lines.len; arg_i += 1) {
+        inline while (arg_i < expected_lines.len) : (arg_i += 1) {
             // TODO mem.dupe is because of issue #336
             tc.addExpectedError(%%mem.dupe(self.b.allocator, u8, expected_lines[arg_i]));
         }
@@ -853,7 +853,7 @@ pub const ParseHContext = struct {
         };
         tc.addSourceFile("source.h", source);
         comptime var arg_i = 0;
-        inline while (arg_i < expected_lines.len; arg_i += 1) {
+        inline while (arg_i < expected_lines.len) : (arg_i += 1) {
             // TODO mem.dupe is because of issue #336
             tc.addExpectedError(%%mem.dupe(self.b.allocator, u8, expected_lines[arg_i]));
         }

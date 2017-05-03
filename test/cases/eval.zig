@@ -22,7 +22,7 @@ test "testStaticAddOne" {
 test "inlinedLoop" {
     comptime var i = 0;
     comptime var sum = 0;
-    inline while (i <= 5; i += 1)
+    inline while (i <= 5) : (i += 1)
         sum += i;
     assert(sum == 15);
 }
@@ -157,7 +157,7 @@ test "tryToTrickEvalWithRuntimeIf" {
 
 fn testTryToTrickEvalWithRuntimeIf(b: bool) -> usize {
     comptime var i: usize = 0;
-    inline while (i < 10; i += 1) {
+    inline while (i < 10) : (i += 1) {
         const result = if (b) false else true;
     }
     comptime {
@@ -208,7 +208,7 @@ fn three(value: i32) -> i32 { value + 3 }
 fn performFn(comptime prefix_char: u8, start_value: i32) -> i32 {
     var result: i32 = start_value;
     comptime var i = 0;
-    inline while (i < cmd_fns.len; i += 1) {
+    inline while (i < cmd_fns.len) : (i += 1) {
         if (cmd_fns[i].name[0] == prefix_char) {
             result = cmd_fns[i].func(result);
         }

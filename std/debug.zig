@@ -79,7 +79,7 @@ pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty
             var ignored_count: usize = 0;
 
             var fp = usize(@frameAddress());
-            while (fp != 0; fp = *@intToPtr(&const usize, fp)) {
+            while (fp != 0) : (fp = *@intToPtr(&const usize, fp)) {
                 if (ignored_count < ignore_frame_count) {
                     ignored_count += 1;
                     continue;
@@ -108,7 +108,7 @@ pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty
                         if (line_info.column == 0) {
                             %return out_stream.write("\n");
                         } else {
-                            {var col_i: usize = 1; while (col_i < line_info.column; col_i += 1) {
+                            {var col_i: usize = 1; while (col_i < line_info.column) : (col_i += 1) {
                                 %return out_stream.writeByte(' ');
                             }}
                             %return out_stream.write(GREEN ++ "^" ++ RESET ++ "\n");
@@ -594,7 +594,7 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
     var this_offset = st.debug_line.offset;
     var this_index: usize = 0;
 
-    while (this_offset < debug_line_end; this_index += 1) {
+    while (this_offset < debug_line_end) : (this_index += 1) {
         %return in_stream.seekTo(this_offset);
 
         var is_64: bool = undefined;
@@ -628,7 +628,7 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
 
         const standard_opcode_lengths = %return st.allocator().alloc(u8, opcode_base - 1);
 
-        {var i: usize = 0; while (i < opcode_base - 1; i += 1) {
+        {var i: usize = 0; while (i < opcode_base - 1) : (i += 1) {
             standard_opcode_lengths[i] = %return in_stream.readByte();
         }}
 

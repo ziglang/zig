@@ -2,7 +2,7 @@ const assert = @import("std").debug.assert;
 
 fn add(args: ...) -> i32 {
     var sum = i32(0);
-    {comptime var i: usize = 0; inline while (i < args.len; i += 1) {
+    {comptime var i: usize = 0; inline while (i < args.len) : (i += 1) {
         sum += args[i];
     }}
     return sum;

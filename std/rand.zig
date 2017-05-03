@@ -121,7 +121,7 @@ fn MersenneTwister(
             var prev_value = seed;
             mt.array[0] = prev_value;
             var i: usize = 1;
-            while (i < n; i += 1) {
+            while (i < n) : (i += 1) {
                 prev_value = int(i) +% f *% (prev_value ^ (prev_value >> (int.bit_count - 2)));
                 mt.array[i] = prev_value;
             }
@@ -136,12 +136,12 @@ fn MersenneTwister(
             if (mt.index >= n) {
                 var i: usize = 0;
 
-                while (i < n - m; i += 1) {
+                while (i < n - m) : (i += 1) {
                     const x = (mt.array[i] & UM) | (mt.array[i + 1] & LM);
                     mt.array[i] = mt.array[i + m] ^ (x >> 1) ^ mag01[x & 0x1];
                 }
 
-                while (i < n - 1; i += 1) {
+                while (i < n - 1) : (i += 1) {
                     const x = (mt.array[i] & UM) | (mt.array[i + 1] & LM);
                     mt.array[i] = mt.array[i + m - n] ^ (x >> 1) ^ mag01[x & 0x1];
 
@@ -168,7 +168,7 @@ fn MersenneTwister(
 test "rand float 32" {
     var r = Rand.init(42);
     var i: usize = 0;
-    while (i < 1000; i += 1) {
+    while (i < 1000) : (i += 1) {
         const val = r.float(f32);
         assert(val >= 0.0);
         assert(val < 1.0);

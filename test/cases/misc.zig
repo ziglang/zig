@@ -380,7 +380,7 @@ test "cStringConcatenation" {
 
     const len = cstr.len(b);
     const len_with_null = len + 1;
-    {var i: u32 = 0; while (i < len_with_null; i += 1) {
+    {var i: u32 = 0; while (i < len_with_null) : (i += 1) {
         assert(a[i] == b[i]);
     }}
     assert(a[len] == 0);

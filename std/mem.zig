@@ -123,7 +123,7 @@ pub fn set(comptime T: type, dest: []T, value: T) {
 pub fn cmp(comptime T: type, a: []const T, b: []const T) -> Cmp {
     const n = math.min(a.len, b.len);
     var i: usize = 0;
-    while (i < n; i += 1) {
+    while (i < n) : (i += 1) {
         if (a[i] == b[i]) continue;
         return if (a[i] > b[i]) Cmp.Greater else if (a[i] < b[i]) Cmp.Less else Cmp.Equal;
     }
@@ -164,7 +164,7 @@ pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) -> ?usi
 
     var i: usize = 0;
     const end = haystack.len - needle.len;
-    while (i <= end; i += 1) {
+    while (i <= end) : (i += 1) {
         if (eql(T, haystack[i...i + needle.len], needle))
             return i;
     }
@@ -263,14 +263,14 @@ const SplitIterator = struct {
 
     pub fn next(self: &SplitIterator) -> ?[]const u8 {
         // move to beginning of token
-        while (self.index < self.s.len and self.s[self.index] == self.c; self.index += 1) {}
+        while (self.index < self.s.len and self.s[self.index] == self.c) : (self.index += 1) {}
         const start = self.index;
         if (start == self.s.len) {
             return null;
         }
 
         // move to end of token
-        while (self.index < self.s.len and self.s[self.index] != self.c; self.index += 1) {}
+        while (self.index < self.s.len and self.s[self.index] != self.c) : (self.index += 1) {}
         const end = self.index;
 
         return self.s[start...end];
@@ -280,7 +280,7 @@ const SplitIterator = struct {
     pub fn rest(self: &const SplitIterator) -> []const u8 {
         // move to beginning of token
         var index: usize = self.index;
-        while (index < self.s.len and self.s[index] == self.c; index += 1) {}
+        while (index < self.s.len and self.s[index] == self.c) : (index += 1) {}
         return self.s[index...];
     }
 };

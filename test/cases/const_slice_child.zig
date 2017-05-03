@@ -31,7 +31,7 @@ fn bar(argc: usize) {
 
 fn strlen(ptr: &const u8) -> usize {
     var count: usize = 0;
-    while (ptr[count] != 0; count += 1) {}
+    while (ptr[count] != 0) : (count += 1) {}
     return count;
 }
 

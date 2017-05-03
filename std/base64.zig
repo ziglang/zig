@@ -17,7 +17,7 @@ pub fn encodeWithAlphabet(dest: []u8, source: []const u8, alphabet: []const u8) 
 
     var i: usize = 0;
     var out_index: usize = 0;
-    while (i + 2 < source.len; i += 3) {
+    while (i + 2 < source.len) : (i += 3) {
         dest[out_index] = alphabet[(source[i] >> 2) & 0x3f];
         out_index += 1;
 

@@ -1580,7 +1580,7 @@ static AstNode *ast_parse_bool_or_expr(ParseContext *pc, size_t *token_index, bo
 }
 
 /*
-WhileExpression(body) = option("inline") "while" "(" Expression option(";" Expression) ")" body
+WhileExpression(body) = option("inline") "while" "(" Expression ")" option("|" option("*") Symbol "|") option(":" "(" Expression ")") body option("else" option("|" Symbol "|") BlockExpression(body))
 */
 static AstNode *ast_parse_while_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -1613,21 +1613,49 @@ static AstNode *ast_parse_while_expr(ParseContext *pc, size_t *token_index, bool
 
     ast_eat_token(pc, token_index, TokenIdLParen);
     node->data.while_expr.condition = ast_parse_expression(pc, token_index, true);
+    ast_eat_token(pc, token_index, TokenIdRParen);
 
-    Token *semi_or_rparen = &pc->tokens->at(*token_index);
+    Token *open_bar_tok = &pc->tokens->at(*token_index);
+    if (open_bar_tok->id == TokenIdBinOr) {
+        *token_index += 1;
 
-    if (semi_or_rparen->id == TokenIdRParen) {
-        *token_index += 1;
-        node->data.while_expr.body = ast_parse_block_or_expression(pc, token_index, true);
-    } else if (semi_or_rparen->id == TokenIdSemicolon) {
-        *token_index += 1;
-        node->data.while_expr.continue_expr = ast_parse_expression(pc, token_index, true);
-        ast_eat_token(pc, token_index, TokenIdRParen);
-        node->data.while_expr.body = ast_parse_block_or_expression(pc, token_index, true);
-    } else {
-        ast_invalid_token_error(pc, semi_or_rparen);
+        Token *star_tok = &pc->tokens->at(*token_index);
+        if (star_tok->id == TokenIdStar) {
+            *token_index += 1;
+            node->data.while_expr.var_is_ptr = true;
+        }
+
+        Token *var_name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
+        node->data.while_expr.var_symbol = token_buf(var_name_tok);
+        ast_eat_token(pc, token_index, TokenIdBinOr);
     }
 
+    Token *colon_tok = &pc->tokens->at(*token_index);
+    if (colon_tok->id == TokenIdColon) {
+        *token_index += 1;
+        ast_eat_token(pc, token_index, TokenIdLParen);
+        node->data.while_expr.continue_expr = ast_parse_expression(pc, token_index, true);
+        ast_eat_token(pc, token_index, TokenIdRParen);
+    }
+
+    node->data.while_expr.body = ast_parse_block_or_expression(pc, token_index, true);
+
+    Token *else_tok = &pc->tokens->at(*token_index);
+    if (else_tok->id == TokenIdKeywordElse) {
+        *token_index += 1;
+
+        Token *else_bar_tok = &pc->tokens->at(*token_index);
+        if (else_bar_tok->id == TokenIdBinOr) {
+            *token_index += 1;
+
+            Token *err_name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
+            node->data.while_expr.err_symbol = token_buf(err_name_tok);
+
+            ast_eat_token(pc, token_index, TokenIdBinOr);
+        }
+
+        node->data.while_expr.body = ast_parse_block_or_expression(pc, token_index, true);
+    }
 
     return node;
 }

@@ -10,7 +10,7 @@ export fn memset(dest: ?&u8, c: u8, n: usize) {
     @setDebugSafety(this, false);
 
     var index: usize = 0;
-    while (index != n; index += 1)
+    while (index != n) : (index += 1)
         (??dest)[index] = c;
 }
 
@@ -18,7 +18,7 @@ export fn memcpy(noalias dest: ?&u8, noalias src: ?&const u8, n: usize) {
     @setDebugSafety(this, false);
 
     var index: usize = 0;
-    while (index != n; index += 1)
+    while (index != n) : (index += 1)
         (??dest)[index] = (??src)[index];
 }
 

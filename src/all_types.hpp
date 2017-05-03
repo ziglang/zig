@@ -609,8 +609,12 @@ struct AstNodeTestExpr {
 
 struct AstNodeWhileExpr {
     AstNode *condition;
+    Buf *var_symbol;
+    bool var_is_ptr;
     AstNode *continue_expr;
     AstNode *body;
+    AstNode *else_node;
+    Buf *err_symbol;
     bool is_inline;
 };
 

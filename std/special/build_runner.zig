@@ -55,7 +55,7 @@ pub fn main() -> %void {
 
     var prefix: ?[]const u8 = null;
 
-    while (arg_i < os.args.count(); arg_i += 1) {
+    while (arg_i < os.args.count()) : (arg_i += 1) {
         const arg = os.args.at(arg_i);
         if (mem.startsWith(u8, arg, "-D")) {
             const option_contents = arg[2...];
