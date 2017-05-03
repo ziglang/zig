@@ -6001,21 +6001,6 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
         }
     }
 
-    //// implicit [N]T to %[]const T
-    //if (expected_type->id == TypeTableEntryIdErrorUnion &&
-    //    is_slice(expected_type->data.error.child_type) &&
-    //    actual_type->id == TypeTableEntryIdArray)
-    //{
-    //    TypeTableEntry *ptr_type =
-    //        expected_type->data.error.child_type->data.structure.fields[slice_ptr_index].type_entry;
-    //    assert(ptr_type->id == TypeTableEntryIdPointer);
-    //    if ((ptr_type->data.pointer.is_const || actual_type->data.array.len == 0) &&
-    //            types_match_const_cast_only(ptr_type->data.pointer.child_type, actual_type->data.array.child_type))
-    //    {
-    //        return ImplicitCastMatchResultYes;
-    //    }
-    //}
-
     // implicit [N]T to &const []const N
     if (expected_type->id == TypeTableEntryIdPointer &&
         expected_type->data.pointer.is_const &&

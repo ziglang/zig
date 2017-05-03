@@ -345,7 +345,6 @@ pub const CompareOutputContext = struct {
         const b = self.b;
 
         const root_src = %%os.path.join(b.allocator, b.cache_root, case.sources.items[0].filename);
-        const exe_path = %%os.path.join(b.allocator, b.cache_root, "test");
 
         switch (case.special) {
             Special.Asm => {
@@ -357,7 +356,6 @@ pub const CompareOutputContext = struct {
 
                 const exe = b.addExecutable("test", null);
                 exe.addAssemblyFile(root_src);
-                exe.setOutputPath(exe_path);
 
                 for (case.sources.toSliceConst()) |src_file| {
                     const expanded_src_path = %%os.path.join(b.allocator, b.cache_root, src_file.filename);
@@ -365,7 +363,7 @@ pub const CompareOutputContext = struct {
                     exe.step.dependOn(&write_src.step);
                 }
 
-                const run_and_cmp_output = RunCompareOutputStep.create(self, exe_path, annotated_case_name,
+                const run_and_cmp_output = RunCompareOutputStep.create(self, exe.getOutputPath(), annotated_case_name,
                     case.expected_output);
                 run_and_cmp_output.step.dependOn(&exe.step);
 
@@ -381,7 +379,6 @@ pub const CompareOutputContext = struct {
                     }
 
                     const exe = b.addExecutable("test", root_src);
-                    exe.setOutputPath(exe_path);
                     exe.setBuildMode(mode);
                     if (case.link_libc) {
                         exe.linkSystemLibrary("c");
@@ -393,23 +390,21 @@ pub const CompareOutputContext = struct {
                         exe.step.dependOn(&write_src.step);
                     }
 
-                    const run_and_cmp_output = RunCompareOutputStep.create(self, exe_path, annotated_case_name,
-                        case.expected_output);
+                    const run_and_cmp_output = RunCompareOutputStep.create(self, exe.getOutputPath(),
+                        annotated_case_name, case.expected_output);
                     run_and_cmp_output.step.dependOn(&exe.step);
 
                     self.step.dependOn(&run_and_cmp_output.step);
                 }
             },
             Special.DebugSafety => {
-                const obj_path = %%os.path.join(b.allocator, b.cache_root, "test.o");
-                const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "debug-safety {}", case.name);
+                const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "safety {}", case.name);
                 test (self.test_filter) |filter| {
                     if (mem.indexOf(u8, annotated_case_name, filter) == null)
                         return;
                 }
 
                 const exe = b.addExecutable("test", root_src);
-                exe.setOutputPath(exe_path);
                 if (case.link_libc) {
                     exe.linkSystemLibrary("c");
                 }
@@ -420,7 +415,7 @@ pub const CompareOutputContext = struct {
                     exe.step.dependOn(&write_src.step);
                 }
 
-                const run_and_cmp_output = DebugSafetyRunStep.create(self, exe_path, annotated_case_name);
+                const run_and_cmp_output = DebugSafetyRunStep.create(self, exe.getOutputPath(), annotated_case_name);
                 run_and_cmp_output.step.dependOn(&exe.step);
 
                 self.step.dependOn(&run_and_cmp_output.step);

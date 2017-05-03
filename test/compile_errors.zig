@@ -1630,5 +1630,4 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:4:12: error: function returns address of local variable");
-
 }

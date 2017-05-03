@@ -85,7 +85,7 @@ pub const Builder = struct {
         var self = Builder {
             .zig_exe = zig_exe,
             .build_root = build_root,
-            .cache_root = cache_root,
+            .cache_root = %%os.path.relative(allocator, build_root, cache_root),
             .verbose = false,
             .invalid_user_input = false,
             .allocator = allocator,
@@ -565,7 +565,7 @@ pub const Builder = struct {
     }
 
     pub fn makePath(self: &Builder, path: []const u8) -> %void {
-        os.makePath(self.allocator, path) %% |err| {
+        os.makePath(self.allocator, self.pathFromRoot(path)) %% |err| {
             %%io.stderr.printf("Unable to create path {}: {}\n", path, @errorName(err));
             return err;
         };
@@ -824,8 +824,7 @@ pub const LibExeObjStep = struct {
         test (self.output_path) |output_path| {
             output_path
         } else {
-            const wanted_path = %%os.path.join(self.builder.allocator, self.builder.cache_root, self.out_filename);
-            %%os.path.relative(self.builder.allocator, self.builder.build_root, wanted_path)
+            %%os.path.join(self.builder.allocator, self.builder.cache_root, self.out_filename)
         }
     }
 
@@ -911,7 +910,7 @@ pub const LibExeObjStep = struct {
         }
 
         %%zig_args.append("--cache-dir");
-        %%zig_args.append(builder.cache_root);
+        %%zig_args.append(builder.pathFromRoot(builder.cache_root));
 
         const output_path = builder.pathFromRoot(self.getOutputPath());
         %%zig_args.append("--output");
@@ -1207,8 +1206,7 @@ pub const CLibExeObjStep = struct {
         test (self.output_path) |output_path| {
             output_path
         } else {
-            const wanted_path = %%os.path.join(self.builder.allocator, self.builder.cache_root, self.out_filename);
-            %%os.path.relative(self.builder.allocator, self.builder.build_root, wanted_path)
+            %%os.path.join(self.builder.allocator, self.builder.cache_root, self.out_filename)
         }
     }
 
@@ -1335,7 +1333,7 @@ pub const CLibExeObjStep = struct {
                     %return builder.makePath(cache_o_dir);
                     const cache_o_file = builder.fmt("{}{}", cache_o_src, self.target.oFileExt());
                     %%cc_args.append("-o");
-                    %%cc_args.append(cache_o_file);
+                    %%cc_args.append(builder.pathFromRoot(cache_o_file));
 
                     self.appendCompileFlags(&cc_args);
 
@@ -1382,7 +1380,7 @@ pub const CLibExeObjStep = struct {
                     }
 
                     const rpath_arg = builder.fmt("-Wl,-rpath,{}",
-                        %%os.path.real(builder.allocator, builder.cache_root));
+                        %%os.path.real(builder.allocator, builder.pathFromRoot(builder.cache_root)));
                     defer builder.allocator.free(rpath_arg);
                     %%cc_args.append(rpath_arg);
 
@@ -1411,7 +1409,7 @@ pub const CLibExeObjStep = struct {
                     %return builder.makePath(cache_o_dir);
                     const cache_o_file = builder.fmt("{}{}", cache_o_src, self.target.oFileExt());
                     %%cc_args.append("-o");
-                    %%cc_args.append(cache_o_file);
+                    %%cc_args.append(builder.pathFromRoot(cache_o_file));
 
                     for (self.cflags.toSliceConst()) |cflag| {
                         %%cc_args.append(cflag);
@@ -1424,7 +1422,7 @@ pub const CLibExeObjStep = struct {
 
                     %return builder.spawnChild(cc, cc_args.toSliceConst());
 
-                    %%self.object_files.append(%%os.path.relative(builder.allocator, builder.build_root, cache_o_file));
+                    %%self.object_files.append(cache_o_file);
                 }
 
                 %%cc_args.resize(0);
@@ -1438,7 +1436,7 @@ pub const CLibExeObjStep = struct {
                 %%cc_args.append(output_path);
 
                 const rpath_arg = builder.fmt("-Wl,-rpath,{}",
-                    %%os.path.real(builder.allocator, builder.cache_root));
+                    %%os.path.real(builder.allocator, builder.pathFromRoot(builder.cache_root)));
                 defer builder.allocator.free(rpath_arg);
                 %%cc_args.append(rpath_arg);
 
