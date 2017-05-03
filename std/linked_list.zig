@@ -3,7 +3,7 @@ const assert = debug.assert;
 const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
 
-// Generic doubly linked list.
+/// Generic doubly linked list.
 pub fn LinkedList(comptime T: type) -> type {
     struct {
         const List = this;
@@ -249,11 +249,15 @@ test "basic linked list test" {
     list.insertBefore(five, four);  // {1, 2, 4, 5}
     list.insertAfter(two, three);   // {1, 2, 3, 4, 5}
 
+    // Traverse the list forwards and backwards.
     var it = list.iterate();
+    var it_reverse = list.iterateBackwards();
     var index: u32 = 1;
     while (true) {
         const node = it.next() ?? break;
+        const node_reverse = it_reverse.next() ?? break;
         assert (node.data == index);
+        assert (node_reverse.data == (6 - index));
         index += 1;
     }
 
