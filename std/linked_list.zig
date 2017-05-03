@@ -209,7 +209,7 @@ pub fn LinkedList(comptime T: type) -> type {
         }
 
         /// Abstract iteration over a linked list.
-        fn Iterator(comptime backwards: bool) -> type {
+        pub fn Iterator(comptime backwards: bool) -> type {
             struct {
                 const It = this;
 
