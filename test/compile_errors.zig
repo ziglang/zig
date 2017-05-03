@@ -1630,4 +1630,28 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:4:12: error: function returns address of local variable");
+
+    cases.add("inner struct member shadowing outer struct member",
+        \\fn A() -> type {
+        \\    struct {
+        \\        b: B(),
+        \\
+        \\        const Self = this;
+        \\
+        \\        fn B() -> type {
+        \\            struct {
+        \\                const Self = this;
+        \\            }
+        \\        }
+        \\    }
+        \\}
+        \\comptime {
+        \\    assert(A().B().Self != A().Self);
+        \\}
+        \\fn assert(ok: bool) {
+        \\    if (!ok) unreachable;
+        \\}
+    ,
+        ".tmp_source.zig:9:17: error: redefinition of 'Self'",
+        ".tmp_source.zig:5:9: note: previous definition is here");
 }

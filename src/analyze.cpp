@@ -2289,13 +2289,21 @@ VariableTableEntry *add_variable(CodeGen *g, AstNode *source_node, Scope *parent
                 add_node_error(g, source_node,
                         buf_sprintf("variable shadows type '%s'", buf_ptr(&type->name)));
                 variable_entry->value->type = g->builtin_types.entry_invalid;
-            } else if (src_tld == nullptr) {
-                Tld *tld = find_decl(g, parent_scope, name);
-                if (tld) {
-                    ErrorMsg *msg = add_node_error(g, source_node,
-                            buf_sprintf("redefinition of '%s'", buf_ptr(name)));
-                    add_error_note(g, msg, tld->source_node, buf_sprintf("previous definition is here"));
-                    variable_entry->value->type = g->builtin_types.entry_invalid;
+            } else {
+                Scope *search_scope = nullptr;
+                if (src_tld == nullptr) {
+                    search_scope = parent_scope;
+                } else if (src_tld->parent_scope != nullptr && src_tld->parent_scope->parent != nullptr) {
+                    search_scope = src_tld->parent_scope->parent;
+                }
+                if (search_scope != nullptr) {
+                    Tld *tld = find_decl(g, search_scope, name);
+                    if (tld != nullptr) {
+                        ErrorMsg *msg = add_node_error(g, source_node,
+                                buf_sprintf("redefinition of '%s'", buf_ptr(name)));
+                        add_error_note(g, msg, tld->source_node, buf_sprintf("previous definition is here"));
+                        variable_entry->value->type = g->builtin_types.entry_invalid;
+                    }
                 }
             }
         }
