@@ -539,7 +539,7 @@ pub const Builder = struct {
         }
 
         var child = os.ChildProcess.spawn(exe_path, args, cwd, env_map,
-            StdIo.Ignore, StdIo.Inherit, StdIo.Inherit, self.allocator) %% |err|
+            StdIo.Inherit, StdIo.Inherit, StdIo.Inherit, self.allocator) %% |err|
         {
             %%io.stderr.printf("Unable to spawn {}: {}\n", exe_path, @errorName(err));
             return err;
