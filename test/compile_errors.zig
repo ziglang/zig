@@ -118,38 +118,20 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     , ".tmp_source.zig:5:5: error: invalid token: 'var'");
 
-    cases.add("implicit semicolon - try statement",
-        \\export fn entry() {
-        \\    try (foo()) {}
-        \\    var good = {};
-        \\    try (foo()) ({})
-        \\    var bad = {};
-        \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
-
-    cases.add("implicit semicolon - try expression",
-        \\export fn entry() {
-        \\    _ = try (foo()) {};
-        \\    var good = {};
-        \\    _ = try (foo()) {}
-        \\    var bad = {};
-        \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
-
     cases.add("implicit semicolon - test statement",
         \\export fn entry() {
-        \\    test (foo()) {}
+        \\    if (foo()) |_| {}
         \\    var good = {};
-        \\    test (foo()) ({})
+        \\    if (foo()) |_| ({})
         \\    var bad = {};
         \\}
     , ".tmp_source.zig:5:5: error: invalid token: 'var'");
 
     cases.add("implicit semicolon - test expression",
         \\export fn entry() {
-        \\    _ = test (foo()) {};
+        \\    _ = if (foo()) |_| {};
         \\    var good = {};
-        \\    _ = test (foo()) {}
+        \\    _ = if (foo()) |_| {}
         \\    var bad = {};
         \\}
     , ".tmp_source.zig:5:5: error: invalid token: 'var'");
@@ -500,9 +482,9 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("invalid maybe type",
         \\export fn f() {
-        \\    test (true) |x| { }
+        \\    if (true) |x| { }
         \\}
-    , ".tmp_source.zig:2:11: error: expected nullable type, found 'bool'");
+    , ".tmp_source.zig:2:9: error: expected nullable type, found 'bool'");
 
     cases.add("cast unreachable",
         \\fn f() -> i32 {

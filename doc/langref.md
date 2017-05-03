@@ -91,9 +91,9 @@ Defer(body) = option("%") "defer" body
 
 IfExpression(body) = "if" "(" Expression ")" body option("else" BlockExpression(body))
 
-TryExpression(body) = "try" "(" Expression ")" option("|" option("*") Symbol "|") body option("else" option("|" Symbol "|") BlockExpression(body))
+TryExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|") body "else" "|" Symbol "|" BlockExpression(body)
 
-TestExpression(body) = "test" "(" Expression ")" option("|" option("*") Symbol "|") body option("else" option("|" Symbol "|") BlockExpression(body))
+TestExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|") body option("else" BlockExpression(body))
 
 BoolAndExpression = ComparisonExpression "and" BoolAndExpression | ComparisonExpression
 

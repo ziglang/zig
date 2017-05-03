@@ -247,7 +247,7 @@ test "basicHashMapTest" {
     assert((??map.get(2)).value == 22);
     _ = map.remove(2);
     assert(map.remove(2) == null);
-    assert(test (map.get(2)) false else true);
+    assert(map.get(2) == null);
 }
 
 fn hash_i32(x: i32) -> u32 {

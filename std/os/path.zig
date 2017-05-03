@@ -243,7 +243,7 @@ pub fn relative(allocator: &Allocator, from: []const u8, to: []const u8) -> %[]u
     while (true) {
         const from_component = from_it.next() ?? return mem.dupe(allocator, u8, to_it.rest());
         const to_rest = to_it.rest();
-        test(to_it.next()) |to_component| {
+        if (to_it.next()) |to_component| {
             if (mem.eql(u8, from_component, to_component))
                 continue;
         }

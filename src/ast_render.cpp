@@ -763,7 +763,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             }
         case NodeTypeTryExpr:
             {
-                fprintf(ar->f, "try (");
+                fprintf(ar->f, "if (");
                 render_node_grouped(ar, node->data.try_expr.target_node);
                 fprintf(ar->f, ") ");
                 if (node->data.try_expr.var_symbol) {
@@ -783,7 +783,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             }
         case NodeTypeTestExpr:
             {
-                fprintf(ar->f, "test (");
+                fprintf(ar->f, "if (");
                 render_node_grouped(ar, node->data.test_expr.target_node);
                 fprintf(ar->f, ") ");
                 if (node->data.test_expr.var_symbol) {

@@ -215,7 +215,7 @@ static AstNode *ast_parse_block_or_expression(ParseContext *pc, size_t *token_in
 static AstNode *ast_parse_block_expr_or_expression(ParseContext *pc, size_t *token_index, bool mandatory);
 static AstNode *ast_parse_expression(ParseContext *pc, size_t *token_index, bool mandatory);
 static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mandatory);
-static AstNode *ast_parse_if_expr(ParseContext *pc, size_t *token_index, bool mandatory);
+static AstNode *ast_parse_if_try_test_expr(ParseContext *pc, size_t *token_index, bool mandatory);
 static AstNode *ast_parse_block_expr(ParseContext *pc, size_t *token_index, bool mandatory);
 static AstNode *ast_parse_unwrap_expr(ParseContext *pc, size_t *token_index, bool mandatory);
 static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, size_t *token_index, bool mandatory);
@@ -636,110 +636,6 @@ static AstNode *ast_parse_comptime_expr(ParseContext *pc, size_t *token_index, b
         node->data.comptime_expr.expr = ast_parse_block(pc, token_index, true);
     else
         node->data.comptime_expr.expr = ast_parse_block_or_expression(pc, token_index, true);
-    return node;
-}
-
-/*
-TryExpression(body) = "try" "(" Expression ")" option("|" option("*") Symbol "|") body option("else" option("|" Symbol "|") BlockExpression(body))
-*/
-static AstNode *ast_parse_try_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
-    Token *try_token = &pc->tokens->at(*token_index);
-    if (try_token->id == TokenIdKeywordTry) {
-        *token_index += 1;
-    } else if (mandatory) {
-        ast_expect_token(pc, try_token, TokenIdKeywordTry);
-        zig_unreachable();
-    } else {
-        return nullptr;
-    }
-
-    AstNode *node = ast_create_node(pc, NodeTypeTryExpr, try_token);
-
-    ast_eat_token(pc, token_index, TokenIdLParen);
-    node->data.try_expr.target_node = ast_parse_expression(pc, token_index, true);
-    ast_eat_token(pc, token_index, TokenIdRParen);
-
-    Token *open_bar_tok = &pc->tokens->at(*token_index);
-    if (open_bar_tok->id == TokenIdBinOr) {
-        *token_index += 1;
-
-        Token *star_tok = &pc->tokens->at(*token_index);
-        if (star_tok->id == TokenIdStar) {
-            *token_index += 1;
-            node->data.try_expr.var_is_ptr = true;
-        }
-
-        Token *var_name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
-        node->data.try_expr.var_symbol = token_buf(var_name_tok);
-
-        ast_eat_token(pc, token_index, TokenIdBinOr);
-    }
-
-    node->data.try_expr.then_node = ast_parse_block_or_expression(pc, token_index, true);
-
-    Token *else_token = &pc->tokens->at(*token_index);
-    if (else_token->id == TokenIdKeywordElse) {
-        *token_index += 1;
-        Token *open_bar_tok = &pc->tokens->at(*token_index);
-        if (open_bar_tok->id == TokenIdBinOr) {
-            *token_index += 1;
-
-            Token *err_name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
-            node->data.try_expr.err_symbol = token_buf(err_name_tok);
-
-            ast_eat_token(pc, token_index, TokenIdBinOr);
-        }
-
-        node->data.try_expr.else_node = ast_parse_block_expr_or_expression(pc, token_index, true);
-    }
-
-    return node;
-}
-
-/*
-TestExpression(body) = "test" "(" Expression ")" option("|" option("*") Symbol "|") body option("else" BlockExpression(body))
-*/
-static AstNode *ast_parse_test_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
-    Token *test_token = &pc->tokens->at(*token_index);
-    if (test_token->id == TokenIdKeywordTest) {
-        *token_index += 1;
-    } else if (mandatory) {
-        ast_expect_token(pc, test_token, TokenIdKeywordTest);
-        zig_unreachable();
-    } else {
-        return nullptr;
-    }
-
-    AstNode *node = ast_create_node(pc, NodeTypeTestExpr, test_token);
-
-    ast_eat_token(pc, token_index, TokenIdLParen);
-    node->data.test_expr.target_node = ast_parse_expression(pc, token_index, true);
-    ast_eat_token(pc, token_index, TokenIdRParen);
-
-    Token *open_bar_tok = &pc->tokens->at(*token_index);
-    if (open_bar_tok->id == TokenIdBinOr) {
-        *token_index += 1;
-
-        Token *star_tok = &pc->tokens->at(*token_index);
-        if (star_tok->id == TokenIdStar) {
-            *token_index += 1;
-            node->data.test_expr.var_is_ptr = true;
-        }
-
-        Token *var_name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
-        node->data.test_expr.var_symbol = token_buf(var_name_tok);
-
-        ast_eat_token(pc, token_index, TokenIdBinOr);
-    }
-
-    node->data.test_expr.then_node = ast_parse_block_or_expression(pc, token_index, true);
-
-    Token *else_token = &pc->tokens->at(*token_index);
-    if (else_token->id == TokenIdKeywordElse) {
-        *token_index += 1;
-        node->data.test_expr.else_node = ast_parse_block_expr_or_expression(pc, token_index, true);
-    }
-
     return node;
 }
 
@@ -1434,8 +1330,10 @@ static AstNode *ast_parse_bool_and_expr(ParseContext *pc, size_t *token_index, b
 
 /*
 IfExpression(body) = "if" "(" Expression ")" body option("else" BlockExpression(body))
+TryExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|") body "else" "|" Symbol "|" BlockExpression(body)
+TestExpression(body) = "if" "(" Expression ")" "|" option("*") Symbol "|" body option("else" BlockExpression(body))
 */
-static AstNode *ast_parse_if_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
+static AstNode *ast_parse_if_try_test_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *if_token = &pc->tokens->at(*token_index);
 
     if (if_token->id == TokenIdKeywordIf) {
@@ -1448,19 +1346,72 @@ static AstNode *ast_parse_if_expr(ParseContext *pc, size_t *token_index, bool ma
     }
 
     ast_eat_token(pc, token_index, TokenIdLParen);
-
-    AstNode *node = ast_create_node(pc, NodeTypeIfBoolExpr, if_token);
-    node->data.if_bool_expr.condition = ast_parse_expression(pc, token_index, true);
+    AstNode *condition = ast_parse_expression(pc, token_index, true);
     ast_eat_token(pc, token_index, TokenIdRParen);
-    node->data.if_bool_expr.then_block = ast_parse_block_or_expression(pc, token_index, true);
 
-    Token *else_token = &pc->tokens->at(*token_index);
-    if (else_token->id == TokenIdKeywordElse) {
+    Token *open_bar_tok = &pc->tokens->at(*token_index);
+    Token *var_name_tok = nullptr;
+    bool var_is_ptr = false;
+    if (open_bar_tok->id == TokenIdBinOr) {
         *token_index += 1;
-        node->data.if_bool_expr.else_node = ast_parse_block_expr_or_expression(pc, token_index, true);
+
+        Token *star_tok = &pc->tokens->at(*token_index);
+        if (star_tok->id == TokenIdStar) {
+            *token_index += 1;
+            var_is_ptr = true;
+        }
+
+        var_name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
+
+        ast_eat_token(pc, token_index, TokenIdBinOr);
     }
 
-    return node;
+    AstNode *body_node = ast_parse_block_or_expression(pc, token_index, true);
+
+    Token *else_tok = &pc->tokens->at(*token_index);
+    AstNode *else_node = nullptr;
+    Token *err_name_tok = nullptr;
+    if (else_tok->id == TokenIdKeywordElse) {
+        *token_index += 1;
+
+        Token *else_bar_tok = &pc->tokens->at(*token_index);
+        if (else_bar_tok->id == TokenIdBinOr) {
+            *token_index += 1;
+
+            err_name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
+
+            ast_eat_token(pc, token_index, TokenIdBinOr);
+        }
+
+        else_node = ast_parse_block_expr_or_expression(pc, token_index, true);
+    }
+
+    if (err_name_tok != nullptr) {
+        AstNode *node = ast_create_node(pc, NodeTypeTryExpr, if_token);
+        node->data.try_expr.target_node = condition;
+        node->data.try_expr.var_is_ptr = var_is_ptr;
+        if (var_name_tok != nullptr) {
+            node->data.try_expr.var_symbol = token_buf(var_name_tok);
+        }
+        node->data.try_expr.then_node = body_node;
+        node->data.try_expr.err_symbol = token_buf(err_name_tok);
+        node->data.try_expr.else_node = else_node;
+        return node;
+    } else if (var_name_tok != nullptr) {
+        AstNode *node = ast_create_node(pc, NodeTypeTestExpr, if_token);
+        node->data.test_expr.target_node = condition;
+        node->data.test_expr.var_is_ptr = var_is_ptr;
+        node->data.test_expr.var_symbol = token_buf(var_name_tok);
+        node->data.test_expr.then_node = body_node;
+        node->data.test_expr.else_node = else_node;
+        return node;
+    } else {
+        AstNode *node = ast_create_node(pc, NodeTypeIfBoolExpr, if_token);
+        node->data.if_bool_expr.condition = condition;
+        node->data.if_bool_expr.then_block = body_node;
+        node->data.if_bool_expr.else_node = else_node;
+        return node;
+    }
 }
 
 /*
@@ -1848,7 +1799,7 @@ BlockExpression(body) = Block | IfExpression(body) | TryExpression(body) | TestE
 static AstNode *ast_parse_block_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
 
-    AstNode *if_expr = ast_parse_if_expr(pc, token_index, false);
+    AstNode *if_expr = ast_parse_if_try_test_expr(pc, token_index, false);
     if (if_expr)
         return if_expr;
 
@@ -1871,14 +1822,6 @@ static AstNode *ast_parse_block_expr(ParseContext *pc, size_t *token_index, bool
     AstNode *comptime_node = ast_parse_comptime_expr(pc, token_index, false, false);
     if (comptime_node)
         return comptime_node;
-
-    AstNode *try_node = ast_parse_try_expr(pc, token_index, false);
-    if (try_node)
-        return try_node;
-
-    AstNode *test_node = ast_parse_test_expr(pc, token_index, false);
-    if (test_node)
-        return test_node;
 
     if (mandatory)
         ast_invalid_token_error(pc, token);

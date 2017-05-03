@@ -43,7 +43,7 @@ pub fn LinkedList(comptime T: type) -> type {
         ///     new_node: Pointer to the new node to insert.
         pub fn insertAfter(list: &List, node: &Node, new_node: &Node) {
             new_node.prev = node;
-            test (node.next) |next_node| {
+            if (node.next) |next_node| {
                 // Intermediate node.
                 new_node.next = next_node;
                 next_node.prev = new_node;
@@ -64,7 +64,7 @@ pub fn LinkedList(comptime T: type) -> type {
         ///     new_node: Pointer to the new node to insert.
         pub fn insertBefore(list: &List, node: &Node, new_node: &Node) {
             new_node.next = node;
-            test (node.prev) |prev_node| {
+            if (node.prev) |prev_node| {
                 // Intermediate node.
                 new_node.prev = prev_node;
                 prev_node.next = new_node;
@@ -83,7 +83,7 @@ pub fn LinkedList(comptime T: type) -> type {
         /// Arguments:
         ///     new_node: Pointer to the new node to insert.
         pub fn append(list: &List, new_node: &Node) {
-            test (list.last) |last| {
+            if (list.last) |last| {
                 // Insert after last.
                 list.insertAfter(last, new_node);
             } else {
@@ -97,7 +97,7 @@ pub fn LinkedList(comptime T: type) -> type {
         /// Arguments:
         ///     new_node: Pointer to the new node to insert.
         pub fn prepend(list: &List, new_node: &Node) {
-            test (list.first) |first| {
+            if (list.first) |first| {
                 // Insert before first.
                 list.insertBefore(first, new_node);
             } else {
@@ -116,7 +116,7 @@ pub fn LinkedList(comptime T: type) -> type {
         /// Arguments:
         ///     node: Pointer to the node to be removed.
         pub fn remove(list: &List, node: &Node) {
-            test (node.prev) |prev_node| {
+            if (node.prev) |prev_node| {
                 // Intermediate node.
                 prev_node.next = node.next;
             } else {
@@ -124,7 +124,7 @@ pub fn LinkedList(comptime T: type) -> type {
                 list.first = node.next;
             }
 
-            test (node.next) |next_node| {
+            if (node.next) |next_node| {
                 // Intermediate node.
                 next_node.prev = node.prev;
             } else {

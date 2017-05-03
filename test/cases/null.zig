@@ -3,7 +3,7 @@ const assert = @import("std").debug.assert;
 test "nullableType" {
     const x : ?bool = @generatedCode(true);
 
-    test (x) |y| {
+    if (x) |y| {
         if (y) {
             // OK
         } else {
@@ -29,7 +29,7 @@ test "nullableType" {
 test "test maybe object and get a pointer to the inner value" {
     var maybe_bool: ?bool = true;
 
-    test (maybe_bool) |*b| {
+    if (maybe_bool) |*b| {
         *b = false;
     }
 
@@ -50,7 +50,7 @@ test "maybe return" {
 
 fn maybeReturnImpl() {
     assert(??foo(1235));
-    test (foo(null))
+    if (foo(null) != null)
         unreachable;
     assert(!??foo(1234));
 }
@@ -66,10 +66,10 @@ test "ifVarMaybePointer" {
 }
 fn shouldBeAPlus1(p: &const Particle) -> u64 {
     var maybe_particle: ?Particle = *p;
-    test (maybe_particle) |*particle| {
+    if (maybe_particle) |*particle| {
         particle.a += 1;
     }
-    test (maybe_particle) |particle| {
+    if (maybe_particle) |particle| {
         return particle.a;
     }
     return 0;
@@ -116,7 +116,7 @@ fn nullableVoidImpl() {
 }
 
 fn bar(x: ?void) -> ?void {
-    test (x) {
+    if (x) |_| {
         return {};
     } else {
         return null;

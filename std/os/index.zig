@@ -173,7 +173,7 @@ pub fn posixOpen(file_path: []const u8, flags: usize, perm: usize, allocator: ?&
 
     if (file_path.len < stack_buf.len) {
         path0 = stack_buf[0...file_path.len + 1];
-    } else test (allocator) |a| {
+    } else if (allocator) |a| {
         path0 = %return a.alloc(u8, file_path.len + 1);
         need_free = true;
     } else {
@@ -241,7 +241,7 @@ pub fn posixExecve(exe_path: []const u8, argv: []const []const u8, env_map: &con
     mem.set(?&u8, argv_buf, null);
     defer {
         for (argv_buf) |arg| {
-            const arg_buf = test (arg) |ptr| cstr.toSlice(ptr) else break;
+            const arg_buf = if (arg) |ptr| cstr.toSlice(ptr) else break;
             allocator.free(arg_buf);
         }
         allocator.free(argv_buf);
@@ -268,7 +268,7 @@ pub fn posixExecve(exe_path: []const u8, argv: []const []const u8, env_map: &con
     mem.set(?&u8, envp_buf, null);
     defer {
         for (envp_buf) |env| {
-            const env_buf = test (env) |ptr| cstr.toSlice(ptr) else break;
+            const env_buf = if (env) |ptr| cstr.toSlice(ptr) else break;
             allocator.free(env_buf);
         }
         allocator.free(envp_buf);
@@ -448,7 +448,7 @@ pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []con
 const b64_fs_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_=";
 
 pub fn atomicSymLink(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) -> %void {
-    try (symLink(allocator, existing_path, new_path)) {
+    if (symLink(allocator, existing_path, new_path)) {
         return;
     } else |err| {
         if (err != error.PathAlreadyExists) {
@@ -463,7 +463,7 @@ pub fn atomicSymLink(allocator: &Allocator, existing_path: []const u8, new_path:
     while (true) {
         %return getRandomBytes(rand_buf[0...]);
         _ = base64.encodeWithAlphabet(tmp_path[new_path.len...], rand_buf, b64_fs_alphabet);
-        try (symLink(allocator, existing_path, tmp_path)) {
+        if (symLink(allocator, existing_path, tmp_path)) {
             return rename(allocator, tmp_path, new_path);
         } else |err| {
             if (err == error.PathAlreadyExists) {
@@ -668,7 +668,7 @@ pub fn deleteDir(allocator: &Allocator, dir_path: []const u8) -> %void {
 pub fn deleteTree(allocator: &Allocator, full_path: []const u8) -> %void {
 start_over:
     // First, try deleting the item as a file. This way we don't follow sym links.
-    try (deleteFile(allocator, full_path)) {
+    if (deleteFile(allocator, full_path)) {
         return;
     } else |err| {
         if (err == error.FileNotFound)

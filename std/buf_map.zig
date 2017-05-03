@@ -28,7 +28,7 @@ pub const BufMap = struct {
     }
 
     pub fn set(self: &BufMap, key: []const u8, value: []const u8) -> %void {
-        test (self.hash_map.get(key)) |entry| {
+        if (self.hash_map.get(key)) |entry| {
             const value_copy = %return self.copy(value);
             %defer self.free(value_copy);
             _ = %return self.hash_map.put(key, value_copy);

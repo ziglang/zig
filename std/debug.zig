@@ -98,13 +98,13 @@ pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty
                     continue;
                 };
                 const compile_unit_name = %return compile_unit.die.getAttrString(st, DW.AT_name);
-                try (getLineNumberInfo(st, compile_unit, usize(return_address) - 1)) |line_info| {
+                if (getLineNumberInfo(st, compile_unit, usize(return_address) - 1)) |line_info| {
                     defer line_info.deinit();
                     %return out_stream.print(WHITE ++ "{}:{}:{}" ++ RESET ++ ": " ++
                         DIM ++ ptr_hex ++ " in ??? ({})" ++ RESET ++ "\n",
                         line_info.file_name, line_info.line, line_info.column,
                         return_address, compile_unit_name);
-                    try (printLineFromFile(st.allocator(), out_stream, line_info)) {
+                    if (printLineFromFile(st.allocator(), out_stream, line_info)) {
                         if (line_info.column == 0) {
                             %return out_stream.write("\n");
                         } else {
@@ -679,7 +679,7 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
                     DW.LNE_end_sequence => {
                         //%%io.stdout.printf("  [0x{x8}]  End Sequence\n", pos);
                         prog.end_sequence = true;
-                        test (%return prog.checkLineMatch()) |info| return info;
+                        if (%return prog.checkLineMatch()) |info| return info;
                         return error.MissingDebugInfo;
                     },
                     DW.LNE_set_address => {
@@ -717,14 +717,14 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
                 //%%io.stdout.printf(
                 //    "  [0x{x8}]  Special opcode {}: advance Address by {} to 0x{x} and Line by {} to {}\n",
                 //    pos, adjusted_opcode, inc_addr, prog.address, inc_line, prog.line);
-                test (%return prog.checkLineMatch()) |info| return info;
+                if (%return prog.checkLineMatch()) |info| return info;
                 prog.basic_block = false;
             } else {
                 switch (opcode) {
                     DW.LNS_copy => {
                         //%%io.stdout.printf("  [0x{x8}]  Copy\n", pos);
 
-                        test (%return prog.checkLineMatch()) |info| return info;
+                        if (%return prog.checkLineMatch()) |info| return info;
                         prog.basic_block = false;
                     },
                     DW.LNS_advance_pc => {
@@ -828,8 +828,8 @@ fn scanAllCompileUnits(st: &ElfStackTrace) -> %void {
             return error.InvalidDebugInfo;
 
         const pc_range = {
-            try (compile_unit_die.getAttrAddr(DW.AT_low_pc)) |low_pc| {
-                test (compile_unit_die.getAttr(DW.AT_high_pc)) |high_pc_value| {
+            if (compile_unit_die.getAttrAddr(DW.AT_low_pc)) |low_pc| {
+                if (compile_unit_die.getAttr(DW.AT_high_pc)) |high_pc_value| {
                     const pc_end = switch (*high_pc_value) {
                         FormValue.Address => |value| value,
                         FormValue.Const => |value| {
@@ -867,7 +867,7 @@ fn scanAllCompileUnits(st: &ElfStackTrace) -> %void {
 
 fn findCompileUnit(st: &ElfStackTrace, target_address: u64) -> ?&const CompileUnit {
     for (st.compile_unit_list.toSlice()) |*compile_unit| {
-        test (compile_unit.pc_range) |range| {
+        if (compile_unit.pc_range) |range| {
             if (target_address >= range.start and target_address < range.end)
                 return compile_unit;
         }

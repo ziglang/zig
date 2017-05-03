@@ -36,7 +36,7 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
             // 0 X
             // ---
             // 0 X
-            test (maybe_rem) |rem| {
+            if (maybe_rem) |rem| {
                 *rem = n[low] % d[low];
             }
             return n[low] / d[low];
@@ -44,7 +44,7 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
         // 0 X
         // ---
         // K X
-        test (maybe_rem) |rem| {
+        if (maybe_rem) |rem| {
             *rem = n[low];
         }
         return 0;
@@ -55,7 +55,7 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
             // K X
             // ---
             // 0 0
-            test (maybe_rem) |rem| {
+            if (maybe_rem) |rem| {
                 *rem = n[high] % d[low];
             }
             return n[high] / d[low];
@@ -65,7 +65,7 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
             // K 0
             // ---
             // K 0
-            test (maybe_rem) |rem| {
+            if (maybe_rem) |rem| {
                 r[high] = n[high] % d[high];
                 r[low] = 0;
                 *rem = *@ptrCast(&du_int, &r[0]);
@@ -77,7 +77,7 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
         // K 0
         // if d is a power of 2
         if ((d[high] & (d[high] - 1)) == 0) {
-            test (maybe_rem) |rem| {
+            if (maybe_rem) |rem| {
                 r[low] = n[low];
                 r[high] = n[high] & (d[high] - 1);
                 *rem = *@ptrCast(&du_int, &r[0]);
@@ -90,7 +90,7 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
         sr = @clz(su_int(d[high])) - @clz(su_int(n[high]));
         // 0 <= sr <= n_uword_bits - 2 or sr large
         if (sr > n_uword_bits - 2) {
-            test (maybe_rem) |rem| {
+            if (maybe_rem) |rem| {
                 *rem = *@ptrCast(&du_int, &n[0]);
             }
             return 0;
@@ -111,7 +111,7 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
             // 0 K
             // if d is a power of 2
             if ((d[low] & (d[low] - 1)) == 0) {
-                test (maybe_rem) |rem| {
+                if (maybe_rem) |rem| {
                     *rem = n[low] & (d[low] - 1);
                 }
                 if (d[low] == 1) {
@@ -155,7 +155,7 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
             sr = @clz(su_int(d[high])) - @clz(su_int(n[high]));
             // 0 <= sr <= n_uword_bits - 1 or sr large
             if (sr > n_uword_bits - 1) {
-                test (maybe_rem) |rem| {
+                if (maybe_rem) |rem| {
                     *rem = *@ptrCast(&du_int, &n[0]);
                 }
                 return 0;
@@ -200,7 +200,7 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
         sr -= 1;
     }
     *@ptrCast(&du_int, &q[0]) = (*@ptrCast(&du_int, &q[0]) << 1) | u64(carry);
-    test (maybe_rem) |rem| {
+    if (maybe_rem) |rem| {
         *rem = *@ptrCast(&du_int, &r[0]);
     }
     return *@ptrCast(&du_int, &q[0]);

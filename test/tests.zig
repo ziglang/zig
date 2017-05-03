@@ -349,7 +349,7 @@ pub const CompareOutputContext = struct {
         switch (case.special) {
             Special.Asm => {
                 const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "assemble-and-link {}", case.name);
-                test (self.test_filter) |filter| {
+                if (self.test_filter) |filter| {
                     if (mem.indexOf(u8, annotated_case_name, filter) == null)
                         return;
                 }
@@ -373,7 +373,7 @@ pub const CompareOutputContext = struct {
                 for ([]Mode{Mode.Debug, Mode.ReleaseFast}) |mode| {
                     const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "{} {} ({})",
                         "compare-output", case.name, @enumTagName(mode));
-                    test (self.test_filter) |filter| {
+                    if (self.test_filter) |filter| {
                         if (mem.indexOf(u8, annotated_case_name, filter) == null)
                             continue;
                     }
@@ -399,7 +399,7 @@ pub const CompareOutputContext = struct {
             },
             Special.DebugSafety => {
                 const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "safety {}", case.name);
-                test (self.test_filter) |filter| {
+                if (self.test_filter) |filter| {
                     if (mem.indexOf(u8, annotated_case_name, filter) == null)
                         return;
                 }
@@ -620,7 +620,7 @@ pub const CompileErrorContext = struct {
         for ([]Mode{Mode.Debug, Mode.ReleaseFast}) |mode| {
             const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "compile-error {} ({})",
                 case.name, @enumTagName(mode));
-            test (self.test_filter) |filter| {
+            if (self.test_filter) |filter| {
                 if (mem.indexOf(u8, annotated_case_name, filter) == null)
                     continue;
             }
@@ -655,7 +655,7 @@ pub const BuildExamplesContext = struct {
         const b = self.b;
 
         const annotated_case_name = b.fmt("build {} (Debug)", build_file);
-        test (self.test_filter) |filter| {
+        if (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null)
                 return;
         }
@@ -686,7 +686,7 @@ pub const BuildExamplesContext = struct {
         for ([]Mode{Mode.Debug, Mode.ReleaseFast}) |mode| {
             const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "build {} ({})",
                 root_src, @enumTagName(mode));
-            test (self.test_filter) |filter| {
+            if (self.test_filter) |filter| {
                 if (mem.indexOf(u8, annotated_case_name, filter) == null)
                     continue;
             }
@@ -874,7 +874,7 @@ pub const ParseHContext = struct {
         const b = self.b;
 
         const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "parseh {}", case.name);
-        test (self.test_filter) |filter| {
+        if (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null)
                 return;
         }

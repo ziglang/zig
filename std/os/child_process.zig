@@ -59,9 +59,9 @@ pub const ChildProcess = struct {
                     errno.EINVAL, errno.ECHILD => unreachable,
                     errno.EINTR => continue,
                     else => {
-                        test (self.stdin) |*stdin| { stdin.close(); }
-                        test (self.stdout) |*stdout| { stdout.close(); }
-                        test (self.stderr) |*stderr| { stderr.close(); }
+                        if (self.stdin) |*stdin| { stdin.close(); }
+                        if (self.stdout) |*stdout| { stdout.close(); }
+                        if (self.stderr) |*stderr| { stderr.close(); }
                         return error.Unexpected;
                     },
                 }
@@ -69,9 +69,9 @@ pub const ChildProcess = struct {
             break;
         }
 
-        test (self.stdin) |*stdin| { stdin.close(); }
-        test (self.stdout) |*stdout| { stdout.close(); }
-        test (self.stderr) |*stderr| { stderr.close(); }
+        if (self.stdin) |*stdin| { stdin.close(); }
+        if (self.stdout) |*stdout| { stdout.close(); }
+        if (self.stderr) |*stderr| { stderr.close(); }
 
         // Write @maxValue(ErrInt) to the write end of the err_pipe. This is after
         // waitpid, so this write is guaranteed to be after the child
@@ -143,7 +143,7 @@ pub const ChildProcess = struct {
             setUpChildIo(stderr, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) %%
                 |err| forkChildErrReport(err_pipe[1], err);
 
-            test (maybe_cwd) |cwd| {
+            if (maybe_cwd) |cwd| {
                 os.changeCurDir(allocator, cwd) %%
                     |err| forkChildErrReport(err_pipe[1], err);
             }

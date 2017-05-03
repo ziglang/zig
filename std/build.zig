@@ -306,7 +306,7 @@ pub const Builder = struct {
     }
 
     fn processNixOSEnvVars(self: &Builder) {
-        test (os.getEnv("NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {
+        if (os.getEnv("NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {
             var it = mem.split(nix_cflags_compile, ' ');
             while (true) {
                 const word = it.next() ?? break;
@@ -322,7 +322,7 @@ pub const Builder = struct {
                 }
             }
         }
-        test (os.getEnv("NIX_LDFLAGS")) |nix_ldflags| {
+        if (os.getEnv("NIX_LDFLAGS")) |nix_ldflags| {
             var it = mem.split(nix_ldflags, ' ');
             while (true) {
                 const word = it.next() ?? break;
@@ -350,7 +350,7 @@ pub const Builder = struct {
             .type_id = type_id,
             .description = description,
         };
-        test (%%self.available_options_map.put(name, available_option)) {
+        if (%%self.available_options_map.put(name, available_option) != null) {
             debug.panic("Option '{}' declared twice", name);
         }
         %%self.available_options_list.append(available_option);
@@ -424,7 +424,7 @@ pub const Builder = struct {
     }
 
     pub fn addUserInputOption(self: &Builder, name: []const u8, value: []const u8) -> bool {
-        test (%%self.user_input_options.put(name, UserInputOption {
+        if (%%self.user_input_options.put(name, UserInputOption {
             .name = name,
             .value = UserValue.Scalar { value },
             .used = false,
@@ -461,7 +461,7 @@ pub const Builder = struct {
     }
 
     pub fn addUserInputFlag(self: &Builder, name: []const u8) -> bool {
-        test (%%self.user_input_options.put(name, UserInputOption {
+        if (%%self.user_input_options.put(name, UserInputOption {
             .name = name,
             .value = UserValue.Flag,
             .used = false,
@@ -530,7 +530,7 @@ pub const Builder = struct {
         exe_path: []const u8, args: []const []const u8) -> %void
     {
         if (self.verbose) {
-            test (cwd) |yes_cwd| %%io.stderr.print("cd {}; ", yes_cwd);
+            if (cwd) |yes_cwd| %%io.stderr.print("cd {}; ", yes_cwd);
             %%io.stderr.print("{}", exe_path);
             for (args) |arg| {
                 %%io.stderr.print(" {}", arg);
@@ -821,7 +821,7 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn getOutputPath(self: &LibExeObjStep) -> []const u8 {
-        test (self.output_path) |output_path| {
+        if (self.output_path) |output_path| {
             output_path
         } else {
             %%os.path.join(self.builder.allocator, self.builder.cache_root, self.out_filename)
@@ -833,7 +833,7 @@ pub const LibExeObjStep = struct {
     }
 
     pub fn getOutputHPath(self: &LibExeObjStep) -> []const u8 {
-        test (self.output_h_path) |output_h_path| {
+        if (self.output_h_path) |output_h_path| {
             output_h_path
         } else {
             %%os.path.join(self.builder.allocator, self.builder.cache_root, self.out_h_filename)
@@ -885,7 +885,7 @@ pub const LibExeObjStep = struct {
         };
         %%zig_args.append(cmd);
 
-        test (self.root_src) |root_src| {
+        if (self.root_src) |root_src| {
             %%zig_args.append(builder.pathFromRoot(root_src));
         }
 
@@ -950,7 +950,7 @@ pub const LibExeObjStep = struct {
             },
         }
 
-        test (self.linker_script) |linker_script| {
+        if (self.linker_script) |linker_script| {
             %%zig_args.append("--linker-script");
             %%zig_args.append(linker_script);
         }
@@ -1059,7 +1059,7 @@ pub const TestStep = struct {
             builtin.Mode.ReleaseFast => %%zig_args.append("--release-fast"),
         }
 
-        test (self.filter) |filter| {
+        if (self.filter) |filter| {
             %%zig_args.append("--test-filter");
             %%zig_args.append(filter);
         }
@@ -1203,7 +1203,7 @@ pub const CLibExeObjStep = struct {
     }
 
     pub fn getOutputPath(self: &CLibExeObjStep) -> []const u8 {
-        test (self.output_path) |output_path| {
+        if (self.output_path) |output_path| {
             output_path
         } else {
             %%os.path.join(self.builder.allocator, self.builder.cache_root, self.out_filename)
@@ -1492,7 +1492,7 @@ pub const CommandStep = struct {
     fn make(step: &Step) -> %void {
         const self = @fieldParentPtr(CommandStep, "step", step);
 
-        const cwd = test (self.cwd) |cwd| self.builder.pathFromRoot(cwd) else null;
+        const cwd = if (self.cwd) |cwd| self.builder.pathFromRoot(cwd) else null;
         return self.builder.spawnChildEnvMap(cwd, self.env_map, self.exe_path, self.args);
     }
 };

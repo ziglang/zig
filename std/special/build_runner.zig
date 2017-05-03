@@ -63,7 +63,7 @@ pub fn main() -> %void {
                 %%io.stderr.printf("Expected option name after '-D'\n\n");
                 return usage(&builder, false, &io.stderr);
             }
-            test (mem.indexOfScalar(u8, option_contents, '=')) |name_end| {
+            if (mem.indexOfScalar(u8, option_contents, '=')) |name_end| {
                 const option_name = option_contents[0...name_end];
                 const option_value = option_contents[name_end + 1...];
                 if (builder.addUserInputOption(option_name, option_value))
