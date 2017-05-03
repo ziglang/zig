@@ -9,7 +9,7 @@ pub fn LinkedList(comptime T: type) -> type {
         const List = this;
 
         /// Node inside the linked list wrapping the actual data.
-        const Node = struct {
+        pub const Node = struct {
             prev: ?&Node,
             next: ?&Node,
             data: T,
