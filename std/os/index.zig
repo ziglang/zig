@@ -276,9 +276,7 @@ pub fn posixExecve(exe_path: []const u8, argv: []const []const u8, env_map: &con
     {
         var it = env_map.iterator();
         var i: usize = 0;
-        while (true) : (i += 1) {
-            const pair = it.next() ?? break;
-
+        while (it.next()) |pair| : (i += 1) {
             const env_buf = %return allocator.alloc(u8, pair.key.len + pair.value.len + 2);
             @memcpy(&env_buf[0], pair.key.ptr, pair.key.len);
             env_buf[pair.key.len] = '=';
@@ -310,8 +308,7 @@ pub fn posixExecve(exe_path: []const u8, argv: []const []const u8, env_map: &con
     var it = mem.split(PATH, ':');
     var seen_eacces = false;
     var err: usize = undefined;
-    while (true) {
-        const search_path = it.next() ?? break;
+    while (it.next()) |search_path| {
         mem.copy(u8, path_buf, search_path);
         path_buf[search_path.len] = '/';
         mem.copy(u8, path_buf[search_path.len + 1 ...], exe_path);
@@ -689,9 +686,7 @@ start_over:
         var full_entry_buf = List(u8).init(allocator);
         defer full_entry_buf.deinit();
 
-        while (true) {
-            const entry = (%return dir.next()) ?? break;
-
+        while (%return dir.next()) |entry| {
             %return full_entry_buf.resize(full_path.len + entry.name.len + 1);
             const full_entry_path = full_entry_buf.toSlice();
             mem.copy(u8, full_entry_path, full_path);

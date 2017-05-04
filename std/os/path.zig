@@ -112,8 +112,7 @@ pub fn resolveSlice(allocator: &Allocator, paths: []const []const u8) -> %[]u8 {
 
     for (paths[first_index...]) |p, i| {
         var it = mem.split(p, '/');
-        while (true) {
-            const component = it.next() ?? break;
+        while (it.next()) |component| {
             if (mem.eql(u8, component, ".")) {
                 continue;
             } else if (mem.eql(u8, component, "..")) {
@@ -248,8 +247,7 @@ pub fn relative(allocator: &Allocator, from: []const u8, to: []const u8) -> %[]u
                 continue;
         }
         var up_count: usize = 1;
-        while (true) {
-            _ = from_it.next() ?? break;
+        while (from_it.next()) |_| {
             up_count += 1;
         }
         const up_index_end = up_count * "../".len;
