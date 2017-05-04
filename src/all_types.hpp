@@ -1128,6 +1128,7 @@ enum FnInline {
 
 struct FnTableEntry {
     LLVMValueRef llvm_value;
+    const char *llvm_name;
     AstNode *proto_node;
     AstNode *body_node;
     ScopeFnDef *fndef_scope; // parent should be the top level decls or container decls
@@ -1501,6 +1502,8 @@ struct CodeGen {
 
     Buf *cache_dir;
     Buf *out_h_path;
+
+    ZigList<FnTableEntry *> inline_fns;
 };
 
 enum VarLinkage {

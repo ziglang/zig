@@ -353,10 +353,12 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     } else {
         fn_table_entry->llvm_value = LLVMAddFunction(g->module, buf_ptr(symbol_name), fn_llvm_type);
     }
+    fn_table_entry->llvm_name = LLVMGetValueName(fn_table_entry->llvm_value);
 
     switch (fn_table_entry->fn_inline) {
         case FnInlineAlways:
             addLLVMFnAttr(fn_table_entry->llvm_value, "alwaysinline");
+            g->inline_fns.append(fn_table_entry);
             break;
         case FnInlineNever:
             addLLVMFnAttr(fn_table_entry->llvm_value, "noinline");
@@ -3628,6 +3630,27 @@ static void ensure_cache_dir(CodeGen *g) {
     }
 }
 
+static void report_errors_and_maybe_exit(CodeGen *g) {
+    if (g->errors.length != 0) {
+        for (size_t i = 0; i < g->errors.length; i += 1) {
+            ErrorMsg *err = g->errors.at(i);
+            print_err_msg(err, g->err_color);
+        }
+        exit(1);
+    }
+}
+
+static void validate_inline_fns(CodeGen *g) {
+    for (size_t i = 0; i < g->inline_fns.length; i += 1) {
+        FnTableEntry *fn_entry = g->inline_fns.at(i);
+        LLVMValueRef fn_val = LLVMGetNamedFunction(g->module, fn_entry->llvm_name);
+        if (fn_val != nullptr) {
+            add_node_error(g, fn_entry->proto_node, buf_sprintf("unable to inline function"));
+        }
+    }
+    report_errors_and_maybe_exit(g);
+}
+
 static void do_code_gen(CodeGen *g) {
     if (g->verbose) {
         fprintf(stderr, "\nCode Generation:\n");
@@ -3926,6 +3949,8 @@ static void do_code_gen(CodeGen *g) {
     {
         zig_panic("unable to write object file: %s", err_msg);
     }
+
+    validate_inline_fns(g);
 
     g->link_objects.append(output_path);
 }
@@ -4719,16 +4744,9 @@ static void gen_root_source(CodeGen *g) {
         }
     }
 
-    if (g->errors.length == 0) {
-        if (g->verbose) {
-            fprintf(stderr, "OK\n");
-        }
-    } else {
-        for (size_t i = 0; i < g->errors.length; i += 1) {
-            ErrorMsg *err = g->errors.at(i);
-            print_err_msg(err, g->err_color);
-        }
-        exit(1);
+    report_errors_and_maybe_exit(g);
+    if (g->verbose) {
+        fprintf(stderr, "OK\n");
     }
 
 }

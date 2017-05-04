@@ -1684,4 +1684,29 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\fn bar() -> ?i32 { 1 }
     ,
         ".tmp_source.zig:2:15: error: expected error union type, found '?i32'");
+
+    cases.add("inline fn calls itself indirectly",
+        \\export fn foo() {
+        \\    bar();
+        \\}
+        \\inline fn bar() {
+        \\    baz();
+        \\    quux();
+        \\}
+        \\inline fn baz() {
+        \\    bar();
+        \\    quux();
+        \\}
+        \\extern fn quux();
+    ,
+        ".tmp_source.zig:4:8: error: unable to inline function");
+
+    cases.add("save reference to inline function",
+        \\export fn foo() {
+        \\    quux(usize(bar));
+        \\}
+        \\inline fn bar() { }
+        \\extern fn quux(usize);
+    ,
+        ".tmp_source.zig:4:8: error: unable to inline function");
 }
