@@ -641,7 +641,7 @@ static AstNode *ast_parse_comptime_expr(ParseContext *pc, size_t *token_index, b
 
 /*
 PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
-KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "error" | "this" | "unreachable"
+KeywordLiteral = "true" | "false" | "null" | "continue" | "undefined" | "error" | "this" | "unreachable"
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -675,10 +675,6 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bo
         return node;
     } else if (token->id == TokenIdKeywordNull) {
         AstNode *node = ast_create_node(pc, NodeTypeNullLiteral, token);
-        *token_index += 1;
-        return node;
-    } else if (token->id == TokenIdKeywordBreak) {
-        AstNode *node = ast_create_node(pc, NodeTypeBreak, token);
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdKeywordContinue) {
@@ -1448,6 +1444,24 @@ static AstNode *ast_parse_return_expr(ParseContext *pc, size_t *token_index) {
 }
 
 /*
+BreakExpression : "break" option(Expression)
+*/
+static AstNode *ast_parse_break_expr(ParseContext *pc, size_t *token_index) {
+    Token *token = &pc->tokens->at(*token_index);
+
+    if (token->id == TokenIdKeywordBreak) {
+        *token_index += 1;
+    } else {
+        return nullptr;
+    }
+
+    AstNode *node = ast_create_node(pc, NodeTypeBreak, token);
+    node->data.break_expr.expr = ast_parse_expression(pc, token_index, false);
+
+    return node;
+}
+
+/*
 Defer(body) = option("%") "defer" body
 */
 static AstNode *ast_parse_defer_expr(ParseContext *pc, size_t *token_index) {
@@ -1668,7 +1682,7 @@ static AstNode *ast_parse_symbol(ParseContext *pc, size_t *token_index) {
 }
 
 /*
-ForExpression(body) = option("inline") "for" "(" Expression ")" option("|" option("*") Symbol option("," Symbol) "|") body
+ForExpression(body) = option("inline") "for" "(" Expression ")" option("|" option("*") Symbol option("," Symbol) "|") body option("else" BlockExpression(body))
 */
 static AstNode *ast_parse_for_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -1727,6 +1741,13 @@ static AstNode *ast_parse_for_expr(ParseContext *pc, size_t *token_index, bool m
     }
 
     node->data.for_expr.body = ast_parse_block_or_expression(pc, token_index, true);
+
+    Token *else_tok = &pc->tokens->at(*token_index);
+    if (else_tok->id == TokenIdKeywordElse) {
+        *token_index += 1;
+
+        node->data.for_expr.else_node = ast_parse_block_or_expression(pc, token_index, true);
+    }
 
     return node;
 }
@@ -1981,7 +2002,7 @@ static AstNode *ast_parse_block_or_expression(ParseContext *pc, size_t *token_in
 }
 
 /*
-Expression = ReturnExpression | AssignmentExpression
+Expression = ReturnExpression | BreakExpression | AssignmentExpression
 */
 static AstNode *ast_parse_expression(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1989,6 +2010,10 @@ static AstNode *ast_parse_expression(ParseContext *pc, size_t *token_index, bool
     AstNode *return_expr = ast_parse_return_expr(pc, token_index);
     if (return_expr)
         return return_expr;
+
+    AstNode *break_expr = ast_parse_break_expr(pc, token_index);
+    if (break_expr)
+        return break_expr;
 
     AstNode *ass_expr = ast_parse_ass_expr(pc, token_index, false);
     if (ass_expr)

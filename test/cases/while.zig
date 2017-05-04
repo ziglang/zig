@@ -134,3 +134,64 @@ fn getNumberOrNull() -> ?i32 {
     };
 }
 
+test "while on nullable with else result follow else prong" {
+    const result = while (returnNull()) |value| {
+        break value;
+    } else {
+        i32(2)
+    };
+    assert(result == 2);
+}
+
+test "while on nullable with else result follow break prong" {
+    const result = while (returnMaybe(10)) |value| {
+        break value;
+    } else {
+        i32(2)
+    };
+    assert(result == 10);
+}
+
+test "while on error union with else result follow else prong" {
+    const result = while (returnError()) |value| {
+        break value;
+    } else |err| {
+        i32(2)
+    };
+    assert(result == 2);
+}
+
+test "while on error union with else result follow break prong" {
+    const result = while (returnSuccess(10)) |value| {
+        break value;
+    } else |err| {
+        i32(2)
+    };
+    assert(result == 10);
+}
+
+test "while on bool with else result follow else prong" {
+    const result = while (returnFalse()) {
+        break i32(10);
+    } else {
+        i32(2)
+    };
+    assert(result == 2);
+}
+
+test "while on bool with else result follow break prong" {
+    const result = while (returnTrue()) {
+        break i32(10);
+    } else {
+        i32(2)
+    };
+    assert(result == 10);
+}
+
+fn returnNull() -> ?i32 { null }
+fn returnMaybe(x: i32) -> ?i32 { x }
+error YouWantedAnError;
+fn returnError() -> %i32 { error.YouWantedAnError }
+fn returnSuccess(x: i32) -> %i32 { x }
+fn returnFalse() -> bool { false }
+fn returnTrue() -> bool { true }

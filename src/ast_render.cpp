@@ -485,6 +485,15 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 }
                 break;
             }
+        case NodeTypeBreak:
+            {
+                fprintf(ar->f, "break");
+                if (node->data.break_expr.expr) {
+                    fprintf(ar->f, " ");
+                    render_node_grouped(ar, node->data.break_expr.expr);
+                }
+                break;
+            }
         case NodeTypeDefer:
             {
                 const char *defer_str = defer_string(node->data.defer.kind);
@@ -880,11 +889,10 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     fprintf(ar->f, "| ");
                 }
                 render_node_grouped(ar, node->data.for_expr.body);
-                break;
-            }
-        case NodeTypeBreak:
-            {
-                fprintf(ar->f, "break");
+                if (node->data.for_expr.else_node) {
+                    fprintf(ar->f, " else");
+                    render_node_grouped(ar, node->data.for_expr.else_node);
+                }
                 break;
             }
         case NodeTypeContinue:

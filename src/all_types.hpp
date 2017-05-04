@@ -623,6 +623,7 @@ struct AstNodeForExpr {
     AstNode *elem_node; // always a symbol
     AstNode *index_node; // always a symbol, might be null
     AstNode *body;
+    AstNode *else_node; // can be null
     bool elem_is_ptr;
     bool is_inline;
 };
@@ -774,6 +775,7 @@ struct AstNodeBoolLiteral {
 };
 
 struct AstNodeBreakExpr {
+    AstNode *expr; // may be null
 };
 
 struct AstNodeContinueExpr {

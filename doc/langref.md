@@ -45,7 +45,7 @@ TypeExpr = PrefixOpExpression | "var"
 
 BlockOrExpression = Block | Expression
 
-Expression = ReturnExpression | AssignmentExpression
+Expression = ReturnExpression | BreakExpression | AssignmentExpression
 
 AsmExpression = "asm" option("volatile") "(" String option(AsmOutput) ")"
 
@@ -79,11 +79,13 @@ SwitchProng = (list(SwitchItem, ",") | "else") "=>" option("|" option("*") Symbo
 
 SwitchItem = Expression | (Expression "..." Expression)
 
-ForExpression(body) = "for" "(" Expression ")" option("|" option("*") Symbol option("," Symbol) "|") body
+ForExpression(body) = "for" "(" Expression ")" option("|" option("*") Symbol option("," Symbol) "|") body option("else" BlockExpression(body))
 
 BoolOrExpression = BoolAndExpression "or" BoolOrExpression | BoolAndExpression
 
 ReturnExpression = option("%") "return" option(Expression)
+
+BreakExpression = "break" option(Expression)
 
 Defer(body) = option("%") "defer" body
 
@@ -151,7 +153,7 @@ GotoExpression = "goto" Symbol
 
 GroupedExpression = "(" Expression ")"
 
-KeywordLiteral = "true" | "false" | "null" | "break" | "continue" | "undefined" | "error" | "this" | "unreachable"
+KeywordLiteral = "true" | "false" | "null" | "continue" | "undefined" | "error" | "this" | "unreachable"
 
 ContainerDecl = option("extern" | "packed") ("struct" | "enum" | "union") "{" many(ContainerMember) "}"
 ```
