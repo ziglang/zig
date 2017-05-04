@@ -3,7 +3,7 @@ const assert = debug.assert;
 const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
 
-pub fn List(comptime T: type) -> type{
+pub fn ArrayList(comptime T: type) -> type{
     struct {
         const Self = this;
 
@@ -74,8 +74,8 @@ pub fn List(comptime T: type) -> type{
     }
 }
 
-test "basic list test" {
-    var list = List(i32).init(&debug.global_allocator);
+test "basic ArrayList test" {
+    var list = ArrayList(i32).init(&debug.global_allocator);
     defer list.deinit();
 
     {var i: usize = 0; while (i < 10) : (i += 1) {

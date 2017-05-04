@@ -3,7 +3,7 @@ const io = @import("io.zig");
 const os = @import("os/index.zig");
 const elf = @import("elf.zig");
 const DW = @import("dwarf.zig");
-const List = @import("list.zig").List;
+const ArrayList = @import("array_list.zig").ArrayList;
 const builtin = @import("builtin");
 
 error MissingDebugInfo;
@@ -60,8 +60,8 @@ pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty
                 .debug_abbrev = undefined,
                 .debug_str = undefined,
                 .debug_line = undefined,
-                .abbrev_table_list = List(AbbrevTableHeader).init(allocator),
-                .compile_unit_list = List(CompileUnit).init(allocator),
+                .abbrev_table_list = ArrayList(AbbrevTableHeader).init(allocator),
+                .compile_unit_list = ArrayList(CompileUnit).init(allocator),
             };
             const st = &stack_trace;
             st.self_exe_stream = %return io.openSelfExe();
@@ -179,8 +179,8 @@ const ElfStackTrace = struct {
     debug_abbrev: &elf.SectionHeader,
     debug_str: &elf.SectionHeader,
     debug_line: &elf.SectionHeader,
-    abbrev_table_list: List(AbbrevTableHeader),
-    compile_unit_list: List(CompileUnit),
+    abbrev_table_list: ArrayList(AbbrevTableHeader),
+    compile_unit_list: ArrayList(CompileUnit),
 
     pub fn allocator(self: &const ElfStackTrace) -> &mem.Allocator {
         return self.abbrev_table_list.allocator;
@@ -204,7 +204,7 @@ const CompileUnit = struct {
     pc_range: ?PcRange,
 };
 
-const AbbrevTable = List(AbbrevTableEntry);
+const AbbrevTable = ArrayList(AbbrevTableEntry);
 
 const AbbrevTableHeader = struct {
     // offset from .debug_abbrev
@@ -216,7 +216,7 @@ const AbbrevTableEntry = struct {
     has_children: bool,
     abbrev_code: u64,
     tag_id: u64,
-    attrs: List(AbbrevAttr),
+    attrs: ArrayList(AbbrevAttr),
 };
 
 const AbbrevAttr = struct {
@@ -254,7 +254,7 @@ const Constant = struct {
 const Die = struct {
     tag_id: u64,
     has_children: bool,
-    attrs: List(Attr),
+    attrs: ArrayList(Attr),
 
     const Attr = struct {
         id: u64,
@@ -324,7 +324,7 @@ const LineNumberProgram = struct {
 
     target_address: usize,
     include_dirs: []const []const u8,
-    file_entries: &List(FileEntry),
+    file_entries: &ArrayList(FileEntry),
 
     prev_address: usize,
     prev_file: usize,
@@ -335,7 +335,7 @@ const LineNumberProgram = struct {
     prev_end_sequence: bool,
 
     pub fn init(is_stmt: bool, include_dirs: []const []const u8,
-        file_entries: &List(FileEntry), target_address: usize) -> LineNumberProgram
+        file_entries: &ArrayList(FileEntry), target_address: usize) -> LineNumberProgram
     {
         LineNumberProgram {
             .address = 0,
@@ -394,7 +394,7 @@ const LineNumberProgram = struct {
 };
 
 fn readStringRaw(allocator: &mem.Allocator, in_stream: &io.InStream) -> %[]u8 {
-    var buf = List(u8).init(allocator);
+    var buf = ArrayList(u8).init(allocator);
     while (true) {
         const byte = %return in_stream.readByte();
         if (byte == 0)
@@ -525,7 +525,7 @@ fn parseAbbrevTable(st: &ElfStackTrace) -> %AbbrevTable {
             .abbrev_code = abbrev_code,
             .tag_id = %return readULeb128(in_stream),
             .has_children = (%return in_stream.readByte()) == DW.CHILDREN_yes,
-            .attrs = List(AbbrevAttr).init(st.allocator()),
+            .attrs = ArrayList(AbbrevAttr).init(st.allocator()),
         });
         const attrs = &result.items[result.len - 1].attrs;
 
@@ -574,7 +574,7 @@ fn parseDie(st: &ElfStackTrace, abbrev_table: &const AbbrevTable, is_64: bool) -
     var result = Die {
         .tag_id = table_entry.tag_id,
         .has_children = table_entry.has_children,
-        .attrs = List(Die.Attr).init(st.allocator()),
+        .attrs = ArrayList(Die.Attr).init(st.allocator()),
     };
     %return result.attrs.resize(table_entry.attrs.len);
     for (table_entry.attrs.toSliceConst()) |attr, i| {
@@ -632,7 +632,7 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
             standard_opcode_lengths[i] = %return in_stream.readByte();
         }}
 
-        var include_directories = List([]u8).init(st.allocator());
+        var include_directories = ArrayList([]u8).init(st.allocator());
         %return include_directories.append(compile_unit_cwd);
         while (true) {
             const dir = %return st.readString();
@@ -641,7 +641,7 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
             %return include_directories.append(dir);
         }
 
-        var file_entries = List(FileEntry).init(st.allocator());
+        var file_entries = ArrayList(FileEntry).init(st.allocator());
         var prog = LineNumberProgram.init(default_is_stmt, include_directories.toSliceConst(),
             &file_entries, target_address);
 

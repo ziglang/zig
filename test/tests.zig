@@ -4,11 +4,11 @@ const build = std.build;
 const os = std.os;
 const StdIo = os.ChildProcess.StdIo;
 const Term = os.ChildProcess.Term;
-const Buffer = std.buffer.Buffer;
+const Buffer = std.Buffer;
 const io = std.io;
 const mem = std.mem;
 const fmt = std.fmt;
-const List = std.list.List;
+const ArrayList = std.ArrayList;
 const Mode = @import("builtin").Mode;
 
 const compare_output = @import("compare_output.zig");
@@ -138,7 +138,7 @@ pub const CompareOutputContext = struct {
 
     const TestCase = struct {
         name: []const u8,
-        sources: List(SourceFile),
+        sources: ArrayList(SourceFile),
         expected_output: []const u8,
         link_libc: bool,
         special: Special,
@@ -304,7 +304,7 @@ pub const CompareOutputContext = struct {
     {
         var tc = TestCase {
             .name = name,
-            .sources = List(TestCase.SourceFile).init(self.b.allocator),
+            .sources = ArrayList(TestCase.SourceFile).init(self.b.allocator),
             .expected_output = expected_output,
             .link_libc = false,
             .special = special,
@@ -432,8 +432,8 @@ pub const CompileErrorContext = struct {
 
     const TestCase = struct {
         name: []const u8,
-        sources: List(SourceFile),
-        expected_errors: List([]const u8),
+        sources: ArrayList(SourceFile),
+        expected_errors: ArrayList([]const u8),
         link_libc: bool,
         is_exe: bool,
 
@@ -486,7 +486,7 @@ pub const CompileErrorContext = struct {
             const root_src = %%os.path.join(b.allocator, b.cache_root, self.case.sources.items[0].filename);
             const obj_path = %%os.path.join(b.allocator, b.cache_root, "test.o");
 
-            var zig_args = List([]const u8).init(b.allocator);
+            var zig_args = ArrayList([]const u8).init(b.allocator);
             %%zig_args.append(if (self.case.is_exe) "build_exe" else "build_obj");
             %%zig_args.append(b.pathFromRoot(root_src));
 
@@ -583,8 +583,8 @@ pub const CompileErrorContext = struct {
         const tc = %%self.b.allocator.create(TestCase);
         *tc = TestCase {
             .name = name,
-            .sources = List(TestCase.SourceFile).init(self.b.allocator),
-            .expected_errors = List([]const u8).init(self.b.allocator),
+            .sources = ArrayList(TestCase.SourceFile).init(self.b.allocator),
+            .expected_errors = ArrayList([]const u8).init(self.b.allocator),
             .link_libc = false,
             .is_exe = false,
         };
@@ -660,7 +660,7 @@ pub const BuildExamplesContext = struct {
                 return;
         }
 
-        var zig_args = List([]const u8).init(b.allocator);
+        var zig_args = ArrayList([]const u8).init(b.allocator);
         %%zig_args.append("build");
 
         %%zig_args.append("--build-file");
@@ -713,8 +713,8 @@ pub const ParseHContext = struct {
 
     const TestCase = struct {
         name: []const u8,
-        sources: List(SourceFile),
-        expected_lines: List([]const u8),
+        sources: ArrayList(SourceFile),
+        expected_lines: ArrayList([]const u8),
         allow_warnings: bool,
 
         const SourceFile = struct {
@@ -761,7 +761,7 @@ pub const ParseHContext = struct {
 
             const root_src = %%os.path.join(b.allocator, b.cache_root, self.case.sources.items[0].filename);
 
-            var zig_args = List([]const u8).init(b.allocator);
+            var zig_args = ArrayList([]const u8).init(b.allocator);
             %%zig_args.append("parseh");
             %%zig_args.append(b.pathFromRoot(root_src));
 
@@ -847,8 +847,8 @@ pub const ParseHContext = struct {
         const tc = %%self.b.allocator.create(TestCase);
         *tc = TestCase {
             .name = name,
-            .sources = List(TestCase.SourceFile).init(self.b.allocator),
-            .expected_lines = List([]const u8).init(self.b.allocator),
+            .sources = ArrayList(TestCase.SourceFile).init(self.b.allocator),
+            .expected_lines = ArrayList([]const u8).init(self.b.allocator),
             .allow_warnings = allow_warnings,
         };
         tc.addSourceFile("source.h", source);

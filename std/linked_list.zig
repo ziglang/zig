@@ -6,7 +6,7 @@ const Allocator = mem.Allocator;
 /// Generic doubly linked list.
 pub fn LinkedList(comptime T: type) -> type {
     struct {
-        const List = this;
+        const Self = this;
 
         /// Node inside the linked list wrapping the actual data.
         pub const Node = struct {
@@ -27,8 +27,8 @@ pub fn LinkedList(comptime T: type) -> type {
         ///
         /// Returns:
         ///     An empty linked list.
-        pub fn init(allocator: &Allocator) -> List {
-            List {
+        pub fn init(allocator: &Allocator) -> Self {
+            Self {
                 .first = null,
                 .last  = null,
                 .len   = 0,
@@ -41,7 +41,7 @@ pub fn LinkedList(comptime T: type) -> type {
         /// Arguments:
         ///     node: Pointer to a node in the list.
         ///     new_node: Pointer to the new node to insert.
-        pub fn insertAfter(list: &List, node: &Node, new_node: &Node) {
+        pub fn insertAfter(list: &Self, node: &Node, new_node: &Node) {
             new_node.prev = node;
             if (node.next) |next_node| {
                 // Intermediate node.
@@ -62,7 +62,7 @@ pub fn LinkedList(comptime T: type) -> type {
         /// Arguments:
         ///     node: Pointer to a node in the list.
         ///     new_node: Pointer to the new node to insert.
-        pub fn insertBefore(list: &List, node: &Node, new_node: &Node) {
+        pub fn insertBefore(list: &Self, node: &Node, new_node: &Node) {
             new_node.next = node;
             if (node.prev) |prev_node| {
                 // Intermediate node.
@@ -82,7 +82,7 @@ pub fn LinkedList(comptime T: type) -> type {
         ///
         /// Arguments:
         ///     new_node: Pointer to the new node to insert.
-        pub fn append(list: &List, new_node: &Node) {
+        pub fn append(list: &Self, new_node: &Node) {
             if (list.last) |last| {
                 // Insert after last.
                 list.insertAfter(last, new_node);
@@ -96,7 +96,7 @@ pub fn LinkedList(comptime T: type) -> type {
         ///
         /// Arguments:
         ///     new_node: Pointer to the new node to insert.
-        pub fn prepend(list: &List, new_node: &Node) {
+        pub fn prepend(list: &Self, new_node: &Node) {
             if (list.first) |first| {
                 // Insert before first.
                 list.insertBefore(first, new_node);
@@ -115,7 +115,7 @@ pub fn LinkedList(comptime T: type) -> type {
         ///
         /// Arguments:
         ///     node: Pointer to the node to be removed.
-        pub fn remove(list: &List, node: &Node) {
+        pub fn remove(list: &Self, node: &Node) {
             if (node.prev) |prev_node| {
                 // Intermediate node.
                 prev_node.next = node.next;
@@ -139,7 +139,7 @@ pub fn LinkedList(comptime T: type) -> type {
         ///
         /// Returns:
         ///     A pointer to the last node in the list.
-        pub fn pop(list: &List) -> ?&Node {
+        pub fn pop(list: &Self) -> ?&Node {
             const last = list.last ?? return null;
             list.remove(last);
             return last;
@@ -149,7 +149,7 @@ pub fn LinkedList(comptime T: type) -> type {
         ///
         /// Returns:
         ///     A pointer to the first node in the list.
-        pub fn popFirst(list: &List) -> ?&Node {
+        pub fn popFirst(list: &Self) -> ?&Node {
             const first = list.first ?? return null;
             list.remove(first);
             return first;
@@ -159,7 +159,7 @@ pub fn LinkedList(comptime T: type) -> type {
         ///
         /// Returns:
         ///     A pointer to the new node.
-        pub fn allocateNode(list: &List) -> %&Node {
+        pub fn allocateNode(list: &Self) -> %&Node {
             list.allocator.create(Node)
         }
 
@@ -167,7 +167,7 @@ pub fn LinkedList(comptime T: type) -> type {
         ///
         /// Arguments:
         ///     node: Pointer to the node to deallocate.
-        pub fn destroyNode(list: &List, node: &Node) {
+        pub fn destroyNode(list: &Self, node: &Node) {
             list.allocator.destroy(node);
         }
 
@@ -178,7 +178,7 @@ pub fn LinkedList(comptime T: type) -> type {
         ///
         /// Returns:
         ///     A pointer to the new node.
-        pub fn createNode(list: &List, data: &const T) -> %&Node {
+        pub fn createNode(list: &Self, data: &const T) -> %&Node {
             var node = %return list.allocateNode();
             *node = Node {
                 .prev = null,

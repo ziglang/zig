@@ -36,7 +36,7 @@ const cstr = @import("../cstr.zig");
 
 const io = @import("../io.zig");
 const base64 = @import("../base64.zig");
-const List = @import("../list.zig").List;
+const ArrayList = @import("../array_list.zig").ArrayList;
 
 error Unexpected;
 error SystemResources;
@@ -683,7 +683,7 @@ start_over:
         };
         defer dir.close();
 
-        var full_entry_buf = List(u8).init(allocator);
+        var full_entry_buf = ArrayList(u8).init(allocator);
         defer full_entry_buf.deinit();
 
         while (%return dir.next()) |entry| {

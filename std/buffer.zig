@@ -2,11 +2,11 @@ const debug = @import("debug.zig");
 const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
 const assert = debug.assert;
-const List = @import("list.zig").List;
+const ArrayList = @import("array_list.zig").ArrayList;
 
 /// A buffer that allocates memory and maintains a null byte at the end.
 pub const Buffer = struct {
-    list: List(u8),
+    list: ArrayList(u8),
 
     /// Must deinitialize with deinit.
     pub fn init(allocator: &Allocator, m: []const u8) -> %Buffer {
@@ -29,7 +29,7 @@ pub const Buffer = struct {
     /// * ::resize
     pub fn initNull(allocator: &Allocator) -> Buffer {
         Buffer {
-            .list = List(u8).init(allocator),
+            .list = ArrayList(u8).init(allocator),
         }
     }
 

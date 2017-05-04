@@ -5,7 +5,7 @@ const fmt = std.fmt;
 const os = std.os;
 const Builder = std.build.Builder;
 const mem = std.mem;
-const List = std.list.List;
+const ArrayList = std.ArrayList;
 
 error InvalidArgs;
 
@@ -51,7 +51,7 @@ pub fn main() -> %void {
     var builder = Builder.init(allocator, zig_exe, build_root, cache_root);
     defer builder.deinit();
 
-    var targets = List([]const u8).init(allocator);
+    var targets = ArrayList([]const u8).init(allocator);
 
     var prefix: ?[]const u8 = null;
 

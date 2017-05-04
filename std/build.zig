@@ -3,7 +3,7 @@ const io = @import("io.zig");
 const mem = @import("mem.zig");
 const debug = @import("debug.zig");
 const assert = debug.assert;
-const List = @import("list.zig").List;
+const ArrayList = @import("array_list.zig").ArrayList;
 const HashMap = @import("hash_map.zig").HashMap;
 const Allocator = @import("mem.zig").Allocator;
 const os = @import("os/index.zig");
@@ -26,22 +26,22 @@ pub const Builder = struct {
     have_uninstall_step: bool,
     have_install_step: bool,
     allocator: &Allocator,
-    lib_paths: List([]const u8),
-    include_paths: List([]const u8),
-    rpaths: List([]const u8),
+    lib_paths: ArrayList([]const u8),
+    include_paths: ArrayList([]const u8),
+    rpaths: ArrayList([]const u8),
     user_input_options: UserInputOptionsMap,
     available_options_map: AvailableOptionsMap,
-    available_options_list: List(AvailableOption),
+    available_options_list: ArrayList(AvailableOption),
     verbose: bool,
     invalid_user_input: bool,
     zig_exe: []const u8,
     default_step: &Step,
     env_map: BufMap,
-    top_level_steps: List(&TopLevelStep),
+    top_level_steps: ArrayList(&TopLevelStep),
     prefix: []const u8,
     lib_dir: []const u8,
     exe_dir: []const u8,
-    installed_files: List([]const u8),
+    installed_files: ArrayList([]const u8),
     build_root: []const u8,
     cache_root: []const u8,
 
@@ -63,7 +63,7 @@ pub const Builder = struct {
     const UserValue = enum {
         Flag,
         Scalar: []const u8,
-        List: List([]const u8),
+        List: ArrayList([]const u8),
     };
 
     const TypeId = enum {
@@ -89,19 +89,19 @@ pub const Builder = struct {
             .verbose = false,
             .invalid_user_input = false,
             .allocator = allocator,
-            .lib_paths = List([]const u8).init(allocator),
-            .include_paths = List([]const u8).init(allocator),
-            .rpaths = List([]const u8).init(allocator),
+            .lib_paths = ArrayList([]const u8).init(allocator),
+            .include_paths = ArrayList([]const u8).init(allocator),
+            .rpaths = ArrayList([]const u8).init(allocator),
             .user_input_options = UserInputOptionsMap.init(allocator),
             .available_options_map = AvailableOptionsMap.init(allocator),
-            .available_options_list = List(AvailableOption).init(allocator),
-            .top_level_steps = List(&TopLevelStep).init(allocator),
+            .available_options_list = ArrayList(AvailableOption).init(allocator),
+            .top_level_steps = ArrayList(&TopLevelStep).init(allocator),
             .default_step = undefined,
             .env_map = %%os.getEnvMap(allocator),
             .prefix = undefined,
             .lib_dir = undefined,
             .exe_dir = undefined,
-            .installed_files = List([]const u8).init(allocator),
+            .installed_files = ArrayList([]const u8).init(allocator),
             .uninstall_tls = TopLevelStep {
                 .step = Step.init("uninstall", allocator, makeUninstall),
                 .description = "Remove build artifacts from prefix path",
@@ -225,7 +225,7 @@ pub const Builder = struct {
     }
 
     pub fn make(self: &Builder, step_names: []const []const u8) -> %void {
-        var wanted_steps = List(&Step).init(self.allocator);
+        var wanted_steps = ArrayList(&Step).init(self.allocator);
         defer wanted_steps.deinit();
 
         if (step_names.len == 0) {
@@ -433,7 +433,7 @@ pub const Builder = struct {
             switch (prev_value.value) {
                 UserValue.Scalar => |s| {
                     // turn it into a list
-                    var list = List([]const u8).init(self.allocator);
+                    var list = ArrayList([]const u8).init(self.allocator);
                     %%list.append(s);
                     %%list.append(value);
                     _ = %%self.user_input_options.put(name, UserInputOption {
@@ -695,9 +695,9 @@ pub const LibExeObjStep = struct {
     out_filename: []const u8,
     major_only_filename: []const u8,
     name_only_filename: []const u8,
-    object_files: List([]const u8),
-    assembly_files: List([]const u8),
-    packages: List(Pkg),
+    object_files: ArrayList([]const u8),
+    assembly_files: ArrayList([]const u8),
+    packages: ArrayList(Pkg),
 
     const Pkg = struct {
         name: []const u8,
@@ -758,9 +758,9 @@ pub const LibExeObjStep = struct {
             .out_h_filename = builder.fmt("{}.h", name),
             .major_only_filename = undefined,
             .name_only_filename = undefined,
-            .object_files = List([]const u8).init(builder.allocator),
-            .assembly_files = List([]const u8).init(builder.allocator),
-            .packages = List(Pkg).init(builder.allocator),
+            .object_files = ArrayList([]const u8).init(builder.allocator),
+            .assembly_files = ArrayList([]const u8).init(builder.allocator),
+            .packages = ArrayList(Pkg).init(builder.allocator),
         };
         self.computeOutFileNames();
         return self;
@@ -875,7 +875,7 @@ pub const LibExeObjStep = struct {
             return error.NeedAnObject;
         }
 
-        var zig_args = List([]const u8).init(builder.allocator);
+        var zig_args = ArrayList([]const u8).init(builder.allocator);
         defer zig_args.deinit();
 
         const cmd = switch (self.kind) {
@@ -1043,7 +1043,7 @@ pub const TestStep = struct {
         const self = @fieldParentPtr(TestStep, "step", step);
         const builder = self.builder;
 
-        var zig_args = List([]const u8).init(builder.allocator);
+        var zig_args = ArrayList([]const u8).init(builder.allocator);
         defer zig_args.deinit();
 
         %%zig_args.append("test");
@@ -1104,14 +1104,14 @@ pub const CLibExeObjStep = struct {
     output_path: ?[]const u8,
     static: bool,
     version: Version,
-    cflags: List([]const u8),
-    source_files: List([]const u8),
-    object_files: List([]const u8),
+    cflags: ArrayList([]const u8),
+    source_files: ArrayList([]const u8),
+    object_files: ArrayList([]const u8),
     link_libs: BufSet,
-    full_path_libs: List([]const u8),
+    full_path_libs: ArrayList([]const u8),
     target: Target,
     builder: &Builder,
-    include_dirs: List([]const u8),
+    include_dirs: ArrayList([]const u8),
     major_only_filename: []const u8,
     name_only_filename: []const u8,
     object_src: []const u8,
@@ -1158,13 +1158,13 @@ pub const CLibExeObjStep = struct {
             .version = *version,
             .static = static,
             .target = Target.Native,
-            .cflags = List([]const u8).init(builder.allocator),
-            .source_files = List([]const u8).init(builder.allocator),
-            .object_files = List([]const u8).init(builder.allocator),
+            .cflags = ArrayList([]const u8).init(builder.allocator),
+            .source_files = ArrayList([]const u8).init(builder.allocator),
+            .object_files = ArrayList([]const u8).init(builder.allocator),
             .step = Step.init(name, builder.allocator, make),
             .link_libs = BufSet.init(builder.allocator),
-            .full_path_libs = List([]const u8).init(builder.allocator),
-            .include_dirs = List([]const u8).init(builder.allocator),
+            .full_path_libs = ArrayList([]const u8).init(builder.allocator),
+            .include_dirs = ArrayList([]const u8).init(builder.allocator),
             .output_path = null,
             .out_filename = undefined,
             .major_only_filename = undefined,
@@ -1267,7 +1267,7 @@ pub const CLibExeObjStep = struct {
         }
     }
 
-    fn appendCompileFlags(self: &CLibExeObjStep, args: &List([]const u8)) {
+    fn appendCompileFlags(self: &CLibExeObjStep, args: &ArrayList([]const u8)) {
         if (!self.strip) {
             %%args.append("-g");
         }
@@ -1300,7 +1300,7 @@ pub const CLibExeObjStep = struct {
         const cc = os.getEnv("CC") ?? "cc";
         const builder = self.builder;
 
-        var cc_args = List([]const u8).init(builder.allocator);
+        var cc_args = ArrayList([]const u8).init(builder.allocator);
         defer cc_args.deinit();
 
         switch (self.kind) {
@@ -1646,7 +1646,7 @@ pub const RemoveDirStep = struct {
 pub const Step = struct {
     name: []const u8,
     makeFn: fn(self: &Step) -> %void,
-    dependencies: List(&Step),
+    dependencies: ArrayList(&Step),
     loop_flag: bool,
     done_flag: bool,
 
@@ -1654,7 +1654,7 @@ pub const Step = struct {
         Step {
             .name = name,
             .makeFn = makeFn,
-            .dependencies = List(&Step).init(allocator),
+            .dependencies = ArrayList(&Step).init(allocator),
             .loop_flag = false,
             .done_flag = false,
         }
