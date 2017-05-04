@@ -187,43 +187,6 @@ pub fn LinkedList(comptime T: type) -> type {
             };
             return node;
         }
-
-        /// Iterate through the elements of the list.
-        ///
-        /// Returns:
-        ///     A list iterator with a next() method.
-        pub fn iterate(list: &List) -> List.Iterator(false) {
-            List.Iterator(false) {
-                .node = list.first,
-            }
-        }
-
-        /// Iterate through the elements of the list backwards.
-        ///
-        /// Returns:
-        ///     A list iterator with a next() method.
-        pub fn iterateBackwards(list: &List) -> List.Iterator(true) {
-            List.Iterator(true) {
-                .node = list.last,
-            }
-        }
-
-        /// Abstract iteration over a linked list.
-        pub fn Iterator(comptime backwards: bool) -> type {
-            struct {
-                const It = this;
-
-                node: ?&Node,
-
-                /// Return the next element of the list, until the end.
-                /// When no more elements are available, return null.
-                pub fn next(it: &It) -> ?&Node {
-                    const current = it.node ?? return null;
-                    it.node = if (backwards) current.prev else current.next;
-                    return current;
-                }
-            }
-        }
     }
 }
 
@@ -249,16 +212,24 @@ test "basic linked list test" {
     list.insertBefore(five, four);  // {1, 2, 4, 5}
     list.insertAfter(two, three);   // {1, 2, 3, 4, 5}
 
-    // Traverse the list forwards and backwards.
-    var it = list.iterate();
-    var it_reverse = list.iterateBackwards();
-    var index: u32 = 1;
-    while (true) {
-        const node = it.next() ?? break;
-        const node_reverse = it_reverse.next() ?? break;
-        assert (node.data == index);
-        assert (node_reverse.data == (6 - index));
-        index += 1;
+    // traverse forwards
+    {
+        var it = list.first;
+        var index: u32 = 1;
+        while (it) |node| : (it = node.next) {
+            assert(node.data == index);
+            index += 1;
+        }
+    }
+
+    // traverse backwards
+    {
+        var it = list.last;
+        var index: u32 = 1;
+        while (it) |node| : (it = node.prev) {
+            assert(node.data == (6 - index));
+            index += 1;
+        }
     }
 
     var first = list.popFirst();    // {2, 3, 4, 5}

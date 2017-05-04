@@ -1654,7 +1654,7 @@ static AstNode *ast_parse_while_expr(ParseContext *pc, size_t *token_index, bool
             ast_eat_token(pc, token_index, TokenIdBinOr);
         }
 
-        node->data.while_expr.body = ast_parse_block_or_expression(pc, token_index, true);
+        node->data.while_expr.else_node = ast_parse_block_or_expression(pc, token_index, true);
     }
 
     return node;

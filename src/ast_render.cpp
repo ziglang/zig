@@ -725,12 +725,23 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 const char *inline_str = node->data.while_expr.is_inline ? "inline " : "";
                 fprintf(ar->f, "%swhile (", inline_str);
                 render_node_grouped(ar, node->data.while_expr.condition);
-                if (node->data.while_expr.continue_expr) {
-                    fprintf(ar->f, "; ");
-                    render_node_grouped(ar, node->data.while_expr.continue_expr);
-                }
                 fprintf(ar->f, ") ");
+                if (node->data.while_expr.var_symbol) {
+                    fprintf(ar->f, "|%s| ", buf_ptr(node->data.while_expr.var_symbol));
+                }
+                if (node->data.while_expr.continue_expr) {
+                    fprintf(ar->f, ": (");
+                    render_node_grouped(ar, node->data.while_expr.continue_expr);
+                    fprintf(ar->f, ") ");
+                }
                 render_node_grouped(ar, node->data.while_expr.body);
+                if (node->data.while_expr.else_node) {
+                    fprintf(ar->f, " else ");
+                    if (node->data.while_expr.err_symbol) {
+                        fprintf(ar->f, "|%s| ", buf_ptr(node->data.while_expr.err_symbol));
+                    }
+                    render_node_grouped(ar, node->data.while_expr.else_node);
+                }
                 break;
             }
         case NodeTypeThisLiteral:

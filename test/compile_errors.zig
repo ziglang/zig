@@ -1636,4 +1636,52 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     ,
         ".tmp_source.zig:9:17: error: redefinition of 'Self'",
         ".tmp_source.zig:5:9: note: previous definition is here");
+
+    cases.add("while expected bool, got nullable",
+        \\export fn foo() {
+        \\    while (bar()) {}
+        \\}
+        \\fn bar() -> ?i32 { 1 }
+    ,
+        ".tmp_source.zig:2:15: error: expected type 'bool', found '?i32'");
+
+    cases.add("while expected bool, got error union",
+        \\export fn foo() {
+        \\    while (bar()) {}
+        \\}
+        \\fn bar() -> %i32 { 1 }
+    ,
+        ".tmp_source.zig:2:15: error: expected type 'bool', found '%i32'");
+
+    cases.add("while expected nullable, got bool",
+        \\export fn foo() {
+        \\    while (bar()) |x| {}
+        \\}
+        \\fn bar() -> bool { true }
+    ,
+        ".tmp_source.zig:2:15: error: expected nullable type, found 'bool'");
+
+    cases.add("while expected nullable, got error union",
+        \\export fn foo() {
+        \\    while (bar()) |x| {}
+        \\}
+        \\fn bar() -> %i32 { 1 }
+    ,
+        ".tmp_source.zig:2:15: error: expected nullable type, found '%i32'");
+
+    cases.add("while expected error union, got bool",
+        \\export fn foo() {
+        \\    while (bar()) |x| {} else |err| {}
+        \\}
+        \\fn bar() -> bool { true }
+    ,
+        ".tmp_source.zig:2:15: error: expected error union type, found 'bool'");
+
+    cases.add("while expected error union, got nullable",
+        \\export fn foo() {
+        \\    while (bar()) |x| {} else |err| {}
+        \\}
+        \\fn bar() -> ?i32 { 1 }
+    ,
+        ".tmp_source.zig:2:15: error: expected error union type, found '?i32'");
 }

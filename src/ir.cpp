@@ -4658,51 +4658,197 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
     assert(node->type == NodeTypeWhileExpr);
 
     AstNode *continue_expr_node = node->data.while_expr.continue_expr;
+    AstNode *else_node = node->data.while_expr.else_node;
 
     IrBasicBlock *cond_block = ir_build_basic_block(irb, scope, "WhileCond");
     IrBasicBlock *body_block = ir_build_basic_block(irb, scope, "WhileBody");
     IrBasicBlock *continue_block = continue_expr_node ?
         ir_build_basic_block(irb, scope, "WhileContinue") : cond_block;
     IrBasicBlock *end_block = ir_build_basic_block(irb, scope, "WhileEnd");
+    IrBasicBlock *else_block = else_node ?
+        ir_build_basic_block(irb, scope, "WhileElse") : end_block;
 
     IrInstruction *is_comptime = ir_build_const_bool(irb, scope, node,
         ir_should_inline(irb->exec, scope) || node->data.while_expr.is_inline);
     ir_build_br(irb, scope, node, cond_block, is_comptime);
 
-    if (continue_expr_node) {
-        ir_set_cursor_at_end(irb, continue_block);
-        IrInstruction *expr_result = ir_gen_node(irb, continue_expr_node, scope);
-        if (expr_result == irb->codegen->invalid_instruction)
-            return expr_result;
-        if (!instr_is_unreachable(expr_result))
-            ir_mark_gen(ir_build_br(irb, scope, node, cond_block, is_comptime));
+    Buf *var_symbol = node->data.while_expr.var_symbol;
+    Buf *err_symbol = node->data.while_expr.err_symbol;
+    if (err_symbol != nullptr) {
+        ir_set_cursor_at_end(irb, cond_block);
+
+        Scope *payload_scope;
+        AstNode *symbol_node = node; // TODO make more accurate
+        VariableTableEntry *payload_var;
+        if (var_symbol) {
+            // TODO make it an error to write to payload variable
+            payload_var = ir_create_var(irb, symbol_node, scope, var_symbol,
+                    true, false, false, is_comptime);
+            payload_scope = payload_var->child_scope;
+        } else {
+            payload_scope = scope;
+        }
+        IrInstruction *err_val_ptr = ir_gen_node_extra(irb, node->data.while_expr.condition, scope, LVAL_PTR);
+        if (err_val_ptr == irb->codegen->invalid_instruction)
+            return err_val_ptr;
+        IrInstruction *err_val = ir_build_load_ptr(irb, scope, node->data.while_expr.condition, err_val_ptr);
+        IrInstruction *is_err = ir_build_test_err(irb, scope, node->data.while_expr.condition, err_val);
+        if (!instr_is_unreachable(is_err)) {
+            ir_mark_gen(ir_build_cond_br(irb, scope, node->data.while_expr.condition, is_err,
+                        else_block, body_block, is_comptime));
+        }
+
+        ir_set_cursor_at_end(irb, body_block);
+        if (var_symbol) {
+            IrInstruction *var_ptr_value = ir_build_unwrap_err_payload(irb, payload_scope, symbol_node,
+                    err_val_ptr, false);
+            IrInstruction *var_value = node->data.while_expr.var_is_ptr ?
+                var_ptr_value : ir_build_load_ptr(irb, payload_scope, symbol_node, var_ptr_value);
+            ir_build_var_decl(irb, payload_scope, symbol_node, payload_var, nullptr, var_value);
+        }
+        LoopStackItem *loop_stack_item = irb->loop_stack.add_one();
+        loop_stack_item->break_block = end_block;
+        loop_stack_item->continue_block = continue_block;
+        loop_stack_item->is_comptime = is_comptime;
+        IrInstruction *body_result = ir_gen_node(irb, node->data.while_expr.body, payload_scope);
+        if (body_result == irb->codegen->invalid_instruction)
+            return body_result;
+        irb->loop_stack.pop();
+
+        if (!instr_is_unreachable(body_result))
+            ir_mark_gen(ir_build_br(irb, payload_scope, node, continue_block, is_comptime));
+
+        if (continue_expr_node) {
+            ir_set_cursor_at_end(irb, continue_block);
+            IrInstruction *expr_result = ir_gen_node(irb, continue_expr_node, payload_scope);
+            if (expr_result == irb->codegen->invalid_instruction)
+                return expr_result;
+            if (!instr_is_unreachable(expr_result))
+                ir_mark_gen(ir_build_br(irb, payload_scope, node, cond_block, is_comptime));
+        }
+
+        if (else_node) {
+            ir_set_cursor_at_end(irb, else_block);
+
+            // TODO make it an error to write to error variable
+            AstNode *err_symbol_node = else_node; // TODO make more accurate
+            VariableTableEntry *err_var = ir_create_var(irb, err_symbol_node, scope, err_symbol,
+                    true, false, false, is_comptime);
+            Scope *err_scope = err_var->child_scope;
+            IrInstruction *err_var_value = ir_build_unwrap_err_code(irb, err_scope, err_symbol_node, err_val_ptr);
+            ir_build_var_decl(irb, err_scope, symbol_node, err_var, nullptr, err_var_value);
+
+            IrInstruction *else_result = ir_gen_node(irb, else_node, err_scope);
+            if (else_result == irb->codegen->invalid_instruction)
+                return else_result;
+            if (!instr_is_unreachable(else_result))
+                ir_mark_gen(ir_build_br(irb, scope, node, end_block, is_comptime));
+        }
+
+        ir_set_cursor_at_end(irb, end_block);
+        return ir_build_const_void(irb, scope, node);
+    } else if (var_symbol != nullptr) {
+        ir_set_cursor_at_end(irb, cond_block);
+        // TODO make it an error to write to payload variable
+        AstNode *symbol_node = node; // TODO make more accurate
+        VariableTableEntry *payload_var = ir_create_var(irb, symbol_node, scope, var_symbol,
+                true, false, false, is_comptime);
+        Scope *child_scope = payload_var->child_scope;
+        IrInstruction *maybe_val_ptr = ir_gen_node_extra(irb, node->data.while_expr.condition, scope, LVAL_PTR);
+        if (maybe_val_ptr == irb->codegen->invalid_instruction)
+            return maybe_val_ptr;
+        IrInstruction *maybe_val = ir_build_load_ptr(irb, scope, node->data.while_expr.condition, maybe_val_ptr);
+        IrInstruction *is_non_null = ir_build_test_nonnull(irb, scope, node->data.while_expr.condition, maybe_val);
+        if (!instr_is_unreachable(is_non_null)) {
+            ir_mark_gen(ir_build_cond_br(irb, scope, node->data.while_expr.condition, is_non_null,
+                        body_block, else_block, is_comptime));
+        }
+
+        ir_set_cursor_at_end(irb, body_block);
+        IrInstruction *var_ptr_value = ir_build_unwrap_maybe(irb, child_scope, symbol_node, maybe_val_ptr, false);
+        IrInstruction *var_value = node->data.while_expr.var_is_ptr ?
+            var_ptr_value : ir_build_load_ptr(irb, child_scope, symbol_node, var_ptr_value);
+        ir_build_var_decl(irb, child_scope, symbol_node, payload_var, nullptr, var_value);
+        LoopStackItem *loop_stack_item = irb->loop_stack.add_one();
+        loop_stack_item->break_block = end_block;
+        loop_stack_item->continue_block = continue_block;
+        loop_stack_item->is_comptime = is_comptime;
+        IrInstruction *body_result = ir_gen_node(irb, node->data.while_expr.body, child_scope);
+        if (body_result == irb->codegen->invalid_instruction)
+            return body_result;
+        irb->loop_stack.pop();
+
+        if (!instr_is_unreachable(body_result))
+            ir_mark_gen(ir_build_br(irb, child_scope, node, continue_block, is_comptime));
+
+        if (continue_expr_node) {
+            ir_set_cursor_at_end(irb, continue_block);
+            IrInstruction *expr_result = ir_gen_node(irb, continue_expr_node, child_scope);
+            if (expr_result == irb->codegen->invalid_instruction)
+                return expr_result;
+            if (!instr_is_unreachable(expr_result))
+                ir_mark_gen(ir_build_br(irb, child_scope, node, cond_block, is_comptime));
+        }
+
+        if (else_node) {
+            ir_set_cursor_at_end(irb, else_block);
+
+            IrInstruction *else_result = ir_gen_node(irb, else_node, scope);
+            if (else_result == irb->codegen->invalid_instruction)
+                return else_result;
+            if (!instr_is_unreachable(else_result))
+                ir_mark_gen(ir_build_br(irb, scope, node, end_block, is_comptime));
+        }
+
+        ir_set_cursor_at_end(irb, end_block);
+        return ir_build_const_void(irb, scope, node);
+    } else {
+        if (continue_expr_node) {
+            ir_set_cursor_at_end(irb, continue_block);
+            IrInstruction *expr_result = ir_gen_node(irb, continue_expr_node, scope);
+            if (expr_result == irb->codegen->invalid_instruction)
+                return expr_result;
+            if (!instr_is_unreachable(expr_result))
+                ir_mark_gen(ir_build_br(irb, scope, node, cond_block, is_comptime));
+        }
+
+        ir_set_cursor_at_end(irb, cond_block);
+        IrInstruction *cond_val = ir_gen_node(irb, node->data.while_expr.condition, scope);
+        if (cond_val == irb->codegen->invalid_instruction)
+            return cond_val;
+        if (!instr_is_unreachable(cond_val)) {
+            ir_mark_gen(ir_build_cond_br(irb, scope, node->data.while_expr.condition, cond_val,
+                        body_block, else_block, is_comptime));
+        }
+
+        ir_set_cursor_at_end(irb, body_block);
+
+        LoopStackItem *loop_stack_item = irb->loop_stack.add_one();
+        loop_stack_item->break_block = end_block;
+        loop_stack_item->continue_block = continue_block;
+        loop_stack_item->is_comptime = is_comptime;
+        IrInstruction *body_result = ir_gen_node(irb, node->data.while_expr.body, scope);
+        if (body_result == irb->codegen->invalid_instruction)
+            return body_result;
+        irb->loop_stack.pop();
+
+        if (!instr_is_unreachable(body_result))
+            ir_mark_gen(ir_build_br(irb, scope, node, continue_block, is_comptime));
+
+        if (else_node) {
+            ir_set_cursor_at_end(irb, else_block);
+
+            IrInstruction *else_result = ir_gen_node(irb, else_node, scope);
+            if (else_result == irb->codegen->invalid_instruction)
+                return else_result;
+            if (!instr_is_unreachable(else_result))
+                ir_mark_gen(ir_build_br(irb, scope, node, end_block, is_comptime));
+        }
+
+        ir_set_cursor_at_end(irb, end_block);
+
+        return ir_build_const_void(irb, scope, node);
     }
-
-    ir_set_cursor_at_end(irb, cond_block);
-    IrInstruction *cond_val = ir_gen_node(irb, node->data.while_expr.condition, scope);
-    if (cond_val == irb->codegen->invalid_instruction)
-        return cond_val;
-    if (!instr_is_unreachable(cond_val)) {
-        ir_mark_gen(ir_build_cond_br(irb, scope, node->data.while_expr.condition, cond_val,
-                    body_block, end_block, is_comptime));
-    }
-
-    ir_set_cursor_at_end(irb, body_block);
-
-    LoopStackItem *loop_stack_item = irb->loop_stack.add_one();
-    loop_stack_item->break_block = end_block;
-    loop_stack_item->continue_block = continue_block;
-    loop_stack_item->is_comptime = is_comptime;
-    IrInstruction *body_result = ir_gen_node(irb, node->data.while_expr.body, scope);
-    if (body_result == irb->codegen->invalid_instruction)
-        return body_result;
-    irb->loop_stack.pop();
-
-    if (!instr_is_unreachable(body_result))
-        ir_mark_gen(ir_build_br(irb, scope, node, continue_block, is_comptime));
-    ir_set_cursor_at_end(irb, end_block);
-
-    return ir_build_const_void(irb, scope, node);
 }
 
 static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
