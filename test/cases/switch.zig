@@ -205,3 +205,23 @@ fn testSwitchHandleAllCasesRange(x: u8) -> u8 {
     }
 }
 
+test "switch all prongs unreachable" {
+    testAllProngsUnreachable();
+    comptime testAllProngsUnreachable();
+}
+
+fn testAllProngsUnreachable() {
+    assert(switchWithUnreachable(1) == 2);
+    assert(switchWithUnreachable(2) == 10);
+}
+
+fn switchWithUnreachable(x: i32) -> i32 {
+    while (true) {
+        switch (x) {
+            1 => return 2,
+            2 => break,
+            else => continue,
+        }
+    }
+    return 10;
+}
