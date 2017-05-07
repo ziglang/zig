@@ -259,7 +259,6 @@ bool bignum_rem(BigNum *dest, BigNum *op1, BigNum *op2) {
     if (dest->kind == BigNumKindFloat) {
         dest->data.x_float = fmod(op1->data.x_float, op2->data.x_float);
     } else {
-        assert(!op2->is_negative);
         dest->data.x_uint = op1->data.x_uint % op2->data.x_uint;
         dest->is_negative = op1->is_negative;
         bignum_normalize(dest);
@@ -274,7 +273,6 @@ bool bignum_mod(BigNum *dest, BigNum *op1, BigNum *op2) {
     if (dest->kind == BigNumKindFloat) {
         dest->data.x_float = fmod(fmod(op1->data.x_float, op2->data.x_float) + op2->data.x_float, op2->data.x_float);
     } else {
-        assert(!op2->is_negative);
         if (op1->is_negative) {
             dest->data.x_uint = (op2->data.x_uint - op1->data.x_uint % op2->data.x_uint) % op2->data.x_uint;
         } else {

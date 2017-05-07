@@ -8209,25 +8209,59 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
 
     bool is_int = resolved_type->id == TypeTableEntryIdInt || resolved_type->id == TypeTableEntryIdNumLitInt;
     bool is_signed = ((resolved_type->id == TypeTableEntryIdInt && resolved_type->data.integral.is_signed) ||
+            resolved_type->id == TypeTableEntryIdFloat ||
+            (resolved_type->id == TypeTableEntryIdNumLitFloat &&
+                (op1->value.data.x_bignum.data.x_float < 0.0 || op2->value.data.x_bignum.data.x_float < 0.0)) ||
             (resolved_type->id == TypeTableEntryIdNumLitInt &&
                 (op1->value.data.x_bignum.is_negative || op2->value.data.x_bignum.is_negative)));
     if (op_id == IrBinOpDivUnspecified) {
-        if (is_signed) {
-            ir_add_error(ira, &bin_op_instruction->base,
-                buf_sprintf("division with '%s' and '%s': signed integers must use @divTrunc, @divFloor, or @divExact",
-                    buf_ptr(&op1->value.type->name),
-                    buf_ptr(&op2->value.type->name)));
-            return ira->codegen->builtin_types.entry_invalid;
+        if (is_int && is_signed) {
+            bool ok = false;
+            if (instr_is_comptime(op1) && instr_is_comptime(op2)) {
+                BigNum trunc_result;
+                BigNum floor_result;
+                if (bignum_div_trunc(&trunc_result, &op1->value.data.x_bignum, &op2->value.data.x_bignum)) {
+                    zig_unreachable();
+                }
+                if (bignum_div_floor(&floor_result, &op1->value.data.x_bignum, &op2->value.data.x_bignum)) {
+                    zig_unreachable();
+                }
+                if (bignum_cmp_eq(&trunc_result, &floor_result)) {
+                    ok = true;
+                    op_id = IrBinOpDivTrunc;
+                }
+            }
+            if (!ok) {
+                ir_add_error(ira, &bin_op_instruction->base,
+                    buf_sprintf("division with '%s' and '%s': signed integers must use @divTrunc, @divFloor, or @divExact",
+                        buf_ptr(&op1->value.type->name),
+                        buf_ptr(&op2->value.type->name)));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
         } else if (is_int) {
             op_id = IrBinOpDivTrunc;
         }
     } else if (op_id == IrBinOpRemUnspecified) {
         if (is_signed) {
-            ir_add_error(ira, &bin_op_instruction->base,
-                buf_sprintf("remainder division with '%s' and '%s': signed integers must use @rem or @mod",
-                    buf_ptr(&op1->value.type->name),
-                    buf_ptr(&op2->value.type->name)));
-            return ira->codegen->builtin_types.entry_invalid;
+            bool ok = false;
+            if (instr_is_comptime(op1) && instr_is_comptime(op2)) {
+                BigNum rem_result;
+                BigNum mod_result;
+                if (bignum_rem(&rem_result, &op1->value.data.x_bignum, &op2->value.data.x_bignum)) {
+                    zig_unreachable();
+                }
+                if (bignum_mod(&mod_result, &op1->value.data.x_bignum, &op2->value.data.x_bignum)) {
+                    zig_unreachable();
+                }
+                ok = bignum_cmp_eq(&rem_result, &mod_result);
+            }
+            if (!ok) {
+                ir_add_error(ira, &bin_op_instruction->base,
+                    buf_sprintf("remainder division with '%s' and '%s': signed integers and floats must use @rem or @mod",
+                        buf_ptr(&op1->value.type->name),
+                        buf_ptr(&op2->value.type->name)));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
         }
         op_id = IrBinOpRemRem;
     }

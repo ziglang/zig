@@ -1722,5 +1722,5 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    a % b
         \\}
     ,
-        ".tmp_source.zig:2:7: error: remainder division with 'i32' and 'i32': signed integers must use @rem or @mod");
+        ".tmp_source.zig:2:7: error: remainder division with 'i32' and 'i32': signed integers and floats must use @rem or @mod");
 }

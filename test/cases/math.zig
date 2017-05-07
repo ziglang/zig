@@ -220,3 +220,12 @@ fn testFloatEqualityImpl(x: f64, y: f64) {
     const y2 = x + 1.0;
     assert(y == y2);
 }
+
+test "allow signed integer division/remainder when values are comptime known and positive or exact" {
+    assert(5 / 3 == 1);
+    assert(-5 / -3 == 1);
+    assert(-6 / 3 == -2);
+
+    assert(5 % 3 == 2);
+    assert(-6 % 3 == 0);
+}
