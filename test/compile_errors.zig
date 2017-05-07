@@ -581,6 +581,28 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     , ".tmp_source.zig:13:15: error: duplicate switch value",
       ".tmp_source.zig:10:15: note: other value is here");
 
+    cases.add("switch expression - duplicate enumeration prong when else present",
+        \\const Number = enum {
+        \\    One,
+        \\    Two,
+        \\    Three,
+        \\    Four,
+        \\};
+        \\fn f(n: Number) -> i32 {
+        \\    switch (n) {
+        \\        Number.One => 1,
+        \\        Number.Two => 2,
+        \\        Number.Three => i32(3),
+        \\        Number.Four => 4,
+        \\        Number.Two => 2,
+        \\        else => 10,
+        \\    }
+        \\}
+        \\
+        \\export fn entry() -> usize { @sizeOf(@typeOf(f)) }
+    , ".tmp_source.zig:13:15: error: duplicate switch value",
+      ".tmp_source.zig:10:15: note: other value is here");
+
     cases.add("switch expression - multiple else prongs",
         \\fn f(x: u32) {
         \\    const value: bool = switch (x) {

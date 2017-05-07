@@ -2015,13 +2015,15 @@ static IrInstruction *ir_build_err_to_int(IrBuilder *irb, Scope *scope, AstNode 
 }
 
 static IrInstruction *ir_build_check_switch_prongs(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *target_value, IrInstructionCheckSwitchProngsRange *ranges, size_t range_count)
+        IrInstruction *target_value, IrInstructionCheckSwitchProngsRange *ranges, size_t range_count,
+        bool have_else_prong)
 {
     IrInstructionCheckSwitchProngs *instruction = ir_build_instruction<IrInstructionCheckSwitchProngs>(
             irb, scope, source_node);
     instruction->target_value = target_value;
     instruction->ranges = ranges;
     instruction->range_count = range_count;
+    instruction->have_else_prong = have_else_prong;
 
     ir_ref_instruction(target_value, irb->current_basic_block);
     for (size_t i = 0; i < range_count; i += 1) {
@@ -5542,9 +5544,8 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
         }
     }
 
-    if (!else_prong) {
-        ir_build_check_switch_prongs(irb, scope, node, target_value, check_ranges.items, check_ranges.length);
-    }
+    ir_build_check_switch_prongs(irb, scope, node, target_value, check_ranges.items, check_ranges.length,
+            else_prong != nullptr);
 
     if (cases.length == 0) {
         ir_build_br(irb, scope, node, else_block, is_comptime);
@@ -13019,11 +13020,13 @@ static TypeTableEntry *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira
                 field_prev_uses[field_index] = start_value->source_node;
             }
         }
-        for (uint32_t i = 0; i < enum_type->data.enumeration.src_field_count; i += 1) {
-            if (field_prev_uses[i] == nullptr) {
-                ir_add_error(ira, &instruction->base,
-                    buf_sprintf("enumeration value '%s.%s' not handled in switch", buf_ptr(&enum_type->name),
-                        buf_ptr(enum_type->data.enumeration.fields[i].name)));
+        if (!instruction->have_else_prong) {
+            for (uint32_t i = 0; i < enum_type->data.enumeration.src_field_count; i += 1) {
+                if (field_prev_uses[i] == nullptr) {
+                    ir_add_error(ira, &instruction->base,
+                        buf_sprintf("enumeration value '%s.%s' not handled in switch", buf_ptr(&enum_type->name),
+                            buf_ptr(enum_type->data.enumeration.fields[i].name)));
+                }
             }
         }
     } else if (switch_type->id == TypeTableEntryIdInt) {
@@ -13055,15 +13058,17 @@ static TypeTableEntry *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira
                 return ira->codegen->builtin_types.entry_invalid;
             }
         }
-        BigNum min_val;
-        eval_min_max_value_int(ira->codegen, switch_type, &min_val, false);
-        BigNum max_val;
-        eval_min_max_value_int(ira->codegen, switch_type, &max_val, true);
-        if (!rangeset_spans(&rs, &min_val, &max_val)) {
-            ir_add_error(ira, &instruction->base, buf_sprintf("switch must handle all possibilities"));
-            return ira->codegen->builtin_types.entry_invalid;
+        if (!instruction->have_else_prong) {
+            BigNum min_val;
+            eval_min_max_value_int(ira->codegen, switch_type, &min_val, false);
+            BigNum max_val;
+            eval_min_max_value_int(ira->codegen, switch_type, &max_val, true);
+            if (!rangeset_spans(&rs, &min_val, &max_val)) {
+                ir_add_error(ira, &instruction->base, buf_sprintf("switch must handle all possibilities"));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
         }
-    } else {
+    } else if (!instruction->have_else_prong) {
         ir_add_error(ira, &instruction->base,
             buf_sprintf("else prong required when switching on type '%s'", buf_ptr(&switch_type->name)));
         return ira->codegen->builtin_types.entry_invalid;

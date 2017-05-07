@@ -807,7 +807,8 @@ static void ir_print_check_switch_prongs(IrPrint *irp, IrInstructionCheckSwitchP
         fprintf(irp->f, "...");
         ir_print_other_instruction(irp, instruction->ranges[i].end);
     }
-    fprintf(irp->f, ")");
+    const char *have_else_str = instruction->have_else_prong ? "yes" : "no";
+    fprintf(irp->f, ")else:%s", have_else_str);
 }
 
 static void ir_print_check_statement_is_void(IrPrint *irp, IrInstructionCheckStatementIsVoid *instruction) {

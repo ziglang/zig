@@ -2471,6 +2471,7 @@ struct IrInstructionCheckSwitchProngs {
     IrInstruction *target_value;
     IrInstructionCheckSwitchProngsRange *ranges;
     size_t range_count;
+    bool have_else_prong;
 };
 
 struct IrInstructionCheckStatementIsVoid {
