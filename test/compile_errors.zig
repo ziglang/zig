@@ -542,7 +542,46 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
             ".tmp_source.zig:5:5: error: redefinition of 'Bar'",
             ".tmp_source.zig:2:1: note: previous definition is here");
 
-    cases.add("multiple else prongs in a switch",
+    cases.add("switch expression - missing enumeration prong",
+        \\const Number = enum {
+        \\    One,
+        \\    Two,
+        \\    Three,
+        \\    Four,
+        \\};
+        \\fn f(n: Number) -> i32 {
+        \\    switch (n) {
+        \\        Number.One => 1,
+        \\        Number.Two => 2,
+        \\        Number.Three => i32(3),
+        \\    }
+        \\}
+        \\
+        \\export fn entry() -> usize { @sizeOf(@typeOf(f)) }
+    , ".tmp_source.zig:8:5: error: enumeration value 'Number.Four' not handled in switch");
+
+    cases.add("switch expression - duplicate enumeration prong",
+        \\const Number = enum {
+        \\    One,
+        \\    Two,
+        \\    Three,
+        \\    Four,
+        \\};
+        \\fn f(n: Number) -> i32 {
+        \\    switch (n) {
+        \\        Number.One => 1,
+        \\        Number.Two => 2,
+        \\        Number.Three => i32(3),
+        \\        Number.Four => 4,
+        \\        Number.Two => 2,
+        \\    }
+        \\}
+        \\
+        \\export fn entry() -> usize { @sizeOf(@typeOf(f)) }
+    , ".tmp_source.zig:13:15: error: duplicate switch value",
+      ".tmp_source.zig:10:15: note: other value is here");
+
+    cases.add("switch expression - multiple else prongs",
         \\fn f(x: u32) {
         \\    const value: bool = switch (x) {
         \\        1234 => false,
@@ -554,6 +593,41 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    f(1234);
         \\}
     , ".tmp_source.zig:5:9: error: multiple else prongs in switch expression");
+
+    cases.add("switch expression - non exhaustive integer prongs",
+        \\fn foo(x: u8) {
+        \\    switch (x) {
+        \\        0 => {},
+        \\    }
+        \\}
+        \\export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
+    ,
+        ".tmp_source.zig:2:5: error: switch must handle all possibilities");
+
+    cases.add("switch expression - duplicate or overlapping integer value",
+        \\fn foo(x: u8) -> u8 {
+        \\    switch (x) {
+        \\        0 ... 100 => u8(0),
+        \\        101 ... 200 => 1,
+        \\        201, 203 ... 207 => 2,
+        \\        206 ... 255 => 3,
+        \\    }
+        \\}
+        \\export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
+    ,
+        ".tmp_source.zig:6:9: error: duplicate switch value",
+        ".tmp_source.zig:5:14: note: previous value is here");
+
+    cases.add("switch expression - switch on pointer type with no else",
+        \\fn foo(x: &u8) {
+        \\    switch (x) {
+        \\        &y => {},
+        \\    }
+        \\}
+        \\const y: u8 = 100;
+        \\export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
+    ,
+        ".tmp_source.zig:2:5: error: else prong required when switching on type '&u8'");
 
     cases.add("global variable initializer must be constant expression",
         \\extern fn foo() -> i32;
@@ -715,24 +789,6 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
             ".tmp_source.zig:3:22: error: division by zero is undefined",
             ".tmp_source.zig:4:26: error: division by zero is undefined");
 
-
-    cases.add("missing switch prong",
-        \\const Number = enum {
-        \\    One,
-        \\    Two,
-        \\    Three,
-        \\    Four,
-        \\};
-        \\fn f(n: Number) -> i32 {
-        \\    switch (n) {
-        \\        Number.One => 1,
-        \\        Number.Two => 2,
-        \\        Number.Three => i32(3),
-        \\    }
-        \\}
-        \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(f)) }
-    , ".tmp_source.zig:8:5: error: enumeration value 'Number.Four' not handled in switch");
 
     cases.add("normal string with newline",
         \\const foo = "a

@@ -12,6 +12,7 @@
 #include "ir_print.hpp"
 #include "os.hpp"
 #include "parseh.hpp"
+#include "range_set.hpp"
 
 struct IrExecContext {
     ConstExprValue *mem_slot_list;
@@ -12981,7 +12982,7 @@ static TypeTableEntry *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira
 
     if (switch_type->id == TypeTableEntryIdEnumTag) {
         TypeTableEntry *enum_type = switch_type->data.enum_tag.enum_type;
-        size_t *field_use_counts = allocate<size_t>(enum_type->data.enumeration.src_field_count);
+        AstNode **field_prev_uses = allocate<AstNode *>(enum_type->data.enumeration.src_field_count);
         for (size_t range_i = 0; range_i < instruction->range_count; range_i += 1) {
             IrInstructionCheckSwitchProngsRange *range = &instruction->ranges[range_i];
 
@@ -13011,24 +13012,65 @@ static TypeTableEntry *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira
             }
 
             for (size_t field_index = start_index; field_index <= end_index; field_index += 1) {
-                field_use_counts[field_index] += 1;
-                if (field_use_counts[field_index] > 1) {
+                AstNode *prev_node = field_prev_uses[field_index];
+                if (prev_node != nullptr) {
                     TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[field_index];
-                    ir_add_error(ira, start_value,
+                    ErrorMsg *msg = ir_add_error(ira, start_value,
                         buf_sprintf("duplicate switch value: '%s.%s'", buf_ptr(&enum_type->name),
                             buf_ptr(type_enum_field->name)));
+                    add_error_note(ira->codegen, msg, prev_node, buf_sprintf("other value is here"));
                 }
+                field_prev_uses[field_index] = start_value->source_node;
             }
         }
         for (uint32_t i = 0; i < enum_type->data.enumeration.src_field_count; i += 1) {
-            if (field_use_counts[i] == 0) {
+            if (field_prev_uses[i] == nullptr) {
                 ir_add_error(ira, &instruction->base,
                     buf_sprintf("enumeration value '%s.%s' not handled in switch", buf_ptr(&enum_type->name),
                         buf_ptr(enum_type->data.enumeration.fields[i].name)));
             }
         }
+    } else if (switch_type->id == TypeTableEntryIdInt) {
+        RangeSet rs = {0};
+        for (size_t range_i = 0; range_i < instruction->range_count; range_i += 1) {
+            IrInstructionCheckSwitchProngsRange *range = &instruction->ranges[range_i];
+
+            IrInstruction *start_value = range->start->other;
+            if (type_is_invalid(start_value->value.type))
+                return ira->codegen->builtin_types.entry_invalid;
+
+            IrInstruction *end_value = range->end->other;
+            if (type_is_invalid(end_value->value.type))
+                return ira->codegen->builtin_types.entry_invalid;
+
+            ConstExprValue *start_val = ir_resolve_const(ira, start_value, UndefBad);
+            if (!start_val)
+                return ira->codegen->builtin_types.entry_invalid;
+
+            ConstExprValue *end_val = ir_resolve_const(ira, end_value, UndefBad);
+            if (!end_val)
+                return ira->codegen->builtin_types.entry_invalid;
+
+            AstNode *prev_node = rangeset_add_range(&rs, &start_val->data.x_bignum, &end_val->data.x_bignum,
+                    start_value->source_node);
+            if (prev_node != nullptr) {
+                ErrorMsg *msg = ir_add_error(ira, start_value, buf_sprintf("duplicate switch value"));
+                add_error_note(ira->codegen, msg, prev_node, buf_sprintf("previous value is here"));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+        }
+        BigNum min_val;
+        eval_min_max_value_int(ira->codegen, switch_type, &min_val, false);
+        BigNum max_val;
+        eval_min_max_value_int(ira->codegen, switch_type, &max_val, true);
+        if (!rangeset_spans(&rs, &min_val, &max_val)) {
+            ir_add_error(ira, &instruction->base, buf_sprintf("switch must handle all possibilities"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
     } else {
-        // TODO check prongs of types other than enumtag
+        ir_add_error(ira, &instruction->base,
+            buf_sprintf("else prong required when switching on type '%s'", buf_ptr(&switch_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
     }
     ir_build_const_from(ira, &instruction->base);
     return ira->codegen->builtin_types.entry_void;

@@ -12,6 +12,7 @@ fn tryOnErrorUnionImpl() {
     } else |err| switch (err) {
         error.ItBroke, error.NoMem => 1,
         error.CrappedOut => i32(2),
+        else => unreachable,
     };
     assert(x == 11);
 }

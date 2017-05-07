@@ -3851,25 +3851,30 @@ int64_t min_signed_val(TypeTableEntry *type_entry) {
     }
 }
 
+void eval_min_max_value_int(CodeGen *g, TypeTableEntry *int_type, BigNum *bignum, bool is_max) {
+    assert(int_type->id == TypeTableEntryIdInt);
+    if (is_max) {
+        if (int_type->data.integral.is_signed) {
+            int64_t val = max_signed_val(int_type);
+            bignum_init_signed(bignum, val);
+        } else {
+            uint64_t val = max_unsigned_val(int_type);
+            bignum_init_unsigned(bignum, val);
+        }
+    } else {
+        if (int_type->data.integral.is_signed) {
+            int64_t val = min_signed_val(int_type);
+            bignum_init_signed(bignum, val);
+        } else {
+            bignum_init_unsigned(bignum, 0);
+        }
+    }
+}
+
 void eval_min_max_value(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val, bool is_max) {
     if (type_entry->id == TypeTableEntryIdInt) {
         const_val->special = ConstValSpecialStatic;
-        if (is_max) {
-            if (type_entry->data.integral.is_signed) {
-                int64_t val = max_signed_val(type_entry);
-                bignum_init_signed(&const_val->data.x_bignum, val);
-            } else {
-                uint64_t val = max_unsigned_val(type_entry);
-                bignum_init_unsigned(&const_val->data.x_bignum, val);
-            }
-        } else {
-            if (type_entry->data.integral.is_signed) {
-                int64_t val = min_signed_val(type_entry);
-                bignum_init_signed(&const_val->data.x_bignum, val);
-            } else {
-                bignum_init_unsigned(&const_val->data.x_bignum, 0);
-            }
-        }
+        eval_min_max_value_int(g, type_entry, &const_val->data.x_bignum, is_max);
     } else if (type_entry->id == TypeTableEntryIdFloat) {
         zig_panic("TODO analyze_min_max_value float");
     } else if (type_entry->id == TypeTableEntryIdBool) {

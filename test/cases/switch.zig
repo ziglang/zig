@@ -1,6 +1,6 @@
 const assert = @import("std").debug.assert;
 
-test "switchWithNumbers" {
+test "switch with numbers" {
     testSwitchWithNumbers(13);
 }
 
@@ -13,7 +13,7 @@ fn testSwitchWithNumbers(x: u32) {
     assert(result);
 }
 
-test "switchWithAllRanges" {
+test "switch with all ranges" {
     assert(testSwitchWithAllRanges(50, 3) == 1);
     assert(testSwitchWithAllRanges(101, 0) == 2);
     assert(testSwitchWithAllRanges(300, 5) == 3);
@@ -29,7 +29,7 @@ fn testSwitchWithAllRanges(x: u32, y: u32) -> u32 {
     }
 }
 
-test "implicitComptimeSwitch" {
+test "implicit comptime switch" {
     const x = 3 + 4;
     const result = switch (x) {
         3 => 10,
@@ -44,7 +44,7 @@ test "implicitComptimeSwitch" {
     }
 }
 
-test "switchOnEnum" {
+test "switch on enum" {
     const fruit = Fruit.Orange;
     nonConstSwitchOnEnum(fruit);
 }
@@ -62,7 +62,7 @@ fn nonConstSwitchOnEnum(fruit: Fruit) {
 }
 
 
-test "switchStatement" {
+test "switch statement" {
     nonConstSwitch(SwitchStatmentFoo.C);
 }
 fn nonConstSwitch(foo: SwitchStatmentFoo) {
@@ -82,7 +82,7 @@ const SwitchStatmentFoo = enum {
 };
 
 
-test "switchProngWithVar" {
+test "switch prong with variable" {
     switchProngWithVarFn(SwitchProngWithVarEnum.One {13});
     switchProngWithVarFn(SwitchProngWithVarEnum.Two {13.0});
     switchProngWithVarFn(SwitchProngWithVarEnum.Meh);
@@ -107,7 +107,7 @@ fn switchProngWithVarFn(a: &const SwitchProngWithVarEnum) {
 }
 
 
-test "switchWithMultipleExpressions" {
+test "switch with multiple expressions" {
     const x = switch (returnsFive()) {
         1, 2, 3 => 1,
         4, 5, 6 => 2,
@@ -135,7 +135,7 @@ fn returnsFalse() -> bool {
         Number.Three => |x| return x > 12.34,
     }
 }
-test "switchOnConstEnumWithVar" {
+test "switch on const enum with var" {
     assert(!returnsFalse());
 }
 
@@ -148,5 +148,43 @@ fn trueIfBoolFalseOtherwise(comptime T: type) -> bool {
     switch (T) {
         bool => true,
         else => false,
+    }
+}
+
+test "switch handles all cases of number" {
+    testSwitchHandleAllCases();
+    comptime testSwitchHandleAllCases();
+}
+
+const u2 = @IntType(false, 2);
+fn testSwitchHandleAllCases() {
+    assert(testSwitchHandleAllCasesExhaustive(0) == 3);
+    assert(testSwitchHandleAllCasesExhaustive(1) == 2);
+    assert(testSwitchHandleAllCasesExhaustive(2) == 1);
+    assert(testSwitchHandleAllCasesExhaustive(3) == 0);
+
+    assert(testSwitchHandleAllCasesRange(100) == 0);
+    assert(testSwitchHandleAllCasesRange(200) == 1);
+    assert(testSwitchHandleAllCasesRange(201) == 2);
+    assert(testSwitchHandleAllCasesRange(202) == 4);
+    assert(testSwitchHandleAllCasesRange(230) == 3);
+}
+
+fn testSwitchHandleAllCasesExhaustive(x: u2) -> u2 {
+    switch (x) {
+        0 => u2(3),
+        1 => 2,
+        2 => 1,
+        3 => 0,
+    }
+}
+
+fn testSwitchHandleAllCasesRange(x: u8) -> u8 {
+    switch (x) {
+        0 ... 100 => u8(0),
+        101 ... 200 => 1,
+        201, 203 => 2,
+        202 => 4,
+        204 ... 255 => 3,
     }
 }

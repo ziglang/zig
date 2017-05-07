@@ -84,6 +84,7 @@ void complete_enum(CodeGen *g, TypeTableEntry *enum_type);
 bool ir_get_var_is_comptime(VariableTableEntry *var);
 bool const_values_equal(ConstExprValue *a, ConstExprValue *b);
 void eval_min_max_value(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val, bool is_max);
+void eval_min_max_value_int(CodeGen *g, TypeTableEntry *int_type, BigNum *bignum, bool is_max);
 int64_t min_signed_val(TypeTableEntry *type_entry);
 uint64_t max_unsigned_val(TypeTableEntry *type_entry);
 
