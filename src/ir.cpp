@@ -9753,7 +9753,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
 
         ConstExprValue *array_ptr_val;
         if (array_ptr->value.special != ConstValSpecialRuntime &&
-            array_ptr->value.data.x_ptr.mut != ConstPtrMutRuntimeVar &&
+            (array_ptr->value.data.x_ptr.mut != ConstPtrMutRuntimeVar || array_type->id == TypeTableEntryIdArray) &&
             (array_ptr_val = const_ptr_pointee(ira->codegen, &array_ptr->value)) &&
             array_ptr_val->special != ConstValSpecialRuntime &&
             (array_type->id != TypeTableEntryIdPointer ||
