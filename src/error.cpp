@@ -23,6 +23,8 @@ const char *err_str(int err) {
         case ErrorOverflow: return "overflow";
         case ErrorPathAlreadyExists: return "path already exists";
         case ErrorUnexpected: return "unexpected error";
+        case ErrorExactDivRemainder: return "exact division had a remainder";
+        case ErrorNegativeDenominator: return "negative denominator";
     }
     return "(invalid error)";
 }

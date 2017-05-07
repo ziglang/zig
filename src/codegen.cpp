@@ -538,6 +538,35 @@ static LLVMValueRef get_int_overflow_fn(CodeGen *g, TypeTableEntry *type_entry, 
     return fn_val;
 }
 
+static LLVMValueRef get_floor_ceil_fn(CodeGen *g, TypeTableEntry *type_entry, ZigLLVMFnId fn_id) {
+    assert(type_entry->id == TypeTableEntryIdFloat);
+
+    ZigLLVMFnKey key = {};
+    key.id = fn_id;
+    key.data.floor_ceil.bit_count = (uint32_t)type_entry->data.floating.bit_count;
+
+    auto existing_entry = g->llvm_fn_table.maybe_get(key);
+    if (existing_entry)
+        return existing_entry->value;
+
+    const char *name;
+    if (fn_id == ZigLLVMFnIdFloor) {
+        name = "floor";
+    } else if (fn_id == ZigLLVMFnIdCeil) {
+        name = "ceil";
+    } else {
+        zig_unreachable();
+    }
+
+    char fn_name[64];
+    sprintf(fn_name, "llvm.%s.f%zu", name, type_entry->data.floating.bit_count);
+    LLVMTypeRef fn_type = LLVMFunctionType(type_entry->type_ref, &type_entry->type_ref, 1, false);
+    LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type);
+
+    g->llvm_fn_table.put(key, fn_val);
+    return fn_val;
+}
+
 static LLVMValueRef get_handle_value(CodeGen *g, LLVMValueRef ptr, TypeTableEntry *type, bool is_volatile) {
     if (type_has_bits(type)) {
         if (handle_is_ptr(type)) {
@@ -618,7 +647,7 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
         case PanicMsgIdDivisionByZero:
             return buf_create_from_str("division by zero");
         case PanicMsgIdRemainderDivisionByZero:
-            return buf_create_from_str("remainder division by zero");
+            return buf_create_from_str("remainder division by zero or negative value");
         case PanicMsgIdExactDivisionRemainder:
             return buf_create_from_str("exact division produced remainder");
         case PanicMsgIdSliceWidenRemainder:
@@ -1099,12 +1128,34 @@ static LLVMValueRef gen_overflow_shl_op(CodeGen *g, TypeTableEntry *type_entry,
     return result;
 }
 
-static LLVMValueRef gen_div(CodeGen *g, bool want_debug_safety, LLVMValueRef val1, LLVMValueRef val2,
-        TypeTableEntry *type_entry, bool exact)
-{
+static LLVMValueRef gen_floor(CodeGen *g, LLVMValueRef val, TypeTableEntry *type_entry) {
+    if (type_entry->id == TypeTableEntryIdInt)
+        return val;
 
+    LLVMValueRef floor_fn = get_floor_ceil_fn(g, type_entry, ZigLLVMFnIdFloor);
+    return LLVMBuildCall(g->builder, floor_fn, &val, 1, "");
+}
+
+static LLVMValueRef gen_ceil(CodeGen *g, LLVMValueRef val, TypeTableEntry *type_entry) {
+    if (type_entry->id == TypeTableEntryIdInt)
+        return val;
+
+    LLVMValueRef ceil_fn = get_floor_ceil_fn(g, type_entry, ZigLLVMFnIdCeil);
+    return LLVMBuildCall(g->builder, ceil_fn, &val, 1, "");
+}
+
+enum DivKind {
+    DivKindFloat,
+    DivKindTrunc,
+    DivKindFloor,
+    DivKindExact,
+};
+
+static LLVMValueRef gen_div(CodeGen *g, bool want_debug_safety, LLVMValueRef val1, LLVMValueRef val2,
+        TypeTableEntry *type_entry, DivKind div_kind)
+{
+    LLVMValueRef zero = LLVMConstNull(type_entry->type_ref);
     if (want_debug_safety) {
-        LLVMValueRef zero = LLVMConstNull(type_entry->type_ref);
         LLVMValueRef is_zero_bit;
         if (type_entry->id == TypeTableEntryIdInt) {
             is_zero_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, val2, zero, "");
@@ -1140,55 +1191,111 @@ static LLVMValueRef gen_div(CodeGen *g, bool want_debug_safety, LLVMValueRef val
     }
 
     if (type_entry->id == TypeTableEntryIdFloat) {
-        assert(!exact);
-        return LLVMBuildFDiv(g->builder, val1, val2, "");
+        LLVMValueRef result = LLVMBuildFDiv(g->builder, val1, val2, "");
+        switch (div_kind) {
+            case DivKindFloat:
+                return result;
+            case DivKindExact:
+                if (want_debug_safety) {
+                    LLVMValueRef floored = gen_floor(g, result, type_entry);
+                    LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivExactOk");
+                    LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivExactFail");
+                    LLVMValueRef ok_bit = LLVMBuildFCmp(g->builder, LLVMRealOEQ, floored, result, "");
+
+                    LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
+
+                    LLVMPositionBuilderAtEnd(g->builder, fail_block);
+                    gen_debug_safety_crash(g, PanicMsgIdExactDivisionRemainder);
+
+                    LLVMPositionBuilderAtEnd(g->builder, ok_block);
+                }
+                return result;
+            case DivKindTrunc:
+                {
+                    LLVMValueRef floored = gen_floor(g, result, type_entry);
+                    LLVMValueRef ceiled = gen_ceil(g, result, type_entry);
+                    LLVMValueRef ltz = LLVMBuildFCmp(g->builder, LLVMRealOLT, val1, zero, "");
+                    return LLVMBuildSelect(g->builder, ltz, ceiled, floored, "");
+                }
+            case DivKindFloor:
+                return gen_floor(g, result, type_entry);
+        }
+        zig_unreachable();
     }
 
     assert(type_entry->id == TypeTableEntryIdInt);
 
-    if (exact) {
-        if (want_debug_safety) {
-            LLVMValueRef remainder_val;
+    switch (div_kind) {
+        case DivKindFloat:
+            zig_unreachable();
+        case DivKindTrunc:
             if (type_entry->data.integral.is_signed) {
-                remainder_val = LLVMBuildSRem(g->builder, val1, val2, "");
+                return LLVMBuildSDiv(g->builder, val1, val2, "");
             } else {
-                remainder_val = LLVMBuildURem(g->builder, val1, val2, "");
+                return LLVMBuildUDiv(g->builder, val1, val2, "");
             }
-            LLVMValueRef zero = LLVMConstNull(type_entry->type_ref);
-            LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, remainder_val, zero, "");
+        case DivKindExact:
+            if (want_debug_safety) {
+                LLVMValueRef remainder_val;
+                if (type_entry->data.integral.is_signed) {
+                    remainder_val = LLVMBuildSRem(g->builder, val1, val2, "");
+                } else {
+                    remainder_val = LLVMBuildURem(g->builder, val1, val2, "");
+                }
+                LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, remainder_val, zero, "");
 
-            LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivExactOk");
-            LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivExactFail");
-            LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
+                LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivExactOk");
+                LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivExactFail");
+                LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
 
-            LLVMPositionBuilderAtEnd(g->builder, fail_block);
-            gen_debug_safety_crash(g, PanicMsgIdExactDivisionRemainder);
+                LLVMPositionBuilderAtEnd(g->builder, fail_block);
+                gen_debug_safety_crash(g, PanicMsgIdExactDivisionRemainder);
 
-            LLVMPositionBuilderAtEnd(g->builder, ok_block);
-        }
-        if (type_entry->data.integral.is_signed) {
-            return LLVMBuildExactSDiv(g->builder, val1, val2, "");
-        } else {
-            return LLVMBuildExactUDiv(g->builder, val1, val2, "");
-        }
-    } else {
-        if (type_entry->data.integral.is_signed) {
-            return LLVMBuildSDiv(g->builder, val1, val2, "");
-        } else {
-            return LLVMBuildUDiv(g->builder, val1, val2, "");
-        }
+                LLVMPositionBuilderAtEnd(g->builder, ok_block);
+            }
+            if (type_entry->data.integral.is_signed) {
+                return LLVMBuildExactSDiv(g->builder, val1, val2, "");
+            } else {
+                return LLVMBuildExactUDiv(g->builder, val1, val2, "");
+            }
+        case DivKindFloor:
+            {
+                if (!type_entry->data.integral.is_signed) {
+                    return LLVMBuildUDiv(g->builder, val1, val2, "");
+                }
+                // const result = @divTrunc(a, b);
+                // if (result >= 0 or result * b == a)
+                //     return result;
+                // else
+                //     return result - 1;
+
+                LLVMValueRef result = LLVMBuildSDiv(g->builder, val1, val2, "");
+                LLVMValueRef is_pos = LLVMBuildICmp(g->builder, LLVMIntSGE, result, zero, "");
+                LLVMValueRef orig_num = LLVMBuildNSWMul(g->builder, result, val2, "");
+                LLVMValueRef orig_ok = LLVMBuildICmp(g->builder, LLVMIntEQ, orig_num, val1, "");
+                LLVMValueRef ok_bit = LLVMBuildOr(g->builder, orig_ok, is_pos, "");
+                LLVMValueRef one = LLVMConstInt(type_entry->type_ref, 1, true);
+                LLVMValueRef result_minus_1 = LLVMBuildNSWSub(g->builder, result, one, "");
+                return LLVMBuildSelect(g->builder, ok_bit, result, result_minus_1, "");
+            }
     }
+    zig_unreachable();
 }
 
-static LLVMValueRef gen_rem(CodeGen *g, bool want_debug_safety, LLVMValueRef val1, LLVMValueRef val2,
-        TypeTableEntry *type_entry)
-{
+enum RemKind {
+    RemKindRem,
+    RemKindMod,
+};
 
+static LLVMValueRef gen_rem(CodeGen *g, bool want_debug_safety, LLVMValueRef val1, LLVMValueRef val2,
+        TypeTableEntry *type_entry, RemKind rem_kind)
+{
+    LLVMValueRef zero = LLVMConstNull(type_entry->type_ref);
     if (want_debug_safety) {
-        LLVMValueRef zero = LLVMConstNull(type_entry->type_ref);
         LLVMValueRef is_zero_bit;
         if (type_entry->id == TypeTableEntryIdInt) {
-            is_zero_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, val2, zero, "");
+            LLVMIntPredicate pred = type_entry->data.integral.is_signed ? LLVMIntSLE : LLVMIntEQ;
+            is_zero_bit = LLVMBuildICmp(g->builder, pred, val2, zero, "");
         } else if (type_entry->id == TypeTableEntryIdFloat) {
             is_zero_bit = LLVMBuildFCmp(g->builder, LLVMRealOEQ, val2, zero, "");
         } else {
@@ -1202,30 +1309,30 @@ static LLVMValueRef gen_rem(CodeGen *g, bool want_debug_safety, LLVMValueRef val
         gen_debug_safety_crash(g, PanicMsgIdRemainderDivisionByZero);
 
         LLVMPositionBuilderAtEnd(g->builder, rem_zero_ok_block);
-
-        if (type_entry->id == TypeTableEntryIdInt && type_entry->data.integral.is_signed) {
-            LLVMValueRef neg_1_value = LLVMConstInt(type_entry->type_ref, -1, true);
-            LLVMValueRef int_min_value = LLVMConstInt(type_entry->type_ref, min_signed_val(type_entry), true);
-            LLVMBasicBlockRef overflow_ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "RemOverflowOk");
-            LLVMBasicBlockRef overflow_fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "RemOverflowFail");
-            LLVMValueRef num_is_int_min = LLVMBuildICmp(g->builder, LLVMIntEQ, val1, int_min_value, "");
-            LLVMValueRef den_is_neg_1 = LLVMBuildICmp(g->builder, LLVMIntEQ, val2, neg_1_value, "");
-            LLVMValueRef overflow_fail_bit = LLVMBuildAnd(g->builder, num_is_int_min, den_is_neg_1, "");
-            LLVMBuildCondBr(g->builder, overflow_fail_bit, overflow_fail_block, overflow_ok_block);
-
-            LLVMPositionBuilderAtEnd(g->builder, overflow_fail_block);
-            gen_debug_safety_crash(g, PanicMsgIdIntegerOverflow);
-
-            LLVMPositionBuilderAtEnd(g->builder, overflow_ok_block);
-        }
     }
 
     if (type_entry->id == TypeTableEntryIdFloat) {
-        return LLVMBuildFRem(g->builder, val1, val2, "");
+        if (rem_kind == RemKindRem) {
+            return LLVMBuildFRem(g->builder, val1, val2, "");
+        } else {
+            LLVMValueRef a = LLVMBuildFRem(g->builder, val1, val2, "");
+            LLVMValueRef b = LLVMBuildFAdd(g->builder, a, val2, "");
+            LLVMValueRef c = LLVMBuildFRem(g->builder, b, val2, "");
+            LLVMValueRef ltz = LLVMBuildFCmp(g->builder, LLVMRealOLT, val1, zero, "");
+            return LLVMBuildSelect(g->builder, ltz, c, a, "");
+        }
     } else {
         assert(type_entry->id == TypeTableEntryIdInt);
         if (type_entry->data.integral.is_signed) {
-            return LLVMBuildSRem(g->builder, val1, val2, "");
+            if (rem_kind == RemKindRem) {
+                return LLVMBuildSRem(g->builder, val1, val2, "");
+            } else {
+                LLVMValueRef a = LLVMBuildSRem(g->builder, val1, val2, "");
+                LLVMValueRef b = LLVMBuildNSWAdd(g->builder, a, val2, "");
+                LLVMValueRef c = LLVMBuildSRem(g->builder, b, val2, "");
+                LLVMValueRef ltz = LLVMBuildICmp(g->builder, LLVMIntSLT, val1, zero, "");
+                return LLVMBuildSelect(g->builder, ltz, c, a, "");
+            }
         } else {
             return LLVMBuildURem(g->builder, val1, val2, "");
         }
@@ -1252,6 +1359,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
         case IrBinOpInvalid:
         case IrBinOpArrayCat:
         case IrBinOpArrayMult:
+        case IrBinOpRemUnspecified:
             zig_unreachable();
         case IrBinOpBoolOr:
             return LLVMBuildOr(g->builder, op1_value, op2_value, "");
@@ -1367,10 +1475,18 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
             } else {
                 zig_unreachable();
             }
-        case IrBinOpDiv:
-            return gen_div(g, want_debug_safety, op1_value, op2_value, type_entry, false);
-        case IrBinOpRem:
-            return gen_rem(g, want_debug_safety, op1_value, op2_value, type_entry);
+        case IrBinOpDivUnspecified:
+            return gen_div(g, want_debug_safety, op1_value, op2_value, type_entry, DivKindFloat);
+        case IrBinOpDivExact:
+            return gen_div(g, want_debug_safety, op1_value, op2_value, type_entry, DivKindExact);
+        case IrBinOpDivTrunc:
+            return gen_div(g, want_debug_safety, op1_value, op2_value, type_entry, DivKindTrunc);
+        case IrBinOpDivFloor:
+            return gen_div(g, want_debug_safety, op1_value, op2_value, type_entry, DivKindFloor);
+        case IrBinOpRemRem:
+            return gen_rem(g, want_debug_safety, op1_value, op2_value, type_entry, RemKindRem);
+        case IrBinOpRemMod:
+            return gen_rem(g, want_debug_safety, op1_value, op2_value, type_entry, RemKindMod);
     }
     zig_unreachable();
 }
@@ -2353,14 +2469,6 @@ static LLVMValueRef ir_render_fence(CodeGen *g, IrExecutable *executable, IrInst
     return nullptr;
 }
 
-static LLVMValueRef ir_render_div_exact(CodeGen *g, IrExecutable *executable, IrInstructionDivExact *instruction) {
-    LLVMValueRef op1_val = ir_llvm_value(g, instruction->op1);
-    LLVMValueRef op2_val = ir_llvm_value(g, instruction->op2);
-
-    bool want_debug_safety = ir_want_debug_safety(g, &instruction->base);
-    return gen_div(g, want_debug_safety, op1_val, op2_val, instruction->base.value.type, true);
-}
-
 static LLVMValueRef ir_render_truncate(CodeGen *g, IrExecutable *executable, IrInstructionTruncate *instruction) {
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
     TypeTableEntry *dest_type = instruction->base.value.type;
@@ -2965,8 +3073,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_cmpxchg(g, executable, (IrInstructionCmpxchg *)instruction);
         case IrInstructionIdFence:
             return ir_render_fence(g, executable, (IrInstructionFence *)instruction);
-        case IrInstructionIdDivExact:
-            return ir_render_div_exact(g, executable, (IrInstructionDivExact *)instruction);
         case IrInstructionIdTruncate:
             return ir_render_truncate(g, executable, (IrInstructionTruncate *)instruction);
         case IrInstructionIdBoolNot:
@@ -4320,7 +4426,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdEmbedFile, "embedFile", 1);
     create_builtin_fn(g, BuiltinFnIdCmpExchange, "cmpxchg", 5);
     create_builtin_fn(g, BuiltinFnIdFence, "fence", 1);
-    create_builtin_fn(g, BuiltinFnIdDivExact, "divExact", 2);
     create_builtin_fn(g, BuiltinFnIdTruncate, "truncate", 2);
     create_builtin_fn(g, BuiltinFnIdCompileErr, "compileError", 1);
     create_builtin_fn(g, BuiltinFnIdCompileLog, "compileLog", SIZE_MAX);
@@ -4335,6 +4440,11 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdEnumTagName, "enumTagName", 1);
     create_builtin_fn(g, BuiltinFnIdFieldParentPtr, "fieldParentPtr", 3);
     create_builtin_fn(g, BuiltinFnIdOffsetOf, "offsetOf", 2);
+    create_builtin_fn(g, BuiltinFnIdDivExact, "divExact", 2);
+    create_builtin_fn(g, BuiltinFnIdDivTrunc, "divTrunc", 2);
+    create_builtin_fn(g, BuiltinFnIdDivFloor, "divFloor", 2);
+    create_builtin_fn(g, BuiltinFnIdRem, "rem", 2);
+    create_builtin_fn(g, BuiltinFnIdMod, "mod", 2);
 }
 
 static const char *bool_to_str(bool b) {

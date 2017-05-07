@@ -702,7 +702,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     cases.add("division by zero",
         \\const lit_int_x = 1 / 0;
         \\const lit_float_x = 1.0 / 0.0;
-        \\const int_x = i32(1) / i32(0);
+        \\const int_x = u32(1) / u32(0);
         \\const float_x = f32(1.0) / f32(0.0);
         \\
         \\export fn entry1() -> usize { @sizeOf(@typeOf(lit_int_x)) }
@@ -792,7 +792,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("compile time division by zero",
         \\const y = foo(0);
-        \\fn foo(x: i32) -> i32 {
+        \\fn foo(x: u32) -> u32 {
         \\    1 / x
         \\}
         \\
@@ -1709,4 +1709,18 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\extern fn quux(usize);
     ,
         ".tmp_source.zig:4:8: error: unable to inline function");
+
+    cases.add("signed integer division",
+        \\export fn foo(a: i32, b: i32) -> i32 {
+        \\    a / b
+        \\}
+    ,
+        ".tmp_source.zig:2:7: error: division with 'i32' and 'i32': signed integers must use @divTrunc, @divFloor, or @divExact");
+
+    cases.add("signed integer remainder division",
+        \\export fn foo(a: i32, b: i32) -> i32 {
+        \\    a % b
+        \\}
+    ,
+        ".tmp_source.zig:2:7: error: remainder division with 'i32' and 'i32': signed integers must use @rem or @mod");
 }

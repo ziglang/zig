@@ -400,10 +400,6 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionFence *) {
     return IrInstructionIdFence;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionDivExact *) {
-    return IrInstructionIdDivExact;
-}
-
 static constexpr IrInstructionId ir_instruction_id(IrInstructionTruncate *) {
     return IrInstructionIdTruncate;
 }
@@ -1628,23 +1624,6 @@ static IrInstruction *ir_build_fence_from(IrBuilder *irb, IrInstruction *old_ins
     return new_instruction;
 }
 
-static IrInstruction *ir_build_div_exact(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *op1, IrInstruction *op2) {
-    IrInstructionDivExact *instruction = ir_build_instruction<IrInstructionDivExact>(irb, scope, source_node);
-    instruction->op1 = op1;
-    instruction->op2 = op2;
-
-    ir_ref_instruction(op1, irb->current_basic_block);
-    ir_ref_instruction(op2, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
-static IrInstruction *ir_build_div_exact_from(IrBuilder *irb, IrInstruction *old_instruction, IrInstruction *op1, IrInstruction *op2) {
-    IrInstruction *new_instruction = ir_build_div_exact(irb, old_instruction->scope, old_instruction->source_node, op1, op2);
-    ir_link_new_instruction(new_instruction, old_instruction);
-    return new_instruction;
-}
-
 static IrInstruction *ir_build_truncate(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *dest_type, IrInstruction *target) {
     IrInstructionTruncate *instruction = ir_build_instruction<IrInstructionTruncate>(irb, scope, source_node);
     instruction->dest_type = dest_type;
@@ -2597,14 +2576,6 @@ static IrInstruction *ir_instruction_fence_get_dep(IrInstructionFence *instructi
     }
 }
 
-static IrInstruction *ir_instruction_divexact_get_dep(IrInstructionDivExact *instruction, size_t index) {
-    switch (index) {
-        case 0: return instruction->op1;
-        case 1: return instruction->op2;
-        default: return nullptr;
-    }
-}
-
 static IrInstruction *ir_instruction_truncate_get_dep(IrInstructionTruncate *instruction, size_t index) {
     switch (index) {
         case 0: return instruction->dest_type;
@@ -3022,8 +2993,6 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_cmpxchg_get_dep((IrInstructionCmpxchg *) instruction, index);
         case IrInstructionIdFence:
             return ir_instruction_fence_get_dep((IrInstructionFence *) instruction, index);
-        case IrInstructionIdDivExact:
-            return ir_instruction_divexact_get_dep((IrInstructionDivExact *) instruction, index);
         case IrInstructionIdTruncate:
             return ir_instruction_truncate_get_dep((IrInstructionTruncate *) instruction, index);
         case IrInstructionIdIntType:
@@ -3644,9 +3613,9 @@ static IrInstruction *ir_gen_bin_op(IrBuilder *irb, Scope *scope, AstNode *node)
         case BinOpTypeAssignTimesWrap:
             return ir_gen_assign_op(irb, scope, node, IrBinOpMultWrap);
         case BinOpTypeAssignDiv:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpDiv);
+            return ir_gen_assign_op(irb, scope, node, IrBinOpDivUnspecified);
         case BinOpTypeAssignMod:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpRem);
+            return ir_gen_assign_op(irb, scope, node, IrBinOpRemUnspecified);
         case BinOpTypeAssignPlus:
             return ir_gen_assign_op(irb, scope, node, IrBinOpAdd);
         case BinOpTypeAssignPlusWrap:
@@ -3712,9 +3681,9 @@ static IrInstruction *ir_gen_bin_op(IrBuilder *irb, Scope *scope, AstNode *node)
         case BinOpTypeMultWrap:
             return ir_gen_bin_op_id(irb, scope, node, IrBinOpMultWrap);
         case BinOpTypeDiv:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpDiv);
+            return ir_gen_bin_op_id(irb, scope, node, IrBinOpDivUnspecified);
         case BinOpTypeMod:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpRem);
+            return ir_gen_bin_op_id(irb, scope, node, IrBinOpRemUnspecified);
         case BinOpTypeArrayCat:
             return ir_gen_bin_op_id(irb, scope, node, IrBinOpArrayCat);
         case BinOpTypeArrayMult:
@@ -4138,7 +4107,63 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg1_value == irb->codegen->invalid_instruction)
                     return arg1_value;
 
-                return ir_build_div_exact(irb, scope, node, arg0_value, arg1_value);
+                return ir_build_bin_op(irb, scope, node, IrBinOpDivExact, arg0_value, arg1_value, true);
+            }
+        case BuiltinFnIdDivTrunc:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                return ir_build_bin_op(irb, scope, node, IrBinOpDivTrunc, arg0_value, arg1_value, true);
+            }
+        case BuiltinFnIdDivFloor:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                return ir_build_bin_op(irb, scope, node, IrBinOpDivFloor, arg0_value, arg1_value, true);
+            }
+        case BuiltinFnIdRem:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                return ir_build_bin_op(irb, scope, node, IrBinOpRemRem, arg0_value, arg1_value, true);
+            }
+        case BuiltinFnIdMod:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                return ir_build_bin_op(irb, scope, node, IrBinOpRemMod, arg0_value, arg1_value, true);
             }
         case BuiltinFnIdTruncate:
             {
@@ -8024,32 +8049,70 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
     return ira->codegen->builtin_types.entry_bool;
 }
 
+enum EvalBigNumSpecial {
+    EvalBigNumSpecialNone,
+    EvalBigNumSpecialWrapping,
+    EvalBigNumSpecialExact,
+};
+
 static int ir_eval_bignum(ConstExprValue *op1_val, ConstExprValue *op2_val,
         ConstExprValue *out_val, bool (*bignum_fn)(BigNum *, BigNum *, BigNum *),
-        TypeTableEntry *type, bool wrapping_op)
+        TypeTableEntry *type, EvalBigNumSpecial special)
 {
     bool is_int = false;
     bool is_float = false;
-    if (bignum_fn == bignum_div || bignum_fn == bignum_rem) {
-        if (type->id == TypeTableEntryIdInt ||
-            type->id == TypeTableEntryIdNumLitInt)
-        {
-            is_int = true;
-        } else if (type->id == TypeTableEntryIdFloat ||
-                   type->id == TypeTableEntryIdNumLitFloat)
-        {
-            is_float = true;
-        }
+    if (type->id == TypeTableEntryIdInt ||
+        type->id == TypeTableEntryIdNumLitInt)
+    {
+        is_int = true;
+    } else if (type->id == TypeTableEntryIdFloat ||
+                type->id == TypeTableEntryIdNumLitFloat)
+    {
+        is_float = true;
+    } else {
+        zig_unreachable();
+    }
+    if (bignum_fn == bignum_div || bignum_fn == bignum_rem || bignum_fn == bignum_mod ||
+        bignum_fn == bignum_div_trunc || bignum_fn == bignum_div_floor)
+    {
         if ((is_int && op2_val->data.x_bignum.data.x_uint == 0) ||
             (is_float && op2_val->data.x_bignum.data.x_float == 0.0))
         {
             return ErrorDivByZero;
         }
     }
+    if (bignum_fn == bignum_rem || bignum_fn == bignum_mod) {
+        BigNum zero;
+        if (is_float) {
+            bignum_init_float(&zero, 0.0);
+        } else {
+            bignum_init_unsigned(&zero, 0);
+        }
+        if (bignum_cmp_lt(&op2_val->data.x_bignum, &zero)) {
+            return ErrorNegativeDenominator;
+        }
+    }
+
+    if (special == EvalBigNumSpecialExact) {
+        assert(bignum_fn == bignum_div);
+        BigNum remainder;
+        if (bignum_rem(&remainder, &op1_val->data.x_bignum, &op2_val->data.x_bignum)) {
+            return ErrorOverflow;
+        }
+        BigNum zero;
+        if (is_float) {
+            bignum_init_float(&zero, 0.0);
+        } else {
+            bignum_init_unsigned(&zero, 0);
+        }
+        if (bignum_cmp_neq(&remainder, &zero)) {
+            return ErrorExactDivRemainder;
+        }
+    }
 
     bool overflow = bignum_fn(&out_val->data.x_bignum, &op1_val->data.x_bignum, &op2_val->data.x_bignum);
     if (overflow) {
-        if (wrapping_op) {
+        if (special == EvalBigNumSpecialWrapping) {
             zig_panic("TODO compiler bug, implement compile-time wrapping arithmetic for >= 64 bit ints");
         } else {
             return ErrorOverflow;
@@ -8059,7 +8122,7 @@ static int ir_eval_bignum(ConstExprValue *op1_val, ConstExprValue *op2_val,
     if (type->id == TypeTableEntryIdInt && !bignum_fits_in_bits(&out_val->data.x_bignum,
                 type->data.integral.bit_count, type->data.integral.is_signed))
     {
-        if (wrapping_op) {
+        if (special == EvalBigNumSpecialWrapping) {
             if (type->data.integral.is_signed) {
                 out_val->data.x_bignum.data.x_uint = max_unsigned_val(type) - out_val->data.x_bignum.data.x_uint + 1;
                 out_val->data.x_bignum.is_negative = !out_val->data.x_bignum.is_negative;
@@ -8093,35 +8156,44 @@ static int ir_eval_math_op(TypeTableEntry *canon_type, ConstExprValue *op1_val,
         case IrBinOpCmpGreaterOrEq:
         case IrBinOpArrayCat:
         case IrBinOpArrayMult:
+        case IrBinOpRemUnspecified:
             zig_unreachable();
         case IrBinOpBinOr:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_or, canon_type, false);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_or, canon_type, EvalBigNumSpecialNone);
         case IrBinOpBinXor:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_xor, canon_type, false);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_xor, canon_type, EvalBigNumSpecialNone);
         case IrBinOpBinAnd:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_and, canon_type, false);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_and, canon_type, EvalBigNumSpecialNone);
         case IrBinOpBitShiftLeft:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_shl, canon_type, false);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_shl, canon_type, EvalBigNumSpecialNone);
         case IrBinOpBitShiftLeftWrap:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_shl, canon_type, true);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_shl, canon_type, EvalBigNumSpecialWrapping);
         case IrBinOpBitShiftRight:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_shr, canon_type, false);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_shr, canon_type, EvalBigNumSpecialNone);
         case IrBinOpAdd:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_add, canon_type, false);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_add, canon_type, EvalBigNumSpecialNone);
         case IrBinOpAddWrap:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_add, canon_type, true);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_add, canon_type, EvalBigNumSpecialWrapping);
         case IrBinOpSub:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_sub, canon_type, false);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_sub, canon_type, EvalBigNumSpecialNone);
         case IrBinOpSubWrap:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_sub, canon_type, true);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_sub, canon_type, EvalBigNumSpecialWrapping);
         case IrBinOpMult:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_mul, canon_type, false);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_mul, canon_type, EvalBigNumSpecialNone);
         case IrBinOpMultWrap:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_mul, canon_type, true);
-        case IrBinOpDiv:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_div, canon_type, false);
-        case IrBinOpRem:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_rem, canon_type, false);
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_mul, canon_type, EvalBigNumSpecialWrapping);
+        case IrBinOpDivUnspecified:
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_div, canon_type, EvalBigNumSpecialNone);
+        case IrBinOpDivTrunc:
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_div_trunc, canon_type, EvalBigNumSpecialNone);
+        case IrBinOpDivFloor:
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_div_floor, canon_type, EvalBigNumSpecialNone);
+        case IrBinOpDivExact:
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_div, canon_type, EvalBigNumSpecialExact);
+        case IrBinOpRemRem:
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_rem, canon_type, EvalBigNumSpecialNone);
+        case IrBinOpRemMod:
+            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_mod, canon_type, EvalBigNumSpecialNone);
     }
     zig_unreachable();
 }
@@ -8135,6 +8207,31 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
         return resolved_type;
     IrBinOp op_id = bin_op_instruction->op_id;
 
+    bool is_int = resolved_type->id == TypeTableEntryIdInt || resolved_type->id == TypeTableEntryIdNumLitInt;
+    bool is_signed = ((resolved_type->id == TypeTableEntryIdInt && resolved_type->data.integral.is_signed) ||
+            (resolved_type->id == TypeTableEntryIdNumLitInt &&
+                (op1->value.data.x_bignum.is_negative || op2->value.data.x_bignum.is_negative)));
+    if (op_id == IrBinOpDivUnspecified) {
+        if (is_signed) {
+            ir_add_error(ira, &bin_op_instruction->base,
+                buf_sprintf("division with '%s' and '%s': signed integers must use @divTrunc, @divFloor, or @divExact",
+                    buf_ptr(&op1->value.type->name),
+                    buf_ptr(&op2->value.type->name)));
+            return ira->codegen->builtin_types.entry_invalid;
+        } else if (is_int) {
+            op_id = IrBinOpDivTrunc;
+        }
+    } else if (op_id == IrBinOpRemUnspecified) {
+        if (is_signed) {
+            ir_add_error(ira, &bin_op_instruction->base,
+                buf_sprintf("remainder division with '%s' and '%s': signed integers must use @rem or @mod",
+                    buf_ptr(&op1->value.type->name),
+                    buf_ptr(&op2->value.type->name)));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        op_id = IrBinOpRemRem;
+    }
+
     if (resolved_type->id == TypeTableEntryIdInt ||
         resolved_type->id == TypeTableEntryIdNumLitInt)
     {
@@ -8144,8 +8241,12 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
         (op_id == IrBinOpAdd ||
             op_id == IrBinOpSub ||
             op_id == IrBinOpMult ||
-            op_id == IrBinOpDiv ||
-            op_id == IrBinOpRem))
+            op_id == IrBinOpDivUnspecified ||
+            op_id == IrBinOpDivTrunc ||
+            op_id == IrBinOpDivFloor ||
+            op_id == IrBinOpDivExact ||
+            op_id == IrBinOpRemRem ||
+            op_id == IrBinOpRemMod))
     {
         // float
     } else {
@@ -8176,26 +8277,32 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
         int err;
         if ((err = ir_eval_math_op(resolved_type, op1_val, op_id, op2_val, out_val))) {
             if (err == ErrorDivByZero) {
-                ir_add_error_node(ira, bin_op_instruction->base.source_node,
-                        buf_sprintf("division by zero is undefined"));
+                ir_add_error(ira, &bin_op_instruction->base, buf_sprintf("division by zero is undefined"));
                 return ira->codegen->builtin_types.entry_invalid;
             } else if (err == ErrorOverflow) {
-                ir_add_error_node(ira, bin_op_instruction->base.source_node,
-                        buf_sprintf("operation caused overflow"));
+                ir_add_error(ira, &bin_op_instruction->base, buf_sprintf("operation caused overflow"));
                 return ira->codegen->builtin_types.entry_invalid;
+            } else if (err == ErrorExactDivRemainder) {
+                ir_add_error(ira, &bin_op_instruction->base, buf_sprintf("exact division had a remainder"));
+                return ira->codegen->builtin_types.entry_invalid;
+            } else if (err == ErrorNegativeDenominator) {
+                ir_add_error(ira, &bin_op_instruction->base, buf_sprintf("negative denominator"));
+                return ira->codegen->builtin_types.entry_invalid;
+            } else {
+                zig_unreachable();
             }
             return ira->codegen->builtin_types.entry_invalid;
         }
 
         ir_num_lit_fits_in_other_type(ira, &bin_op_instruction->base, resolved_type);
         return resolved_type;
-
     }
 
     ir_build_bin_op_from(&ira->new_irb, &bin_op_instruction->base, op_id,
             casted_op1, casted_op2, bin_op_instruction->safety_check_on);
     return resolved_type;
 }
+
 
 static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *instruction) {
     IrInstruction *op1 = instruction->op1->other;
@@ -8416,8 +8523,13 @@ static TypeTableEntry *ir_analyze_instruction_bin_op(IrAnalyze *ira, IrInstructi
         case IrBinOpSubWrap:
         case IrBinOpMult:
         case IrBinOpMultWrap:
-        case IrBinOpDiv:
-        case IrBinOpRem:
+        case IrBinOpDivUnspecified:
+        case IrBinOpDivTrunc:
+        case IrBinOpDivFloor:
+        case IrBinOpDivExact:
+        case IrBinOpRemUnspecified:
+        case IrBinOpRemRem:
+        case IrBinOpRemMod:
             return ir_analyze_bin_op_math(ira, bin_op_instruction);
         case IrBinOpArrayCat:
             return ir_analyze_array_cat(ira, bin_op_instruction);
@@ -10000,6 +10112,21 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
                 return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
                     create_const_bool(ira->codegen, child_type->data.integral.is_signed),
                     ira->codegen->builtin_types.entry_bool,
+                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile);
+            } else {
+                ir_add_error(ira, &field_ptr_instruction->base,
+                    buf_sprintf("type '%s' has no member called '%s'",
+                        buf_ptr(&child_type->name), buf_ptr(field_name)));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+        } else if (child_type->id == TypeTableEntryIdFloat) {
+            if (buf_eql_str(field_name, "bit_count")) {
+                bool ptr_is_const = true;
+                bool ptr_is_volatile = false;
+                return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
+                    create_const_unsigned_negative(ira->codegen->builtin_types.entry_num_lit_int,
+                        child_type->data.floating.bit_count, false),
+                    ira->codegen->builtin_types.entry_num_lit_int,
                     ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile);
             } else {
                 ir_add_error(ira, &field_ptr_instruction->base,
@@ -12030,71 +12157,6 @@ static TypeTableEntry *ir_analyze_instruction_fence(IrAnalyze *ira, IrInstructio
     return ira->codegen->builtin_types.entry_void;
 }
 
-static TypeTableEntry *ir_analyze_instruction_div_exact(IrAnalyze *ira, IrInstructionDivExact *instruction) {
-    IrInstruction *op1 = instruction->op1->other;
-    if (type_is_invalid(op1->value.type))
-        return ira->codegen->builtin_types.entry_invalid;
-
-    IrInstruction *op2 = instruction->op2->other;
-    if (type_is_invalid(op2->value.type))
-        return ira->codegen->builtin_types.entry_invalid;
-
-
-    IrInstruction *peer_instructions[] = { op1, op2 };
-    TypeTableEntry *result_type = ir_resolve_peer_types(ira, instruction->base.source_node, peer_instructions, 2);
-
-    if (type_is_invalid(result_type))
-        return ira->codegen->builtin_types.entry_invalid;
-
-    if (result_type->id != TypeTableEntryIdInt &&
-        result_type->id != TypeTableEntryIdNumLitInt)
-    {
-        ir_add_error(ira, &instruction->base,
-                buf_sprintf("expected integer type, found '%s'", buf_ptr(&result_type->name)));
-        return ira->codegen->builtin_types.entry_invalid;
-    }
-
-    IrInstruction *casted_op1 = ir_implicit_cast(ira, op1, result_type);
-    if (type_is_invalid(casted_op1->value.type))
-        return ira->codegen->builtin_types.entry_invalid;
-
-    IrInstruction *casted_op2 = ir_implicit_cast(ira, op2, result_type);
-    if (type_is_invalid(casted_op2->value.type))
-        return ira->codegen->builtin_types.entry_invalid;
-
-    if (casted_op1->value.special == ConstValSpecialStatic &&
-        casted_op2->value.special == ConstValSpecialStatic)
-    {
-        ConstExprValue *op1_val = ir_resolve_const(ira, casted_op1, UndefBad);
-        ConstExprValue *op2_val = ir_resolve_const(ira, casted_op2, UndefBad);
-        assert(op1_val);
-        assert(op2_val);
-
-        if (op1_val->data.x_bignum.data.x_uint == 0) {
-            ir_add_error(ira, &instruction->base, buf_sprintf("division by zero"));
-            return ira->codegen->builtin_types.entry_invalid;
-        }
-
-        BigNum remainder;
-        if (bignum_rem(&remainder, &op1_val->data.x_bignum, &op2_val->data.x_bignum)) {
-            ir_add_error(ira, &instruction->base, buf_sprintf("integer overflow"));
-            return ira->codegen->builtin_types.entry_invalid;
-        }
-
-        if (remainder.data.x_uint != 0) {
-            ir_add_error(ira, &instruction->base, buf_sprintf("exact division had a remainder"));
-            return ira->codegen->builtin_types.entry_invalid;
-        }
-
-        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-        bignum_div(&out_val->data.x_bignum, &op1_val->data.x_bignum, &op2_val->data.x_bignum);
-        return result_type;
-    }
-
-    ir_build_div_exact_from(&ira->new_irb, &instruction->base, casted_op1, casted_op2);
-    return result_type;
-}
-
 static TypeTableEntry *ir_analyze_instruction_truncate(IrAnalyze *ira, IrInstructionTruncate *instruction) {
     IrInstruction *dest_type_value = instruction->dest_type->other;
     TypeTableEntry *dest_type = ir_resolve_type(ira, dest_type_value);
@@ -13261,8 +13323,6 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_cmpxchg(ira, (IrInstructionCmpxchg *)instruction);
         case IrInstructionIdFence:
             return ir_analyze_instruction_fence(ira, (IrInstructionFence *)instruction);
-        case IrInstructionIdDivExact:
-            return ir_analyze_instruction_div_exact(ira, (IrInstructionDivExact *)instruction);
         case IrInstructionIdTruncate:
             return ir_analyze_instruction_truncate(ira, (IrInstructionTruncate *)instruction);
         case IrInstructionIdIntType:
@@ -13469,7 +13529,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdMinValue:
         case IrInstructionIdMaxValue:
         case IrInstructionIdEmbedFile:
-        case IrInstructionIdDivExact:
         case IrInstructionIdTruncate:
         case IrInstructionIdIntType:
         case IrInstructionIdBoolNot:

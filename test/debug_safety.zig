@@ -97,7 +97,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    if (x == 32767) return error.Whatever;
         \\}
         \\fn div(a: i16, b: i16) -> i16 {
-        \\    a / b
+        \\    @divTrunc(a, b)
         \\}
     );
 
@@ -141,7 +141,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    const x = div0(999, 0);
         \\}
         \\fn div0(a: i32, b: i32) -> i32 {
-        \\    a / b
+        \\    @divTrunc(a, b)
         \\}
     );
 

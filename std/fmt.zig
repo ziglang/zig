@@ -305,8 +305,8 @@ pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) -> %T {
 
     for (buf) |c| {
         const digit = %return charToDigit(c, radix);
-        x = %return math.mulOverflow(T, x, radix);
-        x = %return math.addOverflow(T, x, digit);
+        x = %return math.mul(T, x, radix);
+        x = %return math.add(T, x, digit);
     }
 
     return x;

@@ -49,6 +49,11 @@ test "@IntType builtin" {
     assert(!usize.is_signed);
 }
 
+test "floating point primitive bit counts" {
+    assert(f32.bit_count == 32);
+    assert(f64.bit_count == 64);
+}
+
 const u1 = @IntType(false, 1);
 const u63 = @IntType(false, 63);
 const i1 = @IntType(true, 1);

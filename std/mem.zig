@@ -35,12 +35,12 @@ pub const Allocator = struct {
     }
 
     fn alloc(self: &Allocator, comptime T: type, n: usize) -> %[]T {
-        const byte_count = %return math.mulOverflow(usize, @sizeOf(T), n);
+        const byte_count = %return math.mul(usize, @sizeOf(T), n);
         ([]T)(%return self.allocFn(self, byte_count))
     }
 
     fn realloc(self: &Allocator, comptime T: type, old_mem: []T, n: usize) -> %[]T {
-        const byte_count = %return math.mulOverflow(usize, @sizeOf(T), n);
+        const byte_count = %return math.mul(usize, @sizeOf(T), n);
         ([]T)(%return self.reallocFn(self, ([]u8)(old_mem), byte_count))
     }
 
@@ -333,3 +333,29 @@ fn testWriteIntImpl() {
     assert(eql(u8, bytes, []u8{ 0x34, 0x12, 0x00, 0x00 }));
 }
 
+
+pub fn min(comptime T: type, slice: []const T) -> T {
+    var best = slice[0];
+    var i: usize = 1;
+    while (i < slice.len) : (i += 1) {
+        best = math.min(best, slice[i]);
+    }
+    return best;
+}
+
+test "mem.min" {
+    assert(min(u8, "abcdefg") == 'a');
+}
+
+pub fn max(comptime T: type, slice: []const T) -> T {
+    var best = slice[0];
+    var i: usize = 1;
+    while (i < slice.len) : (i += 1) {
+        best = math.max(best, slice[i]);
+    }
+    return best;
+}
+
+test "mem.max" {
+    assert(max(u8, "abcdefg") == 'g');
+}

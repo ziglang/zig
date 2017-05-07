@@ -205,9 +205,49 @@ bool bignum_div(BigNum *dest, BigNum *op1, BigNum *op2) {
     if (dest->kind == BigNumKindFloat) {
         dest->data.x_float = op1->data.x_float / op2->data.x_float;
     } else {
+        return bignum_div_trunc(dest, op1, op2);
+    }
+    return false;
+}
+
+bool bignum_div_trunc(BigNum *dest, BigNum *op1, BigNum *op2) {
+    assert(op1->kind == op2->kind);
+    dest->kind = op1->kind;
+
+    if (dest->kind == BigNumKindFloat) {
+        double result = op1->data.x_float / op2->data.x_float;
+        if (result >= 0) {
+            dest->data.x_float = floor(result);
+        } else {
+            dest->data.x_float = ceil(result);
+        }
+    } else {
         dest->data.x_uint = op1->data.x_uint / op2->data.x_uint;
         dest->is_negative = op1->is_negative != op2->is_negative;
         bignum_normalize(dest);
+    }
+    return false;
+}
+
+bool bignum_div_floor(BigNum *dest, BigNum *op1, BigNum *op2) {
+    assert(op1->kind == op2->kind);
+    dest->kind = op1->kind;
+
+    if (dest->kind == BigNumKindFloat) {
+        dest->data.x_float = floor(op1->data.x_float / op2->data.x_float);
+    } else {
+        if (op1->is_negative != op2->is_negative) {
+            uint64_t result = op1->data.x_uint / op2->data.x_uint;
+            if (result * op2->data.x_uint == op1->data.x_uint) {
+                dest->data.x_uint = result;
+            } else {
+                dest->data.x_uint = result + 1;
+            }
+            dest->is_negative = true;
+        } else {
+            dest->data.x_uint = op1->data.x_uint / op2->data.x_uint;
+            dest->is_negative = false;
+        }
     }
     return false;
 }
@@ -219,10 +259,28 @@ bool bignum_rem(BigNum *dest, BigNum *op1, BigNum *op2) {
     if (dest->kind == BigNumKindFloat) {
         dest->data.x_float = fmod(op1->data.x_float, op2->data.x_float);
     } else {
-        if (op1->is_negative || op2->is_negative) {
-            zig_panic("TODO handle remainder division with negative numbers");
-        }
+        assert(!op2->is_negative);
         dest->data.x_uint = op1->data.x_uint % op2->data.x_uint;
+        dest->is_negative = op1->is_negative;
+        bignum_normalize(dest);
+    }
+    return false;
+}
+
+bool bignum_mod(BigNum *dest, BigNum *op1, BigNum *op2) {
+    assert(op1->kind == op2->kind);
+    dest->kind = op1->kind;
+
+    if (dest->kind == BigNumKindFloat) {
+        dest->data.x_float = fmod(fmod(op1->data.x_float, op2->data.x_float) + op2->data.x_float, op2->data.x_float);
+    } else {
+        assert(!op2->is_negative);
+        if (op1->is_negative) {
+            dest->data.x_uint = (op2->data.x_uint - op1->data.x_uint % op2->data.x_uint) % op2->data.x_uint;
+        } else {
+            dest->data.x_uint = op1->data.x_uint % op2->data.x_uint;
+        }
+        dest->is_negative = false;
         bignum_normalize(dest);
     }
     return false;

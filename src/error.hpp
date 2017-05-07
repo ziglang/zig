@@ -23,6 +23,8 @@ enum Error {
     ErrorOverflow,
     ErrorPathAlreadyExists,
     ErrorUnexpected,
+    ErrorExactDivRemainder,
+    ErrorNegativeDenominator,
 };
 
 const char *err_str(int err);

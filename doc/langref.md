@@ -502,15 +502,6 @@ This function performs an atomic compare exchange operation.
 
 The `fence` function is used to introduce happens-before edges between operations.
 
-### @divExact(a: T, b: T) -> T
-
-This function performs integer division `a / b` and returns the result.
-
-The caller guarantees that this operation will have no remainder.
-
-In debug mode, a remainder causes a panic. In release mode, a remainder is
-undefined behavior.
-
 ### @truncate(comptime T: type, integer) -> T
 
 This function truncates bits from an integer type, resulting in a smaller
@@ -621,3 +612,68 @@ Converts an enum tag name to a slice of bytes. Example:
 ### @fieldParentPtr(comptime ParentType: type, comptime field_name: []const u8, field_ptr: &T) -> &ParentType
 
 Given a pointer to a field, returns the base pointer of a struct.
+
+### @rem(numerator: T, denominator: T) -> T
+
+Remainder division. For unsigned integers this is the same as
+`numerator % denominator`. Caller guarantees `denominator > 0`.
+
+ * `@rem(-5, 3) == -2`
+ * `@divTrunc(a, b) + @rem(a, b) == a`
+
+See also:
+ * `std.math.rem`
+ * `@mod`
+
+### @mod(numerator: T, denominator: T) -> T
+
+Modulus division. For unsigned integers this is the same as
+`numerator % denominator`. Caller guarantees `denominator > 0`.
+
+ * `@mod(-5, 3) == 1`
+ * `@divFloor(a, b) + @mod(a, b) == a`
+
+See also:
+ * `std.math.mod`
+ * `@rem`
+
+### @divTrunc(numerator: T, denominator: T) -> T
+
+Truncated division. Rounds toward zero. For unsigned integers it is
+the same as `numerator / denominator`. Caller guarantees `denominator != 0` and
+`!(@isInteger(T) and T.is_signed and numerator == @minValue(T) and denominator == -1)`.
+
+ * `@divTrunc(-5, 3) == -1`
+ * `@divTrunc(a, b) + @rem(a, b) == a`
+
+See also:
+ * `std.math.divTrunc`
+ * `@divFloor`
+ * `@divExact`
+
+### @divFloor(numerator: T, denominator: T) -> T
+
+Floored division. Rounds toward negative infinity. For unsigned integers it is
+the same as `numerator / denominator`. Caller guarantees `denominator != 0` and
+`!(@isInteger(T) and T.is_signed and numerator == @minValue(T) and denominator == -1)`.
+
+ * `@divFloor(-5, 3) == -2`
+ * `@divFloor(a, b) + @mod(a, b) == a`
+
+See also:
+ * `std.math.divFloor`
+ * `@divTrunc`
+ * `@divExact`
+
+### @divExact(numerator: T, denominator: T) -> T
+
+Exact division. Caller guarantees `denominator != 0` and
+`@divTrunc(numerator, denominator) * denominator == numerator`.
+
+ * `@divExact(6, 3) == 2`
+ * `@divExact(a, b) * b == a`
+
+See also:
+ * `std.math.divExact`
+ * `@divTrunc`
+ * `@divFloor`

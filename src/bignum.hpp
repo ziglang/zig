@@ -37,7 +37,10 @@ bool bignum_add(BigNum *dest, BigNum *op1, BigNum *op2);
 bool bignum_sub(BigNum *dest, BigNum *op1, BigNum *op2);
 bool bignum_mul(BigNum *dest, BigNum *op1, BigNum *op2);
 bool bignum_div(BigNum *dest, BigNum *op1, BigNum *op2);
+bool bignum_div_trunc(BigNum *dest, BigNum *op1, BigNum *op2);
+bool bignum_div_floor(BigNum *dest, BigNum *op1, BigNum *op2);
 bool bignum_rem(BigNum *dest, BigNum *op1, BigNum *op2);
+bool bignum_mod(BigNum *dest, BigNum *op1, BigNum *op2);
 
 bool bignum_or(BigNum *dest, BigNum *op1, BigNum *op2);
 bool bignum_and(BigNum *dest, BigNum *op1, BigNum *op2);

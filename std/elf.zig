@@ -165,9 +165,9 @@ pub const Elf = struct {
         if (elf.string_section_index >= sh_entry_count) return error.InvalidFormat;
 
         const sh_byte_count = u64(sh_entry_size) * u64(sh_entry_count);
-        const end_sh = %return math.addOverflow(u64, elf.section_header_offset, sh_byte_count);
+        const end_sh = %return math.add(u64, elf.section_header_offset, sh_byte_count);
         const ph_byte_count = u64(ph_entry_size) * u64(ph_entry_count);
-        const end_ph = %return math.addOverflow(u64, elf.program_header_offset, ph_byte_count);
+        const end_ph = %return math.add(u64, elf.program_header_offset, ph_byte_count);
 
         const stream_end = %return elf.in_stream.getEndPos();
         if (stream_end < end_sh or stream_end < end_ph) {
@@ -214,8 +214,7 @@ pub const Elf = struct {
 
         for (elf.section_headers) |*section| {
             if (section.sh_type != SHT_NOBITS) {
-                const file_end_offset = %return math.addOverflow(u64,
-                    section.offset, section.size);
+                const file_end_offset = %return math.add(u64, section.offset, section.size);
                 if (stream_end < file_end_offset) return error.InvalidFormat;
             }
         }

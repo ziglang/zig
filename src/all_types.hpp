@@ -1195,6 +1195,10 @@ enum BuiltinFnId {
     BuiltinFnIdCmpExchange,
     BuiltinFnIdFence,
     BuiltinFnIdDivExact,
+    BuiltinFnIdDivTrunc,
+    BuiltinFnIdDivFloor,
+    BuiltinFnIdRem,
+    BuiltinFnIdMod,
     BuiltinFnIdTruncate,
     BuiltinFnIdIntType,
     BuiltinFnIdSetDebugSafety,
@@ -1270,6 +1274,8 @@ enum ZigLLVMFnId {
     ZigLLVMFnIdCtz,
     ZigLLVMFnIdClz,
     ZigLLVMFnIdOverflowArithmetic,
+    ZigLLVMFnIdFloor,
+    ZigLLVMFnIdCeil,
 };
 
 enum AddSubMul {
@@ -1288,6 +1294,9 @@ struct ZigLLVMFnKey {
         struct {
             uint32_t bit_count;
         } clz;
+        struct {
+            uint32_t bit_count;
+        } floor_ceil;
         struct {
             AddSubMul add_sub_mul;
             uint32_t bit_count;
@@ -1746,7 +1755,6 @@ enum IrInstructionId {
     IrInstructionIdEmbedFile,
     IrInstructionIdCmpxchg,
     IrInstructionIdFence,
-    IrInstructionIdDivExact,
     IrInstructionIdTruncate,
     IrInstructionIdIntType,
     IrInstructionIdBoolNot,
@@ -1897,8 +1905,13 @@ enum IrBinOp {
     IrBinOpSubWrap,
     IrBinOpMult,
     IrBinOpMultWrap,
-    IrBinOpDiv,
-    IrBinOpRem,
+    IrBinOpDivUnspecified,
+    IrBinOpDivExact,
+    IrBinOpDivTrunc,
+    IrBinOpDivFloor,
+    IrBinOpRemUnspecified,
+    IrBinOpRemRem,
+    IrBinOpRemMod,
     IrBinOpArrayCat,
     IrBinOpArrayMult,
 };
@@ -2248,13 +2261,6 @@ struct IrInstructionFence {
 
     // if this instruction gets to runtime then we know these values:
     AtomicOrder order;
-};
-
-struct IrInstructionDivExact {
-    IrInstruction base;
-
-    IrInstruction *op1;
-    IrInstruction *op2;
 };
 
 struct IrInstructionTruncate {

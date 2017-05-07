@@ -1,5 +1,5 @@
 // This file contains functions that zig depends on to coordinate between
-// multiple .o files. The symbols are defined Weak so that multiple
+// multiple .o files. The symbols are defined LinkOnce so that multiple
 // instances of zig_rt.zig do not conflict with each other.
 
 const builtin = @import("builtin");

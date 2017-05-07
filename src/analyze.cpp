@@ -4228,6 +4228,10 @@ uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey x) {
             return (uint32_t)(x.data.ctz.bit_count) * (uint32_t)810453934;
         case ZigLLVMFnIdClz:
             return (uint32_t)(x.data.clz.bit_count) * (uint32_t)2428952817;
+        case ZigLLVMFnIdFloor:
+            return (uint32_t)(x.data.floor_ceil.bit_count) * (uint32_t)1899859168;
+        case ZigLLVMFnIdCeil:
+            return (uint32_t)(x.data.floor_ceil.bit_count) * (uint32_t)1953839089;
         case ZigLLVMFnIdOverflowArithmetic:
             return ((uint32_t)(x.data.overflow_arithmetic.bit_count) * 87135777) +
                 ((uint32_t)(x.data.overflow_arithmetic.add_sub_mul) * 31640542) +
@@ -4244,6 +4248,9 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
             return a.data.ctz.bit_count == b.data.ctz.bit_count;
         case ZigLLVMFnIdClz:
             return a.data.clz.bit_count == b.data.clz.bit_count;
+        case ZigLLVMFnIdFloor:
+        case ZigLLVMFnIdCeil:
+            return a.data.floor_ceil.bit_count == b.data.floor_ceil.bit_count;
         case ZigLLVMFnIdOverflowArithmetic:
             return (a.data.overflow_arithmetic.bit_count == b.data.overflow_arithmetic.bit_count) &&
                 (a.data.overflow_arithmetic.add_sub_mul == b.data.overflow_arithmetic.add_sub_mul) &&

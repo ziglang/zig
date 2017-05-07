@@ -109,10 +109,20 @@ static const char *ir_bin_op_id_str(IrBinOp op_id) {
             return "*";
         case IrBinOpMultWrap:
             return "*%";
-        case IrBinOpDiv:
+        case IrBinOpDivUnspecified:
             return "/";
-        case IrBinOpRem:
+        case IrBinOpDivTrunc:
+            return "@divTrunc";
+        case IrBinOpDivFloor:
+            return "@divFloor";
+        case IrBinOpDivExact:
+            return "@divExact";
+        case IrBinOpRemUnspecified:
             return "%";
+        case IrBinOpRemRem:
+            return "@rem";
+        case IrBinOpRemMod:
+            return "@mod";
         case IrBinOpArrayCat:
             return "++";
         case IrBinOpArrayMult:
@@ -577,14 +587,6 @@ static void ir_print_cmpxchg(IrPrint *irp, IrInstructionCmpxchg *instruction) {
 static void ir_print_fence(IrPrint *irp, IrInstructionFence *instruction) {
     fprintf(irp->f, "@fence(");
     ir_print_other_instruction(irp, instruction->order_value);
-    fprintf(irp->f, ")");
-}
-
-static void ir_print_div_exact(IrPrint *irp, IrInstructionDivExact *instruction) {
-    fprintf(irp->f, "@divExact(");
-    ir_print_other_instruction(irp, instruction->op1);
-    fprintf(irp->f, ", ");
-    ir_print_other_instruction(irp, instruction->op2);
     fprintf(irp->f, ")");
 }
 
@@ -1055,9 +1057,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdFence:
             ir_print_fence(irp, (IrInstructionFence *)instruction);
-            break;
-        case IrInstructionIdDivExact:
-            ir_print_div_exact(irp, (IrInstructionDivExact *)instruction);
             break;
         case IrInstructionIdTruncate:
             ir_print_truncate(irp, (IrInstructionTruncate *)instruction);
