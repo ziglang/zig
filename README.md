@@ -1,19 +1,23 @@
 ![ZIG](http://ziglang.org/zig-logo.svg)
 
-A system programming language which prioritizes optimality, safety, and
-readability.
-
-Zig is a small, simple language, yet powerful. Zig fits into the same niche
-as C, except does everything better.
-
-Zig ships with a build system that obviates the need for a configure script
-or a makefile. In fact, existing C and C++ projects may choose to depend on
-Zig instead of e.g. cmake.
+A programming language which prioritizes optimality, robustness, and
+clarity.
 
 [ziglang.org](http://ziglang.org)
 
 ## Feature Highlights
 
+ * Small, simple language. Focus on debugging your application rather than
+   debugging your knowledge of your programming language.
+ * Ships with a build system that obviates the need for a configure script
+   or a makefile. In fact, existing C and C++ projects may choose to depend on
+   Zig instead of e.g. cmake.
+ * A fresh take on error handling which makes writing correct code easier than
+   writing buggy code.
+ * Debug mode optimizes for fast compilation time and crashing with a stack trace
+   when undefined behavior *would* happen.
+ * Release mode produces heavily optimized code. What other projects call
+   "Link Time Optimization" Zig does automatically.
  * Compatible with C libraries with no wrapper necessary. Directly include
    C .h files and get access to the functions and symbols therein.
  * Provides standard library which competes with the C standard library and is
@@ -23,9 +27,6 @@ Zig instead of e.g. cmake.
  * Tagged union type instead of raw unions.
  * Generics so that one can write efficient data structures that work for any
    data type.
- * Provides an error type with several syntatic constructs which makes writing
-   robust code convenient and straightforward. Writing correct code is easier
-   than writing buggy code.
  * No header files required. Top level declarations are entirely
    order-independent.
  * Compile-time code execution. Compile-time reflection.
@@ -33,16 +34,11 @@ Zig instead of e.g. cmake.
    a preprocessor or macros.
  * The binaries produced by Zig have complete debugging information so you can,
    for example, use GDB to debug your software.
- * Debug mode optimizes for fast compilation time and crashing with a stack trace
-   when undefined behavior *would* happen.
- * Release mode produces heavily optimized code. What other projects call
-   "Link Time Optimization" Zig does automatically.
  * Mark functions as tests and automatically run them with `zig test`.
  * Friendly toward package maintainers. Reproducible build, bootstrapping
    process carefully documented. Issues filed by package maintainers are
    considered especially important.
  * Cross-compiling is a primary use case.
- * Zig Build System competes with make, cmake, autotools, SCons, etc.
  * In addition to creating executables, creating a C library is a primary use
    case. You can export an auto-generated .h file.
  * Standard library supports Operating System abstractions for:
