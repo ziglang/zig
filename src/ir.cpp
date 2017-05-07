@@ -11202,15 +11202,11 @@ static TypeTableEntry *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstr
                 return ira->codegen->builtin_types.entry_invalid;
 
             ConstExprValue *pointee_val = const_ptr_pointee(ira->codegen, target_val_ptr);
-            if (pointee_val->type->id == TypeTableEntryIdEnum) {
-                ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-                out_val->data.x_ptr.special = ConstPtrSpecialRef;
-                out_val->data.x_ptr.data.ref.pointee = pointee_val->data.x_enum.payload;
-                return get_pointer_to_type(ira->codegen, pointee_val->type,
-                        target_value_ptr->value.type->data.pointer.is_const);
-            } else {
-                zig_panic("TODO comptime switch var");
-            }
+            ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+            out_val->data.x_ptr.special = ConstPtrSpecialRef;
+            out_val->data.x_ptr.mut = target_val_ptr->data.x_ptr.mut;
+            out_val->data.x_ptr.data.ref.pointee = pointee_val->data.x_enum.payload;
+            return get_pointer_to_type(ira->codegen, field->type_entry, target_val_ptr->type->data.pointer.is_const);
         }
 
         ir_build_enum_field_ptr_from(&ira->new_irb, &instruction->base, target_value_ptr, field);

@@ -106,6 +106,22 @@ fn switchProngWithVarFn(a: &const SwitchProngWithVarEnum) {
     }
 }
 
+test "switch on enum using pointer capture" {
+    testSwitchEnumPtrCapture();
+    comptime testSwitchEnumPtrCapture();
+}
+
+fn testSwitchEnumPtrCapture() {
+    var value = SwitchProngWithVarEnum.One { 1234 };
+    switch (value) {
+        SwitchProngWithVarEnum.One => |*x| *x += 1,
+        else => unreachable,
+    }
+    switch (value) {
+        SwitchProngWithVarEnum.One => |x| assert(x == 1235),
+        else => unreachable,
+    }
+}
 
 test "switch with multiple expressions" {
     const x = switch (returnsFive()) {
@@ -188,3 +204,4 @@ fn testSwitchHandleAllCasesRange(x: u8) -> u8 {
         204 ... 255 => 3,
     }
 }
+
