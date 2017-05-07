@@ -4250,14 +4250,14 @@ static void define_builtin_types(CodeGen *g) {
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
         entry->type_ref = LLVMX86FP80Type();
-        buf_init_from_str(&entry->name, "c_long_double");
+        buf_init_from_str(&entry->name, "c_longdouble");
         entry->data.floating.bit_count = 80;
 
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
         entry->di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
                 debug_size_in_bits,
                 ZigLLVMEncoding_DW_ATE_float());
-        g->builtin_types.entry_c_long_double = entry;
+        g->builtin_types.entry_c_longdouble = entry;
         g->primitive_type_table.put(&entry->name, entry);
     }
     {
@@ -4902,7 +4902,7 @@ static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
             return;
         }
     }
-    if (type_entry == g->builtin_types.entry_c_long_double) {
+    if (type_entry == g->builtin_types.entry_c_longdouble) {
         buf_init_from_str(out_buf, "long double");
         return;
     }

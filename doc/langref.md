@@ -204,7 +204,7 @@ c_long          long                for ABI compatibility with C
 c_ulong         unsigned long       for ABI compatibility with C
 c_longlong      long long           for ABI compatibility with C
 c_ulonglong     unsigned long long  for ABI compatibility with C
-c_long_double   long double         for ABI compatibility with C
+c_longdouble    long double         for ABI compatibility with C
 c_void          void                for ABI compatibility with C
 
 f32             float               32-bit floating point

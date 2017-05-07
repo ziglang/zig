@@ -275,7 +275,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     case BuiltinType::Double:
                         return c->codegen->builtin_types.entry_f64;
                     case BuiltinType::LongDouble:
-                        return c->codegen->builtin_types.entry_c_long_double;
+                        return c->codegen->builtin_types.entry_c_longdouble;
                     case BuiltinType::WChar_U:
                     case BuiltinType::Char16:
                     case BuiltinType::Char32:
