@@ -1,7 +1,7 @@
 const assert = @import("std").debug.assert;
 
 test "nullableType" {
-    const x : ?bool = @generatedCode(true);
+    const x : ?bool = true;
 
     if (x) |y| {
         if (y) {
@@ -13,13 +13,13 @@ test "nullableType" {
         unreachable;
     }
 
-    const next_x : ?i32 = @generatedCode(null);
+    const next_x : ?i32 = null;
 
     const z = next_x ?? 1234;
 
     assert(z == 1234);
 
-    const final_x : ?i32 = @generatedCode(13);
+    const final_x : ?i32 = 13;
 
     const num = final_x ?? unreachable;
 
@@ -38,7 +38,7 @@ test "test maybe object and get a pointer to the inner value" {
 
 
 test "rhsMaybeUnwrapReturn" {
-    const x: ?bool = @generatedCode(true);
+    const x: ?bool = true;
     const y = x ?? return;
 }
 
