@@ -5,6 +5,8 @@ clarity.
 
 [ziglang.org](http://ziglang.org)
 
+[Documentation](http://ziglang.org/documentation/)
+
 ## Feature Highlights
 
  * Small, simple language. Focus on debugging your application rather than
