@@ -183,6 +183,8 @@ pub fn formatValue(value: var, context: var, output: fn(@typeOf(context), []cons
         return output(context, casted_value);
     } else if (T == void) {
         return output(context, "void");
+    } else if (T == bool) {
+        return output(context, if (value) "true" else "false");
     } else {
         @compileError("Unable to format type '" ++ @typeName(T) ++ "'");
     }
@@ -363,7 +365,7 @@ fn countSize(size: &usize, bytes: []const u8) -> bool {
     return true;
 }
 
-test "testBufPrintInt" {
+test "buf print int" {
     var buffer: [max_int_digits]u8 = undefined;
     const buf = buffer[0...];
     assert(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 2, false, 0), "-101111000110000101001110"));
@@ -385,7 +387,7 @@ fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, width: u
     return buf[0...formatIntBuf(buf, value, base, uppercase, width)];
 }
 
-test "testParseU64DigitTooBig" {
+test "parse u64 digit too big" {
     _ = parseUnsigned(u64, "123a", 10) %% |err| {
         if (err == error.InvalidChar) return;
         unreachable;
@@ -393,7 +395,7 @@ test "testParseU64DigitTooBig" {
     unreachable;
 }
 
-test "testParseUnsignedComptime" {
+test "parse unsigned comptime" {
     comptime {
         assert(%%parseUnsigned(usize, "2", 10) == 2);
     }
