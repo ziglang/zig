@@ -90,7 +90,7 @@ fn fn4() -> u32 {8}
 
 
 test "inline function call" {
-    assert((inline add(3, 9)) == 12);
+    assert(@inlineCall(add, 3, 9) == 12);
 }
 
 fn add(a: i32, b: i32) -> i32 { a + b }

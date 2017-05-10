@@ -553,10 +553,6 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionEnumTagName *) {
     return IrInstructionIdEnumTagName;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionSetFnRefInline *) {
-    return IrInstructionIdSetFnRefInline;
-}
-
 static constexpr IrInstructionId ir_instruction_id(IrInstructionFieldParentPtr *) {
     return IrInstructionIdFieldParentPtr;
 }
@@ -2142,18 +2138,6 @@ static IrInstruction *ir_build_enum_tag_name(IrBuilder *irb, Scope *scope, AstNo
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_set_fn_ref_inline(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *fn_ref)
-{
-    IrInstructionSetFnRefInline *instruction = ir_build_instruction<IrInstructionSetFnRefInline>(
-            irb, scope, source_node);
-    instruction->fn_ref = fn_ref;
-
-    ir_ref_instruction(fn_ref, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
 static IrInstruction *ir_build_field_parent_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *type_value, IrInstruction *field_name, IrInstruction *field_ptr, TypeStructField *field)
 {
@@ -2838,13 +2822,6 @@ static IrInstruction *ir_instruction_enumtagname_get_dep(IrInstructionEnumTagNam
     }
 }
 
-static IrInstruction *ir_instruction_setfnrefinline_get_dep(IrInstructionSetFnRefInline *instruction, size_t index) {
-    switch (index) {
-        case 0: return instruction->fn_ref;
-        default: return nullptr;
-    }
-}
-
 static IrInstruction *ir_instruction_fieldparentptr_get_dep(IrInstructionFieldParentPtr *instruction, size_t index) {
     switch (index) {
         case 0: return instruction->type_value;
@@ -3048,8 +3025,6 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_panic_get_dep((IrInstructionPanic *) instruction, index);
         case IrInstructionIdEnumTagName:
             return ir_instruction_enumtagname_get_dep((IrInstructionEnumTagName *) instruction, index);
-        case IrInstructionIdSetFnRefInline:
-            return ir_instruction_setfnrefinline_get_dep((IrInstructionSetFnRefInline *) instruction, index);
         case IrInstructionIdFieldParentPtr:
             return ir_instruction_fieldparentptr_get_dep((IrInstructionFieldParentPtr *) instruction, index);
         case IrInstructionIdOffsetOf:
@@ -4375,6 +4350,30 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 return ir_build_offset_of(irb, scope, node, arg0_value, arg1_value);
+            }
+        case BuiltinFnIdInlineCall:
+            {
+                if (node->data.fn_call_expr.params.length == 0) {
+                    add_node_error(irb->codegen, node, buf_sprintf("expected at least 1 argument, found 0"));
+                    return irb->codegen->invalid_instruction;
+                }
+
+                AstNode *fn_ref_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *fn_ref = ir_gen_node(irb, fn_ref_node, scope);
+                if (fn_ref == irb->codegen->invalid_instruction)
+                    return fn_ref;
+
+                size_t arg_count = node->data.fn_call_expr.params.length - 1;
+
+                IrInstruction **args = allocate<IrInstruction*>(arg_count);
+                for (size_t i = 0; i < arg_count; i += 1) {
+                    AstNode *arg_node = node->data.fn_call_expr.params.at(i + 1);
+                    args[i] = ir_gen_node(irb, arg_node, scope);
+                    if (args[i] == irb->codegen->invalid_instruction)
+                        return args[i];
+                }
+
+                return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, true);
             }
     }
     zig_unreachable();
@@ -5800,19 +5799,6 @@ static IrInstruction *ir_gen_fn_proto(IrBuilder *irb, Scope *parent_scope, AstNo
     return ir_build_fn_proto(irb, parent_scope, node, param_types, return_type);
 }
 
-static IrInstruction *ir_gen_inline_expr(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
-    assert(node->type == NodeTypeInlineExpr);
-
-    AstNode *body_node = node->data.inline_expr.body;
-
-    IrInstruction *fn_ptr = ir_gen_node(irb, body_node, parent_scope);
-    if (fn_ptr == irb->codegen->invalid_instruction)
-        return irb->codegen->invalid_instruction;
-
-    return ir_build_set_fn_ref_inline(irb, parent_scope, node, fn_ptr);
-}
-
-
 static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scope,
         LVal lval)
 {
@@ -5903,8 +5889,6 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_container_decl(irb, scope, node), lval);
         case NodeTypeFnProto:
             return ir_lval_wrap(irb, scope, ir_gen_fn_proto(irb, scope, node), lval);
-        case NodeTypeInlineExpr:
-            return ir_lval_wrap(irb, scope, ir_gen_inline_expr(irb, scope, node), lval);
         case NodeTypeFnDef:
             zig_panic("TODO IR gen NodeTypeFnDef");
         case NodeTypeFnDecl:
@@ -6809,7 +6793,7 @@ static TypeTableEntry *ir_resolve_type(IrAnalyze *ira, IrInstruction *type_value
     return const_val->data.x_type;
 }
 
-static FnTableEntry *ir_resolve_fn(IrAnalyze *ira, IrInstruction *fn_value, bool *is_inline) {
+static FnTableEntry *ir_resolve_fn(IrAnalyze *ira, IrInstruction *fn_value) {
     if (fn_value == ira->codegen->invalid_instruction)
         return nullptr;
 
@@ -6826,7 +6810,6 @@ static FnTableEntry *ir_resolve_fn(IrAnalyze *ira, IrInstruction *fn_value, bool
     if (!const_val)
         return nullptr;
 
-    *is_inline = const_val->data.x_fn.is_inline;
     return const_val->data.x_fn.fn_entry;
 }
 
@@ -9179,17 +9162,15 @@ static TypeTableEntry *ir_analyze_instruction_call(IrAnalyze *ira, IrInstruction
             ir_link_new_instruction(cast_instruction, &call_instruction->base);
             return ir_finish_anal(ira, cast_instruction->value.type);
         } else if (fn_ref->value.type->id == TypeTableEntryIdFn) {
-            bool is_inline;
-            FnTableEntry *fn_table_entry = ir_resolve_fn(ira, fn_ref, &is_inline);
+            FnTableEntry *fn_table_entry = ir_resolve_fn(ira, fn_ref);
             return ir_analyze_fn_call(ira, call_instruction, fn_table_entry, fn_table_entry->type_entry,
-                fn_ref, nullptr, is_comptime, is_inline);
+                fn_ref, nullptr, is_comptime, call_instruction->is_inline);
         } else if (fn_ref->value.type->id == TypeTableEntryIdBoundFn) {
             assert(fn_ref->value.special == ConstValSpecialStatic);
             FnTableEntry *fn_table_entry = fn_ref->value.data.x_bound_fn.fn;
             IrInstruction *first_arg_ptr = fn_ref->value.data.x_bound_fn.first_arg;
-            bool is_inline = fn_ref->value.data.x_bound_fn.is_inline;
             return ir_analyze_fn_call(ira, call_instruction, fn_table_entry, fn_table_entry->type_entry,
-                nullptr, first_arg_ptr, is_comptime, is_inline);
+                nullptr, first_arg_ptr, is_comptime, call_instruction->is_inline);
         } else {
             ir_add_error_node(ira, fn_ref->source_node,
                 buf_sprintf("type '%s' not a function", buf_ptr(&fn_ref->value.type->name)));
@@ -11736,38 +11717,6 @@ static TypeTableEntry *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrIn
     return result->value.type;
 }
 
-static TypeTableEntry *ir_analyze_instruction_set_fn_ref_inline(IrAnalyze *ira,
-        IrInstructionSetFnRefInline *instruction)
-{
-    IrInstruction *fn_ref = instruction->fn_ref->other;
-    if (type_is_invalid(fn_ref->value.type))
-        return ira->codegen->builtin_types.entry_invalid;
-
-    if (fn_ref->value.type->id == TypeTableEntryIdFn) {
-        ConstExprValue *fn_ref_val = ir_resolve_const(ira, fn_ref, UndefBad);
-        if (!fn_ref_val)
-            return ira->codegen->builtin_types.entry_invalid;
-
-        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-        *out_val = *fn_ref_val;
-        out_val->data.x_fn.is_inline = true;
-        return out_val->type;
-    } else if (fn_ref->value.type->id == TypeTableEntryIdBoundFn) {
-        ConstExprValue *fn_ref_val = ir_resolve_const(ira, fn_ref, UndefBad);
-        if (!fn_ref_val)
-            return ira->codegen->builtin_types.entry_invalid;
-
-        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-        *out_val = *fn_ref_val;
-        out_val->data.x_bound_fn.is_inline = true;
-        return out_val->type;
-    } else {
-        ir_add_error(ira, &instruction->base,
-                buf_sprintf("expected function type, found '%s'", buf_ptr(&fn_ref->value.type->name)));
-        return ira->codegen->builtin_types.entry_invalid;
-    }
-}
-
 static TypeTableEntry *ir_analyze_instruction_field_parent_ptr(IrAnalyze *ira,
         IrInstructionFieldParentPtr *instruction)
 {
@@ -13403,8 +13352,6 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_int_to_ptr(ira, (IrInstructionIntToPtr *)instruction);
         case IrInstructionIdEnumTagName:
             return ir_analyze_instruction_enum_tag_name(ira, (IrInstructionEnumTagName *)instruction);
-        case IrInstructionIdSetFnRefInline:
-            return ir_analyze_instruction_set_fn_ref_inline(ira, (IrInstructionSetFnRefInline *)instruction);
         case IrInstructionIdFieldParentPtr:
             return ir_analyze_instruction_field_parent_ptr(ira, (IrInstructionFieldParentPtr *)instruction);
         case IrInstructionIdOffsetOf:
@@ -13585,7 +13532,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdErrName:
         case IrInstructionIdTypeName:
         case IrInstructionIdEnumTagName:
-        case IrInstructionIdSetFnRefInline:
         case IrInstructionIdFieldParentPtr:
         case IrInstructionIdOffsetOf:
             return false;

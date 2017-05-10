@@ -236,8 +236,6 @@ static const char *node_type_str(NodeType node_type) {
             return "TryExpr";
         case NodeTypeTestExpr:
             return "TestExpr";
-        case NodeTypeInlineExpr:
-            return "InlineExpr";
     }
     zig_unreachable();
 }
@@ -925,12 +923,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     fprintf(ar->f, "|%s| ", buf_ptr(var_name));
                 }
                 render_node_ungrouped(ar, node->data.unwrap_err_expr.op2);
-                break;
-            }
-        case NodeTypeInlineExpr:
-            {
-                fprintf(ar->f, "inline ");
-                render_node_grouped(ar, node->data.inline_expr.body);
                 break;
             }
         case NodeTypeFnDecl:

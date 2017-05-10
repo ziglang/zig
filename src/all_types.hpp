@@ -175,7 +175,6 @@ struct ConstErrValue {
 struct ConstBoundFnValue {
     FnTableEntry *fn;
     IrInstruction *first_arg;
-    bool is_inline;
 };
 
 struct ConstArgTuple {
@@ -209,7 +208,6 @@ enum RuntimeHintPtr {
 
 struct ConstFn {
     FnTableEntry *fn_entry;
-    bool is_inline;
 };
 
 struct ConstExprValue {
@@ -379,7 +377,6 @@ enum NodeType {
     NodeTypeVarLiteral,
     NodeTypeTryExpr,
     NodeTypeTestExpr,
-    NodeTypeInlineExpr,
 };
 
 struct AstNodeRoot {
@@ -796,10 +793,6 @@ struct AstNodeErrorType {
 struct AstNodeVarLiteral {
 };
 
-struct AstNodeInlineExpr {
-    AstNode *body;
-};
-
 struct AstNode {
     enum NodeType type;
     size_t line;
@@ -857,7 +850,6 @@ struct AstNode {
         AstNodeArrayType array_type;
         AstNodeErrorType error_type;
         AstNodeVarLiteral var_literal;
-        AstNodeInlineExpr inline_expr;
     } data;
 };
 
@@ -1214,6 +1206,7 @@ enum BuiltinFnId {
     BuiltinFnIdEnumTagName,
     BuiltinFnIdFieldParentPtr,
     BuiltinFnIdOffsetOf,
+    BuiltinFnIdInlineCall,
 };
 
 struct BuiltinFnEntry {
@@ -1791,7 +1784,6 @@ enum IrInstructionId {
     IrInstructionIdDeclRef,
     IrInstructionIdPanic,
     IrInstructionIdEnumTagName,
-    IrInstructionIdSetFnRefInline,
     IrInstructionIdFieldParentPtr,
     IrInstructionIdOffsetOf,
 };
@@ -2530,12 +2522,6 @@ struct IrInstructionEnumTagName {
     IrInstruction base;
 
     IrInstruction *target;
-};
-
-struct IrInstructionSetFnRefInline {
-    IrInstruction base;
-
-    IrInstruction *fn_ref;
 };
 
 struct IrInstructionFieldParentPtr {

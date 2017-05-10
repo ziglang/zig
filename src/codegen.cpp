@@ -3017,7 +3017,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdSetGlobalLinkage:
         case IrInstructionIdDeclRef:
         case IrInstructionIdSwitchVar:
-        case IrInstructionIdSetFnRefInline:
         case IrInstructionIdOffsetOf:
             zig_unreachable();
         case IrInstructionIdReturn:
@@ -3596,6 +3595,7 @@ static void render_const_val_global(CodeGen *g, ConstExprValue *const_val, const
 }
 
 static void delete_unused_builtin_fns(CodeGen *g) {
+    // TODO get rid of this function
     auto it = g->builtin_fn_table.entry_iterator();
     for (;;) {
         auto *entry = it.next();
@@ -4330,6 +4330,7 @@ static BuiltinFnEntry *create_builtin_fn(CodeGen *g, BuiltinFnId id, const char 
 
 static void define_builtin_fns(CodeGen *g) {
     {
+        // TODO make lazy and get rid of delete_unused_builtin_fns
         BuiltinFnEntry *builtin_fn = create_builtin_fn(g, BuiltinFnIdBreakpoint, "breakpoint", 0);
         builtin_fn->ref_count = 1;
 
@@ -4340,6 +4341,7 @@ static void define_builtin_fns(CodeGen *g) {
         g->trap_fn_val = builtin_fn->fn_val;
     }
     {
+        // TODO make lazy and get rid of delete_unused_builtin_fns
         BuiltinFnEntry *builtin_fn = create_builtin_fn(g, BuiltinFnIdReturnAddress,
                 "returnAddress", 0);
         TypeTableEntry *return_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
@@ -4352,6 +4354,7 @@ static void define_builtin_fns(CodeGen *g) {
         g->return_address_fn_val = builtin_fn->fn_val;
     }
     {
+        // TODO make lazy and get rid of delete_unused_builtin_fns
         BuiltinFnEntry *builtin_fn = create_builtin_fn(g, BuiltinFnIdFrameAddress,
                 "frameAddress", 0);
         TypeTableEntry *return_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
@@ -4364,6 +4367,7 @@ static void define_builtin_fns(CodeGen *g) {
         g->frame_address_fn_val = builtin_fn->fn_val;
     }
     {
+        // TODO make lazy and get rid of delete_unused_builtin_fns
         BuiltinFnEntry *builtin_fn = create_builtin_fn(g, BuiltinFnIdMemcpy, "memcpy", 3);
         builtin_fn->ref_count = 1;
 
@@ -4382,6 +4386,7 @@ static void define_builtin_fns(CodeGen *g) {
         g->memcpy_fn_val = builtin_fn->fn_val;
     }
     {
+        // TODO make lazy and get rid of delete_unused_builtin_fns
         BuiltinFnEntry *builtin_fn = create_builtin_fn(g, BuiltinFnIdMemset, "memset", 3);
         builtin_fn->ref_count = 1;
 
@@ -4443,6 +4448,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdDivFloor, "divFloor", 2);
     create_builtin_fn(g, BuiltinFnIdRem, "rem", 2);
     create_builtin_fn(g, BuiltinFnIdMod, "mod", 2);
+    create_builtin_fn(g, BuiltinFnIdInlineCall, "inlineCall", SIZE_MAX);
 }
 
 static const char *bool_to_str(bool b) {

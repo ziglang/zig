@@ -866,11 +866,6 @@ static void ir_print_panic(IrPrint *irp, IrInstructionPanic *instruction) {
     fprintf(irp->f, ")");
 }
 
-static void ir_print_set_fn_ref_inline(IrPrint *irp, IrInstructionSetFnRefInline *instruction) {
-    fprintf(irp->f, "inline ");
-    ir_print_other_instruction(irp, instruction->fn_ref);
-}
-
 static void ir_print_field_parent_ptr(IrPrint *irp, IrInstructionFieldParentPtr *instruction) {
     fprintf(irp->f, "@fieldParentPtr(");
     ir_print_other_instruction(irp, instruction->type_value);
@@ -1166,9 +1161,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdPanic:
             ir_print_panic(irp, (IrInstructionPanic *)instruction);
-            break;
-        case IrInstructionIdSetFnRefInline:
-            ir_print_set_fn_ref_inline(irp, (IrInstructionSetFnRefInline *)instruction);
             break;
         case IrInstructionIdFieldParentPtr:
             ir_print_field_parent_ptr(irp, (IrInstructionFieldParentPtr *)instruction);

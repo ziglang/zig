@@ -2195,7 +2195,6 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeVarLiteral:
         case NodeTypeTryExpr:
         case NodeTypeTestExpr:
-        case NodeTypeInlineExpr:
             zig_unreachable();
     }
 }
@@ -3304,8 +3303,7 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
             // TODO better hashing algorithm
             return 31643936;
         case TypeTableEntryIdFn:
-            return hash_ptr(const_val->data.x_fn.fn_entry) +
-                (const_val->data.x_fn.is_inline ? 4133894920 : 3983484790);
+            return 4133894920 ^ hash_ptr(const_val->data.x_fn.fn_entry);
         case TypeTableEntryIdNamespace:
             return hash_ptr(const_val->data.x_import);
         case TypeTableEntryIdBlock:
@@ -3756,8 +3754,7 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
         case TypeTableEntryIdPureError:
             return a->data.x_pure_err == b->data.x_pure_err;
         case TypeTableEntryIdFn:
-            return a->data.x_fn.fn_entry == b->data.x_fn.fn_entry &&
-                a->data.x_fn.is_inline == b->data.x_fn.is_inline;
+            return a->data.x_fn.fn_entry == b->data.x_fn.fn_entry;
         case TypeTableEntryIdBool:
             return a->data.x_bool == b->data.x_bool;
         case TypeTableEntryIdInt:
@@ -3997,8 +3994,7 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
         case TypeTableEntryIdFn:
             {
                 FnTableEntry *fn_entry = const_val->data.x_fn.fn_entry;
-                const char *inline_str = const_val->data.x_fn.is_inline ? "inline " : "";
-                buf_appendf(buf, "%s%s", inline_str, buf_ptr(&fn_entry->symbol_name));
+                buf_appendf(buf, "%s", buf_ptr(&fn_entry->symbol_name));
                 return;
             }
         case TypeTableEntryIdBlock:
@@ -4080,8 +4076,7 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
         case TypeTableEntryIdBoundFn:
             {
                 FnTableEntry *fn_entry = const_val->data.x_bound_fn.fn;
-                const char *inline_str = const_val->data.x_bound_fn.is_inline ? "inline " : "";
-                buf_appendf(buf, "(%sbound fn %s)", inline_str, buf_ptr(&fn_entry->symbol_name));
+                buf_appendf(buf, "(bound fn %s)", buf_ptr(&fn_entry->symbol_name));
                 return;
             }
         case TypeTableEntryIdStruct:

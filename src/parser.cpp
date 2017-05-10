@@ -850,32 +850,7 @@ static AstNode *ast_parse_curly_suffix_expr(ParseContext *pc, size_t *token_inde
 }
 
 /*
-InlineExpression = option("inline") PrimaryExpression
-*/
-static AstNode *ast_parse_inline_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
-    Token *token = &pc->tokens->at(*token_index);
-
-    if (token->id == TokenIdKeywordInline) {
-        *token_index += 1;
-        AstNode *primary_expr_node = ast_parse_primary_expr(pc, token_index, true);
-        if (primary_expr_node->type == NodeTypeWhileExpr) {
-            primary_expr_node->data.while_expr.is_inline = true;
-            return primary_expr_node;
-        } else if (primary_expr_node->type == NodeTypeForExpr) {
-            primary_expr_node->data.for_expr.is_inline = true;
-            return primary_expr_node;
-        } else {
-            AstNode *node = ast_create_node(pc, NodeTypeInlineExpr, token);
-            node->data.inline_expr.body = primary_expr_node;
-            return node;
-        }
-    } else {
-        return ast_parse_primary_expr(pc, token_index, mandatory);
-    }
-}
-
-/*
-SuffixOpExpression = InlineExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
+SuffixOpExpression = PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
 FnCallExpression : token(LParen) list(Expression, token(Comma)) token(RParen)
 ArrayAccessExpression : token(LBracket) Expression token(RBracket)
 SliceExpression = "[" Expression "..." option(Expression) "]"
@@ -883,8 +858,8 @@ FieldAccessExpression : token(Dot) token(Symbol)
 StructLiteralField : token(Dot) token(Symbol) token(Eq) Expression
 */
 static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
-    AstNode *inline_expr = ast_parse_inline_expr(pc, token_index, mandatory);
-    if (!inline_expr)
+    AstNode *primary_expr = ast_parse_primary_expr(pc, token_index, mandatory);
+    if (!primary_expr)
         return nullptr;
 
     while (true) {
@@ -893,10 +868,10 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, 
             *token_index += 1;
 
             AstNode *node = ast_create_node(pc, NodeTypeFnCallExpr, first_token);
-            node->data.fn_call_expr.fn_ref_expr = inline_expr;
+            node->data.fn_call_expr.fn_ref_expr = primary_expr;
             ast_parse_fn_call_param_list(pc, token_index, &node->data.fn_call_expr.params);
 
-            inline_expr = node;
+            primary_expr = node;
         } else if (first_token->id == TokenIdLBracket) {
             *token_index += 1;
 
@@ -908,21 +883,21 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, 
                 *token_index += 1;
 
                 AstNode *node = ast_create_node(pc, NodeTypeSliceExpr, first_token);
-                node->data.slice_expr.array_ref_expr = inline_expr;
+                node->data.slice_expr.array_ref_expr = primary_expr;
                 node->data.slice_expr.start = expr_node;
                 node->data.slice_expr.end = ast_parse_expression(pc, token_index, false);
 
                 ast_eat_token(pc, token_index, TokenIdRBracket);
 
-                inline_expr = node;
+                primary_expr = node;
             } else if (ellipsis_or_r_bracket->id == TokenIdRBracket) {
                 *token_index += 1;
 
                 AstNode *node = ast_create_node(pc, NodeTypeArrayAccessExpr, first_token);
-                node->data.array_access_expr.array_ref_expr = inline_expr;
+                node->data.array_access_expr.array_ref_expr = primary_expr;
                 node->data.array_access_expr.subscript = expr_node;
 
-                inline_expr = node;
+                primary_expr = node;
             } else {
                 ast_invalid_token_error(pc, first_token);
             }
@@ -932,12 +907,12 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, 
             Token *name_token = ast_eat_token(pc, token_index, TokenIdSymbol);
 
             AstNode *node = ast_create_node(pc, NodeTypeFieldAccessExpr, first_token);
-            node->data.field_access_expr.struct_expr = inline_expr;
+            node->data.field_access_expr.struct_expr = primary_expr;
             node->data.field_access_expr.field_name = token_buf(name_token);
 
-            inline_expr = node;
+            primary_expr = node;
         } else {
-            return inline_expr;
+            return primary_expr;
         }
     }
 }
@@ -2733,7 +2708,5 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
         case NodeTypeVarLiteral:
             // none
             break;
-        case NodeTypeInlineExpr:
-            visit_field(&node->data.inline_expr.body, visit, context);
     }
 }
