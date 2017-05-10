@@ -1801,4 +1801,12 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:2:7: error: remainder division with 'i32' and 'i32': signed integers and floats must use @rem or @mod");
+
+    cases.add("cast negative value to unsigned integer",
+        \\comptime {
+        \\    const value: i32 = -1;
+        \\    const unsigned = u32(value);
+        \\}
+    ,
+        ".tmp_source.zig:3:25: error: attempt to cast negative value to unsigned integer");
 }
