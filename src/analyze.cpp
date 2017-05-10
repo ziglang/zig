@@ -3638,6 +3638,23 @@ ConstExprValue *create_const_ptr_ref(CodeGen *g, ConstExprValue *pointee_val, bo
     return const_val;
 }
 
+void init_const_ptr_hard_coded_addr(CodeGen *g, ConstExprValue *const_val, TypeTableEntry *pointee_type,
+        size_t addr, bool is_const)
+{
+    const_val->special = ConstValSpecialStatic;
+    const_val->type = get_pointer_to_type(g, pointee_type, is_const);
+    const_val->data.x_ptr.special = ConstPtrSpecialHardCodedAddr;
+    const_val->data.x_ptr.data.hard_coded_addr.addr = addr;
+}
+
+ConstExprValue *create_const_ptr_hard_coded_addr(CodeGen *g, TypeTableEntry *pointee_type,
+        size_t addr, bool is_const)
+{
+    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    init_const_ptr_hard_coded_addr(g, const_val, pointee_type, addr, is_const);
+    return const_val;
+}
+
 void init_const_arg_tuple(CodeGen *g, ConstExprValue *const_val, size_t arg_index_start, size_t arg_index_end) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = g->builtin_types.entry_arg_tuple;

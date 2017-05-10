@@ -26,6 +26,7 @@ comptime {
     _ = @import("cases/pub_enum/index.zig");
     _ = @import("cases/ref_var_in_if_after_if_2nd_switch_prong.zig");
     _ = @import("cases/sizeof_and_typeof.zig");
+    _ = @import("cases/slice.zig");
     _ = @import("cases/struct.zig");
     _ = @import("cases/struct_contains_slice_of_itself.zig");
     _ = @import("cases/switch.zig");

@@ -12515,6 +12515,8 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
                     zig_panic("TODO slice const inner struct");
                 case ConstPtrSpecialHardCodedAddr:
                     array_val = nullptr;
+                    abs_offset = 0;
+                    rel_end = SIZE_MAX;
                     break;
             }
         } else if (is_slice(array_type)) {
@@ -12540,69 +12542,72 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
                     zig_panic("TODO slice const inner struct");
                 case ConstPtrSpecialHardCodedAddr:
                     array_val = nullptr;
+                    abs_offset = 0;
+                    rel_end = len_val->data.x_bignum.data.x_uint;
                     break;
             }
         } else {
             zig_unreachable();
         }
 
-        if (array_val || parent_ptr->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
-            uint64_t start_scalar = casted_start->value.data.x_bignum.data.x_uint;
-            if (start_scalar > rel_end) {
-                ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds slice"));
-                return ira->codegen->builtin_types.entry_invalid;
-            }
-
-            uint64_t end_scalar;
-            if (end) {
-                end_scalar = end->value.data.x_bignum.data.x_uint;
-            } else {
-                end_scalar = rel_end;
-            }
-            if (end_scalar > rel_end) {
-                ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds slice"));
-                return ira->codegen->builtin_types.entry_invalid;
-            }
-            if (start_scalar > end_scalar) {
-                ir_add_error(ira, &instruction->base, buf_sprintf("slice start is greater than end"));
-                return ira->codegen->builtin_types.entry_invalid;
-            }
-
-            ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-            out_val->data.x_struct.fields = allocate<ConstExprValue>(2);
-
-            ConstExprValue *ptr_val = &out_val->data.x_struct.fields[slice_ptr_index];
-
-            if (array_val) {
-                size_t index = abs_offset + start_scalar;
-                bool is_const = slice_is_const(return_type);
-                init_const_ptr_array(ira->codegen, ptr_val, array_val, index, is_const);
-                if (array_type->id == TypeTableEntryIdArray) {
-                    ptr_val->data.x_ptr.mut = ptr_ptr->value.data.x_ptr.mut;
-                }
-            } else {
-                switch (parent_ptr->data.x_ptr.special) {
-                    case ConstPtrSpecialInvalid:
-                    case ConstPtrSpecialDiscard:
-                        zig_unreachable();
-                    case ConstPtrSpecialRef:
-                        init_const_ptr_ref(ira->codegen, ptr_val,
-                                parent_ptr->data.x_ptr.data.ref.pointee, slice_is_const(return_type));
-                        break;
-                    case ConstPtrSpecialBaseArray:
-                        zig_unreachable();
-                    case ConstPtrSpecialBaseStruct:
-                        zig_panic("TODO");
-                    case ConstPtrSpecialHardCodedAddr:
-                        zig_unreachable();
-                }
-            }
-
-            ConstExprValue *len_val = &out_val->data.x_struct.fields[slice_len_index];
-            init_const_usize(ira->codegen, len_val, end_scalar - start_scalar);
-
-            return return_type;
+        uint64_t start_scalar = casted_start->value.data.x_bignum.data.x_uint;
+        if (start_scalar > rel_end) {
+            ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds slice"));
+            return ira->codegen->builtin_types.entry_invalid;
         }
+
+        uint64_t end_scalar;
+        if (end) {
+            end_scalar = end->value.data.x_bignum.data.x_uint;
+        } else {
+            end_scalar = rel_end;
+        }
+        if (end_scalar > rel_end) {
+            ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds slice"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        if (start_scalar > end_scalar) {
+            ir_add_error(ira, &instruction->base, buf_sprintf("slice start is greater than end"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+
+        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+        out_val->data.x_struct.fields = allocate<ConstExprValue>(2);
+
+        ConstExprValue *ptr_val = &out_val->data.x_struct.fields[slice_ptr_index];
+
+        if (array_val) {
+            size_t index = abs_offset + start_scalar;
+            bool is_const = slice_is_const(return_type);
+            init_const_ptr_array(ira->codegen, ptr_val, array_val, index, is_const);
+            if (array_type->id == TypeTableEntryIdArray) {
+                ptr_val->data.x_ptr.mut = ptr_ptr->value.data.x_ptr.mut;
+            }
+        } else {
+            switch (parent_ptr->data.x_ptr.special) {
+                case ConstPtrSpecialInvalid:
+                case ConstPtrSpecialDiscard:
+                    zig_unreachable();
+                case ConstPtrSpecialRef:
+                    init_const_ptr_ref(ira->codegen, ptr_val,
+                            parent_ptr->data.x_ptr.data.ref.pointee, slice_is_const(return_type));
+                    break;
+                case ConstPtrSpecialBaseArray:
+                    zig_unreachable();
+                case ConstPtrSpecialBaseStruct:
+                    zig_panic("TODO");
+                case ConstPtrSpecialHardCodedAddr:
+                    init_const_ptr_hard_coded_addr(ira->codegen, ptr_val,
+                        parent_ptr->type->data.pointer.child_type,
+                        parent_ptr->data.x_ptr.data.hard_coded_addr.addr + start_scalar,
+                        slice_is_const(return_type));
+            }
+        }
+
+        ConstExprValue *len_val = &out_val->data.x_struct.fields[slice_len_index];
+        init_const_usize(ira->codegen, len_val, end_scalar - start_scalar);
+
+        return return_type;
     }
 
     IrInstruction *new_instruction = ir_build_slice_from(&ira->new_irb, &instruction->base, ptr_ptr,
