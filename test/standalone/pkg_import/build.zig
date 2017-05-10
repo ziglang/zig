@@ -4,6 +4,11 @@ pub fn build(b: &Builder) {
     const exe = b.addExecutable("test", "test.zig");
     exe.addPackagePath("my_pkg", "pkg.zig");
 
+    // This is duplicated to test that you are allowed to call
+    // b.standardReleaseOptions() twice.
+    exe.setBuildMode(b.standardReleaseOptions());
+    exe.setBuildMode(b.standardReleaseOptions());
+
     const run = b.addCommand(".", b.env_map, exe.getOutputPath(), [][]const u8{});
     run.step.dependOn(&exe.step);
 

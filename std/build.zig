@@ -44,6 +44,7 @@ pub const Builder = struct {
     installed_files: ArrayList([]const u8),
     build_root: []const u8,
     cache_root: []const u8,
+    release_mode: ?builtin.Mode,
 
     const UserInputOptionsMap = HashMap([]const u8, UserInputOption, mem.hash_slice_u8, mem.eql_slice_u8);
     const AvailableOptionsMap = HashMap([]const u8, AvailableOption, mem.hash_slice_u8, mem.eql_slice_u8);
@@ -112,6 +113,7 @@ pub const Builder = struct {
                 .description = "Copy build artifacts to prefix path",
             },
             .have_install_step = false,
+            .release_mode = null,
         };
         self.processNixOSEnvVars();
         self.default_step = self.step("default", "Build the project");
@@ -407,20 +409,24 @@ pub const Builder = struct {
     }
 
     pub fn standardReleaseOptions(self: &Builder) -> builtin.Mode {
+        if (self.release_mode) |mode| return mode;
+
         const release_safe = self.option(bool, "release-safe", "optimizations on and safety on") ?? false;
         const release_fast = self.option(bool, "release-fast", "optimizations on and safety off") ?? false;
 
-        if (release_safe and !release_fast) {
-            return builtin.Mode.ReleaseSafe;
+        const mode = if (release_safe and !release_fast) {
+            builtin.Mode.ReleaseSafe
         } else if (release_fast and !release_safe) {
-            return builtin.Mode.ReleaseFast;
+            builtin.Mode.ReleaseFast
         } else if (!release_fast and !release_safe) {
-            return builtin.Mode.Debug;
+            builtin.Mode.Debug
         } else {
             %%io.stderr.printf("Both -Drelease-safe and -Drelease-fast specified");
             self.markInvalidUserInput();
-            return builtin.Mode.Debug;
-        }
+            builtin.Mode.Debug
+        };
+        self.release_mode = mode;
+        return mode;
     }
 
     pub fn addUserInputOption(self: &Builder, name: []const u8, value: []const u8) -> bool {
