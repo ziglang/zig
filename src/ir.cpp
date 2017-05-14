@@ -8177,18 +8177,25 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
         if (is_int && is_signed) {
             bool ok = false;
             if (instr_is_comptime(op1) && instr_is_comptime(op2)) {
-                BigNum trunc_result;
-                BigNum floor_result;
-                if (bignum_div_trunc(&trunc_result, &op1->value.data.x_bignum, &op2->value.data.x_bignum)) {
-                    zig_unreachable();
-                }
-                if (bignum_div_floor(&floor_result, &op1->value.data.x_bignum, &op2->value.data.x_bignum)) {
-                    zig_unreachable();
-                }
-                if (bignum_cmp_eq(&trunc_result, &floor_result)) {
-                    ok = true;
+				if (op2->value.data.x_bignum.data.x_uint == 0) {
+                    // the division by zero error will be caught later, but we don't have a
+                    // division function ambiguity problem.
                     op_id = IrBinOpDivTrunc;
-                }
+					ok = true;
+				} else {
+					BigNum trunc_result;
+					BigNum floor_result;
+					if (bignum_div_trunc(&trunc_result, &op1->value.data.x_bignum, &op2->value.data.x_bignum)) {
+						zig_unreachable();
+					}
+					if (bignum_div_floor(&floor_result, &op1->value.data.x_bignum, &op2->value.data.x_bignum)) {
+						zig_unreachable();
+					}
+					if (bignum_cmp_eq(&trunc_result, &floor_result)) {
+						ok = true;
+						op_id = IrBinOpDivTrunc;
+					}
+				}
             }
             if (!ok) {
                 ir_add_error(ira, &bin_op_instruction->base,
@@ -8204,15 +8211,23 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
         if (is_signed) {
             bool ok = false;
             if (instr_is_comptime(op1) && instr_is_comptime(op2)) {
-                BigNum rem_result;
-                BigNum mod_result;
-                if (bignum_rem(&rem_result, &op1->value.data.x_bignum, &op2->value.data.x_bignum)) {
-                    zig_unreachable();
+                if ((is_int && op2->value.data.x_bignum.data.x_uint == 0) ||
+                    (!is_int && op2->value.data.x_bignum.data.x_float == 0.0))
+                {
+                    // the division by zero error will be caught later, but we don't
+                    // have a remainder function ambiguity problem
+                    ok = true;
+                } else {
+                    BigNum rem_result;
+                    BigNum mod_result;
+                    if (bignum_rem(&rem_result, &op1->value.data.x_bignum, &op2->value.data.x_bignum)) {
+                        zig_unreachable();
+                    }
+                    if (bignum_mod(&mod_result, &op1->value.data.x_bignum, &op2->value.data.x_bignum)) {
+                        zig_unreachable();
+                    }
+                    ok = bignum_cmp_eq(&rem_result, &mod_result);
                 }
-                if (bignum_mod(&mod_result, &op1->value.data.x_bignum, &op2->value.data.x_bignum)) {
-                    zig_unreachable();
-                }
-                ok = bignum_cmp_eq(&rem_result, &mod_result);
             }
             if (!ok) {
                 ir_add_error(ira, &bin_op_instruction->base,

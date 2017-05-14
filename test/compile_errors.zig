@@ -1809,4 +1809,22 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:3:25: error: attempt to cast negative value to unsigned integer");
+
+    cases.add("compile-time division by zero",
+        \\comptime {
+        \\    const a: i32 = 1;
+        \\    const b: i32 = 0;
+        \\    const c = a / b;
+        \\}
+    ,
+        ".tmp_source.zig:4:17: error: division by zero is undefined");
+
+    cases.add("compile-time remainder division by zero",
+        \\comptime {
+        \\    const a: i32 = 1;
+        \\    const b: i32 = 0;
+        \\    const c = a % b;
+        \\}
+    ,
+        ".tmp_source.zig:4:17: error: division by zero is undefined");
 }
