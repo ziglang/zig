@@ -4127,7 +4127,7 @@ TypeTableEntry *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits)
 
     const char u_or_i = is_signed ? 'i' : 'u';
     buf_resize(&entry->name, 0);
-    buf_appendf(&entry->name, "%c%" PRIu8, u_or_i, size_in_bits);
+    buf_appendf(&entry->name, "%c%" PRIu32, u_or_i, size_in_bits);
 
     unsigned dwarf_tag;
     if (is_signed) {
