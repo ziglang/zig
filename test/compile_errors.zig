@@ -1827,4 +1827,12 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:4:17: error: division by zero is undefined");
+
+    cases.add("compile-time integer cast truncates bits",
+        \\comptime {
+        \\    const spartan_count: u16 = 300;
+        \\    const byte = u8(spartan_count);
+        \\}
+    ,
+        ".tmp_source.zig:3:20: error: cast from 'u16' to 'u8' truncates bits");
 }

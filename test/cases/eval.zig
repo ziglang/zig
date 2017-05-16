@@ -314,3 +314,11 @@ const global_array = {
     }
     result
 };
+
+test "compile-time downcast when the bits fit" {
+    comptime {
+        const spartan_count: u16 = 255;
+        const byte = u8(spartan_count);
+        assert(byte == 255);
+    }
+}

@@ -7053,12 +7053,20 @@ static IrInstruction *ir_analyze_widen_or_shorten(IrAnalyze *ira, IrInstruction 
         ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
         if (!val)
             return ira->codegen->invalid_instruction;
-        if (val->data.x_bignum.is_negative && wanted_type->id == TypeTableEntryIdInt &&
-            !wanted_type->data.integral.is_signed)
-        {
-            ir_add_error(ira, source_instr,
-                buf_sprintf("attempt to cast negative value to unsigned integer"));
-            return ira->codegen->invalid_instruction;
+        if (wanted_type->id == TypeTableEntryIdInt) {
+            if (val->data.x_bignum.is_negative && !wanted_type->data.integral.is_signed) {
+                ir_add_error(ira, source_instr,
+                    buf_sprintf("attempt to cast negative value to unsigned integer"));
+                return ira->codegen->invalid_instruction;
+            }
+            if (!bignum_fits_in_bits(&val->data.x_bignum, wanted_type->data.integral.bit_count,
+                    wanted_type->data.integral.is_signed))
+            {
+                ir_add_error(ira, source_instr,
+                    buf_sprintf("cast from '%s' to '%s' truncates bits",
+                        buf_ptr(&target->value.type->name), buf_ptr(&wanted_type->name)));
+                return ira->codegen->invalid_instruction;
+            }
         }
         IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
                 source_instr->source_node, wanted_type);
