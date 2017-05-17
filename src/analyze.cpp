@@ -4340,3 +4340,157 @@ FnTableEntry *get_extern_panic_fn(CodeGen *g) {
     return g->extern_panic_fn;
 }
 
+static const TypeTableEntryId all_type_ids[] = {
+    TypeTableEntryIdMetaType,
+    TypeTableEntryIdVoid,
+    TypeTableEntryIdBool,
+    TypeTableEntryIdUnreachable,
+    TypeTableEntryIdInt,
+    TypeTableEntryIdFloat,
+    TypeTableEntryIdPointer,
+    TypeTableEntryIdArray,
+    TypeTableEntryIdStruct,
+    TypeTableEntryIdNumLitFloat,
+    TypeTableEntryIdNumLitInt,
+    TypeTableEntryIdUndefLit,
+    TypeTableEntryIdNullLit,
+    TypeTableEntryIdMaybe,
+    TypeTableEntryIdErrorUnion,
+    TypeTableEntryIdPureError,
+    TypeTableEntryIdEnum,
+    TypeTableEntryIdEnumTag,
+    TypeTableEntryIdUnion,
+    TypeTableEntryIdFn,
+    TypeTableEntryIdNamespace,
+    TypeTableEntryIdBlock,
+    TypeTableEntryIdBoundFn,
+    TypeTableEntryIdArgTuple,
+    TypeTableEntryIdOpaque,
+};
+
+TypeTableEntryId type_id_at_index(size_t index) {
+    assert(index < array_length(all_type_ids));
+    return all_type_ids[index];
+}
+
+size_t type_id_len() {
+    return array_length(all_type_ids);
+}
+
+size_t type_id_index(TypeTableEntryId id) {
+    switch (id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+            zig_unreachable();
+        case TypeTableEntryIdMetaType:
+            return 0;
+        case TypeTableEntryIdVoid:
+            return 1;
+        case TypeTableEntryIdBool:
+            return 2;
+        case TypeTableEntryIdUnreachable:
+            return 3;
+        case TypeTableEntryIdInt:
+            return 4;
+        case TypeTableEntryIdFloat:
+            return 5;
+        case TypeTableEntryIdPointer:
+            return 6;
+        case TypeTableEntryIdArray:
+            return 7;
+        case TypeTableEntryIdStruct:
+            return 8;
+        case TypeTableEntryIdNumLitFloat:
+            return 9;
+        case TypeTableEntryIdNumLitInt:
+            return 10;
+        case TypeTableEntryIdUndefLit:
+            return 11;
+        case TypeTableEntryIdNullLit:
+            return 12;
+        case TypeTableEntryIdMaybe:
+            return 13;
+        case TypeTableEntryIdErrorUnion:
+            return 14;
+        case TypeTableEntryIdPureError:
+            return 15;
+        case TypeTableEntryIdEnum:
+            return 16;
+        case TypeTableEntryIdEnumTag:
+            return 17;
+        case TypeTableEntryIdUnion:
+            return 18;
+        case TypeTableEntryIdFn:
+            return 19;
+        case TypeTableEntryIdNamespace:
+            return 20;
+        case TypeTableEntryIdBlock:
+            return 21;
+        case TypeTableEntryIdBoundFn:
+            return 22;
+        case TypeTableEntryIdArgTuple:
+            return 23;
+        case TypeTableEntryIdOpaque:
+            return 24;
+    }
+    zig_unreachable();
+}
+
+const char *type_id_name(TypeTableEntryId id) {
+    switch (id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+            zig_unreachable();
+        case TypeTableEntryIdMetaType:
+            return "Type";
+        case TypeTableEntryIdVoid:
+            return "Void";
+        case TypeTableEntryIdBool:
+            return "Bool";
+        case TypeTableEntryIdUnreachable:
+            return "NoReturn";
+        case TypeTableEntryIdInt:
+            return "Int";
+        case TypeTableEntryIdFloat:
+            return "Float";
+        case TypeTableEntryIdPointer:
+            return "Pointer";
+        case TypeTableEntryIdArray:
+            return "Array";
+        case TypeTableEntryIdStruct:
+            return "Struct";
+        case TypeTableEntryIdNumLitFloat:
+            return "FloatLiteral";
+        case TypeTableEntryIdNumLitInt:
+            return "IntLiteral";
+        case TypeTableEntryIdUndefLit:
+            return "UndefinedLiteral";
+        case TypeTableEntryIdNullLit:
+            return "NullLiteral";
+        case TypeTableEntryIdMaybe:
+            return "Nullable";
+        case TypeTableEntryIdErrorUnion:
+            return "ErrorUnion";
+        case TypeTableEntryIdPureError:
+            return "Error";
+        case TypeTableEntryIdEnum:
+            return "Enum";
+        case TypeTableEntryIdEnumTag:
+            return "EnumTag";
+        case TypeTableEntryIdUnion:
+            return "Union";
+        case TypeTableEntryIdFn:
+            return "Fn";
+        case TypeTableEntryIdNamespace:
+            return "Namespace";
+        case TypeTableEntryIdBlock:
+            return "Block";
+        case TypeTableEntryIdBoundFn:
+            return "BoundFn";
+        case TypeTableEntryIdArgTuple:
+            return "ArgTuple";
+        case TypeTableEntryIdOpaque:
+            return "Opaque";
+    }
+    zig_unreachable();
+}

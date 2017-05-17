@@ -488,15 +488,15 @@ pub const Builder = struct {
     }
 
     fn typeToEnum(comptime T: type) -> TypeId {
-        if (@isInteger(T)) {
-            TypeId.Int
-        } else if (@isFloat(T)) {
-            TypeId.Float
-        } else switch (T) {
-            bool => TypeId.Bool,
-            []const u8 => TypeId.String,
-            []const []const u8 => TypeId.List,
-            else => @compileError("Unsupported type: " ++ @typeName(T)),
+        switch (@typeId(T)) {
+            builtin.TypeId.Int => TypeId.Int,
+            builtin.TypeId.Float => TypeId.Float,
+            builtin.TypeId.Bool => TypeId.Bool,
+            else => switch (T) {
+                []const u8 => TypeId.String,
+                []const []const u8 => TypeId.List,
+                else => @compileError("Unsupported type: " ++ @typeName(T)),
+            },
         }
     }
 

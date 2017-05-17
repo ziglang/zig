@@ -1,4 +1,5 @@
 const assert = @import("debug.zig").assert;
+const builtin = @import("builtin");
 
 pub const Cmp = enum {
     Less,
@@ -61,23 +62,27 @@ fn testOverflow() {
 
 pub fn log(comptime base: usize, value: var) -> @typeOf(value) {
     const T = @typeOf(value);
-    if (@isInteger(T)) {
-        if (base == 2) {
-            return T.bit_count - 1 - @clz(value);
-        } else {
-            @compileError("TODO implement log for non base 2 integers");
-        }
-    } else if (@isFloat(T)) {
-        @compileError("TODO implement log for floats");
-    } else {
-        @compileError("log expects integer or float, found '" ++ @typeName(T) ++ "'");
+    switch (@typeId(T)) {
+        builtin.TypeId.Int => {
+            if (base == 2) {
+                return T.bit_count - 1 - @clz(value);
+            } else {
+                @compileError("TODO implement log for non base 2 integers");
+            }
+        },
+        builtin.TypeId.Float => {
+            @compileError("TODO implement log for floats");
+        },
+        else => {
+            @compileError("log expects integer or float, found '" ++ @typeName(T) ++ "'");
+        },
     }
 }
 
 error Overflow;
 pub fn absInt(x: var) -> %@typeOf(x) {
     const T = @typeOf(x);
-    comptime assert(@isInteger(T)); // must pass an integer to absInt
+    comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer to absInt
     comptime assert(T.is_signed); // must pass a signed integer to absInt
     if (x == @minValue(@typeOf(x)))
         return error.Overflow;
@@ -97,7 +102,7 @@ fn testAbsInt() {
 }
 
 pub fn absFloat(x: var) -> @typeOf(x) {
-    comptime assert(@isFloat(@typeOf(x)));
+    comptime assert(@typeId(@typeOf(x)) == builtin.TypeId.Float);
     return if (x < 0) -x else x;
 }
 
@@ -116,7 +121,7 @@ pub fn divTrunc(comptime T: type, numerator: T, denominator: T) -> %T {
     @setDebugSafety(this, false);
     if (denominator == 0)
         return error.DivisionByZero;
-    if (@isInteger(T) and T.is_signed and numerator == @minValue(T) and denominator == -1)
+    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1)
         return error.Overflow;
     return @divTrunc(numerator, denominator);
 }
@@ -141,7 +146,7 @@ pub fn divFloor(comptime T: type, numerator: T, denominator: T) -> %T {
     @setDebugSafety(this, false);
     if (denominator == 0)
         return error.DivisionByZero;
-    if (@isInteger(T) and T.is_signed and numerator == @minValue(T) and denominator == -1)
+    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1)
         return error.Overflow;
     return @divFloor(numerator, denominator);
 }
@@ -167,7 +172,7 @@ pub fn divExact(comptime T: type, numerator: T, denominator: T) -> %T {
     @setDebugSafety(this, false);
     if (denominator == 0)
         return error.DivisionByZero;
-    if (@isInteger(T) and T.is_signed and numerator == @minValue(T) and denominator == -1)
+    if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1)
         return error.Overflow;
     const result = @divTrunc(numerator, denominator);
     if (result * denominator != numerator)
@@ -246,7 +251,7 @@ fn testRem() {
 }
 
 fn isNan(comptime T: type, x: T) -> bool {
-    assert(@isFloat(T));
+    assert(@typeId(T) == builtin.TypeId.Float);
     const bits = floatBits(x);
     if (T == f32) {
         return (bits & 0x7fffffff) > 0x7f800000;
@@ -258,7 +263,7 @@ fn isNan(comptime T: type, x: T) -> bool {
 }
 
 fn floatBits(comptime T: type, x: T) -> @IntType(false, T.bit_count) {
-    assert(@isFloat(T));
+    assert(@typeId(T) == builtin.TypeId.Float);
     const uint = @IntType(false, T.bit_count);
     return *@intToPtr(&const uint, &x);
 }

@@ -2,6 +2,7 @@ const math = @import("math.zig");
 const debug = @import("debug.zig");
 const assert = debug.assert;
 const mem = @import("mem.zig");
+const builtin = @import("builtin");
 
 const max_f64_digits = 65;
 const max_int_digits = 65;
@@ -174,19 +175,25 @@ pub fn format(context: var, output: fn(@typeOf(context), []const u8)->bool,
 
 pub fn formatValue(value: var, context: var, output: fn(@typeOf(context), []const u8)->bool) -> bool {
     const T = @typeOf(value);
-    if (@isInteger(T)) {
-        return formatInt(value, 10, false, 0, context, output);
-    } else if (@isFloat(T)) {
-        @compileError("TODO implement formatFloat");
-    } else if (@canImplicitCast([]const u8, value)) {
-        const casted_value = ([]const u8)(value);
-        return output(context, casted_value);
-    } else if (T == void) {
-        return output(context, "void");
-    } else if (T == bool) {
-        return output(context, if (value) "true" else "false");
-    } else {
-        @compileError("Unable to format type '" ++ @typeName(T) ++ "'");
+    switch (@typeId(T)) {
+        builtin.TypeId.Int => {
+            return formatInt(value, 10, false, 0, context, output);
+        },
+        builtin.TypeId.Float => {
+            @compileError("TODO implement formatFloat");
+        },
+        builtin.TypeId.Void => {
+            return output(context, "void");
+        },
+        builtin.TypeId.Bool => {
+            return output(context, if (value) "true" else "false");
+        },
+        else => if (@canImplicitCast([]const u8, value)) {
+            const casted_value = ([]const u8)(value);
+            return output(context, casted_value);
+        } else {
+            @compileError("Unable to format type '" ++ @typeName(T) ++ "'");
+        },
     }
 }
 

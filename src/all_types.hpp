@@ -1194,8 +1194,6 @@ enum BuiltinFnId {
     BuiltinFnIdIntType,
     BuiltinFnIdSetDebugSafety,
     BuiltinFnIdTypeName,
-    BuiltinFnIdIsInteger,
-    BuiltinFnIdIsFloat,
     BuiltinFnIdCanImplicitCast,
     BuiltinFnIdSetGlobalAlign,
     BuiltinFnIdSetGlobalSection,
@@ -1207,6 +1205,7 @@ enum BuiltinFnId {
     BuiltinFnIdFieldParentPtr,
     BuiltinFnIdOffsetOf,
     BuiltinFnIdInlineCall,
+    BuiltinFnIdTypeId,
 };
 
 struct BuiltinFnEntry {
@@ -1775,7 +1774,6 @@ enum IrInstructionId {
     IrInstructionIdErrToInt,
     IrInstructionIdCheckSwitchProngs,
     IrInstructionIdCheckStatementIsVoid,
-    IrInstructionIdTestType,
     IrInstructionIdTypeName,
     IrInstructionIdCanImplicitCast,
     IrInstructionIdSetGlobalAlign,
@@ -1786,6 +1784,7 @@ enum IrInstructionId {
     IrInstructionIdEnumTagName,
     IrInstructionIdFieldParentPtr,
     IrInstructionIdOffsetOf,
+    IrInstructionIdTypeId,
 };
 
 struct IrInstruction {
@@ -2464,13 +2463,6 @@ struct IrInstructionCheckStatementIsVoid {
     IrInstruction *statement_value;
 };
 
-struct IrInstructionTestType {
-    IrInstruction base;
-
-    IrInstruction *type_value;
-    TypeTableEntryId type_id;
-};
-
 struct IrInstructionTypeName {
     IrInstruction base;
 
@@ -2538,6 +2530,12 @@ struct IrInstructionOffsetOf {
 
     IrInstruction *type_value;
     IrInstruction *field_name;
+};
+
+struct IrInstructionTypeId {
+    IrInstruction base;
+
+    IrInstruction *type_value;
 };
 
 static const size_t slice_ptr_index = 0;

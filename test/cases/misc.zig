@@ -446,29 +446,42 @@ fn testArray2DConstDoublePtr(ptr: &const f32) {
     assert(ptr[1] == 2.0);
 }
 
-test "@isInteger" {
-    comptime {
-        assert(@isInteger(i8));
-        assert(@isInteger(u8));
-        assert(@isInteger(i64));
-        assert(@isInteger(u64));
-        assert(!@isInteger(f32));
-        assert(!@isInteger(f64));
-        assert(!@isInteger(bool));
-        assert(!@isInteger(&i32));
-    }
-}
+const Tid = builtin.TypeId;
+const AStruct = struct { x: i32, };
+const AnEnum = enum { One, Two, };
+const AnEnumWithPayload = enum { One: i32, Two, };
 
-test "@isFloat" {
+test "@typeId" {
     comptime {
-        assert(!@isFloat(i8));
-        assert(!@isFloat(u8));
-        assert(!@isFloat(i64));
-        assert(!@isFloat(u64));
-        assert(@isFloat(f32));
-        assert(@isFloat(f64));
-        assert(!@isFloat(bool));
-        assert(!@isFloat(&f32));
+        assert(@typeId(type) == Tid.Type);
+        assert(@typeId(void) == Tid.Void);
+        assert(@typeId(bool) == Tid.Bool);
+        assert(@typeId(noreturn) == Tid.NoReturn);
+        assert(@typeId(i8) == Tid.Int);
+        assert(@typeId(u8) == Tid.Int);
+        assert(@typeId(i64) == Tid.Int);
+        assert(@typeId(u64) == Tid.Int);
+        assert(@typeId(f32) == Tid.Float);
+        assert(@typeId(f64) == Tid.Float);
+        assert(@typeId(&f32) == Tid.Pointer);
+        assert(@typeId([2]u8) == Tid.Array);
+        assert(@typeId(AStruct) == Tid.Struct);
+        assert(@typeId(@typeOf(1)) == Tid.IntLiteral);
+        assert(@typeId(@typeOf(1.0)) == Tid.FloatLiteral);
+        assert(@typeId(@typeOf(undefined)) == Tid.UndefinedLiteral);
+        assert(@typeId(@typeOf(null)) == Tid.NullLiteral);
+        assert(@typeId(?i32) == Tid.Nullable);
+        assert(@typeId(%i32) == Tid.ErrorUnion);
+        assert(@typeId(error) == Tid.Error);
+        assert(@typeId(AnEnum) == Tid.Enum);
+        assert(@typeId(@typeOf(AnEnumWithPayload.One)) == Tid.EnumTag);
+        // TODO  union
+        assert(@typeId(fn()) == Tid.Fn);
+        assert(@typeId(@typeOf(builtin)) == Tid.Namespace);
+        assert(@typeId(@typeOf({this})) == Tid.Block);
+        // TODO bound fn
+        // TODO arg tuple
+        // TODO opaque
     }
 }
 

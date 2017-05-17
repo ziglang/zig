@@ -160,4 +160,9 @@ TypeTableEntry *create_enum_tag_type(CodeGen *g, TypeTableEntry *enum_type, Type
 void expand_undef_array(CodeGen *g, ConstExprValue *const_val);
 void update_compile_var(CodeGen *g, Buf *name, ConstExprValue *value);
 
+const char *type_id_name(TypeTableEntryId id);
+TypeTableEntryId type_id_at_index(size_t index);
+size_t type_id_len();
+size_t type_id_index(TypeTableEntryId id);
+
 #endif

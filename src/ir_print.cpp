@@ -811,11 +811,6 @@ static void ir_print_check_statement_is_void(IrPrint *irp, IrInstructionCheckSta
     fprintf(irp->f, ")");
 }
 
-static void ir_print_test_type(IrPrint *irp, IrInstructionTestType *instruction) {
-    fprintf(irp->f, "testtype ");
-    ir_print_other_instruction(irp, instruction->type_value);
-}
-
 static void ir_print_type_name(IrPrint *irp, IrInstructionTypeName *instruction) {
     fprintf(irp->f, "typename ");
     ir_print_other_instruction(irp, instruction->type_value);
@@ -881,6 +876,12 @@ static void ir_print_offset_of(IrPrint *irp, IrInstructionOffsetOf *instruction)
     ir_print_other_instruction(irp, instruction->type_value);
     fprintf(irp->f, ",");
     ir_print_other_instruction(irp, instruction->field_name);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_type_id(IrPrint *irp, IrInstructionTypeId *instruction) {
+    fprintf(irp->f, "@typeId(");
+    ir_print_other_instruction(irp, instruction->type_value);
     fprintf(irp->f, ")");
 }
 
@@ -1135,9 +1136,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdCheckStatementIsVoid:
             ir_print_check_statement_is_void(irp, (IrInstructionCheckStatementIsVoid *)instruction);
             break;
-        case IrInstructionIdTestType:
-            ir_print_test_type(irp, (IrInstructionTestType *)instruction);
-            break;
         case IrInstructionIdTypeName:
             ir_print_type_name(irp, (IrInstructionTypeName *)instruction);
             break;
@@ -1167,6 +1165,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdOffsetOf:
             ir_print_offset_of(irp, (IrInstructionOffsetOf *)instruction);
+            break;
+        case IrInstructionIdTypeId:
+            ir_print_type_id(irp, (IrInstructionTypeId *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

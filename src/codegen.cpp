@@ -3009,7 +3009,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdTestComptime:
         case IrInstructionIdCheckSwitchProngs:
         case IrInstructionIdCheckStatementIsVoid:
-        case IrInstructionIdTestType:
         case IrInstructionIdTypeName:
         case IrInstructionIdCanImplicitCast:
         case IrInstructionIdSetGlobalAlign:
@@ -3018,6 +3017,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdDeclRef:
         case IrInstructionIdSwitchVar:
         case IrInstructionIdOffsetOf:
+        case IrInstructionIdTypeId:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -4423,8 +4423,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCImport, "cImport", 1);
     create_builtin_fn(g, BuiltinFnIdErrName, "errorName", 1);
     create_builtin_fn(g, BuiltinFnIdTypeName, "typeName", 1);
-    create_builtin_fn(g, BuiltinFnIdIsInteger, "isInteger", 1);
-    create_builtin_fn(g, BuiltinFnIdIsFloat, "isFloat", 1);
     create_builtin_fn(g, BuiltinFnIdCanImplicitCast, "canImplicitCast", 2);
     create_builtin_fn(g, BuiltinFnIdEmbedFile, "embedFile", 1);
     create_builtin_fn(g, BuiltinFnIdCmpExchange, "cmpxchg", 5);
@@ -4449,6 +4447,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdRem, "rem", 2);
     create_builtin_fn(g, BuiltinFnIdMod, "mod", 2);
     create_builtin_fn(g, BuiltinFnIdInlineCall, "inlineCall", SIZE_MAX);
+    create_builtin_fn(g, BuiltinFnIdTypeId, "typeId", 1);
 }
 
 static const char *bool_to_str(bool b) {
@@ -4579,6 +4578,15 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "    ReleaseSafe,\n"
             "    ReleaseFast,\n"
             "};\n\n");
+    }
+    {
+        buf_appendf(contents, "pub const TypeId = enum {\n");
+        size_t field_count = type_id_len();
+        for (size_t i = 0; i < field_count; i += 1) {
+            const TypeTableEntryId id = type_id_at_index(i);
+            buf_appendf(contents, "    %s,\n", type_id_name(id));
+        }
+        buf_appendf(contents, "};\n\n");
     }
     buf_appendf(contents, "pub const is_big_endian = %s;\n", bool_to_str(g->is_big_endian));
     buf_appendf(contents, "pub const is_test = %s;\n", bool_to_str(g->is_test_build));
