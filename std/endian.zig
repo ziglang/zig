@@ -15,6 +15,6 @@ pub fn swapIf(is_be: bool, comptime T: type, x: T) -> T {
 
 pub fn swap(comptime T: type, x: T) -> T {
     var buf: [@sizeOf(T)]u8 = undefined;
-    mem.writeInt(buf[0...], x, false);
+    mem.writeInt(buf[0..], x, false);
     return mem.readInt(buf, T, true);
 }

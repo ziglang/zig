@@ -588,7 +588,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                 switch (c) {
                     case '.':
                         t.state = TokenizeStateSawDotDot;
-                        set_token_id(&t, t.cur_tok, TokenIdEllipsis);
+                        set_token_id(&t, t.cur_tok, TokenIdEllipsis2);
                         break;
                     default:
                         t.pos -= 1;
@@ -601,10 +601,14 @@ void tokenize(Buf *buf, Tokenization *out) {
                 switch (c) {
                     case '.':
                         t.state = TokenizeStateStart;
+                        set_token_id(&t, t.cur_tok, TokenIdEllipsis3);
                         end_token(&t);
                         break;
                     default:
-                        tokenize_error(&t, "invalid character: '%c'", c);
+                        t.pos -= 1;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
                 }
                 break;
             case TokenizeStateSawGreaterThan:
@@ -1436,7 +1440,8 @@ const char * token_name(TokenId id) {
         case TokenIdDivEq: return "/=";
         case TokenIdDot: return ".";
         case TokenIdDoubleQuestion: return "??";
-        case TokenIdEllipsis: return "...";
+        case TokenIdEllipsis3: return "...";
+        case TokenIdEllipsis2: return "..";
         case TokenIdEof: return "EOF";
         case TokenIdEq: return "=";
         case TokenIdFatArrow: return "=>";

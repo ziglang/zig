@@ -148,7 +148,7 @@ fn peerTypeEmptyArrayAndSlice(a: bool, slice: []const u8) -> []const u8 {
         return []const u8 {};
     }
 
-    return slice[0...1];
+    return slice[0..1];
 }
 
 test "implicitly cast from [N]T to ?[]const T" {
@@ -177,13 +177,13 @@ fn gimmeErrOrSlice() -> %[]u8 {
 test "peer type resolution: [0]u8, []const u8, and %[]u8" {
     {
         var data = "hi";
-        const slice = data[0...];
+        const slice = data[0..];
         assert((%%peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
         assert((%%peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
     }
     comptime {
         var data = "hi";
-        const slice = data[0...];
+        const slice = data[0..];
         assert((%%peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
         assert((%%peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
     }
@@ -193,7 +193,7 @@ fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) -> %[]u8 {
         return []u8{};
     }
 
-    return slice[0...1];
+    return slice[0..1];
 }
 
 test "resolve undefined with integer" {

@@ -172,7 +172,7 @@ pub fn posixOpen(file_path: []const u8, flags: usize, perm: usize, allocator: ?&
     var need_free = false;
 
     if (file_path.len < stack_buf.len) {
-        path0 = stack_buf[0...file_path.len + 1];
+        path0 = stack_buf[0..file_path.len + 1];
     } else if (allocator) |a| {
         path0 = %return a.alloc(u8, file_path.len + 1);
         need_free = true;
@@ -311,7 +311,7 @@ pub fn posixExecve(exe_path: []const u8, argv: []const []const u8, env_map: &con
     while (it.next()) |search_path| {
         mem.copy(u8, path_buf, search_path);
         path_buf[search_path.len] = '/';
-        mem.copy(u8, path_buf[search_path.len + 1 ...], exe_path);
+        mem.copy(u8, path_buf[search_path.len + 1 ..], exe_path);
         path_buf[search_path.len + exe_path.len + 1] = 0;
         err = posix.getErrno(posix.execve(path_buf.ptr, argv_buf.ptr, envp_buf.ptr));
         assert(err > 0);
@@ -352,11 +352,11 @@ pub fn getEnvMap(allocator: &Allocator) -> %BufMap {
     for (environ_raw) |ptr| {
         var line_i: usize = 0;
         while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
-        const key = ptr[0...line_i];
+        const key = ptr[0..line_i];
 
         var end_i: usize = line_i;
         while (ptr[end_i] != 0) : (end_i += 1) {}
-        const value = ptr[line_i + 1...end_i];
+        const value = ptr[line_i + 1..end_i];
 
         %return result.set(key, value);
     }
@@ -367,13 +367,13 @@ pub fn getEnv(key: []const u8) -> ?[]const u8 {
     for (environ_raw) |ptr| {
         var line_i: usize = 0;
         while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
-        const this_key = ptr[0...line_i];
+        const this_key = ptr[0..line_i];
         if (!mem.eql(u8, key, this_key))
             continue;
 
         var end_i: usize = line_i;
         while (ptr[end_i] != 0) : (end_i += 1) {}
-        const this_value = ptr[line_i + 1...end_i];
+        const this_value = ptr[line_i + 1..end_i];
 
         return this_value;
     }
@@ -417,7 +417,7 @@ pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []con
     mem.copy(u8, existing_buf, existing_path);
     existing_buf[existing_path.len] = 0;
 
-    const new_buf = full_buf[existing_path.len + 1...];
+    const new_buf = full_buf[existing_path.len + 1..];
     mem.copy(u8, new_buf, new_path);
     new_buf[new_path.len] = 0;
 
@@ -456,10 +456,10 @@ pub fn atomicSymLink(allocator: &Allocator, existing_path: []const u8, new_path:
     var rand_buf: [12]u8 = undefined;
     const tmp_path = %return allocator.alloc(u8, new_path.len + base64.calcEncodedSize(rand_buf.len));
     defer allocator.free(tmp_path);
-    mem.copy(u8, tmp_path[0...], new_path);
+    mem.copy(u8, tmp_path[0..], new_path);
     while (true) {
-        %return getRandomBytes(rand_buf[0...]);
-        _ = base64.encodeWithAlphabet(tmp_path[new_path.len...], rand_buf, b64_fs_alphabet);
+        %return getRandomBytes(rand_buf[0..]);
+        _ = base64.encodeWithAlphabet(tmp_path[new_path.len..], rand_buf, b64_fs_alphabet);
         if (symLink(allocator, existing_path, tmp_path)) {
             return rename(allocator, tmp_path, new_path);
         } else |err| {
@@ -510,9 +510,9 @@ pub fn copyFileMode(allocator: &Allocator, source_path: []const u8, dest_path: [
     var rand_buf: [12]u8 = undefined;
     const tmp_path = %return allocator.alloc(u8, dest_path.len + base64.calcEncodedSize(rand_buf.len));
     defer allocator.free(tmp_path);
-    mem.copy(u8, tmp_path[0...], dest_path);
-    %return getRandomBytes(rand_buf[0...]);
-    _ = base64.encodeWithAlphabet(tmp_path[dest_path.len...], rand_buf, b64_fs_alphabet);
+    mem.copy(u8, tmp_path[0..], dest_path);
+    %return getRandomBytes(rand_buf[0..]);
+    _ = base64.encodeWithAlphabet(tmp_path[dest_path.len..], rand_buf, b64_fs_alphabet);
 
     var out_stream = %return io.OutStream.openMode(tmp_path, mode, allocator);
     defer out_stream.close();
@@ -521,7 +521,7 @@ pub fn copyFileMode(allocator: &Allocator, source_path: []const u8, dest_path: [
     var in_stream = %return io.InStream.open(source_path, allocator);
     defer in_stream.close();
 
-    const buf = out_stream.buffer[0...];
+    const buf = out_stream.buffer[0..];
     while (true) {
         const amt = %return in_stream.read(buf);
         out_stream.index = amt;
@@ -539,7 +539,7 @@ pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8)
     mem.copy(u8, old_buf, old_path);
     old_buf[old_path.len] = 0;
 
-    const new_buf = full_buf[old_path.len + 1...];
+    const new_buf = full_buf[old_path.len + 1..];
     mem.copy(u8, new_buf, new_path);
     new_buf[new_path.len] = 0;
 
@@ -601,7 +601,7 @@ pub fn makePath(allocator: &Allocator, full_path: []const u8) -> %void {
 
     var end_index: usize = resolved_path.len;
     while (true) {
-        makeDir(allocator, resolved_path[0...end_index]) %% |err| {
+        makeDir(allocator, resolved_path[0..end_index]) %% |err| {
             if (err == error.PathAlreadyExists) {
                 // TODO stat the file and return an error if it's not a directory
                 // this is important because otherwise a dangling symlink
@@ -691,7 +691,7 @@ start_over:
             const full_entry_path = full_entry_buf.toSlice();
             mem.copy(u8, full_entry_path, full_path);
             full_entry_path[full_path.len] = '/';
-            mem.copy(u8, full_entry_path[full_path.len + 1...], entry.name);
+            mem.copy(u8, full_entry_path[full_path.len + 1..], entry.name);
 
             %return deleteTree(allocator, full_entry_path);
         }
@@ -856,6 +856,6 @@ pub fn readLink(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
             result_buf = %return allocator.realloc(u8, result_buf, result_buf.len * 2);
             continue;
         }
-        return result_buf[0...ret_val];
+        return result_buf[0..ret_val];
     }
 }

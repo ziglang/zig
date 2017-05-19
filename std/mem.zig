@@ -31,7 +31,7 @@ pub const Allocator = struct {
     }
 
     fn destroy(self: &Allocator, ptr: var) {
-        self.free(ptr[0...1]);
+        self.free(ptr[0..1]);
     }
 
     fn alloc(self: &Allocator, comptime T: type, n: usize) -> %[]T {
@@ -69,7 +69,7 @@ pub const IncrementingAllocator = struct {
                         .reallocFn = realloc,
                         .freeFn = free,
                     },
-                    .bytes = @intToPtr(&u8, addr)[0...capacity],
+                    .bytes = @intToPtr(&u8, addr)[0..capacity],
                     .end_index = 0,
                 };
             },
@@ -87,7 +87,7 @@ pub const IncrementingAllocator = struct {
         if (new_end_index > self.bytes.len) {
             return error.NoMem;
         }
-        const result = self.bytes[self.end_index...new_end_index];
+        const result = self.bytes[self.end_index..new_end_index];
         self.end_index = new_end_index;
         return result;
     }
@@ -165,7 +165,7 @@ pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) -> ?usi
     var i: usize = 0;
     const end = haystack.len - needle.len;
     while (i <= end) : (i += 1) {
-        if (eql(T, haystack[i...i + needle.len], needle))
+        if (eql(T, haystack[i .. i + needle.len], needle))
             return i;
     }
     return null;
@@ -253,7 +253,7 @@ test "mem.split" {
 }
 
 pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) -> bool {
-    return if (needle.len > haystack.len) false else eql(T, haystack[0...needle.len], needle);
+    return if (needle.len > haystack.len) false else eql(T, haystack[0 .. needle.len], needle);
 }
 
 const SplitIterator = struct {
@@ -273,7 +273,7 @@ const SplitIterator = struct {
         while (self.index < self.s.len and self.s[self.index] != self.c) : (self.index += 1) {}
         const end = self.index;
 
-        return self.s[start...end];
+        return self.s[start..end];
     }
 
     /// Returns a slice of the remaining bytes. Does not affect iterator state.
@@ -281,7 +281,7 @@ const SplitIterator = struct {
         // move to beginning of token
         var index: usize = self.index;
         while (index < self.s.len and self.s[index] == self.c) : (index += 1) {}
-        return self.s[index...];
+        return self.s[index..];
     }
 };
 
@@ -320,16 +320,16 @@ test "testWriteInt" {
 fn testWriteIntImpl() {
     var bytes: [4]u8 = undefined;
 
-    writeInt(bytes[0...], u32(0x12345678), true);
+    writeInt(bytes[0..], u32(0x12345678), true);
     assert(eql(u8, bytes, []u8{ 0x12, 0x34, 0x56, 0x78 }));
 
-    writeInt(bytes[0...], u32(0x78563412), false);
+    writeInt(bytes[0..], u32(0x78563412), false);
     assert(eql(u8, bytes, []u8{ 0x12, 0x34, 0x56, 0x78 }));
 
-    writeInt(bytes[0...], u16(0x1234), true);
+    writeInt(bytes[0..], u16(0x1234), true);
     assert(eql(u8, bytes, []u8{ 0x00, 0x00, 0x12, 0x34 }));
 
-    writeInt(bytes[0...], u16(0x1234), false);
+    writeInt(bytes[0..], u16(0x1234), false);
     assert(eql(u8, bytes, []u8{ 0x34, 0x12, 0x00, 0x00 }));
 }
 

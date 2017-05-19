@@ -173,14 +173,14 @@ test "slicing" {
 
     array[5] = 1234;
 
-    var slice = array[5...10];
+    var slice = array[5..10];
 
     if (slice.len != 5) unreachable;
 
     const ptr = &slice[0];
     if (ptr[0] != 1234) unreachable;
 
-    var slice_rest = array[10...];
+    var slice_rest = array[10..];
     if (slice_rest.len != 10) unreachable;
 }
 
@@ -260,7 +260,7 @@ test "generic malloc free" {
 }
 const some_mem : [100]u8 = undefined;
 fn memAlloc(comptime T: type, n: usize) -> %[]T {
-    return @ptrCast(&T, &some_mem[0])[0...n];
+    return @ptrCast(&T, &some_mem[0])[0..n];
 }
 fn memFree(comptime T: type, memory: []T) { }
 
@@ -396,7 +396,7 @@ test "C string concatenation" {
 test "cast slice to u8 slice" {
     assert(@sizeOf(i32) == 4);
     var big_thing_array = []i32{1, 2, 3, 4};
-    const big_thing_slice: []i32 = big_thing_array[0...];
+    const big_thing_slice: []i32 = big_thing_array[0..];
     const bytes = ([]u8)(big_thing_slice);
     assert(bytes.len == 4 * 4);
     bytes[4] = 0;
@@ -509,9 +509,9 @@ test "volatile load and store" {
 
 test "slice string literal has type []const u8" {
     comptime {
-        assert(@typeOf("aoeu"[0...]) == []const u8);
+        assert(@typeOf("aoeu"[0..]) == []const u8);
         const array = []i32{1, 2, 3, 4};
-        assert(@typeOf(array[0...]) == []const i32);
+        assert(@typeOf(array[0..]) == []const i32);
     }
 }
 

@@ -335,7 +335,7 @@ pub const Builder = struct {
                     };
                     self.addRPath(rpath);
                 } else if (word.len > 2 and word[0] == '-' and word[1] == 'L') {
-                    const lib_path = word[2...];
+                    const lib_path = word[2..];
                     self.addLibPath(lib_path);
                 } else {
                     %%io.stderr.printf("Unrecognized C flag from NIX_LDFLAGS: {}\n", word);

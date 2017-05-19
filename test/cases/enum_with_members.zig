@@ -19,9 +19,9 @@ test "enumWithMembers" {
     const b = ET.UINT { 42 };
     var buf: [20]u8 = undefined;
 
-    assert(%%a.print(buf[0...]) == 3);
-    assert(mem.eql(u8, buf[0...3], "-42"));
+    assert(%%a.print(buf[0..]) == 3);
+    assert(mem.eql(u8, buf[0..3], "-42"));
 
-    assert(%%b.print(buf[0...]) == 2);
-    assert(mem.eql(u8, buf[0...2], "42"));
+    assert(%%b.print(buf[0..]) == 2);
+    assert(mem.eql(u8, buf[0..2], "42"));
 }

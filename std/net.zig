@@ -34,7 +34,7 @@ const Connection = struct {
         const recv_ret = linux.recvfrom(c.socket_fd, buf.ptr, buf.len, 0, null, null);
         const recv_err = linux.getErrno(recv_ret);
         switch (recv_err) {
-            0 => return buf[0...recv_ret],
+            0 => return buf[0..recv_ret],
             errno.EINVAL => unreachable,
             errno.EFAULT => unreachable,
             errno.ENOTSOCK => return error.NotSocket,
@@ -81,7 +81,7 @@ pub fn lookup(hostname: []const u8, out_addrs: []Address) -> %[]Address {
     //switch (parseIpLiteral(hostname)) {
     //    Ok => |addr| {
     //        out_addrs[0] = addr;
-    //        return out_addrs[0...1];
+    //        return out_addrs[0..1];
     //    },
     //    else => {},
     //};
@@ -134,7 +134,7 @@ pub fn connectAddr(addr: &Address, port: u16) -> %Connection {
 
 pub fn connect(hostname: []const u8, port: u16) -> %Connection {
     var addrs_buf: [1]Address = undefined;
-    const addrs_slice = %return lookup(hostname, addrs_buf[0...]);
+    const addrs_slice = %return lookup(hostname, addrs_buf[0..]);
     const main_addr = &addrs_slice[0];
 
     return connectAddr(main_addr, port);
@@ -186,7 +186,7 @@ fn parseIp6(buf: []const u8) -> %Address {
     var result: Address = undefined;
     result.family = linux.AF_INET6;
     result.scope_id = 0;
-    const ip_slice = result.addr[0...];
+    const ip_slice = result.addr[0..];
 
     var x: u16 = 0;
     var saw_any_digits = false;
@@ -280,7 +280,7 @@ fn parseIp6(buf: []const u8) -> %Address {
 
 fn parseIp4(buf: []const u8) -> %u32 {
     var result: u32 = undefined;
-    const out_ptr = ([]u8)((&result)[0...1]);
+    const out_ptr = ([]u8)((&result)[0..1]);
 
     var x: u8 = 0;
     var index: u8 = 0;

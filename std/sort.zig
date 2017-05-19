@@ -70,7 +70,7 @@ test "testSort" {
 
     for (u8cases) |case| {
         var buf: [8]u8 = undefined;
-        const slice = buf[0...case[0].len];
+        const slice = buf[0..case[0].len];
         mem.copy(u8, slice, case[0]);
         sort(u8, slice, u8asc);
         assert(mem.eql(u8, slice, case[1]));
@@ -87,7 +87,7 @@ test "testSort" {
 
     for (i32cases) |case| {
         var buf: [8]i32 = undefined;
-        const slice = buf[0...case[0].len];
+        const slice = buf[0..case[0].len];
         mem.copy(i32, slice, case[0]);
         sort(i32, slice, i32asc);
         assert(mem.eql(i32, slice, case[1]));
@@ -106,7 +106,7 @@ test "testSortDesc" {
 
     for (rev_cases) |case| {
         var buf: [8]i32 = undefined;
-        const slice = buf[0...case[0].len];
+        const slice = buf[0..case[0].len];
         mem.copy(i32, slice, case[0]);
         sort(i32, slice, i32desc);
         assert(mem.eql(i32, slice, case[1]));

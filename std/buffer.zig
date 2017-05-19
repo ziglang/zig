@@ -43,11 +43,11 @@ pub const Buffer = struct {
     }
 
     pub fn toSlice(self: &Buffer) -> []u8 {
-        return self.list.toSlice()[0...self.len()];
+        return self.list.toSlice()[0..self.len()];
     }
 
     pub fn toSliceConst(self: &const Buffer) -> []const u8 {
-        return self.list.toSliceConst()[0...self.len()];
+        return self.list.toSliceConst()[0..self.len()];
     }
 
     pub fn resize(self: &Buffer, new_len: usize) -> %void {
@@ -66,7 +66,7 @@ pub const Buffer = struct {
     pub fn append(self: &Buffer, m: []const u8) -> %void {
         const old_len = self.len();
         %return self.resize(old_len + m.len);
-        mem.copy(u8, self.list.toSlice()[old_len...], m);
+        mem.copy(u8, self.list.toSlice()[old_len..], m);
     }
 
     pub fn appendByte(self: &Buffer, byte: u8) -> %void {
@@ -80,14 +80,14 @@ pub const Buffer = struct {
 
     pub fn startsWith(self: &const Buffer, m: []const u8) -> bool {
         if (self.len() < m.len) return false;
-        return mem.eql(u8, self.list.items[0...m.len], m);
+        return mem.eql(u8, self.list.items[0..m.len], m);
     }
 
     pub fn endsWith(self: &const Buffer, m: []const u8) -> bool {
         const l = self.len();
         if (l < m.len) return false;
         const start = l - m.len;
-        return mem.eql(u8, self.list.items[start...], m);
+        return mem.eql(u8, self.list.items[start..], m);
     }
 
     pub fn replaceContents(self: &const Buffer, m: []const u8) -> %void {

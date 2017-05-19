@@ -70,7 +70,7 @@ const Str = struct {
     a: []Sub,
 };
 test "setGlobalVarArrayViaSliceEmbeddedInStruct" {
-    var s = Str { .a = s_array[0...]};
+    var s = Str { .a = s_array[0..]};
 
     s.a[0].b = 1;
     s.a[1].b = 2;

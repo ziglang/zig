@@ -27,12 +27,12 @@ test "struct contains slice of itself" {
         },
         Node {
             .payload = 3,
-            .children = other_nodes[0...],
+            .children = other_nodes[0..],
         },
     };
     const root = Node {
         .payload = 1234,
-        .children = nodes[0...],
+        .children = nodes[0..],
     };
     assert(root.payload == 1234);
     assert(root.children[0].payload == 1);

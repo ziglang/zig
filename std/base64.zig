@@ -56,7 +56,7 @@ pub fn encodeWithAlphabet(dest: []u8, source: []const u8, alphabet: []const u8) 
         out_index += 1;
     }
 
-    return dest[0...out_index];
+    return dest[0..out_index];
 }
 
 pub fn decodeWithAlphabet(dest: []u8, source: []const u8, alphabet: []const u8) -> []u8 {
@@ -67,7 +67,7 @@ pub fn decodeWithAlphabet(dest: []u8, source: []const u8, alphabet: []const u8) 
         ascii6[c] = u8(i);
     }
 
-    return decodeWithAscii6BitMap(dest, source, ascii6[0...], alphabet[64]);
+    return decodeWithAscii6BitMap(dest, source, ascii6[0..], alphabet[64]);
 }
 
 pub fn decodeWithAscii6BitMap(dest: []u8, source: []const u8, ascii6: []const u8, pad_char: u8) -> []u8 {
@@ -115,7 +115,7 @@ pub fn decodeWithAscii6BitMap(dest: []u8, source: []const u8, ascii6: []const u8
         dest_index += 1;
     }
 
-    return dest[0...dest_index];
+    return dest[0..dest_index];
 }
 
 pub fn calcEncodedSize(source_len: usize) -> usize {
@@ -174,11 +174,11 @@ fn testBase64Case(expected_decoded: []const u8, expected_encoded: []const u8) {
 
     var buf: [100]u8 = undefined;
 
-    const actual_decoded = decode(buf[0...], expected_encoded);
+    const actual_decoded = decode(buf[0..], expected_encoded);
     assert(actual_decoded.len == expected_decoded.len);
     assert(mem.eql(u8, expected_decoded, actual_decoded));
 
-    const actual_encoded = encode(buf[0...], expected_decoded);
+    const actual_encoded = encode(buf[0..], expected_decoded);
     assert(actual_encoded.len == expected_encoded.len);
     assert(mem.eql(u8, expected_encoded, actual_encoded));
 }

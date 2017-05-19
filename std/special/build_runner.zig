@@ -58,14 +58,14 @@ pub fn main() -> %void {
     while (arg_i < os.args.count()) : (arg_i += 1) {
         const arg = os.args.at(arg_i);
         if (mem.startsWith(u8, arg, "-D")) {
-            const option_contents = arg[2...];
+            const option_contents = arg[2..];
             if (option_contents.len == 0) {
                 %%io.stderr.printf("Expected option name after '-D'\n\n");
                 return usage(&builder, false, &io.stderr);
             }
             if (mem.indexOfScalar(u8, option_contents, '=')) |name_end| {
-                const option_name = option_contents[0...name_end];
-                const option_value = option_contents[name_end + 1...];
+                const option_name = option_contents[0..name_end];
+                const option_value = option_contents[name_end + 1..];
                 if (builder.addUserInputOption(option_name, option_value))
                     return usage(&builder, false, &io.stderr);
             } else {

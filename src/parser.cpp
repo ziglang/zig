@@ -284,7 +284,7 @@ static AstNode *ast_parse_param_decl(ParseContext *pc, size_t *token_index) {
     }
 
     Token *ellipsis_tok = &pc->tokens->at(*token_index);
-    if (ellipsis_tok->id == TokenIdEllipsis) {
+    if (ellipsis_tok->id == TokenIdEllipsis3) {
         *token_index += 1;
         node->data.param_decl.is_var_args = true;
     } else {
@@ -879,7 +879,7 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, 
 
             Token *ellipsis_or_r_bracket = &pc->tokens->at(*token_index);
 
-            if (ellipsis_or_r_bracket->id == TokenIdEllipsis) {
+            if (ellipsis_or_r_bracket->id == TokenIdEllipsis2) {
                 *token_index += 1;
 
                 AstNode *node = ast_create_node(pc, NodeTypeSliceExpr, first_token);
@@ -1730,7 +1730,7 @@ static AstNode *ast_parse_for_expr(ParseContext *pc, size_t *token_index, bool m
 /*
 SwitchExpression = "switch" "(" Expression ")" "{" many(SwitchProng) "}"
 SwitchProng = (list(SwitchItem, ",") | "else") "=>" option("|" option("*") Symbol "|") Expression ","
-SwitchItem : Expression | (Expression "..." Expression)
+SwitchItem = Expression | (Expression "..." Expression)
 */
 static AstNode *ast_parse_switch_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *switch_token = &pc->tokens->at(*token_index);
@@ -1767,7 +1767,7 @@ static AstNode *ast_parse_switch_expr(ParseContext *pc, size_t *token_index, boo
         } else for (;;) {
             AstNode *expr1 = ast_parse_expression(pc, token_index, true);
             Token *ellipsis_tok = &pc->tokens->at(*token_index);
-            if (ellipsis_tok->id == TokenIdEllipsis) {
+            if (ellipsis_tok->id == TokenIdEllipsis3) {
                 *token_index += 1;
 
                 AstNode *range_node = ast_create_node(pc, NodeTypeSwitchRange, ellipsis_tok);

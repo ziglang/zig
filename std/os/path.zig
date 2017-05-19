@@ -39,7 +39,7 @@ pub fn join(allocator: &Allocator, paths: ...) -> %[]u8 {
     inline while (true) {
         const arg = ([]const u8)(paths[path_i]);
         path_i += 1;
-        mem.copy(u8, buf[buf_index...], arg);
+        mem.copy(u8, buf[buf_index..], arg);
         buf_index += arg.len;
         if (path_i >= paths.len) break;
         if (buf[buf_index - 1] != sep) {
@@ -48,7 +48,7 @@ pub fn join(allocator: &Allocator, paths: ...) -> %[]u8 {
         }
     }
 
-    return buf[0...buf_index];
+    return buf[0..buf_index];
 }
 
 test "os.path.join" {
@@ -110,7 +110,7 @@ pub fn resolveSlice(allocator: &Allocator, paths: []const []const u8) -> %[]u8 {
     }
     %defer allocator.free(result);
 
-    for (paths[first_index...]) |p, i| {
+    for (paths[first_index..]) |p, i| {
         var it = mem.split(p, '/');
         while (it.next()) |component| {
             if (mem.eql(u8, component, ".")) {
@@ -126,7 +126,7 @@ pub fn resolveSlice(allocator: &Allocator, paths: []const []const u8) -> %[]u8 {
             } else {
                 result[result_index] = '/';
                 result_index += 1;
-                mem.copy(u8, result[result_index...], component);
+                mem.copy(u8, result[result_index..], component);
                 result_index += component.len;
             }
         }
@@ -137,7 +137,7 @@ pub fn resolveSlice(allocator: &Allocator, paths: []const []const u8) -> %[]u8 {
         result_index += 1;
     }
 
-    return result[0...result_index];
+    return result[0..result_index];
 }
 
 test "os.path.resolve" {
@@ -153,24 +153,24 @@ fn testResolve(args: ...) -> []u8 {
 
 pub fn dirname(path: []const u8) -> []const u8 {
     if (path.len == 0)
-        return path[0...0];
+        return path[0..0];
     var end_index: usize = path.len - 1;
     while (path[end_index] == '/') {
         if (end_index == 0)
-            return path[0...1];
+            return path[0..1];
         end_index -= 1;
     }
 
     while (path[end_index] != '/') {
         if (end_index == 0)
-            return path[0...0];
+            return path[0..0];
         end_index -= 1;
     }
 
     if (end_index == 0 and path[end_index] == '/')
-        return path[0...1];
+        return path[0..1];
 
-    return path[0...end_index];
+    return path[0..end_index];
 }
 
 test "os.path.dirname" {
@@ -202,11 +202,11 @@ pub fn basename(path: []const u8) -> []const u8 {
     end_index += 1;
     while (path[start_index] != '/') {
         if (start_index == 0)
-            return path[0...end_index];
+            return path[0..end_index];
         start_index -= 1;
     }
 
-    return path[start_index + 1...end_index];
+    return path[start_index + 1..end_index];
 }
 
 test "os.path.basename" {
@@ -265,10 +265,10 @@ pub fn relative(allocator: &Allocator, from: []const u8, to: []const u8) -> %[]u
         }
         if (to_rest.len == 0) {
             // shave off the trailing slash
-            return result[0...result_index - 1];
+            return result[0..result_index - 1];
         }
 
-        mem.copy(u8, result[result_index...], to_rest);
+        mem.copy(u8, result[result_index..], to_rest);
         return result;
     }
 
@@ -303,7 +303,7 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
     defer os.posixClose(fd);
 
     var buf: ["/proc/self/fd/-2147483648".len]u8 = undefined;
-    const proc_path = fmt.bufPrint(buf[0...], "/proc/self/fd/{}", fd);
+    const proc_path = fmt.bufPrint(buf[0..], "/proc/self/fd/{}", fd);
 
     return os.readLink(allocator, proc_path);
 }

@@ -20,11 +20,11 @@ pub fn cmp(a: &const u8, b: &const u8) -> i8 {
 }
 
 pub fn toSliceConst(str: &const u8) -> []const u8 {
-    return str[0...len(str)];
+    return str[0..len(str)];
 }
 
 pub fn toSlice(str: &u8) -> []u8 {
-    return str[0...len(str)];
+    return str[0..len(str)];
 }
 
 test "cstr fns" {

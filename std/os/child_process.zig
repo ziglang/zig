@@ -225,7 +225,7 @@ fn forkChildErrReport(fd: i32, err: error) -> noreturn {
 const ErrInt = @IntType(false, @sizeOf(error) * 8);
 fn writeIntFd(fd: i32, value: ErrInt) -> %void {
     var bytes: [@sizeOf(ErrInt)]u8 = undefined;
-    mem.writeInt(bytes[0...], value, true);
+    mem.writeInt(bytes[0..], value, true);
 
     var index: usize = 0;
     while (index < bytes.len) {
@@ -259,6 +259,6 @@ fn readIntFd(fd: i32) -> %ErrInt {
         index += amt_written;
     }
 
-    return mem.readInt(bytes[0...], ErrInt, true);
+    return mem.readInt(bytes[0..], ErrInt, true);
 }
 

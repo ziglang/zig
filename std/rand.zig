@@ -39,7 +39,7 @@ pub const Rand = struct {
             return (r.rng.get() & 0b1) == 0;
         } else {
             var result: [@sizeOf(T)]u8 = undefined;
-            r.fillBytes(result[0...]);
+            r.fillBytes(result[0..]);
             return mem.readInt(result, T, false);
         }
     }
@@ -48,12 +48,12 @@ pub const Rand = struct {
     pub fn fillBytes(r: &Rand, buf: []u8) {
         var bytes_left = buf.len;
         while (bytes_left >= @sizeOf(usize)) {
-            mem.writeInt(buf[buf.len - bytes_left...], r.rng.get(), false);
+            mem.writeInt(buf[buf.len - bytes_left..], r.rng.get(), false);
             bytes_left -= @sizeOf(usize);
         }
         if (bytes_left > 0) {
             var rand_val_array: [@sizeOf(usize)]u8 = undefined;
-            mem.writeInt(rand_val_array[0...], r.rng.get(), false);
+            mem.writeInt(rand_val_array[0..], r.rng.get(), false);
             while (bytes_left > 0) {
                 buf[buf.len - bytes_left] = rand_val_array[@sizeOf(usize) - bytes_left];
                 bytes_left -= 1;
@@ -71,7 +71,7 @@ pub const Rand = struct {
         var rand_val_array: [@sizeOf(T)]u8 = undefined;
 
         while (true) {
-            r.fillBytes(rand_val_array[0...]);
+            r.fillBytes(rand_val_array[0..]);
             const rand_val = mem.readInt(rand_val_array, T, false);
             if (rand_val < upper_bound) {
                 return start + (rand_val % range);

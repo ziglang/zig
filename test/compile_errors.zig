@@ -1112,7 +1112,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     cases.add("bogus method call on slice",
         \\var self = "aoeu";
         \\fn f(m: []const u8) {
-        \\    m.copy(u8, self[0...], m);
+        \\    m.copy(u8, self[0..], m);
         \\}
         \\export fn entry() -> usize { @sizeOf(@typeOf(f)) }
     , ".tmp_source.zig:3:6: error: no member named 'copy' in '[]const u8'");
@@ -1467,7 +1467,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\pub fn pass(in: []u8) -> []u8 {
         \\    var out = &s_buffer;
         \\    *out[0] = in[0];
-        \\    return (*out)[0...1];
+        \\    return (*out)[0..1];
         \\}
         \\
         \\export fn entry() -> usize { @sizeOf(@typeOf(pass)) }

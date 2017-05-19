@@ -38,14 +38,14 @@ pub fn format(context: var, output: fn(@typeOf(context), []const u8)->bool,
                 '{' => {
                     // TODO if you make this an if statement with `and` then it breaks
                     if (start_index < i) {
-                        if (!output(context, fmt[start_index...i]))
+                        if (!output(context, fmt[start_index..i]))
                             return false;
                     }
                     state = State.OpenBrace;
                 },
                 '}' => {
                     if (start_index < i) {
-                        if (!output(context, fmt[start_index...i]))
+                        if (!output(context, fmt[start_index..i]))
                             return false;
                     }
                     state = State.CloseBrace;
@@ -123,7 +123,7 @@ pub fn format(context: var, output: fn(@typeOf(context), []const u8)->bool,
             },
             State.IntegerWidth => switch (c) {
                 '}' => {
-                    width = comptime %%parseUnsigned(usize, fmt[width_start...i], 10);
+                    width = comptime %%parseUnsigned(usize, fmt[width_start..i], 10);
                     if (!formatInt(args[next_arg], radix, uppercase, width, context, output))
                         return false;
                     next_arg += 1;
@@ -135,7 +135,7 @@ pub fn format(context: var, output: fn(@typeOf(context), []const u8)->bool,
             },
             State.BufWidth => switch (c) {
                 '}' => {
-                    width = comptime %%parseUnsigned(usize, fmt[width_start...i], 10);
+                    width = comptime %%parseUnsigned(usize, fmt[width_start..i], 10);
                     if (!formatBuf(args[next_arg], width, context, output))
                         return false;
                     next_arg += 1;
@@ -166,7 +166,7 @@ pub fn format(context: var, output: fn(@typeOf(context), []const u8)->bool,
         }
     }
     if (start_index < fmt.len) {
-        if (!output(context, fmt[start_index...]))
+        if (!output(context, fmt[start_index..]))
             return false;
     }
 
@@ -198,7 +198,7 @@ pub fn formatValue(value: var, context: var, output: fn(@typeOf(context), []cons
 }
 
 pub fn formatAsciiChar(c: u8, context: var, output: fn(@typeOf(context), []const u8)->bool) -> bool {
-    return output(context, (&c)[0...1]);
+    return output(context, (&c)[0..1]);
 }
 
 pub fn formatBuf(buf: []const u8, width: usize,
@@ -210,7 +210,7 @@ pub fn formatBuf(buf: []const u8, width: usize,
     var leftover_padding = if (width > buf.len) (width - buf.len) else return true;
     const pad_byte: u8 = ' ';
     while (leftover_padding > 0) : (leftover_padding -= 1) {
-        if (!output(context, (&pad_byte)[0...1]))
+        if (!output(context, (&pad_byte)[0..1]))
             return false;
     }
 
@@ -234,7 +234,7 @@ fn formatIntSigned(value: var, base: u8, uppercase: bool, width: usize,
     const uint = @IntType(false, @typeOf(value).bit_count);
     if (value < 0) {
         const minus_sign: u8 = '-';
-        if (!output(context, (&minus_sign)[0...1]))
+        if (!output(context, (&minus_sign)[0..1]))
             return false;
         const new_value = uint(-(value + 1)) + 1;
         const new_width = if (width == 0) 0 else (width - 1);
@@ -243,7 +243,7 @@ fn formatIntSigned(value: var, base: u8, uppercase: bool, width: usize,
         return formatIntUnsigned(uint(value), base, uppercase, width, context, output);
     } else {
         const plus_sign: u8 = '+';
-        if (!output(context, (&plus_sign)[0...1]))
+        if (!output(context, (&plus_sign)[0..1]))
             return false;
         const new_value = uint(value);
         const new_width = if (width == 0) 0 else (width - 1);
@@ -269,24 +269,24 @@ fn formatIntUnsigned(value: var, base: u8, uppercase: bool, width: usize,
             break;
     }
 
-    const digits_buf = buf[index...];
+    const digits_buf = buf[index..];
     const padding = if (width > digits_buf.len) (width - digits_buf.len) else 0;
 
     if (padding > index) {
         const zero_byte: u8 = '0';
         var leftover_padding = padding - index;
         while (true) {
-            if (!output(context, (&zero_byte)[0...1]))
+            if (!output(context, (&zero_byte)[0..1]))
                 return false;
             leftover_padding -= 1;
             if (leftover_padding == 0)
                 break;
         }
-        mem.set(u8, buf[0...index], '0');
+        mem.set(u8, buf[0..index], '0');
         return output(context, buf);
     } else {
-        const padded_buf = buf[index - padding...];
-        mem.set(u8, padded_buf[0...padding], '0');
+        const padded_buf = buf[index - padding..];
+        mem.set(u8, padded_buf[0..padding], '0');
         return output(context, padded_buf);
     }
 }
@@ -304,7 +304,7 @@ const FormatIntBuf = struct {
     index: usize,
 };
 fn formatIntCallback(context: &FormatIntBuf, bytes: []const u8) -> bool {
-    mem.copy(u8, context.out_buf[context.index...], bytes);
+    mem.copy(u8, context.out_buf[context.index..], bytes);
     context.index += bytes.len;
     return true;
 }
@@ -350,14 +350,14 @@ const BufPrintContext = struct {
 
 fn bufPrintWrite(context: &BufPrintContext, bytes: []const u8) -> bool {
     mem.copy(u8, context.remaining, bytes);
-    context.remaining = context.remaining[bytes.len...];
+    context.remaining = context.remaining[bytes.len..];
     return true;
 }
 
 pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: ...) -> []u8 {
     var context = BufPrintContext { .remaining = buf, };
     _ = format(&context, bufPrintWrite, fmt, args);
-    return buf[0...buf.len - context.remaining.len];
+    return buf[0..buf.len - context.remaining.len];
 }
 
 pub fn allocPrint(allocator: &mem.Allocator, comptime fmt: []const u8, args: ...) -> %[]u8 {
@@ -374,7 +374,7 @@ fn countSize(size: &usize, bytes: []const u8) -> bool {
 
 test "buf print int" {
     var buffer: [max_int_digits]u8 = undefined;
-    const buf = buffer[0...];
+    const buf = buffer[0..];
     assert(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 2, false, 0), "-101111000110000101001110"));
     assert(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 10, false, 0), "-12345678"));
     assert(mem.eql(u8, bufPrintIntToSlice(buf, i32(-12345678), 16, false, 0), "-bc614e"));
@@ -391,7 +391,7 @@ test "buf print int" {
 }
 
 fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, width: usize) -> []u8 {
-    return buf[0...formatIntBuf(buf, value, base, uppercase, width)];
+    return buf[0..formatIntBuf(buf, value, base, uppercase, width)];
 }
 
 test "parse u64 digit too big" {

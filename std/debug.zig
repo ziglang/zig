@@ -149,8 +149,8 @@ fn printLineFromFile(allocator: &mem.Allocator, out_stream: &io.OutStream, line_
     var column: usize = 1;
     var abs_index: usize = 0;
     while (true) {
-        const amt_read = %return f.read(buf[0...]);
-        const slice = buf[0...amt_read];
+        const amt_read = %return f.read(buf[0..]);
+        const slice = buf[0..amt_read];
 
         for (slice) |byte| {
             if (line == line_info.line) {
@@ -939,7 +939,7 @@ var some_mem: [100 * 1024]u8 = undefined;
 var some_mem_index: usize = 0;
 
 fn globalAlloc(self: &mem.Allocator, n: usize) -> %[]u8 {
-    const result = some_mem[some_mem_index ... some_mem_index + n];
+    const result = some_mem[some_mem_index .. some_mem_index + n];
     some_mem_index += n;
     return result;
 }

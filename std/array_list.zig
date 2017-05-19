@@ -27,11 +27,11 @@ pub fn ArrayList(comptime T: type) -> type{
         }
 
         pub fn toSlice(l: &Self) -> []T {
-            return l.items[0...l.len];
+            return l.items[0..l.len];
         }
 
         pub fn toSliceConst(l: &const Self) -> []const T {
-            return l.items[0...l.len];
+            return l.items[0..l.len];
         }
 
         pub fn append(l: &Self, item: &const T) -> %void {

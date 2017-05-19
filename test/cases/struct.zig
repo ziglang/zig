@@ -305,7 +305,7 @@ test "packedArray24Bits" {
 
     var bytes = []u8{0} ** (@sizeOf(FooArray24Bits) + 1);
     bytes[bytes.len - 1] = 0xaa;
-    const ptr = &([]FooArray24Bits)(bytes[0...bytes.len - 1])[0];
+    const ptr = &([]FooArray24Bits)(bytes[0..bytes.len - 1])[0];
     assert(ptr.a == 0);
     assert(ptr.b[0].field == 0);
     assert(ptr.b[1].field == 0);
@@ -354,7 +354,7 @@ test "alignedArrayOfPackedStruct" {
     }
 
     var bytes = []u8{0xbb} ** @sizeOf(FooArrayOfAligned);
-    const ptr = &([]FooArrayOfAligned)(bytes[0...bytes.len])[0];
+    const ptr = &([]FooArrayOfAligned)(bytes[0..bytes.len])[0];
 
     assert(ptr.a[0].a == 0xbb);
     assert(ptr.a[0].b == 0xbb);

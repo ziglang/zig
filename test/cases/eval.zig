@@ -145,7 +145,7 @@ test "constSlice" {
     comptime {
         const a = "1234567890";
         assert(a.len == 10);
-        const b = a[1...2];
+        const b = a[1..2];
         assert(b.len == 1);
         assert(b[0] == '2');
     }
@@ -255,7 +255,7 @@ test "callMethodOnBoundFnReferringToVarInstance" {
 test "ptrToLocalArrayArgumentAtComptime" {
     comptime {
         var bytes: [10]u8 = undefined;
-        modifySomeBytes(bytes[0...]);
+        modifySomeBytes(bytes[0..]);
         assert(bytes[0] == 'a');
         assert(bytes[9] == 'b');
     }

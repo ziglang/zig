@@ -18,8 +18,8 @@ test "continueInForLoop" {
 test "forLoopWithPointerElemVar" {
     const source = "abcdefg";
     var target: [source.len]u8 = undefined;
-    mem.copy(u8, target[0...], source);
-    mangleString(target[0...]);
+    mem.copy(u8, target[0..], source);
+    mangleString(target[0..]);
     assert(mem.eql(u8, target, "bcdefgh"));
 }
 fn mangleString(s: []u8) {
@@ -53,5 +53,5 @@ test "basicForLoop" {
         buf_index += 1;
     }
 
-    assert(mem.eql(u8, buffer[0...buf_index], expected_result));
+    assert(mem.eql(u8, buffer[0..buf_index], expected_result));
 }

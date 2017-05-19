@@ -113,7 +113,7 @@ pub const OutStream = struct {
         while (src_index < bytes.len) {
             const dest_space_left = self.buffer.len - self.index;
             const copy_amt = math.min(dest_space_left, bytes.len - src_index);
-            mem.copy(u8, self.buffer[self.index...], bytes[src_index...src_index + copy_amt]);
+            mem.copy(u8, self.buffer[self.index..], bytes[src_index..src_index + copy_amt]);
             self.index += copy_amt;
             assert(self.index <= self.buffer.len);
             if (self.index == self.buffer.len) {
@@ -152,7 +152,7 @@ pub const OutStream = struct {
 
     pub fn flush(self: &OutStream) -> %void {
         if (self.index != 0) {
-            %return os.posixWrite(self.fd, self.buffer[0...self.index]);
+            %return os.posixWrite(self.fd, self.buffer[0..self.index]);
             self.index = 0;
         }
     }
@@ -236,13 +236,13 @@ pub const InStream = struct {
 
     pub fn readByte(is: &InStream) -> %u8 {
         var result: [1]u8 = undefined;
-        %return is.readNoEof(result[0...]);
+        %return is.readNoEof(result[0..]);
         return result[0];
     }
 
     pub fn readByteSigned(is: &InStream) -> %i8 {
         var result: [1]i8 = undefined;
-        %return is.readNoEof(([]u8)(result[0...]));
+        %return is.readNoEof(([]u8)(result[0..]));
         return result[0];
     }
 
@@ -256,7 +256,7 @@ pub const InStream = struct {
 
     pub fn readInt(is: &InStream, is_be: bool, comptime T: type) -> %T {
         var bytes: [@sizeOf(T)]u8 = undefined;
-        %return is.readNoEof(bytes[0...]);
+        %return is.readNoEof(bytes[0..]);
         return mem.readInt(bytes, T, is_be);
     }
 
@@ -264,7 +264,7 @@ pub const InStream = struct {
         assert(size <= @sizeOf(T));
         assert(size <= 8);
         var input_buf: [8]u8 = undefined;
-        const input_slice = input_buf[0...size];
+        const input_slice = input_buf[0..size];
         %return is.readNoEof(input_slice);
         return mem.readInt(input_slice, T, is_be);
     }
@@ -349,7 +349,7 @@ pub const InStream = struct {
 
         var actual_buf_len: usize = 0;
         while (true) {
-            const dest_slice = buf.toSlice()[actual_buf_len...];
+            const dest_slice = buf.toSlice()[actual_buf_len..];
             const bytes_read = %return is.read(dest_slice);
             actual_buf_len += bytes_read;
 

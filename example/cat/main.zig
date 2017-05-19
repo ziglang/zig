@@ -40,7 +40,7 @@ fn cat_stream(is: &io.InStream) -> %void {
     var buf: [1024 * 4]u8 = undefined;
 
     while (true) {
-        const bytes_read = is.read(buf[0...]) %% |err| {
+        const bytes_read = is.read(buf[0..]) %% |err| {
             %%io.stderr.printf("Unable to read from stream: {}\n", @errorName(err));
             return err;
         };
@@ -49,7 +49,7 @@ fn cat_stream(is: &io.InStream) -> %void {
             break;
         }
 
-        io.stdout.write(buf[0...bytes_read]) %% |err| {
+        io.stdout.write(buf[0..bytes_read]) %% |err| {
             %%io.stderr.printf("Unable to write to stdout: {}\n", @errorName(err));
             return err;
         };
