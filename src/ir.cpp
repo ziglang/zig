@@ -9682,8 +9682,12 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
     if (type_is_invalid(elem_index->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    // This will be a pointer type because elem ptr IR instruction operates on a pointer to a thing.
     TypeTableEntry *ptr_type = array_ptr->value.type;
+    if (ptr_type->id == TypeTableEntryIdMetaType) {
+        ir_add_error(ira, &elem_ptr_instruction->base,
+                buf_sprintf("array access of non-array type '%s'", buf_ptr(&ptr_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
     assert(ptr_type->id == TypeTableEntryIdPointer);
 
     TypeTableEntry *array_type = ptr_type->data.pointer.child_type;

@@ -1853,4 +1853,11 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     ,
         ".tmp_source.zig:3:5: error: float mode set twice for same scope",
         ".tmp_source.zig:2:5: note: first set here");
+
+    cases.add("array access of type",
+        \\export fn foo() {
+        \\    var b: u8[40] = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:2:14: error: array access of non-array type 'type'");
 }
