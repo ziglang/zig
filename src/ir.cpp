@@ -5982,12 +5982,34 @@ static bool ir_goto_pass2(IrBuilder *irb) {
         irb->current_basic_block->instruction_list.resize(goto_item->instruction_index);
 
         Buf *label_name = source_node->data.goto_expr.name;
-        LabelTableEntry *label = find_label(irb->exec, goto_item->scope, label_name);
-        if (!label) {
-            add_node_error(irb->codegen, source_node,
-                buf_sprintf("no label in scope named '%s'", buf_ptr(label_name)));
-            return false;
+
+        // Search up the scope until we find one of these things:
+        // * A block scope with the label in it => OK
+        // * A defer expression scope => error, error, cannot leave defer expression
+        // * Top level scope => error, didn't find label
+
+        LabelTableEntry *label;
+        Scope *search_scope = goto_item->scope;
+        for (;;) {
+            if (search_scope == nullptr) {
+                add_node_error(irb->codegen, source_node,
+                    buf_sprintf("no label in scope named '%s'", buf_ptr(label_name)));
+                return false;
+            } else if (search_scope->id == ScopeIdBlock) {
+                ScopeBlock *block_scope = (ScopeBlock *)search_scope;
+                auto entry = block_scope->label_table.maybe_get(label_name);
+                if (entry) {
+                    label = entry->value;
+                    break;
+                }
+            } else if (search_scope->id == ScopeIdDeferExpr) {
+                add_node_error(irb->codegen, source_node,
+                    buf_sprintf("cannot goto out of defer expression"));
+                return false;
+            }
+            search_scope = search_scope->parent;
         }
+
         label->used = true;
 
         IrInstruction *is_comptime = ir_build_const_bool(irb, goto_item->scope, source_node,

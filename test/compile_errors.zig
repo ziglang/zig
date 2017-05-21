@@ -1882,4 +1882,14 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:4:13: error: cannot continue out of defer expression");
+
+    cases.add("cannot goto out of defer expression",
+        \\export fn foo() {
+        \\    defer {
+        \\        goto label;
+        \\    };
+        \\label:
+        \\}
+    ,
+        ".tmp_source.zig:3:9: error: cannot goto out of defer expression");
 }
