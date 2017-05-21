@@ -4629,11 +4629,11 @@ static void define_builtin_compile_vars(CodeGen *g) {
     {
         buf_appendf(contents,
             "pub const FloatMode = enum {\n"
-            "    Strict,\n"
             "    Optimized,\n"
+            "    Strict,\n"
             "};\n\n");
-        assert(FloatModeStrict == 0);
-        assert(FloatModeOptimized == 1);
+        assert(FloatModeOptimized == 0);
+        assert(FloatModeStrict == 1);
     }
     buf_appendf(contents, "pub const is_big_endian = %s;\n", bool_to_str(g->is_big_endian));
     buf_appendf(contents, "pub const is_test = %s;\n", bool_to_str(g->is_test_build));

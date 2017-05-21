@@ -2564,8 +2564,8 @@ static const size_t err_union_err_index = 0;
 static const size_t err_union_payload_index = 1;
 
 enum FloatMode {
-    FloatModeStrict,
     FloatModeOptimized,
+    FloatModeStrict,
 };
 
 #endif
