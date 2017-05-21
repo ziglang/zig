@@ -1636,9 +1636,14 @@ struct ScopeCImport {
 // This scope is created for a loop such as for or while in order to
 // make break and continue statements work.
 // NodeTypeForExpr or NodeTypeWhileExpr
-// TODO I think we can get rid of this
 struct ScopeLoop {
     Scope base;
+
+    IrBasicBlock *break_block;
+    IrBasicBlock *continue_block;
+    IrInstruction *is_comptime;
+    ZigList<IrInstruction *> *incoming_values;
+    ZigList<IrBasicBlock *> *incoming_blocks;
 };
 
 // This scope is created for a comptime expression.

@@ -19,19 +19,10 @@ struct IrExecContext {
     size_t mem_slot_count;
 };
 
-struct LoopStackItem {
-    IrBasicBlock *break_block;
-    IrBasicBlock *continue_block;
-    IrInstruction *is_comptime;
-    ZigList<IrInstruction *> *incoming_values;
-    ZigList<IrBasicBlock *> *incoming_blocks;
-};
-
 struct IrBuilder {
     CodeGen *codegen;
     IrExecutable *exec;
     IrBasicBlock *current_basic_block;
-    ZigList<LoopStackItem> loop_stack;
 };
 
 struct IrAnalyze {
@@ -58,18 +49,6 @@ static IrInstruction *ir_gen_node(IrBuilder *irb, AstNode *node, Scope *scope);
 static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, Scope *scope, LVal lval);
 static TypeTableEntry *ir_analyze_instruction(IrAnalyze *ira, IrInstruction *instruction);
 static IrInstruction *ir_implicit_cast(IrAnalyze *ira, IrInstruction *value, TypeTableEntry *expected_type);
-
-static LoopStackItem *add_loop_stack_item(IrBuilder *irb, IrBasicBlock *break_block, IrBasicBlock *continue_block,
-        IrInstruction *is_comptime, ZigList<IrBasicBlock *> *incoming_blocks, ZigList<IrInstruction *> *incoming_values)
-{
-    LoopStackItem *loop_stack_item = irb->loop_stack.add_one();
-    loop_stack_item->break_block = break_block;
-    loop_stack_item->continue_block = continue_block;
-    loop_stack_item->is_comptime = is_comptime;
-    loop_stack_item->incoming_blocks = incoming_blocks;
-    loop_stack_item->incoming_values = incoming_values;
-    return loop_stack_item;
-}
 
 ConstExprValue *const_ptr_pointee(CodeGen *g, ConstExprValue *const_val) {
     assert(const_val->type->id == TypeTableEntryIdPointer);
@@ -4748,13 +4727,20 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
                 var_ptr_value : ir_build_load_ptr(irb, payload_scope, symbol_node, var_ptr_value);
             ir_build_var_decl(irb, payload_scope, symbol_node, payload_var, nullptr, var_value);
         }
+
         ZigList<IrInstruction *> incoming_values = {0};
         ZigList<IrBasicBlock *> incoming_blocks = {0};
-        add_loop_stack_item(irb, end_block, continue_block, is_comptime, &incoming_blocks, &incoming_values);
-        IrInstruction *body_result = ir_gen_node(irb, node->data.while_expr.body, payload_scope);
+
+        ScopeLoop *loop_scope = create_loop_scope(node, payload_scope);
+        loop_scope->break_block = end_block;
+        loop_scope->continue_block = continue_block;
+        loop_scope->is_comptime = is_comptime;
+        loop_scope->incoming_blocks = &incoming_blocks;
+        loop_scope->incoming_values = &incoming_values;
+
+        IrInstruction *body_result = ir_gen_node(irb, node->data.while_expr.body, &loop_scope->base);
         if (body_result == irb->codegen->invalid_instruction)
             return body_result;
-        irb->loop_stack.pop();
 
         if (!instr_is_unreachable(body_result))
             ir_mark_gen(ir_build_br(irb, payload_scope, node, continue_block, is_comptime));
@@ -4821,13 +4807,20 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         IrInstruction *var_value = node->data.while_expr.var_is_ptr ?
             var_ptr_value : ir_build_load_ptr(irb, child_scope, symbol_node, var_ptr_value);
         ir_build_var_decl(irb, child_scope, symbol_node, payload_var, nullptr, var_value);
+
         ZigList<IrInstruction *> incoming_values = {0};
         ZigList<IrBasicBlock *> incoming_blocks = {0};
-        add_loop_stack_item(irb, end_block, continue_block, is_comptime, &incoming_blocks, &incoming_values);
-        IrInstruction *body_result = ir_gen_node(irb, node->data.while_expr.body, child_scope);
+
+        ScopeLoop *loop_scope = create_loop_scope(node, child_scope);
+        loop_scope->break_block = end_block;
+        loop_scope->continue_block = continue_block;
+        loop_scope->is_comptime = is_comptime;
+        loop_scope->incoming_blocks = &incoming_blocks;
+        loop_scope->incoming_values = &incoming_values;
+
+        IrInstruction *body_result = ir_gen_node(irb, node->data.while_expr.body, &loop_scope->base);
         if (body_result == irb->codegen->invalid_instruction)
             return body_result;
-        irb->loop_stack.pop();
 
         if (!instr_is_unreachable(body_result))
             ir_mark_gen(ir_build_br(irb, child_scope, node, continue_block, is_comptime));
@@ -4887,11 +4880,17 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
 
         ZigList<IrInstruction *> incoming_values = {0};
         ZigList<IrBasicBlock *> incoming_blocks = {0};
-        add_loop_stack_item(irb, end_block, continue_block, is_comptime, &incoming_blocks, &incoming_values);
-        IrInstruction *body_result = ir_gen_node(irb, node->data.while_expr.body, scope);
+
+        ScopeLoop *loop_scope = create_loop_scope(node, scope);
+        loop_scope->break_block = end_block;
+        loop_scope->continue_block = continue_block;
+        loop_scope->is_comptime = is_comptime;
+        loop_scope->incoming_blocks = &incoming_blocks;
+        loop_scope->incoming_values = &incoming_values;
+
+        IrInstruction *body_result = ir_gen_node(irb, node->data.while_expr.body, &loop_scope->base);
         if (body_result == irb->codegen->invalid_instruction)
             return body_result;
-        irb->loop_stack.pop();
 
         if (!instr_is_unreachable(body_result))
             ir_mark_gen(ir_build_br(irb, scope, node, continue_block, is_comptime));
@@ -4952,12 +4951,10 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     IrInstruction *is_comptime = ir_build_const_bool(irb, parent_scope, node,
         ir_should_inline(irb->exec, parent_scope) || node->data.for_expr.is_inline);
 
-    Scope *child_scope = create_loop_scope(node, parent_scope);
-
     // TODO make it an error to write to element variable or i variable.
     Buf *elem_var_name = elem_node->data.symbol_expr.symbol;
-    VariableTableEntry *elem_var = ir_create_var(irb, elem_node, child_scope, elem_var_name, true, false, false, is_comptime);
-    child_scope = elem_var->child_scope;
+    VariableTableEntry *elem_var = ir_create_var(irb, elem_node, parent_scope, elem_var_name, true, false, false, is_comptime);
+    Scope *child_scope = elem_var->child_scope;
 
     IrInstruction *undefined_value = ir_build_const_undefined(irb, child_scope, elem_node);
     ir_build_var_decl(irb, child_scope, elem_node, elem_var, elem_var_type, undefined_value);
@@ -5010,9 +5007,14 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
 
     ZigList<IrInstruction *> incoming_values = {0};
     ZigList<IrBasicBlock *> incoming_blocks = {0};
-    add_loop_stack_item(irb, end_block, continue_block, is_comptime, &incoming_blocks, &incoming_values);
-    IrInstruction *body_result = ir_gen_node(irb, body_node, child_scope);
-    irb->loop_stack.pop();
+    ScopeLoop *loop_scope = create_loop_scope(node, child_scope);
+    loop_scope->break_block = end_block;
+    loop_scope->continue_block = continue_block;
+    loop_scope->is_comptime = is_comptime;
+    loop_scope->incoming_blocks = &incoming_blocks;
+    loop_scope->incoming_values = &incoming_values;
+
+    IrInstruction *body_result = ir_gen_node(irb, body_node, &loop_scope->base);
 
     if (!instr_is_unreachable(body_result))
         ir_mark_gen(ir_build_br(irb, child_scope, node, continue_block, is_comptime));
@@ -5584,62 +5586,88 @@ static IrInstruction *ir_gen_comptime(IrBuilder *irb, Scope *parent_scope, AstNo
     return ir_gen_node_extra(irb, node->data.comptime_expr.expr, child_scope, lval);
 }
 
-static IrInstruction *ir_gen_break(IrBuilder *irb, Scope *scope, AstNode *node) {
+static IrInstruction *ir_gen_break(IrBuilder *irb, Scope *break_scope, AstNode *node) {
     assert(node->type == NodeTypeBreak);
 
-    if (irb->loop_stack.length == 0) {
-        add_node_error(irb->codegen, node,
-            buf_sprintf("'break' expression outside loop"));
-        return irb->codegen->invalid_instruction;
+    // Search up the scope. We'll find one of these things first:
+    // * function definition scope or global scope => error, break outside loop
+    // * defer expression scope => error, cannot break out of defer expression
+    // * loop scope => OK
+
+    Scope *search_scope = break_scope;
+    ScopeLoop *loop_scope;
+    for (;;) {
+        if (search_scope == nullptr || search_scope->id == ScopeIdFnDef) {
+            add_node_error(irb->codegen, node, buf_sprintf("break expression outside loop"));
+            return irb->codegen->invalid_instruction;
+        } else if (search_scope->id == ScopeIdDeferExpr) {
+            add_node_error(irb->codegen, node, buf_sprintf("cannot break out of defer expression"));
+            return irb->codegen->invalid_instruction;
+        } else if (search_scope->id == ScopeIdLoop) {
+            loop_scope = (ScopeLoop *)search_scope;
+            break;
+        }
+        search_scope = search_scope->parent;
     }
 
-    LoopStackItem *loop_stack_item = &irb->loop_stack.last();
-
     IrInstruction *is_comptime;
-    if (ir_should_inline(irb->exec, scope)) {
-        is_comptime = ir_build_const_bool(irb, scope, node, true);
+    if (ir_should_inline(irb->exec, break_scope)) {
+        is_comptime = ir_build_const_bool(irb, break_scope, node, true);
     } else {
-        is_comptime = loop_stack_item->is_comptime;
+        is_comptime = loop_scope->is_comptime;
     }
 
     IrInstruction *result_value;
     if (node->data.break_expr.expr) {
-        result_value = ir_gen_node(irb, node->data.break_expr.expr, scope);
+        result_value = ir_gen_node(irb, node->data.break_expr.expr, break_scope);
         if (result_value == irb->codegen->invalid_instruction)
             return irb->codegen->invalid_instruction;
     } else {
-        result_value = ir_build_const_void(irb, scope, node);
+        result_value = ir_build_const_void(irb, break_scope, node);
     }
 
-    IrBasicBlock *dest_block = loop_stack_item->break_block;
-    ir_gen_defers_for_block(irb, scope, dest_block->scope, false);
+    IrBasicBlock *dest_block = loop_scope->break_block;
+    ir_gen_defers_for_block(irb, break_scope, dest_block->scope, false);
 
-    loop_stack_item->incoming_blocks->append(irb->current_basic_block);
-    loop_stack_item->incoming_values->append(result_value);
-    return ir_build_br(irb, scope, node, dest_block, is_comptime);
+    loop_scope->incoming_blocks->append(irb->current_basic_block);
+    loop_scope->incoming_values->append(result_value);
+    return ir_build_br(irb, break_scope, node, dest_block, is_comptime);
 }
 
-static IrInstruction *ir_gen_continue(IrBuilder *irb, Scope *scope, AstNode *node) {
+static IrInstruction *ir_gen_continue(IrBuilder *irb, Scope *continue_scope, AstNode *node) {
     assert(node->type == NodeTypeContinue);
 
-    if (irb->loop_stack.length == 0) {
-        add_node_error(irb->codegen, node,
-            buf_sprintf("'continue' expression outside loop"));
-        return irb->codegen->invalid_instruction;
-    }
+    // Search up the scope. We'll find one of these things first:
+    // * function definition scope or global scope => error, break outside loop
+    // * defer expression scope => error, cannot break out of defer expression
+    // * loop scope => OK
 
-    LoopStackItem *loop_stack_item = &irb->loop_stack.last();
+    Scope *search_scope = continue_scope;
+    ScopeLoop *loop_scope;
+    for (;;) {
+        if (search_scope == nullptr || search_scope->id == ScopeIdFnDef) {
+            add_node_error(irb->codegen, node, buf_sprintf("continue expression outside loop"));
+            return irb->codegen->invalid_instruction;
+        } else if (search_scope->id == ScopeIdDeferExpr) {
+            add_node_error(irb->codegen, node, buf_sprintf("cannot continue out of defer expression"));
+            return irb->codegen->invalid_instruction;
+        } else if (search_scope->id == ScopeIdLoop) {
+            loop_scope = (ScopeLoop *)search_scope;
+            break;
+        }
+        search_scope = search_scope->parent;
+    }
 
     IrInstruction *is_comptime;
-    if (ir_should_inline(irb->exec, scope)) {
-        is_comptime = ir_build_const_bool(irb, scope, node, true);
+    if (ir_should_inline(irb->exec, continue_scope)) {
+        is_comptime = ir_build_const_bool(irb, continue_scope, node, true);
     } else {
-        is_comptime = loop_stack_item->is_comptime;
+        is_comptime = loop_scope->is_comptime;
     }
 
-    IrBasicBlock *dest_block = loop_stack_item->continue_block;
-    ir_gen_defers_for_block(irb, scope, dest_block->scope, false);
-    return ir_build_br(irb, scope, node, dest_block, is_comptime);
+    IrBasicBlock *dest_block = loop_scope->continue_block;
+    ir_gen_defers_for_block(irb, continue_scope, dest_block->scope, false);
+    return ir_build_br(irb, continue_scope, node, dest_block, is_comptime);
 }
 
 static IrInstruction *ir_gen_error_type(IrBuilder *irb, Scope *scope, AstNode *node) {

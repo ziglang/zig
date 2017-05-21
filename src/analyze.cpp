@@ -122,11 +122,11 @@ ScopeCImport *create_cimport_scope(AstNode *node, Scope *parent) {
     return scope;
 }
 
-Scope *create_loop_scope(AstNode *node, Scope *parent) {
+ScopeLoop *create_loop_scope(AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeWhileExpr || node->type == NodeTypeForExpr);
     ScopeLoop *scope = allocate<ScopeLoop>(1);
     init_scope(&scope->base, ScopeIdLoop, node, parent);
-    return &scope->base;
+    return scope;
 }
 
 ScopeFnDef *create_fndef_scope(AstNode *node, Scope *parent, FnTableEntry *fn_entry) {

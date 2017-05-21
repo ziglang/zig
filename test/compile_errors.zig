@@ -472,13 +472,13 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\export fn f() {
         \\    break;
         \\}
-    , ".tmp_source.zig:2:5: error: 'break' expression outside loop");
+    , ".tmp_source.zig:2:5: error: break expression outside loop");
 
     cases.add("invalid continue expression",
         \\export fn f() {
         \\    continue;
         \\}
-    , ".tmp_source.zig:2:5: error: 'continue' expression outside loop");
+    , ".tmp_source.zig:2:5: error: continue expression outside loop");
 
     cases.add("invalid maybe type",
         \\export fn f() {
@@ -1860,4 +1860,26 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:2:14: error: array access of non-array type 'type'");
+
+    cases.add("cannot break out of defer expression",
+        \\export fn foo() {
+        \\    while (true) {
+        \\        defer {
+        \\            break;
+        \\        }
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:4:13: error: cannot break out of defer expression");
+
+    cases.add("cannot continue out of defer expression",
+        \\export fn foo() {
+        \\    while (true) {
+        \\        defer {
+        \\            continue;
+        \\        }
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:4:13: error: cannot continue out of defer expression");
 }
