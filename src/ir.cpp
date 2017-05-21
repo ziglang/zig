@@ -297,6 +297,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionSetDebugSafety *
     return IrInstructionIdSetDebugSafety;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSetFloatMode *) {
+    return IrInstructionIdSetFloatMode;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionArrayType *) {
     return IrInstructionIdArrayType;
 }
@@ -1186,6 +1190,19 @@ static IrInstruction *ir_build_set_debug_safety(IrBuilder *irb, Scope *scope, As
 
     ir_ref_instruction(scope_value, irb->current_basic_block);
     ir_ref_instruction(debug_safety_on, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_set_float_mode(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *scope_value, IrInstruction *mode_value)
+{
+    IrInstructionSetFloatMode *instruction = ir_build_instruction<IrInstructionSetFloatMode>(irb, scope, source_node);
+    instruction->scope_value = scope_value;
+    instruction->mode_value = mode_value;
+
+    ir_ref_instruction(scope_value, irb->current_basic_block);
+    ir_ref_instruction(mode_value, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -2361,6 +2378,14 @@ static IrInstruction *ir_instruction_setdebugsafety_get_dep(IrInstructionSetDebu
     }
 }
 
+static IrInstruction *ir_instruction_setfloatmode_get_dep(IrInstructionSetFloatMode *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->scope_value;
+        case 1: return instruction->mode_value;
+        default: return nullptr;
+    }
+}
+
 static IrInstruction *ir_instruction_arraytype_get_dep(IrInstructionArrayType *instruction, size_t index) {
     switch (index) {
         case 0: return instruction->size;
@@ -2897,6 +2922,8 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_ptrtypechild_get_dep((IrInstructionPtrTypeChild *) instruction, index);
         case IrInstructionIdSetDebugSafety:
             return ir_instruction_setdebugsafety_get_dep((IrInstructionSetDebugSafety *) instruction, index);
+        case IrInstructionIdSetFloatMode:
+            return ir_instruction_setfloatmode_get_dep((IrInstructionSetFloatMode *) instruction, index);
         case IrInstructionIdArrayType:
             return ir_instruction_arraytype_get_dep((IrInstructionArrayType *) instruction, index);
         case IrInstructionIdSliceType:
@@ -3840,6 +3867,20 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 return ir_build_set_debug_safety(irb, scope, node, arg0_value, arg1_value);
+            }
+        case BuiltinFnIdSetFloatMode:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                return ir_build_set_float_mode(irb, scope, node, arg0_value, arg1_value);
             }
         case BuiltinFnIdSizeof:
             {
@@ -7740,6 +7781,16 @@ static Buf *ir_resolve_str(IrAnalyze *ira, IrInstruction *value) {
     return result;
 }
 
+static ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
+    Tld *tld = codegen->compile_var_import->decls_scope->decl_table.get(buf_create_from_str(name));
+    resolve_top_level_decl(codegen, tld, false);
+    assert(tld->id == TldIdVar);
+    TldVar *tld_var = (TldVar *)tld;
+    ConstExprValue *var_value = tld_var->var->value;
+    assert(var_value != nullptr);
+    return var_value;
+}
+
 static TypeTableEntry *ir_analyze_instruction_return(IrAnalyze *ira,
     IrInstructionReturn *return_instruction)
 {
@@ -10556,7 +10607,7 @@ static TypeTableEntry *ir_analyze_instruction_set_debug_safety(IrAnalyze *ira,
     AstNode *source_node = set_debug_safety_instruction->base.source_node;
     if (*safety_set_node_ptr) {
         ErrorMsg *msg = ir_add_error_node(ira, source_node,
-                buf_sprintf("function test attribute set twice"));
+                buf_sprintf("debug safety set twice for same scope"));
         add_error_note(ira->codegen, msg, *safety_set_node_ptr, buf_sprintf("first set here"));
         return ira->codegen->builtin_types.entry_invalid;
     }
@@ -10564,6 +10615,86 @@ static TypeTableEntry *ir_analyze_instruction_set_debug_safety(IrAnalyze *ira,
     *safety_off_ptr = !want_debug_safety;
 
     ir_build_const_from(ira, &set_debug_safety_instruction->base);
+    return ira->codegen->builtin_types.entry_void;
+}
+
+static TypeTableEntry *ir_analyze_instruction_set_float_mode(IrAnalyze *ira,
+        IrInstructionSetFloatMode *instruction)
+{
+    IrInstruction *target_instruction = instruction->scope_value->other;
+    TypeTableEntry *target_type = target_instruction->value.type;
+    if (type_is_invalid(target_type))
+        return ira->codegen->builtin_types.entry_invalid;
+    ConstExprValue *target_val = ir_resolve_const(ira, target_instruction, UndefBad);
+    if (!target_val)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (ira->new_irb.exec->is_inline) {
+        // ignore setFloatMode when running functions at compile time
+        ir_build_const_from(ira, &instruction->base);
+        return ira->codegen->builtin_types.entry_void;
+    }
+
+    bool *fast_math_off_ptr;
+    AstNode **fast_math_set_node_ptr;
+    if (target_type->id == TypeTableEntryIdBlock) {
+        ScopeBlock *block_scope = (ScopeBlock *)target_val->data.x_block;
+        fast_math_off_ptr = &block_scope->fast_math_off;
+        fast_math_set_node_ptr = &block_scope->fast_math_set_node;
+    } else if (target_type->id == TypeTableEntryIdFn) {
+        FnTableEntry *target_fn = target_val->data.x_fn.fn_entry;
+        assert(target_fn->def_scope);
+        fast_math_off_ptr = &target_fn->def_scope->fast_math_off;
+        fast_math_set_node_ptr = &target_fn->def_scope->fast_math_set_node;
+    } else if (target_type->id == TypeTableEntryIdMetaType) {
+        ScopeDecls *decls_scope;
+        TypeTableEntry *type_arg = target_val->data.x_type;
+        if (type_arg->id == TypeTableEntryIdStruct) {
+            decls_scope = type_arg->data.structure.decls_scope;
+        } else if (type_arg->id == TypeTableEntryIdEnum) {
+            decls_scope = type_arg->data.enumeration.decls_scope;
+        } else if (type_arg->id == TypeTableEntryIdUnion) {
+            decls_scope = type_arg->data.unionation.decls_scope;
+        } else {
+            ir_add_error_node(ira, target_instruction->source_node,
+                buf_sprintf("expected scope reference, found type '%s'", buf_ptr(&type_arg->name)));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        fast_math_off_ptr = &decls_scope->fast_math_off;
+        fast_math_set_node_ptr = &decls_scope->fast_math_set_node;
+    } else {
+        ir_add_error_node(ira, target_instruction->source_node,
+            buf_sprintf("expected scope reference, found type '%s'", buf_ptr(&target_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    ConstExprValue *float_mode_val = get_builtin_value(ira->codegen, "FloatMode");
+    assert(float_mode_val->type->id == TypeTableEntryIdMetaType);
+    TypeTableEntry *float_mode_enum_type = float_mode_val->data.x_type;
+
+    IrInstruction *float_mode_value = instruction->mode_value->other;
+    if (type_is_invalid(float_mode_value->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+    IrInstruction *casted_value = ir_implicit_cast(ira, float_mode_value, float_mode_enum_type);
+    if (type_is_invalid(casted_value->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+    ConstExprValue *mode_val = ir_resolve_const(ira, casted_value, UndefBad);
+    if (!mode_val)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    bool want_fast_math = (mode_val->data.x_enum.tag == FloatModeOptimized);
+
+    AstNode *source_node = instruction->base.source_node;
+    if (*fast_math_set_node_ptr) {
+        ErrorMsg *msg = ir_add_error_node(ira, source_node,
+                buf_sprintf("float mode set twice for same scope"));
+        add_error_note(ira->codegen, msg, *fast_math_set_node_ptr, buf_sprintf("first set here"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+    *fast_math_set_node_ptr = source_node;
+    *fast_math_off_ptr = !want_fast_math;
+
+    ir_build_const_from(ira, &instruction->base);
     return ira->codegen->builtin_types.entry_void;
 }
 
@@ -11864,11 +11995,7 @@ static TypeTableEntry *ir_analyze_instruction_type_id(IrAnalyze *ira,
     if (type_is_invalid(type_entry))
         return ira->codegen->builtin_types.entry_invalid;
 
-    Tld *tld = ira->codegen->compile_var_import->decls_scope->decl_table.get(buf_create_from_str("TypeId"));
-    resolve_top_level_decl(ira->codegen, tld, false);
-    assert(tld->id == TldIdVar);
-    TldVar *tld_var = (TldVar *)tld;
-    ConstExprValue *var_value = tld_var->var->value;
+    ConstExprValue *var_value = get_builtin_value(ira->codegen, "TypeId");
     assert(var_value->type->id == TypeTableEntryIdMetaType);
     TypeTableEntry *result_type = var_value->data.x_type;
 
@@ -13271,6 +13398,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_set_global_linkage(ira, (IrInstructionSetGlobalLinkage *)instruction);
         case IrInstructionIdSetDebugSafety:
             return ir_analyze_instruction_set_debug_safety(ira, (IrInstructionSetDebugSafety *)instruction);
+        case IrInstructionIdSetFloatMode:
+            return ir_analyze_instruction_set_float_mode(ira, (IrInstructionSetFloatMode *)instruction);
         case IrInstructionIdSliceType:
             return ir_analyze_instruction_slice_type(ira, (IrInstructionSliceType *)instruction);
         case IrInstructionIdAsm:
@@ -13482,6 +13611,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdReturn:
         case IrInstructionIdUnreachable:
         case IrInstructionIdSetDebugSafety:
+        case IrInstructionIdSetFloatMode:
         case IrInstructionIdImport:
         case IrInstructionIdCompileErr:
         case IrInstructionIdCompileLog:

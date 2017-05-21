@@ -358,6 +358,14 @@ static void ir_print_set_debug_safety(IrPrint *irp, IrInstructionSetDebugSafety 
     fprintf(irp->f, ")");
 }
 
+static void ir_print_set_float_mode(IrPrint *irp, IrInstructionSetFloatMode *instruction) {
+    fprintf(irp->f, "@setFloatMode(");
+    ir_print_other_instruction(irp, instruction->scope_value);
+    fprintf(irp->f, ", ");
+    ir_print_other_instruction(irp, instruction->mode_value);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_array_type(IrPrint *irp, IrInstructionArrayType *instruction) {
     fprintf(irp->f, "[");
     ir_print_other_instruction(irp, instruction->size);
@@ -964,6 +972,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdSetDebugSafety:
             ir_print_set_debug_safety(irp, (IrInstructionSetDebugSafety *)instruction);
+            break;
+        case IrInstructionIdSetFloatMode:
+            ir_print_set_float_mode(irp, (IrInstructionSetFloatMode *)instruction);
             break;
         case IrInstructionIdArrayType:
             ir_print_array_type(irp, (IrInstructionArrayType *)instruction);

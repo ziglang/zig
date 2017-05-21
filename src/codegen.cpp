@@ -581,6 +581,24 @@ static LLVMValueRef get_handle_value(CodeGen *g, LLVMValueRef ptr, TypeTableEntr
     }
 }
 
+static bool ir_want_fast_math(CodeGen *g, IrInstruction *instruction) {
+    // TODO memoize
+    Scope *scope = instruction->scope;
+    while (scope) {
+        if (scope->id == ScopeIdBlock) {
+            ScopeBlock *block_scope = (ScopeBlock *)scope;
+            if (block_scope->fast_math_set_node)
+                return !block_scope->fast_math_off;
+        } else if (scope->id == ScopeIdDecls) {
+            ScopeDecls *decls_scope = (ScopeDecls *)scope;
+            if (decls_scope->fast_math_set_node)
+                return !decls_scope->fast_math_off;
+        }
+        scope = scope->parent;
+    }
+    return true;
+}
+
 static bool ir_want_debug_safety(CodeGen *g, IrInstruction *instruction) {
     if (g->build_mode == BuildModeFastRelease)
         return false;
@@ -1151,9 +1169,12 @@ enum DivKind {
     DivKindExact,
 };
 
-static LLVMValueRef gen_div(CodeGen *g, bool want_debug_safety, LLVMValueRef val1, LLVMValueRef val2,
+static LLVMValueRef gen_div(CodeGen *g, bool want_debug_safety, bool want_fast_math,
+        LLVMValueRef val1, LLVMValueRef val2,
         TypeTableEntry *type_entry, DivKind div_kind)
 {
+    ZigLLVMSetFastMath(g->builder, want_fast_math);
+
     LLVMValueRef zero = LLVMConstNull(type_entry->type_ref);
     if (want_debug_safety) {
         LLVMValueRef is_zero_bit;
@@ -1287,9 +1308,12 @@ enum RemKind {
     RemKindMod,
 };
 
-static LLVMValueRef gen_rem(CodeGen *g, bool want_debug_safety, LLVMValueRef val1, LLVMValueRef val2,
+static LLVMValueRef gen_rem(CodeGen *g, bool want_debug_safety, bool want_fast_math,
+        LLVMValueRef val1, LLVMValueRef val2,
         TypeTableEntry *type_entry, RemKind rem_kind)
 {
+    ZigLLVMSetFastMath(g->builder, want_fast_math);
+
     LLVMValueRef zero = LLVMConstNull(type_entry->type_ref);
     if (want_debug_safety) {
         LLVMValueRef is_zero_bit;
@@ -1372,6 +1396,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
         case IrBinOpCmpLessOrEq:
         case IrBinOpCmpGreaterOrEq:
             if (type_entry->id == TypeTableEntryIdFloat) {
+                ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, &bin_op_instruction->base));
                 LLVMRealPredicate pred = cmp_op_to_real_predicate(op_id);
                 return LLVMBuildFCmp(g->builder, pred, op1_value, op2_value, "");
             } else if (type_entry->id == TypeTableEntryIdInt) {
@@ -1396,6 +1421,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
         case IrBinOpAdd:
         case IrBinOpAddWrap:
             if (type_entry->id == TypeTableEntryIdFloat) {
+                ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, &bin_op_instruction->base));
                 return LLVMBuildFAdd(g->builder, op1_value, op2_value, "");
             } else if (type_entry->id == TypeTableEntryIdInt) {
                 bool is_wrapping = (op_id == IrBinOpAddWrap);
@@ -1442,6 +1468,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
         case IrBinOpSub:
         case IrBinOpSubWrap:
             if (type_entry->id == TypeTableEntryIdFloat) {
+                ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, &bin_op_instruction->base));
                 return LLVMBuildFSub(g->builder, op1_value, op2_value, "");
             } else if (type_entry->id == TypeTableEntryIdInt) {
                 bool is_wrapping = (op_id == IrBinOpSubWrap);
@@ -1460,6 +1487,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
         case IrBinOpMult:
         case IrBinOpMultWrap:
             if (type_entry->id == TypeTableEntryIdFloat) {
+                ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, &bin_op_instruction->base));
                 return LLVMBuildFMul(g->builder, op1_value, op2_value, "");
             } else if (type_entry->id == TypeTableEntryIdInt) {
                 bool is_wrapping = (op_id == IrBinOpMultWrap);
@@ -1476,17 +1504,23 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
                 zig_unreachable();
             }
         case IrBinOpDivUnspecified:
-            return gen_div(g, want_debug_safety, op1_value, op2_value, type_entry, DivKindFloat);
+            return gen_div(g, want_debug_safety, ir_want_fast_math(g, &bin_op_instruction->base),
+                    op1_value, op2_value, type_entry, DivKindFloat);
         case IrBinOpDivExact:
-            return gen_div(g, want_debug_safety, op1_value, op2_value, type_entry, DivKindExact);
+            return gen_div(g, want_debug_safety, ir_want_fast_math(g, &bin_op_instruction->base),
+                    op1_value, op2_value, type_entry, DivKindExact);
         case IrBinOpDivTrunc:
-            return gen_div(g, want_debug_safety, op1_value, op2_value, type_entry, DivKindTrunc);
+            return gen_div(g, want_debug_safety, ir_want_fast_math(g, &bin_op_instruction->base),
+                    op1_value, op2_value, type_entry, DivKindTrunc);
         case IrBinOpDivFloor:
-            return gen_div(g, want_debug_safety, op1_value, op2_value, type_entry, DivKindFloor);
+            return gen_div(g, want_debug_safety, ir_want_fast_math(g, &bin_op_instruction->base),
+                    op1_value, op2_value, type_entry, DivKindFloor);
         case IrBinOpRemRem:
-            return gen_rem(g, want_debug_safety, op1_value, op2_value, type_entry, RemKindRem);
+            return gen_rem(g, want_debug_safety, ir_want_fast_math(g, &bin_op_instruction->base),
+                    op1_value, op2_value, type_entry, RemKindRem);
         case IrBinOpRemMod:
-            return gen_rem(g, want_debug_safety, op1_value, op2_value, type_entry, RemKindMod);
+            return gen_rem(g, want_debug_safety, ir_want_fast_math(g, &bin_op_instruction->base),
+                    op1_value, op2_value, type_entry, RemKindMod);
     }
     zig_unreachable();
 }
@@ -1602,6 +1636,7 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
             }
         case CastOpFloatToInt:
             assert(wanted_type->id == TypeTableEntryIdInt);
+            ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, &cast_instruction->base));
             if (wanted_type->data.integral.is_signed) {
                 return LLVMBuildFPToSI(g->builder, expr_val, wanted_type->type_ref, "");
             } else {
@@ -1774,6 +1809,7 @@ static LLVMValueRef ir_render_un_op(CodeGen *g, IrExecutable *executable, IrInst
         case IrUnOpNegationWrap:
             {
                 if (expr_type->id == TypeTableEntryIdFloat) {
+                    ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, &un_op_instruction->base));
                     return LLVMBuildFNeg(g->builder, expr, "");
                 } else if (expr_type->id == TypeTableEntryIdInt) {
                     if (op_id == IrUnOpNegationWrap) {
@@ -2986,6 +3022,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdPtrTypeChild:
         case IrInstructionIdFieldPtr:
         case IrInstructionIdSetDebugSafety:
+        case IrInstructionIdSetFloatMode:
         case IrInstructionIdArrayType:
         case IrInstructionIdSliceType:
         case IrInstructionIdSizeOf:
@@ -4432,6 +4469,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCompileLog, "compileLog", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdIntType, "IntType", 2);
     create_builtin_fn(g, BuiltinFnIdSetDebugSafety, "setDebugSafety", 2);
+    create_builtin_fn(g, BuiltinFnIdSetFloatMode, "setFloatMode", 2);
     create_builtin_fn(g, BuiltinFnIdSetGlobalAlign, "setGlobalAlign", 2);
     create_builtin_fn(g, BuiltinFnIdSetGlobalSection, "setGlobalSection", 2);
     create_builtin_fn(g, BuiltinFnIdSetGlobalLinkage, "setGlobalLinkage", 2);
@@ -4588,6 +4626,15 @@ static void define_builtin_compile_vars(CodeGen *g) {
         }
         buf_appendf(contents, "};\n\n");
     }
+    {
+        buf_appendf(contents,
+            "pub const FloatMode = enum {\n"
+            "    Strict,\n"
+            "    Optimized,\n"
+            "};\n\n");
+        assert(FloatModeStrict == 0);
+        assert(FloatModeOptimized == 1);
+    }
     buf_appendf(contents, "pub const is_big_endian = %s;\n", bool_to_str(g->is_big_endian));
     buf_appendf(contents, "pub const is_test = %s;\n", bool_to_str(g->is_test_build));
     buf_appendf(contents, "pub const os = Os.%s;\n", cur_os);
@@ -4673,9 +4720,6 @@ static void init(CodeGen *g) {
 
     g->builder = LLVMCreateBuilder();
     g->dbuilder = ZigLLVMCreateDIBuilder(g->module, true);
-
-    ZigLLVMSetFastMath(g->builder, true);
-
 
     Buf *producer = buf_sprintf("zig %s", ZIG_VERSION_STRING);
     const char *flags = "";

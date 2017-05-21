@@ -1,4 +1,5 @@
 const assert = @import("std").debug.assert;
+const builtin = @import("builtin");
 
 test "compileTimeRecursion" {
     assert(some_data.len == 21);
@@ -222,7 +223,7 @@ test "comptimeIterateOverFnPtrList" {
     assert(performFn('w', 99) == 99);
 }
 
-test "evalSetDebugSafetyAtCompileTime" {
+test "eval @setDebugSafety at compile-time" {
     const result = comptime fnWithSetDebugSafety();
     assert(result == 1234);
 }
@@ -232,6 +233,15 @@ fn fnWithSetDebugSafety() -> i32{
     return 1234;
 }
 
+test "eval @setFloatMode at compile-time" {
+    const result = comptime fnWithFloatMode();
+    assert(result == 1234.0);
+}
+
+fn fnWithFloatMode() -> f32 {
+    @setFloatMode(this, builtin.FloatMode.Strict);
+    return 1234.0;
+}
 
 
 const SimpleStruct = struct {

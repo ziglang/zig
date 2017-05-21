@@ -252,18 +252,92 @@ fn testRem() {
 
 fn isNan(comptime T: type, x: T) -> bool {
     assert(@typeId(T) == builtin.TypeId.Float);
-    const bits = floatBits(x);
     if (T == f32) {
+        const bits = bitCast(u32, x);
         return (bits & 0x7fffffff) > 0x7f800000;
     } else if (T == f64) {
+        const bits = bitCast(u64, x);
         return (bits & (@maxValue(u64) >> 1)) > (u64(0x7ff) << 52);
+    } else if (T == c_longdouble) {
+        @compileError("TODO support isNan for c_longdouble");
     } else {
         unreachable;
     }
 }
 
-fn floatBits(comptime T: type, x: T) -> @IntType(false, T.bit_count) {
-    assert(@typeId(T) == builtin.TypeId.Float);
-    const uint = @IntType(false, T.bit_count);
-    return *@intToPtr(&const uint, &x);
+// TODO this should be a builtin
+fn bitCast(comptime DestType: type, value: var) -> DestType {
+    assert(@sizeOf(DestType) == @sizeOf(@typeOf(value)));
+    return *@ptrCast(&const DestType, &value);
+}
+
+pub fn floor(x: var) -> @typeOf(x) {
+    switch (@typeOf(x)) {
+        f32 => floor_f32(x),
+        f64 => floor_f64(x),
+        c_longdouble => @compileError("TODO support floor for c_longdouble"),
+        else => @compileError("Invalid type for floor: " ++ @typeName(@typeOf(x))),
+    }
+}
+
+fn floor_f32(x: f32) -> f32 {
+    var i = bitCast(u32, x);
+    const e = i32((i >> 23) & 0xff) -% 0x7f;
+    if (e >= 23)
+        return x;
+    if (e >= 0) {
+        const m = bitCast(u32, 0x007fffff >> e);
+        if ((i & m) == 0)
+            return x;
+        if (i >> 31 != 0)
+            i +%= m;
+        i &= ~m;
+    } else {
+        if (i >> 31 == 0)
+            return 0;
+        if (i <<% 1 != 0)
+            return -1.0;
+    }
+    return bitCast(f32, i);
+}
+
+fn floor_f64(x: f64) -> f64 {
+    const DBL_EPSILON = 2.22044604925031308085e-16;
+    const toint = 1.0 / DBL_EPSILON;
+
+    var i = bitCast(u64, x);
+    const e = (i >> 52) & 0x7ff;
+
+    if (e >= 0x3ff +% 52 or x == 0)
+        return x;
+    // y = int(x) - x, where int(x) is an integer neighbor of x
+    const y = {
+        @setFloatMode(this, builtin.FloatMode.Strict);
+        if (i >> 63 != 0) {
+            x - toint + toint - x
+        } else {
+            x + toint - toint - x
+        }
+    };
+    // special case because of non-nearest rounding modes
+    if (e <= 0x3ff - 1) {
+        if (i >> 63 != 0)
+            return -1.0;
+        return 0.0;
+    }
+    if (y > 0)
+        return x + y - 1;
+    return x + y;
+}
+
+test "math.floor" {
+    assert(floor(f32(1.234)) == 1.0);
+    assert(floor(f32(-1.234)) == -2.0);
+    assert(floor(f32(999.0)) == 999.0);
+    assert(floor(f32(-999.0)) == -999.0);
+
+    assert(floor(f64(1.234)) == 1.0);
+    assert(floor(f64(-1.234)) == -2.0);
+    assert(floor(f64(999.0)) == 999.0);
+    assert(floor(f64(-999.0)) == -999.0);
 }

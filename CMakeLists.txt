@@ -232,7 +232,6 @@ install(FILES "${CMAKE_SOURCE_DIR}/std/os/linux_x86_64.zig" DESTINATION "${ZIG_S
 install(FILES "${CMAKE_SOURCE_DIR}/std/os/path.zig" DESTINATION "${ZIG_STD_DEST}/os")
 install(FILES "${CMAKE_SOURCE_DIR}/std/os/windows.zig" DESTINATION "${ZIG_STD_DEST}/os")
 install(FILES "${CMAKE_SOURCE_DIR}/std/rand.zig" DESTINATION "${ZIG_STD_DEST}")
-install(FILES "${CMAKE_SOURCE_DIR}/std/rand_test.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/sort.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/bootstrap.zig" DESTINATION "${ZIG_STD_DEST}/special")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/build_file_template.zig" DESTINATION "${ZIG_STD_DEST}/special")

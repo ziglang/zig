@@ -1193,6 +1193,7 @@ enum BuiltinFnId {
     BuiltinFnIdTruncate,
     BuiltinFnIdIntType,
     BuiltinFnIdSetDebugSafety,
+    BuiltinFnIdSetFloatMode,
     BuiltinFnIdTypeName,
     BuiltinFnIdCanImplicitCast,
     BuiltinFnIdSetGlobalAlign,
@@ -1580,6 +1581,8 @@ struct ScopeDecls {
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> decl_table;
     bool safety_off;
     AstNode *safety_set_node;
+    bool fast_math_off;
+    AstNode *fast_math_set_node;
     ImportTableEntry *import;
     // If this is a scope from a container, this is the type entry, otherwise null
     TypeTableEntry *container_type;
@@ -1593,6 +1596,8 @@ struct ScopeBlock {
     HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table; 
     bool safety_off;
     AstNode *safety_set_node;
+    bool fast_math_off;
+    AstNode *fast_math_set_node;
 };
 
 // This scope is created from every defer expression.
@@ -1720,6 +1725,7 @@ enum IrInstructionId {
     IrInstructionIdToPtrType,
     IrInstructionIdPtrTypeChild,
     IrInstructionIdSetDebugSafety,
+    IrInstructionIdSetFloatMode,
     IrInstructionIdArrayType,
     IrInstructionIdSliceType,
     IrInstructionIdAsm,
@@ -2076,6 +2082,13 @@ struct IrInstructionSetDebugSafety {
 
     IrInstruction *scope_value;
     IrInstruction *debug_safety_on;
+};
+
+struct IrInstructionSetFloatMode {
+    IrInstruction base;
+
+    IrInstruction *scope_value;
+    IrInstruction *mode_value;
 };
 
 struct IrInstructionArrayType {
@@ -2549,5 +2562,10 @@ static const size_t enum_gen_union_index = 1;
 
 static const size_t err_union_err_index = 0;
 static const size_t err_union_payload_index = 1;
+
+enum FloatMode {
+    FloatModeStrict,
+    FloatModeOptimized,
+};
 
 #endif
