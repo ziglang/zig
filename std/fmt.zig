@@ -188,6 +188,25 @@ pub fn formatValue(value: var, context: var, output: fn(@typeOf(context), []cons
         builtin.TypeId.Bool => {
             return output(context, if (value) "true" else "false");
         },
+        builtin.TypeId.Nullable => {
+            if (value) |payload| {
+                return formatValue(payload, context, output);
+            } else {
+                return output(context, "null");
+            }
+        },
+        builtin.TypeId.ErrorUnion => {
+            if (value) |payload| {
+                return formatValue(payload, context, output);
+            } else |err| {
+                return formatValue(err, context, output);
+            }
+        },
+        builtin.TypeId.Error => {
+            if (!output(context, "error."))
+                return false;
+            return output(context, @errorName(value));
+        },
         else => if (@canImplicitCast([]const u8, value)) {
             const casted_value = ([]const u8)(value);
             return output(context, casted_value);
@@ -405,5 +424,32 @@ test "parse u64 digit too big" {
 test "parse unsigned comptime" {
     comptime {
         assert(%%parseUnsigned(usize, "2", 10) == 2);
+    }
+}
+
+test "fmt.format" {
+    {
+        var buf1: [32]u8 = undefined;
+        const value: ?i32 = 1234;
+        const result = bufPrint(buf1[0..], "nullable: {}\n", value);
+        assert(mem.eql(u8, result, "nullable: 1234\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: ?i32 = null;
+        const result = bufPrint(buf1[0..], "nullable: {}\n", value);
+        assert(mem.eql(u8, result, "nullable: null\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: %i32 = 1234;
+        const result = bufPrint(buf1[0..], "error union: {}\n", value);
+        assert(mem.eql(u8, result, "error union: 1234\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: %i32 = error.InvalidChar;
+        const result = bufPrint(buf1[0..], "error union: {}\n", value);
+        assert(mem.eql(u8, result, "error union: error.InvalidChar\n"));
     }
 }
