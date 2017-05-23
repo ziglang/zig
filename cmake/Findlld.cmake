@@ -20,7 +20,9 @@ else()
         find_library(LLD_${_prettylibname_}_LIB NAMES ${_libname_}
             PATHS
                 /usr/lib/llvm-4.0/lib
-                /mingw64/lib)
+                /mingw64/lib
+                /c/msys64/mingw64/lib
+                c:/msys64/mingw64/lib)
             if(LLD_${_prettylibname_}_LIB)
                 set(LLD_LIBRARIES ${LLD_LIBRARIES} ${LLD_${_prettylibname_}_LIB})
         endif()

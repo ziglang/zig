@@ -1,0 +1,5 @@
+image: Visual Studio 2015
+platform:
+  - x64
+build_script:
+  - '%APPVEYOR_BUILD_FOLDER%\ci\appveyor\build_script.bat'

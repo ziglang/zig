@@ -10,6 +10,9 @@
 find_program(LLVM_CONFIG_EXE
     NAMES llvm-config llvm-config-4.0
     PATHS
+        "/mingw64/bin"
+        "/c/msys64/mingw64/bin"
+        "c:/msys64/mingw64/bin"
         "C:/Libraries/llvm-4.0.0/bin")
 
 execute_process(
