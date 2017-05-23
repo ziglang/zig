@@ -559,7 +559,7 @@ static LLVMValueRef get_floor_ceil_fn(CodeGen *g, TypeTableEntry *type_entry, Zi
     }
 
     char fn_name[64];
-    sprintf(fn_name, "llvm.%s.f%zu", name, type_entry->data.floating.bit_count);
+    sprintf(fn_name, "llvm.%s.f%" ZIG_PRI_usize "", name, type_entry->data.floating.bit_count);
     LLVMTypeRef fn_type = LLVMFunctionType(type_entry->type_ref, &type_entry->type_ref, 1, false);
     LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type);
 
@@ -2166,7 +2166,7 @@ static LLVMValueRef ir_render_asm(CodeGen *g, IrExecutable *executable, IrInstru
                 {
                     size_t index = find_asm_index(g, asm_node, asm_token);
                     assert(index < SIZE_MAX);
-                    buf_appendf(&llvm_template, "$%zu", index);
+                    buf_appendf(&llvm_template, "$%" ZIG_PRI_usize "", index);
                     break;
                 }
             case AsmTokenIdUniqueId:

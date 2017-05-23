@@ -61,6 +61,8 @@ int os_file_exists(Buf *full_path, bool *result);
 int os_rename(Buf *src_path, Buf *dest_path);
 double os_get_time(void);
 
+bool os_is_sep(uint8_t c);
+
 #if defined(__APPLE__)
 #define ZIG_OS_DARWIN
 #elif defined(_WIN32)
@@ -75,6 +77,18 @@ double os_get_time(void);
 #define ZIG_ARCH_X86_64
 #else
 #define ZIG_ARCH_UNKNOWN
+#endif
+
+#if defined(ZIG_OS_WINDOWS)
+#define ZIG_PRI_usize "Iu"
+#define ZIG_PRI_u64 "I64u"
+#define ZIG_PRI_llu "I64u"
+#define ZIG_PRI_x64 "I64x"
+#else
+#define ZIG_PRI_usize "zu"
+#define ZIG_PRI_u64 PRIu64
+#define ZIG_PRI_llu "llu"
+#define ZIG_PRI_x64 PRIx64
 #endif
 
 #endif

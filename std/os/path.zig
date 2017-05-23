@@ -81,6 +81,9 @@ pub fn resolve(allocator: &Allocator, args: ...) -> %[]u8 {
 }
 
 pub fn resolveSlice(allocator: &Allocator, paths: []const []const u8) -> %[]u8 {
+    if (builtin.os == builtin.Os.windows) {
+        @compileError("TODO implement os.path.resolve for windows");
+    }
     if (paths.len == 0)
         return os.getCwd(allocator);
 
@@ -152,6 +155,9 @@ fn testResolve(args: ...) -> []u8 {
 }
 
 pub fn dirname(path: []const u8) -> []const u8 {
+    if (builtin.os == builtin.Os.windows) {
+        @compileError("TODO implement os.path.dirname for windows");
+    }
     if (path.len == 0)
         return path[0..0];
     var end_index: usize = path.len - 1;
@@ -189,6 +195,9 @@ fn testDirname(input: []const u8, expected_output: []const u8) {
 }
 
 pub fn basename(path: []const u8) -> []const u8 {
+    if (builtin.os == builtin.Os.windows) {
+        @compileError("TODO implement os.path.basename for windows");
+    }
     if (path.len == 0)
         return []u8{};
 
@@ -231,6 +240,9 @@ fn testBasename(input: []const u8, expected_output: []const u8) {
 /// resolve to the same path (after calling ::resolve on each), a zero-length
 /// string is returned.
 pub fn relative(allocator: &Allocator, from: []const u8, to: []const u8) -> %[]u8 {
+    if (builtin.os == builtin.Os.windows) {
+        @compileError("TODO implement os.path.relative for windows");
+    }
     const resolved_from = %return resolve(allocator, from);
     defer allocator.free(resolved_from);
 
@@ -299,6 +311,9 @@ fn testRelative(from: []const u8, to: []const u8, expected_output: []const u8) {
 /// extra `/` characters in ::pathname.
 /// Caller must deallocate result.
 pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
+    if (builtin.os == builtin.Os.windows) {
+        @compileError("TODO implement os.path.real for windows");
+    }
     const fd = %return os.posixOpen(pathname, posix.O_PATH|posix.O_NONBLOCK|posix.O_CLOEXEC, 0, allocator);
     defer os.posixClose(fd);
 

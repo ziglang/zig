@@ -573,7 +573,7 @@ TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t 
     entry->is_copyable = false;
 
     buf_resize(&entry->name, 0);
-    buf_appendf(&entry->name, "[%" PRIu64 "]%s", array_size, buf_ptr(&child_type->name));
+    buf_appendf(&entry->name, "[%" ZIG_PRI_u64 "]%s", array_size, buf_ptr(&child_type->name));
 
     if (!entry->zero_bits) {
         entry->type_ref = child_type->type_ref ? LLVMArrayType(child_type->type_ref,
@@ -2756,7 +2756,7 @@ void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entry, Vari
         if (param_decl_node && !is_var_args) {
             param_name = param_decl_node->data.param_decl.name;
         } else {
-            param_name = buf_sprintf("arg%zu", i);
+            param_name = buf_sprintf("arg%" ZIG_PRI_usize "", i);
         }
 
         TypeTableEntry *param_type = param_info->type;
@@ -3934,7 +3934,7 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             {
                 BigNum *bignum = &const_val->data.x_bignum;
                 const char *negative_str = bignum->is_negative ? "-" : "";
-                buf_appendf(buf, "%s%llu", negative_str, bignum->data.x_uint);
+                buf_appendf(buf, "%s%" ZIG_PRI_llu, negative_str, bignum->data.x_uint);
                 return;
             }
         case TypeTableEntryIdMetaType:
@@ -3945,7 +3945,7 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
                 BigNum *bignum = &const_val->data.x_bignum;
                 assert(bignum->kind == BigNumKindInt);
                 const char *negative_str = bignum->is_negative ? "-" : "";
-                buf_appendf(buf, "%s%llu", negative_str, bignum->data.x_uint);
+                buf_appendf(buf, "%s%" ZIG_PRI_llu, negative_str, bignum->data.x_uint);
             }
             return;
         case TypeTableEntryIdFloat:
@@ -3983,7 +3983,7 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
                         return;
                     }
                 case ConstPtrSpecialHardCodedAddr:
-                    buf_appendf(buf, "(&%s)(%" PRIx64 ")", buf_ptr(&type_entry->data.pointer.child_type->name),
+                    buf_appendf(buf, "(&%s)(%" ZIG_PRI_x64 ")", buf_ptr(&type_entry->data.pointer.child_type->name),
                             const_val->data.x_ptr.data.hard_coded_addr.addr);
                     return;
                 case ConstPtrSpecialDiscard:
@@ -4000,7 +4000,7 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
         case TypeTableEntryIdBlock:
             {
                 AstNode *node = const_val->data.x_block->source_node;
-                buf_appendf(buf, "(scope:%zu:%zu)", node->line + 1, node->column + 1);
+                buf_appendf(buf, "(scope:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ")", node->line + 1, node->column + 1);
                 return;
             }
         case TypeTableEntryIdArray:

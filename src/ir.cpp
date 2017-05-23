@@ -3815,7 +3815,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
     if (builtin_fn->param_count != SIZE_MAX && builtin_fn->param_count != actual_param_count) {
         add_node_error(irb->codegen, node,
-                buf_sprintf("expected %zu arguments, found %zu",
+                buf_sprintf("expected %" ZIG_PRI_usize " arguments, found %" ZIG_PRI_usize,
                     builtin_fn->param_count, actual_param_count));
         return irb->codegen->invalid_instruction;
     }
@@ -5810,7 +5810,7 @@ static IrInstruction *ir_gen_container_decl(IrBuilder *irb, Scope *parent_scope,
             render_instance_name_recursive(irb->codegen, name, &fn_entry->fndef_scope->base, irb->exec->begin_scope);
             buf_appendf(name, ")");
         } else {
-            name = buf_sprintf("(anonymous %s at %s:%zu:%zu)", container_string(kind),
+            name = buf_sprintf("(anonymous %s at %s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ")", container_string(kind),
                 buf_ptr(node->owner->path), node->line + 1, node->column + 1);
         }
     }
@@ -6681,7 +6681,7 @@ static bool ir_emit_backward_branch(IrAnalyze *ira, IrInstruction *source_instru
 
     *bbc += 1;
     if (*bbc > quota) {
-        ir_add_error(ira, source_instruction, buf_sprintf("evaluation exceeded %zu backwards branches", quota));
+        ir_add_error(ira, source_instruction, buf_sprintf("evaluation exceeded %" ZIG_PRI_usize " backwards branches", quota));
         return false;
     }
     return true;
@@ -7236,7 +7236,7 @@ static IrInstruction *ir_analyze_int_to_err(IrAnalyze *ira, IrInstruction *sourc
         uint64_t index = val->data.x_bignum.data.x_uint;
         if (index == 0 || index >= ira->codegen->error_decls.length) {
             ir_add_error(ira, source_instr,
-                buf_sprintf("integer value %" PRIu64 " represents no error", index));
+                buf_sprintf("integer value %" ZIG_PRI_u64 " represents no error", index));
             return ira->codegen->invalid_instruction;
         }
 
@@ -8949,7 +8949,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
     if (fn_type_id->is_var_args) {
         if (call_param_count < src_param_count) {
             ErrorMsg *msg = ir_add_error_node(ira, source_node,
-                buf_sprintf("expected at least %zu arguments, found %zu", src_param_count, call_param_count));
+                buf_sprintf("expected at least %" ZIG_PRI_usize " arguments, found %" ZIG_PRI_usize "", src_param_count, call_param_count));
             if (fn_proto_node) {
                 add_error_note(ira->codegen, msg, fn_proto_node,
                     buf_sprintf("declared here"));
@@ -8958,7 +8958,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         }
     } else if (src_param_count != call_param_count) {
         ErrorMsg *msg = ir_add_error_node(ira, source_node,
-            buf_sprintf("expected %zu arguments, found %zu", src_param_count, call_param_count));
+            buf_sprintf("expected %" ZIG_PRI_usize " arguments, found %" ZIG_PRI_usize "", src_param_count, call_param_count));
         if (fn_proto_node) {
             add_error_note(ira->codegen, msg, fn_proto_node,
                 buf_sprintf("declared here"));
@@ -9784,7 +9784,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
         size_t len = end - start;
         if (index >= len) {
             ir_add_error(ira, &elem_ptr_instruction->base,
-                buf_sprintf("index %zu outside argument list of size %zu", index, len));
+                buf_sprintf("index %" ZIG_PRI_usize " outside argument list of size %" ZIG_PRI_usize "", index, len));
             return ira->codegen->builtin_types.entry_invalid;
         }
         size_t abs_index = start + index;
@@ -9818,7 +9818,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
             uint64_t array_len = array_type->data.array.len;
             if (index >= array_len) {
                 ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
-                    buf_sprintf("index %" PRIu64 " outside array of size %" PRIu64,
+                    buf_sprintf("index %" ZIG_PRI_u64 " outside array of size %" ZIG_PRI_u64,
                             index, array_len));
                 return ira->codegen->builtin_types.entry_invalid;
             }
@@ -9876,7 +9876,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                 }
                 if (new_index >= mem_size) {
                     ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
-                        buf_sprintf("index %" PRIu64 " outside pointer of size %zu", index, old_size));
+                        buf_sprintf("index %" ZIG_PRI_u64 " outside pointer of size %" ZIG_PRI_usize "", index, old_size));
                     return ira->codegen->builtin_types.entry_invalid;
                 }
             } else if (is_slice(array_type)) {
@@ -9885,7 +9885,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                 uint64_t slice_len = len_field->data.x_bignum.data.x_uint;
                 if (index >= slice_len) {
                     ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
-                        buf_sprintf("index %" PRIu64 " outside slice of size %" PRIu64,
+                        buf_sprintf("index %" ZIG_PRI_u64 " outside slice of size %" ZIG_PRI_u64,
                             index, slice_len));
                     return ira->codegen->builtin_types.entry_invalid;
                 }
@@ -11986,7 +11986,7 @@ static TypeTableEntry *ir_analyze_instruction_field_parent_ptr(IrAnalyze *ira,
         size_t ptr_field_index = field_ptr_val->data.x_ptr.data.base_struct.field_index;
         if (ptr_field_index != field->src_index) {
             ir_add_error(ira, &instruction->base,
-                    buf_sprintf("field '%s' has index %zu but pointer value is index %zu of struct '%s'",
+                    buf_sprintf("field '%s' has index %" ZIG_PRI_usize " but pointer value is index %" ZIG_PRI_usize " of struct '%s'",
                         buf_ptr(field->name), field->src_index,
                         ptr_field_index, buf_ptr(&container_type->name)));
             return ira->codegen->builtin_types.entry_invalid;

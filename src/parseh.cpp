@@ -628,7 +628,7 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
         const ParmVarDecl *param = fn_decl->getParamDecl(i);
         const char *name = decl_name(param);
         if (strlen(name) == 0) {
-            name_buf = buf_sprintf("arg%zu", i);
+            name_buf = buf_sprintf("arg%" ZIG_PRI_usize "", i);
         } else {
             name_buf = buf_create_from_str(name);
         }

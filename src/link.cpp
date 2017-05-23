@@ -184,10 +184,10 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append("-shared");
 
         if (buf_len(&lj->out_file) == 0) {
-            buf_appendf(&lj->out_file, "lib%s.so.%zu.%zu.%zu",
+            buf_appendf(&lj->out_file, "lib%s.so.%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize "",
                     buf_ptr(g->root_out_name), g->version_major, g->version_minor, g->version_patch);
         }
-        soname = buf_sprintf("lib%s.so.%zu", buf_ptr(g->root_out_name), g->version_major);
+        soname = buf_sprintf("lib%s.so.%" ZIG_PRI_usize "", buf_ptr(g->root_out_name), g->version_major);
     }
 
     lj->args.append("-o");

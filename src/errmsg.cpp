@@ -30,9 +30,9 @@ static void print_err_msg_type(ErrorMsg *err, ErrColor color, ErrType err_type) 
 
     if (color == ErrColorOn || (color == ErrColorAuto && os_stderr_tty())) {
         if (err_type == ErrTypeError) {
-            fprintf(stderr, WHITE "%s:%zu:%zu: " RED "error:" WHITE " %s" RESET "\n", path, line, col, text);
+            fprintf(stderr, WHITE "%s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ": " RED "error:" WHITE " %s" RESET "\n", path, line, col, text);
         } else if (err_type == ErrTypeNote) {
-            fprintf(stderr, WHITE "%s:%zu:%zu: " CYAN "note:" WHITE " %s" RESET "\n", path, line, col, text);
+            fprintf(stderr, WHITE "%s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ": " CYAN "note:" WHITE " %s" RESET "\n", path, line, col, text);
         } else {
             zig_unreachable();
         }
@@ -44,9 +44,9 @@ static void print_err_msg_type(ErrorMsg *err, ErrColor color, ErrType err_type) 
         fprintf(stderr, GREEN "^" RESET "\n");
     } else {
         if (err_type == ErrTypeError) {
-            fprintf(stderr, "%s:%zu:%zu: error: %s\n", path, line, col, text);
+            fprintf(stderr, "%s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ": error: %s\n", path, line, col, text);
         } else if (err_type == ErrTypeNote) {
-            fprintf(stderr, " %s:%zu:%zu: note: %s\n", path, line, col, text);
+            fprintf(stderr, " %s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ": note: %s\n", path, line, col, text);
         } else {
             zig_unreachable();
         }

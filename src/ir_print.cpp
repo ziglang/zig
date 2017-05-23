@@ -8,6 +8,7 @@
 #include "analyze.hpp"
 #include "ir.hpp"
 #include "ir_print.hpp"
+#include "os.hpp"
 
 struct IrPrint {
     CodeGen *codegen;
@@ -28,7 +29,7 @@ static void ir_print_prefix(IrPrint *irp, IrInstruction *instruction) {
     ir_print_indent(irp);
     const char *type_name = instruction->value.type ? buf_ptr(&instruction->value.type->name) : "(unknown)";
     const char *ref_count = ir_has_side_effects(instruction) ?
-        "-" : buf_ptr(buf_sprintf("%zu", instruction->ref_count));
+        "-" : buf_ptr(buf_sprintf("%" ZIG_PRI_usize "", instruction->ref_count));
     fprintf(irp->f, "#%-3zu| %-12s| %-2s| ", instruction->debug_id, type_name, ref_count);
 }
 
@@ -40,7 +41,7 @@ static void ir_print_const_value(IrPrint *irp, ConstExprValue *const_val) {
 }
 
 static void ir_print_var_instruction(IrPrint *irp, IrInstruction *instruction) {
-    fprintf(irp->f, "#%zu", instruction->debug_id);
+    fprintf(irp->f, "#%" ZIG_PRI_usize "", instruction->debug_id);
 }
 
 static void ir_print_other_instruction(IrPrint *irp, IrInstruction *instruction) {
@@ -52,7 +53,7 @@ static void ir_print_other_instruction(IrPrint *irp, IrInstruction *instruction)
 }
 
 static void ir_print_other_block(IrPrint *irp, IrBasicBlock *bb) {
-    fprintf(irp->f, "$%s_%zu", bb->name_hint, bb->debug_id);
+    fprintf(irp->f, "$%s_%" ZIG_PRI_usize "", bb->name_hint, bb->debug_id);
 }
 
 static void ir_print_return(IrPrint *irp, IrInstructionReturn *return_instruction) {
@@ -245,7 +246,7 @@ static void ir_print_container_init_list(IrPrint *irp, IrInstructionContainerIni
     ir_print_other_instruction(irp, instruction->container_type);
     fprintf(irp->f, "{");
     if (instruction->item_count > 50) {
-        fprintf(irp->f, "...(%zu items)...", instruction->item_count);
+        fprintf(irp->f, "...(%" ZIG_PRI_usize " items)...", instruction->item_count);
     } else {
         for (size_t i = 0; i < instruction->item_count; i += 1) {
             IrInstruction *item = instruction->items[i];
@@ -1194,7 +1195,7 @@ void ir_print(CodeGen *codegen, FILE *f, IrExecutable *executable, int indent_si
 
     for (size_t bb_i = 0; bb_i < executable->basic_block_list.length; bb_i += 1) {
         IrBasicBlock *current_block = executable->basic_block_list.at(bb_i);
-        fprintf(irp->f, "%s_%zu:\n", current_block->name_hint, current_block->debug_id);
+        fprintf(irp->f, "%s_%" ZIG_PRI_usize ":\n", current_block->name_hint, current_block->debug_id);
         for (size_t instr_i = 0; instr_i < current_block->instruction_list.length; instr_i += 1) {
             IrInstruction *instruction = current_block->instruction_list.at(instr_i);
             ir_print_instruction(irp, instruction);

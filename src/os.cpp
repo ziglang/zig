@@ -10,7 +10,6 @@
 #include "error.hpp"
 
 #if defined(_WIN32)
-#define ZIG_OS_WINDOWS
 
 #if !defined(NOMINMAX)
 #define NOMINMAX
@@ -38,9 +37,16 @@
 
 #endif
 
+
 #if defined(__MACH__)
 #include <mach/clock.h>
 #include <mach/mach.h>
+#endif
+
+#if defined(ZIG_OS_WINDOWS)
+static double win32_time_resolution;
+#elif defined(__MACH__)
+static clock_serv_t cclock;
 #endif
 
 #include <stdlib.h>
@@ -118,16 +124,24 @@ void os_path_dirname(Buf *full_path, Buf *out_dirname) {
     return os_path_split(full_path, out_dirname, nullptr);
 }
 
+bool os_is_sep(uint8_t c) {
+#if defined(ZIG_OS_WINDOWS)
+    return c == '\\' || c == '/';
+#else
+    return c == '/';
+#endif
+}
+
 void os_path_split(Buf *full_path, Buf *out_dirname, Buf *out_basename) {
     size_t len = buf_len(full_path);
     if (len != 0) {
         size_t last_index = len - 1;
-        if (buf_ptr(full_path)[last_index] == '/') {
+        if (os_is_sep(buf_ptr(full_path)[last_index])) {
             last_index -= 1;
         }
         for (size_t i = last_index;;) {
             uint8_t c = buf_ptr(full_path)[i];
-            if (c == '/') {
+            if (os_is_sep(c)) {
                 if (out_dirname) {
                     buf_init_from_mem(out_dirname, buf_ptr(full_path), i);
                 }
@@ -177,7 +191,7 @@ void os_path_extname(Buf *full_path, Buf *out_basename, Buf *out_extname) {
 void os_path_join(Buf *dirname, Buf *basename, Buf *out_full_path) {
     buf_init_from_buf(out_full_path, dirname);
     uint8_t c = *(buf_ptr(out_full_path) + buf_len(out_full_path) - 1);
-    if (c != '/')
+    if (!os_is_sep(c))
         buf_append_char(out_full_path, '/');
     buf_append_buf(out_full_path, basename);
 }
@@ -214,7 +228,13 @@ int os_path_real(Buf *rel_path, Buf *out_abs_path) {
 
 bool os_path_is_absolute(Buf *path) {
 #if defined(ZIG_OS_WINDOWS)
-#error "missing os_path_is_absolute implementation"
+    if (buf_starts_with_str(path, "/") || buf_starts_with_str(path, "\\"))
+        return true;
+
+    if (buf_len(path) >= 3 && buf_ptr(path)[1] == ':')
+        return true;
+
+    return false;
 #elif defined(ZIG_OS_POSIX)
     return buf_ptr(path)[0] == '/';
 #else
@@ -258,7 +278,7 @@ int os_file_exists(Buf *full_path, bool *result) {
     *result = access(buf_ptr(full_path), F_OK) != -1;
     return 0;
 #else
-    zig_panic("TODO implement os_file_exists for non-posix");
+    return GetFileAttributes(buf_ptr(full_path)) != INVALID_FILE_ATTRIBUTES;
 #endif
 }
 
@@ -465,7 +485,7 @@ static int os_exec_process_windows(const char *exe, ZigList<const char *> &args,
     if (!GetExitCodeProcess(piProcInfo.hProcess, &exit_code)) {
         zig_panic("GetExitCodeProcess failed");
     }
-    term->how == TerminationIdClean;
+    term->how = TerminationIdClean;
     term->code = exit_code;
 
     CloseHandle(piProcInfo.hProcess);
@@ -760,6 +780,18 @@ int os_make_path(Buf *path) {
 }
 
 int os_make_dir(Buf *path) {
+#if defined(ZIG_OS_WINDOWS)
+    if (mkdir(buf_ptr(path)) == -1) {
+        if (errno == EEXIST)
+            return ErrorPathAlreadyExists;
+        if (errno == ENOENT)
+            return ErrorFileNotFound;
+        if (errno == EACCES)
+            return ErrorAccess;
+        return ErrorUnexpected;
+    }
+    return 0;
+#else
     if (mkdir(buf_ptr(path), 0755) == -1) {
         if (errno == EEXIST)
             return ErrorPathAlreadyExists;
@@ -769,5 +801,20 @@ int os_make_dir(Buf *path) {
             return ErrorAccess;
         return ErrorUnexpected;
     }
+    return 0;
+#endif
+}
+
+int zig_os_init(void) {
+#if defined(ZIG_OS_WINDOWS)
+    unsigned __int64 frequency;
+    if (QueryPerformanceFrequency((LARGE_INTEGER*) &frequency)) {
+        win32_time_resolution = 1.0 / (double) frequency;
+    } else {
+        return ErrorSystemResources;
+    }
+#elif defined(__MACH__)
+    host_get_clock_service(mach_host_self(), SYSTEM_CLOCK, &cclock);
+#endif
     return 0;
 }

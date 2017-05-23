@@ -5,8 +5,9 @@
  * See http://opensource.org/licenses/MIT
  */
 
-#include "ast_render.hpp"
 #include "analyze.hpp"
+#include "ast_render.hpp"
+#include "os.hpp"
 
 #include <stdio.h>
 
@@ -529,7 +530,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 case BigNumKindInt:
                     {
                         const char *negative_str = node->data.number_literal.bignum->is_negative ? "-" : "";
-                        fprintf(ar->f, "%s%llu", negative_str, node->data.number_literal.bignum->data.x_uint);
+                        fprintf(ar->f, "%s%" ZIG_PRI_llu, negative_str, node->data.number_literal.bignum->data.x_uint);
                     }
                     break;
                 case BigNumKindFloat:
@@ -962,7 +963,7 @@ static void ast_render_tld_fn(AstRender *ar, Buf *name, TldFn *tld_fn) {
         if (param_info->is_noalias) {
             fprintf(ar->f, "noalias ");
         }
-        Buf *param_name = tld_fn->fn_entry->param_names ? tld_fn->fn_entry->param_names[i] : buf_sprintf("arg%zu", i);
+        Buf *param_name = tld_fn->fn_entry->param_names ? tld_fn->fn_entry->param_names[i] : buf_sprintf("arg%" ZIG_PRI_usize "", i);
         fprintf(ar->f, "%s: %s", buf_ptr(param_name), buf_ptr(&param_info->type->name));
     }
     if (fn_type_id->return_type->id == TypeTableEntryIdVoid) {

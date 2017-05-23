@@ -175,7 +175,7 @@ if(MINGW)
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wno-error=format= -Wno-error=format -Wno-error=format-extra-args")
 endif()
 
-set(EXE_CFLAGS "-std=c++11 -fno-exceptions -fno-rtti -D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D__USE_MINGW_ANSI_STDIO -Werror=strict-prototypes -Werror=old-style-definition -Werror=type-limits -Wno-missing-braces")
+set(EXE_CFLAGS "-std=c++11 -fno-exceptions -fno-rtti -D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -Werror=strict-prototypes -Werror=old-style-definition -Werror=type-limits -Wno-missing-braces")
 set(EXE_LDFLAGS " ")
 if(ZIG_TEST_COVERAGE)
     set(EXE_CFLAGS "${EXE_CFLAGS} -fprofile-arcs -ftest-coverage")
@@ -193,6 +193,9 @@ target_link_libraries(zig LINK_PUBLIC
     ${LLVM_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
+if(MINGW)
+    target_link_libraries(zig LINK_PUBLIC version)
+endif()
 install(TARGETS zig DESTINATION bin)
 
 install(FILES ${C_HEADERS} DESTINATION ${C_HEADERS_DEST})
