@@ -1,7 +1,7 @@
 const builtin = @import("builtin");
 const assert = @import("std").debug.assert;
 
-test "namespaceDependsOnCompileVar" {
+test "namespace depends on compile var" {
     if (some_namespace.a_bool) {
         assert(some_namespace.a_bool);
     } else {

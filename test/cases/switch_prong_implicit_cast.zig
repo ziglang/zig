@@ -15,7 +15,7 @@ fn foo(id: u64) -> %FormValue {
     }
 }
 
-test "switchProngImplicitCast" {
+test "switch prong implicit cast" {
     const result = switch (%%foo(2)) {
         FormValue.One => false,
         FormValue.Two => |x| x,

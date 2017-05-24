@@ -1,7 +1,7 @@
 const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
-test "enumType" {
+test "enum type" {
     const foo1 = Foo.One {13};
     const foo2 = Foo.Two { Point { .x = 1234, .y = 5678, }};
     const bar = Bar.B;
@@ -14,7 +14,7 @@ test "enumType" {
     assert(@sizeOf(Bar) == 1);
 }
 
-test "enumAsReturnValue" {
+test "enum as return value" {
     switch (returnAnInt(13)) {
         Foo.One => |value| assert(value == 13),
         else => unreachable,
@@ -42,7 +42,7 @@ fn returnAnInt(x: i32) -> Foo {
 }
 
 
-test "constantEnumWithPayload" {
+test "constant enum with payload" {
     var empty = AnEnumWithPayload.Empty;
     var full = AnEnumWithPayload.Full {13};
     shouldBeEmpty(empty);
@@ -78,7 +78,7 @@ const Number = enum {
     Four,
 };
 
-test "enumToInt" {
+test "enum to int" {
     shouldEqual(Number.Zero, 0);
     shouldEqual(Number.One, 1);
     shouldEqual(Number.Two, 2);
@@ -91,7 +91,7 @@ fn shouldEqual(n: Number, expected: usize) {
 }
 
 
-test "intToEnum" {
+test "int to enum" {
     testIntToEnumEval(3);
 }
 fn testIntToEnumEval(x: i32) {
@@ -106,7 +106,7 @@ const IntToEnumNumber = enum {
 };
 
 
-test "enumTagName builtin function" {
+test "@enumTagName" {
     assert(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
     comptime assert(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
 }

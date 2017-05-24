@@ -85,7 +85,7 @@ test "assignment operators" {
     i |= 3;  assert(i == 7);
 }
 
-test "threeExprInARow" {
+test "three expr in a row" {
     testThreeExprInARow(false, true);
     comptime testThreeExprInARow(false, true);
 }

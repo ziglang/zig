@@ -1,6 +1,6 @@
 const assert = @import("std").debug.assert;
 
-test "tryOnErrorUnion" {
+test "try on error union" {
     tryOnErrorUnionImpl();
     comptime tryOnErrorUnionImpl();
 
@@ -24,7 +24,7 @@ fn returnsTen() -> %i32 {
     10
 }
 
-test "tryWithoutVars" {
+test "try without vars" {
     const result1 = if (failIfTrue(true)) {
         1
     } else |_| {

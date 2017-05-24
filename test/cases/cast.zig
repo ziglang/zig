@@ -8,12 +8,12 @@ test "int to ptr cast" {
     assert(z == 13);
 }
 
-test "numLitIntToPtrCast" {
+test "integer literal to pointer cast" {
     const vga_mem = @intToPtr(&u16, 0xB8000);
     assert(usize(vga_mem) == 0xB8000);
 }
 
-test "pointerReinterpretConstFloatToInt" {
+test "pointer reinterpret const float to int" {
     const float: f64 = 5.99999999999994648725e-01;
     const float_ptr = &float;
     const int_ptr = @ptrCast(&i32, float_ptr);

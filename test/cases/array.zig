@@ -25,7 +25,7 @@ fn getArrayLen(a: []const u32) -> usize {
     a.len
 }
 
-test "voidArrays" {
+test "void arrays" {
     var array: [4]void = undefined;
     array[0] = void{};
     array[1] = array[2];
@@ -33,14 +33,14 @@ test "voidArrays" {
     assert(array.len == 4);
 }
 
-test "arrayLiteral" {
+test "array literal" {
     const hex_mult = []u16{4096, 256, 16, 1};
 
     assert(hex_mult.len == 4);
     assert(hex_mult[1] == 256);
 }
 
-test "arrayDotLenConstExpr" {
+test "array dot len const expr" {
     assert(comptime {some_array.len == 4});
 }
 
@@ -50,7 +50,7 @@ const ArrayDotLenConstExpr = struct {
 const some_array = []u8 {0, 1, 2, 3};
 
 
-test "nestedArrays" {
+test "nested arrays" {
     const array_of_strings = [][]const u8 {"hello", "this", "is", "my", "thing"};
     for (array_of_strings) |s, i| {
         if (i == 0) assert(mem.eql(u8, s, "hello"));
@@ -69,7 +69,7 @@ const Sub = struct {
 const Str = struct {
     a: []Sub,
 };
-test "setGlobalVarArrayViaSliceEmbeddedInStruct" {
+test "set global var array via slice embedded in struct" {
     var s = Str { .a = s_array[0..]};
 
     s.a[0].b = 1;

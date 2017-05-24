@@ -1,6 +1,6 @@
 const assert = @import("std").debug.assert;
 
-test "nullableType" {
+test "nullable type" {
     const x : ?bool = true;
 
     if (x) |y| {
@@ -37,7 +37,7 @@ test "test maybe object and get a pointer to the inner value" {
 }
 
 
-test "rhsMaybeUnwrapReturn" {
+test "rhs maybe unwrap return" {
     const x: ?bool = true;
     const y = x ?? return;
 }
@@ -61,7 +61,7 @@ fn foo(x: ?i32) -> ?bool {
 }
 
 
-test "ifVarMaybePointer" {
+test "if var maybe pointer" {
     assert(shouldBeAPlus1(Particle {.a = 14, .b = 1, .c = 1, .d = 1}) == 15);
 }
 fn shouldBeAPlus1(p: &const Particle) -> u64 {
@@ -82,7 +82,7 @@ const Particle = struct {
 };
 
 
-test "nullLiteralOutsideFunction" {
+test "null literal outside function" {
     const is_null = here_is_a_null_literal.context == null;
     assert(is_null);
 
@@ -97,7 +97,7 @@ const here_is_a_null_literal = SillyStruct {
 };
 
 
-test "testNullRuntime" {
+test "test null runtime" {
     testTestNullRuntime(null);
 }
 fn testTestNullRuntime(x: ?i32) {
@@ -105,7 +105,7 @@ fn testTestNullRuntime(x: ?i32) {
     assert(!(x != null));
 }
 
-test "nullableVoid" {
+test "nullable void" {
     nullableVoidImpl();
     comptime nullableVoidImpl();
 }

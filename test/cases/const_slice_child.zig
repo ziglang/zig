@@ -3,7 +3,7 @@ const assert = debug.assert;
 
 var argv: &const &const u8 = undefined;
 
-test "constSliceChild" {
+test "const slice child" {
     const strs = ([]&const u8) {
         c"one",
         c"two",

@@ -1,7 +1,7 @@
 const assert = @import("std").debug.assert;
 const builtin = @import("builtin");
 
-test "compileTimeRecursion" {
+test "compile time recursion" {
     assert(some_data.len == 21);
 }
 var some_data: [usize(fibonacci(7))]u8 = undefined;
@@ -16,11 +16,11 @@ fn unwrapAndAddOne(blah: ?i32) -> i32 {
     return ??blah + 1;
 }
 const should_be_1235 = unwrapAndAddOne(1234);
-test "testStaticAddOne" {
+test "static add one" {
     assert(should_be_1235 == 1235);
 }
 
-test "inlinedLoop" {
+test "inlined loop" {
     comptime var i = 0;
     comptime var sum = 0;
     inline while (i <= 5) : (i += 1)
@@ -34,20 +34,20 @@ fn gimme1or2(comptime a: bool) -> i32 {
     comptime var z: i32 = if (a) x else y;
     return z;
 }
-test "inlineVariableGetsResultOfConstIf" {
+test "inline variable gets result of const if" {
     assert(gimme1or2(true) == 1);
     assert(gimme1or2(false) == 2);
 }
 
 
-test "staticFunctionEvaluation" {
+test "static function evaluation" {
     assert(statically_added_number == 3);
 }
 const statically_added_number = staticAdd(1, 2);
 fn staticAdd(a: i32, b: i32) -> i32 { a + b }
 
 
-test "constExprEvalOnSingleExprBlocks" {
+test "const expr eval on single expr blocks" {
     assert(constExprEvalOnSingleExprBlocksFn(1, true) == 3);
 }
 
@@ -66,7 +66,7 @@ fn constExprEvalOnSingleExprBlocksFn(x: i32, b: bool) -> i32 {
 
 
 
-test "staticallyInitalizedList" {
+test "statically initialized list" {
     assert(static_point_list[0].x == 1);
     assert(static_point_list[0].y == 2);
     assert(static_point_list[1].x == 3);
@@ -85,7 +85,7 @@ fn makePoint(x: i32, y: i32) -> Point {
 }
 
 
-test "staticEvalListInit" {
+test "static eval list init" {
     assert(static_vec3.data[2] == 1.0);
     assert(vec3(0.0, 0.0, 3.0).data[2] == 3.0);
 }
@@ -100,14 +100,14 @@ pub fn vec3(x: f32, y: f32, z: f32) -> Vec3 {
 }
 
 
-test "constantExpressions" {
+test "constant expressions" {
     var array : [array_size]u8 = undefined;
     assert(@sizeOf(@typeOf(array)) == 20);
 }
 const array_size : u8 = 20;
 
 
-test "constantStructWithNegation" {
+test "constant struct with negation" {
     assert(vertices[0].x == -0.6);
 }
 const Vertex = struct {
@@ -124,7 +124,7 @@ const vertices = []Vertex {
 };
 
 
-test "staticallyInitalizedStruct" {
+test "statically initialized struct" {
     st_init_str_foo.x += 1;
     assert(st_init_str_foo.x == 14);
 }
@@ -135,14 +135,14 @@ const StInitStrFoo = struct {
 var st_init_str_foo = StInitStrFoo { .x = 13, .y = true, };
 
 
-test "staticallyInitializedArrayLiteral" {
+test "statically initalized array literal" {
     const y : [4]u8 = st_init_arr_lit_x;
     assert(y[3] == 4);
 }
 const st_init_arr_lit_x = []u8{1,2,3,4};
 
 
-test "constSlice" {
+test "const slice" {
     comptime {
         const a = "1234567890";
         assert(a.len == 10);
@@ -152,7 +152,7 @@ test "constSlice" {
     }
 }
 
-test "tryToTrickEvalWithRuntimeIf" {
+test "try to trick eval with runtime if" {
     assert(testTryToTrickEvalWithRuntimeIf(true) == 10);
 }
 
@@ -178,7 +178,7 @@ fn max(comptime T: type, a: T, b: T) -> T {
 fn letsTryToCompareBools(a: bool, b: bool) -> bool {
     max(bool, a, b)
 }
-test "inlinedBlockAndRuntimeBlockPhi" {
+test "inlined block and runtime block phi" {
     assert(letsTryToCompareBools(true, true));
     assert(letsTryToCompareBools(true, false));
     assert(letsTryToCompareBools(false, true));
@@ -217,7 +217,7 @@ fn performFn(comptime prefix_char: u8, start_value: i32) -> i32 {
     return result;
 }
 
-test "comptimeIterateOverFnPtrList" {
+test "comptime iterate over fn ptr list" {
     assert(performFn('t', 1) == 6);
     assert(performFn('o', 0) == 1);
     assert(performFn('w', 99) == 99);
@@ -256,13 +256,13 @@ var simple_struct = SimpleStruct{ .field = 1234, };
 
 const bound_fn = simple_struct.method;
 
-test "callMethodOnBoundFnReferringToVarInstance" {
+test "call method on bound fn referring to var instance" {
     assert(bound_fn() == 1237);
 }
 
 
 
-test "ptrToLocalArrayArgumentAtComptime" {
+test "ptr to local array argument at comptime" {
     comptime {
         var bytes: [10]u8 = undefined;
         modifySomeBytes(bytes[0..]);

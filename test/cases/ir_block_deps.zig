@@ -15,7 +15,7 @@ fn getErrInt() -> %i32 { 0 }
 
 error ItBroke;
 
-test "irBlockDeps" {
+test "ir block deps" {
     assert(%%foo(1) == 0);
     assert(%%foo(2) == 0);
 }

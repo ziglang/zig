@@ -9,7 +9,7 @@ fn initStaticArray() -> [10]i32 {
     return array;
 }
 const static_array = initStaticArray();
-test "initStaticArrayToUndefined" {
+test "init static array to undefined" {
     assert(static_array[0] == 1);
     assert(static_array[4] == 2);
     assert(static_array[7] == 3);
@@ -35,7 +35,7 @@ fn setFooX(foo: &Foo) {
     foo.x = 2;
 }
 
-test "assignUndefinedToStruct" {
+test "assign undefined to struct" {
     comptime {
         var foo: Foo = undefined;
         setFooX(&foo);
@@ -48,7 +48,7 @@ test "assignUndefinedToStruct" {
     }
 }
 
-test "assignUndefinedToStructWithMethod" {
+test "assign undefined to struct with method" {
     comptime {
         var foo: Foo = undefined;
         foo.setFooXMethod();

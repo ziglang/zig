@@ -1,11 +1,11 @@
 const assert = @import("std").debug.assert;
 
-test "boolLiterals" {
+test "bool literals" {
     assert(true);
     assert(!false);
 }
 
-test "castBoolToInt" {
+test "cast bool to int" {
     const t = true;
     const f = false;
     assert(i32(t) == i32(1));
@@ -18,7 +18,7 @@ fn nonConstCastBoolToInt(t: bool, f: bool) {
     assert(i32(f) == i32(0));
 }
 
-test "boolCmp" {
+test "bool cmp" {
     assert(testBoolCmp(true, false) == false);
 }
 fn testBoolCmp(a: bool, b: bool) -> bool {
@@ -29,7 +29,7 @@ const global_f = false;
 const global_t = true;
 const not_global_f = !global_f;
 const not_global_t = !global_t;
-test "compileTimeBoolnot" {
+test "compile time bool not" {
     assert(not_global_f);
     assert(!not_global_t);
 }

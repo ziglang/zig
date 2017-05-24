@@ -14,7 +14,7 @@ const ET = enum {
     }
 };
 
-test "enumWithMembers" {
+test "enum with members" {
     const a = ET.SINT { -42 };
     const b = ET.UINT { 42 };
     var buf: [20]u8 = undefined;
