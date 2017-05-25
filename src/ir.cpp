@@ -1857,14 +1857,17 @@ static IrInstruction *ir_build_unwrap_err_payload_from(IrBuilder *irb, IrInstruc
 }
 
 static IrInstruction *ir_build_fn_proto(IrBuilder *irb, Scope *scope, AstNode *source_node,
-    IrInstruction **param_types, IrInstruction *return_type)
+    IrInstruction **param_types, IrInstruction *return_type, bool is_var_args)
 {
     IrInstructionFnProto *instruction = ir_build_instruction<IrInstructionFnProto>(irb, scope, source_node);
     instruction->param_types = param_types;
     instruction->return_type = return_type;
+    instruction->is_var_args = is_var_args;
 
     assert(source_node->type == NodeTypeFnProto);
-    for (size_t i = 0; i < source_node->data.fn_proto.params.length; i += 1) {
+    size_t param_count = source_node->data.fn_proto.params.length;
+    if (is_var_args) param_count -= 1;
+    for (size_t i = 0; i < param_count; i += 1) {
         ir_ref_instruction(param_types[i], irb->current_basic_block);
     }
     ir_ref_instruction(return_type, irb->current_basic_block);
@@ -5843,8 +5846,13 @@ static IrInstruction *ir_gen_fn_proto(IrBuilder *irb, Scope *parent_scope, AstNo
     size_t param_count = node->data.fn_proto.params.length;
     IrInstruction **param_types = allocate<IrInstruction*>(param_count);
 
+    bool is_var_args = false;
     for (size_t i = 0; i < param_count; i += 1) {
         AstNode *param_node = node->data.fn_proto.params.at(i);
+        if (param_node->data.param_decl.is_var_args) {
+            is_var_args = true;
+            break;
+        }
         AstNode *type_node = param_node->data.param_decl.type;
         IrInstruction *type_value = ir_gen_node(irb, type_node, parent_scope);
         if (type_value == irb->codegen->invalid_instruction)
@@ -5856,7 +5864,7 @@ static IrInstruction *ir_gen_fn_proto(IrBuilder *irb, Scope *parent_scope, AstNo
     if (return_type == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
-    return ir_build_fn_proto(irb, parent_scope, node, param_types, return_type);
+    return ir_build_fn_proto(irb, parent_scope, node, param_types, return_type, is_var_args);
 }
 
 static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scope,
@@ -9039,7 +9047,11 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
     }
 
     if (fn_type->data.fn.is_generic) {
-        assert(fn_entry);
+        if (!fn_entry) {
+            ir_add_error(ira, call_instruction->fn_ref,
+                buf_sprintf("calling a generic function requires compile-time known function value"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
 
         // Count the arguments of the function type id we are creating
         size_t new_fn_arg_count = first_arg_1_or_0;
@@ -13065,6 +13077,17 @@ static TypeTableEntry *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstruc
         AstNode *param_node = proto_node->data.fn_proto.params.at(fn_type_id.next_param_index);
         assert(param_node->type == NodeTypeParamDecl);
 
+        bool param_is_var_args = param_node->data.param_decl.is_var_args;
+        if (param_is_var_args) {
+            if (fn_type_id.is_extern) {
+                fn_type_id.param_count = fn_type_id.next_param_index;
+                continue;
+            } else {
+                ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+                out_val->data.x_type = get_generic_fn_type(ira->codegen, &fn_type_id);
+                return ira->codegen->builtin_types.entry_type;
+            }
+        }
         IrInstruction *param_type_value = instruction->param_types[fn_type_id.next_param_index]->other;
 
         FnTypeParamInfo *param_info = &fn_type_id.param_info[fn_type_id.next_param_index];

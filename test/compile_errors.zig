@@ -1892,4 +1892,16 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:3:9: error: cannot goto out of defer expression");
+
+    cases.add("calling a var args function only known at runtime",
+        \\var foos = []fn(...) { foo1, foo2 };
+        \\
+        \\fn foo1(args: ...) {}
+        \\fn foo2(args: ...) {}
+        \\
+        \\pub fn main() -> %void {
+        \\    foos[0]();
+        \\}
+    ,
+        ".tmp_source.zig:7:9: error: calling a generic function requires compile-time known function value");
 }

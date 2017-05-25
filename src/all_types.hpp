@@ -2399,6 +2399,7 @@ struct IrInstructionFnProto {
 
     IrInstruction **param_types;
     IrInstruction *return_type;
+    bool is_var_args;
 };
 
 // true if the target value is compile time known, false otherwise

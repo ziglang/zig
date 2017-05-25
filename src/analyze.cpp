@@ -987,7 +987,7 @@ TypeTableEntry *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
     return result->value.data.x_type;
 }
 
-static TypeTableEntry *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
+TypeTableEntry *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     TypeTableEntry *fn_type = new_type_table_entry(TypeTableEntryIdFn);
     fn_type->is_copyable = false;
     buf_init_from_str(&fn_type->name, "fn(");
@@ -2504,7 +2504,11 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
         if (expected_type->data.fn.fn_type_id.is_cold != actual_type->data.fn.fn_type_id.is_cold) {
             return false;
         }
-        if (actual_type->data.fn.fn_type_id.return_type->id != TypeTableEntryIdUnreachable &&
+        if (expected_type->data.fn.fn_type_id.is_var_args != actual_type->data.fn.fn_type_id.is_var_args) {
+            return false;
+        }
+        if (!expected_type->data.fn.fn_type_id.is_var_args && 
+            actual_type->data.fn.fn_type_id.return_type->id != TypeTableEntryIdUnreachable &&
             !types_match_const_cast_only(
                 expected_type->data.fn.fn_type_id.return_type,
                 actual_type->data.fn.fn_type_id.return_type))
@@ -2515,6 +2519,11 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
             return false;
         }
         for (size_t i = 0; i < expected_type->data.fn.fn_type_id.param_count; i += 1) {
+            if (i == expected_type->data.fn.fn_type_id.param_count - 1 &&
+                expected_type->data.fn.fn_type_id.is_var_args)
+            {
+                continue;
+            }
             // note it's reversed for parameters
             FnTypeParamInfo *actual_param_info = &actual_type->data.fn.fn_type_id.param_info[i];
             FnTypeParamInfo *expected_param_info = &expected_type->data.fn.fn_type_id.param_info[i];
