@@ -299,7 +299,7 @@ uint64_t type_size_bits(CodeGen *g, TypeTableEntry *type_entry) {
     return LLVMSizeOfTypeInBits(g->target_data_ref, type_entry->type_ref);
 }
 
-static bool type_is_copyable(CodeGen *g, TypeTableEntry *type_entry) {
+bool type_is_copyable(CodeGen *g, TypeTableEntry *type_entry) {
     type_ensure_zero_bits_known(g, type_entry);
     if (!type_has_bits(type_entry))
         return true;

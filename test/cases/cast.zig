@@ -206,3 +206,24 @@ fn testResolveUndefWithInt(b: bool, x: i32) {
         assert(value == x);
     }
 }
+
+test "implicit cast from &const [N]T to []const T" {
+    testCastConstArrayRefToConstSlice();
+    comptime testCastConstArrayRefToConstSlice();
+}
+
+fn testCastConstArrayRefToConstSlice() {
+    const blah = "aoeu";
+    const const_array_ref = &blah;
+    assert(@typeOf(const_array_ref) == &const [4]u8);
+    const slice: []const u8 = const_array_ref;
+    assert(mem.eql(u8, slice, "aoeu"));
+}
+
+test "var args implicitly casts by value arg to const ref" {
+    foo("hello");
+}
+
+fn foo(args: ...) {
+    assert(@typeOf(args[0]) == &const [5]u8);
+}

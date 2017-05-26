@@ -165,5 +165,6 @@ TypeTableEntryId type_id_at_index(size_t index);
 size_t type_id_len();
 size_t type_id_index(TypeTableEntryId id);
 TypeTableEntry *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id);
+bool type_is_copyable(CodeGen *g, TypeTableEntry *type_entry);
 
 #endif
