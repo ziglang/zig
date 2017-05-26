@@ -54,3 +54,14 @@ fn extraFn(extra: u32, args: ...) -> usize {
     }
     return args.len;
 }
+
+
+const foos = []fn(...) -> bool { foo1, foo2 };
+
+fn foo1(args: ...) -> bool { true }
+fn foo2(args: ...) -> bool { false }
+
+test "array of var args functions" {
+    assert(foos[0]());
+    assert(!foos[1]());
+}

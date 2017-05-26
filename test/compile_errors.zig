@@ -1904,4 +1904,16 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:7:9: error: calling a generic function requires compile-time known function value");
+
+    cases.add("calling a generic function only known at runtime",
+        \\var foos = []fn(var) { foo1, foo2 };
+        \\
+        \\fn foo1(arg: var) {}
+        \\fn foo2(arg: var) {}
+        \\
+        \\pub fn main() -> %void {
+        \\    foos[0](true);
+        \\}
+    ,
+        ".tmp_source.zig:7:9: error: calling a generic function requires compile-time known function value");
 }

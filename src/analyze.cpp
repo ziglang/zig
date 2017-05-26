@@ -1033,10 +1033,10 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         AstNode *param_node = fn_proto->params.at(fn_type_id.next_param_index);
         assert(param_node->type == NodeTypeParamDecl);
 
-        bool param_is_inline = param_node->data.param_decl.is_inline;
+        bool param_is_comptime = param_node->data.param_decl.is_inline;
         bool param_is_var_args = param_node->data.param_decl.is_var_args;
 
-        if (param_is_inline) {
+        if (param_is_comptime) {
             if (fn_type_id.is_extern) {
                 add_node_error(g, param_node,
                         buf_sprintf("comptime parameter not allowed in extern function"));
@@ -2507,7 +2507,10 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
         if (expected_type->data.fn.fn_type_id.is_var_args != actual_type->data.fn.fn_type_id.is_var_args) {
             return false;
         }
-        if (!expected_type->data.fn.fn_type_id.is_var_args && 
+        if (expected_type->data.fn.is_generic != actual_type->data.fn.is_generic) {
+            return false;
+        }
+        if (!expected_type->data.fn.is_generic && 
             actual_type->data.fn.fn_type_id.return_type->id != TypeTableEntryIdUnreachable &&
             !types_match_const_cast_only(
                 expected_type->data.fn.fn_type_id.return_type,
@@ -2518,12 +2521,12 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
         if (expected_type->data.fn.fn_type_id.param_count != actual_type->data.fn.fn_type_id.param_count) {
             return false;
         }
-        for (size_t i = 0; i < expected_type->data.fn.fn_type_id.param_count; i += 1) {
-            if (i == expected_type->data.fn.fn_type_id.param_count - 1 &&
-                expected_type->data.fn.fn_type_id.is_var_args)
-            {
-                continue;
-            }
+        if (expected_type->data.fn.fn_type_id.next_param_index != actual_type->data.fn.fn_type_id.next_param_index) {
+            return false;
+        }
+        assert(expected_type->data.fn.is_generic ||
+                expected_type->data.fn.fn_type_id.next_param_index  == expected_type->data.fn.fn_type_id.param_count);
+        for (size_t i = 0; i < expected_type->data.fn.fn_type_id.next_param_index; i += 1) {
             // note it's reversed for parameters
             FnTypeParamInfo *actual_param_info = &actual_type->data.fn.fn_type_id.param_info[i];
             FnTypeParamInfo *expected_param_info = &expected_type->data.fn.fn_type_id.param_info[i];
