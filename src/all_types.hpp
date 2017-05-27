@@ -210,11 +210,15 @@ struct ConstFn {
     FnTableEntry *fn_entry;
 };
 
+struct ConstGlobalRefs {
+    LLVMValueRef llvm_value;
+    LLVMValueRef llvm_global;
+};
+
 struct ConstExprValue {
     TypeTableEntry *type;
     ConstValSpecial special;
-    LLVMValueRef llvm_value;
-    LLVMValueRef llvm_global;
+    ConstGlobalRefs *global_refs;
 
     union {
         // populated if special == ConstValSpecialStatic
@@ -527,6 +531,7 @@ enum CastOp {
     CastOpBoolToInt,
     CastOpResizeSlice,
     CastOpBytesToSlice,
+    CastOpNumLitToConcrete,
 };
 
 struct AstNodeFnCallExpr {

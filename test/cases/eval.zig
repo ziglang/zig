@@ -332,3 +332,13 @@ test "compile-time downcast when the bits fit" {
         assert(byte == 255);
     }
 }
+
+const hi1 = "hi";
+const hi2 = hi1;
+test "const global shares pointer with other same one" {
+    assertEqualPtrs(&hi1[0], &hi2[0]);
+    comptime assert(&hi1[0] == &hi2[0]);
+}
+fn assertEqualPtrs(ptr1: &const u8, ptr2: &const u8) {
+    assert(ptr1 == ptr2);
+}

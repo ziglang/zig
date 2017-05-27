@@ -3457,7 +3457,7 @@ bool type_requires_comptime(TypeTableEntry *type_entry) {
 void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = get_array_type(g, g->builtin_types.entry_u8, buf_len(str));
-    const_val->data.x_array.s_none.elements = allocate<ConstExprValue>(buf_len(str));
+    const_val->data.x_array.s_none.elements = create_const_vals(buf_len(str));
 
     for (size_t i = 0; i < buf_len(str); i += 1) {
         ConstExprValue *this_char = &const_val->data.x_array.s_none.elements[i];
@@ -3468,7 +3468,7 @@ void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
 }
 
 ConstExprValue *create_const_str_lit(CodeGen *g, Buf *str) {
-    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    ConstExprValue *const_val = create_const_vals(1);
     init_const_str_lit(g, const_val, str);
     return const_val;
 }
@@ -3476,10 +3476,10 @@ ConstExprValue *create_const_str_lit(CodeGen *g, Buf *str) {
 void init_const_c_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
     // first we build the underlying array
     size_t len_with_null = buf_len(str) + 1;
-    ConstExprValue *array_val = allocate<ConstExprValue>(1);
+    ConstExprValue *array_val = create_const_vals(1);
     array_val->special = ConstValSpecialStatic;
     array_val->type = get_array_type(g, g->builtin_types.entry_u8, len_with_null);
-    array_val->data.x_array.s_none.elements = allocate<ConstExprValue>(len_with_null);
+    array_val->data.x_array.s_none.elements = create_const_vals(len_with_null);
     for (size_t i = 0; i < buf_len(str); i += 1) {
         ConstExprValue *this_char = &array_val->data.x_array.s_none.elements[i];
         this_char->special = ConstValSpecialStatic;
@@ -3500,7 +3500,7 @@ void init_const_c_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
     const_val->data.x_ptr.data.base_array.is_cstr = true;
 }
 ConstExprValue *create_const_c_str_lit(CodeGen *g, Buf *str) {
-    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    ConstExprValue *const_val = create_const_vals(1);
     init_const_c_str_lit(g, const_val, str);
     return const_val;
 }
@@ -3513,7 +3513,7 @@ void init_const_unsigned_negative(ConstExprValue *const_val, TypeTableEntry *typ
 }
 
 ConstExprValue *create_const_unsigned_negative(TypeTableEntry *type, uint64_t x, bool negative) {
-    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    ConstExprValue *const_val = create_const_vals(1);
     init_const_unsigned_negative(const_val, type, x, negative);
     return const_val;
 }
@@ -3533,7 +3533,7 @@ void init_const_signed(ConstExprValue *const_val, TypeTableEntry *type, int64_t 
 }
 
 ConstExprValue *create_const_signed(TypeTableEntry *type, int64_t x) {
-    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    ConstExprValue *const_val = create_const_vals(1);
     init_const_signed(const_val, type, x);
     return const_val;
 }
@@ -3545,7 +3545,7 @@ void init_const_float(ConstExprValue *const_val, TypeTableEntry *type, double va
 }
 
 ConstExprValue *create_const_float(TypeTableEntry *type, double value) {
-    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    ConstExprValue *const_val = create_const_vals(1);
     init_const_float(const_val, type, value);
     return const_val;
 }
@@ -3557,7 +3557,7 @@ void init_const_enum_tag(ConstExprValue *const_val, TypeTableEntry *type, uint64
 }
 
 ConstExprValue *create_const_enum_tag(TypeTableEntry *type, uint64_t tag) {
-    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    ConstExprValue *const_val = create_const_vals(1);
     init_const_enum_tag(const_val, type, tag);
     return const_val;
 }
@@ -3569,7 +3569,7 @@ void init_const_bool(CodeGen *g, ConstExprValue *const_val, bool value) {
 }
 
 ConstExprValue *create_const_bool(CodeGen *g, bool value) {
-    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    ConstExprValue *const_val = create_const_vals(1);
     init_const_bool(g, const_val, value);
     return const_val;
 }
@@ -3580,7 +3580,7 @@ void init_const_runtime(ConstExprValue *const_val, TypeTableEntry *type) {
 }
 
 ConstExprValue *create_const_runtime(TypeTableEntry *type) {
-    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    ConstExprValue *const_val = create_const_vals(1);
     init_const_runtime(const_val, type);
     return const_val;
 }
@@ -3592,7 +3592,7 @@ void init_const_type(CodeGen *g, ConstExprValue *const_val, TypeTableEntry *type
 }
 
 ConstExprValue *create_const_type(CodeGen *g, TypeTableEntry *type_value) {
-    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    ConstExprValue *const_val = create_const_vals(1);
     init_const_type(g, const_val, type_value);
     return const_val;
 }
@@ -3604,14 +3604,14 @@ void init_const_slice(CodeGen *g, ConstExprValue *const_val, ConstExprValue *arr
 
     const_val->special = ConstValSpecialStatic;
     const_val->type = get_slice_type(g, array_val->type->data.array.child_type, is_const);
-    const_val->data.x_struct.fields = allocate<ConstExprValue>(2);
+    const_val->data.x_struct.fields = create_const_vals(2);
 
     init_const_ptr_array(g, &const_val->data.x_struct.fields[slice_ptr_index], array_val, start, is_const);
     init_const_usize(g, &const_val->data.x_struct.fields[slice_len_index], len);
 }
 
 ConstExprValue *create_const_slice(CodeGen *g, ConstExprValue *array_val, size_t start, size_t len, bool is_const) {
-    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    ConstExprValue *const_val = create_const_vals(1);
     init_const_slice(g, const_val, array_val, start, len, is_const);
     return const_val;
 }
@@ -3630,7 +3630,7 @@ void init_const_ptr_array(CodeGen *g, ConstExprValue *const_val, ConstExprValue 
 }
 
 ConstExprValue *create_const_ptr_array(CodeGen *g, ConstExprValue *array_val, size_t elem_index, bool is_const) {
-    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    ConstExprValue *const_val = create_const_vals(1);
     init_const_ptr_array(g, const_val, array_val, elem_index, is_const);
     return const_val;
 }
@@ -3643,7 +3643,7 @@ void init_const_ptr_ref(CodeGen *g, ConstExprValue *const_val, ConstExprValue *p
 }
 
 ConstExprValue *create_const_ptr_ref(CodeGen *g, ConstExprValue *pointee_val, bool is_const) {
-    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    ConstExprValue *const_val = create_const_vals(1);
     init_const_ptr_ref(g, const_val, pointee_val, is_const);
     return const_val;
 }
@@ -3660,7 +3660,7 @@ void init_const_ptr_hard_coded_addr(CodeGen *g, ConstExprValue *const_val, TypeT
 ConstExprValue *create_const_ptr_hard_coded_addr(CodeGen *g, TypeTableEntry *pointee_type,
         size_t addr, bool is_const)
 {
-    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    ConstExprValue *const_val = create_const_vals(1);
     init_const_ptr_hard_coded_addr(g, const_val, pointee_type, addr, is_const);
     return const_val;
 }
@@ -3673,7 +3673,7 @@ void init_const_arg_tuple(CodeGen *g, ConstExprValue *const_val, size_t arg_inde
 }
 
 ConstExprValue *create_const_arg_tuple(CodeGen *g, size_t arg_index_start, size_t arg_index_end) {
-    ConstExprValue *const_val = allocate<ConstExprValue>(1);
+    ConstExprValue *const_val = create_const_vals(1);
     init_const_arg_tuple(g, const_val, arg_index_start, arg_index_end);
     return const_val;
 }
@@ -3689,7 +3689,7 @@ void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
 
         const_val->special = ConstValSpecialStatic;
         size_t field_count = wanted_type->data.structure.src_field_count;
-        const_val->data.x_struct.fields = allocate<ConstExprValue>(field_count);
+        const_val->data.x_struct.fields = create_const_vals(field_count);
         for (size_t i = 0; i < field_count; i += 1) {
             ConstExprValue *field_val = &const_val->data.x_struct.fields[i];
             field_val->type = wanted_type->data.structure.fields[i].type_entry;
@@ -3705,6 +3705,15 @@ void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
     } else {
         const_val->special = ConstValSpecialUndef;
     }
+}
+
+ConstExprValue *create_const_vals(size_t count) {
+    ConstGlobalRefs *global_refs = allocate<ConstGlobalRefs>(count);
+    ConstExprValue *vals = allocate<ConstExprValue>(count);
+    for (size_t i = 0; i < count; i += 1) {
+        vals[i].global_refs = &global_refs[i];
+    }
+    return vals;
 }
 
 void ensure_complete_type(CodeGen *g, TypeTableEntry *type_entry) {
@@ -3788,16 +3797,24 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
                         return false;
                     return true;
                 case ConstPtrSpecialBaseArray:
-                    if (a->data.x_ptr.data.base_array.array_val != b->data.x_ptr.data.base_array.array_val)
+                    if (a->data.x_ptr.data.base_array.array_val != b->data.x_ptr.data.base_array.array_val &&
+                        a->data.x_ptr.data.base_array.array_val->global_refs !=
+                        b->data.x_ptr.data.base_array.array_val->global_refs)
+                    {
                         return false;
+                    }
                     if (a->data.x_ptr.data.base_array.elem_index != b->data.x_ptr.data.base_array.elem_index)
                         return false;
                     if (a->data.x_ptr.data.base_array.is_cstr != b->data.x_ptr.data.base_array.is_cstr)
                         return false;
                     return true;
                 case ConstPtrSpecialBaseStruct:
-                    if (a->data.x_ptr.data.base_struct.struct_val != b->data.x_ptr.data.base_struct.struct_val)
+                    if (a->data.x_ptr.data.base_struct.struct_val != b->data.x_ptr.data.base_struct.struct_val &&
+                        a->data.x_ptr.data.base_struct.struct_val->global_refs !=
+                        b->data.x_ptr.data.base_struct.struct_val->global_refs)
+                    {
                         return false;
+                    }
                     if (a->data.x_ptr.data.base_struct.field_index != b->data.x_ptr.data.base_struct.field_index)
                         return false;
                     return true;
@@ -4293,7 +4310,7 @@ void expand_undef_array(CodeGen *g, ConstExprValue *const_val) {
     if (const_val->data.x_array.special == ConstArraySpecialUndef) {
         const_val->data.x_array.special = ConstArraySpecialNone;
         size_t elem_count = const_val->type->data.array.len;
-        const_val->data.x_array.s_none.elements = allocate<ConstExprValue>(elem_count);
+        const_val->data.x_array.s_none.elements = create_const_vals(elem_count);
         for (size_t i = 0; i < elem_count; i += 1) {
             ConstExprValue *element_val = &const_val->data.x_array.s_none.elements[i];
             element_val->type = const_val->type->data.array.child_type;
