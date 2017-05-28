@@ -290,7 +290,7 @@ const SplitIterator = struct {
 /// Allocates memory for the result, which must be freed by the caller.
 pub fn join(allocator: &Allocator, sep: u8, strings: ...) -> %[]u8 {
     comptime assert(strings.len >= 1);
-    var total_strings_len: usize = strings.len; // 1 slash per string
+    var total_strings_len: usize = strings.len; // 1 sep per string
     {
         comptime var string_i = 0;
         inline while (string_i < strings.len) : (string_i += 1) {
