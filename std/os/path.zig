@@ -21,34 +21,7 @@ pub const delimiter = switch (builtin.os) {
 /// Naively combines a series of paths with the native path seperator.
 /// Allocates memory for the result, which must be freed by the caller.
 pub fn join(allocator: &Allocator, paths: ...) -> %[]u8 {
-    comptime assert(paths.len >= 2);
-    var total_paths_len: usize = paths.len; // 1 slash per path
-    {
-        comptime var path_i = 0;
-        inline while (path_i < paths.len) : (path_i += 1) {
-            const arg = ([]const u8)(paths[path_i]);
-            total_paths_len += arg.len;
-        }
-    }
-
-    const buf = %return allocator.alloc(u8, total_paths_len);
-    %defer allocator.free(buf);
-
-    var buf_index: usize = 0;
-    comptime var path_i = 0;
-    inline while (true) {
-        const arg = ([]const u8)(paths[path_i]);
-        path_i += 1;
-        mem.copy(u8, buf[buf_index..], arg);
-        buf_index += arg.len;
-        if (path_i >= paths.len) break;
-        if (buf[buf_index - 1] != sep) {
-            buf[buf_index] = sep;
-            buf_index += 1;
-        }
-    }
-
-    return buf[0..buf_index];
+    mem.join(allocator, sep, paths)
 }
 
 test "os.path.join" {
