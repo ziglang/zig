@@ -11119,10 +11119,9 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_maybe(IrAnalyze *ira,
         ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
         if (!val)
             return ira->codegen->builtin_types.entry_invalid;
-        assert(val->data.x_ptr.special == ConstPtrSpecialRef);
-        ConstExprValue *maybe_val = val->data.x_ptr.data.ref.pointee;
+        ConstExprValue *maybe_val = const_ptr_pointee(ira->codegen, val);
 
-        if (maybe_val->special != ConstValSpecialRuntime) {
+        if (val->data.x_ptr.mut != ConstPtrMutRuntimeVar) {
             if (!maybe_val->data.x_maybe) {
                 ir_add_error(ira, &unwrap_maybe_instruction->base, buf_sprintf("unable to unwrap null"));
                 return ira->codegen->builtin_types.entry_invalid;

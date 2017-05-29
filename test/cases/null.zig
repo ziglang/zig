@@ -122,3 +122,24 @@ fn bar(x: ?void) -> ?void {
         return null;
     }
 }
+
+
+
+const StructWithNullable = struct {
+    field: ?i32,
+};
+
+var struct_with_nullable: StructWithNullable = undefined;
+
+test "unwrap nullable which is field of global var" {
+    struct_with_nullable.field = null;
+    if (struct_with_nullable.field) |payload| {
+        unreachable;
+    }
+    struct_with_nullable.field = 1234;
+    if (struct_with_nullable.field) |payload| {
+        assert(payload == 1234);
+    } else {
+        unreachable;
+    }
+}
