@@ -1,4 +1,5 @@
-const assert = @import("debug.zig").assert;
+const debug = @import("debug.zig");
+const assert = debug.assert;
 const math = @import("math.zig");
 const os = @import("os/index.zig");
 const io = @import("io.zig");
@@ -284,6 +285,44 @@ const SplitIterator = struct {
         return self.s[index..];
     }
 };
+
+/// Naively combines a series of strings with a separator.
+/// Allocates memory for the result, which must be freed by the caller.
+pub fn join(allocator: &Allocator, sep: u8, strings: ...) -> %[]u8 {
+    comptime assert(strings.len >= 1);
+    var total_strings_len: usize = strings.len; // 1 sep per string
+    {
+        comptime var string_i = 0;
+        inline while (string_i < strings.len) : (string_i += 1) {
+            const arg = ([]const u8)(strings[string_i]);
+            total_strings_len += arg.len;
+        }
+    }
+
+    const buf = %return allocator.alloc(u8, total_strings_len);
+    %defer allocator.free(buf);
+
+    var buf_index: usize = 0;
+    comptime var string_i = 0;
+    inline while (true) {
+        const arg = ([]const u8)(strings[string_i]);
+        string_i += 1;
+        copy(u8, buf[buf_index..], arg);
+        buf_index += arg.len;
+        if (string_i >= strings.len) break;
+        if (buf[buf_index - 1] != sep) {
+            buf[buf_index] = sep;
+            buf_index += 1;
+        }
+    }
+
+    return buf[0..buf_index];
+}
+
+test "mem.join" {
+    assert(eql(u8, %%join(&debug.global_allocator, ',', "a", "b", "c"), "a,b,c"));
+    assert(eql(u8, %%join(&debug.global_allocator, ',', "a"), "a"));
+}
 
 test "testStringEquality" {
     assert(eql(u8, "abcd", "abcd"));
