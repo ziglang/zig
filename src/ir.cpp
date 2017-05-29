@@ -9913,8 +9913,8 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
             (array_type->id != TypeTableEntryIdPointer ||
                 array_ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr))
         {
-            ConstExprValue *out_val = ir_build_const_from(ira, &elem_ptr_instruction->base);
             if (array_type->id == TypeTableEntryIdPointer) {
+                ConstExprValue *out_val = ir_build_const_from(ira, &elem_ptr_instruction->base);
                 out_val->data.x_ptr.mut = array_ptr_val->data.x_ptr.mut;
                 size_t new_index;
                 size_t mem_size;
@@ -9959,9 +9959,16 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                         buf_sprintf("index %" ZIG_PRI_u64 " outside pointer of size %" ZIG_PRI_usize "", index, old_size));
                     return ira->codegen->builtin_types.entry_invalid;
                 }
+                return return_type;
             } else if (is_slice(array_type)) {
                 ConstExprValue *ptr_field = &array_ptr_val->data.x_struct.fields[slice_ptr_index];
+                if (ptr_field->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
+                    ir_build_elem_ptr_from(&ira->new_irb, &elem_ptr_instruction->base, array_ptr,
+                            casted_elem_index, false);
+                    return return_type;
+                }
                 ConstExprValue *len_field = &array_ptr_val->data.x_struct.fields[slice_len_index];
+                ConstExprValue *out_val = ir_build_const_from(ira, &elem_ptr_instruction->base);
                 uint64_t slice_len = len_field->data.x_bignum.data.x_uint;
                 if (index >= slice_len) {
                     ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
@@ -9996,15 +10003,17 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                     case ConstPtrSpecialHardCodedAddr:
                         zig_unreachable();
                 }
+                return return_type;
             } else if (array_type->id == TypeTableEntryIdArray) {
+                ConstExprValue *out_val = ir_build_const_from(ira, &elem_ptr_instruction->base);
                 out_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
                 out_val->data.x_ptr.mut = array_ptr->value.data.x_ptr.mut;
                 out_val->data.x_ptr.data.base_array.array_val = array_ptr_val;
                 out_val->data.x_ptr.data.base_array.elem_index = index;
+                return return_type;
             } else {
                 zig_unreachable();
             }
-            return return_type;
         }
 
     }
