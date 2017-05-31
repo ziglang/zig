@@ -41,6 +41,10 @@ pub fn sub(comptime T: type, a: T, b: T) -> %T {
     if (@subWithOverflow(T, a, b, &answer)) error.Overflow else answer
 }
 
+pub fn negate(x: var) -> %@typeOf(x) {
+    return sub(@typeOf(x), 0, x);
+}
+
 error Overflow;
 pub fn shl(comptime T: type, a: T, b: T) -> %T {
     var answer: T = undefined;
@@ -340,4 +344,52 @@ test "math.floor" {
     assert(floor(f64(-1.234)) == -2.0);
     assert(floor(f64(999.0)) == 999.0);
     assert(floor(f64(-999.0)) == -999.0);
+}
+
+/// Returns the absolute value of the integer parameter.
+/// Result is an unsigned integer.
+pub fn absCast(x: var) -> @IntType(false, @typeOf(x).bit_count) {
+    const uint = @IntType(false, @typeOf(x).bit_count);
+    if (x >= 0)
+        return uint(x);
+
+    return uint(-(x + 1)) + 1;
+}
+
+test "math.absCast" {
+    assert(absCast(i32(-999)) == 999);
+    assert(@typeOf(absCast(i32(-999))) == u32);
+
+    assert(absCast(i32(999)) == 999);
+    assert(@typeOf(absCast(i32(999))) == u32);
+
+    assert(absCast(i32(@minValue(i32))) == -@minValue(i32));
+    assert(@typeOf(absCast(i32(@minValue(i32)))) == u32);
+}
+
+/// Returns the negation of the integer parameter.
+/// Result is a signed integer.
+error Overflow;
+pub fn negateCast(x: var) -> %@IntType(true, @typeOf(x).bit_count) {
+    if (@typeOf(x).is_signed)
+        return negate(x);
+
+    const int = @IntType(true, @typeOf(x).bit_count);
+    if (x > -@minValue(int))
+        return error.Overflow;
+
+    if (x == -@minValue(int))
+        return @minValue(int);
+
+    return -int(x);
+}
+
+test "math.negateCast" {
+    assert(%%negateCast(u32(999)) == -999);
+    assert(@typeOf(%%negateCast(u32(999))) == i32);
+
+    assert(%%negateCast(u32(-@minValue(i32))) == @minValue(i32));
+    assert(@typeOf(%%negateCast(u32(-@minValue(i32)))) == i32);
+
+    if (negateCast(u32(@maxValue(i32) + 10))) |_| unreachable else |err| assert(err == error.Overflow);
 }

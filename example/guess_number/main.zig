@@ -12,7 +12,7 @@ pub fn main() -> %void {
     const seed = std.mem.readInt(seed_bytes, usize, true);
     var rand = Rand.init(seed);
 
-    const answer = rand.rangeUnsigned(u8, 0, 100) + 1;
+    const answer = rand.range(u8, 0, 100) + 1;
 
     while (true) {
         %%io.stdout.printf("\nGuess a number between 1 and 100: ");
