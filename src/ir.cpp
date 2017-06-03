@@ -7909,7 +7909,7 @@ static Buf *ir_resolve_str(IrAnalyze *ira, IrInstruction *value) {
 
 static ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
     Tld *tld = codegen->compile_var_import->decls_scope->decl_table.get(buf_create_from_str(name));
-    resolve_top_level_decl(codegen, tld, false);
+    resolve_top_level_decl(codegen, tld, false, nullptr);
     assert(tld->id == TldIdVar);
     TldVar *tld_var = (TldVar *)tld;
     ConstExprValue *var_value = tld_var->var->value;
@@ -10032,7 +10032,7 @@ static TypeTableEntry *ir_analyze_container_member_access_inner(IrAnalyze *ira,
         auto entry = container_scope->decl_table.maybe_get(field_name);
         Tld *tld = entry ? entry->value : nullptr;
         if (tld && tld->id == TldIdFn) {
-            resolve_top_level_decl(ira->codegen, tld, false);
+            resolve_top_level_decl(ira->codegen, tld, false, field_ptr_instruction->base.source_node);
             if (tld->resolution == TldResolutionInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
             TldFn *tld_fn = (TldFn *)tld;
@@ -10117,7 +10117,7 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
 
 static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source_instruction, Tld *tld) {
     bool pointer_only = false;
-    resolve_top_level_decl(ira->codegen, tld, pointer_only);
+    resolve_top_level_decl(ira->codegen, tld, pointer_only, source_instruction->source_node);
     if (tld->resolution == TldResolutionInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
@@ -10539,7 +10539,7 @@ static TypeTableEntry *ir_analyze_instruction_set_global_align(IrAnalyze *ira,
     Tld *tld = instruction->tld;
     IrInstruction *align_value = instruction->value->other;
 
-    resolve_top_level_decl(ira->codegen, tld, true);
+    resolve_top_level_decl(ira->codegen, tld, true, instruction->base.source_node);
     if (tld->resolution == TldResolutionInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
@@ -10602,7 +10602,7 @@ static TypeTableEntry *ir_analyze_instruction_set_global_section(IrAnalyze *ira,
     Tld *tld = instruction->tld;
     IrInstruction *section_value = instruction->value->other;
 
-    resolve_top_level_decl(ira->codegen, tld, true);
+    resolve_top_level_decl(ira->codegen, tld, true, instruction->base.source_node);
     if (tld->resolution == TldResolutionInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
@@ -11932,7 +11932,19 @@ static TypeTableEntry *ir_analyze_instruction_compile_err(IrAnalyze *ira,
     if (!msg_buf)
         return ira->codegen->builtin_types.entry_invalid;
 
-    ir_add_error(ira, &instruction->base, msg_buf);
+    ErrorMsg *msg = ir_add_error(ira, &instruction->base, msg_buf);
+    size_t i = ira->codegen->tld_ref_source_node_stack.length;
+    for (;;) {
+        if (i == 0)
+            break;
+        i -= 1;
+        AstNode *source_node = ira->codegen->tld_ref_source_node_stack.at(i);
+        if (source_node) {
+            add_error_note(ira->codegen, msg, source_node,
+                buf_sprintf("referenced here"));
+        }
+    }
+
     return ira->codegen->builtin_types.entry_invalid;
 }
 
@@ -13454,7 +13466,7 @@ static TypeTableEntry *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
     Tld *tld = instruction->tld;
     LVal lval = instruction->lval;
 
-    resolve_top_level_decl(ira->codegen, tld, lval.is_ptr);
+    resolve_top_level_decl(ira->codegen, tld, lval.is_ptr, instruction->base.source_node);
     if (tld->resolution == TldResolutionInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 

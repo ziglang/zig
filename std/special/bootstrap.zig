@@ -8,7 +8,8 @@ const builtin = @import("builtin");
 const want_main_symbol = std.target.linking_libc;
 const want_start_symbol = !want_main_symbol;
 
-const exit = std.os.posix.exit;
+const posix_exit = std.os.posix.exit;
+extern fn ExitProcess(exit_code: c_uint) -> noreturn;
 
 var argc_ptr: &usize = undefined;
 
@@ -34,8 +35,16 @@ fn callMainAndExit() -> noreturn {
     const argc = *argc_ptr;
     const argv = @ptrCast(&&u8, &argc_ptr[1]);
     const envp = @ptrCast(&?&u8, &argv[argc + 1]);
-    callMain(argc, argv, envp) %% exit(1);
-    exit(0);
+    callMain(argc, argv, envp) %% exit(true);
+    exit(false);
+}
+
+fn exit(failure: bool) -> noreturn {
+    if (builtin.os == builtin.Os.windows) {
+        ExitProcess(c_uint(failure));
+    } else {
+        posix_exit(i32(failure));
+    }
 }
 
 fn callMain(argc: usize, argv: &&u8, envp: &?&u8) -> %void {

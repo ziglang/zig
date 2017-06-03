@@ -1453,8 +1453,6 @@ struct CodeGen {
     FnTableEntry *extern_panic_fn;
     LLVMValueRef cur_ret_ptr;
     LLVMValueRef cur_fn_val;
-    ZigList<LLVMBasicBlockRef> break_block_stack;
-    ZigList<LLVMBasicBlockRef> continue_block_stack;
     bool c_want_stdint;
     bool c_want_stdbool;
     AstNode *root_export_decl;
@@ -1510,6 +1508,7 @@ struct CodeGen {
     Buf *out_h_path;
 
     ZigList<FnTableEntry *> inline_fns;
+    ZigList<AstNode *> tld_ref_source_node_stack;
 };
 
 enum VarLinkage {

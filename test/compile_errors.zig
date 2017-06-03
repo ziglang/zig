@@ -1916,4 +1916,18 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:7:9: error: calling a generic function requires compile-time known function value");
+
+    cases.add("@compileError shows traceback of references that caused it",
+        \\const foo = @compileError("aoeu");
+        \\
+        \\const bar = baz + foo;
+        \\const baz = 1;
+        \\
+        \\export fn entry() -> i32 {
+        \\    return bar;
+        \\}
+    ,
+        ".tmp_source.zig:1:13: error: aoeu",
+        ".tmp_source.zig:3:19: note: referenced here",
+        ".tmp_source.zig:7:12: note: referenced here");
 }

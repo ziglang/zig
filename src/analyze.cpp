@@ -2086,7 +2086,7 @@ void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source
 
 void update_compile_var(CodeGen *g, Buf *name, ConstExprValue *value) {
     Tld *tld = g->compile_var_import->decls_scope->decl_table.get(name);
-    resolve_top_level_decl(g, tld, false);
+    resolve_top_level_decl(g, tld, false, tld->source_node);
     assert(tld->id == TldIdVar);
     TldVar *tld_var = (TldVar *)tld;
     tld_var->var->value = value;
@@ -2399,7 +2399,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
     g->global_vars.append(tld_var);
 }
 
-void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only) {
+void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only, AstNode *source_node) {
     if (tld->resolution != TldResolutionUnresolved)
         return;
 
@@ -2407,9 +2407,10 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only) {
         add_node_error(g, tld->source_node, buf_sprintf("'%s' depends on itself", buf_ptr(tld->name)));
         tld->resolution = TldResolutionInvalid;
         return;
-    } else {
-        tld->dep_loop_flag = true;
     }
+
+    tld->dep_loop_flag = true;
+    g->tld_ref_source_node_stack.append(source_node);
 
     switch (tld->id) {
         case TldIdVar:
@@ -2440,6 +2441,7 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only) {
 
     tld->resolution = TldResolutionOk;
     tld->dep_loop_flag = false;
+    g->tld_ref_source_node_stack.pop();
 }
 
 bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *actual_type) {
@@ -3056,7 +3058,7 @@ void semantic_analyze(CodeGen *g) {
         for (; g->resolve_queue_index < g->resolve_queue.length; g->resolve_queue_index += 1) {
             Tld *tld = g->resolve_queue.at(g->resolve_queue_index);
             bool pointer_only = false;
-            resolve_top_level_decl(g, tld, pointer_only);
+            resolve_top_level_decl(g, tld, pointer_only, nullptr);
         }
 
         for (; g->fn_defs_index < g->fn_defs.length; g->fn_defs_index += 1) {
