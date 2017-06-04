@@ -1,6 +1,7 @@
 zig-cache/
 build/
 build-release/
+build-windows/
 /.cproject
 /.project
 /.settings/

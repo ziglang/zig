@@ -3,6 +3,7 @@ const Os = builtin.Os;
 const system = switch(builtin.os) {
     Os.linux => @import("os/linux.zig"),
     Os.darwin => @import("os/darwin.zig"),
+    Os.windows => @import("os/windows/index.zig"),
     else => @compileError("Unsupported OS"),
 };
 
@@ -15,18 +16,27 @@ const mem = @import("mem.zig");
 const Buffer = @import("buffer.zig").Buffer;
 const fmt = @import("fmt.zig");
 
+const is_posix = builtin.os != builtin.Os.windows;
+const is_windows = builtin.os == builtin.Os.windows;
+
 pub var stdin = InStream {
-    .fd = system.STDIN_FILENO,
+    .fd = if (is_posix) system.STDIN_FILENO else {},
+    .handle_id = if (is_windows) system.STD_INPUT_HANDLE else {},
+    .handle = if (is_windows) null else {},
 };
 
 pub var stdout = OutStream {
-    .fd = system.STDOUT_FILENO,
+    .fd = if (is_posix) system.STDOUT_FILENO else {},
+    .handle_id = if (is_windows) system.STD_OUTPUT_HANDLE else {},
+    .handle = if (is_windows) null else {},
     .buffer = undefined,
     .index = 0,
 };
 
 pub var stderr = OutStream {
-    .fd = system.STDERR_FILENO,
+    .fd = if (is_posix) system.STDERR_FILENO else {},
+    .handle_id = if (is_windows) system.STD_ERROR_HANDLE else {},
+    .handle = if (is_windows) null else {},
     .buffer = undefined,
     .index = 0,
 };
@@ -58,6 +68,7 @@ error PathNotFound;
 error NoMem;
 error Unseekable;
 error EndOfFile;
+error NoStdHandles;
 
 pub const OpenRead     = 0b0001;
 pub const OpenWrite    = 0b0010;
@@ -65,7 +76,9 @@ pub const OpenCreate   = 0b0100;
 pub const OpenTruncate = 0b1000;
 
 pub const OutStream = struct {
-    fd: i32,
+    fd: if (is_posix) i32 else void,
+    handle_id: if (is_windows) system.DWORD else void,
+    handle: if (is_windows) ?system.HANDLE else void,
     buffer: [os.page_size]u8,
     index: usize,
 
@@ -81,17 +94,20 @@ pub const OutStream = struct {
     /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
     /// Call close to clean up.
     pub fn openMode(path: []const u8, mode: usize, allocator: ?&mem.Allocator) -> %OutStream {
-        switch (builtin.os) {
-            Os.linux, Os.darwin, Os.macosx, Os.ios => {
-                const flags = system.O_LARGEFILE|system.O_WRONLY|system.O_CREAT|system.O_CLOEXEC|system.O_TRUNC;
-                const fd = %return os.posixOpen(path, flags, mode, allocator);
-                return OutStream {
-                    .fd = fd,
-                    .index = 0,
-                    .buffer = undefined,
-                };
-            },
-            else => @compileError("Unsupported OS"),
+        if (is_posix) {
+            const flags = system.O_LARGEFILE|system.O_WRONLY|system.O_CREAT|system.O_CLOEXEC|system.O_TRUNC;
+            const fd = %return os.posixOpen(path, flags, mode, allocator);
+            return OutStream {
+                .fd = fd,
+                .handle = {},
+                .handle_id = {},
+                .index = 0,
+                .buffer = undefined,
+            };
+        } else if (is_windows) {
+            @compileError("TODO: windows OutStream.openMode");
+        } else {
+            @compileError("Unsupported OS");
         }
 
     }
@@ -105,7 +121,7 @@ pub const OutStream = struct {
     pub fn write(self: &OutStream, bytes: []const u8) -> %void {
         if (bytes.len >= self.buffer.len) {
             %return self.flush();
-            return os.posixWrite(self.fd, bytes);
+            return self.unbufferedWrite(bytes);
         }
 
         var src_index: usize = 0;
@@ -151,10 +167,10 @@ pub const OutStream = struct {
     }
 
     pub fn flush(self: &OutStream) -> %void {
-        if (self.index != 0) {
-            %return os.posixWrite(self.fd, self.buffer[0..self.index]);
-            self.index = 0;
-        }
+        if (self.index == 0)
+            return;
+
+        return self.unbufferedWrite(self.buffer[0..self.index]);
     }
 
     pub fn close(self: &OutStream) {
@@ -162,15 +178,50 @@ pub const OutStream = struct {
         os.posixClose(self.fd);
     }
 
-    pub fn isTty(self: &const OutStream) -> bool {
-        return os.posix.isatty(self.fd);
+    pub fn isTty(self: &OutStream) -> %bool {
+        if (is_posix) {
+            return system.isatty(self.fd);
+        } else if (is_windows) {
+            return os.windowsIsTty(%return self.getHandle());
+        } else {
+            @compileError("Unsupported OS");
+        }
     }
+
+    fn getHandle(self: &OutStream) -> %system.HANDLE {
+        if (self.handle) |handle| return handle;
+        if (system.GetStdHandle(self.handle_id)) |handle| {
+            if (handle == system.INVALID_HANDLE_VALUE) {
+                return error.Unexpected;
+            }
+            self.handle = handle;
+            return handle;
+        } else {
+            return error.NoStdHandles;
+        }
+    }
+
+    fn unbufferedWrite(self: &OutStream, bytes: []const u8) -> %void {
+        if (is_posix) {
+            %return os.posixWrite(self.fd, self.buffer[0..self.index]);
+            self.index = 0;
+        } else if (is_windows) {
+            const handle = %return self.getHandle();
+            %return os.windowsWrite(handle, self.buffer[0..self.index]);
+            self.index = 0;
+        } else {
+            @compileError("Unsupported OS");
+        }
+    }
+
 };
 
 // TODO created a BufferedInStream struct and move some of this code there
 // BufferedInStream API goes on top of minimal InStream API.
 pub const InStream = struct {
-    fd: i32,
+    fd: if (is_posix) i32 else void,
+    handle_id: if (is_windows) system.DWORD else void,
+    handle: if (is_windows) ?system.HANDLE else void,
 
     /// `path` may need to be copied in memory to add a null terminating byte. In this case
     /// a fixed size buffer of size std.os.max_noalloc_path_len is an attempted solution. If the fixed
@@ -178,54 +229,57 @@ pub const InStream = struct {
     /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
     /// Call close to clean up.
     pub fn open(path: []const u8, allocator: ?&mem.Allocator) -> %InStream {
-        switch (builtin.os) {
-            Os.linux, Os.darwin, Os.macosx, Os.ios => {
-                const flags = system.O_LARGEFILE|system.O_RDONLY;
-                const fd = %return os.posixOpen(path, flags, 0, allocator);
-                return InStream {
-                    .fd = fd,
-                };
-            },
-            else => @compileError("Unsupported OS"),
+        if (is_posix) {
+            const flags = system.O_LARGEFILE|system.O_RDONLY;
+            const fd = %return os.posixOpen(path, flags, 0, allocator);
+            return InStream {
+                .fd = fd,
+                .handle_id = {},
+                .handle = {},
+            };
+        } else if (is_windows) {
+            @compileError("TODO windows InStream.open");
+        } else {
+            @compileError("Unsupported OS");
         }
     }
 
     /// Upon success, the stream is in an uninitialized state. To continue using it,
     /// you must use the open() function.
     pub fn close(self: &InStream) {
-        switch (builtin.os) {
-            Os.linux, Os.darwin, Os.macosx, Os.ios => {
-                os.posixClose(self.fd);
-            },
-            else => @compileError("Unsupported OS"),
+        if (is_posix) {
+            os.posixClose(self.fd);
+        } else {
+            @compileError("Unsupported OS");
         }
     }
 
     /// Returns the number of bytes read. If the number read is smaller than buf.len, then
     /// the stream reached End Of File.
     pub fn read(is: &InStream, buf: []u8) -> %usize {
-        switch (builtin.os) {
-            Os.linux, Os.darwin => {
-                var index: usize = 0;
-                while (index < buf.len) {
-                    const amt_read = system.read(is.fd, &buf[index], buf.len - index);
-                    const read_err = system.getErrno(amt_read);
-                    if (read_err > 0) {
-                        switch (read_err) {
-                            errno.EINTR  => continue,
-                            errno.EINVAL => unreachable,
-                            errno.EFAULT => unreachable,
-                            errno.EBADF  => return error.BadFd,
-                            errno.EIO    => return error.Io,
-                            else         => return error.Unexpected,
-                        }
+        if (is_posix) {
+            var index: usize = 0;
+            while (index < buf.len) {
+                const amt_read = system.read(is.fd, &buf[index], buf.len - index);
+                const read_err = system.getErrno(amt_read);
+                if (read_err > 0) {
+                    switch (read_err) {
+                        errno.EINTR  => continue,
+                        errno.EINVAL => unreachable,
+                        errno.EFAULT => unreachable,
+                        errno.EBADF  => return error.BadFd,
+                        errno.EIO    => return error.Io,
+                        else         => return error.Unexpected,
                     }
-                    if (amt_read == 0) return index;
-                    index += amt_read;
                 }
-                return index;
-            },
-            else => @compileError("Unsupported OS"),
+                if (amt_read == 0) return index;
+                index += amt_read;
+            }
+            return index;
+        } else if (is_windows) {
+            @compileError("TODO windows read impl");
+        } else {
+            @compileError("Unsupported OS");
         }
     }
 
@@ -361,8 +415,27 @@ pub const InStream = struct {
         }
     }
 
-    pub fn isTty(self: &const InStream) -> bool {
-        return os.posix.isatty(self.fd);
+    pub fn isTty(self: &InStream) -> %bool {
+        if (is_posix) {
+            return system.isatty(self.fd);
+        } else if (is_windows) {
+            return os.windowsIsTty(%return self.getHandle());
+        } else {
+            @compileError("Unsupported OS");
+        }
+    }
+
+    fn getHandle(self: &InStream) -> %system.HANDLE {
+        if (self.handle) |handle| return handle;
+        if (system.GetStdHandle(self.handle_id)) |handle| {
+            if (handle == system.INVALID_HANDLE_VALUE) {
+                return error.Unexpected;
+            }
+            self.handle = handle;
+            return handle;
+        } else {
+            return error.NoStdHandles;
+        }
     }
 };
 

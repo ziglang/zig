@@ -30,14 +30,14 @@ pub coldcc fn panic(comptime format: []const u8, args: ...) -> noreturn {
     }
 
     %%io.stderr.printf(format ++ "\n", args);
-    %%writeStackTrace(&io.stderr, &global_allocator, io.stderr.isTty(), 1);
+    %%writeStackTrace(&io.stderr, &global_allocator, io.stderr.isTty() %% false, 1);
     %%io.stderr.flush();
 
     os.abort();
 }
 
 pub fn printStackTrace() -> %void {
-    %return writeStackTrace(&io.stderr, &global_allocator, io.stderr.isTty(), 1);
+    %return writeStackTrace(&io.stderr, &global_allocator, io.stderr.isTty() %% false, 1);
     %return io.stderr.flush();
 }
 
@@ -47,6 +47,9 @@ const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
 pub var user_main_fn: ?fn() -> %void = null;
+
+error PathNotFound;
+error InvalidDebugInfo;
 
 pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty_color: bool,
     ignore_frame_count: usize) -> %void

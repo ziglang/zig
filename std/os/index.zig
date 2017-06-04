@@ -1,12 +1,11 @@
 const builtin = @import("builtin");
 const Os = builtin.Os;
-pub const windows = @import("windows.zig");
+pub const windows = @import("windows/index.zig");
 pub const darwin = @import("darwin.zig");
 pub const linux = @import("linux.zig");
 pub const posix = switch(builtin.os) {
     Os.linux => linux,
     Os.darwin, Os.macosx, Os.ios => darwin,
-    Os.windows => windows,
     else => @compileError("Unsupported OS"),
 };
 
@@ -113,6 +112,9 @@ pub coldcc fn abort() -> noreturn {
             _ = posix.raise(posix.SIGKILL);
             while (true) {}
         },
+        Os.windows => {
+            windows.ExitProcess(1);
+        },
         else => @compileError("Unsupported OS"),
     }
 }
@@ -132,7 +134,12 @@ pub fn posixClose(fd: i32) {
 error WouldBlock;
 error FileClosed;
 error DestinationAddressRequired;
+error DiskQuota;
+error FileTooBig;
 error FileSystem;
+error NoSpaceLeft;
+error BrokenPipe;
+error Unexpected;
 
 /// Calls POSIX write, and keeps trying if it gets interrupted.
 pub fn posixWrite(fd: i32, bytes: []const u8) -> %void {
@@ -151,7 +158,7 @@ pub fn posixWrite(fd: i32, bytes: []const u8) -> %void {
                 errno.EIO    => error.FileSystem,
                 errno.ENOSPC => error.NoSpaceLeft,
                 errno.EPERM  => error.AccessDenied,
-                errno.EPIPE  => error.PipeFail,
+                errno.EPIPE  => error.BrokenPipe,
                 else         => error.Unexpected,
             }
         }
@@ -159,6 +166,49 @@ pub fn posixWrite(fd: i32, bytes: []const u8) -> %void {
     }
 }
 
+error SystemResources;
+error OperationAborted;
+error IoPending;
+error BrokenPipe;
+
+pub fn windowsWrite(handle: windows.HANDLE, bytes: []const u8) -> %void {
+    if (!windows.WriteFile(handle, @ptrCast(&const c_void, bytes.ptr), u32(bytes.len), null, null)) {
+        return switch (windows.GetLastError()) {
+            windows.ERROR.INVALID_USER_BUFFER => error.SystemResources,
+            windows.ERROR.NOT_ENOUGH_MEMORY => error.SystemResources,
+            windows.ERROR.OPERATION_ABORTED => error.OperationAborted,
+            windows.ERROR.NOT_ENOUGH_QUOTA => error.SystemResources,
+            windows.ERROR.IO_PENDING => error.IoPending,
+            windows.ERROR.BROKEN_PIPE => error.BrokenPipe,
+            else => error.Unexpected,
+        };
+    }
+}
+
+pub fn windowsIsTty(handle: windows.HANDLE) -> bool {
+    if (windowsIsCygwinPty(handle))
+        return true;
+
+    var out: windows.DWORD = undefined;
+    return windows.GetConsoleMode(handle, &out);
+}
+
+pub fn windowsIsCygwinPty(handle: windows.HANDLE) -> bool {
+    const size = @sizeOf(windows.FILE_NAME_INFO);
+    var name_info_bytes = []u8{0} ** (size + windows.MAX_PATH);
+
+    if (!windows.GetFileInformationByHandleEx(handle, windows.FileNameInfo,
+        @ptrCast(&c_void, &name_info_bytes[0]), u32(name_info_bytes.len)))
+    {
+        return true;
+    }
+
+    const name_info = @ptrCast(&const windows.FILE_NAME_INFO, &name_info_bytes[0]);
+    const name_bytes = name_info_bytes[size..size + usize(name_info.FileNameLength)];
+    const name_wide  = ([]u16)(name_bytes);
+    return mem.indexOf(u16, name_wide, []u16{'m','s','y','s','-'}) != null or
+           mem.indexOf(u16, name_wide, []u16{'-','p','t','y'}) != null;
+}
 
 /// ::file_path may need to be copied in memory to add a null terminating byte. In this case
 /// a fixed size buffer of size ::max_noalloc_path_len is an attempted solution. If the fixed

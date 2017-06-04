@@ -9,7 +9,6 @@ const want_main_symbol = std.target.linking_libc;
 const want_start_symbol = !want_main_symbol;
 
 const posix_exit = std.os.posix.exit;
-extern fn ExitProcess(exit_code: c_uint) -> noreturn;
 
 var argc_ptr: &usize = undefined;
 
@@ -41,7 +40,7 @@ fn callMainAndExit() -> noreturn {
 
 fn exit(failure: bool) -> noreturn {
     if (builtin.os == builtin.Os.windows) {
-        ExitProcess(c_uint(failure));
+        std.os.windows.ExitProcess(c_uint(failure));
     } else {
         posix_exit(i32(failure));
     }

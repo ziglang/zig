@@ -332,75 +332,71 @@ static void construct_linker_job_coff(LinkJob *lj) {
         find_libc_lib_path(g);
     }
 
+    lj->args.append("-NOLOGO");
+
     if (g->zig_target.arch.arch == ZigLLVM_x86) {
-        lj->args.append("-m");
-        lj->args.append("i386pe");
+        lj->args.append("-MACHINE:X86");
     } else if (g->zig_target.arch.arch == ZigLLVM_x86_64) {
-        lj->args.append("-m");
-        lj->args.append("i386pep");
+        lj->args.append("-MACHINE:X64");
     } else if (g->zig_target.arch.arch == ZigLLVM_arm) {
-        lj->args.append("-m");
-        lj->args.append("thumb2pe");
+        lj->args.append("-MACHINE:ARM");
     }
 
     if (g->windows_subsystem_windows) {
-        lj->args.append("--subsystem");
-        lj->args.append("windows");
+        lj->args.append("/SUBSYSTEM:windows");
     } else if (g->windows_subsystem_console) {
-        lj->args.append("--subsystem");
-        lj->args.append("console");
+        lj->args.append("/SUBSYSTEM:console");
     }
 
-    bool dll = g->out_type == OutTypeLib;
-    bool shared = !g->is_static && dll;
-    if (g->is_static) {
-        lj->args.append("-Bstatic");
-    } else {
-        if (dll) {
-            lj->args.append("--dll");
-        } else if (shared) {
-            lj->args.append("--shared");
-        }
-        lj->args.append("-Bdynamic");
-        if (dll || shared) {
-            lj->args.append("-e");
-            if (g->zig_target.arch.arch == ZigLLVM_x86) {
-                lj->args.append("_DllMainCRTStartup@12");
-            } else {
-                lj->args.append("DllMainCRTStartup");
-            }
-            lj->args.append("--enable-auto-image-base");
-        }
-    }
+    //bool dll = g->out_type == OutTypeLib;
+    //bool shared = !g->is_static && dll;
+    //if (g->is_static) {
+    //    lj->args.append("-Bstatic");
+    //} else {
+    //    if (dll) {
+    //        lj->args.append("--dll");
+    //    } else if (shared) {
+    //        lj->args.append("--shared");
+    //    }
+    //    lj->args.append("-Bdynamic");
+    //    if (dll || shared) {
+    //        lj->args.append("-e");
+    //        if (g->zig_target.arch.arch == ZigLLVM_x86) {
+    //            lj->args.append("_DllMainCRTStartup@12");
+    //        } else {
+    //            lj->args.append("DllMainCRTStartup");
+    //        }
+    //        lj->args.append("--enable-auto-image-base");
+    //    }
+    //}
 
-    lj->args.append("-o");
-    lj->args.append(buf_ptr(&lj->out_file));
+    lj->args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(&lj->out_file))));
 
     if (lj->link_in_crt) {
-        if (shared || dll) {
-            lj->args.append(get_libc_file(g, "dllcrt2.o"));
-        } else {
-            if (g->windows_linker_unicode) {
-                lj->args.append(get_libc_file(g, "crt2u.o"));
-            } else {
-                lj->args.append(get_libc_file(g, "crt2.o"));
-            }
-        }
-        lj->args.append(get_libc_static_file(g, "crtbegin.o"));
+        zig_panic("TODO link in c runtime");
+        //if (shared || dll) {
+        //    lj->args.append(get_libc_file(g, "dllcrt2.o"));
+        //} else {
+        //    if (g->windows_linker_unicode) {
+        //        lj->args.append(get_libc_file(g, "crt2u.o"));
+        //    } else {
+        //        lj->args.append(get_libc_file(g, "crt2.o"));
+        //    }
+        //}
+        //lj->args.append(get_libc_static_file(g, "crtbegin.o"));
+    } else {
+        lj->args.append("-NODEFAULTLIB");
+        lj->args.append("-ENTRY:_start");
     }
 
     for (size_t i = 0; i < g->lib_dirs.length; i += 1) {
         const char *lib_dir = g->lib_dirs.at(i);
-        lj->args.append("-L");
-        lj->args.append(lib_dir);
+        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", lib_dir)));
     }
 
     if (g->link_libc) {
-        lj->args.append("-L");
-        lj->args.append(buf_ptr(g->libc_lib_dir));
-
-        lj->args.append("-L");
-        lj->args.append(buf_ptr(g->libc_static_lib_dir));
+        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->libc_lib_dir))));
+        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->libc_static_lib_dir))));
     }
 
     for (size_t i = 0; i < g->link_objects.length; i += 1) {

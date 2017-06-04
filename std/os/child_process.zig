@@ -165,6 +165,8 @@ pub const ChildProcess = struct {
             .stdin = if (stdin == StdIo.Pipe) {
                 io.OutStream {
                     .fd = stdin_pipe[1],
+                    .handle = {},
+                    .handle_id = {},
                     .buffer = undefined,
                     .index = 0,
                 }
@@ -174,6 +176,8 @@ pub const ChildProcess = struct {
             .stdout = if (stdout == StdIo.Pipe) {
                 io.InStream {
                     .fd = stdout_pipe[0],
+                    .handle = {},
+                    .handle_id = {},
                 }
             } else {
                 null
@@ -181,6 +185,8 @@ pub const ChildProcess = struct {
             .stderr = if (stderr == StdIo.Pipe) {
                 io.InStream {
                     .fd = stderr_pipe[0],
+                    .handle = {},
+                    .handle_id = {},
                 }
             } else {
                 null
