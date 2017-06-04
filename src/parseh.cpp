@@ -910,6 +910,7 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
         if (type_is_invalid(field_type) || !type_is_complete(field_type)) {
             emit_warning(c, field_decl, "struct %s demoted to opaque type - unresolved type\n", buf_ptr(bare_name));
             replace_with_fwd_decl(c, struct_type, full_type_name);
+            free(element_types);
             return struct_type;
         }
 
