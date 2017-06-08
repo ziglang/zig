@@ -11,7 +11,7 @@ const StdIo = os.ChildProcess.StdIo;
 const Term = os.ChildProcess.Term;
 const BufSet = @import("buf_set.zig").BufSet;
 const BufMap = @import("buf_map.zig").BufMap;
-const fmt_lib = @import("fmt.zig");
+const fmt_lib = @import("fmt/index.zig");
 
 error ExtraArg;
 error UncleanExit;

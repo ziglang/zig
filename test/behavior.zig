@@ -2,6 +2,7 @@ comptime {
     _ = @import("cases/array.zig");
     _ = @import("cases/asm.zig");
     _ = @import("cases/atomics.zig");
+    _ = @import("cases/bitcast.zig");
     _ = @import("cases/bool.zig");
     _ = @import("cases/cast.zig");
     _ = @import("cases/const_slice_child.zig");

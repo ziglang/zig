@@ -32,6 +32,11 @@ void bignum_init_bignum(BigNum *dest, BigNum *src);
 bool bignum_fits_in_bits(BigNum *bn, int bit_count, bool is_signed);
 uint64_t bignum_to_twos_complement(BigNum *bn);
 
+void bignum_write_twos_complement(BigNum *bn, uint8_t *buf, int bit_count, bool is_big_endian);
+void bignum_write_ieee597(BigNum *bn, uint8_t *buf, int bit_count, bool is_big_endian);
+void bignum_read_twos_complement(BigNum *bn, uint8_t *buf, int bit_count, bool is_big_endian, bool is_signed);
+void bignum_read_ieee597(BigNum *bn, uint8_t *buf, int bit_count, bool is_big_endian);
+
 // returns true if overflow happened
 bool bignum_add(BigNum *dest, BigNum *op1, BigNum *op2);
 bool bignum_sub(BigNum *dest, BigNum *op1, BigNum *op2);

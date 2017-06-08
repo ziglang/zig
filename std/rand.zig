@@ -1,7 +1,7 @@
 const assert = @import("debug.zig").assert;
 const rand_test = @import("rand_test.zig");
 const mem = @import("mem.zig");
-const math = @import("math.zig");
+const math = @import("math/index.zig");
 
 pub const MT19937_32 = MersenneTwister(
     u32, 624, 397, 31,

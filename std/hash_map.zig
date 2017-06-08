@@ -1,6 +1,6 @@
 const debug = @import("debug.zig");
 const assert = debug.assert;
-const math = @import("math.zig");
+const math = @import("math/index.zig");
 const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
 const builtin = @import("builtin");

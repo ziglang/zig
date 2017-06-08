@@ -8,13 +8,13 @@ const system = switch(builtin.os) {
 };
 
 const errno = @import("os/errno.zig");
-const math = @import("math.zig");
+const math = @import("math/index.zig");
 const debug = @import("debug.zig");
 const assert = debug.assert;
 const os = @import("os/index.zig");
 const mem = @import("mem.zig");
 const Buffer = @import("buffer.zig").Buffer;
-const fmt = @import("fmt.zig");
+const fmt = @import("fmt/index.zig");
 
 const is_posix = builtin.os != builtin.Os.windows;
 const is_windows = builtin.os == builtin.Os.windows;

@@ -1693,6 +1693,14 @@ static LLVMValueRef ir_render_ptr_cast(CodeGen *g, IrExecutable *executable,
     return LLVMBuildBitCast(g->builder, ptr, wanted_type->type_ref, "");
 }
 
+static LLVMValueRef ir_render_bit_cast(CodeGen *g, IrExecutable *executable,
+        IrInstructionBitCast *instruction)
+{
+    TypeTableEntry *wanted_type = instruction->base.value.type;
+    LLVMValueRef value = ir_llvm_value(g, instruction->value);
+    return LLVMBuildBitCast(g->builder, value, wanted_type->type_ref, "");
+}
+
 static LLVMValueRef ir_render_widen_or_shorten(CodeGen *g, IrExecutable *executable,
         IrInstructionWidenOrShorten *instruction)
 {
@@ -3180,6 +3188,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_struct_init(g, executable, (IrInstructionStructInit *)instruction);
         case IrInstructionIdPtrCast:
             return ir_render_ptr_cast(g, executable, (IrInstructionPtrCast *)instruction);
+        case IrInstructionIdBitCast:
+            return ir_render_bit_cast(g, executable, (IrInstructionBitCast *)instruction);
         case IrInstructionIdWidenOrShorten:
             return ir_render_widen_or_shorten(g, executable, (IrInstructionWidenOrShorten *)instruction);
         case IrInstructionIdPtrToInt:
@@ -4514,6 +4524,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdSetGlobalLinkage, "setGlobalLinkage", 2);
     create_builtin_fn(g, BuiltinFnIdPanic, "panic", 1);
     create_builtin_fn(g, BuiltinFnIdPtrCast, "ptrCast", 2);
+    create_builtin_fn(g, BuiltinFnIdBitCast, "bitCast", 2);
     create_builtin_fn(g, BuiltinFnIdIntToPtr, "intToPtr", 2);
     create_builtin_fn(g, BuiltinFnIdEnumTagName, "enumTagName", 1);
     create_builtin_fn(g, BuiltinFnIdFieldParentPtr, "fieldParentPtr", 3);

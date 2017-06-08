@@ -459,3 +459,77 @@ uint32_t bignum_clz(BigNum *bignum, uint32_t bit_count) {
     }
     return result;
 }
+
+void bignum_write_twos_complement(BigNum *bn, uint8_t *buf, int bit_count, bool is_big_endian) {
+    assert(bn->kind == BigNumKindInt);
+    uint64_t x = bignum_to_twos_complement(bn);
+
+    int byte_count = (bit_count + 7) / 8;
+    for (int i = 0; i < byte_count; i += 1) {
+        uint8_t le_byte = (x >> (i * 8)) & 0xff;
+        if (is_big_endian) {
+            buf[byte_count - i - 1] = le_byte;
+        } else {
+            buf[i] = le_byte;
+        }
+    }
+}
+
+void bignum_read_twos_complement(BigNum *bn, uint8_t *buf, int bit_count, bool is_big_endian, bool is_signed) {
+    int byte_count = (bit_count + 7) / 8;
+
+    uint64_t twos_comp = 0;
+    for (int i = 0; i < byte_count; i += 1) {
+        uint8_t be_byte;
+        if (is_big_endian) {
+            be_byte = buf[i];
+        } else {
+            be_byte = buf[byte_count - i - 1];
+        }
+
+        twos_comp <<= 8;
+        twos_comp |= be_byte;
+    }
+
+    uint8_t be_byte = buf[is_big_endian ? 0 : byte_count - 1];
+    if (is_signed && ((be_byte >> 7) & 0x1) != 0) {
+        bn->is_negative = true;
+        uint64_t mask = 0;
+        for (int i = 0; i < bit_count; i += 1) {
+            mask <<= 1;
+            mask |= 1;
+        }
+        bn->data.x_uint = ((~twos_comp) & mask) + 1;
+    } else {
+        bn->data.x_uint = twos_comp;
+    }
+    bn->kind = BigNumKindInt;
+}
+
+void bignum_write_ieee597(BigNum *bn, uint8_t *buf, int bit_count, bool is_big_endian) {
+    assert(bn->kind == BigNumKindFloat);
+    if (bit_count == 32) {
+        float f32 = bn->data.x_float;
+        memcpy(buf, &f32, 4);
+    } else if (bit_count == 64) {
+        double f64 = bn->data.x_float;
+        memcpy(buf, &f64, 8);
+    } else {
+        zig_unreachable();
+    }
+}
+
+void bignum_read_ieee597(BigNum *bn, uint8_t *buf, int bit_count, bool is_big_endian) {
+    bn->kind = BigNumKindFloat;
+    if (bit_count == 32) {
+        float f32;
+        memcpy(&f32, buf, 4);
+        bn->data.x_float = f32;
+    } else if (bit_count == 64) {
+        double f64;
+        memcpy(&f64, buf, 8);
+        bn->data.x_float = f64;
+    } else {
+        zig_unreachable();
+    }
+}

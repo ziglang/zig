@@ -1,10 +1,10 @@
-const math = @import("math.zig");
-const debug = @import("debug.zig");
+const math = @import("../math/index.zig");
+const debug = @import("../debug.zig");
 const assert = debug.assert;
-const mem = @import("mem.zig");
+const mem = @import("../mem.zig");
 const builtin = @import("builtin");
+const errol3 = @import("errol/index.zig").errol3;
 
-const max_f64_digits = 65;
 const max_int_digits = 65;
 
 const State = enum { // TODO put inside format function and make sure the name and debug info is correct
@@ -180,7 +180,7 @@ pub fn formatValue(value: var, context: var, output: fn(@typeOf(context), []cons
             return formatInt(value, 10, false, 0, context, output);
         },
         builtin.TypeId.Float => {
-            @compileError("TODO implement formatFloat");
+            return formatFloat(value, context, output);
         },
         builtin.TypeId.Void => {
             return output(context, "void");
@@ -236,6 +236,21 @@ pub fn formatBuf(buf: []const u8, width: usize,
     return true;
 }
 
+pub fn formatFloat(value: var, context: var, output: fn(@typeOf(context), []const u8)->bool) -> bool {
+    var buffer: [20]u8 = undefined;
+    const float_decimal = errol3(f64(value), buffer[0..]);
+    if (!output(context, float_decimal.digits[0..1]))
+        return false;
+    if (!output(context, "."))
+        return false;
+    if (!output(context, float_decimal.digits[1..]))
+        return false;
+    if (!output(context, "e"))
+        return false;
+    if (!formatInt(float_decimal.exp, 10, false, 0, context, output))
+        return false;
+    return true;
+}
 
 pub fn formatInt(value: var, base: u8, uppercase: bool, width: usize,
     context: var, output: fn(@typeOf(context), []const u8)->bool) -> bool

@@ -1,5 +1,7 @@
-const assert = @import("debug.zig").assert;
+const assert = @import("../debug.zig").assert;
 const builtin = @import("builtin");
+
+pub const frexp = @import("frexp.zig").frexp;
 
 pub const Cmp = enum {
     Less,
@@ -105,19 +107,7 @@ fn testAbsInt() {
     assert(%%absInt(i32(10)) == 10);
 }
 
-pub fn absFloat(x: var) -> @typeOf(x) {
-    comptime assert(@typeId(@typeOf(x)) == builtin.TypeId.Float);
-    return if (x < 0) -x else x;
-}
-
-test "math.absFloat" {
-    testAbsFloat();
-    comptime testAbsFloat();
-}
-fn testAbsFloat() {
-    assert(absFloat(f32(-10.0)) == 10.0);
-    assert(absFloat(f32(10.0)) == 10.0);
-}
+pub const absFloat = @import("fabs.zig").fabs;
 
 error DivisionByZero;
 error Overflow;
@@ -257,22 +247,16 @@ fn testRem() {
 fn isNan(comptime T: type, x: T) -> bool {
     assert(@typeId(T) == builtin.TypeId.Float);
     if (T == f32) {
-        const bits = bitCast(u32, x);
+        const bits = @bitCast(u32, x);
         return (bits & 0x7fffffff) > 0x7f800000;
     } else if (T == f64) {
-        const bits = bitCast(u64, x);
+        const bits = @bitCast(u64, x);
         return (bits & (@maxValue(u64) >> 1)) > (u64(0x7ff) << 52);
     } else if (T == c_longdouble) {
         @compileError("TODO support isNan for c_longdouble");
     } else {
         unreachable;
     }
-}
-
-// TODO this should be a builtin
-fn bitCast(comptime DestType: type, value: var) -> DestType {
-    assert(@sizeOf(DestType) == @sizeOf(@typeOf(value)));
-    return *@ptrCast(&const DestType, &value);
 }
 
 pub fn floor(x: var) -> @typeOf(x) {
@@ -285,12 +269,12 @@ pub fn floor(x: var) -> @typeOf(x) {
 }
 
 fn floor_f32(x: f32) -> f32 {
-    var i = bitCast(u32, x);
+    var i = @bitCast(u32, x);
     const e = i32((i >> 23) & 0xff) -% 0x7f;
     if (e >= 23)
         return x;
     if (e >= 0) {
-        const m = bitCast(u32, 0x007fffff >> e);
+        const m = @bitCast(u32, 0x007fffff >> e);
         if ((i & m) == 0)
             return x;
         if (i >> 31 != 0)
@@ -302,14 +286,14 @@ fn floor_f32(x: f32) -> f32 {
         if (i <<% 1 != 0)
             return -1.0;
     }
-    return bitCast(f32, i);
+    return @bitCast(f32, i);
 }
 
 fn floor_f64(x: f64) -> f64 {
     const DBL_EPSILON = 2.22044604925031308085e-16;
     const toint = 1.0 / DBL_EPSILON;
 
-    var i = bitCast(u64, x);
+    var i = @bitCast(u64, x);
     const e = (i >> 52) & 0x7ff;
 
     if (e >= 0x3ff +% 52 or x == 0)
@@ -392,4 +376,14 @@ test "math.negateCast" {
     assert(@typeOf(%%negateCast(u32(-@minValue(i32)))) == i32);
 
     if (negateCast(u32(@maxValue(i32) + 10))) |_| unreachable else |err| assert(err == error.Overflow);
+}
+
+test "math" {
+    _ = @import("frexp.zig");
+}
+
+
+pub fn approxEq(comptime T: type, x: T, y: T, epsilon: T) -> bool {
+    comptime assert(@typeId(T) == builtin.TypeId.Float);
+    absFloat(x - y) < epsilon
 }

@@ -469,6 +469,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionPtrCast *) {
     return IrInstructionIdPtrCast;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionBitCast *) {
+    return IrInstructionIdBitCast;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionWidenOrShorten *) {
     return IrInstructionIdWidenOrShorten;
 }
@@ -1922,6 +1926,20 @@ static IrInstruction *ir_build_ptr_cast(IrBuilder *irb, Scope *scope, AstNode *s
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_bit_cast(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *dest_type, IrInstruction *value)
+{
+    IrInstructionBitCast *instruction = ir_build_instruction<IrInstructionBitCast>(
+            irb, scope, source_node);
+    instruction->dest_type = dest_type;
+    instruction->value = value;
+
+    if (dest_type) ir_ref_instruction(dest_type, irb->current_basic_block);
+    ir_ref_instruction(value, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_build_widen_or_shorten(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *target)
 {
@@ -2704,6 +2722,16 @@ static IrInstruction *ir_instruction_ptrcast_get_dep(IrInstructionPtrCast *instr
     }
 }
 
+static IrInstruction *ir_instruction_bitcast_get_dep(IrInstructionBitCast *instruction,
+        size_t index)
+{
+    switch (index) {
+        case 0: return instruction->value;
+        case 1: return instruction->dest_type;
+        default: return nullptr;
+    }
+}
+
 static IrInstruction *ir_instruction_widenorshorten_get_dep(IrInstructionWidenOrShorten *instruction, size_t index) {
     switch (index) {
         case 0: return instruction->target;
@@ -3000,6 +3028,8 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_initenum_get_dep((IrInstructionInitEnum *) instruction, index);
         case IrInstructionIdPtrCast:
             return ir_instruction_ptrcast_get_dep((IrInstructionPtrCast *) instruction, index);
+        case IrInstructionIdBitCast:
+            return ir_instruction_bitcast_get_dep((IrInstructionBitCast *) instruction, index);
         case IrInstructionIdWidenOrShorten:
             return ir_instruction_widenorshorten_get_dep((IrInstructionWidenOrShorten *) instruction, index);
         case IrInstructionIdIntToPtr:
@@ -4300,6 +4330,20 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 return ir_build_ptr_cast(irb, scope, node, arg0_value, arg1_value);
+            }
+        case BuiltinFnIdBitCast:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                return ir_build_bit_cast(irb, scope, node, arg0_value, arg1_value);
             }
         case BuiltinFnIdIntToPtr:
             {
@@ -13427,6 +13471,222 @@ static TypeTableEntry *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, IrInstruc
     return dest_type;
 }
 
+static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue *val) {
+    assert(val->special == ConstValSpecialStatic);
+    switch (val->type->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+            zig_unreachable();
+        case TypeTableEntryIdVoid:
+            return;
+        case TypeTableEntryIdBool:
+            buf[0] = val->data.x_bool ? 1 : 0;
+            return;
+        case TypeTableEntryIdInt:
+            bignum_write_twos_complement(&val->data.x_bignum, buf, val->type->data.integral.bit_count, codegen->is_big_endian);
+            return;
+        case TypeTableEntryIdFloat:
+            bignum_write_ieee597(&val->data.x_bignum, buf, val->type->data.floating.bit_count, codegen->is_big_endian);
+            return;
+        case TypeTableEntryIdPointer:
+            if (val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
+                BigNum bn;
+                bignum_init_unsigned(&bn, val->data.x_ptr.data.hard_coded_addr.addr);
+                bignum_write_twos_complement(&bn, buf, codegen->builtin_types.entry_usize->data.integral.bit_count, codegen->is_big_endian);
+                return;
+            } else {
+                zig_unreachable();
+            }
+        case TypeTableEntryIdArray:
+            zig_panic("TODO buf_write_value_bytes array type");
+        case TypeTableEntryIdStruct:
+            zig_panic("TODO buf_write_value_bytes struct type");
+        case TypeTableEntryIdMaybe:
+            zig_panic("TODO buf_write_value_bytes maybe type");
+        case TypeTableEntryIdErrorUnion:
+            zig_panic("TODO buf_write_value_bytes error union");
+        case TypeTableEntryIdPureError:
+            zig_panic("TODO buf_write_value_bytes pure error type");
+        case TypeTableEntryIdEnum:
+            zig_panic("TODO buf_write_value_bytes enum type");
+        case TypeTableEntryIdEnumTag:
+            zig_panic("TODO buf_write_value_bytes enum tag type");
+        case TypeTableEntryIdFn:
+            zig_panic("TODO buf_write_value_bytes fn type");
+        case TypeTableEntryIdUnion:
+            zig_panic("TODO buf_write_value_bytes union type");
+    }
+    zig_unreachable();
+}
+
+static void buf_read_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue *val) {
+    assert(val->special == ConstValSpecialStatic);
+    switch (val->type->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+            zig_unreachable();
+        case TypeTableEntryIdVoid:
+            return;
+        case TypeTableEntryIdBool:
+            val->data.x_bool = (buf[0] != 0);
+            return;
+        case TypeTableEntryIdInt:
+            bignum_read_twos_complement(&val->data.x_bignum, buf, val->type->data.integral.bit_count, codegen->is_big_endian,
+                    val->type->data.integral.is_signed);
+            return;
+        case TypeTableEntryIdFloat:
+            bignum_read_ieee597(&val->data.x_bignum, buf, val->type->data.floating.bit_count, codegen->is_big_endian);
+            return;
+        case TypeTableEntryIdPointer:
+            {
+                val->data.x_ptr.special = ConstPtrSpecialHardCodedAddr;
+                BigNum bn;
+                bignum_read_twos_complement(&bn, buf, codegen->builtin_types.entry_usize->data.integral.bit_count, codegen->is_big_endian, false);
+                val->data.x_ptr.data.hard_coded_addr.addr = bignum_to_twos_complement(&bn);
+                return;
+            }
+        case TypeTableEntryIdArray:
+            zig_panic("TODO buf_read_value_bytes array type");
+        case TypeTableEntryIdStruct:
+            zig_panic("TODO buf_read_value_bytes struct type");
+        case TypeTableEntryIdMaybe:
+            zig_panic("TODO buf_read_value_bytes maybe type");
+        case TypeTableEntryIdErrorUnion:
+            zig_panic("TODO buf_read_value_bytes error union");
+        case TypeTableEntryIdPureError:
+            zig_panic("TODO buf_read_value_bytes pure error type");
+        case TypeTableEntryIdEnum:
+            zig_panic("TODO buf_read_value_bytes enum type");
+        case TypeTableEntryIdEnumTag:
+            zig_panic("TODO buf_read_value_bytes enum tag type");
+        case TypeTableEntryIdFn:
+            zig_panic("TODO buf_read_value_bytes fn type");
+        case TypeTableEntryIdUnion:
+            zig_panic("TODO buf_read_value_bytes union type");
+    }
+    zig_unreachable();
+}
+
+static TypeTableEntry *ir_analyze_instruction_bit_cast(IrAnalyze *ira, IrInstructionBitCast *instruction) {
+    IrInstruction *dest_type_value = instruction->dest_type->other;
+    TypeTableEntry *dest_type = ir_resolve_type(ira, dest_type_value);
+    if (type_is_invalid(dest_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *value = instruction->value->other;
+    TypeTableEntry *src_type = value->value.type;
+    if (type_is_invalid(src_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    ensure_complete_type(ira->codegen, dest_type);
+    ensure_complete_type(ira->codegen, src_type);
+
+    if (type_is_codegen_pointer(src_type)) {
+        ir_add_error(ira, value,
+            buf_sprintf("unable to @bitCast from type '%s'", buf_ptr(&src_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    switch (src_type->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+            ir_add_error(ira, dest_type_value,
+                    buf_sprintf("unable to @bitCast from type '%s'", buf_ptr(&src_type->name)));
+            return ira->codegen->builtin_types.entry_invalid;
+        default:
+            break;
+    }
+
+    if (type_is_codegen_pointer(dest_type)) {
+        ir_add_error(ira, dest_type_value,
+                buf_sprintf("unable to @bitCast to type '%s'", buf_ptr(&dest_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    switch (dest_type->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+            ir_add_error(ira, dest_type_value,
+                    buf_sprintf("unable to @bitCast to type '%s'", buf_ptr(&dest_type->name)));
+            return ira->codegen->builtin_types.entry_invalid;
+        default:
+            break;
+    }
+
+    uint64_t dest_size_bytes = type_size(ira->codegen, dest_type);
+    uint64_t src_size_bytes = type_size(ira->codegen, src_type);
+    if (dest_size_bytes != src_size_bytes) {
+        ir_add_error(ira, &instruction->base,
+            buf_sprintf("destination type '%s' has size %" ZIG_PRI_u64 " but source type '%s' has size %" ZIG_PRI_u64,
+                buf_ptr(&dest_type->name), dest_size_bytes,
+                buf_ptr(&src_type->name), src_size_bytes));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    if (instr_is_comptime(value)) {
+        ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
+        if (!val)
+            return ira->codegen->builtin_types.entry_invalid;
+
+        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+        out_val->type = dest_type;
+        uint8_t *buf = allocate_nonzero<uint8_t>(src_size_bytes);
+        buf_write_value_bytes(ira->codegen, buf, val);
+        buf_read_value_bytes(ira->codegen, buf, out_val);
+        return dest_type;
+    }
+
+    IrInstruction *result = ir_build_bit_cast(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, nullptr, value);
+    ir_link_new_instruction(result, &instruction->base);
+    result->value.type = dest_type;
+    return dest_type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_int_to_ptr(IrAnalyze *ira, IrInstructionIntToPtr *instruction) {
     IrInstruction *dest_type_value = instruction->dest_type->other;
     TypeTableEntry *dest_type = ir_resolve_type(ira, dest_type_value);
@@ -13697,6 +13957,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_panic(ira, (IrInstructionPanic *)instruction);
         case IrInstructionIdPtrCast:
             return ir_analyze_instruction_ptr_cast(ira, (IrInstructionPtrCast *)instruction);
+        case IrInstructionIdBitCast:
+            return ir_analyze_instruction_bit_cast(ira, (IrInstructionBitCast *)instruction);
         case IrInstructionIdIntToPtr:
             return ir_analyze_instruction_int_to_ptr(ira, (IrInstructionIntToPtr *)instruction);
         case IrInstructionIdEnumTagName:
@@ -13872,6 +14134,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdTestComptime:
         case IrInstructionIdInitEnum:
         case IrInstructionIdPtrCast:
+        case IrInstructionIdBitCast:
         case IrInstructionIdWidenOrShorten:
         case IrInstructionIdPtrToInt:
         case IrInstructionIdIntToPtr:

@@ -1,6 +1,6 @@
 const debug = @import("debug.zig");
 const assert = debug.assert;
-const math = @import("math.zig");
+const math = @import("math/index.zig");
 const os = @import("os/index.zig");
 const io = @import("io.zig");
 const builtin = @import("builtin");
