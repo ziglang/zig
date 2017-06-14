@@ -2123,25 +2123,29 @@ static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mand
 }
 
 /*
-FnProto = option("coldcc" | "nakedcc") "fn" option(Symbol) ParamDeclList option("->" TypeExpr)
+FnProto = option("coldcc" | "nakedcc" | "stdcallcc") "fn" option(Symbol) ParamDeclList option("->" TypeExpr)
 */
 static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool mandatory, VisibMod visib_mod) {
     Token *first_token = &pc->tokens->at(*token_index);
     Token *fn_token;
 
-    bool is_coldcc = false;
-    bool is_nakedcc = false;
+    CallingConvention cc;
     if (first_token->id == TokenIdKeywordColdCC) {
         *token_index += 1;
         fn_token = ast_eat_token(pc, token_index, TokenIdKeywordFn);
-        is_coldcc = true;
+        cc = CallingConventionCold;
     } else if (first_token->id == TokenIdKeywordNakedCC) {
         *token_index += 1;
         fn_token = ast_eat_token(pc, token_index, TokenIdKeywordFn);
-        is_nakedcc = true;
+        cc = CallingConventionNaked;
+    } else if (first_token->id == TokenIdKeywordStdcallCC) {
+        *token_index += 1;
+        fn_token = ast_eat_token(pc, token_index, TokenIdKeywordFn);
+        cc = CallingConventionStdcall;
     } else if (first_token->id == TokenIdKeywordFn) {
         fn_token = first_token;
         *token_index += 1;
+        cc = CallingConventionUnspecified;
     } else if (mandatory) {
         ast_expect_token(pc, first_token, TokenIdKeywordFn);
         zig_unreachable();
@@ -2151,8 +2155,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool m
 
     AstNode *node = ast_create_node(pc, NodeTypeFnProto, fn_token);
     node->data.fn_proto.visib_mod = visib_mod;
-    node->data.fn_proto.is_coldcc = is_coldcc;
-    node->data.fn_proto.is_nakedcc = is_nakedcc;
+    node->data.fn_proto.cc = cc;
 
     Token *fn_name = &pc->tokens->at(*token_index);
     if (fn_name->id == TokenIdSymbol) {
@@ -2220,7 +2223,7 @@ static AstNode *ast_parse_fn_def(ParseContext *pc, size_t *token_index, bool man
 }
 
 /*
-ExternDecl = "extern" (FnProto | VariableDeclaration) ";"
+ExternDecl = "extern" option(String) (FnProto | VariableDeclaration) ";"
 */
 static AstNode *ast_parse_extern_decl(ParseContext *pc, size_t *token_index, bool mandatory, VisibMod visib_mod) {
     Token *extern_kw = &pc->tokens->at(*token_index);
@@ -2233,11 +2236,19 @@ static AstNode *ast_parse_extern_decl(ParseContext *pc, size_t *token_index, boo
     }
     *token_index += 1;
 
+    Token *lib_name_tok = &pc->tokens->at(*token_index);
+    Buf *lib_name = nullptr;
+    if (lib_name_tok->id == TokenIdStringLiteral) {
+        lib_name = token_buf(lib_name_tok);
+        *token_index += 1;
+    }
+
     AstNode *fn_proto_node = ast_parse_fn_proto(pc, token_index, false, visib_mod);
     if (fn_proto_node) {
         ast_eat_token(pc, token_index, TokenIdSemicolon);
 
         fn_proto_node->data.fn_proto.is_extern = true;
+        fn_proto_node->data.fn_proto.lib_name = lib_name;
 
         return fn_proto_node;
     }
@@ -2247,6 +2258,7 @@ static AstNode *ast_parse_extern_decl(ParseContext *pc, size_t *token_index, boo
         ast_eat_token(pc, token_index, TokenIdSemicolon);
 
         var_decl_node->data.variable_declaration.is_extern = true;
+        var_decl_node->data.variable_declaration.lib_name = lib_name;
 
         return var_decl_node;
     }

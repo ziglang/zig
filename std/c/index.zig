@@ -9,7 +9,6 @@ pub use switch(builtin.os) {
     else => empty_import,
 };
 
-pub extern fn abort() -> noreturn;
-
+pub extern "c" fn abort() -> noreturn;
 
 const empty_import = @import("../empty.zig");

@@ -23,9 +23,9 @@ ContainerField = Symbol option(":" Expression) ","
 
 UseDecl = "use" Expression ";"
 
-ExternDecl = "extern" (FnProto | VariableDeclaration) ";"
+ExternDecl = "extern" option(String) (FnProto | VariableDeclaration) ";"
 
-FnProto = option("coldcc" | "nakedcc") "fn" option(Symbol) ParamDeclList option("->" TypeExpr)
+FnProto = option("coldcc" | "nakedcc" | "stdcallcc") "fn" option(Symbol) ParamDeclList option("->" TypeExpr)
 
 VisibleMod = "pub" | "export"
 

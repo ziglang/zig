@@ -359,5 +359,6 @@ void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type, ZigLLVM_SubArchType *su
         ZigLLVM_VendorType *vendor_type, ZigLLVM_OSType *os_type, ZigLLVM_EnvironmentType *environ_type,
         ZigLLVM_ObjectFormatType *oformat);
 
+void ZigLLDDefToLib(Buf *def_contents, Buf *dll_path);
 
 #endif

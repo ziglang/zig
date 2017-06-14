@@ -22,7 +22,6 @@ pub const net = @import("net.zig");
 pub const os = @import("os/index.zig");
 pub const rand = @import("rand.zig");
 pub const sort = @import("sort.zig");
-pub const target = @import("target.zig");
 
 test "std" {
     // run tests from these
@@ -50,5 +49,4 @@ test "std" {
     _ = @import("os/index.zig");
     _ = @import("rand.zig");
     _ = @import("sort.zig");
-    _ = @import("target.zig");
 }

@@ -168,5 +168,9 @@ size_t type_id_len();
 size_t type_id_index(TypeTableEntryId id);
 TypeTableEntry *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id);
 bool type_is_copyable(CodeGen *g, TypeTableEntry *type_entry);
+LinkLib *create_link_lib(Buf *name);
+bool calling_convention_does_first_arg_return(CallingConvention cc);
+LinkLib *add_link_lib(CodeGen *codegen, Buf *lib);
+void add_link_lib_symbol(CodeGen *g, Buf *lib_name, Buf *symbol_name);
 
 #endif

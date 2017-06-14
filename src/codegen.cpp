@@ -138,8 +138,7 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
         g->zig_target.os == ZigLLVM_MacOSX ||
         g->zig_target.os == ZigLLVM_IOS)
     {
-        g->link_libc = true;
-        g->link_libs.append(buf_create_from_str("c"));
+        g->libc_link_lib = create_link_lib(buf_create_from_str("c"));
     }
 
     return g;
@@ -234,13 +233,8 @@ void codegen_add_rpath(CodeGen *g, const char *name) {
     g->rpath_list.append(buf_create_from_str(name));
 }
 
-void codegen_add_link_lib(CodeGen *g, const char *lib) {
-    if (strcmp(lib, "c") == 0) {
-        if (g->link_libc)
-            return;
-        g->link_libc = true;
-    }
-    g->link_libs.append(buf_create_from_str(lib));
+LinkLib *codegen_add_link_lib(CodeGen *g, Buf *name) {
+    return add_link_lib(g, name);
 }
 
 void codegen_add_framework(CodeGen *g, const char *framework) {
@@ -334,6 +328,33 @@ static Buf *get_mangled_name(CodeGen *g, Buf *original_name, bool external_linka
     }
 }
 
+static LLVMCallConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
+    switch (cc) {
+        case CallingConventionUnspecified: return LLVMFastCallConv;
+        case CallingConventionC: return LLVMCCallConv;
+        case CallingConventionCold:
+            // cold calling convention only works on x86.
+            if (g->zig_target.arch.arch == ZigLLVM_x86 ||
+                g->zig_target.arch.arch == ZigLLVM_x86_64)
+            {
+                return LLVMColdCallConv;
+            } else {
+                return LLVMCCallConv;
+            }
+            break;
+        case CallingConventionNaked:
+            zig_unreachable();
+        case CallingConventionStdcall:
+            // stdcall calling convention only works on x86.
+            if (g->zig_target.arch.arch == ZigLLVM_x86) {
+                return LLVMX86StdcallCallConv;
+            } else {
+                return LLVMCCallConv;
+            }
+    }
+    zig_unreachable();
+}
+
 static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     if (fn_table_entry->llvm_value)
         return fn_table_entry->llvm_value;
@@ -355,6 +376,16 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     }
     fn_table_entry->llvm_name = LLVMGetValueName(fn_table_entry->llvm_value);
 
+    //if (buf_eql_str(&fn_table_entry->symbol_name, "ExitProcess") ||
+    //    buf_eql_str(&fn_table_entry->symbol_name, "GetConsoleMode") ||
+    //    buf_eql_str(&fn_table_entry->symbol_name, "GetStdHandle") ||
+    //    buf_eql_str(&fn_table_entry->symbol_name, "GetFileInformationByHandleEx") ||
+    //    buf_eql_str(&fn_table_entry->symbol_name, "GetLastError") ||
+    //    buf_eql_str(&fn_table_entry->symbol_name, "WriteFile"))
+    //{
+    //    LLVMSetDLLStorageClass(fn_table_entry->llvm_value, LLVMDLLImportStorageClass);
+    //}
+
     switch (fn_table_entry->fn_inline) {
         case FnInlineAlways:
             addLLVMFnAttr(fn_table_entry->llvm_value, "alwaysinline");
@@ -366,8 +397,14 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
         case FnInlineAuto:
             break;
     }
-    if (fn_type->data.fn.fn_type_id.is_naked) {
+
+    if (fn_type->data.fn.fn_type_id.cc == CallingConventionNaked) {
         addLLVMFnAttr(fn_table_entry->llvm_value, "naked");
+    } else {
+        LLVMSetFunctionCallConv(fn_table_entry->llvm_value, get_llvm_cc(g, fn_type->data.fn.fn_type_id.cc));
+        if (fn_type->data.fn.fn_type_id.cc == CallingConventionCold) {
+            ZigLLVMAddFunctionAttrCold(fn_table_entry->llvm_value);
+        }
     }
 
     switch (fn_table_entry->linkage) {
@@ -393,17 +430,13 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     if (fn_table_entry->body_node != nullptr) {
         bool want_fn_safety = g->build_mode != BuildModeFastRelease && !fn_table_entry->def_scope->safety_off;
         if (want_fn_safety) {
-            if (g->link_libc) {
+            if (g->libc_link_lib != nullptr) {
                 addLLVMFnAttr(fn_table_entry->llvm_value, "sspstrong");
                 addLLVMFnAttrStr(fn_table_entry->llvm_value, "stack-protector-buffer-size", "4");
             }
         }
     }
 
-    LLVMSetFunctionCallConv(fn_table_entry->llvm_value, fn_type->data.fn.calling_convention);
-    if (fn_type->data.fn.fn_type_id.is_cold) {
-        ZigLLVMAddFunctionAttrCold(fn_table_entry->llvm_value);
-    }
     addLLVMFnAttr(fn_table_entry->llvm_value, "nounwind");
     if (g->build_mode == BuildModeDebug && fn_table_entry->fn_inline != FnInlineAlways) {
         ZigLLVMAddFunctionAttr(fn_table_entry->llvm_value, "no-frame-pointer-elim", "true");
@@ -700,7 +733,8 @@ static void gen_panic_raw(CodeGen *g, LLVMValueRef msg_ptr, LLVMValueRef msg_len
     FnTableEntry *panic_fn = get_extern_panic_fn(g);
     LLVMValueRef fn_val = fn_llvm_value(g, panic_fn);
     LLVMValueRef args[] = { msg_ptr, msg_len };
-    ZigLLVMBuildCall(g->builder, fn_val, args, 2, panic_fn->type_entry->data.fn.calling_convention, false, "");
+    LLVMCallConv llvm_cc = get_llvm_cc(g, panic_fn->type_entry->data.fn.fn_type_id.cc);
+    ZigLLVMBuildCall(g->builder, fn_val, args, 2, llvm_cc, false, "");
     LLVMBuildUnreachable(g->builder);
 }
 
@@ -1100,15 +1134,14 @@ static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstruction *instruction) {
 static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *return_instruction) {
     LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
     TypeTableEntry *return_type = return_instruction->value->value.type;
-    bool is_extern = g->cur_fn->type_entry->data.fn.fn_type_id.is_extern;
     if (handle_is_ptr(return_type)) {
-        if (is_extern) {
-            LLVMValueRef by_val_value = LLVMBuildLoad(g->builder, value, "");
-            LLVMBuildRet(g->builder, by_val_value);
-        } else {
+        if (calling_convention_does_first_arg_return(g->cur_fn->type_entry->data.fn.fn_type_id.cc)) {
             assert(g->cur_ret_ptr);
             gen_assign_raw(g, g->cur_ret_ptr, get_pointer_to_type(g, return_type, false), value);
             LLVMBuildRetVoid(g->builder);
+        } else {
+            LLVMValueRef by_val_value = LLVMBuildLoad(g->builder, value, "");
+            LLVMBuildRet(g->builder, by_val_value);
         }
     } else {
         LLVMBuildRet(g->builder, value);
@@ -2059,9 +2092,9 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     bool want_always_inline = (instruction->fn_entry != nullptr &&
             instruction->fn_entry->fn_inline == FnInlineAlways) || instruction->is_inline;
 
+    LLVMCallConv llvm_cc = get_llvm_cc(g, fn_type->data.fn.fn_type_id.cc);
     LLVMValueRef result = ZigLLVMBuildCall(g->builder, fn_val,
-            gen_param_values, (unsigned)gen_param_index, fn_type->data.fn.calling_convention,
-            want_always_inline, "");
+            gen_param_values, (unsigned)gen_param_index, llvm_cc, want_always_inline, "");
 
     for (size_t param_i = 0; param_i < fn_type_id->param_count; param_i += 1) {
         FnGenParamInfo *gen_info = &fn_type->data.fn.gen_param_info[param_i];
@@ -3893,7 +3926,7 @@ static void do_code_gen(CodeGen *g) {
         {
             addLLVMAttr(fn_val, 0, "nonnull");
         } else if (handle_is_ptr(fn_type->data.fn.fn_type_id.return_type) &&
-                !fn_type->data.fn.fn_type_id.is_extern)
+                calling_convention_does_first_arg_return(fn_type->data.fn.fn_type_id.cc))
         {
             addLLVMArgAttr(fn_val, 0, "sret");
             addLLVMArgAttr(fn_val, 0, "nonnull");
@@ -4648,15 +4681,7 @@ static void define_builtin_compile_vars(CodeGen *g) {
     buf_appendf(contents, "pub const environ = Environ.%s;\n", cur_environ);
     buf_appendf(contents, "pub const object_format = ObjectFormat.%s;\n", cur_obj_fmt);
     buf_appendf(contents, "pub const mode = %s;\n", build_mode_to_str(g->build_mode));
-
-    {
-        buf_appendf(contents, "pub const link_libs = [][]const u8 {\n");
-        for (size_t i = 0; i < g->link_libs.length; i += 1) {
-            Buf *link_lib_buf = g->link_libs.at(i);
-            buf_appendf(contents, "    \"%s\",\n", buf_ptr(link_lib_buf));
-        }
-        buf_appendf(contents, "};\n");
-    }
+    buf_appendf(contents, "pub const link_libc = %s;\n", bool_to_str(g->libc_link_lib != nullptr));
 
     buf_appendf(contents, "pub const __zig_panic_implementation_provided = %s; // overwritten later\n",
             bool_to_str(false));

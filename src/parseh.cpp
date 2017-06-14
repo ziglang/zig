@@ -477,8 +477,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                 }
 
                 FnTypeId fn_type_id = {0};
-                fn_type_id.is_naked = false;
-                fn_type_id.is_extern = true;
+                fn_type_id.cc = CallingConventionC;
                 fn_type_id.is_var_args = fn_proto_ty->isVariadic();
                 fn_type_id.param_count = fn_proto_ty->getNumParams();
 
@@ -619,7 +618,7 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     buf_init_from_buf(&fn_entry->symbol_name, fn_name);
     fn_entry->type_entry = fn_type;
 
-    assert(!fn_type->data.fn.fn_type_id.is_naked);
+    assert(fn_type->data.fn.fn_type_id.cc != CallingConventionNaked);
 
     size_t arg_count = fn_type->data.fn.fn_type_id.param_count;
     fn_entry->param_names = allocate<Buf *>(arg_count);

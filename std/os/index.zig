@@ -24,7 +24,6 @@ const debug = @import("../debug.zig");
 const assert = debug.assert;
 
 const errno = @import("errno.zig");
-const linking_libc = @import("../target.zig").linking_libc;
 const c = @import("../c/index.zig");
 
 const mem = @import("../mem.zig");
@@ -60,14 +59,14 @@ pub fn getRandomBytes(buf: []u8) -> %void {
     while (true) {
         const err = switch (builtin.os) {
             Os.linux => {
-                if (linking_libc) {
+                if (builtin.link_libc) {
                     if (c.getrandom(buf.ptr, buf.len, 0) == -1) *c._errno() else 0
                 } else {
                     posix.getErrno(posix.getrandom(buf.ptr, buf.len, 0))
                 }
             },
             Os.darwin, Os.macosx, Os.ios => {
-                if (linking_libc) {
+                if (builtin.link_libc) {
                     if (posix.getrandom(buf.ptr, buf.len) == -1) *c._errno() else 0
                 } else {
                     posix.getErrno(posix.getrandom(buf.ptr, buf.len))
@@ -103,7 +102,7 @@ pub fn getRandomBytes(buf: []u8) -> %void {
 /// If linking against libc, this calls the abort() libc function. Otherwise
 /// it uses the zig standard library implementation.
 pub coldcc fn abort() -> noreturn {
-    if (linking_libc) {
+    if (builtin.link_libc) {
         c.abort();
     }
     switch (builtin.os) {

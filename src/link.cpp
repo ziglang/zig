@@ -38,12 +38,6 @@ static Buf *build_o(CodeGen *parent_gen, const char *oname) {
 
     ZigTarget *child_target = parent_gen->is_native_target ? nullptr : &parent_gen->zig_target;
     CodeGen *child_gen = codegen_create(full_path, child_target, OutTypeObj, parent_gen->build_mode);
-    child_gen->link_libc = parent_gen->link_libc;
-
-    child_gen->link_libs.resize(parent_gen->link_libs.length);
-    for (size_t i = 0; i < parent_gen->link_libs.length; i += 1) {
-        child_gen->link_libs.items[i] = parent_gen->link_libs.items[i];
-    }
 
     codegen_set_omit_zigrt(child_gen, true);
     child_gen->want_h_file = false;
@@ -215,13 +209,13 @@ static void construct_linker_job_elf(LinkJob *lj) {
     if (g->each_lib_rpath) {
         for (size_t i = 0; i < g->lib_dirs.length; i += 1) {
             const char *lib_dir = g->lib_dirs.at(i);
-            for (size_t i = 0; i < g->link_libs.length; i += 1) {
-                Buf *link_lib = g->link_libs.at(i);
-                if (buf_eql_str(link_lib, "c")) {
+            for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
+                LinkLib *link_lib = g->link_libs_list.at(i);
+                if (buf_eql_str(link_lib->name, "c")) {
                     continue;
                 }
                 bool does_exist;
-                Buf *test_path = buf_sprintf("%s/lib%s.so", lib_dir, buf_ptr(link_lib));
+                Buf *test_path = buf_sprintf("%s/lib%s.so", lib_dir, buf_ptr(link_lib->name));
                 if (os_file_exists(test_path, &does_exist) != ErrorNone) {
                     zig_panic("link: unable to check if file exists: %s", buf_ptr(test_path));
                 }
@@ -239,7 +233,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append(lib_dir);
     }
 
-    if (g->link_libc) {
+    if (g->libc_link_lib != nullptr) {
         lj->args.append("-L");
         lj->args.append(buf_ptr(g->libc_lib_dir));
 
@@ -265,7 +259,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));
     }
 
-    if (!g->link_libc && (g->out_type == OutTypeExe || g->out_type == OutTypeLib)) {
+    if (g->libc_link_lib == nullptr && (g->out_type == OutTypeExe || g->out_type == OutTypeLib)) {
         Buf *builtin_o_path = build_o(g, "builtin");
         lj->args.append(buf_ptr(builtin_o_path));
 
@@ -273,25 +267,25 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append(buf_ptr(compiler_rt_o_path));
     }
 
-    for (size_t i = 0; i < g->link_libs.length; i += 1) {
-        Buf *link_lib = g->link_libs.at(i);
-        if (buf_eql_str(link_lib, "c")) {
+    for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
+        LinkLib *link_lib = g->link_libs_list.at(i);
+        if (buf_eql_str(link_lib->name, "c")) {
             continue;
         }
         Buf *arg;
-        if (buf_starts_with_str(link_lib, "/") || buf_ends_with_str(link_lib, ".a") ||
-            buf_ends_with_str(link_lib, ".so"))
+        if (buf_starts_with_str(link_lib->name, "/") || buf_ends_with_str(link_lib->name, ".a") ||
+            buf_ends_with_str(link_lib->name, ".so"))
         {
-            arg = link_lib;
+            arg = link_lib->name;
         } else {
-            arg = buf_sprintf("-l%s", buf_ptr(link_lib));
+            arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
         }
         lj->args.append(buf_ptr(arg));
     }
 
 
     // libc dep
-    if (g->link_libc) {
+    if (g->libc_link_lib != nullptr) {
         if (g->is_static) {
             lj->args.append("--start-group");
             lj->args.append("-lgcc");
@@ -394,7 +388,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
         lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", lib_dir)));
     }
 
-    if (g->link_libc) {
+    if (g->libc_link_lib != nullptr) {
         lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->libc_lib_dir))));
         lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->libc_static_lib_dir))));
     }
@@ -403,7 +397,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
         lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));
     }
 
-    if (!g->link_libc && (g->out_type == OutTypeExe || g->out_type == OutTypeLib)) {
+    if (g->libc_link_lib == nullptr && (g->out_type == OutTypeExe || g->out_type == OutTypeLib)) {
         Buf *builtin_o_path = build_o(g, "builtin");
         lj->args.append(buf_ptr(builtin_o_path));
 
@@ -411,17 +405,35 @@ static void construct_linker_job_coff(LinkJob *lj) {
         lj->args.append(buf_ptr(compiler_rt_o_path));
     }
 
-
-    for (size_t i = 0; i < g->link_libs.length; i += 1) {
-        Buf *link_lib = g->link_libs.at(i);
-        if (buf_eql_str(link_lib, "c")) {
+    Buf *def_contents = buf_alloc();
+    for (size_t lib_i = 0; lib_i < g->link_libs_list.length; lib_i += 1) {
+        LinkLib *link_lib = g->link_libs_list.at(lib_i);
+        if (buf_eql_str(link_lib->name, "c")) {
             continue;
         }
-        Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib));
-        lj->args.append(buf_ptr(arg));
+        if (link_lib->provided_explicitly) {
+            Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
+            lj->args.append(buf_ptr(arg));
+        } else {
+            buf_appendf(def_contents, "LIBRARY %s\nEXPORTS\n", buf_ptr(link_lib->name));
+            for (size_t exp_i = 0; exp_i < link_lib->symbols.length; exp_i += 1) {
+                Buf *symbol_name = link_lib->symbols.at(exp_i);
+                buf_appendf(def_contents, "%s\n", buf_ptr(symbol_name));
+            }
+            buf_appendf(def_contents, "\n");
+        }
+    }
+    if (buf_len(def_contents) != 0) {
+        Buf *dll_path = buf_alloc();
+        os_path_join(g->cache_dir, buf_create_from_str("all.dll"), dll_path);
+        ZigLLDDefToLib(def_contents, dll_path);
+
+        Buf *all_lib_path = buf_alloc();
+        os_path_join(g->cache_dir, buf_create_from_str("all.lib"), all_lib_path);
+        lj->args.append(buf_ptr(all_lib_path));
     }
 
-    if (g->link_libc) {
+    if (g->libc_link_lib != nullptr) {
         if (g->is_static) {
             lj->args.append("--start-group");
         }
@@ -664,12 +676,12 @@ static void construct_linker_job_macho(LinkJob *lj) {
         lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));
     }
 
-    for (size_t i = 0; i < g->link_libs.length; i += 1) {
-        Buf *link_lib = g->link_libs.at(i);
-        if (buf_eql_str(link_lib, "c")) {
+    for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
+        LinkLib *link_lib = g->link_libs_list.at(i);
+        if (buf_eql_str(link_lib->name, "c")) {
             continue;
         }
-        Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib));
+        Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
         lj->args.append(buf_ptr(arg));
     }
 
@@ -771,7 +783,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
         return;
     }
 
-    lj.link_in_crt = (g->link_libc && g->out_type == OutTypeExe);
+    lj.link_in_crt = (g->libc_link_lib != nullptr && g->out_type == OutTypeExe);
 
     construct_linker_job(&lj);
 

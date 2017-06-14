@@ -601,7 +601,8 @@ int main(int argc, char **argv) {
                 codegen_add_lib_dir(g, lib_dirs.at(i));
             }
             for (size_t i = 0; i < link_libs.length; i += 1) {
-                codegen_add_link_lib(g, link_libs.at(i));
+                LinkLib *link_lib = codegen_add_link_lib(g, buf_create_from_str(link_libs.at(i)));
+                link_lib->provided_explicitly = true;
             }
             for (size_t i = 0; i < frameworks.length; i += 1) {
                 codegen_add_framework(g, frameworks.at(i));

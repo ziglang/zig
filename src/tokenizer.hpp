@@ -71,6 +71,7 @@ enum TokenId {
     TokenIdKeywordPacked,
     TokenIdKeywordPub,
     TokenIdKeywordReturn,
+    TokenIdKeywordStdcallCC,
     TokenIdKeywordStruct,
     TokenIdKeywordSwitch,
     TokenIdKeywordTest,

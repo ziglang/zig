@@ -118,6 +118,17 @@ static const char *extern_string(bool is_extern) {
     return is_extern ? "extern " : "";
 }
 
+static const char *calling_convention_string(CallingConvention cc) {
+    switch (cc) {
+        case CallingConventionUnspecified: return "";
+        case CallingConventionC: return "extern ";
+        case CallingConventionCold: return "coldcc ";
+        case CallingConventionNaked: return "nakedcc ";
+        case CallingConventionStdcall: return "stdcallcc ";
+    }
+    zig_unreachable();
+}
+
 static const char *inline_string(bool is_inline) {
     return is_inline ? "inline " : "";
 }
@@ -951,10 +962,8 @@ static void ast_render_tld_fn(AstRender *ar, Buf *name, TldFn *tld_fn) {
     FnTableEntry *fn_entry = tld_fn->fn_entry;
     FnTypeId *fn_type_id = &fn_entry->type_entry->data.fn.fn_type_id;
     const char *visib_mod_str = visib_mod_string(tld_fn->base.visib_mod);
-    const char *extern_str = extern_string(fn_type_id->is_extern);
-    const char *coldcc_str = fn_type_id->is_cold ? "coldcc " : "";
-    const char *nakedcc_str = fn_type_id->is_naked ? "nakedcc " : "";
-    fprintf(ar->f, "%s%s%s%sfn %s(", visib_mod_str, extern_str, coldcc_str, nakedcc_str, buf_ptr(&fn_entry->symbol_name));
+    const char *cc_str = calling_convention_string(fn_type_id->cc);
+    fprintf(ar->f, "%s%sfn %s(", visib_mod_str, cc_str, buf_ptr(&fn_entry->symbol_name));
     for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
         FnTypeParamInfo *param_info = &fn_type_id->param_info[i];
         if (i != 0) {

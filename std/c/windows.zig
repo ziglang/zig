@@ -1,1 +1,1 @@
-pub extern fn _errno() -> &c_int;
+pub extern "c" fn _errno() -> &c_int;

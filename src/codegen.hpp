@@ -33,7 +33,7 @@ void codegen_set_dynamic_linker(CodeGen *g, Buf *dynamic_linker);
 void codegen_set_windows_subsystem(CodeGen *g, bool mwindows, bool mconsole);
 void codegen_set_windows_unicode(CodeGen *g, bool municode);
 void codegen_add_lib_dir(CodeGen *codegen, const char *dir);
-void codegen_add_link_lib(CodeGen *codegen, const char *lib);
+LinkLib *codegen_add_link_lib(CodeGen *codegen, Buf *lib);
 void codegen_add_framework(CodeGen *codegen, const char *name);
 void codegen_add_rpath(CodeGen *codegen, const char *name);
 void codegen_set_mlinker_version(CodeGen *g, Buf *darwin_linker_version);

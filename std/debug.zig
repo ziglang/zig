@@ -16,7 +16,9 @@ pub fn assert(ok: bool) {
 
 var panicking = false;
 /// This is the default panic implementation.
-pub coldcc fn panic(comptime format: []const u8, args: ...) -> noreturn {
+pub fn panic(comptime format: []const u8, args: ...) -> noreturn {
+    // TODO an intrinsic that labels this as unlikely to be reached
+
     // TODO
     // if (@atomicRmw(AtomicOp.XChg, &panicking, true, AtomicOrder.SeqCst)) { }
     if (panicking) {

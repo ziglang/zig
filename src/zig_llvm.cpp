@@ -38,6 +38,7 @@
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/TargetParser.h>
 #include <llvm/Support/raw_ostream.h>
+#include <llvm/Support/COFF.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
@@ -790,4 +791,152 @@ bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_
             return lld::mach_o::link(array_ref_args, diag);
     }
     zig_unreachable();
+}
+
+// workaround for LLD not exposing ability to convert .def to .lib
+
+#include <set>
+
+namespace lld {
+namespace coff {
+
+class SymbolBody;
+class StringChunk;
+struct Symbol;
+
+struct Export {
+  StringRef Name;       // N in /export:N or /export:E=N
+  StringRef ExtName;    // E in /export:E=N
+  SymbolBody *Sym = nullptr;
+  uint16_t Ordinal = 0;
+  bool Noname = false;
+  bool Data = false;
+  bool Private = false;
+
+  // If an export is a form of /export:foo=dllname.bar, that means
+  // that foo should be exported as an alias to bar in the DLL.
+  // ForwardTo is set to "dllname.bar" part. Usually empty.
+  StringRef ForwardTo;
+  StringChunk *ForwardChunk = nullptr;
+
+  // True if this /export option was in .drectves section.
+  bool Directives = false;
+  StringRef SymbolName;
+  StringRef ExportName; // Name in DLL
+
+  bool operator==(const Export &E) {
+    return (Name == E.Name && ExtName == E.ExtName &&
+            Ordinal == E.Ordinal && Noname == E.Noname &&
+            Data == E.Data && Private == E.Private);
+  }
+};
+
+enum class DebugType {
+  None  = 0x0,
+  CV    = 0x1,  /// CodeView
+  PData = 0x2,  /// Procedure Data
+  Fixup = 0x4,  /// Relocation Table
+};
+
+struct Configuration {
+  enum ManifestKind { SideBySide, Embed, No };
+  llvm::COFF::MachineTypes Machine = llvm::COFF::IMAGE_FILE_MACHINE_UNKNOWN;
+  bool Verbose = false;
+  llvm::COFF::WindowsSubsystem Subsystem = llvm::COFF::IMAGE_SUBSYSTEM_UNKNOWN;
+  SymbolBody *Entry = nullptr;
+  bool NoEntry = false;
+  std::string OutputFile;
+  bool DoGC = true;
+  bool DoICF = true;
+  bool Relocatable = true;
+  bool Force = false;
+  bool Debug = false;
+  bool WriteSymtab = true;
+  unsigned DebugTypes = static_cast<unsigned>(DebugType::None);
+  StringRef PDBPath;
+
+  // Symbols in this set are considered as live by the garbage collector.
+  std::set<SymbolBody *> GCRoot;
+
+  std::set<StringRef> NoDefaultLibs;
+  bool NoDefaultLibAll = false;
+
+  // True if we are creating a DLL.
+  bool DLL = false;
+  StringRef Implib;
+  std::vector<Export> Exports;
+  std::set<std::string> DelayLoads;
+  std::map<std::string, int> DLLOrder;
+  SymbolBody *DelayLoadHelper = nullptr;
+
+  // Used for SafeSEH.
+  Symbol *SEHTable = nullptr;
+  Symbol *SEHCount = nullptr;
+
+  // Used for /opt:lldlto=N
+  unsigned LTOOptLevel = 2;
+
+  // Used for /opt:lldltojobs=N
+  unsigned LTOJobs = 1;
+
+  // Used for /merge:from=to (e.g. /merge:.rdata=.text)
+  std::map<StringRef, StringRef> Merge;
+
+  // Used for /section=.name,{DEKPRSW} to set section attributes.
+  std::map<StringRef, uint32_t> Section;
+
+  // Options for manifest files.
+  ManifestKind Manifest = SideBySide;
+  int ManifestID = 1;
+  StringRef ManifestDependency;
+  bool ManifestUAC = true;
+  std::vector<std::string> ManifestInput;
+  StringRef ManifestLevel = "'asInvoker'";
+  StringRef ManifestUIAccess = "'false'";
+  StringRef ManifestFile;
+
+  // Used for /failifmismatch.
+  std::map<StringRef, StringRef> MustMatch;
+
+  // Used for /alternatename.
+  std::map<StringRef, StringRef> AlternateNames;
+
+  uint64_t ImageBase = -1;
+  uint64_t StackReserve = 1024 * 1024;
+  uint64_t StackCommit = 4096;
+  uint64_t HeapReserve = 1024 * 1024;
+  uint64_t HeapCommit = 4096;
+  uint32_t MajorImageVersion = 0;
+  uint32_t MinorImageVersion = 0;
+  uint32_t MajorOSVersion = 6;
+  uint32_t MinorOSVersion = 0;
+  bool DynamicBase = true;
+  bool AllowBind = true;
+  bool NxCompat = true;
+  bool AllowIsolation = true;
+  bool TerminalServerAware = true;
+  bool LargeAddressAware = false;
+  bool HighEntropyVA = false;
+
+  // This is for debugging.
+  bool DebugPdb = false;
+  bool DumpPdb = false;
+};
+
+extern Configuration *Config;
+
+void writeImportLibrary();
+void parseModuleDefs(MemoryBufferRef MB);
+
+} // namespace coff
+} // namespace lld
+
+// writes the output to dll_path with .dll replaced with .lib
+void ZigLLDDefToLib(Buf *def_contents, Buf *dll_path) {
+    lld::coff::Config = new lld::coff::Configuration;
+    auto mem_buf = MemoryBuffer::getMemBuffer(buf_ptr(def_contents));
+    MemoryBufferRef mbref(*mem_buf);
+    lld::coff::parseModuleDefs(mbref);
+    lld::coff::Config->OutputFile = buf_ptr(dll_path);
+    lld::coff::writeImportLibrary();
 }

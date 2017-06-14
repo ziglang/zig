@@ -244,7 +244,6 @@ install(FILES "${CMAKE_SOURCE_DIR}/std/special/builtin.zig" DESTINATION "${ZIG_S
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/compiler_rt.zig" DESTINATION "${ZIG_STD_DEST}/special")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/test_runner.zig" DESTINATION "${ZIG_STD_DEST}/special")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/zigrt.zig" DESTINATION "${ZIG_STD_DEST}/special")
-install(FILES "${CMAKE_SOURCE_DIR}/std/target.zig" DESTINATION "${ZIG_STD_DEST}")
 
 if (ZIG_TEST_COVERAGE)
     add_custom_target(coverage

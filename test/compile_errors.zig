@@ -409,18 +409,6 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
             ".tmp_source.zig:2:1: error: redefinition of 'a'",
             ".tmp_source.zig:1:1: note: previous definition is here");
 
-    cases.add("byvalue struct parameter in exported function",
-        \\const A = struct { x : i32, };
-        \\export fn f(a : A) {}
-    , ".tmp_source.zig:2:13: error: byvalue types not yet supported on extern function parameters");
-
-    cases.add("byvalue struct return value in exported function",
-        \\const A = struct { x: i32, };
-        \\export fn f() -> A {
-        \\    A {.x = 1234 }
-        \\}
-    , ".tmp_source.zig:2:18: error: byvalue types not yet supported on extern function return values");
-
     cases.add("duplicate field in struct value expression",
         \\const A = struct {
         \\    x : i32,
@@ -1070,7 +1058,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\export fn foo(comptime x: i32, y: i32) -> i32{
         \\    x + y
         \\}
-    , ".tmp_source.zig:1:15: error: comptime parameter not allowed in extern function");
+    , ".tmp_source.zig:1:15: error: comptime parameter not allowed in function with calling convention 'ccc'");
 
     cases.add("extern function with comptime parameter",
         \\extern fn foo(comptime x: i32, y: i32) -> i32;
@@ -1078,7 +1066,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    foo(1, 2)
         \\}
         \\export fn entry() -> usize { @sizeOf(@typeOf(f)) }
-    , ".tmp_source.zig:1:15: error: comptime parameter not allowed in extern function");
+    , ".tmp_source.zig:1:15: error: comptime parameter not allowed in function with calling convention 'ccc'");
 
     cases.add("convert fixed size array to slice with invalid size",
         \\export fn f() {

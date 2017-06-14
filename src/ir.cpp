@@ -9044,7 +9044,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
     if (comptime_fn_call) {
         // No special handling is needed for compile time evaluation of generic functions.
-        if (!fn_entry || fn_entry->type_entry->data.fn.fn_type_id.is_extern) {
+        if (!fn_entry || fn_entry->body_node == nullptr) {
             ir_add_error(ira, fn_ref, buf_sprintf("unable to evaluate constant expression"));
             return ira->codegen->builtin_types.entry_invalid;
         }
@@ -10129,6 +10129,10 @@ static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source
         {
             TldVar *tld_var = (TldVar *)tld;
             VariableTableEntry *var = tld_var->var;
+            if (tld_var->extern_lib_name != nullptr) {
+                add_link_lib_symbol(ira->codegen, tld_var->extern_lib_name, &var->name);
+            }
+
             return ir_analyze_var_ptr(ira, source_instruction, var, false, false);
         }
         case TldIdFn:
@@ -10146,6 +10150,10 @@ static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source
             const_val->special = ConstValSpecialStatic;
             const_val->type = fn_entry->type_entry;
             const_val->data.x_fn.fn_entry = fn_entry;
+
+            if (tld_fn->extern_lib_name != nullptr) {
+                add_link_lib_symbol(ira->codegen, tld_fn->extern_lib_name, &fn_entry->symbol_name);
+            }
 
             bool ptr_is_const = true;
             bool ptr_is_volatile = false;
@@ -13167,13 +13175,15 @@ static TypeTableEntry *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstruc
 
         bool param_is_var_args = param_node->data.param_decl.is_var_args;
         if (param_is_var_args) {
-            if (fn_type_id.is_extern) {
+            if (fn_type_id.cc == CallingConventionC) {
                 fn_type_id.param_count = fn_type_id.next_param_index;
                 continue;
-            } else {
+            } else if (fn_type_id.cc == CallingConventionUnspecified) {
                 ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
                 out_val->data.x_type = get_generic_fn_type(ira->codegen, &fn_type_id);
                 return ira->codegen->builtin_types.entry_type;
+            } else {
+                zig_unreachable();
             }
         }
         IrInstruction *param_type_value = instruction->param_types[fn_type_id.next_param_index]->other;
@@ -13484,6 +13494,10 @@ static TypeTableEntry *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
             if (type_is_invalid(var_ptr->value.type))
                 return ira->codegen->builtin_types.entry_invalid;
 
+            if (tld_var->extern_lib_name != nullptr) {
+                add_link_lib_symbol(ira->codegen, tld_var->extern_lib_name, &var->name);
+            }
+
             if (lval.is_ptr) {
                 ir_link_new_instruction(var_ptr, &instruction->base);
                 return var_ptr->value.type;
@@ -13498,6 +13512,10 @@ static TypeTableEntry *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
             TldFn *tld_fn = (TldFn *)tld;
             FnTableEntry *fn_entry = tld_fn->fn_entry;
             assert(fn_entry->type_entry);
+
+            if (tld_fn->extern_lib_name != nullptr) {
+                add_link_lib_symbol(ira->codegen, tld_fn->extern_lib_name, &fn_entry->symbol_name);
+            }
 
             IrInstruction *ref_instruction = ir_create_const_fn(&ira->new_irb, instruction->base.scope,
                     instruction->base.source_node, fn_entry);
@@ -13896,7 +13914,7 @@ FnTableEntry *ir_create_inline_fn(CodeGen *codegen, Buf *fn_name, VariableTableE
     assert(src_fn_type->id == TypeTableEntryIdFn);
 
     FnTypeId new_fn_type = src_fn_type->data.fn.fn_type_id;
-    new_fn_type.is_extern = false;
+    new_fn_type.cc = CallingConventionUnspecified;
 
     fn_entry->type_entry = get_fn_type(codegen, &new_fn_type);
 

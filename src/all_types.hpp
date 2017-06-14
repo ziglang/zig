@@ -304,12 +304,14 @@ struct TldVar {
     Buf *section_name;
     AstNode *set_global_linkage_node;
     GlobalLinkageId linkage;
+    Buf *extern_lib_name;
 };
 
 struct TldFn {
     Tld base;
 
     FnTableEntry *fn_entry;
+    Buf *extern_lib_name;
 };
 
 struct TldContainer {
@@ -387,6 +389,14 @@ struct AstNodeRoot {
     ZigList<AstNode *> top_level_decls;
 };
 
+enum CallingConvention {
+    CallingConventionUnspecified,
+    CallingConventionC,
+    CallingConventionCold,
+    CallingConventionNaked,
+    CallingConventionStdcall,
+};
+
 struct AstNodeFnProto {
     VisibMod visib_mod;
     Buf *name;
@@ -395,9 +405,10 @@ struct AstNodeFnProto {
     bool is_var_args;
     bool is_extern;
     bool is_inline;
-    bool is_coldcc;
-    bool is_nakedcc;
+    CallingConvention cc;
     AstNode *fn_def_node;
+    // populated if this is an extern declaration
+    Buf *lib_name;
 };
 
 struct AstNodeFnDef {
@@ -451,6 +462,8 @@ struct AstNodeVariableDeclaration {
     // one or both of type and expr will be non null
     AstNode *type;
     AstNode *expr;
+    // populated if this is an extern declaration
+    Buf *lib_name;
 };
 
 struct AstNodeErrorValueDecl {
@@ -879,9 +892,7 @@ struct FnTypeId {
     size_t param_count;
     size_t next_param_index;
     bool is_var_args;
-    bool is_naked;
-    bool is_cold;
-    bool is_extern;
+    CallingConvention cc;
 };
 
 uint32_t fn_type_id_hash(FnTypeId*);
@@ -1013,7 +1024,6 @@ struct TypeTableEntryFn {
     FnGenParamInfo *gen_param_info;
 
     LLVMTypeRef raw_type_ref;
-    LLVMCallConv calling_convention;
 
     TypeTableEntry *bound_fn_parent;
 };
@@ -1316,6 +1326,13 @@ enum BuildMode {
     BuildModeSafeRelease,
 };
 
+struct LinkLib {
+    Buf *name;
+    Buf *path;
+    ZigList<Buf *> symbols; // the list of symbols that we depend on from this lib
+    bool provided_explicitly;
+};
+
 struct CodeGen {
     LLVMModuleRef module;
     ZigList<ErrorMsg*> errors;
@@ -1324,7 +1341,9 @@ struct CodeGen {
     ZigLLVMDICompileUnit *compile_unit;
     ZigLLVMDIFile *compile_unit_file;
 
-    ZigList<Buf *> link_libs; // non-libc link libs
+    ZigList<LinkLib *> link_libs_list;
+    LinkLib *libc_link_lib;
+
     // add -framework [name] args to linker
     ZigList<Buf *> darwin_frameworks;
     // add -rpath [name] args to linker
@@ -1343,6 +1362,7 @@ struct CodeGen {
     HashMap<ZigLLVMFnKey, LLVMValueRef, zig_llvm_fn_key_hash, zig_llvm_fn_key_eql> llvm_fn_table;
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> exported_symbol_names;
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_prototypes;
+
 
     ZigList<ImportTableEntry *> import_queue;
     size_t import_queue_index;
@@ -1402,7 +1422,6 @@ struct CodeGen {
     bool have_pub_main;
     bool have_c_main;
     bool have_pub_panic;
-    bool link_libc;
     Buf *libc_lib_dir;
     Buf *libc_static_lib_dir;
     Buf *libc_include_dir;

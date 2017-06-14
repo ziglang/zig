@@ -802,6 +802,21 @@ TypeTableEntry *get_bound_fn_type(CodeGen *g, FnTableEntry *fn_entry) {
     return bound_fn_type;
 }
 
+bool calling_convention_does_first_arg_return(CallingConvention cc) {
+    return cc == CallingConventionUnspecified;
+}
+
+static const char *calling_convention_name(CallingConvention cc) {
+    switch (cc) {
+        case CallingConventionUnspecified: return "undefined";
+        case CallingConventionC: return "ccc";
+        case CallingConventionCold: return "coldcc";
+        case CallingConventionNaked: return "nakedcc";
+        case CallingConventionStdcall: return "stdcallcc";
+        default: zig_unreachable();
+    }
+}
+
 TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     auto table_entry = g->fn_type_table.maybe_get(fn_type_id);
     if (table_entry) {
@@ -813,30 +828,29 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     fn_type->is_copyable = true;
     fn_type->data.fn.fn_type_id = *fn_type_id;
 
-    if (fn_type_id->is_cold) {
-        // cold calling convention only works on x86.
-        // but we can add the cold attribute later.
-        if (g->zig_target.arch.arch == ZigLLVM_x86 ||
-            g->zig_target.arch.arch == ZigLLVM_x86_64)
-        {
-            fn_type->data.fn.calling_convention = LLVMColdCallConv;
-        } else {
-            fn_type->data.fn.calling_convention = LLVMFastCallConv;
-        }
-    } else if (fn_type_id->is_extern) {
-        fn_type->data.fn.calling_convention = LLVMCCallConv;
-    } else {
-        fn_type->data.fn.calling_convention = LLVMFastCallConv;
-    }
-
     bool skip_debug_info = false;
 
     // populate the name of the type
     buf_resize(&fn_type->name, 0);
-    const char *extern_str = fn_type_id->is_extern ? "extern " : "";
-    const char *naked_str = fn_type_id->is_naked ? "nakedcc " : "";
-    const char *cold_str = fn_type_id->is_cold ? "coldcc " : "";
-    buf_appendf(&fn_type->name, "%s%s%sfn(", extern_str, naked_str, cold_str);
+    const char *cc_str;
+    switch (fn_type->data.fn.fn_type_id.cc) {
+        case CallingConventionUnspecified:
+            cc_str = "";
+            break;
+        case CallingConventionC:
+            cc_str = "extern ";
+            break;
+        case CallingConventionCold:
+            cc_str = "coldcc ";
+            break;
+        case CallingConventionNaked:
+            cc_str = "nakedcc ";
+            break;
+        case CallingConventionStdcall:
+            cc_str = "stdcallcc ";
+            break;
+    }
+    buf_appendf(&fn_type->name, "%sfn(", cc_str);
     for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
         FnTypeParamInfo *param_info = &fn_type_id->param_info[i];
 
@@ -861,7 +875,8 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     // next, loop over the parameters again and compute debug information
     // and codegen information
     if (!skip_debug_info) {
-        bool first_arg_return = !fn_type_id->is_extern && handle_is_ptr(fn_type_id->return_type);
+        bool first_arg_return = calling_convention_does_first_arg_return(fn_type_id->cc) &&
+            handle_is_ptr(fn_type_id->return_type);
         // +1 for maybe making the first argument the return value
         LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(1 + fn_type_id->param_count);
         // +1 because 0 is the return type and +1 for maybe making first arg ret val
@@ -1013,9 +1028,13 @@ void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_cou
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
-    fn_type_id->is_extern = fn_proto->is_extern || (fn_proto->visib_mod == VisibModExport);
-    fn_type_id->is_naked = fn_proto->is_nakedcc;
-    fn_type_id->is_cold = fn_proto->is_coldcc;
+    if (fn_proto->cc == CallingConventionUnspecified) {
+        bool extern_abi = fn_proto->is_extern || (fn_proto->visib_mod == VisibModExport);
+        fn_type_id->cc = extern_abi ? CallingConventionC : CallingConventionUnspecified;
+    } else {
+        fn_type_id->cc = fn_proto->cc;
+    }
+
     fn_type_id->param_count = fn_proto->params.length;
     fn_type_id->param_info = allocate_nonzero<FnTypeParamInfo>(param_count_alloc);
     fn_type_id->next_param_index = 0;
@@ -1037,18 +1056,24 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         bool param_is_var_args = param_node->data.param_decl.is_var_args;
 
         if (param_is_comptime) {
-            if (fn_type_id.is_extern) {
+            if (fn_type_id.cc != CallingConventionUnspecified) {
                 add_node_error(g, param_node,
-                        buf_sprintf("comptime parameter not allowed in extern function"));
+                        buf_sprintf("comptime parameter not allowed in function with calling convention '%s'",
+                            calling_convention_name(fn_type_id.cc)));
                 return g->builtin_types.entry_invalid;
             }
             return get_generic_fn_type(g, &fn_type_id);
         } else if (param_is_var_args) {
-            if (fn_type_id.is_extern) {
+            if (fn_type_id.cc == CallingConventionC) {
                 fn_type_id.param_count = fn_type_id.next_param_index;
                 continue;
-            } else {
+            } else if (fn_type_id.cc == CallingConventionUnspecified) {
                 return get_generic_fn_type(g, &fn_type_id);
+            } else {
+                add_node_error(g, param_node,
+                        buf_sprintf("var args not allowed in function with calling convention '%s'",
+                            calling_convention_name(fn_type_id.cc)));
+                return g->builtin_types.entry_invalid;
             }
         }
 
@@ -1066,9 +1091,10 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
                     buf_sprintf("parameter of type '%s' not allowed", buf_ptr(&type_entry->name)));
                 return g->builtin_types.entry_invalid;
             case TypeTableEntryIdVar:
-                if (fn_type_id.is_extern) {
+                if (fn_type_id.cc != CallingConventionUnspecified) {
                     add_node_error(g, param_node->data.param_decl.type,
-                            buf_sprintf("parameter of type 'var' not allowed in extern function"));
+                            buf_sprintf("parameter of type 'var' not allowed in function with calling convention '%s'",
+                                calling_convention_name(fn_type_id.cc)));
                     return g->builtin_types.entry_invalid;
                 }
                 return get_generic_fn_type(g, &fn_type_id);
@@ -1097,7 +1123,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             case TypeTableEntryIdFn:
             case TypeTableEntryIdEnumTag:
                 ensure_complete_type(g, type_entry);
-                if (!fn_type_id.is_extern && !type_is_copyable(g, type_entry)) {
+                if (fn_type_id.cc == CallingConventionUnspecified && !type_is_copyable(g, type_entry)) {
                     add_node_error(g, param_node->data.param_decl.type,
                         buf_sprintf("type '%s' is not copyable; cannot pass by value", buf_ptr(&type_entry->name)));
                     return g->builtin_types.entry_invalid;
@@ -1130,10 +1156,11 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdVar:
         case TypeTableEntryIdMetaType:
-            if (fn_type_id.is_extern) {
+            if (fn_type_id.cc != CallingConventionUnspecified) {
                 add_node_error(g, fn_proto->return_type,
-                    buf_sprintf("return type '%s' not allowed in extern function",
-                    buf_ptr(&fn_type_id.return_type->name)));
+                    buf_sprintf("return type '%s' not allowed in function with calling convention '%s'",
+                    buf_ptr(&fn_type_id.return_type->name),
+                    calling_convention_name(fn_type_id.cc)));
                 return g->builtin_types.entry_invalid;
             }
             return get_generic_fn_type(g, &fn_type_id);
@@ -1947,7 +1974,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
                 if (buf_eql_str(&fn_table_entry->symbol_name, "main")) {
                     g->main_fn = fn_table_entry;
 
-                    if (!g->link_libc && tld_fn->base.visib_mod != VisibModExport) {
+                    if (g->libc_link_lib == nullptr && tld_fn->base.visib_mod != VisibModExport) {
                         TypeTableEntry *err_void = get_error_type(g, g->builtin_types.entry_void);
                         TypeTableEntry *actual_return_type = fn_table_entry->type_entry->data.fn.fn_type_id.return_type;
                         if (actual_return_type != err_void) {
@@ -2109,6 +2136,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
                 VisibMod visib_mod = node->data.variable_declaration.visib_mod;
                 TldVar *tld_var = allocate<TldVar>(1);
                 init_tld(&tld_var->base, TldIdVar, name, visib_mod, node, &decls_scope->base);
+                tld_var->extern_lib_name = node->data.variable_declaration.lib_name;
                 add_top_level_decl(g, decls_scope, &tld_var->base);
                 break;
             }
@@ -2124,6 +2152,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
                 VisibMod visib_mod = node->data.fn_proto.visib_mod;
                 TldFn *tld_fn = allocate<TldFn>(1);
                 init_tld(&tld_fn->base, TldIdFn, fn_name, visib_mod, node, &decls_scope->base);
+                tld_fn->extern_lib_name = node->data.fn_proto.lib_name;
                 add_top_level_decl(g, decls_scope, &tld_fn->base);
 
                 ImportTableEntry *import = get_scope_import(&decls_scope->base);
@@ -2497,13 +2526,7 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
     if (expected_type->id == TypeTableEntryIdFn &&
         actual_type->id == TypeTableEntryIdFn)
     {
-        if (expected_type->data.fn.fn_type_id.is_extern != actual_type->data.fn.fn_type_id.is_extern) {
-            return false;
-        }
-        if (expected_type->data.fn.fn_type_id.is_naked != actual_type->data.fn.fn_type_id.is_naked) {
-            return false;
-        }
-        if (expected_type->data.fn.fn_type_id.is_cold != actual_type->data.fn.fn_type_id.is_cold) {
+        if (expected_type->data.fn.fn_type_id.cc != actual_type->data.fn.fn_type_id.cc) {
             return false;
         }
         if (expected_type->data.fn.fn_type_id.is_var_args != actual_type->data.fn.fn_type_id.is_var_args) {
@@ -2780,11 +2803,6 @@ void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entry, Vari
             add_node_error(g, param_decl_node, buf_sprintf("noalias on non-pointer parameter"));
         }
 
-        if (fn_type_id->is_extern && handle_is_ptr(param_type)) {
-            add_node_error(g, param_decl_node,
-                buf_sprintf("byvalue types not yet supported on extern function parameters"));
-        }
-
         VariableTableEntry *var = add_variable(g, param_decl_node, fn_table_entry->child_scope,
                 param_name, true, create_const_runtime(param_type), nullptr);
         var->src_arg_index = i;
@@ -2849,12 +2867,6 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
 
     TypeTableEntry *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);
-    FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
-
-    if (fn_type_id->is_extern && handle_is_ptr(fn_type_id->return_type)) {
-        add_node_error(g, return_type_node,
-            buf_sprintf("byvalue types not yet supported on extern function return values"));
-    }
 
     ir_gen_fn(g, fn_table_entry);
     if (fn_table_entry->ir_executable.invalid) {
@@ -3018,7 +3030,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *a
                     g->have_pub_panic = true;
                 }
             } else if (proto_node->data.fn_proto.visib_mod == VisibModExport && buf_eql_str(proto_name, "main") &&
-                    g->link_libc)
+                    g->libc_link_lib != nullptr)
             {
                 g->have_c_main = true;
             }
@@ -3189,9 +3201,7 @@ bool fn_table_entry_eql(FnTableEntry *a, FnTableEntry *b) {
 
 uint32_t fn_type_id_hash(FnTypeId *id) {
     uint32_t result = 0;
-    result += id->is_extern ? (uint32_t)3349388391 : 0;
-    result += id->is_naked ? (uint32_t)608688877 : 0;
-    result += id->is_cold ? (uint32_t)3605523458 : 0;
+    result += ((uint32_t)(id->cc)) * (uint32_t)3349388391;
     result += id->is_var_args ? (uint32_t)1931444534 : 0;
     result += hash_ptr(id->return_type);
     for (size_t i = 0; i < id->param_count; i += 1) {
@@ -3203,9 +3213,7 @@ uint32_t fn_type_id_hash(FnTypeId *id) {
 }
 
 bool fn_type_id_eql(FnTypeId *a, FnTypeId *b) {
-    if (a->is_extern != b->is_extern ||
-        a->is_naked != b->is_naked ||
-        a->is_cold != b->is_cold ||
+    if (a->cc != b->cc ||
         a->return_type != b->return_type ||
         a->is_var_args != b->is_var_args ||
         a->param_count != b->param_count)
@@ -4344,8 +4352,7 @@ FnTableEntry *get_extern_panic_fn(CodeGen *g) {
         return g->extern_panic_fn;
 
     FnTypeId fn_type_id = {0};
-    fn_type_id.is_extern = true;
-    fn_type_id.is_cold = true;
+    fn_type_id.cc = CallingConventionCold;
     fn_type_id.param_count = 2;
     fn_type_id.param_info = allocate<FnTypeParamInfo>(2);
     fn_type_id.next_param_index = 0;
@@ -4524,4 +4531,43 @@ const char *type_id_name(TypeTableEntryId id) {
             return "Opaque";
     }
     zig_unreachable();
+}
+
+LinkLib *create_link_lib(Buf *name) {
+    LinkLib *link_lib = allocate<LinkLib>(1);
+    link_lib->name = name;
+    return link_lib;
+}
+
+LinkLib *add_link_lib(CodeGen *g, Buf *name) {
+    bool is_libc = buf_eql_str(name, "c");
+
+    if (is_libc && g->libc_link_lib != nullptr)
+        return g->libc_link_lib;
+
+    for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
+        LinkLib *existing_lib = g->link_libs_list.at(i);
+        if (buf_eql_buf(existing_lib->name, name)) {
+            return existing_lib;
+        }
+    }
+
+    LinkLib *link_lib = create_link_lib(name);
+    g->link_libs_list.append(link_lib);
+
+    if (is_libc)
+        g->libc_link_lib = link_lib;
+
+    return link_lib;
+}
+
+void add_link_lib_symbol(CodeGen *g, Buf *lib_name, Buf *symbol_name) {
+    LinkLib *link_lib = add_link_lib(g, lib_name);
+    for (size_t i = 0; i < link_lib->symbols.length; i += 1) {
+        Buf *existing_symbol_name = link_lib->symbols.at(i);
+        if (buf_eql_buf(existing_symbol_name, symbol_name)) {
+            return;
+        }
+    }
+    link_lib->symbols.append(symbol_name);
 }
