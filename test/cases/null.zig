@@ -143,3 +143,8 @@ test "unwrap nullable which is field of global var" {
         unreachable;
     }
 }
+
+test "null with default unwrap" {
+    const x: i32 = null ?? 1;
+    assert(x == 1);
+}

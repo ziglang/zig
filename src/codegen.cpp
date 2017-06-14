@@ -4224,6 +4224,7 @@ static void define_builtin_types(CodeGen *g) {
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdNullLit);
         buf_init_from_str(&entry->name, "(null)");
+        entry->zero_bits = true;
         g->builtin_types.entry_null = entry;
     }
     {
