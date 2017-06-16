@@ -79,6 +79,10 @@ struct _Unwind_Context;
 struct _Unwind_Exception;
 typedef enum {
   _URC_NO_REASON = 0,
+#if defined(__arm__) && !defined(__USING_SJLJ_EXCEPTIONS__) && \
+    !defined(__ARM_DWARF_EH__)
+  _URC_OK = 0, /* used by ARM EHABI */
+#endif
   _URC_FOREIGN_EXCEPTION_CAUGHT = 1,
 
   _URC_FATAL_PHASE2_ERROR = 2,
@@ -88,7 +92,11 @@ typedef enum {
   _URC_END_OF_STACK = 5,
   _URC_HANDLER_FOUND = 6,
   _URC_INSTALL_CONTEXT = 7,
-  _URC_CONTINUE_UNWIND = 8
+  _URC_CONTINUE_UNWIND = 8,
+#if defined(__arm__) && !defined(__USING_SJLJ_EXCEPTIONS__) && \
+    !defined(__ARM_DWARF_EH__)
+  _URC_FAILURE = 9 /* used by ARM EHABI */
+#endif
 } _Unwind_Reason_Code;
 
 typedef enum {
@@ -149,6 +157,15 @@ typedef enum {
   _UVRSR_NOT_IMPLEMENTED = 1,
   _UVRSR_FAILED = 2
 } _Unwind_VRS_Result;
+
+#if !defined(__USING_SJLJ_EXCEPTIONS__) && !defined(__ARM_DWARF_EH__)
+typedef uint32_t _Unwind_State;
+#define _US_VIRTUAL_UNWIND_FRAME  ((_Unwind_State)0)
+#define _US_UNWIND_FRAME_STARTING ((_Unwind_State)1)
+#define _US_UNWIND_FRAME_RESUME   ((_Unwind_State)2)
+#define _US_ACTION_MASK           ((_Unwind_State)3)
+#define _US_FORCE_UNWIND          ((_Unwind_State)8)
+#endif
 
 _Unwind_VRS_Result _Unwind_VRS_Get(struct _Unwind_Context *__context,
   _Unwind_VRS_RegClass __regclass,

@@ -64,76 +64,6 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
 )
 
-set(C_HEADERS
-    "${CMAKE_SOURCE_DIR}/c_headers/Intrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/__stddef_max_align_t.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/__wmmintrin_aes.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/__wmmintrin_pclmul.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/adxintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/ammintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/arm_acle.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/avx2intrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/avx512bwintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/avx512cdintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/avx512dqintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/avx512erintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/avx512fintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/avx512vlbwintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/avx512vldqintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/avx512vlintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/avxintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/bmi2intrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/bmiintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/cpuid.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/cuda_builtin_vars.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/emmintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/f16cintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/float.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/fma4intrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/fmaintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/fxsrintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/htmintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/htmxlintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/ia32intrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/immintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/inttypes.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/iso646.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/limits.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/lzcntintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/mm3dnow.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/mm_malloc.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/mmintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/nmmintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/pmmintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/popcntintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/prfchwintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/rdseedintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/rtmintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/s390intrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/shaintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/smmintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/stdalign.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/stdarg.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/stdatomic.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/stdbool.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/stddef.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/stdint.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/stdnoreturn.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/tbmintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/tgmath.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/tmmintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/unwind.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/vadefs.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/varargs.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/vecintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/wmmintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/x86intrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/xmmintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/xopintrin.h"
-    "${CMAKE_SOURCE_DIR}/c_headers/xtestintrin.h"
-)
-
-
 set(ZIG_HOST_LINK_VERSION)
 if (APPLE)
     set(LD_V_OUTPUT)
@@ -198,7 +128,99 @@ if(MINGW)
 endif()
 install(TARGETS zig DESTINATION bin)
 
-install(FILES ${C_HEADERS} DESTINATION ${C_HEADERS_DEST})
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/__clang_cuda_builtin_vars.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/__clang_cuda_cmath.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/__clang_cuda_complex_builtins.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/__clang_cuda_intrinsics.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/__clang_cuda_math_forward_declares.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/__clang_cuda_runtime_wrapper.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/__stddef_max_align_t.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/__wmmintrin_aes.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/__wmmintrin_pclmul.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/adxintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/altivec.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/ammintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/arm_acle.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/arm_neon.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/armintr.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/avx2intrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/avx512bwintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/avx512cdintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/avx512dqintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/avx512erintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/avx512fintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/avx512ifmaintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/avx512ifmavlintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/avx512pfintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/avx512vbmiintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/avx512vbmivlintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/avx512vlbwintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/avx512vlcdintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/avx512vldqintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/avx512vlintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/avxintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/bmi2intrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/bmiintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/clflushoptintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/cpuid.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/cuda_wrappers/algorithm" DESTINATION "${C_HEADERS_DEST}/cuda_wrappers")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/cuda_wrappers/complex" DESTINATION "${C_HEADERS_DEST}/cuda_wrappers")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/cuda_wrappers/new" DESTINATION "${C_HEADERS_DEST}/cuda_wrappers")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/emmintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/f16cintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/float.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/fma4intrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/fmaintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/fxsrintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/htmintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/htmxlintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/ia32intrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/immintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/intrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/inttypes.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/iso646.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/limits.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/lzcntintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/mm3dnow.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/mm_malloc.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/mmintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/module.modulemap" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/msa.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/mwaitxintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/nmmintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/opencl-c.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/pkuintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/pmmintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/popcntintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/prfchwintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/rdseedintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/rtmintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/s390intrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/shaintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/smmintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/stdalign.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/stdarg.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/stdatomic.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/stdbool.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/stddef.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/stdint.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/stdnoreturn.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/tbmintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/tgmath.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/tmmintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/unwind.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/vadefs.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/varargs.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/vecintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/wmmintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/x86intrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/xmmintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/xopintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/xsavecintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/xsaveintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/xsaveoptintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/xsavesintrin.h" DESTINATION "${C_HEADERS_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/c_headers/xtestintrin.h" DESTINATION "${C_HEADERS_DEST}")
 
 install(FILES "${CMAKE_SOURCE_DIR}/std/array_list.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/base64.zig" DESTINATION "${ZIG_STD_DEST}")

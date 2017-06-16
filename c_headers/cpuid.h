@@ -82,6 +82,7 @@
 /* Features in %ecx for level 1 */
 #define bit_SSE3        0x00000001
 #define bit_PCLMULQDQ   0x00000002
+#define bit_PCLMUL      bit_PCLMULQDQ   /* for gcc compat */
 #define bit_DTES64      0x00000004
 #define bit_MONITOR     0x00000008
 #define bit_DSCPL       0x00000010
@@ -98,15 +99,19 @@
 #define bit_PCID        0x00020000
 #define bit_DCA         0x00040000
 #define bit_SSE41       0x00080000
+#define bit_SSE4_1      bit_SSE41       /* for gcc compat */
 #define bit_SSE42       0x00100000
+#define bit_SSE4_2      bit_SSE42       /* for gcc compat */
 #define bit_x2APIC      0x00200000
 #define bit_MOVBE       0x00400000
 #define bit_POPCNT      0x00800000
 #define bit_TSCDeadline 0x01000000
 #define bit_AESNI       0x02000000
+#define bit_AES         bit_AESNI       /* for gcc compat */
 #define bit_XSAVE       0x04000000
 #define bit_OSXSAVE     0x08000000
 #define bit_AVX         0x10000000
+#define bit_F16C        0x20000000
 #define bit_RDRND       0x40000000
 
 /* Features in %edx for level 1 */
@@ -119,6 +124,7 @@
 #define bit_PAE         0x00000040
 #define bit_MCE         0x00000080
 #define bit_CX8         0x00000100
+#define bit_CMPXCHG8B   bit_CX8         /* for gcc compat */
 #define bit_APIC        0x00000200
 #define bit_SEP         0x00000800
 #define bit_MTRR        0x00001000
@@ -133,7 +139,7 @@
 #define bit_ACPI        0x00400000
 #define bit_MMX         0x00800000
 #define bit_FXSR        0x01000000
-#define bit_FXSAVE      bit_FXSR    /* for gcc compat */
+#define bit_FXSAVE      bit_FXSR        /* for gcc compat */
 #define bit_SSE         0x02000000
 #define bit_SSE2        0x04000000
 #define bit_SS          0x08000000

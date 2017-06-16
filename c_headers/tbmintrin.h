@@ -21,10 +21,6 @@
  *===-----------------------------------------------------------------------===
  */
 
-#ifndef __TBM__
-#error "TBM instruction set is not enabled"
-#endif
-
 #ifndef __X86INTRIN_H
 #error "Never use <tbmintrin.h> directly; include <x86intrin.h> instead."
 #endif
@@ -33,119 +29,123 @@
 #define __TBMINTRIN_H
 
 /* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__))
+#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("tbm")))
 
-#define __bextri_u32(a, b) (__builtin_ia32_bextri_u32((a), (b)))
+#define __bextri_u32(a, b) \
+  ((unsigned int)__builtin_ia32_bextri_u32((unsigned int)(a), \
+                                           (unsigned int)(b)))
 
 static __inline__ unsigned int __DEFAULT_FN_ATTRS
-__blcfill_u32(unsigned int a)
+__blcfill_u32(unsigned int __a)
 {
-  return a & (a + 1);
+  return __a & (__a + 1);
 }
 
 static __inline__ unsigned int __DEFAULT_FN_ATTRS
-__blci_u32(unsigned int a)
+__blci_u32(unsigned int __a)
 {
-  return a | ~(a + 1);
+  return __a | ~(__a + 1);
 }
 
 static __inline__ unsigned int __DEFAULT_FN_ATTRS
-__blcic_u32(unsigned int a)
+__blcic_u32(unsigned int __a)
 {
-  return ~a & (a + 1);
+  return ~__a & (__a + 1);
 }
 
 static __inline__ unsigned int __DEFAULT_FN_ATTRS
-__blcmsk_u32(unsigned int a)
+__blcmsk_u32(unsigned int __a)
 {
-  return a ^ (a + 1);
+  return __a ^ (__a + 1);
 }
 
 static __inline__ unsigned int __DEFAULT_FN_ATTRS
-__blcs_u32(unsigned int a)
+__blcs_u32(unsigned int __a)
 {
-  return a | (a + 1);
+  return __a | (__a + 1);
 }
 
 static __inline__ unsigned int __DEFAULT_FN_ATTRS
-__blsfill_u32(unsigned int a)
+__blsfill_u32(unsigned int __a)
 {
-  return a | (a - 1);
+  return __a | (__a - 1);
 }
 
 static __inline__ unsigned int __DEFAULT_FN_ATTRS
-__blsic_u32(unsigned int a)
+__blsic_u32(unsigned int __a)
 {
-  return ~a | (a - 1);
+  return ~__a | (__a - 1);
 }
 
 static __inline__ unsigned int __DEFAULT_FN_ATTRS
-__t1mskc_u32(unsigned int a)
+__t1mskc_u32(unsigned int __a)
 {
-  return ~a | (a + 1);
+  return ~__a | (__a + 1);
 }
 
 static __inline__ unsigned int __DEFAULT_FN_ATTRS
-__tzmsk_u32(unsigned int a)
+__tzmsk_u32(unsigned int __a)
 {
-  return ~a & (a - 1);
+  return ~__a & (__a - 1);
 }
 
 #ifdef __x86_64__
-#define __bextri_u64(a, b) (__builtin_ia32_bextri_u64((a), (int)(b)))
+#define __bextri_u64(a, b) \
+  ((unsigned long long)__builtin_ia32_bextri_u64((unsigned long long)(a), \
+                                                 (unsigned long long)(b)))
 
 static __inline__ unsigned long long __DEFAULT_FN_ATTRS
-__blcfill_u64(unsigned long long a)
+__blcfill_u64(unsigned long long __a)
 {
-  return a & (a + 1);
+  return __a & (__a + 1);
 }
 
 static __inline__ unsigned long long __DEFAULT_FN_ATTRS
-__blci_u64(unsigned long long a)
+__blci_u64(unsigned long long __a)
 {
-  return a | ~(a + 1);
+  return __a | ~(__a + 1);
 }
 
 static __inline__ unsigned long long __DEFAULT_FN_ATTRS
-__blcic_u64(unsigned long long a)
+__blcic_u64(unsigned long long __a)
 {
-  return ~a & (a + 1);
+  return ~__a & (__a + 1);
 }
 
 static __inline__ unsigned long long __DEFAULT_FN_ATTRS
-__blcmsk_u64(unsigned long long a)
+__blcmsk_u64(unsigned long long __a)
 {
-  return a ^ (a + 1);
+  return __a ^ (__a + 1);
 }
 
 static __inline__ unsigned long long __DEFAULT_FN_ATTRS
-__blcs_u64(unsigned long long a)
+__blcs_u64(unsigned long long __a)
 {
-  return a | (a + 1);
+  return __a | (__a + 1);
 }
 
 static __inline__ unsigned long long __DEFAULT_FN_ATTRS
-__blsfill_u64(unsigned long long a)
+__blsfill_u64(unsigned long long __a)
 {
-  return a | (a - 1);
+  return __a | (__a - 1);
 }
 
 static __inline__ unsigned long long __DEFAULT_FN_ATTRS
-__blsic_u64(unsigned long long a)
+__blsic_u64(unsigned long long __a)
 {
-  return ~a | (a - 1);
+  return ~__a | (__a - 1);
 }
 
 static __inline__ unsigned long long __DEFAULT_FN_ATTRS
-__t1mskc_u64(unsigned long long a)
+__t1mskc_u64(unsigned long long __a)
 {
-  return ~a | (a + 1);
+  return ~__a | (__a + 1);
 }
 
 static __inline__ unsigned long long __DEFAULT_FN_ATTRS
-__tzmsk_u64(unsigned long long a)
+__tzmsk_u64(unsigned long long __a)
 {
-  return ~a & (a - 1);
+  return ~__a & (__a - 1);
 }
 #endif
 

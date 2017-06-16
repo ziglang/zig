@@ -32,62 +32,32 @@
 static __inline__ unsigned long long __attribute__((__always_inline__, __nodebug__))
 __readeflags(void)
 {
-  unsigned long long __res = 0;
-  __asm__ __volatile__ ("pushf\n\t"
-                        "popq %0\n"
-                        :"=r"(__res)
-                        :
-                        :
-                       );
-  return __res;
+  return __builtin_ia32_readeflags_u64();
 }
 
 static __inline__ void __attribute__((__always_inline__, __nodebug__))
 __writeeflags(unsigned long long __f)
 {
-  __asm__ __volatile__ ("pushq %0\n\t"
-                        "popf\n"
-                        :
-                        :"r"(__f)
-                        :"flags"
-                       );
+  __builtin_ia32_writeeflags_u64(__f);
 }
 
 #else /* !__x86_64__ */
 static __inline__ unsigned int __attribute__((__always_inline__, __nodebug__))
 __readeflags(void)
 {
-  unsigned int __res = 0;
-  __asm__ __volatile__ ("pushf\n\t"
-                        "popl %0\n"
-                        :"=r"(__res)
-                        :
-                        :
-                       );
-  return __res;
+  return __builtin_ia32_readeflags_u32();
 }
 
 static __inline__ void __attribute__((__always_inline__, __nodebug__))
 __writeeflags(unsigned int __f)
 {
-  __asm__ __volatile__ ("pushl %0\n\t"
-                        "popf\n"
-                        :
-                        :"r"(__f)
-                        :"flags"
-                       );
+  __builtin_ia32_writeeflags_u32(__f);
 }
 #endif /* !__x86_64__ */
 
 static __inline__ unsigned long long __attribute__((__always_inline__, __nodebug__))
 __rdpmc(int __A) {
   return __builtin_ia32_rdpmc(__A);
-}
-
-/* __rdtsc */
-static __inline__ unsigned long long __attribute__((__always_inline__, __nodebug__))
-__rdtsc(void) {
-  return __builtin_ia32_rdtsc();
 }
 
 /* __rdtscp */
@@ -97,5 +67,7 @@ __rdtscp(unsigned int *__A) {
 }
 
 #define _rdtsc() __rdtsc()
+
+#define _rdpmc(A) __rdpmc(A)
 
 #endif /* __IA32INTRIN_H */

@@ -2,6 +2,7 @@ zig-cache/
 build/
 build-release/
 build-windows/
+build-llvm-5/
 /.cproject
 /.project
 /.settings/
