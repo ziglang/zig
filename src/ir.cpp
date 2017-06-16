@@ -12993,6 +12993,7 @@ static TypeTableEntry *ir_analyze_instruction_alignof(IrAnalyze *ira, IrInstruct
         return ira->codegen->builtin_types.entry_invalid;
     TypeTableEntry *type_entry = ir_resolve_type(ira, type_value);
 
+    ensure_complete_type(ira->codegen, type_entry);
     if (type_is_invalid(type_entry)) {
         return ira->codegen->builtin_types.entry_invalid;
     } else if (type_entry->id == TypeTableEntryIdUnreachable) {
@@ -13000,7 +13001,7 @@ static TypeTableEntry *ir_analyze_instruction_alignof(IrAnalyze *ira, IrInstruct
                 buf_sprintf("no align available for type '%s'", buf_ptr(&type_entry->name)));
         return ira->codegen->builtin_types.entry_invalid;
     } else {
-        uint64_t align_in_bytes = LLVMABISizeOfType(ira->codegen->target_data_ref, type_entry->type_ref);
+        uint64_t align_in_bytes = LLVMABIAlignmentOfType(ira->codegen->target_data_ref, type_entry->type_ref);
         ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
         bignum_init_unsigned(&out_val->data.x_bignum, align_in_bytes);
         return ira->codegen->builtin_types.entry_num_lit_int;
