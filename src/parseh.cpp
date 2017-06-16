@@ -162,10 +162,14 @@ static Tld *create_global_str_lit_var(Context *c, Buf *name, Buf *value) {
     return &tld_var->base;
 }
 
-static Tld *create_global_num_lit_unsigned_negative(Context *c, Buf *name, uint64_t x, bool negative) {
-    ConstExprValue *var_val = create_const_unsigned_negative(c->codegen->builtin_types.entry_num_lit_int, x, negative);
+static Tld *create_global_num_lit_unsigned_negative_type(Context *c, Buf *name, uint64_t x, bool negative, TypeTableEntry *type_entry) {
+    ConstExprValue *var_val = create_const_unsigned_negative(type_entry, x, negative);
     TldVar *tld_var = create_global_var(c, name, var_val, true);
     return &tld_var->base;
+}
+
+static Tld *create_global_num_lit_unsigned_negative(Context *c, Buf *name, uint64_t x, bool negative) {
+    return create_global_num_lit_unsigned_negative_type(c, name, x, negative, c->codegen->builtin_types.entry_num_lit_int);
 }
 
 static Tld *create_global_num_lit_float(Context *c, Buf *name, double value) {
@@ -1149,7 +1153,32 @@ static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *ch
                 return;
             case CTokIdNumLitInt:
                 if (is_last) {
-                    Tld *tld = create_global_num_lit_unsigned_negative(c, name, tok->data.num_lit_int, negate);
+                    Tld *tld;
+                    switch (tok->data.num_lit_int.suffix) {
+                        case CNumLitSuffixNone:
+                            tld = create_global_num_lit_unsigned_negative(c, name, tok->data.num_lit_int.x, negate);
+                            break;
+                        case CNumLitSuffixL:
+                            tld = create_global_num_lit_unsigned_negative_type(c, name, tok->data.num_lit_int.x, negate,
+                                    c->codegen->builtin_types.entry_c_int[CIntTypeLong]);
+                            break;
+                        case CNumLitSuffixU:
+                            tld = create_global_num_lit_unsigned_negative_type(c, name, tok->data.num_lit_int.x, negate,
+                                    c->codegen->builtin_types.entry_c_int[CIntTypeUInt]);
+                            break;
+                        case CNumLitSuffixLU:
+                            tld = create_global_num_lit_unsigned_negative_type(c, name, tok->data.num_lit_int.x, negate,
+                                    c->codegen->builtin_types.entry_c_int[CIntTypeULong]);
+                            break;
+                        case CNumLitSuffixLL:
+                            tld = create_global_num_lit_unsigned_negative_type(c, name, tok->data.num_lit_int.x, negate,
+                                    c->codegen->builtin_types.entry_c_int[CIntTypeLongLong]);
+                            break;
+                        case CNumLitSuffixLLU:
+                            tld = create_global_num_lit_unsigned_negative_type(c, name, tok->data.num_lit_int.x, negate,
+                                    c->codegen->builtin_types.entry_c_int[CIntTypeULongLong]);
+                            break;
+                    }
                     c->macro_table.put(name, tld);
                 }
                 return;

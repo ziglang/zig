@@ -20,12 +20,26 @@ enum CTokId {
     CTokIdMinus,
 };
 
+enum CNumLitSuffix {
+    CNumLitSuffixNone,
+    CNumLitSuffixL,
+    CNumLitSuffixU,
+    CNumLitSuffixLU,
+    CNumLitSuffixLL,
+    CNumLitSuffixLLU,
+};
+
+struct CNumLitInt {
+    uint64_t x;
+    CNumLitSuffix suffix;
+};
+
 struct CTok {
     enum CTokId id;
     union {
         uint8_t char_lit;
         Buf str_lit;
-        uint64_t num_lit_int;
+        CNumLitInt num_lit_int;
         double num_lit_float;
         Buf symbol;
     } data;
@@ -47,13 +61,15 @@ enum CTokState {
     CTokStateOctal,
     CTokStateGotZero,
     CTokStateHex,
-    CTokStateIntSuffix,
-    CTokStateIntSuffixLong,
     CTokStateFloat,
     CTokStateExpSign,
     CTokStateFloatExp,
     CTokStateFloatExpFirst,
     CTokStateStrOctal,
+    CTokStateNumLitIntSuffixU,
+    CTokStateNumLitIntSuffixL,
+    CTokStateNumLitIntSuffixLL,
+    CTokStateNumLitIntSuffixUL,
 };
 
 struct CTokenize {
@@ -62,8 +78,6 @@ struct CTokenize {
     bool error;
     CTok *cur_tok;
     Buf buf;
-    bool unsigned_suffix;
-    bool long_suffix;
     uint8_t cur_char;
     int octal_index;
 };

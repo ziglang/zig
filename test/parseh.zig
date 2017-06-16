@@ -217,6 +217,48 @@ pub fn addCases(cases: &tests.ParseHContext) {
         \\pub const SDL_INIT_VIDEO = 32;
     );
 
+    cases.add("u integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020u  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    ,
+        \\pub const SDL_INIT_VIDEO: c_uint = 32;
+    );
+
+    cases.add("l integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020l  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    ,
+        \\pub const SDL_INIT_VIDEO: c_long = 32;
+    );
+
+    cases.add("ul integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020ul  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    ,
+        \\pub const SDL_INIT_VIDEO: c_ulong = 32;
+    );
+
+    cases.add("lu integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020lu  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    ,
+        \\pub const SDL_INIT_VIDEO: c_ulong = 32;
+    );
+
+    cases.add("ll integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020ll  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    ,
+        \\pub const SDL_INIT_VIDEO: c_longlong = 32;
+    );
+
+    cases.add("ull integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020ull  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    ,
+        \\pub const SDL_INIT_VIDEO: c_ulonglong = 32;
+    );
+
+    cases.add("llu integer suffix after hex literal",
+        \\#define SDL_INIT_VIDEO 0x00000020llu  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
+    ,
+        \\pub const SDL_INIT_VIDEO: c_ulonglong = 32;
+    );
+
     cases.add("zig keywords in C code",
         \\struct comptime {
         \\    int defer;
