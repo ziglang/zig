@@ -977,7 +977,7 @@ struct TypeTableEntryEnum {
     TypeEnumField *fields;
     bool is_invalid; // true if any fields are invalid
     TypeTableEntry *tag_type;
-    TypeTableEntry *union_type;
+    LLVMTypeRef union_type_ref;
 
     ScopeDecls *decls_scope;
 
@@ -1633,7 +1633,7 @@ struct ScopeDecls {
 struct ScopeBlock {
     Scope base;
 
-    HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table; 
+    HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table;
     bool safety_off;
     AstNode *safety_set_node;
     bool fast_math_off;

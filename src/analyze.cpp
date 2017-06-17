@@ -1245,9 +1245,10 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
     uint32_t gen_field_count = enum_type->data.enumeration.gen_field_count;
     ZigLLVMDIType **union_inner_di_types = allocate<ZigLLVMDIType*>(gen_field_count);
 
-    TypeTableEntry *biggest_union_member = nullptr;
+    TypeTableEntry *most_aligned_union_member = nullptr;
+    uint64_t size_of_most_aligned_member_in_bits = 0;
     uint64_t biggest_align_in_bits = 0;
-    uint64_t biggest_union_member_size_in_bits = 0;
+    uint64_t biggest_size_in_bits = 0;
 
     Scope *scope = &enum_type->data.enumeration.decls_scope->base;
     ImportTableEntry *import = get_scope_import(scope);
@@ -1272,7 +1273,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
             continue;
 
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, field_type->type_ref);
-        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, field_type->type_ref);
+        uint64_t debug_align_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, field_type->type_ref);
 
         assert(debug_size_in_bits > 0);
         assert(debug_align_in_bits > 0);
@@ -1285,13 +1286,14 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
                 0,
                 0, field_type->di_type);
 
-        biggest_align_in_bits = max(biggest_align_in_bits, debug_align_in_bits);
+        biggest_size_in_bits = max(biggest_size_in_bits, debug_size_in_bits);
 
-        if (!biggest_union_member ||
-            debug_size_in_bits > biggest_union_member_size_in_bits)
+        if (!most_aligned_union_member ||
+            debug_align_in_bits > biggest_align_in_bits)
         {
-            biggest_union_member = field_type;
-            biggest_union_member_size_in_bits = debug_size_in_bits;
+            most_aligned_union_member = field_type;
+            biggest_align_in_bits = debug_align_in_bits;
+            size_of_most_aligned_member_in_bits = debug_size_in_bits;
         }
     }
 
@@ -1300,16 +1302,34 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
     enum_type->data.enumeration.complete = true;
 
     if (!enum_type->data.enumeration.is_invalid) {
-        enum_type->data.enumeration.union_type = biggest_union_member;
-
         TypeTableEntry *tag_int_type = get_smallest_unsigned_int_type(g, field_count);
         TypeTableEntry *tag_type_entry = create_enum_tag_type(g, enum_type, tag_int_type);
         enum_type->data.enumeration.tag_type = tag_type_entry;
 
-        if (biggest_union_member) {
+        if (most_aligned_union_member) {
             // create llvm type for union
-            LLVMTypeRef union_element_type = biggest_union_member->type_ref;
-            LLVMTypeRef union_type_ref = LLVMStructType(&union_element_type, 1, false);
+            uint64_t padding_in_bits = biggest_size_in_bits - size_of_most_aligned_member_in_bits;
+            LLVMTypeRef union_type_ref;
+            if (padding_in_bits > 0) {
+                TypeTableEntry *u8_type = get_int_type(g, false, 8);
+                TypeTableEntry *padding_array = get_array_type(g, u8_type, padding_in_bits / 8);
+                LLVMTypeRef union_element_types[] = {
+                    most_aligned_union_member->type_ref,
+                    padding_array->type_ref,
+                };
+                union_type_ref = LLVMStructType(union_element_types, 2, false);
+            } else {
+                LLVMTypeRef union_element_types[] = {
+                    most_aligned_union_member->type_ref,
+                };
+                union_type_ref = LLVMStructType(union_element_types, 1, false);
+            }
+            enum_type->data.enumeration.union_type_ref = union_type_ref;
+
+            assert(8*LLVMABIAlignmentOfType(g->target_data_ref, union_type_ref) >=
+                    biggest_align_in_bits);
+            assert(8*LLVMABISizeOfType(g->target_data_ref, union_type_ref) >=
+                    biggest_size_in_bits);
 
             // create llvm type for root struct
             LLVMTypeRef root_struct_element_types[] = {
@@ -1331,7 +1351,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
             ZigLLVMDIType *union_di_type = ZigLLVMCreateDebugUnionType(g->dbuilder,
                     ZigLLVMTypeToScope(enum_type->di_type), "AnonUnion",
                     import->di_file, (unsigned)(decl_node->line + 1),
-                    biggest_union_member_size_in_bits, biggest_align_in_bits, 0, union_inner_di_types,
+                    biggest_size_in_bits, biggest_align_in_bits, 0, union_inner_di_types,
                     gen_field_count, 0, "");
 
             // create debug types for members of root struct
@@ -1348,7 +1368,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
             ZigLLVMDIType *union_member_di_type = ZigLLVMCreateDebugMemberType(g->dbuilder,
                     ZigLLVMTypeToScope(enum_type->di_type), "union_field",
                     import->di_file, (unsigned)(decl_node->line + 1),
-                    biggest_union_member_size_in_bits,
+                    biggest_size_in_bits,
                     biggest_align_in_bits,
                     union_offset_in_bits,
                     0, union_di_type);
@@ -2541,7 +2561,7 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
         if (expected_type->data.fn.is_generic != actual_type->data.fn.is_generic) {
             return false;
         }
-        if (!expected_type->data.fn.is_generic && 
+        if (!expected_type->data.fn.is_generic &&
             actual_type->data.fn.fn_type_id.return_type->id != TypeTableEntryIdUnreachable &&
             !types_match_const_cast_only(
                 expected_type->data.fn.fn_type_id.return_type,
