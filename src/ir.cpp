@@ -6460,6 +6460,9 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             prev_inst = cur_inst;
             continue;
         } else if (cur_type->id == TypeTableEntryIdPureError) {
+            if (prev_type->id == TypeTableEntryIdArray) {
+                convert_to_const_slice = true;
+            }
             any_are_pure_error = true;
             continue;
         } else if (cur_type->id == TypeTableEntryIdNullLit) {
@@ -6568,7 +6571,12 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
     }
     if (convert_to_const_slice) {
         assert(prev_inst->value.type->id == TypeTableEntryIdArray);
-        return get_slice_type(ira->codegen, prev_inst->value.type->data.array.child_type, true);
+        TypeTableEntry *slice_type = get_slice_type(ira->codegen, prev_inst->value.type->data.array.child_type, true);
+        if (any_are_pure_error) {
+            return get_error_type(ira->codegen, slice_type);
+        } else {
+            return slice_type;
+        }
     } else if (any_are_pure_error && prev_inst->value.type->id != TypeTableEntryIdPureError) {
         if (prev_inst->value.type->id == TypeTableEntryIdNumLitInt ||
             prev_inst->value.type->id == TypeTableEntryIdNumLitFloat)
