@@ -302,13 +302,13 @@ static void ast_parse_param_decl_list(ParseContext *pc, size_t *token_index,
 
     ast_eat_token(pc, token_index, TokenIdLParen);
 
-    Token *token = &pc->tokens->at(*token_index);
-    if (token->id == TokenIdRParen) {
-        *token_index += 1;
-        return;
-    }
-
     for (;;) {
+        Token *token = &pc->tokens->at(*token_index);
+        if (token->id == TokenIdRParen) {
+            *token_index += 1;
+            return;
+        }
+
         AstNode *param_decl_node = ast_parse_param_decl(pc, token_index);
         bool expect_end = false;
         assert(param_decl_node);
@@ -316,31 +316,33 @@ static void ast_parse_param_decl_list(ParseContext *pc, size_t *token_index,
         expect_end = param_decl_node->data.param_decl.is_var_args;
         *is_var_args = expect_end;
 
-        Token *token = &pc->tokens->at(*token_index);
+        token = &pc->tokens->at(*token_index);
         *token_index += 1;
         if (token->id == TokenIdRParen) {
             return;
-        } else if (expect_end) {
-            ast_invalid_token_error(pc, token);
         } else {
             ast_expect_token(pc, token, TokenIdComma);
+            if (expect_end) {
+                ast_eat_token(pc, token_index, TokenIdRParen);
+                return;
+            }
         }
     }
     zig_unreachable();
 }
 
 static void ast_parse_fn_call_param_list(ParseContext *pc, size_t *token_index, ZigList<AstNode*> *params) {
-    Token *token = &pc->tokens->at(*token_index);
-    if (token->id == TokenIdRParen) {
-        *token_index += 1;
-        return;
-    }
-
     for (;;) {
+        Token *token = &pc->tokens->at(*token_index);
+        if (token->id == TokenIdRParen) {
+            *token_index += 1;
+            return;
+        }
+
         AstNode *expr = ast_parse_expression(pc, token_index, true);
         params->append(expr);
 
-        Token *token = &pc->tokens->at(*token_index);
+        token = &pc->tokens->at(*token_index);
         *token_index += 1;
         if (token->id == TokenIdRParen) {
             return;
@@ -482,7 +484,13 @@ static void ast_parse_asm_clobbers(ParseContext *pc, size_t *token_index, AstNod
 
         if (comma->id == TokenIdComma) {
             *token_index += 1;
-            continue;
+
+            Token *token = &pc->tokens->at(*token_index);
+            if (token->id == TokenIdRParen) {
+                break;
+            } else {
+                continue;
+            }
         } else {
             break;
         }
@@ -513,7 +521,13 @@ static void ast_parse_asm_input(ParseContext *pc, size_t *token_index, AstNode *
 
         if (comma->id == TokenIdComma) {
             *token_index += 1;
-            continue;
+
+            Token *token = &pc->tokens->at(*token_index);
+            if (token->id == TokenIdColon || token->id == TokenIdRParen) {
+                break;
+            } else {
+                continue;
+            }
         } else {
             break;
         }
@@ -546,7 +560,13 @@ static void ast_parse_asm_output(ParseContext *pc, size_t *token_index, AstNode 
 
         if (comma->id == TokenIdComma) {
             *token_index += 1;
-            continue;
+
+            Token *token = &pc->tokens->at(*token_index);
+            if (token->id == TokenIdColon || token->id == TokenIdRParen) {
+                break;
+            } else {
+                continue;
+            }
         } else {
             break;
         }
@@ -1783,7 +1803,13 @@ static AstNode *ast_parse_switch_expr(ParseContext *pc, size_t *token_index, boo
             Token *comma_tok = &pc->tokens->at(*token_index);
             if (comma_tok->id == TokenIdComma) {
                 *token_index += 1;
-                continue;
+
+                Token *token = &pc->tokens->at(*token_index);
+                if (token->id == TokenIdFatArrow) {
+                    break;
+                } else {
+                    continue;
+                }
             }
             break;
         }
@@ -1812,7 +1838,15 @@ static AstNode *ast_parse_switch_expr(ParseContext *pc, size_t *token_index, boo
         }
 
         prong_node->data.switch_prong.expr = ast_parse_expression(pc, token_index, true);
-        ast_eat_token(pc, token_index, TokenIdComma);
+
+        Token *trailing_token = &pc->tokens->at(*token_index);
+        if (trailing_token->id == TokenIdRBrace) {
+            *token_index += 1;
+
+            return node;
+        } else {
+            ast_eat_token(pc, token_index, TokenIdComma);
+        }
 
     }
 }
@@ -2364,17 +2398,28 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, 
             field_node->data.struct_field.visib_mod = visib_mod;
             field_node->data.struct_field.name = token_buf(token);
 
-            Token *expr_or_comma = &pc->tokens->at(*token_index);
-            if (expr_or_comma->id == TokenIdComma) {
-                field_node->data.struct_field.type = ast_create_void_type_node(pc, expr_or_comma);
+            Token *token = &pc->tokens->at(*token_index);
+            if (token->id == TokenIdComma || token->id == TokenIdRBrace) {
+                field_node->data.struct_field.type = ast_create_void_type_node(pc, token);
                 *token_index += 1;
+                node->data.container_decl.fields.append(field_node);
+
+                if (token->id == TokenIdRBrace) {
+                    break;
+                }
             } else {
                 ast_eat_token(pc, token_index, TokenIdColon);
                 field_node->data.struct_field.type = ast_parse_expression(pc, token_index, true);
-                ast_eat_token(pc, token_index, TokenIdComma);
-            }
+                node->data.container_decl.fields.append(field_node);
 
-            node->data.container_decl.fields.append(field_node);
+                Token *token = &pc->tokens->at(*token_index);
+                if (token->id == TokenIdRBrace) {
+                    *token_index += 1;
+                    break;
+                } else {
+                    ast_eat_token(pc, token_index, TokenIdComma);
+                }
+            }
         } else {
             ast_invalid_token_error(pc, token);
         }
