@@ -11,7 +11,7 @@ pub fn exp(x: var) -> @typeOf(x) {
 }
 
 fn exp32(x_: f32) -> f32 {
-    const half = []const f32 { 0.5, -0.5 };
+    const half = []f32 { 0.5, -0.5 };
     const ln2hi = 6.9314575195e-1;
     const ln2lo = 1.4286067653e-6;
     const invln2  = 1.4426950216e+0;

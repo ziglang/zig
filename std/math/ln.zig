@@ -120,12 +120,12 @@ fn lnd(x_: f64) -> f64 {
     s * (hfsq + R) + dk * ln2_lo - hfsq + f + dk * ln2_hi
 }
 
-test "log" {
+test "math.ln" {
     assert(ln(f32(0.2)) == lnf(0.2));
     assert(ln(f64(0.2)) == lnd(0.2));
 }
 
-test "logf" {
+test "math.ln32" {
     const epsilon = 0.000001;
 
     assert(math.approxEq(f32, lnf(0.2), -1.609438, epsilon));
@@ -136,7 +136,7 @@ test "logf" {
     assert(math.approxEq(f32, lnf(123123.234375), 11.720941, epsilon));
 }
 
-test "logd" {
+test "math.ln64" {
     const epsilon = 0.000001;
 
     assert(math.approxEq(f64, lnd(0.2), -1.609438, epsilon));
