@@ -30,6 +30,8 @@ const exp2ft = []const f64 {
 };
 
 fn exp2f(x: f32) -> f32 {
+    @setFloatMode(this, @import("builtin").FloatMode.Strict);
+
     const tblsiz = u32(exp2ft.len);
     const redux: f32 = 0x1.8p23 / f32(tblsiz);
     const P1: f32 = 0x1.62e430p-1;
@@ -345,6 +347,8 @@ const exp2dt = []f64 {
 };
 
 fn exp2d(x: f64) -> f64 {
+    @setFloatMode(this, @import("builtin").FloatMode.Strict);
+
     const tblsiz     = u32(exp2dt.len / 2);
     const redux: f64 = 0x1.8p52 / f64(tblsiz);
     const P1: f64    = 0x1.62e42fefa39efp-1;
