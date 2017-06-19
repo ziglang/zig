@@ -38,7 +38,7 @@
 #define _XABORT_CODE(x)   (((x) >> 24) & 0xFF)
 
 /* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__))
+#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("rtm")))
 
 static __inline__ unsigned int __DEFAULT_FN_ATTRS
 _xbegin(void)

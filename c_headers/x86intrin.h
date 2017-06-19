@@ -28,52 +28,56 @@
 
 #include <immintrin.h>
 
-#ifdef __3dNOW__
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__3dNOW__)
 #include <mm3dnow.h>
 #endif
 
-#ifdef __BMI__
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__BMI__)
 #include <bmiintrin.h>
 #endif
 
-#ifdef __BMI2__
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__BMI2__)
 #include <bmi2intrin.h>
 #endif
 
-#ifdef __LZCNT__
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__LZCNT__)
 #include <lzcntintrin.h>
 #endif
 
-#ifdef __POPCNT__
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__POPCNT__)
 #include <popcntintrin.h>
 #endif
 
-#ifdef __RDSEED__
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__RDSEED__)
 #include <rdseedintrin.h>
 #endif
 
-#ifdef __PRFCHW__
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__PRFCHW__)
 #include <prfchwintrin.h>
 #endif
 
-#ifdef __SSE4A__
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__SSE4A__)
 #include <ammintrin.h>
 #endif
 
-#ifdef __FMA4__
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__FMA4__)
 #include <fma4intrin.h>
 #endif
 
-#ifdef __XOP__
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__XOP__)
 #include <xopintrin.h>
 #endif
 
-#ifdef __TBM__
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__TBM__)
 #include <tbmintrin.h>
 #endif
 
-#ifdef __F16C__
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__F16C__)
 #include <f16cintrin.h>
+#endif
+
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__MWAITX__)
+#include <mwaitxintrin.h>
 #endif
 
 /* FIXME: LWP */

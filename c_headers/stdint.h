@@ -77,14 +77,14 @@
  * C99 7.18.1.2 Minimum-width integer types.
  * C99 7.18.1.3 Fastest minimum-width integer types.
  *
- * The standard requires that exact-width type be defined for 8-, 16-, 32-, and 
+ * The standard requires that exact-width type be defined for 8-, 16-, 32-, and
  * 64-bit types if they are implemented. Other exact width types are optional.
  * This implementation defines an exact-width types for every integer width
  * that is represented in the standard integer types.
  *
  * The standard also requires minimum-width types be defined for 8-, 16-, 32-,
  * and 64-bit widths regardless of whether there are corresponding exact-width
- * types. 
+ * types.
  *
  * To accommodate targets that are missing types that are exactly 8, 16, 32, or
  * 64 bits wide, this implementation takes an approach of cascading
@@ -97,7 +97,7 @@
  * suboptimal.
  *
  * In violation of the standard, some targets do not implement a type that is
- * wide enough to represent all of the required widths (8-, 16-, 32-, 64-bit).  
+ * wide enough to represent all of the required widths (8-, 16-, 32-, 64-bit).
  * To accommodate these targets, a required minimum-width type is only
  * defined if there exists an exact-width type of equal or greater width.
  */
@@ -247,7 +247,7 @@ typedef __uint_least8_t uint_fast8_t;
 #endif /* __int_least8_t */
 
 /* prevent glibc sys/types.h from defining conflicting types */
-#ifndef __int8_t_defined  
+#ifndef __int8_t_defined
 # define __int8_t_defined
 #endif /* __int8_t_defined */
 
@@ -280,9 +280,9 @@ typedef __UINTMAX_TYPE__ uintmax_t;
  *
  * The standard requires that integer constant macros be defined for all the
  * minimum-width types defined above. As 8-, 16-, 32-, and 64-bit minimum-width
- * types are required, the corresponding integer constant macros are defined 
+ * types are required, the corresponding integer constant macros are defined
  * here. This implementation also defines minimum-width types for every other
- * integer width that the target implements, so corresponding macros are 
+ * integer width that the target implements, so corresponding macros are
  * defined below, too.
  *
  * These macros are defined using the same successive-shrinking approach as
@@ -452,7 +452,7 @@ typedef __UINTMAX_TYPE__ uintmax_t;
 #endif /* __int_least8_t */
 
 
-/* C99 7.18.2.1 Limits of exact-width integer types. 
+/* C99 7.18.2.1 Limits of exact-width integer types.
  * C99 7.18.2.2 Limits of minimum-width integer types.
  * C99 7.18.2.3 Limits of fastest minimum-width integer types.
  *

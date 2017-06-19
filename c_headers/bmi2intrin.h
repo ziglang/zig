@@ -25,15 +25,11 @@
 #error "Never use <bmi2intrin.h> directly; include <x86intrin.h> instead."
 #endif
 
-#ifndef __BMI2__
-# error "BMI2 instruction set not enabled"
-#endif /* __BMI2__ */
-
 #ifndef __BMI2INTRIN_H
 #define __BMI2INTRIN_H
 
 /* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__))
+#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("bmi2")))
 
 static __inline__ unsigned int __DEFAULT_FN_ATTRS
 _bzhi_u32(unsigned int __X, unsigned int __Y)

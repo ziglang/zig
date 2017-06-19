@@ -227,3 +227,27 @@ test "var args implicitly casts by value arg to const ref" {
 fn foo(args: ...) {
     assert(@typeOf(args[0]) == &const [5]u8);
 }
+
+
+test "peer type resolution: error and [N]T" {
+    assert(mem.eql(u8, %%testPeerErrorAndArray(0), "OK"));
+    comptime assert(mem.eql(u8, %%testPeerErrorAndArray(0), "OK"));
+
+    assert(mem.eql(u8, %%testPeerErrorAndArray2(1), "OKK"));
+    comptime assert(mem.eql(u8, %%testPeerErrorAndArray2(1), "OKK"));
+}
+
+error BadValue;
+fn testPeerErrorAndArray(x: u8) -> %[]const u8 {
+    switch (x) {
+        0x00 => "OK",
+        else => error.BadValue,
+    }
+}
+fn testPeerErrorAndArray2(x: u8) -> %[]const u8 {
+    switch (x) {
+        0x00 => "OK",
+        0x01 => "OKK",
+        else => error.BadValue,
+    }
+}
