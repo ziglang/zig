@@ -1,6 +1,9 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
+// TODO issue #393
+pub const modf = modf_workaround;
+
 fn modf_result(comptime T: type) -> type {
     struct {
         fpart: T,
@@ -10,7 +13,7 @@ fn modf_result(comptime T: type) -> type {
 pub const modf32_result = modf_result(f32);
 pub const modf64_result = modf_result(f64);
 
-pub fn modf(x: var) -> modf_result(@typeOf(x)) {
+pub fn modf_workaround(x: var) -> modf_result(@typeOf(x)) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(modf32, x),
@@ -95,7 +98,7 @@ fn modf64(x: f64) -> modf64_result {
     result
 }
 
-test "modf" {
+test "math.modf" {
     const a = modf(f32(1.0));
     const b = modf32(1.0);
     // NOTE: No struct comparison on generic return type function? non-named, makes sense, but still.
@@ -106,7 +109,7 @@ test "modf" {
     assert(a.ipart == b.ipart and a.fpart == b.fpart);
 }
 
-test "modf32" {
+test "math.modf32" {
     const epsilon = 0.000001;
     var r: modf32_result = undefined;
 
@@ -131,7 +134,7 @@ test "modf32" {
     assert(math.approxEq(f32, r.fpart, 0.340820, epsilon));
 }
 
-test "modf64" {
+test "math.modf64" {
     const epsilon = 0.000001;
     var r: modf64_result = undefined;
 

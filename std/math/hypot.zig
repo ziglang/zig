@@ -1,7 +1,10 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub fn hypot(comptime T: type, x: T, y: T) -> T {
+// TODO issue #393
+pub const hypot = hypot_workaround;
+
+pub fn hypot_workaround(comptime T: type, x: T, y: T) -> T {
     switch (T) {
         f32 => @inlineCall(hypot32, x, y),
         f64 => @inlineCall(hypot64, x, y),
@@ -105,12 +108,12 @@ fn hypot64(x: f64, y: f64) -> f64 {
     z * math.sqrt(ly + lx + hy + hx)
 }
 
-test "hypot" {
+test "math.hypot" {
     assert(hypot(f32, 0.0, -1.2) == hypot32(0.0, -1.2));
     assert(hypot(f64, 0.0, -1.2) == hypot64(0.0, -1.2));
 }
 
-test "hypot32" {
+test "math.hypot32" {
     const epsilon = 0.000001;
 
     assert(math.approxEq(f32, hypot32(0.0, -1.2), 1.2, epsilon));
@@ -122,7 +125,7 @@ test "hypot32" {
     assert(math.approxEq(f32, hypot32(123123.234375, 529428.707813), 543556.875, epsilon));
 }
 
-test "hypot64" {
+test "math.hypot64" {
     const epsilon = 0.000001;
 
     assert(math.approxEq(f64, hypot64(0.0, -1.2), 1.2, epsilon));

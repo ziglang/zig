@@ -1,6 +1,9 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
+// TODO issue #393
+pub const frexp = frexp_workaround;
+
 fn frexp_result(comptime T: type) -> type {
     struct {
         significand: T,
@@ -10,7 +13,7 @@ fn frexp_result(comptime T: type) -> type {
 pub const frexp32_result = frexp_result(f32);
 pub const frexp64_result = frexp_result(f64);
 
-pub fn frexp(x: var) -> frexp_result(@typeOf(x)) {
+pub fn frexp_workaround(x: var) -> frexp_result(@typeOf(x)) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(frexp32, x),
@@ -80,7 +83,7 @@ fn frexp64(x: f64) -> frexp64_result {
     result
 }
 
-test "frexp" {
+test "math.frexp" {
     const a = frexp(f32(1.3));
     const b = frexp32(1.3);
     assert(a.significand == b.significand and a.exponent == b.exponent);
@@ -90,7 +93,7 @@ test "frexp" {
     assert(c.significand == d.significand and c.exponent == d.exponent);
 }
 
-test "frexp32" {
+test "math.frexp32" {
     const epsilon = 0.000001;
     var r: frexp32_result = undefined;
 
@@ -101,7 +104,7 @@ test "frexp32" {
     assert(math.approxEq(f32, r.significand, 0.609558, epsilon) and r.exponent == 7);
 }
 
-test "frexp64" {
+test "math.frexp64" {
     const epsilon = 0.000001;
     var r: frexp64_result = undefined;
 

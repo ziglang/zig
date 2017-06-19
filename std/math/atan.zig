@@ -1,7 +1,10 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub fn atan(x: var) -> @typeOf(x) {
+// TODO issue #393
+pub const atan = atan_workaround;
+
+pub fn atan_workaround(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(atan32, x),
@@ -201,12 +204,12 @@ fn atan64(x_: f64) -> f64 {
     }
 }
 
-test "atan" {
-    assert(atan(f32(0.2)) == atan32(0.2));
-    assert(atan(f64(0.2)) == atan64(0.2));
+test "math.atan" {
+    assert(atan_workaround(f32(0.2)) == atan32(0.2));
+    assert(atan_workaround(f64(0.2)) == atan64(0.2));
 }
 
-test "atan32" {
+test "math.atan32" {
     const epsilon = 0.000001;
 
     assert(math.approxEq(f32, atan32(0.2), 0.197396, epsilon));
@@ -216,7 +219,7 @@ test "atan32" {
     assert(math.approxEq(f32, atan32(1.5), 0.982794, epsilon));
 }
 
-test "atan64" {
+test "math.atan64" {
     const epsilon = 0.000001;
 
     assert(math.approxEq(f64, atan64(0.2), 0.197396, epsilon));

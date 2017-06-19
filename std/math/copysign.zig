@@ -1,7 +1,10 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub fn copysign(comptime T: type, x: T, y: T) -> T {
+// TODO issue #393
+pub const copysign = copysign_workaround;
+
+pub fn copysign_workaround(comptime T: type, x: T, y: T) -> T {
     switch (T) {
         f32 => @inlineCall(copysign32, x, y),
         f64 => @inlineCall(copysign64, x, y),
@@ -27,19 +30,19 @@ fn copysign64(x: f64, y: f64) -> f64 {
     @bitCast(f64, h1 | h2)
 }
 
-test "copysign" {
+test "math.copysign" {
     assert(copysign(f32, 1.0, 1.0) == copysign32(1.0, 1.0));
     assert(copysign(f64, 1.0, 1.0) == copysign64(1.0, 1.0));
 }
 
-test "copysign32" {
+test "math.copysign32" {
     assert(copysign32(5.0, 1.0) == 5.0);
     assert(copysign32(5.0, -1.0) == -5.0);
     assert(copysign32(-5.0, -1.0) == -5.0);
     assert(copysign32(-5.0, 1.0) == 5.0);
 }
 
-test "copysign64" {
+test "math.copysign64" {
     assert(copysign64(5.0, 1.0) == 5.0);
     assert(copysign64(5.0, -1.0) == -5.0);
     assert(copysign64(-5.0, -1.0) == -5.0);

@@ -1,17 +1,20 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub fn atanh(x: var) -> @typeOf(x) {
+// TODO issue #393
+pub const atanh = atanh_workaround;
+
+pub fn atanh_workaround(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
-        f32 => @inlineCall(atanhf, x),
-        f64 => @inlineCall(atanhd, x),
+        f32 => @inlineCall(atanh_32, x),
+        f64 => @inlineCall(atanh_64, x),
         else => @compileError("atanh not implemented for " ++ @typeName(T)),
     }
 }
 
 // atanh(x) = log((1 + x) / (1 - x)) / 2 = log1p(2x / (1 - x)) / 2 ~= x + x^3 / 3 + o(x^5)
-fn atanhf(x: f32) -> f32 {
+fn atanh_32(x: f32) -> f32 {
     const u = @bitCast(u32, x);
     const i = u & 0x7FFFFFFF;
     const s = u >> 31;
@@ -37,7 +40,7 @@ fn atanhf(x: f32) -> f32 {
     if (s != 0) -y else y
 }
 
-fn atanhd(x: f64) -> f64 {
+fn atanh_64(x: f64) -> f64 {
     const u = @bitCast(u64, x);
     const e = (u >> 52) & 0x7FF;
     const s = u >> 63;
@@ -63,23 +66,23 @@ fn atanhd(x: f64) -> f64 {
     if (s != 0) -y else y
 }
 
-test "atanh" {
-    assert(atanh(f32(0.0)) == atanhf(0.0));
-    assert(atanh(f64(0.0)) == atanhd(0.0));
+test "math.atanh" {
+    assert(atanh(f32(0.0)) == atanh_32(0.0));
+    assert(atanh(f64(0.0)) == atanh_64(0.0));
 }
 
-test "atanhf" {
+test "math.atanh_32" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f32, atanhf(0.0), 0.0, epsilon));
-    assert(math.approxEq(f32, atanhf(0.2), 0.202733, epsilon));
-    assert(math.approxEq(f32, atanhf(0.8923), 1.433099, epsilon));
+    assert(math.approxEq(f32, atanh_32(0.0), 0.0, epsilon));
+    assert(math.approxEq(f32, atanh_32(0.2), 0.202733, epsilon));
+    assert(math.approxEq(f32, atanh_32(0.8923), 1.433099, epsilon));
 }
 
-test "atanhd" {
+test "math.atanh_64" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f64, atanhd(0.0), 0.0, epsilon));
-    assert(math.approxEq(f64, atanhd(0.2), 0.202733, epsilon));
-    assert(math.approxEq(f64, atanhd(0.8923), 1.433099, epsilon));
+    assert(math.approxEq(f64, atanh_64(0.0), 0.0, epsilon));
+    assert(math.approxEq(f64, atanh_64(0.2), 0.202733, epsilon));
+    assert(math.approxEq(f64, atanh_64(0.8923), 1.433099, epsilon));
 }

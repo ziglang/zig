@@ -18,7 +18,7 @@ pub fn isNormal(x: var) -> bool {
     }
 }
 
-test "isNormal" {
+test "math.isNormal" {
     assert(!isNormal(math.nan(f32)));
     assert(!isNormal(math.nan(f64)));
     assert(isNormal(f32(1.0)));

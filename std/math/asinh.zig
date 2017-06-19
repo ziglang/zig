@@ -1,17 +1,20 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub fn asinh(x: var) -> @typeOf(x) {
+pub const asinh = asinh_workaround;
+
+// TODO issue #393
+pub fn asinh_workaround(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
-        f32 => @inlineCall(asinhf, x),
-        f64 => @inlineCall(asinhd, x),
+        f32 => @inlineCall(asinh32, x),
+        f64 => @inlineCall(asinh64, x),
         else => @compileError("asinh not implemented for " ++ @typeName(T)),
     }
 }
 
 // asinh(x) = sign(x) * log(|x| + sqrt(x * x + 1)) ~= x - x^3/6 + o(x^5)
-fn asinhf(x: f32) -> f32 {
+fn asinh32(x: f32) -> f32 {
     const u = @bitCast(u32, x);
     const i = u & 0x7FFFFFFF;
     const s = i >> 31;
@@ -38,7 +41,7 @@ fn asinhf(x: f32) -> f32 {
     if (s != 0) -rx else rx
 }
 
-fn asinhd(x: f64) -> f64 {
+fn asinh64(x: f64) -> f64 {
     const u = @bitCast(u64, x);
     const e = (u >> 52) & 0x7FF;
     const s = u >> 63;
@@ -65,31 +68,31 @@ fn asinhd(x: f64) -> f64 {
     if (s != 0) -rx else rx
 }
 
-test "asinh" {
-    assert(asinh(f32(0.0)) == asinhf(0.0));
-    assert(asinh(f64(0.0)) == asinhd(0.0));
+test "math.asinh" {
+    assert(asinh_workaround(f32(0.0)) == asinh32(0.0));
+    assert(asinh_workaround(f64(0.0)) == asinh64(0.0));
 }
 
-test "asinhf" {
+test "math.asinh32" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f32, asinhf(0.0), 0.0, epsilon));
-    assert(math.approxEq(f32, asinhf(0.2), 0.198690, epsilon));
-    assert(math.approxEq(f32, asinhf(0.8923), 0.803133, epsilon));
-    assert(math.approxEq(f32, asinhf(1.5), 1.194763, epsilon));
-    assert(math.approxEq(f32, asinhf(37.45), 4.316332, epsilon));
-    assert(math.approxEq(f32, asinhf(89.123), 5.183196, epsilon));
-    assert(math.approxEq(f32, asinhf(123123.234375), 12.414088, epsilon));
+    assert(math.approxEq(f32, asinh32(0.0), 0.0, epsilon));
+    assert(math.approxEq(f32, asinh32(0.2), 0.198690, epsilon));
+    assert(math.approxEq(f32, asinh32(0.8923), 0.803133, epsilon));
+    assert(math.approxEq(f32, asinh32(1.5), 1.194763, epsilon));
+    assert(math.approxEq(f32, asinh32(37.45), 4.316332, epsilon));
+    assert(math.approxEq(f32, asinh32(89.123), 5.183196, epsilon));
+    assert(math.approxEq(f32, asinh32(123123.234375), 12.414088, epsilon));
 }
 
-test "asinhd" {
+test "math.asinh64" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f64, asinhd(0.0), 0.0, epsilon));
-    assert(math.approxEq(f64, asinhd(0.2), 0.198690, epsilon));
-    assert(math.approxEq(f64, asinhd(0.8923), 0.803133, epsilon));
-    assert(math.approxEq(f64, asinhd(1.5), 1.194763, epsilon));
-    assert(math.approxEq(f64, asinhd(37.45), 4.316332, epsilon));
-    assert(math.approxEq(f64, asinhd(89.123), 5.183196, epsilon));
-    assert(math.approxEq(f64, asinhd(123123.234375), 12.414088, epsilon));
+    assert(math.approxEq(f64, asinh64(0.0), 0.0, epsilon));
+    assert(math.approxEq(f64, asinh64(0.2), 0.198690, epsilon));
+    assert(math.approxEq(f64, asinh64(0.8923), 0.803133, epsilon));
+    assert(math.approxEq(f64, asinh64(1.5), 1.194763, epsilon));
+    assert(math.approxEq(f64, asinh64(37.45), 4.316332, epsilon));
+    assert(math.approxEq(f64, asinh64(89.123), 5.183196, epsilon));
+    assert(math.approxEq(f64, asinh64(123123.234375), 12.414088, epsilon));
 }

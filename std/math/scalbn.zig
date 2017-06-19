@@ -1,7 +1,10 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub fn scalbn(x: var, n: i32) -> @typeOf(x) {
+// TODO issue #393
+pub const scalbn = scalbn_workaround;
+
+pub fn scalbn_workaround(x: var, n: i32) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(scalbn32, x, n),
@@ -71,15 +74,15 @@ fn scalbn64(x: f64, n_: i32) -> f64 {
     y * @bitCast(f64, u)
 }
 
-test "scalbn" {
+test "math.scalbn" {
     assert(scalbn(f32(1.5), 4) == scalbn32(1.5, 4));
     assert(scalbn(f64(1.5), 4) == scalbn64(1.5, 4));
 }
 
-test "scalbn32" {
+test "math.scalbn32" {
     assert(scalbn32(1.5, 4) == 24.0);
 }
 
-test "scalbn64" {
+test "math.scalbn64" {
     assert(scalbn64(1.5, 4) == 24.0);
 }

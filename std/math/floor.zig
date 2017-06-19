@@ -2,7 +2,10 @@ const builtin = @import("builtin");
 const assert = @import("../debug.zig").assert;
 const math = @import("index.zig");
 
-pub fn floor(x: var) -> @typeOf(x) {
+// TODO issue #393
+pub const floor = floor_workaround;
+
+pub fn floor_workaround(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(floor32, x),
@@ -71,18 +74,18 @@ fn floor64(x: f64) -> f64 {
     }
 }
 
-test "floor" {
+test "math.floor" {
     assert(floor(f32(1.3)) == floor32(1.3));
     assert(floor(f64(1.3)) == floor64(1.3));
 }
 
-test "floor32" {
+test "math.floor32" {
     assert(floor32(1.3) == 1.0);
     assert(floor32(-1.3) == -2.0);
     assert(floor32(0.2) == 0.0);
 }
 
-test "floor64" {
+test "math.floor64" {
     assert(floor64(1.3) == 1.0);
     assert(floor64(-1.3) == -2.0);
     assert(floor64(0.2) == 0.0);

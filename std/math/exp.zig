@@ -1,7 +1,10 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub fn exp(x: var) -> @typeOf(x) {
+// TODO issue #393
+pub const exp = exp_workaround;
+
+pub fn exp_workaround(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(exp32, x),
@@ -165,12 +168,12 @@ fn exp64(x_: f64) -> f64 {
     }
 }
 
-test "exp" {
+test "math.exp" {
     assert(exp(f32(0.0)) == exp32(0.0));
     assert(exp(f64(0.0)) == exp64(0.0));
 }
 
-test "exp32" {
+test "math.exp32" {
     const epsilon = 0.000001;
 
     assert(exp32(0.0) == 1.0);
@@ -180,7 +183,7 @@ test "exp32" {
     assert(math.approxEq(f32, exp32(1.5), 4.481689, epsilon));
 }
 
-test "exp64" {
+test "math.exp64" {
     const epsilon = 0.000001;
 
     assert(exp64(0.0) == 1.0);

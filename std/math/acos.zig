@@ -1,7 +1,10 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub fn acos(x: var) -> @typeOf(x) {
+pub const acos = acos_workaround;
+
+// TODO issue #393
+pub fn acos_workaround(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(acos32, x),
@@ -137,12 +140,12 @@ fn acos64(x: f64) -> f64 {
     2 * (df + w)
 }
 
-test "acos" {
-    assert(acos(f32(0.0)) == acos32(0.0));
-    assert(acos(f64(0.0)) == acos64(0.0));
+test "math.acos" {
+    assert(acos_workaround(f32(0.0)) == acos32(0.0));
+    assert(acos_workaround(f64(0.0)) == acos64(0.0));
 }
 
-test "acos32" {
+test "math.acos32" {
     const epsilon = 0.000001;
 
     assert(math.approxEq(f32, acos32(0.0), 1.570796, epsilon));
@@ -153,7 +156,7 @@ test "acos32" {
     assert(math.approxEq(f32, acos32(-0.2), 1.772154, epsilon));
 }
 
-test "acos64" {
+test "math.acos64" {
     const epsilon = 0.000001;
 
     assert(math.approxEq(f64, acos64(0.0), 1.570796, epsilon));

@@ -1,7 +1,11 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub fn cos(x: var) -> @typeOf(x) {
+
+// TODO issue #393
+pub const cos = cos_workaround;
+
+pub fn cos_workaround(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(cos32, x),
@@ -133,12 +137,12 @@ fn cos64(x_: f64) -> f64 {
     }
 }
 
-test "cos" {
+test "math.cos" {
     assert(cos(f32(0.0)) == cos32(0.0));
     assert(cos(f64(0.0)) == cos64(0.0));
 }
 
-test "cos32" {
+test "math.cos32" {
     const epsilon = 0.000001;
 
     assert(math.approxEq(f32, cos32(0.0), 1.0, epsilon));
@@ -149,7 +153,7 @@ test "cos32" {
     assert(math.approxEq(f32, cos32(89.123), 0.400798, epsilon));
 }
 
-test "cos64" {
+test "math.cos64" {
     const epsilon = 0.000001;
 
     assert(math.approxEq(f64, cos64(0.0), 1.0, epsilon));

@@ -1,7 +1,10 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub fn sqrt(x: var) -> @typeOf(x) {
+// TODO issue #393
+pub const sqrt = sqrt_workaround;
+
+pub fn sqrt_workaround(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(sqrt32, x),
@@ -219,12 +222,12 @@ fn sqrt64(x: f64) -> f64 {
     @bitCast(f64, uz)
 }
 
-test "sqrt" {
+test "math.sqrt" {
     assert(sqrt(f32(0.0)) == sqrt32(0.0));
     assert(sqrt(f64(0.0)) == sqrt64(0.0));
 }
 
-test "sqrt32" {
+test "math.sqrt32" {
     const epsilon = 0.000001;
 
     assert(sqrt32(0.0) == 0.0);
@@ -238,7 +241,7 @@ test "sqrt32" {
     assert(math.approxEq(f32, sqrt32(8942.230469), 94.563370, epsilon));
 }
 
-test "sqrt64" {
+test "math.sqrt64" {
     const epsilon = 0.000001;
 
     assert(sqrt64(0.0) == 0.0);

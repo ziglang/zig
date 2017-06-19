@@ -1,7 +1,10 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub fn cbrt(x: var) -> @typeOf(x) {
+// TODO issue #393
+pub const cbrt = cbrt_workaround;
+
+pub fn cbrt_workaround(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(cbrt32, x),
@@ -106,12 +109,12 @@ fn cbrt64(x: f64) -> f64 {
     t + t * q
 }
 
-test "cbrt" {
+test "math.cbrt" {
     assert(cbrt(f32(0.0)) == cbrt32(0.0));
     assert(cbrt(f64(0.0)) == cbrt64(0.0));
 }
 
-test "cbrt32" {
+test "math.cbrt32" {
     const epsilon = 0.000001;
 
     assert(cbrt32(0.0) == 0.0);
@@ -122,7 +125,7 @@ test "cbrt32" {
     assert(math.approxEq(f32, cbrt32(123123.234375), 49.748501, epsilon));
 }
 
-test "cbrt64" {
+test "math.cbrt64" {
     const epsilon = 0.000001;
 
     assert(cbrt64(0.0) == 0.0);

@@ -1,11 +1,14 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub fn exp2(x: var) -> @typeOf(x) {
+// TODO issue #393
+pub const exp2 = exp2_workaround;
+
+pub fn exp2_workaround(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
-        f32 => @inlineCall(exp2f, x),
-        f64 => @inlineCall(exp2d, x),
+        f32 => @inlineCall(exp2_32, x),
+        f64 => @inlineCall(exp2_64, x),
         else => @compileError("exp2 not implemented for " ++ @typeName(T)),
     }
 }
@@ -29,7 +32,7 @@ const exp2ft = []const f64 {
     0x1.5ab07dd485429p+0,
 };
 
-fn exp2f(x: f32) -> f32 {
+fn exp2_32(x: f32) -> f32 {
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
     const tblsiz = u32(exp2ft.len);
@@ -346,7 +349,7 @@ const exp2dt = []f64 {
     0x1.690f4b19e9471p+0, -0x1.9780p-45,
 };
 
-fn exp2d(x: f64) -> f64 {
+fn exp2_64(x: f64) -> f64 {
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
     const tblsiz     = u32(exp2dt.len / 2);
@@ -407,27 +410,27 @@ fn exp2d(x: f64) -> f64 {
     math.scalbn(r, ik)
 }
 
-test "exp2" {
-    assert(exp2(f32(0.8923)) == exp2f(0.8923));
-    assert(exp2(f64(0.8923)) == exp2d(0.8923));
+test "math.exp2" {
+    assert(exp2(f32(0.8923)) == exp2_32(0.8923));
+    assert(exp2(f64(0.8923)) == exp2_64(0.8923));
 }
 
-test "exp2f" {
+test "math.exp2_32" {
     const epsilon = 0.000001;
 
-    assert(exp2f(0.0) == 1.0);
-    assert(math.approxEq(f32, exp2f(0.2), 1.148698, epsilon));
-    assert(math.approxEq(f32, exp2f(0.8923), 1.856133, epsilon));
-    assert(math.approxEq(f32, exp2f(1.5), 2.828427, epsilon));
-    assert(math.approxEq(f32, exp2f(37.45), 187747237888, epsilon));
+    assert(exp2_32(0.0) == 1.0);
+    assert(math.approxEq(f32, exp2_32(0.2), 1.148698, epsilon));
+    assert(math.approxEq(f32, exp2_32(0.8923), 1.856133, epsilon));
+    assert(math.approxEq(f32, exp2_32(1.5), 2.828427, epsilon));
+    assert(math.approxEq(f32, exp2_32(37.45), 187747237888, epsilon));
 }
 
-test "exp2d" {
+test "math.exp2_64" {
     const epsilon = 0.000001;
 
-    assert(exp2d(0.0) == 1.0);
-    assert(math.approxEq(f64, exp2d(0.2), 1.148698, epsilon));
-    assert(math.approxEq(f64, exp2d(0.8923), 1.856133, epsilon));
-    assert(math.approxEq(f64, exp2d(1.5), 2.828427, epsilon));
-    // assert(math.approxEq(f64, exp2d(37.45), 18379273786760560.000000, epsilon));
+    assert(exp2_64(0.0) == 1.0);
+    assert(math.approxEq(f64, exp2_64(0.2), 1.148698, epsilon));
+    assert(math.approxEq(f64, exp2_64(0.8923), 1.856133, epsilon));
+    assert(math.approxEq(f64, exp2_64(1.5), 2.828427, epsilon));
+    // assert(math.approxEq(f64, exp2_64(37.45), 18379273786760560.000000, epsilon));
 }

@@ -1,8 +1,11 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
+// TODO issue #393
+pub const pow = pow_workaround;
+
 // This implementation is taken from the go stlib, musl is a bit more complex.
-pub fn pow(comptime T: type, x: T, y: T) -> T {
+pub fn pow_workaround(comptime T: type, x: T, y: T) -> T {
 
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
@@ -158,9 +161,7 @@ test "math.pow" {
     assert(math.approxEq(f32, pow(f32, 0.2, 3.3), 0.004936, epsilon));
     assert(math.approxEq(f32, pow(f32, 1.5, 3.3), 3.811546, epsilon));
     assert(math.approxEq(f32, pow(f32, 37.45, 3.3), 155736.703125, epsilon));
-
-    // TODO: Determine why aborting on release mode.
-    // assert(math.approxEq(f32, pow(f32, 89.123, 3.3), 2722489.5, epsilon));
+    assert(math.approxEq(f32, pow(f32, 89.123, 3.3), 2722489.5, epsilon));
 
     // assert(math.approxEq(f32, pow(f64, 0.0, 3.3), 0.0, epsilon)); // TODO: Handle div zero
     assert(math.approxEq(f64, pow(f64, 0.8923, 3.3), 0.686572, epsilon));

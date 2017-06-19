@@ -1,15 +1,18 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub fn atan2(comptime T: type, x: T, y: T) -> T {
+pub const atan2 = atan2_workaround;
+
+// TODO issue #393
+pub fn atan2_workaround(comptime T: type, x: T, y: T) -> T {
     switch (T) {
-        f32 => @inlineCall(atan2f, x, y),
-        f64 => @inlineCall(atan2d, x, y),
+        f32 => @inlineCall(atan2_32, x, y),
+        f64 => @inlineCall(atan2_64, x, y),
         else => @compileError("atan2 not implemented for " ++ @typeName(T)),
     }
 }
 
-fn atan2f(y: f32, x: f32) -> f32 {
+fn atan2_32(y: f32, x: f32) -> f32 {
     const pi: f32    =  3.1415927410e+00;
     const pi_lo: f32 = -8.7422776573e-08;
 
@@ -94,7 +97,7 @@ fn atan2f(y: f32, x: f32) -> f32 {
     }
 }
 
-fn atan2d(y: f64, x: f64) -> f64 {
+fn atan2_64(y: f64, x: f64) -> f64 {
     const pi: f64    = 3.1415926535897931160E+00;
     const pi_lo: f64 = 1.2246467991473531772E-16;
 
@@ -184,31 +187,31 @@ fn atan2d(y: f64, x: f64) -> f64 {
     }
 }
 
-test "atan2" {
-    assert(atan2(f32, 0.2, 0.21) == atan2f(0.2, 0.21));
-    assert(atan2(f64, 0.2, 0.21) == atan2d(0.2, 0.21));
+test "math.atan2" {
+    assert(atan2_workaround(f32, 0.2, 0.21) == atan2_32(0.2, 0.21));
+    assert(atan2_workaround(f64, 0.2, 0.21) == atan2_64(0.2, 0.21));
 }
 
-test "atan2f" {
+test "math.atan2_32" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f32, atan2f(0.0, 0.0), 0.0, epsilon));
-    assert(math.approxEq(f32, atan2f(0.2, 0.2), 0.785398, epsilon));
-    assert(math.approxEq(f32, atan2f(-0.2, 0.2), -0.785398, epsilon));
-    assert(math.approxEq(f32, atan2f(0.2, -0.2), 2.356194, epsilon));
-    assert(math.approxEq(f32, atan2f(-0.2, -0.2), -2.356194, epsilon));
-    assert(math.approxEq(f32, atan2f(0.34, -0.4), 2.437099, epsilon));
-    assert(math.approxEq(f32, atan2f(0.34, 1.243), 0.267001, epsilon));
+    assert(math.approxEq(f32, atan2_32(0.0, 0.0), 0.0, epsilon));
+    assert(math.approxEq(f32, atan2_32(0.2, 0.2), 0.785398, epsilon));
+    assert(math.approxEq(f32, atan2_32(-0.2, 0.2), -0.785398, epsilon));
+    assert(math.approxEq(f32, atan2_32(0.2, -0.2), 2.356194, epsilon));
+    assert(math.approxEq(f32, atan2_32(-0.2, -0.2), -2.356194, epsilon));
+    assert(math.approxEq(f32, atan2_32(0.34, -0.4), 2.437099, epsilon));
+    assert(math.approxEq(f32, atan2_32(0.34, 1.243), 0.267001, epsilon));
 }
 
-test "atan2d" {
+test "math.atan2_64" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f64, atan2d(0.0, 0.0), 0.0, epsilon));
-    assert(math.approxEq(f64, atan2d(0.2, 0.2), 0.785398, epsilon));
-    assert(math.approxEq(f64, atan2d(-0.2, 0.2), -0.785398, epsilon));
-    assert(math.approxEq(f64, atan2d(0.2, -0.2), 2.356194, epsilon));
-    assert(math.approxEq(f64, atan2d(-0.2, -0.2), -2.356194, epsilon));
-    assert(math.approxEq(f64, atan2d(0.34, -0.4), 2.437099, epsilon));
-    assert(math.approxEq(f64, atan2d(0.34, 1.243), 0.267001, epsilon));
+    assert(math.approxEq(f64, atan2_64(0.0, 0.0), 0.0, epsilon));
+    assert(math.approxEq(f64, atan2_64(0.2, 0.2), 0.785398, epsilon));
+    assert(math.approxEq(f64, atan2_64(-0.2, 0.2), -0.785398, epsilon));
+    assert(math.approxEq(f64, atan2_64(0.2, -0.2), 2.356194, epsilon));
+    assert(math.approxEq(f64, atan2_64(-0.2, -0.2), -2.356194, epsilon));
+    assert(math.approxEq(f64, atan2_64(0.34, -0.4), 2.437099, epsilon));
+    assert(math.approxEq(f64, atan2_64(0.34, 1.243), 0.267001, epsilon));
 }

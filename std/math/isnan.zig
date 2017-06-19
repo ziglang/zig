@@ -18,7 +18,7 @@ pub fn isNan(x: var) -> bool {
     }
 }
 
-test "isNan" {
+test "math.isNan" {
     assert(isNan(math.nan(f32)));
     assert(isNan(math.nan(f64)));
     assert(!isNan(f32(1.0)));

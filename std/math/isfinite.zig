@@ -18,7 +18,7 @@ pub fn isFinite(x: var) -> bool {
     }
 }
 
-test "isFinite" {
+test "math.isFinite" {
     assert(isFinite(f32(0.0)));
     assert(isFinite(f32(-0.0)));
     assert(isFinite(f64(0.0)));

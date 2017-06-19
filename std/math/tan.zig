@@ -1,7 +1,9 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub fn tan(x: var) -> @typeOf(x) {
+pub const tan = tan_workaround;
+
+pub fn tan_workaround(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(tan32, x),
@@ -122,12 +124,12 @@ fn tan64(x_: f64) -> f64 {
     r
 }
 
-test "tan" {
+test "math.tan" {
     assert(tan(f32(0.0)) == tan32(0.0));
     assert(tan(f64(0.0)) == tan64(0.0));
 }
 
-test "tan32" {
+test "math.tan32" {
     const epsilon = 0.000001;
 
     assert(math.approxEq(f32, tan32(0.0), 0.0, epsilon));
@@ -138,7 +140,7 @@ test "tan32" {
     assert(math.approxEq(f32, tan32(89.123), 2.285852, epsilon));
 }
 
-test "tan64" {
+test "math.tan64" {
     const epsilon = 0.000001;
 
     assert(math.approxEq(f64, tan64(0.0), 0.0, epsilon));

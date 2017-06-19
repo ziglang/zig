@@ -2,11 +2,14 @@ const math = @import("index.zig");
 const expo2 = @import("_expo2.zig").expo2;
 const assert = @import("../debug.zig").assert;
 
-pub fn cosh(x: var) -> @typeOf(x) {
+// TODO issue #393
+pub const cosh = cosh_workaround;
+
+pub fn cosh_workaround(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
-        f32 => @inlineCall(coshf, x),
-        f64 => @inlineCall(coshd, x),
+        f32 => @inlineCall(cosh32, x),
+        f64 => @inlineCall(cosh64, x),
         else => @compileError("cosh not implemented for " ++ @typeName(T)),
     }
 }
@@ -14,7 +17,7 @@ pub fn cosh(x: var) -> @typeOf(x) {
 // cosh(x) = (exp(x) + 1 / exp(x)) / 2
 //         = 1 + 0.5 * (exp(x) - 1) * (exp(x) - 1) / exp(x)
 //         = 1 + (x * x) / 2 + o(x^4)
-fn coshf(x: f32) -> f32 {
+fn cosh32(x: f32) -> f32 {
     const u = @bitCast(u32, x);
     const ux = u & 0x7FFFFFFF;
     const ax = @bitCast(f32, ux);
@@ -39,7 +42,7 @@ fn coshf(x: f32) -> f32 {
     expo2(ax)
 }
 
-fn coshd(x: f64) -> f64 {
+fn cosh64(x: f64) -> f64 {
     const u = @bitCast(u64, x);
     const w = u32(u >> 32);
     const ax = @bitCast(f64, u & (@maxValue(u64) >> 1));
@@ -67,25 +70,25 @@ fn coshd(x: f64) -> f64 {
     expo2(ax)
 }
 
-test "cosh" {
-    assert(cosh(f32(1.5)) == coshf(1.5));
-    assert(cosh(f64(1.5)) == coshd(1.5));
+test "math.cosh" {
+    assert(cosh(f32(1.5)) == cosh32(1.5));
+    assert(cosh(f64(1.5)) == cosh64(1.5));
 }
 
-test "coshf" {
+test "math.cosh32" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f32, coshf(0.0), 1.0, epsilon));
-    assert(math.approxEq(f32, coshf(0.2), 1.020067, epsilon));
-    assert(math.approxEq(f32, coshf(0.8923), 1.425225, epsilon));
-    assert(math.approxEq(f32, coshf(1.5), 2.352410, epsilon));
+    assert(math.approxEq(f32, cosh32(0.0), 1.0, epsilon));
+    assert(math.approxEq(f32, cosh32(0.2), 1.020067, epsilon));
+    assert(math.approxEq(f32, cosh32(0.8923), 1.425225, epsilon));
+    assert(math.approxEq(f32, cosh32(1.5), 2.352410, epsilon));
 }
 
-test "coshd" {
+test "math.cosh64" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f64, coshd(0.0), 1.0, epsilon));
-    assert(math.approxEq(f64, coshd(0.2), 1.020067, epsilon));
-    assert(math.approxEq(f64, coshd(0.8923), 1.425225, epsilon));
-    assert(math.approxEq(f64, coshd(1.5), 2.352410, epsilon));
+    assert(math.approxEq(f64, cosh64(0.0), 1.0, epsilon));
+    assert(math.approxEq(f64, cosh64(0.2), 1.020067, epsilon));
+    assert(math.approxEq(f64, cosh64(0.8923), 1.425225, epsilon));
+    assert(math.approxEq(f64, cosh64(1.5), 2.352410, epsilon));
 }

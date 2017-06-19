@@ -1,7 +1,9 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub fn ln(x: var) -> @typeOf(x) {
+pub const ln = ln_workaround;
+
+pub fn ln_workaround(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(lnf, x),

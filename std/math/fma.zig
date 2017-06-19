@@ -1,7 +1,10 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub fn fma(comptime T: type, x: T, y: T, z: T) -> T {
+// TODO issue #393
+pub const fma = fma_workaround;
+
+pub fn fma_workaround(comptime T: type, x: T, y: T, z: T) -> T {
     switch (T) {
         f32 => @inlineCall(fma32, x, y, z),
         f64 => @inlineCall(fma64, x, y ,z),
@@ -130,12 +133,12 @@ fn add_and_denorm(a: f64, b: f64, scale: i32) -> f64 {
     math.scalbn(sum.hi, scale)
 }
 
-test "fma" {
+test "math.fma" {
     assert(fma(f32, 0.0, 1.0, 1.0) == fma32(0.0, 1.0, 1.0));
     assert(fma(f64, 0.0, 1.0, 1.0) == fma64(0.0, 1.0, 1.0));
 }
 
-test "fma32" {
+test "math.fma32" {
     const epsilon = 0.000001;
 
     assert(math.approxEq(f32, fma32(0.0, 5.0, 9.124), 9.124, epsilon));
@@ -147,7 +150,7 @@ test "fma32" {
     assert(math.approxEq(f32, fma32(123123.234375, 5.0, 9.124), 615625.295875, epsilon));
 }
 
-test "fma64" {
+test "math.fma64" {
     const epsilon = 0.000001;
 
     assert(math.approxEq(f64, fma64(0.0, 5.0, 9.124), 9.124, epsilon));

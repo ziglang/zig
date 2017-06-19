@@ -1,7 +1,10 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub fn signbit(x: var) -> bool {
+// TODO issue #393
+pub const signbit = signbit_workaround;
+
+pub fn signbit_workaround(x: var) -> bool {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(signbit32, x),
@@ -20,17 +23,17 @@ fn signbit64(x: f64) -> bool {
     bits >> 63 != 0
 }
 
-test "signbit" {
+test "math.signbit" {
     assert(signbit(f32(4.0)) == signbit32(4.0));
     assert(signbit(f64(4.0)) == signbit64(4.0));
 }
 
-test "signbit32" {
+test "math.signbit32" {
     assert(!signbit32(4.0));
     assert(signbit32(-3.0));
 }
 
-test "signbit64" {
+test "math.signbit64" {
     assert(!signbit64(4.0));
     assert(signbit64(-3.0));
 }

@@ -2,7 +2,10 @@ const builtin = @import("builtin");
 const assert = @import("../debug.zig").assert;
 const math = @import("index.zig");
 
-pub fn round(x: var) -> @typeOf(x) {
+// TODO issue #393
+pub const round = round_workaround;
+
+pub fn round_workaround(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(round32, x),
@@ -85,19 +88,19 @@ fn round64(x_: f64) -> f64 {
     }
 }
 
-test "round" {
+test "math.round" {
     assert(round(f32(1.3)) == round32(1.3));
     assert(round(f64(1.3)) == round64(1.3));
 }
 
-test "round32" {
+test "math.round32" {
     assert(round32(1.3) == 1.0);
     assert(round32(-1.3) == -1.0);
     assert(round32(0.2) == 0.0);
     assert(round32(1.8) == 2.0);
 }
 
-test "round64" {
+test "math.round64" {
     assert(round64(1.3) == 1.0);
     assert(round64(-1.3) == -1.0);
     assert(round64(0.2) == 0.0);

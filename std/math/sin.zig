@@ -1,7 +1,10 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub fn sin(x: var) -> @typeOf(x) {
+// TODO issue #393
+pub const sin = sin_workaround;
+
+pub fn sin_workaround(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(sin32, x),
@@ -135,12 +138,12 @@ fn sin64(x_: f64) -> f64 {
     }
 }
 
-test "sin" {
+test "math.sin" {
     assert(sin(f32(0.0)) == sin32(0.0));
     assert(sin(f64(0.0)) == sin64(0.0));
 }
 
-test "sin32" {
+test "math.sin32" {
     const epsilon = 0.000001;
 
     assert(math.approxEq(f32, sin32(0.0), 0.0, epsilon));
@@ -151,7 +154,7 @@ test "sin32" {
     assert(math.approxEq(f32, sin32(89.123), 0.916166, epsilon));
 }
 
-test "sin64" {
+test "math.sin64" {
     const epsilon = 0.000001;
 
     assert(math.approxEq(f64, sin64(0.0), 0.0, epsilon));

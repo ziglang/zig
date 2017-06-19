@@ -2,11 +2,14 @@ const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 const expo2 = @import("_expo2.zig").expo2;
 
-pub fn tanh(x: var) -> @typeOf(x) {
+// TODO issue #393
+pub const tanh = tanh_workaround;
+
+pub fn tanh_workaround(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
-        f32 => @inlineCall(tanhf, x),
-        f64 => @inlineCall(tanhd, x),
+        f32 => @inlineCall(tanh32, x),
+        f64 => @inlineCall(tanh64, x),
         else => @compileError("tanh not implemented for " ++ @typeName(T)),
     }
 }
@@ -14,7 +17,7 @@ pub fn tanh(x: var) -> @typeOf(x) {
 // tanh(x) = (exp(x) - exp(-x)) / (exp(x) + exp(-x))
 //         = (exp(2x) - 1) / (exp(2x) - 1 + 2)
 //         = (1 - exp(-2x)) / (exp(-2x) - 1 + 2)
-fn tanhf(x: f32) -> f32 {
+fn tanh32(x: f32) -> f32 {
     const u = @bitCast(u32, x);
     const ux = u & 0x7FFFFFFF;
     const ax = @bitCast(f32, ux);
@@ -54,7 +57,7 @@ fn tanhf(x: f32) -> f32 {
     }
 }
 
-fn tanhd(x: f64) -> f64 {
+fn tanh64(x: f64) -> f64 {
     const u = @bitCast(u64, x);
     const w = u32(u >> 32);
     const ax = @bitCast(f64, u & (@maxValue(u64) >> 1));
@@ -94,27 +97,27 @@ fn tanhd(x: f64) -> f64 {
     }
 }
 
-test "tanh" {
-    assert(tanh(f32(1.5)) == tanhf(1.5));
-    assert(tanh(f64(1.5)) == tanhd(1.5));
+test "math.tanh" {
+    assert(tanh(f32(1.5)) == tanh32(1.5));
+    assert(tanh(f64(1.5)) == tanh64(1.5));
 }
 
-test "tanhf" {
+test "math.tanh32" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f32, tanhf(0.0), 0.0, epsilon));
-    assert(math.approxEq(f32, tanhf(0.2), 0.197375, epsilon));
-    assert(math.approxEq(f32, tanhf(0.8923), 0.712528, epsilon));
-    assert(math.approxEq(f32, tanhf(1.5), 0.905148, epsilon));
-    assert(math.approxEq(f32, tanhf(37.45), 1.0, epsilon));
+    assert(math.approxEq(f32, tanh32(0.0), 0.0, epsilon));
+    assert(math.approxEq(f32, tanh32(0.2), 0.197375, epsilon));
+    assert(math.approxEq(f32, tanh32(0.8923), 0.712528, epsilon));
+    assert(math.approxEq(f32, tanh32(1.5), 0.905148, epsilon));
+    assert(math.approxEq(f32, tanh32(37.45), 1.0, epsilon));
 }
 
-test "tanhd" {
+test "math.tanh64" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f64, tanhd(0.0), 0.0, epsilon));
-    assert(math.approxEq(f64, tanhd(0.2), 0.197375, epsilon));
-    assert(math.approxEq(f64, tanhd(0.8923), 0.712528, epsilon));
-    assert(math.approxEq(f64, tanhd(1.5), 0.905148, epsilon));
-    assert(math.approxEq(f64, tanhd(37.45), 1.0, epsilon));
+    assert(math.approxEq(f64, tanh64(0.0), 0.0, epsilon));
+    assert(math.approxEq(f64, tanh64(0.2), 0.197375, epsilon));
+    assert(math.approxEq(f64, tanh64(0.8923), 0.712528, epsilon));
+    assert(math.approxEq(f64, tanh64(1.5), 0.905148, epsilon));
+    assert(math.approxEq(f64, tanh64(37.45), 1.0, epsilon));
 }

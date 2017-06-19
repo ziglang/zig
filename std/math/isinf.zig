@@ -48,7 +48,7 @@ pub fn isNegativeInf(x: var) -> bool {
     }
 }
 
-test "isInf" {
+test "math.isInf" {
     assert(!isInf(f32(0.0)));
     assert(!isInf(f32(-0.0)));
     assert(!isInf(f64(0.0)));
@@ -59,7 +59,7 @@ test "isInf" {
     assert(isInf(-math.inf(f64)));
 }
 
-test "isPositiveInf" {
+test "math.isPositiveInf" {
     assert(!isPositiveInf(f32(0.0)));
     assert(!isPositiveInf(f32(-0.0)));
     assert(!isPositiveInf(f64(0.0)));
@@ -70,7 +70,7 @@ test "isPositiveInf" {
     assert(!isPositiveInf(-math.inf(f64)));
 }
 
-test "isNegativeInf" {
+test "math.isNegativeInf" {
     assert(!isNegativeInf(f32(0.0)));
     assert(!isNegativeInf(f32(-0.0)));
     assert(!isNegativeInf(f64(0.0)));

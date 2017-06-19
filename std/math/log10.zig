@@ -1,16 +1,19 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub fn log10(x: var) -> @typeOf(x) {
+// TODO issue #393
+pub const log10 = log10_workaround;
+
+pub fn log10_workaround(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
-        f32 => @inlineCall(log10f, x),
-        f64 => @inlineCall(log10d, x),
+        f32 => @inlineCall(log10_32, x),
+        f64 => @inlineCall(log10_64, x),
         else => @compileError("log10 not implemented for " ++ @typeName(T)),
     }
 }
 
-fn log10f(x_: f32) -> f32 {
+fn log10_32(x_: f32) -> f32 {
     const ivln10hi: f32  =  4.3432617188e-01;
     const ivln10lo: f32  = -3.1689971365e-05;
     const log10_2hi: f32 =  3.0102920532e-01;
@@ -70,7 +73,7 @@ fn log10f(x_: f32) -> f32 {
     dk * log10_2lo + (lo + hi) * ivln10lo + lo * ivln10hi + hi * ivln10hi + dk * log10_2hi
 }
 
-fn log10d(x_: f64) -> f64 {
+fn log10_64(x_: f64) -> f64 {
     const ivln10hi: f64  = 4.34294481878168880939e-01;
     const ivln10lo: f64  = 2.50829467116452752298e-11;
     const log10_2hi: f64 = 3.01029995663611771306e-01;
@@ -147,29 +150,29 @@ fn log10d(x_: f64) -> f64 {
     val_lo + val_hi
 }
 
-test "log10" {
-    assert(log10(f32(0.2)) == log10f(0.2));
-    assert(log10(f64(0.2)) == log10d(0.2));
+test "math.log10" {
+    assert(log10(f32(0.2)) == log10_32(0.2));
+    assert(log10(f64(0.2)) == log10_64(0.2));
 }
 
-test "log10f" {
+test "math.log10_32" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f32, log10f(0.2), -0.698970, epsilon));
-    assert(math.approxEq(f32, log10f(0.8923), -0.049489, epsilon));
-    assert(math.approxEq(f32, log10f(1.5), 0.176091, epsilon));
-    assert(math.approxEq(f32, log10f(37.45), 1.573452, epsilon));
-    assert(math.approxEq(f32, log10f(89.123), 1.94999, epsilon));
-    assert(math.approxEq(f32, log10f(123123.234375), 5.09034, epsilon));
+    assert(math.approxEq(f32, log10_32(0.2), -0.698970, epsilon));
+    assert(math.approxEq(f32, log10_32(0.8923), -0.049489, epsilon));
+    assert(math.approxEq(f32, log10_32(1.5), 0.176091, epsilon));
+    assert(math.approxEq(f32, log10_32(37.45), 1.573452, epsilon));
+    assert(math.approxEq(f32, log10_32(89.123), 1.94999, epsilon));
+    assert(math.approxEq(f32, log10_32(123123.234375), 5.09034, epsilon));
 }
 
-test "log10d" {
+test "math.log10_64" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f64, log10d(0.2), -0.698970, epsilon));
-    assert(math.approxEq(f64, log10d(0.8923), -0.049489, epsilon));
-    assert(math.approxEq(f64, log10d(1.5), 0.176091, epsilon));
-    assert(math.approxEq(f64, log10d(37.45), 1.573452, epsilon));
-    assert(math.approxEq(f64, log10d(89.123), 1.94999, epsilon));
-    assert(math.approxEq(f64, log10d(123123.234375), 5.09034, epsilon));
+    assert(math.approxEq(f64, log10_64(0.2), -0.698970, epsilon));
+    assert(math.approxEq(f64, log10_64(0.8923), -0.049489, epsilon));
+    assert(math.approxEq(f64, log10_64(1.5), 0.176091, epsilon));
+    assert(math.approxEq(f64, log10_64(37.45), 1.573452, epsilon));
+    assert(math.approxEq(f64, log10_64(89.123), 1.94999, epsilon));
+    assert(math.approxEq(f64, log10_64(123123.234375), 5.09034, epsilon));
 }

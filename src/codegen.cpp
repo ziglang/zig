@@ -438,6 +438,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     }
 
     addLLVMFnAttr(fn_table_entry->llvm_value, "nounwind");
+    addLLVMFnAttr(fn_table_entry->llvm_value, "nobuiltin");
     if (g->build_mode == BuildModeDebug && fn_table_entry->fn_inline != FnInlineAlways) {
         ZigLLVMAddFunctionAttr(fn_table_entry->llvm_value, "no-frame-pointer-elim", "true");
         ZigLLVMAddFunctionAttr(fn_table_entry->llvm_value, "no-frame-pointer-elim-non-leaf", nullptr);

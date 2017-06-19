@@ -1,7 +1,9 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub fn trunc(x: var) -> @typeOf(x) {
+pub const trunc = trunc_workaround;
+
+pub fn trunc_workaround(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(trunc32, x),
@@ -52,18 +54,18 @@ fn trunc64(x: f64) -> f64 {
     }
 }
 
-test "trunc" {
+test "math.trunc" {
     assert(trunc(f32(1.3)) == trunc32(1.3));
     assert(trunc(f64(1.3)) == trunc64(1.3));
 }
 
-test "trunc32" {
+test "math.trunc32" {
     assert(trunc32(1.3) == 1.0);
     assert(trunc32(-1.3) == -1.0);
     assert(trunc32(0.2) == 0.0);
 }
 
-test "trunc64" {
+test "math.trunc64" {
     assert(trunc64(1.3) == 1.0);
     assert(trunc64(-1.3) == -1.0);
     assert(trunc64(0.2) == 0.0);

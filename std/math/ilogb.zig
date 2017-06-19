@@ -1,7 +1,10 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub fn ilogb(x: var) -> i32 {
+// TODO issue #393
+pub const ilogb = ilogb_workaround;
+
+pub fn ilogb_workaround(x: var) -> i32 {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(ilogb32, x),
@@ -76,12 +79,12 @@ fn ilogb64(x: f64) -> i32 {
     e - 0x3FF
 }
 
-test "ilogb" {
+test "math.ilogb" {
     assert(ilogb(f32(0.2)) == ilogb32(0.2));
     assert(ilogb(f64(0.2)) == ilogb64(0.2));
 }
 
-test "ilogb32" {
+test "math.ilogb32" {
     assert(ilogb32(0.0) == fp_ilogb0);
     assert(ilogb32(0.5) == -1);
     assert(ilogb32(0.8923) == -1);
@@ -90,7 +93,7 @@ test "ilogb32" {
     assert(ilogb32(2398.23) == 11);
 }
 
-test "ilogb64" {
+test "math.ilogb64" {
     assert(ilogb64(0.0) == fp_ilogb0);
     assert(ilogb64(0.5) == -1);
     assert(ilogb64(0.8923) == -1);

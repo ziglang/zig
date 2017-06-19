@@ -98,7 +98,6 @@ pub const round = @import("round.zig").round;
 pub const frexp = @import("frexp.zig").frexp;
 pub const frexp32_result = @import("frexp.zig").frexp32_result;
 pub const frexp64_result = @import("frexp.zig").frexp64_result;
-pub const fmod = @import("fmod.zig").fmod;
 pub const modf = @import("modf.zig").modf;
 pub const modf32_result = @import("modf.zig").modf32_result;
 pub const modf64_result = @import("modf.zig").modf64_result;
@@ -147,7 +146,6 @@ test "math" {
     _ = @import("trunc.zig");
     _ = @import("round.zig");
     _ = @import("frexp.zig");
-    _ = @import("fmod.zig");
     _ = @import("modf.zig");
     _ = @import("copysign.zig");
     _ = @import("isfinite.zig");
