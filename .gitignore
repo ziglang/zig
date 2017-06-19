@@ -3,6 +3,7 @@ build/
 build-release/
 build-windows/
 build-llvm-5/
+build-llvm-debug/
 /.cproject
 /.project
 /.settings/
