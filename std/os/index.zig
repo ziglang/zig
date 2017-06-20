@@ -59,11 +59,9 @@ pub fn getRandomBytes(buf: []u8) -> %void {
     while (true) {
         const err = switch (builtin.os) {
             Os.linux => {
-                if (builtin.link_libc) {
-                    if (c.getrandom(buf.ptr, buf.len, 0) == -1) *c._errno() else 0
-                } else {
-                    posix.getErrno(posix.getrandom(buf.ptr, buf.len, 0))
-                }
+                // TODO check libc version and potentially call c.getrandom.
+                // See #397
+                posix.getErrno(posix.getrandom(buf.ptr, buf.len, 0))
             },
             Os.darwin, Os.macosx, Os.ios => {
                 if (builtin.link_libc) {
