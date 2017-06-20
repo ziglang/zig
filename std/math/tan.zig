@@ -1,3 +1,9 @@
+// Special Cases:
+//
+// - tan(+-0)   = +-0
+// - tan(+-inf) = nan
+// - tan(nan)   = nan
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -149,4 +155,20 @@ test "math.tan64" {
     assert(math.approxEq(f64, tan64(1.5), 14.101420, epsilon));
     assert(math.approxEq(f64, tan64(37.45), -0.254397, epsilon));
     assert(math.approxEq(f64, tan64(89.123), 2.2858376, epsilon));
+}
+
+test "math.tan32.special" {
+    assert(tan32(0.0) == 0.0);
+    assert(tan32(-0.0) == -0.0);
+    assert(math.isNan(tan32(math.inf(f32))));
+    assert(math.isNan(tan32(-math.inf(f32))));
+    assert(math.isNan(tan32(math.nan(f32))));
+}
+
+test "math.tan64.special" {
+    assert(tan64(0.0) == 0.0);
+    assert(tan64(-0.0) == -0.0);
+    assert(math.isNan(tan64(math.inf(f64))));
+    assert(math.isNan(tan64(-math.inf(f64))));
+    assert(math.isNan(tan64(math.nan(f64))));
 }

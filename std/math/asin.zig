@@ -1,3 +1,8 @@
+// Special Cases:
+//
+// - asin(+-0) = +-0
+// - asin(x)   = nan if x < -1 or x > 1
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -36,7 +41,7 @@ fn asin32(x: f32) -> f32 {
         if (ix == 0x3F800000) {
             return x * pio2 + 0x1.0p-120;   // asin(+-1) = +-pi/2 with inexact
         } else {
-            return 0 / (x - x);             // asin(|x| > 1) is nan
+            return math.nan(f32);           // asin(|x| > 1) is nan
         }
     }
 
@@ -95,7 +100,7 @@ fn asin64(x: f64) -> f64 {
         if ((ix - 0x3FF00000) | lx == 0) {
             return x * pio2_hi + 0x1.0p-120;
         } else {
-            return 0/ (x - x);
+            return math.nan(f64);
         }
     }
 
@@ -157,4 +162,18 @@ test "math.asin64" {
     assert(math.approxEq(f64, asin64(0.3434), 0.350535, epsilon));
     assert(math.approxEq(f64, asin64(0.5), 0.523599, epsilon));
     assert(math.approxEq(f64, asin64(0.8923), 1.102415, epsilon));
+}
+
+test "math.asin32.special" {
+    assert(asin32(0.0) == 0.0);
+    assert(asin32(-0.0) == -0.0);
+    assert(math.isNan(asin32(-2)));
+    assert(math.isNan(asin32(1.5)));
+}
+
+test "math.asin64.special" {
+    assert(asin64(0.0) == 0.0);
+    assert(asin64(-0.0) == -0.0);
+    assert(math.isNan(asin64(-2)));
+    assert(math.isNan(asin64(1.5)));
 }

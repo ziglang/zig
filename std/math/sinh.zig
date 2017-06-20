@@ -1,6 +1,12 @@
+// Special Cases:
+//
+// - sinh(+-0)   = +-0
+// - sinh(+-inf) = +-inf
+// - sinh(nan)   = nan
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
-const expo2 = @import("_expo2.zig").expo2;
+const expo2 = @import("expo2.zig").expo2;
 
 // TODO issue #393
 pub const sinh = sinh_workaround;
@@ -45,6 +51,8 @@ fn sinh32(x: f32) -> f32 {
 }
 
 fn sinh64(x: f64) -> f64 {
+    @setFloatMode(this, @import("builtin").FloatMode.Strict);
+
     const u = @bitCast(u64, x);
     const w = u32(u >> 32);
     const ax = @bitCast(f64, u & (@maxValue(u64) >> 1));
@@ -93,4 +101,21 @@ test "math.sinh64" {
     assert(math.approxEq(f64, sinh64(0.2), 0.201336, epsilon));
     assert(math.approxEq(f64, sinh64(0.8923), 1.015512, epsilon));
     assert(math.approxEq(f64, sinh64(1.5), 2.129279, epsilon));
+}
+
+test "math.sinh32.special" {
+    assert(sinh32(0.0) == 0.0);
+    assert(sinh32(-0.0) == -0.0);
+    assert(math.isPositiveInf(sinh32(math.inf(f32))));
+    assert(math.isNegativeInf(sinh32(-math.inf(f32))));
+    assert(math.isNan(sinh32(math.nan(f32))));
+}
+
+test "math.sinh64.special" {
+    // TODO: Error on release mode (like pow)
+    assert(sinh64(0.0) == 0.0);
+    assert(sinh64(-0.0) == -0.0);
+    assert(math.isPositiveInf(sinh64(math.inf(f64))));
+    assert(math.isNegativeInf(sinh64(-math.inf(f64))));
+    assert(math.isNan(sinh64(math.nan(f64))));
 }

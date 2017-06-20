@@ -1,3 +1,9 @@
+// Special Cases:
+//
+// - ilogb(+-inf) = @maxValue(i32)
+// - ilogb(0)     = @maxValue(i32)
+// - ilogb(nan)   = @maxValue(i32)
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -21,6 +27,11 @@ fn ilogb32(x: f32) -> i32 {
     var u = @bitCast(u32, x);
     var e = i32((u >> 23) & 0xFF);
 
+    // TODO: We should be able to merge this with the lower check.
+    if (math.isNan(x)) {
+        return @maxValue(i32);
+    }
+
     if (e == 0) {
         u <<= 9;
         if (u == 0) {
@@ -38,7 +49,7 @@ fn ilogb32(x: f32) -> i32 {
 
     if (e == 0xFF) {
         math.raiseInvalid();
-        if (u << 9 != 0) {
+        if (u <<% 9 != 0) {
             return fp_ilogbnan;
         } else {
             return @maxValue(i32);
@@ -51,6 +62,10 @@ fn ilogb32(x: f32) -> i32 {
 fn ilogb64(x: f64) -> i32 {
     var u = @bitCast(u64, x);
     var e = i32((u >> 52) & 0x7FF);
+
+    if (math.isNan(x)) {
+        return @maxValue(i32);
+    }
 
     if (e == 0) {
         u <<= 12;
@@ -69,7 +84,7 @@ fn ilogb64(x: f64) -> i32 {
 
     if (e == 0x7FF) {
         math.raiseInvalid();
-        if (u << 12 != 0) {
+        if (u <<% 12 != 0) {
             return fp_ilogbnan;
         } else {
             return @maxValue(i32);
@@ -100,4 +115,18 @@ test "math.ilogb64" {
     assert(ilogb64(10.0) == 3);
     assert(ilogb64(-123984) == 16);
     assert(ilogb64(2398.23) == 11);
+}
+
+test "math.ilogb32.special" {
+    assert(ilogb32(math.inf(f32)) == @maxValue(i32));
+    assert(ilogb32(-math.inf(f32)) == @maxValue(i32));
+    assert(ilogb32(0.0) == @minValue(i32));
+    assert(ilogb32(math.nan(f32)) == @maxValue(i32));
+}
+
+test "math.ilogb64.special" {
+    assert(ilogb64(math.inf(f64)) == @maxValue(i32));
+    assert(ilogb64(-math.inf(f64)) == @maxValue(i32));
+    assert(ilogb64(0.0) == @minValue(i32));
+    assert(ilogb64(math.nan(f64)) == @maxValue(i32));
 }

@@ -1,3 +1,8 @@
+// Special Cases:
+//
+// - modf(+-inf) = +-inf, nan
+// - modf(nan)   = nan, nan
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -29,10 +34,17 @@ fn modf32(x: f32) -> modf32_result {
     const e = i32((u >> 23) & 0xFF) - 0x7F;
     const us = u & 0x80000000;
 
+    // TODO: Shouldn't need this.
+    if (math.isInf(x)) {
+        result.ipart = x;
+        result.fpart = math.nan(f32);
+        return result;
+    }
+
     // no fractional part
     if (e >= 23) {
         result.ipart = x;
-        if (e == 0x80 and u << 9 != 0) { // nan
+        if (e == 0x80 and u <<% 9 != 0) { // nan
             result.fpart = x;
         } else {
             result.fpart = @bitCast(f32, us);
@@ -67,10 +79,16 @@ fn modf64(x: f64) -> modf64_result {
     const e = i32((u >> 52) & 0x7FF) - 0x3FF;
     const us = u & (1 << 63);
 
+    if (math.isInf(x)) {
+        result.ipart = x;
+        result.fpart = math.nan(f64);
+        return result;
+    }
+
     // no fractional part
     if (e >= 52) {
         result.ipart = x;
-        if (e == 0x400 and u << 12 != 0) { // nan
+        if (e == 0x400 and u <<% 12 != 0) { // nan
             result.fpart = x;
         } else {
             result.fpart = @bitCast(f64, us);
@@ -157,4 +175,30 @@ test "math.modf64" {
     r = modf64(1234.340780);
     assert(math.approxEq(f64, r.ipart, 1234, epsilon));
     assert(math.approxEq(f64, r.fpart, 0.340780, epsilon));
+}
+
+test "math.modf32.special" {
+    var r: modf32_result = undefined;
+
+    r = modf32(math.inf(f32));
+    assert(math.isPositiveInf(r.ipart) and math.isNan(r.fpart));
+
+    r = modf32(-math.inf(f32));
+    assert(math.isNegativeInf(r.ipart) and math.isNan(r.fpart));
+
+    r = modf32(math.nan(f32));
+    assert(math.isNan(r.ipart) and math.isNan(r.fpart));
+}
+
+test "math.modf64.special" {
+    var r: modf64_result = undefined;
+
+    r = modf64(math.inf(f64));
+    assert(math.isPositiveInf(r.ipart) and math.isNan(r.fpart));
+
+    r = modf64(-math.inf(f64));
+    assert(math.isNegativeInf(r.ipart) and math.isNan(r.fpart));
+
+    r = modf64(math.nan(f64));
+    assert(math.isNan(r.ipart) and math.isNan(r.fpart));
 }

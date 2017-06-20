@@ -1,3 +1,8 @@
+// Special Cases:
+//
+// - acosh(x)   = snan if x < 1
+// - acosh(nan) = nan
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -71,4 +76,14 @@ test "math.acosh64" {
     assert(math.approxEq(f64, acosh64(37.45), 4.315976, epsilon));
     assert(math.approxEq(f64, acosh64(89.123), 5.183133, epsilon));
     assert(math.approxEq(f64, acosh64(123123.234375), 12.414088, epsilon));
+}
+
+test "math.acosh32.special" {
+    assert(math.isNan(acosh32(math.nan(f32))));
+    assert(math.isSignalNan(acosh32(0.5)));
+}
+
+test "math.acosh64.special" {
+    assert(math.isNan(acosh64(math.nan(f64))));
+    assert(math.isSignalNan(acosh64(0.5)));
 }

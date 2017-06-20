@@ -1,3 +1,9 @@
+// Special Cases:
+//
+// - ceil(+-0)   = +-0
+// - ceil(+-inf) = +-inf
+// - ceil(nan)   = nan
+
 const builtin = @import("builtin");
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
@@ -18,6 +24,11 @@ fn ceil32(x: f32) -> f32 {
     var u = @bitCast(u32, x);
     var e = i32((u >> 23) & 0xFF) - 0x7F;
     var m: u32 = undefined;
+
+    // TODO: Shouldn't need this explicit check.
+    if (x == 0.0) {
+        return x;
+    }
 
     if (e >= 23) {
         return x;
@@ -89,4 +100,20 @@ test "math.ceil64" {
     assert(ceil64(1.3) == 2.0);
     assert(ceil64(-1.3) == -1.0);
     assert(ceil64(0.2) == 1.0);
+}
+
+test "math.ceil32.special" {
+    assert(ceil32(0.0) == 0.0);
+    assert(ceil32(-0.0) == -0.0);
+    assert(math.isPositiveInf(ceil32(math.inf(f32))));
+    assert(math.isNegativeInf(ceil32(-math.inf(f32))));
+    assert(math.isNan(ceil32(math.nan(f32))));
+}
+
+test "math.ceil64.special" {
+    assert(ceil64(0.0) == 0.0);
+    assert(ceil64(-0.0) == -0.0);
+    assert(math.isPositiveInf(ceil64(math.inf(f64))));
+    assert(math.isNegativeInf(ceil64(-math.inf(f64))));
+    assert(math.isNan(ceil64(math.nan(f64))));
 }

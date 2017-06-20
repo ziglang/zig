@@ -1,3 +1,7 @@
+// Special Cases:
+//
+// - acos(x)   = nan if x < -1 or x > 1
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -40,7 +44,7 @@ fn acos32(x: f32) -> f32 {
                 return 0;
             }
         } else {
-            return 0 / (x - x);
+            return math.nan(f32);
         }
     }
 
@@ -109,7 +113,7 @@ fn acos64(x: f64) -> f64 {
             }
         }
 
-        return 0 / (x - x);
+        return math.nan(f32);
     }
 
     // |x| < 0.5
@@ -165,4 +169,14 @@ test "math.acos64" {
     assert(math.approxEq(f64, acos64(0.5), 1.047198, epsilon));
     assert(math.approxEq(f64, acos64(0.8923), 0.468382, epsilon));
     assert(math.approxEq(f64, acos64(-0.2), 1.772154, epsilon));
+}
+
+test "math.acos32.special" {
+    assert(math.isNan(acos32(-2)));
+    assert(math.isNan(acos32(1.5)));
+}
+
+test "math.acos64.special" {
+    assert(math.isNan(acos64(-2)));
+    assert(math.isNan(acos64(1.5)));
 }

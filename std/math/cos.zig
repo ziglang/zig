@@ -1,6 +1,10 @@
+// Special Cases:
+//
+// - cos(+-inf) = nan
+// - cos(nan)   = nan
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
-
 
 // TODO issue #393
 pub const cos = cos_workaround;
@@ -162,4 +166,16 @@ test "math.cos64" {
     assert(math.approxEq(f64, cos64(1.5), 0.070737, epsilon));
     assert(math.approxEq(f64, cos64(37.45), 0.969132, epsilon));
     assert(math.approxEq(f64, cos64(89.123), 0.40080, epsilon));
+}
+
+test "math.cos32.special" {
+    assert(math.isNan(cos32(math.inf(f32))));
+    assert(math.isNan(cos32(-math.inf(f32))));
+    assert(math.isNan(cos32(math.nan(f32))));
+}
+
+test "math.cos64.special" {
+    assert(math.isNan(cos64(math.inf(f64))));
+    assert(math.isNan(cos64(-math.inf(f64))));
+    assert(math.isNan(cos64(math.nan(f64))));
 }

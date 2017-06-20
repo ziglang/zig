@@ -1,3 +1,10 @@
+// Special Cases:
+//
+// - sqrt(+inf)  = +inf
+// - sqrt(+-0)   = +-0
+// - sqrt(x)     = nan if x < 0
+// - sqrt(nan)   = nan
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -28,7 +35,7 @@ fn sqrt32(x: f32) -> f32 {
             return x;       // sqrt (+-0) = +-0
         }
         if (ix < 0) {
-            return (x - x) / (x - x); // sqrt(-ve) = snan
+            return math.snan(f32);
         }
     }
 
@@ -106,12 +113,12 @@ fn sqrt64(x: f64) -> f64 {
     }
 
     // sqrt(+-0) = +-0
-    if ((ix0 & ~sign) | ix0 == 0) {
+    if (x == 0.0) {
         return x;
     }
     // sqrt(-ve) = snan
     if (ix0 & sign != 0) {
-        return (x - x) / (x - x);
+        return math.snan(f64);
     }
 
     // normalize x
@@ -253,4 +260,20 @@ test "math.sqrt64" {
     assert(sqrt64(64.0) == 8.0);
     assert(math.approxEq(f64, sqrt64(64.1), 8.006248, epsilon));
     assert(math.approxEq(f64, sqrt64(8942.230469), 94.563367, epsilon));
+}
+
+test "math.sqrt32.special" {
+    assert(math.isPositiveInf(sqrt32(math.inf(f32))));
+    assert(sqrt32(0.0) == 0.0);
+    assert(sqrt32(-0.0) == -0.0);
+    assert(math.isNan(sqrt32(-1.0)));
+    assert(math.isNan(sqrt32(math.nan(f32))));
+}
+
+test "math.sqrt64.special" {
+    assert(math.isPositiveInf(sqrt64(math.inf(f64))));
+    assert(sqrt64(0.0) == 0.0);
+    assert(sqrt64(-0.0) == -0.0);
+    assert(math.isNan(sqrt64(-1.0)));
+    assert(math.isNan(sqrt64(math.nan(f64))));
 }

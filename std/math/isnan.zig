@@ -18,6 +18,12 @@ pub fn isNan(x: var) -> bool {
     }
 }
 
+// Note: A signalling nan is identical to a standard right now by may have a different bit
+// representation in the future when required.
+pub fn isSignalNan(x: var) -> bool {
+    isNan(x)
+}
+
 test "math.isNan" {
     assert(isNan(math.nan(f32)));
     assert(isNan(math.nan(f64)));

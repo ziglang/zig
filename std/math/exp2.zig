@@ -1,3 +1,8 @@
+// Special Cases:
+//
+// - exp2(+inf) = +inf
+// - exp2(nan)  = nan
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -363,6 +368,11 @@ fn exp2_64(x: f64) -> f64 {
     const ux = @bitCast(u64, x);
     const ix = u32(ux >> 32) & 0x7FFFFFFF;
 
+    // TODO: This should be handled beneath.
+    if (math.isNan(x)) {
+        return math.nan(f64);
+    }
+
     // |x| >= 1022 or nan
     if (ix >= 0x408FF000) {
         // x >= 1024 or nan
@@ -432,5 +442,14 @@ test "math.exp2_64" {
     assert(math.approxEq(f64, exp2_64(0.2), 1.148698, epsilon));
     assert(math.approxEq(f64, exp2_64(0.8923), 1.856133, epsilon));
     assert(math.approxEq(f64, exp2_64(1.5), 2.828427, epsilon));
-    // assert(math.approxEq(f64, exp2_64(37.45), 18379273786760560.000000, epsilon));
+}
+
+test "math.exp2_32.special" {
+    assert(math.isPositiveInf(exp2_32(math.inf(f32))));
+    assert(math.isNan(exp2_32(math.nan(f32))));
+}
+
+test "math.exp2_64.special" {
+    assert(math.isPositiveInf(exp2_64(math.inf(f64))));
+    assert(math.isNan(exp2_64(math.nan(f64))));
 }

@@ -1,3 +1,9 @@
+// Special Cases:
+//
+// - cbrt(+-0)   = +-0
+// - cbrt(+-inf) = +-inf
+// - cbrt(nan)   = nan
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -134,4 +140,20 @@ test "math.cbrt64" {
     assert(math.approxEq(f64, cbrt64(1.5), 1.144714, epsilon));
     assert(math.approxEq(f64, cbrt64(37.45), 3.345676, epsilon));
     assert(math.approxEq(f64, cbrt64(123123.234375), 49.748501, epsilon));
+}
+
+test "math.cbrt.special" {
+    assert(cbrt32(0.0) == 0.0);
+    assert(cbrt32(-0.0) == -0.0);
+    assert(math.isPositiveInf(cbrt32(math.inf(f32))));
+    assert(math.isNegativeInf(cbrt32(-math.inf(f32))));
+    assert(math.isNan(cbrt32(math.nan(f32))));
+}
+
+test "math.cbrt64.special" {
+    assert(cbrt64(0.0) == 0.0);
+    assert(cbrt64(-0.0) == -0.0);
+    assert(math.isPositiveInf(cbrt64(math.inf(f64))));
+    assert(math.isNegativeInf(cbrt64(-math.inf(f64))));
+    assert(math.isNan(cbrt64(math.nan(f64))));
 }

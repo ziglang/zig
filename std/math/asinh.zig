@@ -1,3 +1,9 @@
+// Special Cases:
+//
+// - asinh(+-0)   = +-0
+// - asinh(+-inf) = +-inf
+// - asinh(nan)   = nan
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -20,6 +26,11 @@ fn asinh32(x: f32) -> f32 {
     const s = i >> 31;
 
     var rx = @bitCast(f32, i); // |x|
+
+    // TODO: Shouldn't need this explicit check.
+    if (math.isNegativeInf(x)) {
+        return x;
+    }
 
     // |x| >= 0x1p12 or inf or nan
     if (i >= 0x3F800000 + (12 << 23)) {
@@ -47,6 +58,10 @@ fn asinh64(x: f64) -> f64 {
     const s = u >> 63;
 
     var rx = @bitCast(f64, u & (@maxValue(u64) >> 1)); // |x|
+
+    if (math.isNegativeInf(x)) {
+        return x;
+    }
 
     // |x| >= 0x1p26 or inf or nan
     if (e >= 0x3FF + 26) {
@@ -95,4 +110,20 @@ test "math.asinh64" {
     assert(math.approxEq(f64, asinh64(37.45), 4.316332, epsilon));
     assert(math.approxEq(f64, asinh64(89.123), 5.183196, epsilon));
     assert(math.approxEq(f64, asinh64(123123.234375), 12.414088, epsilon));
+}
+
+test "math.asinh32.special" {
+    assert(asinh32(0.0) == 0.0);
+    assert(asinh32(-0.0) == -0.0);
+    assert(math.isPositiveInf(asinh32(math.inf(f32))));
+    assert(math.isNegativeInf(asinh32(-math.inf(f32))));
+    assert(math.isNan(asinh32(math.nan(f32))));
+}
+
+test "math.asinh64.special" {
+    assert(asinh64(0.0) == 0.0);
+    assert(asinh64(-0.0) == -0.0);
+    assert(math.isPositiveInf(asinh64(math.inf(f64))));
+    assert(math.isNegativeInf(asinh64(-math.inf(f64))));
+    assert(math.isNan(asinh64(math.nan(f64))));
 }

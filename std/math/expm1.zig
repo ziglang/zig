@@ -1,3 +1,9 @@
+// Special Cases:
+//
+// - expm1(+inf) = +inf
+// - expm1(-inf) = -1
+// - expm1(nan)  = nan
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -25,6 +31,11 @@ fn expm1_32(x_: f32) -> f32 {
     const ux = @bitCast(u32, x);
     const hx = ux & 0x7FFFFFFF;
     const sign = hx >> 31;
+
+    // TODO: Shouldn't need this check explicitly.
+    if (math.isNegativeInf(x)) {
+        return -1.0;
+    }
 
     // |x| >= 27 * ln2
     if (hx >= 0x4195B844) {
@@ -113,7 +124,7 @@ fn expm1_32(x_: f32) -> f32 {
         }
     }
 
-    const twopk = @bitCast(f32, u32(0x7F + k) << 23);
+    const twopk = @bitCast(f32, u32((0x7F + k) <<% 23));
 
     if (k < 0 or k > 56) {
         var y = x - e + 1.0;
@@ -150,6 +161,10 @@ fn expm1_64(x_: f64) -> f64 {
     const hx = u32(ux >> 32) & 0x7FFFFFFF;
     const sign = hx >> 63;
 
+    if (math.isNegativeInf(x)) {
+        return -1.0;
+    }
+
     // |x| >= 56 * ln2
     if (hx >= 0x4043687A) {
         // exp1md(nan) = nan
@@ -162,7 +177,7 @@ fn expm1_64(x_: f64) -> f64 {
         }
         if (x > o_threshold) {
             math.raiseOverflow();
-            return math.nan(f64);
+            return math.inf(f64);
         }
     }
 
@@ -238,7 +253,7 @@ fn expm1_64(x_: f64) -> f64 {
         }
     }
 
-    const twopk = @bitCast(f64, u64(0x3FF + k) << 52);
+    const twopk = @bitCast(f64, u64(0x3FF + k) <<% 52);
 
     if (k < 0 or k > 56) {
         var y = x - e + 1.0;
@@ -282,4 +297,20 @@ test "math.expm1_64" {
     assert(math.approxEq(f64, expm1_64(0.2), 0.221403, epsilon));
     assert(math.approxEq(f64, expm1_64(0.8923), 1.440737, epsilon));
     assert(math.approxEq(f64, expm1_64(1.5), 3.481689, epsilon));
+}
+
+test "math.expm1_32.special" {
+    const epsilon = 0.000001;
+
+    assert(math.isPositiveInf(expm1_32(math.inf(f32))));
+    assert(expm1_32(-math.inf(f32)) == -1.0);
+    assert(math.isNan(expm1_32(math.nan(f32))));
+}
+
+test "math.expm1_64.special" {
+    const epsilon = 0.000001;
+
+    assert(math.isPositiveInf(expm1_64(math.inf(f64))));
+    assert(expm1_64(-math.inf(f64)) == -1.0);
+    assert(math.isNan(expm1_64(math.nan(f64))));
 }

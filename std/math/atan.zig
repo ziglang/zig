@@ -1,3 +1,8 @@
+// Special Cases:
+//
+// - atan(+-0)   = +-0
+// - atan(+-inf) = +-pi/2
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -227,4 +232,22 @@ test "math.atan64" {
     assert(math.approxEq(f64, atan64(0.3434), 0.330783, epsilon));
     assert(math.approxEq(f64, atan64(0.8923), 0.728545, epsilon));
     assert(math.approxEq(f64, atan64(1.5), 0.982794, epsilon));
+}
+
+test "math.atan32.special" {
+    const epsilon = 0.000001;
+
+    assert(atan32(0.0) == 0.0);
+    assert(atan32(-0.0) == -0.0);
+    assert(math.approxEq(f32, atan32(math.inf(f32)), math.pi_2, epsilon));
+    assert(math.approxEq(f32, atan32(-math.inf(f32)), -math.pi_2, epsilon));
+}
+
+test "math.atan64.special" {
+    const epsilon = 0.000001;
+
+    assert(atan64(0.0) == 0.0);
+    assert(atan64(-0.0) == -0.0);
+    assert(math.approxEq(f64, atan64(math.inf(f64)), math.pi_2, epsilon));
+    assert(math.approxEq(f64, atan64(-math.inf(f64)), -math.pi_2, epsilon));
 }

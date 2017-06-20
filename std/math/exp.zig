@@ -1,3 +1,8 @@
+// Special Cases:
+//
+// - exp(+inf) = +inf
+// - exp(nan)  = nan
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -191,4 +196,15 @@ test "math.exp64" {
     assert(math.approxEq(f64, exp64(0.2), 1.221403, epsilon));
     assert(math.approxEq(f64, exp64(0.8923), 2.440737, epsilon));
     assert(math.approxEq(f64, exp64(1.5), 4.481689, epsilon));
+}
+
+test "math.exp32.special" {
+    assert(math.isPositiveInf(exp32(math.inf(f32))));
+    assert(math.isNan(exp32(math.nan(f32))));
+}
+
+test "math.exp64.special" {
+    // TODO: Error on release (like pow)
+    assert(math.isPositiveInf(exp64(math.inf(f64))));
+    assert(math.isNan(exp64(math.nan(f64))));
 }

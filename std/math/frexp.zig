@@ -1,3 +1,9 @@
+// Special Cases:
+//
+// - frexp(+-0)   = +-0, 0
+// - frexp(+-inf) = +-inf, 0
+// - frexp(nan)   = nan, 0
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -113,4 +119,43 @@ test "math.frexp64" {
 
     r = frexp64(78.0234);
     assert(math.approxEq(f64, r.significand, 0.609558, epsilon) and r.exponent == 7);
+}
+
+test "math.frexp32.special" {
+    var r: frexp32_result = undefined;
+
+    r = frexp32(0.0);
+    assert(r.significand == 0.0 and r.exponent == 0);
+
+    r = frexp32(-0.0);
+    assert(r.significand == -0.0 and r.exponent == 0);
+
+    r = frexp32(math.inf(f32));
+    assert(math.isPositiveInf(r.significand) and r.exponent == 0);
+
+    r = frexp32(-math.inf(f32));
+    assert(math.isNegativeInf(r.significand) and r.exponent == 0);
+
+    r = frexp32(math.nan(f32));
+    assert(math.isNan(r.significand) and r.exponent == 0);
+}
+
+test "math.frexp64.special" {
+    // TODO: Error on release mode (like pow)
+    var r: frexp64_result = undefined;
+
+    r = frexp64(0.0);
+    assert(r.significand == 0.0 and r.exponent == 0);
+
+    r = frexp64(-0.0);
+    assert(r.significand == -0.0 and r.exponent == 0);
+
+    r = frexp64(math.inf(f64));
+    assert(math.isPositiveInf(r.significand) and r.exponent == 0);
+
+    r = frexp64(-math.inf(f64));
+    assert(math.isNegativeInf(r.significand) and r.exponent == 0);
+
+    r = frexp64(math.nan(f64));
+    assert(math.isNan(r.significand) and r.exponent == 0);
 }

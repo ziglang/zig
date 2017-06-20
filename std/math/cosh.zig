@@ -1,5 +1,11 @@
+// Special Cases:
+//
+// - cosh(+-0)   = 1
+// - cosh(+-inf) = +inf
+// - cosh(nan)   = nan
+
 const math = @import("index.zig");
-const expo2 = @import("_expo2.zig").expo2;
+const expo2 = @import("expo2.zig").expo2;
 const assert = @import("../debug.zig").assert;
 
 // TODO issue #393
@@ -47,6 +53,11 @@ fn cosh64(x: f64) -> f64 {
     const w = u32(u >> 32);
     const ax = @bitCast(f64, u & (@maxValue(u64) >> 1));
 
+    // TODO: Shouldn't need this explicit check.
+    if (x == 0.0) {
+        return 1.0;
+    }
+
     // |x| < log(2)
     if (w < 0x3FE62E42) {
         if (w < 0x3FF00000 - (26 << 20)) {
@@ -91,4 +102,20 @@ test "math.cosh64" {
     assert(math.approxEq(f64, cosh64(0.2), 1.020067, epsilon));
     assert(math.approxEq(f64, cosh64(0.8923), 1.425225, epsilon));
     assert(math.approxEq(f64, cosh64(1.5), 2.352410, epsilon));
+}
+
+test "math.cosh32.special" {
+    assert(cosh32(0.0) == 1.0);
+    assert(cosh32(-0.0) == 1.0);
+    assert(math.isPositiveInf(cosh32(math.inf(f32))));
+    assert(math.isPositiveInf(cosh32(-math.inf(f32))));
+    assert(math.isNan(cosh32(math.nan(f32))));
+}
+
+test "math.cosh64.special" {
+    assert(cosh64(0.0) == 1.0);
+    assert(cosh64(-0.0) == 1.0);
+    assert(math.isPositiveInf(cosh64(math.inf(f64))));
+    assert(math.isPositiveInf(cosh64(-math.inf(f64))));
+    assert(math.isNan(cosh64(math.nan(f64))));
 }

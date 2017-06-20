@@ -1,3 +1,10 @@
+// Special Cases:
+//
+// - hypot(+-inf, y)  = +inf
+// - hypot(x, +-inf)  = +inf
+// - hypot(nan, y)    = nan
+// - hypot(x, nan)    = nan
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -135,4 +142,22 @@ test "math.hypot64" {
     assert(math.approxEq(f64, hypot64(37.45, 159.835), 164.163728, epsilon));
     assert(math.approxEq(f64, hypot64(89.123, 382.028905), 392.286876, epsilon));
     assert(math.approxEq(f64, hypot64(123123.234375, 529428.707813), 543556.885247, epsilon));
+}
+
+test "math.hypot32.special" {
+    assert(math.isPositiveInf(hypot32(math.inf(f32), 0.0)));
+    assert(math.isPositiveInf(hypot32(-math.inf(f32), 0.0)));
+    assert(math.isPositiveInf(hypot32(0.0, math.inf(f32))));
+    assert(math.isPositiveInf(hypot32(0.0, -math.inf(f32))));
+    assert(math.isNan(hypot32(math.nan(f32), 0.0)));
+    assert(math.isNan(hypot32(0.0, math.nan(f32))));
+}
+
+test "math.hypot64.special" {
+    assert(math.isPositiveInf(hypot64(math.inf(f64), 0.0)));
+    assert(math.isPositiveInf(hypot64(-math.inf(f64), 0.0)));
+    assert(math.isPositiveInf(hypot64(0.0, math.inf(f64))));
+    assert(math.isPositiveInf(hypot64(0.0, -math.inf(f64))));
+    assert(math.isNan(hypot64(math.nan(f64), 0.0)));
+    assert(math.isNan(hypot64(0.0, math.nan(f64))));
 }

@@ -1,3 +1,23 @@
+// Special Cases:
+//
+//  atan2(y, nan)     = nan
+//  atan2(nan, x)     = nan
+//  atan2(+0, x>=0)   = +0
+//  atan2(-0, x>=0)   = -0
+//  atan2(+0, x<=-0)  = +pi
+//  atan2(-0, x<=-0)  = -pi
+//  atan2(y>0, 0)     = +pi/2
+//  atan2(y<0, 0)     = -pi/2
+//  atan2(+inf, +inf) = +pi/4
+//  atan2(-inf, +inf) = -pi/4
+//  atan2(+inf, -inf) = 3pi/4
+//  atan2(-inf, -inf) = -3pi/4
+//  atan2(y, +inf)    = 0
+//  atan2(y>0, -inf)  = +pi
+//  atan2(y<0, -inf)  = -pi
+//  atan2(+inf, x)    = +pi/2
+//  atan2(-inf, x)    = -pi/2
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -214,4 +234,52 @@ test "math.atan2_64" {
     assert(math.approxEq(f64, atan2_64(-0.2, -0.2), -2.356194, epsilon));
     assert(math.approxEq(f64, atan2_64(0.34, -0.4), 2.437099, epsilon));
     assert(math.approxEq(f64, atan2_64(0.34, 1.243), 0.267001, epsilon));
+}
+
+test "math.atan2_32.special" {
+    const epsilon = 0.000001;
+
+    assert(math.isNan(atan2_32(1.0, math.nan(f32))));
+    assert(math.isNan(atan2_32(math.nan(f32), 1.0)));
+    assert(atan2_32(0.0, 5.0) == 0.0);
+    assert(atan2_32(-0.0, 5.0) == -0.0);
+    assert(math.approxEq(f32, atan2_32(0.0, -5.0), math.pi, epsilon));
+    assert(math.approxEq(f32, atan2_32(-0.0, -5.0), -math.pi, epsilon));
+    assert(math.approxEq(f32, atan2_32(1.0, 0.0), math.pi_2, epsilon));
+    assert(math.approxEq(f32, atan2_32(1.0, -0.0), math.pi_2, epsilon));
+    assert(math.approxEq(f32, atan2_32(-1.0, 0.0), -math.pi_2, epsilon));
+    assert(math.approxEq(f32, atan2_32(-1.0, -0.0), -math.pi_2, epsilon));
+    assert(math.approxEq(f32, atan2_32(math.inf(f32), math.inf(f32)), math.pi_4, epsilon));
+    assert(math.approxEq(f32, atan2_32(-math.inf(f32), math.inf(f32)), -math.pi_4, epsilon));
+    assert(math.approxEq(f32, atan2_32(math.inf(f32), -math.inf(f32)), 3.0 * math.pi_4, epsilon));
+    assert(math.approxEq(f32, atan2_32(-math.inf(f32), -math.inf(f32)), -3.0 * math.pi_4, epsilon));
+    assert(atan2_32(1.0, math.inf(f32)) == 0.0);
+    assert(math.approxEq(f32, atan2_32(1.0, -math.inf(f32)), math.pi, epsilon));
+    assert(math.approxEq(f32, atan2_32(-1.0, -math.inf(f32)), -math.pi, epsilon));
+    assert(math.approxEq(f32, atan2_32(math.inf(f32), 1.0), math.pi_2, epsilon));
+    assert(math.approxEq(f32, atan2_32(-math.inf(f32), 1.0), -math.pi_2, epsilon));
+}
+
+test "math.atan2_64.special" {
+    const epsilon = 0.000001;
+
+    assert(math.isNan(atan2_64(1.0, math.nan(f64))));
+    assert(math.isNan(atan2_64(math.nan(f64), 1.0)));
+    assert(atan2_64(0.0, 5.0) == 0.0);
+    assert(atan2_64(-0.0, 5.0) == -0.0);
+    assert(math.approxEq(f64, atan2_64(0.0, -5.0), math.pi, epsilon));
+    assert(math.approxEq(f64, atan2_64(-0.0, -5.0), -math.pi, epsilon));
+    assert(math.approxEq(f64, atan2_64(1.0, 0.0), math.pi_2, epsilon));
+    assert(math.approxEq(f64, atan2_64(1.0, -0.0), math.pi_2, epsilon));
+    assert(math.approxEq(f64, atan2_64(-1.0, 0.0), -math.pi_2, epsilon));
+    assert(math.approxEq(f64, atan2_64(-1.0, -0.0), -math.pi_2, epsilon));
+    assert(math.approxEq(f64, atan2_64(math.inf(f64), math.inf(f64)), math.pi_4, epsilon));
+    assert(math.approxEq(f64, atan2_64(-math.inf(f64), math.inf(f64)), -math.pi_4, epsilon));
+    assert(math.approxEq(f64, atan2_64(math.inf(f64), -math.inf(f64)), 3.0 * math.pi_4, epsilon));
+    assert(math.approxEq(f64, atan2_64(-math.inf(f64), -math.inf(f64)), -3.0 * math.pi_4, epsilon));
+    assert(atan2_64(1.0, math.inf(f64)) == 0.0);
+    assert(math.approxEq(f64, atan2_64(1.0, -math.inf(f64)), math.pi, epsilon));
+    assert(math.approxEq(f64, atan2_64(-1.0, -math.inf(f64)), -math.pi, epsilon));
+    assert(math.approxEq(f64, atan2_64(math.inf(f64), 1.0), math.pi_2, epsilon));
+    assert(math.approxEq(f64, atan2_64(-math.inf(f64), 1.0), -math.pi_2, epsilon));
 }

@@ -1,3 +1,9 @@
+// Special Cases:
+//
+// - atanh(+-1) = +-inf with signal
+// - atanh(x)   = nan if |x| > 1 with signal
+// - atanh(nan) = nan
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -21,6 +27,10 @@ fn atanh_32(x: f32) -> f32 {
 
     var y = @bitCast(f32, i); // |x|
 
+    if (y == 1.0) {
+        return math.copysign(f32, math.inf(f32), x);
+    }
+
     if (u < 0x3F800000 - (1 << 23)) {
         if (u < 0x3F800000 - (32 << 23)) {
             // underflow
@@ -33,7 +43,6 @@ fn atanh_32(x: f32) -> f32 {
             y = 0.5 * math.log1p(2 * y + 2 * y * y / (1 - y));
         }
     } else {
-        // avoid overflow
         y = 0.5 * math.log1p(2 * (y / (1 - y)));
     }
 
@@ -47,6 +56,10 @@ fn atanh_64(x: f64) -> f64 {
 
     var y = @bitCast(f64, u & (@maxValue(u64) >> 1)); // |x|
 
+    if (y == 1.0) {
+        return math.copysign(f64, math.inf(f64), x);
+    }
+
     if (e < 0x3FF - 1) {
         if (e < 0x3FF - 32) {
             // underflow
@@ -59,7 +72,6 @@ fn atanh_64(x: f64) -> f64 {
             y = 0.5 * math.log1p(2 * y + 2 * y * y / (1 - y));
         }
     } else {
-        // avoid overflow
         y = 0.5 * math.log1p(2 * (y / (1 - y)));
     }
 
@@ -85,4 +97,20 @@ test "math.atanh_64" {
     assert(math.approxEq(f64, atanh_64(0.0), 0.0, epsilon));
     assert(math.approxEq(f64, atanh_64(0.2), 0.202733, epsilon));
     assert(math.approxEq(f64, atanh_64(0.8923), 1.433099, epsilon));
+}
+
+test "math.atanh32.special" {
+    assert(math.isPositiveInf(atanh_32(1)));
+    assert(math.isNegativeInf(atanh_32(-1)));
+    assert(math.isSignalNan(atanh_32(1.5)));
+    assert(math.isSignalNan(atanh_32(-1.5)));
+    assert(math.isNan(atanh_32(math.nan(f32))));
+}
+
+test "math.atanh64.special" {
+    assert(math.isPositiveInf(atanh_64(1)));
+    assert(math.isNegativeInf(atanh_64(-1)));
+    assert(math.isSignalNan(atanh_64(1.5)));
+    assert(math.isSignalNan(atanh_64(-1.5)));
+    assert(math.isNan(atanh_64(math.nan(f64))));
 }

@@ -1,3 +1,26 @@
+// Special Cases:
+//
+//  pow(x, +-0)    = 1 for any x
+//  pow(1, y)      = 1 for any y
+//  pow(x, 1)      = x for any x
+//  pow(nan, y)    = nan
+//  pow(x, nan)    = nan
+//  pow(+-0, y)    = +-inf for y an odd integer < 0
+//  pow(+-0, -inf) = +inf
+//  pow(+-0, +inf) = +0
+//  pow(+-0, y)    = +inf for finite y < 0 and not an odd integer
+//  pow(+-0, y)    = +-0 for y an odd integer > 0
+//  pow(+-0, y)    = +0 for finite y > 0 and not an odd integer
+//  pow(-1, +-inf) = 1
+//  pow(x, +inf)   = +inf for |x| > 1
+//  pow(x, -inf)   = +0 for |x| > 1
+//  pow(x, +inf)   = +0 for |x| < 1
+//  pow(x, -inf)   = +inf for |x| < 1
+//  pow(+inf, y)   = +inf for y > 0
+//  pow(+inf, y)   = +0 for y < 0
+//  pow(-inf, y)   = pow(-0, -y)
+//  pow(x, y)      = nan for finite x < 0 and finite non-integer y
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -59,9 +82,9 @@ pub fn pow_workaround(comptime T: type, x: T, y: T) -> T {
     }
 
     if (math.isInf(y)) {
-        // pow(-1, inf) = -1    for all x
+        // pow(-1, inf) = 1     for all x
         if (x == -1) {
-            return -1;
+            return 1.0;
         }
         // pow(x, +inf) = +0    for |x| < 1
         // pow(x, -inf) = +0    for |x| > 1
@@ -156,17 +179,57 @@ fn isOddInteger(x: f64) -> bool {
 test "math.pow" {
     const epsilon = 0.000001;
 
-    // assert(math.approxEq(f32, pow(f32, 0.0, 3.3), 0.0, epsilon)); // TODO: Handle div zero
+    // TODO: Error on release
+    assert(math.approxEq(f32, pow(f32, 0.0, 3.3), 0.0, epsilon));
     assert(math.approxEq(f32, pow(f32, 0.8923, 3.3), 0.686572, epsilon));
     assert(math.approxEq(f32, pow(f32, 0.2, 3.3), 0.004936, epsilon));
     assert(math.approxEq(f32, pow(f32, 1.5, 3.3), 3.811546, epsilon));
     assert(math.approxEq(f32, pow(f32, 37.45, 3.3), 155736.703125, epsilon));
     assert(math.approxEq(f32, pow(f32, 89.123, 3.3), 2722489.5, epsilon));
 
-    // assert(math.approxEq(f32, pow(f64, 0.0, 3.3), 0.0, epsilon)); // TODO: Handle div zero
+    assert(math.approxEq(f64, pow(f64, 0.0, 3.3), 0.0, epsilon));
     assert(math.approxEq(f64, pow(f64, 0.8923, 3.3), 0.686572, epsilon));
     assert(math.approxEq(f64, pow(f64, 0.2, 3.3), 0.004936, epsilon));
     assert(math.approxEq(f64, pow(f64, 1.5, 3.3), 3.811546, epsilon));
     assert(math.approxEq(f64, pow(f64, 37.45, 3.3), 155736.7160616, epsilon));
     assert(math.approxEq(f64, pow(f64, 89.123, 3.3), 2722490.231436, epsilon));
+}
+
+test "math.pow.special" {
+    const epsilon = 0.000001;
+
+    assert(pow(f32, 4, 0.0) == 1.0);
+    assert(pow(f32, 7, -0.0) == 1.0);
+    assert(pow(f32, 45, 1.0) == 45);
+    assert(pow(f32, -45, 1.0) == -45);
+    assert(math.isNan(pow(f32, math.nan(f32), 5.0)));
+    assert(math.isNan(pow(f32, 5.0, math.nan(f32))));
+    assert(math.isPositiveInf(pow(f32, 0.0, -1.0)));
+    assert(math.isNegativeInf(pow(f32, -0.0, -3.0)));
+    assert(math.isPositiveInf(pow(f32, 0.0, -math.inf(f32))));
+    assert(math.isPositiveInf(pow(f32, -0.0, -math.inf(f32))));
+    assert(pow(f32, 0.0, math.inf(f32)) == 0.0);
+    assert(pow(f32, -0.0, math.inf(f32)) == 0.0);
+    assert(math.isPositiveInf(pow(f32, 0.0, -2.0)));
+    assert(math.isPositiveInf(pow(f32, -0.0, -2.0)));
+    assert(pow(f32, 0.0, 1.0) == 0.0);
+    assert(pow(f32, -0.0, 1.0) == -0.0);
+    assert(pow(f32, 0.0, 2.0) == 0.0);
+    assert(pow(f32, -0.0, 2.0) == 0.0);
+    assert(math.approxEq(f32, pow(f32, -1.0, math.inf(f32)), 1.0, epsilon));
+    assert(math.approxEq(f32, pow(f32, -1.0, -math.inf(f32)), 1.0, epsilon));
+    assert(math.isPositiveInf(pow(f32, 1.2, math.inf(f32))));
+    assert(math.isPositiveInf(pow(f32, -1.2, math.inf(f32))));
+    assert(pow(f32, 1.2, -math.inf(f32)) == 0.0);
+    assert(pow(f32, -1.2, -math.inf(f32)) == 0.0);
+    assert(pow(f32, 0.2, math.inf(f32)) == 0.0);
+    assert(pow(f32, -0.2, math.inf(f32)) == 0.0);
+    assert(math.isPositiveInf(pow(f32, 0.2, -math.inf(f32))));
+    assert(math.isPositiveInf(pow(f32, -0.2, -math.inf(f32))));
+    assert(math.isPositiveInf(pow(f32, math.inf(f32), 1.0)));
+    assert(pow(f32, math.inf(f32), -1.0) == 0.0);
+    assert(pow(f32, -math.inf(f32), 5.0) == pow(f32, -0.0, -5.0));
+    assert(pow(f32, -math.inf(f32), -5.2) == pow(f32, -0.0, 5.2));
+    assert(math.isNan(pow(f32, -1.0, 1.2)));
+    assert(math.isNan(pow(f32, -12.4, 78.5)));
 }

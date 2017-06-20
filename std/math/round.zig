@@ -1,3 +1,9 @@
+// Special Cases:
+//
+// - round(+-0)   = +-0
+// - round(+-inf) = +-inf
+// - round(nan)   = nan
+
 const builtin = @import("builtin");
 const assert = @import("../debug.zig").assert;
 const math = @import("index.zig");
@@ -105,4 +111,20 @@ test "math.round64" {
     assert(round64(-1.3) == -1.0);
     assert(round64(0.2) == 0.0);
     assert(round64(1.8) == 2.0);
+}
+
+test "math.round32.special" {
+    assert(round32(0.0) == 0.0);
+    assert(round32(-0.0) == -0.0);
+    assert(math.isPositiveInf(round32(math.inf(f32))));
+    assert(math.isNegativeInf(round32(-math.inf(f32))));
+    assert(math.isNan(round32(math.nan(f32))));
+}
+
+test "math.round64.special" {
+    assert(round64(0.0) == 0.0);
+    assert(round64(-0.0) == -0.0);
+    assert(math.isPositiveInf(round64(math.inf(f64))));
+    assert(math.isNegativeInf(round64(-math.inf(f64))));
+    assert(math.isNan(round64(math.nan(f64))));
 }

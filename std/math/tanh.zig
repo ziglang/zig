@@ -1,6 +1,12 @@
+// Special Cases:
+//
+// - sinh(+-0)   = +-0
+// - sinh(+-inf) = +-1
+// - sinh(nan)   = nan
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
-const expo2 = @import("_expo2.zig").expo2;
+const expo2 = @import("expo2.zig").expo2;
 
 // TODO issue #393
 pub const tanh = tanh_workaround;
@@ -64,11 +70,19 @@ fn tanh64(x: f64) -> f64 {
 
     var t: f64 = undefined;
 
+    // TODO: Shouldn't need these checks.
+    if (x == 0.0) {
+        return x;
+    }
+    if (math.isNan(x)) {
+        return x;
+    }
+
     // |x| < log(3) / 2 ~= 0.5493 or nan
-    if (w > 0x3Fe193EA) {
+    if (w > 0x3FE193EA) {
         // |x| > 20 or nan
         if (w > 0x40340000) {
-            t = 1.0 + 0 / x;
+            t = 1.0; // TODO + 0 / x;
         } else {
             t = math.expm1(2 * x);
             t = 1 - 2 / (t + 2);
@@ -120,4 +134,21 @@ test "math.tanh64" {
     assert(math.approxEq(f64, tanh64(0.8923), 0.712528, epsilon));
     assert(math.approxEq(f64, tanh64(1.5), 0.905148, epsilon));
     assert(math.approxEq(f64, tanh64(37.45), 1.0, epsilon));
+}
+
+test "math.tanh32.special" {
+    // TODO: Error on release (like pow)
+    assert(tanh32(0.0) == 0.0);
+    assert(tanh32(-0.0) == -0.0);
+    assert(tanh32(math.inf(f32)) == 1.0);
+    assert(tanh32(-math.inf(f32)) == -1.0);
+    assert(math.isNan(tanh32(math.nan(f32))));
+}
+
+test "math.tanh64.special" {
+    assert(tanh64(0.0) == 0.0);
+    assert(tanh64(-0.0) == -0.0);
+    assert(tanh64(math.inf(f64)) == 1.0);
+    assert(tanh64(-math.inf(f64)) == -1.0);
+    assert(math.isNan(tanh64(math.nan(f64))));
 }

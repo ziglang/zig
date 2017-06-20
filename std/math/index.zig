@@ -42,6 +42,7 @@ pub const inf_u64 = u64(0x7FF << 52);
 pub const inf_f64 = @bitCast(f64, inf_u64);
 
 pub const nan = @import("nan.zig").nan;
+pub const snan = @import("nan.zig").snan;
 pub const inf = @import("inf.zig").inf;
 
 pub fn approxEq(comptime T: type, x: T, y: T, epsilon: T) -> bool {
@@ -90,6 +91,7 @@ pub fn raiseDivByZero() {
 }
 
 pub const isNan = @import("isnan.zig").isNan;
+pub const isSignalNan = @import("isnan.zig").isSignalNan;
 pub const fabs = @import("fabs.zig").fabs;
 pub const ceil = @import("ceil.zig").ceil;
 pub const floor = @import("floor.zig").floor;

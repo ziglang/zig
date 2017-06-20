@@ -1,3 +1,9 @@
+// Special Cases:
+//
+// - floor(+-0)   = +-0
+// - floor(+-inf) = +-inf
+// - floor(nan)   = nan
+
 const builtin = @import("builtin");
 const assert = @import("../debug.zig").assert;
 const math = @import("index.zig");
@@ -18,6 +24,11 @@ fn floor32(x: f32) -> f32 {
     var u = @bitCast(u32, x);
     const e = i32((u >> 23) & 0xFF) - 0x7F;
     var m: u32 = undefined;
+
+    // TODO: Shouldn't need this explicit check.
+    if (x == 0.0) {
+        return x;
+    }
 
     if (e >= 23) {
         return x;
@@ -89,4 +100,20 @@ test "math.floor64" {
     assert(floor64(1.3) == 1.0);
     assert(floor64(-1.3) == -2.0);
     assert(floor64(0.2) == 0.0);
+}
+
+test "math.floor32.special" {
+    assert(floor32(0.0) == 0.0);
+    assert(floor32(-0.0) == -0.0);
+    assert(math.isPositiveInf(floor32(math.inf(f32))));
+    assert(math.isNegativeInf(floor32(-math.inf(f32))));
+    assert(math.isNan(floor32(math.nan(f32))));
+}
+
+test "math.floor64.special" {
+    assert(floor64(0.0) == 0.0);
+    assert(floor64(-0.0) == -0.0);
+    assert(math.isPositiveInf(floor64(math.inf(f64))));
+    assert(math.isNegativeInf(floor64(-math.inf(f64))));
+    assert(math.isNan(floor64(math.nan(f64))));
 }

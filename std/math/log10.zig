@@ -1,3 +1,10 @@
+// Special Cases:
+//
+// - log10(+inf)  = +inf
+// - log10(0)     = -inf
+// - log10(x)     = nan if x < 0
+// - log10(nan)   = nan
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -31,12 +38,12 @@ fn log10_32(x_: f32) -> f32 {
     // x < 2^(-126)
     if (ix < 0x00800000 or ix >> 31 != 0) {
         // log(+-0) = -inf
-        if (ix << 1 == 0) {
-            return -1 / (x * x);
+        if (ix <<% 1 == 0) {
+            return -math.inf(f32);
         }
         // log(-#) = nan
         if (ix >> 31 != 0) {
-            return (x - x) / 0.0
+            return math.nan(f32);
         }
 
         k -= 25;
@@ -93,12 +100,12 @@ fn log10_64(x_: f64) -> f64 {
 
     if (hx < 0x00100000 or hx >> 31 != 0) {
         // log(+-0) = -inf
-        if (ix << 1 == 0) {
-            return -1 / (x * x);
+        if (ix <<% 1 == 0) {
+            return -math.inf(f32);
         }
         // log(-#) = nan
         if (hx >> 31 != 0) {
-            return (x - x) / 0.0;
+            return math.nan(f32);
         }
 
         // subnormal, scale x
@@ -175,4 +182,18 @@ test "math.log10_64" {
     assert(math.approxEq(f64, log10_64(37.45), 1.573452, epsilon));
     assert(math.approxEq(f64, log10_64(89.123), 1.94999, epsilon));
     assert(math.approxEq(f64, log10_64(123123.234375), 5.09034, epsilon));
+}
+
+test "math.log10_32.special" {
+    assert(math.isPositiveInf(log10_32(math.inf(f32))));
+    assert(math.isNegativeInf(log10_32(0.0)));
+    assert(math.isNan(log10_32(-1.0)));
+    assert(math.isNan(log10_32(math.nan(f32))));
+}
+
+test "math.log10_64.special" {
+    assert(math.isPositiveInf(log10_64(math.inf(f64))));
+    assert(math.isNegativeInf(log10_64(0.0)));
+    assert(math.isNan(log10_64(-1.0)));
+    assert(math.isNan(log10_64(math.nan(f64))));
 }

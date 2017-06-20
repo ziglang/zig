@@ -1,3 +1,8 @@
+// Special Cases:
+//
+// - fabs(+-inf) = +inf
+// - fabs(nan)   = nan
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -38,4 +43,16 @@ test "math.fabs32" {
 test "math.fabs64" {
     assert(fabs64(1.0) == 1.0);
     assert(fabs64(-1.0) == 1.0);
+}
+
+test "math.fabs32.special" {
+    assert(math.isPositiveInf(fabs(math.inf(f32))));
+    assert(math.isPositiveInf(fabs(-math.inf(f32))));
+    assert(math.isNan(fabs(math.nan(f32))));
+}
+
+test "math.fabs64.special" {
+    assert(math.isPositiveInf(fabs(math.inf(f64))));
+    assert(math.isPositiveInf(fabs(-math.inf(f64))));
+    assert(math.isNan(fabs(math.nan(f64))));
 }

@@ -1,3 +1,9 @@
+// Special Cases:
+//
+// - sin(+-0)   = +-0
+// - sin(+-inf) = nan
+// - sin(nan)   = nan
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -163,4 +169,20 @@ test "math.sin64" {
     assert(math.approxEq(f64, sin64(1.5), 0.997495, epsilon));
     assert(math.approxEq(f64, sin64(37.45), -0.246543, epsilon));
     assert(math.approxEq(f64, sin64(89.123), 0.916166, epsilon));
+}
+
+test "math.sin32.special" {
+    assert(sin32(0.0) == 0.0);
+    assert(sin32(-0.0) == -0.0);
+    assert(math.isNan(sin32(math.inf(f32))));
+    assert(math.isNan(sin32(-math.inf(f32))));
+    assert(math.isNan(sin32(math.nan(f32))));
+}
+
+test "math.sin64.special" {
+    assert(sin64(0.0) == 0.0);
+    assert(sin64(-0.0) == -0.0);
+    assert(math.isNan(sin64(math.inf(f64))));
+    assert(math.isNan(sin64(-math.inf(f64))));
+    assert(math.isNan(sin64(math.nan(f64))));
 }

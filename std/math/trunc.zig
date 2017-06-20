@@ -1,3 +1,9 @@
+// Special Cases:
+//
+// - trunc(+-0)   = +-0
+// - trunc(+-inf) = +-inf
+// - trunc(nan)   = nan
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -69,4 +75,20 @@ test "math.trunc64" {
     assert(trunc64(1.3) == 1.0);
     assert(trunc64(-1.3) == -1.0);
     assert(trunc64(0.2) == 0.0);
+}
+
+test "math.trunc32.special" {
+    assert(trunc32(0.0) == 0.0); // 0x3F800000
+    assert(trunc32(-0.0) == -0.0);
+    assert(math.isPositiveInf(trunc32(math.inf(f32))));
+    assert(math.isNegativeInf(trunc32(-math.inf(f32))));
+    assert(math.isNan(trunc32(math.nan(f32))));
+}
+
+test "math.trunc64.special" {
+    assert(trunc64(0.0) == 0.0);
+    assert(trunc64(-0.0) == -0.0);
+    assert(math.isPositiveInf(trunc64(math.inf(f64))));
+    assert(math.isNegativeInf(trunc64(-math.inf(f64))));
+    assert(math.isNan(trunc64(math.nan(f64))));
 }

@@ -1,3 +1,11 @@
+// Special Cases:
+//
+// - log1p(+inf)  = +inf
+// - log1p(+-0)   = +-0
+// - log1p(-1)    = -inf
+// - log1p(x)     = nan if x < -1
+// - log1p(nan)   = nan
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -31,17 +39,17 @@ fn log1p_32(x: f32) -> f32 {
     if (ix < 0x3ED413D0 or ix >> 31 != 0) {
         // x <= -1.0
         if (ix >= 0xBF800000) {
-            // log1p(-1) = +inf
-            if (x == -1) {
-                return x / 0.0;
+            // log1p(-1) = -inf
+            if (x == -1.0) {
+                return -math.inf(f32);
             }
             // log1p(x < -1) = nan
             else {
-                return (x - x) / 0.0;
+                return math.nan(f32);
             }
         }
         // |x| < 2^(-24)
-        if ((ix << 1) < (0x33800000 << 1)) {
+        if ((ix <<% 1) < (0x33800000 << 1)) {
             // underflow if subnormal
             if (ix & 0x7F800000 == 0) {
                 math.forceEval(x * x);
@@ -111,16 +119,16 @@ fn log1p_64(x: f64) -> f64 {
         // x <= -1.0
         if (hx >= 0xBFF00000) {
             // log1p(-1) = -inf
-            if (x == 1) {
-                return x / 0.0;
+            if (x == -1.0) {
+                return -math.inf(f64);
             }
             // log1p(x < -1) = nan
             else {
-                return (x - x) / 0.0;
+                return math.nan(f64);
             }
         }
         // |x| < 2^(-53)
-        if ((hx << 1) < (0x3CA00000 << 1)) {
+        if ((hx <<% 1) < (0x3CA00000 << 1)) {
             if ((hx & 0x7FF00000) == 0) {
                 math.raiseUnderflow();
             }
@@ -197,4 +205,22 @@ test "math.log1p_64" {
     assert(math.approxEq(f64, log1p_64(37.45), 3.649359, epsilon));
     assert(math.approxEq(f64, log1p_64(89.123), 4.501175, epsilon));
     assert(math.approxEq(f64, log1p_64(123123.234375), 11.720949, epsilon));
+}
+
+test "math.log1p_32.special" {
+    assert(math.isPositiveInf(log1p_32(math.inf(f32))));
+    assert(log1p_32(0.0) == 0.0);
+    assert(log1p_32(-0.0) == -0.0);
+    assert(math.isNegativeInf(log1p_32(-1.0)));
+    assert(math.isNan(log1p_32(-2.0)));
+    assert(math.isNan(log1p_32(math.nan(f32))));
+}
+
+test "math.log1p_64.special" {
+    assert(math.isPositiveInf(log1p_64(math.inf(f64))));
+    assert(log1p_64(0.0) == 0.0);
+    assert(log1p_64(-0.0) == -0.0);
+    assert(math.isNegativeInf(log1p_64(-1.0)));
+    assert(math.isNan(log1p_64(-2.0)));
+    assert(math.isNan(log1p_64(math.nan(f64))));
 }

@@ -1,3 +1,10 @@
+// Special Cases:
+//
+// - ln(+inf)  = +inf
+// - ln(0)     = -inf
+// - ln(x)     = nan if x < 0
+// - ln(nan)   = nan
+
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -27,12 +34,12 @@ fn lnf(x_: f32) -> f32 {
     // x < 2^(-126)
     if (ix < 0x00800000 or ix >> 31 != 0) {
         // log(+-0) = -inf
-        if (ix << 1 == 0) {
-            return -1 / (x * x);
+        if (ix <<% 1 == 0) {
+            return -math.inf(f32);
         }
         // log(-#) = nan
         if (ix >> 31 != 0) {
-            return (x - x) / 0.0
+            return math.nan(f32);
         }
 
         // subnormal, scale x
@@ -82,12 +89,12 @@ fn lnd(x_: f64) -> f64 {
 
     if (hx < 0x00100000 or hx >> 31 != 0) {
         // log(+-0) = -inf
-        if (ix << 1 == 0) {
-            return -1 / (x * x);
+        if (ix <<% 1 == 0) {
+            return -math.inf(f64);
         }
         // log(-#) = nan
         if (hx >> 31 != 0) {
-            return (x - x) / 0.0;
+            return math.nan(f64);
         }
 
         // subnormal, scale x
@@ -147,4 +154,18 @@ test "math.ln64" {
     assert(math.approxEq(f64, lnd(37.45), 3.623007, epsilon));
     assert(math.approxEq(f64, lnd(89.123), 4.490017, epsilon));
     assert(math.approxEq(f64, lnd(123123.234375), 11.720941, epsilon));
+}
+
+test "math.ln32.special" {
+    assert(math.isPositiveInf(lnf(math.inf(f32))));
+    assert(math.isNegativeInf(lnf(0.0)));
+    assert(math.isNan(lnf(-1.0)));
+    assert(math.isNan(lnf(math.nan(f32))));
+}
+
+test "math.ln64.special" {
+    assert(math.isPositiveInf(lnd(math.inf(f64))));
+    assert(math.isNegativeInf(lnd(0.0)));
+    assert(math.isNan(lnd(-1.0)));
+    assert(math.isNan(lnd(math.nan(f64))));
 }
