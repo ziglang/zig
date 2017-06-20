@@ -270,7 +270,6 @@ install(FILES "${CMAKE_SOURCE_DIR}/std/math/hypot.zig" DESTINATION "${ZIG_STD_DE
 install(FILES "${CMAKE_SOURCE_DIR}/std/math/ilogb.zig" DESTINATION "${ZIG_STD_DEST}/math")
 install(FILES "${CMAKE_SOURCE_DIR}/std/math/index.zig" DESTINATION "${ZIG_STD_DEST}/math")
 install(FILES "${CMAKE_SOURCE_DIR}/std/math/inf.zig" DESTINATION "${ZIG_STD_DEST}/math")
-install(FILES "${CMAKE_SOURCE_DIR}/std/math/io.zig" DESTINATION "${ZIG_STD_DEST}/math")
 install(FILES "${CMAKE_SOURCE_DIR}/std/math/isfinite.zig" DESTINATION "${ZIG_STD_DEST}/math")
 install(FILES "${CMAKE_SOURCE_DIR}/std/math/isinf.zig" DESTINATION "${ZIG_STD_DEST}/math")
 install(FILES "${CMAKE_SOURCE_DIR}/std/math/isnan.zig" DESTINATION "${ZIG_STD_DEST}/math")
