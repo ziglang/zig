@@ -437,12 +437,26 @@ static void construct_linker_job_coff(LinkJob *lj) {
         }
     }
     if (buf_len(def_contents) != 0) {
-        Buf *dll_path = buf_alloc();
-        os_path_join(g->cache_dir, buf_create_from_str("all.dll"), dll_path);
-        ZigLLDDefToLib(def_contents, dll_path);
+        Buf *def_path = buf_alloc();
+        os_path_join(g->cache_dir, buf_create_from_str("all.def"), def_path);
+        os_write_file(def_path, def_contents);
 
         Buf *all_lib_path = buf_alloc();
         os_path_join(g->cache_dir, buf_create_from_str("all.lib"), all_lib_path);
+
+        //Buf *dll_path = buf_alloc();
+        //os_path_join(g->cache_dir, buf_create_from_str("all.dll"), dll_path);
+
+        ZigList<const char *> args = {0};
+        args.append("link");
+        args.append(buf_ptr(buf_sprintf("-DEF:%s", buf_ptr(def_path))));
+        args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(all_lib_path))));
+        Buf diag = BUF_INIT;
+        if (!ZigLLDLink(g->zig_target.oformat, args.items, args.length, &diag)) {
+            fprintf(stderr, "%s\n", buf_ptr(&diag));
+            exit(1);
+        }
+
         lj->args.append(buf_ptr(all_lib_path));
     }
 
@@ -732,6 +746,8 @@ static void construct_linker_job(LinkJob *lj) {
             return construct_linker_job_elf(lj);
         case ZigLLVM_MachO:
             return construct_linker_job_macho(lj);
+        case ZigLLVM_Wasm:
+            zig_panic("TODO link wasm");
     }
 }
 

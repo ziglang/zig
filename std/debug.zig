@@ -147,6 +147,9 @@ pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty
         builtin.ObjectFormat.macho => {
             %return out_stream.write("(stack trace unavailable for Mach-O object format)\n");
         },
+        builtin.ObjectFormat.wasm => {
+            %return out_stream.write("(stack trace unavailable for WASM object format)\n");
+        },
         builtin.ObjectFormat.unknown => {
             %return out_stream.write("(stack trace unavailable for unknown object format)\n");
         },

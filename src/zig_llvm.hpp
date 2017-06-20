@@ -188,6 +188,7 @@ enum ZigLLVM_ArchType {
     ZigLLVM_mips64,         // MIPS64: mips64
     ZigLLVM_mips64el,       // MIPS64EL: mips64el
     ZigLLVM_msp430,         // MSP430: msp430
+    ZigLLVM_nios2,          // NIOSII: nios2
     ZigLLVM_ppc,            // PPC: powerpc
     ZigLLVM_ppc64,          // PPC64: powerpc64, ppu
     ZigLLVM_ppc64le,        // PPC64LE: powerpc64le
@@ -228,30 +229,31 @@ enum ZigLLVM_ArchType {
 };
 
 enum ZigLLVM_SubArchType {
-  ZigLLVM_NoSubArch,
+    ZigLLVM_NoSubArch,
 
-  ZigLLVM_ARMSubArch_v8_2a,
-  ZigLLVM_ARMSubArch_v8_1a,
-  ZigLLVM_ARMSubArch_v8,
-  ZigLLVM_ARMSubArch_v8r,
-  ZigLLVM_ARMSubArch_v8m_baseline,
-  ZigLLVM_ARMSubArch_v8m_mainline,
-  ZigLLVM_ARMSubArch_v7,
-  ZigLLVM_ARMSubArch_v7em,
-  ZigLLVM_ARMSubArch_v7m,
-  ZigLLVM_ARMSubArch_v7s,
-  ZigLLVM_ARMSubArch_v7k,
-  ZigLLVM_ARMSubArch_v6,
-  ZigLLVM_ARMSubArch_v6m,
-  ZigLLVM_ARMSubArch_v6k,
-  ZigLLVM_ARMSubArch_v6t2,
-  ZigLLVM_ARMSubArch_v5,
-  ZigLLVM_ARMSubArch_v5te,
-  ZigLLVM_ARMSubArch_v4t,
+    ZigLLVM_ARMSubArch_v8_2a,
+    ZigLLVM_ARMSubArch_v8_1a,
+    ZigLLVM_ARMSubArch_v8,
+    ZigLLVM_ARMSubArch_v8r,
+    ZigLLVM_ARMSubArch_v8m_baseline,
+    ZigLLVM_ARMSubArch_v8m_mainline,
+    ZigLLVM_ARMSubArch_v7,
+    ZigLLVM_ARMSubArch_v7em,
+    ZigLLVM_ARMSubArch_v7m,
+    ZigLLVM_ARMSubArch_v7s,
+    ZigLLVM_ARMSubArch_v7k,
+    ZigLLVM_ARMSubArch_v7ve,
+    ZigLLVM_ARMSubArch_v6,
+    ZigLLVM_ARMSubArch_v6m,
+    ZigLLVM_ARMSubArch_v6k,
+    ZigLLVM_ARMSubArch_v6t2,
+    ZigLLVM_ARMSubArch_v5,
+    ZigLLVM_ARMSubArch_v5te,
+    ZigLLVM_ARMSubArch_v4t,
 
-  ZigLLVM_KalimbaSubArch_v3,
-  ZigLLVM_KalimbaSubArch_v4,
-  ZigLLVM_KalimbaSubArch_v5,
+    ZigLLVM_KalimbaSubArch_v3,
+    ZigLLVM_KalimbaSubArch_v4,
+    ZigLLVM_KalimbaSubArch_v5,
 };
 
 enum ZigLLVM_VendorType {
@@ -271,13 +273,15 @@ enum ZigLLVM_VendorType {
     ZigLLVM_Myriad,
     ZigLLVM_AMD,
     ZigLLVM_Mesa,
+    ZigLLVM_SUSE,
 
-    ZigLLVM_LastVendorType = ZigLLVM_Mesa
+    ZigLLVM_LastVendorType = ZigLLVM_SUSE
 };
 
 enum ZigLLVM_OSType {
     ZigLLVM_UnknownOS,
 
+    ZigLLVM_Ananas,
     ZigLLVM_CloudABI,
     ZigLLVM_Darwin,
     ZigLLVM_DragonFly,
@@ -344,6 +348,7 @@ enum ZigLLVM_ObjectFormatType {
     ZigLLVM_COFF,
     ZigLLVM_ELF,
     ZigLLVM_MachO,
+    ZigLLVM_Wasm,
 };
 
 const char *ZigLLVMGetArchTypeName(ZigLLVM_ArchType arch);
@@ -362,7 +367,5 @@ bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_
 void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type, ZigLLVM_SubArchType *sub_arch_type,
         ZigLLVM_VendorType *vendor_type, ZigLLVM_OSType *os_type, ZigLLVM_EnvironmentType *environ_type,
         ZigLLVM_ObjectFormatType *oformat);
-
-void ZigLLDDefToLib(Buf *def_contents, Buf *dll_path);
 
 #endif
