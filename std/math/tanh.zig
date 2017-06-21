@@ -30,11 +30,15 @@ fn tanh32(x: f32) -> f32 {
 
     var t: f32 = undefined;
 
+    if (x == 0.0 or math.isNan(x)) {
+        return x;
+    }
+
     // |x| < log(3) / 2 ~= 0.5493 or nan
     if (ux > 0x3F0C9F54) {
         // |x| > 10
         if (ux > 0x41200000) {
-            t = 1.0 + 0 / x;
+            t = 1.0;
         } else {
             t = math.expm1(2 * x);
             t = 1 - 2 / (t + 2);
@@ -71,10 +75,7 @@ fn tanh64(x: f64) -> f64 {
     var t: f64 = undefined;
 
     // TODO: Shouldn't need these checks.
-    if (x == 0.0) {
-        return x;
-    }
-    if (math.isNan(x)) {
+    if (x == 0.0 or math.isNan(x)) {
         return x;
     }
 
@@ -82,7 +83,7 @@ fn tanh64(x: f64) -> f64 {
     if (w > 0x3FE193EA) {
         // |x| > 20 or nan
         if (w > 0x40340000) {
-            t = 1.0; // TODO + 0 / x;
+            t = 1.0;
         } else {
             t = math.expm1(2 * x);
             t = 1 - 2 / (t + 2);
@@ -137,7 +138,6 @@ test "math.tanh64" {
 }
 
 test "math.tanh32.special" {
-    // TODO: Error on release (like pow)
     assert(tanh32(0.0) == 0.0);
     assert(tanh32(-0.0) == -0.0);
     assert(tanh32(math.inf(f32)) == 1.0);

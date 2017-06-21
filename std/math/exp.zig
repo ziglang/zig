@@ -31,6 +31,10 @@ fn exp32(x_: f32) -> f32 {
     const sign = i32(hx >> 31);
     hx &= 0x7FFFFFFF;
 
+    if (math.isNan(x)) {
+        return x;
+    }
+
     // |x| >= -87.33655 or nan
     if (hx >= 0x42AEAC50) {
         // nan
@@ -107,6 +111,10 @@ fn exp64(x_: f64) -> f64 {
     var hx = ux >> 32;
     const sign = i32(hx >> 31);
     hx &= 0x7FFFFFFF;
+
+    if (math.isNan(x)) {
+        return x;
+    }
 
     // |x| >= 708.39 or nan
     if (hx >= 0x4086232B) {
@@ -204,7 +212,6 @@ test "math.exp32.special" {
 }
 
 test "math.exp64.special" {
-    // TODO: Error on release (like pow)
     assert(math.isPositiveInf(exp64(math.inf(f64))));
     assert(math.isNan(exp64(math.nan(f64))));
 }

@@ -28,6 +28,10 @@ fn sinh32(x: f32) -> f32 {
     const ux = u & 0x7FFFFFFF;
     const ax = @bitCast(f32, ux);
 
+    if (x == 0.0 or math.isNan(x)) {
+        return x;
+    }
+
     var h: f32 = 0.5;
     if (u >> 31 != 0) {
         h = -h;
@@ -56,6 +60,10 @@ fn sinh64(x: f64) -> f64 {
     const u = @bitCast(u64, x);
     const w = u32(u >> 32);
     const ax = @bitCast(f64, u & (@maxValue(u64) >> 1));
+
+    if (x == 0.0 or math.isNan(x)) {
+        return x;
+    }
 
     var h: f32 = 0.5;
     if (u >> 63 != 0) {
@@ -112,7 +120,6 @@ test "math.sinh32.special" {
 }
 
 test "math.sinh64.special" {
-    // TODO: Error on release mode (like pow)
     assert(sinh64(0.0) == 0.0);
     assert(sinh64(-0.0) == -0.0);
     assert(math.isPositiveInf(sinh64(math.inf(f64))));

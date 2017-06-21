@@ -77,8 +77,8 @@ fn frexp64(x: f64) -> frexp64_result {
         }
         return result;
     } else if (e == 0x7FF) {
-        // frexp(nan) = (nan, 0)
         result.significand = x;
+        result.exponent = 0;
         return result;
     }
 
@@ -141,7 +141,6 @@ test "math.frexp32.special" {
 }
 
 test "math.frexp64.special" {
-    // TODO: Error on release mode (like pow)
     var r: frexp64_result = undefined;
 
     r = frexp64(0.0);

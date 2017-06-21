@@ -48,11 +48,10 @@ fn scalbn64(x: f64, n_: i32) -> f64 {
     var n = n_;
 
     if (n > 1023) {
-        // TODO: Determine how to do the following.
-        // y *= 0x1.0p1023;
+        y *= 0x1.0p1022 * 10.0;
         n -= 1023;
         if (n > 1023) {
-            // y *= 0x1.0p1023;
+            y *= 0x1.0p1022 * 10.0;
             n -= 1023;
             if (n > 1023) {
                 n = 1023;

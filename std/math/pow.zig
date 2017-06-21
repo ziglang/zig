@@ -179,7 +179,6 @@ fn isOddInteger(x: f64) -> bool {
 test "math.pow" {
     const epsilon = 0.000001;
 
-    // TODO: Error on release
     assert(math.approxEq(f32, pow(f32, 0.0, 3.3), 0.0, epsilon));
     assert(math.approxEq(f32, pow(f32, 0.8923, 3.3), 0.686572, epsilon));
     assert(math.approxEq(f32, pow(f32, 0.2, 3.3), 0.004936, epsilon));
