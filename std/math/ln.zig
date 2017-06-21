@@ -20,6 +20,8 @@ pub fn ln_workaround(x: var) -> @typeOf(x) {
 }
 
 fn lnf(x_: f32) -> f32 {
+    @setFloatMode(this, @import("builtin").FloatMode.Strict);
+
     const ln2_hi: f32 = 6.9313812256e-01;
     const ln2_lo: f32 = 9.0580006145e-06;
     const Lg1: f32 = 0xaaaaaa.0p-24;
