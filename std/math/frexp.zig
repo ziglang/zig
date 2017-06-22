@@ -2,7 +2,7 @@
 //
 // - frexp(+-0)   = +-0, 0
 // - frexp(+-inf) = +-inf, 0
-// - frexp(nan)   = nan, 0
+// - frexp(nan)   = nan, undefined
 
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
@@ -46,9 +46,15 @@ fn frexp32(x: f32) -> frexp32_result {
         }
         return result;
     } else if (e == 0xFF) {
-        // frexp(nan) = (nan, 0)
+        // frexp(nan) = (nan, undefined)
         result.significand = x;
-        result.exponent = 0;
+        result.exponent = undefined;
+
+        // frexp(+-inf) = (+-inf, 0)
+        if (math.isInf(x)) {
+            result.exponent = 0;
+        }
+
         return result;
     }
 
@@ -77,8 +83,15 @@ fn frexp64(x: f64) -> frexp64_result {
         }
         return result;
     } else if (e == 0x7FF) {
+        // frexp(nan) = (nan, undefined)
         result.significand = x;
-        result.exponent = 0;
+        result.exponent = undefined;
+
+        // frexp(+-inf) = (+-inf, 0)
+        if (math.isInf(x)) {
+            result.exponent = 0;
+        }
+
         return result;
     }
 
@@ -137,7 +150,7 @@ test "math.frexp32.special" {
     assert(math.isNegativeInf(r.significand) and r.exponent == 0);
 
     r = frexp32(math.nan(f32));
-    assert(math.isNan(r.significand) and r.exponent == 0);
+    assert(math.isNan(r.significand));
 }
 
 test "math.frexp64.special" {
@@ -156,5 +169,5 @@ test "math.frexp64.special" {
     assert(math.isNegativeInf(r.significand) and r.exponent == 0);
 
     r = frexp64(math.nan(f64));
-    assert(math.isNan(r.significand) and r.exponent == 0);
+    assert(math.isNan(r.significand));
 }
