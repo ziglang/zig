@@ -2194,7 +2194,8 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeFnCallExpr:
         case NodeTypeArrayAccessExpr:
         case NodeTypeSliceExpr:
-        case NodeTypeNumberLiteral:
+        case NodeTypeFloatLiteral:
+        case NodeTypeIntLiteral:
         case NodeTypeStringLiteral:
         case NodeTypeCharLiteral:
         case NodeTypeBoolLiteral:
@@ -3247,10 +3248,17 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
         case TypeTableEntryIdInt:
         case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdEnumTag:
-            return ((uint32_t)(bignum_to_twos_complement(&const_val->data.x_bignum) % UINT32_MAX)) * (uint32_t)1331471175;
+            {
+                uint32_t result = 1331471175;
+                for (size_t i = 0; i < const_val->data.x_bigint.digit_count; i += 1) {
+                    uint64_t digit = bigint_ptr(&const_val->data.x_bigint)[i];
+                    result ^= ((uint32_t)(digit >> 32)) ^ (uint32_t)(result);
+                }
+                return result;
+            }
         case TypeTableEntryIdFloat:
         case TypeTableEntryIdNumLitFloat:
-            return (uint32_t)(const_val->data.x_bignum.data.x_float * (uint32_t)UINT32_MAX);
+            return (uint32_t)(const_val->data.x_bigfloat.value * (uint32_t)UINT32_MAX);
         case TypeTableEntryIdArgTuple:
             return (uint32_t)const_val->data.x_arg_tuple.start_index * (uint32_t)281907309 +
                 (uint32_t)const_val->data.x_arg_tuple.end_index * (uint32_t)2290442768;
@@ -3473,7 +3481,7 @@ void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
         ConstExprValue *this_char = &const_val->data.x_array.s_none.elements[i];
         this_char->special = ConstValSpecialStatic;
         this_char->type = g->builtin_types.entry_u8;
-        bignum_init_unsigned(&this_char->data.x_bignum, (uint8_t)buf_ptr(str)[i]);
+        bigint_init_unsigned(&this_char->data.x_bigint, (uint8_t)buf_ptr(str)[i]);
     }
 }
 
@@ -3494,12 +3502,12 @@ void init_const_c_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
         ConstExprValue *this_char = &array_val->data.x_array.s_none.elements[i];
         this_char->special = ConstValSpecialStatic;
         this_char->type = g->builtin_types.entry_u8;
-        bignum_init_unsigned(&this_char->data.x_bignum, (uint8_t)buf_ptr(str)[i]);
+        bigint_init_unsigned(&this_char->data.x_bigint, (uint8_t)buf_ptr(str)[i]);
     }
     ConstExprValue *null_char = &array_val->data.x_array.s_none.elements[len_with_null - 1];
     null_char->special = ConstValSpecialStatic;
     null_char->type = g->builtin_types.entry_u8;
-    bignum_init_unsigned(&null_char->data.x_bignum, 0);
+    bigint_init_unsigned(&null_char->data.x_bigint, 0);
 
     // then make the pointer point to it
     const_val->special = ConstValSpecialStatic;
@@ -3518,8 +3526,8 @@ ConstExprValue *create_const_c_str_lit(CodeGen *g, Buf *str) {
 void init_const_unsigned_negative(ConstExprValue *const_val, TypeTableEntry *type, uint64_t x, bool negative) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = type;
-    bignum_init_unsigned(&const_val->data.x_bignum, x);
-    const_val->data.x_bignum.is_negative = negative;
+    bigint_init_unsigned(&const_val->data.x_bigint, x);
+    const_val->data.x_bigint.is_negative = negative;
 }
 
 ConstExprValue *create_const_unsigned_negative(TypeTableEntry *type, uint64_t x, bool negative) {
@@ -3539,7 +3547,7 @@ ConstExprValue *create_const_usize(CodeGen *g, uint64_t x) {
 void init_const_signed(ConstExprValue *const_val, TypeTableEntry *type, int64_t x) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = type;
-    bignum_init_signed(&const_val->data.x_bignum, x);
+    bigint_init_signed(&const_val->data.x_bigint, x);
 }
 
 ConstExprValue *create_const_signed(TypeTableEntry *type, int64_t x) {
@@ -3551,7 +3559,7 @@ ConstExprValue *create_const_signed(TypeTableEntry *type, int64_t x) {
 void init_const_float(ConstExprValue *const_val, TypeTableEntry *type, double value) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = type;
-    bignum_init_float(&const_val->data.x_bignum, value);
+    bigfloat_init_float(&const_val->data.x_bigfloat, value);
 }
 
 ConstExprValue *create_const_float(TypeTableEntry *type, double value) {
@@ -3788,12 +3796,13 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
             return a->data.x_fn.fn_entry == b->data.x_fn.fn_entry;
         case TypeTableEntryIdBool:
             return a->data.x_bool == b->data.x_bool;
-        case TypeTableEntryIdInt:
         case TypeTableEntryIdFloat:
         case TypeTableEntryIdNumLitFloat:
+            return bigfloat_cmp(&a->data.x_bigfloat, &b->data.x_bigfloat) == CmpEQ;
+        case TypeTableEntryIdInt:
         case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdEnumTag:
-            return bignum_cmp_eq(&a->data.x_bignum, &b->data.x_bignum);
+            return bigint_cmp(&a->data.x_bigint, &b->data.x_bigint) == CmpEQ;
         case TypeTableEntryIdPointer:
             if (a->data.x_ptr.special != b->data.x_ptr.special)
                 return false;
@@ -3876,58 +3885,47 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
     zig_unreachable();
 }
 
-uint64_t max_unsigned_val(TypeTableEntry *type_entry) {
-    assert(type_entry->id == TypeTableEntryIdInt);
-    if (type_entry->data.integral.bit_count == 64) {
-        return UINT64_MAX;
-    } else {
-        return (((uint64_t)1) << type_entry->data.integral.bit_count) - 1;
-    }
-}
-
-static int64_t max_signed_val(TypeTableEntry *type_entry) {
-    assert(type_entry->id == TypeTableEntryIdInt);
-
-    if (type_entry->data.integral.bit_count == 64) {
-        return INT64_MAX;
-    } else {
-        return (((uint64_t)1) << (type_entry->data.integral.bit_count - 1)) - 1;
-    }
-}
-
-int64_t min_signed_val(TypeTableEntry *type_entry) {
-    assert(type_entry->id == TypeTableEntryIdInt);
-    if (type_entry->data.integral.bit_count == 64) {
-        return INT64_MIN;
-    } else {
-        return -((int64_t)(((uint64_t)1) << (type_entry->data.integral.bit_count - 1)));
-    }
-}
-
-void eval_min_max_value_int(CodeGen *g, TypeTableEntry *int_type, BigNum *bignum, bool is_max) {
+void eval_min_max_value_int(CodeGen *g, TypeTableEntry *int_type, BigInt *bigint, bool is_max) {
     assert(int_type->id == TypeTableEntryIdInt);
+    if (int_type->data.integral.bit_count == 0) {
+        bigint_init_unsigned(bigint, 0);
+        return;
+    }
     if (is_max) {
-        if (int_type->data.integral.is_signed) {
-            int64_t val = max_signed_val(int_type);
-            bignum_init_signed(bignum, val);
-        } else {
-            uint64_t val = max_unsigned_val(int_type);
-            bignum_init_unsigned(bignum, val);
-        }
+        // is_signed=true   (1 << (bit_count - 1)) - 1
+        // is_signed=false  (1 << (bit_count - 0)) - 1
+        BigInt one = {0};
+        bigint_init_unsigned(&one, 1);
+
+        size_t shift_amt = int_type->data.integral.bit_count - (int_type->data.integral.is_signed ? 1 : 0);
+        BigInt bit_count_bi = {0};
+        bigint_init_unsigned(&bit_count_bi, shift_amt);
+
+        BigInt shifted_bi = {0};
+        bigint_shl(&shifted_bi, &one, &bit_count_bi);
+
+        bigint_sub(bigint, &shifted_bi, &one);
+    } else if (int_type->data.integral.is_signed) {
+        // - (1 << (bit_count - 1))
+        BigInt one = {0};
+        bigint_init_unsigned(&one, 1);
+
+        BigInt bit_count_bi = {0};
+        bigint_init_unsigned(&bit_count_bi, int_type->data.integral.bit_count - 1);
+
+        BigInt shifted_bi = {0};
+        bigint_shl(&shifted_bi, &one, &bit_count_bi);
+
+        bigint_negate(bigint, &shifted_bi);
     } else {
-        if (int_type->data.integral.is_signed) {
-            int64_t val = min_signed_val(int_type);
-            bignum_init_signed(bignum, val);
-        } else {
-            bignum_init_unsigned(bignum, 0);
-        }
+        bigint_init_unsigned(bigint, 0);
     }
 }
 
 void eval_min_max_value(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *const_val, bool is_max) {
     if (type_entry->id == TypeTableEntryIdInt) {
         const_val->special = ConstValSpecialStatic;
-        eval_min_max_value_int(g, type_entry, &const_val->data.x_bignum, is_max);
+        eval_min_max_value_int(g, type_entry, &const_val->data.x_bigint, is_max);
     } else if (type_entry->id == TypeTableEntryIdFloat) {
         zig_panic("TODO analyze_min_max_value float");
     } else if (type_entry->id == TypeTableEntryIdBool) {
@@ -3967,32 +3965,15 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             buf_appendf(buf, "{}");
             return;
         case TypeTableEntryIdNumLitFloat:
-            buf_appendf(buf, "%f", const_val->data.x_bignum.data.x_float);
+        case TypeTableEntryIdFloat:
+            bigfloat_write_buf(buf, &const_val->data.x_bigfloat);
             return;
         case TypeTableEntryIdNumLitInt:
-            {
-                BigNum *bignum = &const_val->data.x_bignum;
-                const char *negative_str = bignum->is_negative ? "-" : "";
-                buf_appendf(buf, "%s%" ZIG_PRI_llu, negative_str, bignum->data.x_uint);
-                return;
-            }
+        case TypeTableEntryIdInt:
+            bigint_write_buf(buf, &const_val->data.x_bigint, 10);
+            return;
         case TypeTableEntryIdMetaType:
             buf_appendf(buf, "%s", buf_ptr(&const_val->data.x_type->name));
-            return;
-        case TypeTableEntryIdInt:
-            {
-                BigNum *bignum = &const_val->data.x_bignum;
-                assert(bignum->kind == BigNumKindInt);
-                const char *negative_str = bignum->is_negative ? "-" : "";
-                buf_appendf(buf, "%s%" ZIG_PRI_llu, negative_str, bignum->data.x_uint);
-            }
-            return;
-        case TypeTableEntryIdFloat:
-            {
-                BigNum *bignum = &const_val->data.x_bignum;
-                assert(bignum->kind == BigNumKindFloat);
-                buf_appendf(buf, "%f", bignum->data.x_float);
-            }
             return;
         case TypeTableEntryIdUnreachable:
             buf_appendf(buf, "@unreachable()");
@@ -4060,7 +4041,7 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
                     buf_append_char(buf, '"');
                     for (uint64_t i = 0; i < len; i += 1) {
                         ConstExprValue *child_value = &const_val->data.x_array.s_none.elements[i];
-                        uint64_t big_c = child_value->data.x_bignum.data.x_uint;
+                        uint64_t big_c = bigint_as_unsigned(&child_value->data.x_bigint);
                         assert(big_c <= UINT8_MAX);
                         uint8_t c = (uint8_t)big_c;
                         if (c == '"') {
@@ -4146,7 +4127,8 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
         case TypeTableEntryIdEnumTag:
             {
                 TypeTableEntry *enum_type = type_entry->data.enum_tag.enum_type;
-                TypeEnumField *field = &enum_type->data.enumeration.fields[const_val->data.x_bignum.data.x_uint];
+                size_t field_index = bigint_as_unsigned(&const_val->data.x_bigint);
+                TypeEnumField *field = &enum_type->data.enumeration.fields[field_index];
                 buf_appendf(buf, "%s.%s", buf_ptr(&enum_type->name), buf_ptr(field->name));
                 return;
             }

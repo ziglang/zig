@@ -13,7 +13,8 @@
 #include "zig_llvm.hpp"
 #include "hash_map.hpp"
 #include "errmsg.hpp"
-#include "bignum.hpp"
+#include "bigint.hpp"
+#include "bigfloat.hpp"
 #include "target.hpp"
 
 struct AstNode;
@@ -215,6 +216,11 @@ struct ConstGlobalRefs {
     LLVMValueRef llvm_global;
 };
 
+enum ConstNumLitKind {
+    ConstNumLitKindInt,
+    ConstNumLitKindFloat,
+};
+
 struct ConstExprValue {
     TypeTableEntry *type;
     ConstValSpecial special;
@@ -222,7 +228,8 @@ struct ConstExprValue {
 
     union {
         // populated if special == ConstValSpecialStatic
-        BigNum x_bignum;
+        BigInt x_bigint;
+        BigFloat x_bigfloat;
         bool x_bool;
         ConstFn x_fn;
         ConstBoundFnValue x_bound_fn;
@@ -347,7 +354,8 @@ enum NodeType {
     NodeTypeTestDecl,
     NodeTypeBinOpExpr,
     NodeTypeUnwrapErrorExpr,
-    NodeTypeNumberLiteral,
+    NodeTypeFloatLiteral,
+    NodeTypeIntLiteral,
     NodeTypeStringLiteral,
     NodeTypeCharLiteral,
     NodeTypeSymbol,
@@ -748,12 +756,16 @@ struct AstNodeCharLiteral {
     uint8_t value;
 };
 
-struct AstNodeNumberLiteral {
-    BigNum *bignum;
+struct AstNodeFloatLiteral {
+    BigFloat *bigfloat;
 
     // overflow is true if when parsing the number, we discovered it would not
-    // fit without losing data in a uint64_t or double
+    // fit without losing data in a double
     bool overflow;
+};
+
+struct AstNodeIntLiteral {
+    BigInt *bigint;
 };
 
 struct AstNodeStructValueField {
@@ -854,7 +866,8 @@ struct AstNode {
         AstNodeStructField struct_field;
         AstNodeStringLiteral string_literal;
         AstNodeCharLiteral char_literal;
-        AstNodeNumberLiteral number_literal;
+        AstNodeFloatLiteral float_literal;
+        AstNodeIntLiteral int_literal;
         AstNodeContainerInitExpr container_init_expr;
         AstNodeStructValueField struct_val_field;
         AstNodeNullLiteral null_literal;

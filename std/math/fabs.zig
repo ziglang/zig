@@ -36,8 +36,8 @@ test "math.fabs" {
 }
 
 test "math.fabs32" {
-    assert(fabs64(1.0) == 1.0);
-    assert(fabs64(-1.0) == 1.0);
+    assert(fabs32(1.0) == 1.0);
+    assert(fabs32(-1.0) == 1.0);
 }
 
 test "math.fabs64" {

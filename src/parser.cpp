@@ -186,9 +186,14 @@ static Buf *token_buf(Token *token) {
     return &token->data.str_lit.str;
 }
 
-static BigNum *token_bignum(Token *token) {
-    assert(token->id == TokenIdNumberLiteral);
-    return &token->data.num_lit.bignum;
+static BigInt *token_bigint(Token *token) {
+    assert(token->id == TokenIdIntLiteral);
+    return &token->data.int_lit.bigint;
+}
+
+static BigFloat *token_bigfloat(Token *token) {
+    assert(token->id == TokenIdFloatLiteral);
+    return &token->data.float_lit.bigfloat;
 }
 
 static uint8_t token_char_lit(Token *token) {
@@ -660,16 +665,21 @@ static AstNode *ast_parse_comptime_expr(ParseContext *pc, size_t *token_index, b
 }
 
 /*
-PrimaryExpression = Number | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
+PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
 KeywordLiteral = "true" | "false" | "null" | "continue" | "undefined" | "error" | "this" | "unreachable"
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
 
-    if (token->id == TokenIdNumberLiteral) {
-        AstNode *node = ast_create_node(pc, NodeTypeNumberLiteral, token);
-        node->data.number_literal.bignum = token_bignum(token);
-        node->data.number_literal.overflow = token->data.num_lit.overflow;
+    if (token->id == TokenIdIntLiteral) {
+        AstNode *node = ast_create_node(pc, NodeTypeIntLiteral, token);
+        node->data.int_literal.bigint = token_bigint(token);
+        *token_index += 1;
+        return node;
+    } else if (token->id == TokenIdFloatLiteral) {
+        AstNode *node = ast_create_node(pc, NodeTypeFloatLiteral, token);
+        node->data.float_literal.bigfloat = token_bigfloat(token);
+        node->data.float_literal.overflow = token->data.float_lit.overflow;
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdStringLiteral) {
@@ -2629,7 +2639,10 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_field(&node->data.unwrap_err_expr.symbol, visit, context);
             visit_field(&node->data.unwrap_err_expr.op2, visit, context);
             break;
-        case NodeTypeNumberLiteral:
+        case NodeTypeIntLiteral:
+            // none
+            break;
+        case NodeTypeFloatLiteral:
             // none
             break;
         case NodeTypeStringLiteral:

@@ -11,8 +11,8 @@
 #include "all_types.hpp"
 
 struct Range {
-    BigNum first;
-    BigNum last;
+    BigInt first;
+    BigInt last;
 };
 
 struct RangeWithSrc {
@@ -24,7 +24,7 @@ struct RangeSet {
     ZigList<RangeWithSrc> src_range_list;
 };
 
-AstNode *rangeset_add_range(RangeSet *rs, BigNum *first, BigNum *last, AstNode *source_node);
-bool rangeset_spans(RangeSet *rs, BigNum *first, BigNum *last);
+AstNode *rangeset_add_range(RangeSet *rs, BigInt *first, BigInt *last, AstNode *source_node);
+bool rangeset_spans(RangeSet *rs, BigInt *first, BigInt *last);
 
 #endif

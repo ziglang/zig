@@ -13,6 +13,7 @@
 #include "error.hpp"
 
 #include <stdio.h>
+#include <inttypes.h>
 
 enum TerminationId {
     TerminationIdClean,

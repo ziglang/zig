@@ -1203,6 +1203,23 @@ enum DivKind {
     DivKindExact,
 };
 
+static LLVMValueRef bigint_to_llvm_const(LLVMTypeRef type_ref, BigInt *bigint) {
+    if (bigint->digit_count == 0) {
+        return LLVMConstNull(type_ref);
+    }
+    LLVMValueRef unsigned_val = LLVMConstIntOfArbitraryPrecision(type_ref,
+            bigint->digit_count, bigint_ptr(bigint));
+    if (bigint->is_negative) {
+        return LLVMConstNeg(unsigned_val);
+    } else {
+        return unsigned_val;
+    }
+}
+
+static LLVMValueRef bigfloat_to_llvm_const(LLVMTypeRef type_ref, BigFloat *bigfloat) {
+    return LLVMConstReal(type_ref, bigfloat_to_double(bigfloat));
+}
+
 static LLVMValueRef gen_div(CodeGen *g, bool want_debug_safety, bool want_fast_math,
         LLVMValueRef val1, LLVMValueRef val2,
         TypeTableEntry *type_entry, DivKind div_kind)
@@ -1230,7 +1247,9 @@ static LLVMValueRef gen_div(CodeGen *g, bool want_debug_safety, bool want_fast_m
 
         if (type_entry->id == TypeTableEntryIdInt && type_entry->data.integral.is_signed) {
             LLVMValueRef neg_1_value = LLVMConstInt(type_entry->type_ref, -1, true);
-            LLVMValueRef int_min_value = LLVMConstInt(type_entry->type_ref, min_signed_val(type_entry), true);
+            BigInt int_min_bi = {0};
+            eval_min_max_value_int(g, type_entry, &int_min_bi, false);
+            LLVMValueRef int_min_value = bigint_to_llvm_const(type_entry->type_ref, &int_min_bi);
             LLVMBasicBlockRef overflow_ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivOverflowOk");
             LLVMBasicBlockRef overflow_fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivOverflowFail");
             LLVMValueRef num_is_int_min = LLVMBuildICmp(g->builder, LLVMIntEQ, val1, int_min_value, "");
@@ -1765,8 +1784,13 @@ static LLVMValueRef ir_render_int_to_err(CodeGen *g, IrExecutable *executable, I
         LLVMValueRef zero = LLVMConstNull(actual_type->type_ref);
         LLVMValueRef neq_zero_bit = LLVMBuildICmp(g->builder, LLVMIntNE, target_val, zero, "");
         LLVMValueRef ok_bit;
-        uint64_t biggest_possible_err_val = max_unsigned_val(actual_type);
-        if (biggest_possible_err_val < g->error_decls.length) {
+
+        BigInt biggest_possible_err_val = {0};
+        eval_min_max_value_int(g, actual_type, &biggest_possible_err_val, true);
+
+        if (bigint_fits_in_bits(&biggest_possible_err_val, 64, false) &&
+            bigint_as_unsigned(&biggest_possible_err_val) < g->error_decls.length)
+        {
             ok_bit = neq_zero_bit;
         } else {
             LLVMValueRef error_value_count = LLVMConstInt(actual_type->type_ref, g->error_decls.length, false);
@@ -3317,7 +3341,6 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Con
                 LLVMValueRef int_val = gen_const_val(g, const_val);
                 return LLVMConstZExt(int_val, big_int_type_ref);
             }
-            return LLVMConstInt(big_int_type_ref, bignum_to_twos_complement(&const_val->data.x_bignum), false);
         case TypeTableEntryIdFloat:
             {
                 LLVMValueRef float_val = gen_const_val(g, const_val);
@@ -3374,21 +3397,13 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
     switch (type_entry->id) {
         case TypeTableEntryIdInt:
         case TypeTableEntryIdEnumTag:
-            return LLVMConstInt(type_entry->type_ref, bignum_to_twos_complement(&const_val->data.x_bignum), false);
+            return bigint_to_llvm_const(type_entry->type_ref, &const_val->data.x_bigint);
         case TypeTableEntryIdPureError:
             assert(const_val->data.x_pure_err);
             return LLVMConstInt(g->builtin_types.entry_pure_error->type_ref,
                     const_val->data.x_pure_err->value, false);
         case TypeTableEntryIdFloat:
-            if (const_val->data.x_bignum.kind == BigNumKindFloat) {
-                return LLVMConstReal(type_entry->type_ref, const_val->data.x_bignum.data.x_float);
-            } else {
-                double x = (double)const_val->data.x_bignum.data.x_uint;
-                if (const_val->data.x_bignum.is_negative) {
-                    x = -x;
-                }
-                return LLVMConstReal(type_entry->type_ref, x);
-            }
+            return bigfloat_to_llvm_const(type_entry->type_ref, &const_val->data.x_bigfloat);
         case TypeTableEntryIdBool:
             if (const_val->data.x_bool) {
                 return LLVMConstAllOnes(LLVMInt1Type());
@@ -3866,7 +3881,7 @@ static void do_code_gen(CodeGen *g) {
             ConstExprValue *const_val = var->value;
             assert(const_val->special != ConstValSpecialRuntime);
             TypeTableEntry *var_type = g->builtin_types.entry_f64;
-            LLVMValueRef init_val = LLVMConstReal(var_type->type_ref, const_val->data.x_bignum.data.x_float);
+            LLVMValueRef init_val = bigfloat_to_llvm_const(var_type->type_ref, &const_val->data.x_bigfloat);
             gen_global_var(g, var, init_val, var_type);
             continue;
         }
@@ -3875,10 +3890,9 @@ static void do_code_gen(CodeGen *g) {
             // Generate debug info for it but that's it.
             ConstExprValue *const_val = var->value;
             assert(const_val->special != ConstValSpecialRuntime);
-            TypeTableEntry *var_type = const_val->data.x_bignum.is_negative ?
-                g->builtin_types.entry_isize : g->builtin_types.entry_usize;
-            LLVMValueRef init_val = LLVMConstInt(var_type->type_ref,
-                bignum_to_twos_complement(&const_val->data.x_bignum), false);
+            size_t bits_needed = bigint_bits_needed(&const_val->data.x_bigint);
+            TypeTableEntry *var_type = get_int_type(g, const_val->data.x_bigint.is_negative, bits_needed);
+            LLVMValueRef init_val = bigint_to_llvm_const(var_type->type_ref, &const_val->data.x_bigint);
             gen_global_var(g, var, init_val, var_type);
             continue;
         }

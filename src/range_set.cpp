@@ -1,11 +1,11 @@
 #include "range_set.hpp"
 
-AstNode *rangeset_add_range(RangeSet *rs, BigNum *first, BigNum *last, AstNode *source_node) {
+AstNode *rangeset_add_range(RangeSet *rs, BigInt *first, BigInt *last, AstNode *source_node) {
     for (size_t i = 0; i < rs->src_range_list.length; i += 1) {
         RangeWithSrc *range_with_src = &rs->src_range_list.at(i);
         Range *range = &range_with_src->range;
-        if ((bignum_cmp_gte(first, &range->first) && bignum_cmp_lte(first, &range->last)) ||
-            (bignum_cmp_gte(last, &range->first) && bignum_cmp_lte(last, &range->last)))
+        if ((bigint_cmp(first, &range->first) != CmpLT && bigint_cmp(first, &range->last) != CmpGT) ||
+            (bigint_cmp(last, &range->first) != CmpLT && bigint_cmp(last, &range->last) != CmpGT))
         {
             return range_with_src->source_node;
         }
@@ -16,24 +16,22 @@ AstNode *rangeset_add_range(RangeSet *rs, BigNum *first, BigNum *last, AstNode *
 
 }
 
-static bool add_range(ZigList<Range> *list, Range *new_range, BigNum *one) {
+static bool add_range(ZigList<Range> *list, Range *new_range, BigInt *one) {
     for (size_t i = 0; i < list->length; i += 1) {
         Range *range = &list->at(i);
 
-        BigNum first_minus_one;
-        if (bignum_sub(&first_minus_one, &range->first, one))
-            zig_unreachable();
+        BigInt first_minus_one;
+        bigint_sub(&first_minus_one, &range->first, one);
 
-        if (bignum_cmp_eq(&new_range->last, &first_minus_one)) {
+        if (bigint_cmp(&new_range->last, &first_minus_one) == CmpEQ) {
             range->first = new_range->first;
             return true;
         }
 
-        BigNum last_plus_one;
-        if (bignum_add(&last_plus_one, &range->last, one))
-            zig_unreachable();
+        BigInt last_plus_one;
+        bigint_add(&last_plus_one, &range->last, one);
 
-        if (bignum_cmp_eq(&new_range->first, &last_plus_one)) {
+        if (bigint_cmp(&new_range->first, &last_plus_one) == CmpEQ) {
             range->last = new_range->last;
             return true;
         }
@@ -42,7 +40,7 @@ static bool add_range(ZigList<Range> *list, Range *new_range, BigNum *one) {
     return false;
 }
 
-bool rangeset_spans(RangeSet *rs, BigNum *first, BigNum *last) {
+bool rangeset_spans(RangeSet *rs, BigInt *first, BigInt *last) {
     ZigList<Range> cur_list_value = {0};
     ZigList<Range> other_list_value = {0};
     ZigList<Range> *cur_list = &cur_list_value;
@@ -54,8 +52,8 @@ bool rangeset_spans(RangeSet *rs, BigNum *first, BigNum *last) {
         cur_list->append({range->first, range->last});
     }
 
-    BigNum one;
-    bignum_init_unsigned(&one, 1);
+    BigInt one;
+    bigint_init_unsigned(&one, 1);
 
     bool changes_made = true;
     while (changes_made) {
@@ -73,9 +71,9 @@ bool rangeset_spans(RangeSet *rs, BigNum *first, BigNum *last) {
     if (cur_list->length != 1)
         return false;
     Range *range = &cur_list->at(0);
-    if (bignum_cmp_neq(&range->first, first))
+    if (bigint_cmp(&range->first, first) != CmpEQ)
         return false;
-    if (bignum_cmp_neq(&range->last, last))
+    if (bigint_cmp(&range->last, last) != CmpEQ)
         return false;
     return true;
 }

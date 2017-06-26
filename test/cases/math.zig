@@ -58,15 +58,33 @@ test "@shlWithOverflow" {
 }
 
 test "@clz" {
-    assert(@clz(u8(0b00001010)) == 4);
-    assert(@clz(u8(0b10001010)) == 0);
-    assert(@clz(u8(0b00000000)) == 8);
+    testClz();
+    comptime testClz();
+}
+
+fn testClz() {
+    assert(clz(u8(0b00001010)) == 4);
+    assert(clz(u8(0b10001010)) == 0);
+    assert(clz(u8(0b00000000)) == 8);
+}
+
+fn clz(x: var) -> usize {
+    @clz(x)
 }
 
 test "@ctz" {
-    assert(@ctz(u8(0b10100000)) == 5);
-    assert(@ctz(u8(0b10001010)) == 1);
-    assert(@ctz(u8(0b00000000)) == 8);
+    testCtz();
+    comptime testCtz();
+}
+
+fn testCtz() {
+    assert(ctz(u8(0b10100000)) == 5);
+    assert(ctz(u8(0b10001010)) == 1);
+    assert(ctz(u8(0b00000000)) == 8);
+}
+
+fn ctz(x: var) -> usize {
+    @ctz(x)
 }
 
 test "assignment operators" {
@@ -228,4 +246,8 @@ test "allow signed integer division/remainder when values are comptime known and
 
     assert(5 % 3 == 2);
     assert(-6 % 3 == 0);
+}
+
+test "float literal parsing" {
+    comptime assert(0x1.0 == 1.0);
 }

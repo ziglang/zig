@@ -182,8 +182,10 @@ static const char *node_type_str(NodeType node_type) {
             return "ErrorValueDecl";
         case NodeTypeTestDecl:
             return "TestDecl";
-        case NodeTypeNumberLiteral:
-            return "NumberLiteral";
+        case NodeTypeIntLiteral:
+            return "IntLiteral";
+        case NodeTypeFloatLiteral:
+            return "FloatLiteral";
         case NodeTypeStringLiteral:
             return "StringLiteral";
         case NodeTypeCharLiteral:
@@ -536,17 +538,20 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             render_node_ungrouped(ar, node->data.bin_op_expr.op2);
             if (!grouped) fprintf(ar->f, ")");
             break;
-        case NodeTypeNumberLiteral:
-            switch (node->data.number_literal.bignum->kind) {
-                case BigNumKindInt:
-                    {
-                        const char *negative_str = node->data.number_literal.bignum->is_negative ? "-" : "";
-                        fprintf(ar->f, "%s%" ZIG_PRI_llu, negative_str, node->data.number_literal.bignum->data.x_uint);
-                    }
-                    break;
-                case BigNumKindFloat:
-                    fprintf(ar->f, "%f", node->data.number_literal.bignum->data.x_float);
-                    break;
+        case NodeTypeFloatLiteral:
+            {
+                Buf rendered_buf = BUF_INIT;
+                buf_resize(&rendered_buf, 0);
+                bigfloat_write_buf(&rendered_buf, node->data.float_literal.bigfloat);
+                fprintf(ar->f, "%s", buf_ptr(&rendered_buf));
+            }
+            break;
+        case NodeTypeIntLiteral:
+            {
+                Buf rendered_buf = BUF_INIT;
+                buf_resize(&rendered_buf, 0);
+                bigint_write_buf(&rendered_buf, node->data.int_literal.bigint, 10);
+                fprintf(ar->f, "%s", buf_ptr(&rendered_buf));
             }
             break;
         case NodeTypeStringLiteral:
