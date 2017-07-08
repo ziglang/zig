@@ -216,11 +216,6 @@ struct ConstGlobalRefs {
     LLVMValueRef llvm_global;
 };
 
-enum ConstNumLitKind {
-    ConstNumLitKindInt,
-    ConstNumLitKindFloat,
-};
-
 struct ConstExprValue {
     TypeTableEntry *type;
     ConstValSpecial special;
