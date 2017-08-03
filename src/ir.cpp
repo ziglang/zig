@@ -7819,6 +7819,12 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
 static IrInstruction *ir_implicit_cast(IrAnalyze *ira, IrInstruction *value, TypeTableEntry *expected_type) {
     assert(value);
     assert(value != ira->codegen->invalid_instruction);
+    if(expected_type && type_is_invalid(expected_type)) {
+        ir_add_error(ira, value,
+                buf_sprintf("type '%s' is invalid",
+                    buf_ptr(&expected_type->name)));
+            return ira->codegen->invalid_instruction;
+    };
     assert(!expected_type || !type_is_invalid(expected_type));
     assert(value->value.type);
     assert(!type_is_invalid(value->value.type));
