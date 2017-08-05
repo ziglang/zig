@@ -1918,4 +1918,17 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         ".tmp_source.zig:1:13: error: aoeu",
         ".tmp_source.zig:3:19: note: referenced here",
         ".tmp_source.zig:7:12: note: referenced here");
+
+    cases.add("instantiating an undefined value for an invalid struct that contains itself",
+        \\const Foo = struct {
+        \\    x: Foo,
+        \\};
+        \\
+        \\var foo: Foo = undefined;
+        \\
+        \\export fn entry() -> usize {
+        \\    return @sizeOf(@typeOf(foo.x));
+        \\}
+    ,
+        ".tmp_source.zig:1:13: error: struct 'Foo' contains itself");
 }

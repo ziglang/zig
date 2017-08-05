@@ -6945,6 +6945,9 @@ IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node
         FnTableEntry *fn_entry, Buf *c_import_buf, AstNode *source_node, Buf *exec_name,
         IrExecutable *parent_exec)
 {
+    if (expected_type != nullptr && type_is_invalid(expected_type))
+        return codegen->invalid_instruction;
+
     IrExecutable ir_executable = {0};
     ir_executable.source_node = source_node;
     ir_executable.parent_exec = parent_exec;
@@ -14112,6 +14115,7 @@ TypeTableEntry *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutabl
         TypeTableEntry *expected_type, AstNode *expected_type_source_node)
 {
     assert(!old_exec->invalid);
+    assert(expected_type == nullptr || !type_is_invalid(expected_type));
 
     IrAnalyze ir_analyze_data = {};
     IrAnalyze *ira = &ir_analyze_data;

@@ -3704,6 +3704,9 @@ void init_const_undefined(CodeGen *g, ConstExprValue *const_val) {
         const_val->data.x_array.special = ConstArraySpecialUndef;
     } else if (wanted_type->id == TypeTableEntryIdStruct) {
         ensure_complete_type(g, wanted_type);
+        if (type_is_invalid(wanted_type)) {
+            return;
+        }
 
         const_val->special = ConstValSpecialStatic;
         size_t field_count = wanted_type->data.structure.src_field_count;
