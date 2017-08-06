@@ -7,7 +7,7 @@ pub extern "kernel32" stdcallcc fn CryptReleaseContext(hProv: HCRYPTPROV, dwFlag
 
 pub extern "kernel32" stdcallcc fn CryptGenRandom(hProv: HCRYPTPROV, dwLen: DWORD, pbBuffer: &BYTE) -> bool;
 
-pub extern "kernel32" fn ExitProcess(exit_code: UINT) -> noreturn;
+pub extern "kernel32" stdcallcc fn ExitProcess(exit_code: UINT) -> noreturn;
 
 pub extern "kernel32" stdcallcc fn GetCommandLine() -> LPTSTR;
 
