@@ -5132,6 +5132,38 @@ static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
     }
 }
 
+static const char *preprocessor_alphabet1 = "_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+static const char *preprocessor_alphabet2 = "_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+static bool need_to_preprocessor_mangle(Buf *src) {
+    for (size_t i = 0; i < buf_len(src); i += 1) {
+        const char *alphabet = (i == 0) ? preprocessor_alphabet1 : preprocessor_alphabet2;
+        uint8_t byte = buf_ptr(src)[i];
+        if (strchr(alphabet, byte) == nullptr) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static Buf *preprocessor_mangle(Buf *src) {
+    if (!need_to_preprocessor_mangle(src)) {
+        return buf_create_from_buf(src);
+    }
+    Buf *result = buf_alloc();
+    for (size_t i = 0; i < buf_len(src); i += 1) {
+        const char *alphabet = (i == 0) ? preprocessor_alphabet1 : preprocessor_alphabet2;
+        uint8_t byte = buf_ptr(src)[i];
+        if (strchr(alphabet, byte) == nullptr) {
+            // perform escape
+            buf_appendf(result, "_%02x_", byte);
+        } else {
+            buf_append_char(result, byte);
+        }
+    }
+    return result;
+}
+
 static void gen_h_file(CodeGen *g) {
     if (!g->want_h_file)
         return;
@@ -5148,10 +5180,10 @@ static void gen_h_file(CodeGen *g) {
     if (!out_h)
         zig_panic("unable to open %s: %s", buf_ptr(g->out_h_path), strerror(errno));
 
-    Buf *export_macro = buf_sprintf("%s_EXPORT", buf_ptr(g->root_out_name));
+    Buf *export_macro = preprocessor_mangle(buf_sprintf("%s_EXPORT", buf_ptr(g->root_out_name)));
     buf_upcase(export_macro);
 
-    Buf *extern_c_macro = buf_sprintf("%s_EXTERN_C", buf_ptr(g->root_out_name));
+    Buf *extern_c_macro = preprocessor_mangle(buf_sprintf("%s_EXTERN_C", buf_ptr(g->root_out_name)));
     buf_upcase(extern_c_macro);
 
     Buf h_buf = BUF_INIT;
@@ -5194,8 +5226,7 @@ static void gen_h_file(CodeGen *g) {
 
     }
 
-    Buf *ifdef_dance_name = buf_sprintf("%s_%s_H",
-            buf_ptr(g->root_out_name), buf_ptr(g->root_out_name));
+    Buf *ifdef_dance_name = preprocessor_mangle(buf_sprintf("%s_H", buf_ptr(g->root_out_name)));
     buf_upcase(ifdef_dance_name);
 
     fprintf(out_h, "#ifndef %s\n", buf_ptr(ifdef_dance_name));
