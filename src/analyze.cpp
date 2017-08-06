@@ -813,8 +813,19 @@ static const char *calling_convention_name(CallingConvention cc) {
         case CallingConventionCold: return "coldcc";
         case CallingConventionNaked: return "nakedcc";
         case CallingConventionStdcall: return "stdcallcc";
-        default: zig_unreachable();
     }
+    zig_unreachable();
+}
+
+static const char *calling_convention_fn_type_str(CallingConvention cc) {
+    switch (cc) {
+        case CallingConventionUnspecified: return "";
+        case CallingConventionC: return "extern ";
+        case CallingConventionCold: return "coldcc ";
+        case CallingConventionNaked: return "nakedcc ";
+        case CallingConventionStdcall: return "stdcallcc ";
+    }
+    zig_unreachable();
 }
 
 TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
@@ -832,24 +843,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
 
     // populate the name of the type
     buf_resize(&fn_type->name, 0);
-    const char *cc_str;
-    switch (fn_type->data.fn.fn_type_id.cc) {
-        case CallingConventionUnspecified:
-            cc_str = "";
-            break;
-        case CallingConventionC:
-            cc_str = "extern ";
-            break;
-        case CallingConventionCold:
-            cc_str = "coldcc ";
-            break;
-        case CallingConventionNaked:
-            cc_str = "nakedcc ";
-            break;
-        case CallingConventionStdcall:
-            cc_str = "stdcallcc ";
-            break;
-    }
+    const char *cc_str = calling_convention_fn_type_str(fn_type->data.fn.fn_type_id.cc);
     buf_appendf(&fn_type->name, "%sfn(", cc_str);
     for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
         FnTypeParamInfo *param_info = &fn_type_id->param_info[i];
@@ -4145,6 +4139,8 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
 }
 
 TypeTableEntry *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
+    assert(size_in_bits > 0);
+
     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
     entry->is_copyable = true;
     entry->type_ref = LLVMIntType(size_in_bits);

@@ -3891,6 +3891,9 @@ static void do_code_gen(CodeGen *g) {
             ConstExprValue *const_val = var->value;
             assert(const_val->special != ConstValSpecialRuntime);
             size_t bits_needed = bigint_bits_needed(&const_val->data.x_bigint);
+            if (bits_needed < 8) {
+                bits_needed = 8;
+            }
             TypeTableEntry *var_type = get_int_type(g, const_val->data.x_bigint.is_negative, bits_needed);
             LLVMValueRef init_val = bigint_to_llvm_const(var_type->type_ref, &const_val->data.x_bigint);
             gen_global_var(g, var, init_val, var_type);
