@@ -737,7 +737,11 @@ static void ir_print_fn_proto(IrPrint *irp, IrInstructionFnProto *instruction) {
     for (size_t i = 0; i < instruction->base.source_node->data.fn_proto.params.length; i += 1) {
         if (i != 0)
             fprintf(irp->f, ",");
-        ir_print_other_instruction(irp, instruction->param_types[i]);
+        if (instruction->is_var_args && i == instruction->base.source_node->data.fn_proto.params.length - 1) {
+            fprintf(irp->f, "...");
+        } else {
+            ir_print_other_instruction(irp, instruction->param_types[i]);
+        }
     }
     fprintf(irp->f, ")->");
     ir_print_other_instruction(irp, instruction->return_type);
