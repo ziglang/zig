@@ -16,6 +16,7 @@ static const ArchType arch_list[] = {
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8_2a},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8_1a},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8},
+    {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8r},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8m_baseline},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8m_mainline},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v7},
@@ -48,11 +49,14 @@ static const ArchType arch_list[] = {
     {ZigLLVM_ppc64le, ZigLLVM_NoSubArch},
     {ZigLLVM_r600, ZigLLVM_NoSubArch},
     {ZigLLVM_amdgcn, ZigLLVM_NoSubArch},
+    {ZigLLVM_riscv32, ZigLLVM_NoSubArch},
+    {ZigLLVM_riscv64, ZigLLVM_NoSubArch},
     {ZigLLVM_sparc, ZigLLVM_NoSubArch},
     {ZigLLVM_sparcv9, ZigLLVM_NoSubArch},
     {ZigLLVM_sparcel, ZigLLVM_NoSubArch},
     {ZigLLVM_systemz, ZigLLVM_NoSubArch},
     {ZigLLVM_tce, ZigLLVM_NoSubArch},
+    {ZigLLVM_tcele, ZigLLVM_NoSubArch},
     {ZigLLVM_thumb, ZigLLVM_NoSubArch},
     {ZigLLVM_thumbeb, ZigLLVM_NoSubArch},
     {ZigLLVM_x86, ZigLLVM_NoSubArch},
@@ -104,6 +108,7 @@ static const ZigLLVM_OSType os_list[] = {
     ZigLLVM_Darwin,
     ZigLLVM_DragonFly,
     ZigLLVM_FreeBSD,
+    ZigLLVM_Fuchsia,
     ZigLLVM_IOS,
     ZigLLVM_KFreeBSD,
     ZigLLVM_Linux,
@@ -128,9 +133,12 @@ static const ZigLLVM_OSType os_list[] = {
     ZigLLVM_TvOS,
     ZigLLVM_WatchOS,
     ZigLLVM_Mesa3D,
+    ZigLLVM_Contiki,
 };
 
 static const ZigLLVM_EnvironmentType environ_list[] = {
+    ZigLLVM_UnknownEnvironment,
+
     ZigLLVM_GNU,
     ZigLLVM_GNUABI64,
     ZigLLVM_GNUEABI,
