@@ -43,8 +43,7 @@ fn errol3u(val: f64, buffer: []u8) -> FloatDecimal {
     
     // normalize the midpoint
 
-    var e: i32 = undefined;
-    _ = math.frexp(val, &e);
+    const e = math.frexp(val).exponent;
     var exp = i16(math.floor(307 + f64(e) * 0.30103));
     if (exp < 20) {
         exp = 20;

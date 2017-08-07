@@ -6206,7 +6206,9 @@ static bool const_val_fits_in_num_lit(ConstExprValue *const_val, TypeTableEntry 
         (const_val->type->id == TypeTableEntryIdInt || const_val->type->id == TypeTableEntryIdNumLitInt)));
 }
 
-static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruction, TypeTableEntry *other_type) {
+static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruction, TypeTableEntry *other_type,
+        bool explicit_cast)
+{
     if (type_is_invalid(other_type)) {
         return false;
     }
@@ -6241,6 +6243,32 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
             }
         } else if (child_type->id == TypeTableEntryIdFloat && const_val_is_float) {
             return true;
+        }
+    }
+    if (explicit_cast && (other_type->id == TypeTableEntryIdInt || other_type->id == TypeTableEntryIdNumLitInt) &&
+        const_val_is_float)
+    {
+        if (bigfloat_has_fraction(&const_val->data.x_bigfloat)) {
+            Buf *val_buf = buf_alloc();
+            bigfloat_write_buf(val_buf, &const_val->data.x_bigfloat);
+
+            ir_add_error(ira, instruction,
+                buf_sprintf("fractional component prevents float value %s from being casted to type '%s'",
+                    buf_ptr(val_buf),
+                    buf_ptr(&other_type->name)));
+            return false;
+        } else {
+            BigInt bigint;
+            bigint_init_bigfloat(&bigint, &const_val->data.x_bigfloat);
+            if (other_type->id == TypeTableEntryIdNumLitInt) {
+                return true;
+            } else {
+                if (bigint_fits_in_bits(&bigint, other_type->data.integral.bit_count,
+                    other_type->data.integral.is_signed))
+                {
+                    return true;
+                }
+            }
         }
     }
 
@@ -6425,12 +6453,12 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
         if (expected_type->id == TypeTableEntryIdPointer &&
             expected_type->data.pointer.is_const)
         {
-            if (ir_num_lit_fits_in_other_type(ira, value, expected_type->data.pointer.child_type)) {
+            if (ir_num_lit_fits_in_other_type(ira, value, expected_type->data.pointer.child_type, false)) {
                 return ImplicitCastMatchResultYes;
             } else {
                 return ImplicitCastMatchResultReportedError;
             }
-        } else if (ir_num_lit_fits_in_other_type(ira, value, expected_type)) {
+        } else if (ir_num_lit_fits_in_other_type(ira, value, expected_type, false)) {
             return ImplicitCastMatchResultYes;
         } else {
             return ImplicitCastMatchResultReportedError;
@@ -6542,7 +6570,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         } else if (prev_type->id == TypeTableEntryIdNumLitInt ||
                     prev_type->id == TypeTableEntryIdNumLitFloat)
         {
-            if (ir_num_lit_fits_in_other_type(ira, prev_inst, cur_type)) {
+            if (ir_num_lit_fits_in_other_type(ira, prev_inst, cur_type, false)) {
                 prev_inst = cur_inst;
                 continue;
             } else {
@@ -6551,7 +6579,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         } else if (cur_type->id == TypeTableEntryIdNumLitInt ||
                    cur_type->id == TypeTableEntryIdNumLitFloat)
         {
-            if (ir_num_lit_fits_in_other_type(ira, cur_inst, prev_type)) {
+            if (ir_num_lit_fits_in_other_type(ira, cur_inst, prev_type, false)) {
                 continue;
             } else {
                 return ira->codegen->builtin_types.entry_invalid;
@@ -7636,7 +7664,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         } else if (actual_type->id == TypeTableEntryIdNumLitInt ||
                    actual_type->id == TypeTableEntryIdNumLitFloat)
         {
-            if (ir_num_lit_fits_in_other_type(ira, value, wanted_type->data.maybe.child_type)) {
+            if (ir_num_lit_fits_in_other_type(ira, value, wanted_type->data.maybe.child_type, true)) {
                 return ir_analyze_maybe_wrap(ira, source_instr, value, wanted_type);
             } else {
                 return ira->codegen->invalid_instruction;
@@ -7658,7 +7686,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         } else if (actual_type->id == TypeTableEntryIdNumLitInt ||
                    actual_type->id == TypeTableEntryIdNumLitFloat)
         {
-            if (ir_num_lit_fits_in_other_type(ira, value, wanted_type->data.error.child_type)) {
+            if (ir_num_lit_fits_in_other_type(ira, value, wanted_type->data.error.child_type, true)) {
                 return ir_analyze_err_wrap_payload(ira, source_instr, value, wanted_type);
             } else {
                 return ira->codegen->invalid_instruction;
@@ -7736,7 +7764,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
                 return ira->codegen->invalid_instruction;
 
             return cast2;
-        } else if (ir_num_lit_fits_in_other_type(ira, value, wanted_type)) {
+        } else if (ir_num_lit_fits_in_other_type(ira, value, wanted_type, true)) {
             CastOp op;
             if ((actual_type->id == TypeTableEntryIdNumLitFloat &&
                  wanted_type->id == TypeTableEntryIdFloat) ||
@@ -8630,7 +8658,7 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
             return ira->codegen->builtin_types.entry_invalid;
         }
 
-        ir_num_lit_fits_in_other_type(ira, &bin_op_instruction->base, resolved_type);
+        ir_num_lit_fits_in_other_type(ira, &bin_op_instruction->base, resolved_type, false);
         return resolved_type;
     }
 

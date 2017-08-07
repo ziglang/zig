@@ -251,3 +251,10 @@ fn testPeerErrorAndArray2(x: u8) -> %[]const u8 {
         else => error.BadValue,
     }
 }
+
+test "explicit cast float number literal to integer if no fraction component" {
+    const x = i32(1e4);
+    assert(x == 10000);
+    const y = i32(f32(1e4));
+    assert(y == 10000);
+}

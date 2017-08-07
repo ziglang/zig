@@ -150,3 +150,7 @@ Cmp bigfloat_cmp_zero(const BigFloat *bigfloat) {
         return CmpEQ;
     }
 }
+
+bool bigfloat_has_fraction(const BigFloat *bigfloat) {
+    return floorl(bigfloat->value) != bigfloat->value;
+}

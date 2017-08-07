@@ -43,5 +43,6 @@ void bigfloat_read_ieee597(BigFloat *dest, const uint8_t *buf, size_t bit_count,
 
 // convenience functions
 Cmp bigfloat_cmp_zero(const BigFloat *bigfloat);
+bool bigfloat_has_fraction(const BigFloat *bigfloat);
 
 #endif

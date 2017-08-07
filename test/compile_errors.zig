@@ -1945,4 +1945,11 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:2:15: error: float literal out of range of any type");
+
+    cases.add("explicit cast float literal to integer when there is a fraction component",
+        \\export fn entry() -> i32 {
+        \\    i32(12.34)
+        \\}
+    ,
+        ".tmp_source.zig:2:9: error: fractional component prevents float value 12.340000 from being casted to type 'i32'");
 }
