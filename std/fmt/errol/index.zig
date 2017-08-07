@@ -181,7 +181,7 @@ fn split(val: f64, hi: &f64, lo: &f64) {
     *lo = val - *hi;
 }
 
-fn gethi(in: f64) {
+fn gethi(in: f64) -> f64 {
     const bits = @bitCast(u64, in);
     const new_bits = bits & 0xFFFFFFFFF8000000;
     return @bitCast(f64, new_bits);
@@ -199,7 +199,7 @@ fn hpNormalize(hp: &HP) {
 /// Divide the high-precision number by ten.
 ///   @hp: The high-precision number
 fn hpDiv10(hp: &HP) {
-    const val = hp.val;
+    var val = hp.val;
 
     hp.val /= 10.0;
     hp.off /= 10.0;
@@ -235,7 +235,7 @@ fn hpMul10(hp: &HP) {
 ///  @buf: The output buffer.
 ///  &return: The exponent.
 fn errolInt(val: f64, buffer: []u8) -> FloatDecimal {
-    const pow19 = 1e19;
+    const pow19 = u128(1e19);
 
     assert((val >= 9.007199254740992e15) and val < (3.40282366920938e38));
 
@@ -249,10 +249,10 @@ fn errolInt(val: f64, buffer: []u8) -> FloatDecimal {
         low -= 1;
     }
 
-    const l64 = u64(low % pow19);
+    var l64 = u64(low % pow19);
     const lf = u64((low / pow19) % pow19);
 
-    const h64 = u64(high % pow19);
+    var h64 = u64(high % pow19);
     const hf = u64((high / pow19) % pow19);
 
     if (lf != hf) {
@@ -269,7 +269,7 @@ fn errolInt(val: f64, buffer: []u8) -> FloatDecimal {
             x *= 10;
         }
     }
-    const m64: u64 = mid / x;
+    const m64 = @truncate(u64, @divTrunc(mid, x));
 
     if (lf != hf)
         mi += 19;
@@ -277,14 +277,14 @@ fn errolInt(val: f64, buffer: []u8) -> FloatDecimal {
     var buf_index = u64toa(m64, buffer) - 1;
 
     if (mi != 0) {
-        buffer[buf_index - 1] += (buffer[buf_index] >= '5');
+        buffer[buf_index - 1] += u8(buffer[buf_index] >= '5');
     } else {
         buf_index += 1;
     }
 
     return FloatDecimal {
         .digits = buffer[0..buf_index],
-        .exp = buf_index + mi,
+        .exp = i32(buf_index) + mi,
     };
 }
 
@@ -303,25 +303,25 @@ fn errolFixed(val: f64, buffer: []u8) -> FloatDecimal {
     var hi = ((fpnext(val) - n) + mid) / 2.0;
 
     var buf_index = u64toa(u, buffer);
-    var exp: i32 = buf_index;
-    var j: i32 = exp;
+    var exp = i32(buf_index);
+    var j = buf_index;
     buffer[j] = 0;
 
     if (mid != 0.0) {
         while (mid != 0.0) {
             lo *= 10.0;
-            var ldig = i32(lo);
-            lo -= ldig;
+            const ldig = i32(lo);
+            lo -= f64(ldig);
 
             mid *= 10.0;
-            var mdig = i32(mid);
-            mid -= mdig;
+            const mdig = i32(mid);
+            mid -= f64(mdig);
 
             hi *= 10.0;
-            var hdig = i32(hi);
-            hi -= hdig;
+            const hdig = i32(hi);
+            hi -= f64(hdig);
 
-            buffer[j] = mdig + '0';
+            buffer[j] = u8(mdig + '0');
             j += 1;
 
             if(hdig != ldig or j > 50)
@@ -330,7 +330,7 @@ fn errolFixed(val: f64, buffer: []u8) -> FloatDecimal {
 
         if (mid > 0.5) {
             buffer[j-1] += 1;
-        } else if ((mid == 0.5) and (buffer[j-1] & 0x1)) {
+        } else if ((mid == 0.5) and (buffer[j-1] & 0x1) != 0) {
             buffer[j-1] += 1;
         }
     } else {
@@ -374,7 +374,8 @@ pub const c_digits_lut = []u8 {
     '9', '8', '9', '9',
 };
 
-fn u64toa(value: u64, buffer: []u8) -> usize {
+fn u64toa(value_param: u64, buffer: []u8) -> usize {
+    var value = value_param;
     const kTen8: u64 = 100000000;
     const kTen9: u64 = kTen8 * 10;
     const kTen10: u64 = kTen8 * 100;
@@ -443,8 +444,8 @@ fn u64toa(value: u64, buffer: []u8) -> usize {
             buf_index += 1;
         }
     } else if (value < kTen16) {
-        const v0: u32 = (uint32_t)(value / kTen8);
-        const v1: u32 = (uint32_t)(value % kTen8);
+        const v0: u32 = u32(value / kTen8);
+        const v1: u32 = u32(value % kTen8);
 
         const b0: u32 = v0 / 10000;
         const c0: u32 = v0 % 10000;
@@ -518,11 +519,11 @@ fn u64toa(value: u64, buffer: []u8) -> usize {
         buffer[buf_index] = c_digits_lut[d8 + 1];
         buf_index += 1;
     } else {
-        const a: u32 = (uint32_t)(value / kTen16);  // 1 to 1844
+        const a = u32(value / kTen16);  // 1 to 1844
         value %= kTen16;
 
         if (a < 10) {
-            buffer[buf_index] = (char)('0' + (char)(a));
+            buffer[buf_index] = '0' + u8(a);
             buf_index += 1;
         } else if (a < 100) {
             const i: u32 = a << 1;
@@ -531,7 +532,7 @@ fn u64toa(value: u64, buffer: []u8) -> usize {
             buffer[buf_index] = c_digits_lut[i + 1];
             buf_index += 1;
         } else if (a < 1000) {
-            buffer[buf_index] = (char)('0' + (char)(a / 100));
+            buffer[buf_index] = '0' + u8(a / 100);
             buf_index += 1;
 
             const i: u32 = (a % 100) << 1;
@@ -552,8 +553,8 @@ fn u64toa(value: u64, buffer: []u8) -> usize {
             buf_index += 1;
         }
 
-        const v0: u32 = (uint32_t)(value / kTen8);
-        const v1: u32 = (uint32_t)(value % kTen8);
+        const v0 = u32(value / kTen8);
+        const v1 = u32(value % kTen8);
 
         const b0: u32 = v0 / 10000;
         const c0: u32 = v0 % 10000;
