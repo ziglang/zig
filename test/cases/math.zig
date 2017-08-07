@@ -251,3 +251,9 @@ test "allow signed integer division/remainder when values are comptime known and
 test "float literal parsing" {
     comptime assert(0x1.0 == 1.0);
 }
+
+test "hex float literal within range" {
+    const a = 0x1.0p1023;
+    const b = 0x0.1p1027;
+    const c = 0x1.0p-1022;
+}
