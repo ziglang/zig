@@ -1931,4 +1931,18 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:1:13: error: struct 'Foo' contains itself");
+
+    cases.add("float literal too large error",
+        \\comptime {
+        \\    const a = 0x1.0p1024;
+        \\}
+    ,
+        ".tmp_source.zig:2:15: error: float literal out of range of any type");
+
+    cases.add("float literal too small error (denormal)",
+        \\comptime {
+        \\    const a = 0x1.0p-1023;
+        \\}
+    ,
+        ".tmp_source.zig:2:15: error: float literal out of range of any type");
 }

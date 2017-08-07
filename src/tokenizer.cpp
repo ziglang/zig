@@ -333,7 +333,7 @@ static void end_float_token(Tokenize *t) {
         } else {
             int significand_magnitude_in_bin = __builtin_clzll(1) - __builtin_clzll(significand);
             t->exponent_in_bin_or_dec += significand_magnitude_in_bin;
-            if (!(-1023 <= t->exponent_in_bin_or_dec && t->exponent_in_bin_or_dec < 1023)) {
+            if (!(-1022 <= t->exponent_in_bin_or_dec && t->exponent_in_bin_or_dec <= 1023)) {
                 t->cur_tok->data.float_lit.overflow = true;
                 return;
             } else {

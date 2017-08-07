@@ -3704,7 +3704,7 @@ static IrInstruction *ir_gen_float_lit(IrBuilder *irb, Scope *scope, AstNode *no
     assert(node->type == NodeTypeFloatLiteral);
 
     if (node->data.float_literal.overflow) {
-        add_node_error(irb->codegen, node, buf_sprintf("float literal too large to be represented in any type"));
+        add_node_error(irb->codegen, node, buf_sprintf("float literal out of range of any type"));
         return irb->codegen->invalid_instruction;
     }
 
