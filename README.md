@@ -136,5 +136,5 @@ produced .gcov files.
  * Only one obvious way to do things.
  * Runtime crashes are better than bugs.
  * Compile errors are better than runtime crashes.
- * Coding style is petty.
+ * Minimize energy spent on coding style.
  * Together we serve the users.
