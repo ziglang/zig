@@ -1226,6 +1226,7 @@ enum BuiltinFnId {
     BuiltinFnIdPtrCast,
     BuiltinFnIdBitCast,
     BuiltinFnIdIntToPtr,
+    BuiltinFnIdPtrToInt,
     BuiltinFnIdEnumTagName,
     BuiltinFnIdFieldParentPtr,
     BuiltinFnIdOffsetOf,

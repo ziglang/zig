@@ -1769,7 +1769,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("save reference to inline function",
         \\export fn foo() {
-        \\    quux(usize(bar));
+        \\    quux(@ptrToInt(bar));
         \\}
         \\inline fn bar() { }
         \\extern fn quux(usize);
@@ -1952,4 +1952,11 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:2:9: error: fractional component prevents float value 12.340000 from being casted to type 'i32'");
+
+    cases.add("non pointer given to @ptrToInt",
+        \\export fn entry(x: i32) -> usize {
+        \\    @ptrToInt(x)
+        \\}
+    ,
+        ".tmp_source.zig:2:15: error: expected pointer, found 'i32'");
 }

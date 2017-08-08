@@ -83,7 +83,7 @@ pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty
 
             var ignored_count: usize = 0;
 
-            var fp = usize(@frameAddress());
+            var fp = @ptrToInt(@frameAddress());
             while (fp != 0) : (fp = *@intToPtr(&const usize, fp)) {
                 if (ignored_count < ignore_frame_count) {
                     ignored_count += 1;

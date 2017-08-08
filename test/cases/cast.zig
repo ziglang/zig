@@ -4,13 +4,13 @@ const mem = @import("std").mem;
 test "int to ptr cast" {
     const x = usize(13);
     const y = @intToPtr(&u8, x);
-    const z = usize(y);
+    const z = @ptrToInt(y);
     assert(z == 13);
 }
 
 test "integer literal to pointer cast" {
     const vga_mem = @intToPtr(&u16, 0xB8000);
-    assert(usize(vga_mem) == 0xB8000);
+    assert(@ptrToInt(vga_mem) == 0xB8000);
 }
 
 test "pointer reinterpret const float to int" {

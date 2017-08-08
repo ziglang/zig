@@ -4372,6 +4372,15 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 return ir_build_int_to_ptr(irb, scope, node, arg0_value, arg1_value);
             }
+        case BuiltinFnIdPtrToInt:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                return ir_build_ptr_to_int(irb, scope, node, arg0_value);
+            }
         case BuiltinFnIdEnumTagName:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
@@ -7336,30 +7345,6 @@ static IrInstruction *ir_analyze_widen_or_shorten(IrAnalyze *ira, IrInstruction 
     return result;
 }
 
-static IrInstruction *ir_analyze_ptr_to_int(IrAnalyze *ira, IrInstruction *source_instr,
-        IrInstruction *target, TypeTableEntry *wanted_type)
-{
-    assert(wanted_type->id == TypeTableEntryIdInt);
-
-    if (instr_is_comptime(target)) {
-        ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
-        if (!val)
-            return ira->codegen->invalid_instruction;
-        if (val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
-            IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
-                    source_instr->source_node, wanted_type);
-            bigint_init_unsigned(&result->value.data.x_bigint, val->data.x_ptr.data.hard_coded_addr.addr);
-            return result;
-        }
-    }
-
-    IrInstruction *result = ir_build_ptr_to_int(&ira->new_irb, source_instr->scope,
-            source_instr->source_node, target);
-    result->value.type = wanted_type;
-    return result;
-}
-
-
 static IrInstruction *ir_analyze_int_to_enum(IrAnalyze *ira, IrInstruction *source_instr,
         IrInstruction *target, TypeTableEntry *wanted_type)
 {
@@ -7500,7 +7485,6 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     TypeTableEntry *wanted_type, IrInstruction *value)
 {
     TypeTableEntry *actual_type = value->value.type;
-    TypeTableEntry *usize_type = ira->codegen->builtin_types.entry_usize;
 
     if (type_is_invalid(wanted_type) || type_is_invalid(actual_type)) {
         return ira->codegen->invalid_instruction;
@@ -7519,11 +7503,6 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         actual_type->id == TypeTableEntryIdBool)
     {
         return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpBoolToInt, false);
-    }
-
-    // explicit cast from pointer to usize
-    if (wanted_type == usize_type && type_is_codegen_pointer(actual_type)) {
-        return ir_analyze_ptr_to_int(ira, source_instr, value, wanted_type);
     }
 
     // explicit widening or shortening cast
@@ -13937,6 +13916,47 @@ static TypeTableEntry *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
     zig_unreachable();
 }
 
+static TypeTableEntry *ir_analyze_instruction_ptr_to_int(IrAnalyze *ira, IrInstructionPtrToInt *instruction) {
+    IrInstruction *target = instruction->target->other;
+    if (type_is_invalid(target->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    TypeTableEntry *usize = ira->codegen->builtin_types.entry_usize;
+
+    if (!(target->value.type->id == TypeTableEntryIdPointer ||
+          target->value.type->id == TypeTableEntryIdFn ||
+        (target->value.type->id == TypeTableEntryIdMaybe &&
+        (target->value.type->data.maybe.child_type->id == TypeTableEntryIdPointer ||
+        target->value.type->data.maybe.child_type->id == TypeTableEntryIdFn))))
+    {
+        ir_add_error(ira, target,
+                buf_sprintf("expected pointer, found '%s'", buf_ptr(&target->value.type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    if (instr_is_comptime(target)) {
+        ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
+        if (!val)
+            return ira->codegen->builtin_types.entry_invalid;
+        if (target->value.type->id == TypeTableEntryIdMaybe) {
+            val = val->data.x_maybe;
+        }
+        if (val->type->id == TypeTableEntryIdPointer && val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
+            IrInstruction *result = ir_create_const(&ira->new_irb, instruction->base.scope,
+                    instruction->base.source_node, usize);
+            bigint_init_unsigned(&result->value.data.x_bigint, val->data.x_ptr.data.hard_coded_addr.addr);
+            ir_link_new_instruction(result, &instruction->base);
+            return usize;
+        }
+    }
+
+    IrInstruction *result = ir_build_ptr_to_int(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, target);
+    result->value.type = usize;
+    ir_link_new_instruction(result, &instruction->base);
+    return usize;
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -13948,7 +13968,6 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdEnumFieldPtr:
         case IrInstructionIdInitEnum:
-        case IrInstructionIdPtrToInt:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_analyze_instruction_return(ira, (IrInstructionReturn *)instruction);
@@ -14106,6 +14125,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_bit_cast(ira, (IrInstructionBitCast *)instruction);
         case IrInstructionIdIntToPtr:
             return ir_analyze_instruction_int_to_ptr(ira, (IrInstructionIntToPtr *)instruction);
+        case IrInstructionIdPtrToInt:
+            return ir_analyze_instruction_ptr_to_int(ira, (IrInstructionPtrToInt *)instruction);
         case IrInstructionIdEnumTagName:
             return ir_analyze_instruction_enum_tag_name(ira, (IrInstructionEnumTagName *)instruction);
         case IrInstructionIdFieldParentPtr:

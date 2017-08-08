@@ -28,7 +28,7 @@ test "offsetOf" {
 
     // Non-packed struct fields can be moved/padded
     const a: A = undefined;
-    assert(usize(&a.a) - usize(&a) == @offsetOf(A, "a"));
-    assert(usize(&a.b) - usize(&a) == @offsetOf(@typeOf(a), "b"));
-    assert(usize(&a.c) - usize(&a) == @offsetOf(@typeOf(a), "c"));
+    assert(@ptrToInt(&a.a) - @ptrToInt(&a) == @offsetOf(A, "a"));
+    assert(@ptrToInt(&a.b) - @ptrToInt(&a) == @offsetOf(@typeOf(a), "b"));
+    assert(@ptrToInt(&a.c) - @ptrToInt(&a) == @offsetOf(@typeOf(a), "c"));
 }
