@@ -2,16 +2,17 @@ dist: trusty
 sudo: required
 language: cpp
 before_install:
-  - sudo sh -c 'echo "deb http://apt.llvm.org/trusty/ llvm-toolchain-trusty-4.0 main" >> /etc/apt/sources.list'
+  - sudo sh -c 'echo "deb http://apt.llvm.org/trusty/ llvm-toolchain-trusty-5.0 main" >> /etc/apt/sources.list'
   - wget -O - http://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
+  - sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
   - sudo apt-get update -q
 install:
   - sudo apt-get remove -y llvm-*
   - sudo rm -rf /usr/local/*
-  - sudo apt-get install -y clang-4.0 libclang-4.0 libclang-4.0-dev llvm-4.0 llvm-4.0-dev liblld-4.0 liblld-4.0-dev cmake
+  - sudo apt-get install -y clang-5.0 libclang-5.0 libclang-5.0-dev llvm-5.0 llvm-5.0-dev liblld-5.0 liblld-5.0-dev cmake
 script:
-  - export CC=clang-4.0
-  - export CXX=clang++-4.0
+  - export CC=clang-5.0
+  - export CXX=clang++-5.0
   - which $CC
   - which $CXX
   - echo $PATH
