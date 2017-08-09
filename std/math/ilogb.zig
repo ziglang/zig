@@ -49,7 +49,7 @@ fn ilogb32(x: f32) -> i32 {
 
     if (e == 0xFF) {
         math.raiseInvalid();
-        if (u <<% 9 != 0) {
+        if (u << 9 != 0) {
             return fp_ilogbnan;
         } else {
             return @maxValue(i32);
@@ -84,7 +84,7 @@ fn ilogb64(x: f64) -> i32 {
 
     if (e == 0x7FF) {
         math.raiseInvalid();
-        if (u <<% 12 != 0) {
+        if (u << 12 != 0) {
             return fp_ilogbnan;
         } else {
             return @maxValue(i32);

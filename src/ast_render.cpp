@@ -26,7 +26,6 @@ static const char *bin_op_str(BinOpType bin_op) {
         case BinOpTypeBinXor:                 return "^";
         case BinOpTypeBinAnd:                 return "&";
         case BinOpTypeBitShiftLeft:           return "<<";
-        case BinOpTypeBitShiftLeftWrap:       return "<<%";
         case BinOpTypeBitShiftRight:          return ">>";
         case BinOpTypeAdd:                    return "+";
         case BinOpTypeAddWrap:                return "+%";
@@ -46,7 +45,6 @@ static const char *bin_op_str(BinOpType bin_op) {
         case BinOpTypeAssignMinus:            return "-=";
         case BinOpTypeAssignMinusWrap:        return "-%=";
         case BinOpTypeAssignBitShiftLeft:     return "<<=";
-        case BinOpTypeAssignBitShiftLeftWrap: return "<<%=";
         case BinOpTypeAssignBitShiftRight:    return ">>=";
         case BinOpTypeAssignBitAnd:           return "&=";
         case BinOpTypeAssignBitXor:           return "^=";

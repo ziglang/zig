@@ -1959,4 +1959,18 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:2:15: error: expected pointer, found 'i32'");
+
+    cases.add("@shlExact shifts out 1 bits",
+        \\comptime {
+        \\    const x = @shlExact(u8(0b01010101), 2);
+        \\}
+    ,
+        ".tmp_source.zig:2:15: error: operation caused overflow");
+
+    cases.add("@shrExact shifts out 1 bits",
+        \\comptime {
+        \\    const x = @shrExact(u8(0b10101010), 2);
+        \\}
+    ,
+        ".tmp_source.zig:2:15: error: exact shift shifted out 1 bits");
 }

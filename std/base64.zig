@@ -21,11 +21,11 @@ pub fn encodeWithAlphabet(dest: []u8, source: []const u8, alphabet: []const u8) 
         dest[out_index] = alphabet[(source[i] >> 2) & 0x3f];
         out_index += 1;
 
-        dest[out_index] = alphabet[((source[i] & 0x3) <<% 4) |
+        dest[out_index] = alphabet[((source[i] & 0x3) << 4) |
                           ((source[i + 1] & 0xf0) >> 4)];
         out_index += 1;
 
-        dest[out_index] = alphabet[((source[i + 1] & 0xf) <<% 2) |
+        dest[out_index] = alphabet[((source[i + 1] & 0xf) << 2) |
                           ((source[i + 2] & 0xc0) >> 6)];
         out_index += 1;
 
@@ -38,17 +38,17 @@ pub fn encodeWithAlphabet(dest: []u8, source: []const u8, alphabet: []const u8) 
         out_index += 1;
 
         if (i + 1 == source.len) {
-            dest[out_index] = alphabet[(source[i] & 0x3) <<% 4];
+            dest[out_index] = alphabet[(source[i] & 0x3) << 4];
             out_index += 1;
 
             dest[out_index] = alphabet[64];
             out_index += 1;
         } else {
-            dest[out_index] = alphabet[((source[i] & 0x3) <<% 4) |
+            dest[out_index] = alphabet[((source[i] & 0x3) << 4) |
                               ((source[i + 1] & 0xf0) >> 4)];
             out_index += 1;
 
-            dest[out_index] = alphabet[(source[i + 1] & 0xf) <<% 2];
+            dest[out_index] = alphabet[(source[i + 1] & 0xf) << 2];
             out_index += 1;
         }
 
@@ -83,15 +83,15 @@ pub fn decodeWithAscii6BitMap(dest: []u8, source: []const u8, ascii6: []const u8
     }
 
     while (in_buf_len > 4) {
-        dest[dest_index] = ascii6[source[src_index + 0]] <<% 2 |
+        dest[dest_index] = ascii6[source[src_index + 0]] << 2 |
                    ascii6[source[src_index + 1]] >> 4;
         dest_index += 1;
 
-        dest[dest_index] = ascii6[source[src_index + 1]] <<% 4 |
+        dest[dest_index] = ascii6[source[src_index + 1]] << 4 |
                    ascii6[source[src_index + 2]] >> 2;
         dest_index += 1;
 
-        dest[dest_index] = ascii6[source[src_index + 2]] <<% 6 |
+        dest[dest_index] = ascii6[source[src_index + 2]] << 6 |
                    ascii6[source[src_index + 3]];
         dest_index += 1;
 
@@ -100,17 +100,17 @@ pub fn decodeWithAscii6BitMap(dest: []u8, source: []const u8, ascii6: []const u8
     }
 
     if (in_buf_len > 1) {
-        dest[dest_index] = ascii6[source[src_index + 0]] <<% 2 |
+        dest[dest_index] = ascii6[source[src_index + 0]] << 2 |
                    ascii6[source[src_index + 1]] >> 4;
         dest_index += 1;
     }
     if (in_buf_len > 2) {
-        dest[dest_index] = ascii6[source[src_index + 1]] <<% 4 |
+        dest[dest_index] = ascii6[source[src_index + 1]] << 4 |
                    ascii6[source[src_index + 2]] >> 2;
         dest_index += 1;
     }
     if (in_buf_len > 3) {
-        dest[dest_index] = ascii6[source[src_index + 2]] <<% 6 |
+        dest[dest_index] = ascii6[source[src_index + 2]] << 6 |
                    ascii6[source[src_index + 3]];
         dest_index += 1;
     }

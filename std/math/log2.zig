@@ -36,7 +36,7 @@ fn log2_32(x_: f32) -> f32 {
     // x < 2^(-126)
     if (ix < 0x00800000 or ix >> 31 != 0) {
         // log(+-0) = -inf
-        if (ix <<% 1 == 0) {
+        if (ix << 1 == 0) {
             return -math.inf(f32);
         }
         // log(-#) = nan
@@ -94,7 +94,7 @@ fn log2_64(x_: f64) -> f64 {
 
     if (hx < 0x00100000 or hx >> 31 != 0) {
         // log(+-0) = -inf
-        if (ix <<% 1 == 0) {
+        if (ix << 1 == 0) {
             return -math.inf(f64);
         }
         // log(-#) = nan
@@ -133,7 +133,7 @@ fn log2_64(x_: f64) -> f64 {
     // hi + lo = f - hfsq + s * (hfsq + R) ~ log(1 + f)
     var hi = f - hfsq;
     var hii = @bitCast(u64, hi);
-    hii &= u64(@maxValue(u64)) <<% 32;
+    hii &= u64(@maxValue(u64)) << 32;
     hi = @bitCast(f64, hii);
     const lo = f - hi - hfsq + s * (hfsq + R);
 

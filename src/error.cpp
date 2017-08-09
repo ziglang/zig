@@ -25,6 +25,7 @@ const char *err_str(int err) {
         case ErrorUnexpected: return "unexpected error";
         case ErrorExactDivRemainder: return "exact division had a remainder";
         case ErrorNegativeDenominator: return "negative denominator";
+        case ErrorShiftedOutOneBits: return "exact shift shifted out one bits";
     }
     return "(invalid error)";
 }

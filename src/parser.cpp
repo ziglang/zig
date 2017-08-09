@@ -1131,7 +1131,6 @@ static AstNode *ast_parse_add_expr(ParseContext *pc, size_t *token_index, bool m
 static BinOpType tok_to_bit_shift_op(Token *token) {
     switch (token->id) {
         case TokenIdBitShiftLeft:           return BinOpTypeBitShiftLeft;
-        case TokenIdBitShiftLeftPercent:    return BinOpTypeBitShiftLeftWrap;
         case TokenIdBitShiftRight:          return BinOpTypeBitShiftRight;
         default: return BinOpTypeInvalid;
     }
@@ -1909,7 +1908,6 @@ static BinOpType tok_to_ass_op(Token *token) {
         case TokenIdMinusEq: return BinOpTypeAssignMinus;
         case TokenIdMinusPercentEq: return BinOpTypeAssignMinusWrap;
         case TokenIdBitShiftLeftEq: return BinOpTypeAssignBitShiftLeft;
-        case TokenIdBitShiftLeftPercentEq: return BinOpTypeAssignBitShiftLeftWrap;
         case TokenIdBitShiftRightEq: return BinOpTypeAssignBitShiftRight;
         case TokenIdBitAndEq: return BinOpTypeAssignBitAnd;
         case TokenIdBitXorEq: return BinOpTypeAssignBitXor;

@@ -47,31 +47,31 @@ fn generic_fmod(comptime T: type, x: T, y: T) -> T {
     const sx = if (T == f32) u32(ux & 0x80000000) else i32(ux >> bits_minus_1);
     var i: uint = undefined;
 
-    if (uy <<% 1 == 0 or isNan(uint, uy) or ex == mask)
+    if (uy << 1 == 0 or isNan(uint, uy) or ex == mask)
         return (x * y) / (x * y);
 
-    if (ux <<% 1 <= uy <<% 1) {
-        if (ux <<% 1 == uy <<% 1)
+    if (ux << 1 <= uy << 1) {
+        if (ux << 1 == uy << 1)
             return 0 * x;
         return x;
     }
 
     // normalize x and y
     if (ex == 0) {
-        i = ux <<% exp_bits;
-        while (i >> bits_minus_1 == 0) : ({ex -= 1; i <<%= 1}) {}
-        ux <<%= @bitCast(u32, -ex + 1);
+        i = ux << exp_bits;
+        while (i >> bits_minus_1 == 0) : ({ex -= 1; i <<= 1}) {}
+        ux <<= @bitCast(u32, -ex + 1);
     } else {
         ux &= @maxValue(uint) >> exp_bits;
-        ux |= 1 <<% digits;
+        ux |= 1 << digits;
     }
     if (ey == 0) {
-        i = uy <<% exp_bits;
-        while (i >> bits_minus_1 == 0) : ({ey -= 1; i <<%= 1}) {}
+        i = uy << exp_bits;
+        while (i >> bits_minus_1 == 0) : ({ey -= 1; i <<= 1}) {}
         uy <<= @bitCast(u32, -ey + 1);
     } else {
         uy &= @maxValue(uint) >> exp_bits;
-        uy |= 1 <<% digits;
+        uy |= 1 << digits;
     }
 
     // x mod y
@@ -82,7 +82,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) -> T {
                 return 0 * x;
             ux = i;
         }
-        ux <<%= 1;
+        ux <<= 1;
     }
     i = ux -% uy;
     if (i >> bits_minus_1 == 0) {
@@ -90,19 +90,19 @@ fn generic_fmod(comptime T: type, x: T, y: T) -> T {
             return 0 * x;
         ux = i;
     }
-    while (ux >> digits == 0) : ({ux <<%= 1; ex -= 1}) {}
+    while (ux >> digits == 0) : ({ux <<= 1; ex -= 1}) {}
 
     // scale result up
     if (ex > 0) {
-        ux -%= 1 <<% digits;
-        ux |= @bitCast(u32, ex) <<% digits;
+        ux -%= 1 << digits;
+        ux |= @bitCast(u32, ex) << digits;
     } else {
         ux >>= @bitCast(u32, -ex + 1);
     }
     if (T == f32) {
         ux |= sx;
     } else {
-        ux |= uint(sx) <<% bits_minus_1;
+        ux |= uint(sx) << bits_minus_1;
     }
     return *@ptrCast(&const T, &ux);
 }
@@ -111,7 +111,7 @@ fn isNan(comptime T: type, bits: T) -> bool {
     if (T == u32) {
         return (bits & 0x7fffffff) > 0x7f800000;
     } else if (T == u64) {
-        return (bits & (@maxValue(u64) >> 1)) > (u64(0x7ff) <<% 52);
+        return (bits & (@maxValue(u64) >> 1)) > (u64(0x7ff) << 52);
     } else {
         unreachable;
     }

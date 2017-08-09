@@ -112,7 +112,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    if (x == 0) return error.Whatever;
         \\}
         \\fn shl(a: i16, b: i16) -> i16 {
-        \\    a << b
+        \\    @shlExact(a, b)
         \\}
     );
 
@@ -127,7 +127,37 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    if (x == 0) return error.Whatever;
         \\}
         \\fn shl(a: u16, b: u16) -> u16 {
-        \\    a << b
+        \\    @shlExact(a, b)
+        \\}
+    );
+
+    cases.addDebugSafety("signed shift right overflow",
+        \\pub fn panic(message: []const u8) -> noreturn {
+        \\    @breakpoint();
+        \\    while (true) {}
+        \\}
+        \\error Whatever;
+        \\pub fn main() -> %void {
+        \\    const x = shr(-16385, 1);
+        \\    if (x == 0) return error.Whatever;
+        \\}
+        \\fn shr(a: i16, b: i16) -> i16 {
+        \\    @shrExact(a, b)
+        \\}
+    );
+
+    cases.addDebugSafety("unsigned shift right overflow",
+        \\pub fn panic(message: []const u8) -> noreturn {
+        \\    @breakpoint();
+        \\    while (true) {}
+        \\}
+        \\error Whatever;
+        \\pub fn main() -> %void {
+        \\    const x = shr(0b0010111111111111, 3);
+        \\    if (x == 0) return error.Whatever;
+        \\}
+        \\fn shr(a: u16, b: u16) -> u16 {
+        \\    @shrExact(a, b)
         \\}
     );
 

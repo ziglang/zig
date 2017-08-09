@@ -124,7 +124,7 @@ fn expm1_32(x_: f32) -> f32 {
         }
     }
 
-    const twopk = @bitCast(f32, u32((0x7F + k) <<% 23));
+    const twopk = @bitCast(f32, u32((0x7F + k) << 23));
 
     if (k < 0 or k > 56) {
         var y = x - e + 1.0;
@@ -253,7 +253,7 @@ fn expm1_64(x_: f64) -> f64 {
         }
     }
 
-    const twopk = @bitCast(f64, u64(0x3FF + k) <<% 52);
+    const twopk = @bitCast(f64, u64(0x3FF + k) << 52);
 
     if (k < 0 or k > 56) {
         var y = x - e + 1.0;

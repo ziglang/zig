@@ -694,8 +694,10 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
             return buf_create_from_str("integer cast truncated bits");
         case PanicMsgIdIntegerOverflow:
             return buf_create_from_str("integer overflow");
-        case PanicMsgIdShiftOverflowedBits:
+        case PanicMsgIdShlOverflowedBits:
             return buf_create_from_str("left shift overflowed bits");
+        case PanicMsgIdShrOverflowedBits:
+            return buf_create_from_str("right shift overflowed bits");
         case PanicMsgIdDivisionByZero:
             return buf_create_from_str("division by zero");
         case PanicMsgIdRemainderDivisionByZero:
@@ -1153,7 +1155,7 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
 static LLVMValueRef gen_overflow_shl_op(CodeGen *g, TypeTableEntry *type_entry,
         LLVMValueRef val1, LLVMValueRef val2)
 {
-    // for unsigned left shifting, we do the wrapping shift, then logically shift
+    // for unsigned left shifting, we do the lossy shift, then logically shift
     // right the same number of bits
     // if the values don't match, we have an overflow
     // for signed left shifting we do the same except arithmetic shift right
@@ -1174,7 +1176,32 @@ static LLVMValueRef gen_overflow_shl_op(CodeGen *g, TypeTableEntry *type_entry,
     LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
 
     LLVMPositionBuilderAtEnd(g->builder, fail_block);
-    gen_debug_safety_crash(g, PanicMsgIdShiftOverflowedBits);
+    gen_debug_safety_crash(g, PanicMsgIdShlOverflowedBits);
+
+    LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    return result;
+}
+
+static LLVMValueRef gen_overflow_shr_op(CodeGen *g, TypeTableEntry *type_entry,
+        LLVMValueRef val1, LLVMValueRef val2)
+{
+    assert(type_entry->id == TypeTableEntryIdInt);
+
+    LLVMValueRef result;
+    if (type_entry->data.integral.is_signed) {
+        result = LLVMBuildAShr(g->builder, val1, val2, "");
+    } else {
+        result = LLVMBuildLShr(g->builder, val1, val2, "");
+    }
+    LLVMValueRef orig_val = LLVMBuildShl(g->builder, result, val2, "");
+    LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, val1, orig_val, "");
+
+    LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "OverflowOk");
+    LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "OverflowFail");
+    LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, fail_block);
+    gen_debug_safety_crash(g, PanicMsgIdShrOverflowedBits);
 
     LLVMPositionBuilderAtEnd(g->builder, ok_block);
     return result;
@@ -1496,12 +1523,12 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
             return LLVMBuildXor(g->builder, op1_value, op2_value, "");
         case IrBinOpBinAnd:
             return LLVMBuildAnd(g->builder, op1_value, op2_value, "");
-        case IrBinOpBitShiftLeft:
-        case IrBinOpBitShiftLeftWrap:
+        case IrBinOpBitShiftLeftLossy:
+        case IrBinOpBitShiftLeftExact:
             {
                 assert(type_entry->id == TypeTableEntryIdInt);
-                bool is_wrapping = (op_id == IrBinOpBitShiftLeftWrap);
-                if (is_wrapping) {
+                bool is_sloppy = (op_id == IrBinOpBitShiftLeftLossy);
+                if (is_sloppy) {
                     return LLVMBuildShl(g->builder, op1_value, op2_value, "");
                 } else if (want_debug_safety) {
                     return gen_overflow_shl_op(g, type_entry, op1_value, op2_value);
@@ -1511,12 +1538,24 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
                     return ZigLLVMBuildNUWShl(g->builder, op1_value, op2_value, "");
                 }
             }
-        case IrBinOpBitShiftRight:
-            assert(type_entry->id == TypeTableEntryIdInt);
-            if (type_entry->data.integral.is_signed) {
-                return LLVMBuildAShr(g->builder, op1_value, op2_value, "");
-            } else {
-                return LLVMBuildLShr(g->builder, op1_value, op2_value, "");
+        case IrBinOpBitShiftRightLossy:
+        case IrBinOpBitShiftRightExact:
+            {
+                assert(type_entry->id == TypeTableEntryIdInt);
+                bool is_sloppy = (op_id == IrBinOpBitShiftRightLossy);
+                if (is_sloppy) {
+                    if (type_entry->data.integral.is_signed) {
+                        return LLVMBuildAShr(g->builder, op1_value, op2_value, "");
+                    } else {
+                        return LLVMBuildLShr(g->builder, op1_value, op2_value, "");
+                    }
+                } else if (want_debug_safety) {
+                    return gen_overflow_shr_op(g, type_entry, op1_value, op2_value);
+                } else if (type_entry->data.integral.is_signed) {
+                    return ZigLLVMBuildAShrExact(g->builder, op1_value, op2_value, "");
+                } else {
+                    return ZigLLVMBuildLShrExact(g->builder, op1_value, op2_value, "");
+                }
             }
         case IrBinOpSub:
         case IrBinOpSubWrap:
@@ -4556,6 +4595,8 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdMod, "mod", 2);
     create_builtin_fn(g, BuiltinFnIdInlineCall, "inlineCall", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdTypeId, "typeId", 1);
+    create_builtin_fn(g, BuiltinFnIdShlExact, "shlExact", 2);
+    create_builtin_fn(g, BuiltinFnIdShrExact, "shrExact", 2);
 }
 
 static const char *bool_to_str(bool b) {

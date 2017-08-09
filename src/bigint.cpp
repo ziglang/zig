@@ -799,7 +799,7 @@ void bigint_shl(BigInt *dest, const BigInt *op1, const BigInt *op2) {
     bigint_normalize(dest);
 }
 
-void bigint_shl_wrap(BigInt *dest, const BigInt *op1, const BigInt *op2, size_t bit_count, bool is_signed) {
+void bigint_shl_trunc(BigInt *dest, const BigInt *op1, const BigInt *op2, size_t bit_count, bool is_signed) {
     BigInt unwrapped = {0};
     bigint_shl(&unwrapped, op1, op2);
     bigint_truncate(dest, &unwrapped, bit_count, is_signed);

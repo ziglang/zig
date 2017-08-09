@@ -83,7 +83,7 @@ fn exp2_32(x: f32) -> f32 {
     const k = i0 / tblsiz;
     // NOTE: musl relies on undefined overflow shift behaviour. Appears that this produces the
     // intended result but should confirm how GCC/Clang handle this to ensure.
-    const uk = @bitCast(f64, u64(0x3FF + k) <<% 52);
+    const uk = @bitCast(f64, u64(0x3FF + k) << 52);
     i0 &= tblsiz - 1;
     uf -= redux;
 

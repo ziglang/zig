@@ -754,8 +754,21 @@ LLVMValueRef ZigLLVMBuildNSWShl(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMVa
 LLVMValueRef ZigLLVMBuildNUWShl(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS,
         const char *name)
 {
-    return wrap(unwrap(builder)->CreateShl(unwrap(LHS), unwrap(RHS), name, false, true));
+    return wrap(unwrap(builder)->CreateShl(unwrap(LHS), unwrap(RHS), name, true, false));
 }
+
+LLVMValueRef ZigLLVMBuildLShrExact(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS,
+        const char *name)
+{
+    return wrap(unwrap(builder)->CreateLShr(unwrap(LHS), unwrap(RHS), name, true));
+}
+
+LLVMValueRef ZigLLVMBuildAShrExact(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS,
+        const char *name)
+{
+    return wrap(unwrap(builder)->CreateAShr(unwrap(LHS), unwrap(RHS), name, true));
+}
+
 
 #include "buffer.hpp"
 

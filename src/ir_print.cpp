@@ -92,12 +92,14 @@ static const char *ir_bin_op_id_str(IrBinOp op_id) {
             return "^";
         case IrBinOpBinAnd:
             return "&";
-        case IrBinOpBitShiftLeft:
+        case IrBinOpBitShiftLeftLossy:
             return "<<";
-        case IrBinOpBitShiftLeftWrap:
-            return "<<%";
-        case IrBinOpBitShiftRight:
+        case IrBinOpBitShiftLeftExact:
+            return "@shlExact";
+        case IrBinOpBitShiftRightLossy:
             return ">>";
+        case IrBinOpBitShiftRightExact:
+            return "@shrExact";
         case IrBinOpAdd:
             return "+";
         case IrBinOpAddWrap:

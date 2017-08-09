@@ -23,8 +23,6 @@ enum TokenId {
     TokenIdBitOrEq,
     TokenIdBitShiftLeft,
     TokenIdBitShiftLeftEq,
-    TokenIdBitShiftLeftPercent,
-    TokenIdBitShiftLeftPercentEq,
     TokenIdBitShiftRight,
     TokenIdBitShiftRightEq,
     TokenIdBitXorEq,

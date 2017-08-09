@@ -44,7 +44,7 @@ fn modf32(x: f32) -> modf32_result {
     // no fractional part
     if (e >= 23) {
         result.ipart = x;
-        if (e == 0x80 and u <<% 9 != 0) { // nan
+        if (e == 0x80 and u << 9 != 0) { // nan
             result.fpart = x;
         } else {
             result.fpart = @bitCast(f32, us);
@@ -88,7 +88,7 @@ fn modf64(x: f64) -> modf64_result {
     // no fractional part
     if (e >= 52) {
         result.ipart = x;
-        if (e == 0x400 and u <<% 12 != 0) { // nan
+        if (e == 0x400 and u << 12 != 0) { // nan
             result.fpart = x;
         } else {
             result.fpart = @bitCast(f64, us);

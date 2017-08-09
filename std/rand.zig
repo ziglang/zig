@@ -182,8 +182,8 @@ fn MersenneTwister(
             mt.index += 1;
 
             x ^= ((x >> u) & d);
-            x ^= ((x <<% s) & b);
-            x ^= ((x <<% t) & c);
+            x ^= ((x << s) & b);
+            x ^= ((x << t) & c);
             x ^= (x >> l);
 
             return x;

@@ -49,7 +49,7 @@ fn log1p_32(x: f32) -> f32 {
             }
         }
         // |x| < 2^(-24)
-        if ((ix <<% 1) < (0x33800000 << 1)) {
+        if ((ix << 1) < (0x33800000 << 1)) {
             // underflow if subnormal
             if (ix & 0x7F800000 == 0) {
                 math.forceEval(x * x);
@@ -128,7 +128,7 @@ fn log1p_64(x: f64) -> f64 {
             }
         }
         // |x| < 2^(-53)
-        if ((hx <<% 1) < (0x3CA00000 << 1)) {
+        if ((hx << 1) < (0x3CA00000 << 1)) {
             if ((hx & 0x7FF00000) == 0) {
                 math.raiseUnderflow();
             }

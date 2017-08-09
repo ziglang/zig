@@ -3625,11 +3625,9 @@ static IrInstruction *ir_gen_bin_op(IrBuilder *irb, Scope *scope, AstNode *node)
         case BinOpTypeAssignMinusWrap:
             return ir_gen_assign_op(irb, scope, node, IrBinOpSubWrap);
         case BinOpTypeAssignBitShiftLeft:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpBitShiftLeft);
-        case BinOpTypeAssignBitShiftLeftWrap:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpBitShiftLeftWrap);
+            return ir_gen_assign_op(irb, scope, node, IrBinOpBitShiftLeftLossy);
         case BinOpTypeAssignBitShiftRight:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpBitShiftRight);
+            return ir_gen_assign_op(irb, scope, node, IrBinOpBitShiftRightLossy);
         case BinOpTypeAssignBitAnd:
             return ir_gen_assign_op(irb, scope, node, IrBinOpBinAnd);
         case BinOpTypeAssignBitXor:
@@ -3663,11 +3661,9 @@ static IrInstruction *ir_gen_bin_op(IrBuilder *irb, Scope *scope, AstNode *node)
         case BinOpTypeBinAnd:
             return ir_gen_bin_op_id(irb, scope, node, IrBinOpBinAnd);
         case BinOpTypeBitShiftLeft:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpBitShiftLeft);
-        case BinOpTypeBitShiftLeftWrap:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpBitShiftLeftWrap);
+            return ir_gen_bin_op_id(irb, scope, node, IrBinOpBitShiftLeftLossy);
         case BinOpTypeBitShiftRight:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpBitShiftRight);
+            return ir_gen_bin_op_id(irb, scope, node, IrBinOpBitShiftRightLossy);
         case BinOpTypeAdd:
             return ir_gen_bin_op_id(irb, scope, node, IrBinOpAdd);
         case BinOpTypeAddWrap:
@@ -4456,6 +4452,34 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 return ir_build_type_id(irb, scope, node, arg0_value);
+            }
+        case BuiltinFnIdShlExact:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                return ir_build_bin_op(irb, scope, node, IrBinOpBitShiftLeftExact, arg0_value, arg1_value, true);
+            }
+        case BuiltinFnIdShrExact:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                return ir_build_bin_op(irb, scope, node, IrBinOpBitShiftRightExact, arg0_value, arg1_value, true);
             }
     }
     zig_unreachable();
@@ -8362,16 +8386,27 @@ static int ir_eval_math_op(TypeTableEntry *type_entry, ConstExprValue *op1_val,
             assert(is_int);
             bigint_and(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
             break;
-        case IrBinOpBitShiftLeft:
+        case IrBinOpBitShiftLeftExact:
             assert(is_int);
             bigint_shl(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
             break;
-        case IrBinOpBitShiftLeftWrap:
+        case IrBinOpBitShiftLeftLossy:
             assert(type_entry->id == TypeTableEntryIdInt);
-            bigint_shl_wrap(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint,
+            bigint_shl_trunc(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint,
                     type_entry->data.integral.bit_count, type_entry->data.integral.is_signed);
             break;
-        case IrBinOpBitShiftRight:
+        case IrBinOpBitShiftRightExact:
+            {
+                assert(is_int);
+                bigint_shr(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+                BigInt orig_bigint;
+                bigint_shl(&orig_bigint, &out_val->data.x_bigint, &op2_val->data.x_bigint);
+                if (bigint_cmp(&op1_val->data.x_bigint, &orig_bigint) != CmpEQ) {
+                    return ErrorShiftedOutOneBits;
+                }
+                break;
+            }
+        case IrBinOpBitShiftRightLossy:
             assert(is_int);
             bigint_shr(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
             break;
@@ -8591,8 +8626,8 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
     }
 
     if (resolved_type->id == TypeTableEntryIdNumLitInt) {
-        if (op_id == IrBinOpBitShiftLeftWrap) {
-            op_id = IrBinOpBitShiftLeft;
+        if (op_id == IrBinOpBitShiftLeftLossy) {
+            op_id = IrBinOpBitShiftLeftExact;
         } else if (op_id == IrBinOpAddWrap) {
             op_id = IrBinOpAdd;
         } else if (op_id == IrBinOpSubWrap) {
@@ -8630,6 +8665,9 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
                 return ira->codegen->builtin_types.entry_invalid;
             } else if (err == ErrorNegativeDenominator) {
                 ir_add_error(ira, &bin_op_instruction->base, buf_sprintf("negative denominator"));
+                return ira->codegen->builtin_types.entry_invalid;
+            } else if (err == ErrorShiftedOutOneBits) {
+                ir_add_error(ira, &bin_op_instruction->base, buf_sprintf("exact shift shifted out 1 bits"));
                 return ira->codegen->builtin_types.entry_invalid;
             } else {
                 zig_unreachable();
@@ -8857,9 +8895,10 @@ static TypeTableEntry *ir_analyze_instruction_bin_op(IrAnalyze *ira, IrInstructi
         case IrBinOpBinOr:
         case IrBinOpBinXor:
         case IrBinOpBinAnd:
-        case IrBinOpBitShiftLeft:
-        case IrBinOpBitShiftLeftWrap:
-        case IrBinOpBitShiftRight:
+        case IrBinOpBitShiftLeftLossy:
+        case IrBinOpBitShiftLeftExact:
+        case IrBinOpBitShiftRightLossy:
+        case IrBinOpBitShiftRightExact:
         case IrBinOpAdd:
         case IrBinOpAddWrap:
         case IrBinOpSub:

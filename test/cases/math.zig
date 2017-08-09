@@ -168,15 +168,6 @@ fn testNegationWrappingEval(x: i16) {
     assert(neg == -32768);
 }
 
-test "shift left wrapping" {
-    testShlWrappingEval(@maxValue(u16));
-    comptime testShlWrappingEval(@maxValue(u16));
-}
-fn testShlWrappingEval(x: u16) {
-    const shifted = x <<% 1;
-    assert(shifted == 65534);
-}
-
 test "unsigned 64-bit division" {
     test_u64_div();
     comptime test_u64_div();
@@ -256,4 +247,40 @@ test "hex float literal within range" {
     const a = 0x1.0p1023;
     const b = 0x0.1p1027;
     const c = 0x1.0p-1022;
+}
+
+test "truncating shift left" {
+    testShlTrunc(@maxValue(u16));
+    comptime testShlTrunc(@maxValue(u16));
+}
+fn testShlTrunc(x: u16) {
+    const shifted = x << 1;
+    assert(shifted == 65534);
+}
+
+test "truncating shift right" {
+    testShrTrunc(@maxValue(u16));
+    comptime testShrTrunc(@maxValue(u16));
+}
+fn testShrTrunc(x: u16) {
+    const shifted = x >> 1;
+    assert(shifted == 32767);
+}
+
+test "exact shift left" {
+    testShlExact(0b00110101);
+    comptime testShlExact(0b00110101);
+}
+fn testShlExact(x: u8) {
+    const shifted = @shlExact(x, 2);
+    assert(shifted == 0b11010100);
+}
+
+test "exact shift right" {
+    testShrExact(0b10110100);
+    comptime testShrExact(0b10110100);
+}
+fn testShrExact(x: u8) {
+    const shifted = @shrExact(x, 2);
+    assert(shifted == 0b00101101);
 }

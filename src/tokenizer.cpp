@@ -201,7 +201,6 @@ enum TokenizeState {
     TokenizeStateSawBang,
     TokenizeStateSawLessThan,
     TokenizeStateSawLessThanLessThan,
-    TokenizeStateSawShiftLeftPercent,
     TokenizeStateSawGreaterThan,
     TokenizeStateSawGreaterThanGreaterThan,
     TokenizeStateSawDot,
@@ -670,24 +669,6 @@ void tokenize(Buf *buf, Tokenization *out) {
                 switch (c) {
                     case '=':
                         set_token_id(&t, t.cur_tok, TokenIdBitShiftLeftEq);
-                        end_token(&t);
-                        t.state = TokenizeStateStart;
-                        break;
-                    case '%':
-                        set_token_id(&t, t.cur_tok, TokenIdBitShiftLeftPercent);
-                        t.state = TokenizeStateSawShiftLeftPercent;
-                        break;
-                    default:
-                        t.pos -= 1;
-                        end_token(&t);
-                        t.state = TokenizeStateStart;
-                        continue;
-                }
-                break;
-            case TokenizeStateSawShiftLeftPercent:
-                switch (c) {
-                    case '=':
-                        set_token_id(&t, t.cur_tok, TokenIdBitShiftLeftPercentEq);
                         end_token(&t);
                         t.state = TokenizeStateStart;
                         break;
@@ -1410,7 +1391,6 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateSawStarPercent:
         case TokenizeStateSawPlusPercent:
         case TokenizeStateSawMinusPercent:
-        case TokenizeStateSawShiftLeftPercent:
         case TokenizeStateLineString:
         case TokenizeStateLineStringEnd:
             end_token(&t);
@@ -1451,8 +1431,6 @@ const char * token_name(TokenId id) {
         case TokenIdBitOrEq: return "|=";
         case TokenIdBitShiftLeft: return "<<";
         case TokenIdBitShiftLeftEq: return "<<=";
-        case TokenIdBitShiftLeftPercent: return "<<%";
-        case TokenIdBitShiftLeftPercentEq: return "<<%=";
         case TokenIdBitShiftRight: return ">>";
         case TokenIdBitShiftRightEq: return ">>=";
         case TokenIdBitXorEq: return "^=";

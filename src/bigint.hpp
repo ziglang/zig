@@ -66,7 +66,7 @@ void bigint_and(BigInt *dest, const BigInt *op1, const BigInt *op2);
 void bigint_xor(BigInt *dest, const BigInt *op1, const BigInt *op2);
 
 void bigint_shl(BigInt *dest, const BigInt *op1, const BigInt *op2);
-void bigint_shl_wrap(BigInt *dest, const BigInt *op1, const BigInt *op2, size_t bit_count, bool is_signed);
+void bigint_shl_trunc(BigInt *dest, const BigInt *op1, const BigInt *op2, size_t bit_count, bool is_signed);
 void bigint_shr(BigInt *dest, const BigInt *op1, const BigInt *op2);
 
 void bigint_negate(BigInt *dest, const BigInt *op);
