@@ -883,7 +883,7 @@ static AstNode *ast_parse_curly_suffix_expr(ParseContext *pc, size_t *token_inde
 SuffixOpExpression = PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
 FnCallExpression : token(LParen) list(Expression, token(Comma)) token(RParen)
 ArrayAccessExpression : token(LBracket) Expression token(RBracket)
-SliceExpression = "[" Expression "..." option(Expression) "]"
+SliceExpression = "[" Expression ".." option(Expression) "]"
 FieldAccessExpression : token(Dot) token(Symbol)
 StructLiteralField : token(Dot) token(Symbol) token(Eq) Expression
 */
@@ -929,7 +929,7 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, 
 
                 primary_expr = node;
             } else {
-                ast_invalid_token_error(pc, first_token);
+                ast_invalid_token_error(pc, ellipsis_or_r_bracket);
             }
         } else if (first_token->id == TokenIdDot) {
             *token_index += 1;

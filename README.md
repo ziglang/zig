@@ -1,6 +1,6 @@
 ![ZIG](http://ziglang.org/zig-logo.svg)
 
-A programming language which prioritizes optimality, robustness, and
+A programming language designed for robustness, optimality, and
 clarity.
 
 [ziglang.org](http://ziglang.org)
