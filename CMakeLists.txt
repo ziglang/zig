@@ -317,7 +317,6 @@ install(FILES "${CMAKE_SOURCE_DIR}/std/special/zigrt.zig" DESTINATION "${ZIG_STD
 
 if (ZIG_TEST_COVERAGE)
     add_custom_target(coverage
-        DEPENDS run_tests
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
         COMMAND lcov --directory . --zerocounters --rc lcov_branch_coverage=1
         COMMAND ./zig build --build-file ../build.zig test
