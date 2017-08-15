@@ -31,11 +31,7 @@ static const char *get_libc_static_file(CodeGen *g, const char *file) {
     return buf_ptr(out_buf);
 }
 
-static Buf *build_o(CodeGen *parent_gen, const char *oname) {
-    Buf *source_basename = buf_sprintf("%s.zig", oname);
-    Buf *full_path = buf_alloc();
-    os_path_join(parent_gen->zig_std_special_dir, source_basename, full_path);
-
+static Buf *build_o_raw(CodeGen *parent_gen, const char *oname, Buf *full_path) {
     ZigTarget *child_target = parent_gen->is_native_target ? nullptr : &parent_gen->zig_target;
     CodeGen *child_gen = codegen_create(full_path, child_target, OutTypeObj, parent_gen->build_mode);
 
@@ -63,6 +59,23 @@ static Buf *build_o(CodeGen *parent_gen, const char *oname) {
     codegen_link(child_gen, buf_ptr(output_path));
 
     return output_path;
+}
+
+static Buf *build_o(CodeGen *parent_gen, const char *oname) {
+    Buf *source_basename = buf_sprintf("%s.zig", oname);
+    Buf *full_path = buf_alloc();
+    os_path_join(parent_gen->zig_std_special_dir, source_basename, full_path);
+
+    return build_o_raw(parent_gen, oname, full_path);
+}
+
+static Buf *build_compiler_rt(CodeGen *parent_gen) {
+    Buf *dir_path = buf_alloc();
+    os_path_join(parent_gen->zig_std_special_dir, buf_create_from_str("compiler_rt"), dir_path);
+    Buf *full_path = buf_alloc();
+    os_path_join(dir_path, buf_create_from_str("index.zig"), full_path);
+
+    return build_o_raw(parent_gen, "compiler_rt", full_path);
 }
 
 static const char *get_exe_file_extension(CodeGen *g) {
@@ -263,7 +276,7 @@ static void construct_linker_job_elf(LinkJob *lj) {
         Buf *builtin_o_path = build_o(g, "builtin");
         lj->args.append(buf_ptr(builtin_o_path));
 
-        Buf *compiler_rt_o_path = build_o(g, "compiler_rt");
+        Buf *compiler_rt_o_path = build_compiler_rt(g);
         lj->args.append(buf_ptr(compiler_rt_o_path));
     }
 
@@ -401,7 +414,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
         Buf *builtin_o_path = build_o(g, "builtin");
         lj->args.append(buf_ptr(builtin_o_path));
 
-        Buf *compiler_rt_o_path = build_o(g, "compiler_rt");
+        Buf *compiler_rt_o_path = build_compiler_rt(g);
         lj->args.append(buf_ptr(compiler_rt_o_path));
     }
 
