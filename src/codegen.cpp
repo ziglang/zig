@@ -725,8 +725,8 @@ static LLVMValueRef get_panic_msg_ptr_val(CodeGen *g, PanicMsgId msg_id) {
     ConstExprValue *array_val = create_const_str_lit(g, buf_msg);
     init_const_slice(g, val, array_val, 0, buf_len(buf_msg), true);
 
-    render_const_val_global(g, val, "");
     render_const_val(g, val);
+    render_const_val_global(g, val, "");
 
     assert(val->global_refs->llvm_global);
     return val->global_refs->llvm_global;
@@ -3635,7 +3635,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                         fields[type_struct_field->gen_index] = gen_const_val(g, &const_val->data.x_struct.fields[i]);
                     }
                 }
-                return LLVMConstNamedStruct(type_entry->type_ref, fields, type_entry->data.structure.gen_field_count);
+                return LLVMConstStruct(fields, type_entry->data.structure.gen_field_count,
+                        type_entry->data.structure.layout == ContainerLayoutPacked);
             }
         case TypeTableEntryIdUnion:
             {
