@@ -3085,6 +3085,8 @@ TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, uint32_t size_in_b
         index = 2;
     } else if (size_in_bits == 64) {
         index = 3;
+    } else if (size_in_bits == 128) {
+        index = 4;
     } else {
         return nullptr;
     }

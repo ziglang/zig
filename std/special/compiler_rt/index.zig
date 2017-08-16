@@ -1,6 +1,20 @@
+// Find all the exported functions.
+comptime {
+    _ = @import("fixunsdfdi.zig");
+    _ = @import("fixunsdfsi.zig");
+    _ = @import("fixunsdfti.zig");
+    _ = @import("fixunssfdi.zig");
+    _ = @import("fixunssfsi.zig");
+    _ = @import("fixunssfti.zig");
+    _ = @import("fixunstfdi.zig");
+    _ = @import("fixunstfsi.zig");
+    _ = @import("fixunstfti.zig");
+    _ = @import("udivti3.zig");
+    _ = @import("umodti3.zig");
+}
+
 const builtin = @import("builtin");
 
-const CHAR_BIT = 8;
 const du_int = u64;
 const di_int = i64;
 const si_int = c_int;
@@ -23,8 +37,8 @@ fn du_int_to_udwords(x: du_int) -> udwords {
 export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
     @setDebugSafety(this, false);
 
-    const n_uword_bits = @sizeOf(su_int) * CHAR_BIT;
-    const n_udword_bits = @sizeOf(du_int) * CHAR_BIT;
+    const n_uword_bits = su_int.bit_count;
+    const n_udword_bits = du_int.bit_count;
     var n = du_int_to_udwords(a);
     var d = du_int_to_udwords(b);
     var q: udwords = undefined;
@@ -219,6 +233,7 @@ fn isArmArch() -> bool {
         builtin.Arch.armv8_2a,
         builtin.Arch.armv8_1a,
         builtin.Arch.armv8,
+        builtin.Arch.armv8r,
         builtin.Arch.armv8m_baseline,
         builtin.Arch.armv8m_mainline,
         builtin.Arch.armv7,
@@ -278,7 +293,7 @@ export fn __aeabi_uidiv(n: su_int, d: su_int) -> su_int {
 export fn __udivsi3(n: su_int, d: su_int) -> su_int {
     @setDebugSafety(this, false);
 
-    const n_uword_bits: c_uint = @sizeOf(su_int) * CHAR_BIT;
+    const n_uword_bits: c_uint = su_int.bit_count;
     // special cases
     if (d == 0)
         return 0; // ?!

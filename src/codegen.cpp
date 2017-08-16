@@ -4208,6 +4208,7 @@ static const uint8_t int_sizes_in_bits[] = {
     16,
     32,
     64,
+    128,
 };
 
 struct CIntTypeInfo {
@@ -4392,6 +4393,19 @@ static void define_builtin_types(CodeGen *g) {
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
+        entry->type_ref = LLVMFP128Type();
+        buf_init_from_str(&entry->name, "f128");
+        entry->data.floating.bit_count = 128;
+
+        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
+        entry->di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
+                debug_size_in_bits,
+                ZigLLVMEncoding_DW_ATE_float());
+        g->builtin_types.entry_f128 = entry;
+        g->primitive_type_table.put(&entry->name, entry);
+    }
+    {
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdFloat);
         entry->type_ref = LLVMX86FP80Type();
         buf_init_from_str(&entry->name, "c_longdouble");
         entry->data.floating.bit_count = 80;
@@ -4435,10 +4449,12 @@ static void define_builtin_types(CodeGen *g) {
     g->builtin_types.entry_u16 = get_int_type(g, false, 16);
     g->builtin_types.entry_u32 = get_int_type(g, false, 32);
     g->builtin_types.entry_u64 = get_int_type(g, false, 64);
+    g->builtin_types.entry_u128 = get_int_type(g, false, 128);
     g->builtin_types.entry_i8 = get_int_type(g, true, 8);
     g->builtin_types.entry_i16 = get_int_type(g, true, 16);
     g->builtin_types.entry_i32 = get_int_type(g, true, 32);
     g->builtin_types.entry_i64 = get_int_type(g, true, 64);
+    g->builtin_types.entry_i128 = get_int_type(g, true, 128);
 
     {
         g->builtin_types.entry_c_void = get_opaque_type(g, nullptr, nullptr, "c_void");

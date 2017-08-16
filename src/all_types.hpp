@@ -1386,7 +1386,7 @@ struct CodeGen {
 
     struct {
         TypeTableEntry *entry_bool;
-        TypeTableEntry *entry_int[2][4]; // [signed,unsigned][8,16,32,64]
+        TypeTableEntry *entry_int[2][5]; // [signed,unsigned][8,16,32,64,128]
         TypeTableEntry *entry_c_int[CIntTypeCount];
         TypeTableEntry *entry_c_longdouble;
         TypeTableEntry *entry_c_void;
@@ -1394,14 +1394,17 @@ struct CodeGen {
         TypeTableEntry *entry_u16;
         TypeTableEntry *entry_u32;
         TypeTableEntry *entry_u64;
+        TypeTableEntry *entry_u128;
         TypeTableEntry *entry_i8;
         TypeTableEntry *entry_i16;
         TypeTableEntry *entry_i32;
         TypeTableEntry *entry_i64;
+        TypeTableEntry *entry_i128;
         TypeTableEntry *entry_isize;
         TypeTableEntry *entry_usize;
         TypeTableEntry *entry_f32;
         TypeTableEntry *entry_f64;
+        TypeTableEntry *entry_f128;
         TypeTableEntry *entry_void;
         TypeTableEntry *entry_unreachable;
         TypeTableEntry *entry_type;

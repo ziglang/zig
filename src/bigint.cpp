@@ -373,7 +373,6 @@ void bigint_add(BigInt *dest, const BigInt *op1, const BigInt *op2) {
             bigint_normalize(dest);
             return;
         }
-        // TODO this code path is untested
         size_t i = 1;
         uint64_t first_digit = dest->data.digit;
         dest->data.digits = allocate_nonzero<uint64_t>(max(op1->digit_count, op2->digit_count) + 1);
@@ -397,17 +396,14 @@ void bigint_add(BigInt *dest, const BigInt *op1, const BigInt *op2) {
             }
 
             dest->data.digits[i] = x;
-            x += 1;
+            i += 1;
 
             if (!found_digit) {
-                break;
+                dest->digit_count = i;
+                bigint_normalize(dest);
+                return;
             }
         }
-        if (overflow > 0) {
-            dest->data.digits[i] = overflow;
-        }
-        bigint_normalize(dest);
-        return;
     }
     const BigInt *op_pos;
     const BigInt *op_neg;
@@ -500,12 +496,49 @@ static void mul_overflow(uint64_t x, uint64_t y, uint64_t *result, uint64_t *car
         *carry = 0;
         return;
     }
-    zig_panic("TODO bigint_mul with big numbers");
 
-    //unsigned __int128 big_x = x;
-    //unsigned __int128 big_y = y;
-    //unsigned __int128 big_result = big_x * big_y;
-    //*carry = big_result >> 64;
+    unsigned __int128 big_x = x;
+    unsigned __int128 big_y = y;
+    unsigned __int128 big_result = big_x * big_y;
+    *carry = big_result >> 64;
+}
+
+static void mul_scalar(BigInt *dest, const BigInt *op, uint64_t scalar) {
+    bigint_init_unsigned(dest, 0);
+
+    BigInt bi_64;
+    bigint_init_unsigned(&bi_64, 64);
+
+    const uint64_t *op_digits = bigint_ptr(op);
+    size_t i = op->digit_count - 1;
+
+    for (;;) {
+        BigInt shifted;
+        bigint_shl(&shifted, dest, &bi_64);
+
+        uint64_t result_scalar;
+        uint64_t carry_scalar;
+        mul_overflow(scalar, op_digits[i], &result_scalar, &carry_scalar);
+
+        BigInt result;
+        bigint_init_unsigned(&result, result_scalar);
+
+        BigInt carry;
+        bigint_init_unsigned(&carry, carry_scalar);
+
+        BigInt carry_shifted;
+        bigint_shl(&carry_shifted, &carry, &bi_64);
+
+        BigInt tmp;
+        bigint_add(&tmp, &shifted, &carry_shifted);
+
+        bigint_add(dest, &tmp, &result);
+
+        if (i == 0) {
+            break;
+        }
+        i -= 1;
+    }
 }
 
 void bigint_mul(BigInt *dest, const BigInt *op1, const BigInt *op2) {
@@ -523,7 +556,30 @@ void bigint_mul(BigInt *dest, const BigInt *op1, const BigInt *op2) {
         bigint_normalize(dest);
         return;
     }
-    zig_panic("TODO bigint_mul with big numbers");
+
+    bigint_init_unsigned(dest, 0);
+
+    BigInt bi_64;
+    bigint_init_unsigned(&bi_64, 64);
+
+    size_t i = op2->digit_count - 1;
+    for (;;) {
+        BigInt shifted;
+        bigint_shl(&shifted, dest, &bi_64);
+
+        BigInt scalar_result;
+        mul_scalar(&scalar_result, op1, op2_digits[i]);
+
+        bigint_add(dest, &scalar_result, &shifted);
+
+        if (i == 0) {
+            break;
+        }
+        i -= 1;
+    }
+
+    dest->is_negative = (op1->is_negative != op2->is_negative);
+    bigint_normalize(dest);
 }
 
 void bigint_mul_wrap(BigInt *dest, const BigInt *op1, const BigInt *op2, size_t bit_count, bool is_signed) {
