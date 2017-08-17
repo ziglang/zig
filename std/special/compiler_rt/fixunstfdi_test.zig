@@ -36,14 +36,15 @@ test "fixunstfdi" {
     test__fixunstfdi(-0x1.FFFFFFFFFFFFFp+62, 0);
     test__fixunstfdi(-0x1.FFFFFFFFFFFFEp+62, 0);
 
-    test__fixunstfdi(0x1.FFFFFFFFFFFFFFFEp+63, 0xFFFFFFFFFFFFFFFF);
-    test__fixunstfdi(0x1.0000000000000002p+63, 0x8000000000000001);
-    test__fixunstfdi(0x1.0000000000000000p+63, 0x8000000000000000);
-    test__fixunstfdi(0x1.FFFFFFFFFFFFFFFCp+62, 0x7FFFFFFFFFFFFFFF);
-    test__fixunstfdi(0x1.FFFFFFFFFFFFFFF8p+62, 0x7FFFFFFFFFFFFFFE);
-    test__fixunstfdi(0x1.p+64, 0xFFFFFFFFFFFFFFFF);
+    // TODO enable these tests when we can parse f128 float literals
+    //test__fixunstfdi(0x1.FFFFFFFFFFFFFFFEp+63, 0xFFFFFFFFFFFFFFFF);
+    //test__fixunstfdi(0x1.0000000000000002p+63, 0x8000000000000001);
+    //test__fixunstfdi(0x1.0000000000000000p+63, 0x8000000000000000);
+    //test__fixunstfdi(0x1.FFFFFFFFFFFFFFFCp+62, 0x7FFFFFFFFFFFFFFF);
+    //test__fixunstfdi(0x1.FFFFFFFFFFFFFFF8p+62, 0x7FFFFFFFFFFFFFFE);
+    //test__fixunstfdi(0x1.p+64, 0xFFFFFFFFFFFFFFFF);
 
-    test__fixunstfdi(-0x1.0000000000000000p+63, 0);
-    test__fixunstfdi(-0x1.FFFFFFFFFFFFFFFCp+62, 0);
-    test__fixunstfdi(-0x1.FFFFFFFFFFFFFFF8p+62, 0);
+    //test__fixunstfdi(-0x1.0000000000000000p+63, 0);
+    //test__fixunstfdi(-0x1.FFFFFFFFFFFFFFFCp+62, 0);
+    //test__fixunstfdi(-0x1.FFFFFFFFFFFFFFF8p+62, 0);
 }

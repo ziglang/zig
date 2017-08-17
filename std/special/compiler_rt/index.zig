@@ -1,5 +1,6 @@
 // Find all the exported functions.
 comptime {
+    _ = @import("comparetf2.zig");
     _ = @import("fixunsdfdi.zig");
     _ = @import("fixunsdfsi.zig");
     _ = @import("fixunsdfti.zig");

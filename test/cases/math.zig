@@ -312,3 +312,19 @@ test "big number multiplication" {
             232210647056203049913662402532976186578842425262306016094292237500303028346593132411865381225871291702600263463125370016);
     }
 }
+
+test "f128" {
+    test_f128();
+    comptime test_f128();
+}
+
+fn make_f128(x: f128) -> f128 { x }
+
+fn test_f128() {
+    assert(@sizeOf(f128) == 16);
+    assert(make_f128(1.0) == 1.0);
+    assert(make_f128(1.0) != 1.1);
+    assert(make_f128(1.0) > 0.9);
+    assert(make_f128(1.0) >= 0.9);
+    assert(make_f128(1.0) >= 1.0);
+}
