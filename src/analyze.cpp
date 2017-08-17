@@ -161,18 +161,17 @@ static TypeTableEntry *new_container_type_entry(TypeTableEntryId id, AstNode *so
     return entry;
 }
 
+static uint8_t log2_u64(uint64_t x) {
+    return (63 - __builtin_clzll(x));
+}
 
-// TODO no reason to limit to 8/16/32/64
 static uint8_t bits_needed_for_unsigned(uint64_t x) {
-    if (x <= UINT8_MAX) {
-        return 8;
-    } else if (x <= UINT16_MAX) {
-        return 16;
-    } else if (x <= UINT32_MAX) {
-        return 32;
-    } else {
-        return 64;
+    if (x == 0) {
+        return 0;
     }
+    uint8_t base = log2_u64(x);
+    uint64_t upper = (((uint64_t)1) << base) - 1;
+    return (upper >= x) ? base : (base + 1);
 }
 
 bool type_is_complete(TypeTableEntry *type_entry) {

@@ -139,7 +139,7 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
             // K X
             // ---
             // 0 K
-            sr = 1 + n_uword_bits + @clz(su_int(d[low])) - @clz(su_int(n[high]));
+            sr = 1 + n_uword_bits + c_uint(@clz(su_int(d[low]))) - c_uint(@clz(su_int(n[high])));
             // 2 <= sr <= n_udword_bits - 1
             // q.all = n.all << (n_udword_bits - sr);
             // r.all = n.all >> sr;

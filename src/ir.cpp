@@ -11359,16 +11359,18 @@ static TypeTableEntry *ir_analyze_instruction_ctz(IrAnalyze *ira, IrInstructionC
     if (type_is_invalid(value->value.type)) {
         return ira->codegen->builtin_types.entry_invalid;
     } else if (value->value.type->id == TypeTableEntryIdInt) {
+        TypeTableEntry *return_type = get_smallest_unsigned_int_type(ira->codegen,
+                value->value.type->data.integral.bit_count);
         if (value->value.special != ConstValSpecialRuntime) {
             size_t result = bigint_ctz(&value->value.data.x_bigint,
                     value->value.type->data.integral.bit_count);
             ConstExprValue *out_val = ir_build_const_from(ira, &ctz_instruction->base);
             bigint_init_unsigned(&out_val->data.x_bigint, result);
-            return value->value.type;
+            return return_type;
         }
 
         ir_build_ctz_from(&ira->new_irb, &ctz_instruction->base, value);
-        return value->value.type;
+        return return_type;
     } else {
         ir_add_error_node(ira, ctz_instruction->base.source_node,
             buf_sprintf("expected integer type, found '%s'", buf_ptr(&value->value.type->name)));
@@ -11381,16 +11383,18 @@ static TypeTableEntry *ir_analyze_instruction_clz(IrAnalyze *ira, IrInstructionC
     if (type_is_invalid(value->value.type)) {
         return ira->codegen->builtin_types.entry_invalid;
     } else if (value->value.type->id == TypeTableEntryIdInt) {
+        TypeTableEntry *return_type = get_smallest_unsigned_int_type(ira->codegen,
+                value->value.type->data.integral.bit_count);
         if (value->value.special != ConstValSpecialRuntime) {
             size_t result = bigint_clz(&value->value.data.x_bigint,
                     value->value.type->data.integral.bit_count);
             ConstExprValue *out_val = ir_build_const_from(ira, &clz_instruction->base);
             bigint_init_unsigned(&out_val->data.x_bigint, result);
-            return value->value.type;
+            return return_type;
         }
 
         ir_build_clz_from(&ira->new_irb, &clz_instruction->base, value);
-        return value->value.type;
+        return return_type;
     } else {
         ir_add_error_node(ira, clz_instruction->base.source_node,
             buf_sprintf("expected integer type, found '%s'", buf_ptr(&value->value.type->name)));

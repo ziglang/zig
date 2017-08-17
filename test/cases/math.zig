@@ -66,6 +66,8 @@ fn testClz() {
     assert(clz(u8(0b00001010)) == 4);
     assert(clz(u8(0b10001010)) == 0);
     assert(clz(u8(0b00000000)) == 8);
+    assert(clz(u128(0xffffffffffffffff)) == 64);
+    assert(clz(u128(0x10000000000000000)) == 63);
 }
 
 fn clz(x: var) -> usize {

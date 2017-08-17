@@ -95,7 +95,9 @@ static void to_twos_complement(BigInt *dest, const BigInt *op, size_t bit_count)
 }
 
 static bool bit_at_index(const BigInt *bi, size_t index) {
-    size_t digit_index = bi->digit_count - (index / 64) - 1;
+    size_t digit_index = index / 64;
+    if (digit_index >= bi->digit_count)
+        return false;
     size_t digit_bit_index = index % 64;
     const uint64_t *digits = bigint_ptr(bi);
     uint64_t digit = digits[digit_index];

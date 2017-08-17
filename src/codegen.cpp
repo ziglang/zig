@@ -2440,25 +2440,27 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, TypeTableEntry *int_type, Bui
 }
 
 static LLVMValueRef ir_render_clz(CodeGen *g, IrExecutable *executable, IrInstructionClz *instruction) {
-    TypeTableEntry *int_type = instruction->base.value.type;
+    TypeTableEntry *int_type = instruction->value->value.type;
     LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdClz);
     LLVMValueRef operand = ir_llvm_value(g, instruction->value);
     LLVMValueRef params[] {
         operand,
         LLVMConstNull(LLVMInt1Type()),
     };
-    return LLVMBuildCall(g->builder, fn_val, params, 2, "");
+    LLVMValueRef wrong_size_int = LLVMBuildCall(g->builder, fn_val, params, 2, "");
+    return gen_widen_or_shorten(g, false, int_type, instruction->base.value.type, wrong_size_int);
 }
 
 static LLVMValueRef ir_render_ctz(CodeGen *g, IrExecutable *executable, IrInstructionCtz *instruction) {
-    TypeTableEntry *int_type = instruction->base.value.type;
+    TypeTableEntry *int_type = instruction->value->value.type;
     LLVMValueRef fn_val = get_int_builtin_fn(g, int_type, BuiltinFnIdCtz);
     LLVMValueRef operand = ir_llvm_value(g, instruction->value);
     LLVMValueRef params[] {
         operand,
         LLVMConstNull(LLVMInt1Type()),
     };
-    return LLVMBuildCall(g->builder, fn_val, params, 2, "");
+    LLVMValueRef wrong_size_int = LLVMBuildCall(g->builder, fn_val, params, 2, "");
+    return gen_widen_or_shorten(g, false, int_type, instruction->base.value.type, wrong_size_int);
 }
 
 static LLVMValueRef ir_render_switch_br(CodeGen *g, IrExecutable *executable, IrInstructionSwitchBr *instruction) {
@@ -2545,7 +2547,8 @@ static LLVMValueRef ir_render_enum_tag_name(CodeGen *g, IrExecutable *executable
 
     LLVMValueRef indices[] = {
         LLVMConstNull(g->builtin_types.entry_usize->type_ref),
-        enum_tag_value,
+        gen_widen_or_shorten(g, false, enum_tag_type->data.enum_tag.int_type,
+                g->builtin_types.entry_usize, enum_tag_value),
     };
     return LLVMBuildInBoundsGEP(g->builder, enum_tag_type->data.enum_tag.name_table, indices, 2, "");
 }
