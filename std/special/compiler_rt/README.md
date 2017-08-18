@@ -13,12 +13,3 @@ Any bugs should be solved by trying to duplicate the bug upstream.
  * If the bug only exists in Zig, something went wrong porting the code,
    and you can run the C code and Zig code side by side in a debugger
    to figure out what's happening differently.
-
-To test Zig's compiler-rt, run this command from the build directory:
-
-```
-make install && ./zig test ../std/special/compiler_rt/index.zig --library c
-```
-
-The `--library c` argument omits compiler-rt from the generated test program,
-which prevents duplicate symbol linker errors for all the compiler-rt builtins.

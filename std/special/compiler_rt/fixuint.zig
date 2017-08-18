@@ -1,5 +1,7 @@
+const is_test = @import("builtin").is_test;
+
 pub fn fixuint(comptime fp_t: type, comptime fixuint_t: type, a: fp_t) -> fixuint_t {
-    @setDebugSafety(this, true); // TODO
+    @setDebugSafety(this, is_test);
 
     const rep_t = switch (fp_t) {
         f32 => u32,

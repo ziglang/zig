@@ -11,10 +11,12 @@ comptime {
     _ = @import("fixunstfsi.zig");
     _ = @import("fixunstfti.zig");
     _ = @import("udivti3.zig");
+    _ = @import("udivmodti4.zig");
     _ = @import("umodti3.zig");
 }
 
 const builtin = @import("builtin");
+const is_test = builtin.is_test;
 
 const du_int = u64;
 const di_int = i64;
@@ -26,17 +28,17 @@ const low = if (builtin.is_big_endian) 1 else 0;
 const high = 1 - low;
 
 export fn __udivdi3(a: du_int, b: du_int) -> du_int {
-    @setDebugSafety(this, false);
+    @setDebugSafety(this, is_test);
     return __udivmoddi4(a, b, null);
 }
 
 fn du_int_to_udwords(x: du_int) -> udwords {
-    @setDebugSafety(this, false);
+    @setDebugSafety(this, is_test);
     return *@ptrCast(&udwords, &x);
 }
 
 export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
-    @setDebugSafety(this, false);
+    @setDebugSafety(this, is_test);
 
     const n_uword_bits = su_int.bit_count;
     const n_udword_bits = du_int.bit_count;
@@ -167,7 +169,7 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
             // K X
             // ---
             // K K
-            sr = @clz(su_int(d[high])) - @clz(su_int(n[high]));
+            sr = @bitCast(c_uint, c_int(@clz(su_int(d[high]))) - c_int(@clz(su_int(n[high]))));
             // 0 <= sr <= n_uword_bits - 1 or sr large
             if (sr > n_uword_bits - 1) {
                 if (maybe_rem) |rem| {
@@ -208,9 +210,9 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
         //      r.all -= d.all;
         //      carry = 1;
         // }
-        const s: di_int = (di_int)(*@ptrCast(&du_int, &d[0]) - *@ptrCast(&du_int, &r[0]) - 1) >> (n_udword_bits - 1);
+        const s: di_int = (di_int)(*@ptrCast(&du_int, &d[0]) -% *@ptrCast(&du_int, &r[0]) -% 1) >> (n_udword_bits - 1);
         carry = su_int(s & 1);
-        *@ptrCast(&du_int, &r[0]) -= *@ptrCast(&du_int, &d[0]) & u64(s);
+        *@ptrCast(&du_int, &r[0]) -= *@ptrCast(&du_int, &d[0]) & @bitCast(u64, s);
 
         sr -= 1;
     }
@@ -222,7 +224,7 @@ export fn __udivmoddi4(a: du_int, b: du_int, maybe_rem: ?&du_int) -> du_int {
 }
 
 export fn __umoddi3(a: du_int, b: du_int) -> du_int {
-    @setDebugSafety(this, false);
+    @setDebugSafety(this, is_test);
 
     var r: du_int = undefined;
     _ = __udivmoddi4(a, b, &r);
@@ -274,7 +276,7 @@ export nakedcc fn __aeabi_uidivmod() {
 }
 
 export fn __udivmodsi4(a: su_int, b: su_int, rem: &su_int) -> su_int {
-    @setDebugSafety(this, false);
+    @setDebugSafety(this, is_test);
 
     const d = __udivsi3(a, b);
     *rem = su_int(si_int(a) -% (si_int(d) * si_int(b)));
@@ -286,13 +288,13 @@ export fn __udivmodsi4(a: su_int, b: su_int, rem: &su_int) -> su_int {
 // https://github.com/andrewrk/zig/issues/256
 
 export fn __aeabi_uidiv(n: su_int, d: su_int) -> su_int {
-    @setDebugSafety(this, false);
+    @setDebugSafety(this, is_test);
 
     return __udivsi3(n, d);
 }
 
 export fn __udivsi3(n: su_int, d: su_int) -> su_int {
-    @setDebugSafety(this, false);
+    @setDebugSafety(this, is_test);
 
     const n_uword_bits: c_uint = su_int.bit_count;
     // special cases
@@ -300,7 +302,7 @@ export fn __udivsi3(n: su_int, d: su_int) -> su_int {
         return 0; // ?!
     if (n == 0)
         return 0;
-    var sr: c_uint = @clz(d) - @clz(n);
+    var sr = @bitCast(c_uint, c_int(@clz(d)) - c_int(@clz(n)));
     // 0 <= sr <= n_uword_bits - 1 or sr large
     if (sr > n_uword_bits - 1)  // d > r
         return 0;
@@ -322,9 +324,9 @@ export fn __udivsi3(n: su_int, d: su_int) -> su_int {
         //      r.all -= d.all;
         //      carry = 1;
         // }
-        const s = si_int(d - r - 1) >> si_int(n_uword_bits - 1);
+        const s = si_int(d -% r -% 1) >> si_int(n_uword_bits - 1);
         carry = su_int(s & 1);
-        r -= d & su_int(s);
+        r -= d & @bitCast(su_int, s);
     }
     q = (q << 1) | carry;
     return q;
