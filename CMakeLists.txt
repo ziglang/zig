@@ -123,6 +123,7 @@ target_link_libraries(zig LINK_PUBLIC
     ${LLD_LIBRARIES}
     ${LLVM_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
+    quadmath
 )
 if(MINGW)
     target_link_libraries(zig LINK_PUBLIC version)
