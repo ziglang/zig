@@ -11,7 +11,7 @@
 #include <math.h>
 #include <errno.h>
 
-void bigfloat_init_float(BigFloat *dest, long double x) {
+void bigfloat_init_float(BigFloat *dest, __float128 x) {
     dest->value = x;
 }
 
@@ -24,13 +24,13 @@ void bigfloat_init_bigint(BigFloat *dest, const BigInt *op) {
     if (op->digit_count == 0)
         return;
 
-    long double base = (long double)UINT64_MAX;
+    __float128 base = (__float128)UINT64_MAX;
     const uint64_t *digits = bigint_ptr(op);
 
     for (size_t i = op->digit_count - 1;;) {
         uint64_t digit = digits[i];
         dest->value *= base;
-        dest->value += (long double)digit;
+        dest->value += (__float128)digit;
 
         if (i == 0) {
             if (op->is_negative) {
@@ -96,7 +96,7 @@ void bigfloat_mod(BigFloat *dest, const BigFloat *op1, const BigFloat *op2) {
 }
 
 void bigfloat_write_buf(Buf *buf, const BigFloat *op) {
-    buf_appendf(buf, "%Lf", op->value);
+    buf_appendf(buf, "%Lf", (long double)op->value);
 }
 
 Cmp bigfloat_cmp(const BigFloat *op1, const BigFloat *op2) {
@@ -117,6 +117,9 @@ void bigfloat_write_ieee597(const BigFloat *op, uint8_t *buf, size_t bit_count, 
     } else if (bit_count == 64) {
         double f64 = op->value;
         memcpy(buf, &f64, 8);
+    } else if (bit_count == 128) {
+        __float128 f128 = op->value;
+        memcpy(buf, &f128, 16);
     } else {
         zig_unreachable();
     }
@@ -132,6 +135,10 @@ void bigfloat_read_ieee597(BigFloat *dest, const uint8_t *buf, size_t bit_count,
         double f64;
         memcpy(&f64, buf, 8);
         dest->value = f64;
+    } else if (bit_count == 128) {
+        __float128 f128;
+        memcpy(&f128, buf, 16);
+        dest->value = f128;
     } else {
         zig_unreachable();
     }

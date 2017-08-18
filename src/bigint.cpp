@@ -220,6 +220,7 @@ void bigint_write_twos_complement(const BigInt *big_int, uint8_t *buf, size_t bi
     const uint64_t *twos_comp_digits = bigint_ptr(&twos_comp);
 
     size_t bits_in_last_digit = bit_count % 64;
+    if (bits_in_last_digit == 0) bits_in_last_digit = 64;
     size_t bytes_in_last_digit = (bits_in_last_digit + 7) / 8;
     size_t unwritten_byte_count = 8 - bytes_in_last_digit;
 
@@ -258,13 +259,13 @@ void bigint_write_twos_complement(const BigInt *big_int, uint8_t *buf, size_t bi
         for (size_t digit_index = 0; digit_index < digit_count; digit_index += 1) {
             uint64_t x = (digit_index < twos_comp.digit_count) ? twos_comp_digits[digit_index] : 0;
 
-            for (size_t byte_index = 0; byte_index < 8; byte_index += 1) {
+            for (size_t byte_index = 0;
+                byte_index < 8 && (digit_index + 1 < digit_count || byte_index < bytes_in_last_digit);
+                byte_index += 1)
+            {
                 uint8_t byte = x & 0xff;
                 buf[buf_index] = byte;
                 buf_index += 1;
-                if (buf_index >= unwritten_byte_count) {
-                    break;
-                }
                 x >>= 8;
             }
         }

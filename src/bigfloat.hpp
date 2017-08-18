@@ -14,12 +14,12 @@
 #include <stddef.h>
 
 struct BigFloat {
-    long double value;
+    __float128 value;
 };
 
 struct Buf;
 
-void bigfloat_init_float(BigFloat *dest, long double x);
+void bigfloat_init_float(BigFloat *dest, __float128 x);
 void bigfloat_init_bigfloat(BigFloat *dest, const BigFloat *x);
 void bigfloat_init_bigint(BigFloat *dest, const BigInt *op);
 int bigfloat_init_buf_base10(BigFloat *dest, const uint8_t *buf_ptr, size_t buf_len);

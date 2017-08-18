@@ -258,3 +258,20 @@ test "explicit cast float number literal to integer if no fraction component" {
     const y = i32(f32(1e4));
     assert(y == 10000);
 }
+
+test "cast u128 to f128 and back" {
+    comptime testCast128();
+    testCast128();
+}
+
+fn testCast128() {
+    assert(cast128Int(cast128Float(0x7fff0000000000000000000000000000)) == 0x7fff0000000000000000000000000000);
+}
+
+fn cast128Int(x: f128) -> u128 {
+    @bitCast(u128, x)
+}
+
+fn cast128Float(x: u128) -> f128 {
+    @bitCast(f128, x)
+}
