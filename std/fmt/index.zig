@@ -243,12 +243,20 @@ pub fn formatFloat(value: var, context: var, output: fn(@typeOf(context), []cons
         return false;
     if (!output(context, "."))
         return false;
-    if (!output(context, float_decimal.digits[1..]))
-        return false;
-    if (!output(context, "e"))
-        return false;
-    if (!formatInt(float_decimal.exp, 10, false, 0, context, output))
-        return false;
+    if (float_decimal.digits.len > 1) {
+        if (!output(context, float_decimal.digits[1 .. math.min(usize(7), float_decimal.digits.len)]))
+            return false;
+    } else {
+        if (!output(context, "0"))
+            return false;
+    }
+
+    if (float_decimal.exp != 1) {
+        if (!output(context, "e"))
+            return false;
+        if (!formatInt(float_decimal.exp, 10, false, 0, context, output))
+            return false;
+    }
     return true;
 }
 
