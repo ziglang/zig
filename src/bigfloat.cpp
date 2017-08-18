@@ -10,7 +10,15 @@
 #include "buffer.hpp"
 #include <math.h>
 #include <errno.h>
-#include <quadmath.h>
+
+extern "C" {
+    __float128 fmodq(__float128 a, __float128 b);
+    __float128 ceilq(__float128 a);
+    __float128 floorq(__float128 a);
+    __float128 strtoflt128 (const char *s, char **sp);
+    int quadmath_snprintf (char *s, size_t size, const char *format, ...);
+}
+
 
 void bigfloat_init_float(BigFloat *dest, __float128 x) {
     dest->value = x;
