@@ -68,7 +68,6 @@ const GE_GREATER = c_int(1);
 const GE_UNORDERED = c_int(-1); // Note: different from LE_UNORDERED
 
 export fn __getf2(a: f128, b: f128) -> c_int {
-
     const aInt = @bitCast(srep_t, a);
     const bInt = @bitCast(srep_t, b);
     const aAbs = @bitCast(rep_t, aInt) & absMask;

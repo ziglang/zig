@@ -3852,6 +3852,10 @@ static void build_all_basic_blocks(CodeGen *g, FnTableEntry *fn) {
 static void gen_global_var(CodeGen *g, VariableTableEntry *var, LLVMValueRef init_val,
     TypeTableEntry *type_entry)
 {
+    if (g->strip_debug_symbols) {
+        return;
+    }
+
     assert(var->gen_is_const);
     assert(type_entry);
 
@@ -3863,6 +3867,7 @@ static void gen_global_var(CodeGen *g, VariableTableEntry *var, LLVMValueRef ini
         buf_ptr(&var->name), import->di_file,
         (unsigned)(var->decl_node->line + 1),
         type_entry->di_type, is_local_to_unit);
+
     // TODO ^^ make an actual global variable
 }
 
@@ -5126,6 +5131,12 @@ static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
                     break;
                 case 64:
                     buf_init_from_str(out_buf, "double");
+                    break;
+                case 80:
+                    buf_init_from_str(out_buf, "__float80");
+                    break;
+                case 128:
+                    buf_init_from_str(out_buf, "__float128");
                     break;
                 default:
                     zig_unreachable();

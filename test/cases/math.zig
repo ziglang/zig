@@ -313,6 +313,12 @@ test "big number multiplication" {
     }
 }
 
+test "big number shifting" {
+    comptime {
+        assert((u128(1) << 127) == 0x80000000000000000000000000000000);
+    }
+}
+
 test "f128" {
     test_f128();
     comptime test_f128();
@@ -327,4 +333,9 @@ fn test_f128() {
     assert(make_f128(1.0) > 0.9);
     assert(make_f128(1.0) >= 0.9);
     assert(make_f128(1.0) >= 1.0);
+    should_not_be_zero(1.0);
+}
+
+fn should_not_be_zero(x: f128) {
+    assert(x != 0.0);
 }

@@ -826,7 +826,7 @@ void bigint_shl(BigInt *dest, const BigInt *op1, const BigInt *op2) {
     const uint64_t *op1_digits = bigint_ptr(op1);
     uint64_t shift_amt = bigint_as_unsigned(op2);
 
-    if (op1->digit_count == 1) {
+    if (op1->digit_count == 1 && shift_amt < 64) {
         dest->data.digit = op1_digits[0] << shift_amt;
         if (dest->data.digit > op1_digits[0]) {
             dest->digit_count = 1;
