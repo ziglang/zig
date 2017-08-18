@@ -4,6 +4,6 @@ export fn __fixunstfsi(a: f128) -> u32 {
     return fixuint(f128, u32, a);
 }
 
-test "fixunstfsi" {
+test "import fixunstfsi" {
     _ = @import("fixunstfsi_test.zig");
 }

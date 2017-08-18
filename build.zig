@@ -11,6 +11,9 @@ pub fn build(b: &Builder) {
     test_step.dependOn(tests.addPkgTests(b, test_filter,
         "std/index.zig", "std", "Run the standard library tests"));
 
+    test_step.dependOn(tests.addPkgTestsAlwaysLibc(b, test_filter,
+        "std/special/compiler_rt/index.zig", "compiler-rt", "Run the compiler_rt tests"));
+
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter));
     test_step.dependOn(tests.addBuildExampleTests(b, test_filter));
     test_step.dependOn(tests.addCompileErrorTests(b, test_filter));

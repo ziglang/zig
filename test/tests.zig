@@ -107,9 +107,22 @@ pub fn addParseHTests(b: &build.Builder, test_filter: ?[]const u8) -> &build.Ste
 pub fn addPkgTests(b: &build.Builder, test_filter: ?[]const u8, root_src: []const u8,
     name:[] const u8, desc: []const u8) -> &build.Step
 {
+    return addPkgTestsRaw(b, test_filter, root_src, name, desc, false);
+}
+
+pub fn addPkgTestsAlwaysLibc(b: &build.Builder, test_filter: ?[]const u8, root_src: []const u8,
+    name:[] const u8, desc: []const u8) -> &build.Step
+{
+    return addPkgTestsRaw(b, test_filter, root_src, name, desc, true);
+}
+
+pub fn addPkgTestsRaw(b: &build.Builder, test_filter: ?[]const u8, root_src: []const u8,
+    name:[] const u8, desc: []const u8, always_link_libc: bool) -> &build.Step
+{
+    const libc_bools = if (always_link_libc) []bool{true} else []bool{false, true};
     const step = b.step(b.fmt("test-{}", name), desc);
     for ([]Mode{Mode.Debug, Mode.ReleaseFast}) |mode| {
-        for ([]bool{false, true}) |link_libc| {
+        for (libc_bools) |link_libc| {
             const these_tests = b.addTest(root_src);
             these_tests.setNamePrefix(b.fmt("{}-{}-{} ", name, @enumTagName(mode),
                 if (link_libc) "c" else "bare"));
