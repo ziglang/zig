@@ -325,6 +325,8 @@ install(FILES "${CMAKE_SOURCE_DIR}/std/special/compiler_rt/fixunstfsi.zig" DESTI
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/compiler_rt/fixunstfti.zig" DESTINATION "${ZIG_STD_DEST}/special/compiler_rt")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/compiler_rt/index.zig" DESTINATION "${ZIG_STD_DEST}/special/compiler_rt")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/compiler_rt/udivti3.zig" DESTINATION "${ZIG_STD_DEST}/special/compiler_rt")
+install(FILES "${CMAKE_SOURCE_DIR}/std/special/compiler_rt/udivmod.zig" DESTINATION "${ZIG_STD_DEST}/special/compiler_rt")
+install(FILES "${CMAKE_SOURCE_DIR}/std/special/compiler_rt/udivmoddi4.zig" DESTINATION "${ZIG_STD_DEST}/special/compiler_rt")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/compiler_rt/udivmodti4.zig" DESTINATION "${ZIG_STD_DEST}/special/compiler_rt")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/compiler_rt/umodti3.zig" DESTINATION "${ZIG_STD_DEST}/special/compiler_rt")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/test_runner.zig" DESTINATION "${ZIG_STD_DEST}/special")
