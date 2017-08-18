@@ -5,7 +5,7 @@
  * See http://opensource.org/licenses/MIT
  */
 
-// TODO in this file we cast between __float128 and long double
+// TODO in this file we cast between __float128 and double
 // and lose precision. for now this is going to be a bug in
 // the compiler because I don't want to add a dependency on libquadmath.
 // when we self host we can use zig's f128 and the problem is fixed.
@@ -51,7 +51,7 @@ int bigfloat_init_buf_base10(BigFloat *dest, const uint8_t *buf_ptr, size_t buf_
     char *str_begin = (char *)buf_ptr;
     char *str_end;
     errno = 0;
-    dest->value = (__float128)strtold(str_begin, &str_end);
+    dest->value = (__float128)strtod(str_begin, &str_end);
     if (errno) {
         return ErrorOverflow;
     }
@@ -82,26 +82,26 @@ void bigfloat_div(BigFloat *dest, const BigFloat *op1, const BigFloat *op2) {
 void bigfloat_div_trunc(BigFloat *dest, const BigFloat *op1, const BigFloat *op2) {
     dest->value = op1->value / op2->value;
     if (dest->value >= 0.0) {
-        dest->value = (__float128)floorl((long double)dest->value);
+        dest->value = (__float128)floor((double)dest->value);
     } else {
-        dest->value = (__float128)ceill((long double)dest->value);
+        dest->value = (__float128)ceil((double)dest->value);
     }
 }
 
 void bigfloat_div_floor(BigFloat *dest, const BigFloat *op1, const BigFloat *op2) {
-    dest->value = (__float128)floorl((long double)(op1->value / op2->value));
+    dest->value = (__float128)floor((double)(op1->value / op2->value));
 }
 
 void bigfloat_rem(BigFloat *dest, const BigFloat *op1, const BigFloat *op2) {
-    dest->value = (__float128)fmodl((long double)op1->value, (long double)op2->value);
+    dest->value = (__float128)fmod((double)op1->value, (double)op2->value);
 }
 
 void bigfloat_mod(BigFloat *dest, const BigFloat *op1, const BigFloat *op2) {
-    dest->value = (__float128)fmodl(fmodl((long double)op1->value, (long double)op2->value) + (long double)op2->value, (long double)op2->value);
+    dest->value = (__float128)fmod(fmod((double)op1->value, (double)op2->value) + (double)op2->value, (double)op2->value);
 }
 
 void bigfloat_write_buf(Buf *buf, const BigFloat *op) {
-    buf_appendf(buf, "%Lf", (long double)op->value);
+    buf_appendf(buf, "%f", (double)op->value);
 }
 
 Cmp bigfloat_cmp(const BigFloat *op1, const BigFloat *op2) {
@@ -164,5 +164,5 @@ Cmp bigfloat_cmp_zero(const BigFloat *bigfloat) {
 }
 
 bool bigfloat_has_fraction(const BigFloat *bigfloat) {
-    return ((__float128)floorl((long double)bigfloat->value)) != bigfloat->value;
+    return ((__float128)floor((double)bigfloat->value)) != bigfloat->value;
 }
