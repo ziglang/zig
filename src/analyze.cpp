@@ -2028,12 +2028,23 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
         }
     }
 
-    auto entry = decls_scope->decl_table.put_unique(tld->name, tld);
-    if (entry) {
-        Tld *other_tld = entry->value;
-        ErrorMsg *msg = add_node_error(g, tld->source_node, buf_sprintf("redefinition of '%s'", buf_ptr(tld->name)));
-        add_error_note(g, msg, other_tld->source_node, buf_sprintf("previous definition is here"));
-        return;
+    {
+        auto entry = decls_scope->decl_table.put_unique(tld->name, tld);
+        if (entry) {
+            Tld *other_tld = entry->value;
+            ErrorMsg *msg = add_node_error(g, tld->source_node, buf_sprintf("redefinition of '%s'", buf_ptr(tld->name)));
+            add_error_note(g, msg, other_tld->source_node, buf_sprintf("previous definition is here"));
+            return;
+        }
+    }
+
+    {
+        auto entry = g->primitive_type_table.maybe_get(tld->name);
+        if (entry) {
+            TypeTableEntry *type = entry->value;
+            add_node_error(g, tld->source_node,
+                    buf_sprintf("declaration shadows type '%s'", buf_ptr(&type->name)));
+        }
     }
 }
 

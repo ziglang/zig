@@ -1987,4 +1987,12 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:2:17: error: expected type 'u3', found 'u8'");
+
+    cases.add("globally shadowing a primitive type",
+        \\const u16 = @intType(false, 8);
+        \\export fn entry() {
+        \\    const a: u16 = 300;
+        \\}
+    ,
+        ".tmp_source.zig:1:1: error: declaration shadows type 'u16'");
 }

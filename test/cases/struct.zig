@@ -202,7 +202,6 @@ test "packed struct" {
 
 
 const u2 = @IntType(false, 2);
-const u3 = @IntType(false, 3);
 
 const BitField1 = packed struct {
     a: u3,
@@ -373,8 +372,6 @@ test "runtime struct initialization of bitfield" {
     assert(s2.x == u4(x2));
     assert(s2.y == u4(x2));
 }
-
-const u4 = @IntType(false, 4);
 
 var x1 = u4(1);
 var x2 = u8(2);
