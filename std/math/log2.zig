@@ -26,8 +26,11 @@ fn log2_workaround(x: var) -> @typeOf(x) {
                 else => @compileError("log2 not implemented for " ++ @typeName(T)),
             };
         },
-        TypeId.IntLiteral => {
-            return @typeOf(1)(log2_int(u128, x))
+        TypeId.IntLiteral => comptime {
+            var result = 0;
+            var x_shifted = x;
+            while ({x_shifted >>= 1; x_shifted != 0}) : (result += 1) {}
+            return result;
         },
         TypeId.Int => {
             return log2_int(T, x);
