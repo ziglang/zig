@@ -11,8 +11,6 @@ pub const FloatDecimal = struct {
     exp: i32,
 };
 
-const u128 = @IntType(false, 128);
-
 /// Corrected Errol3 double to ASCII conversion.
 pub fn errol3(value: f64, buffer: []u8) -> FloatDecimal {
     const bits = @bitCast(u64, value);
@@ -615,7 +613,7 @@ fn fpeint(from: f64) -> u128 {
     const bits = @bitCast(u64, from);
     assert((bits & ((1 << 52) - 1)) == 0);
 
-    return 1 << ((bits >> 52) - 1023);
+    return u64(1) << u6(((bits >> 52) - 1023));
 }
 
 

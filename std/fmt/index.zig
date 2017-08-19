@@ -239,19 +239,25 @@ pub fn formatBuf(buf: []const u8, width: usize,
 pub fn formatFloat(value: var, context: var, output: fn(@typeOf(context), []const u8)->bool) -> bool {
     var buffer: [20]u8 = undefined;
     const float_decimal = errol3(f64(value), buffer[0..]);
-    if (!output(context, float_decimal.digits[0..1]))
-        return false;
+    if (float_decimal.exp != 0) {
+        if (!output(context, float_decimal.digits[0..1]))
+            return false;
+    } else {
+        if (!output(context, "0"))
+            return false;
+    }
     if (!output(context, "."))
         return false;
     if (float_decimal.digits.len > 1) {
-        if (!output(context, float_decimal.digits[1 .. math.min(usize(7), float_decimal.digits.len)]))
+        const start = if (float_decimal.exp == 0) usize(0) else usize(1);
+        if (!output(context, float_decimal.digits[start .. math.min(usize(7), float_decimal.digits.len)]))
             return false;
     } else {
         if (!output(context, "0"))
             return false;
     }
 
-    if (float_decimal.exp != 1) {
+    if (float_decimal.exp != 1 and float_decimal.exp != 0) {
         if (!output(context, "e"))
             return false;
         if (!formatInt(float_decimal.exp, 10, false, 0, context, output))
