@@ -549,6 +549,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionTypeId *) {
     return IrInstructionIdTypeId;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSetEvalBranchQuota *) {
+    return IrInstructionIdSetEvalBranchQuota;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -2192,6 +2196,17 @@ static IrInstruction *ir_build_type_id(IrBuilder *irb, Scope *scope, AstNode *so
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_set_eval_branch_quota(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *new_quota)
+{
+    IrInstructionSetEvalBranchQuota *instruction = ir_build_instruction<IrInstructionSetEvalBranchQuota>(irb, scope, source_node);
+    instruction->new_quota = new_quota;
+
+    ir_ref_instruction(new_quota, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_instruction_br_get_dep(IrInstructionBr *instruction, size_t index) {
     return nullptr;
 }
@@ -2881,6 +2896,13 @@ static IrInstruction *ir_instruction_typeid_get_dep(IrInstructionTypeId *instruc
     }
 }
 
+static IrInstruction *ir_instruction_setevalbranchquota_get_dep(IrInstructionSetEvalBranchQuota *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->new_quota;
+        default: return nullptr;
+    }
+}
+
 static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t index) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -3075,6 +3097,8 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_offsetof_get_dep((IrInstructionOffsetOf *) instruction, index);
         case IrInstructionIdTypeId:
             return ir_instruction_typeid_get_dep((IrInstructionTypeId *) instruction, index);
+        case IrInstructionIdSetEvalBranchQuota:
+            return ir_instruction_setevalbranchquota_get_dep((IrInstructionSetEvalBranchQuota *) instruction, index);
     }
     zig_unreachable();
 }
@@ -4480,6 +4504,15 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 return ir_build_bin_op(irb, scope, node, IrBinOpBitShiftRightExact, arg0_value, arg1_value, true);
+            }
+        case BuiltinFnIdSetEvalBranchQuota:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                return ir_build_set_eval_branch_quota(irb, scope, node, arg0_value);
             }
     }
     zig_unreachable();
@@ -12432,6 +12465,21 @@ static TypeTableEntry *ir_analyze_instruction_type_id(IrAnalyze *ira,
     return result_type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_set_eval_branch_quota(IrAnalyze *ira,
+        IrInstructionSetEvalBranchQuota *instruction)
+{
+    uint64_t new_quota;
+    if (!ir_resolve_usize(ira, instruction->new_quota->other, &new_quota))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (new_quota > ira->new_irb.exec->backward_branch_quota) {
+        ira->new_irb.exec->backward_branch_quota = new_quota;
+    }
+
+    ir_build_const_from(ira, &instruction->base);
+    return ira->codegen->builtin_types.entry_void;
+}
+
 static TypeTableEntry *ir_analyze_instruction_type_name(IrAnalyze *ira, IrInstructionTypeName *instruction) {
     IrInstruction *type_value = instruction->type_value->other;
     TypeTableEntry *type_entry = ir_resolve_type(ira, type_value);
@@ -14249,6 +14297,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_offset_of(ira, (IrInstructionOffsetOf *)instruction);
         case IrInstructionIdTypeId:
             return ir_analyze_instruction_type_id(ira, (IrInstructionTypeId *)instruction);
+        case IrInstructionIdSetEvalBranchQuota:
+            return ir_analyze_instruction_set_eval_branch_quota(ira, (IrInstructionSetEvalBranchQuota *)instruction);
         case IrInstructionIdMaybeWrap:
         case IrInstructionIdErrWrapCode:
         case IrInstructionIdErrWrapPayload:
@@ -14365,6 +14415,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdSetGlobalSection:
         case IrInstructionIdSetGlobalLinkage:
         case IrInstructionIdPanic:
+        case IrInstructionIdSetEvalBranchQuota:
             return true;
         case IrInstructionIdPhi:
         case IrInstructionIdUnOp:

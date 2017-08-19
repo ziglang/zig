@@ -910,6 +910,12 @@ static void ir_print_type_id(IrPrint *irp, IrInstructionTypeId *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_set_eval_branch_quota(IrPrint *irp, IrInstructionSetEvalBranchQuota *instruction) {
+    fprintf(irp->f, "@setEvalBranchQuota(");
+    ir_print_other_instruction(irp, instruction->new_quota);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1199,6 +1205,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdTypeId:
             ir_print_type_id(irp, (IrInstructionTypeId *)instruction);
+            break;
+        case IrInstructionIdSetEvalBranchQuota:
+            ir_print_set_eval_branch_quota(irp, (IrInstructionSetEvalBranchQuota *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

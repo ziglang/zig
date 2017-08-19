@@ -342,3 +342,16 @@ test "const global shares pointer with other same one" {
 fn assertEqualPtrs(ptr1: &const u8, ptr2: &const u8) {
     assert(ptr1 == ptr2);
 }
+
+test "@setEvalBranchQuota" {
+    comptime {
+        // 1001 for the loop and then 1 more for the assert fn call
+        @setEvalBranchQuota(1002);
+        var i = 0;
+        var sum = 0;
+        while (i < 1001) : (i += 1) {
+            sum += i;
+        }
+        assert(sum == 500500);
+    }
+}

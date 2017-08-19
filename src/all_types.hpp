@@ -1232,6 +1232,7 @@ enum BuiltinFnId {
     BuiltinFnIdTypeId,
     BuiltinFnIdShlExact,
     BuiltinFnIdShrExact,
+    BuiltinFnIdSetEvalBranchQuota,
 };
 
 struct BuiltinFnEntry {
@@ -1834,6 +1835,7 @@ enum IrInstructionId {
     IrInstructionIdFieldParentPtr,
     IrInstructionIdOffsetOf,
     IrInstructionIdTypeId,
+    IrInstructionIdSetEvalBranchQuota,
 };
 
 struct IrInstruction {
@@ -2601,6 +2603,12 @@ struct IrInstructionTypeId {
     IrInstruction base;
 
     IrInstruction *type_value;
+};
+
+struct IrInstructionSetEvalBranchQuota {
+    IrInstruction base;
+
+    IrInstruction *new_quota;
 };
 
 static const size_t slice_ptr_index = 0;
