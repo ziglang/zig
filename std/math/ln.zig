@@ -7,19 +7,35 @@
 
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
+const builtin = @import("builtin");
+const TypeId = builtin.TypeId;
 
 pub const ln = ln_workaround;
 
-pub fn ln_workaround(x: var) -> @typeOf(x) {
+fn ln_workaround(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(lnf, x),
-        f64 => @inlineCall(lnd, x),
+    switch (@typeId(T)) {
+        TypeId.FloatLiteral => {
+            return @typeOf(1.0)(ln_64(x))
+        },
+        TypeId.Float => {
+            return switch (T) {
+                f32 => ln_32(x),
+                f64 => ln_64(x),
+                else => @compileError("ln not implemented for " ++ @typeName(T)),
+            };
+        },
+        TypeId.IntLiteral => {
+            return @typeOf(1)(math.floor(ln_64(f64(x))));
+        },
+        TypeId.Int => {
+            return T(math.floor(ln_64(f64(x))));
+        },
         else => @compileError("ln not implemented for " ++ @typeName(T)),
     }
 }
 
-fn lnf(x_: f32) -> f32 {
+pub fn ln_32(x_: f32) -> f32 {
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
     const ln2_hi: f32 = 6.9313812256e-01;
@@ -73,7 +89,7 @@ fn lnf(x_: f32) -> f32 {
     s * (hfsq + R) + dk * ln2_lo - hfsq + f + dk * ln2_hi
 }
 
-fn lnd(x_: f64) -> f64 {
+pub fn ln_64(x_: f64) -> f64 {
     const ln2_hi: f64 = 6.93147180369123816490e-01;
     const ln2_lo: f64 = 1.90821492927058770002e-10;
     const Lg1: f64 = 6.666666666666735130e-01;
@@ -132,42 +148,42 @@ fn lnd(x_: f64) -> f64 {
 }
 
 test "math.ln" {
-    assert(ln(f32(0.2)) == lnf(0.2));
-    assert(ln(f64(0.2)) == lnd(0.2));
+    assert(ln(f32(0.2)) == ln_32(0.2));
+    assert(ln(f64(0.2)) == ln_64(0.2));
 }
 
 test "math.ln32" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f32, lnf(0.2), -1.609438, epsilon));
-    assert(math.approxEq(f32, lnf(0.8923), -0.113953, epsilon));
-    assert(math.approxEq(f32, lnf(1.5), 0.405465, epsilon));
-    assert(math.approxEq(f32, lnf(37.45), 3.623007, epsilon));
-    assert(math.approxEq(f32, lnf(89.123), 4.490017, epsilon));
-    assert(math.approxEq(f32, lnf(123123.234375), 11.720941, epsilon));
+    assert(math.approxEq(f32, ln_32(0.2), -1.609438, epsilon));
+    assert(math.approxEq(f32, ln_32(0.8923), -0.113953, epsilon));
+    assert(math.approxEq(f32, ln_32(1.5), 0.405465, epsilon));
+    assert(math.approxEq(f32, ln_32(37.45), 3.623007, epsilon));
+    assert(math.approxEq(f32, ln_32(89.123), 4.490017, epsilon));
+    assert(math.approxEq(f32, ln_32(123123.234375), 11.720941, epsilon));
 }
 
 test "math.ln64" {
     const epsilon = 0.000001;
 
-    assert(math.approxEq(f64, lnd(0.2), -1.609438, epsilon));
-    assert(math.approxEq(f64, lnd(0.8923), -0.113953, epsilon));
-    assert(math.approxEq(f64, lnd(1.5), 0.405465, epsilon));
-    assert(math.approxEq(f64, lnd(37.45), 3.623007, epsilon));
-    assert(math.approxEq(f64, lnd(89.123), 4.490017, epsilon));
-    assert(math.approxEq(f64, lnd(123123.234375), 11.720941, epsilon));
+    assert(math.approxEq(f64, ln_64(0.2), -1.609438, epsilon));
+    assert(math.approxEq(f64, ln_64(0.8923), -0.113953, epsilon));
+    assert(math.approxEq(f64, ln_64(1.5), 0.405465, epsilon));
+    assert(math.approxEq(f64, ln_64(37.45), 3.623007, epsilon));
+    assert(math.approxEq(f64, ln_64(89.123), 4.490017, epsilon));
+    assert(math.approxEq(f64, ln_64(123123.234375), 11.720941, epsilon));
 }
 
 test "math.ln32.special" {
-    assert(math.isPositiveInf(lnf(math.inf(f32))));
-    assert(math.isNegativeInf(lnf(0.0)));
-    assert(math.isNan(lnf(-1.0)));
-    assert(math.isNan(lnf(math.nan(f32))));
+    assert(math.isPositiveInf(ln_32(math.inf(f32))));
+    assert(math.isNegativeInf(ln_32(0.0)));
+    assert(math.isNan(ln_32(-1.0)));
+    assert(math.isNan(ln_32(math.nan(f32))));
 }
 
 test "math.ln64.special" {
-    assert(math.isPositiveInf(lnd(math.inf(f64))));
-    assert(math.isNegativeInf(lnd(0.0)));
-    assert(math.isNan(lnd(-1.0)));
-    assert(math.isNan(lnd(math.nan(f64))));
+    assert(math.isPositiveInf(ln_64(math.inf(f64))));
+    assert(math.isNegativeInf(ln_64(0.0)));
+    assert(math.isNan(ln_64(-1.0)));
+    assert(math.isNan(ln_64(math.nan(f64))));
 }

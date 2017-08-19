@@ -7,20 +7,36 @@
 
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
+const builtin = @import("builtin");
+const TypeId = builtin.TypeId;
 
 // TODO issue #393
 pub const log10 = log10_workaround;
 
-pub fn log10_workaround(x: var) -> @typeOf(x) {
+fn log10_workaround(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(log10_32, x),
-        f64 => @inlineCall(log10_64, x),
+    switch (@typeId(T)) {
+        TypeId.FloatLiteral => {
+            return @typeOf(1.0)(log10_64(x))
+        },
+        TypeId.Float => {
+            return switch (T) {
+                f32 => log10_32(x),
+                f64 => log10_64(x),
+                else => @compileError("log10 not implemented for " ++ @typeName(T)),
+            };
+        },
+        TypeId.IntLiteral => {
+            return @typeOf(1)(math.floor(log10_64(f64(x))));
+        },
+        TypeId.Int => {
+            return T(math.floor(log10_64(f64(x))));
+        },
         else => @compileError("log10 not implemented for " ++ @typeName(T)),
     }
 }
 
-fn log10_32(x_: f32) -> f32 {
+pub fn log10_32(x_: f32) -> f32 {
     const ivln10hi: f32  =  4.3432617188e-01;
     const ivln10lo: f32  = -3.1689971365e-05;
     const log10_2hi: f32 =  3.0102920532e-01;
@@ -80,7 +96,7 @@ fn log10_32(x_: f32) -> f32 {
     dk * log10_2lo + (lo + hi) * ivln10lo + lo * ivln10hi + hi * ivln10hi + dk * log10_2hi
 }
 
-fn log10_64(x_: f64) -> f64 {
+pub fn log10_64(x_: f64) -> f64 {
     const ivln10hi: f64  = 4.34294481878168880939e-01;
     const ivln10lo: f64  = 2.50829467116452752298e-11;
     const log10_2hi: f64 = 3.01029995663611771306e-01;

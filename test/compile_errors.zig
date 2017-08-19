@@ -1973,4 +1973,18 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:2:15: error: exact shift shifted out 1 bits");
+
+    cases.add("shifting without int type or comptime known",
+        \\export fn entry(x: u8) -> u8 {
+        \\    return 0x11 << x;
+        \\}
+    ,
+        ".tmp_source.zig:2:17: error: LHS of shift must be an integer type, or RHS must be compile-time known");
+
+    cases.add("shifting RHS is log2 of LHS int bit width",
+        \\export fn entry(x: u8, y: u8) -> u8 {
+        \\    return x << y;
+        \\}
+    ,
+        ".tmp_source.zig:2:17: error: expected type 'u3', found 'u8'");
 }

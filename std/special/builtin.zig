@@ -33,9 +33,13 @@ export fn __stack_chk_fail() {
 export fn fmodf(x: f32, y: f32) -> f32 { generic_fmod(f32, x, y) }
 export fn fmod(x: f64, y: f64) -> f64 { generic_fmod(f64, x, y) }
 
+const Log2Int = @import("../math/index.zig").Log2Int;
+
 fn generic_fmod(comptime T: type, x: T, y: T) -> T {
-    //@setDebugSafety(this, false);
+    @setDebugSafety(this, false);
+
     const uint = @IntType(false, T.bit_count);
+    const log2uint = Log2Int(uint);
     const digits = if (T == f32) 23 else 52;
     const exp_bits = if (T == f32) 9 else 12;
     const bits_minus_1 = T.bit_count - 1;
@@ -60,7 +64,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) -> T {
     if (ex == 0) {
         i = ux << exp_bits;
         while (i >> bits_minus_1 == 0) : ({ex -= 1; i <<= 1}) {}
-        ux <<= @bitCast(u32, -ex + 1);
+        ux <<= log2uint(@bitCast(u32, -ex + 1));
     } else {
         ux &= @maxValue(uint) >> exp_bits;
         ux |= 1 << digits;
@@ -68,7 +72,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) -> T {
     if (ey == 0) {
         i = uy << exp_bits;
         while (i >> bits_minus_1 == 0) : ({ey -= 1; i <<= 1}) {}
-        uy <<= @bitCast(u32, -ey + 1);
+        uy <<= log2uint(@bitCast(u32, -ey + 1));
     } else {
         uy &= @maxValue(uint) >> exp_bits;
         uy |= 1 << digits;
@@ -95,9 +99,9 @@ fn generic_fmod(comptime T: type, x: T, y: T) -> T {
     // scale result up
     if (ex > 0) {
         ux -%= 1 << digits;
-        ux |= @bitCast(u32, ex) << digits;
+        ux |= uint(@bitCast(u32, ex)) << digits;
     } else {
-        ux >>= @bitCast(u32, -ex + 1);
+        ux >>= log2uint(@bitCast(u32, -ex + 1));
     }
     if (T == f32) {
         ux |= sx;

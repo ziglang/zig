@@ -30,7 +30,7 @@ fn trunc32(x: f32) -> f32 {
         e = 1;
     }
 
-    m = @maxValue(u32) >> u32(e);
+    m = u32(@maxValue(u32)) >> u5(e);
     if (u & m == 0) {
         x
     } else {
@@ -51,7 +51,7 @@ fn trunc64(x: f64) -> f64 {
         e = 1;
     }
 
-    m = @maxValue(u64) >> u64(e);
+    m = u64(@maxValue(u64)) >> u6(e);
     if (u & m == 0) {
         x
     } else {

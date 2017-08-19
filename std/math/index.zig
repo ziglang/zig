@@ -230,9 +230,13 @@ pub fn negate(x: var) -> %@typeOf(x) {
 }
 
 error Overflow;
-pub fn shl(comptime T: type, a: T, b: T) -> %T {
+pub fn shl(comptime T: type, a: T, shift_amt: Log2Int(T)) -> %T {
     var answer: T = undefined;
-    if (@shlWithOverflow(T, a, b, &answer)) error.Overflow else answer
+    if (@shlWithOverflow(T, a, shift_amt, &answer)) error.Overflow else answer
+}
+
+pub fn Log2Int(comptime T: type) -> type {
+    @IntType(false, log2(T.bit_count))
 }
 
 test "math overflow functions" {
@@ -453,4 +457,16 @@ test "math.negateCast" {
     assert(@typeOf(%%negateCast(u32(-@minValue(i32)))) == i32);
 
     if (negateCast(u32(@maxValue(i32) + 10))) |_| unreachable else |err| assert(err == error.Overflow);
+}
+
+/// Cast an integer to a different integer type. If the value doesn't fit, 
+/// return an error.
+error Overflow;
+pub fn cast(comptime T: type, x: var) -> %T {
+    comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer
+    if (x > @maxValue(T)) {
+        return error.Overflow;
+    } else {
+        return T(x);
+    }
 }

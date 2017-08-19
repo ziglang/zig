@@ -32,9 +32,8 @@ fn ceil32(x: f32) -> f32 {
 
     if (e >= 23) {
         return x;
-    }
-    else if (e >= 0) {
-        m = 0x007FFFFF >> u32(e);
+    } else if (e >= 0) {
+        m = u32(0x007FFFFF) >> u5(e);
         if (u & m == 0) {
             return x;
         }

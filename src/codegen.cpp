@@ -1451,7 +1451,9 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
     IrInstruction *op1 = bin_op_instruction->op1;
     IrInstruction *op2 = bin_op_instruction->op2;
 
-    assert(op1->value.type == op2->value.type);
+    assert(op1->value.type == op2->value.type || op_id == IrBinOpBitShiftLeftLossy ||
+            op_id == IrBinOpBitShiftLeftExact || op_id == IrBinOpBitShiftRightLossy ||
+            op_id == IrBinOpBitShiftRightExact);
     TypeTableEntry *type_entry = op1->value.type;
 
     bool want_debug_safety = bin_op_instruction->safety_check_on &&
@@ -1527,34 +1529,38 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
         case IrBinOpBitShiftLeftExact:
             {
                 assert(type_entry->id == TypeTableEntryIdInt);
+                LLVMValueRef op2_casted = gen_widen_or_shorten(g, false, op2->value.type,
+                        type_entry, op2_value);
                 bool is_sloppy = (op_id == IrBinOpBitShiftLeftLossy);
                 if (is_sloppy) {
-                    return LLVMBuildShl(g->builder, op1_value, op2_value, "");
+                    return LLVMBuildShl(g->builder, op1_value, op2_casted, "");
                 } else if (want_debug_safety) {
-                    return gen_overflow_shl_op(g, type_entry, op1_value, op2_value);
+                    return gen_overflow_shl_op(g, type_entry, op1_value, op2_casted);
                 } else if (type_entry->data.integral.is_signed) {
-                    return ZigLLVMBuildNSWShl(g->builder, op1_value, op2_value, "");
+                    return ZigLLVMBuildNSWShl(g->builder, op1_value, op2_casted, "");
                 } else {
-                    return ZigLLVMBuildNUWShl(g->builder, op1_value, op2_value, "");
+                    return ZigLLVMBuildNUWShl(g->builder, op1_value, op2_casted, "");
                 }
             }
         case IrBinOpBitShiftRightLossy:
         case IrBinOpBitShiftRightExact:
             {
                 assert(type_entry->id == TypeTableEntryIdInt);
+                LLVMValueRef op2_casted = gen_widen_or_shorten(g, false, op2->value.type,
+                        type_entry, op2_value);
                 bool is_sloppy = (op_id == IrBinOpBitShiftRightLossy);
                 if (is_sloppy) {
                     if (type_entry->data.integral.is_signed) {
-                        return LLVMBuildAShr(g->builder, op1_value, op2_value, "");
+                        return LLVMBuildAShr(g->builder, op1_value, op2_casted, "");
                     } else {
-                        return LLVMBuildLShr(g->builder, op1_value, op2_value, "");
+                        return LLVMBuildLShr(g->builder, op1_value, op2_casted, "");
                     }
                 } else if (want_debug_safety) {
-                    return gen_overflow_shr_op(g, type_entry, op1_value, op2_value);
+                    return gen_overflow_shr_op(g, type_entry, op1_value, op2_casted);
                 } else if (type_entry->data.integral.is_signed) {
-                    return ZigLLVMBuildAShrExact(g->builder, op1_value, op2_value, "");
+                    return ZigLLVMBuildAShrExact(g->builder, op1_value, op2_casted, "");
                 } else {
-                    return ZigLLVMBuildLShrExact(g->builder, op1_value, op2_value, "");
+                    return ZigLLVMBuildLShrExact(g->builder, op1_value, op2_casted, "");
                 }
             }
         case IrBinOpSub:
@@ -2824,12 +2830,15 @@ static LLVMValueRef render_shl_with_overflow(CodeGen *g, IrInstructionOverflowOp
     LLVMValueRef op2 = ir_llvm_value(g, instruction->op2);
     LLVMValueRef ptr_result = ir_llvm_value(g, instruction->result_ptr);
 
-    LLVMValueRef result = LLVMBuildShl(g->builder, op1, op2, "");
+    LLVMValueRef op2_casted = gen_widen_or_shorten(g, false, instruction->op2->value.type,
+            instruction->op1->value.type, op2);
+
+    LLVMValueRef result = LLVMBuildShl(g->builder, op1, op2_casted, "");
     LLVMValueRef orig_val;
     if (int_type->data.integral.is_signed) {
-        orig_val = LLVMBuildAShr(g->builder, result, op2, "");
+        orig_val = LLVMBuildAShr(g->builder, result, op2_casted, "");
     } else {
-        orig_val = LLVMBuildLShr(g->builder, result, op2, "");
+        orig_val = LLVMBuildLShr(g->builder, result, op2_casted, "");
     }
     LLVMValueRef overflow_bit = LLVMBuildICmp(g->builder, LLVMIntNE, op1, orig_val, "");
 
@@ -4212,6 +4221,11 @@ static void do_code_gen(CodeGen *g) {
 }
 
 static const uint8_t int_sizes_in_bits[] = {
+    3,
+    4,
+    5,
+    6,
+    7,
     8,
     16,
     32,

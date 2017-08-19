@@ -8510,6 +8510,73 @@ static int ir_eval_math_op(TypeTableEntry *type_entry, ConstExprValue *op1_val,
     return 0;
 }
 
+static TypeTableEntry *ir_analyze_bit_shift(IrAnalyze *ira, IrInstructionBinOp *bin_op_instruction) {
+    IrInstruction *op1 = bin_op_instruction->op1->other;
+    if (type_is_invalid(op1->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (op1->value.type->id != TypeTableEntryIdInt && op1->value.type->id != TypeTableEntryIdNumLitInt) {
+        ir_add_error(ira, &bin_op_instruction->base,
+            buf_sprintf("bit shifting operation expected integer type, found '%s'",
+                buf_ptr(&op1->value.type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    IrInstruction *op2 = bin_op_instruction->op2->other;
+    if (type_is_invalid(op2->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *casted_op2;
+    IrBinOp op_id = bin_op_instruction->op_id;
+    if (op1->value.type->id == TypeTableEntryIdNumLitInt) {
+        casted_op2 = op2;
+
+        if (op_id == IrBinOpBitShiftLeftLossy) {
+            op_id = IrBinOpBitShiftLeftExact;
+        }
+    } else {
+        TypeTableEntry *shift_amt_type = get_smallest_unsigned_int_type(ira->codegen,
+                op1->value.type->data.integral.bit_count - 1);
+
+        casted_op2 = ir_implicit_cast(ira, op2, shift_amt_type);
+        if (casted_op2 == ira->codegen->invalid_instruction)
+            return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    if (instr_is_comptime(op1) && instr_is_comptime(casted_op2)) {
+        ConstExprValue *op1_val = &op1->value;
+        ConstExprValue *op2_val = &casted_op2->value;
+        ConstExprValue *out_val = &bin_op_instruction->base.value;
+
+        bin_op_instruction->base.other = &bin_op_instruction->base;
+
+        int err;
+        if ((err = ir_eval_math_op(op1->value.type, op1_val, op_id, op2_val, out_val))) {
+            if (err == ErrorOverflow) {
+                ir_add_error(ira, &bin_op_instruction->base, buf_sprintf("operation caused overflow"));
+                return ira->codegen->builtin_types.entry_invalid;
+            } else if (err == ErrorShiftedOutOneBits) {
+                ir_add_error(ira, &bin_op_instruction->base, buf_sprintf("exact shift shifted out 1 bits"));
+                return ira->codegen->builtin_types.entry_invalid;
+            } else {
+                zig_unreachable();
+            }
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+
+        ir_num_lit_fits_in_other_type(ira, &bin_op_instruction->base, op1->value.type, false);
+        return op1->value.type;
+    } else if (op1->value.type->id == TypeTableEntryIdNumLitInt) {
+        ir_add_error(ira, &bin_op_instruction->base,
+                buf_sprintf("LHS of shift must be an integer type, or RHS must be compile-time known"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    ir_build_bin_op_from(&ira->new_irb, &bin_op_instruction->base, op_id,
+            op1, casted_op2, bin_op_instruction->safety_check_on);
+    return op1->value.type;
+}
+
 static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp *bin_op_instruction) {
     IrInstruction *op1 = bin_op_instruction->op1->other;
     IrInstruction *op2 = bin_op_instruction->op2->other;
@@ -8626,9 +8693,7 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
     }
 
     if (resolved_type->id == TypeTableEntryIdNumLitInt) {
-        if (op_id == IrBinOpBitShiftLeftLossy) {
-            op_id = IrBinOpBitShiftLeftExact;
-        } else if (op_id == IrBinOpAddWrap) {
+        if (op_id == IrBinOpAddWrap) {
             op_id = IrBinOpAdd;
         } else if (op_id == IrBinOpSubWrap) {
             op_id = IrBinOpSub;
@@ -8665,9 +8730,6 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
                 return ira->codegen->builtin_types.entry_invalid;
             } else if (err == ErrorNegativeDenominator) {
                 ir_add_error(ira, &bin_op_instruction->base, buf_sprintf("negative denominator"));
-                return ira->codegen->builtin_types.entry_invalid;
-            } else if (err == ErrorShiftedOutOneBits) {
-                ir_add_error(ira, &bin_op_instruction->base, buf_sprintf("exact shift shifted out 1 bits"));
                 return ira->codegen->builtin_types.entry_invalid;
             } else {
                 zig_unreachable();
@@ -8892,13 +8954,14 @@ static TypeTableEntry *ir_analyze_instruction_bin_op(IrAnalyze *ira, IrInstructi
         case IrBinOpCmpLessOrEq:
         case IrBinOpCmpGreaterOrEq:
             return ir_analyze_bin_op_cmp(ira, bin_op_instruction);
-        case IrBinOpBinOr:
-        case IrBinOpBinXor:
-        case IrBinOpBinAnd:
         case IrBinOpBitShiftLeftLossy:
         case IrBinOpBitShiftLeftExact:
         case IrBinOpBitShiftRightLossy:
         case IrBinOpBitShiftRightExact:
+            return ir_analyze_bit_shift(ira, bin_op_instruction);
+        case IrBinOpBinOr:
+        case IrBinOpBinXor:
+        case IrBinOpBinAnd:
         case IrBinOpAdd:
         case IrBinOpAddWrap:
         case IrBinOpSub:
@@ -13171,6 +13234,7 @@ static TypeTableEntry *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInst
     IrInstruction *type_value = instruction->type_value->other;
     if (type_is_invalid(type_value->value.type))
         return ira->codegen->builtin_types.entry_invalid;
+
     TypeTableEntry *dest_type = ir_resolve_type(ira, type_value);
     if (type_is_invalid(dest_type))
         return ira->codegen->builtin_types.entry_invalid;
@@ -13193,7 +13257,14 @@ static TypeTableEntry *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInst
     if (type_is_invalid(op2->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    IrInstruction *casted_op2 = ir_implicit_cast(ira, op2, dest_type);
+    IrInstruction *casted_op2;
+    if (instruction->op == IrOverflowOpShl) {
+        TypeTableEntry *shift_amt_type = get_smallest_unsigned_int_type(ira->codegen,
+                dest_type->data.integral.bit_count - 1);
+        casted_op2 = ir_implicit_cast(ira, op2, shift_amt_type);
+    } else {
+        casted_op2 = ir_implicit_cast(ira, op2, dest_type);
+    }
     if (type_is_invalid(casted_op2->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 

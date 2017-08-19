@@ -1,3 +1,4 @@
+const math = @import("math/index.zig");
 const mem = @import("mem.zig");
 const io = @import("io.zig");
 const os = @import("os/index.zig");
@@ -893,13 +894,14 @@ fn readInitialLength(in_stream: &io.InStream, is_64: &bool) -> %u64 {
 
 fn readULeb128(in_stream: &io.InStream) -> %u64 {
     var result: u64 = 0;
-    var shift: u64 = 0;
+    var shift: usize = 0;
 
     while (true) {
         const byte = %return in_stream.readByte();
+
         var operand: u64 = undefined;
 
-        if (@shlWithOverflow(u64, byte & 0b01111111, shift, &operand))
+        if (@shlWithOverflow(u64, byte & 0b01111111, u6(shift), &operand))
             return error.InvalidDebugInfo;
 
         result |= operand;
@@ -913,13 +915,14 @@ fn readULeb128(in_stream: &io.InStream) -> %u64 {
 
 fn readILeb128(in_stream: &io.InStream) -> %i64 {
     var result: i64 = 0;
-    var shift: i64 = 0;
+    var shift: usize = 0;
 
     while (true) {
         const byte = %return in_stream.readByte();
+
         var operand: i64 = undefined;
 
-        if (@shlWithOverflow(i64, byte & 0b01111111, shift, &operand))
+        if (@shlWithOverflow(i64, byte & 0b01111111, u6(shift), &operand))
             return error.InvalidDebugInfo;
 
         result |= operand;
@@ -927,8 +930,7 @@ fn readILeb128(in_stream: &io.InStream) -> %i64 {
 
         if ((byte & 0b10000000) == 0) {
             if (shift < @sizeOf(i64) * 8 and (byte & 0b01000000) != 0)
-                result |= -(i64(1) << shift);
-
+                result |= -(i64(1) << u6(shift));
             return result;
         }
     }

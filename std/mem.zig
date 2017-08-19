@@ -183,14 +183,18 @@ test "mem.indexOf" {
 /// T specifies the return type, which must be large enough to store
 /// the result.
 pub fn readInt(bytes: []const u8, comptime T: type, big_endian: bool) -> T {
+    if (T.bit_count == 8) {
+        return bytes[0];
+    }
     var result: T = 0;
     if (big_endian) {
         for (bytes) |b| {
             result = (result << 8) | b;
         }
     } else {
+        const ShiftType = math.Log2Int(T);
         for (bytes) |b, index| {
-            result = result | (T(b) << T(index * 8));
+            result = result | (T(b) << ShiftType(index * 8));
         }
     }
     return result;

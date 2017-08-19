@@ -7,20 +7,41 @@
 
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
+const builtin = @import("builtin");
+const TypeId = builtin.TypeId;
 
 // TODO issue #393
 pub const log2 = log2_workaround;
 
-pub fn log2_workaround(x: var) -> @typeOf(x) {
+fn log2_workaround(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(log2_32, x),
-        f64 => @inlineCall(log2_64, x),
+    switch (@typeId(T)) {
+        TypeId.FloatLiteral => {
+            return @typeOf(1.0)(log2_64(x))
+        },
+        TypeId.Float => {
+            return switch (T) {
+                f32 => log2_32(x),
+                f64 => log2_64(x),
+                else => @compileError("log2 not implemented for " ++ @typeName(T)),
+            };
+        },
+        TypeId.IntLiteral => {
+            return @typeOf(1)(log2_int(u128, x))
+        },
+        TypeId.Int => {
+            return log2_int(T, x);
+        },
         else => @compileError("log2 not implemented for " ++ @typeName(T)),
     }
 }
 
-fn log2_32(x_: f32) -> f32 {
+pub fn log2_int(comptime T: type, x: T) -> T {
+    assert(x != 0);
+    return T.bit_count - 1 - T(@clz(x));
+}
+
+pub fn log2_32(x_: f32) -> f32 {
     const ivln2hi: f32 =  1.4428710938e+00;
     const ivln2lo: f32 = -1.7605285393e-04;
     const Lg1: f32 = 0xaaaaaa.0p-24;
@@ -76,7 +97,7 @@ fn log2_32(x_: f32) -> f32 {
     (lo + hi) * ivln2lo + lo * ivln2hi + hi * ivln2hi + f32(k)
 }
 
-fn log2_64(x_: f64) -> f64 {
+pub fn log2_64(x_: f64) -> f64 {
     const ivln2hi: f64 = 1.44269504072144627571e+00;
     const ivln2lo: f64 = 1.67517131648865118353e-10;
     const Lg1: f64 = 6.666666666666735130e-01;
@@ -106,11 +127,9 @@ fn log2_64(x_: f64) -> f64 {
         k -= 54;
         x *= 0x1.0p54;
         hx = u32(@bitCast(u64, x) >> 32);
-    }
-    else if (hx >= 0x7FF00000) {
+    } else if (hx >= 0x7FF00000) {
         return x;
-    }
-    else if (hx == 0x3FF00000 and ix << 32 == 0) {
+    } else if (hx == 0x3FF00000 and ix << 32 == 0) {
         return 0;
     }
 

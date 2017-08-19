@@ -3076,16 +3076,26 @@ void semantic_analyze(CodeGen *g) {
 
 TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
     size_t index;
-    if (size_in_bits == 8) {
+    if (size_in_bits == 3) {
         index = 0;
-    } else if (size_in_bits == 16) {
+    } else if (size_in_bits == 4) {
         index = 1;
-    } else if (size_in_bits == 32) {
+    } else if (size_in_bits == 5) {
         index = 2;
-    } else if (size_in_bits == 64) {
+    } else if (size_in_bits == 6) {
         index = 3;
-    } else if (size_in_bits == 128) {
+    } else if (size_in_bits == 7) {
         index = 4;
+    } else if (size_in_bits == 8) {
+        index = 5;
+    } else if (size_in_bits == 16) {
+        index = 6;
+    } else if (size_in_bits == 32) {
+        index = 7;
+    } else if (size_in_bits == 64) {
+        index = 8;
+    } else if (size_in_bits == 128) {
+        index = 9;
     } else {
         return nullptr;
     }

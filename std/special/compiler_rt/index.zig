@@ -113,12 +113,12 @@ export fn __udivsi3(n: u32, d: u32) -> u32 {
     sr += 1;
     // 1 <= sr <= n_uword_bits - 1
     // Not a special case
-    var q: u32 = n << (n_uword_bits - sr);
-    var r: u32 = n >> sr;
+    var q: u32 = n << u5(n_uword_bits - sr);
+    var r: u32 = n >> u5(sr);
     var carry: u32 = 0;
     while (sr > 0) : (sr -= 1) {
         // r:q = ((r:q)  << 1) | carry
-        r = (r << 1) | (q >> (n_uword_bits - 1));
+        r = (r << 1) | (q >> u5(n_uword_bits - 1));
         q = (q << 1) | carry;
         // carry = 0;
         // if (r.all >= d.all)
@@ -126,7 +126,7 @@ export fn __udivsi3(n: u32, d: u32) -> u32 {
         //      r.all -= d.all;
         //      carry = 1;
         // }
-        const s = i32(d -% r -% 1) >> i32(n_uword_bits - 1);
+        const s = i32(d -% r -% 1) >> u5(n_uword_bits - 1);
         carry = u32(s & 1);
         r -= d & @bitCast(u32, s);
     }

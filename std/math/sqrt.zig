@@ -137,8 +137,8 @@ fn sqrt64(x: f64) -> f64 {
             ix0 <<= 1
         }
         m -= i32(i) - 1;
-        ix0 |= ix1 >> (32 - i);
-        ix1 <<= i;
+        ix0 |= ix1 >> u5(32 - i);
+        ix1 <<= u5(i);
     }
 
     // unbias exponent

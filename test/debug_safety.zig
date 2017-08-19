@@ -111,7 +111,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    const x = shl(-16385, 1);
         \\    if (x == 0) return error.Whatever;
         \\}
-        \\fn shl(a: i16, b: i16) -> i16 {
+        \\fn shl(a: i16, b: u4) -> i16 {
         \\    @shlExact(a, b)
         \\}
     );
@@ -126,7 +126,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    const x = shl(0b0010111111111111, 3);
         \\    if (x == 0) return error.Whatever;
         \\}
-        \\fn shl(a: u16, b: u16) -> u16 {
+        \\fn shl(a: u16, b: u4) -> u16 {
         \\    @shlExact(a, b)
         \\}
     );
@@ -141,7 +141,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    const x = shr(-16385, 1);
         \\    if (x == 0) return error.Whatever;
         \\}
-        \\fn shr(a: i16, b: i16) -> i16 {
+        \\fn shr(a: i16, b: u4) -> i16 {
         \\    @shrExact(a, b)
         \\}
     );
@@ -156,7 +156,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    const x = shr(0b0010111111111111, 3);
         \\    if (x == 0) return error.Whatever;
         \\}
-        \\fn shr(a: u16, b: u16) -> u16 {
+        \\fn shr(a: u16, b: u4) -> u16 {
         \\    @shrExact(a, b)
         \\}
     );

@@ -127,10 +127,10 @@ pub const Rand = struct {
 fn MersenneTwister(
     comptime int: type, comptime n: usize, comptime m: usize, comptime r: int,
     comptime a: int,
-    comptime u: int, comptime d: int,
-    comptime s: int, comptime b: int,
-    comptime t: int, comptime c: int,
-    comptime l: int, comptime f: int) -> type
+    comptime u: math.Log2Int(int), comptime d: int,
+    comptime s: math.Log2Int(int), comptime b: int,
+    comptime t: math.Log2Int(int), comptime c: int,
+    comptime l: math.Log2Int(int), comptime f: int) -> type
 {
     struct {
         const Self = this;

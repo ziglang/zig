@@ -59,7 +59,7 @@ fn modf32(x: f32) -> modf32_result {
         return result;
     }
 
-    const mask = 0x007FFFFF >> u32(e);
+    const mask = u32(0x007FFFFF) >> u5(e);
     if (u & mask == 0) {
         result.ipart = x;
         result.fpart = @bitCast(f32, us);
@@ -103,7 +103,7 @@ fn modf64(x: f64) -> modf64_result {
         return result;
     }
 
-    const mask = @maxValue(u64) >> 12 >> u64(e);
+    const mask = u64(@maxValue(u64) >> 12) >> u6(e);
     if (u & mask == 0) {
         result.ipart = x;
         result.fpart = @bitCast(f64, us);

@@ -159,7 +159,7 @@ fn expm1_64(x_: f64) -> f64 {
     var x = x_;
     const ux = @bitCast(u64, x);
     const hx = u32(ux >> 32) & 0x7FFFFFFF;
-    const sign = hx >> 63;
+    const sign = ux >> 63;
 
     if (math.isNegativeInf(x)) {
         return -1.0;

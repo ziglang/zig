@@ -35,7 +35,7 @@ fn floor32(x: f32) -> f32 {
     }
 
     if (e >= 0) {
-        m = 0x007FFFFF >> u32(e);
+        m = u32(0x007FFFFF) >> u5(e);
         if (u & m == 0) {
             return x;
         }
