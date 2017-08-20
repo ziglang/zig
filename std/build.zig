@@ -979,7 +979,7 @@ pub const LibExeObjStep = struct {
 
         for (builder.include_paths.toSliceConst()) |include_path| {
             %%zig_args.append("-isystem");
-            %%zig_args.append(include_path);
+            %%zig_args.append(builder.pathFromRoot(include_path));
         }
 
         for (builder.rpaths.toSliceConst()) |rpath| {
@@ -1086,7 +1086,7 @@ pub const TestStep = struct {
 
         for (builder.include_paths.toSliceConst()) |include_path| {
             %%zig_args.append("-isystem");
-            %%zig_args.append(include_path);
+            %%zig_args.append(builder.pathFromRoot(include_path));
         }
 
         for (builder.rpaths.toSliceConst()) |rpath| {

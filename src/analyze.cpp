@@ -2922,13 +2922,17 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
             continue;
         }
 
-        auto existing_entry = dst_use_node->owner->decls_scope->decl_table.put_unique(target_tld->name, target_tld);
+        // Note: target_tld->name is not necessarily equal to entry->key because
+        // of aliases that parseh uses.
+        Buf *target_tld_name = entry->key;
+
+        auto existing_entry = dst_use_node->owner->decls_scope->decl_table.put_unique(target_tld_name, target_tld);
         if (existing_entry) {
             Tld *existing_decl = existing_entry->value;
             if (existing_decl != target_tld) {
                 ErrorMsg *msg = add_node_error(g, dst_use_node,
                         buf_sprintf("import of '%s' overrides existing definition",
-                            buf_ptr(target_tld->name)));
+                            buf_ptr(target_tld_name)));
                 add_error_note(g, msg, existing_decl->source_node, buf_sprintf("previous definition here"));
                 add_error_note(g, msg, target_tld->source_node, buf_sprintf("imported definition here"));
             }
@@ -2955,6 +2959,12 @@ void resolve_use_decl(CodeGen *g, AstNode *node) {
 
 void preview_use_decl(CodeGen *g, AstNode *node) {
     assert(node->type == NodeTypeUse);
+
+    if (node->data.use.resolution == TldResolutionOk ||
+        node->data.use.resolution == TldResolutionInvalid)
+    {
+        return;
+    }
 
     node->data.use.resolution = TldResolutionResolving;
     IrInstruction *result = analyze_const_value(g, &node->owner->decls_scope->base,
