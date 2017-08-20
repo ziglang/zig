@@ -30,6 +30,7 @@ enum Cmp {
 };
 
 void bigint_init_unsigned(BigInt *dest, uint64_t x);
+void bigint_init_u128(BigInt *dest, unsigned __int128 x);
 void bigint_init_signed(BigInt *dest, int64_t x);
 void bigint_init_bigint(BigInt *dest, const BigInt *src);
 void bigint_init_bigfloat(BigInt *dest, const BigFloat *op);
@@ -76,7 +77,7 @@ void bigint_truncate(BigInt *dest, const BigInt *op, size_t bit_count, bool is_s
 
 Cmp bigint_cmp(const BigInt *op1, const BigInt *op2);
 
-void bigint_write_buf(Buf *buf, const BigInt *op, uint64_t base);
+void bigint_append_buf(Buf *buf, const BigInt *op, uint64_t base);
 
 size_t bigint_ctz(const BigInt *bi, size_t bit_count);
 size_t bigint_clz(const BigInt *bi, size_t bit_count);

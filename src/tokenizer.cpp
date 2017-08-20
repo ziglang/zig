@@ -257,7 +257,7 @@ static void set_token_id(Tokenize *t, Token *token, TokenId id) {
     if (id == TokenIdIntLiteral) {
         bigint_init_unsigned(&token->data.int_lit.bigint, 0);
     } else if (id == TokenIdFloatLiteral) {
-        bigfloat_init_float(&token->data.float_lit.bigfloat, 0.0);
+        bigfloat_init_32(&token->data.float_lit.bigfloat, 0.0f);
         token->data.float_lit.overflow = false;
     } else if (id == TokenIdStringLiteral || id == TokenIdSymbol) {
         memset(&token->data.str_lit.str, 0, sizeof(Buf));
@@ -345,7 +345,7 @@ static void end_float_token(Tokenize *t) {
     uint64_t double_bits = (exponent_bits << 52) | significand_bits;
     double dbl_value;
     safe_memcpy(&dbl_value, (double *)&double_bits, 1);
-    bigfloat_init_float(&t->cur_tok->data.float_lit.bigfloat, dbl_value);
+    bigfloat_init_64(&t->cur_tok->data.float_lit.bigfloat, dbl_value);
 }
 
 static void end_token(Tokenize *t) {

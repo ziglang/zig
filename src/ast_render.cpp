@@ -540,7 +540,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             {
                 Buf rendered_buf = BUF_INIT;
                 buf_resize(&rendered_buf, 0);
-                bigfloat_write_buf(&rendered_buf, node->data.float_literal.bigfloat);
+                bigfloat_append_buf(&rendered_buf, node->data.float_literal.bigfloat);
                 fprintf(ar->f, "%s", buf_ptr(&rendered_buf));
             }
             break;
@@ -548,7 +548,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             {
                 Buf rendered_buf = BUF_INIT;
                 buf_resize(&rendered_buf, 0);
-                bigint_write_buf(&rendered_buf, node->data.int_literal.bigint, 10);
+                bigint_append_buf(&rendered_buf, node->data.int_literal.bigint, 10);
                 fprintf(ar->f, "%s", buf_ptr(&rendered_buf));
             }
             break;

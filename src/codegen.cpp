@@ -1243,10 +1243,6 @@ static LLVMValueRef bigint_to_llvm_const(LLVMTypeRef type_ref, BigInt *bigint) {
     }
 }
 
-static LLVMValueRef bigfloat_to_llvm_const(LLVMTypeRef type_ref, BigFloat *bigfloat) {
-    return LLVMConstReal(type_ref, bigfloat_to_double(bigfloat));
-}
-
 static LLVMValueRef gen_div(CodeGen *g, bool want_debug_safety, bool want_fast_math,
         LLVMValueRef val1, LLVMValueRef val2,
         TypeTableEntry *type_entry, DivKind div_kind)
@@ -3455,7 +3451,23 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
             return LLVMConstInt(g->builtin_types.entry_pure_error->type_ref,
                     const_val->data.x_pure_err->value, false);
         case TypeTableEntryIdFloat:
-            return bigfloat_to_llvm_const(type_entry->type_ref, &const_val->data.x_bigfloat);
+            switch (type_entry->data.floating.bit_count) {
+                case 32:
+                    return LLVMConstReal(type_entry->type_ref, const_val->data.x_f32);
+                case 64:
+                    return LLVMConstReal(type_entry->type_ref, const_val->data.x_f64);
+                case 128:
+                    {
+                        // TODO make sure this is correct on big endian targets too
+                        uint8_t buf[16];
+                        memcpy(buf, &const_val->data.x_f128, 16);
+                        LLVMValueRef as_int = LLVMConstIntOfArbitraryPrecision(LLVMInt128Type(), 2,
+                                (uint64_t*)buf);
+                        return LLVMConstBitCast(as_int, type_entry->type_ref);
+                    }
+                default:
+                    zig_unreachable();
+            }
         case TypeTableEntryIdBool:
             if (const_val->data.x_bool) {
                 return LLVMConstAllOnes(LLVMInt1Type());
@@ -3937,8 +3949,11 @@ static void do_code_gen(CodeGen *g) {
             // Generate debug info for it but that's it.
             ConstExprValue *const_val = var->value;
             assert(const_val->special != ConstValSpecialRuntime);
-            TypeTableEntry *var_type = g->builtin_types.entry_f64;
-            LLVMValueRef init_val = bigfloat_to_llvm_const(var_type->type_ref, &const_val->data.x_bigfloat);
+            TypeTableEntry *var_type = g->builtin_types.entry_f128;
+            ConstExprValue coerced_value;
+            coerced_value.type = var_type;
+            coerced_value.data.x_f128 = bigfloat_to_f128(&const_val->data.x_bigfloat);
+            LLVMValueRef init_val = gen_const_val(g, &coerced_value);
             gen_global_var(g, var, init_val, var_type);
             continue;
         }

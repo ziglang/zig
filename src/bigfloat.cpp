@@ -8,19 +8,19 @@
 #include "bigfloat.hpp"
 #include "bigint.hpp"
 #include "buffer.hpp"
+#include "quadmath.hpp"
 #include <math.h>
 #include <errno.h>
 
-extern "C" {
-    __float128 fmodq(__float128 a, __float128 b);
-    __float128 ceilq(__float128 a);
-    __float128 floorq(__float128 a);
-    __float128 strtoflt128 (const char *s, char **sp);
-    int quadmath_snprintf (char *s, size_t size, const char *format, ...);
+void bigfloat_init_128(BigFloat *dest, __float128 x) {
+    dest->value = x;
 }
 
+void bigfloat_init_32(BigFloat *dest, float x) {
+    dest->value = x;
+}
 
-void bigfloat_init_float(BigFloat *dest, __float128 x) {
+void bigfloat_init_64(BigFloat *dest, double x) {
     dest->value = x;
 }
 
@@ -104,11 +104,13 @@ void bigfloat_mod(BigFloat *dest, const BigFloat *op1, const BigFloat *op2) {
     dest->value = fmodq(fmodq(op1->value, op2->value) + op2->value, op2->value);
 }
 
-void bigfloat_write_buf(Buf *buf, const BigFloat *op) {
-    buf_resize(buf, 256);
-    int len = quadmath_snprintf(buf_ptr(buf), buf_len(buf), "%Qf", op->value);
+void bigfloat_append_buf(Buf *buf, const BigFloat *op) {
+    const size_t extra_len = 100;
+    size_t old_len = buf_len(buf);
+    buf_resize(buf, old_len + extra_len);
+    int len = quadmath_snprintf(buf_ptr(buf) + old_len, extra_len, "%Qf", op->value);
     assert(len > 0);
-    buf_resize(buf, len);
+    buf_resize(buf, old_len + len);
 }
 
 Cmp bigfloat_cmp(const BigFloat *op1, const BigFloat *op2) {
@@ -121,42 +123,15 @@ Cmp bigfloat_cmp(const BigFloat *op1, const BigFloat *op2) {
     }
 }
 
-// TODO this is wrong when compiler running on big endian systems. caught by tests
-void bigfloat_write_ieee597(const BigFloat *op, uint8_t *buf, size_t bit_count, bool is_big_endian) {
-    if (bit_count == 32) {
-        float f32 = op->value;
-        memcpy(buf, &f32, 4);
-    } else if (bit_count == 64) {
-        double f64 = op->value;
-        memcpy(buf, &f64, 8);
-    } else if (bit_count == 128) {
-        __float128 f128 = op->value;
-        memcpy(buf, &f128, 16);
-    } else {
-        zig_unreachable();
-    }
+float bigfloat_to_f32(const BigFloat *bigfloat) {
+    return (float)bigfloat->value;
 }
 
-// TODO this is wrong when compiler running on big endian systems. caught by tests
-void bigfloat_read_ieee597(BigFloat *dest, const uint8_t *buf, size_t bit_count, bool is_big_endian) {
-    if (bit_count == 32) {
-        float f32;
-        memcpy(&f32, buf, 4);
-        dest->value = f32;
-    } else if (bit_count == 64) {
-        double f64;
-        memcpy(&f64, buf, 8);
-        dest->value = f64;
-    } else if (bit_count == 128) {
-        __float128 f128;
-        memcpy(&f128, buf, 16);
-        dest->value = f128;
-    } else {
-        zig_unreachable();
-    }
+double bigfloat_to_f64(const BigFloat *bigfloat) {
+    return (double)bigfloat->value;
 }
 
-double bigfloat_to_double(const BigFloat *bigfloat) {
+__float128 bigfloat_to_f128(const BigFloat *bigfloat) {
     return bigfloat->value;
 }
 

@@ -355,3 +355,23 @@ test "@setEvalBranchQuota" {
         assert(sum == 500500);
     }
 }
+
+test "float literal at compile time not lossy" {
+    assert(16777216.0 + 1.0 == 16777217.0);
+    assert(9007199254740992.0 + 1.0 == 9007199254740993.0);
+}
+
+test "f32 at compile time is lossy" {
+    assert(f32(1 << 24) + 1 == 1 << 24);
+}
+
+test "f64 at compile time is lossy" {
+    assert(f64(1 << 53) + 1 == 1 << 53);
+}
+
+test "f128 at compile time is lossy" {
+    assert(f128(10384593717069655257060992658440192.0) + 1 == 10384593717069655257060992658440192.0);
+}
+
+// TODO need a better implementation of bigfloat_init_bigint
+// assert(f128(1 << 113) == 10384593717069655257060992658440192);

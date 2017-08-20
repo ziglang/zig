@@ -147,6 +147,7 @@ fn sin64(x_: f64) -> f64 {
 test "math.sin" {
     assert(sin(f32(0.0)) == sin32(0.0));
     assert(sin(f64(0.0)) == sin64(0.0));
+    assert(comptime {math.sin(f64(2))} == math.sin(f64(2)));
 }
 
 test "math.sin32" {

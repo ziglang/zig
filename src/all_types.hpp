@@ -225,6 +225,9 @@ struct ConstExprValue {
         // populated if special == ConstValSpecialStatic
         BigInt x_bigint;
         BigFloat x_bigfloat;
+        float x_f32;
+        double x_f64;
+        __float128 x_f128;
         bool x_bool;
         ConstFn x_fn;
         ConstBoundFnValue x_bound_fn;

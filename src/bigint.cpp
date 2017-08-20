@@ -141,6 +141,21 @@ void bigint_init_unsigned(BigInt *dest, uint64_t x) {
     dest->is_negative = false;
 }
 
+void bigint_init_u128(BigInt *dest, unsigned __int128 x) {
+    uint64_t low = (uint64_t)(x & UINT64_MAX);
+    uint64_t high = (uint64_t)(x >> 64);
+
+    if (high == 0) {
+        return bigint_init_unsigned(dest, low);
+    }
+
+    dest->digit_count = 2;
+    dest->data.digits = allocate_nonzero<uint64_t>(2);
+    dest->data.digits[0] = low;
+    dest->data.digits[1] = high;
+    dest->is_negative = false;
+}
+
 void bigint_init_signed(BigInt *dest, int64_t x) {
     if (x >= 0) {
         return bigint_init_unsigned(dest, x);
@@ -167,9 +182,9 @@ void bigint_init_bigint(BigInt *dest, const BigInt *src) {
 
 void bigint_init_bigfloat(BigInt *dest, const BigFloat *op) {
     if (op->value >= 0) {
-        bigint_init_unsigned(dest, op->value);
+        bigint_init_u128(dest, (unsigned __int128)(op->value));
     } else {
-        bigint_init_unsigned(dest, -op->value);
+        bigint_init_u128(dest, (unsigned __int128)(-op->value));
         dest->is_negative = true;
     }
 }
@@ -1023,7 +1038,7 @@ Cmp bigint_cmp(const BigInt *op1, const BigInt *op2) {
     }
 }
 
-void bigint_write_buf(Buf *buf, const BigInt *op, uint64_t base) {
+void bigint_append_buf(Buf *buf, const BigInt *op, uint64_t base) {
     if (op->digit_count == 0) {
         buf_append_char(buf, '0');
         return;

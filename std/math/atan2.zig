@@ -24,7 +24,7 @@ const assert = @import("../debug.zig").assert;
 pub const atan2 = atan2_workaround;
 
 // TODO issue #393
-pub fn atan2_workaround(comptime T: type, x: T, y: T) -> T {
+fn atan2_workaround(comptime T: type, x: T, y: T) -> T {
     switch (T) {
         f32 => @inlineCall(atan2_32, x, y),
         f64 => @inlineCall(atan2_64, x, y),

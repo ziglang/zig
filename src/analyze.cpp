@@ -13,6 +13,7 @@
 #include "ir_print.hpp"
 #include "os.hpp"
 #include "parser.hpp"
+#include "quadmath.hpp"
 #include "zig_llvm.hpp"
 
 static const size_t default_backward_branch_quota = 1000;
@@ -3273,8 +3274,35 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
                 return result;
             }
         case TypeTableEntryIdFloat:
+            switch (const_val->type->data.floating.bit_count) {
+                case 32:
+                    {
+                        uint32_t result;
+                        memcpy(&result, &const_val->data.x_f32, 4);
+                        return result ^ 4084870010;
+                    }
+                case 64:
+                    {
+                        uint32_t ints[2];
+                        memcpy(&ints[0], &const_val->data.x_f64, 8);
+                        return ints[0] ^ ints[1] ^ 0x22ed43c6;
+                    }
+                case 128:
+                    {
+                        uint32_t ints[4];
+                        memcpy(&ints[0], &const_val->data.x_f128, 16);
+                        return ints[0] ^ ints[1] ^ ints[2] ^ ints[3] ^ 0xb5ffef27;
+                    }
+                default:
+                    zig_unreachable();
+            }
         case TypeTableEntryIdNumLitFloat:
-            return (uint32_t)(const_val->data.x_bigfloat.value * (uint32_t)UINT32_MAX);
+            {
+                __float128 f128 = bigfloat_to_f128(&const_val->data.x_bigfloat);
+                uint32_t ints[4];
+                memcpy(&ints[0], &f128, 16);
+                return ints[0] ^ ints[1] ^ ints[2] ^ ints[3] ^ 0xed8b3dfb;
+            }
         case TypeTableEntryIdArgTuple:
             return (uint32_t)const_val->data.x_arg_tuple.start_index * (uint32_t)281907309 +
                 (uint32_t)const_val->data.x_arg_tuple.end_index * (uint32_t)2290442768;
@@ -3575,7 +3603,25 @@ ConstExprValue *create_const_signed(TypeTableEntry *type, int64_t x) {
 void init_const_float(ConstExprValue *const_val, TypeTableEntry *type, double value) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = type;
-    bigfloat_init_float(&const_val->data.x_bigfloat, value);
+    if (type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_init_64(&const_val->data.x_bigfloat, value);
+    } else if (type->id == TypeTableEntryIdFloat) {
+        switch (type->data.floating.bit_count) {
+            case 32:
+                const_val->data.x_f32 = value;
+                break;
+            case 64:
+                const_val->data.x_f64 = value;
+                break;
+            case 128:
+                // if we need this, we should add a function that accepts a __float128 param
+                zig_unreachable();
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
 }
 
 ConstExprValue *create_const_float(TypeTableEntry *type, double value) {
@@ -3816,6 +3862,17 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
         case TypeTableEntryIdBool:
             return a->data.x_bool == b->data.x_bool;
         case TypeTableEntryIdFloat:
+            assert(a->type->data.floating.bit_count == b->type->data.floating.bit_count);
+            switch (a->type->data.floating.bit_count) {
+                case 32:
+                    return a->data.x_f32 == b->data.x_f32;
+                case 64:
+                    return a->data.x_f64 == b->data.x_f64;
+                case 128:
+                    return a->data.x_f128 == b->data.x_f128;
+                default:
+                    zig_unreachable();
+            }
         case TypeTableEntryIdNumLitFloat:
             return bigfloat_cmp(&a->data.x_bigfloat, &b->data.x_bigfloat) == CmpEQ;
         case TypeTableEntryIdInt:
@@ -3984,12 +4041,32 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             buf_appendf(buf, "{}");
             return;
         case TypeTableEntryIdNumLitFloat:
-        case TypeTableEntryIdFloat:
-            bigfloat_write_buf(buf, &const_val->data.x_bigfloat);
+            bigfloat_append_buf(buf, &const_val->data.x_bigfloat);
             return;
+        case TypeTableEntryIdFloat:
+            switch (type_entry->data.floating.bit_count) {
+                case 32:
+                    buf_appendf(buf, "%f", const_val->data.x_f32);
+                    return;
+                case 64:
+                    buf_appendf(buf, "%f", const_val->data.x_f64);
+                    return;
+                case 128:
+                    {
+                        const size_t extra_len = 100;
+                        size_t old_len = buf_len(buf);
+                        buf_resize(buf, old_len + extra_len);
+                        int len = quadmath_snprintf(buf_ptr(buf) + old_len, extra_len, "%Qf", const_val->data.x_f128);
+                        assert(len > 0);
+                        buf_resize(buf, old_len + len);
+                        return;
+                    }
+                default:
+                    zig_unreachable();
+            }
         case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdInt:
-            bigint_write_buf(buf, &const_val->data.x_bigint, 10);
+            bigint_append_buf(buf, &const_val->data.x_bigint, 10);
             return;
         case TypeTableEntryIdMetaType:
             buf_appendf(buf, "%s", buf_ptr(&const_val->data.x_type->name));

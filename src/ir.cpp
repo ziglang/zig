@@ -12,6 +12,7 @@
 #include "ir_print.hpp"
 #include "os.hpp"
 #include "parseh.hpp"
+#include "quadmath.hpp"
 #include "range_set.hpp"
 
 struct IrExecContext {
@@ -6272,6 +6273,546 @@ static bool const_val_fits_in_num_lit(ConstExprValue *const_val, TypeTableEntry 
         (const_val->type->id == TypeTableEntryIdInt || const_val->type->id == TypeTableEntryIdNumLitInt)));
 }
 
+static bool float_has_fraction(ConstExprValue *const_val) {
+    if (const_val->type->id == TypeTableEntryIdNumLitFloat) {
+        return bigfloat_has_fraction(&const_val->data.x_bigfloat);
+    } else if (const_val->type->id == TypeTableEntryIdFloat) {
+        switch (const_val->type->data.floating.bit_count) {
+            case 32:
+                return floorf(const_val->data.x_f32) != const_val->data.x_f32;
+            case 64:
+                return floor(const_val->data.x_f64) != const_val->data.x_f64;
+            case 128:
+                return floorq(const_val->data.x_f128) != const_val->data.x_f128;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_append_buf(Buf *buf, ConstExprValue *const_val) {
+    if (const_val->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_append_buf(buf, &const_val->data.x_bigfloat);
+    } else if (const_val->type->id == TypeTableEntryIdFloat) {
+        switch (const_val->type->data.floating.bit_count) {
+            case 32:
+                buf_appendf(buf, "%f", const_val->data.x_f32);
+                break;
+            case 64:
+                buf_appendf(buf, "%f", const_val->data.x_f64);
+                break;
+            case 128:
+                {
+                    const size_t extra_len = 100;
+                    size_t old_len = buf_len(buf);
+                    buf_resize(buf, old_len + extra_len);
+                    int len = quadmath_snprintf(buf_ptr(buf) + old_len, extra_len, "%Qf", const_val->data.x_f128);
+                    assert(len > 0);
+                    buf_resize(buf, old_len + len);
+                    break;
+                }
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_init_bigint(BigInt *bigint, ConstExprValue *const_val) {
+    if (const_val->type->id == TypeTableEntryIdNumLitFloat) {
+        bigint_init_bigfloat(bigint, &const_val->data.x_bigfloat);
+    } else if (const_val->type->id == TypeTableEntryIdFloat) {
+        switch (const_val->type->data.floating.bit_count) {
+            case 32:
+                if (const_val->data.x_f32 >= 0) {
+                    bigint_init_unsigned(bigint, (uint64_t)(const_val->data.x_f32));
+                } else {
+                    bigint_init_unsigned(bigint, (uint64_t)(-const_val->data.x_f32));
+                    bigint->is_negative = true;
+                }
+                break;
+            case 64:
+                if (const_val->data.x_f64 >= 0) {
+                    bigint_init_unsigned(bigint, (uint64_t)(const_val->data.x_f64));
+                } else {
+                    bigint_init_unsigned(bigint, (uint64_t)(-const_val->data.x_f64));
+                    bigint->is_negative = true;
+                }
+                break;
+            case 128:
+                if (const_val->data.x_f128 >= 0) {
+                    bigint_init_u128(bigint, (unsigned __int128)(const_val->data.x_f128));
+                } else {
+                    bigint_init_u128(bigint, (unsigned __int128)(-const_val->data.x_f128));
+                    bigint->is_negative = true;
+                }
+                break;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_init_bigfloat(ConstExprValue *dest_val, BigFloat *bigfloat) {
+    if (dest_val->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_init_bigfloat(&dest_val->data.x_bigfloat, bigfloat);
+    } else if (dest_val->type->id == TypeTableEntryIdFloat) {
+        switch (dest_val->type->data.floating.bit_count) {
+            case 32:
+                dest_val->data.x_f32 = bigfloat_to_f32(bigfloat);
+                break;
+            case 64:
+                dest_val->data.x_f64 = bigfloat_to_f64(bigfloat);
+                break;
+            case 128:
+                dest_val->data.x_f128 = bigfloat_to_f128(bigfloat);
+                break;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_init_f32(ConstExprValue *dest_val, float x) {
+    if (dest_val->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_init_32(&dest_val->data.x_bigfloat, x);
+    } else if (dest_val->type->id == TypeTableEntryIdFloat) {
+        switch (dest_val->type->data.floating.bit_count) {
+            case 32:
+                dest_val->data.x_f32 = x;
+                break;
+            case 64:
+                dest_val->data.x_f64 = x;
+                break;
+            case 128:
+                dest_val->data.x_f128 = x;
+                break;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_init_f64(ConstExprValue *dest_val, double x) {
+    if (dest_val->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_init_64(&dest_val->data.x_bigfloat, x);
+    } else if (dest_val->type->id == TypeTableEntryIdFloat) {
+        switch (dest_val->type->data.floating.bit_count) {
+            case 32:
+                dest_val->data.x_f32 = x;
+                break;
+            case 64:
+                dest_val->data.x_f64 = x;
+                break;
+            case 128:
+                dest_val->data.x_f128 = x;
+                break;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_init_f128(ConstExprValue *dest_val, __float128 x) {
+    if (dest_val->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_init_128(&dest_val->data.x_bigfloat, x);
+    } else if (dest_val->type->id == TypeTableEntryIdFloat) {
+        switch (dest_val->type->data.floating.bit_count) {
+            case 32:
+                dest_val->data.x_f32 = x;
+                break;
+            case 64:
+                dest_val->data.x_f64 = x;
+                break;
+            case 128:
+                dest_val->data.x_f128 = x;
+                break;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_init_float(ConstExprValue *dest_val, ConstExprValue *src_val) {
+    if (src_val->type->id == TypeTableEntryIdNumLitFloat) {
+        float_init_bigfloat(dest_val, &src_val->data.x_bigfloat);
+    } else if (src_val->type->id == TypeTableEntryIdFloat) {
+        switch (src_val->type->data.floating.bit_count) {
+            case 32:
+                float_init_f32(dest_val, src_val->data.x_f32);
+                break;
+            case 64:
+                float_init_f64(dest_val, src_val->data.x_f64);
+                break;
+            case 128:
+                float_init_f128(dest_val, src_val->data.x_f128);
+                break;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static Cmp float_cmp(ConstExprValue *op1, ConstExprValue *op2) {
+    assert(op1->type == op2->type);
+    if (op1->type->id == TypeTableEntryIdNumLitFloat) {
+        return bigfloat_cmp(&op1->data.x_bigfloat, &op2->data.x_bigfloat);
+    } else if (op1->type->id == TypeTableEntryIdFloat) {
+        switch (op1->type->data.floating.bit_count) {
+            case 32:
+                if (op1->data.x_f32 > op2->data.x_f32) {
+                    return CmpGT;
+                } else if (op1->data.x_f32 < op2->data.x_f32) {
+                    return CmpLT;
+                } else {
+                    return CmpEQ;
+                }
+            case 64:
+                if (op1->data.x_f64 > op2->data.x_f64) {
+                    return CmpGT;
+                } else if (op1->data.x_f64 < op2->data.x_f64) {
+                    return CmpLT;
+                } else {
+                    return CmpEQ;
+                }
+            case 128:
+                if (op1->data.x_f128 > op2->data.x_f128) {
+                    return CmpGT;
+                } else if (op1->data.x_f128 < op2->data.x_f128) {
+                    return CmpLT;
+                } else {
+                    return CmpEQ;
+                }
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static Cmp float_cmp_zero(ConstExprValue *op) {
+    if (op->type->id == TypeTableEntryIdNumLitFloat) {
+        return bigfloat_cmp_zero(&op->data.x_bigfloat);
+    } else if (op->type->id == TypeTableEntryIdFloat) {
+        switch (op->type->data.floating.bit_count) {
+            case 32:
+                if (op->data.x_f32 < 0.0) {
+                    return CmpLT;
+                } else if (op->data.x_f32 > 0.0) {
+                    return CmpGT;
+                } else {
+                    return CmpEQ;
+                }
+            case 64:
+                if (op->data.x_f64 < 0.0) {
+                    return CmpLT;
+                } else if (op->data.x_f64 > 0.0) {
+                    return CmpGT;
+                } else {
+                    return CmpEQ;
+                }
+            case 128:
+                if (op->data.x_f128 < 0.0) {
+                    return CmpLT;
+                } else if (op->data.x_f128 > 0.0) {
+                    return CmpGT;
+                } else {
+                    return CmpEQ;
+                }
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_add(ConstExprValue *out_val, ConstExprValue *op1, ConstExprValue *op2) {
+    assert(op1->type == op2->type);
+    out_val->type = op1->type;
+    if (op1->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_add(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
+    } else if (op1->type->id == TypeTableEntryIdFloat) {
+        switch (op1->type->data.floating.bit_count) {
+            case 32:
+                out_val->data.x_f32 =  op1->data.x_f32 + op2->data.x_f32;
+                return;
+            case 64:
+                out_val->data.x_f64 =  op1->data.x_f64 + op2->data.x_f64;
+                return;
+            case 128:
+                out_val->data.x_f128 =  op1->data.x_f128 + op2->data.x_f128;
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_sub(ConstExprValue *out_val, ConstExprValue *op1, ConstExprValue *op2) {
+    assert(op1->type == op2->type);
+    out_val->type = op1->type;
+    if (op1->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_sub(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
+    } else if (op1->type->id == TypeTableEntryIdFloat) {
+        switch (op1->type->data.floating.bit_count) {
+            case 32:
+                out_val->data.x_f32 = op1->data.x_f32 - op2->data.x_f32;
+                return;
+            case 64:
+                out_val->data.x_f64 = op1->data.x_f64 - op2->data.x_f64;
+                return;
+            case 128:
+                out_val->data.x_f128 = op1->data.x_f128 - op2->data.x_f128;
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_mul(ConstExprValue *out_val, ConstExprValue *op1, ConstExprValue *op2) {
+    assert(op1->type == op2->type);
+    out_val->type = op1->type;
+    if (op1->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_mul(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
+    } else if (op1->type->id == TypeTableEntryIdFloat) {
+        switch (op1->type->data.floating.bit_count) {
+            case 32:
+                out_val->data.x_f32 = op1->data.x_f32 * op2->data.x_f32;
+                return;
+            case 64:
+                out_val->data.x_f64 = op1->data.x_f64 * op2->data.x_f64;
+                return;
+            case 128:
+                out_val->data.x_f128 = op1->data.x_f128 * op2->data.x_f128;
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_div(ConstExprValue *out_val, ConstExprValue *op1, ConstExprValue *op2) {
+    assert(op1->type == op2->type);
+    out_val->type = op1->type;
+    if (op1->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_div(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
+    } else if (op1->type->id == TypeTableEntryIdFloat) {
+        switch (op1->type->data.floating.bit_count) {
+            case 32:
+                out_val->data.x_f32 = op1->data.x_f32 / op2->data.x_f32;
+                return;
+            case 64:
+                out_val->data.x_f64 = op1->data.x_f64 / op2->data.x_f64;
+                return;
+            case 128:
+                out_val->data.x_f128 = op1->data.x_f128 / op2->data.x_f128;
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_div_trunc(ConstExprValue *out_val, ConstExprValue *op1, ConstExprValue *op2) {
+    assert(op1->type == op2->type);
+    out_val->type = op1->type;
+    if (op1->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_div_trunc(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
+    } else if (op1->type->id == TypeTableEntryIdFloat) {
+        switch (op1->type->data.floating.bit_count) {
+            case 32:
+                out_val->data.x_f32 = op1->data.x_f32 / op2->data.x_f32;
+                if (out_val->data.x_f32 >= 0.0) {
+                    out_val->data.x_f32 = floorf(out_val->data.x_f32);
+                } else {
+                    out_val->data.x_f32 = ceilf(out_val->data.x_f32);
+                }
+                return;
+            case 64:
+                out_val->data.x_f64 = op1->data.x_f64 / op2->data.x_f64;
+                if (out_val->data.x_f64 >= 0.0) {
+                    out_val->data.x_f64 = floor(out_val->data.x_f64);
+                } else {
+                    out_val->data.x_f64 = ceil(out_val->data.x_f64);
+                }
+                return;
+            case 128:
+                out_val->data.x_f128 = op1->data.x_f128 / op2->data.x_f128;
+                if (out_val->data.x_f128 >= 0.0) {
+                    out_val->data.x_f128 = floorq(out_val->data.x_f128);
+                } else {
+                    out_val->data.x_f128 = ceilq(out_val->data.x_f128);
+                }
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_div_floor(ConstExprValue *out_val, ConstExprValue *op1, ConstExprValue *op2) {
+    assert(op1->type == op2->type);
+    out_val->type = op1->type;
+    if (op1->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_div_floor(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
+    } else if (op1->type->id == TypeTableEntryIdFloat) {
+        switch (op1->type->data.floating.bit_count) {
+            case 32:
+                out_val->data.x_f32 = floorf(op1->data.x_f32 / op2->data.x_f32);
+                return;
+            case 64:
+                out_val->data.x_f64 = floor(op1->data.x_f64 / op2->data.x_f64);
+                return;
+            case 128:
+                out_val->data.x_f128 = floorq(op1->data.x_f128 / op2->data.x_f128);
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_rem(ConstExprValue *out_val, ConstExprValue *op1, ConstExprValue *op2) {
+    assert(op1->type == op2->type);
+    out_val->type = op1->type;
+    if (op1->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_rem(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
+    } else if (op1->type->id == TypeTableEntryIdFloat) {
+        switch (op1->type->data.floating.bit_count) {
+            case 32:
+                out_val->data.x_f32 = fmodf(op1->data.x_f32, op2->data.x_f32);
+                return;
+            case 64:
+                out_val->data.x_f64 = fmod(op1->data.x_f64, op2->data.x_f64);
+                return;
+            case 128:
+                out_val->data.x_f128 = fmodq(op1->data.x_f128, op2->data.x_f128);
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_mod(ConstExprValue *out_val, ConstExprValue *op1, ConstExprValue *op2) {
+    assert(op1->type == op2->type);
+    out_val->type = op1->type;
+    if (op1->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_mod(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
+    } else if (op1->type->id == TypeTableEntryIdFloat) {
+        switch (op1->type->data.floating.bit_count) {
+            case 32:
+                out_val->data.x_f32 = fmodf(fmodf(op1->data.x_f32, op2->data.x_f32) + op2->data.x_f32, op2->data.x_f32);
+                return;
+            case 64:
+                out_val->data.x_f64 = fmod(fmod(op1->data.x_f64, op2->data.x_f64) + op2->data.x_f64, op2->data.x_f64);
+                return;
+            case 128:
+                out_val->data.x_f128 = fmodq(fmodq(op1->data.x_f128, op2->data.x_f128) + op2->data.x_f128, op2->data.x_f128);
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_negate(ConstExprValue *out_val, ConstExprValue *op) {
+    out_val->type = op->type;
+    if (op->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_negate(&out_val->data.x_bigfloat, &op->data.x_bigfloat);
+    } else if (op->type->id == TypeTableEntryIdFloat) {
+        switch (op->type->data.floating.bit_count) {
+            case 32:
+                out_val->data.x_f32 = -op->data.x_f32;
+                return;
+            case 64:
+                out_val->data.x_f64 = -op->data.x_f64;
+                return;
+            case 128:
+                out_val->data.x_f128 = -op->data.x_f128;
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+void float_write_ieee597(ConstExprValue *op, uint8_t *buf, bool is_big_endian) {
+    if (op->type->id == TypeTableEntryIdFloat) {
+        switch (op->type->data.floating.bit_count) {
+            case 32:
+                memcpy(buf, &op->data.x_f32, 4); // TODO wrong when compiler is big endian
+                return;
+            case 64:
+                memcpy(buf, &op->data.x_f64, 8); // TODO wrong when compiler is big endian
+                return;
+            case 128:
+                memcpy(buf, &op->data.x_f128, 16); // TODO wrong when compiler is big endian
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+void float_read_ieee597(ConstExprValue *val, uint8_t *buf, bool is_big_endian) {
+    if (val->type->id == TypeTableEntryIdFloat) {
+        switch (val->type->data.floating.bit_count) {
+            case 32:
+                memcpy(&val->data.x_f32, buf, 4); // TODO wrong when compiler is big endian
+                return;
+            case 64:
+                memcpy(&val->data.x_f64, buf, 8); // TODO wrong when compiler is big endian
+                return;
+            case 128:
+                memcpy(&val->data.x_f128, buf, 16); // TODO wrong when compiler is big endian
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
 static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruction, TypeTableEntry *other_type,
         bool explicit_cast)
 {
@@ -6314,9 +6855,9 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
     if (explicit_cast && (other_type->id == TypeTableEntryIdInt || other_type->id == TypeTableEntryIdNumLitInt) &&
         const_val_is_float)
     {
-        if (bigfloat_has_fraction(&const_val->data.x_bigfloat)) {
+        if (float_has_fraction(const_val)) {
             Buf *val_buf = buf_alloc();
-            bigfloat_write_buf(val_buf, &const_val->data.x_bigfloat);
+            float_append_buf(val_buf, const_val);
 
             ir_add_error(ira, instruction,
                 buf_sprintf("fractional component prevents float value %s from being casted to type '%s'",
@@ -6324,11 +6865,11 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
                     buf_ptr(&other_type->name)));
             return false;
         } else {
-            BigInt bigint;
-            bigint_init_bigfloat(&bigint, &const_val->data.x_bigfloat);
             if (other_type->id == TypeTableEntryIdNumLitInt) {
                 return true;
             } else {
+                BigInt bigint;
+                float_init_bigint(&bigint, const_val);
                 if (bigint_fits_in_bits(&bigint, other_type->data.integral.bit_count,
                     other_type->data.integral.is_signed))
                 {
@@ -6342,10 +6883,10 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
     Buf *val_buf = buf_alloc();
     if (const_val_is_float) {
         num_lit_str = "float";
-        bigfloat_write_buf(val_buf, &const_val->data.x_bigfloat);
+        float_append_buf(val_buf, const_val);
     } else {
         num_lit_str = "integer";
-        bigint_write_buf(val_buf, &const_val->data.x_bigint, 10);
+        bigint_append_buf(val_buf, &const_val->data.x_bigint, 10);
     }
 
     ir_add_error(ira, instruction,
@@ -6767,7 +7308,20 @@ static void eval_const_expr_implicit_cast(CastOp cast_op,
             }
         case CastOpNumLitToConcrete:
             if (other_val->type->id == TypeTableEntryIdNumLitFloat) {
-                bigfloat_init_bigfloat(&const_val->data.x_bigfloat, &other_val->data.x_bigfloat);
+                assert(new_type->id == TypeTableEntryIdFloat);
+                switch (new_type->data.floating.bit_count) {
+                    case 32:
+                        const_val->data.x_f32 = bigfloat_to_f32(&other_val->data.x_bigfloat);
+                        break;
+                    case 64:
+                        const_val->data.x_f64 = bigfloat_to_f64(&other_val->data.x_bigfloat);
+                        break;
+                    case 128:
+                        const_val->data.x_f128 = bigfloat_to_f128(&other_val->data.x_bigfloat);
+                        break;
+                    default:
+                        zig_unreachable();
+                }
             } else if (other_val->type->id == TypeTableEntryIdNumLitInt) {
                 bigint_init_bigint(&const_val->data.x_bigint, &other_val->data.x_bigint);
             } else {
@@ -6780,11 +7334,29 @@ static void eval_const_expr_implicit_cast(CastOp cast_op,
             // can't do it
             break;
         case CastOpIntToFloat:
-            bigfloat_init_bigint(&const_val->data.x_bigfloat, &other_val->data.x_bigint);
-            const_val->special = ConstValSpecialStatic;
-            break;
+            {
+                assert(new_type->id == TypeTableEntryIdFloat);
+
+                BigFloat bigfloat;
+                bigfloat_init_bigint(&bigfloat, &other_val->data.x_bigint);
+                switch (new_type->data.floating.bit_count) {
+                    case 32:
+                        const_val->data.x_f32 = bigfloat_to_f32(&bigfloat);
+                        break;
+                    case 64:
+                        const_val->data.x_f64 = bigfloat_to_f64(&bigfloat);
+                        break;
+                    case 128:
+                        const_val->data.x_f128 = bigfloat_to_f128(&bigfloat);
+                        break;
+                    default:
+                        zig_unreachable();
+                }
+                const_val->special = ConstValSpecialStatic;
+                break;
+            }
         case CastOpFloatToInt:
-            bigint_init_bigfloat(&const_val->data.x_bigint, &other_val->data.x_bigfloat);
+            float_init_bigint(&const_val->data.x_bigint, other_val);
             const_val->special = ConstValSpecialStatic;
             break;
         case CastOpBoolToInt:
@@ -7387,12 +7959,12 @@ static IrInstruction *ir_analyze_widen_or_shorten(IrAnalyze *ira, IrInstruction 
         }
         IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
                 source_instr->source_node, wanted_type);
+        result->value.type = wanted_type;
         if (wanted_type->id == TypeTableEntryIdInt) {
             bigint_init_bigint(&result->value.data.x_bigint, &val->data.x_bigint);
         } else {
-            bigfloat_init_bigfloat(&result->value.data.x_bigfloat, &val->data.x_bigfloat);
+            float_init_float(&result->value, val);
         }
-        result->value.type = wanted_type;
         return result;
     }
 
@@ -7415,7 +7987,7 @@ static IrInstruction *ir_analyze_int_to_enum(IrAnalyze *ira, IrInstruction *sour
         bigint_init_unsigned(&enum_member_count, wanted_type->data.enumeration.src_field_count);
         if (bigint_cmp(&val->data.x_bigint, &enum_member_count) != CmpLT) {
             Buf *val_buf = buf_alloc();
-            bigint_write_buf(val_buf, &val->data.x_bigint, 10);
+            bigint_append_buf(val_buf, &val->data.x_bigint, 10);
             ir_add_error(ira, source_instr,
                 buf_sprintf("integer value %s too big for enum '%s' which has %" PRIu32 " fields",
                     buf_ptr(val_buf), buf_ptr(&wanted_type->name), wanted_type->data.enumeration.src_field_count));
@@ -7444,7 +8016,7 @@ static IrInstruction *ir_analyze_number_to_literal(IrAnalyze *ira, IrInstruction
     IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
             source_instr->source_node, wanted_type);
     if (wanted_type->id == TypeTableEntryIdNumLitFloat) {
-        bigfloat_init_bigfloat(&result->value.data.x_bigfloat, &val->data.x_bigfloat);
+        float_init_float(&result->value, val);
     } else if (wanted_type->id == TypeTableEntryIdNumLitInt) {
         bigint_init_bigint(&result->value.data.x_bigint, &val->data.x_bigint);
     } else {
@@ -7469,7 +8041,7 @@ static IrInstruction *ir_analyze_int_to_err(IrAnalyze *ira, IrInstruction *sourc
         bigint_init_unsigned(&err_count, ira->codegen->error_decls.length);
         if (bigint_cmp_zero(&val->data.x_bigint) == CmpEQ || bigint_cmp(&val->data.x_bigint, &err_count) != CmpLT) {
             Buf *val_buf = buf_alloc();
-            bigint_write_buf(val_buf, &val->data.x_bigint, 10);
+            bigint_append_buf(val_buf, &val->data.x_bigint, 10);
             ir_add_error(ira, source_instr,
                 buf_sprintf("integer value %s represents no error", buf_ptr(val_buf)));
             return ira->codegen->invalid_instruction;
@@ -8304,7 +8876,7 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
     if ((value_is_comptime(op1_val) && value_is_comptime(op2_val)) || resolved_type->id == TypeTableEntryIdVoid) {
         bool answer;
         if (resolved_type->id == TypeTableEntryIdNumLitFloat || resolved_type->id == TypeTableEntryIdFloat) {
-            Cmp cmp_result = bigfloat_cmp(&op1_val->data.x_bigfloat, &op2_val->data.x_bigfloat);
+            Cmp cmp_result = float_cmp(op1_val, op2_val);
             answer = resolve_cmp_op_id(op_id, cmp_result);
         } else if (resolved_type->id == TypeTableEntryIdNumLitInt || resolved_type->id == TypeTableEntryIdInt) {
             Cmp cmp_result = bigint_cmp(&op1_val->data.x_bigint, &op2_val->data.x_bigint);
@@ -8379,7 +8951,7 @@ static int ir_eval_math_op(TypeTableEntry *type_entry, ConstExprValue *op1_val,
     {
         is_int = false;
         is_float = true;
-        op2_zcmp = bigfloat_cmp_zero(&op2_val->data.x_bigfloat);
+        op2_zcmp = float_cmp_zero(op2_val);
     } else {
         zig_unreachable();
     }
@@ -8447,7 +9019,7 @@ static int ir_eval_math_op(TypeTableEntry *type_entry, ConstExprValue *op1_val,
             if (is_int) {
                 bigint_add(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
             } else {
-                bigfloat_add(&out_val->data.x_bigfloat, &op1_val->data.x_bigfloat, &op2_val->data.x_bigfloat);
+                float_add(out_val, op1_val, op2_val);
             }
             break;
         case IrBinOpAddWrap:
@@ -8459,7 +9031,7 @@ static int ir_eval_math_op(TypeTableEntry *type_entry, ConstExprValue *op1_val,
             if (is_int) {
                 bigint_sub(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
             } else {
-                bigfloat_sub(&out_val->data.x_bigfloat, &op1_val->data.x_bigfloat, &op2_val->data.x_bigfloat);
+                float_sub(out_val, op1_val, op2_val);
             }
             break;
         case IrBinOpSubWrap:
@@ -8471,7 +9043,7 @@ static int ir_eval_math_op(TypeTableEntry *type_entry, ConstExprValue *op1_val,
             if (is_int) {
                 bigint_mul(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
             } else {
-                bigfloat_mul(&out_val->data.x_bigfloat, &op1_val->data.x_bigfloat, &op2_val->data.x_bigfloat);
+                float_mul(out_val, op1_val, op2_val);
             }
             break;
         case IrBinOpMultWrap:
@@ -8481,20 +9053,20 @@ static int ir_eval_math_op(TypeTableEntry *type_entry, ConstExprValue *op1_val,
             break;
         case IrBinOpDivUnspecified:
             assert(is_float);
-            bigfloat_div(&out_val->data.x_bigfloat, &op1_val->data.x_bigfloat, &op2_val->data.x_bigfloat);
+            float_div(out_val, op1_val, op2_val);
             break;
         case IrBinOpDivTrunc:
             if (is_int) {
                 bigint_div_trunc(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
             } else {
-                bigfloat_div_trunc(&out_val->data.x_bigfloat, &op1_val->data.x_bigfloat, &op2_val->data.x_bigfloat);
+                float_div_trunc(out_val, op1_val, op2_val);
             }
             break;
         case IrBinOpDivFloor:
             if (is_int) {
                 bigint_div_floor(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
             } else {
-                bigfloat_div_floor(&out_val->data.x_bigfloat, &op1_val->data.x_bigfloat, &op2_val->data.x_bigfloat);
+                float_div_floor(out_val, op1_val, op2_val);
             }
             break;
         case IrBinOpDivExact:
@@ -8506,10 +9078,10 @@ static int ir_eval_math_op(TypeTableEntry *type_entry, ConstExprValue *op1_val,
                     return ErrorExactDivRemainder;
                 }
             } else {
-                bigfloat_div_trunc(&out_val->data.x_bigfloat, &op1_val->data.x_bigfloat, &op2_val->data.x_bigfloat);
-                BigFloat remainder;
-                bigfloat_rem(&remainder, &op1_val->data.x_bigfloat, &op2_val->data.x_bigfloat);
-                if (bigfloat_cmp_zero(&remainder) != CmpEQ) {
+                float_div_trunc(out_val, op1_val, op2_val);
+                ConstExprValue remainder;
+                float_rem(&remainder, op1_val, op2_val);
+                if (float_cmp_zero(&remainder) != CmpEQ) {
                     return ErrorExactDivRemainder;
                 }
             }
@@ -8518,14 +9090,14 @@ static int ir_eval_math_op(TypeTableEntry *type_entry, ConstExprValue *op1_val,
             if (is_int) {
                 bigint_rem(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
             } else {
-                bigfloat_rem(&out_val->data.x_bigfloat, &op1_val->data.x_bigfloat, &op2_val->data.x_bigfloat);
+                float_rem(out_val, op1_val, op2_val);
             }
             break;
         case IrBinOpRemMod:
             if (is_int) {
                 bigint_mod(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
             } else {
-                bigfloat_mod(&out_val->data.x_bigfloat, &op1_val->data.x_bigfloat, &op2_val->data.x_bigfloat);
+                float_mod(out_val, op1_val, op2_val);
             }
             break;
     }
@@ -8678,16 +9250,16 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
                         ok = bigint_cmp(&rem_result, &mod_result) == CmpEQ;
                     }
                 } else {
-                    if (bigfloat_cmp_zero(&op2->value.data.x_bigfloat) == CmpEQ) {
+                    if (float_cmp_zero(&op2->value) == CmpEQ) {
                         // the division by zero error will be caught later, but we don't
                         // have a remainder function ambiguity problem
                         ok = true;
                     } else {
-                        BigFloat rem_result;
-                        BigFloat mod_result;
-                        bigfloat_rem(&rem_result, &op1->value.data.x_bigfloat, &op2->value.data.x_bigfloat);
-                        bigfloat_mod(&mod_result, &op1->value.data.x_bigfloat, &op2->value.data.x_bigfloat);
-                        ok = bigfloat_cmp(&rem_result, &mod_result) == CmpEQ;
+                        ConstExprValue rem_result;
+                        ConstExprValue mod_result;
+                        float_rem(&rem_result, &op1->value, &op2->value);
+                        float_mod(&mod_result, &op1->value, &op2->value);
+                        ok = float_cmp(&rem_result, &mod_result) == CmpEQ;
                     }
                 }
             }
@@ -9835,7 +10407,7 @@ static TypeTableEntry *ir_analyze_negation(IrAnalyze *ira, IrInstructionUnOp *un
 
             ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base);
             if (is_float) {
-                bigfloat_negate(&out_val->data.x_bigfloat, &target_const_val->data.x_bigfloat);
+                float_negate(out_val, target_const_val);
             } else if (is_wrap_op) {
                 bigint_negate_wrap(&out_val->data.x_bigint, &target_const_val->data.x_bigint,
                         expr_type->data.integral.bit_count);
@@ -13780,8 +14352,7 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
                     codegen->is_big_endian);
             return;
         case TypeTableEntryIdFloat:
-            bigfloat_write_ieee597(&val->data.x_bigfloat, buf, val->type->data.floating.bit_count,
-                    codegen->is_big_endian);
+            float_write_ieee597(val, buf, codegen->is_big_endian);
             return;
         case TypeTableEntryIdPointer:
             if (val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
@@ -13841,8 +14412,7 @@ static void buf_read_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue 
                     codegen->is_big_endian, val->type->data.integral.is_signed);
             return;
         case TypeTableEntryIdFloat:
-            bigfloat_read_ieee597(&val->data.x_bigfloat, buf, val->type->data.floating.bit_count,
-                    codegen->is_big_endian);
+            float_read_ieee597(val, buf, codegen->is_big_endian);
             return;
         case TypeTableEntryIdPointer:
             {
