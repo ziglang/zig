@@ -91,7 +91,7 @@ static const char *ZIG_ZEN = "\n"
 " * Avoid local maximums.\n"
 " * Reduce the amount one must remember.\n"
 " * Minimize energy spent on coding style.\n"
-" * Together we serve the end users.\n";
+" * Together we serve end users.\n";
 
 static int print_target_list(FILE *f) {
     ZigTarget native;

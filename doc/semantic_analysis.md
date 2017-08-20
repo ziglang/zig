@@ -21,7 +21,6 @@ level declarations are:
  * Function Definition
  * Global Variable Declaration
  * Container Declaration (struct or enum)
- * Type Declaration
  * Error Value Declaration
  * Use Declaration
 
