@@ -87,9 +87,10 @@ static const char *ZIG_ZEN = "\n"
 " * Only one obvious way to do things.\n"
 " * Runtime crashes are better than bugs.\n"
 " * Compile errors are better than runtime crashes.\n"
-" * Minimize energy spent on coding style.\n"
 " * Incremental improvements.\n"
 " * Avoid local maximums.\n"
+" * Reduce the amount one must remember.\n"
+" * Minimize energy spent on coding style.\n"
 " * Together we serve the end users.\n";
 
 static int print_target_list(FILE *f) {
