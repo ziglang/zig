@@ -137,4 +137,6 @@ produced .gcov files.
  * Runtime crashes are better than bugs.
  * Compile errors are better than runtime crashes.
  * Minimize energy spent on coding style.
+ * Incremental improvements.
+ * Avoid local maximums.
  * Together we serve the end users.
