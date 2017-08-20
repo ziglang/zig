@@ -239,8 +239,8 @@ test "math.atan32.special" {
 
     assert(atan32(0.0) == 0.0);
     assert(atan32(-0.0) == -0.0);
-    assert(math.approxEq(f32, atan32(math.inf(f32)), math.pi_2, epsilon));
-    assert(math.approxEq(f32, atan32(-math.inf(f32)), -math.pi_2, epsilon));
+    assert(math.approxEq(f32, atan32(math.inf(f32)), math.pi / 2.0, epsilon));
+    assert(math.approxEq(f32, atan32(-math.inf(f32)), -math.pi / 2.0, epsilon));
 }
 
 test "math.atan64.special" {
@@ -248,6 +248,6 @@ test "math.atan64.special" {
 
     assert(atan64(0.0) == 0.0);
     assert(atan64(-0.0) == -0.0);
-    assert(math.approxEq(f64, atan64(math.inf(f64)), math.pi_2, epsilon));
-    assert(math.approxEq(f64, atan64(-math.inf(f64)), -math.pi_2, epsilon));
+    assert(math.approxEq(f64, atan64(math.inf(f64)), math.pi / 2.0, epsilon));
+    assert(math.approxEq(f64, atan64(-math.inf(f64)), -math.pi / 2.0, epsilon));
 }

@@ -2,19 +2,8 @@ const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
 const assert = @import("../debug.zig").assert;
 
-pub const e         = 2.7182818284590452354;  // e
-pub const log2_e    = 1.4426950408889634074;  // log_2(e)
-pub const log10_e   = 0.43429448190325182765; // log_10(e)
-pub const ln_2      = 0.69314718055994530942; // log_e(2)
-pub const ln_10     = 2.30258509299404568402; // log_e(10)
-pub const pi        = 3.14159265358979323846; // pi
-pub const pi_2      = 1.57079632679489661923; // pi/2
-pub const pi_4      = 0.78539816339744830962; // pi/4
-pub const r1_pi     = 0.31830988618379067154; // 1/pi
-pub const r2_pi     = 0.63661977236758134308; // 2/pi
-pub const r2_sqrtpi = 1.12837916709551257390; // 2/sqrt(pi)
-pub const sqrt2     = 1.41421356237309504880; // sqrt(2)
-pub const r1_sqrt2  = 0.70710678118654752440; // 1/sqrt(2)
+pub const e = 2.71828182845904523536028747135266249775724709369995;
+pub const pi = 3.14159265358979323846264338327950288419716939937510;
 
 // float.h details
 pub const f64_true_min = 4.94065645841246544177e-324;

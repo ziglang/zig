@@ -245,19 +245,19 @@ test "math.atan2_32.special" {
     assert(atan2_32(-0.0, 5.0) == -0.0);
     assert(math.approxEq(f32, atan2_32(0.0, -5.0), math.pi, epsilon));
     assert(math.approxEq(f32, atan2_32(-0.0, -5.0), -math.pi, epsilon));
-    assert(math.approxEq(f32, atan2_32(1.0, 0.0), math.pi_2, epsilon));
-    assert(math.approxEq(f32, atan2_32(1.0, -0.0), math.pi_2, epsilon));
-    assert(math.approxEq(f32, atan2_32(-1.0, 0.0), -math.pi_2, epsilon));
-    assert(math.approxEq(f32, atan2_32(-1.0, -0.0), -math.pi_2, epsilon));
-    assert(math.approxEq(f32, atan2_32(math.inf(f32), math.inf(f32)), math.pi_4, epsilon));
-    assert(math.approxEq(f32, atan2_32(-math.inf(f32), math.inf(f32)), -math.pi_4, epsilon));
-    assert(math.approxEq(f32, atan2_32(math.inf(f32), -math.inf(f32)), 3.0 * math.pi_4, epsilon));
-    assert(math.approxEq(f32, atan2_32(-math.inf(f32), -math.inf(f32)), -3.0 * math.pi_4, epsilon));
+    assert(math.approxEq(f32, atan2_32(1.0, 0.0), math.pi / 2.0, epsilon));
+    assert(math.approxEq(f32, atan2_32(1.0, -0.0), math.pi / 2.0, epsilon));
+    assert(math.approxEq(f32, atan2_32(-1.0, 0.0), -math.pi / 2.0, epsilon));
+    assert(math.approxEq(f32, atan2_32(-1.0, -0.0), -math.pi / 2.0, epsilon));
+    assert(math.approxEq(f32, atan2_32(math.inf(f32), math.inf(f32)), math.pi / 4.0, epsilon));
+    assert(math.approxEq(f32, atan2_32(-math.inf(f32), math.inf(f32)), -math.pi / 4.0, epsilon));
+    assert(math.approxEq(f32, atan2_32(math.inf(f32), -math.inf(f32)), 3.0 * math.pi / 4.0, epsilon));
+    assert(math.approxEq(f32, atan2_32(-math.inf(f32), -math.inf(f32)), -3.0 * math.pi / 4.0, epsilon));
     assert(atan2_32(1.0, math.inf(f32)) == 0.0);
     assert(math.approxEq(f32, atan2_32(1.0, -math.inf(f32)), math.pi, epsilon));
     assert(math.approxEq(f32, atan2_32(-1.0, -math.inf(f32)), -math.pi, epsilon));
-    assert(math.approxEq(f32, atan2_32(math.inf(f32), 1.0), math.pi_2, epsilon));
-    assert(math.approxEq(f32, atan2_32(-math.inf(f32), 1.0), -math.pi_2, epsilon));
+    assert(math.approxEq(f32, atan2_32(math.inf(f32), 1.0), math.pi / 2.0, epsilon));
+    assert(math.approxEq(f32, atan2_32(-math.inf(f32), 1.0), -math.pi / 2.0, epsilon));
 }
 
 test "math.atan2_64.special" {
@@ -269,17 +269,17 @@ test "math.atan2_64.special" {
     assert(atan2_64(-0.0, 5.0) == -0.0);
     assert(math.approxEq(f64, atan2_64(0.0, -5.0), math.pi, epsilon));
     assert(math.approxEq(f64, atan2_64(-0.0, -5.0), -math.pi, epsilon));
-    assert(math.approxEq(f64, atan2_64(1.0, 0.0), math.pi_2, epsilon));
-    assert(math.approxEq(f64, atan2_64(1.0, -0.0), math.pi_2, epsilon));
-    assert(math.approxEq(f64, atan2_64(-1.0, 0.0), -math.pi_2, epsilon));
-    assert(math.approxEq(f64, atan2_64(-1.0, -0.0), -math.pi_2, epsilon));
-    assert(math.approxEq(f64, atan2_64(math.inf(f64), math.inf(f64)), math.pi_4, epsilon));
-    assert(math.approxEq(f64, atan2_64(-math.inf(f64), math.inf(f64)), -math.pi_4, epsilon));
-    assert(math.approxEq(f64, atan2_64(math.inf(f64), -math.inf(f64)), 3.0 * math.pi_4, epsilon));
-    assert(math.approxEq(f64, atan2_64(-math.inf(f64), -math.inf(f64)), -3.0 * math.pi_4, epsilon));
+    assert(math.approxEq(f64, atan2_64(1.0, 0.0), math.pi / 2.0, epsilon));
+    assert(math.approxEq(f64, atan2_64(1.0, -0.0), math.pi / 2.0, epsilon));
+    assert(math.approxEq(f64, atan2_64(-1.0, 0.0), -math.pi / 2.0, epsilon));
+    assert(math.approxEq(f64, atan2_64(-1.0, -0.0), -math.pi / 2.0, epsilon));
+    assert(math.approxEq(f64, atan2_64(math.inf(f64), math.inf(f64)), math.pi / 4.0, epsilon));
+    assert(math.approxEq(f64, atan2_64(-math.inf(f64), math.inf(f64)), -math.pi / 4.0, epsilon));
+    assert(math.approxEq(f64, atan2_64(math.inf(f64), -math.inf(f64)), 3.0 * math.pi / 4.0, epsilon));
+    assert(math.approxEq(f64, atan2_64(-math.inf(f64), -math.inf(f64)), -3.0 * math.pi / 4.0, epsilon));
     assert(atan2_64(1.0, math.inf(f64)) == 0.0);
     assert(math.approxEq(f64, atan2_64(1.0, -math.inf(f64)), math.pi, epsilon));
     assert(math.approxEq(f64, atan2_64(-1.0, -math.inf(f64)), -math.pi, epsilon));
-    assert(math.approxEq(f64, atan2_64(math.inf(f64), 1.0), math.pi_2, epsilon));
-    assert(math.approxEq(f64, atan2_64(-math.inf(f64), 1.0), -math.pi_2, epsilon));
+    assert(math.approxEq(f64, atan2_64(math.inf(f64), 1.0), math.pi / 2.0, epsilon));
+    assert(math.approxEq(f64, atan2_64(-math.inf(f64), 1.0), -math.pi / 2.0, epsilon));
 }
