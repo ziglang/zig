@@ -127,16 +127,3 @@ produced .gcov files.
  * [zig-mode](https://github.com/AndreaOrru/zig-mode) - Emacs integration
  * [zig.vim](https://github.com/zig-lang/zig.vim) - Vim configuration files
  * [vscode-zig](https://github.com/zig-lang/vscode-zig) - Visual Studio Code extension
-
-## The Zen of Zig
-
- * Communicate intent precisely.
- * Edge cases matter.
- * Favor reading code over writing code.
- * Only one obvious way to do things.
- * Runtime crashes are better than bugs.
- * Compile errors are better than runtime crashes.
- * Minimize energy spent on coding style.
- * Incremental improvements.
- * Avoid local maximums.
- * Together we serve the end users.

@@ -27,6 +27,7 @@ static int usage(const char *arg0) {
         "  targets                      list available compilation targets\n"
         "  test [source]                create and run a test build\n"
         "  version                      print version number and exit\n"
+        "  zen                          print zen of zig and exit\n"
         "Compile Options:\n"
         "  --assembly [source]          add assembly file to build\n"
         "  --cache-dir [path]           override the cache directory\n"
@@ -79,6 +80,18 @@ static int usage(const char *arg0) {
     return EXIT_FAILURE;
 }
 
+static const char *ZIG_ZEN = "\n"
+" * Communicate intent precisely.\n"
+" * Edge cases matter.\n"
+" * Favor reading code over writing code.\n"
+" * Only one obvious way to do things.\n"
+" * Runtime crashes are better than bugs.\n"
+" * Compile errors are better than runtime crashes.\n"
+" * Minimize energy spent on coding style.\n"
+" * Incremental improvements.\n"
+" * Avoid local maximums.\n"
+" * Together we serve the end users.\n";
+
 static int print_target_list(FILE *f) {
     ZigTarget native;
     get_native_target(&native);
@@ -118,6 +131,7 @@ enum Cmd {
     CmdBuild,
     CmdTest,
     CmdVersion,
+    CmdZen,
     CmdParseH,
     CmdTargets,
 };
@@ -457,6 +471,8 @@ int main(int argc, char **argv) {
                 out_type = OutTypeLib;
             } else if (strcmp(arg, "version") == 0) {
                 cmd = CmdVersion;
+            } else if (strcmp(arg, "zen") == 0) {
+                cmd = CmdZen;
             } else if (strcmp(arg, "parseh") == 0) {
                 cmd = CmdParseH;
             } else if (strcmp(arg, "test") == 0) {
@@ -481,6 +497,7 @@ int main(int argc, char **argv) {
                     }
                     break;
                 case CmdVersion:
+                case CmdZen:
                 case CmdTargets:
                     fprintf(stderr, "Unexpected extra parameter: %s\n", arg);
                     return usage(arg0);
@@ -681,6 +698,9 @@ int main(int argc, char **argv) {
         }
     case CmdVersion:
         printf("%s\n", ZIG_VERSION_STRING);
+        return EXIT_SUCCESS;
+    case CmdZen:
+        printf("%s\n", ZIG_ZEN);
         return EXIT_SUCCESS;
     case CmdTargets:
         return print_target_list(stdout);
