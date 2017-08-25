@@ -7330,7 +7330,7 @@ static void eval_const_expr_implicit_cast(CastOp cast_op,
         case CastOpResizeSlice:
         case CastOpBytesToSlice:
             // can't do it
-            break;
+            zig_unreachable();
         case CastOpIntToFloat:
             {
                 assert(new_type->id == TypeTableEntryIdFloat);
@@ -7366,7 +7366,9 @@ static void eval_const_expr_implicit_cast(CastOp cast_op,
 static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
         TypeTableEntry *wanted_type, CastOp cast_op, bool need_alloca)
 {
-    if (value->value.special != ConstValSpecialRuntime) {
+    if (value->value.special != ConstValSpecialRuntime &&
+        cast_op != CastOpResizeSlice && cast_op != CastOpBytesToSlice)
+    {
         IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
                 source_instr->source_node, wanted_type);
         eval_const_expr_implicit_cast(cast_op, &value->value, value->value.type,
@@ -8166,7 +8168,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         }
     }
 
-    // expliict cast from &const [N]T to []const T
+    // explicit cast from &const [N]T to []const T
     if (is_slice(wanted_type) &&
         actual_type->id == TypeTableEntryIdPointer &&
         actual_type->data.pointer.is_const &&

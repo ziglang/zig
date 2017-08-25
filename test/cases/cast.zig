@@ -275,3 +275,12 @@ fn cast128Int(x: f128) -> u128 {
 fn cast128Float(x: u128) -> f128 {
     @bitCast(f128, x)
 }
+
+test "const slice widen cast" {
+    const bytes = []u8{0x12, 0x12, 0x12, 0x12};
+
+    const u32_value = ([]const u32)(bytes[0..])[0];
+    assert(u32_value == 0x12121212);
+
+    //assert(@bitCast(u32, bytes) == 0x12121212);
+}
