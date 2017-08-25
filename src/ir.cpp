@@ -3889,8 +3889,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
         return irb->codegen->invalid_instruction;
     }
 
-    builtin_fn->ref_count += 1;
-
     switch (builtin_fn->id) {
         case BuiltinFnIdInvalid:
             zig_unreachable();

@@ -757,6 +757,25 @@ static void gen_debug_safety_crash(CodeGen *g, PanicMsgId msg_id) {
     gen_panic(g, get_panic_msg_ptr_val(g, msg_id));
 }
 
+static LLVMValueRef get_memcpy_fn_val(CodeGen *g) {
+    if (g->memcpy_fn_val)
+        return g->memcpy_fn_val;
+
+    LLVMTypeRef param_types[] = {
+        LLVMPointerType(LLVMInt8Type(), 0),
+        LLVMPointerType(LLVMInt8Type(), 0),
+        LLVMIntType(g->pointer_size_bytes * 8),
+        LLVMInt32Type(),
+        LLVMInt1Type(),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), param_types, 5, false);
+    Buf *name = buf_sprintf("llvm.memcpy.p0i8.p0i8.i%d", g->pointer_size_bytes * 8);
+    g->memcpy_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->memcpy_fn_val));
+
+    return g->memcpy_fn_val;
+}
+
 static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     if (g->safety_crash_err_fn != nullptr)
         return g->safety_crash_err_fn;
@@ -840,7 +859,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
         LLVMConstNull(LLVMInt1Type()), // is volatile
     };
 
-    LLVMBuildCall(g->builder, g->memcpy_fn_val, params, 5, "");
+    LLVMBuildCall(g->builder, get_memcpy_fn_val(g), params, 5, "");
 
     LLVMValueRef const_prefix_len = LLVMConstInt(LLVMTypeOf(err_name_len), strlen(unwrap_err_msg_text), false);
     LLVMValueRef full_buf_len = LLVMBuildNUWAdd(g->builder, const_prefix_len, err_name_len, "");
@@ -1060,7 +1079,7 @@ static LLVMValueRef gen_struct_memcpy(CodeGen *g, LLVMValueRef src, LLVMValueRef
         LLVMConstNull(LLVMInt1Type()), // is volatile
     };
 
-    return LLVMBuildCall(g->builder, g->memcpy_fn_val, params, 5, "");
+    return LLVMBuildCall(g->builder, get_memcpy_fn_val(g), params, 5, "");
 }
 
 static LLVMValueRef gen_assign_raw(CodeGen *g, LLVMValueRef ptr, TypeTableEntry *ptr_type,
@@ -1947,6 +1966,25 @@ static LLVMValueRef ir_render_bool_not(CodeGen *g, IrExecutable *executable, IrI
     return LLVMBuildICmp(g->builder, LLVMIntEQ, value, zero, "");
 }
 
+static LLVMValueRef get_memset_fn_val(CodeGen *g) {
+    if (g->memset_fn_val)
+        return g->memset_fn_val;
+
+    LLVMTypeRef param_types[] = {
+        LLVMPointerType(LLVMInt8Type(), 0),
+        LLVMInt8Type(),
+        LLVMIntType(g->pointer_size_bytes * 8),
+        LLVMInt32Type(),
+        LLVMInt1Type(),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), param_types, 5, false);
+    Buf *name = buf_sprintf("llvm.memset.p0i8.i%d", g->pointer_size_bytes * 8);
+    g->memset_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->memset_fn_val));
+
+    return g->memset_fn_val;
+}
+
 static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
         IrInstructionDeclVar *decl_var_instruction)
 {
@@ -1993,7 +2031,7 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
                 LLVMConstNull(LLVMInt1Type()), // is volatile
             };
 
-            LLVMBuildCall(g->builder, g->memset_fn_val, params, 5, "");
+            LLVMBuildCall(g->builder, get_memset_fn_val(g), params, 5, "");
         }
     }
 
@@ -2654,7 +2692,7 @@ static LLVMValueRef ir_render_memset(CodeGen *g, IrExecutable *executable, IrIns
         is_volatile,
     };
 
-    LLVMBuildCall(g->builder, g->memset_fn_val, params, 5, "");
+    LLVMBuildCall(g->builder, get_memset_fn_val(g), params, 5, "");
     return nullptr;
 }
 
@@ -2685,7 +2723,7 @@ static LLVMValueRef ir_render_memcpy(CodeGen *g, IrExecutable *executable, IrIns
         is_volatile,
     };
 
-    LLVMBuildCall(g->builder, g->memcpy_fn_val, params, 5, "");
+    LLVMBuildCall(g->builder, get_memcpy_fn_val(g), params, 5, "");
     return nullptr;
 }
 
@@ -2799,23 +2837,63 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutable *executable, IrInst
     }
 }
 
+static LLVMValueRef get_trap_fn_val(CodeGen *g) {
+    if (g->trap_fn_val)
+        return g->trap_fn_val;
+
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), nullptr, 0, false);
+    g->trap_fn_val = LLVMAddFunction(g->module, "llvm.debugtrap", fn_type);
+    assert(LLVMGetIntrinsicID(g->trap_fn_val));
+
+    return g->trap_fn_val;
+}
+
+
 static LLVMValueRef ir_render_breakpoint(CodeGen *g, IrExecutable *executable, IrInstructionBreakpoint *instruction) {
-    LLVMBuildCall(g->builder, g->trap_fn_val, nullptr, 0, "");
+    LLVMBuildCall(g->builder, get_trap_fn_val(g), nullptr, 0, "");
     return nullptr;
+}
+
+static LLVMValueRef get_return_address_fn_val(CodeGen *g) {
+    if (g->return_address_fn_val)
+        return g->return_address_fn_val;
+
+    TypeTableEntry *return_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
+
+    LLVMTypeRef fn_type = LLVMFunctionType(return_type->type_ref,
+            &g->builtin_types.entry_i32->type_ref, 1, false);
+    g->return_address_fn_val = LLVMAddFunction(g->module, "llvm.returnaddress", fn_type);
+    assert(LLVMGetIntrinsicID(g->return_address_fn_val));
+
+    return g->return_address_fn_val;
 }
 
 static LLVMValueRef ir_render_return_address(CodeGen *g, IrExecutable *executable,
         IrInstructionReturnAddress *instruction)
 {
     LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_i32->type_ref);
-    return LLVMBuildCall(g->builder, g->return_address_fn_val, &zero, 1, "");
+    return LLVMBuildCall(g->builder, get_return_address_fn_val(g), &zero, 1, "");
+}
+
+static LLVMValueRef get_frame_address_fn_val(CodeGen *g) {
+    if (g->frame_address_fn_val)
+        return g->frame_address_fn_val;
+
+    TypeTableEntry *return_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
+
+    LLVMTypeRef fn_type = LLVMFunctionType(return_type->type_ref,
+            &g->builtin_types.entry_i32->type_ref, 1, false);
+    g->frame_address_fn_val = LLVMAddFunction(g->module, "llvm.frameaddress", fn_type);
+    assert(LLVMGetIntrinsicID(g->frame_address_fn_val));
+
+    return g->frame_address_fn_val;
 }
 
 static LLVMValueRef ir_render_frame_address(CodeGen *g, IrExecutable *executable,
         IrInstructionFrameAddress *instruction)
 {
     LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_i32->type_ref);
-    return LLVMBuildCall(g->builder, g->frame_address_fn_val, &zero, 1, "");
+    return LLVMBuildCall(g->builder, get_frame_address_fn_val(g), &zero, 1, "");
 }
 
 static LLVMValueRef render_shl_with_overflow(CodeGen *g, IrInstructionOverflowOp *instruction) {
@@ -3760,23 +3838,6 @@ static void render_const_val_global(CodeGen *g, ConstExprValue *const_val, const
         LLVMSetInitializer(const_val->global_refs->llvm_global, const_val->global_refs->llvm_value);
 }
 
-static void delete_unused_builtin_fns(CodeGen *g) {
-    // TODO get rid of this function
-    auto it = g->builtin_fn_table.entry_iterator();
-    for (;;) {
-        auto *entry = it.next();
-        if (!entry)
-            break;
-
-        BuiltinFnEntry *builtin_fn = entry->value;
-        if (builtin_fn->ref_count == 0 &&
-            builtin_fn->fn_val)
-        {
-            LLVMDeleteFunction(entry->value->fn_val);
-        }
-    }
-}
-
 static void generate_error_name_table(CodeGen *g) {
     if (g->err_name_table != nullptr || !g->generate_error_name_table || g->error_decls.length == 1) {
         return;
@@ -3936,7 +3997,6 @@ static void do_code_gen(CodeGen *g) {
 
     codegen_add_time_event(g, "Code Generation");
 
-    delete_unused_builtin_fns(g);
     generate_error_name_table(g);
     generate_enum_name_tables(g);
 
@@ -4528,81 +4588,11 @@ static BuiltinFnEntry *create_builtin_fn(CodeGen *g, BuiltinFnId id, const char 
 }
 
 static void define_builtin_fns(CodeGen *g) {
-    {
-        // TODO make lazy and get rid of delete_unused_builtin_fns
-        BuiltinFnEntry *builtin_fn = create_builtin_fn(g, BuiltinFnIdBreakpoint, "breakpoint", 0);
-        builtin_fn->ref_count = 1;
-
-        LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), nullptr, 0, false);
-        builtin_fn->fn_val = LLVMAddFunction(g->module, "llvm.debugtrap", fn_type);
-        assert(LLVMGetIntrinsicID(builtin_fn->fn_val));
-
-        g->trap_fn_val = builtin_fn->fn_val;
-    }
-    {
-        // TODO make lazy and get rid of delete_unused_builtin_fns
-        BuiltinFnEntry *builtin_fn = create_builtin_fn(g, BuiltinFnIdReturnAddress,
-                "returnAddress", 0);
-        TypeTableEntry *return_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
-
-        LLVMTypeRef fn_type = LLVMFunctionType(return_type->type_ref,
-                &g->builtin_types.entry_i32->type_ref, 1, false);
-        builtin_fn->fn_val = LLVMAddFunction(g->module, "llvm.returnaddress", fn_type);
-        assert(LLVMGetIntrinsicID(builtin_fn->fn_val));
-
-        g->return_address_fn_val = builtin_fn->fn_val;
-    }
-    {
-        // TODO make lazy and get rid of delete_unused_builtin_fns
-        BuiltinFnEntry *builtin_fn = create_builtin_fn(g, BuiltinFnIdFrameAddress,
-                "frameAddress", 0);
-        TypeTableEntry *return_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
-
-        LLVMTypeRef fn_type = LLVMFunctionType(return_type->type_ref,
-                &g->builtin_types.entry_i32->type_ref, 1, false);
-        builtin_fn->fn_val = LLVMAddFunction(g->module, "llvm.frameaddress", fn_type);
-        assert(LLVMGetIntrinsicID(builtin_fn->fn_val));
-
-        g->frame_address_fn_val = builtin_fn->fn_val;
-    }
-    {
-        // TODO make lazy and get rid of delete_unused_builtin_fns
-        BuiltinFnEntry *builtin_fn = create_builtin_fn(g, BuiltinFnIdMemcpy, "memcpy", 3);
-        builtin_fn->ref_count = 1;
-
-        LLVMTypeRef param_types[] = {
-            LLVMPointerType(LLVMInt8Type(), 0),
-            LLVMPointerType(LLVMInt8Type(), 0),
-            LLVMIntType(g->pointer_size_bytes * 8),
-            LLVMInt32Type(),
-            LLVMInt1Type(),
-        };
-        LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), param_types, 5, false);
-        Buf *name = buf_sprintf("llvm.memcpy.p0i8.p0i8.i%d", g->pointer_size_bytes * 8);
-        builtin_fn->fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
-        assert(LLVMGetIntrinsicID(builtin_fn->fn_val));
-
-        g->memcpy_fn_val = builtin_fn->fn_val;
-    }
-    {
-        // TODO make lazy and get rid of delete_unused_builtin_fns
-        BuiltinFnEntry *builtin_fn = create_builtin_fn(g, BuiltinFnIdMemset, "memset", 3);
-        builtin_fn->ref_count = 1;
-
-        LLVMTypeRef param_types[] = {
-            LLVMPointerType(LLVMInt8Type(), 0),
-            LLVMInt8Type(),
-            LLVMIntType(g->pointer_size_bytes * 8),
-            LLVMInt32Type(),
-            LLVMInt1Type(),
-        };
-        LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), param_types, 5, false);
-        Buf *name = buf_sprintf("llvm.memset.p0i8.i%d", g->pointer_size_bytes * 8);
-        builtin_fn->fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
-        assert(LLVMGetIntrinsicID(builtin_fn->fn_val));
-
-        g->memset_fn_val = builtin_fn->fn_val;
-    }
+    create_builtin_fn(g, BuiltinFnIdBreakpoint, "breakpoint", 0);
+    create_builtin_fn(g, BuiltinFnIdReturnAddress, "returnAddress", 0);
+    create_builtin_fn(g, BuiltinFnIdFrameAddress, "frameAddress", 0);
+    create_builtin_fn(g, BuiltinFnIdMemcpy, "memcpy", 3);
+    create_builtin_fn(g, BuiltinFnIdMemset, "memset", 3);
     create_builtin_fn(g, BuiltinFnIdSizeof, "sizeOf", 1);
     create_builtin_fn(g, BuiltinFnIdAlignof, "alignOf", 1);
     create_builtin_fn(g, BuiltinFnIdMaxValue, "maxValue", 1);

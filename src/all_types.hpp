@@ -1242,8 +1242,6 @@ struct BuiltinFnEntry {
     BuiltinFnId id;
     Buf name;
     size_t param_count;
-    uint32_t ref_count;
-    LLVMValueRef fn_val;
 };
 
 enum PanicMsgId {
