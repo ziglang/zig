@@ -12,7 +12,15 @@ error InvalidDebugInfo;
 error UnsupportedDebugInfo;
 
 pub fn assert(ok: bool) {
-    if (!ok) unreachable // assertion failure
+    if (!ok) {
+        // In ReleaseFast test mode, we still want assert(false) to crash, so
+        // we insert an explicit call to @panic instead of unreachable.
+        if (builtin.is_test) {
+            @panic("assertion failure")
+        } else {
+            unreachable // assertion failure
+        }
+    }
 }
 
 var panicking = false;

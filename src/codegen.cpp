@@ -1879,7 +1879,7 @@ static LLVMValueRef ir_render_err_to_int(CodeGen *g, IrExecutable *executable, I
 static LLVMValueRef ir_render_unreachable(CodeGen *g, IrExecutable *executable,
         IrInstructionUnreachable *unreachable_instruction)
 {
-    if (ir_want_debug_safety(g, &unreachable_instruction->base) || g->is_test_build) {
+    if (ir_want_debug_safety(g, &unreachable_instruction->base)) {
         gen_debug_safety_crash(g, PanicMsgIdUnreachable);
     } else {
         LLVMBuildUnreachable(g->builder);

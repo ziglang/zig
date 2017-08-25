@@ -17,6 +17,7 @@ comptime {
 
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
+const assert = @import("../../debug.zig").assert;
 
 const __udivmoddi4 = @import("udivmoddi4.zig").__udivmoddi4;
 
@@ -291,9 +292,4 @@ test "test_udivsi3" {
 fn test_one_udivsi3(a: u32, b: u32, expected_q: u32) {
     const q: u32 = __udivsi3(a, b);
     assert(q == expected_q);
-}
-
-
-fn assert(ok: bool) {
-    if (!ok) unreachable;
 }
