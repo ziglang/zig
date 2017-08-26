@@ -14202,6 +14202,8 @@ static TypeTableEntry *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira
             if (!end_val)
                 return ira->codegen->builtin_types.entry_invalid;
 
+            assert(start_val->type->id == TypeTableEntryIdInt || start_val->type->id == TypeTableEntryIdNumLitInt);
+            assert(end_val->type->id == TypeTableEntryIdInt || end_val->type->id == TypeTableEntryIdNumLitInt);
             AstNode *prev_node = rangeset_add_range(&rs, &start_val->data.x_bigint, &end_val->data.x_bigint,
                     start_value->source_node);
             if (prev_node != nullptr) {
