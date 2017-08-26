@@ -1272,28 +1272,28 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
         if (!type_has_bits(field_type))
             continue;
 
-        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, field_type->type_ref);
-        uint64_t debug_align_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, field_type->type_ref);
+        uint64_t store_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, field_type->type_ref);
+        uint64_t preferred_align_in_bits = 8*LLVMPreferredAlignmentOfType(g->target_data_ref, field_type->type_ref);
 
-        assert(debug_size_in_bits > 0);
-        assert(debug_align_in_bits > 0);
+        assert(store_size_in_bits > 0);
+        assert(preferred_align_in_bits > 0);
 
         union_inner_di_types[type_enum_field->gen_index] = ZigLLVMCreateDebugMemberType(g->dbuilder,
                 ZigLLVMTypeToScope(enum_type->di_type), buf_ptr(type_enum_field->name),
                 import->di_file, (unsigned)(field_node->line + 1),
-                debug_size_in_bits,
-                debug_align_in_bits,
+                store_size_in_bits,
+                preferred_align_in_bits,
                 0,
                 0, field_type->di_type);
 
-        biggest_size_in_bits = max(biggest_size_in_bits, debug_size_in_bits);
+        biggest_size_in_bits = max(biggest_size_in_bits, store_size_in_bits);
 
         if (!most_aligned_union_member ||
-            debug_align_in_bits > biggest_align_in_bits)
+            preferred_align_in_bits > biggest_align_in_bits)
         {
             most_aligned_union_member = field_type;
-            biggest_align_in_bits = debug_align_in_bits;
-            size_of_most_aligned_member_in_bits = debug_size_in_bits;
+            biggest_align_in_bits = preferred_align_in_bits;
+            size_of_most_aligned_member_in_bits = store_size_in_bits;
         }
     }
 
@@ -1326,10 +1326,8 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
             }
             enum_type->data.enumeration.union_type_ref = union_type_ref;
 
-            assert(8*LLVMABIAlignmentOfType(g->target_data_ref, union_type_ref) >=
-                    biggest_align_in_bits);
-            assert(8*LLVMABISizeOfType(g->target_data_ref, union_type_ref) >=
-                    biggest_size_in_bits);
+            assert(8*LLVMPreferredAlignmentOfType(g->target_data_ref, union_type_ref) >= biggest_align_in_bits);
+            assert(8*LLVMStoreSizeOfType(g->target_data_ref, union_type_ref) >= biggest_size_in_bits);
 
             // create llvm type for root struct
             LLVMTypeRef root_struct_element_types[] = {
@@ -1340,7 +1338,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
 
             // create debug type for tag
             uint64_t tag_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, tag_type_entry->type_ref);
-            uint64_t tag_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, tag_type_entry->type_ref);
+            uint64_t tag_debug_align_in_bits = 8*LLVMPreferredAlignmentOfType(g->target_data_ref, tag_type_entry->type_ref);
             ZigLLVMDIType *tag_di_type = ZigLLVMCreateDebugEnumerationType(g->dbuilder,
                     ZigLLVMTypeToScope(enum_type->di_type), "AnonEnum",
                     import->di_file, (unsigned)(decl_node->line + 1),
