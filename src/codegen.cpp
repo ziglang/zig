@@ -2250,6 +2250,11 @@ static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executa
 static LLVMValueRef ir_render_enum_field_ptr(CodeGen *g, IrExecutable *executable,
     IrInstructionEnumFieldPtr *instruction)
 {
+    TypeTableEntry *enum_ptr_type = instruction->enum_ptr->value.type;
+    assert(enum_ptr_type->id == TypeTableEntryIdPointer);
+    TypeTableEntry *enum_type = enum_ptr_type->data.pointer.child_type;
+    assert(enum_type->id == TypeTableEntryIdEnum);
+
     TypeEnumField *field = instruction->field;
 
     if (!type_has_bits(field->type_entry))
@@ -2257,7 +2262,7 @@ static LLVMValueRef ir_render_enum_field_ptr(CodeGen *g, IrExecutable *executabl
 
     LLVMValueRef enum_ptr = ir_llvm_value(g, instruction->enum_ptr);
     LLVMTypeRef field_type_ref = LLVMPointerType(field->type_entry->type_ref, 0);
-    LLVMValueRef union_field_ptr = LLVMBuildStructGEP(g->builder, enum_ptr, enum_gen_union_index, "");
+    LLVMValueRef union_field_ptr = LLVMBuildStructGEP(g->builder, enum_ptr, enum_type->data.enumeration.gen_union_index, "");
     LLVMValueRef bitcasted_union_field_ptr = LLVMBuildBitCast(g->builder, union_field_ptr, field_type_ref, "");
 
     return bitcasted_union_field_ptr;
@@ -3112,7 +3117,7 @@ static LLVMValueRef ir_render_enum_tag(CodeGen *g, IrExecutable *executable, IrI
     if (enum_type->data.enumeration.gen_field_count == 0)
         return enum_val;
 
-    LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, enum_val, enum_gen_tag_index, "");
+    LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, enum_val, enum_type->data.enumeration.gen_tag_index, "");
     return get_handle_value(g, tag_field_ptr, tag_type, false);
 }
 
@@ -3127,13 +3132,13 @@ static LLVMValueRef ir_render_init_enum(CodeGen *g, IrExecutable *executable, Ir
 
     LLVMValueRef tmp_struct_ptr = instruction->tmp_ptr;
 
-    LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, enum_gen_tag_index, "");
+    LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, enum_type->data.enumeration.gen_tag_index, "");
     LLVMBuildStore(g->builder, tag_value, tag_field_ptr);
 
     TypeTableEntry *union_val_type = instruction->field->type_entry;
     if (type_has_bits(union_val_type)) {
         LLVMValueRef new_union_val = ir_llvm_value(g, instruction->init_value);
-        LLVMValueRef union_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, enum_gen_union_index, "");
+        LLVMValueRef union_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, enum_type->data.enumeration.gen_union_index, "");
         LLVMValueRef bitcasted_union_field_ptr = LLVMBuildBitCast(g->builder, union_field_ptr,
                 LLVMPointerType(union_val_type->type_ref, 0), "");
 
@@ -3687,10 +3692,9 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                     } else {
                         union_value = LLVMGetUndef(union_type_ref);
                     }
-                    LLVMValueRef fields[] = {
-                        tag_value,
-                        union_value,
-                    };
+                    LLVMValueRef fields[2];
+                    fields[type_entry->data.enumeration.gen_tag_index] = tag_value;
+                    fields[type_entry->data.enumeration.gen_union_index] = union_value;
                     return LLVMConstStruct(fields, 2, false);
                 }
             }

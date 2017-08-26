@@ -1306,6 +1306,8 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
         TypeTableEntry *tag_type_entry = create_enum_tag_type(g, enum_type, tag_int_type);
         enum_type->data.enumeration.tag_type = tag_type_entry;
 
+        uint64_t align_of_tag_in_bits = 8*LLVMPreferredAlignmentOfType(g->target_data_ref, tag_int_type->type_ref);
+
         if (most_aligned_union_member) {
             // create llvm type for union
             uint64_t padding_in_bits = biggest_size_in_bits - size_of_most_aligned_member_in_bits;
@@ -1329,11 +1331,18 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
             assert(8*LLVMPreferredAlignmentOfType(g->target_data_ref, union_type_ref) >= biggest_align_in_bits);
             assert(8*LLVMStoreSizeOfType(g->target_data_ref, union_type_ref) >= biggest_size_in_bits);
 
+            if (align_of_tag_in_bits >= biggest_align_in_bits) {
+                enum_type->data.enumeration.gen_tag_index = 0;
+                enum_type->data.enumeration.gen_union_index = 1;
+            } else {
+                enum_type->data.enumeration.gen_union_index = 0;
+                enum_type->data.enumeration.gen_tag_index = 1;
+            }
+
             // create llvm type for root struct
-            LLVMTypeRef root_struct_element_types[] = {
-                tag_type_entry->type_ref,
-                union_type_ref,
-            };
+            LLVMTypeRef root_struct_element_types[2];
+            root_struct_element_types[enum_type->data.enumeration.gen_tag_index] = tag_type_entry->type_ref;
+            root_struct_element_types[enum_type->data.enumeration.gen_union_index] = union_type_ref;
             LLVMStructSetBody(enum_type->type_ref, root_struct_element_types, 2, false);
 
             // create debug type for tag
@@ -1353,7 +1362,8 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
                     gen_field_count, 0, "");
 
             // create debug types for members of root struct
-            uint64_t tag_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, enum_type->type_ref, 0);
+            uint64_t tag_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, enum_type->type_ref,
+                    enum_type->data.enumeration.gen_tag_index);
             ZigLLVMDIType *tag_member_di_type = ZigLLVMCreateDebugMemberType(g->dbuilder,
                     ZigLLVMTypeToScope(enum_type->di_type), "tag_field",
                     import->di_file, (unsigned)(decl_node->line + 1),
@@ -1362,7 +1372,8 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
                     tag_offset_in_bits,
                     0, tag_di_type);
 
-            uint64_t union_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, enum_type->type_ref, 1);
+            uint64_t union_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, enum_type->type_ref,
+                    enum_type->data.enumeration.gen_union_index);
             ZigLLVMDIType *union_member_di_type = ZigLLVMCreateDebugMemberType(g->dbuilder,
                     ZigLLVMTypeToScope(enum_type->di_type), "union_field",
                     import->di_file, (unsigned)(decl_node->line + 1),
@@ -1372,11 +1383,9 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
                     0, union_di_type);
 
             // create debug type for root struct
-            ZigLLVMDIType *di_root_members[] = {
-                tag_member_di_type,
-                union_member_di_type,
-            };
-
+            ZigLLVMDIType *di_root_members[2];
+            di_root_members[enum_type->data.enumeration.gen_tag_index] = tag_member_di_type;
+            di_root_members[enum_type->data.enumeration.gen_union_index] = union_member_di_type;
 
             uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, enum_type->type_ref);
             uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, enum_type->type_ref);
@@ -1396,7 +1405,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
 
             // create debug type for tag
             uint64_t tag_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, tag_type_entry->type_ref);
-            uint64_t tag_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, tag_type_entry->type_ref);
+            uint64_t tag_debug_align_in_bits = 8*LLVMPreferredAlignmentOfType(g->target_data_ref, tag_type_entry->type_ref);
             ZigLLVMDIType *tag_di_type = ZigLLVMCreateDebugEnumerationType(g->dbuilder,
                     ZigLLVMFileToScope(import->di_file), buf_ptr(&enum_type->name),
                     import->di_file, (unsigned)(decl_node->line + 1),
