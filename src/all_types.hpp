@@ -977,7 +977,7 @@ struct TypeTableEntryEnum {
     TypeEnumField *fields;
     bool is_invalid; // true if any fields are invalid
     TypeTableEntry *tag_type;
-    TypeTableEntry *union_type;
+    LLVMTypeRef union_type_ref;
 
     ScopeDecls *decls_scope;
 
@@ -989,6 +989,9 @@ struct TypeTableEntryEnum {
 
     bool zero_bits_loop_flag;
     bool zero_bits_known;
+
+    size_t gen_union_index;
+    size_t gen_tag_index;
 };
 
 struct TypeTableEntryEnumTag {
@@ -1633,7 +1636,7 @@ struct ScopeDecls {
 struct ScopeBlock {
     Scope base;
 
-    HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table; 
+    HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table;
     bool safety_off;
     AstNode *safety_set_node;
     bool fast_math_off;
@@ -2625,9 +2628,6 @@ static const size_t slice_len_index = 1;
 
 static const size_t maybe_child_index = 0;
 static const size_t maybe_null_index = 1;
-
-static const size_t enum_gen_tag_index = 0;
-static const size_t enum_gen_union_index = 1;
 
 static const size_t err_union_err_index = 0;
 static const size_t err_union_payload_index = 1;
