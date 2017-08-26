@@ -729,11 +729,12 @@ static TypeTableEntry *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) 
         }
     }
 
-    TypeTableEntry *tag_type_entry = resolve_qual_type(c, enum_decl->getIntegerType(), enum_decl);
+    TypeTableEntry *tag_int_type = resolve_qual_type(c, enum_decl->getIntegerType(), enum_decl);
 
     if (pure_enum) {
         TypeTableEntry *enum_type = get_partial_container_type(c->codegen, &c->import->decls_scope->base,
                 ContainerKindEnum, c->source_node, buf_ptr(full_type_name), ContainerLayoutExtern);
+        TypeTableEntry *tag_type_entry = create_enum_tag_type(c->codegen, enum_type, tag_int_type);
         c->enum_type_table.put(bare_name, enum_type);
         c->decl_table.put(enum_decl, enum_type);
 
@@ -793,9 +794,9 @@ static TypeTableEntry *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) 
 
         return enum_type;
     } else {
-        // TODO after issue #305 is solved, make this be an enum with tag_type_entry
+        // TODO after issue #305 is solved, make this be an enum with tag_int_type
         // as the integer type and set the custom enum values
-        TypeTableEntry *enum_type = tag_type_entry;
+        TypeTableEntry *enum_type = tag_int_type;
         c->enum_type_table.put(bare_name, enum_type);
         c->decl_table.put(enum_decl, enum_type);
 
