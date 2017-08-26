@@ -376,6 +376,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     }
     fn_table_entry->llvm_name = LLVMGetValueName(fn_table_entry->llvm_value);
 
+    // TODO this is for testing windows DLL stuff
     //if (buf_eql_str(&fn_table_entry->symbol_name, "ExitProcess") ||
     //    buf_eql_str(&fn_table_entry->symbol_name, "GetConsoleMode") ||
     //    buf_eql_str(&fn_table_entry->symbol_name, "GetStdHandle") ||
@@ -448,6 +449,12 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     }
     if (fn_table_entry->alignment) {
         LLVMSetAlignment(fn_table_entry->llvm_value, (unsigned)fn_table_entry->alignment);
+    } else if (external_linkage) {
+        LLVMSetAlignment(fn_table_entry->llvm_value,
+                LLVMABIAlignmentOfType(g->target_data_ref, fn_table_entry->type_entry->data.fn.raw_type_ref));
+    } else {
+        LLVMSetAlignment(fn_table_entry->llvm_value,
+                LLVMPreferredAlignmentOfType(g->target_data_ref, fn_table_entry->type_entry->data.fn.raw_type_ref));
     }
 
     return fn_table_entry->llvm_value;
@@ -596,6 +603,7 @@ static LLVMValueRef get_floor_ceil_fn(CodeGen *g, TypeTableEntry *type_entry, Zi
     sprintf(fn_name, "llvm.%s.f%" ZIG_PRI_usize "", name, type_entry->data.floating.bit_count);
     LLVMTypeRef fn_type = LLVMFunctionType(type_entry->type_ref, &type_entry->type_ref, 1, false);
     LLVMValueRef fn_val = LLVMAddFunction(g->module, fn_name, fn_type);
+    assert(LLVMGetIntrinsicID(fn_val));
 
     g->llvm_fn_table.put(key, fn_val);
     return fn_val;
@@ -830,6 +838,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
     }
+    LLVMSetAlignment(fn_val, LLVMPreferredAlignmentOfType(g->target_data_ref, fn_type_ref));
 
     LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn_val, "Entry");
     LLVMBasicBlockRef prev_block = LLVMGetInsertBlock(g->builder);
@@ -2478,6 +2487,7 @@ static LLVMValueRef get_int_builtin_fn(CodeGen *g, TypeTableEntry *int_type, Bui
     };
     LLVMTypeRef fn_type = LLVMFunctionType(int_type->type_ref, param_types, 2, false);
     LLVMValueRef fn_val = LLVMAddFunction(g->module, llvm_name, fn_type);
+    assert(LLVMGetIntrinsicID(fn_val));
 
     g->llvm_fn_table.put(key, fn_val);
 
