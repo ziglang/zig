@@ -1269,7 +1269,7 @@ static LLVMValueRef gen_div(CodeGen *g, bool want_debug_safety, bool want_fast_m
     ZigLLVMSetFastMath(g->builder, want_fast_math);
 
     LLVMValueRef zero = LLVMConstNull(type_entry->type_ref);
-    if (want_debug_safety) {
+    if (want_debug_safety && (want_fast_math || type_entry->id != TypeTableEntryIdFloat)) {
         LLVMValueRef is_zero_bit;
         if (type_entry->id == TypeTableEntryIdInt) {
             is_zero_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, val2, zero, "");
