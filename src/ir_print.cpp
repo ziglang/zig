@@ -664,8 +664,14 @@ static void ir_print_return_address(IrPrint *irp, IrInstructionReturnAddress *in
     fprintf(irp->f, "@returnAddress()");
 }
 
-static void ir_print_alignof(IrPrint *irp, IrInstructionAlignOf *instruction) {
-    fprintf(irp->f, "@alignOf(");
+static void ir_print_preferred_align_of(IrPrint *irp, IrInstructionPreferredAlignOf *instruction) {
+    fprintf(irp->f, "@preferredAlignOf(");
+    ir_print_other_instruction(irp, instruction->type_value);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_abi_align_of(IrPrint *irp, IrInstructionAbiAlignOf *instruction) {
+    fprintf(irp->f, "@abiAlignOf(");
     ir_print_other_instruction(irp, instruction->type_value);
     fprintf(irp->f, ")");
 }
@@ -1110,8 +1116,11 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdFrameAddress:
             ir_print_frame_address(irp, (IrInstructionFrameAddress *)instruction);
             break;
-        case IrInstructionIdAlignOf:
-            ir_print_alignof(irp, (IrInstructionAlignOf *)instruction);
+        case IrInstructionIdPreferredAlignOf:
+            ir_print_preferred_align_of(irp, (IrInstructionPreferredAlignOf *)instruction);
+            break;
+        case IrInstructionIdAbiAlignOf:
+            ir_print_abi_align_of(irp, (IrInstructionAbiAlignOf *)instruction);
             break;
         case IrInstructionIdOverflowOp:
             ir_print_overflow_op(irp, (IrInstructionOverflowOp *)instruction);

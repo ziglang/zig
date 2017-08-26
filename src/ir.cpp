@@ -422,8 +422,12 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionFrameAddress *) 
     return IrInstructionIdFrameAddress;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionAlignOf *) {
-    return IrInstructionIdAlignOf;
+static constexpr IrInstructionId ir_instruction_id(IrInstructionPreferredAlignOf *) {
+    return IrInstructionIdPreferredAlignOf;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionAbiAlignOf *) {
+    return IrInstructionIdAbiAlignOf;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionOverflowOp *) {
@@ -1806,8 +1810,17 @@ static IrInstruction *ir_build_overflow_op_from(IrBuilder *irb, IrInstruction *o
     return new_instruction;
 }
 
-static IrInstruction *ir_build_alignof(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *type_value) {
-    IrInstructionAlignOf *instruction = ir_build_instruction<IrInstructionAlignOf>(irb, scope, source_node);
+static IrInstruction *ir_build_preferred_align_of(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *type_value) {
+    IrInstructionPreferredAlignOf *instruction = ir_build_instruction<IrInstructionPreferredAlignOf>(irb, scope, source_node);
+    instruction->type_value = type_value;
+
+    ir_ref_instruction(type_value, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_abi_align_of(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *type_value) {
+    IrInstructionAbiAlignOf *instruction = ir_build_instruction<IrInstructionAbiAlignOf>(irb, scope, source_node);
     instruction->type_value = type_value;
 
     ir_ref_instruction(type_value, irb->current_basic_block);
@@ -2658,7 +2671,14 @@ static IrInstruction *ir_instruction_frameaddress_get_dep(IrInstructionFrameAddr
     return nullptr;
 }
 
-static IrInstruction *ir_instruction_alignof_get_dep(IrInstructionAlignOf *instruction, size_t index) {
+static IrInstruction *ir_instruction_preferredalignof_get_dep(IrInstructionPreferredAlignOf *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->type_value;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_abialignof_get_dep(IrInstructionAbiAlignOf *instruction, size_t index) {
     switch (index) {
         case 0: return instruction->type_value;
         default: return nullptr;
@@ -3036,8 +3056,10 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_returnaddress_get_dep((IrInstructionReturnAddress *) instruction, index);
         case IrInstructionIdFrameAddress:
             return ir_instruction_frameaddress_get_dep((IrInstructionFrameAddress *) instruction, index);
-        case IrInstructionIdAlignOf:
-            return ir_instruction_alignof_get_dep((IrInstructionAlignOf *) instruction, index);
+        case IrInstructionIdPreferredAlignOf:
+            return ir_instruction_preferredalignof_get_dep((IrInstructionPreferredAlignOf *) instruction, index);
+        case IrInstructionIdAbiAlignOf:
+            return ir_instruction_abialignof_get_dep((IrInstructionAbiAlignOf *) instruction, index);
         case IrInstructionIdOverflowOp:
             return ir_instruction_overflowop_get_dep((IrInstructionOverflowOp *) instruction, index);
         case IrInstructionIdTestErr:
@@ -4264,14 +4286,23 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
             return ir_build_return_address(irb, scope, node);
         case BuiltinFnIdFrameAddress:
             return ir_build_frame_address(irb, scope, node);
-        case BuiltinFnIdAlignof:
+        case BuiltinFnIdPreferredAlignOf:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
                 IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
                 if (arg0_value == irb->codegen->invalid_instruction)
                     return arg0_value;
 
-                return ir_build_alignof(irb, scope, node, arg0_value);
+                return ir_build_preferred_align_of(irb, scope, node, arg0_value);
+            }
+        case BuiltinFnIdAbiAlignOf:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                return ir_build_abi_align_of(irb, scope, node, arg0_value);
             }
         case BuiltinFnIdAddWithOverflow:
             return ir_gen_overflow_op(irb, scope, node, IrOverflowOpAdd);
@@ -13829,25 +13860,108 @@ static TypeTableEntry *ir_analyze_instruction_frame_address(IrAnalyze *ira, IrIn
     return u8_ptr_const;
 }
 
-static TypeTableEntry *ir_analyze_instruction_alignof(IrAnalyze *ira, IrInstructionAlignOf *instruction) {
+static TypeTableEntry *ir_analyze_instruction_preferred_align_of(IrAnalyze *ira, IrInstructionPreferredAlignOf *instruction) {
     IrInstruction *type_value = instruction->type_value->other;
     if (type_is_invalid(type_value->value.type))
         return ira->codegen->builtin_types.entry_invalid;
     TypeTableEntry *type_entry = ir_resolve_type(ira, type_value);
 
     ensure_complete_type(ira->codegen, type_entry);
-    if (type_is_invalid(type_entry)) {
+    if (type_is_invalid(type_entry))
         return ira->codegen->builtin_types.entry_invalid;
-    } else if (type_entry->id == TypeTableEntryIdUnreachable) {
-        ir_add_error(ira, instruction->type_value,
-                buf_sprintf("no align available for type '%s'", buf_ptr(&type_entry->name)));
-        return ira->codegen->builtin_types.entry_invalid;
-    } else {
-        uint64_t align_in_bytes = LLVMABIAlignmentOfType(ira->codegen->target_data_ref, type_entry->type_ref);
-        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-        bigint_init_unsigned(&out_val->data.x_bigint, align_in_bytes);
-        return ira->codegen->builtin_types.entry_num_lit_int;
+
+    switch (type_entry->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+            zig_unreachable();
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+            ir_add_error(ira, instruction->type_value,
+                    buf_sprintf("no align available for type '%s'", buf_ptr(&type_entry->name)));
+            return ira->codegen->builtin_types.entry_invalid;
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdStruct:
+        case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdEnumTag:
+        case TypeTableEntryIdUnion:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdOpaque:
+            {
+                uint64_t align_in_bytes = LLVMPreferredAlignmentOfType(ira->codegen->target_data_ref, type_entry->type_ref);
+                ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+                bigint_init_unsigned(&out_val->data.x_bigint, align_in_bytes);
+                return ira->codegen->builtin_types.entry_num_lit_int;
+            }
     }
+    zig_unreachable();
+}
+
+static TypeTableEntry *ir_analyze_instruction_abi_align_of(IrAnalyze *ira, IrInstructionAbiAlignOf *instruction) {
+    IrInstruction *type_value = instruction->type_value->other;
+    if (type_is_invalid(type_value->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+    TypeTableEntry *type_entry = ir_resolve_type(ira, type_value);
+
+    ensure_complete_type(ira->codegen, type_entry);
+    if (type_is_invalid(type_entry))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    switch (type_entry->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+            zig_unreachable();
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+            ir_add_error(ira, instruction->type_value,
+                    buf_sprintf("no align available for type '%s'", buf_ptr(&type_entry->name)));
+            return ira->codegen->builtin_types.entry_invalid;
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdStruct:
+        case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdEnumTag:
+        case TypeTableEntryIdUnion:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdOpaque:
+            {
+                uint64_t align_in_bytes = LLVMABIAlignmentOfType(ira->codegen->target_data_ref, type_entry->type_ref);
+                ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+                bigint_init_unsigned(&out_val->data.x_bigint, align_in_bytes);
+                return ira->codegen->builtin_types.entry_num_lit_int;
+            }
+    }
+    zig_unreachable();
 }
 
 static TypeTableEntry *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInstructionOverflowOp *instruction) {
@@ -14838,8 +14952,10 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_return_address(ira, (IrInstructionReturnAddress *)instruction);
         case IrInstructionIdFrameAddress:
             return ir_analyze_instruction_frame_address(ira, (IrInstructionFrameAddress *)instruction);
-        case IrInstructionIdAlignOf:
-            return ir_analyze_instruction_alignof(ira, (IrInstructionAlignOf *)instruction);
+        case IrInstructionIdPreferredAlignOf:
+            return ir_analyze_instruction_preferred_align_of(ira, (IrInstructionPreferredAlignOf *)instruction);
+        case IrInstructionIdAbiAlignOf:
+            return ir_analyze_instruction_abi_align_of(ira, (IrInstructionAbiAlignOf *)instruction);
         case IrInstructionIdOverflowOp:
             return ir_analyze_instruction_overflow_op(ira, (IrInstructionOverflowOp *)instruction);
         case IrInstructionIdTestErr:
@@ -15035,7 +15151,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdBoolNot:
         case IrInstructionIdSlice:
         case IrInstructionIdMemberCount:
-        case IrInstructionIdAlignOf:
+        case IrInstructionIdPreferredAlignOf:
+        case IrInstructionIdAbiAlignOf:
         case IrInstructionIdReturnAddress:
         case IrInstructionIdFrameAddress:
         case IrInstructionIdTestErr:

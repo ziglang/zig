@@ -3233,7 +3233,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdEmbedFile:
         case IrInstructionIdIntType:
         case IrInstructionIdMemberCount:
-        case IrInstructionIdAlignOf:
+        case IrInstructionIdPreferredAlignOf:
+        case IrInstructionIdAbiAlignOf:
         case IrInstructionIdFnProto:
         case IrInstructionIdTestComptime:
         case IrInstructionIdCheckSwitchProngs:
@@ -4594,7 +4595,8 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdMemcpy, "memcpy", 3);
     create_builtin_fn(g, BuiltinFnIdMemset, "memset", 3);
     create_builtin_fn(g, BuiltinFnIdSizeof, "sizeOf", 1);
-    create_builtin_fn(g, BuiltinFnIdAlignof, "alignOf", 1);
+    create_builtin_fn(g, BuiltinFnIdPreferredAlignOf, "preferredAlignOf", 1);
+    create_builtin_fn(g, BuiltinFnIdAbiAlignOf, "cAbiAlignOf", 1);
     create_builtin_fn(g, BuiltinFnIdMaxValue, "maxValue", 1);
     create_builtin_fn(g, BuiltinFnIdMinValue, "minValue", 1);
     create_builtin_fn(g, BuiltinFnIdMemberCount, "memberCount", 1);

@@ -1184,7 +1184,8 @@ enum BuiltinFnId {
     BuiltinFnIdMemcpy,
     BuiltinFnIdMemset,
     BuiltinFnIdSizeof,
-    BuiltinFnIdAlignof,
+    BuiltinFnIdPreferredAlignOf,
+    BuiltinFnIdAbiAlignOf,
     BuiltinFnIdMaxValue,
     BuiltinFnIdMinValue,
     BuiltinFnIdMemberCount,
@@ -1805,7 +1806,8 @@ enum IrInstructionId {
     IrInstructionIdBreakpoint,
     IrInstructionIdReturnAddress,
     IrInstructionIdFrameAddress,
-    IrInstructionIdAlignOf,
+    IrInstructionIdPreferredAlignOf,
+    IrInstructionIdAbiAlignOf,
     IrInstructionIdOverflowOp,
     IrInstructionIdTestErr,
     IrInstructionIdUnwrapErrCode,
@@ -2389,7 +2391,13 @@ struct IrInstructionOverflowOp {
     TypeTableEntry *result_ptr_type;
 };
 
-struct IrInstructionAlignOf {
+struct IrInstructionPreferredAlignOf {
+    IrInstruction base;
+
+    IrInstruction *type_value;
+};
+
+struct IrInstructionAbiAlignOf {
     IrInstruction base;
 
     IrInstruction *type_value;
