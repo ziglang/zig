@@ -127,3 +127,4 @@ produced .gcov files.
  * [zig-mode](https://github.com/AndreaOrru/zig-mode) - Emacs integration
  * [zig.vim](https://github.com/zig-lang/zig.vim) - Vim configuration files
  * [vscode-zig](https://github.com/zig-lang/vscode-zig) - Visual Studio Code extension
+ * [zig-compiler-completions](https://github.com/tiehuis/zig-compiler-completions) - bash and zsh completions for the zig compiler
