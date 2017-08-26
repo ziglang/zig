@@ -282,5 +282,5 @@ test "const slice widen cast" {
     const u32_value = ([]const u32)(bytes[0..])[0];
     assert(u32_value == 0x12121212);
 
-    //assert(@bitCast(u32, bytes) == 0x12121212);
+    assert(@bitCast(u32, bytes) == 0x12121212);
 }

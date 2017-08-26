@@ -14364,7 +14364,16 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
                 zig_unreachable();
             }
         case TypeTableEntryIdArray:
-            zig_panic("TODO buf_write_value_bytes array type");
+            {
+                size_t buf_i = 0;
+                expand_undef_array(codegen, val);
+                for (size_t elem_i = 0; elem_i < val->type->data.array.len; elem_i += 1) {
+                    ConstExprValue *elem = &val->data.x_array.s_none.elements[elem_i];
+                    buf_write_value_bytes(codegen, &buf[buf_i], elem);
+                    buf_i += type_size(codegen, elem->type);
+                }
+            }
+            return;
         case TypeTableEntryIdStruct:
             zig_panic("TODO buf_write_value_bytes struct type");
         case TypeTableEntryIdMaybe:
