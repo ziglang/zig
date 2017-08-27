@@ -2,6 +2,7 @@
 
 brew install gcc@7
 brew outdated gcc@7 || brew upgrade gcc@7
+brew link --overwrite gcc@7
 
 SRC_DIR=$(pwd)
 PREFIX_DIR=$SRC_DIR/local
