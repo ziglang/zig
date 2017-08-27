@@ -139,6 +139,7 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
         g->zig_target.os == ZigLLVM_IOS)
     {
         g->libc_link_lib = create_link_lib(buf_create_from_str("c"));
+        g->link_libs_list.append(g->libc_link_lib);
     }
 
     return g;

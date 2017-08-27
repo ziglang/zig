@@ -2,9 +2,9 @@
 
 set -x
 
-PREFIX_DIR=$(pwd)/local
-export CC=/usr/local/Cellar/gcc/7.2.0/bin/gcc-7
-export CXX=/usr/local/Cellar/gcc/7.2.0/bin/g++-7
+PREFIX_DIR=$HOME/local/llvm5
+export CC=/usr/local/opt/gcc/bin/gcc-7
+export CXX=/usr/local/opt/gcc/bin/g++-7
 
 echo $PATH
 mkdir build

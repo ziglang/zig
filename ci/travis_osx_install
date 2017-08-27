@@ -6,44 +6,14 @@ brew install gcc@7
 brew outdated gcc@7 || brew upgrade gcc@7
 brew link --overwrite gcc@7
 
-which gcc
-which g++
-which gcc-7
-which g++-7
-
 SRC_DIR=$(pwd)
-PREFIX_DIR=$SRC_DIR/local
-export CC=/usr/local/Cellar/gcc/7.2.0/bin/gcc-7
-export CXX=/usr/local/Cellar/gcc/7.2.0/bin/g++-7
+PREFIX_DIR=$HOME/local/llvm5
+export CC=/usr/local/opt/gcc/bin/gcc-7
+export CXX=/usr/local/opt/gcc/bin/g++-7
 
-wget http://prereleases.llvm.org/5.0.0/rc2/llvm-5.0.0rc2.src.tar.xz 
-wget http://prereleases.llvm.org/5.0.0/rc2/cfe-5.0.0rc2.src.tar.xz
-wget http://prereleases.llvm.org/5.0.0/rc2/lld-5.0.0rc2.src.tar.xz
-
-ls -ahl /usr/local/opt
-
-cd $SRC_DIR
-tar xf llvm-5.0.0rc2.src.tar.xz
-cd llvm-5.0.0rc2.src
-mkdir build
-cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$PREFIX_DIR -DCMAKE_PREFIX_PATH=$PREFIX_DIR
-make install
-
-cd $SRC_DIR
-tar xf lld-5.0.0rc2.src.tar.xz
-cd lld-5.0.0rc2.src
-mkdir build
-cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$PREFIX_DIR -DCMAKE_PREFIX_PATH=$PREFIX_DIR
-make install
-
-cd $SRC_DIR
-tar xf cfe-5.0.0rc2.src.tar.xz
-cd cfe-5.0.0rc2.src
-mkdir build
-cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$PREFIX_DIR -DCMAKE_PREFIX_PATH=$PREFIX_DIR
-make install
+mkdir -p $HOME/local
+cd $HOME/local
+wget http://s3.amazonaws.com/superjoe/temp/llvm5.tar.xz
+tar xfp llvm5.tar.xz
 
 cd $SRC_DIR

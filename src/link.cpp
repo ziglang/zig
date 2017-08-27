@@ -570,7 +570,7 @@ static void get_darwin_platform(LinkJob *lj, DarwinPlatform *platform) {
     } else if (g->mios_version_min) {
         platform->kind = IPhoneOS;
     } else {
-        zig_panic("unable to infer -macosx-version-min or -mios-version-min");
+        zig_panic("unable to infer -mmacosx-version-min or -mios-version-min");
     }
 
     bool had_extra;
@@ -703,20 +703,30 @@ static void construct_linker_job_macho(LinkJob *lj) {
         lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));
     }
 
-    for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
-        LinkLib *link_lib = g->link_libs_list.at(i);
-        if (buf_eql_str(link_lib->name, "c")) {
-            continue;
-        }
-        Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
-        lj->args.append(buf_ptr(arg));
+    // compiler_rt on darwin is missing some stuff, so we still build it and rely on LinkOnce
+    if (g->out_type == OutTypeExe || g->out_type == OutTypeLib) {
+        Buf *compiler_rt_o_path = build_compiler_rt(g);
+        lj->args.append(buf_ptr(compiler_rt_o_path));
     }
 
-    // on Darwin, libSystem has libc in it, but also you have to use it
-    // to make syscalls because the syscall numbers are not documented
-    // and change between versions.
-    // so we always link against libSystem
-    lj->args.append("-lSystem");
+    if (g->is_native_target) {
+        for (size_t lib_i = 0; lib_i < g->link_libs_list.length; lib_i += 1) {
+            LinkLib *link_lib = g->link_libs_list.at(lib_i);
+            if (buf_eql_str(link_lib->name, "c")) {
+                // on Darwin, libSystem has libc in it, but also you have to use it
+                // to make syscalls because the syscall numbers are not documented
+                // and change between versions.
+                // so we always link against libSystem
+                lj->args.append("-lSystem");
+            } else {
+                Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
+                lj->args.append(buf_ptr(arg));
+            }
+        }
+    } else {
+        lj->args.append("-undefined");
+        lj->args.append("dynamic_lookup");
+    }
 
     if (platform.kind == MacOS) {
         if (darwin_version_lt(&platform, 10, 5)) {
