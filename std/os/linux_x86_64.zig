@@ -454,7 +454,8 @@ pub const msghdr = extern struct {
     msg_flags: i32,
 };
 
-pub const stat = extern struct {
+/// Renamed to Stat to not conflict with the stat function.
+pub const Stat = extern struct {
     dev: u64,
     ino: u64,
     nlink: usize,

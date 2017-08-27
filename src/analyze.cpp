@@ -2891,6 +2891,10 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
 }
 
 static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *dst_use_node) {
+    if (src_use_node->data.use.resolution == TldResolutionUnresolved) {
+        preview_use_decl(g, src_use_node);
+    }
+
     IrInstruction *use_target_value = src_use_node->data.use.value;
     if (use_target_value->value.type->id == TypeTableEntryIdInvalid) {
         dst_use_node->owner->any_imports_failed = true;

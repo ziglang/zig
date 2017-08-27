@@ -709,10 +709,6 @@ int os_delete_file(Buf *path) {
     }
 }
 
-void os_init(void) {
-    srand((unsigned)time(NULL));
-}
-
 int os_rename(Buf *src_path, Buf *dest_path) {
     if (rename(buf_ptr(src_path), buf_ptr(dest_path)) == -1) {
         return ErrorFileSystem;
@@ -805,7 +801,8 @@ int os_make_dir(Buf *path) {
 #endif
 }
 
-int zig_os_init(void) {
+int os_init(void) {
+    srand((unsigned)time(NULL));
 #if defined(ZIG_OS_WINDOWS)
     unsigned __int64 frequency;
     if (QueryPerformanceFrequency((LARGE_INTEGER*) &frequency)) {

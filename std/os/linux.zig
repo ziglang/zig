@@ -309,8 +309,8 @@ pub const TIOCGPKT = 0x80045438;
 pub const TIOCGPTLCK = 0x80045439;
 pub const TIOCGEXCL = 0x80045440;
 
-fn unsigned(s: i32) -> u32 { *@ptrCast(&u32, &s) }
-fn signed(s: u32) -> i32 { *@ptrCast(&i32, &s) }
+fn unsigned(s: i32) -> u32 { @bitCast(u32, s) }
+fn signed(s: u32) -> i32 { @bitCast(i32, s) }
 pub fn WEXITSTATUS(s: i32) -> i32 { signed((unsigned(s) & 0xff00) >> 8) }
 pub fn WTERMSIG(s: i32) -> i32 { signed(unsigned(s) & 0x7f) }
 pub fn WSTOPSIG(s: i32) -> i32 { WEXITSTATUS(s) }
@@ -328,7 +328,7 @@ pub const winsize = extern struct {
 
 /// Get the errno from a syscall return value, or 0 for no error.
 pub fn getErrno(r: usize) -> usize {
-    const signed_r = *@ptrCast(&const isize, &r);
+    const signed_r = @bitCast(isize, r);
     if (signed_r > -4096 and signed_r < 0) usize(-signed_r) else 0
 }
 
@@ -353,7 +353,7 @@ pub fn getcwd(buf: &u8, size: usize) -> usize {
 }
 
 pub fn getdents(fd: i32, dirp: &u8, count: usize) -> usize {
-    arch.syscall3(arch.SYS_getdents, usize(fd), @ptrToInt(dirp), usize(count))
+    arch.syscall3(arch.SYS_getdents, usize(fd), @ptrToInt(dirp), count)
 }
 
 pub fn isatty(fd: i32) -> bool {
@@ -365,14 +365,15 @@ pub fn readlink(noalias path: &const u8, noalias buf_ptr: &u8, buf_len: usize) -
     arch.syscall3(arch.SYS_readlink, @ptrToInt(path), @ptrToInt(buf_ptr), buf_len)
 }
 
-pub fn mkdir(path: &const u8, mode: usize) -> usize {
+pub fn mkdir(path: &const u8, mode: u32) -> usize {
     arch.syscall2(arch.SYS_mkdir, @ptrToInt(path), mode)
 }
 
-pub fn mmap(address: ?&u8, length: usize, prot: usize, flags: usize, fd: i32, offset: usize)
+pub fn mmap(address: ?&u8, length: usize, prot: usize, flags: usize, fd: i32, offset: isize)
     -> usize
 {
-    arch.syscall6(arch.SYS_mmap, @ptrToInt(address), length, prot, flags, usize(fd), offset)
+    arch.syscall6(arch.SYS_mmap, @ptrToInt(address), length, prot, flags, usize(fd),
+        @bitCast(usize, offset))
 }
 
 pub fn munmap(address: &u8, length: usize) -> usize {
@@ -415,7 +416,7 @@ pub fn rename(old: &const u8, new: &const u8) -> usize {
     arch.syscall2(arch.SYS_rename, @ptrToInt(old), @ptrToInt(new))
 }
 
-pub fn open(path: &const u8, flags: usize, perm: usize) -> usize {
+pub fn open(path: &const u8, flags: u32, perm: usize) -> usize {
     arch.syscall3(arch.SYS_open, @ptrToInt(path), flags, perm)
 }
 
@@ -431,12 +432,12 @@ pub fn close(fd: i32) -> usize {
     arch.syscall1(arch.SYS_close, usize(fd))
 }
 
-pub fn lseek(fd: i32, offset: usize, ref_pos: usize) -> usize {
-    arch.syscall3(arch.SYS_lseek, usize(fd), offset, ref_pos)
+pub fn lseek(fd: i32, offset: isize, ref_pos: usize) -> usize {
+    arch.syscall3(arch.SYS_lseek, usize(fd), @bitCast(usize, offset), ref_pos)
 }
 
 pub fn exit(status: i32) -> noreturn {
-    _ = arch.syscall1(arch.SYS_exit, usize(status));
+    _ = arch.syscall1(arch.SYS_exit, @bitCast(usize, isize(status)));
     unreachable
 }
 
@@ -453,7 +454,7 @@ pub fn unlink(path: &const u8) -> usize {
 }
 
 pub fn waitpid(pid: i32, status: &i32, options: i32) -> usize {
-    arch.syscall4(arch.SYS_wait4, usize(pid), @ptrToInt(status), usize(options), 0)
+    arch.syscall4(arch.SYS_wait4, usize(pid), @ptrToInt(status), @bitCast(usize, isize(options)), 0)
 }
 
 const NSIG = 65;
@@ -461,11 +462,11 @@ const sigset_t = [128]u8;
 const all_mask = []u8 { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, };
 const app_mask = []u8 { 0xff, 0xff, 0xff, 0xfc, 0x7f, 0xff, 0xff, 0xff, };
 
-pub fn raise(sig: i32) -> i32 {
+pub fn raise(sig: i32) -> usize {
     var set: sigset_t = undefined;
     blockAppSignals(&set);
     const tid = i32(arch.syscall0(arch.SYS_gettid));
-    const ret = i32(arch.syscall2(arch.SYS_tkill, usize(tid), usize(sig)));
+    const ret = arch.syscall2(arch.SYS_tkill, usize(tid), usize(sig));
     restoreSignals(&set);
     return ret;
 }
@@ -630,9 +631,9 @@ pub fn accept4(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t, flags:
 //     return ifr.ifr_ifindex;
 // }
 
-pub const stat = arch.stat;
+pub const Stat = arch.Stat;
 pub const timespec = arch.timespec;
 
-pub fn fstat(fd: i32, stat_buf: &stat) -> usize {
+pub fn fstat(fd: i32, stat_buf: &Stat) -> usize {
     arch.syscall2(arch.SYS_fstat, usize(fd), @ptrToInt(stat_buf))
 }

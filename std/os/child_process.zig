@@ -229,42 +229,15 @@ fn forkChildErrReport(fd: i32, err: error) -> noreturn {
 }
 
 const ErrInt = @IntType(false, @sizeOf(error) * 8);
+
 fn writeIntFd(fd: i32, value: ErrInt) -> %void {
     var bytes: [@sizeOf(ErrInt)]u8 = undefined;
     mem.writeInt(bytes[0..], value, true);
-
-    var index: usize = 0;
-    while (index < bytes.len) {
-        const amt_written = posix.write(fd, &bytes[index], bytes.len - index);
-        const err = posix.getErrno(amt_written);
-        if (err > 0) {
-            switch (err) {
-                errno.EINTR => continue,
-                errno.EINVAL => unreachable,
-                else => return error.SystemResources,
-            }
-        }
-        index += amt_written;
-    }
+    os.posixWrite(fd, bytes[0..]) %% return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) -> %ErrInt {
     var bytes: [@sizeOf(ErrInt)]u8 = undefined;
-
-    var index: usize = 0;
-    while (index < bytes.len) {
-        const amt_written = posix.read(fd, &bytes[index], bytes.len - index);
-        const err = posix.getErrno(amt_written);
-        if (err > 0) {
-            switch (err) {
-                errno.EINTR => continue,
-                errno.EINVAL => unreachable,
-                else => return error.SystemResources,
-            }
-        }
-        index += amt_written;
-    }
-
+    os.posixRead(fd, bytes[0..]) %% return error.SystemResources;
     return mem.readInt(bytes[0..], ErrInt, true);
 }
-

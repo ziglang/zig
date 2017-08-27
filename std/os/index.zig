@@ -56,43 +56,40 @@ error WouldBlock;
 /// appropriate OS-specific library call. Otherwise it uses the zig standard
 /// library implementation.
 pub fn getRandomBytes(buf: []u8) -> %void {
-    while (true) {
-        const err = switch (builtin.os) {
-            Os.linux => {
-                // TODO check libc version and potentially call c.getrandom.
-                // See #397
-                posix.getErrno(posix.getrandom(buf.ptr, buf.len, 0))
-            },
-            Os.darwin, Os.macosx, Os.ios => {
-                if (builtin.link_libc) {
-                    if (posix.getrandom(buf.ptr, buf.len) == -1) *c._errno() else 0
-                } else {
-                    posix.getErrno(posix.getrandom(buf.ptr, buf.len))
+    switch (builtin.os) {
+        Os.linux => while (true) {
+            // TODO check libc version and potentially call c.getrandom.
+            // See #397
+            const err = posix.getErrno(posix.getrandom(buf.ptr, buf.len, 0));
+            if (err > 0) {
+                return switch (err) {
+                    errno.EINVAL => unreachable,
+                    errno.EFAULT => unreachable,
+                    errno.EINTR  => continue,
+                    else         => error.Unexpected,
                 }
-            },
-            Os.windows => {
-                var hCryptProv: windows.HCRYPTPROV = undefined;
-                if (!windows.CryptAcquireContext(&hCryptProv, null, null, windows.PROV_RSA_FULL, 0)) {
-                    return error.Unexpected;
-                }
-                defer _ = windows.CryptReleaseContext(hCryptProv, 0);
-
-                if (!windows.CryptGenRandom(hCryptProv, windows.DWORD(buf.len), buf.ptr)) {
-                    return error.Unexpected;
-                }
-                return;
-            },
-            else => @compileError("Unsupported OS"),
-        };
-        if (err > 0) {
-            return switch (err) {
-                errno.EINVAL => unreachable,
-                errno.EFAULT => unreachable,
-                errno.EINTR  => continue,
-                else         => error.Unexpected,
             }
-        }
-        return;
+            return;
+        },
+        Os.darwin, Os.macosx, Os.ios => {
+            const fd = %return posixOpen("/dev/urandom", posix.O_RDONLY|posix.O_CLOEXEC,
+                0, null);
+            defer posixClose(fd);
+
+            %return posixRead(fd, buf);
+        },
+        Os.windows => {
+            var hCryptProv: windows.HCRYPTPROV = undefined;
+            if (!windows.CryptAcquireContext(&hCryptProv, null, null, windows.PROV_RSA_FULL, 0)) {
+                return error.Unexpected;
+            }
+            defer _ = windows.CryptReleaseContext(hCryptProv, 0);
+
+            if (!windows.CryptGenRandom(hCryptProv, windows.DWORD(buf.len), buf.ptr)) {
+                return error.Unexpected;
+            }
+        },
+        else => @compileError("Unsupported OS"),
     }
 }
 
@@ -128,12 +125,34 @@ pub fn posixClose(fd: i32) {
     }
 }
 
+/// Calls POSIX read, and keeps trying if it gets interrupted.
+pub fn posixRead(fd: i32, buf: []u8) -> %void {
+    var index: usize = 0;
+    while (index < buf.len) {
+        const amt_written = posix.read(fd, &buf[index], buf.len - index);
+        const err = posix.getErrno(amt_written);
+        if (err > 0) {
+            return switch (err) {
+                errno.EINTR => continue,
+                errno.EINVAL, errno.EFAULT => unreachable,
+                errno.EAGAIN => error.WouldBlock,
+                errno.EBADF => error.FileClosed,
+                errno.EIO => error.InputOutput,
+                errno.EISDIR => error.IsDir,
+                errno.ENOBUFS, errno.ENOMEM => error.SystemResources,
+                else => return error.Unexpected,
+            }
+        }
+        index += amt_written;
+    }
+}
+
 error WouldBlock;
 error FileClosed;
 error DestinationAddressRequired;
 error DiskQuota;
 error FileTooBig;
-error FileSystem;
+error InputOutput;
 error NoSpaceLeft;
 error BrokenPipe;
 error Unexpected;
@@ -152,7 +171,7 @@ pub fn posixWrite(fd: i32, bytes: []const u8) -> %void {
                 errno.EDESTADDRREQ => error.DestinationAddressRequired,
                 errno.EDQUOT => error.DiskQuota,
                 errno.EFBIG  => error.FileTooBig,
-                errno.EIO    => error.FileSystem,
+                errno.EIO    => error.InputOutput,
                 errno.ENOSPC => error.NoSpaceLeft,
                 errno.EPERM  => error.AccessDenied,
                 errno.EPIPE  => error.BrokenPipe,
@@ -213,7 +232,7 @@ pub fn windowsIsCygwinPty(handle: windows.HANDLE) -> bool {
 /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
 /// Calls POSIX open, keeps trying if it gets interrupted, and translates
 /// the return value into zig errors.
-pub fn posixOpen(file_path: []const u8, flags: usize, perm: usize, allocator: ?&Allocator) -> %i32 {
+pub fn posixOpen(file_path: []const u8, flags: u32, perm: usize, allocator: ?&Allocator) -> %i32 {
     var stack_buf: [max_noalloc_path_len]u8 = undefined;
     var path0: []u8 = undefined;
     var need_free = false;

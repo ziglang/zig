@@ -2,10 +2,11 @@ const builtin = @import("builtin");
 const Os = builtin.Os;
 const system = switch(builtin.os) {
     Os.linux => @import("os/linux.zig"),
-    Os.darwin => @import("os/darwin.zig"),
+    Os.darwin, Os.macosx, Os.ios => @import("os/darwin.zig"),
     Os.windows => @import("os/windows/index.zig"),
     else => @compileError("Unsupported OS"),
 };
+const c = @import("c/index.zig");
 
 const errno = @import("os/errno.zig");
 const math = @import("math/index.zig");
@@ -180,7 +181,11 @@ pub const OutStream = struct {
 
     pub fn isTty(self: &OutStream) -> %bool {
         if (is_posix) {
-            return system.isatty(self.fd);
+            if (builtin.link_libc) {
+                return c.isatty(self.fd) == 0;
+            } else {
+                return system.isatty(self.fd);
+            }
         } else if (is_windows) {
             return os.windowsIsTty(%return self.getHandle());
         } else {
@@ -417,7 +422,11 @@ pub const InStream = struct {
 
     pub fn isTty(self: &InStream) -> %bool {
         if (is_posix) {
-            return system.isatty(self.fd);
+            if (builtin.link_libc) {
+                return c.isatty(self.fd) == 0;
+            } else {
+                return system.isatty(self.fd);
+            }
         } else if (is_windows) {
             return os.windowsIsTty(%return self.getHandle());
         } else {
