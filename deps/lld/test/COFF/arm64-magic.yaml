@@ -1,0 +1,46 @@
+# RUN: yaml2obj < %s > %t.obj
+# RUN: lld-link /out:%t.exe /entry:mainCRTStartup /subsystem:console %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck %s
+
+# CHECK: Format: COFF-ARM64
+# CHECK: Arch: aarch64
+# CHECK: AddressSize: 64bit
+# CHECK: ImageFileHeader {
+# CHECK:   Machine: IMAGE_FILE_MACHINE_ARM64 (0xAA64)
+# CHECK:   Characteristics [ (0x22)
+# CHECK:     IMAGE_FILE_EXECUTABLE_IMAGE (0x2)
+# CHECK:     IMAGE_FILE_LARGE_ADDRESS_AWARE (0x20)
+# CHECK:   ]
+# CHECK: }
+# CHECK: ImageOptionalHeader {
+# CHECK:   Magic: 0x20B
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_ARM64
+  Characteristics: []
+sections:
+  - Name:            .text
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_PURGEABLE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    SectionData:     'e0031f2ac0035fd6'
+symbols:
+  - Name:            .text
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          8
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          1
+  - Name:            mainCRTStartup
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+...

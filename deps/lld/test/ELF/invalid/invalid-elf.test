@@ -1,0 +1,31 @@
+# RUN: llvm-mc %s -o %t -filetype=obj -triple x86_64-pc-linux
+
+# RUN: not ld.lld %t %p/Inputs/data-encoding.a -o %t2 2>&1 | \
+# RUN:   FileCheck --check-prefix=INVALID-DATA-ENC %s
+# INVALID-DATA-ENC: test.o: invalid data encoding
+
+# RUN: not ld.lld %t %p/Inputs/file-class.a -o %t2 2>&1 | \
+# RUN:   FileCheck --check-prefix=INVALID-FILE-CLASS %s
+# INVALID-FILE-CLASS: test.o: invalid file class
+
+# RUN: not ld.lld %p/Inputs/symtab-sh_info.elf -o %t2 2>&1 | \
+# RUN:   FileCheck --check-prefix=INVALID-SYMTAB-SHINFO %s
+# INVALID-SYMTAB-SHINFO: invalid sh_info in symbol table
+
+# RUN: not ld.lld %p/Inputs/binding.elf -o %t2 2>&1 | \
+# RUN:   FileCheck --check-prefix=INVALID-BINDING %s
+# INVALID-BINDING: unexpected binding
+
+# RUN: not ld.lld %p/Inputs/section-index.elf -o %t2 2>&1 | \
+# RUN:   FileCheck --check-prefix=INVALID-SECTION-INDEX-LLD %s
+# INVALID-SECTION-INDEX-LLD: invalid section index
+
+## section-index2.elf has local symbol with incorrect section index.
+# RUN: not ld.lld %p/Inputs/section-index2.elf -o %t2 2>&1 | \
+# RUN:   FileCheck --check-prefix=INVALID-SECTION-INDEX-LLD %s
+
+# RUN: not ld.lld %p/Inputs/multiple-eh-relocs.elf -o %t2 2>&1 | \
+# RUN:   FileCheck --check-prefix=INVALID-EH-RELOCS %s
+# INVALID-EH-RELOCS: multiple relocation sections to one section are not supported
+
+.long foo

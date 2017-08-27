@@ -1,0 +1,17 @@
+# GNU gold 1.14 (the newest version as of July 2017) seems to create
+# non-standard-compliant SHT_GROUP sections when the -r option is given.
+#
+# Such SHT_GROUP sections use section names as their signatures
+# instead of symbols pointed by sh_link field. Since it is prevalent,
+# we accept such nonstandard sections.
+
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
+# RUN: ld.lld %p/Inputs/sht-group-gold-r.elf %t.o -o %t.exe
+# RUN: llvm-objdump -t %t.exe | FileCheck %s
+
+# CHECK: .text 00000000 bar
+# CHECK: .text 00000000 foo
+
+.globl _start
+_start:
+  ret

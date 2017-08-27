@@ -1,0 +1,176 @@
+# RUN: lld -flavor darwin -arch x86_64 -r -print_atoms %s -o %t | FileCheck %s
+#
+# Test parsing of x86_64 __eh_frame (dwarf unwind) relocations.
+
+--- !mach-o
+arch:            x86_64
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+compat-version:  0.0
+current-version: 0.0
+has-UUID:        false
+OS:              unknown
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    alignment:       16
+    address:         0x0000000000000000
+    content:         [ 0x55, 0x48, 0x89, 0xE5, 0xE8, 0x00, 0x00, 0x00,
+                       0x00, 0x5D, 0xC3, 0x48, 0x89, 0xC7, 0xE8, 0x00,
+                       0x00, 0x00, 0x00, 0x5D, 0xE9, 0x00, 0x00, 0x00,
+                       0x00, 0x0F, 0x1F, 0x80, 0x00, 0x00, 0x00, 0x00,
+                       0x55, 0x48, 0x89, 0xE5, 0x5D, 0xC3, 0x66, 0x2E,
+                       0x0F, 0x1F, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x55, 0x48, 0x89, 0xE5, 0xE8, 0x00, 0x00, 0x00,
+                       0x00, 0x5D, 0xC3, 0x48, 0x89, 0xC7, 0xE8, 0x00,
+                       0x00, 0x00, 0x00, 0x5D, 0xE9, 0x00, 0x00, 0x00,
+                       0x00 ]
+  - segment:         __TEXT
+    section:         __gcc_except_tab
+    type:            S_REGULAR
+    attributes:      [  ]
+    alignment:       4
+    address:         0x000000000000004C
+    content:         [ 0xFF, 0x9B, 0xA2, 0x80, 0x80, 0x00, 0x03, 0x1A,
+                       0x04, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00,
+                       0x0B, 0x00, 0x00, 0x00, 0x01, 0x09, 0x00, 0x00,
+                       0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0xFF, 0x9B, 0xA2, 0x80, 0x80, 0x00, 0x03, 0x1A,
+                       0x04, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00,
+                       0x0B, 0x00, 0x00, 0x00, 0x01, 0x09, 0x00, 0x00,
+                       0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00 ]
+  - segment:         __TEXT
+    section:         __eh_frame
+    type:            S_COALESCED
+    attributes:      [  ]
+    alignment:       8
+    address:         0x0000000000000100
+    content:         [ 0x1C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x03, 0x7A, 0x50, 0x4C, 0x52, 0x00, 0x01, 0x78,
+                       0x10, 0x07, 0x9B, 0x04, 0x00, 0x00, 0x00, 0x10,
+                       0x10, 0x0C, 0x07, 0x08, 0x90, 0x01, 0x00, 0x00,
+                       0x2C, 0x00, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00,
+                       0xD8, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                       0x19, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x08, 0x13, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                       0xFF, 0x41, 0x0E, 0x10, 0x86, 0x02, 0x43, 0x0D,
+                       0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x03, 0x7A, 0x52, 0x00, 0x01, 0x78, 0x10, 0x01,
+                       0x10, 0x0C, 0x07, 0x08, 0x90, 0x01, 0x00, 0x00,
+                       0x24, 0x00, 0x00, 0x00, 0x1C, 0x00, 0x00, 0x00,
+                       0xB0, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                       0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x41, 0x0E, 0x10, 0x86, 0x02, 0x43, 0x0D,
+                       0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x2C, 0x00, 0x00, 0x00, 0x94, 0x00, 0x00, 0x00,
+                       0x98, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                       0x19, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x08, 0xCB, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                       0xFF, 0x41, 0x0E, 0x10, 0x86, 0x02, 0x43, 0x0D,
+                       0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
+    relocations:
+      - offset:          0x00000013
+        type:            X86_64_RELOC_GOT
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          8
+local-symbols:
+  - name:            GCC_except_table0
+    type:            N_SECT
+    sect:            2
+    value:           0x000000000000004C
+  - name:            GCC_except_table2
+    type:            N_SECT
+    sect:            2
+    value:           0x0000000000000074
+global-symbols:
+  - name:            _catchMyException1
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+  - name:            _catchMyException2
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000030
+  - name:            _bar
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000020
+undefined-symbols:
+  - name:            _foo
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+  - name:            ___cxa_begin_catch
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+  - name:            ___cxa_end_catch
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+  - name:            ___gxx_personality_v0
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+page-size:       0x00000000
+...
+
+# Check that LSDA fields are fixed up correctly, even when there are multiple
+# CIEs involved.
+#
+# (1) Check that we can relocate an LSDA at all. Requires correct interpretation
+#     of augmentation data strings in CIEs and augmentation data fields of FDEs.
+#
+# CHECK:       - type:            unwind-cfi
+# CHECK-NOT:   - type:
+# CHECK:         references:
+# CHECK-NEXT:      - kind:            negDelta32
+# CHECK-NEXT:        offset:          4
+# CHECK-NEXT:        target:          L002
+# CHECK-NEXT:      - kind:            unwindFDEToFunction
+# CHECK-NEXT:        offset:          8
+# CHECK-NEXT:        target:          _catchMyException1
+# CHECK-NEXT:      - kind:            unwindFDEToFunction
+# CHECK-NEXT:        offset:          25
+# CHECK-NEXT:        target:          GCC_except_table0
+#
+# (2) Check that we have an intervening FDE with a different CIE.
+#     If the test fails here then test (3) probably isn't testing what it
+#     should, and this test-case should be updated.
+#
+# CHECK:       - type:            unwind-cfi
+# CHECK-NOT:   - type:
+# CHECK:         references:
+# CHECK-NEXT:      - kind:            negDelta32
+# CHECK-NEXT:        offset:          4
+# CHECK-NEXT:        target:          L001
+# CHECK-NEXT:      - kind:            unwindFDEToFunction
+# CHECK-NEXT:        offset:          8
+# CHECK-NEXT:        target:          _bar
+#
+# (3) Check that we can relocate the LSDA on a second FDE that references the
+#     original CIE from (1). Requires us to match this FDE up with the correct
+#     CIE.
+#
+# CHECK-NEXT:  - type:            unwind-cfi
+# CHECK-NOT:   - type:
+# CHECK:         references:
+# CHECK-NEXT:      - kind:            negDelta32
+# CHECK-NEXT:        offset:          4
+# CHECK-NEXT:        target:          L002
+# CHECK-NEXT:      - kind:            unwindFDEToFunction
+# CHECK-NEXT:        offset:          8
+# CHECK-NEXT:        target:          _catchMyException2
+# CHECK-NEXT:      - kind:            unwindFDEToFunction
+# CHECK-NEXT:        offset:          25
+# CHECK-NEXT:        target:          GCC_except_table2

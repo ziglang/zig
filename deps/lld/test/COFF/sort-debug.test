@@ -1,0 +1,335 @@
+# RUN: yaml2obj < %s > %t.obj
+# RUN: lld-link /debug /out:%t.exe /entry:main %t.obj
+# RUN: llvm-readobj -sections %t.exe | FileCheck %s
+
+# CHECK: Name: .text
+# CHECK: Name: .debug_abbrev
+# CHECK: Name: .debug_info
+# CHECK: Name: .debug_line
+# CHECK: Name: .debug_pubnames
+# CHECK: Name: .debug_pubtypes
+# CHECK: Name: .reloc
+
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_I386
+  Characteristics: [  ]
+sections:
+  - Name:            .text
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       16
+    SectionData:     508D0500000000C70424000000005AC3
+    Relocations:
+      - VirtualAddress:  3
+        SymbolName:      '?x@@3HA'
+        Type:            IMAGE_REL_I386_DIR32
+  - Name:            .data
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
+    Alignment:       4
+    SectionData:     ''
+  - Name:            .bss
+    Characteristics: [ IMAGE_SCN_CNT_UNINITIALIZED_DATA, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
+    Alignment:       4
+    SectionData:     ''
+  - Name:            '.debug$S'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    Subsections:
+      - !Symbols
+        Records:
+          - Kind:            S_GPROC32_ID
+            ProcSym:
+              PtrParent:       0
+              PtrEnd:          0
+              PtrNext:         0
+              CodeSize:        16
+              DbgStart:        0
+              DbgEnd:          0
+              FunctionType:    0
+              Segment:         0
+              Flags:           [  ]
+              DisplayName:     main
+          - Kind:            S_PROC_ID_END
+            ScopeEndSym:
+      - !Lines
+        CodeSize:        16
+        Flags:           [ HasColumnInfo ]
+        RelocOffset:     0
+        RelocSegment:    0
+        Blocks:
+          - FileName:        '\usr\local\google\home\majnemer\llvm\src\tools\lld\<stdin>'
+            Lines:
+              - Offset:          0
+                LineStart:       1
+                IsStatement:     false
+                EndDelta:        0
+            Columns:
+              - StartColumn:     0
+                EndColumn:       0
+      - !FileChecksums
+        Checksums:
+          - FileName:        '\usr\local\google\home\majnemer\llvm\src\tools\lld\<stdin>'
+            Kind:            None
+            Checksum:        ''
+      - !StringTable
+        Strings:
+          - '\usr\local\google\home\majnemer\llvm\src\tools\lld\<stdin>'
+    Relocations:
+      - VirtualAddress:  44
+        SymbolName:      _main
+        Type:            IMAGE_REL_I386_SECREL
+      - VirtualAddress:  48
+        SymbolName:      _main
+        Type:            IMAGE_REL_I386_SECTION
+      - VirtualAddress:  68
+        SymbolName:      _main
+        Type:            IMAGE_REL_I386_SECREL
+      - VirtualAddress:  72
+        SymbolName:      _main
+        Type:            IMAGE_REL_I386_SECTION
+  - Name:            .debug_str
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    SectionData:     ''
+  - Name:            .debug_loc
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    SectionData:     ''
+  - Name:            .debug_abbrev
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    SectionData:     011101250E1305030E10171B0E110112060000023400030E49133F193A0B3B0B02186E0E0000032400030E3E0B0B0B0000042E0011011206E77F194018030E3A0B3B0B49133F19000000
+  - Name:            .debug_info
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    SectionData:     54000000040000000000040100000000040037000000000000003F000000000000001000000002720000003B0000000101050300000000780000000374000000050404000000001000000001548000000001013B00000000
+    Relocations:
+      - VirtualAddress:  6
+        SymbolName:      .debug_abbrev
+        Type:            IMAGE_REL_I386_SECREL
+      - VirtualAddress:  12
+        SymbolName:      .debug_str
+        Type:            IMAGE_REL_I386_SECREL
+      - VirtualAddress:  18
+        SymbolName:      .debug_str
+        Type:            IMAGE_REL_I386_SECREL
+      - VirtualAddress:  22
+        SymbolName:      .debug_line
+        Type:            IMAGE_REL_I386_SECREL
+      - VirtualAddress:  26
+        SymbolName:      .debug_str
+        Type:            IMAGE_REL_I386_SECREL
+      - VirtualAddress:  30
+        SymbolName:      .text
+        Type:            IMAGE_REL_I386_DIR32
+      - VirtualAddress:  39
+        SymbolName:      .debug_str
+        Type:            IMAGE_REL_I386_SECREL
+      - VirtualAddress:  51
+        SymbolName:      '?x@@3HA'
+        Type:            IMAGE_REL_I386_DIR32
+      - VirtualAddress:  55
+        SymbolName:      .debug_str
+        Type:            IMAGE_REL_I386_SECREL
+      - VirtualAddress:  60
+        SymbolName:      .debug_str
+        Type:            IMAGE_REL_I386_SECREL
+      - VirtualAddress:  67
+        SymbolName:      .text
+        Type:            IMAGE_REL_I386_DIR32
+      - VirtualAddress:  77
+        SymbolName:      .debug_str
+        Type:            IMAGE_REL_I386_SECREL
+  - Name:            .debug_ranges
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    SectionData:     ''
+  - Name:            .debug_pubnames
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    SectionData:     1D00000002000000000058000000420000006D61696E0026000000780000000000
+    Relocations:
+      - VirtualAddress:  6
+        SymbolName:      .debug_info
+        Type:            IMAGE_REL_I386_SECREL
+  - Name:            .debug_pubtypes
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    SectionData:     16000000020000000000580000003B000000696E740000000000
+    Relocations:
+      - VirtualAddress:  6
+        SymbolName:      .debug_info
+        Type:            IMAGE_REL_I386_SECREL
+  - Name:            .debug_line
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    SectionData:     3300000002001E0000000101FB0E0D000101010100000001000001003C737464696E3E000000000000050200000000010AD60202000101
+    Relocations:
+      - VirtualAddress:  43
+        SymbolName:      .text
+        Type:            IMAGE_REL_I386_DIR32
+symbols:
+  - Name:            .text
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          16
+      NumberOfRelocations: 1
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          1
+  - Name:            .data
+    Value:           0
+    SectionNumber:   2
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          0
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          2
+  - Name:            .bss
+    Value:           0
+    SectionNumber:   3
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          4
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          3
+  - Name:            '.debug$S'
+    Value:           0
+    SectionNumber:   4
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          188
+      NumberOfRelocations: 4
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          4
+  - Name:            .debug_str
+    Value:           0
+    SectionNumber:   5
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          133
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          5
+  - Name:            .debug_loc
+    Value:           0
+    SectionNumber:   6
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          0
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          6
+  - Name:            .debug_abbrev
+    Value:           0
+    SectionNumber:   7
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          74
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          7
+  - Name:            .debug_info
+    Value:           0
+    SectionNumber:   8
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          88
+      NumberOfRelocations: 12
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          8
+  - Name:            .debug_ranges
+    Value:           0
+    SectionNumber:   9
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          0
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          9
+  - Name:            .debug_pubnames
+    Value:           0
+    SectionNumber:   10
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          33
+      NumberOfRelocations: 1
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          10
+  - Name:            .debug_pubtypes
+    Value:           0
+    SectionNumber:   11
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          26
+      NumberOfRelocations: 1
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          11
+  - Name:            .debug_line
+    Value:           0
+    SectionNumber:   12
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          55
+      NumberOfRelocations: 1
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          12
+  - Name:            '@feat.00'
+    Value:           1
+    SectionNumber:   -1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+  - Name:            _main
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            '?x@@3HA'
+    Value:           0
+    SectionNumber:   3
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+...

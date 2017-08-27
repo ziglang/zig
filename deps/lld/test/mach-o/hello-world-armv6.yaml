@@ -1,0 +1,64 @@
+# RUN: lld -flavor darwin -arch armv6 %s %p/Inputs/hello-world-armv6.yaml -o %t
+# RUN: llvm-nm -m %t | FileCheck %s
+#
+# Test that armv6 (arm) hello-world can be linked into a mach-o executable
+#
+
+--- !mach-o
+arch:            armv6
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+has-UUID:        false
+OS:              unknown
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    alignment:       2
+    address:         0x0000000000000000
+    content:         [ 0x80, 0x40, 0x2D, 0xE9, 0x10, 0x00, 0x9F, 0xE5,
+                       0x0D, 0x70, 0xA0, 0xE1, 0x00, 0x00, 0x8F, 0xE0,
+                       0xFA, 0xFF, 0xFF, 0xEB, 0x00, 0x00, 0xA0, 0xE3,
+                       0x80, 0x80, 0xBD, 0xE8, 0x0C, 0x00, 0x00, 0x00 ]
+    relocations:
+      - offset:          0x0000001C
+        scattered:       true
+        type:            ARM_RELOC_SECTDIFF
+        length:          2
+        pc-rel:          false
+        value:           0x00000020
+      - offset:          0x00000000
+        scattered:       true
+        type:            ARM_RELOC_PAIR
+        length:          2
+        pc-rel:          false
+        value:           0x0000000C
+      - offset:          0x00000010
+        type:            ARM_RELOC_BR24
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          1
+  - segment:         __TEXT
+    section:         __cstring
+    type:            S_CSTRING_LITERALS
+    attributes:      [  ]
+    address:         0x0000000000000020
+    content:         [ 0x68, 0x65, 0x6C, 0x6C, 0x6F, 0x0A, 0x00 ]
+global-symbols:
+  - name:            _main
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+undefined-symbols:
+  - name:            _printf
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+...
+
+# CHECK:	{{[0-9a-f]+}} (__TEXT,__text) external _main
+# CHECK:	(undefined) external _printf (from libSystem)
+# CHECK:	(undefined) external dyld_stub_binder (from libSystem)

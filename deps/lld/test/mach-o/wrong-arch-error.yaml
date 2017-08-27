@@ -1,0 +1,28 @@
+# RUN: not lld -flavor darwin -arch x86_64 -r %s \
+# RUN: %p/Inputs/wrong-arch-error.yaml 2> %t.err
+# RUN: FileCheck %s < %t.err
+
+--- !mach-o
+arch:            x86_64
+file-type:       MH_OBJECT
+flags:           [  ]
+has-UUID:        false
+OS:              unknown
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS ]
+    address:         0x0000000000000000
+    content:         [ 0xCC ]
+
+global-symbols:
+  - name:            _foo
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+...
+
+
+# CHECK:       wrong architecture

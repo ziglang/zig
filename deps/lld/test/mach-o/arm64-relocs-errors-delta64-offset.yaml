@@ -1,0 +1,65 @@
+# RUN: not lld -flavor darwin -arch arm64 %s -r \
+# RUN: 2> %t.err
+# RUN: FileCheck %s < %t.err
+
+
+--- !mach-o
+arch:            arm64
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    alignment:       4
+    address:         0x0000000000000000
+    content:         [ 0xFF, 0x83, 0x00, 0xD1, 0xE0, 0x0B, 0x00, 0xF9,
+                       0x08, 0x00, 0x40, 0xB9, 0x08, 0x0D, 0x00, 0x71,
+                       0x08, 0x09, 0x00, 0x71, 0xE8, 0x0F, 0x00, 0xB9,
+                       0xC8, 0x00, 0x00, 0x54, 0x01, 0x00, 0x00, 0x14,
+                       0xE8, 0x03, 0x00, 0x32, 0x08, 0x01, 0x00, 0x12,
+                       0xE8, 0x7F, 0x00, 0x39, 0x02, 0x00, 0x00, 0x14 ]
+  - segment:         __DATA
+    section:         __data
+    type:            S_REGULAR
+    attributes:      [  ]
+    alignment:       8
+    address:         0x000000000001C348
+    content:         [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
+    relocations:
+
+# Make sure that the offsets of the subtractor and unsigned both match.
+# CHECK: bad relocation (paired relocs must have the same offset) in section __DATA/__data (r1_address=1, r1_type=1, r1_extern=1, r1_length=3, r1_pcrel=0, r1_symbolnum=1), (r2_address=0, r2_type=0, r2_extern=1, r2_length=3, r2_pcrel=0, r2_symbolnum=1)
+      - offset:          0x00000001
+        type:            ARM64_RELOC_SUBTRACTOR
+        length:          3
+        pc-rel:          false
+        extern:          true
+        symbol:          1
+      - offset:          0x00000000
+        type:            ARM64_RELOC_UNSIGNED
+        length:          3
+        pc-rel:          false
+        extern:          true
+        symbol:          1
+global-symbols:
+  - name:            _f1
+    type:            N_SECT
+    sect:            2
+    value:           0x000000000001C348
+  - name:            _f2
+    type:            N_SECT
+    sect:            1
+    value:           0x0000000000000010
+  - name:            _f3
+    type:            N_SECT
+    sect:            1
+    value:           0x0000000000000020

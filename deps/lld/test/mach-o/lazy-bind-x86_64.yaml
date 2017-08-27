@@ -1,0 +1,111 @@
+# REQUIRES: x86
+
+# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s \
+# RUN: %p/Inputs/lazy-bind-x86_64.yaml  %p/Inputs/lazy-bind-x86_64-2.yaml \
+# RUN: %p/Inputs/lazy-bind-x86_64-3.yaml -o %t  \
+# RUN:   %p/Inputs/x86_64/libSystem.yaml
+# RUN: llvm-objdump -lazy-bind %t | FileCheck %s
+# RUN: llvm-nm -m %t | FileCheck --check-prefix=CHECK-NM %s
+# RUN: llvm-objdump -disassemble %t | FileCheck --check-prefix=CHECK-HELPERS %s
+# RUN: llvm-objdump -private-headers %t | FileCheck --check-prefix=CHECK-DYLIBS %s
+#
+# Test that correct two-level namespace ordinals are used for lazy bindings.
+#
+
+--- !mach-o
+arch:            x86_64
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    address:         0x0000000000000000
+    content:         [ 0x55, 0x48, 0x89, 0xE5, 0x31, 0xC0, 0xE8, 0x00,
+                       0x00, 0x00, 0x00, 0x31, 0xC0, 0xE8, 0x00, 0x00,
+                       0x00, 0x00, 0x31, 0xC0, 0xE8, 0x00, 0x00, 0x00,
+                       0x00, 0x31, 0xC0, 0x5D, 0xC3 ]
+    relocations:
+      - offset:          0x00000015
+        type:            X86_64_RELOC_BRANCH
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          3
+      - offset:          0x0000000E
+        type:            X86_64_RELOC_BRANCH
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          2
+      - offset:          0x00000007
+        type:            X86_64_RELOC_BRANCH
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          1
+global-symbols:
+  - name:            _main
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+undefined-symbols:
+  - name:            _bar
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+  - name:            _baz
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+  - name:            _foo
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+
+...
+
+
+# CHECK:    libbar        _bar
+# CHECK:    libbaz        _baz
+# CHECK:    libfoo        _foo
+
+
+# CHECK-NM:   (undefined) external _bar (from libbar)
+# CHECK-NM:   (undefined) external _baz (from libbaz)
+# CHECK-NM:   (undefined) external _foo (from libfoo)
+
+
+# CHECK-HELPERS:Disassembly of section __TEXT,__stub_helper:
+# CHECK-HELPERS: 	68 00 00 00 00            pushq	$0
+# CHECK-HELPERS: 	68 10 00 00 00            pushq	$16
+# CHECK-HELPERS: 	68 20 00 00 00            pushq	$32
+
+# Make sure the stub helper is correctly aligned
+# CHECK-DYLIBS:   sectname __stub_helper
+# CHECK-DYLIBS-NEXT:    segname __TEXT
+# CHECK-DYLIBS-NEXT:       addr
+# CHECK-DYLIBS-NEXT:       size
+# CHECK-DYLIBS-NEXT:     offset
+# CHECK-DYLIBS-NEXT:      align 2^2 (4)
+
+# Make sure the __nl_symbol_ptr section is used instea of __got as this is x86_64
+# CHECK-DYLIBS:   sectname __nl_symbol_ptr
+# CHECK-DYLIBS-NEXT:    segname __DATA
+
+# CHECK-DYLIBS:           cmd LC_LOAD_DYLIB
+# CHECK-DYLIBS:          name /usr/lib/libbar.dylib (offset 24)
+# CHECK-DYLIBS:       current version 2.3.0
+# CHECK-DYLIBS: compatibility version 1.0.0
+# CHECK-DYLIBS:           cmd LC_LOAD_DYLIB
+# CHECK-DYLIBS:          name /usr/lib/libfoo.dylib (offset 24)
+# CHECK-DYLIBS:       current version 3.4.0
+# CHECK-DYLIBS: compatibility version 2.0.0
+# CHECK-DYLIBS:           cmd LC_LOAD_DYLIB
+# CHECK-DYLIBS:          name /usr/lib/libbaz.dylib (offset 24)
+# CHECK-DYLIBS:       current version 4.5.0
+# CHECK-DYLIBS: compatibility version 3.0.0
+
+

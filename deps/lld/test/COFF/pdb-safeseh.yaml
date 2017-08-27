@@ -1,0 +1,85 @@
+# RUN: yaml2obj %s -o %t.obj
+# RUN: lld-link -debug -entry:main -out:%t.exe -pdb:%t.pdb %t.obj
+# RUN: llvm-pdbutil dump -symbols %t.pdb | FileCheck %s
+
+# There is an S_GDATA32 symbol record with .secrel32 and .secidx relocations in
+# it in this debug info. This is similar to the relocations in the loadcfg.obj
+# file in the MSVC CRT. We need to make sure that our relocation logic matches
+# MSVC's for these absolute, linker-provided symbols.
+
+# CHECK: Mod 0000 |
+# CHECK-NEXT: 4 | S_GDATA32 [size = 40] `___safe_se_handler_table`
+# CHECK-NEXT:     type = 0x0022 (unsigned long), addr = 0003:0000
+# CHECK-NEXT: Mod 0001 | `* Linker *`:
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_I386
+  Characteristics: [  ]
+sections:
+  - Name:            '.debug$S'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    Subsections:
+      - !Symbols
+        Records:
+          - Kind:            S_GDATA32
+            DataSym:
+              Type:            34
+              DisplayName:     ___safe_se_handler_table
+      - !StringTable
+        Strings:
+    Relocations:
+      - VirtualAddress:  20
+        SymbolName:      ___safe_se_handler_table
+        Type:            IMAGE_REL_I386_SECREL
+      - VirtualAddress:  24
+        SymbolName:      ___safe_se_handler_table
+        Type:            IMAGE_REL_I386_SECTION
+  - Name:            '.text$mn'
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       16
+    SectionData:     488D0500000000C3
+    Relocations:
+      - VirtualAddress:  3
+        SymbolName:      ___safe_se_handler_table
+        Type:            IMAGE_REL_I386_REL32
+symbols:
+  - Name:            '.debug$S'
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          372
+      NumberOfRelocations: 6
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          0
+  - Name:            '.text$mn'
+    Value:           0
+    SectionNumber:   2
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          8
+      NumberOfRelocations: 1
+      NumberOfLinenumbers: 0
+      CheckSum:        1092178131
+      Number:          0
+  - Name:            _main
+    Value:           0
+    SectionNumber:   2
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            ___safe_se_handler_table
+    Value:           0
+    SectionNumber:   0
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+...
+

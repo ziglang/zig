@@ -1,0 +1,36 @@
+# REQUIRES: x86
+# Verify that the lld can handle .lib files and emit .idata sections.
+#
+# RUN: lld-link /out:%t.exe /entry:main /subsystem:console \
+# RUN:   %p/Inputs/hello64.obj %p/Inputs/std64.lib
+# RUN: llvm-objdump -d %t.exe | FileCheck -check-prefix=TEXT %s
+# RUN: llvm-readobj -coff-imports %t.exe | FileCheck -check-prefix=IMPORT %s
+
+# RUN: lld-link /out:%t.exe /entry:main /subsystem:console \
+# RUN:   %p/Inputs/hello64.obj %p/Inputs/std64.lib /include:ExitProcess
+# RUN: llvm-objdump -d %t.exe | FileCheck -check-prefix=TEXT %s
+# RUN: llvm-readobj -coff-imports %t.exe | FileCheck -check-prefix=IMPORT %s
+
+TEXT: Disassembly of section .text:
+TEXT-NEXT: .text:
+TEXT-NEXT: subq    $40, %rsp
+TEXT-NEXT: movq    $0, %rcx
+TEXT-NEXT: leaq    -4108(%rip), %rdx
+TEXT-NEXT: leaq    -4121(%rip), %r8
+TEXT-NEXT: movl    $0, %r9d
+TEXT-NEXT: callq   60
+TEXT-NEXT: movl    $0, %ecx
+TEXT-NEXT: callq   18
+TEXT-NEXT: callq   29
+TEXT:      jmpq    *4098(%rip)
+TEXT:      jmpq    *4090(%rip)
+TEXT:      jmpq    *4082(%rip)
+
+IMPORT:      Import {
+IMPORT-NEXT:   Name: std64.dll
+IMPORT-NEXT:   ImportLookupTableRVA: 0x3028
+IMPORT-NEXT:   ImportAddressTableRVA: 0x3048
+IMPORT-NEXT:   Symbol: ExitProcess (0)
+IMPORT-NEXT:   Symbol:  (50)
+IMPORT-NEXT:   Symbol: MessageBoxA (1)
+IMPORT-NEXT: }

@@ -1,0 +1,94 @@
+# RUN: yaml2obj %s > %t.obj
+
+# RUN: lld-link /debug /dll /out:%t.dll /entry:DllMain %t.obj
+# RUN: llvm-readobj -coff-debug-directory %t.dll | FileCheck %s
+
+# RUN: lld-link /debug /pdb:%t.pdb /dll /out:%t.dll /entry:DllMain %t.obj
+# RUN: llvm-readobj -coff-debug-directory %t.dll | FileCheck %s
+
+# CHECK: DebugDirectory [
+# CHECK:   DebugEntry {
+# CHECK:     Characteristics: 0x0
+# CHECK:     TimeDateStamp: 1970-01-01 00:00:00 (0x0)
+# CHECK:     MajorVersion: 0x0
+# CHECK:     MinorVersion: 0x0
+# CHECK:     Type: CodeView (0x2)
+# CHECK:     SizeOfData:
+# CHECK:     AddressOfRawData:
+# CHECK:     PointerToRawData:
+# CHECK:     PDBInfo {
+# CHECK:       PDBSignature: 0x53445352
+# CHECK:       PDBGUID:
+# CHECK:       PDBAge: 1
+# CHECK:       PDBFileName: {{.*}}.pdb
+# CHECK:     }
+# CHECK:   }
+# CHECK: ]
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_I386
+  Characteristics: [  ]
+sections:
+  - Name:            .text
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    SectionData:     31C0C3
+  - Name:            .data
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
+    Alignment:       4
+    SectionData:     ''
+  - Name:            .bss
+    Characteristics: [ IMAGE_SCN_CNT_UNINITIALIZED_DATA, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
+    Alignment:       4
+    SectionData:     ''
+symbols:
+  - Name:            .text
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          3
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        3963538403
+      Number:          1
+  - Name:            .data
+    Value:           0
+    SectionNumber:   2
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          0
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          2
+  - Name:            .bss
+    Value:           0
+    SectionNumber:   3
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          0
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          3
+  - Name:            '@feat.00'
+    Value:           1
+    SectionNumber:   -1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+  - Name:            _DllMain
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+...

@@ -1,0 +1,57 @@
+# REQUIRES: x86
+
+# RUN: echo -n "Fluffle Puff" > %t.binary
+# RUN: ld.lld -m elf_x86_64 -r -b binary %t.binary -o %t.out
+# RUN: llvm-readobj %t.out -sections -section-data -symbols | FileCheck %s
+
+# RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
+# RUN: ld.lld %t.o -b binary %t.binary -b default %t.o -shared -o %t.out
+
+# RUN: not ld.lld -b foo > %t.log 2>&1
+# RUN: FileCheck -check-prefix=ERR %s < %t.log
+# ERR: error: unknown -format value: foo (supported formats: elf, default, binary)
+
+# CHECK:          Name: .data
+# CHECK-NEXT:     Type: SHT_PROGBITS
+# CHECK-NEXT:     Flags [
+# CHECK-NEXT:       SHF_ALLOC
+# CHECK-NEXT:       SHF_WRITE
+# CHECK-NEXT:     ]
+# CHECK-NEXT:     Address: 0x0
+# CHECK-NEXT:     Offset:
+# CHECK-NEXT:     Size: 12
+# CHECK-NEXT:     Link: 0
+# CHECK-NEXT:     Info: 0
+# CHECK-NEXT:     AddressAlignment:
+# CHECK-NEXT:     EntrySize: 0
+# CHECK-NEXT:     SectionData (
+# CHECK-NEXT:       0000: 466C7566 666C6520 50756666           |Fluffle Puff|
+# CHECK-NEXT:     )
+# CHECK-NEXT:   }
+
+# CHECK:          Name: _binary_{{[a-zA-Z0-9_]+}}test_ELF_Output_format_binary_test_tmp_binary_start
+# CHECK-NEXT:     Value: 0x0
+# CHECK-NEXT:     Size: 0
+# CHECK-NEXT:     Binding: Global
+# CHECK-NEXT:     Type: Object
+# CHECK-NEXT:     Other: 0
+# CHECK-NEXT:     Section: .data
+# CHECK-NEXT:   }
+# CHECK-NEXT:   Symbol {
+# CHECK-NEXT:     Name: _binary_{{[a-zA-Z0-9_]+}}test_ELF_Output_format_binary_test_tmp_binary_end
+# CHECK-NEXT:     Value: 0xC
+# CHECK-NEXT:     Size: 0
+# CHECK-NEXT:     Binding: Global
+# CHECK-NEXT:     Type: Object
+# CHECK-NEXT:     Other: 0
+# CHECK-NEXT:     Section: .data
+# CHECK-NEXT:   }
+# CHECK-NEXT:   Symbol {
+# CHECK-NEXT:     Name: _binary_{{[a-zA-Z0-9_]+}}test_ELF_Output_format_binary_test_tmp_binary_size
+# CHECK-NEXT:     Value: 0xC
+# CHECK-NEXT:     Size: 0
+# CHECK-NEXT:     Binding: Global
+# CHECK-NEXT:     Type: Object
+# CHECK-NEXT:     Other: 0
+# CHECK-NEXT:     Section: Absolute
+# CHECK-NEXT:   }

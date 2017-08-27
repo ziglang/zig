@@ -1,0 +1,2 @@
+.global bah
+bah:

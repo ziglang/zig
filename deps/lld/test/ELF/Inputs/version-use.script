@@ -1,0 +1,6 @@
+ABC {
+global:
+foo;
+local:
+*;
+};

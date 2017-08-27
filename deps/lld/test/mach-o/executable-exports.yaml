@@ -1,0 +1,46 @@
+# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 \
+# RUN:      %s %p/Inputs/x86_64/libSystem.yaml -o %t  && \
+# RUN: llvm-objdump -exports-trie %t | FileCheck %s
+#
+#
+# Tests that exports trie builds properly.
+#
+
+--- !mach-o
+arch:            x86_64
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    address:         0x0000000000000000
+    content:         [ 0xC3, 0xC3, 0xC3, 0xC3 ]
+global-symbols:
+  - name:            _myHidden
+    type:            N_SECT
+    scope:           [ N_EXT, N_PEXT ]
+    sect:            1
+    value:           0x0000000000000000
+  - name:            _myRegular
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000001
+  - name:            _myWeak
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    desc:            [ N_WEAK_DEF ]
+    value:           0x0000000000000002
+  - name:            _main
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000003
+...
+
+# CHECK-NOT:  _myHidden
+# CHECK:      0x100000FFD  _myRegular
+# CHECK:      0x100000FFE  _myWeak [weak_def]

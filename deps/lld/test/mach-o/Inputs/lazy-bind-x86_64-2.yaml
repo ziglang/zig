@@ -1,0 +1,8 @@
+--- !mach-o
+arch:              x86_64
+file-type:         MH_DYLIB
+install-name:      /usr/lib/libfoo.dylib
+compat-version:    2.0
+current-version:   3.4
+exports:
+  - name:            _foo

@@ -1,0 +1,60 @@
+# REQUIRES: arm
+
+# RUN: yaml2obj < %s > %t.obj
+# RUN: llvm-objdump -d %t.obj | FileCheck %s -check-prefix BEFORE
+# RUN: lld-link /out:%t.exe /subsystem:console /entry:get_function %t.obj
+# RUN: llvm-objdump -d %t.exe | FileCheck %s -check-prefix AFTER
+
+# BEFORE: Disassembly of section .text:
+# BEFORE:        0: 70 47         bx lr
+# BEFORE:        2: 00 bf         nop
+# BEFORE:        4: 40 f2 00 00   movw r0, #0
+# BEFORE:        8: c0 f2 00 00   movt r0, #0
+# BEFORE:        c: 70 47         bx lr
+
+# AFTER: Disassembly of section .text:
+# AFTER:     1000: 70 47         bx lr
+# AFTER:     1002: 00 bf         nop
+# AFTER:     1004: 41 f2 01 00   movw r0, #4097
+# AFTER:     1008: c0 f2 40 00   movt r0, #64
+# AFTER:     100c: 70 47         bx lr
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_ARMNT
+  Characteristics: [  ]
+sections:
+  - Name:            .text
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_PURGEABLE, IMAGE_SCN_MEM_16BIT, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    SectionData:     704700BF40F20000C0F200007047
+    Relocations:
+      - VirtualAddress:  4
+        SymbolName:      function
+        Type:            17
+symbols:
+  - Name:            .text
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          14
+      NumberOfRelocations: 1
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          1
+  - Name:            function
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            get_function
+    Value:           4
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+...

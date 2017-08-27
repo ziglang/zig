@@ -1,0 +1,7 @@
+SECTIONS
+{
+  PROVIDE (foobar1 = SEGMENT_START("text-segment", 0x8001));
+  PROVIDE (foobar2 = SEGMENT_START("data-segment", 0x8002));
+  PROVIDE (foobar3 = SEGMENT_START("bss-segment", 0x8000 + (4 - 1)));
+  PROVIDE (foobar4 = SEGMENT_START("abc-segment", 0x8004));
+}

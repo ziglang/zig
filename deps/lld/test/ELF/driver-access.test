@@ -1,0 +1,15 @@
+# REQUIRES: x86, shell
+# Make sure that LLD works even if the current directory is not writable.
+
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
+# RUN: ld.lld %t.o -o %t.exe
+
+# RUN: mkdir -p %t.dir
+# RUN: chmod 100 %t.dir
+# RUN: cd %t.dir
+# RUN: ld.lld %t.o -o %t.exe
+# RUN: chmod 755 %t.dir
+
+.globl _start
+_start:
+  nop

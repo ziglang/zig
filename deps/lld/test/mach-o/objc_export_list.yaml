@@ -1,0 +1,63 @@
+# RUN: lld -flavor darwin -arch x86_64 -dylib %s -o %t \
+# RUN:     -exported_symbol .objc_class_name_Foo %p/Inputs/x86_64/libSystem.yaml
+# RUN: llvm-nm -m %t | FileCheck %s
+#
+# Test that exported objc classes can be specificed using old naming
+# (.e.g .objc_class_name_Foo instead of _OBJC_CLASS_$_Foo)
+#
+
+--- !mach-o
+arch:            x86_64
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+sections:
+  - segment:         __DATA
+    section:         __objc_data
+    type:            S_REGULAR
+    attributes:      [  ]
+    alignment:       8
+    address:         0x0000000000000000
+    content:         [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
+    relocations:
+      - offset:          0x00000030
+        type:            X86_64_RELOC_UNSIGNED
+        length:          3
+        pc-rel:          false
+        extern:          true
+        symbol:          0
+      - offset:          0x00000028
+        type:            X86_64_RELOC_UNSIGNED
+        length:          3
+        pc-rel:          false
+        extern:          true
+        symbol:          1
+      - offset:          0x00000000
+        type:            X86_64_RELOC_UNSIGNED
+        length:          3
+        pc-rel:          false
+        extern:          true
+        symbol:          1
+global-symbols:
+  - name:            '_OBJC_CLASS_$_Foo'
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+  - name:            '_OBJC_METACLASS_$_Foo'
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000028
+...
+
+# CHECK:  (__DATA,__objc_data) external _OBJC_CLASS_$_Foo
+# CHECK:  (__DATA,__objc_data) external _OBJC_METACLASS_$_Foo

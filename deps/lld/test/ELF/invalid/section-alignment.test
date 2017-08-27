@@ -1,0 +1,19 @@
+# RUN: yaml2obj %s -o %t
+# RUN: not ld.lld %t -o %tout 2>&1 | FileCheck %s
+
+## In current lld implementation, we do not accept sh_addralign
+## larger than UINT32_MAX.
+!ELF
+FileHeader:
+  Class:           ELFCLASS64
+  Data:            ELFDATA2LSB
+  Type:            ET_REL
+  Machine:         EM_X86_64
+Sections:
+  - Name:            .text
+    Type:            SHT_PROGBITS
+    Flags:           [ SHF_ALLOC, SHF_EXECINSTR ]
+    AddressAlign:    0x1000000000000000
+    Content:         "00000000"
+
+# CHECK: section sh_addralign is too large

@@ -1,0 +1,3 @@
+# RUN: not lld-link nosuchfile.obj >& %t.log
+# RUN: FileCheck -check-prefix=MISSING %s < %t.log
+MISSING: nosuchfile.obj: {{[Nn]}}o such file or directory

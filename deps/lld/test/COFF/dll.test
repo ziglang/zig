@@ -1,0 +1,50 @@
+# RUN: yaml2obj < %p/Inputs/export.yaml > %t.obj
+# RUN: lld-link /out:%t.dll /dll %t.obj /export:exportfn1 /export:exportfn2 \
+# RUN:   /export:mangled
+# RUN: llvm-objdump -p %t.dll | FileCheck -check-prefix=EXPORT %s
+
+EXPORT:      Export Table:
+EXPORT:      DLL name: dll.test.tmp.dll
+EXPORT:      Ordinal      RVA  Name
+EXPORT-NEXT:       0        0
+EXPORT-NEXT:       1   0x1008  exportfn1
+EXPORT-NEXT:       2   0x1010  exportfn2
+EXPORT-NEXT:       3   0x1010  exportfn3
+EXPORT-NEXT:       4   0x1010  mangled
+
+# RUN: yaml2obj < %p/Inputs/export2.yaml > %t5.obj
+# RUN: rm -f %t5.lib
+# RUN: llvm-ar cru %t5.lib %t5.obj
+# RUN: lld-link /out:%t5.dll /dll %t.obj %t5.lib /export:mangled2
+# RUN: llvm-objdump -p %t5.dll | FileCheck -check-prefix=EXPORT2 %s
+
+EXPORT2:      Export Table:
+EXPORT2:      DLL name: dll.test.tmp5.dll
+EXPORT2:      Ordinal      RVA  Name
+EXPORT2-NEXT:       0        0
+EXPORT2-NEXT:       1   0x1010  exportfn3
+EXPORT2-NEXT:       2   0x101c  mangled2
+
+# RUN: llvm-as -o %t.lto.obj %p/Inputs/export.ll
+# RUN: lld-link /out:%t.lto.dll /dll %t.lto.obj /export:exportfn1 /export:exportfn2
+# RUN: llvm-objdump -p %t.lto.dll | FileCheck -check-prefix=EXPORT-LTO %s
+
+EXPORT-LTO:      Export Table:
+EXPORT-LTO:      DLL name: dll.test.tmp.lto.dll
+EXPORT-LTO:      Ordinal      RVA  Name
+EXPORT-LTO-NEXT:       0        0
+EXPORT-LTO-NEXT:       1   0x1010  exportfn1
+EXPORT-LTO-NEXT:       2   0x1020  exportfn2
+EXPORT-LTO-NEXT:       3   0x1030  exportfn3
+
+# RUN: lld-link /out:%t.dll /dll %t.obj /implib:%t2.lib \
+# RUN:   /export:exportfn1 /export:exportfn2
+# RUN: yaml2obj < %p/Inputs/import.yaml > %t2.obj
+# RUN: lld-link /out:%t2.exe /entry:main %t2.obj %t2.lib
+# RUN: llvm-readobj -coff-imports %t2.exe | FileCheck -check-prefix=IMPORT %s
+
+# RUN: lld-link /out:%t2.lto.exe /entry:main %t2.obj %t.lto.lib
+# RUN: llvm-readobj -coff-imports %t2.lto.exe | FileCheck -check-prefix=IMPORT %s
+
+IMPORT: Symbol: exportfn1
+IMPORT: Symbol: exportfn2

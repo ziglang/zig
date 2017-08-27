@@ -1,0 +1,74 @@
+# REQUIRES: system-linker-mach-o
+#
+# RUN: not lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s  \
+# RUN:     -dylib -o %t %p/Inputs/x86_64/libSystem.yaml  2> %t.err
+# RUN: FileCheck %s < %t.err
+#
+# RUN: not lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s \
+# RUN:     -dylib -o %t %p/Inputs/x86_64/libSystem.yaml -demangle 2> %t.err2
+# RUN: FileCheck %s --check-prefix=DCHECK < %t.err2
+#
+# Test -demangle option works on undefined symbol errors.
+#
+
+--- !mach-o
+arch:            x86_64
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    address:         0x0000000000000000
+    content:         [ 0xE8, 0x00, 0x00, 0x00, 0x00, 0xE8, 0x00, 0x00,
+                       0x00, 0x00, 0xE8, 0x00, 0x00, 0x00, 0x00 ]
+    relocations:
+      - offset:          0x0000000B
+        type:            X86_64_RELOC_BRANCH
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          2
+      - offset:          0x00000006
+        type:            X86_64_RELOC_BRANCH
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          3
+      - offset:          0x00000001
+        type:            X86_64_RELOC_BRANCH
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          1
+global-symbols:
+  - name:            __Z1xv
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+undefined-symbols:
+  - name:            __Znam
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+  - name:            __Znotcpp
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+  - name:            _foo
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+
+...
+
+# CHECK:  __Znotcpp
+# CHECK:  __Znam
+# CHECK:  _foo
+
+# DCHECK:  __Znotcpp
+# DCHECK: operator new[](unsigned long)
+# DCHECK:  _foo
+

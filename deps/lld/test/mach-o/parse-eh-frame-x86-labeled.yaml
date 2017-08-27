@@ -1,0 +1,193 @@
+# RUN: lld -flavor darwin -arch i386 -r -print_atoms %s -o %t  | FileCheck %s
+#
+# Test parsing of old __eh_frame (dwarf unwind) section that has .eh labels
+# and relocations.
+#
+
+--- !mach-o
+arch:            x86
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+OS:              unknown
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    address:         0x0000000000000000
+    content:         [ 0x55, 0x89, 0xE5, 0x56, 0x83, 0xEC, 0x14, 0xE8,
+                       0x00, 0x00, 0x00, 0x00, 0x5E, 0xC7, 0x04, 0x24,
+                       0x04, 0x00, 0x00, 0x00, 0xE8, 0xE7, 0xFF, 0xFF,
+                       0xFF, 0xC7, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x8B,
+                       0x8E, 0x38, 0x00, 0x00, 0x00, 0x89, 0x4C, 0x24,
+                       0x04, 0x89, 0x04, 0x24, 0xC7, 0x44, 0x24, 0x08,
+                       0x00, 0x00, 0x00, 0x00, 0xE8, 0xC7, 0xFF, 0xFF,
+                       0xFF, 0x55, 0x89, 0xE5, 0x83, 0xEC, 0x08, 0xE8,
+                       0xBC, 0xFF, 0xFF, 0xFF ]
+    relocations:
+      - offset:          0x00000040
+        type:            GENERIC_RELOC_VANILLA
+        length:          2
+        pc-rel:          true
+        extern:          false
+        symbol:          1
+      - offset:          0x00000035
+        type:            GENERIC_RELOC_VANILLA
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          7
+      - offset:          0x00000021
+        scattered:       true
+        type:            GENERIC_RELOC_LOCAL_SECTDIFF
+        length:          2
+        pc-rel:          false
+        value:           0x00000044
+      - offset:          0x00000000
+        scattered:       true
+        type:            GENERIC_RELOC_PAIR
+        length:          2
+        pc-rel:          false
+        value:           0x0000000C
+      - offset:          0x00000015
+        type:            GENERIC_RELOC_VANILLA
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          6
+  - segment:         __IMPORT
+    section:         __pointers
+    type:            S_NON_LAZY_SYMBOL_POINTERS
+    attributes:      [  ]
+    address:         0x0000000000000044
+    content:         [ 0x00, 0x00, 0x00, 0x00 ]
+    indirect-syms:   [ 5 ]
+  - segment:         __TEXT
+    section:         __eh_frame
+    type:            S_REGULAR
+    attributes:      [  ]
+    alignment:       2
+    address:         0x0000000000000048
+    content:         [ 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x01, 0x7A, 0x52, 0x00, 0x01, 0x7C, 0x08, 0x01,
+                       0x10, 0x0C, 0x05, 0x04, 0x88, 0x01, 0x00, 0x00,
+                       0x18, 0x00, 0x00, 0x00, 0x1C, 0x00, 0x00, 0x00,
+                       0x98, 0xFF, 0xFF, 0xFF, 0x39, 0x00, 0x00, 0x00,
+                       0x00, 0x41, 0x0E, 0x08, 0x84, 0x02, 0x42, 0x0D,
+                       0x04, 0x44, 0x86, 0x03, 0x18, 0x00, 0x00, 0x00,
+                       0x38, 0x00, 0x00, 0x00, 0xB5, 0xFF, 0xFF, 0xFF,
+                       0x0B, 0x00, 0x00, 0x00, 0x00, 0x41, 0x0E, 0x08,
+                       0x84, 0x02, 0x42, 0x0D, 0x04, 0x00, 0x00, 0x00 ]
+    relocations:
+      - offset:          0x0000001C
+        scattered:       true
+        type:            GENERIC_RELOC_LOCAL_SECTDIFF
+        length:          2
+        pc-rel:          false
+        value:           0x00000064
+      - offset:          0x00000000
+        scattered:       true
+        type:            GENERIC_RELOC_PAIR
+        length:          2
+        pc-rel:          false
+        value:           0x00000048
+      - offset:          0x00000020
+        scattered:       true
+        type:            GENERIC_RELOC_SECTDIFF
+        length:          2
+        pc-rel:          false
+        value:           0x00000000
+      - offset:          0x00000000
+        scattered:       true
+        type:            GENERIC_RELOC_PAIR
+        length:          2
+        pc-rel:          false
+        value:           0x00000068
+      - offset:          0x00000038
+        scattered:       true
+        type:            GENERIC_RELOC_LOCAL_SECTDIFF
+        length:          2
+        pc-rel:          false
+        value:           0x00000080
+      - offset:          0x00000000
+        scattered:       true
+        type:            GENERIC_RELOC_PAIR
+        length:          2
+        pc-rel:          false
+        value:           0x00000048
+      - offset:          0x0000003C
+        scattered:       true
+        type:            GENERIC_RELOC_SECTDIFF
+        length:          2
+        pc-rel:          false
+        value:           0x00000039
+      - offset:          0x00000000
+        scattered:       true
+        type:            GENERIC_RELOC_PAIR
+        length:          2
+        pc-rel:          false
+        value:           0x00000084
+local-symbols:
+  - name:            EH_frame0
+    type:            N_SECT
+    sect:            3
+    value:           0x0000000000000048
+global-symbols:
+  - name:            __Z3barv
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000039
+  - name:            __Z3barv.eh
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            3
+    value:           0x000000000000007C
+  - name:            __Z3foov
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+  - name:            __Z3foov.eh
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            3
+    value:           0x0000000000000060
+undefined-symbols:
+  - name:            __ZTIi
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+  - name:            ___cxa_allocate_exception
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+  - name:            ___cxa_throw
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+...
+
+# CHECK: defined-atoms:
+# CHECK:   - ref-name:        [[CIE:L[L0-9]+]]
+# CHECK:     type:            unwind-cfi
+# CHECK:     content:
+# CHECK:   - type:            unwind-cfi
+# CHECK:     content:
+# CHECK:     references:
+# CHECK:       - kind:            negDelta32
+# CHECK:         offset:          4
+# CHECK:         target:          [[CIE]]
+# CHECK:       - kind:            delta32
+# CHECK:         offset:          8
+# CHECK:         target:          __Z3foov
+# CHECK:   - type:            unwind-cfi
+# CHECK:     content:
+# CHECK:     references:
+# CHECK:       - kind:            negDelta32
+# CHECK:         offset:          4
+# CHECK:         target:          [[CIE]]
+# CHECK:       - kind:            delta32
+# CHECK:         offset:          8
+# CHECK:         target:          __Z3barv
+

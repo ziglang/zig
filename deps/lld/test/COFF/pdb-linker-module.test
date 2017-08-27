@@ -1,0 +1,18 @@
+RUN: lld-link /debug /pdb:%t.pdb /nodefaultlib /entry:main %S/Inputs/pdb-diff.obj
+RUN: llvm-pdbutil dump -modules -symbols %t.pdb | FileCheck %s
+
+CHECK:      Mod 0001 | `* Linker *`:
+CHECK-NEXT:  4 | S_OBJNAME [size = 20] sig=0, `* Linker *`
+CHECK-NEXT: 24 | S_COMPILE3 [size = 40]
+CHECK-NEXT:      machine = intel 80386, Ver = LLVM Linker, language = link
+CHECK-NEXT:      frontend = 0.0.0.0, backend = 0.0.0.0
+CHECK-NEXT:      flags = none
+CHECK-NEXT: 64 | S_ENVBLOCK
+CHECK-NEXT: - cwd
+CHECK-NEXT: -
+CHECK-NEXT: - exe
+CHECK-NEXT: - {{.*}}lld-link
+CHECK-NEXT: - pdb
+CHECK-NEXT: - {{.*}}pdb-linker-module{{.*}}pdb
+CHECK-NEXT: - cmd
+CHECK-NEXT: - /debug /pdb:{{.*}}pdb-linker-module{{.*}}pdb /nodefaultlib /entry:main {{.*}}pdb-diff.obj

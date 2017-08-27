@@ -1,0 +1,8 @@
+# RUN: not lld -flavor darwin | FileCheck %s
+#
+# Test that running darwin linker with no option prints out usage message.
+#
+
+
+# CHECK:	          USAGE:
+# CHECK:	          -arch

@@ -1,0 +1,29 @@
+# RUN: lld -flavor darwin -arch i386 -macosx_version_min 10.8 %s -r -o %t \
+# RUN: && lld -flavor darwin -r %t -o %t2 -print_atoms | FileCheck %s
+#
+# Test linker can detect architecture without -arch option.
+#
+
+--- !mach-o
+arch:            x86
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    address:         0x0000000000000000
+    content:         [ 0xC3 ]
+global-symbols:
+  - name:            _foo
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+
+...
+
+
+# CHECK: defined-atoms:
+# CHECK:  - name:            _foo

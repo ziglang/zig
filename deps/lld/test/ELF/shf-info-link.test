@@ -1,0 +1,32 @@
+# RUN: yaml2obj %s -o %t.o
+# RUN: yaml2obj %S/Inputs/shf-info-link.test  -o %t2.o
+# RUN: ld.lld %t.o %t2.o -o %t3.o -r
+# RUN: llvm-readobj -s %t3.o | FileCheck %s
+
+# CHECK-NOT: Name: .rela.text
+# CHECK:     Name: .rela.text
+# CHECK-NOT: Name: .rela.text
+
+
+--- !ELF
+FileHeader:
+  Class:           ELFCLASS64
+  Data:            ELFDATA2LSB
+  Type:            ET_REL
+  Machine:         EM_X86_64
+Sections:
+  - Name:            .text
+    Type:            SHT_PROGBITS
+    Flags:           [ SHF_ALLOC, SHF_EXECINSTR ]
+  - Name:            .rela.text
+    Type:            SHT_RELA
+    Flags:           [ SHF_INFO_LINK ]
+    Link:            .symtab
+    Info:            .text
+    Relocations:
+      - Offset:          0x0000000000000000
+        Symbol:          foo
+        Type:            R_X86_64_64
+Symbols:
+  Global:
+    - Name:            foo

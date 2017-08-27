@@ -1,0 +1,19 @@
+# Test -dependency_info option
+#
+# RUN: lld -flavor darwin -arch x86_64 -test_file_usage  \
+# RUN:        -dependency_info %t.info \
+# RUN:        -path_exists /System/Library/Frameworks \
+# RUN:        -path_exists /System/Library/Frameworks/Foo.framework/Foo \
+# RUN:        -path_exists /Custom/Frameworks \
+# RUN:        -path_exists /Custom/Frameworks/Bar.framework/Bar \
+# RUN:        -F/Custom/Frameworks \
+# RUN:        -framework Bar \
+# RUN:        -framework Foo
+# RUN: %python %p/Inputs/DependencyDump.py %t.info | FileCheck %s
+
+
+# CHECK: linker-vers: lld
+# CHECK: input-file:  /Custom/Frameworks{{[/\\]}}Bar.framework{{[/\\]}}Bar
+# CHECK: not-found:   /Custom/Frameworks{{[/\\]}}Foo.framework{{[/\\]}}Foo
+# CHECK: input-file:  /System/Library/Frameworks{{[/\\]}}Foo.framework{{[/\\]}}Foo
+# CHECK: output-file: a.out

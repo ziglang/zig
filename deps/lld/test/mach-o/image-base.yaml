@@ -1,0 +1,28 @@
+# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.9 %s -o %t -image_base 31415926000 %p/Inputs/x86_64/libSystem.yaml
+# RUN: llvm-readobj -macho-segment %t | FileCheck %s
+# RUN: not lld -flavor darwin -arch x86_64 -image_base 0x31415926530 %s >/dev/null 2> %t
+# RUN: FileCheck < %t %s --check-prefix=CHECK-ERROR-MISPAGED
+# RUN: not lld -flavor darwin -arch x86_64 -image_base 1000 %s >/dev/null 2> %t
+# RUN: FileCheck < %t %s --check-prefix=CHECK-ERROR-OVERLAP
+# RUN: not lld -flavor darwin -arch x86_64 -image_base hithere %s >/dev/null 2> %t
+# RUN: FileCheck < %t %s --check-prefix=CHECK-ERROR-NOTHEX
+
+--- !native
+defined-atoms:
+   - name:            _main
+     scope:           global
+     content:         []
+
+# CHECK: Segment {
+# CHECK:   Cmd: LC_SEGMENT_64
+# CHECK:   Name: __TEXT
+# CHECK-NEXT:   Size: 152
+# CHECK-NEXT:   vmaddr: 0x31415926000
+# CHECK-NEXT:   vmsize: 0x1000
+
+
+# CHECK-ERROR-MISPAGED: error: image_base must be a multiple of page size (0x1000)
+
+# CHECK-ERROR-OVERLAP: error: image_base overlaps with __PAGEZERO
+
+# CHECK-ERROR-NOTHEX: error: image_base expects a hex number

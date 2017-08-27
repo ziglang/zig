@@ -1,0 +1,82 @@
+# RUN: yaml2obj < %s > %t.obj
+# RUN: lld-link /out:%t.exe /entry:main /base:0x400000 %t.obj
+# RUN: llvm-objdump -d %t.exe | FileCheck %s
+
+# CHECK: .text:
+# CHECK: 1000: a1 00 00 00 00
+# CHECK: 1005: a1 03 20 40 00
+# CHECK: 100a: a1 03 20 00 00
+# CHECK: 100f: a1 ef 0f 00 00
+# CHECK: 1014: a1 00 00 02 00
+# CHECK: 1019: a1 03 00 00 00
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_I386
+  Characteristics: []
+sections:
+  - Name:            .text
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       4096
+    SectionData:     A100000000A100000000A100000000A100000000A100000000A100000000
+    Relocations:
+      - VirtualAddress:  1
+        SymbolName:      _foo
+        Type:            IMAGE_REL_I386_ABSOLUTE
+      - VirtualAddress:  6
+        SymbolName:      _foo
+        Type:            IMAGE_REL_I386_DIR32
+      - VirtualAddress:  11
+        SymbolName:      _foo
+        Type:            IMAGE_REL_I386_DIR32NB
+      - VirtualAddress:  16
+        SymbolName:      _foo
+        Type:            IMAGE_REL_I386_REL32
+      - VirtualAddress:  23
+        SymbolName:      _foo
+        Type:            IMAGE_REL_I386_SECTION
+      - VirtualAddress:  26
+        SymbolName:      _foo
+        Type:            IMAGE_REL_I386_SECREL
+  - Name:            .zzz
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
+    Alignment:       4096
+    SectionData:     0000000000000000
+symbols:
+  - Name:            .text
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          6
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          0
+  - Name:            .zzz
+    Value:           0
+    SectionNumber:   2
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          8
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          0
+  - Name:            _main
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            _foo
+    Value:           3
+    SectionNumber:   2
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+...

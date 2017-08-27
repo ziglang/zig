@@ -1,0 +1,59 @@
+# REQUIRES: arm
+
+# RUN: yaml2obj < %s > %t.obj
+# RUN: llvm-objdump -d %t.obj | FileCheck %s -check-prefix BEFORE
+# RUN: lld-link /entry:function /subsystem:console /out:%t.exe %t.obj
+# RUN: llvm-objdump -d %t.exe | FileCheck %s -check-prefix AFTER
+
+# BEFORE: Disassembly of section .text:
+# BEFORE:        0: 70 47         bx lr
+# BEFORE:        2: 00 bf         nop
+# BEFORE:        4: 20 20         movs r0, #32
+# BEFORE:        6: 00 f0 00 b8   b.w #0
+
+# AFTER: Disassembly of section .text:
+# AFTER: .text:
+# AFTER:     1000: 70 47         bx lr
+# AFTER:     1002: 00 bf         nop
+# AFTER:     1004: 20 20         movs r0, #32
+# AFTER:     1006: ff f7 fb bf   b.w #-10
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_ARMNT
+  Characteristics: []
+sections:
+  - Name:            .text
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_PURGEABLE, IMAGE_SCN_MEM_16BIT, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    SectionData:     704700BF202000F000B8
+    Relocations:
+      - VirtualAddress:  6
+        SymbolName:      identity
+        Type:            20
+symbols:
+  - Name:            .text
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          10
+      NumberOfRelocations: 1
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          1
+  - Name:            identity
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            function
+    Value:           4
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+...

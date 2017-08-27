@@ -1,0 +1,1 @@
+.ident "bar"

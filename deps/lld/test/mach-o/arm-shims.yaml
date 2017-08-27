@@ -1,0 +1,126 @@
+# RUN: lld -flavor darwin -arch armv7 %s %p/Inputs/arm-shims.yaml \
+# RUN: -dylib %p/Inputs/armv7/libSystem.yaml -o %t
+# RUN: llvm-readobj -s -sd %t | FileCheck %s
+#
+# Test b from arm to thumb or vice versa has shims added.s
+#
+#
+
+--- !mach-o
+arch:            armv7
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    alignment:       2
+    address:         0x0000000000000000
+    content:         [ 0x00, 0xBF, 0xFF, 0xF7, 0xFE, 0xEF, 0xFF, 0xF7,
+                       0xFB, 0xBF, 0x00, 0x00, 0x00, 0xF0, 0x20, 0xE3,
+                       0xFA, 0xFF, 0xFF, 0xFA, 0xF9, 0xFF, 0xFF, 0xEA ]
+    relocations:
+      - offset:          0x00000014
+        type:            ARM_RELOC_BR24
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          3
+      - offset:          0x00000010
+        type:            ARM_RELOC_BR24
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          3
+      - offset:          0x00000006
+        type:            ARM_THUMB_RELOC_BR22
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          2
+      - offset:          0x00000002
+        type:            ARM_THUMB_RELOC_BR22
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          2
+global-symbols:
+  - name:            _a1
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x000000000000000C
+  - name:            _t1
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    desc:            [ N_ARM_THUMB_DEF ]
+    value:           0x0000000000000000
+undefined-symbols:
+  - name:            _a2
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+  - name:            _t2
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+
+...
+
+# CHECK:   Section {
+# CHECK:     Name: __text (5F 5F 74 65 78 74 00 00 00 00 00 00 00 00 00 00)
+# CHECK:     Segment: __TEXT (5F 5F 54 45 58 54 00 00 00 00 00 00 00 00 00 00)
+# CHECK:     SectionData (
+# CHECK:       0000: 00BF00F0 10E800F0 19B80000 00F020E3
+# CHECK:       0010: 000000FA 0F0000EA 00BFFFF7 F8EF00F0
+# CHECK:       0020: 07B80000 00F020E3 F4FFFFFA 050000EA
+# CHECK:       0030: DFF804C0 FF446047 D4FFFFFF DFF804C0
+# CHECK:       0040: FF446047 E0FFFFFF 04C09FE5 0CC08FE0
+# CHECK:       0050: 1CFF2FE1 ADFFFFFF 04C09FE5 0CC08FE0
+# CHECK:       0060: 1CFF2FE1 B5FFFFFF
+# CHECK:     )
+
+# When we get a good mach-o disassembler the above __text section content check can be change to be symbolic.
+
+
+# Input file one:
+#
+#	.align	2
+#	.code	16
+#  .globl _t1
+#  .thumb_func	_t1
+#_t1:
+#    nop
+#    blx _a2
+#    b   _a2
+#
+#	.code	32
+#  .align 2
+#  .globl _a1
+#_a1:
+#    nop
+#    blx _t2
+#    b   _t2
+
+
+
+# Input file two:
+#
+#	.align	2
+#	.code	16
+#  .globl _t2
+#  .thumb_func	_t2
+#_t2:
+#    nop
+#    blx _a1
+#    b   _a1
+#
+#	.code	32
+#  .align 2
+#  .globl _a2
+#_a2:
+#    nop
+#    blx _t1
+#    b   _t1

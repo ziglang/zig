@@ -1,0 +1,136 @@
+# REQUIRES: aarch64
+
+# RUN: yaml2obj < %s > %t.obj
+# RUN: llvm-objdump -d %t.obj | FileCheck %s -check-prefix BEFORE
+# RUN: lld-link /entry:main /subsystem:console /out:%t.exe %t.obj %p/Inputs/library-arm64.lib
+# RUN: llvm-objdump -d %t.exe | FileCheck %s -check-prefix AFTER
+
+# BEFORE: Disassembly of section .text:
+# BEFORE:        0:       fe 0f 1f f8     str     x30, [sp, #-16]!
+# BEFORE:        4:       00 00 00 90     adrp    x0, #0
+# BEFORE:        8:       00 08 00 91     add     x0, x0, #2
+# BEFORE:        c:       00 00 00 94     bl      #0
+# BEFORE:       10:       00 01 40 39     ldrb    w0, [x8]
+# BEFORE:       14:       00 01 40 79     ldrh    w0, [x8]
+# BEFORE:       18:       00 01 40 b9     ldr     w0, [x8]
+# BEFORE:       1c:       00 01 40 f9     ldr     x0, [x8]
+# BEFORE:       20:       e0 03 1f 2a     mov      w0, wzr
+# BEFORE:       24:       fe 07 41 f8     ldr     x30, [sp], #16
+# BEFORE:       28:       c0 03 5f d6     ret
+# BEFORE:       2c:       08 00 00 00     <unknown>
+# BEFORE:       30:       00 00 00 00     <unknown>
+
+# AFTER: Disassembly of section .text:
+# AFTER:  140002000:      fe 0f 1f f8     str     x30, [sp, #-16]!
+# AFTER:  140002004:      e0 ff ff f0     adrp    x0, #-4096
+# AFTER:  140002008:      00 18 00 91     add     x0, x0, #6
+# AFTER:  14000200c:      0a 00 00 94     bl      #40
+# AFTER:  140002010:      00 21 40 39     ldrb    w0, [x8, #8]
+# AFTER:  140002014:      00 11 40 79     ldrh    w0, [x8, #8]
+# AFTER:  140002018:      00 09 40 b9     ldr     w0, [x8, #8]
+# AFTER:  14000201c:      00 05 40 f9     ldr     x0, [x8, #8]
+# AFTER:  140002020:      e0 03 1f 2a     mov      w0, wzr
+# AFTER:  140002024:      fe 07 41 f8     ldr     x30, [sp], #16
+# AFTER:  140002028:      c0 03 5f d6     ret
+# AFTER:  14000202c:      10 10 00 40     <unknown>
+# AFTER:  140002030:      01 00 00 00     <unknown>
+# AFTER:  140002034:      10 00 00 b0     adrp    x16, #4096
+# AFTER:  140002038:      10 1e 40 f9     ldr     x16, [x16, #56]
+# AFTER:  14000203c:      00 02 1f d6     br      x16
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_ARM64
+  Characteristics: [  ]
+sections:
+  - Name:            .text
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    SectionData:     FE0F1FF80000009000080091000000940001403900014079000140B9000140F9E0031F2AFE0741F8C0035FD60800000000000000
+    Relocations:
+      - VirtualAddress:  4
+        SymbolName:      .Lstr
+        Type:            4
+      - VirtualAddress:  8
+        SymbolName:      .Lstr
+        Type:            6
+      - VirtualAddress:  12
+        SymbolName:      function
+        Type:            3
+      - VirtualAddress:  16
+        SymbolName:      .Lglobal
+        Type:            7
+      - VirtualAddress:  20
+        SymbolName:      .Lglobal
+        Type:            7
+      - VirtualAddress:  24
+        SymbolName:      .Lglobal
+        Type:            7
+      - VirtualAddress:  28
+        SymbolName:      .Lglobal
+        Type:            7
+      - VirtualAddress:  44
+        SymbolName:      .Lglobal
+        Type:            14
+  - Name:            .data
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
+    Alignment:       4
+    SectionData:     ''
+  - Name:            .bss
+    Characteristics: [ IMAGE_SCN_CNT_UNINITIALIZED_DATA, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
+    Alignment:       4
+    SectionData:     ''
+  - Name:            .rdata
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    SectionData:     00000000202068656C6C6F20776F726C6400
+symbols:
+  - Name:            .text
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          28
+      NumberOfRelocations: 3
+      NumberOfLinenumbers: 0
+      CheckSum:        1438860354
+      Number:          1
+  - Name:            .rdata
+    Value:           0
+    SectionNumber:   4
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          12
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        872944732
+      Number:          4
+  - Name:            main
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            .Lstr
+    Value:           4
+    SectionNumber:   4
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+  - Name:            .Lglobal
+    Value:           8
+    SectionNumber:   4
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+  - Name:            function
+    Value:           0
+    SectionNumber:   0
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+...

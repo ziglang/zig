@@ -1,0 +1,17 @@
+include/lld/Core
+~~~~~~~~~~~~~~~~
+
+* The yaml reader/writer interfaces should be changed to return
+  an explanatory string if there is an error.  The existing error_code
+  abstraction only works for returning low level OS errors.  It does not
+  work for describing formatting issues.
+
+* We need to design a diagnostics interface.  It would be nice to share code
+  with Clang_ where possible.
+
+* We need to add more attributes to File.  In particular, we need cpu
+  and OS information (like target triples).  We should also provide explicit
+  support for `LLVM IR module flags metadata`__.
+
+.. __: http://llvm.org/docs/LangRef.html#module_flags
+.. _Clang: http://clang.llvm.org/docs/InternalsManual.html#Diagnostics

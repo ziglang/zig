@@ -1,0 +1,6 @@
+#
+# For use with exported_symbols_list.yaml
+#
+_foo
+_b
+

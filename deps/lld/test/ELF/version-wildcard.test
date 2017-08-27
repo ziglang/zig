@@ -1,0 +1,108 @@
+# REQUIRES: x86
+
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
+# RUN: echo "VERSION_1.0 { global: foo*; local: *; };" > %t.script
+# RUN: ld.lld --version-script %t.script -shared %t.o -o %t.so
+# RUN: llvm-readobj -dyn-symbols %t.so | FileCheck %s
+
+# CHECK: DynamicSymbols [
+# CHECK-NEXT:   Symbol {
+# CHECK-NEXT:     Name: @
+# CHECK-NEXT:     Value: 0x0
+# CHECK-NEXT:     Size: 0
+# CHECK-NEXT:     Binding: Local
+# CHECK-NEXT:     Type: None
+# CHECK-NEXT:     Other: 0
+# CHECK-NEXT:     Section: Undefined
+# CHECK-NEXT:   }
+# CHECK-NEXT:   Symbol {
+# CHECK-NEXT:     Name: foo1@@VERSION_1.0
+# CHECK-NEXT:     Value: 0x1000
+# CHECK-NEXT:     Size: 0
+# CHECK-NEXT:     Binding: Global
+# CHECK-NEXT:     Type: None
+# CHECK-NEXT:     Other: 0
+# CHECK-NEXT:     Section: .text
+# CHECK-NEXT:   }
+# CHECK-NEXT:   Symbol {
+# CHECK-NEXT:     Name: foo2@@VERSION_1.0
+# CHECK-NEXT:     Value: 0x1001
+# CHECK-NEXT:     Size: 0
+# CHECK-NEXT:     Binding: Global
+# CHECK-NEXT:     Type: None
+# CHECK-NEXT:     Other: 0
+# CHECK-NEXT:     Section: .text
+# CHECK-NEXT:   }
+# CHECK-NEXT:   Symbol {
+# CHECK-NEXT:     Name: foo3@@VERSION_1.0
+# CHECK-NEXT:     Value: 0x1007
+# CHECK-NEXT:     Size: 0
+# CHECK-NEXT:     Binding: Global
+# CHECK-NEXT:     Type: None
+# CHECK-NEXT:     Other: 0
+# CHECK-NEXT:     Section: .text
+# CHECK-NEXT:   }
+# CHECK-NEXT: ]
+
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
+# RUN: echo "VERSION_1.0 { global: foo2; local: *; };" > %t2.script
+# RUN: echo "VERSION_2.0 { global: foo*; };" >> %t2.script
+# RUN: ld.lld --version-script %t2.script -shared %t.o -o %t2.so
+# RUN: llvm-readobj -dyn-symbols %t2.so | FileCheck --check-prefix=MIX %s
+
+# MIX:      DynamicSymbols [
+# MIX-NEXT:   Symbol {
+# MIX-NEXT:     Name: @
+# MIX-NEXT:     Value: 0x0
+# MIX-NEXT:     Size: 0
+# MIX-NEXT:     Binding: Local
+# MIX-NEXT:     Type: None
+# MIX-NEXT:     Other: 0
+# MIX-NEXT:     Section: Undefined
+# MIX-NEXT:   }
+# MIX-NEXT:   Symbol {
+# MIX-NEXT:     Name: foo1@@VERSION_2.0
+# MIX-NEXT:     Value: 0x1000
+# MIX-NEXT:     Size: 0
+# MIX-NEXT:     Binding: Global
+# MIX-NEXT:     Type: None
+# MIX-NEXT:     Other: 0
+# MIX-NEXT:     Section: .text
+# MIX-NEXT:   }
+# MIX-NEXT:   Symbol {
+# MIX-NEXT:     Name: foo2@@VERSION_1.0
+# MIX-NEXT:     Value: 0x1001
+# MIX-NEXT:     Size: 0
+# MIX-NEXT:     Binding: Global
+# MIX-NEXT:     Type: None
+# MIX-NEXT:     Other: 0
+# MIX-NEXT:     Section: .text
+# MIX-NEXT:   }
+# MIX-NEXT:   Symbol {
+# MIX-NEXT:     Name: foo3@@VERSION_2.0
+# MIX-NEXT:     Value: 0x1007
+# MIX-NEXT:     Size: 0
+# MIX-NEXT:     Binding: Global
+# MIX-NEXT:     Type: None
+# MIX-NEXT:     Other: 0
+# MIX-NEXT:     Section: .text
+# MIX-NEXT:   }
+# MIX-NEXT: ]
+
+.globl foo1
+foo1:
+  ret
+
+.globl foo2
+foo2:
+  call foo1@PLT
+  ret
+
+.globl foo3
+foo3:
+  call foo2@PLT
+  ret
+
+.globl _start
+_start:
+  ret
