@@ -1,5 +1,7 @@
 #!/bin/sh
 
+set -x
+
 export CC=clang-5.0
 export CXX=clang++-5.0
 which $CC

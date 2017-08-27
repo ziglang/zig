@@ -1,8 +1,10 @@
 #!/bin/sh
 
+set -x
+
 PREFIX_DIR=$(pwd)/local
-export CC=/usr/local/opt/gcc/bin/$(uname -m)-apple-darwin$(uname -r)-gcc-7
-export CXX=/usr/local/opt/gcc/bin/$(uname -m)-apple-darwin$(uname -r)-g++-7
+export CC=/usr/local/Cellar/gcc/7.2.0/bin/gcc-7
+export CXX=/usr/local/Cellar/gcc/7.2.0/bin/g++-7
 
 echo $PATH
 mkdir build
