@@ -328,7 +328,7 @@ pub const InStream = struct {
         return mem.readInt(input_slice, T, is_be);
     }
 
-    pub fn seekForward(is: &InStream, amount: usize) -> %void {
+    pub fn seekForward(is: &InStream, amount: isize) -> %void {
         switch (builtin.os) {
             Os.linux, Os.darwin => {
                 const result = system.lseek(is.fd, amount, system.SEEK_CUR);
@@ -351,7 +351,7 @@ pub const InStream = struct {
     pub fn seekTo(is: &InStream, pos: usize) -> %void {
         switch (builtin.os) {
             Os.linux, Os.darwin => {
-                const result = system.lseek(is.fd, pos, system.SEEK_SET);
+                const result = system.lseek(is.fd, @bitCast(isize, pos), system.SEEK_SET);
                 const err = system.getErrno(result);
                 if (err > 0) {
                     return switch (err) {
@@ -390,7 +390,7 @@ pub const InStream = struct {
     }
 
     pub fn getEndPos(is: &InStream) -> %usize {
-        var stat: system.stat = undefined;
+        var stat: system.Stat = undefined;
         const err = system.getErrno(system.fstat(is.fd, &stat));
         if (err > 0) {
             return switch (err) {

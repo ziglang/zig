@@ -721,7 +721,8 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
                         });
                     },
                     else => {
-                        %return in_stream.seekForward(op_size - 1);
+                        const fwd_amt = math.cast(isize, op_size - 1) %% return error.InvalidDebugInfo;
+                        %return in_stream.seekForward(fwd_amt);
                     },
                 }
             } else if (opcode >= opcode_base) {
