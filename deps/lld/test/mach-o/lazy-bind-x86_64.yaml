@@ -80,8 +80,8 @@ undefined-symbols:
 
 # CHECK-HELPERS:Disassembly of section __TEXT,__stub_helper:
 # CHECK-HELPERS: 	68 00 00 00 00            pushq	$0
-# CHECK-HELPERS: 	68 10 00 00 00            pushq	$16
-# CHECK-HELPERS: 	68 20 00 00 00            pushq	$32
+# CHECK-HELPERS: 	68 0b 00 00 00            pushq	$11
+# CHECK-HELPERS: 	68 16 00 00 00            pushq	$22
 
 # Make sure the stub helper is correctly aligned
 # CHECK-DYLIBS:   sectname __stub_helper

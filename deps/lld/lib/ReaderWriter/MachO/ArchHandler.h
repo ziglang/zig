@@ -112,6 +112,10 @@ public:
   /// info in final executables.
   virtual bool isLazyPointer(const Reference &);
 
+  /// Reference from an __stub_helper entry to the required offset of the
+  /// lazy bind commands.
+  virtual Reference::KindValue lazyImmediateLocationKind() = 0;
+
   /// Returns true if the specified relocation is paired to the next relocation.
   virtual bool isPairedReloc(const normalized::Relocation &) = 0;
 
