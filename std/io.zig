@@ -8,7 +8,6 @@ const system = switch(builtin.os) {
 };
 const c = @import("c/index.zig");
 
-const errno = @import("os/errno.zig");
 const math = @import("math/index.zig");
 const debug = @import("debug.zig");
 const assert = debug.assert;
@@ -269,11 +268,11 @@ pub const InStream = struct {
                 const read_err = system.getErrno(amt_read);
                 if (read_err > 0) {
                     switch (read_err) {
-                        errno.EINTR  => continue,
-                        errno.EINVAL => unreachable,
-                        errno.EFAULT => unreachable,
-                        errno.EBADF  => return error.BadFd,
-                        errno.EIO    => return error.Io,
+                        system.EINTR  => continue,
+                        system.EINVAL => unreachable,
+                        system.EFAULT => unreachable,
+                        system.EBADF  => return error.BadFd,
+                        system.EIO    => return error.Io,
                         else         => return error.Unexpected,
                     }
                 }
@@ -335,11 +334,11 @@ pub const InStream = struct {
                 const err = system.getErrno(result);
                 if (err > 0) {
                     return switch (err) {
-                        errno.EBADF => error.BadFd,
-                        errno.EINVAL => error.Unseekable,
-                        errno.EOVERFLOW => error.Unseekable,
-                        errno.ESPIPE => error.Unseekable,
-                        errno.ENXIO => error.Unseekable,
+                        system.EBADF => error.BadFd,
+                        system.EINVAL => error.Unseekable,
+                        system.EOVERFLOW => error.Unseekable,
+                        system.ESPIPE => error.Unseekable,
+                        system.ENXIO => error.Unseekable,
                         else => error.Unexpected,
                     };
                 }
@@ -355,11 +354,11 @@ pub const InStream = struct {
                 const err = system.getErrno(result);
                 if (err > 0) {
                     return switch (err) {
-                        errno.EBADF => error.BadFd,
-                        errno.EINVAL => error.Unseekable,
-                        errno.EOVERFLOW => error.Unseekable,
-                        errno.ESPIPE => error.Unseekable,
-                        errno.ENXIO => error.Unseekable,
+                        system.EBADF => error.BadFd,
+                        system.EINVAL => error.Unseekable,
+                        system.EOVERFLOW => error.Unseekable,
+                        system.ESPIPE => error.Unseekable,
+                        system.ENXIO => error.Unseekable,
                         else => error.Unexpected,
                     };
                 }
@@ -375,11 +374,11 @@ pub const InStream = struct {
                 const err = system.getErrno(result);
                 if (err > 0) {
                     return switch (err) {
-                        errno.EBADF => error.BadFd,
-                        errno.EINVAL => error.Unseekable,
-                        errno.EOVERFLOW => error.Unseekable,
-                        errno.ESPIPE => error.Unseekable,
-                        errno.ENXIO => error.Unseekable,
+                        system.EBADF => error.BadFd,
+                        system.EINVAL => error.Unseekable,
+                        system.EOVERFLOW => error.Unseekable,
+                        system.ESPIPE => error.Unseekable,
+                        system.ENXIO => error.Unseekable,
                         else => error.Unexpected,
                     };
                 }
@@ -394,8 +393,8 @@ pub const InStream = struct {
         const err = system.getErrno(system.fstat(is.fd, &stat));
         if (err > 0) {
             return switch (err) {
-                errno.EBADF => error.BadFd,
-                errno.ENOMEM => error.NoMem,
+                system.EBADF => error.BadFd,
+                system.ENOMEM => error.NoMem,
                 else => error.Unexpected,
             }
         }

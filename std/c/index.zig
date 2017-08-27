@@ -1,4 +1,3 @@
-pub use @import("../os/errno.zig");
 const builtin = @import("builtin");
 const Os = builtin.Os;
 

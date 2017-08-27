@@ -325,6 +325,10 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append(get_libc_static_file(g, "crtend.o"));
         lj->args.append(get_libc_file(g, "crtn.o"));
     }
+
+    if (!g->is_native_target) {
+        lj->args.append("--allow-shlib-undefined");
+    }
 }
 
 static bool is_target_cyg_mingw(const ZigTarget *target) {

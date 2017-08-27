@@ -30,16 +30,21 @@ export fn __stack_chk_fail() {
     @panic("stack smashing detected");
 }
 
+const math = @import("../math/index.zig");
+
 export fn fmodf(x: f32, y: f32) -> f32 { generic_fmod(f32, x, y) }
 export fn fmod(x: f64, y: f64) -> f64 { generic_fmod(f64, x, y) }
 
-const Log2Int = @import("../math/index.zig").Log2Int;
+// TODO add intrinsics for these (and probably the double version too)
+// and have the math stuff use the intrinsic. same as @mod and @rem
+export fn floorf(x: f32) -> f32 { math.floor(x) }
+export fn ceilf(x: f32) -> f32 { math.ceil(x) }
 
 fn generic_fmod(comptime T: type, x: T, y: T) -> T {
     @setDebugSafety(this, false);
 
     const uint = @IntType(false, T.bit_count);
-    const log2uint = Log2Int(uint);
+    const log2uint = math.Log2Int(uint);
     const digits = if (T == f32) 23 else 52;
     const exp_bits = if (T == f32) 9 else 12;
     const bits_minus_1 = T.bit_count - 1;

@@ -1,5 +1,7 @@
 extern "c" fn __error() -> &c_int;
 
+pub use @import("../os/darwin_errno.zig");
+
 pub const _errno = __error;
 
 /// Renamed to Stat to not conflict with the stat function.

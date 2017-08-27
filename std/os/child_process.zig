@@ -3,7 +3,6 @@ const os = @import("index.zig");
 const posix = os.posix;
 const mem = @import("../mem.zig");
 const Allocator = mem.Allocator;
-const errno = @import("errno.zig");
 const debug = @import("../debug.zig");
 const assert = debug.assert;
 const BufMap = @import("../buf_map.zig").BufMap;
@@ -56,8 +55,8 @@ pub const ChildProcess = struct {
             const err = posix.getErrno(posix.waitpid(self.pid, &status, 0));
             if (err > 0) {
                 switch (err) {
-                    errno.EINVAL, errno.ECHILD => unreachable,
-                    errno.EINTR => continue,
+                    posix.EINVAL, posix.ECHILD => unreachable,
+                    posix.EINTR => continue,
                     else => {
                         if (self.stdin) |*stdin| { stdin.close(); }
                         if (self.stdout) |*stdout| { stdout.close(); }
@@ -130,7 +129,7 @@ pub const ChildProcess = struct {
         const pid_err = posix.getErrno(pid);
         if (pid_err > 0) {
             return switch (pid_err) {
-                errno.EAGAIN, errno.ENOMEM, errno.ENOSYS => error.SystemResources,
+                posix.EAGAIN, posix.ENOMEM, posix.ENOSYS => error.SystemResources,
                 else => error.Unexpected,
             };
         }
@@ -209,7 +208,7 @@ fn makePipe() -> %[2]i32 {
     const err = posix.getErrno(posix.pipe(&fds));
     if (err > 0) {
         return switch (err) {
-            errno.EMFILE, errno.ENFILE => error.SystemResources,
+            posix.EMFILE, posix.ENFILE => error.SystemResources,
             else => error.Unexpected,
         }
     }

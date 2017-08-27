@@ -4,7 +4,7 @@ const arch = switch (builtin.arch) {
     builtin.Arch.i386 => @import("linux_i386.zig"),
     else => @compileError("unsupported arch"),
 };
-const errno = @import("errno.zig");
+pub use @import("linux_errno.zig");
 
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;

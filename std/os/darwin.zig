@@ -1,6 +1,8 @@
 const c = @import("../c/index.zig");
 const assert = @import("../debug.zig").assert;
 
+pub use @import("darwin_errno.zig");
+
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;
