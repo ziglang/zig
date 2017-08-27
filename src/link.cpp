@@ -634,7 +634,29 @@ static void construct_linker_job_macho(LinkJob *lj) {
     }
 
     if (is_lib) {
-        zig_panic("TODO linker args on darwin for making a library");
+        if (!g->is_static) {
+            lj->args.append("-dylib");
+
+            Buf *compat_vers = buf_sprintf("%" ZIG_PRI_usize ".0.0", g->version_major);
+            lj->args.append("-compatibility_version");
+            lj->args.append(buf_ptr(compat_vers));
+
+            Buf *cur_vers = buf_sprintf("%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize,
+                g->version_major, g->version_minor, g->version_patch);
+            lj->args.append("-current_version");
+            lj->args.append(buf_ptr(cur_vers));
+
+            // TODO getting an error when running an executable when doing this rpath thing
+            //Buf *dylib_install_name = buf_sprintf("@rpath/lib%s.%" ZIG_PRI_usize ".dylib",
+            //    buf_ptr(g->root_out_name), g->version_major);
+            //lj->args.append("-install_name");
+            //lj->args.append(buf_ptr(dylib_install_name));
+
+            if (buf_len(&lj->out_file) == 0) {
+                buf_appendf(&lj->out_file, "lib%s.%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".dylib",
+                    buf_ptr(g->root_out_name), g->version_major, g->version_minor, g->version_patch);
+            }
+        }
     }
 
     lj->args.append("-arch");
@@ -667,8 +689,14 @@ static void construct_linker_job_macho(LinkJob *lj) {
     lj->args.append("-o");
     lj->args.append(buf_ptr(&lj->out_file));
 
+    for (size_t i = 0; i < g->rpath_list.length; i += 1) {
+        Buf *rpath = g->rpath_list.at(i);
+        add_rpath(lj, rpath);
+    }
+    add_rpath(lj, &lj->out_file);
+
     if (shared) {
-        zig_panic("TODO");
+        lj->args.append("-headerpad_max_install_names");
     } else if (g->is_static) {
         lj->args.append("-lcrt0.o");
     } else {

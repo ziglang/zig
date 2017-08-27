@@ -37,3 +37,4 @@ pub extern "c" fn execve(path: &const u8, argv: &const ?&const u8,
 pub extern "c" fn dup(fd: c_int) -> c_int;
 pub extern "c" fn dup2(old_fd: c_int, new_fd: c_int) -> c_int;
 pub extern "c" fn readlink(noalias path: &const u8, noalias buf: &u8, bufsize: usize) -> isize;
+pub extern "c" fn realpath(noalias file_name: &const u8, noalias resolved_name: &u8) -> ?&u8;

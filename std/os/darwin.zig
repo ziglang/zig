@@ -3,6 +3,8 @@ const assert = @import("../debug.zig").assert;
 
 pub use @import("darwin_errno.zig");
 
+pub const PATH_MAX = 1024;
+
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;
@@ -201,6 +203,10 @@ pub fn dup2(old: i32, new: i32) -> usize {
 
 pub fn readlink(noalias path: &const u8, noalias buf_ptr: &u8, buf_len: usize) -> usize {
     errnoWrap(c.readlink(path, buf_ptr, buf_len))
+}
+
+pub fn realpath(noalias filename: &const u8, noalias resolved_name: &u8) -> usize {
+    if (c.realpath(filename, resolved_name) == null) @bitCast(usize, -isize(*c._errno())) else 0
 }
 
 /// Takes the return value from a syscall and formats it back in the way

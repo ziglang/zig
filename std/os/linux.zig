@@ -6,6 +6,8 @@ const arch = switch (builtin.arch) {
 };
 pub use @import("linux_errno.zig");
 
+pub const PATH_MAX = 4096;
+
 pub const STDIN_FILENO = 0;
 pub const STDOUT_FILENO = 1;
 pub const STDERR_FILENO = 2;
