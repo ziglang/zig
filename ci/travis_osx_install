@@ -1,0 +1,39 @@
+#!/bin/sh
+
+brew install gcc@7
+brew outdated gcc@7 || brew upgrade gcc@7
+
+SRC_DIR=$(pwd)
+PREFIX_DIR=$SRC_DIR/local
+export CC=/usr/local/opt/gcc/bin/$(uname -m)-apple-darwin$(uname -r)-gcc-7
+export CXX=/usr/local/opt/gcc/bin/$(uname -m)-apple-darwin$(uname -r)-g++-7
+
+wget http://prereleases.llvm.org/5.0.0/rc2/llvm-5.0.0rc2.src.tar.xz 
+wget http://prereleases.llvm.org/5.0.0/rc2/cfe-5.0.0rc2.src.tar.xz
+wget http://prereleases.llvm.org/5.0.0/rc2/lld-5.0.0rc2.src.tar.xz
+
+cd $SRC_DIR
+tar xvf llvm-5.0.0rc2.src.tar.xz
+cd llvm-5.0.0rc2.src
+mkdir build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$PREFIX_DIR -DCMAKE_PREFIX_PATH=$PREFIX_DIR
+make install
+
+cd $SRC_DIR
+tar xvf lld-5.0.0rc2.src.tar.xz
+cd lld-5.0.0rc2.src
+mkdir build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$PREFIX_DIR -DCMAKE_PREFIX_PATH=$PREFIX_DIR
+make install
+
+cd $SRC_DIR
+tar xvf cfe-5.0.0rc2.src.tar.xz
+cd cfe-5.0.0rc2.src
+mkdir build
+cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$PREFIX_DIR -DCMAKE_PREFIX_PATH=$PREFIX_DIR
+make install
+
+cd $SRC_DIR
