@@ -12,7 +12,4 @@ cd build
 cmake .. -DCMAKE_PREFIX_PATH=$PREFIX_DIR -DCMAKE_INSTALL_PREFIX=$(pwd) -DZIG_LIBC_LIB_DIR=$(dirname $($CC -print-file-name=crt1.o)) -DZIG_LIBC_INCLUDE_DIR=$(echo -n | $CC -E -x c - -v 2>&1 | grep -B1 "End of search list." | head -n1 | cut -c 2- | sed "s/ .*//") -DZIG_LIBC_STATIC_LIB_DIR=$(dirname $($CC -print-file-name=crtbegin.o))
 make VERBOSE=1
 make install
-# TODO get full test suite passing on macos
-./zig test ../test/behavior.zig
-./zig test ../test/behavior.zig --release-fast
-# ./zig build --build-file ../build.zig test
+./zig build --build-file ../build.zig test-behavior test-std test-compiler-rt test-compare-output test-compile-errors test-asm-link test-debug-safety test-parseh

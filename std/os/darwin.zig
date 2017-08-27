@@ -23,6 +23,7 @@ pub const MAP_NORESERVE = 0x0040; /// don't reserve needed swap area
 pub const MAP_FAILED = @maxValue(usize);
 
 pub const O_LARGEFILE = 0x0000;
+pub const O_PATH = 0x0000;
 
 pub const O_RDONLY   = 0x0000; /// open for reading only
 pub const O_WRONLY   = 0x0001; /// open for writing only
@@ -196,6 +197,10 @@ pub fn execve(path: &const u8, argv: &const ?&const u8, envp: &const ?&const u8)
 
 pub fn dup2(old: i32, new: i32) -> usize {
     errnoWrap(c.dup2(old, new))
+}
+
+pub fn readlink(noalias path: &const u8, noalias buf_ptr: &u8, buf_len: usize) -> usize {
+    errnoWrap(c.readlink(path, buf_ptr, buf_len))
 }
 
 /// Takes the return value from a syscall and formats it back in the way

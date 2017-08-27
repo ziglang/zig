@@ -1968,7 +1968,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
                 if (buf_eql_str(&fn_table_entry->symbol_name, "main")) {
                     g->main_fn = fn_table_entry;
 
-                    if (g->libc_link_lib == nullptr && tld_fn->base.visib_mod != VisibModExport) {
+                    if (tld_fn->base.visib_mod != VisibModExport) {
                         TypeTableEntry *err_void = get_error_type(g, g->builtin_types.entry_void);
                         TypeTableEntry *actual_return_type = fn_table_entry->type_entry->data.fn.fn_type_id.return_type;
                         if (actual_return_type != err_void) {
