@@ -68,7 +68,6 @@ static int usage(const char *arg0) {
         "  -municode                    (windows) link with unicode\n"
         "  -framework [name]            (darwin) link against framework\n"
         "  -mios-version-min [ver]      (darwin) set iOS deployment target\n"
-        "  -mlinker-version [ver]       (darwin) override linker version\n"
         "  -mmacosx-version-min [ver]   (darwin) set Mac OS X deployment target\n"
         "  --ver-major [ver]            dynamic library semver major version\n"
         "  --ver-minor [ver]            dynamic library semver minor version\n"
@@ -199,7 +198,6 @@ int main(int argc, char **argv) {
     bool mwindows = false;
     bool mconsole = false;
     bool municode = false;
-    const char *mlinker_version = nullptr;
     bool rdynamic = false;
     const char *mmacosx_version_min = nullptr;
     const char *mios_version_min = nullptr;
@@ -433,8 +431,6 @@ int main(int argc, char **argv) {
                     target_os = argv[i];
                 } else if (strcmp(arg, "--target-environ") == 0) {
                     target_environ = argv[i];
-                } else if (strcmp(arg, "-mlinker-version") == 0) {
-                    mlinker_version = argv[i];
                 } else if (strcmp(arg, "-mmacosx-version-min") == 0) {
                     mmacosx_version_min = argv[i];
                 } else if (strcmp(arg, "-mios-version-min") == 0) {
@@ -632,9 +628,6 @@ int main(int argc, char **argv) {
             codegen_set_windows_subsystem(g, mwindows, mconsole);
             codegen_set_windows_unicode(g, municode);
             codegen_set_rdynamic(g, rdynamic);
-            if (mlinker_version) {
-                codegen_set_mlinker_version(g, buf_create_from_str(mlinker_version));
-            }
             if (mmacosx_version_min && mios_version_min) {
                 fprintf(stderr, "-mmacosx-version-min and -mios-version-min options not allowed together\n");
                 return EXIT_FAILURE;

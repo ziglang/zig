@@ -197,26 +197,6 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
 )
 
-set(ZIG_HOST_LINK_VERSION)
-if (APPLE)
-    set(LD_V_OUTPUT)
-    execute_process(
-        COMMAND sh -c "${CMAKE_LINKER} -v 2>&1 | head -1"
-        RESULT_VARIABLE HAD_ERROR
-        OUTPUT_VARIABLE LD_V_OUTPUT
-    )
-    if (NOT HAD_ERROR)
-        if ("${LD_V_OUTPUT}" MATCHES ".*ld64-([0-9.]+).*")
-            string(REGEX REPLACE ".*ld64-([0-9.]+).*" "\\1" ZIG_HOST_LINK_VERSION ${LD_V_OUTPUT})
-        elseif ("${LD_V_OUTPUT}" MATCHES "[^0-9]*([0-9.]+).*")
-            string(REGEX REPLACE "[^0-9]*([0-9.]+).*" "\\1" ZIG_HOST_LINK_VERSION ${LD_V_OUTPUT})
-        endif()
-    else()
-        message(FATAL_ERROR "${CMAKE_LINKER} failed with status ${HAD_ERROR}")
-    endif()
-endif()
-
-
 set(C_HEADERS_DEST "lib/zig/include")
 set(ZIG_STD_DEST "lib/zig/std")
 set(CONFIGURE_OUT_FILE "${CMAKE_BINARY_DIR}/config.h")

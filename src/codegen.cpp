@@ -108,7 +108,6 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
         g->libc_lib_dir = buf_create_from_str("");
         g->libc_static_lib_dir = buf_create_from_str("");
         g->libc_include_dir = buf_create_from_str("");
-        g->darwin_linker_version = buf_create_from_str("");
         g->each_lib_rpath = false;
     } else {
         // native compilation, we can rely on the configuration stuff
@@ -119,7 +118,6 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
         g->libc_lib_dir = buf_create_from_str(ZIG_LIBC_LIB_DIR);
         g->libc_static_lib_dir = buf_create_from_str(ZIG_LIBC_STATIC_LIB_DIR);
         g->libc_include_dir = buf_create_from_str(ZIG_LIBC_INCLUDE_DIR);
-        g->darwin_linker_version = buf_create_from_str(ZIG_HOST_LINK_VERSION);
 #ifdef ZIG_EACH_LIB_RPATH
         g->each_lib_rpath = true;
 #endif
@@ -249,10 +247,6 @@ void codegen_set_windows_subsystem(CodeGen *g, bool mwindows, bool mconsole) {
 
 void codegen_set_windows_unicode(CodeGen *g, bool municode) {
     g->windows_linker_unicode = municode;
-}
-
-void codegen_set_mlinker_version(CodeGen *g, Buf *darwin_linker_version) {
-    g->darwin_linker_version = darwin_linker_version;
 }
 
 void codegen_set_mmacosx_version_min(CodeGen *g, Buf *mmacosx_version_min) {
