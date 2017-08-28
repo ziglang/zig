@@ -1,0 +1,18 @@
+#
+#
+# RUN: lld -flavor darwin -arch x86_64 -r -test_file_usage -v \
+# RUN:        -path_exists /Custom/Frameworks \
+# RUN:        -path_exists /Custom/Frameworks/Bar.framework/Bar \
+# RUN:        -path_exists /usr/lib \
+# RUN:        -path_exists /usr/lib/libfoo.dylib \
+# RUN:        -path_exists /opt/stuff/libstuff.dylib \
+# RUN:        -F/Custom/Frameworks \
+# RUN:        -upward_framework Bar \
+# RUN:        -upward-lfoo \
+# RUN:        -upward_library /opt/stuff/libstuff.dylib \
+# RUN: 2>&1 | FileCheck %s
+
+# CHECK: Found upward framework /Custom/Frameworks/Bar.framework/Bar
+# CHECK: Found upward library /usr/lib/libfoo.dylib
+
+

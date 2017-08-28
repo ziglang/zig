@@ -784,10 +784,27 @@ pub const LibExeObjStep = struct {
                 if (self.static) {
                     self.out_filename = self.builder.fmt("lib{}.a", self.name);
                 } else {
-                    self.out_filename = self.builder.fmt("lib{}.so.{d}.{d}.{d}",
-                        self.name, self.version.major, self.version.minor, self.version.patch);
-                    self.major_only_filename = self.builder.fmt("lib{}.so.{d}", self.name, self.version.major);
-                    self.name_only_filename = self.builder.fmt("lib{}.so", self.name);
+                    const target_os = switch (self.target) {
+                        Target.Native => builtin.os,
+                        Target.Cross => |t| t.os,
+                    };
+                    switch (target_os) {
+                        builtin.Os.darwin, builtin.Os.ios, builtin.Os.macosx => {
+                            self.out_filename = self.builder.fmt("lib{}.dylib.{d}.{d}.{d}",
+                                self.name, self.version.major, self.version.minor, self.version.patch);
+                            self.major_only_filename = self.builder.fmt("lib{}.dylib.{d}", self.name, self.version.major);
+                            self.name_only_filename = self.builder.fmt("lib{}.dylib", self.name);
+                        },
+                        builtin.Os.windows => {
+                            self.out_filename = self.builder.fmt("lib{}.dll", self.name);
+                        },
+                        else => {
+                            self.out_filename = self.builder.fmt("lib{}.so.{d}.{d}.{d}",
+                                self.name, self.version.major, self.version.minor, self.version.patch);
+                            self.major_only_filename = self.builder.fmt("lib{}.so.{d}", self.name, self.version.major);
+                            self.name_only_filename = self.builder.fmt("lib{}.so", self.name);
+                        },
+                    }
                 }
             },
         }
@@ -1124,6 +1141,7 @@ pub const CLibExeObjStep = struct {
     kind: Kind,
     build_mode: builtin.Mode,
     strip: bool,
+    need_flat_namespace_hack: bool,
 
     const Kind = enum {
         Exe,
@@ -1178,6 +1196,7 @@ pub const CLibExeObjStep = struct {
             .object_src = undefined,
             .build_mode = builtin.Mode.Debug,
             .strip = false,
+            .need_flat_namespace_hack = false,
         };
         clib.computeOutFileNames();
         return clib;
@@ -1223,6 +1242,7 @@ pub const CLibExeObjStep = struct {
         %%self.full_path_libs.append(lib.getOutputPath());
         // TODO should be some kind of isolated directory that only has this header in it
         %%self.include_dirs.append(self.builder.cache_root);
+        self.need_flat_namespace_hack = true;
     }
 
     pub fn linkSystemLibrary(self: &CLibExeObjStep, name: []const u8) {
@@ -1447,6 +1467,20 @@ pub const CLibExeObjStep = struct {
                 %%cc_args.append(rpath_arg);
 
                 %%cc_args.append("-rdynamic");
+
+                const target_os = switch (self.target) {
+                    Target.Native => builtin.os,
+                    Target.Cross => |t| t.os,
+                };
+                switch (target_os) {
+                    builtin.Os.darwin, builtin.Os.ios, builtin.Os.macosx => {
+                        if (self.need_flat_namespace_hack) {
+                            %%cc_args.append("-Wl,-flat_namespace");
+                        }
+                        %%cc_args.append("-Wl,-search_paths_first");
+                    },
+                    else => {}
+                }
 
                 for (self.full_path_libs.toSliceConst()) |full_path_lib| {
                     %%cc_args.append(builder.pathFromRoot(full_path_lib));

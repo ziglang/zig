@@ -1,0 +1,54 @@
+## Different "echo" commands on Windows interpret quoted strings and
+## wildcards in similar but different way (On Windows, ARGV tokenization
+## and wildcard expansion are not done by the shell but by each command.)
+## Because of that reason, this test fails on some Windows environment.
+## We can't write quoted strings that are interpreted the same way
+## by all echo commands. So, we don't want to run this on Windows.
+
+# REQUIRES: shell
+
+# RUN: mkdir -p %t.dir
+
+## Note that we are using "cannot open no-such-file: " as a marker that the
+## linker keep going when it found an error. That specific error message is not
+## related to the linker script tests.
+
+# RUN: echo foobar > %t1
+# RUN: not ld.lld %t1 no-such-file 2>&1 | FileCheck -check-prefix=ERR1 %s
+# ERR1: unexpected EOF
+# ERR1: cannot open no-such-file:
+
+# RUN: echo "foo \"bar" > %t2
+# RUN: not ld.lld %t2 no-such-file 2>&1 | FileCheck -check-prefix=ERR2 %s
+# ERR2: unclosed quote
+# ERR2: cannot open no-such-file:
+
+# RUN: echo "/*" > %t3
+# RUN: not ld.lld %t3 no-such-file 2>&1 | FileCheck -check-prefix=ERR3 %s
+# ERR3: unclosed comment
+# ERR3: cannot open no-such-file:
+
+# RUN: echo "EXTERN (" > %t4
+# RUN: not ld.lld %t4 no-such-file 2>&1 | FileCheck -check-prefix=ERR4 %s
+# ERR4: unexpected EOF
+# ERR4: cannot open no-such-file:
+
+# RUN: echo "EXTERN (" > %t5
+# RUN: not ld.lld %t5 no-such-file 2>&1 | FileCheck -check-prefix=ERR5 %s
+# ERR5: unexpected EOF
+# ERR5: cannot open no-such-file:
+
+# RUN: echo "EXTERN xyz" > %t6
+# RUN: not ld.lld %t6 no-such-file 2>&1 | FileCheck -check-prefix=ERR6 %s
+# ERR6: ( expected, but got xyz
+# ERR6: cannot open no-such-file:
+
+# RUN: echo "INCLUDE /no/such/file" > %t7
+# RUN: not ld.lld %t7 no-such-file 2>&1 | FileCheck -check-prefix=ERR7 %s
+# ERR7: cannot open /no/such/file
+# ERR7: cannot open no-such-file:
+
+# RUN: echo "OUTPUT_FORMAT(x y z)" > %t8
+# RUN: not ld.lld %t8 no-such-file 2>&1 | FileCheck -check-prefix=ERR8 %s
+# ERR8: , expected, but got y
+# ERR8: cannot open no-such-file:

@@ -325,6 +325,10 @@ static void construct_linker_job_elf(LinkJob *lj) {
         lj->args.append(get_libc_static_file(g, "crtend.o"));
         lj->args.append(get_libc_file(g, "crtn.o"));
     }
+
+    if (!g->is_native_target) {
+        lj->args.append("--allow-shlib-undefined");
+    }
 }
 
 static bool is_target_cyg_mingw(const ZigTarget *target) {
@@ -437,12 +441,26 @@ static void construct_linker_job_coff(LinkJob *lj) {
         }
     }
     if (buf_len(def_contents) != 0) {
-        Buf *dll_path = buf_alloc();
-        os_path_join(g->cache_dir, buf_create_from_str("all.dll"), dll_path);
-        ZigLLDDefToLib(def_contents, dll_path);
+        Buf *def_path = buf_alloc();
+        os_path_join(g->cache_dir, buf_create_from_str("all.def"), def_path);
+        os_write_file(def_path, def_contents);
 
         Buf *all_lib_path = buf_alloc();
         os_path_join(g->cache_dir, buf_create_from_str("all.lib"), all_lib_path);
+
+        //Buf *dll_path = buf_alloc();
+        //os_path_join(g->cache_dir, buf_create_from_str("all.dll"), dll_path);
+
+        ZigList<const char *> args = {0};
+        args.append("link");
+        args.append(buf_ptr(buf_sprintf("-DEF:%s", buf_ptr(def_path))));
+        args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(all_lib_path))));
+        Buf diag = BUF_INIT;
+        if (!ZigLLDLink(g->zig_target.oformat, args.items, args.length, &diag)) {
+            fprintf(stderr, "%s\n", buf_ptr(&diag));
+            exit(1);
+        }
+
         lj->args.append(buf_ptr(all_lib_path));
     }
 
@@ -556,7 +574,7 @@ static void get_darwin_platform(LinkJob *lj, DarwinPlatform *platform) {
     } else if (g->mios_version_min) {
         platform->kind = IPhoneOS;
     } else {
-        zig_panic("unable to infer -macosx-version-min or -mios-version-min");
+        zig_panic("unable to infer -mmacosx-version-min or -mios-version-min");
     }
 
     bool had_extra;
@@ -616,7 +634,29 @@ static void construct_linker_job_macho(LinkJob *lj) {
     }
 
     if (is_lib) {
-        zig_panic("TODO linker args on darwin for making a library");
+        if (!g->is_static) {
+            lj->args.append("-dylib");
+
+            Buf *compat_vers = buf_sprintf("%" ZIG_PRI_usize ".0.0", g->version_major);
+            lj->args.append("-compatibility_version");
+            lj->args.append(buf_ptr(compat_vers));
+
+            Buf *cur_vers = buf_sprintf("%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize,
+                g->version_major, g->version_minor, g->version_patch);
+            lj->args.append("-current_version");
+            lj->args.append(buf_ptr(cur_vers));
+
+            // TODO getting an error when running an executable when doing this rpath thing
+            //Buf *dylib_install_name = buf_sprintf("@rpath/lib%s.%" ZIG_PRI_usize ".dylib",
+            //    buf_ptr(g->root_out_name), g->version_major);
+            //lj->args.append("-install_name");
+            //lj->args.append(buf_ptr(dylib_install_name));
+
+            if (buf_len(&lj->out_file) == 0) {
+                buf_appendf(&lj->out_file, "lib%s.%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".%" ZIG_PRI_usize ".dylib",
+                    buf_ptr(g->root_out_name), g->version_major, g->version_minor, g->version_patch);
+            }
+        }
     }
 
     lj->args.append("-arch");
@@ -649,8 +689,14 @@ static void construct_linker_job_macho(LinkJob *lj) {
     lj->args.append("-o");
     lj->args.append(buf_ptr(&lj->out_file));
 
+    for (size_t i = 0; i < g->rpath_list.length; i += 1) {
+        Buf *rpath = g->rpath_list.at(i);
+        add_rpath(lj, rpath);
+    }
+    add_rpath(lj, &lj->out_file);
+
     if (shared) {
-        zig_panic("TODO");
+        lj->args.append("-headerpad_max_install_names");
     } else if (g->is_static) {
         lj->args.append("-lcrt0.o");
     } else {
@@ -689,20 +735,30 @@ static void construct_linker_job_macho(LinkJob *lj) {
         lj->args.append((const char *)buf_ptr(g->link_objects.at(i)));
     }
 
-    for (size_t i = 0; i < g->link_libs_list.length; i += 1) {
-        LinkLib *link_lib = g->link_libs_list.at(i);
-        if (buf_eql_str(link_lib->name, "c")) {
-            continue;
-        }
-        Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
-        lj->args.append(buf_ptr(arg));
+    // compiler_rt on darwin is missing some stuff, so we still build it and rely on LinkOnce
+    if (g->out_type == OutTypeExe || g->out_type == OutTypeLib) {
+        Buf *compiler_rt_o_path = build_compiler_rt(g);
+        lj->args.append(buf_ptr(compiler_rt_o_path));
     }
 
-    // on Darwin, libSystem has libc in it, but also you have to use it
-    // to make syscalls because the syscall numbers are not documented
-    // and change between versions.
-    // so we always link against libSystem
-    lj->args.append("-lSystem");
+    if (g->is_native_target) {
+        for (size_t lib_i = 0; lib_i < g->link_libs_list.length; lib_i += 1) {
+            LinkLib *link_lib = g->link_libs_list.at(lib_i);
+            if (buf_eql_str(link_lib->name, "c")) {
+                // on Darwin, libSystem has libc in it, but also you have to use it
+                // to make syscalls because the syscall numbers are not documented
+                // and change between versions.
+                // so we always link against libSystem
+                lj->args.append("-lSystem");
+            } else {
+                Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
+                lj->args.append(buf_ptr(arg));
+            }
+        }
+    } else {
+        lj->args.append("-undefined");
+        lj->args.append("dynamic_lookup");
+    }
 
     if (platform.kind == MacOS) {
         if (darwin_version_lt(&platform, 10, 5)) {
@@ -732,6 +788,8 @@ static void construct_linker_job(LinkJob *lj) {
             return construct_linker_job_elf(lj);
         case ZigLLVM_MachO:
             return construct_linker_job_macho(lj);
+        case ZigLLVM_Wasm:
+            zig_panic("TODO link wasm");
     }
 }
 

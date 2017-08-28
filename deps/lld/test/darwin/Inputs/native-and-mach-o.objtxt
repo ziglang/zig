@@ -1,0 +1,17 @@
+--- !mach-o
+arch:         x86_64
+file-type:    MH_OBJECT
+sections:
+ - segment:     __TEXT
+   section:     __text
+   type:        S_REGULAR
+   attributes:  [ S_ATTR_PURE_INSTRUCTIONS ]
+   address:     0
+   content:     [ 0xC3 ]
+global-symbols:
+ - name:        _foo
+   type:        N_SECT
+   scope:       [ N_EXT ]
+   sect:        1
+   desc:        [ ]
+   value:       0

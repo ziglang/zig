@@ -1995,7 +1995,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
                 if (buf_eql_str(&fn_table_entry->symbol_name, "main")) {
                     g->main_fn = fn_table_entry;
 
-                    if (g->libc_link_lib == nullptr && tld_fn->base.visib_mod != VisibModExport) {
+                    if (tld_fn->base.visib_mod != VisibModExport) {
                         TypeTableEntry *err_void = get_error_type(g, g->builtin_types.entry_void);
                         TypeTableEntry *actual_return_type = fn_table_entry->type_entry->data.fn.fn_type_id.return_type;
                         if (actual_return_type != err_void) {
@@ -2918,6 +2918,10 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
 }
 
 static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *dst_use_node) {
+    if (src_use_node->data.use.resolution == TldResolutionUnresolved) {
+        preview_use_decl(g, src_use_node);
+    }
+
     IrInstruction *use_target_value = src_use_node->data.use.value;
     if (use_target_value->value.type->id == TypeTableEntryIdInvalid) {
         dst_use_node->owner->any_imports_failed = true;

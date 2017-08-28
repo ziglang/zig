@@ -1,0 +1,13 @@
+# RUN: yaml2obj < %p/Inputs/ret42.yaml > %t.obj
+
+# RUN: echo -e "LIBRARY foo\nEXPORTS ? @" > %t.def
+# RUN: not lld-link /def:%t.def %t.obj
+
+# RUN: echo -e "LIBRARY foo\nHEAP abc" > %t.def
+# RUN: not lld-link /def:%t.def %t.obj
+
+# RUN: echo -e "LIBRARY foo\nSTACK abc" > %t.def
+# RUN: not lld-link /def:%t.def %t.obj
+
+# RUN: echo -e "foo" > %t.def
+# RUN: not lld-link /def:%t.def %t.obj

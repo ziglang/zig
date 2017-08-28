@@ -1,0 +1,21 @@
+# RUN: lld -flavor darwin -arch x86_64 -r -test_file_usage -v \
+# RUN:        -path_exists /usr/lib \
+# RUN:        -path_exists /usr/local/lib \
+# RUN:        -path_exists /usr/lib/libSystem.dylib \
+# RUN:        -path_exists hasFoo \
+# RUN:        -path_exists hasFoo/libFoo.dylib \
+# RUN:        -path_exists /hasBar \
+# RUN:        -path_exists /hasBar/libBar.dylib \
+# RUN:        -L hasFoo \
+# RUN:        -L /hasBar \
+# RUN:        -lSystem -lFoo -lBar \
+# RUN: 2>&1 | FileCheck %s
+
+# CHECK: Library search paths:
+# CHECK:     hasFoo
+# CHECK:     /hasBar
+# CHECK:     /usr/lib
+# CHECK:     /usr/local/lib
+# CHECK: Found library /usr/lib/libSystem.dylib
+# CHECK: Found library hasFoo/libFoo.dylib
+# CHECK: Found library /hasBar/libBar.dylib

@@ -1,0 +1,165 @@
+# RUN: lld -flavor darwin -arch x86_64 %s %p/Inputs/write-final-sections.yaml \
+# RUN: -o %t -e _foo
+# RUN: llvm-readobj -sections -section-data %t | FileCheck %s
+
+--- !native
+defined-atoms:
+# For __TEXT, __text (with typeCode)
+  - name:            _foo
+    scope:           global
+    content:         [ 55 ]
+# CHECK: Name: __text
+# CHECK: Segment: __TEXT
+# CHECK: SectionData (
+# CHECK-NEXT: 0000: 55
+# CHECK-NEXT: )
+
+#  For __TEXT, __const (with typeConstant),
+  - type:            constant
+    content:         [ 01, 00, 00, 00 ]
+#  From __TEXT, __literal4, (with typeLiteral4)
+  - scope:           hidden
+    type:            const-4-byte
+    content:         [ 02, 00, 00, 00 ]
+#  From __TEXT, __literal8, (with typeLiteral8)
+  - scope:           hidden
+    type:            const-8-byte
+    content:         [ 03, 00, 00, 00, 00, 00, 00, 00 ]
+#  From __TEXT, __literal16, (with typeLiteral16)
+  - scope:           hidden
+    type:            const-16-byte
+    content:         [ 04, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00 ]
+# CHECK: Name: __const
+# CHECK: Segment: __TEXT
+# CHECK: SectionData (
+# CHECK-NEXT: 0000: 01000000 02000000 03000000 00000000
+# CHECK-NEXT: 0010: 04000000 00000000 00000000 00000000
+# CHECK-NEXT: )
+
+# For __TEXT, __cstring (with typeCString)
+  - scope:           hidden
+    type:            c-string
+    content:         [ 57, 69, 62, 62, 6C, 65, 00 ]
+    merge:           by-content
+# CHECK: Name: __cstring
+# CHECK: Segment: __TEXT
+# CHECK: SectionData (
+# CHECK-NEXT: 0000: 57696262 6C6500
+# CHECK-NEXT: )
+
+# For __TEXT, __ustring (with typeUTF16String)
+  - scope:           hidden
+    type:            utf16-string
+    content:         [ 05, 00 ]
+    merge:           by-content
+# CHECK: Name: __ustring
+# CHECK: Segment: __TEXT
+# CHECK: SectionData (
+# CHECK-NEXT: 0000: 0500
+# CHECK-NEXT: )
+
+#  For __TEXT, __gcc_except_tab, (with typeLSDA)
+  - name:            GCC_except_table0
+    type:            unwind-lsda
+    content:         [ 06, 00 ]
+# CHECK: Name: __gcc_except_tab
+# CHECK: Segment: __TEXT
+# CHECK: SectionData (
+# CHECK-NEXT: 0000: 0600
+# CHECK-NEXT: )
+
+#  For __TEXT, __eh_frame, (with typeCFI)
+  - name:            LCIE
+    type:            unwind-cfi
+    content:         [ 14, 00, 00, 00, 00, 00, 00, 00, 01, 7A, 52, 00,
+                       01, 78, 10, 01, 10, 0C, 07, 08, 90, 01, 00, 00 ]
+
+  - type:            unwind-cfi
+    content:         [ 24, 00, 00, 00, 1C, 00, 00, 00, C8, FE, FF, FF,
+                       FF, FF, FF, FF, 01, 00, 00, 00, 00, 00, 00, 00,
+                       00, 41, 0E, 10, 86, 02, 43, 0D, 06, 00, 00, 00,
+                       00, 00, 00, 00 ]
+    references:
+      - kind:            unwindFDEToFunction
+        offset:          8
+        target:          _foo
+      - kind:            negDelta32
+        offset:          4
+        target:          LCIE
+
+# CHECK: Name: __eh_frame
+# CHECK: Segment: __TEXT
+# CHECK: SectionData (
+# CHECK-NEXT:      0000: 14000000 00000000 017A5200 01781001
+# CHECK-NEXT:      0010: 100C0708 90010000 24000000 1C000000
+# CHECK-NEXT:      0020: 70FFFFFF FFFFFFFF 01000000 00000000
+# CHECK-NEXT:      0030: 00410E10 8602430D 06000000 00000000
+# CHECK-NEXT: )
+
+#  For __DATA, __data, (with typeData)
+  - name:            var
+    type:            data
+    content:         [ 08 ]
+# CHECK: Name: __data
+# CHECK: Segment: __DATA
+# CHECK: SectionData (
+# CHECK-NEXT: 0000: 08
+# CHECK-NEXT: )
+
+#  For __DATA, __bss (with typeZeroFill)
+# FIXME: Attributes & tags of __bss are mostly broken. Should be at end of
+#        __DATA, should have size, should have S_ZEROFILL flag.
+  - type:            zero-fill
+    size:            8
+# CHECK: Name: __bss
+# CHECK: Segment: __DATA
+
+#  For __DATA, __const, (with typeConstData)
+  - type:            const-data
+    content:         [ 09, 00, 00, 00 ]
+# CHECK: Name: __const
+# CHECK: Segment: __DATA
+# CHECK: SectionData (
+# CHECK-NEXT: 0000: 09000000
+# CHECK-NEXT: )
+
+#  For __DATA, __cfstring, (with typeCFString)
+  - type:            cfstring
+    content:         [ 0A, 00 ]
+# CHECK: Name: __cfstring
+# CHECK: Segment: __DATA
+# CHECK: SectionData (
+# CHECK-NEXT: 0000: 0A00
+# CHECK-NEXT: )
+
+#  For __DATA, __got (with typeGOT)
+  - type:            got
+    content:         [ 0B, 00, 00, 00, 00, 00, 00, 00 ]
+# CHECK: Name: __got
+# CHECK: Segment: __DATA
+# CHECK: SectionData (
+# CHECK-NEXT: 0000: 0B000000 00000000
+# CHECK-NEXT: )
+
+
+#  For __DATA, __mod_init_func (with typeInitializerPtr)
+  - type:            initializer-pointer
+    content:         [ 0C, 00, 00, 00, 00, 00, 00, 00 ]
+# CHECK: Name: __mod_init_func
+# CHECK: Segment: __DATA
+# CHECK: SectionData (
+# CHECK-NEXT: 0000: 0C000000 00000000
+# CHECK-NEXT: )
+
+#  For __DATA, __mod_term_func (with typeTerminatorPointer)
+  - type:            terminator-pointer
+    content:         [ 0D, 00, 00, 00, 00, 00, 00, 00 ]
+# CHECK: Name: __mod_term_func
+# CHECK: Segment: __DATA
+# CHECK: SectionData (
+# CHECK-NEXT: 0000: 0D000000 00000000
+# CHECK-NEXT: )
+
+  - type:            compact-unwind
+    content:         [ 0E, 00, 00, 00, 00, 00, 00, 00 ]
+# CHECK-NOT: Name: __compact_unwind

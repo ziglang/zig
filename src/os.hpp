@@ -27,8 +27,8 @@ struct Termination {
     int code;
 };
 
+int os_init(void);
 
-void os_init(void);
 void os_spawn_process(const char *exe, ZigList<const char *> &args, Termination *term);
 int os_exec_process(const char *exe, ZigList<const char *> &args,
         Termination *term, Buf *out_stderr, Buf *out_stdout);

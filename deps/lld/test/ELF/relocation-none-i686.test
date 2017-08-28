@@ -1,0 +1,23 @@
+# RUN: yaml2obj %s -o %t.o
+# RUN: ld.lld %t.o -o %t.out
+
+# Test that we can handle R_386_NONE.
+
+!ELF
+FileHeader:
+  Class:           ELFCLASS32
+  Data:            ELFDATA2LSB
+  Type:            ET_REL
+  Machine:         EM_386
+Sections:
+  - Name:            .text
+    Type:            SHT_PROGBITS
+    Flags:           [ SHF_ALLOC ]
+  - Name:            .rel.text
+    Type:            SHT_RELA
+    Link:            .symtab
+    Info:            .text
+    Relocations:
+      - Offset:          0x0000000000000000
+        Symbol:          ''
+        Type:            R_386_NONE

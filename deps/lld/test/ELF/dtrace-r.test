@@ -1,0 +1,8 @@
+RUN: ld.lld -r -o %t.o %p/Inputs/dtrace-r.o
+RUN: llvm-readobj -r %t.o | FileCheck %s
+
+CHECK:      Relocations [
+CHECK-NEXT:   Section ({{.*}}) .rela.text {
+CHECK-NEXT:     0x0 R_X86_64_NONE - 0x0
+CHECK-NEXT:   }
+CHECK-NEXT: ]

@@ -1,0 +1,147 @@
+---
+MSF:
+  SuperBlock:
+    BlockSize:       4096
+    FreeBlockMap:    1
+    NumBlocks:       19
+    NumDirectoryBytes: 64
+    Unknown1:        0
+    BlockMapAddr:    17
+  NumDirectoryBlocks: 1
+  DirectoryBlocks: [ 16 ]
+  NumStreams:      0
+  FileSize:        77824
+PdbStream:
+  Age:             1
+  Guid:            '{41414141-4141-4141-4141-414141414141}'
+  Signature:       1500053944
+  Features:        [ VC140 ]
+  Version:         VC70
+TpiStream:
+  Version:         VC80
+  Records:
+    - Kind:            LF_STRUCTURE
+      Class:
+        MemberCount:     0
+        Options:         [ None, ForwardReference, HasUniqueName ]
+        FieldList:       0
+        Name:            Foo
+        UniqueName:      '.?AUFoo@@'
+        DerivationList:  0
+        VTableShape:     0
+        Size:            0
+    - Kind:            LF_POINTER
+      Pointer:
+        ReferentType:    4096
+        Attrs:           65548
+    - Kind:            LF_ARGLIST
+      ArgList:
+        ArgIndices:      [ 4097 ]
+    - Kind:            LF_PROCEDURE
+      Procedure:
+        ReturnType:      116
+        CallConv:        NearC
+        Options:         [ None ]
+        ParameterCount:  1
+        ArgumentList:    4098
+    - Kind:            LF_POINTER
+      Pointer:
+        ReferentType:    4099
+        Attrs:           65548
+    - Kind:            LF_FIELDLIST
+      FieldList:
+        - Kind:            LF_MEMBER
+          DataMember:
+            Attrs:           3
+            Type:            116
+            FieldOffset:     0
+            Name:            x
+    - Kind:            LF_STRUCTURE
+      Class:
+        MemberCount:     1
+        Options:         [ None, HasUniqueName ]
+        FieldList:       4101
+        Name:            Foo
+        UniqueName:      '.?AUFoo@@'
+        DerivationList:  0
+        VTableShape:     0
+        Size:            4
+    - Kind:            LF_ARGLIST
+      ArgList:
+        ArgIndices:      [ 0 ]
+    - Kind:            LF_PROCEDURE
+      Procedure:
+        ReturnType:      116
+        CallConv:        NearC
+        Options:         [ None ]
+        ParameterCount:  0
+        ArgumentList:    4103
+IpiStream:
+  Version:         VC80
+  Records:
+    - Kind:            LF_STRING_ID
+      StringId:
+        Id:              0
+        String:          'c:\src\llvm-project\build\a.c'
+    - Kind:            LF_UDT_SRC_LINE
+      UdtSourceLine:
+        UDT:             4102
+        SourceFile:      4096
+        LineNumber:      1
+    - Kind:            LF_FUNC_ID
+      FuncId:
+        ParentScope:     0
+        FunctionType:    4104
+        Name:            main
+    - Kind:            LF_FUNC_ID
+      FuncId:
+        ParentScope:     0
+        FunctionType:    4099
+        Name:            g
+    - Kind:            LF_STRING_ID
+      StringId:
+        Id:              0
+        String:          'C:\src\llvm-project\build'
+    - Kind:            LF_STRING_ID
+      StringId:
+        Id:              0
+        String:          'C:\PROGRA~2\MICROS~1.0\VC\Bin\amd64\cl.exe'
+    - Kind:            LF_STRING_ID
+      StringId:
+        Id:              0
+        String:          '-c -Zi -MT -IC:\PROGRA~2\MICROS~1.0\VC\include -IC:\PROGRA~2\MICROS~1.0\VC\atlmfc\include -IC:\PROGRA~2\WI3CF2~1\10\include\10.0.14393.0\ucrt -IC:\PROGRA~2\WI3CF2~1\10\include\10.0.14393.0\shared -IC:\PROGRA~2\WI3CF2~1\10\include\10.0.14393.0\um'
+    - Kind:            LF_SUBSTR_LIST
+      StringList:
+        StringIndices:   [ 4102 ]
+    - Kind:            LF_STRING_ID
+      StringId:
+        Id:              4103
+        String:          ' -IC:\PROGRA~2\WI3CF2~1\10\include\10.0.14393.0\winrt -TC -X'
+    - Kind:            LF_STRING_ID
+      StringId:
+        Id:              0
+        String:          a.c
+    - Kind:            LF_STRING_ID
+      StringId:
+        Id:              0
+        String:          'C:\src\llvm-project\build\ts.pdb'
+    - Kind:            LF_BUILDINFO
+      BuildInfo:
+        ArgIndices:      [ 4100, 4101, 4105, 4106, 4104 ]
+    - Kind:            LF_STRING_ID
+      StringId:
+        Id:              0
+        String:          'c:\src\llvm-project\build\b.c'
+    - Kind:            LF_UDT_SRC_LINE
+      UdtSourceLine:
+        UDT:             4102
+        SourceFile:      4108
+        LineNumber:      1
+    - Kind:            LF_STRING_ID
+      StringId:
+        Id:              0
+        String:          b.c
+    - Kind:            LF_BUILDINFO
+      BuildInfo:
+        ArgIndices:      [ 4100, 4101, 4110, 4106, 4104 ]
+...

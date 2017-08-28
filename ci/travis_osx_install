@@ -1,0 +1,19 @@
+#!/bin/sh
+
+set -x
+
+brew install gcc@7
+brew outdated gcc@7 || brew upgrade gcc@7
+brew link --overwrite gcc@7
+
+SRC_DIR=$(pwd)
+PREFIX_DIR=$HOME/local/llvm5
+export CC=/usr/local/opt/gcc/bin/gcc-7
+export CXX=/usr/local/opt/gcc/bin/g++-7
+
+mkdir -p $HOME/local
+cd $HOME/local
+wget http://s3.amazonaws.com/superjoe/temp/llvm5.tar.xz
+tar xfp llvm5.tar.xz
+
+cd $SRC_DIR

@@ -1,0 +1,244 @@
+# RUN: lld -flavor darwin -arch arm64 -r -print_atoms %s -o %t | FileCheck %s
+# RUN: lld -flavor darwin -arch arm64 -r -print_atoms %t -o %t2 | FileCheck %s
+#
+# Test parsing and writing of arm64 data relocations.
+#
+# The first step tests if the supplied mach-o file is parsed into the correct
+# set of references.  The second step verifies relocations can be round-tripped
+# by writing to a new .o file, then parsing that file which should result in
+# the same references.
+#
+#_test:
+
+
+--- !mach-o
+arch:            arm64
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    alignment:       4
+    address:         0x0000000000000000
+    content:         [ 0xC0, 0x03, 0x5F, 0xD6 ]
+  - segment:         __DATA
+    section:         __data
+    type:            S_REGULAR
+    attributes:      [  ]
+    address:         0x0000000000000004
+    content:         [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0xE0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                       0xDC, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                       0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0xC0, 0xFF, 0xFF, 0xFF, 0xBE, 0xFF, 0xFF, 0xFF,
+                       0xB0, 0xFF, 0xFF, 0xFF ]
+    relocations:
+      - offset:          0x00000050
+        type:            ARM64_RELOC_POINTER_TO_GOT
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          2
+      - offset:          0x0000004C
+        type:            ARM64_RELOC_SUBTRACTOR
+        length:          2
+        pc-rel:          false
+        extern:          true
+        symbol:          2
+      - offset:          0x0000004C
+        type:            ARM64_RELOC_UNSIGNED
+        length:          2
+        pc-rel:          false
+        extern:          true
+        symbol:          2
+      - offset:          0x00000048
+        type:            ARM64_RELOC_SUBTRACTOR
+        length:          2
+        pc-rel:          false
+        extern:          true
+        symbol:          2
+      - offset:          0x00000048
+        type:            ARM64_RELOC_UNSIGNED
+        length:          2
+        pc-rel:          false
+        extern:          true
+        symbol:          2
+      - offset:          0x00000040
+        type:            ARM64_RELOC_UNSIGNED
+        length:          3
+        pc-rel:          false
+        extern:          true
+        symbol:          2
+      - offset:          0x00000038
+        type:            ARM64_RELOC_UNSIGNED
+        length:          3
+        pc-rel:          false
+        extern:          false
+        symbol:          2
+      - offset:          0x00000030
+        type:            ARM64_RELOC_SUBTRACTOR
+        length:          3
+        pc-rel:          false
+        extern:          true
+        symbol:          2
+      - offset:          0x00000030
+        type:            ARM64_RELOC_UNSIGNED
+        length:          3
+        pc-rel:          false
+        extern:          true
+        symbol:          2
+      - offset:          0x00000028
+        type:            ARM64_RELOC_SUBTRACTOR
+        length:          3
+        pc-rel:          false
+        extern:          true
+        symbol:          2
+      - offset:          0x00000028
+        type:            ARM64_RELOC_UNSIGNED
+        length:          3
+        pc-rel:          false
+        extern:          true
+        symbol:          2
+      - offset:          0x00000020
+        type:            ARM64_RELOC_SUBTRACTOR
+        length:          3
+        pc-rel:          false
+        extern:          true
+        symbol:          2
+      - offset:          0x00000020
+        type:            ARM64_RELOC_UNSIGNED
+        length:          3
+        pc-rel:          false
+        extern:          true
+        symbol:          2
+      - offset:          0x00000018
+        type:            ARM64_RELOC_POINTER_TO_GOT
+        length:          3
+        pc-rel:          false
+        extern:          true
+        symbol:          2
+      - offset:          0x00000010
+        type:            ARM64_RELOC_UNSIGNED
+        length:          3
+        pc-rel:          false
+        extern:          true
+        symbol:          2
+      - offset:          0x00000008
+        type:            ARM64_RELOC_UNSIGNED
+        length:          3
+        pc-rel:          false
+        extern:          true
+        symbol:          2
+local-symbols:
+  - name:            _v1
+    type:            N_SECT
+    sect:            2
+    value:           0x000000000000000C
+global-symbols:
+  - name:            _bar
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+undefined-symbols:
+  - name:            _foo
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+page-size:       0x00000000
+...
+
+# CHECK: defined-atoms:
+# CHECK:   - ref-name:        L000
+# CHECK:     type:            data
+# CHECK:     content:         [ 00, 00, 00, 00, 00, 00, 00, 00 ]
+# CHECK:   - name:            _v1
+# CHECK:     type:            data
+# CHECK:     content:         [ 00, 00, 00, 00, 00, 00, 00, 00, 08, 00, 00, 00,
+# CHECK:                        00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00, 00,
+# CHECK:                        00, 00, 00, 00, 00, 00, 00, 00, E0, FF, FF, FF,
+# CHECK:                        FF, FF, FF, FF, DC, FF, FF, FF, FF, FF, FF, FF,
+# CHECK:                        {{..}}, {{..}}, 00, 00, 00, 00, 00, 00, 04, 00, 00, 00,
+# CHECK:                        00, 00, 00, 00, C0, FF, FF, FF, BE, FF, FF, FF,
+# CHECK:                        {{B0|B8}}, {{..}}, FF, FF ]
+# CHECK:     references:
+# CHECK:       - kind:            pointer64
+# CHECK:         offset:          0
+# CHECK:         target:          _foo
+# CHECK-NOT:     addend:
+# CHECK:       - kind:            pointer64
+# CHECK:         offset:          8
+# CHECK:         target:          _foo
+# CHECK:         addend:          8
+# CHECK:       - kind:            pointer64ToGOT
+# CHECK:         offset:          16
+# CHECK:         target:          _foo
+# CHECK-NOT:     addend:
+# CHECK:       - kind:            delta64
+# CHECK:         offset:          24
+# CHECK:         target:          _foo
+# CHECK:         addend:          24
+# CHECK:       - kind:            delta64
+# CHECK:         offset:          32
+# CHECK:         target:          _foo
+# CHECK-NOT:     addend:
+# CHECK:       - kind:            delta64
+# CHECK:         offset:          40
+# CHECK:         target:          _foo
+# CHECK:         addend:          4
+# CHECK:       - kind:            pointer64
+# CHECK:         offset:          48
+# CHECK:         target:          L000
+# CHECK-NOT:     addend:
+# CHECK:       - kind:            pointer64
+# CHECK:         offset:          56
+# CHECK:         target:          _foo
+# CHECK:         addend:          4
+# CHECK:       - kind:            delta32
+# CHECK:         offset:          64
+# CHECK:         target:          _foo
+# CHECK-NOT:     addend:
+# CHECK:       - kind:            delta32
+# CHECK:         offset:          68
+# CHECK:         target:          _foo
+# CHECK:         addend:          2
+# CHECK:       - kind:            delta32ToGOT
+# CHECK:         offset:          72
+# CHECK:         target:          _foo
+# CHECK-NOT:     addend:
+# CHECK:  - name:            _bar
+# CHECK:    scope:           global
+# CHECK:    content:         [ C0, 03, 5F, D6 ]
+# CHECK:    alignment:       4
+# CHECK: undefined-atoms:
+# CHECK:   - name:            _foo
+
+# .subsections_via_symbols
+# .text
+# .globl_foo
+# .align2
+# _foo:
+# ret
+#  .data
+#Lanon:
+#  .quad     0
+#_v1:
+# .quad   _foo
+# .quad   _foo + 8
+#  .quad   _foo@GOT
+#  .quad   _foo + 24 - .
+#  .quad   _foo - .
+#  .quad   _foo + 4 - .
+#  .quad   Lanon
+#  .quad   Lanon + 4
+#  .long   _foo - .
+#  .long   _foo +2 - .
+# .long   _foo@GOT - .
+

@@ -1,0 +1,26 @@
+# RUN: rm -rf %t
+# RUN: mkdir -p %t
+# RUN: cd %t
+# RUN: yaml2obj < %p/Inputs/ret42.yaml > in.obj
+
+# RUN: lld-link /entry:main in.obj
+# RUN: lld-link /entry:main /dll in.obj
+
+# RUN: echo -e "NAME foo\n" > fooexe.def
+# RUN: echo -e "LIBRARY foo\n" > foodll.def
+# RUN: lld-link /entry:main /def:fooexe.def in.obj
+# RUN: lld-link /entry:main /def:foodll.def /dll in.obj
+
+# RUN: lld-link /entry:main /out:bar.exe /def:fooexe.def in.obj
+# RUN: lld-link /entry:main /out:bar.dll /def:foodll.def /dll in.obj
+
+# RUN: llvm-readobj in.exe | FileCheck %s
+# RUN: llvm-readobj in.dll | FileCheck %s
+
+# RUN: llvm-readobj foo.exe | FileCheck %s
+# RUN: llvm-readobj foo.dll | FileCheck %s
+
+# RUN: llvm-readobj bar.exe | FileCheck %s
+# RUN: llvm-readobj bar.dll | FileCheck %s
+
+CHECK: File:

@@ -1,0 +1,20 @@
+# RUN: yaml2obj %s -o %t
+# RUN: ld.lld %t -o %tout
+
+# Verify that lld can handle sections with an alignment of zero.
+
+!ELF
+FileHeader:
+  Class:           ELFCLASS64
+  Data:            ELFDATA2LSB
+  Type:            ET_REL
+  Machine:         EM_X86_64
+Sections:
+  - Name:            .text
+    Type:            SHT_PROGBITS
+    AddressAlign:    0
+
+Symbols:
+  Global:
+    - Name:            _start
+      Section:         .text

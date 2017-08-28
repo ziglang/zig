@@ -2,12 +2,12 @@ const builtin = @import("builtin");
 const Os = builtin.Os;
 const system = switch(builtin.os) {
     Os.linux => @import("os/linux.zig"),
-    Os.darwin => @import("os/darwin.zig"),
+    Os.darwin, Os.macosx, Os.ios => @import("os/darwin.zig"),
     Os.windows => @import("os/windows/index.zig"),
     else => @compileError("Unsupported OS"),
 };
+const c = @import("c/index.zig");
 
-const errno = @import("os/errno.zig");
 const math = @import("math/index.zig");
 const debug = @import("debug.zig");
 const assert = debug.assert;
@@ -180,7 +180,11 @@ pub const OutStream = struct {
 
     pub fn isTty(self: &OutStream) -> %bool {
         if (is_posix) {
-            return system.isatty(self.fd);
+            if (builtin.link_libc) {
+                return c.isatty(self.fd) == 0;
+            } else {
+                return system.isatty(self.fd);
+            }
         } else if (is_windows) {
             return os.windowsIsTty(%return self.getHandle());
         } else {
@@ -264,11 +268,11 @@ pub const InStream = struct {
                 const read_err = system.getErrno(amt_read);
                 if (read_err > 0) {
                     switch (read_err) {
-                        errno.EINTR  => continue,
-                        errno.EINVAL => unreachable,
-                        errno.EFAULT => unreachable,
-                        errno.EBADF  => return error.BadFd,
-                        errno.EIO    => return error.Io,
+                        system.EINTR  => continue,
+                        system.EINVAL => unreachable,
+                        system.EFAULT => unreachable,
+                        system.EBADF  => return error.BadFd,
+                        system.EIO    => return error.Io,
                         else         => return error.Unexpected,
                     }
                 }
@@ -323,18 +327,18 @@ pub const InStream = struct {
         return mem.readInt(input_slice, T, is_be);
     }
 
-    pub fn seekForward(is: &InStream, amount: usize) -> %void {
+    pub fn seekForward(is: &InStream, amount: isize) -> %void {
         switch (builtin.os) {
             Os.linux, Os.darwin => {
                 const result = system.lseek(is.fd, amount, system.SEEK_CUR);
                 const err = system.getErrno(result);
                 if (err > 0) {
                     return switch (err) {
-                        errno.EBADF => error.BadFd,
-                        errno.EINVAL => error.Unseekable,
-                        errno.EOVERFLOW => error.Unseekable,
-                        errno.ESPIPE => error.Unseekable,
-                        errno.ENXIO => error.Unseekable,
+                        system.EBADF => error.BadFd,
+                        system.EINVAL => error.Unseekable,
+                        system.EOVERFLOW => error.Unseekable,
+                        system.ESPIPE => error.Unseekable,
+                        system.ENXIO => error.Unseekable,
                         else => error.Unexpected,
                     };
                 }
@@ -346,15 +350,15 @@ pub const InStream = struct {
     pub fn seekTo(is: &InStream, pos: usize) -> %void {
         switch (builtin.os) {
             Os.linux, Os.darwin => {
-                const result = system.lseek(is.fd, pos, system.SEEK_SET);
+                const result = system.lseek(is.fd, @bitCast(isize, pos), system.SEEK_SET);
                 const err = system.getErrno(result);
                 if (err > 0) {
                     return switch (err) {
-                        errno.EBADF => error.BadFd,
-                        errno.EINVAL => error.Unseekable,
-                        errno.EOVERFLOW => error.Unseekable,
-                        errno.ESPIPE => error.Unseekable,
-                        errno.ENXIO => error.Unseekable,
+                        system.EBADF => error.BadFd,
+                        system.EINVAL => error.Unseekable,
+                        system.EOVERFLOW => error.Unseekable,
+                        system.ESPIPE => error.Unseekable,
+                        system.ENXIO => error.Unseekable,
                         else => error.Unexpected,
                     };
                 }
@@ -370,11 +374,11 @@ pub const InStream = struct {
                 const err = system.getErrno(result);
                 if (err > 0) {
                     return switch (err) {
-                        errno.EBADF => error.BadFd,
-                        errno.EINVAL => error.Unseekable,
-                        errno.EOVERFLOW => error.Unseekable,
-                        errno.ESPIPE => error.Unseekable,
-                        errno.ENXIO => error.Unseekable,
+                        system.EBADF => error.BadFd,
+                        system.EINVAL => error.Unseekable,
+                        system.EOVERFLOW => error.Unseekable,
+                        system.ESPIPE => error.Unseekable,
+                        system.ENXIO => error.Unseekable,
                         else => error.Unexpected,
                     };
                 }
@@ -385,12 +389,12 @@ pub const InStream = struct {
     }
 
     pub fn getEndPos(is: &InStream) -> %usize {
-        var stat: system.stat = undefined;
+        var stat: system.Stat = undefined;
         const err = system.getErrno(system.fstat(is.fd, &stat));
         if (err > 0) {
             return switch (err) {
-                errno.EBADF => error.BadFd,
-                errno.ENOMEM => error.NoMem,
+                system.EBADF => error.BadFd,
+                system.ENOMEM => error.NoMem,
                 else => error.Unexpected,
             }
         }
@@ -417,7 +421,11 @@ pub const InStream = struct {
 
     pub fn isTty(self: &InStream) -> %bool {
         if (is_posix) {
-            return system.isatty(self.fd);
+            if (builtin.link_libc) {
+                return c.isatty(self.fd) == 0;
+            } else {
+                return system.isatty(self.fd);
+            }
         } else if (is_windows) {
             return os.windowsIsTty(%return self.getHandle());
         } else {

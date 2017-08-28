@@ -1,0 +1,4 @@
+# Make sure input file type is detected by file magic and not by extension.
+
+# RUN: yaml2obj < %p/Inputs/ret42.yaml > %t.lib
+# RUN: lld-link /out:%t.exe /entry:main %t.lib

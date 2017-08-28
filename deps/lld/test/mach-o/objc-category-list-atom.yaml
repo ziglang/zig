@@ -1,0 +1,70 @@
+# RUN: lld -flavor darwin -arch x86_64 -r -print_atoms %s -o %t | FileCheck %s
+# RUN: lld -flavor darwin -arch x86_64 -r -print_atoms %t -o %t2 | FileCheck %s
+
+
+--- !mach-o
+arch:            x86_64
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+compat-version:  0.0
+current-version: 0.0
+has-UUID:        false
+OS:              unknown
+sections:
+  - segment:         __DATA
+    section:         __objc_catlist
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_NO_DEAD_STRIP ]
+    alignment:       8
+    address:         0x00000000000003F8
+    content:         [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
+    relocations:
+      - offset:          0x00000008
+        type:            X86_64_RELOC_UNSIGNED
+        length:          3
+        pc-rel:          false
+        extern:          true
+        symbol:          0
+      - offset:          0x00000000
+        type:            X86_64_RELOC_UNSIGNED
+        length:          3
+        pc-rel:          false
+        extern:          true
+        symbol:          1
+undefined-symbols:
+  - name:            __category1
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+  - name:            __category2
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+page-size:       0x00000000
+...
+
+# Make sure we atomize the category list section by pointer sized atoms.
+
+# CHECK: path:            '<linker-internal>'
+# CHECK: defined-atoms:
+# CHECK:   - type:            objc-category-list
+# CHECK:     content:         [ 00, 00, 00, 00, 00, 00, 00, 00 ]
+# CHECK:     merge:           by-content
+# CHECK:     alignment:       8
+# CHECK:     references:
+# CHECK:       - kind:            pointer64
+# CHECK:         offset:          0
+# CHECK:         target:          __category2
+# CHECK:   - type:            objc-category-list
+# CHECK:     content:         [ 00, 00, 00, 00, 00, 00, 00, 00 ]
+# CHECK:     merge:           by-content
+# CHECK:     alignment:       8
+# CHECK:     references:
+# CHECK:       - kind:            pointer64
+# CHECK:         offset:          0
+# CHECK:         target:          __category1
+# CHECK: undefined-atoms:
+# CHECK:   - name:            __category1
+# CHECK:   - name:            __category2
+# CHECK: ...

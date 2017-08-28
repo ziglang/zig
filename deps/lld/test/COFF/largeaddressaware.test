@@ -1,0 +1,21 @@
+# RUN: yaml2obj < %p/Inputs/hello32.yaml > %t.obj
+# RUN: lld-link %t.obj %p/Inputs/std32.lib /subsystem:console \
+# RUN:   /entry:main@0 /out:%t.exe /largeaddressaware
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=HEADER %s
+
+HEADER:      Format: COFF-i386
+HEADER-NEXT: Arch: i386
+HEADER-NEXT: AddressSize: 32bit
+HEADER-NEXT: ImageFileHeader {
+HEADER-NEXT:   Machine: IMAGE_FILE_MACHINE_I386 (0x14C)
+HEADER-NEXT:   SectionCount: 4
+HEADER-NEXT:   TimeDateStamp: 1970-01-01 00:00:00 (0x0)
+HEADER-NEXT:   PointerToSymbolTable: 0x0
+HEADER-NEXT:   SymbolCount: 0
+HEADER-NEXT:   OptionalHeaderSize: 224
+HEADER-NEXT:   Characteristics [ (0x122)
+HEADER-NEXT:     IMAGE_FILE_32BIT_MACHINE (0x100)
+HEADER-NEXT:     IMAGE_FILE_EXECUTABLE_IMAGE (0x2)
+HEADER-NEXT:     IMAGE_FILE_LARGE_ADDRESS_AWARE (0x20)
+HEADER-NEXT:   ]
+HEADER-NEXT: }

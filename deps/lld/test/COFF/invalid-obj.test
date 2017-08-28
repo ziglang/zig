@@ -1,0 +1,14 @@
+# RUN: yaml2obj %s > %t.obj
+# RUN: not lld-link %t.obj 2>&1 | FileCheck %s
+
+# CHECK: getSectionName failed: #1:
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_AMD64
+  Characteristics: []
+sections:
+  - Name:            '/1'
+    Characteristics: []
+    SectionData:     00
+symbols:

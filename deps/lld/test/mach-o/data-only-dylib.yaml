@@ -1,0 +1,27 @@
+# RUN: lld -flavor darwin -arch x86_64 -dylib %s -o %t %p/Inputs/x86_64/libSystem.yaml
+# RUN: llvm-nm %t | FileCheck %s
+#
+# Test that a data-only dylib can be built.
+#
+
+--- !mach-o
+arch:            x86_64
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+sections:
+  - segment:         __DATA
+    section:         __data
+    type:            S_REGULAR
+    attributes:      [  ]
+    alignment:       2
+    address:         0x0000000000000000
+    content:         [ 0x00, 0x00, 0x00, 0x00 ]
+global-symbols:
+  - name:            _myData
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+...
+
+# CHECK: _myData

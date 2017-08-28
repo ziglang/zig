@@ -1,0 +1,60 @@
+# RUN: lld -flavor darwin -arch armv7 %s -r -print_atoms -o %t | FileCheck %s
+#
+# Test that assembly written without .subsections_via_symbols is parsed so
+# that atoms are non-dead-strip and there is a layout-after references
+# chaining atoms together.
+#
+
+--- !mach-o
+arch:            armv7
+file-type:       MH_OBJECT
+flags:           [  ]
+has-UUID:        false
+OS:              unknown
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    alignment:       2
+    address:         0x0000000000000000
+    content:         [ 0x04, 0x10, 0x9F, 0xE5, 0x04, 0x20, 0x9F, 0xE5,
+                       0x1E, 0xFF, 0x2F, 0xE1, 0x78, 0x56, 0x34, 0x12,
+                       0x21, 0x43, 0x65, 0x87 ]
+local-symbols:
+  - name:            constants1
+    type:            N_SECT
+    sect:            1
+    value:           0x000000000000000C
+  - name:            constants2
+    type:            N_SECT
+    sect:            1
+    value:           0x0000000000000010
+global-symbols:
+  - name:            _foo
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+...
+
+
+# CHECK:defined-atoms:
+# CHECK:  - name:            _foo
+# CHECK:    scope:           global
+# CHECK:    content:         [ 04, 10, 9F, E5, 04, 20, 9F, E5, 1E, FF, 2F, E1 ]
+# CHECK:    dead-strip:      never
+# CHECK:    references:
+# CHECK:      - kind:            layout-after
+# CHECK:        offset:          0
+# CHECK:        target:          constants1
+# CHECK:  - name:            constants1
+# CHECK:    content:         [ 78, 56, 34, 12 ]
+# CHECK:    dead-strip:      never
+# CHECK:    references:
+# CHECK:      - kind:            layout-after
+# CHECK:        offset:          0
+# CHECK:        target:          constants2
+# CHECK:  - name:            constants2
+# CHECK:    content:         [ 21, 43, 65, 87 ]
+# CHECK:    dead-strip:      never

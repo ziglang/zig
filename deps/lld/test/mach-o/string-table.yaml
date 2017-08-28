@@ -1,0 +1,66 @@
+# RUN: lld -flavor darwin -arch i386 %s %p/Inputs/hello-world-x86.yaml -o %t
+# RUN: obj2yaml %t | FileCheck %s
+#
+# Test that the string table contains a ' ' as its first symbol
+#
+
+--- !mach-o
+arch:            x86
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    address:         0x0000000000000000
+    content:         [ 0x55, 0x89, 0xE5, 0x83, 0xEC, 0x08, 0xE8, 0x00,
+                       0x00, 0x00, 0x00, 0x58, 0x8D, 0x80, 0x16, 0x00,
+                       0x00, 0x00, 0x89, 0x04, 0x24, 0xE8, 0xE6, 0xFF,
+                       0xFF, 0xFF, 0x31, 0xC0, 0x83, 0xC4, 0x08, 0x5D,
+                       0xC3 ]
+    relocations:
+      - offset:          0x00000016
+        type:            GENERIC_RELOC_VANILLA
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          1
+      - offset:          0x0000000E
+        scattered:       true
+        type:            GENERIC_RELOC_LOCAL_SECTDIFF
+        length:          2
+        pc-rel:          false
+        value:           0x00000021
+      - offset:          0x00000000
+        scattered:       true
+        type:            GENERIC_RELOC_PAIR
+        length:          2
+        pc-rel:          false
+        value:           0x0000000B
+  - segment:         __TEXT
+    section:         __cstring
+    type:            S_CSTRING_LITERALS
+    attributes:      [  ]
+    address:         0x0000000000000021
+    content:         [ 0x68, 0x65, 0x6C, 0x6C, 0x6F, 0x0A, 0x00 ]
+global-symbols:
+  - name:            _main
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+undefined-symbols:
+  - name:            _printf
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+...
+
+# CHECK:  StringTable:
+# CHECK-NEXT:  - ' '
+# CHECK-NEXT:  - __mh_execute_header
+# CHECK-NEXT:  - _main
+# CHECK-NEXT:  - _printf
+# CHECK-NEXT:  - dyld_stub_binder
+# CHECK-NEXT:  - ''

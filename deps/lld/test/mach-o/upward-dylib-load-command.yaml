@@ -1,0 +1,48 @@
+# RUN: lld -flavor darwin -arch x86_64 -dylib %p/Inputs/bar.yaml \
+# RUN:     -install_name /usr/lib/libbar.dylib %p/Inputs/x86_64/libSystem.yaml -o %t1.dylib
+# RUN: lld -flavor darwin -arch x86_64 -dylib %s -upward_library  %t1.dylib \
+# RUN:      -install_name /usr/lib/libfoo.dylib %p/Inputs/x86_64/libSystem.yaml -o %t
+# RUN: llvm-objdump -private-headers %t | FileCheck %s
+#
+#
+# Test upward linking: 1) build libbar.dylib, 2) build libfoo.dylib and upward
+# like with libbar.dylib, 3) dump load commands of libfoo and verify upward link.
+#
+
+--- !mach-o
+arch:            x86_64
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    address:         0x0000000000000000
+    content:         [ 0x55, 0x48, 0x89, 0xE5, 0x31, 0xC0, 0x5D, 0xE9,
+                       0x00, 0x00, 0x00, 0x00 ]
+    relocations:
+      - offset:          0x00000008
+        type:            X86_64_RELOC_BRANCH
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          1
+global-symbols:
+  - name:            _foo
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+undefined-symbols:
+  - name:            _bar
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+
+...
+
+
+# CHECK:	              cmd LC_LOAD_UPWARD_DYLIB
+# CHECK-NEXT:	      cmdsize 48
+# CHECK-NEXT:	         name /usr/lib/libbar.dylib (offset 24)

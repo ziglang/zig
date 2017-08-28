@@ -1,0 +1,30 @@
+# RUN: lld -flavor darwin -arch i386 -macosx_version_min 10.8 %s %p/Inputs/hello-world-x86.yaml -o %t && llvm-nm -m %t | FileCheck %s
+# RUN: not lld -flavor darwin -arch i386 -ios_simulator_version_min 5.0 %s %p/Inputs/hello-world-x86.yaml -o %t 2>&1 | FileCheck %s --check-prefix=ERROR
+#
+# Test that i386 can link with a macos version but gives an error with a simululator version.
+#
+
+--- !mach-o
+arch:            x86
+OS:              Mac OS X
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    address:         0x0000000000000000
+    content:         [ 0x90 ]
+global-symbols:
+  - name:            _main
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+...
+
+# CHECK:	{{[0-9a-f]+}} (__TEXT,__text) external _main
+# CHECK:	(undefined) external dyld_stub_binder (from libSystem)
+
+# ERROR: cannot be linked due to incompatible operating systems

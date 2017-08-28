@@ -1,0 +1,15 @@
+#!/bin/sh
+
+set -x
+
+export CC=clang-5.0
+export CXX=clang++-5.0
+which $CC
+which $CXX
+echo $PATH
+mkdir build
+cd build
+cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd) -DZIG_LIBC_LIB_DIR=$(dirname $($CC -print-file-name=crt1.o)) -DZIG_LIBC_INCLUDE_DIR=$(echo -n | $CC -E -x c - -v 2>&1 | grep -B1 "End of search list." | head -n1 | cut -c 2- | sed "s/ .*//") -DZIG_LIBC_STATIC_LIB_DIR=$(dirname $($CC -print-file-name=crtbegin.o)) -DZIG_FORCE_EXTERNAL_LLD=ON
+make VERBOSE=1
+make install
+./zig build --build-file ../build.zig test

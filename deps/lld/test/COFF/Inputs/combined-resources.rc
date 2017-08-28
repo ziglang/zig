@@ -1,0 +1,50 @@
+#include "windows.h"
+
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+
+myaccelerators ACCELERATORS
+{
+	"^C", 999, VIRTKEY, ALT
+	"D", 1100, VIRTKEY, CONTROL, SHIFT
+	"^R", 444, ASCII, NOINVERT
+}
+
+cursor BITMAP "combined-resources-cursor.bmp"
+okay BITMAP "combined-resources-okay.bmp"
+
+14432 MENU
+LANGUAGE LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED
+{
+	MENUITEM "yu", 100
+	MENUITEM "shala", 101
+	MENUITEM "kaoya", 102
+}
+
+testdialog DIALOG 10, 10, 200, 300
+STYLE WS_POPUP | WS_BORDER
+CAPTION "Test"
+{
+	CTEXT "Continue:", 1, 10, 10, 230, 14
+	PUSHBUTTON "&OK", 2, 66, 134, 161, 13
+}
+
+12 ACCELERATORS
+{
+	"X", 164, VIRTKEY, ALT
+	"H", 5678, VIRTKEY, CONTROL, SHIFT
+	"^R", 444, ASCII, NOINVERT
+}
+
+"eat" MENU
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_AUS
+{
+	MENUITEM "fish", 100
+	MENUITEM "salad", 101
+	MENUITEM "duck", 102
+}
+
+
+myresource stringarray {
+	"this is a user defined resource\0",
+	"it contains many strings\0",
+}

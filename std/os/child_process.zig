@@ -3,7 +3,6 @@ const os = @import("index.zig");
 const posix = os.posix;
 const mem = @import("../mem.zig");
 const Allocator = mem.Allocator;
-const errno = @import("errno.zig");
 const debug = @import("../debug.zig");
 const assert = debug.assert;
 const BufMap = @import("../buf_map.zig").BufMap;
@@ -56,8 +55,8 @@ pub const ChildProcess = struct {
             const err = posix.getErrno(posix.waitpid(self.pid, &status, 0));
             if (err > 0) {
                 switch (err) {
-                    errno.EINVAL, errno.ECHILD => unreachable,
-                    errno.EINTR => continue,
+                    posix.EINVAL, posix.ECHILD => unreachable,
+                    posix.EINTR => continue,
                     else => {
                         if (self.stdin) |*stdin| { stdin.close(); }
                         if (self.stdout) |*stdout| { stdout.close(); }
@@ -130,7 +129,7 @@ pub const ChildProcess = struct {
         const pid_err = posix.getErrno(pid);
         if (pid_err > 0) {
             return switch (pid_err) {
-                errno.EAGAIN, errno.ENOMEM, errno.ENOSYS => error.SystemResources,
+                posix.EAGAIN, posix.ENOMEM, posix.ENOSYS => error.SystemResources,
                 else => error.Unexpected,
             };
         }
@@ -209,7 +208,7 @@ fn makePipe() -> %[2]i32 {
     const err = posix.getErrno(posix.pipe(&fds));
     if (err > 0) {
         return switch (err) {
-            errno.EMFILE, errno.ENFILE => error.SystemResources,
+            posix.EMFILE, posix.ENFILE => error.SystemResources,
             else => error.Unexpected,
         }
     }
@@ -229,42 +228,15 @@ fn forkChildErrReport(fd: i32, err: error) -> noreturn {
 }
 
 const ErrInt = @IntType(false, @sizeOf(error) * 8);
+
 fn writeIntFd(fd: i32, value: ErrInt) -> %void {
     var bytes: [@sizeOf(ErrInt)]u8 = undefined;
     mem.writeInt(bytes[0..], value, true);
-
-    var index: usize = 0;
-    while (index < bytes.len) {
-        const amt_written = posix.write(fd, &bytes[index], bytes.len - index);
-        const err = posix.getErrno(amt_written);
-        if (err > 0) {
-            switch (err) {
-                errno.EINTR => continue,
-                errno.EINVAL => unreachable,
-                else => return error.SystemResources,
-            }
-        }
-        index += amt_written;
-    }
+    os.posixWrite(fd, bytes[0..]) %% return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) -> %ErrInt {
     var bytes: [@sizeOf(ErrInt)]u8 = undefined;
-
-    var index: usize = 0;
-    while (index < bytes.len) {
-        const amt_written = posix.read(fd, &bytes[index], bytes.len - index);
-        const err = posix.getErrno(amt_written);
-        if (err > 0) {
-            switch (err) {
-                errno.EINTR => continue,
-                errno.EINVAL => unreachable,
-                else => return error.SystemResources,
-            }
-        }
-        index += amt_written;
-    }
-
+    os.posixRead(fd, bytes[0..]) %% return error.SystemResources;
     return mem.readInt(bytes[0..], ErrInt, true);
 }
-

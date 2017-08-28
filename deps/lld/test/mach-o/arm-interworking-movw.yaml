@@ -1,0 +1,393 @@
+# REQUIRES: arm
+# RUN: lld -flavor darwin -arch armv7 -r -print_atoms %s -o %t  | FileCheck %s
+# RUN: lld -flavor darwin -arch armv7 -dylib -print_atoms %t -o %t2 \
+# RUN:     %p/Inputs/armv7/libSystem.yaml -sectalign __TEXT __text 0x1000  | FileCheck %s
+# RUN: llvm-objdump -d -macho -no-symbolic-operands %t2 | FileCheck -check-prefix=CODE %s
+#
+# Test thumb and arm branches round trip through -r.
+# Test movw/movt pairs have low bit set properly for thumb vs arm.
+#
+#
+
+--- !mach-o
+arch:            armv7
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    alignment:       2
+    address:         0x0000000000000000
+    content:         [ 0x40, 0xF2, 0x25, 0x00, 0xC0, 0xF2, 0x00, 0x00,
+                       0x40, 0xF2, 0x01, 0x01, 0xC0, 0xF2, 0x00, 0x01,
+                       0x40, 0xF2, 0x4E, 0x02, 0xC0, 0xF2, 0x00, 0x02,
+                       0x40, 0xF2, 0x2A, 0x03, 0xC0, 0xF2, 0x00, 0x03,
+                       0x78, 0x44, 0x70, 0x47, 0x70, 0x47, 0x25, 0x00,
+                       0x00, 0xE3, 0x00, 0x00, 0x40, 0xE3, 0xD7, 0x1F,
+                       0x0F, 0xE3, 0xFF, 0x1F, 0x4F, 0xE3, 0x4E, 0x20,
+                       0x00, 0xE3, 0x00, 0x20, 0x40, 0xE3, 0x00, 0x30,
+                       0x00, 0xE3, 0x00, 0x30, 0x40, 0xE3, 0x0F, 0x00,
+                       0x80, 0xE0, 0x1E, 0xFF, 0x2F, 0xE1, 0x1E, 0xFF,
+                       0x2F, 0xE1 ]
+    relocations:
+      - offset:          0x00000042
+        scattered:       true
+        type:            ARM_RELOC_HALF_SECTDIFF
+        length:          1
+        pc-rel:          false
+        value:           0x0000004E
+      - offset:          0x00000000
+        scattered:       true
+        type:            ARM_RELOC_PAIR
+        length:          1
+        pc-rel:          false
+        value:           0x00000046
+      - offset:          0x0000003E
+        scattered:       true
+        type:            ARM_RELOC_HALF_SECTDIFF
+        length:          0
+        pc-rel:          false
+        value:           0x0000004E
+      - offset:          0x00000000
+        scattered:       true
+        type:            ARM_RELOC_PAIR
+        length:          0
+        pc-rel:          false
+        value:           0x00000046
+      - offset:          0x0000003A
+        type:            ARM_RELOC_HALF
+        length:          1
+        pc-rel:          false
+        extern:          false
+        symbol:          1
+      - offset:          0x0000004E
+        type:            ARM_RELOC_PAIR
+        length:          1
+        pc-rel:          false
+        extern:          false
+        symbol:          16777215
+      - offset:          0x00000036
+        type:            ARM_RELOC_HALF
+        length:          0
+        pc-rel:          false
+        extern:          false
+        symbol:          1
+      - offset:          0x00000000
+        type:            ARM_RELOC_PAIR
+        length:          0
+        pc-rel:          false
+        extern:          false
+        symbol:          16777215
+      - offset:          0x00000032
+        scattered:       true
+        type:            ARM_RELOC_HALF_SECTDIFF
+        length:          1
+        pc-rel:          false
+        value:           0x00000024
+      - offset:          0x0000FFD6
+        scattered:       true
+        type:            ARM_RELOC_PAIR
+        length:          1
+        pc-rel:          false
+        value:           0x00000046
+      - offset:          0x0000002E
+        scattered:       true
+        type:            ARM_RELOC_HALF_SECTDIFF
+        length:          0
+        pc-rel:          false
+        value:           0x00000024
+      - offset:          0x0000FFFF
+        scattered:       true
+        type:            ARM_RELOC_PAIR
+        length:          0
+        pc-rel:          false
+        value:           0x00000046
+      - offset:          0x0000002A
+        type:            ARM_RELOC_HALF
+        length:          1
+        pc-rel:          false
+        extern:          false
+        symbol:          1
+      - offset:          0x00000025
+        type:            ARM_RELOC_PAIR
+        length:          1
+        pc-rel:          false
+        extern:          false
+        symbol:          16777215
+      - offset:          0x00000026
+        type:            ARM_RELOC_HALF
+        length:          0
+        pc-rel:          false
+        extern:          false
+        symbol:          1
+      - offset:          0x00000000
+        type:            ARM_RELOC_PAIR
+        length:          0
+        pc-rel:          false
+        extern:          false
+        symbol:          16777215
+      - offset:          0x0000001C
+        scattered:       true
+        type:            ARM_RELOC_HALF_SECTDIFF
+        length:          3
+        pc-rel:          false
+        value:           0x0000004E
+      - offset:          0x0000002A
+        scattered:       true
+        type:            ARM_RELOC_PAIR
+        length:          3
+        pc-rel:          false
+        value:           0x00000020
+      - offset:          0x00000018
+        scattered:       true
+        type:            ARM_RELOC_HALF_SECTDIFF
+        length:          2
+        pc-rel:          false
+        value:           0x0000004E
+      - offset:          0x00000000
+        scattered:       true
+        type:            ARM_RELOC_PAIR
+        length:          2
+        pc-rel:          false
+        value:           0x00000020
+      - offset:          0x00000014
+        type:            ARM_RELOC_HALF
+        length:          3
+        pc-rel:          false
+        extern:          false
+        symbol:          1
+      - offset:          0x0000004E
+        type:            ARM_RELOC_PAIR
+        length:          3
+        pc-rel:          false
+        extern:          false
+        symbol:          16777215
+      - offset:          0x00000010
+        type:            ARM_RELOC_HALF
+        length:          2
+        pc-rel:          false
+        extern:          false
+        symbol:          1
+      - offset:          0x00000000
+        type:            ARM_RELOC_PAIR
+        length:          2
+        pc-rel:          false
+        extern:          false
+        symbol:          16777215
+      - offset:          0x0000000C
+        scattered:       true
+        type:            ARM_RELOC_HALF_SECTDIFF
+        length:          3
+        pc-rel:          false
+        value:           0x00000024
+      - offset:          0x00000000
+        scattered:       true
+        type:            ARM_RELOC_PAIR
+        length:          3
+        pc-rel:          false
+        value:           0x00000020
+      - offset:          0x00000008
+        scattered:       true
+        type:            ARM_RELOC_HALF_SECTDIFF
+        length:          2
+        pc-rel:          false
+        value:           0x00000024
+      - offset:          0x00000000
+        scattered:       true
+        type:            ARM_RELOC_PAIR
+        length:          2
+        pc-rel:          false
+        value:           0x00000020
+      - offset:          0x00000004
+        type:            ARM_RELOC_HALF
+        length:          3
+        pc-rel:          false
+        extern:          false
+        symbol:          1
+      - offset:          0x00000025
+        type:            ARM_RELOC_PAIR
+        length:          3
+        pc-rel:          false
+        extern:          false
+        symbol:          16777215
+      - offset:          0x00000000
+        type:            ARM_RELOC_HALF
+        length:          2
+        pc-rel:          false
+        extern:          false
+        symbol:          1
+      - offset:          0x00000000
+        type:            ARM_RELOC_PAIR
+        length:          2
+        pc-rel:          false
+        extern:          false
+        symbol:          16777215
+local-symbols:
+  - name:            _t1
+    type:            N_SECT
+    sect:            1
+    desc:            [ N_ARM_THUMB_DEF ]
+    value:           0x0000000000000000
+  - name:            _t2
+    type:            N_SECT
+    sect:            1
+    desc:            [ N_ARM_THUMB_DEF ]
+    value:           0x0000000000000024
+  - name:            _a2
+    type:            N_SECT
+    sect:            1
+    value:           0x000000000000004E
+  - name:            _a1
+    type:            N_SECT
+    sect:            1
+    value:           0x0000000000000026
+...
+
+# CHECK: defined-atoms:
+# CHECK:   - name:            _t1
+# CHECK:     references:
+# CHECK:       - kind:            modeThumbCode
+# CHECK:         offset:          0
+# CHECK:         target:          _t1
+# CHECK:       - kind:            thumb_movw
+# CHECK:         offset:          0
+# CHECK:         target:          _t2
+# CHECK-NOT:     addend:
+# CHECK:       - kind:            thumb_movt
+# CHECK:         offset:          4
+# CHECK:         target:          _t2
+# CHECK-NOT:     addend:
+# CHECK:       - kind:            thumb_movw_funcRel
+# CHECK:         offset:          8
+# CHECK:         target:          _t2
+# CHECK:         addend:          -36
+# CHECK:       - kind:            thumb_movt_funcRel
+# CHECK:         offset:          12
+# CHECK:         target:          _t2
+# CHECK:         addend:          -36
+# CHECK:       - kind:            thumb_movw
+# CHECK:         offset:          16
+# CHECK:         target:          _a2
+# CHECK-NOT:     addend:
+# CHECK:       - kind:            thumb_movt
+# CHECK:         offset:          20
+# CHECK:         target:          _a2
+# CHECK-NOT:     addend:
+# CHECK:       - kind:            thumb_movw_funcRel
+# CHECK:         offset:          24
+# CHECK:         target:          _a2
+# CHECK:         addend:          -36
+# CHECK:       - kind:            thumb_movt_funcRel
+# CHECK:         offset:          28
+# CHECK:         target:          _a2
+# CHECK:         addend:          -36
+# CHECK:   - name:            _t2
+# CHECK:     references:
+# CHECK:       - kind:            modeThumbCode
+# CHECK:         offset:          0
+# CHECK:         target:          _t2
+# CHECK:   - name:            _a1
+# CHECK:     references:
+# CHECK:       - kind:            arm_movw
+# CHECK:         offset:          0
+# CHECK:         target:          _t2
+# CHECK-NOT:     addend:
+# CHECK:       - kind:            arm_movt
+# CHECK:         offset:          4
+# CHECK:         target:          _t2
+# CHECK-NOT:     addend:
+# CHECK:       - kind:            arm_movw_funcRel
+# CHECK:         offset:          8
+# CHECK:         target:          _t2
+# CHECK:         addend:          -40
+# CHECK:       - kind:            arm_movt_funcRel
+# CHECK:         offset:          12
+# CHECK:         target:          _t2
+# CHECK:         addend:          -40
+# CHECK:       - kind:            arm_movw
+# CHECK:         offset:          16
+# CHECK:         target:          _a2
+# CHECK-NOT:     addend:
+# CHECK:       - kind:            arm_movt
+# CHECK:         offset:          20
+# CHECK:         target:          _a2
+# CHECK-NOT:     addend:
+# CHECK:       - kind:            arm_movw_funcRel
+# CHECK:         offset:          24
+# CHECK:         target:          _a2
+# CHECK:         addend:          -40
+# CHECK:       - kind:            arm_movt_funcRel
+# CHECK:         offset:          28
+# CHECK:         target:          _a2
+# CHECK:         addend:          -40
+# CHECK:   - name:            _a2
+
+
+# CODE: _t1:
+# CODE-NEXT:                 	 movw	r0, #4133
+# CODE-NEXT:                   movt	r0, #0
+# CODE-NEXT:                   movw	r1, #1
+# CODE-NEXT:                   movt	r1, #0
+# CODE-NEXT:                   movw	r2, #4174
+# CODE-NEXT:                   movt	r2, #0
+# CODE-NEXT:                   movw	r3, #42
+# CODE-NEXT:                   movt	r3, #0
+
+
+# CODE: _a1:
+# CODE-NEXT:                 	 movw	r0, #4133
+# CODE-NEXT:                   movt	r0, #0
+# CODE-NEXT:                   movw	r1, #65495
+# CODE-NEXT:                   movt	r1, #65535
+# CODE-NEXT:                   movw	r2, #4174
+# CODE-NEXT:                   movt	r2, #0
+# CODE-NEXT:                   movw	r3, #0
+# CODE-NEXT:                   movt	r3, #0
+
+
+
+#	.syntax unified
+#	.align	2
+#
+#	.code	16
+#  .thumb_func	_t1
+#_t1:
+#	movw	r0, :lower16:(_t2)
+#	movt	r0, :upper16:(_t2)
+#	movw	r1, :lower16:(_t2-(L0+4))
+#	movt	r1, :upper16:(_t2-(L0+4))
+#	movw	r2, :lower16:(_a2)
+#	movt	r2, :upper16:(_a2)
+#	movw	r3, :lower16:(_a2-(L0+4))
+#	movt	r3, :upper16:(_a2-(L0+4))
+#L0:
+#	add	r0, pc
+#	bx	lr
+#
+#
+#	.code	16
+#	.thumb_func	_t2
+#_t2:
+#	bx	lr
+#
+#
+#
+# 	.code	32
+#_a1:
+#	movw	r0, :lower16:(_t2)
+#	movt	r0, :upper16:(_t2)
+#	movw	r1, :lower16:(_t2-(L1+8))
+#	movt	r1, :upper16:(_t2-(L1+8))
+#	movw	r2, :lower16:(_a2)
+#	movt	r2, :upper16:(_a2)
+#	movw	r3, :lower16:(_a2-(L1+8))
+#	movt	r3, :upper16:(_a2-(L1+8))
+#L1:
+#	add	r0, pc
+#	bx	lr
+#
+#_a2:
+#	bx	lr
+

@@ -1,0 +1,43 @@
+# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml && llvm-objdump -private-headers %t | FileCheck %s
+# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml 2>&1 | FileCheck %s --check-prefix=WARNING
+# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml -static -version_load_command && llvm-objdump -private-headers %t | FileCheck %s
+# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml -no_version_load_command && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=NO_VERSION_MIN
+# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml -static -version_load_command -no_version_load_command && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=NO_VERSION_MIN
+# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml -static && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=NO_VERSION_MIN
+
+# RUN: lld -flavor darwin -arch x86_64 -macosx_version_min 10.8 -sdk_version 10.9 %s -o %t -dylib %p/Inputs/x86_64/libSystem.yaml && llvm-objdump -private-headers %t | FileCheck %s --check-prefix=SDK_VERSION
+
+--- !mach-o
+arch:            x86_64
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    address:         0x0000000000000000
+    content:         [ 0x00, 0x00, 0x00, 0x00 ]
+global-symbols:
+  - name:            _main
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+...
+
+# CHECK: Load command {{[0-9]*}}
+# CHECK:   cmd LC_VERSION_MIN_MACOSX
+# CHECK:   cmdsize 16
+# CHECK:   version 10.8
+# CHECK:   sdk 10.8
+
+# SDK_VERSION: Load command {{[0-9]*}}
+# SDK_VERSION:   cmd LC_VERSION_MIN_MACOSX
+# SDK_VERSION:   cmdsize 16
+# SDK_VERSION:   version 10.8
+# SDK_VERSION:   sdk 10.9
+
+# WARNING: warning: -sdk_version is required when emitting min version load command.  Setting sdk version to match provided min version
+
+# NO_VERSION_MIN-NOT: LC_VERSION_MIN_MACOSX

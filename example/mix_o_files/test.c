@@ -8,7 +8,7 @@ int main(int argc, char **argv) {
     const char *encoded = "YWxsIHlvdXIgYmFzZSBhcmUgYmVsb25nIHRvIHVz";
     char buf[200];
 
-    size_t len = decode_base_64(buf, 200, encoded, strlen(encoded));
+    size_t len = decode_base_64((uint8_t *)buf, 200, (uint8_t *)encoded, strlen(encoded));
     buf[len] = 0;
     assert(strcmp(buf, "all your base are belong to us") == 0);
 

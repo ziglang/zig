@@ -1,0 +1,42 @@
+# REQUIRES: x86
+# RUN: yaml2obj < %s > %t1.obj
+# RUN: yaml2obj < %s > %t2.obj
+# RUN: not lld-link /out:%t.exe %t1.obj %t2.obj >& %t.log
+# RUN: FileCheck %s < %t.log
+
+# RUN: llvm-as -o %t.lto1.obj %S/Inputs/conflict.ll
+# RUN: llvm-as -o %t.lto2.obj %S/Inputs/conflict.ll
+# RUN: not lld-link /out:%t.exe %t.lto1.obj %t.lto2.obj >& %t.log
+# RUN: FileCheck %s < %t.log
+
+# CHECK: duplicate symbol: foo in {{.+}}1.obj and in {{.+}}2.obj
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_AMD64
+  Characteristics: []
+sections:
+  - Name:            .text
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       16
+    SectionData:     000000000000
+symbols:
+  - Name:            .text
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          6
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          0
+  - Name:            foo
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+...

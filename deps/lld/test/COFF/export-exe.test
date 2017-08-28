@@ -1,0 +1,10 @@
+# RUN: lld-link /entry:main /out:%t.exe /subsystem:windows \
+# RUN:   %p/Inputs/ret42.obj /export:main
+# RUN: llvm-objdump -p %t.exe | FileCheck %s
+
+CHECK:      Export Table:
+CHECK-NEXT: DLL name: export-exe.test.tmp.exe
+CHECK-NEXT: Ordinal base: 0
+CHECK-NEXT: Ordinal      RVA  Name
+CHECK-NEXT:       0        0
+CHECK-NEXT:       1   0x1000  main

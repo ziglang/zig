@@ -1,0 +1,3 @@
+        .globl  bar
+bar:
+        retq

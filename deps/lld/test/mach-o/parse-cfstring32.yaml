@@ -1,0 +1,94 @@
+# RUN: lld -flavor darwin -arch i386 -r -print_atoms %s -o %t  | FileCheck %s
+#
+# Test parsing of mach-o functions.
+#
+
+--- !mach-o
+arch:            x86
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+has-UUID:        false
+OS:              unknown
+sections:
+  - segment:         __TEXT
+    section:         __cstring
+    type:            S_CSTRING_LITERALS
+    attributes:      [  ]
+    address:         0x0000000000000000
+    content:         [ 0x68, 0x65, 0x6C, 0x6C, 0x6F, 0x00, 0x74, 0x68,
+                       0x65, 0x72, 0x65, 0x00 ]
+  - segment:         __DATA
+    section:         __cfstring
+    type:            S_REGULAR
+    attributes:      [  ]
+    alignment:       8
+    address:         0x0000000000000010
+    content:         [ 0x00, 0x00, 0x00, 0x00, 0xC8, 0x07, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0xC8, 0x07, 0x00, 0x00,
+                       0x06, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00 ]
+    relocations:
+      - offset:          0x00000018
+        type:            GENERIC_RELOC_VANILLA
+        length:          2
+        pc-rel:          false
+        extern:          false
+        symbol:          1
+      - offset:          0x00000010
+        type:            GENERIC_RELOC_VANILLA
+        length:          2
+        pc-rel:          false
+        extern:          true
+        symbol:          0
+      - offset:          0x00000008
+        type:            GENERIC_RELOC_VANILLA
+        length:          2
+        pc-rel:          false
+        extern:          false
+        symbol:          1
+      - offset:          0x00000000
+        type:            GENERIC_RELOC_VANILLA
+        length:          2
+        pc-rel:          false
+        extern:          true
+        symbol:          0
+undefined-symbols:
+  - name:            ___CFConstantStringClassReference
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+...
+
+# CHECK: defined-atoms:
+# CHECK:  - ref-name:        [[STR1:L[L0-9]+]]
+# CHECK:    scope:           hidden
+# CHECK:    type:            c-string
+# CHECK:    content:         [ 68, 65, 6C, 6C, 6F, 00 ]
+# CHECK:    merge:           by-content
+# CHECK:  - ref-name:        [[STR2:L[L0-9]+]]
+# CHECK:    scope:           hidden
+# CHECK:    type:            c-string
+# CHECK:    content:         [ 74, 68, 65, 72, 65, 00 ]
+# CHECK:    merge:           by-content
+# CHECK:  - scope:           hidden
+# CHECK:    type:            cfstring
+# CHECK:    merge:           by-content
+# CHECK:    references:
+# CHECK:        - kind:            pointer32
+# CHECK:          offset:          0
+# CHECK:          target:          ___CFConstantStringClassReference
+# CHECK:        - kind:            pointer32
+# CHECK:          offset:          8
+# CHECK:          target:          [[STR1]]
+# CHECK:  - scope:           hidden
+# CHECK:    type:            cfstring
+# CHECK:    merge:           by-content
+# CHECK:    references:
+# CHECK:        - kind:            pointer32
+# CHECK:          offset:          0
+# CHECK:          target:          ___CFConstantStringClassReference
+# CHECK:        - kind:            pointer32
+# CHECK:          offset:          8
+# CHECK:          target:          [[STR2]]
+# CHECK:undefined-atoms:
+# CHECK:  - name:            ___CFConstantStringClassReference

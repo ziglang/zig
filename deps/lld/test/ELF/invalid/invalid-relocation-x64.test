@@ -1,0 +1,27 @@
+# RUN: yaml2obj %s -o %t.o
+# RUN: not ld.lld %t.o -o /dev/null 2>&1 | FileCheck %s
+# CHECK: {{.*}}.o: unknown relocation type: Unknown (152)
+# CHECK: {{.*}}.o: unknown relocation type: Unknown (153)
+
+!ELF
+FileHeader:
+  Class:           ELFCLASS64
+  Data:            ELFDATA2LSB
+  OSABI:           ELFOSABI_FREEBSD
+  Type:            ET_REL
+  Machine:         EM_X86_64
+Sections:
+  - Name:            .text
+    Type:            SHT_PROGBITS
+    Flags:           [ SHF_ALLOC ]
+  - Name:            .rela.text
+    Type:            SHT_RELA
+    Link:            .symtab
+    Info:            .text
+    Relocations:
+      - Offset:          0x0000000000000000
+        Symbol:          ''
+        Type:            0x98
+      - Offset:          0x0000000000000000
+        Symbol:          ''
+        Type:            0x99

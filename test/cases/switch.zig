@@ -72,7 +72,7 @@ fn nonConstSwitch(foo: SwitchStatmentFoo) {
         SwitchStatmentFoo.C => 3,
         SwitchStatmentFoo.D => 4,
     };
-    if (val != 3) unreachable;
+    assert(val == 3);
 }
 const SwitchStatmentFoo = enum {
     A,
@@ -95,10 +95,10 @@ const SwitchProngWithVarEnum = enum {
 fn switchProngWithVarFn(a: &const SwitchProngWithVarEnum) {
     switch(*a) {
         SwitchProngWithVarEnum.One => |x| {
-            if (x != 13) unreachable;
+            assert(x == 13);
         },
         SwitchProngWithVarEnum.Two => |x| {
-            if (x != 13.0) unreachable;
+            assert(x == 13.0);
         },
         SwitchProngWithVarEnum.Meh => |x| {
             const v: void = x;

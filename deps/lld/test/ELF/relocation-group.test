@@ -1,0 +1,43 @@
+# RUN: yaml2obj %s -o %t.o
+# RUN: ld.lld %t.o %t.o -o %t -r
+# RUN: llvm-readobj -s %t | FileCheck %s
+
+# CHECK:     Name: .text.foo
+# CHECK:     Name: .rela.text.foo
+
+## YAML below corresponds to following asm code:
+## .section .text,"axG",@progbits,foo,comdat
+## .quad bar
+## gas 2.27 does not include .rela.text to group in that case:
+## COMDAT group section [    1] `.group' [foo] contains 1 sections:
+##   [Index]    Name
+##   [    5]   .text
+--- !ELF
+FileHeader:
+  Class:           ELFCLASS64
+  Data:            ELFDATA2LSB
+  Type:            ET_REL
+  Machine:         EM_X86_64
+Sections:
+  - Name:            .group
+    Type:            SHT_GROUP
+    Link:            .symtab
+    Info:            foo
+    Members:
+      - SectionOrType:    GRP_COMDAT
+      - SectionOrType:    .text.foo
+  - Name:            .text.foo
+    Type:            SHT_PROGBITS
+    Flags:           [ SHF_ALLOC, SHF_EXECINSTR, SHF_GROUP ]
+  - Name:            .rela.text.foo
+    Type:            SHT_RELA
+    Flags:           [ SHF_INFO_LINK ]
+    Link:            .symtab
+    Info:            .text.foo
+    Relocations:
+      - Offset:          0x0000000000000000
+        Symbol:          foo
+        Type:            R_X86_64_64
+Symbols:
+  Global:
+    - Name:            foo

@@ -1,0 +1,102 @@
+# RUN: lld -flavor darwin -arch arm64 %s %p/Inputs/hello-world-arm64.yaml -o %t
+# RUN: llvm-nm -m -n %t | FileCheck %s
+# RUN: llvm-objdump -private-headers %t | FileCheck %s --check-prefix=CHECK-PRIVATE-HEADER
+#
+# Test that arm64 hello-world can be linked into a mach-o executable
+#
+
+--- !mach-o
+arch:            arm64
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    alignment:       2
+    address:         0x0000000000000000
+    content:         [ 0xFD, 0x7B, 0xBF, 0xA9, 0xFD, 0x03, 0x00, 0x91,
+                       0x08, 0x00, 0x00, 0x90, 0x08, 0x01, 0x40, 0xF9,
+                       0x00, 0x01, 0x40, 0xF9, 0x01, 0x00, 0x00, 0x90,
+                       0x21, 0x00, 0x00, 0x91, 0x00, 0x00, 0x00, 0x94,
+                       0x00, 0x00, 0x80, 0x52, 0xFD, 0x7B, 0xC1, 0xA8,
+                       0xC0, 0x03, 0x5F, 0xD6 ]
+    relocations:
+      - offset:          0x0000001C
+        type:            ARM64_RELOC_BRANCH26
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          5
+      - offset:          0x00000018
+        type:            ARM64_RELOC_PAGEOFF12
+        length:          2
+        pc-rel:          false
+        extern:          true
+        symbol:          1
+      - offset:          0x00000014
+        type:            ARM64_RELOC_PAGE21
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          1
+      - offset:          0x0000000C
+        type:            ARM64_RELOC_GOT_LOAD_PAGEOFF12
+        length:          2
+        pc-rel:          false
+        extern:          true
+        symbol:          4
+      - offset:          0x00000008
+        type:            ARM64_RELOC_GOT_LOAD_PAGE21
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          4
+  - segment:         __TEXT
+    section:         __cstring
+    type:            S_CSTRING_LITERALS
+    attributes:      [  ]
+    address:         0x000000000000002C
+    content:         [ 0x68, 0x65, 0x6C, 0x6C, 0x6F, 0x0A, 0x00 ]
+local-symbols:
+  - name:            ltmp0
+    type:            N_SECT
+    sect:            1
+    value:           0x0000000000000000
+  - name:            l_.str
+    type:            N_SECT
+    sect:            2
+    value:           0x000000000000002C
+  - name:            ltmp1
+    type:            N_SECT
+    sect:            2
+    value:           0x000000000000002C
+global-symbols:
+  - name:            _main
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+undefined-symbols:
+  - name:            ___stdoutp
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+  - name:            _fprintf
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+...
+
+# CHECK:	(undefined) external ___stdoutp (from libSystem)
+# CHECK:	(undefined) external _fprintf (from libSystem)
+# CHECK:	(undefined) external dyld_stub_binder (from libSystem)
+# CHECK:	{{[0-9a-f]+}} (__TEXT,__text) external _main
+
+# CHECK-PRIVATE-HEADER: sectname __stubs
+# CHECK-PRIVATE-HEADER-NEXT:  segname __TEXT
+# CHECK-PRIVATE-HEADER-NEXT:     addr
+# CHECK-PRIVATE-HEADER-NEXT:     size
+# CHECK-PRIVATE-HEADER-NEXT:   offset
+# CHECK-PRIVATE-HEADER-NEXT:    align 2^1 (2)

@@ -1,0 +1,11 @@
+# RUN: lld-link /entry:main /subsystem:console /out:%t.exe \
+# RUN:   %p/Inputs/ret42.obj
+
+# RUN: lld-link /entry:main /subsystem:console /out:%t.exe \
+# RUN:   %p/Inputs/ret42.obj /failifmismatch:k1=v1 /failifmismatch:k2=v1
+
+# RUN: lld-link /entry:main /subsystem:console /out:%t.exe \
+# RUN:   %p/Inputs/ret42.obj /failifmismatch:k1=v1 /failifmismatch:k1=v1
+
+# RUN: not lld-link /entry:main /subsystem:console /out:%t.exe \
+# RUN:   %p/Inputs/ret42.obj /failifmismatch:k1=v1 /failifmismatch:k1=v2

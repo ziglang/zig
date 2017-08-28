@@ -1,0 +1,142 @@
+# RUN: yaml2obj < %s > %t.obj
+#
+# RUN: lld-link /out:%t.dll /dll %t.obj /export:exportfn1 /export:exportfn2
+# RUN: llvm-objdump -p %t.dll | FileCheck -check-prefix=CHECK1 %s
+
+# CHECK1:      Export Table:
+# CHECK1:      DLL name: export32.test.tmp.dll
+# CHECK1:      Ordinal      RVA  Name
+# CHECK1-NEXT:       0        0
+# CHECK1-NEXT:       1   0x1008  exportfn1
+# CHECK1-NEXT:       2   0x1010  exportfn2
+
+# RUN: lld-link /out:%t.dll /dll %t.obj /export:exportfn1,@5 \
+# RUN:   /export:exportfn2 /export:mangled
+# RUN: llvm-objdump -p %t.dll | FileCheck -check-prefix=CHECK2 %s
+
+# CHECK2:      Export Table:
+# CHECK2:      DLL name: export32.test.tmp.dll
+# CHECK2:      Ordinal      RVA  Name
+# CHECK2-NEXT:       0        0
+# CHECK2-NEXT:       1        0
+# CHECK2-NEXT:       2        0
+# CHECK2-NEXT:       3        0
+# CHECK2-NEXT:       4        0
+# CHECK2-NEXT:       5   0x1008  exportfn1
+# CHECK2-NEXT:       6   0x1010  exportfn2
+# CHECK2-NEXT:       7   0x1010  exportfn3
+# CHECK2-NEXT:       8   0x1010  mangled
+
+# RUN: lld-link /out:%t.dll /dll %t.obj /export:exportfn1,@5,noname /export:exportfn2
+# RUN: llvm-objdump -p %t.dll | FileCheck -check-prefix=CHECK3 %s
+
+# CHECK3:      Export Table:
+# CHECK3:      DLL name: export32.test.tmp.dll
+# CHECK3:      Ordinal      RVA  Name
+# CHECK3-NEXT:       0        0
+# CHECK3-NEXT:       1        0
+# CHECK3-NEXT:       2        0
+# CHECK3-NEXT:       3        0
+# CHECK3-NEXT:       4        0
+# CHECK3-NEXT:       5   0x1008
+# CHECK3-NEXT:       6   0x1010  exportfn2
+
+# RUN: lld-link /out:%t.dll /dll %t.obj /export:f1=exportfn1 /export:f2=exportfn2
+# RUN: llvm-objdump -p %t.dll | FileCheck -check-prefix=CHECK4 %s
+
+# CHECK4:      Export Table:
+# CHECK4:      DLL name: export32.test.tmp.dll
+# CHECK4:      Ordinal      RVA  Name
+# CHECK4-NEXT:       0        0
+# CHECK4-NEXT:       1   0x1010  exportfn3
+# CHECK4-NEXT:       2   0x1008  f1
+# CHECK4-NEXT:       3   0x1010  f2
+
+# RUN: echo "EXPORTS exportfn1 @3" > %t.def
+# RUN: echo "fn2=exportfn2 @2" >> %t.def
+# RUN: lld-link /out:%t.dll /dll %t.obj /def:%t.def
+# RUN: llvm-objdump -p %t.dll | FileCheck -check-prefix=CHECK5 %s
+
+# CHECK5:      Export Table:
+# CHECK5:      DLL name: export32.test.tmp.dll
+# CHECK5:      Ordinal      RVA  Name
+# CHECK5-NEXT:       0        0
+# CHECK5-NEXT:       1        0
+# CHECK5-NEXT:       2   0x1010  fn2
+# CHECK5-NEXT:       3   0x1008  exportfn1
+# CHECK5-NEXT:       4   0x1010  exportfn3
+
+# RUN: lld-link /out:%t.dll /dll %t.obj /export:exportfn1 /export:exportfn2 \
+# RUN:   /export:exportfn1 /export:exportfn2,@5 >& %t.log
+# RUN: FileCheck -check-prefix=CHECK6 %s < %t.log
+
+# CHECK6:     duplicate /export option: _exportfn2
+# CHECK6-NOT: duplicate /export option: _exportfn1
+
+# RUN: lld-link /out:%t.dll /dll %t.obj /export:foo=mangled
+# RUN: llvm-objdump -p %t.dll | FileCheck -check-prefix=CHECK7 %s
+
+# CHECK7:      Export Table:
+# CHECK7:      DLL name: export32.test.tmp.dll
+# CHECK7:      Ordinal      RVA  Name
+# CHECK7-NEXT:       0        0
+# CHECK7-NEXT:       1        0
+# CHECK7-NEXT:       2   0x1010  foo
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_I386
+  Characteristics: []
+sections:
+  - Name:            .text
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    SectionData:     B800000000506800000000680000000050E80000000050E800000000
+  - Name:            .drectve
+    Characteristics: [ IMAGE_SCN_LNK_INFO, IMAGE_SCN_LNK_REMOVE ]
+    Alignment:       1
+    SectionData:     2f6578706f72743a5f6578706f7274666e3300  # /export:_exportfn3
+symbols:
+  - Name:            .text
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          28
+      NumberOfRelocations: 4
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          0
+  - Name:            __DllMainCRTStartup@12
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            _exportfn1
+    Value:           8
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            _exportfn2@4
+    Value:           16
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            _exportfn3
+    Value:           16
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            '?mangled@@YAHXZ'
+    Value:           16
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+...

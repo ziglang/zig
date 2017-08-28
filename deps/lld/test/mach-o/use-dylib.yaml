@@ -1,0 +1,39 @@
+# RUN: lld -flavor darwin -arch x86_64 %s \
+# RUN: %p/Inputs/use-simple-dylib.yaml %p/Inputs/x86_64/libSystem.yaml -dylib -o %t.dylib
+# RUN: llvm-objdump -private-headers %t.dylib | FileCheck %s
+
+# This test ensures that we have a LC_LOAD_DYLIB for libspecial.dylib even though we don't
+# use any atoms from it.  This matches the ld64 behaviour.
+--- !mach-o
+arch:            x86_64
+file-type:       MH_OBJECT
+flags:           [  ]
+has-UUID:        false
+OS:              unknown
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS ]
+    address:         0x0000000000000000
+    content:         [ 0x55, 0x48, 0x89, 0xE5, 0xE8, 0x00, 0x00, 0x00,
+                       0x00, 0xE8, 0x00, 0x00, 0x00, 0x00, 0xE8, 0x00,
+                       0x00, 0x00, 0x00, 0xE8, 0x00, 0x00, 0x00, 0x00,
+                       0xE8, 0x00, 0x00, 0x00, 0x00, 0x5D, 0xE9, 0x00,
+                       0x00, 0x00, 0x00 ]
+global-symbols:
+  - name:            _foo
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+
+
+# CHECK:           cmd LC_LOAD_DYLIB
+# CHECK:          name libspecial.dylib (offset 24)
+# CHECK:       current version 1.0.0
+# CHECK: compatibility version 1.0.0
+# CHECK:           cmd LC_LOAD_DYLIB
+# CHECK:          name /usr/lib/libSystem.B.dylib (offset 24)
+# CHECK:       current version 1.0.0
+# CHECK: compatibility version 1.0.0

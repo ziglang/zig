@@ -1,0 +1,18 @@
+# RUN: mkdir -p %t/a %t/b %t/c
+# RUN: cp %p/Inputs/std64.lib %t/a/
+# RUN: cp %p/Inputs/std64.lib %t/b/
+# RUN: cp %p/Inputs/std64.lib %t/c/
+
+# RUN: env LIB=%t/a lld-link /out:%t.exe /entry:main /verbose \
+# RUN:   std64.lib /subsystem:console %p/Inputs/hello64.obj \
+# RUN:   /libpath:%t/b /libpath:%t/c > %t.log
+# RUN: FileCheck -check-prefix=CHECK1 %s < %t.log
+
+CHECK1: b{{[/\\]}}std64.lib
+
+# RUN: lld-link /out:%t.exe /entry:main /verbose \
+# RUN:   std64.lib /subsystem:console %p/Inputs/hello64.obj \
+# RUN:   /libpath:%t/a /libpath:%t/b /libpath:%t/c > %t.log
+# RUN: FileCheck -check-prefix=CHECK2 %s < %t.log
+
+CHECK2: a{{[/\\]}}std64.lib

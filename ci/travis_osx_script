@@ -1,0 +1,15 @@
+#!/bin/sh
+
+set -x
+
+PREFIX_DIR=$HOME/local/llvm5
+export CC=/usr/local/opt/gcc/bin/gcc-7
+export CXX=/usr/local/opt/gcc/bin/g++-7
+
+echo $PATH
+mkdir build
+cd build
+cmake .. -DCMAKE_PREFIX_PATH=$PREFIX_DIR -DCMAKE_INSTALL_PREFIX=$(pwd) -DZIG_LIBC_LIB_DIR=$(dirname $($CC -print-file-name=crt1.o)) -DZIG_LIBC_INCLUDE_DIR=$(echo -n | $CC -E -x c - -v 2>&1 | grep -B1 "End of search list." | head -n1 | cut -c 2- | sed "s/ .*//") -DZIG_LIBC_STATIC_LIB_DIR=$(dirname $($CC -print-file-name=crtbegin.o)) -DZIG_FORCE_EXTERNAL_LLD=ON
+make VERBOSE=1
+make install
+./zig build --build-file ../build.zig test

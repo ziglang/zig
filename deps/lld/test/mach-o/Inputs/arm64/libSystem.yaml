@@ -1,0 +1,13 @@
+#
+# For use by test cases that create dynamic output types which may needs stubs
+# and therefore will need a dylib definition of dyld_stub_binder.
+#
+
+--- !mach-o
+arch:            arm64
+file-type:       MH_DYLIB
+install-name:    /usr/lib/libSystem.B.dylib
+exports:
+  - name:            dyld_stub_binder
+
+...

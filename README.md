@@ -76,7 +76,7 @@ the Zig compiler itself:
 These libraries must be installed on your system, with the development files
 available. The Zig compiler links against them.
 
- * LLVM, Clang, and LLD libraries == 4.x
+ * LLVM, Clang, and LLD libraries == 5.x
 
 ### Debug / Development Build
 

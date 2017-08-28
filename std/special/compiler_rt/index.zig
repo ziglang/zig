@@ -23,11 +23,13 @@ const __udivmoddi4 = @import("udivmoddi4.zig").__udivmoddi4;
 
 export fn __udivdi3(a: u64, b: u64) -> u64 {
     @setDebugSafety(this, is_test);
+    @setGlobalLinkage(__udivdi3, builtin.GlobalLinkage.LinkOnce);
     return __udivmoddi4(a, b, null);
 }
 
 export fn __umoddi3(a: u64, b: u64) -> u64 {
     @setDebugSafety(this, is_test);
+    @setGlobalLinkage(__umoddi3, builtin.GlobalLinkage.LinkOnce);
 
     var r: u64 = undefined;
     _ = __udivmoddi4(a, b, &r);
@@ -63,6 +65,7 @@ export nakedcc fn __aeabi_uidivmod() {
     @setDebugSafety(this, false);
 
     if (comptime isArmArch()) {
+        @setGlobalLinkage(__aeabi_uidivmod, builtin.GlobalLinkage.LinkOnce);
         asm volatile (
             \\ push    { lr }
             \\ sub     sp, sp, #4
@@ -80,6 +83,7 @@ export nakedcc fn __aeabi_uidivmod() {
 
 export fn __udivmodsi4(a: u32, b: u32, rem: &u32) -> u32 {
     @setDebugSafety(this, is_test);
+    @setGlobalLinkage(__udivmodsi4, builtin.GlobalLinkage.LinkOnce);
 
     const d = __udivsi3(a, b);
     *rem = u32(i32(a) -% (i32(d) * i32(b)));
@@ -92,12 +96,14 @@ export fn __udivmodsi4(a: u32, b: u32, rem: &u32) -> u32 {
 
 export fn __aeabi_uidiv(n: u32, d: u32) -> u32 {
     @setDebugSafety(this, is_test);
+    @setGlobalLinkage(__aeabi_uidiv, builtin.GlobalLinkage.LinkOnce);
 
     return __udivsi3(n, d);
 }
 
 export fn __udivsi3(n: u32, d: u32) -> u32 {
     @setDebugSafety(this, is_test);
+    @setGlobalLinkage(__udivsi3, builtin.GlobalLinkage.LinkOnce);
 
     const n_uword_bits: c_uint = u32.bit_count;
     // special cases

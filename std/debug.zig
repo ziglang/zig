@@ -147,6 +147,9 @@ pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty
         builtin.ObjectFormat.macho => {
             %return out_stream.write("(stack trace unavailable for Mach-O object format)\n");
         },
+        builtin.ObjectFormat.wasm => {
+            %return out_stream.write("(stack trace unavailable for WASM object format)\n");
+        },
         builtin.ObjectFormat.unknown => {
             %return out_stream.write("(stack trace unavailable for unknown object format)\n");
         },
@@ -718,7 +721,8 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
                         });
                     },
                     else => {
-                        %return in_stream.seekForward(op_size - 1);
+                        const fwd_amt = math.cast(isize, op_size - 1) %% return error.InvalidDebugInfo;
+                        %return in_stream.seekForward(fwd_amt);
                     },
                 }
             } else if (opcode >= opcode_base) {

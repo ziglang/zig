@@ -1,0 +1,16 @@
+# RUN: lld -flavor darwin -arch x86_64 %s -syslibroot %p/Inputs/lib-search-paths -lmyshared -lmystatic -lfile.o -r -print_atoms 2>&1  | FileCheck %s
+
+--- !native
+undefined-atoms:
+    - name: _from_myshared
+    - name: _from_mystatic
+    - name: _from_fileo
+
+# CHECK: defined-atoms:
+# CHECK:   - name:            _from_fileo
+# CHECK:     content:         [ 2A, 00, 00, 00 ]
+# CHECK:   - name:            _from_mystatic
+# CHECK:     content:         [ 02, 00, 00, 00 ]
+# CHECK: shared-library-atoms:
+# CHECK:   - name:            _from_myshared
+# CHECK:     load-name:       libmyshared.dylib

@@ -1,0 +1,57 @@
+# RUN: yaml2obj < %s > %t.obj
+
+# RUN: lld-link /out:%t.exe /entry:main %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=DEFAULT-HEADER %s
+# RUN: llvm-objdump -s %t.exe | FileCheck -check-prefix=DEFAULT-TEXT %s
+
+# DEFAULT-HEADER:    ImageBase: 0x140000000
+# DEFAULT-TEXT:      Contents of section .text:
+# DEFAULT-TEXT-NEXT: 1000 00000040 01000000
+
+# RUN: lld-link /out:%t.exe /entry:main %t.obj /base:0x280000000
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=BASE-HEADER %s
+# RUN: llvm-objdump -s %t.exe | FileCheck -check-prefix=BASE-TEXT %s
+
+# BASE-HEADER: ImageBase: 0x280000000
+# BASE-TEXT:      Contents of section .text:
+# BASE-TEXT-NEXT: 1000 00000080 02000000
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_AMD64
+  Characteristics: []
+sections:
+  - Name:            .text
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       4096
+    SectionData:     0000000000000000
+    Relocations:
+      - VirtualAddress:  0
+        SymbolName:      __ImageBase
+        Type:            IMAGE_REL_AMD64_ADDR64
+symbols:
+  - Name:            .text
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          8
+      NumberOfRelocations: 1
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          0
+  - Name:            main
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            __ImageBase
+    Value:           0
+    SectionNumber:   0
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+...
