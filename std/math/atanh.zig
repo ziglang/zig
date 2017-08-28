@@ -7,10 +7,7 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-// TODO issue #393
-pub const atanh = atanh_workaround;
-
-pub fn atanh_workaround(x: var) -> @typeOf(x) {
+pub fn atanh(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(atanh_32, x),

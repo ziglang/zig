@@ -6,9 +6,6 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-// TODO issue #393
-pub const modf = modf_workaround;
-
 fn modf_result(comptime T: type) -> type {
     struct {
         fpart: T,
@@ -18,7 +15,7 @@ fn modf_result(comptime T: type) -> type {
 pub const modf32_result = modf_result(f32);
 pub const modf64_result = modf_result(f64);
 
-pub fn modf_workaround(x: var) -> modf_result(@typeOf(x)) {
+pub fn modf(x: var) -> modf_result(@typeOf(x)) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(modf32, x),

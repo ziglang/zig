@@ -21,10 +21,7 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub const atan2 = atan2_workaround;
-
-// TODO issue #393
-fn atan2_workaround(comptime T: type, x: T, y: T) -> T {
+fn atan2(comptime T: type, x: T, y: T) -> T {
     switch (T) {
         f32 => @inlineCall(atan2_32, x, y),
         f64 => @inlineCall(atan2_64, x, y),
@@ -208,8 +205,8 @@ fn atan2_64(y: f64, x: f64) -> f64 {
 }
 
 test "math.atan2" {
-    assert(atan2_workaround(f32, 0.2, 0.21) == atan2_32(0.2, 0.21));
-    assert(atan2_workaround(f64, 0.2, 0.21) == atan2_64(0.2, 0.21));
+    assert(atan2(f32, 0.2, 0.21) == atan2_32(0.2, 0.21));
+    assert(atan2(f64, 0.2, 0.21) == atan2_64(0.2, 0.21));
 }
 
 test "math.atan2_32" {

@@ -9,10 +9,7 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-// TODO issue #393
-pub const log1p = log1p_workaround;
-
-pub fn log1p_workaround(x: var) -> @typeOf(x) {
+pub fn log1p(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(log1p_32, x),

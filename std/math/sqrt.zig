@@ -8,10 +8,7 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-// TODO issue #393
-pub const sqrt = sqrt_workaround;
-
-pub fn sqrt_workaround(x: var) -> @typeOf(x) {
+pub fn sqrt(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(sqrt32, x),

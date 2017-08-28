@@ -1,10 +1,7 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-// TODO issue #393
-pub const signbit = signbit_workaround;
-
-pub fn signbit_workaround(x: var) -> bool {
+pub fn signbit(x: var) -> bool {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(signbit32, x),

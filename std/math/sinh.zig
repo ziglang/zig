@@ -8,10 +8,7 @@ const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 const expo2 = @import("expo2.zig").expo2;
 
-// TODO issue #393
-pub const sinh = sinh_workaround;
-
-pub fn sinh_workaround(x: var) -> @typeOf(x) {
+pub fn sinh(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(sinh32, x),

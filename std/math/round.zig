@@ -8,10 +8,7 @@ const builtin = @import("builtin");
 const assert = @import("../debug.zig").assert;
 const math = @import("index.zig");
 
-// TODO issue #393
-pub const round = round_workaround;
-
-pub fn round_workaround(x: var) -> @typeOf(x) {
+pub fn round(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(round32, x),

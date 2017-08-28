@@ -1,10 +1,7 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-// TODO issue #393
-pub const copysign = copysign_workaround;
-
-pub fn copysign_workaround(comptime T: type, x: T, y: T) -> T {
+pub fn copysign(comptime T: type, x: T, y: T) -> T {
     switch (T) {
         f32 => @inlineCall(copysign32, x, y),
         f64 => @inlineCall(copysign64, x, y),

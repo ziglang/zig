@@ -7,9 +7,6 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-// TODO issue #393
-pub const frexp = frexp_workaround;
-
 fn frexp_result(comptime T: type) -> type {
     struct {
         significand: T,
@@ -19,7 +16,7 @@ fn frexp_result(comptime T: type) -> type {
 pub const frexp32_result = frexp_result(f32);
 pub const frexp64_result = frexp_result(f64);
 
-pub fn frexp_workaround(x: var) -> frexp_result(@typeOf(x)) {
+pub fn frexp(x: var) -> frexp_result(@typeOf(x)) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(frexp32, x),

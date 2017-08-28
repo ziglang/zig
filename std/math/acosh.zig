@@ -6,10 +6,7 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub const acosh = acosh_workaround;
-
-// TODO issue #393
-pub fn acosh_workaround(x: var) -> @typeOf(x) {
+pub fn acosh(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(acosh32, x),
@@ -56,8 +53,8 @@ fn acosh64(x: f64) -> f64 {
 }
 
 test "math.acosh" {
-    assert(acosh_workaround(f32(1.5)) == acosh32(1.5));
-    assert(acosh_workaround(f64(1.5)) == acosh64(1.5));
+    assert(acosh(f32(1.5)) == acosh32(1.5));
+    assert(acosh(f64(1.5)) == acosh64(1.5));
 }
 
 test "math.acosh32" {

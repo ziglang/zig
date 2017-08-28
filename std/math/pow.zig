@@ -24,11 +24,8 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-// TODO issue #393
-pub const pow = pow_workaround;
-
 // This implementation is taken from the go stlib, musl is a bit more complex.
-pub fn pow_workaround(comptime T: type, x: T, y: T) -> T {
+pub fn pow(comptime T: type, x: T, y: T) -> T {
 
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 

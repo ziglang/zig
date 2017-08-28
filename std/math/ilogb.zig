@@ -7,10 +7,7 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-// TODO issue #393
-pub const ilogb = ilogb_workaround;
-
-pub fn ilogb_workaround(x: var) -> i32 {
+pub fn ilogb(x: var) -> i32 {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(ilogb32, x),

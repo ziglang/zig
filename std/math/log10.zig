@@ -10,10 +10,7 @@ const assert = @import("../debug.zig").assert;
 const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
 
-// TODO issue #393
-pub const log10 = log10_workaround;
-
-fn log10_workaround(x: var) -> @typeOf(x) {
+pub fn log10(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (@typeId(T)) {
         TypeId.FloatLiteral => {

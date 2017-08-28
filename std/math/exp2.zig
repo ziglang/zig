@@ -6,10 +6,7 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-// TODO issue #393
-pub const exp2 = exp2_workaround;
-
-pub fn exp2_workaround(x: var) -> @typeOf(x) {
+pub fn exp2(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(exp2_32, x),

@@ -6,10 +6,7 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-// TODO issue #393
-pub const fabs = fabs_workaround;
-
-pub fn fabs_workaround(x: var) -> @typeOf(x) {
+pub fn fabs(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(fabs32, x),

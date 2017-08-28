@@ -7,9 +7,7 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub const trunc = trunc_workaround;
-
-pub fn trunc_workaround(x: var) -> @typeOf(x) {
+pub fn trunc(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(trunc32, x),

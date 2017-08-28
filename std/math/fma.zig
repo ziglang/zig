@@ -1,10 +1,7 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-// TODO issue #393
-pub const fma = fma_workaround;
-
-pub fn fma_workaround(comptime T: type, x: T, y: T, z: T) -> T {
+pub fn fma(comptime T: type, x: T, y: T, z: T) -> T {
     switch (T) {
         f32 => @inlineCall(fma32, x, y, z),
         f64 => @inlineCall(fma64, x, y ,z),

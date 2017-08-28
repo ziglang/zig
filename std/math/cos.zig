@@ -6,10 +6,7 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-// TODO issue #393
-pub const cos = cos_workaround;
-
-pub fn cos_workaround(x: var) -> @typeOf(x) {
+pub fn cos(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(cos32, x),

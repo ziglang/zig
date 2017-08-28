@@ -7,10 +7,7 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub const asinh = asinh_workaround;
-
-// TODO issue #393
-pub fn asinh_workaround(x: var) -> @typeOf(x) {
+pub fn asinh(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(asinh32, x),
@@ -84,8 +81,8 @@ fn asinh64(x: f64) -> f64 {
 }
 
 test "math.asinh" {
-    assert(asinh_workaround(f32(0.0)) == asinh32(0.0));
-    assert(asinh_workaround(f64(0.0)) == asinh64(0.0));
+    assert(asinh(f32(0.0)) == asinh32(0.0));
+    assert(asinh(f64(0.0)) == asinh64(0.0));
 }
 
 test "math.asinh32" {

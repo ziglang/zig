@@ -1,10 +1,7 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-// TODO issue #393
-pub const scalbn = scalbn_workaround;
-
-pub fn scalbn_workaround(x: var, n: i32) -> @typeOf(x) {
+pub fn scalbn(x: var, n: i32) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(scalbn32, x, n),

@@ -7,9 +7,7 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub const tan = tan_workaround;
-
-pub fn tan_workaround(x: var) -> @typeOf(x) {
+pub fn tan(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(tan32, x),

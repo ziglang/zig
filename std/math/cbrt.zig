@@ -7,10 +7,7 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-// TODO issue #393
-pub const cbrt = cbrt_workaround;
-
-pub fn cbrt_workaround(x: var) -> @typeOf(x) {
+pub fn cbrt(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(cbrt32, x),

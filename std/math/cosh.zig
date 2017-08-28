@@ -8,10 +8,7 @@ const math = @import("index.zig");
 const expo2 = @import("expo2.zig").expo2;
 const assert = @import("../debug.zig").assert;
 
-// TODO issue #393
-pub const cosh = cosh_workaround;
-
-pub fn cosh_workaround(x: var) -> @typeOf(x) {
+pub fn cosh(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(cosh32, x),

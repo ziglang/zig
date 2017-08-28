@@ -7,10 +7,7 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-// TODO issue #393
-pub const sin = sin_workaround;
-
-pub fn sin_workaround(x: var) -> @typeOf(x) {
+pub fn sin(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(sin32, x),

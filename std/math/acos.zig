@@ -5,10 +5,7 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-pub const acos = acos_workaround;
-
-// TODO issue #393
-pub fn acos_workaround(x: var) -> @typeOf(x) {
+pub fn acos(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(acos32, x),
@@ -145,8 +142,8 @@ fn acos64(x: f64) -> f64 {
 }
 
 test "math.acos" {
-    assert(acos_workaround(f32(0.0)) == acos32(0.0));
-    assert(acos_workaround(f64(0.0)) == acos64(0.0));
+    assert(acos(f32(0.0)) == acos32(0.0));
+    assert(acos(f64(0.0)) == acos64(0.0));
 }
 
 test "math.acos32" {

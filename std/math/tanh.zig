@@ -8,10 +8,7 @@ const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 const expo2 = @import("expo2.zig").expo2;
 
-// TODO issue #393
-pub const tanh = tanh_workaround;
-
-pub fn tanh_workaround(x: var) -> @typeOf(x) {
+pub fn tanh(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(tanh32, x),

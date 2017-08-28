@@ -8,10 +8,7 @@ const builtin = @import("builtin");
 const assert = @import("../debug.zig").assert;
 const math = @import("index.zig");
 
-// TODO issue #393
-pub const floor = floor_workaround;
-
-pub fn floor_workaround(x: var) -> @typeOf(x) {
+pub fn floor(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (T) {
         f32 => @inlineCall(floor32, x),

@@ -8,10 +8,7 @@
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
-// TODO issue #393
-pub const hypot = hypot_workaround;
-
-pub fn hypot_workaround(comptime T: type, x: T, y: T) -> T {
+pub fn hypot(comptime T: type, x: T, y: T) -> T {
     switch (T) {
         f32 => @inlineCall(hypot32, x, y),
         f64 => @inlineCall(hypot64, x, y),
