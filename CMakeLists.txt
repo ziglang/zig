@@ -160,9 +160,9 @@ else()
     )
     set(LLD_INCLUDE_DIRS "")
     set(LLD_LIBRARIES
-        embedded_lld_lib
         embedded_lld_elf
         embedded_lld_coff
+        embedded_lld_lib
     )
 endif()
 
