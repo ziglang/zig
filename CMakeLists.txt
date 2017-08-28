@@ -22,6 +22,9 @@ set(ZIG_EACH_LIB_RPATH off CACHE BOOL "Add each dynamic library to rpath for nat
 
 option(ZIG_TEST_COVERAGE "Build Zig with test coverage instrumentation" OFF)
 
+# To see what patches have been applied to LLD in this repository:
+# git log -p -- deps/lld
+option(ZIG_FORCE_EXTERNAL_LLD "If your system has the LLD patches use it instead of the embedded LLD" OFF)
 
 
 find_package(llvm)
@@ -31,8 +34,137 @@ link_directories(${LLVM_LIBDIRS})
 find_package(clang)
 include_directories(${CLANG_INCLUDE_DIRS})
 
-find_package(lld)
-include_directories(${LLD_INCLUDE_DIRS})
+if(ZIG_FORCE_EXTERNAL_LLD)
+    find_package(lld)
+    include_directories(${LLD_INCLUDE_DIRS})
+else()
+    set(EMBEDDED_LLD_LIB_SOURCES
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Driver/DarwinLdDriver.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Config/Version.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/YAML/ReaderWriterYAML.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/LayoutPass.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ArchHandler.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ArchHandler_arm64.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ObjCPass.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachONormalizedFileBinaryReader.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/CompactUnwindPass.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachONormalizedFileToAtoms.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/TLVPass.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachONormalizedFileYAML.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/GOTPass.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ArchHandler_x86.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachONormalizedFileBinaryWriter.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ArchHandler_x86_64.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachOLinkingContext.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ShimPass.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/WriterMachO.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/StubsPass.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/ArchHandler_arm.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/MachO/MachONormalizedFileFromAtoms.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/ReaderWriter/FileArchive.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/TargetOptionsCommandFlags.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/File.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/Error.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/SymbolTable.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/Reader.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/Reproduce.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/Writer.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/LinkingContext.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/Resolver.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/lib/Core/DefinedAtom.cpp"
+    )
+    set(EMBEDDED_LLD_ELF_SOURCES
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/ScriptLexer.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/AMDGPU.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/PPC.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/ARM.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/AVR.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/SPARCV9.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/Mips.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/AArch64.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/X86_64.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/PPC64.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/MipsArchTree.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Arch/X86.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/GdbIndex.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Driver.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Relocations.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Error.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/LTO.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Strings.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/ScriptParser.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/MarkLive.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/SyntheticSections.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/SymbolTable.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/LinkerScript.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/EhFrame.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Target.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Filesystem.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/OutputSections.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Symbols.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/ICF.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/InputFiles.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Thunks.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/DriverUtils.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/Writer.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/InputSection.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF/MapFile.cpp"
+    )
+    set(EMBEDDED_LLD_COFF_SOURCES
+        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/DLL.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/Driver.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/Chunks.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/PDB.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/Error.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/LTO.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/Strings.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/MarkLive.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/SymbolTable.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/Symbols.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/ICF.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/InputFiles.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/DriverUtils.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/Writer.cpp"
+        "${CMAKE_SOURCE_DIR}/deps/lld/COFF/MapFile.cpp"
+    )
+    add_library(embedded_lld_lib ${EMBEDDED_LLD_LIB_SOURCES})
+    add_library(embedded_lld_elf ${EMBEDDED_LLD_ELF_SOURCES})
+    add_library(embedded_lld_coff ${EMBEDDED_LLD_COFF_SOURCES})
+    set_target_properties(embedded_lld_lib PROPERTIES
+        COMPILE_FLAGS "-std=c++11 -fno-exceptions -fno-rtti -Wno-comment"
+        LINK_FLAGS " "
+    )
+    set_target_properties(embedded_lld_elf PROPERTIES
+        COMPILE_FLAGS "-std=c++11 -fno-exceptions -fno-rtti -Wno-comment"
+        LINK_FLAGS " "
+    )
+    set_target_properties(embedded_lld_coff PROPERTIES
+        COMPILE_FLAGS "-std=c++11 -fno-exceptions -fno-rtti -Wno-comment"
+        LINK_FLAGS " "
+    )
+    target_include_directories(embedded_lld_lib PUBLIC
+        "${CMAKE_SOURCE_DIR}/deps/lld/include"
+        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt"
+    )
+    target_include_directories(embedded_lld_elf PUBLIC
+        "${CMAKE_SOURCE_DIR}/deps/lld/ELF"
+        "${CMAKE_SOURCE_DIR}/deps/lld/include"
+        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt/ELF"
+        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt"
+    )
+    target_include_directories(embedded_lld_coff PUBLIC
+        "${CMAKE_SOURCE_DIR}/deps/lld/COFF"
+        "${CMAKE_SOURCE_DIR}/deps/lld/include"
+        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt/COFF"
+        "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt"
+    )
+    set(LLD_INCLUDE_DIRS "")
+    set(LLD_LIBRARIES
+        embedded_lld_lib
+        embedded_lld_elf
+        embedded_lld_coff
+    )
+endif()
 
 find_package(Threads)
 
