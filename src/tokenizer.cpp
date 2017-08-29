@@ -107,6 +107,7 @@ struct ZigKeyword {
 };
 
 static const struct ZigKeyword zig_keywords[] = {
+    {"align", TokenIdKeywordAlign},
     {"and", TokenIdKeywordAnd},
     {"asm", TokenIdKeywordAsm},
     {"break", TokenIdKeywordBreak},
@@ -1454,6 +1455,7 @@ const char * token_name(TokenId id) {
         case TokenIdFatArrow: return "=>";
         case TokenIdFloatLiteral: return "FloatLiteral";
         case TokenIdIntLiteral: return "IntLiteral";
+        case TokenIdKeywordAlign: return "align";
         case TokenIdKeywordAnd: return "and";
         case TokenIdKeywordAsm: return "asm";
         case TokenIdKeywordBreak: return "break";

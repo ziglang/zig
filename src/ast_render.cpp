@@ -65,10 +65,6 @@ static const char *prefix_op_str(PrefixOp prefix_op) {
         case PrefixOpNegationWrap: return "-%";
         case PrefixOpBoolNot: return "!";
         case PrefixOpBinNot: return "~";
-        case PrefixOpAddressOf: return "&";
-        case PrefixOpConstAddressOf: return "&const ";
-        case PrefixOpVolatileAddressOf: return "&volatile ";
-        case PrefixOpConstVolatileAddressOf: return "&const volatile ";
         case PrefixOpDereference: return "*";
         case PrefixOpMaybe: return "?";
         case PrefixOpError: return "%";
@@ -192,6 +188,8 @@ static const char *node_type_str(NodeType node_type) {
             return "Symbol";
         case NodeTypePrefixOpExpr:
             return "PrefixOpExpr";
+        case NodeTypeAddrOfExpr:
+            return "AddrOfExpr";
         case NodeTypeUse:
             return "Use";
         case NodeTypeBoolLiteral:
@@ -581,6 +579,38 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 fprintf(ar->f, "%s", prefix_op_str(op));
 
                 render_node_ungrouped(ar, node->data.prefix_op_expr.primary_expr);
+                break;
+            }
+        case NodeTypeAddrOfExpr:
+            {
+                fprintf(ar->f, "&");
+                if (node->data.addr_of_expr.align_expr != nullptr) {
+                    fprintf(ar->f, "align ");
+                    render_node_grouped(ar, node->data.addr_of_expr.align_expr);
+                    if (node->data.addr_of_expr.bit_offset_start != nullptr) {
+                        assert(node->data.addr_of_expr.bit_offset_end != nullptr);
+
+                        Buf offset_start_buf = BUF_INIT;
+                        buf_resize(&offset_start_buf, 0);
+                        bigint_append_buf(&offset_start_buf, node->data.addr_of_expr.bit_offset_start, 10);
+
+                        Buf offset_end_buf = BUF_INIT;
+                        buf_resize(&offset_end_buf, 0);
+                        bigint_append_buf(&offset_end_buf, node->data.addr_of_expr.bit_offset_end, 10);
+
+                        fprintf(ar->f, ":%s:%s ", buf_ptr(&offset_start_buf), buf_ptr(&offset_end_buf));
+                    } else {
+                        fprintf(ar->f, " ");
+                    }
+                }
+                if (node->data.addr_of_expr.is_const) {
+                    fprintf(ar->f, "const ");
+                }
+                if (node->data.addr_of_expr.is_volatile) {
+                    fprintf(ar->f, "volatile ");
+                }
+
+                render_node_ungrouped(ar, node->data.addr_of_expr.op_expr);
                 break;
             }
         case NodeTypeFnCallExpr:

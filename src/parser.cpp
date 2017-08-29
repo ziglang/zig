@@ -228,6 +228,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool m
 static AstNode *ast_parse_return_expr(ParseContext *pc, size_t *token_index);
 static AstNode *ast_parse_grouped_expr(ParseContext *pc, size_t *token_index, bool mandatory);
 static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, bool mandatory);
+static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bool mandatory);
 
 static void ast_expect_token(ParseContext *pc, Token *token, TokenId token_id) {
     if (token->id == token_id) {
@@ -384,7 +385,7 @@ static AstNode *ast_parse_grouped_expr(ParseContext *pc, size_t *token_index, bo
 }
 
 /*
-ArrayType : "[" option(Expression) "]" option("const") PrefixOpExpression
+ArrayType : "[" option(Expression) "]" option("align" PrimaryExpression)) option("const") option("volatile") PrefixOpExpression
 */
 static AstNode *ast_parse_array_type_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *l_bracket = &pc->tokens->at(*token_index);
@@ -403,10 +404,22 @@ static AstNode *ast_parse_array_type_expr(ParseContext *pc, size_t *token_index,
 
     ast_eat_token(pc, token_index, TokenIdRBracket);
 
-    Token *const_tok = &pc->tokens->at(*token_index);
-    if (const_tok->id == TokenIdKeywordConst) {
+    Token *token = &pc->tokens->at(*token_index);
+    if (token->id == TokenIdKeywordAlign) {
+        *token_index += 1;
+        node->data.array_type.align_expr = ast_parse_primary_expr(pc, token_index, true);
+
+        token = &pc->tokens->at(*token_index);
+    }
+    if (token->id == TokenIdKeywordConst) {
         *token_index += 1;
         node->data.array_type.is_const = true;
+
+        token = &pc->tokens->at(*token_index);
+    }
+    if (token->id == TokenIdKeywordVolatile) {
+        *token_index += 1;
+        node->data.array_type.is_volatile = true;
     }
 
     node->data.array_type.child_type = ast_parse_type_expr(pc, token_index, true);
@@ -953,7 +966,6 @@ static PrefixOp tok_to_prefix_op(Token *token) {
         case TokenIdDash: return PrefixOpNegation;
         case TokenIdMinusPercent: return PrefixOpNegationWrap;
         case TokenIdTilde: return PrefixOpBinNot;
-        case TokenIdAmpersand: return PrefixOpAddressOf;
         case TokenIdStar: return PrefixOpDereference;
         case TokenIdMaybe: return PrefixOpMaybe;
         case TokenIdPercent: return PrefixOpError;
@@ -964,12 +976,52 @@ static PrefixOp tok_to_prefix_op(Token *token) {
     }
 }
 
+static AstNode *ast_parse_addr_of(ParseContext *pc, size_t *token_index) {
+    Token *ampersand_tok = ast_eat_token(pc, token_index, TokenIdAmpersand);
+
+    AstNode *node = ast_create_node(pc, NodeTypeAddrOfExpr, ampersand_tok);
+
+    Token *token = &pc->tokens->at(*token_index);
+    if (token->id == TokenIdKeywordAlign) {
+        *token_index += 1;
+        node->data.addr_of_expr.align_expr = ast_parse_primary_expr(pc, token_index, true);
+
+        token = &pc->tokens->at(*token_index);
+        if (token->id == TokenIdColon) {
+            *token_index += 1;
+            Token *bit_offset_start_tok = ast_eat_token(pc, token_index, TokenIdIntLiteral);
+            ast_eat_token(pc, token_index, TokenIdColon);
+            Token *bit_offset_end_tok = ast_eat_token(pc, token_index, TokenIdIntLiteral);
+            token = &pc->tokens->at(*token_index);
+
+            node->data.addr_of_expr.bit_offset_start = token_bigint(bit_offset_start_tok);
+            node->data.addr_of_expr.bit_offset_end = token_bigint(bit_offset_end_tok);
+        }
+    }
+    if (token->id == TokenIdKeywordConst) {
+        *token_index += 1;
+        node->data.addr_of_expr.is_const = true;
+
+        token = &pc->tokens->at(*token_index);
+    }
+    if (token->id == TokenIdKeywordVolatile) {
+        *token_index += 1;
+        node->data.addr_of_expr.is_volatile = true;
+    }
+
+    node->data.addr_of_expr.op_expr = ast_parse_prefix_op_expr(pc, token_index, true);
+    return node;
+}
+
 /*
 PrefixOpExpression : PrefixOp PrefixOpExpression | SuffixOpExpression
-PrefixOp = "!" | "-" | "~" | "*" | ("&" option("const") option("volatile")) | "?" | "%" | "%%" | "??" | "-%"
+PrefixOp = "!" | "-" | "~" | "*" | ("&" option("align" PrimaryExpression option(":" Integer ":" Integer)) option("const") option("volatile")) | "?" | "%" | "%%" | "??" | "-%"
 */
 static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
+    if (token->id == TokenIdAmpersand) {
+        return ast_parse_addr_of(pc, token_index);
+    }
     PrefixOp prefix_op = tok_to_prefix_op(token);
     if (prefix_op == PrefixOpInvalid) {
         return ast_parse_suffix_op_expr(pc, token_index, mandatory);
@@ -995,23 +1047,6 @@ static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, size_t *token_index, 
         parent_node->data.prefix_op_expr.prefix_op = PrefixOpDereference;
 
         node->column += 1;
-    }
-
-    if (prefix_op == PrefixOpAddressOf) {
-        Token *const_or_volatile_tok = &pc->tokens->at(*token_index);
-        if (const_or_volatile_tok->id == TokenIdKeywordConst) {
-            *token_index += 1;
-            Token *volatile_token = &pc->tokens->at(*token_index);
-            if (volatile_token->id == TokenIdKeywordVolatile) {
-                *token_index += 1;
-                prefix_op = PrefixOpConstVolatileAddressOf;
-            } else {
-                prefix_op = PrefixOpConstAddressOf;
-            }
-        } else if (const_or_volatile_tok->id == TokenIdKeywordVolatile) {
-            prefix_op = PrefixOpVolatileAddressOf;
-            *token_index += 1;
-        }
     }
 
     AstNode *prefix_op_expr = ast_parse_prefix_op_expr(pc, token_index, true);
@@ -1499,7 +1534,7 @@ static AstNode *ast_parse_defer_expr(ParseContext *pc, size_t *token_index) {
 }
 
 /*
-VariableDeclaration = option("comptime") ("var" | "const") Symbol option(":" TypeExpr) "=" Expression
+VariableDeclaration = option("comptime") ("var" | "const") Symbol option(":" TypeExpr) option("align" PrimaryExpression) "=" Expression
 */
 static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, size_t *token_index, bool mandatory,
         VisibMod visib_mod)
@@ -1549,25 +1584,28 @@ static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, size_t *to
     Token *name_token = ast_eat_token(pc, token_index, TokenIdSymbol);
     node->data.variable_declaration.symbol = token_buf(name_token);
 
-    Token *eq_or_colon = &pc->tokens->at(*token_index);
-    *token_index += 1;
-    if (eq_or_colon->id == TokenIdEq) {
-        node->data.variable_declaration.expr = ast_parse_expression(pc, token_index, true);
-    } else if (eq_or_colon->id == TokenIdColon) {
-        node->data.variable_declaration.type = ast_parse_type_expr(pc, token_index, true);
-        Token *eq_token = &pc->tokens->at(*token_index);
-        if (eq_token->id == TokenIdEq) {
-            *token_index += 1;
+    Token *next_token = &pc->tokens->at(*token_index);
 
-            node->data.variable_declaration.expr = ast_parse_expression(pc, token_index, true);
-        }
-    } else {
-        ast_invalid_token_error(pc, eq_or_colon);
+    if (next_token->id == TokenIdColon) {
+        *token_index += 1;
+        node->data.variable_declaration.type = ast_parse_type_expr(pc, token_index, true);
+        next_token = &pc->tokens->at(*token_index);
+    }
+
+    if (next_token->id == TokenIdKeywordAlign) {
+        *token_index += 1;
+        node->data.variable_declaration.align_expr = ast_parse_primary_expr(pc, token_index, true);
+        next_token = &pc->tokens->at(*token_index);
+    }
+
+    if (next_token->id == TokenIdEq) {
+        *token_index += 1;
+        node->data.variable_declaration.expr = ast_parse_expression(pc, token_index, true);
+        next_token = &pc->tokens->at(*token_index);
     }
 
     // peek ahead and ensure that all variable declarations are followed by a semicolon
-    Token *semicolon_token = &pc->tokens->at(*token_index);
-    ast_expect_token(pc, semicolon_token, TokenIdSemicolon);
+    ast_expect_token(pc, next_token, TokenIdSemicolon);
 
     return node;
 }
@@ -2165,7 +2203,7 @@ static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mand
 }
 
 /*
-FnProto = option("coldcc" | "nakedcc" | "stdcallcc") "fn" option(Symbol) ParamDeclList option("->" TypeExpr)
+FnProto = option("coldcc" | "nakedcc" | "stdcallcc") "fn" option(Symbol) ParamDeclList option("align" PrimaryExpression) option("->" TypeExpr)
 */
 static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool mandatory, VisibMod visib_mod) {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -2200,6 +2238,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool m
     node->data.fn_proto.cc = cc;
 
     Token *fn_name = &pc->tokens->at(*token_index);
+
     if (fn_name->id == TokenIdSymbol) {
         *token_index += 1;
         node->data.fn_proto.name = token_buf(fn_name);
@@ -2210,6 +2249,12 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool m
     ast_parse_param_decl_list(pc, token_index, &node->data.fn_proto.params, &node->data.fn_proto.is_var_args);
 
     Token *next_token = &pc->tokens->at(*token_index);
+    if (next_token->id == TokenIdKeywordAlign) {
+        *token_index += 1;
+
+        node->data.fn_proto.align_expr = ast_parse_primary_expr(pc, token_index, true);
+        next_token = &pc->tokens->at(*token_index);
+    }
     if (next_token->id == TokenIdArrow) {
         *token_index += 1;
         node->data.fn_proto.return_type = ast_parse_type_expr(pc, token_index, false);
@@ -2595,6 +2640,7 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
         case NodeTypeFnProto:
             visit_field(&node->data.fn_proto.return_type, visit, context);
             visit_node_list(&node->data.fn_proto.params, visit, context);
+            visit_field(&node->data.fn_proto.align_expr, visit, context);
             break;
         case NodeTypeFnDef:
             visit_field(&node->data.fn_def.fn_proto, visit, context);
@@ -2621,6 +2667,7 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
         case NodeTypeVariableDeclaration:
             visit_field(&node->data.variable_declaration.type, visit, context);
             visit_field(&node->data.variable_declaration.expr, visit, context);
+            visit_field(&node->data.variable_declaration.align_expr, visit, context);
             break;
         case NodeTypeErrorValueDecl:
             // none
@@ -2769,12 +2816,17 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
         case NodeTypeArrayType:
             visit_field(&node->data.array_type.size, visit, context);
             visit_field(&node->data.array_type.child_type, visit, context);
+            visit_field(&node->data.array_type.align_expr, visit, context);
             break;
         case NodeTypeErrorType:
             // none
             break;
         case NodeTypeVarLiteral:
             // none
+            break;
+        case NodeTypeAddrOfExpr:
+            visit_field(&node->data.addr_of_expr.align_expr, visit, context);
+            visit_field(&node->data.addr_of_expr.op_expr, visit, context);
             break;
     }
 }

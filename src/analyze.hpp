@@ -16,7 +16,7 @@ ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, AstNode *node, Buf *m
 TypeTableEntry *new_type_table_entry(TypeTableEntryId id);
 TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool is_const);
 TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type, bool is_const,
-        bool is_volatile, uint32_t bit_offset, uint32_t unaligned_bit_count);
+        bool is_volatile, uint32_t byte_alignment, uint32_t bit_offset, uint32_t unaligned_bit_count);
 uint64_t type_size(CodeGen *g, TypeTableEntry *type_entry);
 uint64_t type_size_bits(CodeGen *g, TypeTableEntry *type_entry);
 TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, uint32_t size_in_bits);
@@ -26,7 +26,7 @@ TypeTableEntry *get_c_int_type(CodeGen *g, CIntType c_int_type);
 TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id);
 TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type);
 TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t array_size);
-TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *child_type, bool is_const);
+TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *ptr_type);
 TypeTableEntry *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind,
         AstNode *decl_node, const char *name, ContainerLayout layout);
 TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x);
@@ -170,5 +170,8 @@ LinkLib *create_link_lib(Buf *name);
 bool calling_convention_does_first_arg_return(CallingConvention cc);
 LinkLib *add_link_lib(CodeGen *codegen, Buf *lib);
 void add_link_lib_symbol(CodeGen *g, Buf *lib_name, Buf *symbol_name);
+
+uint32_t get_abi_alignment(CodeGen *g, TypeTableEntry *type_entry);
+TypeTableEntry *get_align_amt_type(CodeGen *g);
 
 #endif

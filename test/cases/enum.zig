@@ -124,8 +124,8 @@ const BareNumber = enum {
 
 test "enum alignment" {
     comptime {
-        assert(@cAbiAlignOf(AlignTestEnum) >= @cAbiAlignOf([9]u8));
-        assert(@cAbiAlignOf(AlignTestEnum) >= @cAbiAlignOf(u64));
+        assert(@alignOf(AlignTestEnum) >= @alignOf([9]u8));
+        assert(@alignOf(AlignTestEnum) >= @alignOf(u64));
     }
 }
 

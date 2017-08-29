@@ -664,14 +664,8 @@ static void ir_print_return_address(IrPrint *irp, IrInstructionReturnAddress *in
     fprintf(irp->f, "@returnAddress()");
 }
 
-static void ir_print_preferred_align_of(IrPrint *irp, IrInstructionPreferredAlignOf *instruction) {
-    fprintf(irp->f, "@preferredAlignOf(");
-    ir_print_other_instruction(irp, instruction->type_value);
-    fprintf(irp->f, ")");
-}
-
-static void ir_print_abi_align_of(IrPrint *irp, IrInstructionAbiAlignOf *instruction) {
-    fprintf(irp->f, "@abiAlignOf(");
+static void ir_print_align_of(IrPrint *irp, IrInstructionAlignOf *instruction) {
+    fprintf(irp->f, "@alignOf(");
     ir_print_other_instruction(irp, instruction->type_value);
     fprintf(irp->f, ")");
 }
@@ -860,10 +854,14 @@ static void ir_print_can_implicit_cast(IrPrint *irp, IrInstructionCanImplicitCas
     fprintf(irp->f, ")");
 }
 
-static void ir_print_set_global_align(IrPrint *irp, IrInstructionSetGlobalAlign *instruction) {
-    fprintf(irp->f, "@setGlobalAlign(%s,", buf_ptr(instruction->tld->name));
-    ir_print_other_instruction(irp, instruction->value);
-    fprintf(irp->f, ")");
+static void ir_print_ptr_type_of(IrPrint *irp, IrInstructionPtrTypeOf *instruction) {
+    fprintf(irp->f, "&align ");
+    ir_print_other_instruction(irp, instruction->align_value);
+    const char *const_str = instruction->is_const ? "const " : "";
+    const char *volatile_str = instruction->is_volatile ? "volatile " : "";
+    fprintf(irp->f, ":%" PRIu32 ":%" PRIu32 " %s%s", instruction->bit_offset_start, instruction->bit_offset_end,
+            const_str, volatile_str);
+    ir_print_other_instruction(irp, instruction->child_type);
 }
 
 static void ir_print_set_global_section(IrPrint *irp, IrInstructionSetGlobalSection *instruction) {
@@ -1116,11 +1114,8 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdFrameAddress:
             ir_print_frame_address(irp, (IrInstructionFrameAddress *)instruction);
             break;
-        case IrInstructionIdPreferredAlignOf:
-            ir_print_preferred_align_of(irp, (IrInstructionPreferredAlignOf *)instruction);
-            break;
-        case IrInstructionIdAbiAlignOf:
-            ir_print_abi_align_of(irp, (IrInstructionAbiAlignOf *)instruction);
+        case IrInstructionIdAlignOf:
+            ir_print_align_of(irp, (IrInstructionAlignOf *)instruction);
             break;
         case IrInstructionIdOverflowOp:
             ir_print_overflow_op(irp, (IrInstructionOverflowOp *)instruction);
@@ -1191,8 +1186,8 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdCanImplicitCast:
             ir_print_can_implicit_cast(irp, (IrInstructionCanImplicitCast *)instruction);
             break;
-        case IrInstructionIdSetGlobalAlign:
-            ir_print_set_global_align(irp, (IrInstructionSetGlobalAlign *)instruction);
+        case IrInstructionIdPtrTypeOf:
+            ir_print_ptr_type_of(irp, (IrInstructionPtrTypeOf *)instruction);
             break;
         case IrInstructionIdSetGlobalSection:
             ir_print_set_global_section(irp, (IrInstructionSetGlobalSection *)instruction);

@@ -201,8 +201,6 @@ test "packed struct" {
 }
 
 
-const u2 = @IntType(false, 2);
-
 const BitField1 = packed struct {
     a: u3,
     b: u3,

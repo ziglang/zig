@@ -172,7 +172,6 @@ test "switch handles all cases of number" {
     comptime testSwitchHandleAllCases();
 }
 
-const u2 = @IntType(false, 2);
 fn testSwitchHandleAllCases() {
     assert(testSwitchHandleAllCasesExhaustive(0) == 3);
     assert(testSwitchHandleAllCasesExhaustive(1) == 2);

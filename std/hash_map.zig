@@ -251,7 +251,7 @@ test "basicHashMapTest" {
 }
 
 fn hash_i32(x: i32) -> u32 {
-    *@ptrCast(&u32, &x)
+    @bitCast(u32, x)
 }
 
 fn eql_i32(a: i32, b: i32) -> bool {
