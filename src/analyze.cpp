@@ -4812,6 +4812,8 @@ uint32_t get_abi_alignment(CodeGen *g, TypeTableEntry *type_entry) {
         return type_entry->data.enumeration.abi_alignment;
     } else if (type_entry->id == TypeTableEntryIdUnion) {
         zig_panic("TODO");
+    } else if (type_entry->id == TypeTableEntryIdOpaque) {
+        return 1;
     } else {
         return LLVMABIAlignmentOfType(g->target_data_ref, type_entry->type_ref);
     }

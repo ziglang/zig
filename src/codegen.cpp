@@ -350,12 +350,6 @@ static LLVMCallConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
     zig_unreachable();
 }
 
-static uint32_t get_pref_fn_align(CodeGen *g, LLVMTypeRef fn_type_ref) {
-    uint32_t pref_align = LLVMPreferredAlignmentOfType(g->target_data_ref, fn_type_ref);
-    uint32_t abi_align = LLVMABIAlignmentOfType(g->target_data_ref, fn_type_ref);
-    return (pref_align > abi_align) ? pref_align : abi_align;
-}
-
 static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     if (fn_table_entry->llvm_value)
         return fn_table_entry->llvm_value;
@@ -450,12 +444,11 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     }
     if (fn_table_entry->align_bytes > 0) {
         LLVMSetAlignment(fn_table_entry->llvm_value, (unsigned)fn_table_entry->align_bytes);
-    } else if (fn_table_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionUnspecified) {
-        LLVMSetAlignment(fn_table_entry->llvm_value,
-                get_pref_fn_align(g, fn_table_entry->type_entry->data.fn.raw_type_ref));
     } else {
-        LLVMSetAlignment(fn_table_entry->llvm_value,
-                LLVMABIAlignmentOfType(g->target_data_ref, fn_table_entry->type_entry->data.fn.raw_type_ref));
+        // We'd like to set the best alignment for the function here, but on Darwin LLVM gives
+        // "Cannot getTypeInfo() on a type that is unsized!" assertion failure when calling
+        // any of the functions for getting alignment. Not specifying the alignment should
+        // use the ABI alignment, which is fine.
     }
 
     return fn_table_entry->llvm_value;
@@ -814,7 +807,9 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
     }
-    LLVMSetAlignment(fn_val, get_pref_fn_align(g, fn_type_ref));
+    // Not setting alignment here. See the comment above about
+    // "Cannot getTypeInfo() on a type that is unsized!"
+    // assertion failure on Darwin.
 
     LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn_val, "Entry");
     LLVMBasicBlockRef prev_block = LLVMGetInsertBlock(g->builder);
