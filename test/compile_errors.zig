@@ -2011,4 +2011,15 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:9:17: error: expected type '[]u32', found '[]align 1 u32'");
+
+    cases.add("increase pointer alignment in @ptrCast",
+        \\export fn entry() -> u32 {
+        \\    var bytes: [4]u8 align 4 = []u8{0x01, 0x02, 0x03, 0x04};
+        \\    const ptr = @ptrCast(&u32, &bytes[0]);
+        \\    return *ptr;
+        \\}
+    ,
+        ".tmp_source.zig:3:17: error: cast increases pointer alignment",
+        ".tmp_source.zig:3:38: note: '&u8' has alignment 1",
+        ".tmp_source.zig:3:27: note: '&u32' has alignment 4");
 }

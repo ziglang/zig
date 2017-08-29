@@ -53,3 +53,12 @@ test "implicitly decreasing slice alignment" {
     assert(addUnalignedSlice((&a)[0..1], (&b)[0..1]) == 7);
 }
 fn addUnalignedSlice(a: []align 1 const u32, b: []align 1 const u32) -> u32 { a[0] + b[0] }
+
+test "specifying alignment allows pointer cast" {
+    testBytesAlign(0x33);
+}
+fn testBytesAlign(b: u8) {
+    var bytes align 4 = []u8{b, b, b, b};
+    const ptr = @ptrCast(&u32, &bytes[0]);
+    assert(*ptr == 0x33333333);
+}

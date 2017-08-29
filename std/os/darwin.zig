@@ -172,7 +172,7 @@ pub fn fork() -> usize {
 
 pub fn pipe(fds: &[2]i32) -> usize {
     comptime assert(i32.bit_count == c_int.bit_count);
-    errnoWrap(c.pipe(@ptrCast(&c_int, &(*fds)[0])))
+    errnoWrap(c.pipe(@ptrCast(&c_int, fds)))
 }
 
 pub fn mkdir(path: &const u8, mode: u32) -> usize {

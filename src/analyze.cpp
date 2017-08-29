@@ -2899,14 +2899,29 @@ void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry) {
     }
 }
 
-bool type_is_codegen_pointer(TypeTableEntry *type) {
-    if (type->id == TypeTableEntryIdPointer) return true;
-    if (type->id == TypeTableEntryIdFn) return true;
+TypeTableEntry *get_codegen_ptr_type(TypeTableEntry *type) {
+    if (type->id == TypeTableEntryIdPointer) return type;
+    if (type->id == TypeTableEntryIdFn) return type;
     if (type->id == TypeTableEntryIdMaybe) {
-        if (type->data.maybe.child_type->id == TypeTableEntryIdPointer) return true;
-        if (type->data.maybe.child_type->id == TypeTableEntryIdFn) return true;
+        if (type->data.maybe.child_type->id == TypeTableEntryIdPointer) return type->data.maybe.child_type;
+        if (type->data.maybe.child_type->id == TypeTableEntryIdFn) return type->data.maybe.child_type;
     }
-    return false;
+    return nullptr;
+}
+
+bool type_is_codegen_pointer(TypeTableEntry *type) {
+    return get_codegen_ptr_type(type) != nullptr;
+}
+
+uint32_t get_ptr_align(TypeTableEntry *type) {
+    TypeTableEntry *ptr_type = get_codegen_ptr_type(type);
+    if (ptr_type->id == TypeTableEntryIdPointer) {
+        return ptr_type->data.pointer.alignment;
+    } else if (ptr_type->id == TypeTableEntryIdFn) {
+        return (ptr_type->data.fn.fn_type_id.alignment == 0) ? 1 : ptr_type->data.fn.fn_type_id.alignment;
+    } else {
+        zig_unreachable();
+    }
 }
 
 AstNode *get_param_decl_node(FnTableEntry *fn_entry, size_t index) {

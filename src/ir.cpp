@@ -10830,7 +10830,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
         if (ptr_type->data.pointer.unaligned_bit_count == 0) {
             return_type = get_pointer_to_type_extra(ira->codegen, child_type,
                     ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
-                    get_abi_alignment(ira->codegen, child_type), 0, 0);
+                    ptr_type->data.pointer.alignment, 0, 0);
         } else {
             uint64_t elem_val_scalar;
             if (!ir_resolve_usize(ira, elem_index, &elem_val_scalar))
@@ -10841,8 +10841,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
 
             return_type = get_pointer_to_type_extra(ira->codegen, child_type,
                     ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
-                    get_abi_alignment(ira->codegen, child_type),
-                    (uint32_t)bit_offset, (uint32_t)bit_width);
+                    1, (uint32_t)bit_offset, (uint32_t)bit_width);
         }
     } else if (array_type->id == TypeTableEntryIdPointer) {
         return_type = array_type;
@@ -14455,6 +14454,18 @@ static TypeTableEntry *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, IrInstruc
         copy_const_val(out_val, val, false);
         out_val->type = dest_type;
         return dest_type;
+    }
+
+    uint32_t src_align_bytes = get_ptr_align(src_type);
+    uint32_t dest_align_bytes = get_ptr_align(dest_type);
+
+    if (dest_align_bytes > src_align_bytes) {
+        ErrorMsg *msg = ir_add_error(ira, &instruction->base, buf_sprintf("cast increases pointer alignment"));
+        add_error_note(ira->codegen, msg, ptr->source_node,
+                buf_sprintf("'%s' has alignment %" PRIu32, buf_ptr(&src_type->name), src_align_bytes));
+        add_error_note(ira->codegen, msg, dest_type_value->source_node,
+                buf_sprintf("'%s' has alignment %" PRIu32, buf_ptr(&dest_type->name), dest_align_bytes));
+        return ira->codegen->builtin_types.entry_invalid;
     }
 
     IrInstruction *result = ir_build_ptr_cast(&ira->new_irb, instruction->base.scope,

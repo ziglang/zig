@@ -913,6 +913,7 @@ struct FnTypeId {
     size_t next_param_index;
     bool is_var_args;
     CallingConvention cc;
+    uint32_t alignment;
 };
 
 uint32_t fn_type_id_hash(FnTypeId*);

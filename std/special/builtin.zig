@@ -49,8 +49,8 @@ fn generic_fmod(comptime T: type, x: T, y: T) -> T {
     const exp_bits = if (T == f32) 9 else 12;
     const bits_minus_1 = T.bit_count - 1;
     const mask = if (T == f32) 0xff else 0x7ff;
-    var ux = *@ptrCast(&const uint, &x);
-    var uy = *@ptrCast(&const uint, &y);
+    var ux = @bitCast(uint, x);
+    var uy = @bitCast(uint, y);
     var ex = i32((ux >> digits) & mask);
     var ey = i32((uy >> digits) & mask);
     const sx = if (T == f32) u32(ux & 0x80000000) else i32(ux >> bits_minus_1);
@@ -113,7 +113,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) -> T {
     } else {
         ux |= uint(sx) << bits_minus_1;
     }
-    return *@ptrCast(&const T, &ux);
+    return @bitCast(T, ux);
 }
 
 fn isNan(comptime T: type, bits: T) -> bool {
