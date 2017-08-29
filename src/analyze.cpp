@@ -2615,25 +2615,30 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
         (!actual_type->data.pointer.is_const || expected_type->data.pointer.is_const) &&
         (!actual_type->data.pointer.is_volatile || expected_type->data.pointer.is_volatile) &&
         actual_type->data.pointer.bit_offset == expected_type->data.pointer.bit_offset &&
-        actual_type->data.pointer.unaligned_bit_count == expected_type->data.pointer.unaligned_bit_count)
+        actual_type->data.pointer.unaligned_bit_count == expected_type->data.pointer.unaligned_bit_count &&
+        actual_type->data.pointer.alignment >= expected_type->data.pointer.alignment)
     {
         return types_match_const_cast_only(expected_type->data.pointer.child_type,
                 actual_type->data.pointer.child_type);
     }
 
-    // unknown size array const
+    // slice const
     if (expected_type->id == TypeTableEntryIdStruct &&
         actual_type->id == TypeTableEntryIdStruct &&
         expected_type->data.structure.is_slice &&
-        actual_type->data.structure.is_slice &&
-        (!actual_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const ||
-          expected_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const) &&
-        (!actual_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_volatile ||
-          expected_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_volatile))
+        actual_type->data.structure.is_slice)
     {
-        return types_match_const_cast_only(
-                expected_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type,
-                actual_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type);
+        TypeTableEntry *actual_ptr_type = actual_type->data.structure.fields[slice_ptr_index].type_entry;
+        TypeTableEntry *expected_ptr_type = expected_type->data.structure.fields[slice_ptr_index].type_entry;
+        if ((!actual_ptr_type->data.pointer.is_const || expected_ptr_type->data.pointer.is_const) &&
+            (!actual_ptr_type->data.pointer.is_volatile || expected_ptr_type->data.pointer.is_volatile) &&
+            actual_ptr_type->data.pointer.bit_offset == expected_ptr_type->data.pointer.bit_offset &&
+            actual_ptr_type->data.pointer.unaligned_bit_count == expected_ptr_type->data.pointer.unaligned_bit_count &&
+            actual_ptr_type->data.pointer.alignment >= expected_ptr_type->data.pointer.alignment)
+        {
+            return types_match_const_cast_only(expected_ptr_type->data.pointer.child_type,
+                    actual_ptr_type->data.pointer.child_type);
+        }
     }
 
     // maybe

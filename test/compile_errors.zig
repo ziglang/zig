@@ -1976,4 +1976,39 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:1:1: error: declaration shadows type 'u16'");
+
+    cases.add("implicitly increasing pointer alignment",
+        \\const Foo = packed struct {
+        \\    a: u8,
+        \\    b: u32,
+        \\};
+        \\
+        \\export fn entry() {
+        \\    var foo = Foo { .a = 1, .b = 10 };
+        \\    bar(&foo.b);
+        \\}
+        \\
+        \\fn bar(x: &u32) {
+        \\    *x += 1;
+        \\}
+    ,
+        ".tmp_source.zig:8:13: error: expected type '&u32', found '&align 1 u32'");
+
+    cases.add("implicitly increasing slice alignment",
+        \\const Foo = packed struct {
+        \\    a: u8,
+        \\    b: u32,
+        \\};
+        \\
+        \\export fn entry() {
+        \\    var foo = Foo { .a = 1, .b = 10 };
+        \\    foo.b += 1;
+        \\    bar((&foo.b)[0..1]);
+        \\}
+        \\
+        \\fn bar(x: []u32) {
+        \\    x[0] += 1;
+        \\}
+    ,
+        ".tmp_source.zig:9:17: error: expected type '[]u32', found '[]align 1 u32'");
 }

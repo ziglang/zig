@@ -38,3 +38,18 @@ test "bit field alignment" {
 test "default alignment allows unspecified in type syntax" {
     assert(&u32 == &align @alignOf(u32) u32);
 }
+
+test "implicitly decreasing pointer alignment" {
+    const a: u32 align 4 = 3;
+    const b: u32 align 8 = 4;
+    assert(addUnaligned(&a, &b) == 7);
+}
+
+fn addUnaligned(a: &align 1 const u32, b: &align 1 const u32) -> u32 { *a + *b }
+
+test "implicitly decreasing slice alignment" {
+    const a: u32 align 4 = 3;
+    const b: u32 align 8 = 4;
+    assert(addUnalignedSlice((&a)[0..1], (&b)[0..1]) == 7);
+}
+fn addUnalignedSlice(a: []align 1 const u32, b: []align 1 const u32) -> u32 { a[0] + b[0] }
