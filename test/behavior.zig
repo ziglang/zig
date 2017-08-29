@@ -1,4 +1,5 @@
 comptime {
+    _ = @import("cases/align.zig");
     _ = @import("cases/alignof.zig");
     _ = @import("cases/array.zig");
     _ = @import("cases/asm.zig");

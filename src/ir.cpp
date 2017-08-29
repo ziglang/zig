@@ -4682,6 +4682,12 @@ static IrInstruction *ir_gen_address_of(IrBuilder *irb, Scope *scope, AstNode *n
         bit_offset_end = bigint_as_unsigned(node->data.addr_of_expr.bit_offset_end);
     }
 
+    if ((bit_offset_start != 0 || bit_offset_end != 0) && bit_offset_start >= bit_offset_end) {
+        exec_add_error_node(irb->codegen, irb->exec, node,
+                buf_sprintf("bit offset start must be less than bit offset end"));
+        return irb->codegen->invalid_instruction;
+    }
+
     return ir_build_ptr_type_of(irb, scope, node, child_type, is_const, is_volatile,
             align_value, bit_offset_start, bit_offset_end);
 }
@@ -11060,6 +11066,10 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
         if (field) {
             bool is_packed = (bare_type->data.structure.layout == ContainerLayoutPacked);
             uint32_t align_bytes = is_packed ? 1 : get_abi_alignment(ira->codegen, field->type_entry);
+            size_t ptr_bit_offset = container_ptr->value.type->data.pointer.bit_offset;
+            size_t ptr_unaligned_bit_count = container_ptr->value.type->data.pointer.unaligned_bit_count;
+            size_t unaligned_bit_count_for_result_type = (ptr_unaligned_bit_count == 0) ?
+                field->unaligned_bit_count : type_size_bits(ira->codegen, field->type_entry);
             if (instr_is_comptime(container_ptr)) {
                 ConstExprValue *ptr_val = ir_resolve_const(ira, container_ptr, UndefBad);
                 if (!ptr_val)
@@ -11069,7 +11079,9 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
                     ConstExprValue *struct_val = const_ptr_pointee(ira->codegen, ptr_val);
                     ConstExprValue *field_val = &struct_val->data.x_struct.fields[field->src_index];
                     TypeTableEntry *ptr_type = get_pointer_to_type_extra(ira->codegen, field_val->type,
-                            is_const, is_volatile, align_bytes, 0, 0);
+                            is_const, is_volatile, align_bytes,
+                            (uint32_t)(ptr_bit_offset + field->packed_bits_offset),
+                            (uint32_t)unaligned_bit_count_for_result_type);
                     ConstExprValue *const_val = ir_build_const_from(ira, &field_ptr_instruction->base);
                     const_val->data.x_ptr.special = ConstPtrSpecialBaseStruct;
                     const_val->data.x_ptr.mut = container_ptr->value.data.x_ptr.mut;
@@ -11078,10 +11090,6 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
                     return ptr_type;
                 }
             }
-            size_t ptr_bit_offset = container_ptr->value.type->data.pointer.bit_offset;
-            size_t ptr_unaligned_bit_count = container_ptr->value.type->data.pointer.unaligned_bit_count;
-            size_t unaligned_bit_count_for_result_type = (ptr_unaligned_bit_count == 0) ?
-                field->unaligned_bit_count : type_size_bits(ira->codegen, field->type_entry);
             ir_build_struct_field_ptr_from(&ira->new_irb, &field_ptr_instruction->base, container_ptr, field);
             return get_pointer_to_type_extra(ira->codegen, field->type_entry, is_const, is_volatile,
                     align_bytes,
@@ -14841,7 +14849,7 @@ static TypeTableEntry *ir_analyze_instruction_ptr_type_of(IrAnalyze *ira, IrInst
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
     out_val->data.x_type = get_pointer_to_type_extra(ira->codegen, child_type,
             instruction->is_const, instruction->is_volatile, align_bytes,
-            instruction->bit_offset_start, instruction->bit_offset_end);
+            instruction->bit_offset_start, instruction->bit_offset_end - instruction->bit_offset_start);
 
     return ira->codegen->builtin_types.entry_type;
 }
