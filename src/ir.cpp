@@ -10825,6 +10825,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
         if (array_type->data.array.len == 0) {
             ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
                     buf_sprintf("index 0 outside array of size 0"));
+            return ira->codegen->builtin_types.entry_invalid;
         }
         TypeTableEntry *child_type = array_type->data.array.child_type;
         if (ptr_type->data.pointer.unaligned_bit_count == 0) {

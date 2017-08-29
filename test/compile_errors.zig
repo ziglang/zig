@@ -2014,7 +2014,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("increase pointer alignment in @ptrCast",
         \\export fn entry() -> u32 {
-        \\    var bytes: [4]u8 align 4 = []u8{0x01, 0x02, 0x03, 0x04};
+        \\    var bytes: [4]u8 = []u8{0x01, 0x02, 0x03, 0x04};
         \\    const ptr = @ptrCast(&u32, &bytes[0]);
         \\    return *ptr;
         \\}
