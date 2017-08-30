@@ -2232,7 +2232,7 @@ static IrInstruction *ir_build_align_cast(IrBuilder *irb, Scope *scope, AstNode 
     instruction->align_bytes = align_bytes;
     instruction->target = target;
 
-    ir_ref_instruction(align_bytes, irb->current_basic_block);
+    if (align_bytes) ir_ref_instruction(align_bytes, irb->current_basic_block);
     ir_ref_instruction(target, irb->current_basic_block);
 
     return &instruction->base;
@@ -2950,8 +2950,8 @@ static IrInstruction *ir_instruction_ptrtypeof_get_dep(IrInstructionPtrTypeOf *i
 
 static IrInstruction *ir_instruction_aligncast_get_dep(IrInstructionAlignCast *instruction, size_t index) {
     switch (index) {
-        case 0: return instruction->align_bytes;
-        case 1: return instruction->target;
+        case 0: return instruction->target;
+        case 1: return instruction->align_bytes; // can be null
         default: return nullptr;
     }
 }
@@ -14512,6 +14512,80 @@ static TypeTableEntry *ir_analyze_instruction_panic(IrAnalyze *ira, IrInstructio
     return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
 }
 
+static IrInstruction *ir_align_cast(IrAnalyze *ira, IrInstruction *target, uint32_t align_bytes, bool safety_check_on) {
+    TypeTableEntry *target_type = target->value.type;
+    assert(!type_is_invalid(target_type));
+
+    TypeTableEntry *result_type;
+    uint32_t old_align_bytes;
+
+    if (target_type->id == TypeTableEntryIdPointer) {
+        result_type = get_pointer_to_type_extra(ira->codegen,
+                target_type->data.pointer.child_type,
+                target_type->data.pointer.is_const, target_type->data.pointer.is_volatile,
+                align_bytes,
+                target_type->data.pointer.bit_offset, target_type->data.pointer.unaligned_bit_count);
+    } else if (target_type->id == TypeTableEntryIdFn) {
+        FnTypeId fn_type_id = target_type->data.fn.fn_type_id;
+        old_align_bytes = fn_type_id.alignment;
+        fn_type_id.alignment = align_bytes;
+        result_type = get_fn_type(ira->codegen, &fn_type_id);
+    } else if (target_type->id == TypeTableEntryIdMaybe &&
+            target_type->data.maybe.child_type->id == TypeTableEntryIdPointer)
+    {
+        TypeTableEntry *ptr_type = target_type->data.maybe.child_type;
+        old_align_bytes = ptr_type->data.pointer.alignment;
+        TypeTableEntry *better_ptr_type = get_pointer_to_type_extra(ira->codegen,
+                ptr_type->data.pointer.child_type,
+                ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
+                align_bytes,
+                ptr_type->data.pointer.bit_offset, ptr_type->data.pointer.unaligned_bit_count);
+
+        result_type = get_maybe_type(ira->codegen, better_ptr_type);
+    } else if (target_type->id == TypeTableEntryIdMaybe &&
+            target_type->data.maybe.child_type->id == TypeTableEntryIdFn)
+    {
+        FnTypeId fn_type_id = target_type->data.maybe.child_type->data.fn.fn_type_id;
+        old_align_bytes = fn_type_id.alignment;
+        fn_type_id.alignment = align_bytes;
+        TypeTableEntry *fn_type = get_fn_type(ira->codegen, &fn_type_id);
+        result_type = get_maybe_type(ira->codegen, fn_type);
+    } else if (is_slice(target_type)) {
+        TypeTableEntry *slice_ptr_type = target_type->data.structure.fields[slice_ptr_index].type_entry;
+        old_align_bytes = slice_ptr_type->data.pointer.alignment;
+        TypeTableEntry *result_ptr_type = get_pointer_to_type_extra(ira->codegen,
+                slice_ptr_type->data.pointer.child_type,
+                slice_ptr_type->data.pointer.is_const, slice_ptr_type->data.pointer.is_volatile,
+                align_bytes,
+                slice_ptr_type->data.pointer.bit_offset, slice_ptr_type->data.pointer.unaligned_bit_count);
+        result_type = get_slice_type(ira->codegen, result_ptr_type);
+    } else {
+        ir_add_error(ira, target,
+                buf_sprintf("expected pointer or slice, found '%s'", buf_ptr(&target_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    if (instr_is_comptime(target)) {
+        ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
+        if (!val)
+            return ira->codegen->invalid_instruction;
+
+        IrInstruction *result = ir_create_const(&ira->new_irb, target->scope, target->source_node, result_type);
+        copy_const_val(&result->value, val, false);
+        result->value.type = result_type;
+        return result;
+    }
+
+    IrInstruction *result;
+    if (safety_check_on && align_bytes > old_align_bytes && align_bytes != 1) {
+        result = ir_build_align_cast(&ira->new_irb, target->scope, target->source_node, nullptr, target);
+    } else {
+        result = ir_build_cast(&ira->new_irb, target->scope, target->source_node, result_type, target, CastOpNoop);
+    }
+    result->value.type = result_type;
+    return result;
+}
+
 static TypeTableEntry *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, IrInstructionPtrCast *instruction) {
     IrInstruction *dest_type_value = instruction->dest_type->other;
     TypeTableEntry *dest_type = ir_resolve_type(ira, dest_type_value);
@@ -14557,11 +14631,21 @@ static TypeTableEntry *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, IrInstruc
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    IrInstruction *result = ir_build_ptr_cast(&ira->new_irb, instruction->base.scope,
+    IrInstruction *casted_ptr = ir_build_ptr_cast(&ira->new_irb, instruction->base.scope,
             instruction->base.source_node, nullptr, ptr);
+    casted_ptr->value.type = dest_type;
+
+    // keep the bigger alignment, it can only help
+    IrInstruction *result;
+    if (src_align_bytes > dest_align_bytes) {
+        result = ir_align_cast(ira, casted_ptr, src_align_bytes, false);
+        if (type_is_invalid(result->value.type))
+            return ira->codegen->builtin_types.entry_invalid;
+    } else {
+        result = casted_ptr;
+    }
     ir_link_new_instruction(result, &instruction->base);
-    result->value.type = dest_type;
-    return dest_type;
+    return result->value.type;
 }
 
 static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue *val) {
@@ -14961,81 +15045,15 @@ static TypeTableEntry *ir_analyze_instruction_align_cast(IrAnalyze *ira, IrInstr
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *target = instruction->target->other;
-    TypeTableEntry *target_type = target->value.type;
-    if (type_is_invalid(target_type))
+    if (type_is_invalid(target->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    TypeTableEntry *result_type;
-    uint32_t old_align_bytes;
-
-    if (target_type->id == TypeTableEntryIdPointer) {
-        result_type = get_pointer_to_type_extra(ira->codegen,
-                target_type->data.pointer.child_type,
-                target_type->data.pointer.is_const, target_type->data.pointer.is_volatile,
-                align_bytes,
-                target_type->data.pointer.bit_offset, target_type->data.pointer.unaligned_bit_count);
-    } else if (target_type->id == TypeTableEntryIdFn) {
-        FnTypeId fn_type_id = target_type->data.fn.fn_type_id;
-        old_align_bytes = fn_type_id.alignment;
-        fn_type_id.alignment = align_bytes;
-        result_type = get_fn_type(ira->codegen, &fn_type_id);
-    } else if (target_type->id == TypeTableEntryIdMaybe &&
-            target_type->data.maybe.child_type->id == TypeTableEntryIdPointer)
-    {
-        TypeTableEntry *ptr_type = target_type->data.maybe.child_type;
-        old_align_bytes = ptr_type->data.pointer.alignment;
-        TypeTableEntry *better_ptr_type = get_pointer_to_type_extra(ira->codegen,
-                ptr_type->data.pointer.child_type,
-                ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
-                align_bytes,
-                ptr_type->data.pointer.bit_offset, ptr_type->data.pointer.unaligned_bit_count);
-
-        result_type = get_maybe_type(ira->codegen, better_ptr_type);
-    } else if (target_type->id == TypeTableEntryIdMaybe &&
-            target_type->data.maybe.child_type->id == TypeTableEntryIdFn)
-    {
-        FnTypeId fn_type_id = target_type->data.maybe.child_type->data.fn.fn_type_id;
-        old_align_bytes = fn_type_id.alignment;
-        fn_type_id.alignment = align_bytes;
-        TypeTableEntry *fn_type = get_fn_type(ira->codegen, &fn_type_id);
-        result_type = get_maybe_type(ira->codegen, fn_type);
-    } else if (is_slice(target_type)) {
-        TypeTableEntry *slice_ptr_type = target_type->data.structure.fields[slice_ptr_index].type_entry;
-        old_align_bytes = slice_ptr_type->data.pointer.alignment;
-        TypeTableEntry *result_ptr_type = get_pointer_to_type_extra(ira->codegen,
-                slice_ptr_type->data.pointer.child_type,
-                slice_ptr_type->data.pointer.is_const, slice_ptr_type->data.pointer.is_volatile,
-                align_bytes,
-                slice_ptr_type->data.pointer.bit_offset, slice_ptr_type->data.pointer.unaligned_bit_count);
-        result_type = get_slice_type(ira->codegen, result_ptr_type);
-    } else {
-        ir_add_error(ira, target,
-                buf_sprintf("expected pointer or slice, found '%s'", buf_ptr(&target_type->name)));
+    IrInstruction *result = ir_align_cast(ira, target, align_bytes, true);
+    if (type_is_invalid(result->value.type))
         return ira->codegen->builtin_types.entry_invalid;
-    }
 
-    if (instr_is_comptime(target)) {
-        ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
-        if (!val)
-            return ira->codegen->builtin_types.entry_invalid;
-
-        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-        copy_const_val(out_val, val, false);
-        out_val->type = result_type;
-        return result_type;
-    }
-
-    IrInstruction *result;
-    if (align_bytes > old_align_bytes && align_bytes != 1) {
-        result = ir_build_align_cast(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
-                align_bytes_inst, target);
-    } else {
-        result = ir_build_cast(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
-                result_type, target, CastOpNoop);
-    }
     ir_link_new_instruction(result, &instruction->base);
-    result->value.type = result_type;
-    return result_type;
+    return result->value.type;
 }
 
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {

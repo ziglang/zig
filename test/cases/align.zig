@@ -136,3 +136,10 @@ test "generic function with align param" {
 }
 
 fn whyWouldYouEverDoThis(comptime align_bytes: u8) align align_bytes -> u8 { 0x1 }
+
+
+test "@ptrCast preserves alignment of bigger source" {
+    var x: u32 align 16 = 1234;
+    const ptr = @ptrCast(&u8, &x);
+    assert(@typeOf(ptr) == &align 16 u8);
+}
