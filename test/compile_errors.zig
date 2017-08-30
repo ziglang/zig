@@ -2039,4 +2039,16 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:2:22: error: expected pointer or slice, found 'u32'");
+
+    cases.add("passing an under-aligned function pointer",
+        \\export fn entry() {
+        \\    testImplicitlyDecreaseFnAlign(alignedSmall, 1234);
+        \\}
+        \\fn testImplicitlyDecreaseFnAlign(ptr: fn () align 8 -> i32, answer: i32) {
+        \\    if (ptr() != answer) unreachable;
+        \\}
+        \\fn alignedSmall() align 4 -> i32 { 1234 }
+    ,
+        ".tmp_source.zig:2:35: error: expected type 'fn() align 8 -> i32', found 'fn() align 4 -> i32'");
+
 }

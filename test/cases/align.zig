@@ -9,9 +9,15 @@ test "global variable alignment" {
 }
 
 fn derp() align (@sizeOf(usize) * 2) -> i32 { 1234 }
+fn noop1() align 1 {}
+fn noop4() align 4 {}
 
 test "function alignment" {
     assert(derp() == 1234);
+    assert(@typeOf(noop1) == fn() align 1);
+    assert(@typeOf(noop4) == fn() align 4);
+    noop1();
+    noop4();
 }
 
 
@@ -96,3 +102,28 @@ fn sliceExpectsOnly1(slice: []align 1 u32) {
 fn sliceExpects4(slice: []align 4 u32) {
     slice[0] += 1;
 }
+
+
+test "implicitly decreasing fn alignment" {
+    testImplicitlyDecreaseFnAlign(alignedSmall, 1234);
+    testImplicitlyDecreaseFnAlign(alignedBig, 5678);
+}
+
+fn testImplicitlyDecreaseFnAlign(ptr: fn () align 1 -> i32, answer: i32) {
+    assert(ptr() == answer);
+}
+
+fn alignedSmall() align 8 -> i32 { 1234 }
+fn alignedBig() align 16 -> i32 { 5678 }
+
+
+test "@alignCast functions" {
+    assert(fnExpectsOnly1(simple4) == 0x19);
+}
+fn fnExpectsOnly1(ptr: fn()align 1 -> i32) -> i32 {
+    fnExpects4(@alignCast(4, ptr))
+}
+fn fnExpects4(ptr: fn()align 4 -> i32) -> i32 {
+    ptr()
+}
+fn simple4() align 4 -> i32 { 0x19 }
