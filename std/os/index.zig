@@ -210,7 +210,7 @@ pub fn windowsIsTty(handle: windows.HANDLE) -> bool {
 
 pub fn windowsIsCygwinPty(handle: windows.HANDLE) -> bool {
     const size = @sizeOf(windows.FILE_NAME_INFO);
-    var name_info_bytes = []u8{0} ** (size + windows.MAX_PATH);
+    var name_info_bytes align(@alignOf(windows.FILE_NAME_INFO)) = []u8{0} ** (size + windows.MAX_PATH);
 
     if (!windows.GetFileInformationByHandleEx(handle, windows.FileNameInfo,
         @ptrCast(&c_void, &name_info_bytes[0]), u32(name_info_bytes.len)))

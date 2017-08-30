@@ -336,6 +336,16 @@ static bool is_target_cyg_mingw(const ZigTarget *target) {
         (target->os == ZigLLVM_Win32 && target->env_type == ZigLLVM_GNU);
 }
 
+static void coff_append_machine_arg(CodeGen *g, ZigList<const char *> *list) {
+    if (g->zig_target.arch.arch == ZigLLVM_x86) {
+        list->append("-MACHINE:X86");
+    } else if (g->zig_target.arch.arch == ZigLLVM_x86_64) {
+        list->append("-MACHINE:X64");
+    } else if (g->zig_target.arch.arch == ZigLLVM_arm) {
+        list->append("-MACHINE:ARM");
+    }
+}
+
 static void construct_linker_job_coff(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
@@ -345,13 +355,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
 
     lj->args.append("-NOLOGO");
 
-    if (g->zig_target.arch.arch == ZigLLVM_x86) {
-        lj->args.append("-MACHINE:X86");
-    } else if (g->zig_target.arch.arch == ZigLLVM_x86_64) {
-        lj->args.append("-MACHINE:X64");
-    } else if (g->zig_target.arch.arch == ZigLLVM_arm) {
-        lj->args.append("-MACHINE:ARM");
-    }
+    coff_append_machine_arg(g, &lj->args);
 
     if (g->windows_subsystem_windows) {
         lj->args.append("/SUBSYSTEM:windows");
@@ -453,6 +457,8 @@ static void construct_linker_job_coff(LinkJob *lj) {
 
         ZigList<const char *> args = {0};
         args.append("link");
+
+        coff_append_machine_arg(g, &args);
         args.append(buf_ptr(buf_sprintf("-DEF:%s", buf_ptr(def_path))));
         args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(all_lib_path))));
         Buf diag = BUF_INIT;

@@ -4914,6 +4914,12 @@ static void define_builtin_compile_vars(CodeGen *g) {
 static void init(CodeGen *g) {
     if (g->module)
         return;
+
+    if (g->is_test_build) {
+        g->windows_subsystem_windows = false;
+        g->windows_subsystem_console = true;
+    }
+
     assert(g->root_out_name);
     g->module = LLVMModuleCreateWithName(buf_ptr(g->root_out_name));
 

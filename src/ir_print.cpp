@@ -934,7 +934,11 @@ static void ir_print_set_eval_branch_quota(IrPrint *irp, IrInstructionSetEvalBra
 
 static void ir_print_align_cast(IrPrint *irp, IrInstructionAlignCast *instruction) {
     fprintf(irp->f, "@alignCast(");
-    ir_print_other_instruction(irp, instruction->align_bytes);
+    if (instruction->align_bytes == nullptr) {
+        fprintf(irp->f, "null");
+    } else {
+        ir_print_other_instruction(irp, instruction->align_bytes);
+    }
     fprintf(irp->f, ",");
     ir_print_other_instruction(irp, instruction->target);
     fprintf(irp->f, ")");
