@@ -39,6 +39,8 @@ export fn fmod(x: f64, y: f64) -> f64 { generic_fmod(f64, x, y) }
 // and have the math stuff use the intrinsic. same as @mod and @rem
 export fn floorf(x: f32) -> f32 { math.floor(x) }
 export fn ceilf(x: f32) -> f32 { math.ceil(x) }
+export fn floor(x: f64) -> f64 { math.floor(x) }
+export fn ceil(x: f64) -> f64 { math.ceil(x) }
 
 fn generic_fmod(comptime T: type, x: T, y: T) -> T {
     @setDebugSafety(this, false);

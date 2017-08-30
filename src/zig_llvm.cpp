@@ -541,17 +541,6 @@ void ZigLLVMDIBuilderFinalize(ZigLLVMDIBuilder *dibuilder) {
     reinterpret_cast<DIBuilder*>(dibuilder)->finalize();
 }
 
-ZigLLVMInsertionPoint *ZigLLVMSaveInsertPoint(LLVMBuilderRef builder_wrapped) {
-    IRBuilderBase::InsertPoint *ip = new IRBuilderBase::InsertPoint();
-    *ip = unwrap(builder_wrapped)->saveIP();
-    return reinterpret_cast<ZigLLVMInsertionPoint*>(ip);
-}
-
-void ZigLLVMRestoreInsertPoint(LLVMBuilderRef builder, ZigLLVMInsertionPoint *ip_wrapped) {
-    IRBuilderBase::InsertPoint *ip = reinterpret_cast<IRBuilderBase::InsertPoint*>(ip_wrapped);
-    unwrap(builder)->restoreIP(*ip);
-}
-
 LLVMValueRef ZigLLVMInsertDeclareAtEnd(ZigLLVMDIBuilder *dibuilder, LLVMValueRef storage,
         ZigLLVMDILocalVariable *var_info, ZigLLVMDILocation *debug_loc, LLVMBasicBlockRef basic_block_ref)
 {

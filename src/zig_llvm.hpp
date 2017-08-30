@@ -153,9 +153,6 @@ void ZigLLVMFnSetSubprogram(LLVMValueRef fn, ZigLLVMDISubprogram *subprogram);
 
 void ZigLLVMDIBuilderFinalize(ZigLLVMDIBuilder *dibuilder);
 
-ZigLLVMInsertionPoint *ZigLLVMSaveInsertPoint(LLVMBuilderRef builder);
-void ZigLLVMRestoreInsertPoint(LLVMBuilderRef builder, ZigLLVMInsertionPoint *point);
-
 LLVMValueRef ZigLLVMInsertDeclareAtEnd(ZigLLVMDIBuilder *dibuilder, LLVMValueRef storage,
         ZigLLVMDILocalVariable *var_info, ZigLLVMDILocation *debug_loc, LLVMBasicBlockRef basic_block_ref);
 LLVMValueRef ZigLLVMInsertDeclare(ZigLLVMDIBuilder *dibuilder, LLVMValueRef storage,

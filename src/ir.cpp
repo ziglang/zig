@@ -14175,7 +14175,15 @@ static TypeTableEntry *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInst
     if (type_is_invalid(result_ptr->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    TypeTableEntry *expected_ptr_type = get_pointer_to_type(ira->codegen, dest_type, false);
+    TypeTableEntry *expected_ptr_type;
+    if (result_ptr->value.type->id == TypeTableEntryIdPointer) {
+        expected_ptr_type = get_pointer_to_type_extra(ira->codegen, dest_type,
+                false, result_ptr->value.type->data.pointer.is_volatile,
+                result_ptr->value.type->data.pointer.alignment, 0, 0);
+    } else {
+        expected_ptr_type = get_pointer_to_type(ira->codegen, dest_type, false);
+    }
+
     IrInstruction *casted_result_ptr = ir_implicit_cast(ira, result_ptr, expected_ptr_type);
     if (type_is_invalid(casted_result_ptr->value.type))
         return ira->codegen->builtin_types.entry_invalid;
