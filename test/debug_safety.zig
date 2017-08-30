@@ -200,8 +200,8 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    const x = widenSlice([]u8{1, 2, 3, 4, 5});
         \\    if (x.len == 0) return error.Whatever;
         \\}
-        \\fn widenSlice(slice: []align 1 const u8) -> []align 1 const i32 {
-        \\    ([]align 1 const i32)(slice)
+        \\fn widenSlice(slice: []align(1) const u8) -> []align(1) const i32 {
+        \\    ([]align(1) const i32)(slice)
         \\}
     );
 
@@ -269,7 +269,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\}
         \\error Wrong;
         \\pub fn main() -> %void {
-        \\    var array align 4 = []u32{0x11111111, 0x11111111};
+        \\    var array align(4) = []u32{0x11111111, 0x11111111};
         \\    const bytes = ([]u8)(array[0..]);
         \\    if (foo(bytes) != 0x11111111) return error.Wrong;
         \\}

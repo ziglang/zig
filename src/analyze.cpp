@@ -359,10 +359,10 @@ TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type
     if (unaligned_bit_count == 0 && byte_alignment == abi_alignment) {
         buf_appendf(&entry->name, "&%s%s%s", const_str, volatile_str, buf_ptr(&child_type->name));
     } else if (unaligned_bit_count == 0) {
-        buf_appendf(&entry->name, "&align %" PRIu32 " %s%s%s", byte_alignment,
+        buf_appendf(&entry->name, "&align(%" PRIu32 ") %s%s%s", byte_alignment,
                 const_str, volatile_str, buf_ptr(&child_type->name));
     } else {
-        buf_appendf(&entry->name, "&align %" PRIu32 ":%" PRIu32 ":%" PRIu32 " %s%s%s", byte_alignment,
+        buf_appendf(&entry->name, "&align(%" PRIu32 ":%" PRIu32 ":%" PRIu32 ") %s%s%s", byte_alignment,
                 bit_offset, bit_offset + unaligned_bit_count, const_str, volatile_str, buf_ptr(&child_type->name));
     }
 
@@ -885,7 +885,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     }
     buf_appendf(&fn_type->name, ")");
     if (fn_type_id->alignment != 0) {
-        buf_appendf(&fn_type->name, " align %" PRIu32, fn_type_id->alignment);
+        buf_appendf(&fn_type->name, " align(%" PRIu32 ")", fn_type_id->alignment);
     }
     if (fn_type_id->return_type->id != TypeTableEntryIdVoid) {
         buf_appendf(&fn_type->name, " -> %s", buf_ptr(&fn_type_id->return_type->name));

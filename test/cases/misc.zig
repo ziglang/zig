@@ -404,7 +404,7 @@ test "cast slice to u8 slice" {
     bytes[6] = 0;
     bytes[7] = 0;
     assert(big_thing_slice[1] == 0);
-    const big_thing_again = ([]align 1 i32)(bytes);
+    const big_thing_again = ([]align(1) i32)(bytes);
     assert(big_thing_again[2] == 3);
     big_thing_again[2] = -1;
     assert(bytes[8] == @maxValue(u8));

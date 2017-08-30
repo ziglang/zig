@@ -585,7 +585,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             {
                 fprintf(ar->f, "&");
                 if (node->data.addr_of_expr.align_expr != nullptr) {
-                    fprintf(ar->f, "align ");
+                    fprintf(ar->f, "align(");
                     render_node_grouped(ar, node->data.addr_of_expr.align_expr);
                     if (node->data.addr_of_expr.bit_offset_start != nullptr) {
                         assert(node->data.addr_of_expr.bit_offset_end != nullptr);
@@ -599,9 +599,8 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                         bigint_append_buf(&offset_end_buf, node->data.addr_of_expr.bit_offset_end, 10);
 
                         fprintf(ar->f, ":%s:%s ", buf_ptr(&offset_start_buf), buf_ptr(&offset_end_buf));
-                    } else {
-                        fprintf(ar->f, " ");
                     }
+                    fprintf(ar->f, ") ");
                 }
                 if (node->data.addr_of_expr.is_const) {
                     fprintf(ar->f, "const ");

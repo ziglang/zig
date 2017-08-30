@@ -1317,12 +1317,12 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     , ".tmp_source.zig:2:24: error: integer value 753664 cannot be implicitly casted to type 'u16'");
 
     cases.add("global variable alignment non power of 2",
-        \\const some_data: [100]u8 align 3 = undefined;
+        \\const some_data: [100]u8 align(3) = undefined;
         \\export fn entry() -> usize { @sizeOf(@typeOf(some_data)) }
     , ".tmp_source.zig:1:32: error: alignment value 3 is not a power of 2");
 
     cases.add("function alignment non power of 2",
-        \\extern fn foo() align 3;
+        \\extern fn foo() align(3);
         \\export fn entry() { foo() }
     , ".tmp_source.zig:1:23: error: alignment value 3 is not a power of 2");
 
@@ -1359,7 +1359,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
         \\
         \\export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
-    , ".tmp_source.zig:8:26: error: expected type '&const u3', found '&align 1:3:6 const u3'");
+    , ".tmp_source.zig:8:26: error: expected type '&const u3', found '&align(1:3:6) const u3'");
 
     cases.add("referring to a struct that is invalid",
         \\const UsbDeviceRequest = struct {
@@ -1992,7 +1992,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    *x += 1;
         \\}
     ,
-        ".tmp_source.zig:8:13: error: expected type '&u32', found '&align 1 u32'");
+        ".tmp_source.zig:8:13: error: expected type '&u32', found '&align(1) u32'");
 
     cases.add("implicitly increasing slice alignment",
         \\const Foo = packed struct {
@@ -2010,7 +2010,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    x[0] += 1;
         \\}
     ,
-        ".tmp_source.zig:9:17: error: expected type '[]u32', found '[]align 1 u32'");
+        ".tmp_source.zig:9:17: error: expected type '[]u32', found '[]align(1) u32'");
 
     cases.add("increase pointer alignment in @ptrCast",
         \\export fn entry() -> u32 {
@@ -2044,17 +2044,17 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\export fn entry() {
         \\    testImplicitlyDecreaseFnAlign(alignedSmall, 1234);
         \\}
-        \\fn testImplicitlyDecreaseFnAlign(ptr: fn () align 8 -> i32, answer: i32) {
+        \\fn testImplicitlyDecreaseFnAlign(ptr: fn () align(8) -> i32, answer: i32) {
         \\    if (ptr() != answer) unreachable;
         \\}
-        \\fn alignedSmall() align 4 -> i32 { 1234 }
+        \\fn alignedSmall() align(4) -> i32 { 1234 }
     ,
-        ".tmp_source.zig:2:35: error: expected type 'fn() align 8 -> i32', found 'fn() align 4 -> i32'");
+        ".tmp_source.zig:2:35: error: expected type 'fn() align(8) -> i32', found 'fn() align(4) -> i32'");
 
     cases.add("passing a not-aligned-enough pointer to cmpxchg",
         \\const AtomicOrder = @import("builtin").AtomicOrder;
         \\export fn entry() -> bool {
-        \\    var x: i32 align 1 = 1234;
+        \\    var x: i32 align(1) = 1234;
         \\    while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.SeqCst, AtomicOrder.SeqCst)) {}
         \\    return x == 5678;
         \\}

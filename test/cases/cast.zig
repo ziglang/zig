@@ -277,7 +277,7 @@ fn cast128Float(x: u128) -> f128 {
 }
 
 test "const slice widen cast" {
-    const bytes align 4 = []u8{0x12, 0x12, 0x12, 0x12};
+    const bytes align(4) = []u8{0x12, 0x12, 0x12, 0x12};
 
     const u32_value = ([]const u32)(bytes[0..])[0];
     assert(u32_value == 0x12121212);
