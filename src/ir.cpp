@@ -11472,6 +11472,14 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
                     create_const_type(ira->codegen, child_type->data.pointer.child_type),
                     ira->codegen->builtin_types.entry_type,
                     ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile);
+            } else if (buf_eql_str(field_name, "alignment")) {
+                bool ptr_is_const = true;
+                bool ptr_is_volatile = false;
+                return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
+                    create_const_unsigned_negative(ira->codegen->builtin_types.entry_num_lit_int,
+                        child_type->data.pointer.alignment, false),
+                    ira->codegen->builtin_types.entry_num_lit_int,
+                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile);
             } else {
                 ir_add_error(ira, &field_ptr_instruction->base,
                     buf_sprintf("type '%s' has no member called '%s'",

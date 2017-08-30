@@ -3,6 +3,7 @@ const assert = @import("std").debug.assert;
 var foo: u8 align 4 = 100;
 
 test "global variable alignment" {
+    assert(@typeOf(&foo).alignment == 4);
     assert(@typeOf(&foo) == &align 4 u8);
     const slice = (&foo)[0..1];
     assert(@typeOf(slice) == []align 4 u8);
