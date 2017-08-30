@@ -72,7 +72,7 @@ fn testBytesAlignSlice(b: u8) {
     assert(slice[0] == 0x33333333);
 }
 
-test "@alignCast" {
+test "@alignCast pointers" {
     var x: u32 align 4 = 1;
     expectsOnly1(&x);
     assert(x == 2);
@@ -82,4 +82,17 @@ fn expectsOnly1(x: &align 1 u32) {
 }
 fn expects4(x: &align 4 u32) {
     *x += 1;
+}
+
+test "@alignCast slices" {
+    var array align 4 = []u32{1, 1};
+    const slice = array[0..];
+    sliceExpectsOnly1(slice);
+    assert(slice[0] == 2);
+}
+fn sliceExpectsOnly1(slice: []align 1 u32) {
+    sliceExpects4(@alignCast(4, slice));
+}
+fn sliceExpects4(slice: []align 4 u32) {
+    slice[0] += 1;
 }
