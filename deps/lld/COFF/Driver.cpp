@@ -1030,7 +1030,7 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   if (!Args.hasArgNoClaim(OPT_INPUT)) {
     fixupExports();
     createImportLibrary(/*AsLib=*/true);
-    exit(0);
+    return;
   }
 
   // Handle /delayload
@@ -1172,9 +1172,6 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
 
   // Write the result.
   writeResult(&Symtab);
-
-  // Call exit to avoid calling destructors.
-  exit(0);
 }
 
 } // namespace coff
