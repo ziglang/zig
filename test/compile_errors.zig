@@ -2051,4 +2051,14 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     ,
         ".tmp_source.zig:2:35: error: expected type 'fn() align 8 -> i32', found 'fn() align 4 -> i32'");
 
+    cases.add("passing a not-aligned-enough pointer to cmpxchg",
+        \\const AtomicOrder = @import("builtin").AtomicOrder;
+        \\export fn entry() -> bool {
+        \\    var x: i32 align 1 = 1234;
+        \\    while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.SeqCst, AtomicOrder.SeqCst)) {}
+        \\    return x == 5678;
+        \\}
+    ,
+        ".tmp_source.zig:4:23: error: expected pointer alignment of at least 4, found 1");
+
 }

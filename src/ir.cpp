@@ -13488,6 +13488,15 @@ static TypeTableEntry *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstruct
 
     TypeTableEntry *child_type = ptr->value.type->data.pointer.child_type;
 
+    uint32_t align_bytes = ptr->value.type->data.pointer.alignment;
+    uint64_t size_bytes = type_size(ira->codegen, child_type);
+    if (align_bytes < size_bytes) {
+        ir_add_error(ira, instruction->ptr,
+            buf_sprintf("expected pointer alignment of at least %" ZIG_PRI_u64 ", found %" PRIu32,
+                size_bytes, align_bytes));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
     IrInstruction *casted_cmp_value = ir_implicit_cast(ira, cmp_value, child_type);
     if (type_is_invalid(casted_cmp_value->value.type))
         return ira->codegen->builtin_types.entry_invalid;
