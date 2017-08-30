@@ -32,7 +32,7 @@ const test_targets = []TestTarget {
         .environ = builtin.Environ.gnu,
     },
     TestTarget {
-        .os = builtin.Os.macosx,
+        .os = builtin.Os.darwin,
         .arch = builtin.Arch.x86_64,
         .environ = builtin.Environ.unknown,
     },
