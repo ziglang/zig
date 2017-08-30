@@ -8404,7 +8404,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         if (!ir_emit_global_runtime_side_effect(ira, source_instr))
             return ira->codegen->invalid_instruction;
         uint64_t child_type_size = type_size(ira->codegen,
-                wanted_type->data.structure.fields[0].type_entry->data.pointer.child_type);
+                wanted_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type);
         if (actual_type->data.array.len % child_type_size == 0) {
             return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpBytesToSlice, true);
         } else {
@@ -10870,6 +10870,15 @@ static TypeTableEntry *ir_analyze_instruction_var_ptr(IrAnalyze *ira, IrInstruct
             var_ptr_instruction->is_volatile);
 }
 
+static TypeTableEntry *adjust_ptr_align(CodeGen *g, TypeTableEntry *ptr_type, uint32_t new_align) {
+    assert(ptr_type->id == TypeTableEntryIdPointer);
+    return get_pointer_to_type_extra(g,
+            ptr_type->data.pointer.child_type,
+            ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
+            new_align,
+            ptr_type->data.pointer.bit_offset, ptr_type->data.pointer.unaligned_bit_count);
+}
+
 static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstructionElemPtr *elem_ptr_instruction) {
     IrInstruction *array_ptr = elem_ptr_instruction->array_ptr->other;
     if (type_is_invalid(array_ptr->value.type))
@@ -10888,6 +10897,9 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
     assert(ptr_type->id == TypeTableEntryIdPointer);
 
     TypeTableEntry *array_type = ptr_type->data.pointer.child_type;
+
+    // At first return_type will be the pointer type we want to return, except with an optimistic alignment.
+    // We will adjust return_type's alignment before returning it.
     TypeTableEntry *return_type;
 
     if (type_is_invalid(array_type)) {
@@ -10918,7 +10930,7 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
     } else if (array_type->id == TypeTableEntryIdPointer) {
         return_type = array_type;
     } else if (is_slice(array_type)) {
-        return_type = array_type->data.structure.fields[0].type_entry;
+        return_type = array_type->data.structure.fields[slice_ptr_index].type_entry;
     } else if (array_type->id == TypeTableEntryIdArgTuple) {
         ConstExprValue *ptr_val = ir_resolve_const(ira, array_ptr, UndefBad);
         if (!ptr_val)
@@ -10961,6 +10973,10 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
         return ira->codegen->builtin_types.entry_invalid;
 
     bool safety_check_on = elem_ptr_instruction->safety_check_on;
+    ensure_complete_type(ira->codegen, return_type->data.pointer.child_type);
+    uint64_t elem_size = type_size(ira->codegen, return_type->data.pointer.child_type);
+    uint64_t abi_align = get_abi_alignment(ira->codegen, return_type->data.pointer.child_type);
+    uint64_t ptr_align = return_type->data.pointer.alignment;
     if (instr_is_comptime(casted_elem_index)) {
         uint64_t index = bigint_as_unsigned(&casted_elem_index->value.data.x_bigint);
         if (array_type->id == TypeTableEntryIdArray) {
@@ -10972,6 +10988,26 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                 return ira->codegen->builtin_types.entry_invalid;
             }
             safety_check_on = false;
+        }
+
+        {
+            // figure out the largest alignment possible
+            uint64_t chosen_align = abi_align;
+            if (ptr_align >= abi_align) {
+                while (ptr_align > abi_align) {
+                    if ((index * elem_size) % ptr_align == 0) {
+                        chosen_align = ptr_align;
+                        break;
+                    }
+                    ptr_align >>= 1;
+                }
+            } else if (elem_size >= ptr_align && elem_size % ptr_align == 0) {
+                chosen_align = ptr_align;
+            } else {
+                // can't get here because guaranteed elem_size >= abi_align
+                zig_unreachable();
+            }
+            return_type = adjust_ptr_align(ira->codegen, return_type, chosen_align);
         }
 
         ConstExprValue *array_ptr_val;
@@ -11085,6 +11121,18 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
             }
         }
 
+    } else {
+        // runtime known element index
+        if (ptr_align < abi_align) {
+            if (elem_size >= ptr_align && elem_size % ptr_align == 0) {
+                return_type = adjust_ptr_align(ira->codegen, return_type, ptr_align);
+            } else {
+                // can't get here because guaranteed elem_size >= abi_align
+                zig_unreachable();
+            }
+        } else {
+            return_type = adjust_ptr_align(ira->codegen, return_type, abi_align);
+        }
     }
 
     ir_build_elem_ptr_from(&ira->new_irb, &elem_ptr_instruction->base, array_ptr,
@@ -14520,11 +14568,7 @@ static IrInstruction *ir_align_cast(IrAnalyze *ira, IrInstruction *target, uint3
     uint32_t old_align_bytes;
 
     if (target_type->id == TypeTableEntryIdPointer) {
-        result_type = get_pointer_to_type_extra(ira->codegen,
-                target_type->data.pointer.child_type,
-                target_type->data.pointer.is_const, target_type->data.pointer.is_volatile,
-                align_bytes,
-                target_type->data.pointer.bit_offset, target_type->data.pointer.unaligned_bit_count);
+        result_type = adjust_ptr_align(ira->codegen, target_type, align_bytes);
     } else if (target_type->id == TypeTableEntryIdFn) {
         FnTypeId fn_type_id = target_type->data.fn.fn_type_id;
         old_align_bytes = fn_type_id.alignment;
@@ -14535,11 +14579,7 @@ static IrInstruction *ir_align_cast(IrAnalyze *ira, IrInstruction *target, uint3
     {
         TypeTableEntry *ptr_type = target_type->data.maybe.child_type;
         old_align_bytes = ptr_type->data.pointer.alignment;
-        TypeTableEntry *better_ptr_type = get_pointer_to_type_extra(ira->codegen,
-                ptr_type->data.pointer.child_type,
-                ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
-                align_bytes,
-                ptr_type->data.pointer.bit_offset, ptr_type->data.pointer.unaligned_bit_count);
+        TypeTableEntry *better_ptr_type = adjust_ptr_align(ira->codegen, ptr_type, align_bytes);
 
         result_type = get_maybe_type(ira->codegen, better_ptr_type);
     } else if (target_type->id == TypeTableEntryIdMaybe &&
@@ -14553,11 +14593,7 @@ static IrInstruction *ir_align_cast(IrAnalyze *ira, IrInstruction *target, uint3
     } else if (is_slice(target_type)) {
         TypeTableEntry *slice_ptr_type = target_type->data.structure.fields[slice_ptr_index].type_entry;
         old_align_bytes = slice_ptr_type->data.pointer.alignment;
-        TypeTableEntry *result_ptr_type = get_pointer_to_type_extra(ira->codegen,
-                slice_ptr_type->data.pointer.child_type,
-                slice_ptr_type->data.pointer.is_const, slice_ptr_type->data.pointer.is_volatile,
-                align_bytes,
-                slice_ptr_type->data.pointer.bit_offset, slice_ptr_type->data.pointer.unaligned_bit_count);
+        TypeTableEntry *result_ptr_type = adjust_ptr_align(ira->codegen, slice_ptr_type, align_bytes);
         result_type = get_slice_type(ira->codegen, result_ptr_type);
     } else {
         ir_add_error(ira, target,
