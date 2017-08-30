@@ -200,8 +200,8 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    const x = widenSlice([]u8{1, 2, 3, 4, 5});
         \\    if (x.len == 0) return error.Whatever;
         \\}
-        \\fn widenSlice(slice: []const u8) -> []const i32 {
-        \\    ([]const i32)(slice)
+        \\fn widenSlice(slice: []align 1 const u8) -> []align 1 const i32 {
+        \\    ([]align 1 const i32)(slice)
         \\}
     );
 
@@ -259,6 +259,24 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\}
         \\fn bar(x: u32) -> error {
         \\    return error(x);
+        \\}
+    );
+
+    cases.addDebugSafety("@alignCast misaligned",
+        \\pub fn panic(message: []const u8) -> noreturn {
+        \\    @breakpoint();
+        \\    while (true) {}
+        \\}
+        \\error Wrong;
+        \\pub fn main() -> %void {
+        \\    var array align 4 = []u32{0x11111111, 0x11111111};
+        \\    const bytes = ([]u8)(array[0..]);
+        \\    if (foo(bytes) != 0x11111111) return error.Wrong;
+        \\}
+        \\fn foo(bytes: []u8) -> u32 {
+        \\    const slice4 = bytes[1..5];
+        \\    const int_slice = ([]u32)(@alignCast(4, slice4));
+        \\    return int_slice[0];
         \\}
     );
 }

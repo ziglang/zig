@@ -62,3 +62,24 @@ fn testBytesAlign(b: u8) {
     const ptr = @ptrCast(&u32, &bytes[0]);
     assert(*ptr == 0x33333333);
 }
+
+test "specifying alignment allows slice cast" {
+    testBytesAlignSlice(0x33);
+}
+fn testBytesAlignSlice(b: u8) {
+    var bytes align 4 = []u8{b, b, b, b};
+    const slice = ([]u32)(bytes[0..]);
+    assert(slice[0] == 0x33333333);
+}
+
+test "@alignCast" {
+    var x: u32 align 4 = 1;
+    expectsOnly1(&x);
+    assert(x == 2);
+}
+fn expectsOnly1(x: &align 1 u32) {
+    expects4(@alignCast(4, x));
+}
+fn expects4(x: &align 4 u32) {
+    *x += 1;
+}

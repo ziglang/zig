@@ -953,7 +953,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 render_node_ungrouped(ar, node->data.slice_expr.array_ref_expr);
                 fprintf(ar->f, "[");
                 render_node_grouped(ar, node->data.slice_expr.start);
-                fprintf(ar->f, "...");
+                fprintf(ar->f, "..");
                 if (node->data.slice_expr.end)
                     render_node_grouped(ar, node->data.slice_expr.end);
                 fprintf(ar->f, "]");

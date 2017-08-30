@@ -11,21 +11,18 @@ pub const Cmp = math.Cmp;
 error NoMem;
 
 pub const Allocator = struct {
-    allocFn: fn (self: &Allocator, n: usize) -> %[]u8,
-    /// Note that old_mem may be a slice of length 0, in which case reallocFn
-    /// should simply call allocFn.
-    reallocFn: fn (self: &Allocator, old_mem: []u8, new_size: usize) -> %[]u8,
-    /// Note that mem may be a slice of length 0, in which case freeFn
-    /// should do nothing.
-    freeFn: fn (self: &Allocator, mem: []u8),
+    /// Allocate byte_count bytes and return them in a slice, with the
+    /// slicer's pointer aligned at least to alignment bytes.
+    allocFn: fn (self: &Allocator, byte_count: usize, alignment: usize) -> %[]u8,
 
-    /// Aborts the program if an allocation fails.
-    fn checkedAlloc(self: &Allocator, comptime T: type, n: usize) -> []T {
-        alloc(self, T, n) %% |err| debug.panic("allocation failure: {}", @errorName(err))
-    }
+    /// Guaranteed: old_mem.len > 0 and alignment >= alignment of old_mem.ptr
+    reallocFn: fn (self: &Allocator, old_mem: []u8, new_byte_count: usize, alignment: usize) -> %[]u8,
+
+    freeFn: fn (self: &Allocator, ptr: &u8),
 
     fn create(self: &Allocator, comptime T: type) -> %&T {
-        &(%return self.alloc(T, 1))[0]
+        const slice = %return self.alloc(T, 1);
+        &slice[0]
     }
 
     fn destroy(self: &Allocator, ptr: var) {
@@ -34,16 +31,29 @@ pub const Allocator = struct {
 
     fn alloc(self: &Allocator, comptime T: type, n: usize) -> %[]T {
         const byte_count = %return math.mul(usize, @sizeOf(T), n);
-        ([]T)(%return self.allocFn(self, byte_count))
+        const byte_slice = %return self.allocFn(self, byte_count, @alignOf(T));
+        ([]T)(@alignCast(@alignOf(T), byte_slice))
     }
 
     fn realloc(self: &Allocator, comptime T: type, old_mem: []T, n: usize) -> %[]T {
+        if (old_mem.len == 0) {
+            return self.alloc(T, n);
+        }
+
+        // Assert that old_mem.ptr is properly aligned.
+        _ = @alignCast(@alignOf(T), old_mem.ptr);
+
         const byte_count = %return math.mul(usize, @sizeOf(T), n);
-        ([]T)(%return self.reallocFn(self, ([]u8)(old_mem), byte_count))
+        const byte_slice = %return self.reallocFn(self, ([]u8)(old_mem), byte_count, @alignOf(T));
+        ([]T)(@alignCast(@alignOf(T), byte_slice))
     }
 
-    fn free(self: &Allocator, mem: var) {
-        self.freeFn(self, ([]u8)(mem));
+    fn free(self: &Allocator, memory: var) {
+        const const_slice = ([]const u8)(memory);
+        if (memory.len == 0)
+            return;
+        const ptr = @intToPtr(&u8, @ptrToInt(const_slice.ptr));
+        self.freeFn(self, ptr);
     }
 };
 
@@ -79,24 +89,28 @@ pub const IncrementingAllocator = struct {
         _ = os.posix.munmap(self.bytes.ptr, self.bytes.len);
     }
 
-    fn alloc(allocator: &Allocator, n: usize) -> %[]u8 {
+    fn alloc(allocator: &Allocator, n: usize, alignment: usize) -> %[]u8 {
         const self = @fieldParentPtr(IncrementingAllocator, "allocator", allocator);
-        const new_end_index = self.end_index + n;
+        const addr = @ptrToInt(&self.bytes[self.end_index]);
+        const rem = @rem(addr, alignment);
+        const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
+        const adjusted_index = self.end_index + march_forward_bytes;
+        const new_end_index = adjusted_index + n;
         if (new_end_index > self.bytes.len) {
             return error.NoMem;
         }
-        const result = self.bytes[self.end_index..new_end_index];
+        const result = self.bytes[adjusted_index .. new_end_index];
         self.end_index = new_end_index;
         return result;
     }
 
-    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize) -> %[]u8 {
-        const result = %return alloc(allocator, new_size);
+    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: usize) -> %[]u8 {
+        const result = %return alloc(allocator, new_size, alignment);
         copy(u8, result, old_mem);
         return result;
     }
 
-    fn free(allocator: &Allocator, bytes: []u8) {
+    fn free(allocator: &Allocator, bytes: &u8) {
         // Do nothing. That's the point of an incrementing allocator.
     }
 };

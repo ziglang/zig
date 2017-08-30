@@ -2022,4 +2022,21 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         ".tmp_source.zig:3:17: error: cast increases pointer alignment",
         ".tmp_source.zig:3:38: note: '&u8' has alignment 1",
         ".tmp_source.zig:3:27: note: '&u32' has alignment 4");
+
+    cases.add("increase pointer alignment in slice resize",
+        \\export fn entry() -> u32 {
+        \\    var bytes = []u8{0x01, 0x02, 0x03, 0x04};
+        \\    return ([]u32)(bytes[0..])[0];
+        \\}
+    ,
+        ".tmp_source.zig:3:19: error: cast increases pointer alignment",
+        ".tmp_source.zig:3:19: note: '[]u8' has alignment 1",
+        ".tmp_source.zig:3:19: note: '[]u32' has alignment 4");
+
+    cases.add("@alignCast expects pointer or slice",
+        \\export fn entry() {
+        \\    @alignCast(4, u32(3))
+        \\}
+    ,
+        ".tmp_source.zig:2:22: error: expected pointer or slice, found 'u32'");
 }

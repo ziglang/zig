@@ -1252,6 +1252,7 @@ enum BuiltinFnId {
     BuiltinFnIdShlExact,
     BuiltinFnIdShrExact,
     BuiltinFnIdSetEvalBranchQuota,
+    BuiltinFnIdAlignCast,
 };
 
 struct BuiltinFnEntry {
@@ -1274,6 +1275,7 @@ enum PanicMsgId {
     PanicMsgIdSliceWidenRemainder,
     PanicMsgIdUnwrapMaybeFail,
     PanicMsgIdInvalidErrorCode,
+    PanicMsgIdIncorrectAlignment,
 
     PanicMsgIdCount,
 };
@@ -1856,6 +1858,7 @@ enum IrInstructionId {
     IrInstructionIdTypeId,
     IrInstructionIdSetEvalBranchQuota,
     IrInstructionIdPtrTypeOf,
+    IrInstructionIdAlignCast,
 };
 
 struct IrInstruction {
@@ -2462,6 +2465,7 @@ struct IrInstructionFnProto {
     IrInstruction base;
 
     IrInstruction **param_types;
+    IrInstruction *align_value;
     IrInstruction *return_type;
     bool is_var_args;
 };
@@ -2636,6 +2640,13 @@ struct IrInstructionPtrTypeOf {
     uint32_t bit_offset_end;
     bool is_const;
     bool is_volatile;
+};
+
+struct IrInstructionAlignCast {
+    IrInstruction base;
+
+    IrInstruction *align_bytes;
+    IrInstruction *target;
 };
 
 static const size_t slice_ptr_index = 0;

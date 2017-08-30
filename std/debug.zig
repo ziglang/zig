@@ -957,16 +957,21 @@ pub var global_allocator = mem.Allocator {
 var some_mem: [100 * 1024]u8 = undefined;
 var some_mem_index: usize = 0;
 
-fn globalAlloc(self: &mem.Allocator, n: usize) -> %[]u8 {
-    const result = some_mem[some_mem_index .. some_mem_index + n];
-    some_mem_index += n;
+fn globalAlloc(self: &mem.Allocator, n: usize, alignment: usize) -> %[]u8 {
+    const addr = @ptrToInt(&some_mem[some_mem_index]);
+    const rem = @rem(addr, alignment);
+    const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
+    const adjusted_index = some_mem_index + march_forward_bytes;
+    const end_index = adjusted_index + n;
+    const result = some_mem[adjusted_index .. end_index];
+    some_mem_index = end_index;
     return result;
 }
 
-fn globalRealloc(self: &mem.Allocator, old_mem: []u8, new_size: usize) -> %[]u8 {
-    const result = %return globalAlloc(self, new_size);
+fn globalRealloc(self: &mem.Allocator, old_mem: []u8, new_size: usize, alignment: usize) -> %[]u8 {
+    const result = %return globalAlloc(self, new_size, alignment);
     @memcpy(result.ptr, old_mem.ptr, old_mem.len);
     return result;
 }
 
-fn globalFree(self: &mem.Allocator, old_mem: []u8) { }
+fn globalFree(self: &mem.Allocator, ptr: &u8) { }

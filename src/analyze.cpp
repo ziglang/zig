@@ -884,6 +884,9 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
         buf_appendf(&fn_type->name, "%s...", comma);
     }
     buf_appendf(&fn_type->name, ")");
+    if (fn_type_id->alignment != 0) {
+        buf_appendf(&fn_type->name, " align %" PRIu32, fn_type_id->alignment);
+    }
     if (fn_type_id->return_type->id != TypeTableEntryIdVoid) {
         buf_appendf(&fn_type->name, " -> %s", buf_ptr(&fn_type_id->return_type->name));
     }
@@ -1058,12 +1061,13 @@ void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_cou
     fn_type_id->is_var_args = fn_proto->is_var_args;
 }
 
-static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_scope) {
+static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_scope, uint32_t alignment) {
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
     FnTypeId fn_type_id = {0};
     init_fn_type_id(&fn_type_id, proto_node, proto_node->data.fn_proto.params.length);
+    fn_type_id.alignment = alignment;
 
     for (; fn_type_id.next_param_index < fn_type_id.param_count; fn_type_id.next_param_index += 1) {
         AstNode *param_node = fn_proto->params.at(fn_type_id.next_param_index);
@@ -2056,21 +2060,21 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         }
 
         Scope *child_scope = fn_table_entry->fndef_scope ? &fn_table_entry->fndef_scope->base : tld_fn->base.parent_scope;
-        fn_table_entry->type_entry = analyze_fn_type(g, source_node, child_scope);
 
-        if (fn_table_entry->type_entry->id == TypeTableEntryIdInvalid) {
-            tld_fn->base.resolution = TldResolutionInvalid;
-            return;
-        }
-
+        uint32_t alignment = 0;
         if (fn_proto->align_expr != nullptr) {
-            if (!analyze_const_align(g, tld_fn->base.parent_scope, fn_proto->align_expr,
-                        &fn_table_entry->align_bytes))
-            {
+            if (!analyze_const_align(g, child_scope, fn_proto->align_expr, &alignment)) {
                 fn_table_entry->type_entry = g->builtin_types.entry_invalid;
                 tld_fn->base.resolution = TldResolutionInvalid;
                 return;
             }
+        }
+
+        fn_table_entry->type_entry = analyze_fn_type(g, source_node, child_scope, alignment);
+
+        if (fn_table_entry->type_entry->id == TypeTableEntryIdInvalid) {
+            tld_fn->base.resolution = TldResolutionInvalid;
+            return;
         }
 
         if (!fn_table_entry->type_entry->data.fn.is_generic) {
@@ -2663,6 +2667,9 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
     if (expected_type->id == TypeTableEntryIdFn &&
         actual_type->id == TypeTableEntryIdFn)
     {
+        if (expected_type->data.fn.fn_type_id.alignment > actual_type->data.fn.fn_type_id.alignment) {
+            return false;
+        }
         if (expected_type->data.fn.fn_type_id.cc != actual_type->data.fn.fn_type_id.cc) {
             return false;
         }
@@ -3384,6 +3391,7 @@ uint32_t fn_type_id_hash(FnTypeId *id) {
     result += ((uint32_t)(id->cc)) * (uint32_t)3349388391;
     result += id->is_var_args ? (uint32_t)1931444534 : 0;
     result += hash_ptr(id->return_type);
+    result += id->alignment * 0xd3b3f3e2;
     for (size_t i = 0; i < id->param_count; i += 1) {
         FnTypeParamInfo *info = &id->param_info[i];
         result += info->is_noalias ? (uint32_t)892356923 : 0;
@@ -3396,7 +3404,8 @@ bool fn_type_id_eql(FnTypeId *a, FnTypeId *b) {
     if (a->cc != b->cc ||
         a->return_type != b->return_type ||
         a->is_var_args != b->is_var_args ||
-        a->param_count != b->param_count)
+        a->param_count != b->param_count ||
+        a->alignment != b->alignment)
     {
         return false;
     }

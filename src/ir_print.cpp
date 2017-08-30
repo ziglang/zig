@@ -174,10 +174,16 @@ static void ir_print_decl_var(IrPrint *irp, IrInstructionDeclVar *decl_var_instr
     if (decl_var_instruction->var_type) {
         fprintf(irp->f, "%s %s: ", var_or_const, name);
         ir_print_other_instruction(irp, decl_var_instruction->var_type);
-        fprintf(irp->f, " = ");
+        fprintf(irp->f, " ");
     } else {
-        fprintf(irp->f, "%s %s = ", var_or_const, name);
+        fprintf(irp->f, "%s %s ", var_or_const, name);
     }
+    if (decl_var_instruction->align_value) {
+        fprintf(irp->f, "align ");
+        ir_print_other_instruction(irp, decl_var_instruction->align_value);
+        fprintf(irp->f, " ");
+    }
+    fprintf(irp->f, "= ");
     ir_print_other_instruction(irp, decl_var_instruction->init_value);
     if (decl_var_instruction->var->is_comptime != nullptr) {
         fprintf(irp->f, " // comptime = ");
@@ -640,7 +646,7 @@ static void ir_print_slice(IrPrint *irp, IrInstructionSlice *instruction) {
     ir_print_other_instruction(irp, instruction->ptr);
     fprintf(irp->f, "[");
     ir_print_other_instruction(irp, instruction->start);
-    fprintf(irp->f, "...");
+    fprintf(irp->f, "..");
     if (instruction->end)
         ir_print_other_instruction(irp, instruction->end);
     fprintf(irp->f, "]");
@@ -745,7 +751,13 @@ static void ir_print_fn_proto(IrPrint *irp, IrInstructionFnProto *instruction) {
             ir_print_other_instruction(irp, instruction->param_types[i]);
         }
     }
-    fprintf(irp->f, ")->");
+    fprintf(irp->f, ")");
+    if (instruction->align_value != nullptr) {
+        fprintf(irp->f, " align ");
+        ir_print_other_instruction(irp, instruction->align_value);
+        fprintf(irp->f, " ");
+    }
+    fprintf(irp->f, "->");
     ir_print_other_instruction(irp, instruction->return_type);
 }
 
@@ -917,6 +929,14 @@ static void ir_print_type_id(IrPrint *irp, IrInstructionTypeId *instruction) {
 static void ir_print_set_eval_branch_quota(IrPrint *irp, IrInstructionSetEvalBranchQuota *instruction) {
     fprintf(irp->f, "@setEvalBranchQuota(");
     ir_print_other_instruction(irp, instruction->new_quota);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_align_cast(IrPrint *irp, IrInstructionAlignCast *instruction) {
+    fprintf(irp->f, "@alignCast(");
+    ir_print_other_instruction(irp, instruction->align_bytes);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->target);
     fprintf(irp->f, ")");
 }
 
@@ -1212,6 +1232,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdSetEvalBranchQuota:
             ir_print_set_eval_branch_quota(irp, (IrInstructionSetEvalBranchQuota *)instruction);
+            break;
+        case IrInstructionIdAlignCast:
+            ir_print_align_cast(irp, (IrInstructionAlignCast *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

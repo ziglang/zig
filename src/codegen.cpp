@@ -688,6 +688,8 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
             return buf_create_from_str("reached unreachable code");
         case PanicMsgIdInvalidErrorCode:
             return buf_create_from_str("invalid error code");
+        case PanicMsgIdIncorrectAlignment:
+            return buf_create_from_str("incorrect alignment");
     }
     zig_unreachable();
 }
@@ -2605,6 +2607,72 @@ static LLVMValueRef ir_render_field_parent_ptr(CodeGen *g, IrExecutable *executa
     }
 }
 
+static LLVMValueRef get_default_aligned_load(CodeGen *g, LLVMValueRef ptr) {
+    LLVMValueRef result = LLVMBuildLoad(g->builder, ptr, "");
+    LLVMSetAlignment(result, LLVMABIAlignmentOfType(g->target_data_ref, LLVMGetElementType(LLVMTypeOf(ptr))));
+    return result;
+}
+
+static LLVMValueRef ir_render_align_cast(CodeGen *g, IrExecutable *executable, IrInstructionAlignCast *instruction) {
+    LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
+    assert(target_val);
+
+    bool want_debug_safety = ir_want_debug_safety(g, &instruction->base);
+    if (!want_debug_safety) {
+        return target_val;
+    }
+
+    TypeTableEntry *target_type = instruction->base.value.type;
+    uint32_t align_bytes;
+    LLVMValueRef ptr_val;
+
+    if (target_type->id == TypeTableEntryIdPointer) {
+        align_bytes = target_type->data.pointer.alignment;
+        ptr_val = target_val;
+    } else if (target_type->id == TypeTableEntryIdFn) {
+        align_bytes = target_type->data.fn.fn_type_id.alignment;
+        ptr_val = target_val;
+    } else if (target_type->id == TypeTableEntryIdMaybe &&
+            target_type->data.maybe.child_type->id == TypeTableEntryIdPointer)
+    {
+        align_bytes = target_type->data.maybe.child_type->data.pointer.alignment;
+        ptr_val = target_val;
+    } else if (target_type->id == TypeTableEntryIdMaybe &&
+            target_type->data.maybe.child_type->id == TypeTableEntryIdFn)
+    {
+        align_bytes = target_type->data.maybe.child_type->data.fn.fn_type_id.alignment;
+        ptr_val = target_val;
+    } else if (target_type->id == TypeTableEntryIdStruct && target_type->data.structure.is_slice) {
+        TypeTableEntry *slice_ptr_type = target_type->data.structure.fields[slice_ptr_index].type_entry;
+        align_bytes = slice_ptr_type->data.pointer.alignment;
+
+        size_t ptr_index = target_type->data.structure.fields[slice_ptr_index].gen_index;
+        LLVMValueRef ptr_val_ptr = LLVMBuildStructGEP(g->builder, target_val, (unsigned)ptr_index, "");
+        ptr_val = get_default_aligned_load(g, ptr_val_ptr);
+    } else {
+        zig_unreachable();
+    }
+
+    assert(align_bytes != 1);
+
+    TypeTableEntry *usize = g->builtin_types.entry_usize;
+    LLVMValueRef ptr_as_int_val = LLVMBuildPtrToInt(g->builder, ptr_val, usize->type_ref, "");
+    LLVMValueRef alignment_minus_1 = LLVMConstInt(usize->type_ref, align_bytes - 1, false);
+    LLVMValueRef anded_val = LLVMBuildAnd(g->builder, ptr_as_int_val, alignment_minus_1, "");
+    LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, anded_val, LLVMConstNull(usize->type_ref), "");
+
+    LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "AlignCastOk");
+    LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "AlignCastFail");
+
+    LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, fail_block);
+    gen_debug_safety_crash(g, PanicMsgIdIncorrectAlignment);
+
+    LLVMPositionBuilderAtEnd(g->builder, ok_block);
+
+    return target_val;
+}
 
 static LLVMAtomicOrdering to_LLVMAtomicOrdering(AtomicOrder atomic_order) {
     switch (atomic_order) {
@@ -3350,6 +3418,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_enum_tag_name(g, executable, (IrInstructionEnumTagName *)instruction);
         case IrInstructionIdFieldParentPtr:
             return ir_render_field_parent_ptr(g, executable, (IrInstructionFieldParentPtr *)instruction);
+        case IrInstructionIdAlignCast:
+            return ir_render_align_cast(g, executable, (IrInstructionAlignCast *)instruction);
     }
     zig_unreachable();
 }
@@ -4633,6 +4703,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdShlExact, "shlExact", 2);
     create_builtin_fn(g, BuiltinFnIdShrExact, "shrExact", 2);
     create_builtin_fn(g, BuiltinFnIdSetEvalBranchQuota, "setEvalBranchQuota", 1);
+    create_builtin_fn(g, BuiltinFnIdAlignCast, "alignCast", 2);
 }
 
 static const char *bool_to_str(bool b) {

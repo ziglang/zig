@@ -555,6 +555,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionPtrTypeOf *) {
     return IrInstructionIdPtrTypeOf;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionAlignCast *) {
+    return IrInstructionIdAlignCast;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -1899,10 +1903,11 @@ static IrInstruction *ir_build_unwrap_err_payload_from(IrBuilder *irb, IrInstruc
 }
 
 static IrInstruction *ir_build_fn_proto(IrBuilder *irb, Scope *scope, AstNode *source_node,
-    IrInstruction **param_types, IrInstruction *return_type, bool is_var_args)
+    IrInstruction **param_types, IrInstruction *align_value, IrInstruction *return_type, bool is_var_args)
 {
     IrInstructionFnProto *instruction = ir_build_instruction<IrInstructionFnProto>(irb, scope, source_node);
     instruction->param_types = param_types;
+    instruction->align_value = align_value;
     instruction->return_type = return_type;
     instruction->is_var_args = is_var_args;
 
@@ -1912,6 +1917,7 @@ static IrInstruction *ir_build_fn_proto(IrBuilder *irb, Scope *scope, AstNode *s
     for (size_t i = 0; i < param_count; i += 1) {
         ir_ref_instruction(param_types[i], irb->current_basic_block);
     }
+    if (align_value != nullptr) ir_ref_instruction(align_value, irb->current_basic_block);
     ir_ref_instruction(return_type, irb->current_basic_block);
 
     return &instruction->base;
@@ -2215,6 +2221,19 @@ static IrInstruction *ir_build_set_eval_branch_quota(IrBuilder *irb, Scope *scop
     instruction->new_quota = new_quota;
 
     ir_ref_instruction(new_quota, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_align_cast(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *align_bytes, IrInstruction *target)
+{
+    IrInstructionAlignCast *instruction = ir_build_instruction<IrInstructionAlignCast>(irb, scope, source_node);
+    instruction->align_bytes = align_bytes;
+    instruction->target = target;
+
+    ir_ref_instruction(align_bytes, irb->current_basic_block);
+    ir_ref_instruction(target, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -2738,6 +2757,10 @@ static IrInstruction *ir_instruction_fnproto_get_dep(IrInstructionFnProto *instr
     if (param_index < instruction->base.source_node->data.fn_proto.params.length) {
         return instruction->param_types[param_index];
     }
+    size_t next_index = param_index - instruction->base.source_node->data.fn_proto.params.length;
+    if (next_index == 0 && instruction->align_value != nullptr) {
+        return instruction->align_value;
+    }
     return nullptr;
 }
 
@@ -2921,6 +2944,14 @@ static IrInstruction *ir_instruction_ptrtypeof_get_dep(IrInstructionPtrTypeOf *i
     switch (index) {
         case 0: return instruction->align_value;
         case 1: return instruction->child_type;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_aligncast_get_dep(IrInstructionAlignCast *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->align_bytes;
+        case 1: return instruction->target;
         default: return nullptr;
     }
 }
@@ -3121,6 +3152,8 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_setevalbranchquota_get_dep((IrInstructionSetEvalBranchQuota *) instruction, index);
         case IrInstructionIdPtrTypeOf:
             return ir_instruction_ptrtypeof_get_dep((IrInstructionPtrTypeOf *) instruction, index);
+        case IrInstructionIdAlignCast:
+            return ir_instruction_aligncast_get_dep((IrInstructionAlignCast *) instruction, index);
     }
     zig_unreachable();
 }
@@ -4530,6 +4563,20 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 return ir_build_set_eval_branch_quota(irb, scope, node, arg0_value);
+            }
+        case BuiltinFnIdAlignCast:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                return ir_build_align_cast(irb, scope, node, arg0_value, arg1_value);
             }
     }
     zig_unreachable();
@@ -6060,11 +6107,18 @@ static IrInstruction *ir_gen_fn_proto(IrBuilder *irb, Scope *parent_scope, AstNo
         param_types[i] = type_value;
     }
 
+    IrInstruction *align_value = nullptr;
+    if (node->data.fn_proto.align_expr != nullptr) {
+        align_value = ir_gen_node(irb, node->data.fn_proto.align_expr, parent_scope);
+        if (align_value == irb->codegen->invalid_instruction)
+            return irb->codegen->invalid_instruction;
+    }
+
     IrInstruction *return_type = ir_gen_node(irb, node->data.fn_proto.return_type, parent_scope);
     if (return_type == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
-    return ir_build_fn_proto(irb, parent_scope, node, param_types, return_type, is_var_args);
+    return ir_build_fn_proto(irb, parent_scope, node, param_types, align_value, return_type, is_var_args);
 }
 
 static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scope,
@@ -8316,15 +8370,29 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     }
 
     // explicit cast from []T to []u8 or []u8 to []T
-    if (is_slice(wanted_type) && is_slice(actual_type) &&
-        (is_u8(wanted_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type) ||
-        is_u8(actual_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type)) &&
-        (wanted_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const ||
-         !actual_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const))
-    {
-        if (!ir_emit_global_runtime_side_effect(ira, source_instr))
-            return ira->codegen->invalid_instruction;
-        return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpResizeSlice, true);
+    if (is_slice(wanted_type) && is_slice(actual_type)) {
+        TypeTableEntry *wanted_ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
+        TypeTableEntry *actual_ptr_type = actual_type->data.structure.fields[slice_ptr_index].type_entry;
+        if ((is_u8(wanted_ptr_type->data.pointer.child_type) || is_u8(actual_ptr_type->data.pointer.child_type)) &&
+            (wanted_ptr_type->data.pointer.is_const || !actual_ptr_type->data.pointer.is_const))
+        {
+            uint32_t src_align_bytes = get_ptr_align(actual_ptr_type);
+            uint32_t dest_align_bytes = get_ptr_align(wanted_ptr_type);
+
+            if (dest_align_bytes > src_align_bytes) {
+                ErrorMsg *msg = ir_add_error(ira, source_instr,
+                        buf_sprintf("cast increases pointer alignment"));
+                add_error_note(ira->codegen, msg, source_instr->source_node,
+                        buf_sprintf("'%s' has alignment %" PRIu32, buf_ptr(&actual_type->name), src_align_bytes));
+                add_error_note(ira->codegen, msg, source_instr->source_node,
+                        buf_sprintf("'%s' has alignment %" PRIu32, buf_ptr(&wanted_type->name), dest_align_bytes));
+                return ira->codegen->invalid_instruction;
+            }
+
+            if (!ir_emit_global_runtime_side_effect(ira, source_instr))
+                return ira->codegen->invalid_instruction;
+            return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpResizeSlice, true);
+        }
     }
 
     // explicit cast from [N]u8 to []const T
@@ -10226,7 +10294,10 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
                     ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota,
                     nullptr, nullptr, fn_proto_node->data.fn_proto.align_expr, nullptr, ira->new_irb.exec);
 
-            ir_resolve_align(ira, align_result, &impl_fn->align_bytes);
+            uint32_t align_bytes = 0;
+            ir_resolve_align(ira, align_result, &align_bytes);
+            impl_fn->align_bytes = align_bytes;
+            inst_fn_type_id.alignment = align_bytes;
         }
 
         {
@@ -13728,11 +13799,9 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
     TypeTableEntry *return_type;
 
     if (array_type->id == TypeTableEntryIdArray) {
-        uint32_t normal_array_alignment = get_abi_alignment(ira->codegen, array_type);
-        uint32_t align_bytes = (ptr_type->data.pointer.alignment >= normal_array_alignment) ?
-            normal_array_alignment : 1;
         TypeTableEntry *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, array_type->data.array.child_type,
-            ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile, align_bytes, 0, 0);
+            ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
+            ptr_type->data.pointer.alignment, 0, 0);
         return_type = get_slice_type(ira->codegen, slice_ptr_type);
     } else if (array_type->id == TypeTableEntryIdPointer) {
         TypeTableEntry *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, array_type->data.pointer.child_type,
@@ -14235,6 +14304,11 @@ static TypeTableEntry *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstruc
             out_val->data.x_type = get_generic_fn_type(ira->codegen, &fn_type_id);
             return ira->codegen->builtin_types.entry_type;
         }
+    }
+
+    if (instruction->align_value != nullptr) {
+        if (!ir_resolve_align(ira, instruction->align_value->other, &fn_type_id.alignment))
+            return ira->codegen->builtin_types.entry_invalid;
     }
 
     IrInstruction *return_type_value = instruction->return_type->other;
@@ -14866,6 +14940,90 @@ static TypeTableEntry *ir_analyze_instruction_ptr_type_of(IrAnalyze *ira, IrInst
     return ira->codegen->builtin_types.entry_type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_align_cast(IrAnalyze *ira, IrInstructionAlignCast *instruction) {
+    uint32_t align_bytes;
+    IrInstruction *align_bytes_inst = instruction->align_bytes->other;
+    if (!ir_resolve_align(ira, align_bytes_inst, &align_bytes))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *target = instruction->target->other;
+    TypeTableEntry *target_type = target->value.type;
+    if (type_is_invalid(target_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    TypeTableEntry *result_type;
+    uint32_t old_align_bytes;
+
+    if (target_type->id == TypeTableEntryIdPointer) {
+        result_type = get_pointer_to_type_extra(ira->codegen,
+                target_type->data.pointer.child_type,
+                target_type->data.pointer.is_const, target_type->data.pointer.is_volatile,
+                align_bytes,
+                target_type->data.pointer.bit_offset, target_type->data.pointer.unaligned_bit_count);
+    } else if (target_type->id == TypeTableEntryIdFn) {
+        FnTypeId fn_type_id = target_type->data.fn.fn_type_id;
+        old_align_bytes = fn_type_id.alignment;
+        fn_type_id.alignment = align_bytes;
+        result_type = get_fn_type(ira->codegen, &fn_type_id);
+    } else if (target_type->id == TypeTableEntryIdMaybe &&
+            target_type->data.maybe.child_type->id == TypeTableEntryIdPointer)
+    {
+        TypeTableEntry *ptr_type = target_type->data.maybe.child_type;
+        old_align_bytes = ptr_type->data.pointer.alignment;
+        TypeTableEntry *better_ptr_type = get_pointer_to_type_extra(ira->codegen,
+                ptr_type->data.pointer.child_type,
+                ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
+                align_bytes,
+                ptr_type->data.pointer.bit_offset, ptr_type->data.pointer.unaligned_bit_count);
+
+        result_type = get_maybe_type(ira->codegen, better_ptr_type);
+    } else if (target_type->id == TypeTableEntryIdMaybe &&
+            target_type->data.maybe.child_type->id == TypeTableEntryIdFn)
+    {
+        FnTypeId fn_type_id = target_type->data.maybe.child_type->data.fn.fn_type_id;
+        old_align_bytes = fn_type_id.alignment;
+        fn_type_id.alignment = align_bytes;
+        TypeTableEntry *fn_type = get_fn_type(ira->codegen, &fn_type_id);
+        result_type = get_maybe_type(ira->codegen, fn_type);
+    } else if (is_slice(target_type)) {
+        TypeTableEntry *slice_ptr_type = target_type->data.structure.fields[slice_ptr_index].type_entry;
+        old_align_bytes = slice_ptr_type->data.pointer.alignment;
+        TypeTableEntry *result_ptr_type = get_pointer_to_type_extra(ira->codegen,
+                slice_ptr_type->data.pointer.child_type,
+                slice_ptr_type->data.pointer.is_const, slice_ptr_type->data.pointer.is_volatile,
+                align_bytes,
+                slice_ptr_type->data.pointer.bit_offset, slice_ptr_type->data.pointer.unaligned_bit_count);
+        result_type = get_slice_type(ira->codegen, result_ptr_type);
+    } else {
+        ir_add_error(ira, target,
+                buf_sprintf("expected pointer or slice, found '%s'", buf_ptr(&target_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    if (instr_is_comptime(target)) {
+        ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
+        if (!val)
+            return ira->codegen->builtin_types.entry_invalid;
+
+        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+        copy_const_val(out_val, val, false);
+        out_val->type = result_type;
+        return result_type;
+    }
+
+    IrInstruction *result;
+    if (align_bytes > old_align_bytes && align_bytes != 1) {
+        result = ir_build_align_cast(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
+                align_bytes_inst, target);
+    } else {
+        result = ir_build_cast(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
+                result_type, target, CastOpNoop);
+    }
+    ir_link_new_instruction(result, &instruction->base);
+    result->value.type = result_type;
+    return result_type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -14877,6 +15035,10 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdEnumFieldPtr:
         case IrInstructionIdInitEnum:
+        case IrInstructionIdMaybeWrap:
+        case IrInstructionIdErrWrapCode:
+        case IrInstructionIdErrWrapPayload:
+        case IrInstructionIdCast:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_analyze_instruction_return(ira, (IrInstructionReturn *)instruction);
@@ -15046,11 +15208,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_set_eval_branch_quota(ira, (IrInstructionSetEvalBranchQuota *)instruction);
         case IrInstructionIdPtrTypeOf:
             return ir_analyze_instruction_ptr_type_of(ira, (IrInstructionPtrTypeOf *)instruction);
-        case IrInstructionIdMaybeWrap:
-        case IrInstructionIdErrWrapCode:
-        case IrInstructionIdErrWrapPayload:
-        case IrInstructionIdCast:
-            zig_panic("TODO analyze more instructions");
+        case IrInstructionIdAlignCast:
+            return ir_analyze_instruction_align_cast(ira, (IrInstructionAlignCast *)instruction);
     }
     zig_unreachable();
 }
@@ -15228,6 +15387,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdFieldParentPtr:
         case IrInstructionIdOffsetOf:
         case IrInstructionIdTypeId:
+        case IrInstructionIdAlignCast:
             return false;
         case IrInstructionIdAsm:
             {
