@@ -127,3 +127,12 @@ fn fnExpects4(ptr: fn()align 4 -> i32) -> i32 {
     ptr()
 }
 fn simple4() align 4 -> i32 { 0x19 }
+
+
+test "generic function with align param" {
+    assert(whyWouldYouEverDoThis(1) == 0x1);
+    assert(whyWouldYouEverDoThis(4) == 0x1);
+    assert(whyWouldYouEverDoThis(8) == 0x1);
+}
+
+fn whyWouldYouEverDoThis(comptime align_bytes: u8) align align_bytes -> u8 { 0x1 }
