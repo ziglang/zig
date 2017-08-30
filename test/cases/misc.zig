@@ -534,3 +534,7 @@ const vram = @intToPtr(&volatile u8, 0x20000000)[0..0x8000];
 export fn writeToVRam() {
     vram[0] = 'X';
 }
+
+test "pointer child field" {
+    assert((&u32).child == u32);
+}
