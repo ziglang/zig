@@ -9,7 +9,8 @@ const io = std.io;
 const mem = std.mem;
 const fmt = std.fmt;
 const ArrayList = std.ArrayList;
-const Mode = @import("builtin").Mode;
+const builtin = @import("builtin");
+const Mode = builtin.Mode;
 
 const compare_output = @import("compare_output.zig");
 const build_examples = @import("build_examples.zig");
@@ -17,6 +18,25 @@ const compile_errors = @import("compile_errors.zig");
 const assemble_and_link = @import("assemble_and_link.zig");
 const debug_safety = @import("debug_safety.zig");
 const parseh = @import("parseh.zig");
+
+const TestTarget = struct {
+    os: builtin.Os,
+    arch: builtin.Arch,
+    environ: builtin.Environ,
+};
+
+const test_targets = []TestTarget {
+    TestTarget {
+        .os = builtin.Os.linux,
+        .arch = builtin.Arch.x86_64,
+        .environ = builtin.Environ.gnu,
+    },
+    TestTarget {
+        .os = builtin.Os.macosx,
+        .arch = builtin.Arch.x86_64,
+        .environ = builtin.Environ.unknown,
+    },
+};
 
 error TestFailed;
 
@@ -121,17 +141,27 @@ pub fn addPkgTestsRaw(b: &build.Builder, test_filter: ?[]const u8, root_src: []c
 {
     const libc_bools = if (always_link_libc) []bool{true} else []bool{false, true};
     const step = b.step(b.fmt("test-{}", name), desc);
-    for ([]Mode{Mode.Debug, Mode.ReleaseFast}) |mode| {
-        for (libc_bools) |link_libc| {
-            const these_tests = b.addTest(root_src);
-            these_tests.setNamePrefix(b.fmt("{}-{}-{} ", name, @enumTagName(mode),
-                if (link_libc) "c" else "bare"));
-            these_tests.setFilter(test_filter);
-            these_tests.setBuildMode(mode);
-            if (link_libc) {
-                these_tests.linkSystemLibrary("c");
+    for (test_targets) |test_target| {
+        const is_native = (test_target.os == builtin.os and test_target.arch == builtin.arch);
+        for ([]Mode{Mode.Debug, Mode.ReleaseFast}) |mode| {
+            for (libc_bools) |link_libc| {
+                if (link_libc and !is_native) {
+                    // don't assume we have a cross-compiling libc set up
+                    continue;
+                }
+                const these_tests = b.addTest(root_src);
+                these_tests.setNamePrefix(b.fmt("{}-{}-{}-{}-{} ", name, @enumTagName(test_target.os),
+                    @enumTagName(test_target.arch), @enumTagName(mode), if (link_libc) "c" else "bare"));
+                these_tests.setFilter(test_filter);
+                these_tests.setBuildMode(mode);
+                if (!is_native) {
+                    these_tests.setTarget(test_target.arch, test_target.os, test_target.environ);
+                }
+                if (link_libc) {
+                    these_tests.linkSystemLibrary("c");
+                }
+                step.dependOn(&these_tests.step);
             }
-            step.dependOn(&these_tests.step);
         }
     }
     return step;

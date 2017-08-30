@@ -573,6 +573,9 @@ static void get_darwin_platform(LinkJob *lj, DarwinPlatform *platform) {
         platform->kind = MacOS;
     } else if (g->mios_version_min) {
         platform->kind = IPhoneOS;
+    } else if (g->zig_target.os == ZigLLVM_MacOSX) {
+        platform->kind = MacOS;
+        g->mmacosx_version_min = buf_create_from_str("10.10");
     } else {
         zig_panic("unable to infer -mmacosx-version-min or -mios-version-min");
     }

@@ -1027,6 +1027,7 @@ pub const TestStep = struct {
     link_libs: BufSet,
     name_prefix: []const u8,
     filter: ?[]const u8,
+    target: Target,
 
     pub fn init(builder: &Builder, root_src: []const u8) -> TestStep {
         const step_name = builder.fmt("test {}", root_src);
@@ -1039,6 +1040,7 @@ pub const TestStep = struct {
             .name_prefix = "",
             .filter = null,
             .link_libs = BufSet.init(builder.allocator),
+            .target = Target.Native,
         }
     }
 
@@ -1062,6 +1064,18 @@ pub const TestStep = struct {
         self.filter = text;
     }
 
+    pub fn setTarget(self: &TestStep, target_arch: builtin.Arch, target_os: builtin.Os,
+        target_environ: builtin.Environ)
+    {
+        self.target = Target.Cross {
+            CrossTarget {
+                .arch = target_arch,
+                .os = target_os,
+                .environ = target_environ,
+            }
+        };
+    }
+
     fn make(step: &Step) -> %void {
         const self = @fieldParentPtr(TestStep, "step", step);
         const builder = self.builder;
@@ -1080,6 +1094,20 @@ pub const TestStep = struct {
             builtin.Mode.Debug => {},
             builtin.Mode.ReleaseSafe => %%zig_args.append("--release-safe"),
             builtin.Mode.ReleaseFast => %%zig_args.append("--release-fast"),
+        }
+
+        switch (self.target) {
+            Target.Native => {},
+            Target.Cross => |cross_target| {
+                %%zig_args.append("--target-arch");
+                %%zig_args.append(@enumTagName(cross_target.arch));
+
+                %%zig_args.append("--target-os");
+                %%zig_args.append(@enumTagName(cross_target.os));
+
+                %%zig_args.append("--target-environ");
+                %%zig_args.append(@enumTagName(cross_target.environ));
+            },
         }
 
         if (self.filter) |filter| {

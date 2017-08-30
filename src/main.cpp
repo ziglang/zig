@@ -676,6 +676,16 @@ int main(int argc, char **argv) {
             } else if (cmd == CmdTest) {
                 codegen_build(g);
                 codegen_link(g, "./test");
+
+                ZigTarget native;
+                get_native_target(&native);
+                bool is_native_target = target == nullptr || (target->os == native.os &&
+                        target->arch.arch == native.arch.arch && target->arch.sub_arch == native.arch.sub_arch);
+                if (!is_native_target) {
+                    fprintf(stderr, "Skipping execution of non-native test binary.\n");
+                    return 0;
+                }
+
                 ZigList<const char *> args = {0};
                 Termination term;
                 os_spawn_process("./test", args, &term);
