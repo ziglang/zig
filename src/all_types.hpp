@@ -50,7 +50,6 @@ struct IrExecutable {
     size_t next_debug_id;
     size_t *backward_branch_count;
     size_t backward_branch_quota;
-    bool reported_quota_exceeded;
     bool invalid;
     ZigList<LabelTableEntry *> all_labels;
     ZigList<IrGotoItem> goto_list;

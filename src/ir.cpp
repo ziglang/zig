@@ -7604,13 +7604,13 @@ static bool ir_emit_backward_branch(IrAnalyze *ira, IrInstruction *source_instru
     size_t *bbc = ira->new_irb.exec->backward_branch_count;
     size_t quota = ira->new_irb.exec->backward_branch_quota;
 
-    if (ira->new_irb.exec->reported_quota_exceeded) {
+    // If we're already over quota, we've already given an error message for this.
+    if (*bbc > quota) {
         return false;
     }
 
     *bbc += 1;
     if (*bbc > quota) {
-        ira->new_irb.exec->reported_quota_exceeded = true;
         ir_add_error(ira, source_instruction, buf_sprintf("evaluation exceeded %" ZIG_PRI_usize " backwards branches", quota));
         return false;
     }
@@ -13285,6 +13285,12 @@ static TypeTableEntry *ir_analyze_instruction_type_id(IrAnalyze *ira,
 static TypeTableEntry *ir_analyze_instruction_set_eval_branch_quota(IrAnalyze *ira,
         IrInstructionSetEvalBranchQuota *instruction)
 {
+    if (ira->new_irb.exec->parent_exec != nullptr) {
+        ir_add_error(ira, &instruction->base,
+                buf_sprintf("@setEvalBranchQuota must be called from the top of the comptime stack"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
     uint64_t new_quota;
     if (!ir_resolve_usize(ira, instruction->new_quota->other, &new_quota))
         return ira->codegen->builtin_types.entry_invalid;
