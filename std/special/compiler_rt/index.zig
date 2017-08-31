@@ -36,6 +36,23 @@ export fn __umoddi3(a: u64, b: u64) -> u64 {
     return r;
 }
 
+const AeabiUlDivModResult = extern struct {
+    quot: u64,
+    rem: u64,
+};
+export fn __aeabi_uldivmod(numerator: u64, denominator: u64) -> AeabiUlDivModResult {
+    @setDebugSafety(this, is_test);
+    if (comptime isArmArch()) {
+        @setGlobalLinkage(__aeabi_uldivmod, builtin.GlobalLinkage.LinkOnce);
+        var result: AeabiUlDivModResult = undefined;
+        result.quot = __udivmoddi4(numerator, denominator, &result.rem);
+        return result;
+    }
+
+    @setGlobalLinkage(__aeabi_uldivmod, builtin.GlobalLinkage.Internal);
+    unreachable;
+}
+
 fn isArmArch() -> bool {
     return switch (builtin.arch) {
         builtin.Arch.armv8_2a,
