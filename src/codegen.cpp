@@ -5293,12 +5293,12 @@ static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
                 }
             }
         case TypeTableEntryIdStruct:
+        case TypeTableEntryIdOpaque:
             {
                 // TODO add to table of structs we need to declare
                 buf_init_from_buf(out_buf, &type_entry->name);
                 return;
             }
-        case TypeTableEntryIdOpaque:
         case TypeTableEntryIdArray:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdPureError:
