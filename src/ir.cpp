@@ -7604,12 +7604,13 @@ static bool ir_emit_backward_branch(IrAnalyze *ira, IrInstruction *source_instru
     size_t *bbc = ira->new_irb.exec->backward_branch_count;
     size_t quota = ira->new_irb.exec->backward_branch_quota;
 
-    // If we're already over quota, we've already given an error message for this.
-    if (*bbc > quota)
+    if (ira->new_irb.exec->reported_quota_exceeded) {
         return false;
+    }
 
     *bbc += 1;
     if (*bbc > quota) {
+        ira->new_irb.exec->reported_quota_exceeded = true;
         ir_add_error(ira, source_instruction, buf_sprintf("evaluation exceeded %" ZIG_PRI_usize " backwards branches", quota));
         return false;
     }
@@ -12815,10 +12816,25 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
         if (container_type->id == TypeTableEntryIdStruct && !is_slice(container_type) && elem_count == 0) {
             return ir_analyze_container_init_fields(ira, &instruction->base, container_type,
                     0, nullptr);
-        } else if (is_slice(container_type)) {
-            TypeTableEntry *pointer_type = container_type->data.structure.fields[slice_ptr_index].type_entry;
-            assert(pointer_type->id == TypeTableEntryIdPointer);
-            TypeTableEntry *child_type = pointer_type->data.pointer.child_type;
+        } else if (is_slice(container_type) || container_type->id == TypeTableEntryIdArray) {
+            // array is same as slice init but we make a compile error if the length is wrong
+            TypeTableEntry *child_type;
+            if (container_type->id == TypeTableEntryIdArray) {
+                child_type = container_type->data.array.child_type;
+                if (container_type->data.array.len != elem_count) {
+                    TypeTableEntry *literal_type = get_array_type(ira->codegen, child_type, elem_count);
+
+                    ir_add_error(ira, &instruction->base,
+                        buf_sprintf("expected %s literal, found %s literal",
+                            buf_ptr(&container_type->name), buf_ptr(&literal_type->name)));
+                    return ira->codegen->builtin_types.entry_invalid;
+                }
+            } else {
+                TypeTableEntry *pointer_type = container_type->data.structure.fields[slice_ptr_index].type_entry;
+                assert(pointer_type->id == TypeTableEntryIdPointer);
+                child_type = pointer_type->data.pointer.child_type;
+            }
+
             TypeTableEntry *fixed_size_array_type = get_array_type(ira->codegen, child_type, elem_count);
 
             ConstExprValue const_val = {};
@@ -12882,9 +12898,6 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
                 container_type_value, elem_count, new_items);
             ir_add_alloca(ira, new_instruction, fixed_size_array_type);
             return fixed_size_array_type;
-        } else if (container_type->id == TypeTableEntryIdArray) {
-            // same as slice init but we make a compile error if the length is wrong
-            zig_panic("TODO array container init");
         } else if (container_type->id == TypeTableEntryIdVoid) {
             if (elem_count != 0) {
                 ir_add_error_node(ira, instruction->base.source_node,

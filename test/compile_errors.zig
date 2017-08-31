@@ -2061,4 +2061,11 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     ,
         ".tmp_source.zig:4:23: error: expected pointer alignment of at least 4, found 1");
 
+    cases.add("wrong size to an array literal",
+        \\comptime {
+        \\    const array = [2]u8{1, 2, 3};
+        \\}
+    ,
+        ".tmp_source.zig:2:24: error: expected [2]u8 literal, found [3]u8 literal");
+
 }
