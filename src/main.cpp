@@ -509,6 +509,36 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
+    init_all_targets();
+
+    ZigTarget alloc_target;
+    ZigTarget *target;
+    if (!target_arch && !target_os && !target_environ) {
+        target = nullptr;
+    } else {
+        target = &alloc_target;
+        get_unknown_target(target);
+        if (target_arch) {
+            if (parse_target_arch(target_arch, &target->arch)) {
+                fprintf(stderr, "invalid --target-arch argument\n");
+                return usage(arg0);
+            }
+        }
+        if (target_os) {
+            if (parse_target_os(target_os, &target->os)) {
+                fprintf(stderr, "invalid --target-os argument\n");
+                return usage(arg0);
+            }
+        }
+        if (target_environ) {
+            if (parse_target_environ(target_environ, &target->env_type)) {
+                fprintf(stderr, "invalid --target-environ argument\n");
+                return usage(arg0);
+            }
+        }
+    }
+
+
     switch (cmd) {
     case CmdBuild:
     case CmdParseH:
@@ -526,35 +556,6 @@ int main(int argc, char **argv) {
             }
 
             assert(cmd != CmdBuild || out_type != OutTypeUnknown);
-
-            init_all_targets();
-
-            ZigTarget alloc_target;
-            ZigTarget *target;
-            if (!target_arch && !target_os && !target_environ) {
-                target = nullptr;
-            } else {
-                target = &alloc_target;
-                get_unknown_target(target);
-                if (target_arch) {
-                    if (parse_target_arch(target_arch, &target->arch)) {
-                        fprintf(stderr, "invalid --target-arch argument\n");
-                        return usage(arg0);
-                    }
-                }
-                if (target_os) {
-                    if (parse_target_os(target_os, &target->os)) {
-                        fprintf(stderr, "invalid --target-os argument\n");
-                        return usage(arg0);
-                    }
-                }
-                if (target_environ) {
-                    if (parse_target_environ(target_environ, &target->env_type)) {
-                        fprintf(stderr, "invalid --target-environ argument\n");
-                        return usage(arg0);
-                    }
-                }
-            }
 
             bool need_name = (cmd == CmdBuild || cmd == CmdParseH);
 
@@ -674,24 +675,30 @@ int main(int argc, char **argv) {
                     codegen_print_timing_report(g, stdout);
                 return EXIT_SUCCESS;
             } else if (cmd == CmdTest) {
-                codegen_build(g);
-                codegen_link(g, "./test");
-
                 ZigTarget native;
                 get_native_target(&native);
+
+                ZigTarget *non_null_target = target ? target : &native;
+
+                Buf *test_exe_name = buf_sprintf("./test%s", target_exe_file_ext(non_null_target));
+
+                codegen_build(g);
+                codegen_link(g, buf_ptr(test_exe_name));
+
                 bool is_native_target = target == nullptr || (target->os == native.os &&
                         target->arch.arch == native.arch.arch && target->arch.sub_arch == native.arch.sub_arch);
                 if (!is_native_target) {
-                    fprintf(stderr, "Skipping execution of non-native test binary.\n");
+                    fprintf(stderr, "Created %s but skipping execution because it is non-native.\n",
+                            buf_ptr(test_exe_name));
                     return 0;
                 }
 
                 ZigList<const char *> args = {0};
                 Termination term;
-                os_spawn_process("./test", args, &term);
+                os_spawn_process(buf_ptr(test_exe_name), args, &term);
                 if (term.how != TerminationIdClean || term.code != 0) {
                     fprintf(stderr, "\nTests failed. Use the following command to reproduce the failure:\n");
-                    fprintf(stderr, "./test\n");
+                    fprintf(stderr, "%s\n", buf_ptr(test_exe_name));
                 } else if (timing_info) {
                     codegen_print_timing_report(g, stdout);
                 }

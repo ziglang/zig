@@ -22,8 +22,8 @@ export fn memcpy(noalias dest: ?&u8, noalias src: ?&const u8, n: usize) {
         (??dest)[index] = (??src)[index];
 }
 
-export fn __stack_chk_fail() {
-    if (builtin.mode == builtin.Mode.ReleaseFast) {
+export fn __stack_chk_fail() -> noreturn {
+    if (builtin.mode == builtin.Mode.ReleaseFast or builtin.os == builtin.Os.windows) {
         @setGlobalLinkage(__stack_chk_fail, builtin.GlobalLinkage.Internal);
         unreachable;
     }

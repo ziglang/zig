@@ -98,6 +98,38 @@ export nakedcc fn __aeabi_uidivmod() {
     @setGlobalLinkage(__aeabi_uidivmod, builtin.GlobalLinkage.Internal);
 }
 
+export nakedcc fn __chkstk() {
+    @setDebugSafety(this, false);
+
+    if (comptime builtin.arch == builtin.Arch.x86_64) {
+        asm volatile (
+            \\         push   %%rcx
+            \\         cmp    $0x1000,%%rax
+            \\         lea    16(%%rsp),%%rcx     // rsp before calling this routine -> rcx
+            \\         jb     1f
+            \\ 2:
+            \\         sub    $0x1000,%%rcx
+            \\         test   %%rcx,(%%rcx)
+            \\         sub    $0x1000,%%rax
+            \\         cmp    $0x1000,%%rax
+            \\         ja     2b
+            \\ 1:
+            \\         sub    %%rax,%%rcx
+            \\         test   %%rcx,(%%rcx)
+            \\ 
+            \\         lea    8(%%rsp),%%rax     // load pointer to the return address into rax
+            \\         mov    %%rcx,%%rsp        // install the new top of stack pointer into rsp
+            \\         mov    -8(%%rax),%%rcx    // restore rcx
+            \\         push   (%%rax)           // push return address onto the stack
+            \\         sub    %%rsp,%%rax        // restore the original value in rax
+            \\         ret
+        );
+        unreachable;
+    }
+
+    @setGlobalLinkage(__chkstk, builtin.GlobalLinkage.Internal);
+}
+
 export fn __udivmodsi4(a: u32, b: u32, rem: &u32) -> u32 {
     @setDebugSafety(this, is_test);
     @setGlobalLinkage(__udivmodsi4, builtin.GlobalLinkage.LinkOnce);
@@ -316,3 +348,4 @@ fn test_one_udivsi3(a: u32, b: u32, expected_q: u32) {
     const q: u32 = __udivsi3(a, b);
     assert(q == expected_q);
 }
+

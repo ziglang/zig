@@ -78,14 +78,6 @@ static Buf *build_compiler_rt(CodeGen *parent_gen) {
     return build_o_raw(parent_gen, "compiler_rt", full_path);
 }
 
-static const char *get_exe_file_extension(CodeGen *g) {
-    if (g->zig_target.os == ZigLLVM_Win32) {
-        return ".exe";
-    } else {
-        return "";
-    }
-}
-
 static const char *get_darwin_arch_string(const ZigTarget *t) {
     switch (t->arch.arch) {
         case ZigLLVM_aarch64:
@@ -835,7 +827,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
 
         buf_init_from_buf(&lj.out_file, g->root_out_name);
         if (g->out_type == OutTypeExe) {
-            buf_append_str(&lj.out_file, get_exe_file_extension(g));
+            buf_append_str(&lj.out_file, target_exe_file_ext(&g->zig_target));
         }
     }
 

@@ -555,6 +555,14 @@ const char *target_o_file_ext(ZigTarget *target) {
     }
 }
 
+const char *target_exe_file_ext(ZigTarget *target) {
+    if (target->os == ZigLLVM_Win32) {
+        return ".exe";
+    } else {
+        return "";
+    }
+}
+
 enum FloatAbi {
     FloatAbiHard,
     FloatAbiSoft,
