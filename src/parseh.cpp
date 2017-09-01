@@ -668,9 +668,17 @@ static bool c_is_float(Context *c, QualType qt) {
 }
 
 static AstNode * trans_stmt(Context *c, AstNode *block, Stmt *stmt);
+static AstNode * trans_create_node(Context *c, NodeType id);
+static AstNode * trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc);
 
 static AstNode * trans_expr(Context *c, AstNode *block, Expr *expr) {
     return trans_stmt(c, block, expr);
+}
+
+static AstNode *trans_create_symbol_node(Context *c, const char * name) {
+    AstNode *node = trans_create_node(c, NodeTypeSymbol);
+    node->data.symbol_expr.symbol = buf_create_from_str(name);
+    return node;
 }
 
 static AstNode *trans_type_with_table(Context *c, const Type *ty, const SourceLocation &source_loc,
@@ -682,43 +690,43 @@ static AstNode *trans_type_with_table(Context *c, const Type *ty, const SourceLo
                 const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(ty);
                 switch (builtin_ty->getKind()) {
                     case BuiltinType::Void:
-                        zig_panic("TODO void type");
+                        return trans_create_symbol_node(c, "c_void");
                     case BuiltinType::Bool:
-                        zig_panic("TODO bool type");
+                        return trans_create_symbol_node(c, "bool");
                     case BuiltinType::Char_U:
                     case BuiltinType::UChar:
                     case BuiltinType::Char_S:
-                        zig_panic("TODO u8 type");
+                        return trans_create_symbol_node(c, "u8");
                     case BuiltinType::SChar:
-                        zig_panic("TODO i8 type");
+                        return trans_create_symbol_node(c, "i8");
                     case BuiltinType::UShort:
-                        zig_panic("TODO c_ushort type");
+                        return trans_create_symbol_node(c, "c_ushort");
                     case BuiltinType::UInt:
-                        zig_panic("TODO c_uint type");
+                        return trans_create_symbol_node(c, "c_uint");
                     case BuiltinType::ULong:
-                        zig_panic("TODO c_ulong type");
+                        return trans_create_symbol_node(c, "c_ulong");
                     case BuiltinType::ULongLong:
-                        zig_panic("TODO c_ulonglong type");
+                        return trans_create_symbol_node(c, "c_ulonglong");
                     case BuiltinType::Short:
-                        zig_panic("TODO c_short type");
+                        return trans_create_symbol_node(c, "c_short");
                     case BuiltinType::Int:
-                        zig_panic("TODO c_int type");
+                        return trans_create_symbol_node(c, "c_int");
                     case BuiltinType::Long:
-                        zig_panic("TODO c_long type");
+                        return trans_create_symbol_node(c, "c_long");
                     case BuiltinType::LongLong:
-                        zig_panic("TODO c_longlong type");
+                        return trans_create_symbol_node(c, "c_longlong");
                     case BuiltinType::UInt128:
-                        zig_panic("TODO u128 type");
+                        return trans_create_symbol_node(c, "u128");
                     case BuiltinType::Int128:
-                        zig_panic("TODO i128 type");
+                        return trans_create_symbol_node(c, "i128");
                     case BuiltinType::Float:
-                        zig_panic("TODO f32 type");
+                        return trans_create_symbol_node(c, "f32");
                     case BuiltinType::Double:
-                        zig_panic("TODO f64 type");
+                        return trans_create_symbol_node(c, "f64");
                     case BuiltinType::Float128:
-                        zig_panic("TODO f128 type");
+                        return trans_create_symbol_node(c, "f128");
                     case BuiltinType::LongDouble:
-                        zig_panic("TODO c_longdouble type");
+                        return trans_create_symbol_node(c, "c_longdouble");
                     case BuiltinType::WChar_U:
                     case BuiltinType::Char16:
                     case BuiltinType::Char32:
@@ -783,7 +791,26 @@ static AstNode *trans_type_with_table(Context *c, const Type *ty, const SourceLo
                 break;
             }
         case Type::Pointer:
-            zig_panic("TODO pointer");
+            {
+                const PointerType *pointer_ty = static_cast<const PointerType*>(ty);
+                QualType child_qt = pointer_ty->getPointeeType();
+                AstNode *child_node = trans_qual_type(c, child_qt, source_loc);
+                if (child_node == nullptr) return nullptr;
+
+                if (qual_type_child_is_fn_proto(child_qt)) {
+                    zig_panic("TODO pointer to function proto");
+                }
+
+                AstNode *pointer_node = trans_create_node(c, NodeTypeAddrOfExpr);
+                pointer_node->data.addr_of_expr.is_const = child_qt.isConstQualified();
+                pointer_node->data.addr_of_expr.is_volatile = child_qt.isVolatileQualified();
+                pointer_node->data.addr_of_expr.op_expr = child_node;
+
+                AstNode *maybe_node = trans_create_node(c, NodeTypePrefixOpExpr);
+                maybe_node->data.prefix_op_expr.prefix_op = PrefixOpMaybe;
+                maybe_node->data.prefix_op_expr.primary_expr = pointer_node;
+                return maybe_node;
+            }
         case Type::Typedef:
             zig_panic("TODO typedef");
         case Type::Elaborated:
@@ -851,7 +878,7 @@ static AstNode * trans_qual_type(Context *c, QualType qt, const SourceLocation &
     return trans_qual_type_with_table(c, qt, source_loc, &c->global_type_table2);
 }
 
-static AstNode * trans_create_node(Context *c, Stmt *stmt, NodeType id) {
+static AstNode * trans_create_node(Context *c, NodeType id) {
     AstNode *node = allocate<AstNode>(1);
     node->type = id;
     node->owner = c->import;
@@ -860,7 +887,7 @@ static AstNode * trans_create_node(Context *c, Stmt *stmt, NodeType id) {
 }
 
 static AstNode * trans_compound_stmt(Context *c, AstNode *parent, CompoundStmt *stmt) {
-    AstNode *child_block = trans_create_node(c, stmt, NodeTypeBlock);
+    AstNode *child_block = trans_create_node(c, NodeTypeBlock);
     for (CompoundStmt::body_iterator it = stmt->body_begin(), end_it = stmt->body_end(); it != end_it; ++it) {
         AstNode *child_node = trans_stmt(c, child_block, *it);
         if (child_node != nullptr)
@@ -874,7 +901,7 @@ static AstNode *trans_return_stmt(Context *c, AstNode *block, ReturnStmt *stmt) 
     if (value_expr == nullptr) {
         zig_panic("TODO handle C return void");
     } else {
-        AstNode *return_node = trans_create_node(c, stmt, NodeTypeReturnExpr);
+        AstNode *return_node = trans_create_node(c, NodeTypeReturnExpr);
         return_node->data.return_expr.expr = trans_expr(c, block, value_expr);
         return return_node;
     }
@@ -898,7 +925,7 @@ static void aps_int_to_bigint(Context *c, const llvm::APSInt &aps_int, BigInt *b
 }
 
 static AstNode * trans_integer_literal(Context *c, IntegerLiteral *stmt) {
-    AstNode *node = trans_create_node(c, stmt, NodeTypeIntLiteral);
+    AstNode *node = trans_create_node(c, NodeTypeIntLiteral);
     llvm::APSInt result;
     if (!stmt->EvaluateAsInt(result, *c->ctx)) {
         fprintf(stderr, "TODO unable to convert integer literal to zig\n");
@@ -909,7 +936,7 @@ static AstNode * trans_integer_literal(Context *c, IntegerLiteral *stmt) {
 }
 
 static AstNode * trans_conditional_operator(Context *c, AstNode *block, ConditionalOperator *stmt) {
-    AstNode *node = trans_create_node(c, stmt, NodeTypeIfBoolExpr);
+    AstNode *node = trans_create_node(c, NodeTypeIfBoolExpr);
 
     Expr *cond_expr = stmt->getCond();
     Expr *true_expr = stmt->getTrueExpr();
@@ -944,7 +971,7 @@ static AstNode * trans_binary_operator(Context *c, AstNode *block, BinaryOperato
             zig_panic("TODO handle more C binary operators: BO_Shr");
         case BO_LT:
             {
-                AstNode *node = trans_create_node(c, stmt, NodeTypeBinOpExpr);
+                AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
                 node->data.bin_op_expr.bin_op = BinOpTypeCmpLessThan;
                 node->data.bin_op_expr.op1 = trans_expr(c, block, stmt->getLHS());
                 node->data.bin_op_expr.op2 = trans_expr(c, block, stmt->getRHS());
@@ -1125,13 +1152,13 @@ static AstNode * trans_decl_ref_expr(Context *c, DeclRefExpr *stmt) {
     ValueDecl *value_decl = stmt->getDecl();
     const char *name = decl_name(value_decl);
 
-    AstNode *node = trans_create_node(c, stmt, NodeTypeSymbol);
+    AstNode *node = trans_create_node(c, NodeTypeSymbol);
     node->data.symbol_expr.symbol = buf_create_from_str(name);
     return node;
 }
 
 static AstNode * trans_create_num_lit_node_unsigned(Context *c, Stmt *stmt, uint64_t x) {
-    AstNode *node = trans_create_node(c, stmt, NodeTypeIntLiteral);
+    AstNode *node = trans_create_node(c, NodeTypeIntLiteral);
     node->data.int_literal.bigint = allocate<BigInt>(1);
     bigint_init_unsigned(node->data.int_literal.bigint, x);
     return node;
@@ -1157,13 +1184,13 @@ static AstNode * trans_unary_operator(Context *c, AstNode *block, UnaryOperator 
             {
                 Expr *op_expr = stmt->getSubExpr();
                 if (c_is_signed_integer(c, op_expr->getType()) || c_is_float(c, op_expr->getType())) {
-                    AstNode *node = trans_create_node(c, stmt, NodeTypePrefixOpExpr);
+                    AstNode *node = trans_create_node(c, NodeTypePrefixOpExpr);
                     node->data.prefix_op_expr.prefix_op = PrefixOpNegation;
                     node->data.prefix_op_expr.primary_expr = trans_expr(c, block, op_expr);
                     return node;
                 } else if (c_is_unsigned_integer(c, op_expr->getType())) {
                     // we gotta emit 0 -% x
-                    AstNode *node = trans_create_node(c, stmt, NodeTypeBinOpExpr);
+                    AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
                     node->data.bin_op_expr.op1 = trans_create_num_lit_node_unsigned(c, stmt, 0);
                     node->data.bin_op_expr.op2 = trans_expr(c, block, op_expr);
                     node->data.bin_op_expr.bin_op = BinOpTypeSubWrap;
@@ -1194,7 +1221,7 @@ static AstNode * trans_local_declaration(Context *c, AstNode *block, DeclStmt *s
         switch (decl->getKind()) {
             case Decl::Var: {
                 VarDecl *var_decl = (VarDecl *)decl;
-                AstNode *node = trans_create_node(c, stmt, NodeTypeVariableDeclaration);
+                AstNode *node = trans_create_node(c, NodeTypeVariableDeclaration);
                 node->data.variable_declaration.symbol = buf_create_from_str(decl_name(var_decl));
                 QualType qual_type = var_decl->getTypeSourceInfo()->getType();
                 node->data.variable_declaration.is_const = qual_type.isConstQualified();
