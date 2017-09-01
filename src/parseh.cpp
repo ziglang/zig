@@ -1198,12 +1198,10 @@ static AstNode * trans_local_declaration(Context *c, AstNode *block, DeclStmt *s
                 node->data.variable_declaration.symbol = buf_create_from_str(decl_name(var_decl));
                 QualType qual_type = var_decl->getTypeSourceInfo()->getType();
                 node->data.variable_declaration.is_const = qual_type.isConstQualified();
-                node->data.variable_declaration.type = trans_qual_type(c, block, qual_type);
+                node->data.variable_declaration.type = trans_qual_type(c, qual_type, stmt->getStartLoc());
                 if (var_decl->hasInit()) {
                     node->data.variable_declaration.expr = trans_expr(c, block, var_decl->getInit());
                 }
-
-                //emit_warning(c, decl->getLocation(), "asdf");
 
                 block->data.block.statements.append(node);
                 continue;
