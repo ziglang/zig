@@ -17,6 +17,7 @@
 
 #include <clang/Frontend/ASTUnit.h>
 #include <clang/Frontend/CompilerInstance.h>
+#include <clang/AST/Expr.h>
 
 #include <string.h>
 
@@ -54,6 +55,7 @@ struct Context {
     uint32_t next_anon_index;
 
     CodeGen *codegen;
+    ASTContext *ctx;
 };
 
 static TypeTableEntry *resolve_qual_type_with_table(Context *c, QualType qt, const Decl *decl,
@@ -602,8 +604,476 @@ static TypeTableEntry *resolve_qual_type(Context *c, QualType qt, const Decl *de
     return resolve_qual_type_with_table(c, qt, decl, &c->global_type_table);
 }
 
+#include "ast_render.hpp"
+
+static AstNode * ast_trans_stmt(Context *c, Stmt *stmt);
+
+static AstNode * ast_trans_expr(Context *c, Expr *expr) {
+    return ast_trans_stmt(c, expr);
+}
+
+static AstNode * ast_create_node(Context *c, const SourceRange &range, NodeType id) {
+    AstNode *node = allocate<AstNode>(1);
+    node->type = id;
+    node->owner = c->import;
+    // TODO line/column. mapping to C file??
+    return node;
+}
+
+static AstNode * ast_trans_compound_stmt(Context *c, CompoundStmt *stmt) {
+    AstNode *block_node = ast_create_node(c, stmt->getSourceRange(), NodeTypeBlock);
+    for (CompoundStmt::body_iterator it = stmt->body_begin(), end_it = stmt->body_end(); it != end_it; ++it) {
+        AstNode *child_node = ast_trans_stmt(c, *it);
+        block_node->data.block.statements.append(child_node);
+    }
+    return block_node;
+}
+
+static AstNode *ast_trans_return_stmt(Context *c, ReturnStmt *stmt) {
+    Expr *value_expr = stmt->getRetValue();
+    if (value_expr == nullptr) {
+        zig_panic("TODO handle C return void");
+    } else {
+        AstNode *return_node = ast_create_node(c, stmt->getSourceRange(), NodeTypeReturnExpr);
+        return_node->data.return_expr.expr = ast_trans_expr(c, value_expr);
+        return return_node;
+    }
+}
+
+static void aps_int_to_bigint(Context *c, const llvm::APSInt &aps_int, BigInt *bigint) {
+    // TODO respect actually big integers
+    if (aps_int.isSigned()) {
+        if (aps_int > INT64_MAX || aps_int < INT64_MIN) {
+            zig_panic("TODO actually bigint in C");
+        } else {
+            bigint_init_signed(bigint, aps_int.getExtValue());
+        }
+    } else {
+        if (aps_int > INT64_MAX) {
+            zig_panic("TODO actually bigint in C");
+        } else {
+            bigint_init_unsigned(bigint, aps_int.getExtValue());
+        }
+    }
+}
+static AstNode * ast_trans_integer_literal(Context *c, IntegerLiteral *stmt) {
+    AstNode *node = ast_create_node(c, stmt->getSourceRange(), NodeTypeIntLiteral);
+    llvm::APSInt result;
+    if (!stmt->EvaluateAsInt(result, *c->ctx)) {
+        fprintf(stderr, "TODO unable to convert integer literal to zig\n");
+    }
+    node->data.int_literal.bigint = allocate<BigInt>(1);
+    aps_int_to_bigint(c, result, node->data.int_literal.bigint);
+    return node;
+}
+
+static AstNode *ast_trans_stmt(Context *c, Stmt *stmt) {
+    Stmt::StmtClass sc = stmt->getStmtClass();
+    switch (sc) {
+        case Stmt::ReturnStmtClass:
+            return ast_trans_return_stmt(c, (ReturnStmt *)stmt);
+        case Stmt::CompoundStmtClass:
+            return ast_trans_compound_stmt(c, (CompoundStmt *)stmt);
+        case Stmt::IntegerLiteralClass:
+            return ast_trans_integer_literal(c, (IntegerLiteral *)stmt);
+        case Stmt::CaseStmtClass:
+            zig_panic("TODO handle C CaseStmtClass");
+        case Stmt::DefaultStmtClass:
+            zig_panic("TODO handle C DefaultStmtClass");
+        case Stmt::SwitchStmtClass:
+            zig_panic("TODO handle C SwitchStmtClass");
+        case Stmt::WhileStmtClass:
+            zig_panic("TODO handle C WhileStmtClass");
+        case Stmt::NoStmtClass:
+            zig_panic("TODO handle C NoStmtClass");
+        case Stmt::GCCAsmStmtClass:
+            zig_panic("TODO handle C GCCAsmStmtClass");
+        case Stmt::MSAsmStmtClass:
+            zig_panic("TODO handle C MSAsmStmtClass");
+        case Stmt::AttributedStmtClass:
+            zig_panic("TODO handle C AttributedStmtClass");
+        case Stmt::BreakStmtClass:
+            zig_panic("TODO handle C BreakStmtClass");
+        case Stmt::CXXCatchStmtClass:
+            zig_panic("TODO handle C CXXCatchStmtClass");
+        case Stmt::CXXForRangeStmtClass:
+            zig_panic("TODO handle C CXXForRangeStmtClass");
+        case Stmt::CXXTryStmtClass:
+            zig_panic("TODO handle C CXXTryStmtClass");
+        case Stmt::CapturedStmtClass:
+            zig_panic("TODO handle C CapturedStmtClass");
+        case Stmt::ContinueStmtClass:
+            zig_panic("TODO handle C ContinueStmtClass");
+        case Stmt::CoreturnStmtClass:
+            zig_panic("TODO handle C CoreturnStmtClass");
+        case Stmt::CoroutineBodyStmtClass:
+            zig_panic("TODO handle C CoroutineBodyStmtClass");
+        case Stmt::DeclStmtClass:
+            zig_panic("TODO handle C DeclStmtClass");
+        case Stmt::DoStmtClass:
+            zig_panic("TODO handle C DoStmtClass");
+        case Stmt::BinaryConditionalOperatorClass:
+            zig_panic("TODO handle C BinaryConditionalOperatorClass");
+        case Stmt::ConditionalOperatorClass:
+            zig_panic("TODO handle C ConditionalOperatorClass");
+        case Stmt::AddrLabelExprClass:
+            zig_panic("TODO handle C AddrLabelExprClass");
+        case Stmt::ArrayInitIndexExprClass:
+            zig_panic("TODO handle C ArrayInitIndexExprClass");
+        case Stmt::ArrayInitLoopExprClass:
+            zig_panic("TODO handle C ArrayInitLoopExprClass");
+        case Stmt::ArraySubscriptExprClass:
+            zig_panic("TODO handle C ArraySubscriptExprClass");
+        case Stmt::ArrayTypeTraitExprClass:
+            zig_panic("TODO handle C ArrayTypeTraitExprClass");
+        case Stmt::AsTypeExprClass:
+            zig_panic("TODO handle C AsTypeExprClass");
+        case Stmt::AtomicExprClass:
+            zig_panic("TODO handle C AtomicExprClass");
+        case Stmt::BinaryOperatorClass:
+            zig_panic("TODO handle C BinaryOperatorClass");
+        case Stmt::CompoundAssignOperatorClass:
+            zig_panic("TODO handle C CompoundAssignOperatorClass");
+        case Stmt::BlockExprClass:
+            zig_panic("TODO handle C BlockExprClass");
+        case Stmt::CXXBindTemporaryExprClass:
+            zig_panic("TODO handle C CXXBindTemporaryExprClass");
+        case Stmt::CXXBoolLiteralExprClass:
+            zig_panic("TODO handle C CXXBoolLiteralExprClass");
+        case Stmt::CXXConstructExprClass:
+            zig_panic("TODO handle C CXXConstructExprClass");
+        case Stmt::CXXTemporaryObjectExprClass:
+            zig_panic("TODO handle C CXXTemporaryObjectExprClass");
+        case Stmt::CXXDefaultArgExprClass:
+            zig_panic("TODO handle C CXXDefaultArgExprClass");
+        case Stmt::CXXDefaultInitExprClass:
+            zig_panic("TODO handle C CXXDefaultInitExprClass");
+        case Stmt::CXXDeleteExprClass:
+            zig_panic("TODO handle C CXXDeleteExprClass");
+        case Stmt::CXXDependentScopeMemberExprClass:
+            zig_panic("TODO handle C CXXDependentScopeMemberExprClass");
+        case Stmt::CXXFoldExprClass:
+            zig_panic("TODO handle C CXXFoldExprClass");
+        case Stmt::CXXInheritedCtorInitExprClass:
+            zig_panic("TODO handle C CXXInheritedCtorInitExprClass");
+        case Stmt::CXXNewExprClass:
+            zig_panic("TODO handle C CXXNewExprClass");
+        case Stmt::CXXNoexceptExprClass:
+            zig_panic("TODO handle C CXXNoexceptExprClass");
+        case Stmt::CXXNullPtrLiteralExprClass:
+            zig_panic("TODO handle C CXXNullPtrLiteralExprClass");
+        case Stmt::CXXPseudoDestructorExprClass:
+            zig_panic("TODO handle C CXXPseudoDestructorExprClass");
+        case Stmt::CXXScalarValueInitExprClass:
+            zig_panic("TODO handle C CXXScalarValueInitExprClass");
+        case Stmt::CXXStdInitializerListExprClass:
+            zig_panic("TODO handle C CXXStdInitializerListExprClass");
+        case Stmt::CXXThisExprClass:
+            zig_panic("TODO handle C CXXThisExprClass");
+        case Stmt::CXXThrowExprClass:
+            zig_panic("TODO handle C CXXThrowExprClass");
+        case Stmt::CXXTypeidExprClass:
+            zig_panic("TODO handle C CXXTypeidExprClass");
+        case Stmt::CXXUnresolvedConstructExprClass:
+            zig_panic("TODO handle C CXXUnresolvedConstructExprClass");
+        case Stmt::CXXUuidofExprClass:
+            zig_panic("TODO handle C CXXUuidofExprClass");
+        case Stmt::CallExprClass:
+            zig_panic("TODO handle C CallExprClass");
+        case Stmt::CUDAKernelCallExprClass:
+            zig_panic("TODO handle C CUDAKernelCallExprClass");
+        case Stmt::CXXMemberCallExprClass:
+            zig_panic("TODO handle C CXXMemberCallExprClass");
+        case Stmt::CXXOperatorCallExprClass:
+            zig_panic("TODO handle C CXXOperatorCallExprClass");
+        case Stmt::UserDefinedLiteralClass:
+            zig_panic("TODO handle C UserDefinedLiteralClass");
+        case Stmt::CStyleCastExprClass:
+            zig_panic("TODO handle C CStyleCastExprClass");
+        case Stmt::CXXFunctionalCastExprClass:
+            zig_panic("TODO handle C CXXFunctionalCastExprClass");
+        case Stmt::CXXConstCastExprClass:
+            zig_panic("TODO handle C CXXConstCastExprClass");
+        case Stmt::CXXDynamicCastExprClass:
+            zig_panic("TODO handle C CXXDynamicCastExprClass");
+        case Stmt::CXXReinterpretCastExprClass:
+            zig_panic("TODO handle C CXXReinterpretCastExprClass");
+        case Stmt::CXXStaticCastExprClass:
+            zig_panic("TODO handle C CXXStaticCastExprClass");
+        case Stmt::ObjCBridgedCastExprClass:
+            zig_panic("TODO handle C ObjCBridgedCastExprClass");
+        case Stmt::ImplicitCastExprClass:
+            zig_panic("TODO handle C ImplicitCastExprClass");
+        case Stmt::CharacterLiteralClass:
+            zig_panic("TODO handle C CharacterLiteralClass");
+        case Stmt::ChooseExprClass:
+            zig_panic("TODO handle C ChooseExprClass");
+        case Stmt::CompoundLiteralExprClass:
+            zig_panic("TODO handle C CompoundLiteralExprClass");
+        case Stmt::ConvertVectorExprClass:
+            zig_panic("TODO handle C ConvertVectorExprClass");
+        case Stmt::CoawaitExprClass:
+            zig_panic("TODO handle C CoawaitExprClass");
+        case Stmt::CoyieldExprClass:
+            zig_panic("TODO handle C CoyieldExprClass");
+        case Stmt::DeclRefExprClass:
+            zig_panic("TODO handle C DeclRefExprClass");
+        case Stmt::DependentCoawaitExprClass:
+            zig_panic("TODO handle C DependentCoawaitExprClass");
+        case Stmt::DependentScopeDeclRefExprClass:
+            zig_panic("TODO handle C DependentScopeDeclRefExprClass");
+        case Stmt::DesignatedInitExprClass:
+            zig_panic("TODO handle C DesignatedInitExprClass");
+        case Stmt::DesignatedInitUpdateExprClass:
+            zig_panic("TODO handle C DesignatedInitUpdateExprClass");
+        case Stmt::ExprWithCleanupsClass:
+            zig_panic("TODO handle C ExprWithCleanupsClass");
+        case Stmt::ExpressionTraitExprClass:
+            zig_panic("TODO handle C ExpressionTraitExprClass");
+        case Stmt::ExtVectorElementExprClass:
+            zig_panic("TODO handle C ExtVectorElementExprClass");
+        case Stmt::FloatingLiteralClass:
+            zig_panic("TODO handle C FloatingLiteralClass");
+        case Stmt::FunctionParmPackExprClass:
+            zig_panic("TODO handle C FunctionParmPackExprClass");
+        case Stmt::GNUNullExprClass:
+            zig_panic("TODO handle C GNUNullExprClass");
+        case Stmt::GenericSelectionExprClass:
+            zig_panic("TODO handle C GenericSelectionExprClass");
+        case Stmt::ImaginaryLiteralClass:
+            zig_panic("TODO handle C ImaginaryLiteralClass");
+        case Stmt::ImplicitValueInitExprClass:
+            zig_panic("TODO handle C ImplicitValueInitExprClass");
+        case Stmt::InitListExprClass:
+            zig_panic("TODO handle C InitListExprClass");
+        case Stmt::LambdaExprClass:
+            zig_panic("TODO handle C LambdaExprClass");
+        case Stmt::MSPropertyRefExprClass:
+            zig_panic("TODO handle C MSPropertyRefExprClass");
+        case Stmt::MSPropertySubscriptExprClass:
+            zig_panic("TODO handle C MSPropertySubscriptExprClass");
+        case Stmt::MaterializeTemporaryExprClass:
+            zig_panic("TODO handle C MaterializeTemporaryExprClass");
+        case Stmt::MemberExprClass:
+            zig_panic("TODO handle C MemberExprClass");
+        case Stmt::NoInitExprClass:
+            zig_panic("TODO handle C NoInitExprClass");
+        case Stmt::OMPArraySectionExprClass:
+            zig_panic("TODO handle C OMPArraySectionExprClass");
+        case Stmt::ObjCArrayLiteralClass:
+            zig_panic("TODO handle C ObjCArrayLiteralClass");
+        case Stmt::ObjCAvailabilityCheckExprClass:
+            zig_panic("TODO handle C ObjCAvailabilityCheckExprClass");
+        case Stmt::ObjCBoolLiteralExprClass:
+            zig_panic("TODO handle C ObjCBoolLiteralExprClass");
+        case Stmt::ObjCBoxedExprClass:
+            zig_panic("TODO handle C ObjCBoxedExprClass");
+        case Stmt::ObjCDictionaryLiteralClass:
+            zig_panic("TODO handle C ObjCDictionaryLiteralClass");
+        case Stmt::ObjCEncodeExprClass:
+            zig_panic("TODO handle C ObjCEncodeExprClass");
+        case Stmt::ObjCIndirectCopyRestoreExprClass:
+            zig_panic("TODO handle C ObjCIndirectCopyRestoreExprClass");
+        case Stmt::ObjCIsaExprClass:
+            zig_panic("TODO handle C ObjCIsaExprClass");
+        case Stmt::ObjCIvarRefExprClass:
+            zig_panic("TODO handle C ObjCIvarRefExprClass");
+        case Stmt::ObjCMessageExprClass:
+            zig_panic("TODO handle C ObjCMessageExprClass");
+        case Stmt::ObjCPropertyRefExprClass:
+            zig_panic("TODO handle C ObjCPropertyRefExprClass");
+        case Stmt::ObjCProtocolExprClass:
+            zig_panic("TODO handle C ObjCProtocolExprClass");
+        case Stmt::ObjCSelectorExprClass:
+            zig_panic("TODO handle C ObjCSelectorExprClass");
+        case Stmt::ObjCStringLiteralClass:
+            zig_panic("TODO handle C ObjCStringLiteralClass");
+        case Stmt::ObjCSubscriptRefExprClass:
+            zig_panic("TODO handle C ObjCSubscriptRefExprClass");
+        case Stmt::OffsetOfExprClass:
+            zig_panic("TODO handle C OffsetOfExprClass");
+        case Stmt::OpaqueValueExprClass:
+            zig_panic("TODO handle C OpaqueValueExprClass");
+        case Stmt::UnresolvedLookupExprClass:
+            zig_panic("TODO handle C UnresolvedLookupExprClass");
+        case Stmt::UnresolvedMemberExprClass:
+            zig_panic("TODO handle C UnresolvedMemberExprClass");
+        case Stmt::PackExpansionExprClass:
+            zig_panic("TODO handle C PackExpansionExprClass");
+        case Stmt::ParenExprClass:
+            zig_panic("TODO handle C ParenExprClass");
+        case Stmt::ParenListExprClass:
+            zig_panic("TODO handle C ParenListExprClass");
+        case Stmt::PredefinedExprClass:
+            zig_panic("TODO handle C PredefinedExprClass");
+        case Stmt::PseudoObjectExprClass:
+            zig_panic("TODO handle C PseudoObjectExprClass");
+        case Stmt::ShuffleVectorExprClass:
+            zig_panic("TODO handle C ShuffleVectorExprClass");
+        case Stmt::SizeOfPackExprClass:
+            zig_panic("TODO handle C SizeOfPackExprClass");
+        case Stmt::StmtExprClass:
+            zig_panic("TODO handle C StmtExprClass");
+        case Stmt::StringLiteralClass:
+            zig_panic("TODO handle C StringLiteralClass");
+        case Stmt::SubstNonTypeTemplateParmExprClass:
+            zig_panic("TODO handle C SubstNonTypeTemplateParmExprClass");
+        case Stmt::SubstNonTypeTemplateParmPackExprClass:
+            zig_panic("TODO handle C SubstNonTypeTemplateParmPackExprClass");
+        case Stmt::TypeTraitExprClass:
+            zig_panic("TODO handle C TypeTraitExprClass");
+        case Stmt::TypoExprClass:
+            zig_panic("TODO handle C TypoExprClass");
+        case Stmt::UnaryExprOrTypeTraitExprClass:
+            zig_panic("TODO handle C UnaryExprOrTypeTraitExprClass");
+        case Stmt::UnaryOperatorClass:
+            zig_panic("TODO handle C UnaryOperatorClass");
+        case Stmt::VAArgExprClass:
+            zig_panic("TODO handle C VAArgExprClass");
+        case Stmt::ForStmtClass:
+            zig_panic("TODO handle C ForStmtClass");
+        case Stmt::GotoStmtClass:
+            zig_panic("TODO handle C GotoStmtClass");
+        case Stmt::IfStmtClass:
+            zig_panic("TODO handle C IfStmtClass");
+        case Stmt::IndirectGotoStmtClass:
+            zig_panic("TODO handle C IndirectGotoStmtClass");
+        case Stmt::LabelStmtClass:
+            zig_panic("TODO handle C LabelStmtClass");
+        case Stmt::MSDependentExistsStmtClass:
+            zig_panic("TODO handle C MSDependentExistsStmtClass");
+        case Stmt::NullStmtClass:
+            zig_panic("TODO handle C NullStmtClass");
+        case Stmt::OMPAtomicDirectiveClass:
+            zig_panic("TODO handle C OMPAtomicDirectiveClass");
+        case Stmt::OMPBarrierDirectiveClass:
+            zig_panic("TODO handle C OMPBarrierDirectiveClass");
+        case Stmt::OMPCancelDirectiveClass:
+            zig_panic("TODO handle C OMPCancelDirectiveClass");
+        case Stmt::OMPCancellationPointDirectiveClass:
+            zig_panic("TODO handle C OMPCancellationPointDirectiveClass");
+        case Stmt::OMPCriticalDirectiveClass:
+            zig_panic("TODO handle C OMPCriticalDirectiveClass");
+        case Stmt::OMPFlushDirectiveClass:
+            zig_panic("TODO handle C OMPFlushDirectiveClass");
+        case Stmt::OMPDistributeDirectiveClass:
+            zig_panic("TODO handle C OMPDistributeDirectiveClass");
+        case Stmt::OMPDistributeParallelForDirectiveClass:
+            zig_panic("TODO handle C OMPDistributeParallelForDirectiveClass");
+        case Stmt::OMPDistributeParallelForSimdDirectiveClass:
+            zig_panic("TODO handle C OMPDistributeParallelForSimdDirectiveClass");
+        case Stmt::OMPDistributeSimdDirectiveClass:
+            zig_panic("TODO handle C OMPDistributeSimdDirectiveClass");
+        case Stmt::OMPForDirectiveClass:
+            zig_panic("TODO handle C OMPForDirectiveClass");
+        case Stmt::OMPForSimdDirectiveClass:
+            zig_panic("TODO handle C OMPForSimdDirectiveClass");
+        case Stmt::OMPParallelForDirectiveClass:
+            zig_panic("TODO handle C OMPParallelForDirectiveClass");
+        case Stmt::OMPParallelForSimdDirectiveClass:
+            zig_panic("TODO handle C OMPParallelForSimdDirectiveClass");
+        case Stmt::OMPSimdDirectiveClass:
+            zig_panic("TODO handle C OMPSimdDirectiveClass");
+        case Stmt::OMPTargetParallelForSimdDirectiveClass:
+            zig_panic("TODO handle C OMPTargetParallelForSimdDirectiveClass");
+        case Stmt::OMPTargetSimdDirectiveClass:
+            zig_panic("TODO handle C OMPTargetSimdDirectiveClass");
+        case Stmt::OMPTargetTeamsDistributeDirectiveClass:
+            zig_panic("TODO handle C OMPTargetTeamsDistributeDirectiveClass");
+        case Stmt::OMPTargetTeamsDistributeParallelForDirectiveClass:
+            zig_panic("TODO handle C OMPTargetTeamsDistributeParallelForDirectiveClass");
+        case Stmt::OMPTargetTeamsDistributeParallelForSimdDirectiveClass:
+            zig_panic("TODO handle C OMPTargetTeamsDistributeParallelForSimdDirectiveClass");
+        case Stmt::OMPTargetTeamsDistributeSimdDirectiveClass:
+            zig_panic("TODO handle C OMPTargetTeamsDistributeSimdDirectiveClass");
+        case Stmt::OMPTaskLoopDirectiveClass:
+            zig_panic("TODO handle C OMPTaskLoopDirectiveClass");
+        case Stmt::OMPTaskLoopSimdDirectiveClass:
+            zig_panic("TODO handle C OMPTaskLoopSimdDirectiveClass");
+        case Stmt::OMPTeamsDistributeDirectiveClass:
+            zig_panic("TODO handle C OMPTeamsDistributeDirectiveClass");
+        case Stmt::OMPTeamsDistributeParallelForDirectiveClass:
+            zig_panic("TODO handle C OMPTeamsDistributeParallelForDirectiveClass");
+        case Stmt::OMPTeamsDistributeParallelForSimdDirectiveClass:
+            zig_panic("TODO handle C OMPTeamsDistributeParallelForSimdDirectiveClass");
+        case Stmt::OMPTeamsDistributeSimdDirectiveClass:
+            zig_panic("TODO handle C OMPTeamsDistributeSimdDirectiveClass");
+        case Stmt::OMPMasterDirectiveClass:
+            zig_panic("TODO handle C OMPMasterDirectiveClass");
+        case Stmt::OMPOrderedDirectiveClass:
+            zig_panic("TODO handle C OMPOrderedDirectiveClass");
+        case Stmt::OMPParallelDirectiveClass:
+            zig_panic("TODO handle C OMPParallelDirectiveClass");
+        case Stmt::OMPParallelSectionsDirectiveClass:
+            zig_panic("TODO handle C OMPParallelSectionsDirectiveClass");
+        case Stmt::OMPSectionDirectiveClass:
+            zig_panic("TODO handle C OMPSectionDirectiveClass");
+        case Stmt::OMPSectionsDirectiveClass:
+            zig_panic("TODO handle C OMPSectionsDirectiveClass");
+        case Stmt::OMPSingleDirectiveClass:
+            zig_panic("TODO handle C OMPSingleDirectiveClass");
+        case Stmt::OMPTargetDataDirectiveClass:
+            zig_panic("TODO handle C OMPTargetDataDirectiveClass");
+        case Stmt::OMPTargetDirectiveClass:
+            zig_panic("TODO handle C OMPTargetDirectiveClass");
+        case Stmt::OMPTargetEnterDataDirectiveClass:
+            zig_panic("TODO handle C OMPTargetEnterDataDirectiveClass");
+        case Stmt::OMPTargetExitDataDirectiveClass:
+            zig_panic("TODO handle C OMPTargetExitDataDirectiveClass");
+        case Stmt::OMPTargetParallelDirectiveClass:
+            zig_panic("TODO handle C OMPTargetParallelDirectiveClass");
+        case Stmt::OMPTargetParallelForDirectiveClass:
+            zig_panic("TODO handle C OMPTargetParallelForDirectiveClass");
+        case Stmt::OMPTargetTeamsDirectiveClass:
+            zig_panic("TODO handle C OMPTargetTeamsDirectiveClass");
+        case Stmt::OMPTargetUpdateDirectiveClass:
+            zig_panic("TODO handle C OMPTargetUpdateDirectiveClass");
+        case Stmt::OMPTaskDirectiveClass:
+            zig_panic("TODO handle C OMPTaskDirectiveClass");
+        case Stmt::OMPTaskgroupDirectiveClass:
+            zig_panic("TODO handle C OMPTaskgroupDirectiveClass");
+        case Stmt::OMPTaskwaitDirectiveClass:
+            zig_panic("TODO handle C OMPTaskwaitDirectiveClass");
+        case Stmt::OMPTaskyieldDirectiveClass:
+            zig_panic("TODO handle C OMPTaskyieldDirectiveClass");
+        case Stmt::OMPTeamsDirectiveClass:
+            zig_panic("TODO handle C OMPTeamsDirectiveClass");
+        case Stmt::ObjCAtCatchStmtClass:
+            zig_panic("TODO handle C ObjCAtCatchStmtClass");
+        case Stmt::ObjCAtFinallyStmtClass:
+            zig_panic("TODO handle C ObjCAtFinallyStmtClass");
+        case Stmt::ObjCAtSynchronizedStmtClass:
+            zig_panic("TODO handle C ObjCAtSynchronizedStmtClass");
+        case Stmt::ObjCAtThrowStmtClass:
+            zig_panic("TODO handle C ObjCAtThrowStmtClass");
+        case Stmt::ObjCAtTryStmtClass:
+            zig_panic("TODO handle C ObjCAtTryStmtClass");
+        case Stmt::ObjCAutoreleasePoolStmtClass:
+            zig_panic("TODO handle C ObjCAutoreleasePoolStmtClass");
+        case Stmt::ObjCForCollectionStmtClass:
+            zig_panic("TODO handle C ObjCForCollectionStmtClass");
+        case Stmt::SEHExceptStmtClass:
+            zig_panic("TODO handle C SEHExceptStmtClass");
+        case Stmt::SEHFinallyStmtClass:
+            zig_panic("TODO handle C SEHFinallyStmtClass");
+        case Stmt::SEHLeaveStmtClass:
+            zig_panic("TODO handle C SEHLeaveStmtClass");
+        case Stmt::SEHTryStmtClass:
+            zig_panic("TODO handle C SEHTryStmtClass");
+    }
+    zig_unreachable();
+}
+
 static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     Buf *fn_name = buf_create_from_str(decl_name(fn_decl));
+
+    if (fn_decl->hasBody()) {
+        fprintf(stderr, "fn %s\n", buf_ptr(fn_name));
+        Stmt *body = fn_decl->getBody();
+        AstNode *body_node = ast_trans_stmt(c, body);
+        ast_render(c->codegen, stderr, body_node, 4);
+        fprintf(stderr, "\n");
+    }
 
     if (get_global(c, fn_name)) {
         // we already saw this function
@@ -1373,7 +1843,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
 
     std::shared_ptr<PCHContainerOperations> pch_container_ops = std::make_shared<PCHContainerOperations>();
 
-    bool skip_function_bodies = true;
+    bool skip_function_bodies = false;
     bool only_local_decls = true;
     bool capture_diagnostics = true;
     bool user_files_are_volatile = true;
@@ -1389,7 +1859,6 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
             false, false, allow_pch_with_compiler_errors, skip_function_bodies,
             single_file_parse, user_files_are_volatile, for_serialization, None, &err_unit,
             nullptr));
-
 
     // Early failures in LoadFromCommandLine may return with ErrUnit unset.
     if (!ast_unit && !err_unit) {
@@ -1416,29 +1885,36 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
                     break;
             }
             StringRef msg_str_ref = it->getMessage();
-            FullSourceLoc fsl = it->getLocation();
-            FileID file_id = fsl.getFileID();
-            StringRef filename = fsl.getManager().getFilename(fsl);
-            unsigned line = fsl.getSpellingLineNumber() - 1;
-            unsigned column = fsl.getSpellingColumnNumber() - 1;
-            unsigned offset = fsl.getManager().getFileOffset(fsl);
-            const char *source = (const char *)fsl.getManager().getBufferData(file_id).bytes_begin();
             Buf *msg = buf_create_from_str((const char *)msg_str_ref.bytes_begin());
-            Buf *path;
-            if (filename.empty()) {
-                path = buf_alloc();
+            FullSourceLoc fsl = it->getLocation();
+            if (fsl.hasManager()) {
+                FileID file_id = fsl.getFileID();
+                StringRef filename = fsl.getManager().getFilename(fsl);
+                unsigned line = fsl.getSpellingLineNumber() - 1;
+                unsigned column = fsl.getSpellingColumnNumber() - 1;
+                unsigned offset = fsl.getManager().getFileOffset(fsl);
+                const char *source = (const char *)fsl.getManager().getBufferData(file_id).bytes_begin();
+                Buf *path;
+                if (filename.empty()) {
+                    path = buf_alloc();
+                } else {
+                    path = buf_create_from_mem((const char *)filename.bytes_begin(), filename.size());
+                }
+
+                ErrorMsg *err_msg = err_msg_create_with_offset(path, line, column, offset, source, msg);
+
+                c->errors->append(err_msg);
             } else {
-                path = buf_create_from_mem((const char *)filename.bytes_begin(), filename.size());
+                // NOTE the only known way this gets triggered right now is if you have a lot of errors
+                // clang emits "too many errors emitted, stopping now"
+                fprintf(stderr, "unexpected error from clang: %s\n", buf_ptr(msg));
             }
-
-            ErrorMsg *err_msg = err_msg_create_with_offset(path, line, column, offset, source, msg);
-
-            c->errors->append(err_msg);
         }
 
         return 0;
     }
 
+    c->ctx = &ast_unit->getASTContext();
     c->source_manager = &ast_unit->getSourceManager();
 
     ast_unit->visitLocalTopLevelDecls(c, decl_visitor);

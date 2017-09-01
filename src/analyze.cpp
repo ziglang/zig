@@ -3163,8 +3163,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *a
     import_entry->line_offsets = tokenization.line_offsets;
     import_entry->path = abs_full_path;
 
-    import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color,
-            &g->next_node_index);
+    import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color);
     assert(import_entry->root);
     if (g->verbose) {
         ast_print(stderr, import_entry->root, 0);

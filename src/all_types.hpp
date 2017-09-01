@@ -833,7 +833,6 @@ struct AstNode {
     enum NodeType type;
     size_t line;
     size_t column;
-    uint32_t create_index; // for determinism purposes
     ImportTableEntry *owner;
     union {
         AstNodeRoot root;
@@ -1523,7 +1522,6 @@ struct CodeGen {
     LLVMValueRef return_address_fn_val;
     LLVMValueRef frame_address_fn_val;
     bool error_during_imports;
-    uint32_t next_node_index;
     TypeTableEntry *err_tag_type;
 
     const char **clang_argv;

@@ -20,7 +20,6 @@ struct ParseContext {
     ZigList<Token> *tokens;
     ImportTableEntry *owner;
     ErrColor err_color;
-    uint32_t *next_node_index;
     // These buffers are used freqently so we preallocate them once here.
     Buf *void_buf;
     Buf *empty_buf;
@@ -70,8 +69,6 @@ static AstNode *ast_create_node_no_line_info(ParseContext *pc, NodeType type) {
     AstNode *node = allocate<AstNode>(1);
     node->type = type;
     node->owner = pc->owner;
-    node->create_index = *pc->next_node_index;
-    *pc->next_node_index += 1;
     return node;
 }
 
@@ -2611,7 +2608,7 @@ static AstNode *ast_parse_root(ParseContext *pc, size_t *token_index) {
 }
 
 AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens, ImportTableEntry *owner,
-        ErrColor err_color, uint32_t *next_node_index)
+        ErrColor err_color)
 {
     ParseContext pc = {0};
     pc.void_buf = buf_create_from_str("void");
@@ -2620,7 +2617,6 @@ AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens, ImportTableEntry *owner,
     pc.owner = owner;
     pc.buf = buf;
     pc.tokens = tokens;
-    pc.next_node_index = next_node_index;
     size_t token_index = 0;
     pc.root = ast_parse_root(&pc, &token_index);
     return pc.root;
