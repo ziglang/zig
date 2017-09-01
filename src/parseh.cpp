@@ -67,7 +67,7 @@ static TypeTableEntry *resolve_enum_decl(Context *c, const EnumDecl *enum_decl);
 
 
 __attribute__ ((format (printf, 3, 4)))
-static void emit_warning(Context *c, const Decl *decl, const char *format, ...) {
+static void emit_warning(Context *c, const SourceLocation &sl, const char *format, ...) {
     if (!c->warnings_on) {
         return;
     }
@@ -76,8 +76,6 @@ static void emit_warning(Context *c, const Decl *decl, const char *format, ...) 
     va_start(ap, format);
     Buf *msg = buf_vprintf(format, ap);
     va_end(ap);
-
-    SourceLocation sl = decl->getLocation();
 
     StringRef filename = c->source_manager->getFilename(sl);
     const char *filename_bytes = (const char *)filename.bytes_begin();
@@ -185,14 +183,14 @@ static ConstExprValue *create_const_int_ap(Context *c, TypeTableEntry *type, con
 {
     if (aps_int.isSigned()) {
         if (aps_int > INT64_MAX || aps_int < INT64_MIN) {
-            emit_warning(c, source_decl, "integer overflow\n");
+            emit_warning(c, source_decl->getLocation(), "integer overflow\n");
             return nullptr;
         } else {
             return create_const_signed(type, aps_int.getExtValue());
         }
     } else {
         if (aps_int > INT64_MAX) {
-            emit_warning(c, source_decl, "integer overflow\n");
+            emit_warning(c, source_decl->getLocation(), "integer overflow\n");
             return nullptr;
         } else {
             return create_const_unsigned_negative(type, aps_int.getExtValue(), false);
@@ -347,7 +345,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     case BuiltinType::OCLClkEvent:
                     case BuiltinType::OCLQueue:
                     case BuiltinType::OCLReserveID:
-                        emit_warning(c, decl, "missed a builtin type");
+                        emit_warning(c, decl->getLocation(), "missed a builtin type");
                         return c->codegen->builtin_types.entry_invalid;
                 }
                 break;
@@ -358,7 +356,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                 QualType child_qt = pointer_ty->getPointeeType();
                 TypeTableEntry *child_type = resolve_qual_type(c, child_qt, decl);
                 if (type_is_invalid(child_type)) {
-                    emit_warning(c, decl, "pointer to unresolved type");
+                    emit_warning(c, decl->getLocation(), "pointer to unresolved type");
                     return c->codegen->builtin_types.entry_invalid;
                 }
 
@@ -423,7 +421,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     case ETK_Class:
                     case ETK_Typename:
                     case ETK_None:
-                        emit_warning(c, decl, "unsupported elaborated type");
+                        emit_warning(c, decl->getLocation(), "unsupported elaborated type");
                         return c->codegen->builtin_types.entry_invalid;
                 }
             }
@@ -435,52 +433,52 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     case CC_C:           // __attribute__((cdecl))
                         break;
                     case CC_X86StdCall:  // __attribute__((stdcall))
-                        emit_warning(c, decl, "function type has x86 stdcall calling convention");
+                        emit_warning(c, decl->getLocation(), "function type has x86 stdcall calling convention");
                         return c->codegen->builtin_types.entry_invalid;
                     case CC_X86FastCall: // __attribute__((fastcall))
-                        emit_warning(c, decl, "function type has x86 fastcall calling convention");
+                        emit_warning(c, decl->getLocation(), "function type has x86 fastcall calling convention");
                         return c->codegen->builtin_types.entry_invalid;
                     case CC_X86ThisCall: // __attribute__((thiscall))
-                        emit_warning(c, decl, "function type has x86 thiscall calling convention");
+                        emit_warning(c, decl->getLocation(), "function type has x86 thiscall calling convention");
                         return c->codegen->builtin_types.entry_invalid;
                     case CC_X86VectorCall: // __attribute__((vectorcall))
-                        emit_warning(c, decl, "function type has x86 vectorcall calling convention");
+                        emit_warning(c, decl->getLocation(), "function type has x86 vectorcall calling convention");
                         return c->codegen->builtin_types.entry_invalid;
                     case CC_X86Pascal:   // __attribute__((pascal))
-                        emit_warning(c, decl, "function type has x86 pascal calling convention");
+                        emit_warning(c, decl->getLocation(), "function type has x86 pascal calling convention");
                         return c->codegen->builtin_types.entry_invalid;
                     case CC_Win64: // __attribute__((ms_abi))
-                        emit_warning(c, decl, "function type has win64 calling convention");
+                        emit_warning(c, decl->getLocation(), "function type has win64 calling convention");
                         return c->codegen->builtin_types.entry_invalid;
                     case CC_X86_64SysV:  // __attribute__((sysv_abi))
-                        emit_warning(c, decl, "function type has x86 64sysv calling convention");
+                        emit_warning(c, decl->getLocation(), "function type has x86 64sysv calling convention");
                         return c->codegen->builtin_types.entry_invalid;
                     case CC_X86RegCall:
-                        emit_warning(c, decl, "function type has x86 reg calling convention");
+                        emit_warning(c, decl->getLocation(), "function type has x86 reg calling convention");
                         return c->codegen->builtin_types.entry_invalid;
                     case CC_AAPCS:       // __attribute__((pcs("aapcs")))
-                        emit_warning(c, decl, "function type has aapcs calling convention");
+                        emit_warning(c, decl->getLocation(), "function type has aapcs calling convention");
                         return c->codegen->builtin_types.entry_invalid;
                     case CC_AAPCS_VFP:   // __attribute__((pcs("aapcs-vfp")))
-                        emit_warning(c, decl, "function type has aapcs-vfp calling convention");
+                        emit_warning(c, decl->getLocation(), "function type has aapcs-vfp calling convention");
                         return c->codegen->builtin_types.entry_invalid;
                     case CC_IntelOclBicc: // __attribute__((intel_ocl_bicc))
-                        emit_warning(c, decl, "function type has intel_ocl_bicc calling convention");
+                        emit_warning(c, decl->getLocation(), "function type has intel_ocl_bicc calling convention");
                         return c->codegen->builtin_types.entry_invalid;
                     case CC_SpirFunction: // default for OpenCL functions on SPIR target
-                        emit_warning(c, decl, "function type has SPIR function calling convention");
+                        emit_warning(c, decl->getLocation(), "function type has SPIR function calling convention");
                         return c->codegen->builtin_types.entry_invalid;
                     case CC_OpenCLKernel:
-                        emit_warning(c, decl, "function type has OpenCLKernel calling convention");
+                        emit_warning(c, decl->getLocation(), "function type has OpenCLKernel calling convention");
                         return c->codegen->builtin_types.entry_invalid;
                     case CC_Swift:
-                        emit_warning(c, decl, "function type has Swift calling convention");
+                        emit_warning(c, decl->getLocation(), "function type has Swift calling convention");
                         return c->codegen->builtin_types.entry_invalid;
                     case CC_PreserveMost:
-                        emit_warning(c, decl, "function type has PreserveMost calling convention");
+                        emit_warning(c, decl->getLocation(), "function type has PreserveMost calling convention");
                         return c->codegen->builtin_types.entry_invalid;
                     case CC_PreserveAll:
-                        emit_warning(c, decl, "function type has PreserveAll calling convention");
+                        emit_warning(c, decl->getLocation(), "function type has PreserveAll calling convention");
                         return c->codegen->builtin_types.entry_invalid;
                 }
 
@@ -495,7 +493,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                 } else {
                     fn_type_id.return_type = resolve_qual_type(c, fn_proto_ty->getReturnType(), decl);
                     if (type_is_invalid(fn_type_id.return_type)) {
-                        emit_warning(c, decl, "unresolved function proto return type");
+                        emit_warning(c, decl->getLocation(), "unresolved function proto return type");
                         return c->codegen->builtin_types.entry_invalid;
                     }
                     // convert c_void to actual void (only for return type)
@@ -510,7 +508,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                     TypeTableEntry *param_type = resolve_qual_type(c, qt, decl);
 
                     if (type_is_invalid(param_type)) {
-                        emit_warning(c, decl, "unresolved function proto parameter type");
+                        emit_warning(c, decl->getLocation(), "unresolved function proto parameter type");
                         return c->codegen->builtin_types.entry_invalid;
                     }
 
@@ -536,7 +534,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
                 const ConstantArrayType *const_arr_ty = static_cast<const ConstantArrayType *>(ty);
                 TypeTableEntry *child_type = resolve_qual_type(c, const_arr_ty->getElementType(), decl);
                 if (child_type->id == TypeTableEntryIdInvalid) {
-                    emit_warning(c, decl, "unresolved array element type");
+                    emit_warning(c, decl->getLocation(), "unresolved array element type");
                     return child_type;
                 }
                 uint64_t size = const_arr_ty->getSize().getLimitedValue();
@@ -591,7 +589,7 @@ static TypeTableEntry *resolve_type_with_table(Context *c, const Type *ty, const
         case Type::Pipe:
         case Type::ObjCTypeParam:
         case Type::DeducedTemplateSpecialization:
-            emit_warning(c, decl, "missed a '%s' type", ty->getTypeClassName());
+            emit_warning(c, decl->getLocation(), "missed a '%s' type", ty->getTypeClassName());
             return c->codegen->builtin_types.entry_invalid;
     }
     zig_unreachable();
@@ -823,6 +821,8 @@ static AstNode * trans_implicit_cast_expr(Context *c, ImplicitCastExpr *stmt) {
     switch (stmt->getCastKind()) {
         case CK_LValueToRValue:
             return trans_expr(c, stmt->getSubExpr());
+        case CK_IntegralCast:
+            zig_panic("TODO handle C translation cast CK_IntegralCast");
         case CK_Dependent:
             zig_panic("TODO handle C translation cast CK_Dependent");
         case CK_BitCast:
@@ -871,8 +871,6 @@ static AstNode * trans_implicit_cast_expr(Context *c, ImplicitCastExpr *stmt) {
             zig_panic("TODO handle C translation cast CK_ToVoid");
         case CK_VectorSplat:
             zig_panic("TODO handle C translation cast CK_VectorSplat");
-        case CK_IntegralCast:
-            zig_panic("TODO handle C translation cast CK_IntegralCast");
         case CK_IntegralToBoolean:
             zig_panic("TODO handle C translation cast CK_IntegralToBoolean");
         case CK_IntegralToFloating:
@@ -1424,7 +1422,7 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     TypeTableEntry *fn_type = resolve_qual_type(c, fn_decl->getType(), fn_decl);
 
     if (fn_type->id == TypeTableEntryIdInvalid) {
-        emit_warning(c, fn_decl, "ignoring function '%s' - unable to resolve type", buf_ptr(fn_name));
+        emit_warning(c, fn_decl->getLocation(), "ignoring function '%s' - unable to resolve type", buf_ptr(fn_name));
         return;
     }
     assert(fn_type->id == TypeTableEntryIdFn);
@@ -1482,7 +1480,7 @@ static void visit_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl) 
 
     TypeTableEntry *child_type = resolve_qual_type(c, child_qt, typedef_decl);
     if (child_type->id == TypeTableEntryIdInvalid) {
-        emit_warning(c, typedef_decl, "typedef %s - unresolved child type", buf_ptr(type_name));
+        emit_warning(c, typedef_decl->getLocation(), "typedef %s - unresolved child type", buf_ptr(type_name));
         return;
     }
     add_const_type(c, type_name, child_type);
@@ -1663,7 +1661,7 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
     const char *raw_name = decl_name(record_decl);
 
     if (!record_decl->isStruct()) {
-        emit_warning(c, record_decl, "skipping record %s, not a struct", raw_name);
+        emit_warning(c, record_decl->getLocation(), "skipping record %s, not a struct", raw_name);
         return c->codegen->builtin_types.entry_invalid;
     }
 
@@ -1702,7 +1700,7 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
         const FieldDecl *field_decl = *it;
 
         if (field_decl->isBitField()) {
-            emit_warning(c, field_decl, "struct %s demoted to opaque type - has bitfield\n", buf_ptr(bare_name));
+            emit_warning(c, field_decl->getLocation(), "struct %s demoted to opaque type - has bitfield\n", buf_ptr(bare_name));
             replace_with_fwd_decl(c, struct_type, full_type_name);
             return struct_type;
         }
@@ -1729,7 +1727,7 @@ static TypeTableEntry *resolve_record_decl(Context *c, const RecordDecl *record_
         type_struct_field->type_entry = field_type;
 
         if (type_is_invalid(field_type) || !type_is_complete(field_type)) {
-            emit_warning(c, field_decl, "struct %s demoted to opaque type - unresolved type\n", buf_ptr(bare_name));
+            emit_warning(c, field_decl->getLocation(), "struct %s demoted to opaque type - unresolved type\n", buf_ptr(bare_name));
             replace_with_fwd_decl(c, struct_type, full_type_name);
             return struct_type;
         }
@@ -1810,17 +1808,17 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
         case VarDecl::TLS_None:
             break;
         case VarDecl::TLS_Static:
-            emit_warning(c, var_decl, "ignoring variable '%s' - static thread local storage\n", buf_ptr(name));
+            emit_warning(c, var_decl->getLocation(), "ignoring variable '%s' - static thread local storage\n", buf_ptr(name));
             return;
         case VarDecl::TLS_Dynamic:
-            emit_warning(c, var_decl, "ignoring variable '%s' - dynamic thread local storage\n", buf_ptr(name));
+            emit_warning(c, var_decl->getLocation(), "ignoring variable '%s' - dynamic thread local storage\n", buf_ptr(name));
             return;
     }
 
     QualType qt = var_decl->getType();
     TypeTableEntry *var_type = resolve_qual_type(c, qt, var_decl);
     if (var_type->id == TypeTableEntryIdInvalid) {
-        emit_warning(c, var_decl, "ignoring variable '%s' - unresolved type\n", buf_ptr(name));
+        emit_warning(c, var_decl->getLocation(), "ignoring variable '%s' - unresolved type\n", buf_ptr(name));
         return;
     }
 
@@ -1830,12 +1828,12 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
 
     if (is_static && !is_extern) {
         if (!var_decl->hasInit()) {
-            emit_warning(c, var_decl, "ignoring variable '%s' - no initializer\n", buf_ptr(name));
+            emit_warning(c, var_decl->getLocation(), "ignoring variable '%s' - no initializer\n", buf_ptr(name));
             return;
         }
         APValue *ap_value = var_decl->evaluateValue();
         if (!ap_value) {
-            emit_warning(c, var_decl, "ignoring variable '%s' - unable to evaluate initializer\n", buf_ptr(name));
+            emit_warning(c, var_decl->getLocation(), "ignoring variable '%s' - unable to evaluate initializer\n", buf_ptr(name));
             return;
         }
         ConstExprValue *init_value = nullptr;
@@ -1843,7 +1841,7 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
             case APValue::Int:
                 {
                     if (var_type->id != TypeTableEntryIdInt) {
-                        emit_warning(c, var_decl,
+                        emit_warning(c, var_decl->getLocation(),
                             "ignoring variable '%s' - int initializer for non int type\n", buf_ptr(name));
                         return;
                     }
@@ -1864,7 +1862,7 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
             case APValue::Union:
             case APValue::MemberPointer:
             case APValue::AddrLabelDiff:
-                emit_warning(c, var_decl,
+                emit_warning(c, var_decl->getLocation(),
                         "ignoring variable '%s' - unrecognized initializer value kind\n", buf_ptr(name));
                 return;
         }
@@ -1881,7 +1879,7 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
         return;
     }
 
-    emit_warning(c, var_decl, "ignoring variable '%s' - non-extern, non-static variable\n", buf_ptr(name));
+    emit_warning(c, var_decl->getLocation(), "ignoring variable '%s' - non-extern, non-static variable\n", buf_ptr(name));
     return;
 }
 
@@ -1905,7 +1903,7 @@ static bool decl_visitor(void *context, const Decl *decl) {
             visit_var_decl(c, static_cast<const VarDecl *>(decl));
             break;
         default:
-            emit_warning(c, decl, "ignoring %s decl\n", decl->getDeclKindName());
+            emit_warning(c, decl->getLocation(), "ignoring %s decl\n", decl->getDeclKindName());
     }
 
     return true;
