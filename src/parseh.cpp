@@ -43,7 +43,10 @@ struct Context {
     ZigList<ErrorMsg *> *errors;
     bool warnings_on;
     VisibMod visib_mod;
+
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> global_type_table;
+    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> global_type_table2;
+
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> struct_type_table;
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> enum_type_table;
     HashMap<const void *, TypeTableEntry *, ptr_hash, ptr_eq> decl_table;
@@ -668,6 +671,184 @@ static AstNode * trans_stmt(Context *c, AstNode *block, Stmt *stmt);
 
 static AstNode * trans_expr(Context *c, AstNode *block, Expr *expr) {
     return trans_stmt(c, block, expr);
+}
+
+static AstNode *trans_type_with_table(Context *c, const Type *ty, const SourceLocation &source_loc,
+    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> *type_table)
+{
+    switch (ty->getTypeClass()) {
+        case Type::Builtin:
+            {
+                const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(ty);
+                switch (builtin_ty->getKind()) {
+                    case BuiltinType::Void:
+                        zig_panic("TODO void type");
+                    case BuiltinType::Bool:
+                        zig_panic("TODO bool type");
+                    case BuiltinType::Char_U:
+                    case BuiltinType::UChar:
+                    case BuiltinType::Char_S:
+                        zig_panic("TODO u8 type");
+                    case BuiltinType::SChar:
+                        zig_panic("TODO i8 type");
+                    case BuiltinType::UShort:
+                        zig_panic("TODO c_ushort type");
+                    case BuiltinType::UInt:
+                        zig_panic("TODO c_uint type");
+                    case BuiltinType::ULong:
+                        zig_panic("TODO c_ulong type");
+                    case BuiltinType::ULongLong:
+                        zig_panic("TODO c_ulonglong type");
+                    case BuiltinType::Short:
+                        zig_panic("TODO c_short type");
+                    case BuiltinType::Int:
+                        zig_panic("TODO c_int type");
+                    case BuiltinType::Long:
+                        zig_panic("TODO c_long type");
+                    case BuiltinType::LongLong:
+                        zig_panic("TODO c_longlong type");
+                    case BuiltinType::UInt128:
+                        zig_panic("TODO u128 type");
+                    case BuiltinType::Int128:
+                        zig_panic("TODO i128 type");
+                    case BuiltinType::Float:
+                        zig_panic("TODO f32 type");
+                    case BuiltinType::Double:
+                        zig_panic("TODO f64 type");
+                    case BuiltinType::Float128:
+                        zig_panic("TODO f128 type");
+                    case BuiltinType::LongDouble:
+                        zig_panic("TODO c_longdouble type");
+                    case BuiltinType::WChar_U:
+                    case BuiltinType::Char16:
+                    case BuiltinType::Char32:
+                    case BuiltinType::WChar_S:
+                    case BuiltinType::Half:
+                    case BuiltinType::NullPtr:
+                    case BuiltinType::ObjCId:
+                    case BuiltinType::ObjCClass:
+                    case BuiltinType::ObjCSel:
+                    case BuiltinType::OMPArraySection:
+                    case BuiltinType::Dependent:
+                    case BuiltinType::Overload:
+                    case BuiltinType::BoundMember:
+                    case BuiltinType::PseudoObject:
+                    case BuiltinType::UnknownAny:
+                    case BuiltinType::BuiltinFn:
+                    case BuiltinType::ARCUnbridgedCast:
+
+                    case BuiltinType::OCLImage1dRO:
+                    case BuiltinType::OCLImage1dArrayRO:
+                    case BuiltinType::OCLImage1dBufferRO:
+                    case BuiltinType::OCLImage2dRO:
+                    case BuiltinType::OCLImage2dArrayRO:
+                    case BuiltinType::OCLImage2dDepthRO:
+                    case BuiltinType::OCLImage2dArrayDepthRO:
+                    case BuiltinType::OCLImage2dMSAARO:
+                    case BuiltinType::OCLImage2dArrayMSAARO:
+                    case BuiltinType::OCLImage2dMSAADepthRO:
+                    case BuiltinType::OCLImage2dArrayMSAADepthRO:
+                    case BuiltinType::OCLImage3dRO:
+                    case BuiltinType::OCLImage1dWO:
+                    case BuiltinType::OCLImage1dArrayWO:
+                    case BuiltinType::OCLImage1dBufferWO:
+                    case BuiltinType::OCLImage2dWO:
+                    case BuiltinType::OCLImage2dArrayWO:
+                    case BuiltinType::OCLImage2dDepthWO:
+                    case BuiltinType::OCLImage2dArrayDepthWO:
+                    case BuiltinType::OCLImage2dMSAAWO:
+                    case BuiltinType::OCLImage2dArrayMSAAWO:
+                    case BuiltinType::OCLImage2dMSAADepthWO:
+                    case BuiltinType::OCLImage2dArrayMSAADepthWO:
+                    case BuiltinType::OCLImage3dWO:
+                    case BuiltinType::OCLImage1dRW:
+                    case BuiltinType::OCLImage1dArrayRW:
+                    case BuiltinType::OCLImage1dBufferRW:
+                    case BuiltinType::OCLImage2dRW:
+                    case BuiltinType::OCLImage2dArrayRW:
+                    case BuiltinType::OCLImage2dDepthRW:
+                    case BuiltinType::OCLImage2dArrayDepthRW:
+                    case BuiltinType::OCLImage2dMSAARW:
+                    case BuiltinType::OCLImage2dArrayMSAARW:
+                    case BuiltinType::OCLImage2dMSAADepthRW:
+                    case BuiltinType::OCLImage2dArrayMSAADepthRW:
+                    case BuiltinType::OCLImage3dRW:
+                    case BuiltinType::OCLSampler:
+                    case BuiltinType::OCLEvent:
+                    case BuiltinType::OCLClkEvent:
+                    case BuiltinType::OCLQueue:
+                    case BuiltinType::OCLReserveID:
+                        zig_panic("TODO more c type");
+                }
+                break;
+            }
+        case Type::Pointer:
+            zig_panic("TODO pointer");
+        case Type::Typedef:
+            zig_panic("TODO typedef");
+        case Type::Elaborated:
+            zig_panic("TODO elaborated");
+        case Type::FunctionProto:
+            zig_panic("TODO FunctionProto");
+        case Type::Record:
+            zig_panic("TODO Record");
+        case Type::Enum:
+            zig_panic("TODO Enum");
+        case Type::ConstantArray:
+            zig_panic("TODO ConstantArray");
+        case Type::Paren:
+            zig_panic("TODO Paren");
+        case Type::Decayed:
+            zig_panic("TODO Decayed");
+        case Type::Attributed:
+            zig_panic("TODO Attributed");
+        case Type::BlockPointer:
+        case Type::LValueReference:
+        case Type::RValueReference:
+        case Type::MemberPointer:
+        case Type::IncompleteArray:
+        case Type::VariableArray:
+        case Type::DependentSizedArray:
+        case Type::DependentSizedExtVector:
+        case Type::Vector:
+        case Type::ExtVector:
+        case Type::FunctionNoProto:
+        case Type::UnresolvedUsing:
+        case Type::Adjusted:
+        case Type::TypeOfExpr:
+        case Type::TypeOf:
+        case Type::Decltype:
+        case Type::UnaryTransform:
+        case Type::TemplateTypeParm:
+        case Type::SubstTemplateTypeParm:
+        case Type::SubstTemplateTypeParmPack:
+        case Type::TemplateSpecialization:
+        case Type::Auto:
+        case Type::InjectedClassName:
+        case Type::DependentName:
+        case Type::DependentTemplateSpecialization:
+        case Type::PackExpansion:
+        case Type::ObjCObject:
+        case Type::ObjCInterface:
+        case Type::Complex:
+        case Type::ObjCObjectPointer:
+        case Type::Atomic:
+        case Type::Pipe:
+        case Type::ObjCTypeParam:
+        case Type::DeducedTemplateSpecialization:
+            zig_panic("TODO more c type aoeu");
+    }
+    zig_unreachable();
+}
+
+static AstNode * trans_qual_type_with_table(Context *c, QualType qt, const SourceLocation &source_loc,
+        HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> *type_table)
+{
+    return trans_type_with_table(c, qt.getTypePtr(), source_loc, type_table);
+}
+
+static AstNode * trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc) {
+    return trans_qual_type_with_table(c, qt, source_loc, &c->global_type_table2);
 }
 
 static AstNode * trans_create_node(Context *c, Stmt *stmt, NodeType id) {
