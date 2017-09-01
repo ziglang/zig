@@ -279,7 +279,7 @@ ZigLLVMDIType *ZigLLVMCreateDebugUnionType(ZigLLVMDIBuilder *dibuilder, ZigLLVMD
 
 ZigLLVMDIType *ZigLLVMCreateDebugStructType(ZigLLVMDIBuilder *dibuilder, ZigLLVMDIScope *scope,
         const char *name, ZigLLVMDIFile *file, unsigned line_number, uint64_t size_in_bits,
-        uint64_t align_in_bits, unsigned flags, ZigLLVMDIType *derived_from, 
+        uint64_t align_in_bits, unsigned flags, ZigLLVMDIType *derived_from,
         ZigLLVMDIType **types_array, int types_array_len, unsigned run_time_lang, ZigLLVMDIType *vtable_holder,
         const char *unique_id)
 {

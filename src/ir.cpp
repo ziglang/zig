@@ -9386,21 +9386,21 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
         if (is_signed_div) {
             bool ok = false;
             if (instr_is_comptime(op1) && instr_is_comptime(op2)) {
-				if (bigint_cmp_zero(&op2->value.data.x_bigint) == CmpEQ) {
+                if (bigint_cmp_zero(&op2->value.data.x_bigint) == CmpEQ) {
                     // the division by zero error will be caught later, but we don't have a
                     // division function ambiguity problem.
                     op_id = IrBinOpDivTrunc;
-					ok = true;
-				} else {
-					BigInt trunc_result;
-					BigInt floor_result;
-					bigint_div_trunc(&trunc_result, &op1->value.data.x_bigint, &op2->value.data.x_bigint);
-					bigint_div_floor(&floor_result, &op1->value.data.x_bigint, &op2->value.data.x_bigint);
-					if (bigint_cmp(&trunc_result, &floor_result) == CmpEQ) {
-						ok = true;
-						op_id = IrBinOpDivTrunc;
-					}
-				}
+                    ok = true;
+                } else {
+                    BigInt trunc_result;
+                    BigInt floor_result;
+                    bigint_div_trunc(&trunc_result, &op1->value.data.x_bigint, &op2->value.data.x_bigint);
+                    bigint_div_floor(&floor_result, &op1->value.data.x_bigint, &op2->value.data.x_bigint);
+                    if (bigint_cmp(&trunc_result, &floor_result) == CmpEQ) {
+                        ok = true;
+                        op_id = IrBinOpDivTrunc;
+                    }
+                }
             }
             if (!ok) {
                 ir_add_error(ira, &bin_op_instruction->base,
@@ -9697,7 +9697,7 @@ static TypeTableEntry *ir_analyze_array_mult(IrAnalyze *ira, IrInstructionBinOp 
     uint64_t old_array_len = array_type->data.array.len;
     uint64_t new_array_len;
 
-    if (__builtin_umulll_overflow((unsigned long long)old_array_len, (unsigned long long)mult_amt, 
+    if (__builtin_umulll_overflow((unsigned long long)old_array_len, (unsigned long long)mult_amt,
                 (unsigned long long*)&new_array_len))
     {
         ir_add_error(ira, &instruction->base, buf_sprintf("operation results in overflow"));
@@ -14396,7 +14396,7 @@ static TypeTableEntry *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstruc
             }
         }
         IrInstruction *param_type_value = instruction->param_types[fn_type_id.next_param_index]->other;
-        if (type_is_invalid(param_type_value->value.type)) 
+        if (type_is_invalid(param_type_value->value.type))
             return ira->codegen->builtin_types.entry_invalid;
 
         FnTypeParamInfo *param_info = &fn_type_id.param_info[fn_type_id.next_param_index];
