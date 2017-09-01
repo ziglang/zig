@@ -664,10 +664,10 @@ static bool c_is_float(Context *c, QualType qt) {
     }
 }
 
-static AstNode * trans_stmt(Context *c, Stmt *stmt);
+static AstNode * trans_stmt(Context *c, AstNode *block, Stmt *stmt);
 
-static AstNode * trans_expr(Context *c, Expr *expr) {
-    return trans_stmt(c, expr);
+static AstNode * trans_expr(Context *c, AstNode *block, Expr *expr) {
+    return trans_stmt(c, block, expr);
 }
 
 static AstNode * trans_create_node(Context *c, Stmt *stmt, NodeType id) {
@@ -678,22 +678,23 @@ static AstNode * trans_create_node(Context *c, Stmt *stmt, NodeType id) {
     return node;
 }
 
-static AstNode * trans_compound_stmt(Context *c, CompoundStmt *stmt) {
-    AstNode *block_node = trans_create_node(c, stmt, NodeTypeBlock);
+static AstNode * trans_compound_stmt(Context *c, AstNode *parent, CompoundStmt *stmt) {
+    AstNode *child_block = trans_create_node(c, stmt, NodeTypeBlock);
     for (CompoundStmt::body_iterator it = stmt->body_begin(), end_it = stmt->body_end(); it != end_it; ++it) {
-        AstNode *child_node = trans_stmt(c, *it);
-        block_node->data.block.statements.append(child_node);
+        AstNode *child_node = trans_stmt(c, child_block, *it);
+        if (child_node != nullptr)
+            child_block->data.block.statements.append(child_node);
     }
-    return block_node;
+    return child_block;
 }
 
-static AstNode *trans_return_stmt(Context *c, ReturnStmt *stmt) {
+static AstNode *trans_return_stmt(Context *c, AstNode *block, ReturnStmt *stmt) {
     Expr *value_expr = stmt->getRetValue();
     if (value_expr == nullptr) {
         zig_panic("TODO handle C return void");
     } else {
         AstNode *return_node = trans_create_node(c, stmt, NodeTypeReturnExpr);
-        return_node->data.return_expr.expr = trans_expr(c, value_expr);
+        return_node->data.return_expr.expr = trans_expr(c, block, value_expr);
         return return_node;
     }
 }
@@ -726,21 +727,21 @@ static AstNode * trans_integer_literal(Context *c, IntegerLiteral *stmt) {
     return node;
 }
 
-static AstNode * trans_conditional_operator(Context *c, ConditionalOperator *stmt) {
+static AstNode * trans_conditional_operator(Context *c, AstNode *block, ConditionalOperator *stmt) {
     AstNode *node = trans_create_node(c, stmt, NodeTypeIfBoolExpr);
 
     Expr *cond_expr = stmt->getCond();
     Expr *true_expr = stmt->getTrueExpr();
     Expr *false_expr = stmt->getFalseExpr();
 
-    node->data.if_bool_expr.condition = trans_expr(c, cond_expr);
-    node->data.if_bool_expr.then_block = trans_expr(c, true_expr);
-    node->data.if_bool_expr.else_node = trans_expr(c, false_expr);
+    node->data.if_bool_expr.condition = trans_expr(c, block, cond_expr);
+    node->data.if_bool_expr.then_block = trans_expr(c, block, true_expr);
+    node->data.if_bool_expr.else_node = trans_expr(c, block, false_expr);
 
     return node;
 }
 
-static AstNode * trans_binary_operator(Context *c, BinaryOperator *stmt) {
+static AstNode * trans_binary_operator(Context *c, AstNode *block, BinaryOperator *stmt) {
     switch (stmt->getOpcode()) {
         case BO_PtrMemD:
             zig_panic("TODO handle more C binary operators: BO_PtrMemD");
@@ -764,8 +765,8 @@ static AstNode * trans_binary_operator(Context *c, BinaryOperator *stmt) {
             {
                 AstNode *node = trans_create_node(c, stmt, NodeTypeBinOpExpr);
                 node->data.bin_op_expr.bin_op = BinOpTypeCmpLessThan;
-                node->data.bin_op_expr.op1 = trans_expr(c, stmt->getLHS());
-                node->data.bin_op_expr.op2 = trans_expr(c, stmt->getRHS());
+                node->data.bin_op_expr.op1 = trans_expr(c, block, stmt->getLHS());
+                node->data.bin_op_expr.op2 = trans_expr(c, block, stmt->getRHS());
                 return node;
             }
         case BO_GT:
@@ -817,10 +818,10 @@ static AstNode * trans_binary_operator(Context *c, BinaryOperator *stmt) {
     zig_unreachable();
 }
 
-static AstNode * trans_implicit_cast_expr(Context *c, ImplicitCastExpr *stmt) {
+static AstNode * trans_implicit_cast_expr(Context *c, AstNode *block, ImplicitCastExpr *stmt) {
     switch (stmt->getCastKind()) {
         case CK_LValueToRValue:
-            return trans_expr(c, stmt->getSubExpr());
+            return trans_expr(c, block, stmt->getSubExpr());
         case CK_IntegralCast:
             zig_panic("TODO handle C translation cast CK_IntegralCast");
         case CK_Dependent:
@@ -955,7 +956,7 @@ static AstNode * trans_create_num_lit_node_unsigned(Context *c, Stmt *stmt, uint
     return node;
 }
 
-static AstNode * trans_unary_operator(Context *c, UnaryOperator *stmt) {
+static AstNode * trans_unary_operator(Context *c, AstNode *block, UnaryOperator *stmt) {
     switch (stmt->getOpcode()) {
         case UO_PostInc:
             zig_panic("TODO handle C translation UO_PostInc");
@@ -977,13 +978,13 @@ static AstNode * trans_unary_operator(Context *c, UnaryOperator *stmt) {
                 if (c_is_signed_integer(c, op_expr->getType()) || c_is_float(c, op_expr->getType())) {
                     AstNode *node = trans_create_node(c, stmt, NodeTypePrefixOpExpr);
                     node->data.prefix_op_expr.prefix_op = PrefixOpNegation;
-                    node->data.prefix_op_expr.primary_expr = trans_expr(c, op_expr);
+                    node->data.prefix_op_expr.primary_expr = trans_expr(c, block, op_expr);
                     return node;
                 } else if (c_is_unsigned_integer(c, op_expr->getType())) {
                     // we gotta emit 0 -% x
                     AstNode *node = trans_create_node(c, stmt, NodeTypeBinOpExpr);
                     node->data.bin_op_expr.op1 = trans_create_num_lit_node_unsigned(c, stmt, 0);
-                    node->data.bin_op_expr.op2 = trans_expr(c, op_expr);
+                    node->data.bin_op_expr.op2 = trans_expr(c, block, op_expr);
                     node->data.bin_op_expr.bin_op = BinOpTypeSubWrap;
                     return node;
                 } else {
@@ -1006,25 +1007,200 @@ static AstNode * trans_unary_operator(Context *c, UnaryOperator *stmt) {
     zig_unreachable();
 }
 
-static AstNode *trans_stmt(Context *c, Stmt *stmt) {
+static AstNode * trans_local_declaration(Context *c, AstNode *block, DeclStmt *stmt) {
+    for (auto iter = stmt->decl_begin(); iter != stmt->decl_end(); iter++) {
+        Decl *decl = *iter;
+        switch (decl->getKind()) {
+            case Decl::Var: {
+                VarDecl *var_decl = (VarDecl *)decl;
+                AstNode *node = trans_create_node(c, stmt, NodeTypeVariableDeclaration);
+                node->data.variable_declaration.symbol = buf_create_from_str(decl_name(var_decl));
+                QualType qual_type = var_decl->getTypeSourceInfo()->getType();
+                node->data.variable_declaration.is_const = qual_type.isConstQualified();
+                node->data.variable_declaration.type = trans_qual_type(c, block, qual_type);
+                if (var_decl->hasInit()) {
+                    node->data.variable_declaration.expr = trans_expr(c, block, var_decl->getInit());
+                }
+
+                //emit_warning(c, decl->getLocation(), "asdf");
+
+                block->data.block.statements.append(node);
+                continue;
+            }
+
+            case Decl::AccessSpec:
+                zig_panic("TODO handle decl kind AccessSpec");
+            case Decl::Block:
+                zig_panic("TODO handle decl kind Block");
+            case Decl::Captured:
+                zig_panic("TODO handle decl kind Captured");
+            case Decl::ClassScopeFunctionSpecialization:
+                zig_panic("TODO handle decl kind ClassScopeFunctionSpecialization");
+            case Decl::Empty:
+                zig_panic("TODO handle decl kind Empty");
+            case Decl::Export:
+                zig_panic("TODO handle decl kind Export");
+            case Decl::ExternCContext:
+                zig_panic("TODO handle decl kind ExternCContext");
+            case Decl::FileScopeAsm:
+                zig_panic("TODO handle decl kind FileScopeAsm");
+            case Decl::Friend:
+                zig_panic("TODO handle decl kind Friend");
+            case Decl::FriendTemplate:
+                zig_panic("TODO handle decl kind FriendTemplate");
+            case Decl::Import:
+                zig_panic("TODO handle decl kind Import");
+            case Decl::LinkageSpec:
+                zig_panic("TODO handle decl kind LinkageSpec");
+            case Decl::Label:
+                zig_panic("TODO handle decl kind Label");
+            case Decl::Namespace:
+                zig_panic("TODO handle decl kind Namespace");
+            case Decl::NamespaceAlias:
+                zig_panic("TODO handle decl kind NamespaceAlias");
+            case Decl::ObjCCompatibleAlias:
+                zig_panic("TODO handle decl kind ObjCCompatibleAlias");
+            case Decl::ObjCCategory:
+                zig_panic("TODO handle decl kind ObjCCategory");
+            case Decl::ObjCCategoryImpl:
+                zig_panic("TODO handle decl kind ObjCCategoryImpl");
+            case Decl::ObjCImplementation:
+                zig_panic("TODO handle decl kind ObjCImplementation");
+            case Decl::ObjCInterface:
+                zig_panic("TODO handle decl kind ObjCInterface");
+            case Decl::ObjCProtocol:
+                zig_panic("TODO handle decl kind ObjCProtocol");
+            case Decl::ObjCMethod:
+                zig_panic("TODO handle decl kind ObjCMethod");
+            case Decl::ObjCProperty:
+                zig_panic("TODO handle decl kind ObjCProperty");
+            case Decl::BuiltinTemplate:
+                zig_panic("TODO handle decl kind BuiltinTemplate");
+            case Decl::ClassTemplate:
+                zig_panic("TODO handle decl kind ClassTemplate");
+            case Decl::FunctionTemplate:
+                zig_panic("TODO handle decl kind FunctionTemplate");
+            case Decl::TypeAliasTemplate:
+                zig_panic("TODO handle decl kind TypeAliasTemplate");
+            case Decl::VarTemplate:
+                zig_panic("TODO handle decl kind VarTemplate");
+            case Decl::TemplateTemplateParm:
+                zig_panic("TODO handle decl kind TemplateTemplateParm");
+            case Decl::Enum:
+                zig_panic("TODO handle decl kind Enum");
+            case Decl::Record:
+                zig_panic("TODO handle decl kind Record");
+            case Decl::CXXRecord:
+                zig_panic("TODO handle decl kind CXXRecord");
+            case Decl::ClassTemplateSpecialization:
+                zig_panic("TODO handle decl kind ClassTemplateSpecialization");
+            case Decl::ClassTemplatePartialSpecialization:
+                zig_panic("TODO handle decl kind ClassTemplatePartialSpecialization");
+            case Decl::TemplateTypeParm:
+                zig_panic("TODO handle decl kind TemplateTypeParm");
+            case Decl::ObjCTypeParam:
+                zig_panic("TODO handle decl kind ObjCTypeParam");
+            case Decl::TypeAlias:
+                zig_panic("TODO handle decl kind TypeAlias");
+            case Decl::Typedef:
+                zig_panic("TODO handle decl kind Typedef");
+            case Decl::UnresolvedUsingTypename:
+                zig_panic("TODO handle decl kind UnresolvedUsingTypename");
+            case Decl::Using:
+                zig_panic("TODO handle decl kind Using");
+            case Decl::UsingDirective:
+                zig_panic("TODO handle decl kind UsingDirective");
+            case Decl::UsingPack:
+                zig_panic("TODO handle decl kind UsingPack");
+            case Decl::UsingShadow:
+                zig_panic("TODO handle decl kind UsingShadow");
+            case Decl::ConstructorUsingShadow:
+                zig_panic("TODO handle decl kind ConstructorUsingShadow");
+            case Decl::Binding:
+                zig_panic("TODO handle decl kind Binding");
+            case Decl::Field:
+                zig_panic("TODO handle decl kind Field");
+            case Decl::ObjCAtDefsField:
+                zig_panic("TODO handle decl kind ObjCAtDefsField");
+            case Decl::ObjCIvar:
+                zig_panic("TODO handle decl kind ObjCIvar");
+            case Decl::Function:
+                zig_panic("TODO handle decl kind Function");
+            case Decl::CXXDeductionGuide:
+                zig_panic("TODO handle decl kind CXXDeductionGuide");
+            case Decl::CXXMethod:
+                zig_panic("TODO handle decl kind CXXMethod");
+            case Decl::CXXConstructor:
+                zig_panic("TODO handle decl kind CXXConstructor");
+            case Decl::CXXConversion:
+                zig_panic("TODO handle decl kind CXXConversion");
+            case Decl::CXXDestructor:
+                zig_panic("TODO handle decl kind CXXDestructor");
+            case Decl::MSProperty:
+                zig_panic("TODO handle decl kind MSProperty");
+            case Decl::NonTypeTemplateParm:
+                zig_panic("TODO handle decl kind NonTypeTemplateParm");
+            case Decl::Decomposition:
+                zig_panic("TODO handle decl kind Decomposition");
+            case Decl::ImplicitParam:
+                zig_panic("TODO handle decl kind ImplicitParam");
+            case Decl::OMPCapturedExpr:
+                zig_panic("TODO handle decl kind OMPCapturedExpr");
+            case Decl::ParmVar:
+                zig_panic("TODO handle decl kind ParmVar");
+            case Decl::VarTemplateSpecialization:
+                zig_panic("TODO handle decl kind VarTemplateSpecialization");
+            case Decl::VarTemplatePartialSpecialization:
+                zig_panic("TODO handle decl kind VarTemplatePartialSpecialization");
+            case Decl::EnumConstant:
+                zig_panic("TODO handle decl kind EnumConstant");
+            case Decl::IndirectField:
+                zig_panic("TODO handle decl kind IndirectField");
+            case Decl::OMPDeclareReduction:
+                zig_panic("TODO handle decl kind OMPDeclareReduction");
+            case Decl::UnresolvedUsingValue:
+                zig_panic("TODO handle decl kind UnresolvedUsingValue");
+            case Decl::OMPThreadPrivate:
+                zig_panic("TODO handle decl kind OMPThreadPrivate");
+            case Decl::ObjCPropertyImpl:
+                zig_panic("TODO handle decl kind ObjCPropertyImpl");
+            case Decl::PragmaComment:
+                zig_panic("TODO handle decl kind PragmaComment");
+            case Decl::PragmaDetectMismatch:
+                zig_panic("TODO handle decl kind PragmaDetectMismatch");
+            case Decl::StaticAssert:
+                zig_panic("TODO handle decl kind StaticAssert");
+            case Decl::TranslationUnit:
+                zig_panic("TODO handle decl kind TranslationUnit");
+        }
+        zig_unreachable();
+    }
+
+    // declarations were already added
+    return nullptr;
+}
+
+static AstNode *trans_stmt(Context *c, AstNode *block, Stmt *stmt) {
     Stmt::StmtClass sc = stmt->getStmtClass();
     switch (sc) {
         case Stmt::ReturnStmtClass:
-            return trans_return_stmt(c, (ReturnStmt *)stmt);
+            return trans_return_stmt(c, block, (ReturnStmt *)stmt);
         case Stmt::CompoundStmtClass:
-            return trans_compound_stmt(c, (CompoundStmt *)stmt);
+            return trans_compound_stmt(c, block, (CompoundStmt *)stmt);
         case Stmt::IntegerLiteralClass:
             return trans_integer_literal(c, (IntegerLiteral *)stmt);
         case Stmt::ConditionalOperatorClass:
-            return trans_conditional_operator(c, (ConditionalOperator *)stmt);
+            return trans_conditional_operator(c, block, (ConditionalOperator *)stmt);
         case Stmt::BinaryOperatorClass:
-            return trans_binary_operator(c, (BinaryOperator *)stmt);
+            return trans_binary_operator(c, block, (BinaryOperator *)stmt);
         case Stmt::ImplicitCastExprClass:
-            return trans_implicit_cast_expr(c, (ImplicitCastExpr *)stmt);
+            return trans_implicit_cast_expr(c, block, (ImplicitCastExpr *)stmt);
         case Stmt::DeclRefExprClass:
             return trans_decl_ref_expr(c, (DeclRefExpr *)stmt);
         case Stmt::UnaryOperatorClass:
-            return trans_unary_operator(c, (UnaryOperator *)stmt);
+            return trans_unary_operator(c, block, (UnaryOperator *)stmt);
+        case Stmt::DeclStmtClass:
+            return trans_local_declaration(c, block, (DeclStmt *)stmt);
         case Stmt::CaseStmtClass:
             zig_panic("TODO handle C CaseStmtClass");
         case Stmt::DefaultStmtClass:
@@ -1057,8 +1233,6 @@ static AstNode *trans_stmt(Context *c, Stmt *stmt) {
             zig_panic("TODO handle C CoreturnStmtClass");
         case Stmt::CoroutineBodyStmtClass:
             zig_panic("TODO handle C CoroutineBodyStmtClass");
-        case Stmt::DeclStmtClass:
-            zig_panic("TODO handle C DeclStmtClass");
         case Stmt::DoStmtClass:
             zig_panic("TODO handle C DoStmtClass");
         case Stmt::BinaryConditionalOperatorClass:
@@ -1409,7 +1583,7 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     if (fn_decl->hasBody()) {
         fprintf(stderr, "fn %s\n", buf_ptr(fn_name));
         Stmt *body = fn_decl->getBody();
-        AstNode *body_node = trans_stmt(c, body);
+        AstNode *body_node = trans_stmt(c, nullptr, body);
         ast_render(c->codegen, stderr, body_node, 4);
         fprintf(stderr, "\n");
     }
