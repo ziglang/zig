@@ -180,7 +180,7 @@ pub const Cmp = enum {
     Greater,
 };
 
-pub fn min(x: var, y: var) -> @typeOf(x + y) {
+pub fn min(x: var, y: var) -> @typeOf(if (x < y) x else y) {
     if (x < y) x else y
 }
 
@@ -188,7 +188,7 @@ test "math.min" {
     assert(min(i32(-1), i32(2)) == -1);
 }
 
-pub fn max(x: var, y: var) -> @typeOf(x + y) {
+pub fn max(x: var, y: var) -> @typeOf(if (x > y) x else y) {
     if (x > y) x else y
 }
 
