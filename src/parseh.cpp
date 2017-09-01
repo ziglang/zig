@@ -949,6 +949,14 @@ static AstNode * trans_conditional_operator(Context *c, AstNode *block, Conditio
     return node;
 }
 
+static AstNode * trans_create_bin_op(Context *c, AstNode *block, Expr *lhs, BinOpType bin_op, Expr *rhs) {
+    AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
+    node->data.bin_op_expr.bin_op = bin_op;
+    node->data.bin_op_expr.op1 = trans_expr(c, block, lhs);
+    node->data.bin_op_expr.op2 = trans_expr(c, block, rhs);
+    return node;
+}
+
 static AstNode * trans_binary_operator(Context *c, AstNode *block, BinaryOperator *stmt) {
     switch (stmt->getOpcode()) {
         case BO_PtrMemD:
@@ -970,19 +978,13 @@ static AstNode * trans_binary_operator(Context *c, AstNode *block, BinaryOperato
         case BO_Shr:
             zig_panic("TODO handle more C binary operators: BO_Shr");
         case BO_LT:
-            {
-                AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
-                node->data.bin_op_expr.bin_op = BinOpTypeCmpLessThan;
-                node->data.bin_op_expr.op1 = trans_expr(c, block, stmt->getLHS());
-                node->data.bin_op_expr.op2 = trans_expr(c, block, stmt->getRHS());
-                return node;
-            }
+            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeCmpLessThan, stmt->getRHS());
         case BO_GT:
-            zig_panic("TODO handle more C binary operators: BO_GT");
+            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeCmpGreaterThan, stmt->getRHS());
         case BO_LE:
-            zig_panic("TODO handle more C binary operators: BO_LE");
+            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeCmpLessOrEq, stmt->getRHS());
         case BO_GE:
-            zig_panic("TODO handle more C binary operators: BO_GE");
+            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeCmpGreaterOrEq, stmt->getRHS());
         case BO_EQ:
             zig_panic("TODO handle more C binary operators: BO_EQ");
         case BO_NE:
@@ -1031,7 +1033,14 @@ static AstNode * trans_implicit_cast_expr(Context *c, AstNode *block, ImplicitCa
         case CK_LValueToRValue:
             return trans_expr(c, block, stmt->getSubExpr());
         case CK_IntegralCast:
-            zig_panic("TODO handle C translation cast CK_IntegralCast");
+            {
+                AstNode *node = trans_create_node(c, NodeTypeFnCallExpr);
+                node->data.fn_call_expr.fn_ref_expr = trans_create_symbol_node(c, "bitCast");
+                node->data.fn_call_expr.is_builtin = true;
+                node->data.fn_call_expr.params.append(trans_qual_type(c, stmt->getType(), stmt->getExprLoc()));
+                node->data.fn_call_expr.params.append(trans_expr(c, block, stmt->getSubExpr()));
+                return node;
+            }
         case CK_Dependent:
             zig_panic("TODO handle C translation cast CK_Dependent");
         case CK_BitCast:
@@ -1386,6 +1395,13 @@ static AstNode * trans_local_declaration(Context *c, AstNode *block, DeclStmt *s
     return nullptr;
 }
 
+static AstNode *trans_while_loop(Context *c, AstNode *block, WhileStmt *stmt) {
+    AstNode *while_node = trans_create_node(c, NodeTypeWhileExpr);
+    while_node->data.while_expr.condition = trans_expr(c, block, stmt->getCond());
+    while_node->data.while_expr.body = trans_stmt(c, block, stmt->getBody());
+    return while_node;
+}
+
 static AstNode *trans_stmt(Context *c, AstNode *block, Stmt *stmt) {
     Stmt::StmtClass sc = stmt->getStmtClass();
     switch (sc) {
@@ -1407,14 +1423,14 @@ static AstNode *trans_stmt(Context *c, AstNode *block, Stmt *stmt) {
             return trans_unary_operator(c, block, (UnaryOperator *)stmt);
         case Stmt::DeclStmtClass:
             return trans_local_declaration(c, block, (DeclStmt *)stmt);
+        case Stmt::WhileStmtClass:
+            return trans_while_loop(c, block, (WhileStmt *)stmt);
         case Stmt::CaseStmtClass:
             zig_panic("TODO handle C CaseStmtClass");
         case Stmt::DefaultStmtClass:
             zig_panic("TODO handle C DefaultStmtClass");
         case Stmt::SwitchStmtClass:
             zig_panic("TODO handle C SwitchStmtClass");
-        case Stmt::WhileStmtClass:
-            zig_panic("TODO handle C WhileStmtClass");
         case Stmt::NoStmtClass:
             zig_panic("TODO handle C NoStmtClass");
         case Stmt::GCCAsmStmtClass:
