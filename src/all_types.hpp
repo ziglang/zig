@@ -751,6 +751,7 @@ struct AstNodeContainerDecl {
     ZigList<AstNode *> fields;
     ZigList<AstNode *> decls;
     ContainerLayout layout;
+    AstNode *init_arg_expr; // enum(T) or struct(endianness)
 };
 
 struct AstNodeStructField {

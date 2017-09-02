@@ -21,6 +21,16 @@ pub fn addCases(cases: &tests.ParseHContext) {
         \\pub extern fn foo() -> noreturn;
     );
 
+    cases.add("simple function",
+        \\int abs(int a) {
+        \\    return a < 0 ? -a : a;
+        \\}
+    ,
+        \\export fn abs(a: c_int) -> c_int {
+        \\    return if (a < 0) -a else a;
+        \\}
+    );
+
     cases.add("enums",
         \\enum Foo {
         \\    FooA,
@@ -34,13 +44,13 @@ pub fn addCases(cases: &tests.ParseHContext) {
         \\    @"1",
         \\};
     ,
-        \\pub const FooA = 0;
+        \\pub const FooA = Foo.A;
     ,
-        \\pub const FooB = 1;
+        \\pub const FooB = Foo.B;
     ,
-        \\pub const Foo1 = 2;
+        \\pub const Foo1 = Foo.1;
     ,
-        \\pub const Foo = enum_Foo
+        \\pub const Foo = enum_Foo;
     );
 
     cases.add("restrict -> noalias",

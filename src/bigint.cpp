@@ -165,6 +165,25 @@ void bigint_init_signed(BigInt *dest, int64_t x) {
     dest->data.digit = ((uint64_t)(-(x + 1))) + 1;
 }
 
+void bigint_init_data(BigInt *dest, const uint64_t *digits, size_t digit_count, bool is_negative) {
+    if (digit_count == 0) {
+        return bigint_init_unsigned(dest, 0);
+    } else if (digit_count == 1) {
+        dest->digit_count = 1;
+        dest->data.digit = digits[0];
+        dest->is_negative = is_negative;
+        bigint_normalize(dest);
+        return;
+    }
+
+    dest->digit_count = digit_count;
+    dest->is_negative = is_negative;
+    dest->data.digits = allocate_nonzero<uint64_t>(digit_count);
+    memcpy(dest->data.digits, digits, sizeof(uint64_t) * digit_count);
+
+    bigint_normalize(dest);
+}
+
 void bigint_init_bigint(BigInt *dest, const BigInt *src) {
     if (src->digit_count == 0) {
         return bigint_init_unsigned(dest, 0);

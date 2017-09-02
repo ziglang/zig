@@ -670,7 +670,7 @@ int main(int argc, char **argv) {
                 return EXIT_SUCCESS;
             } else if (cmd == CmdParseH) {
                 codegen_parseh(g, in_file_buf);
-                ast_render_decls(g, stdout, 4, g->root_import);
+                ast_render(g, stdout, g->root_import->root, 4);
                 if (timing_info)
                     codegen_print_timing_report(g, stdout);
                 return EXIT_SUCCESS;

@@ -55,7 +55,6 @@ void codegen_add_assembly(CodeGen *g, Buf *path);
 void codegen_add_object(CodeGen *g, Buf *object_path);
 
 void codegen_parseh(CodeGen *g, Buf *path);
-void codegen_render_ast(CodeGen *g, FILE *f, int indent_size);
 
 
 #endif

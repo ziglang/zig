@@ -112,16 +112,16 @@ static const char *extern_string(bool is_extern) {
     return is_extern ? "extern " : "";
 }
 
-static const char *calling_convention_string(CallingConvention cc) {
-    switch (cc) {
-        case CallingConventionUnspecified: return "";
-        case CallingConventionC: return "extern ";
-        case CallingConventionCold: return "coldcc ";
-        case CallingConventionNaked: return "nakedcc ";
-        case CallingConventionStdcall: return "stdcallcc ";
-    }
-    zig_unreachable();
-}
+//static const char *calling_convention_string(CallingConvention cc) {
+//    switch (cc) {
+//        case CallingConventionUnspecified: return "";
+//        case CallingConventionC: return "extern ";
+//        case CallingConventionCold: return "coldcc ";
+//        case CallingConventionNaked: return "nakedcc ";
+//        case CallingConventionStdcall: return "stdcallcc ";
+//    }
+//    zig_unreachable();
+//}
 
 static const char *inline_string(bool is_inline) {
     return is_inline ? "inline " : "";
@@ -439,8 +439,10 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 fprintf(ar->f, ")");
 
                 AstNode *return_type_node = node->data.fn_proto.return_type;
-                fprintf(ar->f, " -> ");
-                render_node_grouped(ar, return_type_node);
+                if (return_type_node != nullptr) {
+                    fprintf(ar->f, " -> ");
+                    render_node_grouped(ar, return_type_node);
+                }
                 break;
             }
         case NodeTypeFnDef:
@@ -651,16 +653,19 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             break;
         case NodeTypeContainerDecl:
             {
+                const char *layout_str = layout_string(node->data.container_decl.layout);
                 const char *container_str = container_string(node->data.container_decl.kind);
-                fprintf(ar->f, "%s {\n", container_str);
+                fprintf(ar->f, "%s%s {\n", layout_str, container_str);
                 ar->indent += ar->indent_size;
                 for (size_t field_i = 0; field_i < node->data.container_decl.fields.length; field_i += 1) {
                     AstNode *field_node = node->data.container_decl.fields.at(field_i);
                     assert(field_node->type == NodeTypeStructField);
                     print_indent(ar);
                     print_symbol(ar, field_node->data.struct_field.name);
-                    fprintf(ar->f, ": ");
-                    render_node_grouped(ar, field_node->data.struct_field.type);
+                    if (field_node->data.struct_field.type != nullptr) {
+                        fprintf(ar->f, ": ");
+                        render_node_grouped(ar, field_node->data.struct_field.type);
+                    }
                     fprintf(ar->f, ",\n");
                 }
 
@@ -989,146 +994,3 @@ void ast_render(CodeGen *codegen, FILE *f, AstNode *node, int indent_size) {
 
     render_node_grouped(&ar, node);
 }
-
-static void ast_render_tld_fn(AstRender *ar, Buf *name, TldFn *tld_fn) {
-    FnTableEntry *fn_entry = tld_fn->fn_entry;
-    FnTypeId *fn_type_id = &fn_entry->type_entry->data.fn.fn_type_id;
-    const char *visib_mod_str = visib_mod_string(tld_fn->base.visib_mod);
-    const char *cc_str = calling_convention_string(fn_type_id->cc);
-    fprintf(ar->f, "%s%sfn %s(", visib_mod_str, cc_str, buf_ptr(&fn_entry->symbol_name));
-    for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
-        FnTypeParamInfo *param_info = &fn_type_id->param_info[i];
-        if (i != 0) {
-            fprintf(ar->f, ", ");
-        }
-        if (param_info->is_noalias) {
-            fprintf(ar->f, "noalias ");
-        }
-        Buf *param_name = tld_fn->fn_entry->param_names ? tld_fn->fn_entry->param_names[i] : buf_sprintf("arg%" ZIG_PRI_usize "", i);
-        fprintf(ar->f, "%s: %s", buf_ptr(param_name), buf_ptr(&param_info->type->name));
-    }
-    if (fn_type_id->return_type->id == TypeTableEntryIdVoid) {
-        fprintf(ar->f, ");\n");
-    } else {
-        fprintf(ar->f, ") -> %s;\n", buf_ptr(&fn_type_id->return_type->name));
-    }
-}
-
-static void ast_render_tld_var(AstRender *ar, Buf *name, TldVar *tld_var) {
-    VariableTableEntry *var = tld_var->var;
-    const char *visib_mod_str = visib_mod_string(tld_var->base.visib_mod);
-    const char *const_or_var = const_or_var_string(var->src_is_const);
-    const char *extern_str = extern_string(var->linkage == VarLinkageExternal);
-    fprintf(ar->f, "%s%s%s %s", visib_mod_str, extern_str, const_or_var, buf_ptr(name));
-
-    if (var->value->type->id == TypeTableEntryIdNumLitFloat ||
-        var->value->type->id == TypeTableEntryIdNumLitInt ||
-        var->value->type->id == TypeTableEntryIdMetaType)
-    {
-        // skip type
-    } else {
-        fprintf(ar->f, ": %s", buf_ptr(&var->value->type->name));
-    }
-
-    if (var->value->special == ConstValSpecialRuntime) {
-        fprintf(ar->f, ";\n");
-        return;
-    }
-
-    fprintf(ar->f, " = ");
-
-    if (var->value->special == ConstValSpecialStatic &&
-        var->value->type->id == TypeTableEntryIdMetaType)
-    {
-        TypeTableEntry *type_entry = var->value->data.x_type;
-        if (type_entry->id == TypeTableEntryIdStruct) {
-            const char *layout_str = layout_string(type_entry->data.structure.layout);
-            fprintf(ar->f, "%sstruct {\n", layout_str);
-            if (type_entry->data.structure.complete) {
-                for (size_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
-                    TypeStructField *field = &type_entry->data.structure.fields[i];
-                    fprintf(ar->f, "    ");
-                    print_symbol(ar, field->name);
-                    fprintf(ar->f, ": %s,\n", buf_ptr(&field->type_entry->name));
-                }
-            }
-            fprintf(ar->f, "}");
-        } else if (type_entry->id == TypeTableEntryIdEnum) {
-            const char *layout_str = layout_string(type_entry->data.enumeration.layout);
-            fprintf(ar->f, "%senum {\n", layout_str);
-            if (type_entry->data.enumeration.complete) {
-                for (size_t i = 0; i < type_entry->data.enumeration.src_field_count; i += 1) {
-                    TypeEnumField *field = &type_entry->data.enumeration.fields[i];
-                    fprintf(ar->f, "    ");
-                    print_symbol(ar, field->name);
-                    if (field->type_entry->id == TypeTableEntryIdVoid) {
-                        fprintf(ar->f, ",\n");
-                    } else {
-                        fprintf(ar->f, ": %s,\n", buf_ptr(&field->type_entry->name));
-                    }
-                }
-            }
-            fprintf(ar->f, "}");
-        } else if (type_entry->id == TypeTableEntryIdUnion) {
-            fprintf(ar->f, "union {");
-            fprintf(ar->f, "TODO");
-            fprintf(ar->f, "}");
-        } else if (type_entry->id == TypeTableEntryIdOpaque) {
-            if (buf_eql_buf(&type_entry->name, name)) {
-                fprintf(ar->f, "@OpaqueType()");
-            } else {
-                fprintf(ar->f, "%s", buf_ptr(&type_entry->name));
-            }
-        } else {
-            fprintf(ar->f, "%s", buf_ptr(&type_entry->name));
-        }
-    } else {
-        Buf buf = BUF_INIT;
-        buf_resize(&buf, 0);
-        render_const_value(ar->codegen, &buf, var->value);
-        fprintf(ar->f, "%s", buf_ptr(&buf));
-    }
-
-    fprintf(ar->f, ";\n");
-}
-
-void ast_render_decls(CodeGen *codegen, FILE *f, int indent_size, ImportTableEntry *import) {
-    AstRender ar = {0};
-    ar.codegen = codegen;
-    ar.f = f;
-    ar.indent_size = indent_size;
-    ar.indent = 0;
-
-    auto it = import->decls_scope->decl_table.entry_iterator();
-    for (;;) {
-        auto *entry = it.next();
-        if (!entry)
-            break;
-
-        Tld *tld = entry->value;
-
-        if (tld->name != nullptr && !buf_eql_buf(entry->key, tld->name)) {
-            fprintf(ar.f, "pub const ");
-            print_symbol(&ar, entry->key);
-            fprintf(ar.f, " = %s;\n", buf_ptr(tld->name));
-            continue;
-        }
-
-        switch (tld->id) {
-            case TldIdVar:
-                ast_render_tld_var(&ar, entry->key, (TldVar *)tld);
-                break;
-            case TldIdFn:
-                ast_render_tld_fn(&ar, entry->key, (TldFn *)tld);
-                break;
-            case TldIdContainer:
-                fprintf(stdout, "container\n");
-                break;
-            case TldIdCompTime:
-                fprintf(stdout, "comptime\n");
-                break;
-        }
-    }
-}
-
-

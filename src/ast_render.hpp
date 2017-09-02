@@ -19,7 +19,5 @@ void ast_render(CodeGen *codegen, FILE *f, AstNode *node, int indent_size);
 
 const char *container_string(ContainerKind kind);
 
-void ast_render_decls(CodeGen *codegen, FILE *f, int indent_size, ImportTableEntry *import);
-
 #endif
 
