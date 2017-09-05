@@ -216,7 +216,7 @@ pub fn addCases(cases: &tests.ParseHContext) {
     cases.add("#define string",
         \\#define  foo  "a string"
     ,
-        \\pub const foo: &const u8 = &(c str lit);
+        \\pub const foo = c"a string";
     );
 
     cases.add("__cdecl doesn't mess up function pointers",
@@ -234,43 +234,43 @@ pub fn addCases(cases: &tests.ParseHContext) {
     cases.add("u integer suffix after hex literal",
         \\#define SDL_INIT_VIDEO 0x00000020u  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     ,
-        \\pub const SDL_INIT_VIDEO: c_uint = 32;
+        \\pub const SDL_INIT_VIDEO = c_uint(32);
     );
 
     cases.add("l integer suffix after hex literal",
         \\#define SDL_INIT_VIDEO 0x00000020l  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     ,
-        \\pub const SDL_INIT_VIDEO: c_long = 32;
+        \\pub const SDL_INIT_VIDEO = c_long(32);
     );
 
     cases.add("ul integer suffix after hex literal",
         \\#define SDL_INIT_VIDEO 0x00000020ul  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     ,
-        \\pub const SDL_INIT_VIDEO: c_ulong = 32;
+        \\pub const SDL_INIT_VIDEO = c_ulong(32);
     );
 
     cases.add("lu integer suffix after hex literal",
         \\#define SDL_INIT_VIDEO 0x00000020lu  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     ,
-        \\pub const SDL_INIT_VIDEO: c_ulong = 32;
+        \\pub const SDL_INIT_VIDEO = c_ulong(32);
     );
 
     cases.add("ll integer suffix after hex literal",
         \\#define SDL_INIT_VIDEO 0x00000020ll  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     ,
-        \\pub const SDL_INIT_VIDEO: c_longlong = 32;
+        \\pub const SDL_INIT_VIDEO = c_longlong(32);
     );
 
     cases.add("ull integer suffix after hex literal",
         \\#define SDL_INIT_VIDEO 0x00000020ull  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     ,
-        \\pub const SDL_INIT_VIDEO: c_ulonglong = 32;
+        \\pub const SDL_INIT_VIDEO = c_ulonglong(32);
     );
 
     cases.add("llu integer suffix after hex literal",
         \\#define SDL_INIT_VIDEO 0x00000020llu  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     ,
-        \\pub const SDL_INIT_VIDEO: c_ulonglong = 32;
+        \\pub const SDL_INIT_VIDEO = c_ulonglong(32);
     );
 
     cases.add("zig keywords in C code",
@@ -290,9 +290,9 @@ pub fn addCases(cases: &tests.ParseHContext) {
         \\#define FOO2 "aoeu\0234 derp"
         \\#define FOO_CHAR '\077'
     ,
-        \\pub const FOO: &const u8 = &(c str lit);
+        \\pub const FOO = c"aoeu\x13 derp";
     ,
-        \\pub const FOO2: &const u8 = &(c str lit);
+        \\pub const FOO2 = c"aoeu\x134 derp";
     ,
         \\pub const FOO_CHAR = 63;
     );
