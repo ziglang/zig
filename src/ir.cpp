@@ -6116,7 +6116,7 @@ static IrInstruction *ir_gen_fn_proto(IrBuilder *irb, Scope *parent_scope, AstNo
 
     IrInstruction *return_type;
     if (node->data.fn_proto.return_type == nullptr) {
-        return_type = ir_build_const_void(irb, parent_scope, node);
+        return_type = ir_build_const_type(irb, parent_scope, node, irb->codegen->builtin_types.entry_void);
     } else {
         return_type = ir_gen_node(irb, node->data.fn_proto.return_type, parent_scope);
         if (return_type == irb->codegen->invalid_instruction)

@@ -1620,9 +1620,7 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
         return;
     }
 
-    const FunctionProtoType *fn_proto_ty = (const FunctionProtoType *) fn_decl->getType().getTypePtr();
-    size_t arg_count = fn_proto_ty->getNumParams();
-    for (size_t i = 0; i < arg_count; i += 1) {
+    for (size_t i = 0; i < proto_node->data.fn_proto.params.length; i += 1) {
         AstNode *param_node = proto_node->data.fn_proto.params.at(i);
         const ParmVarDecl *param = fn_decl->getParamDecl(i);
         const char *name = decl_name(param);
@@ -2036,13 +2034,7 @@ static bool decl_visitor(void *context, const Decl *decl) {
 }
 
 static bool name_exists(Context *c, Buf *name) {
-    if (get_global(c, name)) {
-        return true;
-    }
-    if (c->macro_table.maybe_get(name)) {
-        return true;
-    }
-    return false;
+    return get_global(c, name) != nullptr;
 }
 
 static void render_aliases(Context *c) {
@@ -2162,7 +2154,7 @@ static void process_symbol_macros(Context *c) {
 
         // Check if this macro aliases another top level declaration
         AstNode *existing_node = get_global(c, ms.value);
-        if (!existing_node)
+        if (!existing_node || name_exists(c, ms.name))
             continue;
 
         // If a macro aliases a global variable which is a function pointer, we conclude that
