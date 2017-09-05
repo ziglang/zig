@@ -1716,18 +1716,18 @@ struct AstNode *demote_enum_to_opaque(Context *c, const EnumDecl *enum_decl,
 {
     AstNode *opaque_node = trans_create_node_opaque(c);
     if (full_type_name == nullptr) {
-        c->decl_table.put(enum_decl, opaque_node);
+        c->decl_table.put(enum_decl->getCanonicalDecl(), opaque_node);
         return opaque_node;
     }
     AstNode *symbol_node = trans_create_node_symbol(c, full_type_name);
     add_global_weak_alias(c, bare_name, full_type_name);
     add_global_var(c, full_type_name, opaque_node);
-    c->decl_table.put(enum_decl, symbol_node);
+    c->decl_table.put(enum_decl->getCanonicalDecl(), symbol_node);
     return symbol_node;
 }
 
 static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
-    auto existing_entry = c->decl_table.maybe_get((void*)enum_decl);
+    auto existing_entry = c->decl_table.maybe_get((void*)enum_decl->getCanonicalDecl());
     if (existing_entry) {
         return existing_entry->value;
     }
@@ -1792,13 +1792,13 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
         }
 
         if (is_anonymous) {
-            c->decl_table.put(enum_decl, enum_node);
+            c->decl_table.put(enum_decl->getCanonicalDecl(), enum_node);
             return enum_node;
         } else {
             AstNode *symbol_node = trans_create_node_symbol(c, full_type_name);
             add_global_weak_alias(c, bare_name, full_type_name);
             add_global_var(c, full_type_name, enum_node);
-            c->decl_table.put(enum_decl, symbol_node);
+            c->decl_table.put(enum_decl->getCanonicalDecl(), symbol_node);
             return enum_node;
         }
     }
@@ -1822,7 +1822,7 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
     }
 
     if (is_anonymous) {
-        c->decl_table.put(enum_decl, enum_node);
+        c->decl_table.put(enum_decl->getCanonicalDecl(), enum_node);
         return enum_node;
     } else {
         AstNode *symbol_node = trans_create_node_symbol(c, full_type_name);
@@ -1837,18 +1837,18 @@ static AstNode *demote_struct_to_opaque(Context *c, const RecordDecl *record_dec
 {
     AstNode *opaque_node = trans_create_node_opaque(c);
     if (full_type_name == nullptr) {
-        c->decl_table.put(record_decl, opaque_node);
+        c->decl_table.put(record_decl->getCanonicalDecl(), opaque_node);
         return opaque_node;
     }
     AstNode *symbol_node = trans_create_node_symbol(c, full_type_name);
     add_global_weak_alias(c, bare_name, full_type_name);
     add_global_var(c, full_type_name, opaque_node);
-    c->decl_table.put(record_decl, symbol_node);
+    c->decl_table.put(record_decl->getCanonicalDecl(), symbol_node);
     return symbol_node;
 }
 
 static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
-    auto existing_entry = c->decl_table.maybe_get((void*)record_decl);
+    auto existing_entry = c->decl_table.maybe_get((void*)record_decl->getCanonicalDecl());
     if (existing_entry) {
         return existing_entry->value;
     }
@@ -1857,7 +1857,7 @@ static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
 
     if (!record_decl->isStruct()) {
         emit_warning(c, record_decl->getLocation(), "skipping record %s, not a struct", raw_name);
-        c->decl_table.put(record_decl, nullptr);
+        c->decl_table.put(record_decl->getCanonicalDecl(), nullptr);
         return nullptr;
     }
 
@@ -1895,9 +1895,9 @@ static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
 
     // must be before fields in case a circular reference happens
     if (is_anonymous) {
-        c->decl_table.put(record_decl, struct_node);
+        c->decl_table.put(record_decl->getCanonicalDecl(), struct_node);
     } else {
-        c->decl_table.put(record_decl, trans_create_node_symbol(c, full_type_name));
+        c->decl_table.put(record_decl->getCanonicalDecl(), trans_create_node_symbol(c, full_type_name));
     }
 
     uint32_t i = 0;
@@ -2188,6 +2188,8 @@ static void process_symbol_macros(Context *c) {
 
 static void process_preprocessor_entities(Context *c, ASTUnit &unit) {
     CTokenize ctok = {{0}};
+
+    // TODO if we see #undef, delete it from the table
 
     for (PreprocessedEntity *entity : unit.getLocalPreprocessingEntities()) {
         switch (entity->getKind()) {
