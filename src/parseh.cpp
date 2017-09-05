@@ -224,6 +224,7 @@ static AstNode *trans_create_node_inline_fn(Context *c, Buf *fn_name, Buf *var_n
     for (size_t i = 0; i < src_proto_node->data.fn_proto.params.length; i += 1) {
         AstNode *src_param_node = src_proto_node->data.fn_proto.params.at(i);
         Buf *param_name = src_param_node->data.param_decl.name;
+        if (!param_name) param_name = buf_sprintf("arg%" ZIG_PRI_usize "", i);
 
         AstNode *dest_param_node = trans_create_node(c, NodeTypeParamDecl);
         dest_param_node->data.param_decl.name = param_name;
@@ -238,6 +239,7 @@ static AstNode *trans_create_node_inline_fn(Context *c, Buf *fn_name, Buf *var_n
     AstNode *block = trans_create_node(c, NodeTypeBlock);
     block->data.block.statements.resize(1);
     block->data.block.statements.items[0] = fn_call_node;
+    block->data.block.last_statement_is_result_expression = true;
 
     fn_def->data.fn_def.body = block;
     return fn_def;
@@ -2075,7 +2077,12 @@ static void render_macros(Context *c) {
         if (!entry)
             break;
 
-        add_global_var(c, entry->key, entry->value);
+        AstNode *value_node = entry->value;
+        if (value_node->type == NodeTypeFnDef) {
+            c->root->data.root.top_level_decls.append(value_node);
+        } else {
+            add_global_var(c, entry->key, value_node);
+        }
     }
 }
 
@@ -2170,18 +2177,18 @@ static void process_symbol_macros(Context *c) {
 
         // Check if this macro aliases another top level declaration
         AstNode *existing_node = get_global(c, ms.value);
-        if (!existing_node || name_exists(c, ms.name))
+        if (!existing_node)
             continue;
 
         // If a macro aliases a global variable which is a function pointer, we conclude that
         // the macro is intended to represent a function that assumes the function pointer
         // variable is non-null and calls it.
         if (existing_node->type == NodeTypeVariableDeclaration) {
-            AstNode *var_expr = existing_node->data.variable_declaration.expr;
-            if (var_expr != nullptr && var_expr->type == NodeTypePrefixOpExpr &&
-                var_expr->data.prefix_op_expr.prefix_op == PrefixOpMaybe)
+            AstNode *var_type = existing_node->data.variable_declaration.type;
+            if (var_type != nullptr && var_type->type == NodeTypePrefixOpExpr &&
+                var_type->data.prefix_op_expr.prefix_op == PrefixOpMaybe)
             {
-                AstNode *fn_proto_node = var_expr->data.prefix_op_expr.primary_expr;
+                AstNode *fn_proto_node = var_type->data.prefix_op_expr.primary_expr;
                 if (fn_proto_node->type == NodeTypeFnProto) {
                     AstNode *inline_fn_node = trans_create_node_inline_fn(c, ms.name, ms.value, fn_proto_node);
                     c->macro_table.put(ms.name, inline_fn_node);
@@ -2396,8 +2403,8 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
 
     process_preprocessor_entities(c, *ast_unit);
 
-    render_macros(c);
     process_symbol_macros(c);
+    render_macros(c);
     render_aliases(c);
 
     import->root = c->root;
