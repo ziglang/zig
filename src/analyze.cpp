@@ -1180,7 +1180,8 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         }
     }
 
-    fn_type_id.return_type = analyze_type_expr(g, child_scope, fn_proto->return_type);
+    fn_type_id.return_type = (fn_proto->return_type == nullptr) ?
+        g->builtin_types.entry_void : analyze_type_expr(g, child_scope, fn_proto->return_type);
 
     switch (fn_type_id.return_type->id) {
         case TypeTableEntryIdInvalid:
@@ -2056,7 +2057,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
             for (size_t i = 0; i < fn_proto->params.length; i += 1) {
                 AstNode *param_node = fn_proto->params.at(i);
                 assert(param_node->type == NodeTypeParamDecl);
-                if (buf_len(param_node->data.param_decl.name) == 0) {
+                if (param_node->data.param_decl.name == nullptr) {
                     add_node_error(g, param_node, buf_sprintf("missing parameter name"));
                 }
             }
@@ -2268,7 +2269,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
             {
                 // if the name is missing, we immediately announce an error
                 Buf *fn_name = node->data.fn_proto.name;
-                if (buf_len(fn_name) == 0) {
+                if (fn_name == nullptr) {
                     add_node_error(g, node, buf_sprintf("missing function name"));
                     break;
                 }
@@ -2950,6 +2951,9 @@ void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entry, Vari
         } else {
             param_name = buf_sprintf("arg%" ZIG_PRI_usize "", i);
         }
+        if (param_name == nullptr) {
+            continue;
+        }
 
         TypeTableEntry *param_type = param_info->type;
         bool is_noalias = param_info->is_noalias;
@@ -3163,8 +3167,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *a
     import_entry->line_offsets = tokenization.line_offsets;
     import_entry->path = abs_full_path;
 
-    import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color,
-            &g->next_node_index);
+    import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color);
     assert(import_entry->root);
     if (g->verbose) {
         ast_print(stderr, import_entry->root, 0);

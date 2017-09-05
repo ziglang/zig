@@ -21,6 +21,16 @@ pub fn addCases(cases: &tests.ParseHContext) {
         \\pub extern fn foo() -> noreturn;
     );
 
+    cases.add("simple function",
+        \\int abs(int a) {
+        \\    return a < 0 ? -a : a;
+        \\}
+    ,
+        \\export fn abs(a: c_int) -> c_int {
+        \\    return if (a < 0) -a else a;
+        \\}
+    );
+
     cases.add("enums",
         \\enum Foo {
         \\    FooA,
@@ -34,13 +44,13 @@ pub fn addCases(cases: &tests.ParseHContext) {
         \\    @"1",
         \\};
     ,
-        \\pub const FooA = 0;
+        \\pub const FooA = enum_Foo.A;
     ,
-        \\pub const FooB = 1;
+        \\pub const FooB = enum_Foo.B;
     ,
-        \\pub const Foo1 = 2;
+        \\pub const Foo1 = enum_Foo.@"1";
     ,
-        \\pub const Foo = enum_Foo
+        \\pub const Foo = enum_Foo;
     );
 
     cases.add("restrict -> noalias",
@@ -84,9 +94,9 @@ pub fn addCases(cases: &tests.ParseHContext) {
         \\    B,
         \\};
     ,
-        \\pub const BarA = 0;
+        \\pub const BarA = enum_Bar.A;
     ,
-        \\pub const BarB = 1;
+        \\pub const BarB = enum_Bar.B;
     ,
         \\pub extern fn func(a: ?&struct_Foo, b: ?&?&enum_Bar);
     ,
@@ -180,7 +190,7 @@ pub fn addCases(cases: &tests.ParseHContext) {
     ,
         \\pub const Foo = c_void;
     ,
-        \\pub extern fn fun(a: ?&c_void);
+        \\pub extern fn fun(a: ?&Foo) -> Foo;
     );
 
     cases.add("generate inline func for #define global extern fn",
@@ -192,17 +202,21 @@ pub fn addCases(cases: &tests.ParseHContext) {
     ,
         \\pub extern var fn_ptr: ?extern fn();
     ,
-        \\pub fn foo();
+        \\pub inline fn foo() {
+        \\    ??fn_ptr()
+        \\}
     ,
         \\pub extern var fn_ptr2: ?extern fn(c_int, f32) -> u8;
     ,
-        \\pub fn bar(arg0: c_int, arg1: f32) -> u8;
+        \\pub inline fn bar(arg0: c_int, arg1: f32) -> u8 {
+        \\    ??fn_ptr2(arg0, arg1)
+        \\}
     );
 
     cases.add("#define string",
         \\#define  foo  "a string"
     ,
-        \\pub const foo: &const u8 = &(c str lit);
+        \\pub const foo = c"a string";
     );
 
     cases.add("__cdecl doesn't mess up function pointers",
@@ -220,43 +234,43 @@ pub fn addCases(cases: &tests.ParseHContext) {
     cases.add("u integer suffix after hex literal",
         \\#define SDL_INIT_VIDEO 0x00000020u  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     ,
-        \\pub const SDL_INIT_VIDEO: c_uint = 32;
+        \\pub const SDL_INIT_VIDEO = c_uint(32);
     );
 
     cases.add("l integer suffix after hex literal",
         \\#define SDL_INIT_VIDEO 0x00000020l  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     ,
-        \\pub const SDL_INIT_VIDEO: c_long = 32;
+        \\pub const SDL_INIT_VIDEO = c_long(32);
     );
 
     cases.add("ul integer suffix after hex literal",
         \\#define SDL_INIT_VIDEO 0x00000020ul  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     ,
-        \\pub const SDL_INIT_VIDEO: c_ulong = 32;
+        \\pub const SDL_INIT_VIDEO = c_ulong(32);
     );
 
     cases.add("lu integer suffix after hex literal",
         \\#define SDL_INIT_VIDEO 0x00000020lu  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     ,
-        \\pub const SDL_INIT_VIDEO: c_ulong = 32;
+        \\pub const SDL_INIT_VIDEO = c_ulong(32);
     );
 
     cases.add("ll integer suffix after hex literal",
         \\#define SDL_INIT_VIDEO 0x00000020ll  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     ,
-        \\pub const SDL_INIT_VIDEO: c_longlong = 32;
+        \\pub const SDL_INIT_VIDEO = c_longlong(32);
     );
 
     cases.add("ull integer suffix after hex literal",
         \\#define SDL_INIT_VIDEO 0x00000020ull  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     ,
-        \\pub const SDL_INIT_VIDEO: c_ulonglong = 32;
+        \\pub const SDL_INIT_VIDEO = c_ulonglong(32);
     );
 
     cases.add("llu integer suffix after hex literal",
         \\#define SDL_INIT_VIDEO 0x00000020llu  /**< SDL_INIT_VIDEO implies SDL_INIT_EVENTS */
     ,
-        \\pub const SDL_INIT_VIDEO: c_ulonglong = 32;
+        \\pub const SDL_INIT_VIDEO = c_ulonglong(32);
     );
 
     cases.add("zig keywords in C code",
@@ -276,9 +290,9 @@ pub fn addCases(cases: &tests.ParseHContext) {
         \\#define FOO2 "aoeu\0234 derp"
         \\#define FOO_CHAR '\077'
     ,
-        \\pub const FOO: &const u8 = &(c str lit);
+        \\pub const FOO = c"aoeu\x13 derp";
     ,
-        \\pub const FOO2: &const u8 = &(c str lit);
+        \\pub const FOO2 = c"aoeu\x134 derp";
     ,
         \\pub const FOO_CHAR = 63;
     );

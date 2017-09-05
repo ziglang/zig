@@ -944,6 +944,10 @@ static void ir_print_align_cast(IrPrint *irp, IrInstructionAlignCast *instructio
     fprintf(irp->f, ")");
 }
 
+static void ir_print_opaque_type(IrPrint *irp, IrInstructionOpaqueType *instruction) {
+    fprintf(irp->f, "@OpaqueType()");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1239,6 +1243,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdAlignCast:
             ir_print_align_cast(irp, (IrInstructionAlignCast *)instruction);
+            break;
+        case IrInstructionIdOpaqueType:
+            ir_print_opaque_type(irp, (IrInstructionOpaqueType *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

@@ -751,6 +751,7 @@ struct AstNodeContainerDecl {
     ZigList<AstNode *> fields;
     ZigList<AstNode *> decls;
     ContainerLayout layout;
+    AstNode *init_arg_expr; // enum(T) or struct(endianness)
 };
 
 struct AstNodeStructField {
@@ -833,7 +834,6 @@ struct AstNode {
     enum NodeType type;
     size_t line;
     size_t column;
-    uint32_t create_index; // for determinism purposes
     ImportTableEntry *owner;
     union {
         AstNodeRoot root;
@@ -1253,6 +1253,7 @@ enum BuiltinFnId {
     BuiltinFnIdShrExact,
     BuiltinFnIdSetEvalBranchQuota,
     BuiltinFnIdAlignCast,
+    BuiltinFnIdOpaqueType,
 };
 
 struct BuiltinFnEntry {
@@ -1523,7 +1524,6 @@ struct CodeGen {
     LLVMValueRef return_address_fn_val;
     LLVMValueRef frame_address_fn_val;
     bool error_during_imports;
-    uint32_t next_node_index;
     TypeTableEntry *err_tag_type;
 
     const char **clang_argv;
@@ -1859,6 +1859,7 @@ enum IrInstructionId {
     IrInstructionIdSetEvalBranchQuota,
     IrInstructionIdPtrTypeOf,
     IrInstructionIdAlignCast,
+    IrInstructionIdOpaqueType,
 };
 
 struct IrInstruction {
@@ -2647,6 +2648,10 @@ struct IrInstructionAlignCast {
 
     IrInstruction *align_bytes;
     IrInstruction *target;
+};
+
+struct IrInstructionOpaqueType {
+    IrInstruction base;
 };
 
 static const size_t slice_ptr_index = 0;

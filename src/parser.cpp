@@ -20,10 +20,8 @@ struct ParseContext {
     ZigList<Token> *tokens;
     ImportTableEntry *owner;
     ErrColor err_color;
-    uint32_t *next_node_index;
     // These buffers are used freqently so we preallocate them once here.
     Buf *void_buf;
-    Buf *empty_buf;
 };
 
 __attribute__ ((format (printf, 4, 5)))
@@ -70,8 +68,6 @@ static AstNode *ast_create_node_no_line_info(ParseContext *pc, NodeType type) {
     AstNode *node = allocate<AstNode>(1);
     node->type = type;
     node->owner = pc->owner;
-    node->create_index = *pc->next_node_index;
-    *pc->next_node_index += 1;
     return node;
 }
 
@@ -279,7 +275,7 @@ static AstNode *ast_parse_param_decl(ParseContext *pc, size_t *token_index) {
         token = &pc->tokens->at(*token_index);
     }
 
-    node->data.param_decl.name = pc->empty_buf;
+    node->data.param_decl.name = nullptr;
 
     if (token->id == TokenIdSymbol) {
         Token *next_token = &pc->tokens->at(*token_index + 1);
@@ -2249,7 +2245,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool m
         *token_index += 1;
         node->data.fn_proto.name = token_buf(fn_name);
     } else {
-        node->data.fn_proto.name = pc->empty_buf;
+        node->data.fn_proto.name = nullptr;
     }
 
     ast_parse_param_decl_list(pc, token_index, &node->data.fn_proto.params, &node->data.fn_proto.is_var_args);
@@ -2611,16 +2607,14 @@ static AstNode *ast_parse_root(ParseContext *pc, size_t *token_index) {
 }
 
 AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens, ImportTableEntry *owner,
-        ErrColor err_color, uint32_t *next_node_index)
+        ErrColor err_color)
 {
     ParseContext pc = {0};
     pc.void_buf = buf_create_from_str("void");
-    pc.empty_buf = buf_create_from_str("");
     pc.err_color = err_color;
     pc.owner = owner;
     pc.buf = buf;
     pc.tokens = tokens;
-    pc.next_node_index = next_node_index;
     size_t token_index = 0;
     pc.root = ast_parse_root(&pc, &token_index);
     return pc.root;

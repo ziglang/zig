@@ -538,3 +538,11 @@ export fn writeToVRam() {
 test "pointer child field" {
     assert((&u32).child == u32);
 }
+
+const OpaqueA = @OpaqueType();
+const OpaqueB = @OpaqueType();
+test "@OpaqueType" {
+    assert(&OpaqueA != &OpaqueB);
+    assert(mem.eql(u8, @typeName(OpaqueA), "OpaqueA"));
+    assert(mem.eql(u8, @typeName(OpaqueB), "OpaqueB"));
+}
