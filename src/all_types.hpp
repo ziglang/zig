@@ -1253,6 +1253,7 @@ enum BuiltinFnId {
     BuiltinFnIdShrExact,
     BuiltinFnIdSetEvalBranchQuota,
     BuiltinFnIdAlignCast,
+    BuiltinFnIdOpaqueType,
 };
 
 struct BuiltinFnEntry {
@@ -1858,6 +1859,7 @@ enum IrInstructionId {
     IrInstructionIdSetEvalBranchQuota,
     IrInstructionIdPtrTypeOf,
     IrInstructionIdAlignCast,
+    IrInstructionIdOpaqueType,
 };
 
 struct IrInstruction {
@@ -2646,6 +2648,10 @@ struct IrInstructionAlignCast {
 
     IrInstruction *align_bytes;
     IrInstruction *target;
+};
+
+struct IrInstructionOpaqueType {
+    IrInstruction base;
 };
 
 static const size_t slice_ptr_index = 0;

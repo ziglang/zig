@@ -559,6 +559,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionAlignCast *) {
     return IrInstructionIdAlignCast;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionOpaqueType *) {
+    return IrInstructionIdOpaqueType;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -2238,6 +2242,12 @@ static IrInstruction *ir_build_align_cast(IrBuilder *irb, Scope *scope, AstNode 
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_opaque_type(IrBuilder *irb, Scope *scope, AstNode *source_node) {
+    IrInstructionOpaqueType *instruction = ir_build_instruction<IrInstructionOpaqueType>(irb, scope, source_node);
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_instruction_br_get_dep(IrInstructionBr *instruction, size_t index) {
     return nullptr;
 }
@@ -2956,6 +2966,10 @@ static IrInstruction *ir_instruction_aligncast_get_dep(IrInstructionAlignCast *i
     }
 }
 
+static IrInstruction *ir_instruction_opaquetype_get_dep(IrInstructionOpaqueType *instruction, size_t index) {
+    return nullptr;
+}
+
 static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t index) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -3154,6 +3168,8 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_ptrtypeof_get_dep((IrInstructionPtrTypeOf *) instruction, index);
         case IrInstructionIdAlignCast:
             return ir_instruction_aligncast_get_dep((IrInstructionAlignCast *) instruction, index);
+        case IrInstructionIdOpaqueType:
+            return ir_instruction_opaquetype_get_dep((IrInstructionOpaqueType *) instruction, index);
     }
     zig_unreachable();
 }
@@ -4578,6 +4594,8 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 return ir_build_align_cast(irb, scope, node, arg0_value, arg1_value);
             }
+        case BuiltinFnIdOpaqueType:
+            return ir_build_opaque_type(irb, scope, node);
     }
     zig_unreachable();
 }
@@ -6044,27 +6062,30 @@ static bool render_instance_name_recursive(CodeGen *codegen, Buf *name, Scope *o
     return true;
 }
 
+static Buf *get_anon_type_name(CodeGen *codegen, IrExecutable *exec, const char *kind_name, AstNode *source_node) {
+    if (exec->name) {
+        return exec->name;
+    } else {
+        FnTableEntry *fn_entry = exec_fn_entry(exec);
+        if (fn_entry) {
+            Buf *name = buf_alloc();
+            buf_append_buf(name, &fn_entry->symbol_name);
+            buf_appendf(name, "(");
+            render_instance_name_recursive(codegen, name, &fn_entry->fndef_scope->base, exec->begin_scope);
+            buf_appendf(name, ")");
+            return name;
+        } else {
+            return buf_sprintf("(anonymous %s at %s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ")", kind_name,
+                buf_ptr(source_node->owner->path), source_node->line + 1, source_node->column + 1);
+        }
+    }
+}
+
 static IrInstruction *ir_gen_container_decl(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeContainerDecl);
 
     ContainerKind kind = node->data.container_decl.kind;
-    Buf *name;
-    if (irb->exec->name) {
-        name = irb->exec->name;
-    } else {
-        FnTableEntry *fn_entry = exec_fn_entry(irb->exec);
-        if (fn_entry) {
-            name = buf_alloc();
-            buf_append_buf(name, &fn_entry->symbol_name);
-            buf_appendf(name, "(");
-            render_instance_name_recursive(irb->codegen, name, &fn_entry->fndef_scope->base, irb->exec->begin_scope);
-            buf_appendf(name, ")");
-        } else {
-            name = buf_sprintf("(anonymous %s at %s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ")", container_string(kind),
-                buf_ptr(node->owner->path), node->line + 1, node->column + 1);
-        }
-    }
-
+    Buf *name = get_anon_type_name(irb->codegen, irb->exec, container_string(kind), node);
 
     VisibMod visib_mod = VisibModPub;
     TldContainer *tld_container = allocate<TldContainer>(1);
@@ -15143,6 +15164,14 @@ static TypeTableEntry *ir_analyze_instruction_align_cast(IrAnalyze *ira, IrInstr
     return result->value.type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_opaque_type(IrAnalyze *ira, IrInstructionOpaqueType *instruction) {
+    Buf *name = get_anon_type_name(ira->codegen, ira->new_irb.exec, "opaque", instruction->base.source_node);
+    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+    out_val->data.x_type = get_opaque_type(ira->codegen, instruction->base.scope, instruction->base.source_node,
+            buf_ptr(name));
+    return ira->codegen->builtin_types.entry_type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -15329,6 +15358,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_ptr_type_of(ira, (IrInstructionPtrTypeOf *)instruction);
         case IrInstructionIdAlignCast:
             return ir_analyze_instruction_align_cast(ira, (IrInstructionAlignCast *)instruction);
+        case IrInstructionIdOpaqueType:
+            return ir_analyze_instruction_opaque_type(ira, (IrInstructionOpaqueType *)instruction);
     }
     zig_unreachable();
 }
@@ -15507,6 +15538,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdOffsetOf:
         case IrInstructionIdTypeId:
         case IrInstructionIdAlignCast:
+        case IrInstructionIdOpaqueType:
             return false;
         case IrInstructionIdAsm:
             {

@@ -469,7 +469,8 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
             FnTableEntry *fn_table_entry = fn_scope->fn_entry;
             if (!fn_table_entry->proto_node)
                 return get_di_scope(g, scope->parent);
-            unsigned line_number = (unsigned)fn_table_entry->proto_node->line + 1;
+            unsigned line_number = (unsigned)(fn_table_entry->proto_node->line == 0) ?
+                0 : (fn_table_entry->proto_node->line + 1);
             unsigned scope_line = line_number;
             bool is_definition = fn_table_entry->body_node != nullptr;
             unsigned flags = 0;
@@ -3328,6 +3329,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdTypeId:
         case IrInstructionIdSetEvalBranchQuota:
         case IrInstructionIdPtrTypeOf:
+        case IrInstructionIdOpaqueType:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -4732,6 +4734,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdShrExact, "shrExact", 2);
     create_builtin_fn(g, BuiltinFnIdSetEvalBranchQuota, "setEvalBranchQuota", 1);
     create_builtin_fn(g, BuiltinFnIdAlignCast, "alignCast", 2);
+    create_builtin_fn(g, BuiltinFnIdOpaqueType, "OpaqueType", 0);
 }
 
 static const char *bool_to_str(bool b) {

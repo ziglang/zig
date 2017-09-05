@@ -2079,4 +2079,15 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         ".tmp_source.zig:5:5: error: @setEvalBranchQuota must be called from the top of the comptime stack",
         ".tmp_source.zig:2:8: note: called from here",
         ".tmp_source.zig:1:10: note: called from here");
+
+    cases.add("wrong pointer implicitly casted to pointer to @OpaqueType()",
+        \\const Derp = @OpaqueType();
+        \\extern fn bar(d: &Derp);
+        \\export fn foo() {
+        \\    const x = u8(1);
+        \\    bar(@ptrCast(&c_void, &x));
+        \\}
+    ,
+        ".tmp_source.zig:5:9: error: expected type '&Derp', found '&c_void'");
+
 }
