@@ -44,11 +44,11 @@ pub fn addCases(cases: &tests.ParseHContext) {
         \\    @"1",
         \\};
     ,
-        \\pub const FooA = Foo.A;
+        \\pub const FooA = enum_Foo.A;
     ,
-        \\pub const FooB = Foo.B;
+        \\pub const FooB = enum_Foo.B;
     ,
-        \\pub const Foo1 = Foo.1;
+        \\pub const Foo1 = enum_Foo.@"1";
     ,
         \\pub const Foo = enum_Foo;
     );
@@ -94,9 +94,9 @@ pub fn addCases(cases: &tests.ParseHContext) {
         \\    B,
         \\};
     ,
-        \\pub const BarA = 0;
+        \\pub const BarA = enum_Bar.A;
     ,
-        \\pub const BarB = 1;
+        \\pub const BarB = enum_Bar.B;
     ,
         \\pub extern fn func(a: ?&struct_Foo, b: ?&?&enum_Bar);
     ,

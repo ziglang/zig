@@ -79,11 +79,14 @@ ErrorMsg *err_msg_create_with_offset(Buf *path, size_t line, size_t column, size
     for (;;) {
         if (line_start_offset == 0) {
             break;
-        } else if (source[line_start_offset] == '\n') {
+        }
+
+        line_start_offset -= 1;
+
+        if (source[line_start_offset] == '\n') {
             line_start_offset += 1;
             break;
         }
-        line_start_offset -= 1;
     }
 
     size_t line_end_offset = offset;

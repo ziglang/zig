@@ -22,7 +22,6 @@ struct ParseContext {
     ErrColor err_color;
     // These buffers are used freqently so we preallocate them once here.
     Buf *void_buf;
-    Buf *empty_buf;
 };
 
 __attribute__ ((format (printf, 4, 5)))
@@ -276,7 +275,7 @@ static AstNode *ast_parse_param_decl(ParseContext *pc, size_t *token_index) {
         token = &pc->tokens->at(*token_index);
     }
 
-    node->data.param_decl.name = pc->empty_buf;
+    node->data.param_decl.name = nullptr;
 
     if (token->id == TokenIdSymbol) {
         Token *next_token = &pc->tokens->at(*token_index + 1);
@@ -2246,7 +2245,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool m
         *token_index += 1;
         node->data.fn_proto.name = token_buf(fn_name);
     } else {
-        node->data.fn_proto.name = pc->empty_buf;
+        node->data.fn_proto.name = nullptr;
     }
 
     ast_parse_param_decl_list(pc, token_index, &node->data.fn_proto.params, &node->data.fn_proto.is_var_args);
@@ -2612,7 +2611,6 @@ AstNode *ast_parse(Buf *buf, ZigList<Token> *tokens, ImportTableEntry *owner,
 {
     ParseContext pc = {0};
     pc.void_buf = buf_create_from_str("void");
-    pc.empty_buf = buf_create_from_str("");
     pc.err_color = err_color;
     pc.owner = owner;
     pc.buf = buf;

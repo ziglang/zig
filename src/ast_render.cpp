@@ -412,14 +412,17 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 const char *pub_str = visib_mod_string(node->data.fn_proto.visib_mod);
                 const char *extern_str = extern_string(node->data.fn_proto.is_extern);
                 const char *inline_str = inline_string(node->data.fn_proto.is_inline);
-                fprintf(ar->f, "%s%s%sfn ", pub_str, inline_str, extern_str);
-                print_symbol(ar, node->data.fn_proto.name);
+                fprintf(ar->f, "%s%s%sfn", pub_str, inline_str, extern_str);
+                if (node->data.fn_proto.name != nullptr) {
+                    fprintf(ar->f, " ");
+                    print_symbol(ar, node->data.fn_proto.name);
+                }
                 fprintf(ar->f, "(");
                 size_t arg_count = node->data.fn_proto.params.length;
                 for (size_t arg_i = 0; arg_i < arg_count; arg_i += 1) {
                     AstNode *param_decl = node->data.fn_proto.params.at(arg_i);
                     assert(param_decl->type == NodeTypeParamDecl);
-                    if (buf_len(param_decl->data.param_decl.name) > 0) {
+                    if (param_decl->data.param_decl.name != nullptr) {
                         const char *noalias_str = param_decl->data.param_decl.is_noalias ? "noalias " : "";
                         const char *inline_str = param_decl->data.param_decl.is_inline ? "inline " : "";
                         fprintf(ar->f, "%s%s", noalias_str, inline_str);

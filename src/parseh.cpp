@@ -30,8 +30,8 @@ struct MacroSymbol {
 };
 
 struct Alias {
-    Buf *name;
-    AstNode *node;
+    Buf *new_name;
+    Buf *canon_name;
 };
 
 struct Context {
@@ -85,10 +85,10 @@ static void emit_warning(Context *c, const SourceLocation &sl, const char *forma
     fprintf(stderr, "%s:%u:%u: warning: %s\n", buf_ptr(path), line, column, buf_ptr(msg));
 }
 
-static void add_global_weak_alias(Context *c, Buf *name, AstNode *node) {
+static void add_global_weak_alias(Context *c, Buf *new_name, Buf *canon_name) {
     Alias *alias = c->aliases.add_one();
-    alias->name = name;
-    alias->node = node;
+    alias->new_name = new_name;
+    alias->canon_name = canon_name;
 }
 
 static AstNode * trans_create_node(Context *c, NodeType id) {
@@ -128,7 +128,7 @@ static AstNode *trans_create_node_builtin_fn_call_str(Context *c, const char *na
 }
 
 static AstNode *trans_create_node_opaque(Context *c) {
-    return trans_create_node_builtin_fn_call_str(c, "opaque");
+    return trans_create_node_builtin_fn_call_str(c, "OpaqueType");
 }
 
 static AstNode *trans_create_node_field_access(Context *c, AstNode *container, Buf *field_name) {
@@ -209,7 +209,7 @@ static AstNode *trans_create_node_var_decl(Context *c, bool is_const, Buf *var_n
 static AstNode *trans_create_node_inline_fn(Context *c, Buf *fn_name, Buf *var_name, AstNode *src_proto_node) {
     AstNode *fn_def = trans_create_node(c, NodeTypeFnDef);
     AstNode *fn_proto = trans_create_node(c, NodeTypeFnProto);
-    fn_proto->data.fn_proto.visib_mod = c->visib_mod;;
+    fn_proto->data.fn_proto.visib_mod = c->visib_mod;
     fn_proto->data.fn_proto.name = fn_name;
     fn_proto->data.fn_proto.is_inline = true;
     fn_proto->data.fn_proto.return_type = src_proto_node->data.fn_proto.return_type; // TODO ok for these to alias?
@@ -559,6 +559,7 @@ static AstNode *trans_type_with_table(Context *c, const Type *ty, const SourceLo
                 switch (fn_proto_ty->getCallConv()) {
                     case CC_C:           // __attribute__((cdecl))
                         proto_node->data.fn_proto.cc = CallingConventionC;
+                        proto_node->data.fn_proto.is_extern = true;
                         break;
                     case CC_X86StdCall:  // __attribute__((stdcall))
                         proto_node->data.fn_proto.cc = CallingConventionStdcall;
@@ -646,9 +647,7 @@ static AstNode *trans_type_with_table(Context *c, const Type *ty, const SourceLo
                     AstNode *param_node = trans_create_node(c, NodeTypeParamDecl);
                     //emit_warning(c, source_loc, "TODO figure out fn prototype param name");
                     const char *param_name = nullptr;
-                    if (param_name == nullptr) {
-                        param_node->data.param_decl.name = buf_sprintf("arg%" ZIG_PRI_usize "", i);
-                    } else {
+                    if (param_name != nullptr) {
                         param_node->data.param_decl.name = buf_create_from_str(param_name);
                     }
                     param_node->data.param_decl.is_noalias = qt.isRestrictQualified();
@@ -1662,7 +1661,14 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
         AstNode *param_node = proto_node->data.fn_proto.params.at(i);
         const ParmVarDecl *param = fn_decl->getParamDecl(i);
         const char *name = decl_name(param);
-        if (strlen(name) != 0) {
+        if (strlen(name) == 0) {
+            Buf *proto_param_name = param_node->data.param_decl.name;
+            if (proto_param_name == nullptr) {
+                param_node->data.param_decl.name = buf_sprintf("arg%" ZIG_PRI_usize "", i);
+            } else {
+                param_node->data.param_decl.name = proto_param_name;
+            }
+        } else {
             param_node->data.param_decl.name = buf_create_from_str(name);
         }
     }
@@ -1714,6 +1720,22 @@ static void visit_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl) 
     c->global_type_table.put(type_name, type_node);
 }
 
+struct AstNode *demote_enum_to_opaque(Context *c, const EnumDecl *enum_decl,
+        Buf *full_type_name, Buf *bare_name)
+{
+    AstNode *opaque_node = trans_create_node_opaque(c);
+    if (full_type_name == nullptr) {
+        c->decl_table.put(enum_decl, opaque_node);
+        return opaque_node;
+    }
+    AstNode *symbol_node = trans_create_node_symbol(c, full_type_name);
+    c->enum_type_table.put(bare_name, symbol_node);
+    add_global_weak_alias(c, bare_name, full_type_name);
+    add_global_var(c, full_type_name, opaque_node);
+    c->decl_table.put(enum_decl, symbol_node);
+    return symbol_node;
+}
+
 static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
     auto existing_entry = c->decl_table.maybe_get((void*)enum_decl);
     if (existing_entry) {
@@ -1727,14 +1749,7 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
 
     const EnumDecl *enum_def = enum_decl->getDefinition();
     if (!enum_def) {
-        AstNode *opaque_node = trans_create_node_opaque(c);
-        if (!is_anonymous) {
-            c->enum_type_table.put(bare_name, opaque_node);
-            add_global_weak_alias(c, bare_name, opaque_node);
-            add_global_var(c, full_type_name, opaque_node);
-        }
-        c->decl_table.put(enum_decl, opaque_node);
-        return opaque_node;
+        return demote_enum_to_opaque(c, enum_decl, full_type_name, bare_name);
     }
 
     bool pure_enum = true;
@@ -1786,14 +1801,17 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
             add_global_var(c, enum_val_name, field_access_node);
         }
 
-        if (!is_anonymous) {
-            c->enum_type_table.put(bare_name, enum_node);
-            add_global_weak_alias(c, bare_name, enum_node);
+        if (is_anonymous) {
+            c->decl_table.put(enum_decl, enum_node);
+            return enum_node;
+        } else {
+            AstNode *symbol_node = trans_create_node_symbol(c, full_type_name);
+            c->enum_type_table.put(bare_name, symbol_node);
+            add_global_weak_alias(c, bare_name, full_type_name);
             add_global_var(c, full_type_name, enum_node);
+            c->decl_table.put(enum_decl, symbol_node);
+            return enum_node;
         }
-        c->decl_table.put(enum_decl, enum_node);
-
-        return enum_node;
     }
 
     // TODO after issue #305 is solved, make this be an enum with tag_int_type
@@ -1814,14 +1832,32 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
         var_node->data.variable_declaration.type = tag_int_type;
     }
 
-    if (!is_anonymous) {
-        c->enum_type_table.put(bare_name, enum_node);
-        add_global_weak_alias(c, bare_name, enum_node);
+    if (is_anonymous) {
+        c->decl_table.put(enum_decl, enum_node);
+        return enum_node;
+    } else {
+        AstNode *symbol_node = trans_create_node_symbol(c, full_type_name);
+        c->enum_type_table.put(bare_name, symbol_node);
+        add_global_weak_alias(c, bare_name, full_type_name);
         add_global_var(c, full_type_name, enum_node);
+        return symbol_node;
     }
-    c->decl_table.put(enum_decl, enum_node);
+}
 
-    return enum_node;
+static AstNode *demote_struct_to_opaque(Context *c, const RecordDecl *record_decl,
+        Buf *full_type_name, Buf *bare_name)
+{
+    AstNode *opaque_node = trans_create_node_opaque(c);
+    if (full_type_name == nullptr) {
+        c->decl_table.put(record_decl, opaque_node);
+        return opaque_node;
+    }
+    AstNode *symbol_node = trans_create_node_symbol(c, full_type_name);
+    c->struct_type_table.put(bare_name, symbol_node);
+    add_global_weak_alias(c, bare_name, full_type_name);
+    add_global_var(c, full_type_name, opaque_node);
+    c->decl_table.put(record_decl, symbol_node);
+    return symbol_node;
 }
 
 static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
@@ -1834,7 +1870,6 @@ static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
 
     if (!record_decl->isStruct()) {
         emit_warning(c, record_decl->getLocation(), "skipping record %s, not a struct", raw_name);
-        c->decl_table.put(record_decl, nullptr);
         return nullptr;
     }
 
@@ -1844,14 +1879,7 @@ static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
 
     RecordDecl *record_def = record_decl->getDefinition();
     if (record_def == nullptr) {
-        AstNode *opaque_node = trans_create_node_opaque(c);
-        if (!is_anonymous) {
-            c->struct_type_table.put(bare_name, opaque_node);
-            add_global_weak_alias(c, bare_name, opaque_node);
-            add_global_var(c, full_type_name, opaque_node);
-        }
-        c->decl_table.put(record_decl, opaque_node);
-        return opaque_node;
+        return demote_struct_to_opaque(c, record_decl, full_type_name, bare_name);
     }
 
     // count fields and validate
@@ -1865,16 +1893,7 @@ static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
         if (field_decl->isBitField()) {
             emit_warning(c, field_decl->getLocation(), "struct %s demoted to opaque type - has bitfield",
                     is_anonymous ? "(anon)" : buf_ptr(bare_name));
-
-            AstNode *opaque_node = trans_create_node_opaque(c);
-
-            if (!is_anonymous) {
-                c->struct_type_table.put(bare_name, opaque_node);
-                add_global_weak_alias(c, bare_name, opaque_node);
-                add_global_var(c, full_type_name, opaque_node);
-            }
-            c->decl_table.put(record_decl, opaque_node);
-            return opaque_node;;
+            return demote_struct_to_opaque(c, record_decl, full_type_name, bare_name);
         }
     }
 
@@ -1887,12 +1906,14 @@ static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
     struct_node->data.container_decl.fields.resize(field_count);
 
     // must be before fields in case a circular reference happens
-    if (!is_anonymous) {
+    if (is_anonymous) {
+        c->decl_table.put(record_decl, struct_node);
+    } else {
         c->struct_type_table.put(bare_name, struct_node);
-        add_global_weak_alias(c, bare_name, struct_node);
+        add_global_weak_alias(c, bare_name, full_type_name);
         add_global_var(c, full_type_name, struct_node);
+        c->decl_table.put(record_decl, trans_create_node_symbol(c, full_type_name));
     }
-    c->decl_table.put(record_decl, struct_node);
 
     uint32_t i = 0;
     for (auto it = record_def->field_begin(),
@@ -1910,22 +1931,17 @@ static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
                     "struct %s demoted to opaque type - unresolved type",
                     is_anonymous ? "(anon)" : buf_ptr(bare_name));
 
-            AstNode *opaque_node = trans_create_node_opaque(c);
-            if (!is_anonymous) {
-                c->struct_type_table.put(bare_name, opaque_node);
-                add_global_weak_alias(c, bare_name, opaque_node);
-                add_global_var(c, full_type_name, opaque_node);
-            }
-            c->decl_table.put(record_decl, opaque_node);
-
-            return opaque_node;
+            return demote_struct_to_opaque(c, record_decl, full_type_name, bare_name);
         }
 
         struct_node->data.container_decl.fields.items[i] = field_node;
     }
 
-
-    return struct_node;
+    if (is_anonymous) {
+        return struct_node;
+    } else {
+        return trans_create_node_symbol(c, full_type_name);
+    }
 }
 
 static void visit_var_decl(Context *c, const VarDecl *var_decl) {
@@ -2045,10 +2061,10 @@ static bool name_exists(Context *c, Buf *name) {
 static void render_aliases(Context *c) {
     for (size_t i = 0; i < c->aliases.length; i += 1) {
         Alias *alias = &c->aliases.at(i);
-        if (name_exists(c, alias->name))
+        if (name_exists(c, alias->new_name))
             continue;
 
-        add_global_var(c, alias->name, alias->node);
+        add_global_var(c, alias->new_name, trans_create_node_symbol(c, alias->canon_name));
     }
 }
 
@@ -2174,7 +2190,7 @@ static void process_symbol_macros(Context *c) {
             }
         }
 
-        add_global_var(c, ms.name, existing_node);
+        add_global_var(c, ms.name, trans_create_node_symbol(c, ms.value));
     }
 }
 
