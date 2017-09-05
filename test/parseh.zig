@@ -190,7 +190,7 @@ pub fn addCases(cases: &tests.ParseHContext) {
     ,
         \\pub const Foo = c_void;
     ,
-        \\pub extern fn fun(a: ?&c_void);
+        \\pub extern fn fun(a: ?&Foo) -> Foo;
     );
 
     cases.add("generate inline func for #define global extern fn",

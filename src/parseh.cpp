@@ -40,9 +40,6 @@ struct Context {
     bool warnings_on;
     VisibMod visib_mod;
     AstNode *root;
-    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> global_type_table;
-    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> struct_type_table;
-    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> enum_type_table;
     HashMap<const void *, AstNode *, ptr_hash, ptr_eq> decl_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> macro_table;
     SourceManager *source_manager;
@@ -56,9 +53,9 @@ struct Context {
 
 static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl);
 static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl);
-static AstNode * trans_qual_type_with_table(Context *c, QualType qt, const SourceLocation &source_loc,
-        HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> *type_table);
-static AstNode * trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc);
+static AstNode *resolve_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl);
+static AstNode *trans_qual_type_with_table(Context *c, QualType qt, const SourceLocation &source_loc);
+static AstNode *trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc);
 
 
 __attribute__ ((format (printf, 3, 4)))
@@ -372,9 +369,7 @@ static AstNode * trans_expr(Context *c, AstNode *block, Expr *expr) {
     return trans_stmt(c, block, expr);
 }
 
-static AstNode *trans_type_with_table(Context *c, const Type *ty, const SourceLocation &source_loc,
-    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> *type_table)
-{
+static AstNode *trans_type_with_table(Context *c, const Type *ty, const SourceLocation &source_loc) {
     switch (ty->getTypeClass()) {
         case Type::Builtin:
             {
@@ -504,46 +499,16 @@ static AstNode *trans_type_with_table(Context *c, const Type *ty, const SourceLo
             {
                 const TypedefType *typedef_ty = static_cast<const TypedefType*>(ty);
                 const TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
-                Buf *type_name = buf_create_from_str(decl_name(typedef_decl));
-                if (buf_eql_str(type_name, "uint8_t")) {
-                    return trans_create_node_symbol_str(c, "u8");
-                } else if (buf_eql_str(type_name, "int8_t")) {
-                    return trans_create_node_symbol_str(c, "i8");
-                } else if (buf_eql_str(type_name, "uint16_t")) {
-                    return trans_create_node_symbol_str(c, "u16");
-                } else if (buf_eql_str(type_name, "int16_t")) {
-                    return trans_create_node_symbol_str(c, "i16");
-                } else if (buf_eql_str(type_name, "uint32_t")) {
-                    return trans_create_node_symbol_str(c, "u32");
-                } else if (buf_eql_str(type_name, "int32_t")) {
-                    return trans_create_node_symbol_str(c, "i32");
-                } else if (buf_eql_str(type_name, "uint64_t")) {
-                    return trans_create_node_symbol_str(c, "u64");
-                } else if (buf_eql_str(type_name, "int64_t")) {
-                    return trans_create_node_symbol_str(c, "i64");
-                } else if (buf_eql_str(type_name, "intptr_t")) {
-                    return trans_create_node_symbol_str(c, "isize");
-                } else if (buf_eql_str(type_name, "uintptr_t")) {
-                    return trans_create_node_symbol_str(c, "usize");
-                } else {
-                    auto entry = type_table->maybe_get(type_name);
-                    if (entry == nullptr || entry->value == nullptr) {
-                        return nullptr;
-                    } else {
-                        return entry->value;
-                    }
-                }
+                return resolve_typedef_decl(c, typedef_decl);
             }
         case Type::Elaborated:
             {
                 const ElaboratedType *elaborated_ty = static_cast<const ElaboratedType*>(ty);
                 switch (elaborated_ty->getKeyword()) {
                     case ETK_Struct:
-                        return trans_qual_type_with_table(c, elaborated_ty->getNamedType(),
-                                source_loc, &c->struct_type_table);
+                        return trans_qual_type_with_table(c, elaborated_ty->getNamedType(), source_loc);
                     case ETK_Enum:
-                        return trans_qual_type_with_table(c, elaborated_ty->getNamedType(),
-                                source_loc, &c->enum_type_table);
+                        return trans_qual_type_with_table(c, elaborated_ty->getNamedType(), source_loc);
                     case ETK_Interface:
                     case ETK_Union:
                     case ETK_Class:
@@ -738,14 +703,12 @@ static AstNode *trans_type_with_table(Context *c, const Type *ty, const SourceLo
     zig_unreachable();
 }
 
-static AstNode * trans_qual_type_with_table(Context *c, QualType qt, const SourceLocation &source_loc,
-        HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> *type_table)
-{
-    return trans_type_with_table(c, qt.getTypePtr(), source_loc, type_table);
+static AstNode * trans_qual_type_with_table(Context *c, QualType qt, const SourceLocation &source_loc) {
+    return trans_type_with_table(c, qt.getTypePtr(), source_loc);
 }
 
 static AstNode * trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc) {
-    return trans_qual_type_with_table(c, qt, source_loc, &c->global_type_table);
+    return trans_qual_type_with_table(c, qt, source_loc);
 }
 
 static AstNode * trans_compound_stmt(Context *c, AstNode *parent, CompoundStmt *stmt) {
@@ -1690,23 +1653,45 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     c->root->data.root.top_level_decls.append(proto_node);
 }
 
-static void visit_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl) {
+static AstNode *resolve_typdef_as_builtin(Context *c, const TypedefNameDecl *typedef_decl, const char *primitive_name) {
+    AstNode *node = trans_create_node_symbol_str(c, primitive_name);
+    c->decl_table.put(typedef_decl, node);
+    return node;
+}
+
+static AstNode *resolve_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl) {
+    auto existing_entry = c->decl_table.maybe_get((void*)typedef_decl);
+    if (existing_entry) {
+        return existing_entry->value;
+    }
+
     QualType child_qt = typedef_decl->getUnderlyingType();
     Buf *type_name = buf_create_from_str(decl_name(typedef_decl));
 
-    if (buf_eql_str(type_name, "uint8_t") ||
-        buf_eql_str(type_name, "int8_t") ||
-        buf_eql_str(type_name, "uint16_t") ||
-        buf_eql_str(type_name, "int16_t") ||
-        buf_eql_str(type_name, "uint32_t") ||
-        buf_eql_str(type_name, "int32_t") ||
-        buf_eql_str(type_name, "uint64_t") ||
-        buf_eql_str(type_name, "int64_t") ||
-        buf_eql_str(type_name, "intptr_t") ||
-        buf_eql_str(type_name, "uintptr_t"))
-    {
-        // special case we can just use the builtin types
-        return;
+    if (buf_eql_str(type_name, "uint8_t")) {
+        return resolve_typdef_as_builtin(c, typedef_decl, "u8");
+    } else if (buf_eql_str(type_name, "int8_t")) {
+        return resolve_typdef_as_builtin(c, typedef_decl, "i8");
+    } else if (buf_eql_str(type_name, "uint16_t")) {
+        return resolve_typdef_as_builtin(c, typedef_decl, "u16");
+    } else if (buf_eql_str(type_name, "int16_t")) {
+        return resolve_typdef_as_builtin(c, typedef_decl, "i16");
+    } else if (buf_eql_str(type_name, "uint32_t")) {
+        return resolve_typdef_as_builtin(c, typedef_decl, "u32");
+    } else if (buf_eql_str(type_name, "int32_t")) {
+        return resolve_typdef_as_builtin(c, typedef_decl, "i32");
+    } else if (buf_eql_str(type_name, "uint64_t")) {
+        return resolve_typdef_as_builtin(c, typedef_decl, "u64");
+    } else if (buf_eql_str(type_name, "int64_t")) {
+        return resolve_typdef_as_builtin(c, typedef_decl, "i64");
+    } else if (buf_eql_str(type_name, "intptr_t")) {
+        return resolve_typdef_as_builtin(c, typedef_decl, "isize");
+    } else if (buf_eql_str(type_name, "uintptr_t")) {
+        return resolve_typdef_as_builtin(c, typedef_decl, "usize");
+    } else if (buf_eql_str(type_name, "ssize_t")) {
+        return resolve_typdef_as_builtin(c, typedef_decl, "isize");
+    } else if (buf_eql_str(type_name, "size_t")) {
+        return resolve_typdef_as_builtin(c, typedef_decl, "usize");
     }
 
     // if the underlying type is anonymous, we can special case it to just
@@ -1716,10 +1701,14 @@ static void visit_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl) 
     AstNode *type_node = trans_qual_type(c, child_qt, typedef_decl->getLocation());
     if (type_node == nullptr) {
         emit_warning(c, typedef_decl->getLocation(), "typedef %s - unresolved child type", buf_ptr(type_name));
-        return;
+        c->decl_table.put(typedef_decl, nullptr);
+        return nullptr;
     }
     add_global_var(c, type_name, type_node);
-    c->global_type_table.put(type_name, type_node);
+
+    AstNode *symbol_node = trans_create_node_symbol(c, type_name);
+    c->decl_table.put(typedef_decl, symbol_node);
+    return symbol_node;
 }
 
 struct AstNode *demote_enum_to_opaque(Context *c, const EnumDecl *enum_decl,
@@ -1731,7 +1720,6 @@ struct AstNode *demote_enum_to_opaque(Context *c, const EnumDecl *enum_decl,
         return opaque_node;
     }
     AstNode *symbol_node = trans_create_node_symbol(c, full_type_name);
-    c->enum_type_table.put(bare_name, symbol_node);
     add_global_weak_alias(c, bare_name, full_type_name);
     add_global_var(c, full_type_name, opaque_node);
     c->decl_table.put(enum_decl, symbol_node);
@@ -1808,7 +1796,6 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
             return enum_node;
         } else {
             AstNode *symbol_node = trans_create_node_symbol(c, full_type_name);
-            c->enum_type_table.put(bare_name, symbol_node);
             add_global_weak_alias(c, bare_name, full_type_name);
             add_global_var(c, full_type_name, enum_node);
             c->decl_table.put(enum_decl, symbol_node);
@@ -1839,7 +1826,6 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
         return enum_node;
     } else {
         AstNode *symbol_node = trans_create_node_symbol(c, full_type_name);
-        c->enum_type_table.put(bare_name, symbol_node);
         add_global_weak_alias(c, bare_name, full_type_name);
         add_global_var(c, full_type_name, enum_node);
         return symbol_node;
@@ -1855,7 +1841,6 @@ static AstNode *demote_struct_to_opaque(Context *c, const RecordDecl *record_dec
         return opaque_node;
     }
     AstNode *symbol_node = trans_create_node_symbol(c, full_type_name);
-    c->struct_type_table.put(bare_name, symbol_node);
     add_global_weak_alias(c, bare_name, full_type_name);
     add_global_var(c, full_type_name, opaque_node);
     c->decl_table.put(record_decl, symbol_node);
@@ -1872,6 +1857,7 @@ static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
 
     if (!record_decl->isStruct()) {
         emit_warning(c, record_decl->getLocation(), "skipping record %s, not a struct", raw_name);
+        c->decl_table.put(record_decl, nullptr);
         return nullptr;
     }
 
@@ -1911,9 +1897,6 @@ static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
     if (is_anonymous) {
         c->decl_table.put(record_decl, struct_node);
     } else {
-        c->struct_type_table.put(bare_name, struct_node);
-        add_global_weak_alias(c, bare_name, full_type_name);
-        add_global_var(c, full_type_name, struct_node);
         c->decl_table.put(record_decl, trans_create_node_symbol(c, full_type_name));
     }
 
@@ -1942,6 +1925,8 @@ static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
     if (is_anonymous) {
         return struct_node;
     } else {
+        add_global_weak_alias(c, bare_name, full_type_name);
+        add_global_var(c, full_type_name, struct_node);
         return trans_create_node_symbol(c, full_type_name);
     }
 }
@@ -2032,7 +2017,7 @@ static bool decl_visitor(void *context, const Decl *decl) {
             visit_fn_decl(c, static_cast<const FunctionDecl*>(decl));
             break;
         case Decl::Typedef:
-            visit_typedef_decl(c, static_cast<const TypedefNameDecl *>(decl));
+            resolve_typedef_decl(c, static_cast<const TypedefNameDecl *>(decl));
             break;
         case Decl::Enum:
             resolve_enum_decl(c, static_cast<const EnumDecl *>(decl));
@@ -2260,9 +2245,6 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     c->import = import;
     c->errors = errors;
     c->visib_mod = VisibModPub;
-    c->global_type_table.init(8);
-    c->enum_type_table.init(8);
-    c->struct_type_table.init(8);
     c->decl_table.init(8);
     c->macro_table.init(8);
     c->codegen = codegen;
