@@ -54,8 +54,6 @@ struct Context {
 static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl);
 static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl);
 static AstNode *resolve_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl);
-static AstNode *trans_qual_type_with_table(Context *c, QualType qt, const SourceLocation &source_loc);
-static AstNode *trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc);
 
 
 __attribute__ ((format (printf, 3, 4)))
@@ -362,14 +360,15 @@ static bool c_is_float(Context *c, QualType qt) {
     }
 }
 
-static AstNode * trans_stmt(Context *c, AstNode *block, Stmt *stmt);
-static AstNode * trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc);
+static AstNode *trans_stmt(Context *c, AstNode *block, Stmt *stmt);
+static AstNode *trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc);
+static AstNode *const skip_add_to_block_node = (AstNode *) 0x2;
 
-static AstNode * trans_expr(Context *c, AstNode *block, Expr *expr) {
+static AstNode *trans_expr(Context *c, AstNode *block, Expr *expr) {
     return trans_stmt(c, block, expr);
 }
 
-static AstNode *trans_type_with_table(Context *c, const Type *ty, const SourceLocation &source_loc) {
+static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &source_loc) {
     switch (ty->getTypeClass()) {
         case Type::Builtin:
             {
@@ -506,9 +505,9 @@ static AstNode *trans_type_with_table(Context *c, const Type *ty, const SourceLo
                 const ElaboratedType *elaborated_ty = static_cast<const ElaboratedType*>(ty);
                 switch (elaborated_ty->getKeyword()) {
                     case ETK_Struct:
-                        return trans_qual_type_with_table(c, elaborated_ty->getNamedType(), source_loc);
+                        return trans_qual_type(c, elaborated_ty->getNamedType(), source_loc);
                     case ETK_Enum:
-                        return trans_qual_type_with_table(c, elaborated_ty->getNamedType(), source_loc);
+                        return trans_qual_type(c, elaborated_ty->getNamedType(), source_loc);
                     case ETK_Interface:
                     case ETK_Union:
                     case ETK_Class:
@@ -703,19 +702,17 @@ static AstNode *trans_type_with_table(Context *c, const Type *ty, const SourceLo
     zig_unreachable();
 }
 
-static AstNode * trans_qual_type_with_table(Context *c, QualType qt, const SourceLocation &source_loc) {
-    return trans_type_with_table(c, qt.getTypePtr(), source_loc);
+static AstNode *trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc) {
+    return trans_type(c, qt.getTypePtr(), source_loc);
 }
 
-static AstNode * trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc) {
-    return trans_qual_type_with_table(c, qt, source_loc);
-}
-
-static AstNode * trans_compound_stmt(Context *c, AstNode *parent, CompoundStmt *stmt) {
+static AstNode *trans_compound_stmt(Context *c, AstNode *parent, CompoundStmt *stmt) {
     AstNode *child_block = trans_create_node(c, NodeTypeBlock);
     for (CompoundStmt::body_iterator it = stmt->body_begin(), end_it = stmt->body_end(); it != end_it; ++it) {
         AstNode *child_node = trans_stmt(c, child_block, *it);
-        if (child_node != nullptr)
+        if (child_node == nullptr)
+            return nullptr;
+        if (child_node != skip_add_to_block_node)
             child_block->data.block.statements.append(child_node);
     }
     return child_block;
@@ -724,10 +721,13 @@ static AstNode * trans_compound_stmt(Context *c, AstNode *parent, CompoundStmt *
 static AstNode *trans_return_stmt(Context *c, AstNode *block, ReturnStmt *stmt) {
     Expr *value_expr = stmt->getRetValue();
     if (value_expr == nullptr) {
-        zig_panic("TODO handle C return void");
+        emit_warning(c, stmt->getLocStart(), "TODO handle C return void");
+        return nullptr;
     } else {
         AstNode *return_node = trans_create_node(c, NodeTypeReturnExpr);
         return_node->data.return_expr.expr = trans_expr(c, block, value_expr);
+        if (return_node->data.return_expr.expr == nullptr)
+            return nullptr;
         return return_node;
     }
 }
@@ -735,7 +735,8 @@ static AstNode *trans_return_stmt(Context *c, AstNode *block, ReturnStmt *stmt) 
 static AstNode *trans_integer_literal(Context *c, IntegerLiteral *stmt) {
     llvm::APSInt result;
     if (!stmt->EvaluateAsInt(result, *c->ctx)) {
-        zig_panic("TODO handle libclang unable to evaluate C integer literal");
+        emit_warning(c, stmt->getLocStart(), "invalid integer literal");
+        return nullptr;
     }
     return trans_create_node_apint(c, result);
 }
@@ -748,40 +749,64 @@ static AstNode *trans_conditional_operator(Context *c, AstNode *block, Condition
     Expr *false_expr = stmt->getFalseExpr();
 
     node->data.if_bool_expr.condition = trans_expr(c, block, cond_expr);
+    if (node->data.if_bool_expr.condition == nullptr)
+        return nullptr;
+
     node->data.if_bool_expr.then_block = trans_expr(c, block, true_expr);
+    if (node->data.if_bool_expr.then_block == nullptr)
+        return nullptr;
+
     node->data.if_bool_expr.else_node = trans_expr(c, block, false_expr);
+    if (node->data.if_bool_expr.else_node == nullptr)
+        return nullptr;
 
     return node;
 }
 
-static AstNode * trans_create_bin_op(Context *c, AstNode *block, Expr *lhs, BinOpType bin_op, Expr *rhs) {
+static AstNode *trans_create_bin_op(Context *c, AstNode *block, Expr *lhs, BinOpType bin_op, Expr *rhs) {
     AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
     node->data.bin_op_expr.bin_op = bin_op;
+
     node->data.bin_op_expr.op1 = trans_expr(c, block, lhs);
+    if (node->data.bin_op_expr.op1 == nullptr)
+        return nullptr;
+
     node->data.bin_op_expr.op2 = trans_expr(c, block, rhs);
+    if (node->data.bin_op_expr.op2 == nullptr)
+        return nullptr;
+
     return node;
 }
 
-static AstNode * trans_binary_operator(Context *c, AstNode *block, BinaryOperator *stmt) {
+static AstNode *trans_binary_operator(Context *c, AstNode *block, BinaryOperator *stmt) {
     switch (stmt->getOpcode()) {
         case BO_PtrMemD:
-            zig_panic("TODO handle more C binary operators: BO_PtrMemD");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_PtrMemD");
+            return nullptr;
         case BO_PtrMemI:
-            zig_panic("TODO handle more C binary operators: BO_PtrMemI");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_PtrMemI");
+            return nullptr;
         case BO_Mul:
-            zig_panic("TODO handle more C binary operators: BO_Mul");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Mul");
+            return nullptr;
         case BO_Div:
-            zig_panic("TODO handle more C binary operators: BO_Div");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Div");
+            return nullptr;
         case BO_Rem:
-            zig_panic("TODO handle more C binary operators: BO_Rem");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Rem");
+            return nullptr;
         case BO_Add:
-            zig_panic("TODO handle more C binary operators: BO_Add");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Add");
+            return nullptr;
         case BO_Sub:
-            zig_panic("TODO handle more C binary operators: BO_Sub");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Sub");
+            return nullptr;
         case BO_Shl:
-            zig_panic("TODO handle more C binary operators: BO_Shl");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Shl");
+            return nullptr;
         case BO_Shr:
-            zig_panic("TODO handle more C binary operators: BO_Shr");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Shr");
+            return nullptr;
         case BO_LT:
             return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeCmpLessThan, stmt->getRHS());
         case BO_GT:
@@ -791,405 +816,596 @@ static AstNode * trans_binary_operator(Context *c, AstNode *block, BinaryOperato
         case BO_GE:
             return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeCmpGreaterOrEq, stmt->getRHS());
         case BO_EQ:
-            zig_panic("TODO handle more C binary operators: BO_EQ");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_EQ");
+            return nullptr;
         case BO_NE:
-            zig_panic("TODO handle more C binary operators: BO_NE");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_NE");
+            return nullptr;
         case BO_And:
-            zig_panic("TODO handle more C binary operators: BO_And");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_And");
+            return nullptr;
         case BO_Xor:
-            zig_panic("TODO handle more C binary operators: BO_Xor");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Xor");
+            return nullptr;
         case BO_Or:
-            zig_panic("TODO handle more C binary operators: BO_Or");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Or");
+            return nullptr;
         case BO_LAnd:
-            zig_panic("TODO handle more C binary operators: BO_LAnd");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_LAnd");
+            return nullptr;
         case BO_LOr:
-            zig_panic("TODO handle more C binary operators: BO_LOr");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_LOr");
+            return nullptr;
         case BO_Assign:
-            zig_panic("TODO handle more C binary operators: BO_Assign");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Assign");
+            return nullptr;
         case BO_MulAssign:
-            zig_panic("TODO handle more C binary operators: BO_MulAssign");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_MulAssign");
+            return nullptr;
         case BO_DivAssign:
-            zig_panic("TODO handle more C binary operators: BO_DivAssign");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_DivAssign");
+            return nullptr;
         case BO_RemAssign:
-            zig_panic("TODO handle more C binary operators: BO_RemAssign");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_RemAssign");
+            return nullptr;
         case BO_AddAssign:
-            zig_panic("TODO handle more C binary operators: BO_AddAssign");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_AddAssign");
+            return nullptr;
         case BO_SubAssign:
-            zig_panic("TODO handle more C binary operators: BO_SubAssign");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_SubAssign");
+            return nullptr;
         case BO_ShlAssign:
-            zig_panic("TODO handle more C binary operators: BO_ShlAssign");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_ShlAssign");
+            return nullptr;
         case BO_ShrAssign:
-            zig_panic("TODO handle more C binary operators: BO_ShrAssign");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_ShrAssign");
+            return nullptr;
         case BO_AndAssign:
-            zig_panic("TODO handle more C binary operators: BO_AndAssign");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_AndAssign");
+            return nullptr;
         case BO_XorAssign:
-            zig_panic("TODO handle more C binary operators: BO_XorAssign");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_XorAssign");
+            return nullptr;
         case BO_OrAssign:
-            zig_panic("TODO handle more C binary operators: BO_OrAssign");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_OrAssign");
+            return nullptr;
         case BO_Comma:
-            zig_panic("TODO handle more C binary operators: BO_Comma");
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Comma");
+            return nullptr;
     }
 
     zig_unreachable();
 }
 
-static AstNode * trans_implicit_cast_expr(Context *c, AstNode *block, ImplicitCastExpr *stmt) {
+static AstNode *trans_implicit_cast_expr(Context *c, AstNode *block, ImplicitCastExpr *stmt) {
     switch (stmt->getCastKind()) {
         case CK_LValueToRValue:
             return trans_expr(c, block, stmt->getSubExpr());
         case CK_IntegralCast:
             {
                 AstNode *node = trans_create_node_builtin_fn_call_str(c, "bitCast");
-                node->data.fn_call_expr.params.append(trans_qual_type(c, stmt->getType(), stmt->getExprLoc()));
-                node->data.fn_call_expr.params.append(trans_expr(c, block, stmt->getSubExpr()));
+
+                AstNode *result_type_node = trans_qual_type(c, stmt->getType(), stmt->getExprLoc());
+                if (result_type_node == nullptr)
+                    return nullptr;
+
+                AstNode *target_node = trans_expr(c, block, stmt->getSubExpr());
+                if (target_node == nullptr)
+                    return nullptr;
+
+                node->data.fn_call_expr.params.append(result_type_node);
+                node->data.fn_call_expr.params.append(target_node);
                 return node;
             }
         case CK_Dependent:
-            zig_panic("TODO handle C translation cast CK_Dependent");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_Dependent");
+            return nullptr;
         case CK_BitCast:
-            zig_panic("TODO handle C translation cast CK_BitCast");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_BitCast");
+            return nullptr;
         case CK_LValueBitCast:
-            zig_panic("TODO handle C translation cast CK_LValueBitCast");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_LValueBitCast");
+            return nullptr;
         case CK_NoOp:
-            zig_panic("TODO handle C translation cast CK_NoOp");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_NoOp");
+            return nullptr;
         case CK_BaseToDerived:
-            zig_panic("TODO handle C translation cast CK_BaseToDerived");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_BaseToDerived");
+            return nullptr;
         case CK_DerivedToBase:
-            zig_panic("TODO handle C translation cast CK_DerivedToBase");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_DerivedToBase");
+            return nullptr;
         case CK_UncheckedDerivedToBase:
-            zig_panic("TODO handle C translation cast CK_UncheckedDerivedToBase");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_UncheckedDerivedToBase");
+            return nullptr;
         case CK_Dynamic:
-            zig_panic("TODO handle C translation cast CK_Dynamic");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_Dynamic");
+            return nullptr;
         case CK_ToUnion:
-            zig_panic("TODO handle C translation cast CK_ToUnion");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ToUnion");
+            return nullptr;
         case CK_ArrayToPointerDecay:
-            zig_panic("TODO handle C translation cast CK_ArrayToPointerDecay");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ArrayToPointerDecay");
+            return nullptr;
         case CK_FunctionToPointerDecay:
-            zig_panic("TODO handle C translation cast CK_FunctionToPointerDecay");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_FunctionToPointerDecay");
+            return nullptr;
         case CK_NullToPointer:
-            zig_panic("TODO handle C translation cast CK_NullToPointer");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_NullToPointer");
+            return nullptr;
         case CK_NullToMemberPointer:
-            zig_panic("TODO handle C translation cast CK_NullToMemberPointer");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_NullToMemberPointer");
+            return nullptr;
         case CK_BaseToDerivedMemberPointer:
-            zig_panic("TODO handle C translation cast CK_BaseToDerivedMemberPointer");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_BaseToDerivedMemberPointer");
+            return nullptr;
         case CK_DerivedToBaseMemberPointer:
-            zig_panic("TODO handle C translation cast CK_DerivedToBaseMemberPointer");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_DerivedToBaseMemberPointer");
+            return nullptr;
         case CK_MemberPointerToBoolean:
-            zig_panic("TODO handle C translation cast CK_MemberPointerToBoolean");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_MemberPointerToBoolean");
+            return nullptr;
         case CK_ReinterpretMemberPointer:
-            zig_panic("TODO handle C translation cast CK_ReinterpretMemberPointer");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ReinterpretMemberPointer");
+            return nullptr;
         case CK_UserDefinedConversion:
-            zig_panic("TODO handle C translation cast CK_UserDefinedConversion");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_UserDefinedConversion");
+            return nullptr;
         case CK_ConstructorConversion:
-            zig_panic("TODO handle C translation cast CK_ConstructorConversion");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ConstructorConversion");
+            return nullptr;
         case CK_IntegralToPointer:
-            zig_panic("TODO handle C translation cast CK_IntegralToPointer");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_IntegralToPointer");
+            return nullptr;
         case CK_PointerToIntegral:
-            zig_panic("TODO handle C translation cast CK_PointerToIntegral");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_PointerToIntegral");
+            return nullptr;
         case CK_PointerToBoolean:
-            zig_panic("TODO handle C translation cast CK_PointerToBoolean");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_PointerToBoolean");
+            return nullptr;
         case CK_ToVoid:
-            zig_panic("TODO handle C translation cast CK_ToVoid");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ToVoid");
+            return nullptr;
         case CK_VectorSplat:
-            zig_panic("TODO handle C translation cast CK_VectorSplat");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_VectorSplat");
+            return nullptr;
         case CK_IntegralToBoolean:
-            zig_panic("TODO handle C translation cast CK_IntegralToBoolean");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_IntegralToBoolean");
+            return nullptr;
         case CK_IntegralToFloating:
-            zig_panic("TODO handle C translation cast CK_IntegralToFloating");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_IntegralToFloating");
+            return nullptr;
         case CK_FloatingToIntegral:
-            zig_panic("TODO handle C translation cast CK_FloatingToIntegral");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_FloatingToIntegral");
+            return nullptr;
         case CK_FloatingToBoolean:
-            zig_panic("TODO handle C translation cast CK_FloatingToBoolean");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_FloatingToBoolean");
+            return nullptr;
         case CK_BooleanToSignedIntegral:
-            zig_panic("TODO handle C translation cast CK_BooleanToSignedIntegral");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_BooleanToSignedIntegral");
+            return nullptr;
         case CK_FloatingCast:
-            zig_panic("TODO handle C translation cast CK_FloatingCast");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_FloatingCast");
+            return nullptr;
         case CK_CPointerToObjCPointerCast:
-            zig_panic("TODO handle C translation cast CK_CPointerToObjCPointerCast");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_CPointerToObjCPointerCast");
+            return nullptr;
         case CK_BlockPointerToObjCPointerCast:
-            zig_panic("TODO handle C translation cast CK_BlockPointerToObjCPointerCast");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_BlockPointerToObjCPointerCast");
+            return nullptr;
         case CK_AnyPointerToBlockPointerCast:
-            zig_panic("TODO handle C translation cast CK_AnyPointerToBlockPointerCast");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_AnyPointerToBlockPointerCast");
+            return nullptr;
         case CK_ObjCObjectLValueCast:
-            zig_panic("TODO handle C translation cast CK_ObjCObjectLValueCast");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ObjCObjectLValueCast");
+            return nullptr;
         case CK_FloatingRealToComplex:
-            zig_panic("TODO handle C translation cast CK_FloatingRealToComplex");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_FloatingRealToComplex");
+            return nullptr;
         case CK_FloatingComplexToReal:
-            zig_panic("TODO handle C translation cast CK_FloatingComplexToReal");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_FloatingComplexToReal");
+            return nullptr;
         case CK_FloatingComplexToBoolean:
-            zig_panic("TODO handle C translation cast CK_FloatingComplexToBoolean");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_FloatingComplexToBoolean");
+            return nullptr;
         case CK_FloatingComplexCast:
-            zig_panic("TODO handle C translation cast CK_FloatingComplexCast");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_FloatingComplexCast");
+            return nullptr;
         case CK_FloatingComplexToIntegralComplex:
-            zig_panic("TODO handle C translation cast CK_FloatingComplexToIntegralComplex");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_FloatingComplexToIntegralComplex");
+            return nullptr;
         case CK_IntegralRealToComplex:
-            zig_panic("TODO handle C translation cast CK_IntegralRealToComplex");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_IntegralRealToComplex");
+            return nullptr;
         case CK_IntegralComplexToReal:
-            zig_panic("TODO handle C translation cast CK_IntegralComplexToReal");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_IntegralComplexToReal");
+            return nullptr;
         case CK_IntegralComplexToBoolean:
-            zig_panic("TODO handle C translation cast CK_IntegralComplexToBoolean");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_IntegralComplexToBoolean");
+            return nullptr;
         case CK_IntegralComplexCast:
-            zig_panic("TODO handle C translation cast CK_IntegralComplexCast");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_IntegralComplexCast");
+            return nullptr;
         case CK_IntegralComplexToFloatingComplex:
-            zig_panic("TODO handle C translation cast CK_IntegralComplexToFloatingComplex");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_IntegralComplexToFloatingComplex");
+            return nullptr;
         case CK_ARCProduceObject:
-            zig_panic("TODO handle C translation cast CK_ARCProduceObject");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ARCProduceObject");
+            return nullptr;
         case CK_ARCConsumeObject:
-            zig_panic("TODO handle C translation cast CK_ARCConsumeObject");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ARCConsumeObject");
+            return nullptr;
         case CK_ARCReclaimReturnedObject:
-            zig_panic("TODO handle C translation cast CK_ARCReclaimReturnedObject");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ARCReclaimReturnedObject");
+            return nullptr;
         case CK_ARCExtendBlockObject:
-            zig_panic("TODO handle C translation cast CK_ARCExtendBlockObject");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ARCExtendBlockObject");
+            return nullptr;
         case CK_AtomicToNonAtomic:
-            zig_panic("TODO handle C translation cast CK_AtomicToNonAtomic");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_AtomicToNonAtomic");
+            return nullptr;
         case CK_NonAtomicToAtomic:
-            zig_panic("TODO handle C translation cast CK_NonAtomicToAtomic");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_NonAtomicToAtomic");
+            return nullptr;
         case CK_CopyAndAutoreleaseBlockObject:
-            zig_panic("TODO handle C translation cast CK_CopyAndAutoreleaseBlockObject");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_CopyAndAutoreleaseBlockObject");
+            return nullptr;
         case CK_BuiltinFnToFnPtr:
-            zig_panic("TODO handle C translation cast CK_BuiltinFnToFnPtr");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_BuiltinFnToFnPtr");
+            return nullptr;
         case CK_ZeroToOCLEvent:
-            zig_panic("TODO handle C translation cast CK_ZeroToOCLEvent");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ZeroToOCLEvent");
+            return nullptr;
         case CK_ZeroToOCLQueue:
-            zig_panic("TODO handle C translation cast CK_ZeroToOCLQueue");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ZeroToOCLQueue");
+            return nullptr;
         case CK_AddressSpaceConversion:
-            zig_panic("TODO handle C translation cast CK_AddressSpaceConversion");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_AddressSpaceConversion");
+            return nullptr;
         case CK_IntToOCLSampler:
-            zig_panic("TODO handle C translation cast CK_IntToOCLSampler");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_IntToOCLSampler");
+            return nullptr;
     }
     zig_unreachable();
 }
 
-static AstNode * trans_decl_ref_expr(Context *c, DeclRefExpr *stmt) {
+static AstNode *trans_decl_ref_expr(Context *c, DeclRefExpr *stmt) {
     ValueDecl *value_decl = stmt->getDecl();
     const char *name = decl_name(value_decl);
-
-    AstNode *node = trans_create_node(c, NodeTypeSymbol);
-    node->data.symbol_expr.symbol = buf_create_from_str(name);
-    return node;
+    return trans_create_node_symbol_str(c, name);
 }
 
-static AstNode * trans_unary_operator(Context *c, AstNode *block, UnaryOperator *stmt) {
+static AstNode *trans_unary_operator(Context *c, AstNode *block, UnaryOperator *stmt) {
     switch (stmt->getOpcode()) {
         case UO_PostInc:
-            zig_panic("TODO handle C translation UO_PostInc");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_PostInc");
+            return nullptr;
         case UO_PostDec:
-            zig_panic("TODO handle C translation UO_PostDec");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_PostDec");
+            return nullptr;
         case UO_PreInc:
-            zig_panic("TODO handle C translation UO_PreInc");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_PreInc");
+            return nullptr;
         case UO_PreDec:
-            zig_panic("TODO handle C translation UO_PreDec");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_PreDec");
+            return nullptr;
         case UO_AddrOf:
-            zig_panic("TODO handle C translation UO_AddrOf");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_AddrOf");
+            return nullptr;
         case UO_Deref:
-            zig_panic("TODO handle C translation UO_Deref");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_Deref");
+            return nullptr;
         case UO_Plus:
-            zig_panic("TODO handle C translation UO_Plus");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_Plus");
+            return nullptr;
         case UO_Minus:
             {
                 Expr *op_expr = stmt->getSubExpr();
                 if (c_is_signed_integer(c, op_expr->getType()) || c_is_float(c, op_expr->getType())) {
                     AstNode *node = trans_create_node(c, NodeTypePrefixOpExpr);
                     node->data.prefix_op_expr.prefix_op = PrefixOpNegation;
+
                     node->data.prefix_op_expr.primary_expr = trans_expr(c, block, op_expr);
+                    if (node->data.prefix_op_expr.primary_expr == nullptr)
+                        return nullptr;
+
                     return node;
                 } else if (c_is_unsigned_integer(c, op_expr->getType())) {
                     // we gotta emit 0 -% x
                     AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
                     node->data.bin_op_expr.op1 = trans_create_node_unsigned(c, 0);
+
                     node->data.bin_op_expr.op2 = trans_expr(c, block, op_expr);
+                    if (node->data.bin_op_expr.op2 == nullptr)
+                        return nullptr;
+
                     node->data.bin_op_expr.bin_op = BinOpTypeSubWrap;
                     return node;
                 } else {
-                    zig_panic("TODO translate C negation with non float non integer");
+                    emit_warning(c, stmt->getLocStart(), "C negation with non float non integer");
+                    return nullptr;
                 }
             }
         case UO_Not:
-            zig_panic("TODO handle C translation UO_Not");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_Not");
+            return nullptr;
         case UO_LNot:
-            zig_panic("TODO handle C translation UO_LNot");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_LNot");
+            return nullptr;
         case UO_Real:
-            zig_panic("TODO handle C translation UO_Real");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_Real");
+            return nullptr;
         case UO_Imag:
-            zig_panic("TODO handle C translation UO_Imag");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_Imag");
+            return nullptr;
         case UO_Extension:
-            zig_panic("TODO handle C translation UO_Extension");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_Extension");
+            return nullptr;
         case UO_Coawait:
-            zig_panic("TODO handle C translation UO_Coawait");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_Coawait");
+            return nullptr;
     }
     zig_unreachable();
 }
 
-static AstNode * trans_local_declaration(Context *c, AstNode *block, DeclStmt *stmt) {
+static AstNode *trans_local_declaration(Context *c, AstNode *block, DeclStmt *stmt) {
     for (auto iter = stmt->decl_begin(); iter != stmt->decl_end(); iter++) {
         Decl *decl = *iter;
         switch (decl->getKind()) {
             case Decl::Var: {
                 VarDecl *var_decl = (VarDecl *)decl;
                 QualType qual_type = var_decl->getTypeSourceInfo()->getType();
-                AstNode *init_node = var_decl->hasInit() ? trans_expr(c, block, var_decl->getInit()) : nullptr;
-                AstNode *type_node = trans_qual_type(c, qual_type, stmt->getStartLoc());
+                AstNode *init_node = nullptr;
+                if (var_decl->hasInit()) {
+                    init_node = trans_expr(c, block, var_decl->getInit());
+                    if (init_node == nullptr)
+                        return nullptr;
+
+                }
+                AstNode *type_node = trans_qual_type(c, qual_type, stmt->getLocStart());
+                if (type_node == nullptr)
+                    return nullptr;
+
                 AstNode *node = trans_create_node_var_decl(c, qual_type.isConstQualified(),
                         buf_create_from_str(decl_name(var_decl)), type_node, init_node);
                 block->data.block.statements.append(node);
                 continue;
             }
             case Decl::AccessSpec:
-                zig_panic("TODO handle decl kind AccessSpec");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind AccessSpec");
+                return nullptr;
             case Decl::Block:
-                zig_panic("TODO handle decl kind Block");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Block");
+                return nullptr;
             case Decl::Captured:
-                zig_panic("TODO handle decl kind Captured");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Captured");
+                return nullptr;
             case Decl::ClassScopeFunctionSpecialization:
-                zig_panic("TODO handle decl kind ClassScopeFunctionSpecialization");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ClassScopeFunctionSpecialization");
+                return nullptr;
             case Decl::Empty:
-                zig_panic("TODO handle decl kind Empty");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Empty");
+                return nullptr;
             case Decl::Export:
-                zig_panic("TODO handle decl kind Export");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Export");
+                return nullptr;
             case Decl::ExternCContext:
-                zig_panic("TODO handle decl kind ExternCContext");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ExternCContext");
+                return nullptr;
             case Decl::FileScopeAsm:
-                zig_panic("TODO handle decl kind FileScopeAsm");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind FileScopeAsm");
+                return nullptr;
             case Decl::Friend:
-                zig_panic("TODO handle decl kind Friend");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Friend");
+                return nullptr;
             case Decl::FriendTemplate:
-                zig_panic("TODO handle decl kind FriendTemplate");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind FriendTemplate");
+                return nullptr;
             case Decl::Import:
-                zig_panic("TODO handle decl kind Import");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Import");
+                return nullptr;
             case Decl::LinkageSpec:
-                zig_panic("TODO handle decl kind LinkageSpec");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind LinkageSpec");
+                return nullptr;
             case Decl::Label:
-                zig_panic("TODO handle decl kind Label");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Label");
+                return nullptr;
             case Decl::Namespace:
-                zig_panic("TODO handle decl kind Namespace");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Namespace");
+                return nullptr;
             case Decl::NamespaceAlias:
-                zig_panic("TODO handle decl kind NamespaceAlias");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind NamespaceAlias");
+                return nullptr;
             case Decl::ObjCCompatibleAlias:
-                zig_panic("TODO handle decl kind ObjCCompatibleAlias");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCCompatibleAlias");
+                return nullptr;
             case Decl::ObjCCategory:
-                zig_panic("TODO handle decl kind ObjCCategory");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCCategory");
+                return nullptr;
             case Decl::ObjCCategoryImpl:
-                zig_panic("TODO handle decl kind ObjCCategoryImpl");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCCategoryImpl");
+                return nullptr;
             case Decl::ObjCImplementation:
-                zig_panic("TODO handle decl kind ObjCImplementation");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCImplementation");
+                return nullptr;
             case Decl::ObjCInterface:
-                zig_panic("TODO handle decl kind ObjCInterface");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCInterface");
+                return nullptr;
             case Decl::ObjCProtocol:
-                zig_panic("TODO handle decl kind ObjCProtocol");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCProtocol");
+                return nullptr;
             case Decl::ObjCMethod:
-                zig_panic("TODO handle decl kind ObjCMethod");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCMethod");
+                return nullptr;
             case Decl::ObjCProperty:
-                zig_panic("TODO handle decl kind ObjCProperty");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCProperty");
+                return nullptr;
             case Decl::BuiltinTemplate:
-                zig_panic("TODO handle decl kind BuiltinTemplate");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind BuiltinTemplate");
+                return nullptr;
             case Decl::ClassTemplate:
-                zig_panic("TODO handle decl kind ClassTemplate");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ClassTemplate");
+                return nullptr;
             case Decl::FunctionTemplate:
-                zig_panic("TODO handle decl kind FunctionTemplate");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind FunctionTemplate");
+                return nullptr;
             case Decl::TypeAliasTemplate:
-                zig_panic("TODO handle decl kind TypeAliasTemplate");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TypeAliasTemplate");
+                return nullptr;
             case Decl::VarTemplate:
-                zig_panic("TODO handle decl kind VarTemplate");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind VarTemplate");
+                return nullptr;
             case Decl::TemplateTemplateParm:
-                zig_panic("TODO handle decl kind TemplateTemplateParm");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TemplateTemplateParm");
+                return nullptr;
             case Decl::Enum:
-                zig_panic("TODO handle decl kind Enum");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Enum");
+                return nullptr;
             case Decl::Record:
-                zig_panic("TODO handle decl kind Record");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Record");
+                return nullptr;
             case Decl::CXXRecord:
-                zig_panic("TODO handle decl kind CXXRecord");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXRecord");
+                return nullptr;
             case Decl::ClassTemplateSpecialization:
-                zig_panic("TODO handle decl kind ClassTemplateSpecialization");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ClassTemplateSpecialization");
+                return nullptr;
             case Decl::ClassTemplatePartialSpecialization:
-                zig_panic("TODO handle decl kind ClassTemplatePartialSpecialization");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ClassTemplatePartialSpecialization");
+                return nullptr;
             case Decl::TemplateTypeParm:
-                zig_panic("TODO handle decl kind TemplateTypeParm");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TemplateTypeParm");
+                return nullptr;
             case Decl::ObjCTypeParam:
-                zig_panic("TODO handle decl kind ObjCTypeParam");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCTypeParam");
+                return nullptr;
             case Decl::TypeAlias:
-                zig_panic("TODO handle decl kind TypeAlias");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TypeAlias");
+                return nullptr;
             case Decl::Typedef:
-                zig_panic("TODO handle decl kind Typedef");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Typedef");
+                return nullptr;
             case Decl::UnresolvedUsingTypename:
-                zig_panic("TODO handle decl kind UnresolvedUsingTypename");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UnresolvedUsingTypename");
+                return nullptr;
             case Decl::Using:
-                zig_panic("TODO handle decl kind Using");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Using");
+                return nullptr;
             case Decl::UsingDirective:
-                zig_panic("TODO handle decl kind UsingDirective");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UsingDirective");
+                return nullptr;
             case Decl::UsingPack:
-                zig_panic("TODO handle decl kind UsingPack");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UsingPack");
+                return nullptr;
             case Decl::UsingShadow:
-                zig_panic("TODO handle decl kind UsingShadow");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UsingShadow");
+                return nullptr;
             case Decl::ConstructorUsingShadow:
-                zig_panic("TODO handle decl kind ConstructorUsingShadow");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ConstructorUsingShadow");
+                return nullptr;
             case Decl::Binding:
-                zig_panic("TODO handle decl kind Binding");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Binding");
+                return nullptr;
             case Decl::Field:
-                zig_panic("TODO handle decl kind Field");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Field");
+                return nullptr;
             case Decl::ObjCAtDefsField:
-                zig_panic("TODO handle decl kind ObjCAtDefsField");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCAtDefsField");
+                return nullptr;
             case Decl::ObjCIvar:
-                zig_panic("TODO handle decl kind ObjCIvar");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCIvar");
+                return nullptr;
             case Decl::Function:
-                zig_panic("TODO handle decl kind Function");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Function");
+                return nullptr;
             case Decl::CXXDeductionGuide:
-                zig_panic("TODO handle decl kind CXXDeductionGuide");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXDeductionGuide");
+                return nullptr;
             case Decl::CXXMethod:
-                zig_panic("TODO handle decl kind CXXMethod");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXMethod");
+                return nullptr;
             case Decl::CXXConstructor:
-                zig_panic("TODO handle decl kind CXXConstructor");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXConstructor");
+                return nullptr;
             case Decl::CXXConversion:
-                zig_panic("TODO handle decl kind CXXConversion");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXConversion");
+                return nullptr;
             case Decl::CXXDestructor:
-                zig_panic("TODO handle decl kind CXXDestructor");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXDestructor");
+                return nullptr;
             case Decl::MSProperty:
-                zig_panic("TODO handle decl kind MSProperty");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind MSProperty");
+                return nullptr;
             case Decl::NonTypeTemplateParm:
-                zig_panic("TODO handle decl kind NonTypeTemplateParm");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind NonTypeTemplateParm");
+                return nullptr;
             case Decl::Decomposition:
-                zig_panic("TODO handle decl kind Decomposition");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Decomposition");
+                return nullptr;
             case Decl::ImplicitParam:
-                zig_panic("TODO handle decl kind ImplicitParam");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ImplicitParam");
+                return nullptr;
             case Decl::OMPCapturedExpr:
-                zig_panic("TODO handle decl kind OMPCapturedExpr");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind OMPCapturedExpr");
+                return nullptr;
             case Decl::ParmVar:
-                zig_panic("TODO handle decl kind ParmVar");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ParmVar");
+                return nullptr;
             case Decl::VarTemplateSpecialization:
-                zig_panic("TODO handle decl kind VarTemplateSpecialization");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind VarTemplateSpecialization");
+                return nullptr;
             case Decl::VarTemplatePartialSpecialization:
-                zig_panic("TODO handle decl kind VarTemplatePartialSpecialization");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind VarTemplatePartialSpecialization");
+                return nullptr;
             case Decl::EnumConstant:
-                zig_panic("TODO handle decl kind EnumConstant");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind EnumConstant");
+                return nullptr;
             case Decl::IndirectField:
-                zig_panic("TODO handle decl kind IndirectField");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind IndirectField");
+                return nullptr;
             case Decl::OMPDeclareReduction:
-                zig_panic("TODO handle decl kind OMPDeclareReduction");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind OMPDeclareReduction");
+                return nullptr;
             case Decl::UnresolvedUsingValue:
-                zig_panic("TODO handle decl kind UnresolvedUsingValue");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UnresolvedUsingValue");
+                return nullptr;
             case Decl::OMPThreadPrivate:
-                zig_panic("TODO handle decl kind OMPThreadPrivate");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind OMPThreadPrivate");
+                return nullptr;
             case Decl::ObjCPropertyImpl:
-                zig_panic("TODO handle decl kind ObjCPropertyImpl");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCPropertyImpl");
+                return nullptr;
             case Decl::PragmaComment:
-                zig_panic("TODO handle decl kind PragmaComment");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind PragmaComment");
+                return nullptr;
             case Decl::PragmaDetectMismatch:
-                zig_panic("TODO handle decl kind PragmaDetectMismatch");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind PragmaDetectMismatch");
+                return nullptr;
             case Decl::StaticAssert:
-                zig_panic("TODO handle decl kind StaticAssert");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind StaticAssert");
+                return nullptr;
             case Decl::TranslationUnit:
-                zig_panic("TODO handle decl kind TranslationUnit");
+                emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TranslationUnit");
+                return nullptr;
         }
         zig_unreachable();
     }
 
     // declarations were already added
-    return nullptr;
+    return skip_add_to_block_node;
 }
 
 static AstNode *trans_while_loop(Context *c, AstNode *block, WhileStmt *stmt) {
     AstNode *while_node = trans_create_node(c, NodeTypeWhileExpr);
+
     while_node->data.while_expr.condition = trans_expr(c, block, stmt->getCond());
+    if (while_node->data.while_expr.condition == nullptr)
+        return nullptr;
+
     while_node->data.while_expr.body = trans_stmt(c, block, stmt->getBody());
+    if (while_node->data.while_expr.body == nullptr)
+        return nullptr;
+
     return while_node;
 }
 
@@ -1217,375 +1433,560 @@ static AstNode *trans_stmt(Context *c, AstNode *block, Stmt *stmt) {
         case Stmt::WhileStmtClass:
             return trans_while_loop(c, block, (WhileStmt *)stmt);
         case Stmt::CaseStmtClass:
-            zig_panic("TODO handle C CaseStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CaseStmtClass");
+            return nullptr;
         case Stmt::DefaultStmtClass:
-            zig_panic("TODO handle C DefaultStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C DefaultStmtClass");
+            return nullptr;
         case Stmt::SwitchStmtClass:
-            zig_panic("TODO handle C SwitchStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C SwitchStmtClass");
+            return nullptr;
         case Stmt::NoStmtClass:
-            zig_panic("TODO handle C NoStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C NoStmtClass");
+            return nullptr;
         case Stmt::GCCAsmStmtClass:
-            zig_panic("TODO handle C GCCAsmStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C GCCAsmStmtClass");
+            return nullptr;
         case Stmt::MSAsmStmtClass:
-            zig_panic("TODO handle C MSAsmStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C MSAsmStmtClass");
+            return nullptr;
         case Stmt::AttributedStmtClass:
-            zig_panic("TODO handle C AttributedStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C AttributedStmtClass");
+            return nullptr;
         case Stmt::BreakStmtClass:
-            zig_panic("TODO handle C BreakStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C BreakStmtClass");
+            return nullptr;
         case Stmt::CXXCatchStmtClass:
-            zig_panic("TODO handle C CXXCatchStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXCatchStmtClass");
+            return nullptr;
         case Stmt::CXXForRangeStmtClass:
-            zig_panic("TODO handle C CXXForRangeStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXForRangeStmtClass");
+            return nullptr;
         case Stmt::CXXTryStmtClass:
-            zig_panic("TODO handle C CXXTryStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXTryStmtClass");
+            return nullptr;
         case Stmt::CapturedStmtClass:
-            zig_panic("TODO handle C CapturedStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CapturedStmtClass");
+            return nullptr;
         case Stmt::ContinueStmtClass:
-            zig_panic("TODO handle C ContinueStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ContinueStmtClass");
+            return nullptr;
         case Stmt::CoreturnStmtClass:
-            zig_panic("TODO handle C CoreturnStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CoreturnStmtClass");
+            return nullptr;
         case Stmt::CoroutineBodyStmtClass:
-            zig_panic("TODO handle C CoroutineBodyStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CoroutineBodyStmtClass");
+            return nullptr;
         case Stmt::DoStmtClass:
-            zig_panic("TODO handle C DoStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C DoStmtClass");
+            return nullptr;
         case Stmt::BinaryConditionalOperatorClass:
-            zig_panic("TODO handle C BinaryConditionalOperatorClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C BinaryConditionalOperatorClass");
+            return nullptr;
         case Stmt::AddrLabelExprClass:
-            zig_panic("TODO handle C AddrLabelExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C AddrLabelExprClass");
+            return nullptr;
         case Stmt::ArrayInitIndexExprClass:
-            zig_panic("TODO handle C ArrayInitIndexExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ArrayInitIndexExprClass");
+            return nullptr;
         case Stmt::ArrayInitLoopExprClass:
-            zig_panic("TODO handle C ArrayInitLoopExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ArrayInitLoopExprClass");
+            return nullptr;
         case Stmt::ArraySubscriptExprClass:
-            zig_panic("TODO handle C ArraySubscriptExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ArraySubscriptExprClass");
+            return nullptr;
         case Stmt::ArrayTypeTraitExprClass:
-            zig_panic("TODO handle C ArrayTypeTraitExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ArrayTypeTraitExprClass");
+            return nullptr;
         case Stmt::AsTypeExprClass:
-            zig_panic("TODO handle C AsTypeExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C AsTypeExprClass");
+            return nullptr;
         case Stmt::AtomicExprClass:
-            zig_panic("TODO handle C AtomicExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C AtomicExprClass");
+            return nullptr;
         case Stmt::CompoundAssignOperatorClass:
-            zig_panic("TODO handle C CompoundAssignOperatorClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CompoundAssignOperatorClass");
+            return nullptr;
         case Stmt::BlockExprClass:
-            zig_panic("TODO handle C BlockExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C BlockExprClass");
+            return nullptr;
         case Stmt::CXXBindTemporaryExprClass:
-            zig_panic("TODO handle C CXXBindTemporaryExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXBindTemporaryExprClass");
+            return nullptr;
         case Stmt::CXXBoolLiteralExprClass:
-            zig_panic("TODO handle C CXXBoolLiteralExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXBoolLiteralExprClass");
+            return nullptr;
         case Stmt::CXXConstructExprClass:
-            zig_panic("TODO handle C CXXConstructExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXConstructExprClass");
+            return nullptr;
         case Stmt::CXXTemporaryObjectExprClass:
-            zig_panic("TODO handle C CXXTemporaryObjectExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXTemporaryObjectExprClass");
+            return nullptr;
         case Stmt::CXXDefaultArgExprClass:
-            zig_panic("TODO handle C CXXDefaultArgExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDefaultArgExprClass");
+            return nullptr;
         case Stmt::CXXDefaultInitExprClass:
-            zig_panic("TODO handle C CXXDefaultInitExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDefaultInitExprClass");
+            return nullptr;
         case Stmt::CXXDeleteExprClass:
-            zig_panic("TODO handle C CXXDeleteExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDeleteExprClass");
+            return nullptr;
         case Stmt::CXXDependentScopeMemberExprClass:
-            zig_panic("TODO handle C CXXDependentScopeMemberExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDependentScopeMemberExprClass");
+            return nullptr;
         case Stmt::CXXFoldExprClass:
-            zig_panic("TODO handle C CXXFoldExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXFoldExprClass");
+            return nullptr;
         case Stmt::CXXInheritedCtorInitExprClass:
-            zig_panic("TODO handle C CXXInheritedCtorInitExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXInheritedCtorInitExprClass");
+            return nullptr;
         case Stmt::CXXNewExprClass:
-            zig_panic("TODO handle C CXXNewExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXNewExprClass");
+            return nullptr;
         case Stmt::CXXNoexceptExprClass:
-            zig_panic("TODO handle C CXXNoexceptExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXNoexceptExprClass");
+            return nullptr;
         case Stmt::CXXNullPtrLiteralExprClass:
-            zig_panic("TODO handle C CXXNullPtrLiteralExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXNullPtrLiteralExprClass");
+            return nullptr;
         case Stmt::CXXPseudoDestructorExprClass:
-            zig_panic("TODO handle C CXXPseudoDestructorExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXPseudoDestructorExprClass");
+            return nullptr;
         case Stmt::CXXScalarValueInitExprClass:
-            zig_panic("TODO handle C CXXScalarValueInitExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXScalarValueInitExprClass");
+            return nullptr;
         case Stmt::CXXStdInitializerListExprClass:
-            zig_panic("TODO handle C CXXStdInitializerListExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXStdInitializerListExprClass");
+            return nullptr;
         case Stmt::CXXThisExprClass:
-            zig_panic("TODO handle C CXXThisExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXThisExprClass");
+            return nullptr;
         case Stmt::CXXThrowExprClass:
-            zig_panic("TODO handle C CXXThrowExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXThrowExprClass");
+            return nullptr;
         case Stmt::CXXTypeidExprClass:
-            zig_panic("TODO handle C CXXTypeidExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXTypeidExprClass");
+            return nullptr;
         case Stmt::CXXUnresolvedConstructExprClass:
-            zig_panic("TODO handle C CXXUnresolvedConstructExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXUnresolvedConstructExprClass");
+            return nullptr;
         case Stmt::CXXUuidofExprClass:
-            zig_panic("TODO handle C CXXUuidofExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXUuidofExprClass");
+            return nullptr;
         case Stmt::CallExprClass:
-            zig_panic("TODO handle C CallExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CallExprClass");
+            return nullptr;
         case Stmt::CUDAKernelCallExprClass:
-            zig_panic("TODO handle C CUDAKernelCallExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CUDAKernelCallExprClass");
+            return nullptr;
         case Stmt::CXXMemberCallExprClass:
-            zig_panic("TODO handle C CXXMemberCallExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXMemberCallExprClass");
+            return nullptr;
         case Stmt::CXXOperatorCallExprClass:
-            zig_panic("TODO handle C CXXOperatorCallExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXOperatorCallExprClass");
+            return nullptr;
         case Stmt::UserDefinedLiteralClass:
-            zig_panic("TODO handle C UserDefinedLiteralClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C UserDefinedLiteralClass");
+            return nullptr;
         case Stmt::CStyleCastExprClass:
-            zig_panic("TODO handle C CStyleCastExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CStyleCastExprClass");
+            return nullptr;
         case Stmt::CXXFunctionalCastExprClass:
-            zig_panic("TODO handle C CXXFunctionalCastExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXFunctionalCastExprClass");
+            return nullptr;
         case Stmt::CXXConstCastExprClass:
-            zig_panic("TODO handle C CXXConstCastExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXConstCastExprClass");
+            return nullptr;
         case Stmt::CXXDynamicCastExprClass:
-            zig_panic("TODO handle C CXXDynamicCastExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDynamicCastExprClass");
+            return nullptr;
         case Stmt::CXXReinterpretCastExprClass:
-            zig_panic("TODO handle C CXXReinterpretCastExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXReinterpretCastExprClass");
+            return nullptr;
         case Stmt::CXXStaticCastExprClass:
-            zig_panic("TODO handle C CXXStaticCastExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CXXStaticCastExprClass");
+            return nullptr;
         case Stmt::ObjCBridgedCastExprClass:
-            zig_panic("TODO handle C ObjCBridgedCastExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCBridgedCastExprClass");
+            return nullptr;
         case Stmt::CharacterLiteralClass:
-            zig_panic("TODO handle C CharacterLiteralClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CharacterLiteralClass");
+            return nullptr;
         case Stmt::ChooseExprClass:
-            zig_panic("TODO handle C ChooseExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ChooseExprClass");
+            return nullptr;
         case Stmt::CompoundLiteralExprClass:
-            zig_panic("TODO handle C CompoundLiteralExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CompoundLiteralExprClass");
+            return nullptr;
         case Stmt::ConvertVectorExprClass:
-            zig_panic("TODO handle C ConvertVectorExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ConvertVectorExprClass");
+            return nullptr;
         case Stmt::CoawaitExprClass:
-            zig_panic("TODO handle C CoawaitExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CoawaitExprClass");
+            return nullptr;
         case Stmt::CoyieldExprClass:
-            zig_panic("TODO handle C CoyieldExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CoyieldExprClass");
+            return nullptr;
         case Stmt::DependentCoawaitExprClass:
-            zig_panic("TODO handle C DependentCoawaitExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C DependentCoawaitExprClass");
+            return nullptr;
         case Stmt::DependentScopeDeclRefExprClass:
-            zig_panic("TODO handle C DependentScopeDeclRefExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C DependentScopeDeclRefExprClass");
+            return nullptr;
         case Stmt::DesignatedInitExprClass:
-            zig_panic("TODO handle C DesignatedInitExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C DesignatedInitExprClass");
+            return nullptr;
         case Stmt::DesignatedInitUpdateExprClass:
-            zig_panic("TODO handle C DesignatedInitUpdateExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C DesignatedInitUpdateExprClass");
+            return nullptr;
         case Stmt::ExprWithCleanupsClass:
-            zig_panic("TODO handle C ExprWithCleanupsClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ExprWithCleanupsClass");
+            return nullptr;
         case Stmt::ExpressionTraitExprClass:
-            zig_panic("TODO handle C ExpressionTraitExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ExpressionTraitExprClass");
+            return nullptr;
         case Stmt::ExtVectorElementExprClass:
-            zig_panic("TODO handle C ExtVectorElementExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ExtVectorElementExprClass");
+            return nullptr;
         case Stmt::FloatingLiteralClass:
-            zig_panic("TODO handle C FloatingLiteralClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C FloatingLiteralClass");
+            return nullptr;
         case Stmt::FunctionParmPackExprClass:
-            zig_panic("TODO handle C FunctionParmPackExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C FunctionParmPackExprClass");
+            return nullptr;
         case Stmt::GNUNullExprClass:
-            zig_panic("TODO handle C GNUNullExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C GNUNullExprClass");
+            return nullptr;
         case Stmt::GenericSelectionExprClass:
-            zig_panic("TODO handle C GenericSelectionExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C GenericSelectionExprClass");
+            return nullptr;
         case Stmt::ImaginaryLiteralClass:
-            zig_panic("TODO handle C ImaginaryLiteralClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ImaginaryLiteralClass");
+            return nullptr;
         case Stmt::ImplicitValueInitExprClass:
-            zig_panic("TODO handle C ImplicitValueInitExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ImplicitValueInitExprClass");
+            return nullptr;
         case Stmt::InitListExprClass:
-            zig_panic("TODO handle C InitListExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C InitListExprClass");
+            return nullptr;
         case Stmt::LambdaExprClass:
-            zig_panic("TODO handle C LambdaExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C LambdaExprClass");
+            return nullptr;
         case Stmt::MSPropertyRefExprClass:
-            zig_panic("TODO handle C MSPropertyRefExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C MSPropertyRefExprClass");
+            return nullptr;
         case Stmt::MSPropertySubscriptExprClass:
-            zig_panic("TODO handle C MSPropertySubscriptExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C MSPropertySubscriptExprClass");
+            return nullptr;
         case Stmt::MaterializeTemporaryExprClass:
-            zig_panic("TODO handle C MaterializeTemporaryExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C MaterializeTemporaryExprClass");
+            return nullptr;
         case Stmt::MemberExprClass:
-            zig_panic("TODO handle C MemberExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C MemberExprClass");
+            return nullptr;
         case Stmt::NoInitExprClass:
-            zig_panic("TODO handle C NoInitExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C NoInitExprClass");
+            return nullptr;
         case Stmt::OMPArraySectionExprClass:
-            zig_panic("TODO handle C OMPArraySectionExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPArraySectionExprClass");
+            return nullptr;
         case Stmt::ObjCArrayLiteralClass:
-            zig_panic("TODO handle C ObjCArrayLiteralClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCArrayLiteralClass");
+            return nullptr;
         case Stmt::ObjCAvailabilityCheckExprClass:
-            zig_panic("TODO handle C ObjCAvailabilityCheckExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAvailabilityCheckExprClass");
+            return nullptr;
         case Stmt::ObjCBoolLiteralExprClass:
-            zig_panic("TODO handle C ObjCBoolLiteralExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCBoolLiteralExprClass");
+            return nullptr;
         case Stmt::ObjCBoxedExprClass:
-            zig_panic("TODO handle C ObjCBoxedExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCBoxedExprClass");
+            return nullptr;
         case Stmt::ObjCDictionaryLiteralClass:
-            zig_panic("TODO handle C ObjCDictionaryLiteralClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCDictionaryLiteralClass");
+            return nullptr;
         case Stmt::ObjCEncodeExprClass:
-            zig_panic("TODO handle C ObjCEncodeExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCEncodeExprClass");
+            return nullptr;
         case Stmt::ObjCIndirectCopyRestoreExprClass:
-            zig_panic("TODO handle C ObjCIndirectCopyRestoreExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCIndirectCopyRestoreExprClass");
+            return nullptr;
         case Stmt::ObjCIsaExprClass:
-            zig_panic("TODO handle C ObjCIsaExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCIsaExprClass");
+            return nullptr;
         case Stmt::ObjCIvarRefExprClass:
-            zig_panic("TODO handle C ObjCIvarRefExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCIvarRefExprClass");
+            return nullptr;
         case Stmt::ObjCMessageExprClass:
-            zig_panic("TODO handle C ObjCMessageExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCMessageExprClass");
+            return nullptr;
         case Stmt::ObjCPropertyRefExprClass:
-            zig_panic("TODO handle C ObjCPropertyRefExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCPropertyRefExprClass");
+            return nullptr;
         case Stmt::ObjCProtocolExprClass:
-            zig_panic("TODO handle C ObjCProtocolExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCProtocolExprClass");
+            return nullptr;
         case Stmt::ObjCSelectorExprClass:
-            zig_panic("TODO handle C ObjCSelectorExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCSelectorExprClass");
+            return nullptr;
         case Stmt::ObjCStringLiteralClass:
-            zig_panic("TODO handle C ObjCStringLiteralClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCStringLiteralClass");
+            return nullptr;
         case Stmt::ObjCSubscriptRefExprClass:
-            zig_panic("TODO handle C ObjCSubscriptRefExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCSubscriptRefExprClass");
+            return nullptr;
         case Stmt::OffsetOfExprClass:
-            zig_panic("TODO handle C OffsetOfExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OffsetOfExprClass");
+            return nullptr;
         case Stmt::OpaqueValueExprClass:
-            zig_panic("TODO handle C OpaqueValueExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OpaqueValueExprClass");
+            return nullptr;
         case Stmt::UnresolvedLookupExprClass:
-            zig_panic("TODO handle C UnresolvedLookupExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C UnresolvedLookupExprClass");
+            return nullptr;
         case Stmt::UnresolvedMemberExprClass:
-            zig_panic("TODO handle C UnresolvedMemberExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C UnresolvedMemberExprClass");
+            return nullptr;
         case Stmt::PackExpansionExprClass:
-            zig_panic("TODO handle C PackExpansionExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C PackExpansionExprClass");
+            return nullptr;
         case Stmt::ParenExprClass:
-            zig_panic("TODO handle C ParenExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ParenExprClass");
+            return nullptr;
         case Stmt::ParenListExprClass:
-            zig_panic("TODO handle C ParenListExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ParenListExprClass");
+            return nullptr;
         case Stmt::PredefinedExprClass:
-            zig_panic("TODO handle C PredefinedExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C PredefinedExprClass");
+            return nullptr;
         case Stmt::PseudoObjectExprClass:
-            zig_panic("TODO handle C PseudoObjectExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C PseudoObjectExprClass");
+            return nullptr;
         case Stmt::ShuffleVectorExprClass:
-            zig_panic("TODO handle C ShuffleVectorExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ShuffleVectorExprClass");
+            return nullptr;
         case Stmt::SizeOfPackExprClass:
-            zig_panic("TODO handle C SizeOfPackExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C SizeOfPackExprClass");
+            return nullptr;
         case Stmt::StmtExprClass:
-            zig_panic("TODO handle C StmtExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C StmtExprClass");
+            return nullptr;
         case Stmt::StringLiteralClass:
-            zig_panic("TODO handle C StringLiteralClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C StringLiteralClass");
+            return nullptr;
         case Stmt::SubstNonTypeTemplateParmExprClass:
-            zig_panic("TODO handle C SubstNonTypeTemplateParmExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C SubstNonTypeTemplateParmExprClass");
+            return nullptr;
         case Stmt::SubstNonTypeTemplateParmPackExprClass:
-            zig_panic("TODO handle C SubstNonTypeTemplateParmPackExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C SubstNonTypeTemplateParmPackExprClass");
+            return nullptr;
         case Stmt::TypeTraitExprClass:
-            zig_panic("TODO handle C TypeTraitExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C TypeTraitExprClass");
+            return nullptr;
         case Stmt::TypoExprClass:
-            zig_panic("TODO handle C TypoExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C TypoExprClass");
+            return nullptr;
         case Stmt::UnaryExprOrTypeTraitExprClass:
-            zig_panic("TODO handle C UnaryExprOrTypeTraitExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C UnaryExprOrTypeTraitExprClass");
+            return nullptr;
         case Stmt::VAArgExprClass:
-            zig_panic("TODO handle C VAArgExprClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C VAArgExprClass");
+            return nullptr;
         case Stmt::ForStmtClass:
-            zig_panic("TODO handle C ForStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ForStmtClass");
+            return nullptr;
         case Stmt::GotoStmtClass:
-            zig_panic("TODO handle C GotoStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C GotoStmtClass");
+            return nullptr;
         case Stmt::IfStmtClass:
-            zig_panic("TODO handle C IfStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C IfStmtClass");
+            return nullptr;
         case Stmt::IndirectGotoStmtClass:
-            zig_panic("TODO handle C IndirectGotoStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C IndirectGotoStmtClass");
+            return nullptr;
         case Stmt::LabelStmtClass:
-            zig_panic("TODO handle C LabelStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C LabelStmtClass");
+            return nullptr;
         case Stmt::MSDependentExistsStmtClass:
-            zig_panic("TODO handle C MSDependentExistsStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C MSDependentExistsStmtClass");
+            return nullptr;
         case Stmt::NullStmtClass:
-            zig_panic("TODO handle C NullStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C NullStmtClass");
+            return nullptr;
         case Stmt::OMPAtomicDirectiveClass:
-            zig_panic("TODO handle C OMPAtomicDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPAtomicDirectiveClass");
+            return nullptr;
         case Stmt::OMPBarrierDirectiveClass:
-            zig_panic("TODO handle C OMPBarrierDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPBarrierDirectiveClass");
+            return nullptr;
         case Stmt::OMPCancelDirectiveClass:
-            zig_panic("TODO handle C OMPCancelDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPCancelDirectiveClass");
+            return nullptr;
         case Stmt::OMPCancellationPointDirectiveClass:
-            zig_panic("TODO handle C OMPCancellationPointDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPCancellationPointDirectiveClass");
+            return nullptr;
         case Stmt::OMPCriticalDirectiveClass:
-            zig_panic("TODO handle C OMPCriticalDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPCriticalDirectiveClass");
+            return nullptr;
         case Stmt::OMPFlushDirectiveClass:
-            zig_panic("TODO handle C OMPFlushDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPFlushDirectiveClass");
+            return nullptr;
         case Stmt::OMPDistributeDirectiveClass:
-            zig_panic("TODO handle C OMPDistributeDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPDistributeDirectiveClass");
+            return nullptr;
         case Stmt::OMPDistributeParallelForDirectiveClass:
-            zig_panic("TODO handle C OMPDistributeParallelForDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPDistributeParallelForDirectiveClass");
+            return nullptr;
         case Stmt::OMPDistributeParallelForSimdDirectiveClass:
-            zig_panic("TODO handle C OMPDistributeParallelForSimdDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPDistributeParallelForSimdDirectiveClass");
+            return nullptr;
         case Stmt::OMPDistributeSimdDirectiveClass:
-            zig_panic("TODO handle C OMPDistributeSimdDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPDistributeSimdDirectiveClass");
+            return nullptr;
         case Stmt::OMPForDirectiveClass:
-            zig_panic("TODO handle C OMPForDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPForDirectiveClass");
+            return nullptr;
         case Stmt::OMPForSimdDirectiveClass:
-            zig_panic("TODO handle C OMPForSimdDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPForSimdDirectiveClass");
+            return nullptr;
         case Stmt::OMPParallelForDirectiveClass:
-            zig_panic("TODO handle C OMPParallelForDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPParallelForDirectiveClass");
+            return nullptr;
         case Stmt::OMPParallelForSimdDirectiveClass:
-            zig_panic("TODO handle C OMPParallelForSimdDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPParallelForSimdDirectiveClass");
+            return nullptr;
         case Stmt::OMPSimdDirectiveClass:
-            zig_panic("TODO handle C OMPSimdDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPSimdDirectiveClass");
+            return nullptr;
         case Stmt::OMPTargetParallelForSimdDirectiveClass:
-            zig_panic("TODO handle C OMPTargetParallelForSimdDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetParallelForSimdDirectiveClass");
+            return nullptr;
         case Stmt::OMPTargetSimdDirectiveClass:
-            zig_panic("TODO handle C OMPTargetSimdDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetSimdDirectiveClass");
+            return nullptr;
         case Stmt::OMPTargetTeamsDistributeDirectiveClass:
-            zig_panic("TODO handle C OMPTargetTeamsDistributeDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDistributeDirectiveClass");
+            return nullptr;
         case Stmt::OMPTargetTeamsDistributeParallelForDirectiveClass:
-            zig_panic("TODO handle C OMPTargetTeamsDistributeParallelForDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDistributeParallelForDirectiveClass");
+            return nullptr;
         case Stmt::OMPTargetTeamsDistributeParallelForSimdDirectiveClass:
-            zig_panic("TODO handle C OMPTargetTeamsDistributeParallelForSimdDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDistributeParallelForSimdDirectiveClass");
+            return nullptr;
         case Stmt::OMPTargetTeamsDistributeSimdDirectiveClass:
-            zig_panic("TODO handle C OMPTargetTeamsDistributeSimdDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDistributeSimdDirectiveClass");
+            return nullptr;
         case Stmt::OMPTaskLoopDirectiveClass:
-            zig_panic("TODO handle C OMPTaskLoopDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskLoopDirectiveClass");
+            return nullptr;
         case Stmt::OMPTaskLoopSimdDirectiveClass:
-            zig_panic("TODO handle C OMPTaskLoopSimdDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskLoopSimdDirectiveClass");
+            return nullptr;
         case Stmt::OMPTeamsDistributeDirectiveClass:
-            zig_panic("TODO handle C OMPTeamsDistributeDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDistributeDirectiveClass");
+            return nullptr;
         case Stmt::OMPTeamsDistributeParallelForDirectiveClass:
-            zig_panic("TODO handle C OMPTeamsDistributeParallelForDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDistributeParallelForDirectiveClass");
+            return nullptr;
         case Stmt::OMPTeamsDistributeParallelForSimdDirectiveClass:
-            zig_panic("TODO handle C OMPTeamsDistributeParallelForSimdDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDistributeParallelForSimdDirectiveClass");
+            return nullptr;
         case Stmt::OMPTeamsDistributeSimdDirectiveClass:
-            zig_panic("TODO handle C OMPTeamsDistributeSimdDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDistributeSimdDirectiveClass");
+            return nullptr;
         case Stmt::OMPMasterDirectiveClass:
-            zig_panic("TODO handle C OMPMasterDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPMasterDirectiveClass");
+            return nullptr;
         case Stmt::OMPOrderedDirectiveClass:
-            zig_panic("TODO handle C OMPOrderedDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPOrderedDirectiveClass");
+            return nullptr;
         case Stmt::OMPParallelDirectiveClass:
-            zig_panic("TODO handle C OMPParallelDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPParallelDirectiveClass");
+            return nullptr;
         case Stmt::OMPParallelSectionsDirectiveClass:
-            zig_panic("TODO handle C OMPParallelSectionsDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPParallelSectionsDirectiveClass");
+            return nullptr;
         case Stmt::OMPSectionDirectiveClass:
-            zig_panic("TODO handle C OMPSectionDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPSectionDirectiveClass");
+            return nullptr;
         case Stmt::OMPSectionsDirectiveClass:
-            zig_panic("TODO handle C OMPSectionsDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPSectionsDirectiveClass");
+            return nullptr;
         case Stmt::OMPSingleDirectiveClass:
-            zig_panic("TODO handle C OMPSingleDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPSingleDirectiveClass");
+            return nullptr;
         case Stmt::OMPTargetDataDirectiveClass:
-            zig_panic("TODO handle C OMPTargetDataDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetDataDirectiveClass");
+            return nullptr;
         case Stmt::OMPTargetDirectiveClass:
-            zig_panic("TODO handle C OMPTargetDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetDirectiveClass");
+            return nullptr;
         case Stmt::OMPTargetEnterDataDirectiveClass:
-            zig_panic("TODO handle C OMPTargetEnterDataDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetEnterDataDirectiveClass");
+            return nullptr;
         case Stmt::OMPTargetExitDataDirectiveClass:
-            zig_panic("TODO handle C OMPTargetExitDataDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetExitDataDirectiveClass");
+            return nullptr;
         case Stmt::OMPTargetParallelDirectiveClass:
-            zig_panic("TODO handle C OMPTargetParallelDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetParallelDirectiveClass");
+            return nullptr;
         case Stmt::OMPTargetParallelForDirectiveClass:
-            zig_panic("TODO handle C OMPTargetParallelForDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetParallelForDirectiveClass");
+            return nullptr;
         case Stmt::OMPTargetTeamsDirectiveClass:
-            zig_panic("TODO handle C OMPTargetTeamsDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDirectiveClass");
+            return nullptr;
         case Stmt::OMPTargetUpdateDirectiveClass:
-            zig_panic("TODO handle C OMPTargetUpdateDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetUpdateDirectiveClass");
+            return nullptr;
         case Stmt::OMPTaskDirectiveClass:
-            zig_panic("TODO handle C OMPTaskDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskDirectiveClass");
+            return nullptr;
         case Stmt::OMPTaskgroupDirectiveClass:
-            zig_panic("TODO handle C OMPTaskgroupDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskgroupDirectiveClass");
+            return nullptr;
         case Stmt::OMPTaskwaitDirectiveClass:
-            zig_panic("TODO handle C OMPTaskwaitDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskwaitDirectiveClass");
+            return nullptr;
         case Stmt::OMPTaskyieldDirectiveClass:
-            zig_panic("TODO handle C OMPTaskyieldDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskyieldDirectiveClass");
+            return nullptr;
         case Stmt::OMPTeamsDirectiveClass:
-            zig_panic("TODO handle C OMPTeamsDirectiveClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDirectiveClass");
+            return nullptr;
         case Stmt::ObjCAtCatchStmtClass:
-            zig_panic("TODO handle C ObjCAtCatchStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtCatchStmtClass");
+            return nullptr;
         case Stmt::ObjCAtFinallyStmtClass:
-            zig_panic("TODO handle C ObjCAtFinallyStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtFinallyStmtClass");
+            return nullptr;
         case Stmt::ObjCAtSynchronizedStmtClass:
-            zig_panic("TODO handle C ObjCAtSynchronizedStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtSynchronizedStmtClass");
+            return nullptr;
         case Stmt::ObjCAtThrowStmtClass:
-            zig_panic("TODO handle C ObjCAtThrowStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtThrowStmtClass");
+            return nullptr;
         case Stmt::ObjCAtTryStmtClass:
-            zig_panic("TODO handle C ObjCAtTryStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtTryStmtClass");
+            return nullptr;
         case Stmt::ObjCAutoreleasePoolStmtClass:
-            zig_panic("TODO handle C ObjCAutoreleasePoolStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAutoreleasePoolStmtClass");
+            return nullptr;
         case Stmt::ObjCForCollectionStmtClass:
-            zig_panic("TODO handle C ObjCForCollectionStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCForCollectionStmtClass");
+            return nullptr;
         case Stmt::SEHExceptStmtClass:
-            zig_panic("TODO handle C SEHExceptStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C SEHExceptStmtClass");
+            return nullptr;
         case Stmt::SEHFinallyStmtClass:
-            zig_panic("TODO handle C SEHFinallyStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C SEHFinallyStmtClass");
+            return nullptr;
         case Stmt::SEHLeaveStmtClass:
-            zig_panic("TODO handle C SEHLeaveStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C SEHLeaveStmtClass");
+            return nullptr;
         case Stmt::SEHTryStmtClass:
-            zig_panic("TODO handle C SEHTryStmtClass");
+            emit_warning(c, stmt->getLocStart(), "TODO handle C SEHTryStmtClass");
+            return nullptr;
     }
     zig_unreachable();
 }
@@ -1642,6 +2043,11 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
         AstNode *fn_def_node = trans_create_node(c, NodeTypeFnDef);
         fn_def_node->data.fn_def.fn_proto = proto_node;
         fn_def_node->data.fn_def.body = trans_stmt(c, nullptr, body);
+        assert(fn_def_node->data.fn_def.body != skip_add_to_block_node);
+        if (fn_def_node->data.fn_def.body == nullptr) {
+            emit_warning(c, fn_decl->getLocation(), "unable to translate function");
+            return;
+        }
 
         proto_node->data.fn_proto.fn_def_node = fn_def_node;
         c->root->data.root.top_level_decls.append(fn_def_node);
