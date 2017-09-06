@@ -9,6 +9,9 @@ const BufMap = @import("../buf_map.zig").BufMap;
 const builtin = @import("builtin");
 const Os = builtin.Os;
 
+error PermissionDenied;
+error ProcessNotFound;
+
 pub const ChildProcess = struct {
     pid: i32,
     err_pipe: [2]i32,
@@ -41,6 +44,21 @@ pub const ChildProcess = struct {
             },
             else => @compileError("Unsupported OS"),
         }
+    }
+
+    /// Forcibly terminates child process and then cleans up all resources.
+    pub fn kill(self: &ChildProcess) -> %Term {
+        const ret = posix.kill(self.pid, posix.SIGTERM);
+        const err = posix.getErrno(ret);
+        if (err > 0) {
+            return switch (err) {
+                posix.EINVAL => unreachable,
+                posix.EPERM => error.PermissionDenied,
+                posix.ESRCH => error.ProcessNotFound,
+                else => error.Unexpected,
+            };
+        }
+        return self.wait();
     }
 
     /// Blocks until child process terminates and then cleans up all resources.

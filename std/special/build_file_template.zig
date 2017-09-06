@@ -6,4 +6,5 @@ pub fn build(b: &Builder) {
     exe.setBuildMode(mode);
 
     b.default_step.dependOn(&exe.step);
+    b.installArtifact(exe);
 }
