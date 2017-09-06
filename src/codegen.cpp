@@ -15,7 +15,7 @@
 #include "ir.hpp"
 #include "link.hpp"
 #include "os.hpp"
-#include "parseh.hpp"
+#include "parsec.hpp"
 #include "target.hpp"
 #include "zig_llvm.hpp"
 
@@ -5001,7 +5001,7 @@ static void init(CodeGen *g) {
     define_builtin_compile_vars(g);
 }
 
-void codegen_parseh(CodeGen *g, Buf *full_path) {
+void codegen_parsec(CodeGen *g, Buf *full_path) {
     find_libc_include_path(g);
 
     Buf *src_basename = buf_alloc();

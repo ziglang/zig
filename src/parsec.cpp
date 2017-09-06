@@ -12,7 +12,7 @@
 #include "error.hpp"
 #include "ir.hpp"
 #include "os.hpp"
-#include "parseh.hpp"
+#include "parsec.hpp"
 #include "parser.hpp"
 
 
@@ -2250,10 +2250,10 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     clang_argv.append("c");
 
     if (c->codegen->is_native_target) {
-        char *ZIG_PARSEH_CFLAGS = getenv("ZIG_NATIVE_PARSEH_CFLAGS");
-        if (ZIG_PARSEH_CFLAGS) {
+        char *ZIG_PARSEC_CFLAGS = getenv("ZIG_NATIVE_PARSEC_CFLAGS");
+        if (ZIG_PARSEC_CFLAGS) {
             Buf tmp_buf = BUF_INIT;
-            char *start = ZIG_PARSEH_CFLAGS;
+            char *start = ZIG_PARSEC_CFLAGS;
             char *space = strstr(start, " ");
             while (space) {
                 if (space - start > 0) {

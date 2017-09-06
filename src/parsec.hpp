@@ -6,8 +6,8 @@
  */
 
 
-#ifndef ZIG_PARSEH_HPP
-#define ZIG_PARSEH_HPP
+#ifndef ZIG_PARSEC_HPP
+#define ZIG_PARSEC_HPP
 
 #include "all_types.hpp"
 

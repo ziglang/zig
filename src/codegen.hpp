@@ -54,7 +54,7 @@ PackageTableEntry *codegen_create_package(CodeGen *g, const char *root_src_dir, 
 void codegen_add_assembly(CodeGen *g, Buf *path);
 void codegen_add_object(CodeGen *g, Buf *object_path);
 
-void codegen_parseh(CodeGen *g, Buf *path);
+void codegen_parsec(CodeGen *g, Buf *path);
 
 
 #endif

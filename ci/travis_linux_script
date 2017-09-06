@@ -15,4 +15,4 @@ make install
 # we have to skip cross compiling OSX tests because apt.llvm.org has an old version
 # of llvm for the version of ubuntu that travis is running on.
 ./zig build --build-file ../build.zig test-behavior test-std test-compiler-rt -Dtest-filter=linux
-./zig build --build-file ../build.zig test-compare-output test-build-examples test-compile-errors test-asm-link test-debug-safety test-parseh
+./zig build --build-file ../build.zig test-compare-output test-build-examples test-compile-errors test-asm-link test-debug-safety test-parsec

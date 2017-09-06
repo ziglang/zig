@@ -19,5 +19,5 @@ pub fn build(b: &Builder) {
     test_step.dependOn(tests.addCompileErrorTests(b, test_filter));
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter));
     test_step.dependOn(tests.addDebugSafetyTests(b, test_filter));
-    test_step.dependOn(tests.addParseHTests(b, test_filter));
+    test_step.dependOn(tests.addParseCTests(b, test_filter));
 }

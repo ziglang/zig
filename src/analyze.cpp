@@ -26,7 +26,7 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type);
 static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type);
 
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
-    // if this assert fails, then parseh generated code that
+    // if this assert fails, then parsec generated code that
     // failed semantic analysis, which isn't supposed to happen
     assert(!node->owner->c_import_node);
 
@@ -38,7 +38,7 @@ ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
 }
 
 ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, AstNode *node, Buf *msg) {
-    // if this assert fails, then parseh generated code that
+    // if this assert fails, then parsec generated code that
     // failed semantic analysis, which isn't supposed to happen
     assert(!node->owner->c_import_node);
 
@@ -1265,7 +1265,6 @@ TypeTableEntry *create_enum_tag_type(CodeGen *g, TypeTableEntry *enum_type, Type
 }
 
 static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
-    // if you change this logic you likely must also change similar logic in parseh.cpp
     assert(enum_type->id == TypeTableEntryIdEnum);
 
     if (enum_type->data.enumeration.complete)
@@ -1578,8 +1577,6 @@ TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *f
 }
 
 static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
-    // if you change the logic of this function likely you must make a similar change in
-    // parseh.cpp
     assert(struct_type->id == TypeTableEntryIdStruct);
 
     if (struct_type->data.structure.complete)
@@ -3079,8 +3076,6 @@ static void add_symbols_from_import(CodeGen *g, AstNode *src_use_node, AstNode *
             continue;
         }
 
-        // Note: target_tld->name is not necessarily equal to entry->key because
-        // of aliases that parseh uses.
         Buf *target_tld_name = entry->key;
 
         auto existing_entry = dst_use_node->owner->decls_scope->decl_table.put_unique(target_tld_name, target_tld);

@@ -23,7 +23,7 @@ static int usage(const char *arg0) {
         "  build_exe [source]           create executable from source or object files\n"
         "  build_lib [source]           create library from source or object files\n"
         "  build_obj [source]           create object from source or assembly\n"
-        "  parseh [source]              convert a c header file to zig extern declarations\n"
+        "  parsec [source]              convert c code to zig code\n"
         "  targets                      list available compilation targets\n"
         "  test [source]                create and run a test build\n"
         "  version                      print version number and exit\n"
@@ -132,7 +132,7 @@ enum Cmd {
     CmdTest,
     CmdVersion,
     CmdZen,
-    CmdParseH,
+    CmdParseC,
     CmdTargets,
 };
 
@@ -470,8 +470,8 @@ int main(int argc, char **argv) {
                 cmd = CmdVersion;
             } else if (strcmp(arg, "zen") == 0) {
                 cmd = CmdZen;
-            } else if (strcmp(arg, "parseh") == 0) {
-                cmd = CmdParseH;
+            } else if (strcmp(arg, "parsec") == 0) {
+                cmd = CmdParseC;
             } else if (strcmp(arg, "test") == 0) {
                 cmd = CmdTest;
                 out_type = OutTypeExe;
@@ -484,7 +484,7 @@ int main(int argc, char **argv) {
         } else {
             switch (cmd) {
                 case CmdBuild:
-                case CmdParseH:
+                case CmdParseC:
                 case CmdTest:
                     if (!in_file) {
                         in_file = arg;
@@ -541,13 +541,13 @@ int main(int argc, char **argv) {
 
     switch (cmd) {
     case CmdBuild:
-    case CmdParseH:
+    case CmdParseC:
     case CmdTest:
         {
             if (cmd == CmdBuild && !in_file && objects.length == 0 && asm_files.length == 0) {
                 fprintf(stderr, "Expected source file argument or at least one --object or --assembly argument.\n");
                 return usage(arg0);
-            } else if ((cmd == CmdParseH || cmd == CmdTest) && !in_file) {
+            } else if ((cmd == CmdParseC || cmd == CmdTest) && !in_file) {
                 fprintf(stderr, "Expected source file argument.\n");
                 return usage(arg0);
             } else if (cmd == CmdBuild && out_type == OutTypeObj && objects.length != 0) {
@@ -557,7 +557,7 @@ int main(int argc, char **argv) {
 
             assert(cmd != CmdBuild || out_type != OutTypeUnknown);
 
-            bool need_name = (cmd == CmdBuild || cmd == CmdParseH);
+            bool need_name = (cmd == CmdBuild || cmd == CmdParseC);
 
             Buf *in_file_buf = nullptr;
 
@@ -580,7 +580,7 @@ int main(int argc, char **argv) {
                 return usage(arg0);
             }
 
-            Buf *zig_root_source_file = (cmd == CmdParseH) ? nullptr : in_file_buf;
+            Buf *zig_root_source_file = (cmd == CmdParseC) ? nullptr : in_file_buf;
 
             Buf *full_cache_dir = buf_alloc();
             os_path_resolve(buf_create_from_str("."),
@@ -668,8 +668,8 @@ int main(int argc, char **argv) {
                 if (timing_info)
                     codegen_print_timing_report(g, stdout);
                 return EXIT_SUCCESS;
-            } else if (cmd == CmdParseH) {
-                codegen_parseh(g, in_file_buf);
+            } else if (cmd == CmdParseC) {
+                codegen_parsec(g, in_file_buf);
                 ast_render(g, stdout, g->root_import->root, 4);
                 if (timing_info)
                     codegen_print_timing_report(g, stdout);

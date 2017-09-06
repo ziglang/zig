@@ -1,6 +1,6 @@
 const tests = @import("tests.zig");
 
-pub fn addCases(cases: &tests.ParseHContext) {
+pub fn addCases(cases: &tests.ParseCContext) {
     cases.addAllowWarnings("simple data types",
         \\#include <stdint.h>
         \\int foo(char a, unsigned char b, signed char c);

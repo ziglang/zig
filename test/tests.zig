@@ -17,7 +17,7 @@ const build_examples = @import("build_examples.zig");
 const compile_errors = @import("compile_errors.zig");
 const assemble_and_link = @import("assemble_and_link.zig");
 const debug_safety = @import("debug_safety.zig");
-const parseh = @import("parseh.zig");
+const parsec = @import("parsec.zig");
 
 const TestTarget = struct {
     os: builtin.Os,
@@ -115,16 +115,16 @@ pub fn addAssembleAndLinkTests(b: &build.Builder, test_filter: ?[]const u8) -> &
     return cases.step;
 }
 
-pub fn addParseHTests(b: &build.Builder, test_filter: ?[]const u8) -> &build.Step {
-    const cases = %%b.allocator.create(ParseHContext);
-    *cases = ParseHContext {
+pub fn addParseCTests(b: &build.Builder, test_filter: ?[]const u8) -> &build.Step {
+    const cases = %%b.allocator.create(ParseCContext);
+    *cases = ParseCContext {
         .b = b,
-        .step = b.step("test-parseh", "Run the C header file parsing tests"),
+        .step = b.step("test-parsec", "Run the C header file parsing tests"),
         .test_index = 0,
         .test_filter = test_filter,
     };
 
-    parseh.addCases(cases);
+    parsec.addCases(cases);
 
     return cases.step;
 }
@@ -752,7 +752,7 @@ pub const BuildExamplesContext = struct {
     }
 };
 
-pub const ParseHContext = struct {
+pub const ParseCContext = struct {
     b: &build.Builder,
     step: &build.Step,
     test_index: usize,
@@ -781,18 +781,18 @@ pub const ParseHContext = struct {
         }
     };
 
-    const ParseHCmpOutputStep = struct {
+    const ParseCCmpOutputStep = struct {
         step: build.Step,
-        context: &ParseHContext,
+        context: &ParseCContext,
         name: []const u8,
         test_index: usize,
         case: &const TestCase,
 
-        pub fn create(context: &ParseHContext, name: []const u8, case: &const TestCase) -> &ParseHCmpOutputStep {
+        pub fn create(context: &ParseCContext, name: []const u8, case: &const TestCase) -> &ParseCCmpOutputStep {
             const allocator = context.b.allocator;
-            const ptr = %%allocator.create(ParseHCmpOutputStep);
-            *ptr = ParseHCmpOutputStep {
-                .step = build.Step.init("ParseHCmpOutput", allocator, make),
+            const ptr = %%allocator.create(ParseCCmpOutputStep);
+            *ptr = ParseCCmpOutputStep {
+                .step = build.Step.init("ParseCCmpOutput", allocator, make),
                 .context = context,
                 .name = name,
                 .test_index = context.test_index,
@@ -803,13 +803,13 @@ pub const ParseHContext = struct {
         }
 
         fn make(step: &build.Step) -> %void {
-            const self = @fieldParentPtr(ParseHCmpOutputStep, "step", step);
+            const self = @fieldParentPtr(ParseCCmpOutputStep, "step", step);
             const b = self.context.b;
 
             const root_src = %%os.path.join(b.allocator, b.cache_root, self.case.sources.items[0].filename);
 
             var zig_args = ArrayList([]const u8).init(b.allocator);
-            %%zig_args.append("parseh");
+            %%zig_args.append("parsec");
             %%zig_args.append(b.pathFromRoot(root_src));
 
             %%io.stderr.printf("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
@@ -855,7 +855,7 @@ pub const ParseHContext = struct {
 
             if (stderr.len != 0 and !self.case.allow_warnings) {
                 %%io.stderr.printf(
-                    \\====== parseh emitted warnings: ============
+                    \\====== parsec emitted warnings: ============
                     \\{}
                     \\============================================
                     \\
@@ -888,7 +888,7 @@ pub const ParseHContext = struct {
         %%io.stderr.printf("\n");
     }
 
-    pub fn create(self: &ParseHContext, allow_warnings: bool, name: []const u8,
+    pub fn create(self: &ParseCContext, allow_warnings: bool, name: []const u8,
         source: []const u8, expected_lines: ...) -> &TestCase
     {
         const tc = %%self.b.allocator.create(TestCase);
@@ -906,32 +906,32 @@ pub const ParseHContext = struct {
         return tc;
     }
 
-    pub fn add(self: &ParseHContext, name: []const u8, source: []const u8, expected_lines: ...) {
+    pub fn add(self: &ParseCContext, name: []const u8, source: []const u8, expected_lines: ...) {
         const tc = self.create(false, name, source, expected_lines);
         self.addCase(tc);
     }
 
-    pub fn addAllowWarnings(self: &ParseHContext, name: []const u8, source: []const u8, expected_lines: ...) {
+    pub fn addAllowWarnings(self: &ParseCContext, name: []const u8, source: []const u8, expected_lines: ...) {
         const tc = self.create(true, name, source, expected_lines);
         self.addCase(tc);
     }
 
-    pub fn addCase(self: &ParseHContext, case: &const TestCase) {
+    pub fn addCase(self: &ParseCContext, case: &const TestCase) {
         const b = self.b;
 
-        const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "parseh {}", case.name);
+        const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "parsec {}", case.name);
         if (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null)
                 return;
         }
 
-        const parseh_and_cmp = ParseHCmpOutputStep.create(self, annotated_case_name, case);
-        self.step.dependOn(&parseh_and_cmp.step);
+        const parsec_and_cmp = ParseCCmpOutputStep.create(self, annotated_case_name, case);
+        self.step.dependOn(&parsec_and_cmp.step);
 
         for (case.sources.toSliceConst()) |src_file| {
             const expanded_src_path = %%os.path.join(b.allocator, b.cache_root, src_file.filename);
             const write_src = b.addWriteFile(expanded_src_path, src_file.source);
-            parseh_and_cmp.step.dependOn(&write_src.step);
+            parsec_and_cmp.step.dependOn(&write_src.step);
         }
     }
 };
