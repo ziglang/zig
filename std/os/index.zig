@@ -924,3 +924,25 @@ pub fn readLink(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
         return result_buf[0..ret_val];
     }
 }
+
+pub fn sleep(seconds: u64, nanoseconds: u64) {
+    var req = posix.timespec {
+        .tv_sec = seconds,
+        .tv_nsec = nanoseconds,
+    };
+    var rem: posix.timespec = undefined;
+    while (true) {
+        const ret_val = posix.nanosleep(&req, &rem);
+        const err = posix.getErrno(ret_val);
+        if (err == 0) return;
+        switch (err) {
+            posix.EFAULT => unreachable,
+            posix.EINVAL => unreachable,
+            posix.EINTR => {
+                req = rem;
+                continue;
+            },
+            else => return,
+        }
+    }
+}

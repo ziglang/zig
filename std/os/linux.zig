@@ -459,6 +459,10 @@ pub fn waitpid(pid: i32, status: &i32, options: i32) -> usize {
     arch.syscall4(arch.SYS_wait4, usize(pid), @ptrToInt(status), @bitCast(usize, isize(options)), 0)
 }
 
+pub fn nanosleep(req: &const timespec, rem: ?&timespec) -> usize {
+    arch.syscall2(arch.SYS_nanosleep, @ptrToInt(req), @ptrToInt(rem))
+}
+
 const NSIG = 65;
 const sigset_t = [128]u8;
 const all_mask = []u8 { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, };
