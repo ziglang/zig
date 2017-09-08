@@ -480,7 +480,7 @@ pub fn nanosleep(req: &const timespec, rem: ?&timespec) -> usize {
     arch.syscall2(arch.SYS_nanosleep, @ptrToInt(req), @ptrToInt(rem))
 }
 
-pub fn sigprocmask(flags: u32, set: &const sigset_t, oldset: ?&sigset_t) -> usize {
+pub fn sigprocmask(flags: u32, noalias set: &const sigset_t, noalias oldset: ?&sigset_t) -> usize {
     arch.syscall4(arch.SYS_rt_sigprocmask, flags, @ptrToInt(set), @ptrToInt(oldset), NSIG/8)
 }
 

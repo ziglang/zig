@@ -38,3 +38,5 @@ pub extern "c" fn dup(fd: c_int) -> c_int;
 pub extern "c" fn dup2(old_fd: c_int, new_fd: c_int) -> c_int;
 pub extern "c" fn readlink(noalias path: &const u8, noalias buf: &u8, bufsize: usize) -> isize;
 pub extern "c" fn realpath(noalias file_name: &const u8, noalias resolved_name: &u8) -> ?&u8;
+pub extern "c" fn sigprocmask(how: c_int, noalias set: &const sigset_t, noalias oset: ?&sigset_t) -> c_int;
+pub extern "c" fn sigaction(sig: c_int, noalias act: &const Sigaction, noalias oact: ?&Sigaction) -> c_int;

@@ -24,6 +24,19 @@ pub const MAP_NOCACHE = 0x0400; /// don't cache pages for this mapping
 pub const MAP_NORESERVE = 0x0040; /// don't reserve needed swap area
 pub const MAP_FAILED = @maxValue(usize);
 
+pub const WNOHANG   = 0x00000001; /// [XSI] no hang in wait/no child to reap
+pub const WUNTRACED = 0x00000002; /// [XSI] notify on stop, untraced child
+
+pub const SA_ONSTACK   = 0x0001; /// take signal on signal stack
+pub const SA_RESTART   = 0x0002; /// restart system on signal return
+pub const SA_RESETHAND = 0x0004; /// reset to SIG_DFL when taking signal
+pub const SA_NOCLDSTOP = 0x0008; /// do not generate SIGCHLD on child stop
+pub const SA_NODEFER   = 0x0010; /// don't mask the signal we're delivering
+pub const SA_NOCLDWAIT = 0x0020; /// don't keep zombies around
+pub const SA_SIGINFO   = 0x0040; /// signal handler with SA_SIGINFO args
+pub const SA_USERTRAMP = 0x0100; /// do not bounce off kernel's sigtramp
+pub const SA_64REGSET  = 0x0200; /// signal handler with SA_SIGINFO args with 64bit   regs information
+
 pub const O_LARGEFILE = 0x0000;
 pub const O_PATH = 0x0000;
 
@@ -46,40 +59,43 @@ pub const SEEK_SET = 0x0;
 pub const SEEK_CUR = 0x1;
 pub const SEEK_END = 0x2;
 
-pub const SIGHUP    = 1;
-pub const SIGINT    = 2;
-pub const SIGQUIT   = 3;
-pub const SIGILL    = 4;
-pub const SIGTRAP   = 5;
-pub const SIGABRT   = 6;
-pub const SIGIOT    = SIGABRT;
-pub const SIGBUS    = 7;
-pub const SIGFPE    = 8;
-pub const SIGKILL   = 9;
-pub const SIGUSR1   = 10;
-pub const SIGSEGV   = 11;
-pub const SIGUSR2   = 12;
-pub const SIGPIPE   = 13;
-pub const SIGALRM   = 14;
-pub const SIGTERM   = 15;
-pub const SIGSTKFLT = 16;
-pub const SIGCHLD   = 17;
-pub const SIGCONT   = 18;
-pub const SIGSTOP   = 19;
-pub const SIGTSTP   = 20;
-pub const SIGTTIN   = 21;
-pub const SIGTTOU   = 22;
-pub const SIGURG    = 23;
-pub const SIGXCPU   = 24;
-pub const SIGXFSZ   = 25;
-pub const SIGVTALRM = 26;
-pub const SIGPROF   = 27;
-pub const SIGWINCH  = 28;
-pub const SIGIO     = 29;
-pub const SIGPOLL   = 29;
-pub const SIGPWR    = 30;
-pub const SIGSYS    = 31;
-pub const SIGUNUSED = SIGSYS;
+pub const SIG_BLOCK   = 1; /// block specified signal set
+pub const SIG_UNBLOCK = 2; /// unblock specified signal set
+pub const SIG_SETMASK = 3; /// set specified signal set
+
+pub const SIGHUP    = 1; /// hangup
+pub const SIGINT    = 2; /// interrupt
+pub const SIGQUIT   = 3; /// quit
+pub const SIGILL    = 4; /// illegal instruction (not reset when caught)
+pub const SIGTRAP   = 5; /// trace trap (not reset when caught)
+pub const SIGABRT   = 6; /// abort()
+pub const SIGPOLL   = 7; /// pollable event ([XSR] generated, not supported)
+pub const SIGIOT    = SIGABRT; /// compatibility
+pub const SIGEMT    = 7;  /// EMT instruction
+pub const SIGFPE    = 8;  /// floating point exception
+pub const SIGKILL   = 9;  /// kill (cannot be caught or ignored)
+pub const SIGBUS    = 10; /// bus error
+pub const SIGSEGV   = 11; /// segmentation violation
+pub const SIGSYS    = 12; /// bad argument to system call
+pub const SIGPIPE   = 13; /// write on a pipe with no one to read it
+pub const SIGALRM   = 14; /// alarm clock
+pub const SIGTERM   = 15; /// software termination signal from kill
+pub const SIGURG    = 16; /// urgent condition on IO channel
+pub const SIGSTOP   = 17; /// sendable stop signal not from tty
+pub const SIGTSTP   = 18; /// stop signal from tty
+pub const SIGCONT   = 19; /// continue a stopped process
+pub const SIGCHLD   = 20; /// to parent on child stop or exit
+pub const SIGTTIN   = 21; /// to readers pgrp upon background tty read
+pub const SIGTTOU   = 22; /// like TTIN for output if (tp->t_local&LTOSTOP)
+pub const SIGIO     = 23; /// input/output possible signal
+pub const SIGXCPU   = 24; /// exceeded CPU time limit
+pub const SIGXFSZ   = 25; /// exceeded file size limit
+pub const SIGVTALRM = 26; /// virtual time alarm
+pub const SIGPROF   = 27; /// profiling time alarm
+pub const SIGWINCH  = 28; /// window size changes
+pub const SIGINFO   = 29; /// information request
+pub const SIGUSR1   = 30; /// user defined signal 1
+pub const SIGUSR2   = 31; /// user defined signal 2
 
 fn wstatus(x: i32) -> i32 { x & 0o177 }
 const wstopped = 0o177;
@@ -207,6 +223,47 @@ pub fn readlink(noalias path: &const u8, noalias buf_ptr: &u8, buf_len: usize) -
 
 pub fn realpath(noalias filename: &const u8, noalias resolved_name: &u8) -> usize {
     if (c.realpath(filename, resolved_name) == null) @bitCast(usize, -isize(*c._errno())) else 0
+}
+
+pub fn sigprocmask(flags: u32, noalias set: &const sigset_t, noalias oldset: ?&sigset_t) -> usize {
+    errnoWrap(c.sigprocmask(@bitCast(c_int, flags), set, oldset))
+}
+
+pub fn sigaction(sig: u5, noalias act: &const Sigaction, noalias oact: ?&Sigaction) -> usize {
+    assert(sig != SIGKILL);
+    assert(sig != SIGSTOP);
+    var cact = c.Sigaction {
+        .handler = @ptrCast(extern fn(c_int), act.handler),
+        .sa_flags = @bitCast(c_int, act.flags),
+        .sa_mask = act.mask,
+    };
+    var coact: c.Sigaction = undefined;
+    const result = errnoWrap(c.sigaction(sig, &cact, &coact));
+    if (result != 0) {
+        return result;
+    }
+    if (oact) |old| {
+        *old = Sigaction {
+            .handler = @ptrCast(extern fn(i32), coact.handler),
+            .flags = @bitCast(u32, coact.sa_flags),
+            .mask = coact.sa_mask,
+        };
+    }
+    return result;
+}
+
+pub const sigset_t = c.sigset_t;
+pub const empty_sigset = sigset_t(0);
+
+/// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
+pub const Sigaction = struct {
+    handler: extern fn(i32),
+    mask: sigset_t,
+    flags: u32,
+};
+
+pub fn sigaddset(set: &sigset_t, signo: u5) {
+    *set |= u32(1) << (signo - 1);
 }
 
 /// Takes the return value from a syscall and formats it back in the way
