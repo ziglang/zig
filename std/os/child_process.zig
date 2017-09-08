@@ -340,6 +340,9 @@ extern fn sigchld_handler(_: i32) {
     while (true) {
         var status: i32 = undefined;
         const pid_result = posix.waitpid(-1, &status, posix.WNOHANG);
+        if (pid_result == 0) {
+            return;
+        }
         const err = posix.getErrno(pid_result);
         if (err > 0) {
             if (err == posix.ECHILD) {
