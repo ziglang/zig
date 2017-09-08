@@ -341,8 +341,11 @@ extern fn sigchld_handler(_: i32) {
         var status: i32 = undefined;
         const pid_result = posix.waitpid(-1, &status, posix.WNOHANG);
         const err = posix.getErrno(pid_result);
-        if (err == posix.ECHILD) {
-            return;
+        if (err > 0) {
+            if (err == posix.ECHILD) {
+                return;
+            }
+            unreachable;
         }
         handleTerm(i32(pid_result), status);
     }
@@ -352,12 +355,10 @@ fn handleTerm(pid: i32, status: i32) {
     var it = children_nodes.first;
     while (it) |node| : (it = node.next) {
         if (node.data.pid == pid) {
-            assert(node.data.term == null);
             node.data.handleWaitResult(status);
             return;
         }
     }
-    unreachable;
 }
 
 const sigchld_set = {
