@@ -39,6 +39,12 @@ pub fn ArrayList(comptime T: type) -> type{
             *new_item_ptr = *item;
         }
 
+        pub fn appendSlice(l: &Self, items: []const T) -> %void {
+            %return l.ensureCapacity(l.len + items.len);
+            mem.copy(T, l.items[l.len..], items);
+            l.len += items.len;
+        }
+
         pub fn resize(l: &Self, new_len: usize) -> %void {
             %return l.ensureCapacity(new_len);
             l.len = new_len;
@@ -87,5 +93,15 @@ test "basic ArrayList test" {
     }}
 
     assert(list.pop() == 10);
+    assert(list.len == 9);
+
+    %%list.appendSlice([]const i32 { 1, 2, 3 });
+    assert(list.len == 12);
+    assert(list.pop() == 3);
+    assert(list.pop() == 2);
+    assert(list.pop() == 1);
+    assert(list.len == 9);
+
+    %%list.appendSlice([]const i32 {});
     assert(list.len == 9);
 }
