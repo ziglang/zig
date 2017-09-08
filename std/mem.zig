@@ -49,11 +49,16 @@ pub const Allocator = struct {
     }
 
     fn free(self: &Allocator, memory: var) {
-        const const_slice = ([]const u8)(memory);
-        if (memory.len == 0)
-            return;
-        const ptr = @intToPtr(&u8, @ptrToInt(const_slice.ptr));
-        self.freeFn(self, ptr);
+        const ptr = if (@typeId(@typeOf(memory)) == builtin.TypeId.Pointer) {
+            memory
+        } else {
+            const const_slice = ([]const u8)(memory);
+            if (memory.len == 0)
+                return;
+            const_slice.ptr
+        };
+        const non_const_ptr = @intToPtr(&u8, @ptrToInt(ptr));
+        self.freeFn(self, non_const_ptr);
     }
 };
 

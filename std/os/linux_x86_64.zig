@@ -442,6 +442,14 @@ pub fn syscall6(number: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usiz
         : "rcx", "r11")
 }
 
+pub nakedcc fn restore_rt() {
+    asm volatile ("syscall"
+        :
+        : [number] "{rax}" (usize(SYS_rt_sigreturn))
+        : "rcx", "r11")
+}
+
+
 pub const msghdr = extern struct {
     msg_name: &u8,
     msg_namelen: socklen_t,

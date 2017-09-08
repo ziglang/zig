@@ -1,7 +1,6 @@
 const debug = @import("debug.zig");
 const assert = debug.assert;
 const mem = @import("mem.zig");
-const Allocator = mem.Allocator;
 
 /// Generic doubly linked list.
 pub fn LinkedList(comptime T: type) -> type {
@@ -13,26 +12,29 @@ pub fn LinkedList(comptime T: type) -> type {
             prev: ?&Node,
             next: ?&Node,
             data: T,
+
+            pub fn init(data: &const T) -> Node {
+                Node {
+                    .data = *data,
+                    .prev = null,
+                    .next = null,
+                }
+            }
         };
 
         first: ?&Node,
         last:  ?&Node,
         len:   usize,
-        allocator: &Allocator,
 
         /// Initialize a linked list.
         ///
-        /// Arguments:
-        ///     allocator: Dynamic memory allocator.
-        ///
         /// Returns:
         ///     An empty linked list.
-        pub fn init(allocator: &Allocator) -> Self {
+        pub fn init() -> Self {
             Self {
                 .first = null,
                 .last  = null,
                 .len   = 0,
-                .allocator = allocator,
             }
         }
 
@@ -155,55 +157,38 @@ pub fn LinkedList(comptime T: type) -> type {
             return first;
         }
 
-        /// Allocate a new node.
-        ///
-        /// Returns:
-        ///     A pointer to the new node.
-        pub fn allocateNode(list: &Self) -> %&Node {
-            list.allocator.create(Node)
-        }
-
-        /// Deallocate a node.
-        ///
-        /// Arguments:
-        ///     node: Pointer to the node to deallocate.
-        pub fn destroyNode(list: &Self, node: &Node) {
-            list.allocator.destroy(node);
-        }
-
-        /// Allocate and initialize a node and its data.
-        ///
-        /// Arguments:
-        ///     data: The data to put inside the node.
-        ///
-        /// Returns:
-        ///     A pointer to the new node.
-        pub fn createNode(list: &Self, data: &const T) -> %&Node {
-            var node = %return list.allocateNode();
-            *node = Node {
-                .prev = null,
-                .next = null,
-                .data = *data,
-            };
-            return node;
-        }
     }
 }
 
-test "basic linked list test" {
-    var list = LinkedList(u32).init(&debug.global_allocator);
+pub fn testAllocateNode(comptime T: type, list: &LinkedList(T), allocator: &mem.Allocator) -> %&LinkedList(T).Node {
+    allocator.create(LinkedList(T).Node)
+}
 
-    var one   = %%list.createNode(1);
-    var two   = %%list.createNode(2);
-    var three = %%list.createNode(3);
-    var four  = %%list.createNode(4);
-    var five  = %%list.createNode(5);
+pub fn testDestroyNode(comptime T: type, list: &LinkedList(T), node: &LinkedList(T).Node, allocator: &mem.Allocator) {
+    allocator.destroy(node);
+}
+
+pub fn testCreateNode(comptime T: type, list: &LinkedList(T), data: &const T, allocator: &mem.Allocator) -> %&LinkedList(T).Node {
+    var node = %return testAllocateNode(T, list, allocator);
+    *node = LinkedList(T).Node.init(data);
+    return node;
+}
+
+test "basic linked list test" {
+    const allocator = &debug.global_allocator;
+    var list = LinkedList(u32).init();
+
+    var one   = %%testCreateNode(u32, &list, 1, allocator);
+    var two   = %%testCreateNode(u32, &list, 2, allocator);
+    var three = %%testCreateNode(u32, &list, 3, allocator);
+    var four  = %%testCreateNode(u32, &list, 4, allocator);
+    var five  = %%testCreateNode(u32, &list, 5, allocator);
     defer {
-        list.destroyNode(one);
-        list.destroyNode(two);
-        list.destroyNode(three);
-        list.destroyNode(four);
-        list.destroyNode(five);
+        testDestroyNode(u32, &list, one, allocator);
+        testDestroyNode(u32, &list, two, allocator);
+        testDestroyNode(u32, &list, three, allocator);
+        testDestroyNode(u32, &list, four, allocator);
+        testDestroyNode(u32, &list, five, allocator);
     }
 
     list.append(two);               // {2}

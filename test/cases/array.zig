@@ -86,3 +86,13 @@ test "array literal with specified size" {
     assert(array[0] == 1);
     assert(array[1] == 2);
 }
+
+test "array child property" {
+    var x: [5]i32 = undefined;
+    assert(@typeOf(x).child == i32);
+}
+
+test "array len property" {
+    var x: [5]i32 = undefined;
+    assert(@typeOf(x).len == 5);
+}

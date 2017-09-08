@@ -1,3 +1,4 @@
+const assert = @import("../debug.zig").assert;
 const builtin = @import("builtin");
 const arch = switch (builtin.arch) {
     builtin.Arch.x86_64 => @import("linux_x86_64.zig"),
@@ -35,6 +36,22 @@ pub const MAP_NONBLOCK   = 0x10000;
 pub const MAP_STACK      = 0x20000;
 pub const MAP_HUGETLB    = 0x40000;
 pub const MAP_FILE       = 0;
+
+pub const WNOHANG    = 1;
+pub const WUNTRACED  = 2;
+pub const WSTOPPED   = 2;
+pub const WEXITED    = 4;
+pub const WCONTINUED = 8;
+pub const WNOWAIT    = 0x1000000;
+
+pub const SA_NOCLDSTOP  = 1;
+pub const SA_NOCLDWAIT  = 2;
+pub const SA_SIGINFO    = 4;
+pub const SA_ONSTACK    = 0x08000000;
+pub const SA_RESTART    = 0x10000000;
+pub const SA_NODEFER    = 0x40000000;
+pub const SA_RESETHAND  = 0x80000000;
+pub const SA_RESTORER   = 0x04000000;
 
 pub const SIGHUP    = 1;
 pub const SIGINT    = 2;
@@ -100,9 +117,9 @@ pub const SEEK_SET = 0;
 pub const SEEK_CUR = 1;
 pub const SEEK_END = 2;
 
-const SIG_BLOCK   = 0;
-const SIG_UNBLOCK = 1;
-const SIG_SETMASK = 2;
+pub const SIG_BLOCK   = 0;
+pub const SIG_UNBLOCK = 1;
+pub const SIG_SETMASK = 2;
 
 pub const SOCK_STREAM = 1;
 pub const SOCK_DGRAM = 2;
@@ -448,7 +465,7 @@ pub fn getrandom(buf: &u8, count: usize, flags: u32) -> usize {
 }
 
 pub fn kill(pid: i32, sig: i32) -> usize {
-    arch.syscall2(arch.SYS_kill, usize(pid), usize(sig))
+    arch.syscall2(arch.SYS_kill, @bitCast(usize, isize(pid)), usize(sig))
 }
 
 pub fn unlink(path: &const u8) -> usize {
@@ -456,17 +473,65 @@ pub fn unlink(path: &const u8) -> usize {
 }
 
 pub fn waitpid(pid: i32, status: &i32, options: i32) -> usize {
-    arch.syscall4(arch.SYS_wait4, usize(pid), @ptrToInt(status), @bitCast(usize, isize(options)), 0)
+    arch.syscall4(arch.SYS_wait4, @bitCast(usize, isize(pid)), @ptrToInt(status), @bitCast(usize, isize(options)), 0)
 }
 
 pub fn nanosleep(req: &const timespec, rem: ?&timespec) -> usize {
     arch.syscall2(arch.SYS_nanosleep, @ptrToInt(req), @ptrToInt(rem))
 }
 
+pub fn sigprocmask(flags: u32, set: &const sigset_t, oldset: ?&sigset_t) -> usize {
+    arch.syscall4(arch.SYS_rt_sigprocmask, flags, @ptrToInt(set), @ptrToInt(oldset), NSIG/8)
+}
+
+pub fn sigaction(sig: u6, noalias act: &const Sigaction, noalias oact: ?&Sigaction) -> usize {
+    assert(sig >= 1);
+    assert(sig != SIGKILL);
+    assert(sig != SIGSTOP);
+    var ksa = k_sigaction {
+        .handler = act.handler,
+        .flags = act.flags | SA_RESTORER,
+        .mask = undefined,
+        .restorer = @ptrCast(extern fn(), arch.restore_rt),
+    };
+    var ksa_old: k_sigaction = undefined;
+    @memcpy(@ptrCast(&u8, &ksa.mask), @ptrCast(&const u8, &act.mask), 8);
+    const result = arch.syscall4(arch.SYS_rt_sigaction, sig, @ptrToInt(&ksa), @ptrToInt(&ksa_old), @sizeOf(@typeOf(ksa.mask)));
+    const err = getErrno(result);
+    if (err != 0) {
+        return result;
+    }
+    if (oact) |old| {
+        old.handler = ksa_old.handler;
+        old.flags = @truncate(u32, ksa_old.flags);
+        @memcpy(@ptrCast(&u8, &old.mask), @ptrCast(&const u8, &ksa_old.mask), @sizeOf(@typeOf(ksa_old.mask)));
+    }
+    return 0;
+}
+
 const NSIG = 65;
-const sigset_t = [128]u8;
-const all_mask = []u8 { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, };
-const app_mask = []u8 { 0xff, 0xff, 0xff, 0xfc, 0x7f, 0xff, 0xff, 0xff, };
+const sigset_t = [128 / @sizeOf(usize)]usize;
+const all_mask = []usize{@maxValue(usize)};
+const app_mask = []usize{0xfffffffc7fffffff};
+
+const k_sigaction = extern struct {
+    handler: extern fn(i32),
+    flags: usize,
+    restorer: extern fn(),
+    mask: [2]u32,
+};
+
+/// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
+pub const Sigaction = struct {
+    handler: extern fn(i32),
+    mask: sigset_t,
+    flags: u32,
+};
+
+pub const SIG_ERR = @intToPtr(extern fn(i32), @maxValue(usize));
+pub const SIG_DFL = @intToPtr(extern fn(i32), 0);
+pub const SIG_IGN = @intToPtr(extern fn(i32), 1);
+pub const empty_sigset = []usize{0} ** sigset_t.len;
 
 pub fn raise(sig: i32) -> usize {
     var set: sigset_t = undefined;
@@ -487,6 +552,16 @@ fn blockAppSignals(set: &sigset_t) {
 
 fn restoreSignals(set: &sigset_t) {
     _ = arch.syscall4(arch.SYS_rt_sigprocmask, SIG_SETMASK, @ptrToInt(set), 0, NSIG/8);
+}
+
+pub fn sigaddset(set: &sigset_t, sig: u6) {
+    const s = sig - 1;
+    (*set)[usize(s) / usize.bit_count] |= usize(1) << (s & (usize.bit_count - 1));
+}
+
+pub fn sigismember(set: &const sigset_t, sig: u6) -> bool {
+    const s = sig - 1;
+    return ((*set)[usize(s) / usize.bit_count] & (usize(1) << (s & (usize.bit_count - 1)))) != 0;
 }
 
 

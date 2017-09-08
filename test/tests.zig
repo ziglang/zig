@@ -238,7 +238,7 @@ pub const CompareOutputContext = struct {
             %%io.stderr.printf("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
 
             var child = os.ChildProcess.spawn(full_exe_path, [][]u8{}, null, &b.env_map,
-                StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, b.allocator) %% |err|
+                StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, null, b.allocator) %% |err|
             {
                 debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
             };
@@ -253,7 +253,7 @@ pub const CompareOutputContext = struct {
                 debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
             };
             switch (term) {
-                Term.Clean => |code| {
+                Term.Exited => |code| {
                     if (code != 0) {
                         %%io.stderr.printf("Process {} exited with error code {}\n", full_exe_path, code);
                         return error.TestFailed;
@@ -313,7 +313,7 @@ pub const CompareOutputContext = struct {
             %%io.stderr.printf("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
 
             var child = os.ChildProcess.spawn(full_exe_path, [][]u8{}, null, &b.env_map,
-                StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, b.allocator) %% |err|
+                StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, null, b.allocator) %% |err|
             {
                 debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
             };
@@ -324,7 +324,7 @@ pub const CompareOutputContext = struct {
 
             const debug_trap_signal: i32 = 5;
             switch (term) {
-                Term.Clean => |code| {
+                Term.Exited => |code| {
                     %%io.stderr.printf("\nProgram expected to hit debug trap (signal {}) " ++
                         "but exited with return code {}\n", debug_trap_signal, code);
                     return error.TestFailed;
@@ -557,7 +557,7 @@ pub const CompileErrorContext = struct {
             }
 
             var child = os.ChildProcess.spawn(b.zig_exe, zig_args.toSliceConst(), null, &b.env_map,
-                StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, b.allocator) %% |err|
+                StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, null, b.allocator) %% |err|
             {
                 debug.panic("Unable to spawn {}: {}\n", b.zig_exe, @errorName(err));
             };
@@ -572,7 +572,7 @@ pub const CompileErrorContext = struct {
                 debug.panic("Unable to spawn {}: {}\n", b.zig_exe, @errorName(err));
             };
             switch (term) {
-                Term.Clean => |code| {
+                Term.Exited => |code| {
                     if (code == 0) {
                         %%io.stderr.printf("Compilation incorrectly succeeded\n");
                         return error.TestFailed;
@@ -819,7 +819,7 @@ pub const ParseCContext = struct {
             }
 
             var child = os.ChildProcess.spawn(b.zig_exe, zig_args.toSliceConst(), null, &b.env_map,
-                StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, b.allocator) %% |err|
+                StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, null, b.allocator) %% |err|
             {
                 debug.panic("Unable to spawn {}: {}\n", b.zig_exe, @errorName(err));
             };
@@ -834,7 +834,7 @@ pub const ParseCContext = struct {
                 debug.panic("Unable to spawn {}: {}\n", b.zig_exe, @errorName(err));
             };
             switch (term) {
-                Term.Clean => |code| {
+                Term.Exited => |code| {
                     if (code != 0) {
                         %%io.stderr.printf("Compilation failed with exit code {}\n", code);
                         return error.TestFailed;

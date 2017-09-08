@@ -545,7 +545,7 @@ pub const Builder = struct {
         }
 
         var child = os.ChildProcess.spawn(exe_path, args, cwd, env_map,
-            StdIo.Inherit, StdIo.Inherit, StdIo.Inherit, self.allocator) %% |err|
+            StdIo.Inherit, StdIo.Inherit, StdIo.Inherit, null, self.allocator) %% |err|
         {
             %%io.stderr.printf("Unable to spawn {}: {}\n", exe_path, @errorName(err));
             return err;
@@ -556,7 +556,7 @@ pub const Builder = struct {
             return err;
         };
         switch (term) {
-            Term.Clean => |code| {
+            Term.Exited => |code| {
                 if (code != 0) {
                     %%io.stderr.printf("Process {} exited with error code {}\n", exe_path, code);
                     return error.UncleanExit;
