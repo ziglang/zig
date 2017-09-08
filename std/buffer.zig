@@ -87,7 +87,7 @@ pub const Buffer = struct {
         const l = self.len();
         if (l < m.len) return false;
         const start = l - m.len;
-        return mem.eql(u8, self.list.items[start..], m);
+        return mem.eql(u8, self.list.items[start..l], m);
     }
 
     pub fn replaceContents(self: &const Buffer, m: []const u8) -> %void {
@@ -111,6 +111,7 @@ test "simple Buffer" {
     assert(buf.eql(buf2.toSliceConst()));
 
     assert(buf.startsWith("hell"));
+    assert(buf.endsWith("orld"));
 
     %%buf2.resize(4);
     assert(buf.startsWith(buf2.toSliceConst()));
