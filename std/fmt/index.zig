@@ -207,6 +207,13 @@ pub fn formatValue(value: var, context: var, output: fn(@typeOf(context), []cons
                 return false;
             return output(context, @errorName(value));
         },
+        builtin.TypeId.Pointer => {
+            if (@typeId(T.child) == builtin.TypeId.Array and T.child.child == u8) {
+                return output(context, (*value)[0..]);
+            } else {
+                @compileError("Unable to format type '" ++ @typeName(T) ++ "'");
+            }
+        },
         else => if (@canImplicitCast([]const u8, value)) {
             const casted_value = ([]const u8)(value);
             return output(context, casted_value);
