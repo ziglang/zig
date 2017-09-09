@@ -112,6 +112,30 @@ pub coldcc fn abort() -> noreturn {
     }
 }
 
+/// Exits the program cleanly with the specified status code.
+pub coldcc fn exit(status: i32) -> noreturn {
+    if (builtin.link_libc) {
+        c.exit(status);
+    }
+    switch (builtin.os) {
+        Os.linux, Os.darwin, Os.macosx, Os.ios => {
+            posix.exit(status)
+        },
+        Os.windows => {
+            // Map a possibly negative status code to a non-negative status for the systems default
+            // integer width.
+            const p_status = if (@sizeOf(c_uint) < @sizeOf(u32)) {
+                @truncate(c_uint, @bitCast(u32, status))
+            } else {
+                c_uint(@bitCast(u32, status))
+            };
+
+            windows.ExitProcess(p_status)
+        },
+        else => @compileError("Unsupported OS"),
+    }
+}
+
 /// Calls POSIX close, and keeps trying if it gets interrupted.
 pub fn posixClose(fd: i32) {
     while (true) {
