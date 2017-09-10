@@ -130,16 +130,21 @@ else()
     add_library(embedded_lld_lib ${EMBEDDED_LLD_LIB_SOURCES})
     add_library(embedded_lld_elf ${EMBEDDED_LLD_ELF_SOURCES})
     add_library(embedded_lld_coff ${EMBEDDED_LLD_COFF_SOURCES})
+    if(MINGW)
+        set(UNIQUE_COMPILE_FLAGS "-fno-exceptions -fno-rtti -Wno-comment")
+    elseif(MSVC)
+        set(UNIQUE_COMPILE_FLAGS "-D_MSVC")
+    endif()
     set_target_properties(embedded_lld_lib PROPERTIES
-        COMPILE_FLAGS "-std=c++11 -fno-exceptions -fno-rtti -Wno-comment"
+        COMPILE_FLAGS "-std=c++11 ${UNIQUE_COMPILE_FLAGS}"
         LINK_FLAGS " "
     )
     set_target_properties(embedded_lld_elf PROPERTIES
-        COMPILE_FLAGS "-std=c++11 -fno-exceptions -fno-rtti -Wno-comment"
+        COMPILE_FLAGS "-std=c++11 ${UNIQUE_COMPILE_FLAGS}"
         LINK_FLAGS " "
     )
     set_target_properties(embedded_lld_coff PROPERTIES
-        COMPILE_FLAGS "-std=c++11 -fno-exceptions -fno-rtti -Wno-comment"
+        COMPILE_FLAGS "-std=c++11 ${UNIQUE_COMPILE_FLAGS}"
         LINK_FLAGS " "
     )
     target_include_directories(embedded_lld_lib PUBLIC
@@ -211,14 +216,17 @@ include_directories(
     "${CMAKE_SOURCE_DIR}/src"
 )
 
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Werror -Wall")
-
-
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
 if(MINGW)
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wno-error=format= -Wno-error=format -Wno-error=format-extra-args")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Werror -Wno-error=format= -Wno-error=format -Wno-error=format-extra-args")
 endif()
 
-set(EXE_CFLAGS "-std=c++11 -fno-exceptions -fno-rtti -D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -Werror=strict-prototypes -Werror=old-style-definition -Werror=type-limits -Wno-missing-braces")
+set(EXE_CFLAGS "-std=c++11")
+if(MINGW)
+    set(EXE_CFLAGS "${EXE_CFLAGS} -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fno-exceptions -fno-rtti  -Werror=strict-prototypes -Werror=old-style-definition -Werror=type-limits -Wno-missing-braces")
+elseif(MSVC)
+    set(EXE_CFLAGS "${EXE_CFLAGS} -D_MSVC")
+endif()
 set(EXE_LDFLAGS " ")
 if(ZIG_TEST_COVERAGE)
     set(EXE_CFLAGS "${EXE_CFLAGS} -fprofile-arcs -ftest-coverage")
@@ -230,15 +238,22 @@ set_target_properties(zig PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
 )
+
+if(MINGW)
+    set(PLATFORM_LIBRARIES quadmath)
+endif()
 target_link_libraries(zig LINK_PUBLIC
     ${CLANG_LIBRARIES}
     ${LLD_LIBRARIES}
     ${LLVM_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
-    quadmath
+    ${PLATFORM_LIBRARIES}
 )
-if(MINGW)
+if(MINGW OR MSVC)
     target_link_libraries(zig LINK_PUBLIC version)
+endif()
+if(MSVC)
+    target_link_libraries(zig LINK_PUBLIC "C:/Program Files (x86)/Microsoft Visual Studio 14.0/DIA SDK/lib/diaguids.lib")
 endif()
 install(TARGETS zig DESTINATION bin)
 
@@ -455,3 +470,4 @@ if (ZIG_TEST_COVERAGE)
         COMMAND rm coverage.info coverage.info.cleaned
     )
 endif()
+

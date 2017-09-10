@@ -5194,7 +5194,19 @@ void codegen_add_object(CodeGen *g, Buf *object_path) {
     g->link_objects.append(object_path);
 }
 
-
+#if defined(_MSVC)
+// MSVC doesn't seem to support "designators" for array initialization
+static const char *c_int_type_names[] = {
+    "short",
+    "unsigned short",
+    "int",
+    "unsigned int",
+    "long",
+    "unsigned long",
+    "long long",
+    "unsigned long long",
+};
+#else
 static const char *c_int_type_names[] = {
     [CIntTypeShort] = "short",
     [CIntTypeUShort] = "unsigned short",
@@ -5205,6 +5217,7 @@ static const char *c_int_type_names[] = {
     [CIntTypeLongLong] = "long long",
     [CIntTypeULongLong] = "unsigned long long",
 };
+#endif
 
 static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
     assert(type_entry);

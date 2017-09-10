@@ -12,7 +12,7 @@
 #include "tokenizer.hpp"
 #include "errmsg.hpp"
 
-__attribute__ ((format (printf, 2, 3)))
+ATTRIBUTE_FORMAT(printf, 2, 3)
 void ast_token_error(Token *token, const char *format, ...);
 
 

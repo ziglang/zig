@@ -141,7 +141,7 @@ void bigint_init_unsigned(BigInt *dest, uint64_t x) {
     dest->is_negative = false;
 }
 
-void bigint_init_u128(BigInt *dest, unsigned __int128 x) {
+void bigint_init_u128(BigInt *dest, uint128_t x) {
     uint64_t low = (uint64_t)(x & UINT64_MAX);
     uint64_t high = (uint64_t)(x >> 64);
 
@@ -201,9 +201,9 @@ void bigint_init_bigint(BigInt *dest, const BigInt *src) {
 
 void bigint_init_bigfloat(BigInt *dest, const BigFloat *op) {
     if (op->value >= 0) {
-        bigint_init_u128(dest, (unsigned __int128)(op->value));
+        bigint_init_u128(dest, (uint128_t)(op->value));
     } else {
-        bigint_init_u128(dest, (unsigned __int128)(-op->value));
+        bigint_init_u128(dest, (uint128_t)(-op->value));
         dest->is_negative = true;
     }
 }
@@ -377,6 +377,41 @@ void bigint_read_twos_complement(BigInt *dest, const uint8_t *buf, size_t bit_co
     }
 }
 
+#if defined(_MSVC)
+/*
+ * Inneficient implmentations for now
+ */
+static bool add_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result) {
+   *result = op1 + op2;
+   if(*result - op2 != op1) {
+       return true; // overflow
+   }
+   return false; // no overflow
+}
+
+static bool sub_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result) {
+   *result = op1 - op2;
+    if(*result > op1)
+    {
+        return true; // overflow
+    }
+    return false; // no overflow
+}
+
+bool mul_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result) {
+    *result = op1 * op2;
+    if(op1 <= op2) {
+        if(*result / op1 != op2) {
+            return true; // overflow
+        }
+    } else {
+        if(*result / op2 != op1) {
+            return true; // overflow
+        }
+    }
+    return false; // no overflow
+}
+#else
 static bool add_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result) {
     return __builtin_uaddll_overflow((unsigned long long)op1, (unsigned long long)op2,
             (unsigned long long *)result);
@@ -387,10 +422,11 @@ static bool sub_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result) {
             (unsigned long long *)result);
 }
 
-static bool mul_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result) {
+bool mul_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result) {
     return __builtin_umulll_overflow((unsigned long long)op1, (unsigned long long)op2,
             (unsigned long long *)result);
 }
+#endif
 
 void bigint_add(BigInt *dest, const BigInt *op1, const BigInt *op2) {
     if (op1->digit_count == 0) {
@@ -404,7 +440,7 @@ void bigint_add(BigInt *dest, const BigInt *op1, const BigInt *op2) {
 
         const uint64_t *op1_digits = bigint_ptr(op1);
         const uint64_t *op2_digits = bigint_ptr(op2);
-        uint64_t overflow = add_u64_overflow(op1_digits[0], op2_digits[0], &dest->data.digit);
+        bool overflow = add_u64_overflow(op1_digits[0], op2_digits[0], &dest->data.digit);
         if (overflow == 0 && op1->digit_count == 1 && op2->digit_count == 1) {
             dest->digit_count = 1;
             bigint_normalize(dest);
@@ -534,9 +570,9 @@ static void mul_overflow(uint64_t x, uint64_t y, uint64_t *result, uint64_t *car
         return;
     }
 
-    unsigned __int128 big_x = x;
-    unsigned __int128 big_y = y;
-    unsigned __int128 big_result = big_x * big_y;
+    uint128_t big_x = x;
+    uint128_t big_y = y;
+    uint128_t big_result = big_x * big_y;
     *carry = big_result >> 64;
 }
 

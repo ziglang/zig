@@ -12,24 +12,52 @@
 #include <stdint.h>
 #include <string.h>
 #include <assert.h>
+#include <llvm/Support/Compiler.h>
 
 #include <new>
 
+#if defined(_MSVC)
+    #define ATTRIBUTE_COLD
+    #define ATTRIBUTE_FORMAT(args)
+    static inline uint32_t popcnt(unsigned long long x)
+    {
+        x -= ((x >> 1) & 0x55555555);
+        x = (((x >> 2) & 0x33333333) + (x & 0x33333333));
+        x = (((x >> 4) + x) & 0x0f0f0f0f);
+        x += (x >> 8);
+        x += (x >> 16);
+        return x & 0x0000003f;
+    }
+    static inline uint32_t clzll(unsigned long long x)
+    {
+        x |= (x >> 1);
+        x |= (x >> 2);
+        x |= (x >> 4);
+        x |= (x >> 8);
+        x |= (x >> 16);
+        return 32 - popcnt(x);
+    }
+#else
+    #define ATTRIBUTE_COLD         __attribute__((cold))
+    #define ATTRIBUTE_FORMAT(args) __attribute__((format (args)))
+    #define clzll(x) __builtin_clzll(x)
+#endif
+
 #define BREAKPOINT __asm("int $0x03")
 
-void zig_panic(const char *format, ...)
-    __attribute__((cold))
-    __attribute__ ((noreturn))
-    __attribute__ ((format (printf, 1, 2)));
+LLVM_ATTRIBUTE_NOINLINE
+ATTRIBUTE_COLD
+ATTRIBUTE_FORMAT(printf, 1, 2)
+void zig_panic(const char *format, ...);
 
-__attribute__((cold))
-__attribute__ ((noreturn))
+ATTRIBUTE_COLD
+LLVM_ATTRIBUTE_NOINLINE
 static inline void zig_unreachable(void) {
     zig_panic("unreachable");
 }
 
 template<typename T>
-__attribute__((malloc)) static inline T *allocate_nonzero(size_t count) {
+LLVM_ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate_nonzero(size_t count) {
     T *ptr = reinterpret_cast<T*>(malloc(count * sizeof(T)));
     if (!ptr)
         zig_panic("allocation failed");
@@ -37,7 +65,7 @@ __attribute__((malloc)) static inline T *allocate_nonzero(size_t count) {
 }
 
 template<typename T>
-__attribute__((malloc)) static inline T *allocate(size_t count) {
+LLVM_ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate(size_t count) {
     T *ptr = reinterpret_cast<T*>(calloc(count, sizeof(T)));
     if (!ptr)
         zig_panic("allocation failed");

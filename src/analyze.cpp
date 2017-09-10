@@ -163,7 +163,7 @@ static TypeTableEntry *new_container_type_entry(TypeTableEntryId id, AstNode *so
 }
 
 static uint8_t log2_u64(uint64_t x) {
-    return (63 - __builtin_clzll(x));
+    return (63 - clzll(x));
 }
 
 static uint8_t bits_needed_for_unsigned(uint64_t x) {

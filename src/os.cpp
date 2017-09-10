@@ -25,6 +25,8 @@
 
 #include <windows.h>
 #include <io.h>
+
+typedef SSIZE_T ssize_t;
 #else
 #define ZIG_OS_POSIX
 
@@ -620,7 +622,7 @@ int os_get_cwd(Buf *out_cwd) {
 
 bool os_stderr_tty(void) {
 #if defined(ZIG_OS_WINDOWS)
-    return _isatty(STDERR_FILENO) != 0;
+    return _isatty(_fileno(stderr)) != 0;
 #elif defined(ZIG_OS_POSIX)
     return isatty(STDERR_FILENO) != 0;
 #else
@@ -777,12 +779,12 @@ int os_make_path(Buf *path) {
 
 int os_make_dir(Buf *path) {
 #if defined(ZIG_OS_WINDOWS)
-    if (mkdir(buf_ptr(path)) == -1) {
-        if (errno == EEXIST)
+    if (!CreateDirectory(buf_ptr(path), NULL)) {
+        if (GetLastError() == ERROR_ALREADY_EXISTS)
             return ErrorPathAlreadyExists;
-        if (errno == ENOENT)
+        if (GetLastError() == ERROR_PATH_NOT_FOUND)
             return ErrorFileNotFound;
-        if (errno == EACCES)
+        if (GetLastError() == ERROR_ACCESS_DENIED)
             return ErrorAccess;
         return ErrorUnexpected;
     }

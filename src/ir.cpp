@@ -6500,9 +6500,9 @@ static void float_init_bigint(BigInt *bigint, ConstExprValue *const_val) {
                 break;
             case 128:
                 if (const_val->data.x_f128 >= 0) {
-                    bigint_init_u128(bigint, (unsigned __int128)(const_val->data.x_f128));
+                    bigint_init_u128(bigint, (uint128_t)(const_val->data.x_f128));
                 } else {
-                    bigint_init_u128(bigint, (unsigned __int128)(-const_val->data.x_f128));
+                    bigint_init_u128(bigint, (uint128_t)(-const_val->data.x_f128));
                     bigint->is_negative = true;
                 }
                 break;
@@ -9731,8 +9731,7 @@ static TypeTableEntry *ir_analyze_array_mult(IrAnalyze *ira, IrInstructionBinOp 
     uint64_t old_array_len = array_type->data.array.len;
     uint64_t new_array_len;
 
-    if (__builtin_umulll_overflow((unsigned long long)old_array_len, (unsigned long long)mult_amt,
-                (unsigned long long*)&new_array_len))
+    if (mul_u64_overflow(old_array_len, mult_amt, &new_array_len))
     {
         ir_add_error(ira, &instruction->base, buf_sprintf("operation results in overflow"));
         return ira->codegen->builtin_types.entry_invalid;
