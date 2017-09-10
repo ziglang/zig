@@ -9828,7 +9828,11 @@ static VarClassRequired get_var_class_required(TypeTableEntry *type_entry) {
             return VarClassRequiredConst;
 
         case TypeTableEntryIdPointer:
-            return get_var_class_required(type_entry->data.pointer.child_type);
+            if (type_entry->data.pointer.child_type->id == TypeTableEntryIdOpaque) {
+                return VarClassRequiredAny;
+            } else {
+                return get_var_class_required(type_entry->data.pointer.child_type);
+            }
         case TypeTableEntryIdArray:
             return get_var_class_required(type_entry->data.array.child_type);
         case TypeTableEntryIdMaybe:

@@ -546,3 +546,12 @@ test "@OpaqueType" {
     assert(mem.eql(u8, @typeName(OpaqueA), "OpaqueA"));
     assert(mem.eql(u8, @typeName(OpaqueB), "OpaqueB"));
 }
+
+test "variable is allowed to be a pointer to an opaque type" {
+    var x: i32 = 1234;
+    _ = hereIsAnOpaqueType(@ptrCast(&OpaqueA, &x));
+}
+fn hereIsAnOpaqueType(ptr: &OpaqueA) -> &OpaqueA {
+    var a = ptr;
+    return a;
+}
