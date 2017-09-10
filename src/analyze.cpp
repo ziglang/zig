@@ -326,10 +326,8 @@ TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type
 
     TypeId type_id = {};
     TypeTableEntry **parent_pointer = nullptr;
-    uint32_t abi_alignment;
-    if (unaligned_bit_count != 0 || is_volatile ||
-        byte_alignment != (abi_alignment = get_abi_alignment(g, child_type)))
-    {
+    uint32_t abi_alignment = get_abi_alignment(g, child_type);
+    if (unaligned_bit_count != 0 || is_volatile || byte_alignment != abi_alignment) {
         type_id.id = TypeTableEntryIdPointer;
         type_id.data.pointer.child_type = child_type;
         type_id.data.pointer.is_const = is_const;
