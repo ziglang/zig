@@ -72,7 +72,7 @@ pub const STD_OUTPUT_HANDLE = @maxValue(DWORD) - 11 + 1;
 /// The standard error device. Initially, this is the active console screen buffer, CONOUT$.
 pub const STD_ERROR_HANDLE = @maxValue(DWORD) - 12 + 1;
 
-pub const INVALID_HANDLE_VALUE = @intToPtr(HANDLE, 0xFFFFFFFFFFFFFFFF);
+pub const INVALID_HANDLE_VALUE = @intToPtr(HANDLE, @maxValue(usize));
 
 pub const OVERLAPPED = extern struct {
     Internal: ULONG_PTR,
