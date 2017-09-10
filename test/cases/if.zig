@@ -1,6 +1,6 @@
 const assert = @import("std").debug.assert;
 
-test "ifStatements" {
+test "if statements" {
     shouldBeEqual(1, 1);
     firstEqlThird(2, 1, 2);
 }
@@ -24,7 +24,7 @@ fn firstEqlThird(a: i32, b: i32, c: i32) {
 }
 
 
-test "elseIfExpression" {
+test "else if expression" {
     assert(elseIfExpressionF(1) == 1);
 }
 fn elseIfExpressionF(c: u8) -> u8 {

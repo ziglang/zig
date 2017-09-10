@@ -8,7 +8,7 @@ fn testParamsAdd(a: i32, b: i32) -> i32 {
 }
 
 
-test "localVariables" {
+test "local variables" {
     testLocVars(2);
 }
 fn testLocVars(b: i32) {
@@ -17,7 +17,7 @@ fn testLocVars(b: i32) {
 }
 
 
-test "voidParameters" {
+test "void parameters" {
     voidFun(1, void{}, 2, {});
 }
 fn voidFun(a: i32, b: void, c: i32, d: void) {
@@ -28,7 +28,7 @@ fn voidFun(a: i32, b: void, c: i32, d: void) {
 }
 
 
-test "mutableLocalVariables" {
+test "mutable local variables" {
     var zero : i32 = 0;
     assert(zero == 0);
 
@@ -39,7 +39,7 @@ test "mutableLocalVariables" {
     assert(i == 3);
 }
 
-test "separateBlockScopes" {
+test "separate block scopes" {
     {
         const no_conflict : i32 = 5;
         assert(no_conflict == 5);
@@ -52,7 +52,7 @@ test "separateBlockScopes" {
     assert(c == 10);
 }
 
-test "callFnWithEmptyString" {
+test "call function with empty string" {
     acceptsString("");
 }
 
@@ -66,7 +66,7 @@ test "weird function name" {
     assert(@"weird function name"() == 1234);
 }
 
-test "implicitCastFnUnreachableReturn" {
+test "implicit cast function unreachable return" {
     wantsFnWithVoid(fnWithUnreachable);
 }
 
@@ -77,7 +77,7 @@ fn fnWithUnreachable() -> noreturn {
 }
 
 
-test "functionPointers" {
+test "function pointers" {
     const fns = []@typeOf(fn1) { fn1, fn2, fn3, fn4, };
     for (fns) |f, i| {
         assert(f() == u32(i) + 5);
