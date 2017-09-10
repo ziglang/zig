@@ -1435,20 +1435,6 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\fn bar() -> %i32 { 0 }
     , ".tmp_source.zig:2:14: error: expression value is ignored");
 
-    cases.add("integer literal on a non-comptime var",
-        \\export fn foo() {
-        \\    var i = 0;
-        \\    while (i < 10) : (i += 1) { }
-        \\}
-    , ".tmp_source.zig:2:5: error: unable to infer variable type");
-
-    cases.add("undefined literal on a non-comptime var",
-        \\export fn foo() {
-        \\    var i = undefined;
-        \\    i = i32(1);
-        \\}
-    , ".tmp_source.zig:2:5: error: unable to infer variable type");
-
     cases.add("dereference an array",
         \\var s_buffer: [10]u8 = undefined;
         \\pub fn pass(in: []u8) -> []u8 {
@@ -2089,5 +2075,41 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:5:9: error: expected type '&Derp', found '&c_void'");
+
+    cases.add("non-const variables of things that require const variables",
+        \\const Opaque = @OpaqueType();
+        \\
+        \\export fn entry(opaque: &Opaque) {
+        \\   var m2 = &2;
+        \\   const y: u32 = *m2;
+        \\
+        \\   var a = undefined;
+        \\   var b = 1;
+        \\   var c = 1.0;
+        \\   var d = this;
+        \\   var e = null;
+        \\   var f = *opaque;
+        \\   var g = i32;
+        \\   var h = @import("std");
+        \\   var i = (Foo {}).bar;
+        \\
+        \\   var z: noreturn = return;
+        \\}
+        \\
+        \\const Foo = struct {
+        \\    fn bar(self: &const Foo) {}
+        \\};
+    ,
+        ".tmp_source.zig:4:4: error: variable of type '&const (integer literal)' must be const or comptime",
+        ".tmp_source.zig:7:4: error: variable of type '(undefined)' must be const or comptime",
+        ".tmp_source.zig:8:4: error: variable of type '(integer literal)' must be const or comptime",
+        ".tmp_source.zig:9:4: error: variable of type '(float literal)' must be const or comptime",
+        ".tmp_source.zig:10:4: error: variable of type '(block)' must be const or comptime",
+        ".tmp_source.zig:11:4: error: variable of type '(null)' must be const or comptime",
+        ".tmp_source.zig:12:4: error: variable of type 'Opaque' must be const or comptime",
+        ".tmp_source.zig:13:4: error: variable of type 'type' must be const or comptime",
+        ".tmp_source.zig:14:4: error: variable of type '(namespace)' must be const or comptime",
+        ".tmp_source.zig:15:4: error: variable of type '(bound fn(&const Foo))' must be const or comptime",
+        ".tmp_source.zig:17:4: error: unreachable code");
 
 }

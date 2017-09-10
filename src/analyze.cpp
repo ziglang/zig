@@ -2510,6 +2510,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
 
     IrInstruction *init_value = nullptr;
 
+    // TODO more validation for types that can't be used for export/extern variables
     TypeTableEntry *implicit_type = nullptr;
     if (explicit_type && explicit_type->id == TypeTableEntryIdInvalid) {
         implicit_type = explicit_type;

@@ -9794,6 +9794,58 @@ static TypeTableEntry *ir_analyze_instruction_bin_op(IrAnalyze *ira, IrInstructi
     zig_unreachable();
 }
 
+enum VarClassRequired {
+    VarClassRequiredAny,
+    VarClassRequiredConst,
+    VarClassRequiredIllegal,
+};
+
+static VarClassRequired get_var_class_required(TypeTableEntry *type_entry) {
+    switch (type_entry->id) {
+        case TypeTableEntryIdInvalid:
+            zig_unreachable();
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdVar:
+            return VarClassRequiredIllegal;
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdEnumTag:
+            return VarClassRequiredAny;
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+            return VarClassRequiredConst;
+
+        case TypeTableEntryIdPointer:
+            return get_var_class_required(type_entry->data.pointer.child_type);
+        case TypeTableEntryIdArray:
+            return get_var_class_required(type_entry->data.array.child_type);
+        case TypeTableEntryIdMaybe:
+            return get_var_class_required(type_entry->data.maybe.child_type);
+        case TypeTableEntryIdErrorUnion:
+            return get_var_class_required(type_entry->data.error.child_type);
+
+        case TypeTableEntryIdStruct:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdUnion:
+            // TODO check the fields of these things and make sure that they don't recursively
+            // contain any of the other variable classes
+            return VarClassRequiredAny;
+    }
+    zig_unreachable();
+}
+
 static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstructionDeclVar *decl_var_instruction) {
     VariableTableEntry *var = decl_var_instruction->var;
 
@@ -9802,10 +9854,6 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         var->value->type = ira->codegen->builtin_types.entry_invalid;
         return var->value->type;
     }
-
-    AstNodeVariableDeclaration *variable_declaration = &var->decl_node->data.variable_declaration;
-    bool is_export = (variable_declaration->visib_mod == VisibModExport);
-    bool is_extern = variable_declaration->is_extern;
 
     var->ref_count = 0;
 
@@ -9824,59 +9872,30 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
     AstNode *source_node = decl_var_instruction->base.source_node;
 
     IrInstruction *casted_init_value = ir_implicit_cast(ira, init_value, explicit_type);
+    bool is_comptime_var = ir_get_var_is_comptime(var);
+
     TypeTableEntry *result_type = casted_init_value->value.type;
     if (type_is_invalid(result_type)) {
         result_type = ira->codegen->builtin_types.entry_invalid;
-    }
-
-    bool is_comptime_var = ir_get_var_is_comptime(var);
-
-    switch (result_type->id) {
-        case TypeTableEntryIdInvalid:
-            break; // handled above
-        case TypeTableEntryIdNumLitFloat:
-        case TypeTableEntryIdNumLitInt:
-        case TypeTableEntryIdUndefLit:
-            if (is_export || is_extern || (!var->src_is_const && !is_comptime_var)) {
-                ir_add_error_node(ira, source_node, buf_sprintf("unable to infer variable type"));
-                result_type = ira->codegen->builtin_types.entry_invalid;
-            }
-            break;
-        case TypeTableEntryIdUnreachable:
-        case TypeTableEntryIdVar:
-        case TypeTableEntryIdBlock:
-        case TypeTableEntryIdNullLit:
-        case TypeTableEntryIdOpaque:
-            ir_add_error_node(ira, source_node,
-                buf_sprintf("variable of type '%s' not allowed", buf_ptr(&result_type->name)));
-            result_type = ira->codegen->builtin_types.entry_invalid;
-            break;
-        case TypeTableEntryIdMetaType:
-        case TypeTableEntryIdNamespace:
-            if (casted_init_value->value.special == ConstValSpecialRuntime) {
+    } else {
+        switch (get_var_class_required(result_type)) {
+            case VarClassRequiredIllegal:
                 ir_add_error_node(ira, source_node,
-                    buf_sprintf("variable of type '%s' must be constant", buf_ptr(&result_type->name)));
+                    buf_sprintf("variable of type '%s' not allowed", buf_ptr(&result_type->name)));
                 result_type = ira->codegen->builtin_types.entry_invalid;
-            }
-            break;
-        case TypeTableEntryIdVoid:
-        case TypeTableEntryIdBool:
-        case TypeTableEntryIdInt:
-        case TypeTableEntryIdFloat:
-        case TypeTableEntryIdPointer:
-        case TypeTableEntryIdArray:
-        case TypeTableEntryIdStruct:
-        case TypeTableEntryIdMaybe:
-        case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
-        case TypeTableEntryIdEnum:
-        case TypeTableEntryIdUnion:
-        case TypeTableEntryIdFn:
-        case TypeTableEntryIdBoundFn:
-        case TypeTableEntryIdEnumTag:
-        case TypeTableEntryIdArgTuple:
-            // OK
-            break;
+                break;
+            case VarClassRequiredConst:
+                if (!var->src_is_const && !is_comptime_var) {
+                    ir_add_error_node(ira, source_node,
+                        buf_sprintf("variable of type '%s' must be const or comptime",
+                            buf_ptr(&result_type->name)));
+                    result_type = ira->codegen->builtin_types.entry_invalid;
+                }
+                break;
+            case VarClassRequiredAny:
+                // OK
+                break;
+        }
     }
 
     var->value->type = result_type;
