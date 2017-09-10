@@ -632,28 +632,12 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                         ctok->cur_char = (uint8_t)(ctok->cur_char + (uint8_t)(*c - '0'));
                         ctok->octal_index += 1;
                         if (ctok->octal_index == 3) {
-                            if (ctok->cur_tok->id == CTokIdStrLit) {
-                                add_char(ctok, ctok->cur_char);
-                                ctok->state = CTokStateString;
-                            } else if (ctok->cur_tok->id == CTokIdCharLit) {
-                                ctok->cur_tok->data.char_lit = ctok->cur_char;
-                                ctok->state = CTokStateExpectEndQuot;
-                            } else {
-                                zig_unreachable();
-                            }
+                            add_char(ctok, ctok->cur_char);
                         }
                         break;
                     default:
                         c -= 1;
-                        if (ctok->cur_tok->id == CTokIdStrLit) {
-                            add_char(ctok, ctok->cur_char);
-                            ctok->state = CTokStateString;
-                        } else if (ctok->cur_tok->id == CTokIdCharLit) {
-                            ctok->cur_tok->data.char_lit = ctok->cur_char;
-                            ctok->state = CTokStateExpectEndQuot;
-                        } else {
-                            zig_unreachable();
-                        }
+                        add_char(ctok, ctok->cur_char);
                         continue;
                 }
                 break;
