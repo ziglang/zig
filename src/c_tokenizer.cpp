@@ -598,7 +598,8 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                         ctok->octal_index = 1;
                         break;
                     case 'x':
-                        zig_panic("TODO hex");
+                        ctok->state = CTokStateStrHex;
+                        ctok->cur_char = 0;
                         break;
                     case 'u':
                         zig_panic("TODO unicode");
@@ -610,6 +611,54 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                         return mark_error(ctok);
                 }
                 break;
+            case CTokStateStrHex: {
+                uint8_t value = 0;
+                switch (*c) {
+                    case '0':
+                    case '1':
+                    case '2':
+                    case '3':
+                    case '4':
+                    case '5':
+                    case '6':
+                    case '7':
+                    case '8':
+                    case '9':
+                        value = *c - '0';
+                        break;
+                    case 'a':
+                    case 'b':
+                    case 'c':
+                    case 'd':
+                    case 'e':
+                    case 'f':
+                        value = (*c - 'a') + 10;
+                        break;
+                    case 'A':
+                    case 'B':
+                    case 'C':
+                    case 'D':
+                    case 'E':
+                    case 'F':
+                        value = (*c - 'A') + 10;
+                        break;
+                    default:
+                        c -= 1;
+                        add_char(ctok, ctok->cur_char);
+                        continue;
+                }
+                // TODO @mul_with_overflow
+                if (((long)ctok->cur_char) * 16 >= 256) {
+                    zig_panic("TODO str hex mul overflow");
+                }
+                ctok->cur_char = (uint8_t)(ctok->cur_char * (uint8_t)16);
+                // TODO @add_with_overflow
+                if (((long)ctok->cur_char) + (long)(value) >= 256) {
+                    zig_panic("TODO str hex add overflow");
+                }
+                ctok->cur_char = (uint8_t)(ctok->cur_char + value);
+                break;
+            }
             case CTokStateStrOctal:
                 switch (*c) {
                     case '0':
@@ -732,6 +781,7 @@ found_end_of_macro:
         case CTokStateString:
         case CTokStateExpSign:
         case CTokStateFloatExpFirst:
+        case CTokStateStrHex:
         case CTokStateStrOctal:
             return mark_error(ctok);
     }
