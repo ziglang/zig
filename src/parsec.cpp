@@ -2469,6 +2469,74 @@ static void render_macros(Context *c) {
     }
 }
 
+static AstNode *parse_ctok_num_lit(Context *c, CTokenize *ctok, size_t *tok_i, bool negate) {
+    CTok *tok = &ctok->tokens.at(*tok_i);
+    if (tok->id == CTokIdNumLitInt) {
+        *tok_i += 1;
+        switch (tok->data.num_lit_int.suffix) {
+            case CNumLitSuffixNone:
+                return trans_create_node_unsigned_negative(c, tok->data.num_lit_int.x, negate);
+            case CNumLitSuffixL:
+                return trans_create_node_unsigned_negative_type(c, tok->data.num_lit_int.x, negate, "c_long");
+            case CNumLitSuffixU:
+                return trans_create_node_unsigned_negative_type(c, tok->data.num_lit_int.x, negate, "c_uint");
+            case CNumLitSuffixLU:
+                return trans_create_node_unsigned_negative_type(c, tok->data.num_lit_int.x, negate, "c_ulong");
+            case CNumLitSuffixLL:
+                return trans_create_node_unsigned_negative_type(c, tok->data.num_lit_int.x, negate, "c_longlong");
+            case CNumLitSuffixLLU:
+                return trans_create_node_unsigned_negative_type(c, tok->data.num_lit_int.x, negate, "c_ulonglong");
+        }
+        zig_unreachable();
+    } else if (tok->id == CTokIdNumLitFloat) {
+        *tok_i += 1;
+        double value = negate ? -tok->data.num_lit_float : tok->data.num_lit_float;
+        return trans_create_node_float_lit(c, value);
+    }
+    return nullptr;
+}
+
+static AstNode *parse_ctok(Context *c, CTokenize *ctok, size_t *tok_i) {
+    CTok *tok = &ctok->tokens.at(*tok_i);
+    switch (tok->id) {
+        case CTokIdCharLit:
+            *tok_i += 1;
+            return trans_create_node_unsigned(c, tok->data.char_lit);
+        case CTokIdStrLit:
+            *tok_i += 1;
+            return trans_create_node_str_lit_c(c, buf_create_from_buf(&tok->data.str_lit));
+        case CTokIdMinus:
+            *tok_i += 1;
+            return parse_ctok_num_lit(c, ctok, tok_i, true);
+        case CTokIdNumLitInt:
+        case CTokIdNumLitFloat:
+            return parse_ctok_num_lit(c, ctok, tok_i, false);
+        case CTokIdSymbol:
+            {
+                *tok_i += 1;
+                Buf *symbol_name = buf_create_from_buf(&tok->data.symbol);
+                return trans_create_node_symbol(c, symbol_name);
+            }
+        case CTokIdLParen:
+            {
+                *tok_i += 1;
+                AstNode *inner_node = parse_ctok(c, ctok, tok_i);
+
+                CTok *next_tok = &ctok->tokens.at(*tok_i);
+                if (next_tok->id != CTokIdRParen) {
+                    return nullptr;
+                }
+                *tok_i += 1;
+                return inner_node;
+            }
+        case CTokIdEOF:
+        case CTokIdRParen:
+            // not able to make sense of this
+            return nullptr;
+    }
+    zig_unreachable();
+}
+
 static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *char_ptr) {
     tokenize_c_macro(ctok, (const uint8_t *)char_ptr);
 
@@ -2476,81 +2544,29 @@ static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *ch
         return;
     }
 
-    bool negate = false;
-    for (size_t i = 0; i < ctok->tokens.length; i += 1) {
-        bool is_first = (i == 0);
-        bool is_last = (i == ctok->tokens.length - 1);
-        CTok *tok = &ctok->tokens.at(i);
-        switch (tok->id) {
-            case CTokIdCharLit:
-                if (is_last && is_first) {
-                    AstNode *node = trans_create_node_unsigned(c, tok->data.char_lit);
-                    c->macro_table.put(name, node);
-                }
-                return;
-            case CTokIdStrLit:
-                if (is_last && is_first) {
-                    AstNode *node = trans_create_node_str_lit_c(c, buf_create_from_buf(&tok->data.str_lit));
-                    c->macro_table.put(name, node);
-                }
-                return;
-            case CTokIdNumLitInt:
-                if (is_last) {
-                    AstNode *node;
-                    switch (tok->data.num_lit_int.suffix) {
-                        case CNumLitSuffixNone:
-                            node = trans_create_node_unsigned_negative(c, tok->data.num_lit_int.x, negate);
-                            break;
-                        case CNumLitSuffixL:
-                            node = trans_create_node_unsigned_negative_type(c, tok->data.num_lit_int.x, negate,
-                                    "c_long");
-                            break;
-                        case CNumLitSuffixU:
-                            node = trans_create_node_unsigned_negative_type(c, tok->data.num_lit_int.x, negate,
-                                    "c_uint");
-                            break;
-                        case CNumLitSuffixLU:
-                            node = trans_create_node_unsigned_negative_type(c, tok->data.num_lit_int.x, negate,
-                                    "c_ulong");
-                            break;
-                        case CNumLitSuffixLL:
-                            node = trans_create_node_unsigned_negative_type(c, tok->data.num_lit_int.x, negate,
-                                    "c_longlong");
-                            break;
-                        case CNumLitSuffixLLU:
-                            node = trans_create_node_unsigned_negative_type(c, tok->data.num_lit_int.x, negate,
-                                    "c_ulonglong");
-                            break;
-                    }
-                    c->macro_table.put(name, node);
-                }
-                return;
-            case CTokIdNumLitFloat:
-                if (is_last) {
-                    double value = negate ? -tok->data.num_lit_float : tok->data.num_lit_float;
-                    AstNode *node = trans_create_node_float_lit(c, value);
-                    c->macro_table.put(name, node);
-                }
-                return;
-            case CTokIdSymbol:
-                if (is_last && is_first) {
-                    // if it equals itself, ignore. for example, from stdio.h:
-                    // #define stdin stdin
-                    Buf *symbol_name = buf_create_from_buf(&tok->data.symbol);
-                    if (buf_eql_buf(name, symbol_name)) {
-                        return;
-                    }
-                    c->macro_symbols.append({name, symbol_name});
-                    return;
-                }
-            case CTokIdMinus:
-                if (is_first) {
-                    negate = true;
-                    break;
-                } else {
-                    return;
-                }
+    size_t tok_i = 0;
+    CTok *name_tok = &ctok->tokens.at(tok_i);
+    assert(name_tok->id == CTokIdSymbol && buf_eql_buf(&name_tok->data.symbol, name));
+    tok_i += 1;
+
+    AstNode *result_node = parse_ctok(c, ctok, &tok_i);
+    if (result_node == nullptr) {
+        return;
+    }
+    CTok *eof_tok = &ctok->tokens.at(tok_i);
+    if (eof_tok->id != CTokIdEOF) {
+        return;
+    }
+    if (result_node->type == NodeTypeSymbol) {
+        // if it equals itself, ignore. for example, from stdio.h:
+        // #define stdin stdin
+        Buf *symbol_name = result_node->data.symbol_expr.symbol;
+        if (buf_eql_buf(name, symbol_name)) {
+            return;
         }
+        c->macro_symbols.append({name, symbol_name});
+    } else {
+        c->macro_table.put(name, result_node);
     }
 }
 
@@ -2613,8 +2629,8 @@ static void process_preprocessor_entities(Context *c, ASTUnit &unit) {
                         continue;
                     }
 
-                    const char *end_c = c->source_manager->getCharacterData(end_loc);
-                    process_macro(c, &ctok, name, end_c);
+                    const char *begin_c = c->source_manager->getCharacterData(begin_loc);
+                    process_macro(c, &ctok, name, begin_c);
                 }
         }
     }

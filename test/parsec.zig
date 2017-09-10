@@ -296,4 +296,10 @@ pub fn addCases(cases: &tests.ParseCContext) {
     ,
         \\pub const FOO_CHAR = 63;
     );
+
+    cases.add("macro with parens around negative number",
+        \\#define LUA_GLOBALSINDEX        (-10002)
+    ,
+        \\pub const LUA_GLOBALSINDEX = -10002;
+    );
 }

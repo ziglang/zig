@@ -18,6 +18,9 @@ enum CTokId {
     CTokIdNumLitFloat,
     CTokIdSymbol,
     CTokIdMinus,
+    CTokIdLParen,
+    CTokIdRParen,
+    CTokIdEOF,
 };
 
 enum CNumLitSuffix {

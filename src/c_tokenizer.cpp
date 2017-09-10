@@ -114,6 +114,9 @@ static void begin_token(CTokenize *ctok, CTokId id) {
         case CTokIdCharLit:
         case CTokIdNumLitFloat:
         case CTokIdMinus:
+        case CTokIdLParen:
+        case CTokIdRParen:
+        case CTokIdEOF:
             break;
     }
 }
@@ -213,6 +216,18 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                         begin_token(ctok, CTokIdNumLitFloat);
                         ctok->state = CTokStateFloat;
                         buf_init_from_str(&ctok->buf, "0.");
+                        break;
+                    case '(':
+                        begin_token(ctok, CTokIdLParen);
+                        end_token(ctok);
+                        break;
+                    case ')':
+                        begin_token(ctok, CTokIdRParen);
+                        end_token(ctok);
+                        break;
+                    case '-':
+                        begin_token(ctok, CTokIdMinus);
+                        end_token(ctok);
                         break;
                     default:
                         return mark_error(ctok);
@@ -738,4 +753,7 @@ found_end_of_macro:
     }
 
     assert(ctok->cur_tok == nullptr);
+
+    begin_token(ctok, CTokIdEOF);
+    end_token(ctok);
 }
