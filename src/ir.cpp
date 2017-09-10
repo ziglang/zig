@@ -8792,11 +8792,25 @@ static bool ir_resolve_comptime(IrAnalyze *ira, IrInstruction *value, bool *out)
     return ir_resolve_bool(ira, value, out);
 }
 
+static ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
+    Tld *tld = codegen->compile_var_import->decls_scope->decl_table.get(buf_create_from_str(name));
+    resolve_top_level_decl(codegen, tld, false, nullptr);
+    assert(tld->id == TldIdVar);
+    TldVar *tld_var = (TldVar *)tld;
+    ConstExprValue *var_value = tld_var->var->value;
+    assert(var_value != nullptr);
+    return var_value;
+}
+
 static bool ir_resolve_atomic_order(IrAnalyze *ira, IrInstruction *value, AtomicOrder *out) {
     if (type_is_invalid(value->value.type))
         return false;
 
-    IrInstruction *casted_value = ir_implicit_cast(ira, value, ira->codegen->builtin_types.entry_atomic_order_enum);
+    ConstExprValue *atomic_order_val = get_builtin_value(ira->codegen, "AtomicOrder");
+    assert(atomic_order_val->type->id == TypeTableEntryIdMetaType);
+    TypeTableEntry *atomic_order_type = atomic_order_val->data.x_type;
+
+    IrInstruction *casted_value = ir_implicit_cast(ira, value, atomic_order_type);
     if (type_is_invalid(casted_value->value.type))
         return false;
 
@@ -8812,7 +8826,11 @@ static bool ir_resolve_global_linkage(IrAnalyze *ira, IrInstruction *value, Glob
     if (type_is_invalid(value->value.type))
         return false;
 
-    IrInstruction *casted_value = ir_implicit_cast(ira, value, ira->codegen->builtin_types.entry_global_linkage_enum);
+    ConstExprValue *global_linkage_val = get_builtin_value(ira->codegen, "GlobalLinkage");
+    assert(global_linkage_val->type->id == TypeTableEntryIdMetaType);
+    TypeTableEntry *global_linkage_type = global_linkage_val->data.x_type;
+
+    IrInstruction *casted_value = ir_implicit_cast(ira, value, global_linkage_type);
     if (type_is_invalid(casted_value->value.type))
         return false;
 
@@ -8861,16 +8879,6 @@ static Buf *ir_resolve_str(IrAnalyze *ira, IrInstruction *value) {
         buf_ptr(result)[i] = c;
     }
     return result;
-}
-
-static ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
-    Tld *tld = codegen->compile_var_import->decls_scope->decl_table.get(buf_create_from_str(name));
-    resolve_top_level_decl(codegen, tld, false, nullptr);
-    assert(tld->id == TldIdVar);
-    TldVar *tld_var = (TldVar *)tld;
-    ConstExprValue *var_value = tld_var->var->value;
-    assert(var_value != nullptr);
-    return var_value;
 }
 
 static TypeTableEntry *ir_analyze_instruction_return(IrAnalyze *ira,

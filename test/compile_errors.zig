@@ -2112,4 +2112,19 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         ".tmp_source.zig:15:4: error: variable of type '(bound fn(&const Foo))' must be const or comptime",
         ".tmp_source.zig:17:4: error: unreachable code");
 
+    cases.add("wrong types given to atomic order args in cmpxchg",
+        \\export fn entry() {
+        \\    var x: i32 = 1234;
+        \\    while (!@cmpxchg(&x, 1234, 5678, u32(1234), u32(1234))) {}
+        \\}
+    ,
+        ".tmp_source.zig:3:41: error: expected type 'AtomicOrder', found 'u32'");
+
+    cases.add("wrong types given to setGlobalLinkage",
+        \\export fn entry() {
+        \\    @setGlobalLinkage(entry, u32(1234));
+        \\}
+    ,
+        ".tmp_source.zig:2:33: error: expected type 'GlobalLinkage', found 'u32'");
+
 }

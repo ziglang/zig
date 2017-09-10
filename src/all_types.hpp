@@ -1439,12 +1439,6 @@ struct CodeGen {
         TypeTableEntry *entry_null;
         TypeTableEntry *entry_var;
         TypeTableEntry *entry_pure_error;
-        TypeTableEntry *entry_os_enum;
-        TypeTableEntry *entry_arch_enum;
-        TypeTableEntry *entry_environ_enum;
-        TypeTableEntry *entry_oformat_enum;
-        TypeTableEntry *entry_atomic_order_enum;
-        TypeTableEntry *entry_global_linkage_enum;
         TypeTableEntry *entry_arg_tuple;
     } builtin_types;
 
