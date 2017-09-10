@@ -419,6 +419,19 @@ pub const InStream = struct {
         }
     }
 
+    pub fn readLine(is: &InStream, buf: &Buffer) -> %void {
+        %return buf.resize(0);
+
+        while (true) {
+            var byte: u8 = %return is.readByte();
+            %return buf.appendByte(byte);
+
+            if (buf.endsWith(os.line_sep)) {
+                break;
+            }
+        }
+    }
+
     pub fn isTty(self: &InStream) -> %bool {
         if (is_posix) {
             if (builtin.link_libc) {
