@@ -285,6 +285,18 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\pub const @"comptime" = struct_comptime;
     );
 
+    cases.add("macro defines string literal with hex",
+        \\#define FOO "aoeu\xab derp"
+        \\#define FOO2 "aoeu\x0007a derp"
+        \\#define FOO_CHAR '\xfF'
+    ,
+        \\pub const FOO = c"aoeu\xab derp";
+    ,
+        \\pub const FOO2 = c"aoeuz derp";
+    ,
+        \\pub const FOO_CHAR = 255;
+    );
+
     cases.add("macro defines string literal with octal",
         \\#define FOO "aoeu\023 derp"
         \\#define FOO2 "aoeu\0234 derp"

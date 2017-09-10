@@ -68,6 +68,7 @@ enum CTokState {
     CTokStateExpSign,
     CTokStateFloatExp,
     CTokStateFloatExpFirst,
+    CTokStateStrHex,
     CTokStateStrOctal,
     CTokStateNumLitIntSuffixU,
     CTokStateNumLitIntSuffixL,
