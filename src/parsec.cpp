@@ -188,16 +188,28 @@ static AstNode *trans_create_node_array_type(Context *c, AstNode *size_node, Ast
     return node;
 }
 
-static AstNode *trans_create_node_var_decl(Context *c, bool is_const, Buf *var_name, AstNode *type_node,
-        AstNode *init_node)
+static AstNode *trans_create_node_var_decl(Context *c, VisibMod visib_mod, bool is_const, Buf *var_name,
+        AstNode *type_node, AstNode *init_node)
 {
     AstNode *node = trans_create_node(c, NodeTypeVariableDeclaration);
-    node->data.variable_declaration.visib_mod = c->visib_mod;
+    node->data.variable_declaration.visib_mod = visib_mod;
     node->data.variable_declaration.symbol = var_name;
     node->data.variable_declaration.is_const = is_const;
     node->data.variable_declaration.type = type_node;
     node->data.variable_declaration.expr = init_node;
     return node;
+}
+
+static AstNode *trans_create_node_var_decl_global(Context *c, bool is_const, Buf *var_name, AstNode *type_node,
+        AstNode *init_node)
+{
+    return trans_create_node_var_decl(c, c->visib_mod, is_const, var_name, type_node, init_node);
+}
+
+static AstNode *trans_create_node_var_decl_local(Context *c, bool is_const, Buf *var_name, AstNode *type_node,
+        AstNode *init_node)
+{
+    return trans_create_node_var_decl(c, VisibModPrivate, is_const, var_name, type_node, init_node);
 }
 
 
@@ -268,7 +280,7 @@ static AstNode *get_global(Context *c, Buf *name) {
 static AstNode *add_global_var(Context *c, Buf *var_name, AstNode *value_node) {
     bool is_const = true;
     AstNode *type_node = nullptr;
-    AstNode *node = trans_create_node_var_decl(c, is_const, var_name, type_node, value_node);
+    AstNode *node = trans_create_node_var_decl_global(c, is_const, var_name, type_node, value_node);
     c->root->data.root.top_level_decls.append(node);
     return node;
 }
@@ -1166,7 +1178,7 @@ static AstNode *trans_local_declaration(Context *c, AstNode *block, DeclStmt *st
                 if (type_node == nullptr)
                     return nullptr;
 
-                AstNode *node = trans_create_node_var_decl(c, qual_type.isConstQualified(),
+                AstNode *node = trans_create_node_var_decl_local(c, qual_type.isConstQualified(),
                         buf_create_from_str(decl_name(var_decl)), type_node, init_node);
                 block->data.block.statements.append(node);
                 continue;
@@ -2396,13 +2408,13 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
             init_node = trans_create_node_symbol_str(c, "undefined");
         }
 
-        AstNode *var_node = trans_create_node_var_decl(c, is_const, name, var_type, init_node);
+        AstNode *var_node = trans_create_node_var_decl_global(c, is_const, name, var_type, init_node);
         c->root->data.root.top_level_decls.append(var_node);
         return;
     }
 
     if (is_extern) {
-        AstNode *var_node = trans_create_node_var_decl(c, is_const, name, var_type, nullptr);
+        AstNode *var_node = trans_create_node_var_decl_global(c, is_const, name, var_type, nullptr);
         var_node->data.variable_declaration.is_extern = true;
         c->root->data.root.top_level_decls.append(var_node);
         return;
