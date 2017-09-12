@@ -988,7 +988,7 @@ static AstNode *trans_compound_assign_operator(Context *c, AstNode *block, Compo
             AstNode *addr_of_lhs = trans_create_node_addr_of(c, false, false, lhs);
             // TODO: avoid name collisions with generated variable names
             Buf* tmp_var_name = buf_create_from_str("_ref");
-            AstNode *tmp_var_decl = trans_create_node_var_decl(c, true, tmp_var_name, nullptr, addr_of_lhs);
+            AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr, addr_of_lhs);
             child_block->data.block.statements.append(tmp_var_decl);
 
             // *_ref = result_type(operation_type(*_ref) >> u5(rhs));
@@ -2194,10 +2194,13 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
         return;
     }
 
+    ZigList<Buf*> fake_names;
     for (size_t i = 0; i < proto_node->data.fn_proto.params.length; i += 1) {
         AstNode *param_node = proto_node->data.fn_proto.params.at(i);
         const ParmVarDecl *param = fn_decl->getParamDecl(i);
         const char *name = decl_name(param);
+        fake_names.append(buf_create_from_str(name));
+        buf_append_char(fake_names.at(i), '_');
         if (strlen(name) == 0) {
             Buf *proto_param_name = param_node->data.param_decl.name;
             if (proto_param_name == nullptr) {
