@@ -126,6 +126,13 @@ static AstNode *trans_create_node_opaque(Context *c) {
     return trans_create_node_builtin_fn_call_str(c, "OpaqueType");
 }
 
+static AstNode *trans_create_node_fn_call_1(Context *c, AstNode *fn_ref_expr, AstNode *arg1) {
+    AstNode *node = trans_create_node(c, NodeTypeFnCallExpr);
+    node->data.fn_call_expr.fn_ref_expr = fn_ref_expr;
+    node->data.fn_call_expr.params.append(arg1);
+    return node;
+}
+
 static AstNode *trans_create_node_field_access(Context *c, AstNode *container, Buf *field_name) {
     AstNode *node = trans_create_node(c, NodeTypeFieldAccessExpr);
     node->data.field_access_expr.struct_expr = container;
@@ -133,10 +140,22 @@ static AstNode *trans_create_node_field_access(Context *c, AstNode *container, B
     return node;
 }
 
+static AstNode *trans_create_node_field_access_str(Context *c, AstNode *container, const char *field_name) {
+    return trans_create_node_field_access(c, container, buf_create_from_str(field_name));
+}
+
 static AstNode *trans_create_node_prefix_op(Context *c, PrefixOp op, AstNode *child_node) {
     AstNode *node = trans_create_node(c, NodeTypePrefixOpExpr);
     node->data.prefix_op_expr.prefix_op = op;
     node->data.prefix_op_expr.primary_expr = child_node;
+    return node;
+}
+
+static AstNode *trans_create_node_bin_op(Context *c, AstNode *lhs_node, BinOpType op, AstNode *rhs_node) {
+    AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
+    node->data.bin_op_expr.op1 = lhs_node;
+    node->data.bin_op_expr.bin_op = op;
+    node->data.bin_op_expr.op2 = rhs_node;
     return node;
 }
 
@@ -152,6 +171,13 @@ static AstNode *trans_create_node_str_lit_c(Context *c, Buf *buf) {
     AstNode *node = trans_create_node(c, NodeTypeStringLiteral);
     node->data.string_literal.buf = buf;
     node->data.string_literal.c = true;
+    return node;
+}
+
+static AstNode *trans_create_node_str_lit_non_c(Context *c, Buf *buf) {
+    AstNode *node = trans_create_node(c, NodeTypeStringLiteral);
+    node->data.string_literal.buf = buf;
+    node->data.string_literal.c = false;
     return node;
 }
 
@@ -286,8 +312,43 @@ static AstNode *trans_create_node_apint(Context *c, const llvm::APSInt &aps_int)
 
 }
 
+static AstNode *trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc);
+
 static bool is_c_void_type(AstNode *node) {
     return (node->type == NodeTypeSymbol && buf_eql_str(node->data.symbol_expr.symbol, "c_void"));
+}
+
+static AstNode* trans_c_cast(Context *c, const SourceLocation &source_location, const QualType &qt, AstNode *expr) {
+    // TODO: maybe widen to increase size
+    // TODO: maybe bitcast to change sign
+    // TODO: maybe truncate to reduce size
+    return trans_create_node_fn_call_1(c, trans_qual_type(c, qt, source_location), expr);
+}
+
+static AstNode *qual_type_to_log2_int_ref(Context *c, const QualType &qt,
+        const SourceLocation &source_loc)
+{
+    AstNode *zig_type_node = trans_qual_type(c, qt, source_loc);
+
+//    @import("std").math.Log2Int(c_long);
+//
+//    FnCall
+//        FieldAccess
+//            FieldAccess
+//                FnCall (.builtin = true)
+//                    Symbol "import"
+//                    StringLiteral "std"
+//                Symbol "math"
+//            Symbol "Log2Int"
+//        zig_type_node
+
+    AstNode *import_fn_call = trans_create_node_builtin_fn_call_str(c, "import");
+    import_fn_call->data.fn_call_expr.params.append(trans_create_node_str_lit_non_c(c, buf_create_from_str("std")));
+    AstNode *inner_field_access = trans_create_node_field_access_str(c, import_fn_call, "math");
+    AstNode *outer_field_access = trans_create_node_field_access_str(c, inner_field_access, "Log2Int");
+    AstNode *log2int_fn_call = trans_create_node_fn_call_1(c, outer_field_access, zig_type_node);
+
+    return log2int_fn_call;
 }
 
 static bool qual_type_child_is_fn_proto(const QualType &qt) {
@@ -361,7 +422,6 @@ static bool c_is_float(Context *c, QualType qt) {
 }
 
 static AstNode *trans_stmt(Context *c, AstNode *block, Stmt *stmt);
-static AstNode *trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc);
 static AstNode *const skip_add_to_block_node = (AstNode *) 0x2;
 
 static AstNode *trans_expr(Context *c, AstNode *block, Expr *expr) {
@@ -877,25 +937,127 @@ static AstNode *trans_binary_operator(Context *c, AstNode *block, BinaryOperator
     zig_unreachable();
 }
 
+static AstNode *trans_compound_assign_operator(Context *c, AstNode *block, CompoundAssignOperator *stmt) {
+    switch (stmt->getOpcode()) {
+        case BO_MulAssign:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_MulAssign");
+            return nullptr;
+        case BO_DivAssign:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_DivAssign");
+            return nullptr;
+        case BO_RemAssign:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_RemAssign");
+            return nullptr;
+        case BO_AddAssign:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_AddAssign");
+            return nullptr;
+        case BO_SubAssign:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_SubAssign");
+            return nullptr;
+        case BO_ShlAssign:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_ShlAssign");
+            return nullptr;
+        case BO_ShrAssign: {
+            BinOpType bin_op = BinOpTypeBitShiftRight;
+            // c: lhs >>= rhs;
+            // zig: {
+            // zig:     const _ref = &lhs;
+            // zig:     *_ref = result_type(operation_type(*_ref) >> u5(rhs));
+            // zig:     *_ref
+            // zig: };
+            // where u5 is the appropriate type
+
+            // TODO: avoid mess when we don't need the assignment value for chained assignments or anything.
+            AstNode *child_block = trans_create_node(c, NodeTypeBlock);
+
+            // const _ref = &lhs;
+            AstNode *lhs = trans_expr(c, child_block, stmt->getLHS());
+            if (lhs == nullptr) return nullptr;
+            AstNode *addr_of_lhs = trans_create_node_addr_of(c, false, false, lhs);
+            // TODO: avoid name collisions with generated variable names
+            Buf* tmp_var_name = buf_create_from_str("_ref");
+            AstNode *tmp_var_decl = trans_create_node_var_decl(c, true, tmp_var_name, nullptr, addr_of_lhs);
+            child_block->data.block.statements.append(tmp_var_decl);
+
+            // *_ref = result_type(operation_type(*_ref) >> u5(rhs));
+
+            AstNode *rhs = trans_expr(c, child_block, stmt->getRHS());
+            if (rhs == nullptr) return nullptr;
+            const SourceLocation &rhs_location = stmt->getRHS()->getLocStart();
+            AstNode *rhs_type = qual_type_to_log2_int_ref(c, stmt->getComputationLHSType(), rhs_location);
+
+            AstNode *assign_statement = trans_create_node_bin_op(c,
+                trans_create_node_prefix_op(c, PrefixOpDereference,
+                    trans_create_node_symbol(c, tmp_var_name)),
+                BinOpTypeAssign,
+                trans_c_cast(c, rhs_location,
+                    stmt->getComputationResultType(),
+                    trans_create_node_bin_op(c,
+                        trans_c_cast(c, rhs_location,
+                            stmt->getComputationLHSType(),
+                            trans_create_node_prefix_op(c, PrefixOpDereference,
+                                trans_create_node_symbol(c, tmp_var_name))),
+                        bin_op,
+                        trans_create_node_fn_call_1(c,
+                            rhs_type,
+                            rhs))));
+            child_block->data.block.statements.append(assign_statement);
+
+            // *_ref
+            child_block->data.block.statements.append(
+                trans_create_node_prefix_op(c, PrefixOpDereference,
+                    trans_create_node_symbol(c, tmp_var_name)));
+            child_block->data.block.last_statement_is_result_expression = true;
+
+            return child_block;
+        }
+        case BO_AndAssign:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_AndAssign");
+            return nullptr;
+        case BO_XorAssign:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_XorAssign");
+            return nullptr;
+        case BO_OrAssign:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_OrAssign");
+            return nullptr;
+        case BO_PtrMemD:
+        case BO_PtrMemI:
+        case BO_Assign:
+        case BO_Mul:
+        case BO_Div:
+        case BO_Rem:
+        case BO_Add:
+        case BO_Sub:
+        case BO_Shl:
+        case BO_Shr:
+        case BO_LT:
+        case BO_GT:
+        case BO_LE:
+        case BO_GE:
+        case BO_EQ:
+        case BO_NE:
+        case BO_And:
+        case BO_Xor:
+        case BO_Or:
+        case BO_LAnd:
+        case BO_LOr:
+        case BO_Comma:
+            zig_panic("compound assign expected to be handled by binary operator");
+    }
+
+    zig_unreachable();
+}
+
 static AstNode *trans_implicit_cast_expr(Context *c, AstNode *block, ImplicitCastExpr *stmt) {
     switch (stmt->getCastKind()) {
         case CK_LValueToRValue:
             return trans_expr(c, block, stmt->getSubExpr());
         case CK_IntegralCast:
             {
-                AstNode *node = trans_create_node_builtin_fn_call_str(c, "bitCast");
-
-                AstNode *result_type_node = trans_qual_type(c, stmt->getType(), stmt->getExprLoc());
-                if (result_type_node == nullptr)
-                    return nullptr;
-
                 AstNode *target_node = trans_expr(c, block, stmt->getSubExpr());
                 if (target_node == nullptr)
                     return nullptr;
-
-                node->data.fn_call_expr.params.append(result_type_node);
-                node->data.fn_call_expr.params.append(target_node);
-                return node;
+                return trans_c_cast(c, stmt->getExprLoc(), stmt->getType(), target_node);
             }
         case CK_Dependent:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_Dependent");
@@ -1422,6 +1584,8 @@ static AstNode *trans_stmt(Context *c, AstNode *block, Stmt *stmt) {
             return trans_conditional_operator(c, block, (ConditionalOperator *)stmt);
         case Stmt::BinaryOperatorClass:
             return trans_binary_operator(c, block, (BinaryOperator *)stmt);
+        case Stmt::CompoundAssignOperatorClass:
+            return trans_compound_assign_operator(c, block, (CompoundAssignOperator *)stmt);
         case Stmt::ImplicitCastExprClass:
             return trans_implicit_cast_expr(c, block, (ImplicitCastExpr *)stmt);
         case Stmt::DeclRefExprClass:
@@ -1503,9 +1667,6 @@ static AstNode *trans_stmt(Context *c, AstNode *block, Stmt *stmt) {
             return nullptr;
         case Stmt::AtomicExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C AtomicExprClass");
-            return nullptr;
-        case Stmt::CompoundAssignOperatorClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CompoundAssignOperatorClass");
             return nullptr;
         case Stmt::BlockExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C BlockExprClass");
