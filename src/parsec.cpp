@@ -2194,43 +2194,63 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
         return;
     }
 
-    ZigList<Buf*> fake_names;
     for (size_t i = 0; i < proto_node->data.fn_proto.params.length; i += 1) {
         AstNode *param_node = proto_node->data.fn_proto.params.at(i);
         const ParmVarDecl *param = fn_decl->getParamDecl(i);
         const char *name = decl_name(param);
-        fake_names.append(buf_create_from_str(name));
-        buf_append_char(fake_names.at(i), '_');
-        if (strlen(name) == 0) {
-            Buf *proto_param_name = param_node->data.param_decl.name;
-            if (proto_param_name == nullptr) {
-                param_node->data.param_decl.name = buf_sprintf("arg%" ZIG_PRI_usize "", i);
-            } else {
-                param_node->data.param_decl.name = proto_param_name;
-            }
+        Buf *proto_param_name;
+        if (strlen(name) != 0) {
+            proto_param_name = buf_create_from_str(name);
         } else {
-            param_node->data.param_decl.name = buf_create_from_str(name);
+            proto_param_name = param_node->data.param_decl.name;
+            if (proto_param_name == nullptr) {
+                proto_param_name = buf_sprintf("arg%" ZIG_PRI_usize "", i);
+            }
         }
+        param_node->data.param_decl.name = proto_param_name;
     }
 
-    if (fn_decl->hasBody()) {
-        Stmt *body = fn_decl->getBody();
-
-        AstNode *fn_def_node = trans_create_node(c, NodeTypeFnDef);
-        fn_def_node->data.fn_def.fn_proto = proto_node;
-        fn_def_node->data.fn_def.body = trans_stmt(c, nullptr, body);
-        assert(fn_def_node->data.fn_def.body != skip_add_to_block_node);
-        if (fn_def_node->data.fn_def.body == nullptr) {
-            emit_warning(c, fn_decl->getLocation(), "unable to translate function");
-            return;
-        }
-
-        proto_node->data.fn_proto.fn_def_node = fn_def_node;
-        c->root->data.root.top_level_decls.append(fn_def_node);
+    if (!fn_decl->hasBody()) {
+        // just a prototype
+        c->root->data.root.top_level_decls.append(proto_node);
         return;
     }
 
-    c->root->data.root.top_level_decls.append(proto_node);
+    // actual function definition with body
+
+    Stmt *body = fn_decl->getBody();
+    AstNode *actual_body_node = trans_stmt(c, nullptr, body);
+    assert(actual_body_node != skip_add_to_block_node);
+    if (actual_body_node == nullptr) {
+        emit_warning(c, fn_decl->getLocation(), "unable to translate function");
+        return;
+    }
+
+    // it worked
+
+    AstNode *parameter_init_block = trans_create_node(c, NodeTypeBlock);
+
+    for (size_t i = 0; i < proto_node->data.fn_proto.params.length; i += 1) {
+        AstNode *param_node = proto_node->data.fn_proto.params.at(i);
+        Buf *good_name = param_node->data.param_decl.name;
+        // TODO: avoid name collisions
+        Buf *mangled_name = buf_sprintf("_arg_%s", buf_ptr(good_name));
+        param_node->data.param_decl.name = mangled_name;
+
+        // var c_name = _mangled_name;
+        AstNode *parameter_init = trans_create_node_var_decl_local(c, false, good_name, nullptr, trans_create_node_symbol(c, mangled_name));
+
+        parameter_init_block->data.block.statements.append(parameter_init);
+    }
+
+    parameter_init_block->data.block.statements.append(actual_body_node);
+
+    AstNode *fn_def_node = trans_create_node(c, NodeTypeFnDef);
+    fn_def_node->data.fn_def.fn_proto = proto_node;
+    fn_def_node->data.fn_def.body = parameter_init_block;
+
+    proto_node->data.fn_proto.fn_def_node = fn_def_node;
+    c->root->data.root.top_level_decls.append(fn_def_node);
 }
 
 static AstNode *resolve_typdef_as_builtin(Context *c, const TypedefNameDecl *typedef_decl, const char *primitive_name) {
