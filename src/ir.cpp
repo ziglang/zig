@@ -13421,7 +13421,7 @@ static TypeTableEntry *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruc
 
     int err;
     if ((err = parse_h_buf(child_import, &errors, &cimport_scope->buf, ira->codegen, node))) {
-        zig_panic("unable to parse h file: %s\n", err_str(err));
+        zig_panic("unable to parse C file: %s\n", err_str(err));
     }
 
     if (errors.length > 0) {
