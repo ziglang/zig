@@ -26,13 +26,86 @@ option(ZIG_TEST_COVERAGE "Build Zig with test coverage instrumentation" OFF)
 # git log -p -- deps/lld
 option(ZIG_FORCE_EXTERNAL_LLD "If your system has the LLD patches use it instead of the embedded LLD" OFF)
 
+find_package(LLVM REQUIRED CONFIG)
+include_directories(${LLVM_INCLUDE_DIRS})
 
-find_package(llvm)
-include_directories(${LLVM_INCLUDE_DIR})
-link_directories(${LLVM_LIBDIRS})
+# TODO: this currently doesn't work, it currently defines UNICODE but zig
+#       uses MBCS
+#add_definitions(${LLVM_DEFINITIONS})
 
-find_package(clang)
+link_directories(${LLVM_LIBRARY_DIRS})
+llvm_map_components_to_libnames(LLVM_LIBRARIES
+    LTO
+    Symbolize
+    XCoreDisassembler
+    XCoreCodeGen
+    XCoreAsmPrinter
+    SystemZDisassembler
+    SystemZCodeGen
+    SystemZAsmParser
+    SystemZAsmPrinter
+    SparcDisassembler
+    SparcCodeGen
+    SparcAsmParser
+    SparcAsmPrinter
+    PowerPCDisassembler
+    PowerPCCodeGen
+    PowerPCAsmParser
+    PowerPCAsmPrinter
+    NVPTXCodeGen
+    NVPTXAsmPrinter
+    MSP430CodeGen
+    MSP430AsmPrinter
+    MipsDisassembler
+    MipsCodeGen
+    MipsAsmParser
+    MipsAsmPrinter
+    LanaiDisassembler
+    LanaiCodeGen
+    LanaiAsmParser
+    LanaiAsmPrinter
+    HexagonDisassembler
+    HexagonCodeGen
+    HexagonAsmParser
+    BPFDisassembler
+    BPFCodeGen
+    BPFAsmPrinter
+    ARMDisassembler
+    ARMCodeGen
+    ARMAsmParser
+    ARMAsmPrinter
+    AMDGPUDisassembler
+    AMDGPUCodeGen
+    AMDGPUAsmParser
+    AMDGPUAsmPrinter
+    AArch64Disassembler
+    AArch64CodeGen
+    AArch64AsmParser
+    AArch64AsmPrinter
+    LibDriver
+    X86Disassembler
+    X86AsmParser
+    X86CodeGen
+    X86AsmPrinter
+    Core
+)
+
+find_package(CLANG REQUIRED CONFIG)
 include_directories(${CLANG_INCLUDE_DIRS})
+set(CLANG_LIBRARIES
+    clangFrontend
+    clangDriver
+    clangSerialization
+    clangSema
+    clangAnalysis
+    clangAST
+    clangParse
+    clangSema
+    clangBasic
+    clangEdit
+    clangLex
+)
+
 
 if(ZIG_FORCE_EXTERNAL_LLD)
     find_package(lld)
