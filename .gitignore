@@ -1,9 +1,3 @@
 zig-cache/
 build/
-build-release/
-build-windows/
-build-llvm4-debug/
-build-llvm5-debug/
-/.cproject
-/.project
-/.settings/
+build-*/

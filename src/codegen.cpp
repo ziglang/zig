@@ -5194,16 +5194,16 @@ void codegen_add_object(CodeGen *g, Buf *object_path) {
     g->link_objects.append(object_path);
 }
 
-
+// Must be coordinated with with CIntType enum
 static const char *c_int_type_names[] = {
-    [CIntTypeShort] = "short",
-    [CIntTypeUShort] = "unsigned short",
-    [CIntTypeInt] = "int",
-    [CIntTypeUInt] = "unsigned int",
-    [CIntTypeLong] = "long",
-    [CIntTypeULong] = "unsigned long",
-    [CIntTypeLongLong] = "long long",
-    [CIntTypeULongLong] = "unsigned long long",
+    "short",
+    "unsigned short",
+    "int",
+    "unsigned int",
+    "long",
+    "unsigned long",
+    "long long",
+    "unsigned long long",
 };
 
 static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
