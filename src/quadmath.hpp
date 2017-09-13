@@ -32,7 +32,7 @@ static inline __float128 strtoflt128(const char *s, char **sp) {
 
 static inline int quadmath_snprintf(char *s, size_t size, const char *format, ...) {
     va_list args;
-    va_start(format, args);
+    va_start(args, format);
     int result = vsnprintf(s, size, format, args);
     va_end(args);
     return result;
