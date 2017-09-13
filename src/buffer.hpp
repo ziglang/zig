@@ -24,7 +24,7 @@ struct Buf {
 };
 
 Buf *buf_sprintf(const char *format, ...)
-    ATTRIBUTE_FORMAT(printf, 1, 2);
+    ATTRIBUTE_PRINTF(1, 2);
 Buf *buf_vprintf(const char *format, va_list ap);
 
 static inline size_t buf_len(Buf *buf) {
@@ -124,7 +124,7 @@ static inline void buf_append_char(Buf *buf, uint8_t c) {
 }
 
 void buf_appendf(Buf *buf, const char *format, ...)
-    ATTRIBUTE_FORMAT(printf, 2, 3);
+    ATTRIBUTE_PRINTF(2, 3);
 
 static inline bool buf_eql_mem(Buf *buf, const char *mem, size_t mem_len) {
     assert(buf->list.length);

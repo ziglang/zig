@@ -56,7 +56,7 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl);
 static AstNode *resolve_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl);
 
 
-ATTRIBUTE_FORMAT(printf, 3, 4)
+ATTRIBUTE_PRINTF(3, 4)
 static void emit_warning(Context *c, const SourceLocation &sl, const char *format, ...) {
     if (!c->warnings_on) {
         return;

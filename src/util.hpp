@@ -12,52 +12,57 @@
 #include <stdint.h>
 #include <string.h>
 #include <assert.h>
-#include <llvm/Support/Compiler.h>
 
 #include <new>
 
-#if defined(_MSVC)
-    #define ATTRIBUTE_COLD
-    #define ATTRIBUTE_FORMAT(args)
-    static inline uint32_t popcnt(unsigned long long x)
-    {
-        x -= ((x >> 1) & 0x55555555);
-        x = (((x >> 2) & 0x33333333) + (x & 0x33333333));
-        x = (((x >> 4) + x) & 0x0f0f0f0f);
-        x += (x >> 8);
-        x += (x >> 16);
-        return x & 0x0000003f;
-    }
-    static inline uint32_t clzll(unsigned long long x)
-    {
-        x |= (x >> 1);
-        x |= (x >> 2);
-        x |= (x >> 4);
-        x |= (x >> 8);
-        x |= (x >> 16);
-        return 32 - popcnt(x);
-    }
+#if defined(_MSC_VER)
+
+#include <intrin.h>  
+
+#define ATTRIBUTE_COLD __declspec(noinline)
+#define ATTRIBUTE_PRINTF(a, b)
+#define ATTRIBUTE_RETURNS_NOALIAS __declspec(restrict)
+#define ATTRIBUTE_NORETURN __declspec(noreturn)
+
+static inline int clzll(unsigned long long mask) {
+    unsigned long lz;
+#if defined(_WIN64)
+    if (_BitScanReverse64(&lz, mask))
+        return static_cast<int>(63-lz);
+    zig_unreachable();
 #else
-    #define ATTRIBUTE_COLD         __attribute__((cold))
-    #define ATTRIBUTE_FORMAT(args) __attribute__((format (args)))
-    #define clzll(x) __builtin_clzll(x)
+    if  (_BitScanReverse(&lz, mask >> 32))
+        lz += 32;
+    else
+        _BitScanReverse(&lz, mask & 0xffffffff);
+    return 63 - lz;
+#endif
+}
+#else
+
+#define ATTRIBUTE_COLD         __attribute__((cold))
+#define ATTRIBUTE_PRINTF(a, b) __attribute__((format(printf, a, b)))
+#define ATTRIBUTE_RETURNS_NOALIAS __attribute__((__malloc__))
+#define ATTRIBUTE_NORETURN __attribute__((noreturn))
+#define clzll(x) __builtin_clzll(x)
+
 #endif
 
 #define BREAKPOINT __asm("int $0x03")
 
-LLVM_ATTRIBUTE_NOINLINE
 ATTRIBUTE_COLD
-ATTRIBUTE_FORMAT(printf, 1, 2)
+ATTRIBUTE_NORETURN
+ATTRIBUTE_PRINTF(1, 2)
 void zig_panic(const char *format, ...);
 
 ATTRIBUTE_COLD
-LLVM_ATTRIBUTE_NOINLINE
+ATTRIBUTE_NORETURN
 static inline void zig_unreachable(void) {
     zig_panic("unreachable");
 }
 
 template<typename T>
-LLVM_ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate_nonzero(size_t count) {
+ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate_nonzero(size_t count) {
     T *ptr = reinterpret_cast<T*>(malloc(count * sizeof(T)));
     if (!ptr)
         zig_panic("allocation failed");
@@ -65,7 +70,7 @@ LLVM_ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate_nonzero(size_t count) {
 }
 
 template<typename T>
-LLVM_ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate(size_t count) {
+ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate(size_t count) {
     T *ptr = reinterpret_cast<T*>(calloc(count, sizeof(T)));
     if (!ptr)
         zig_panic("allocation failed");

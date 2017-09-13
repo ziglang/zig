@@ -26,86 +26,11 @@ option(ZIG_TEST_COVERAGE "Build Zig with test coverage instrumentation" OFF)
 # git log -p -- deps/lld
 option(ZIG_FORCE_EXTERNAL_LLD "If your system has the LLD patches use it instead of the embedded LLD" OFF)
 
-find_package(LLVM REQUIRED CONFIG)
+find_package(llvm)
 include_directories(${LLVM_INCLUDE_DIRS})
 
-# TODO: this currently doesn't work, it currently defines UNICODE but zig
-#       uses MBCS
-#add_definitions(${LLVM_DEFINITIONS})
-
-link_directories(${LLVM_LIBRARY_DIRS})
-llvm_map_components_to_libnames(LLVM_LIBRARIES
-    LTO
-    Symbolize
-    XCoreDisassembler
-    XCoreCodeGen
-    XCoreAsmPrinter
-    SystemZDisassembler
-    SystemZCodeGen
-    SystemZAsmParser
-    SystemZAsmPrinter
-    SparcDisassembler
-    SparcCodeGen
-    SparcAsmParser
-    SparcAsmPrinter
-    PowerPCDisassembler
-    PowerPCCodeGen
-    PowerPCAsmParser
-    PowerPCAsmPrinter
-    NVPTXCodeGen
-    NVPTXAsmPrinter
-    MSP430CodeGen
-    MSP430AsmPrinter
-    MipsDisassembler
-    MipsCodeGen
-    MipsAsmParser
-    MipsAsmPrinter
-    LanaiDisassembler
-    LanaiCodeGen
-    LanaiAsmParser
-    LanaiAsmPrinter
-    HexagonDisassembler
-    HexagonCodeGen
-    HexagonAsmParser
-    BPFDisassembler
-    BPFCodeGen
-    BPFAsmPrinter
-    ARMDisassembler
-    ARMCodeGen
-    ARMAsmParser
-    ARMAsmPrinter
-    AMDGPUDisassembler
-    AMDGPUCodeGen
-    AMDGPUAsmParser
-    AMDGPUAsmPrinter
-    AArch64Disassembler
-    AArch64CodeGen
-    AArch64AsmParser
-    AArch64AsmPrinter
-    LibDriver
-    X86Disassembler
-    X86AsmParser
-    X86CodeGen
-    X86AsmPrinter
-    Core
-)
-
-find_package(CLANG REQUIRED CONFIG)
+find_package(clang)
 include_directories(${CLANG_INCLUDE_DIRS})
-set(CLANG_LIBRARIES
-    clangFrontend
-    clangDriver
-    clangSerialization
-    clangSema
-    clangAnalysis
-    clangAST
-    clangParse
-    clangSema
-    clangBasic
-    clangEdit
-    clangLex
-)
-
 
 if(ZIG_FORCE_EXTERNAL_LLD)
     find_package(lld)
@@ -203,21 +128,21 @@ else()
     add_library(embedded_lld_lib ${EMBEDDED_LLD_LIB_SOURCES})
     add_library(embedded_lld_elf ${EMBEDDED_LLD_ELF_SOURCES})
     add_library(embedded_lld_coff ${EMBEDDED_LLD_COFF_SOURCES})
-    if(MINGW)
-        set(UNIQUE_COMPILE_FLAGS "-fno-exceptions -fno-rtti -Wno-comment")
-    elseif(MSVC)
-        set(UNIQUE_COMPILE_FLAGS "-D_MSVC")
+    if(MSVC)
+        set(ZIG_LLD_COMPILE_FLAGS "-std=c++11")
+    else()
+        set(ZIG_LLD_COMPILE_FLAGS "-std=c++11 -fno-exceptions -fno-rtti -Wno-comment")
     endif()
     set_target_properties(embedded_lld_lib PROPERTIES
-        COMPILE_FLAGS "-std=c++11 ${UNIQUE_COMPILE_FLAGS}"
+        COMPILE_FLAGS ${ZIG_LLD_COMPILE_FLAGS}
         LINK_FLAGS " "
     )
     set_target_properties(embedded_lld_elf PROPERTIES
-        COMPILE_FLAGS "-std=c++11 ${UNIQUE_COMPILE_FLAGS}"
+        COMPILE_FLAGS ${ZIG_LLD_COMPILE_FLAGS}
         LINK_FLAGS " "
     )
     set_target_properties(embedded_lld_coff PROPERTIES
-        COMPILE_FLAGS "-std=c++11 ${UNIQUE_COMPILE_FLAGS}"
+        COMPILE_FLAGS ${ZIG_LLD_COMPILE_FLAGS}
         LINK_FLAGS " "
     )
     target_include_directories(embedded_lld_lib PUBLIC
@@ -289,17 +214,20 @@ include_directories(
     "${CMAKE_SOURCE_DIR}/src"
 )
 
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
-if(MINGW)
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Werror -Wno-error=format= -Wno-error=format -Wno-error=format-extra-args")
+if(MSVC)
+  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -W4")
+elseif(MINGW)
+  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Werror -Wno-error=format= -Wno-error=format -Wno-error=format-extra-args")
+else()
+  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Werror -Wall")
 endif()
 
-set(EXE_CFLAGS "-std=c++11")
-if(MINGW)
-    set(EXE_CFLAGS "${EXE_CFLAGS} -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fno-exceptions -fno-rtti  -Werror=strict-prototypes -Werror=old-style-definition -Werror=type-limits -Wno-missing-braces")
-elseif(MSVC)
-    set(EXE_CFLAGS "${EXE_CFLAGS} -D_MSVC")
+if(MSVC)
+  set(EXE_CFLAGS "-std=c++11")
+else()
+  set(EXE_CFLAGS "-std=c++11 -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fno-exceptions -fno-rtti  -Werror=strict-prototypes -Werror=old-style-definition -Werror=type-limits -Wno-missing-braces")
 endif()
+
 set(EXE_LDFLAGS " ")
 if(ZIG_TEST_COVERAGE)
     set(EXE_CFLAGS "${EXE_CFLAGS} -fprofile-arcs -ftest-coverage")
@@ -312,9 +240,6 @@ set_target_properties(zig PROPERTIES
     LINK_FLAGS ${EXE_LDFLAGS}
 )
 
-if(MINGW)
-    set(PLATFORM_LIBRARIES quadmath)
-endif()
 target_link_libraries(zig LINK_PUBLIC
     ${CLANG_LIBRARIES}
     ${LLD_LIBRARIES}
@@ -322,11 +247,12 @@ target_link_libraries(zig LINK_PUBLIC
     ${CMAKE_THREAD_LIBS_INIT}
     ${PLATFORM_LIBRARIES}
 )
-if(MINGW OR MSVC)
-    target_link_libraries(zig LINK_PUBLIC version)
-endif()
 if(MSVC)
-    target_link_libraries(zig LINK_PUBLIC "C:/Program Files (x86)/Microsoft Visual Studio 14.0/DIA SDK/lib/diaguids.lib")
+    target_link_libraries(zig LINK_PUBLIC version)
+elseif(MINGW)
+    target_link_libraries(zig LINK_PUBLIC version quadmath)
+else()
+    target_link_libraries(zig LINK_PUBLIC quadmath)
 endif()
 install(TARGETS zig DESTINATION bin)
 

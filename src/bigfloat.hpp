@@ -13,11 +13,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#if defined(_MSVC)
-/*
- * For now this is a placeholder until a better solution comes along to
- * support 128-bit floats with MSVC.
- */
+#if defined(_MSC_VER)
+// TODO support 128 bit floats with msvc
 typedef long double __float128;
 #endif
 

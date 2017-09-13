@@ -234,7 +234,7 @@ struct Tokenize {
     BigInt significand;
 };
 
-ATTRIBUTE_FORMAT(printf, 2, 3)
+ATTRIBUTE_PRINTF(2, 3)
 static void tokenize_error(Tokenize *t, const char *format, ...) {
     t->state = TokenizeStateError;
 

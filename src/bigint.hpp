@@ -11,7 +11,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#if defined(_MSVC)
+#if defined(_MSC_VER)
     // TEMPORARY WORKAROUND FOR MSVC NOT SUPPORTING __int128
     typedef long long int128_t;
     typedef unsigned long long uint128_t;

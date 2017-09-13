@@ -377,39 +377,30 @@ void bigint_read_twos_complement(BigInt *dest, const uint8_t *buf, size_t bit_co
     }
 }
 
-#if defined(_MSVC)
-/*
- * Inneficient implmentations for now
- */
+#if defined(_MSC_VER)
 static bool add_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result) {
    *result = op1 + op2;
-   if(*result - op2 != op1) {
-       return true; // overflow
-   }
-   return false; // no overflow
+   return *result < op1 || *result < op2;
 }
 
 static bool sub_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result) {
    *result = op1 - op2;
-    if(*result > op1)
-    {
-        return true; // overflow
-    }
-    return false; // no overflow
+   return *result > op1;
 }
 
 bool mul_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result) {
     *result = op1 * op2;
-    if(op1 <= op2) {
-        if(*result / op1 != op2) {
-            return true; // overflow
-        }
-    } else {
-        if(*result / op2 != op1) {
-            return true; // overflow
-        }
-    }
-    return false; // no overflow
+
+    if (op1 == 0 || op2 == 0)
+        return false;
+
+    if (op1 > UINT64_MAX / op2)
+        return true;
+
+    if (op2 > UINT64_MAX / op1)
+        return true;
+
+    return false;
 }
 #else
 static bool add_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result) {

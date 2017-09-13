@@ -24,8 +24,8 @@ struct ParseContext {
     Buf *void_buf;
 };
 
-ATTRIBUTE_FORMAT(printf, 4, 5)
-LLVM_ATTRIBUTE_NORETURN
+ATTRIBUTE_PRINTF(4, 5)
+ATTRIBUTE_NORETURN
 static void ast_asm_error(ParseContext *pc, AstNode *node, size_t offset, const char *format, ...) {
     assert(node->type == NodeTypeAsmExpr);
 
@@ -46,8 +46,8 @@ static void ast_asm_error(ParseContext *pc, AstNode *node, size_t offset, const 
     exit(EXIT_FAILURE);
 }
 
-ATTRIBUTE_FORMAT(printf, 3, 4)
-LLVM_ATTRIBUTE_NORETURN
+ATTRIBUTE_PRINTF(3, 4)
+ATTRIBUTE_NORETURN
 static void ast_error(ParseContext *pc, Token *token, const char *format, ...) {
     va_list ap;
     va_start(ap, format);
@@ -205,7 +205,7 @@ static void ast_buf_from_token(ParseContext *pc, Token *token, Buf *buf) {
     }
 }
 
-LLVM_ATTRIBUTE_NORETURN
+ATTRIBUTE_NORETURN
 static void ast_invalid_token_error(ParseContext *pc, Token *token) {
     Buf token_value = BUF_INIT;
     ast_buf_from_token(pc, token, &token_value);
