@@ -11432,6 +11432,17 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
         if (type_is_invalid(child_type)) {
             return ira->codegen->builtin_types.entry_invalid;
         } else if (is_container(child_type)) {
+            if (is_slice(child_type) && buf_eql_str(field_name, "Child")) {
+                bool ptr_is_const = true;
+                bool ptr_is_volatile = false;
+                TypeStructField *ptr_field = &child_type->data.structure.fields[slice_ptr_index];
+                assert(ptr_field->type_entry->id == TypeTableEntryIdPointer);
+                TypeTableEntry *child_type = ptr_field->type_entry->data.pointer.child_type;
+                return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
+                    create_const_type(ira->codegen, child_type),
+                    ira->codegen->builtin_types.entry_type,
+                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile);
+            }
             if (child_type->id == TypeTableEntryIdEnum) {
                 ensure_complete_type(ira->codegen, child_type);
                 if (child_type->data.enumeration.is_invalid)
@@ -11522,7 +11533,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
                 return ira->codegen->builtin_types.entry_invalid;
             }
         } else if (child_type->id == TypeTableEntryIdPointer) {
-            if (buf_eql_str(field_name, "child")) {
+            if (buf_eql_str(field_name, "Child")) {
                 bool ptr_is_const = true;
                 bool ptr_is_volatile = false;
                 return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
@@ -11544,7 +11555,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
                 return ira->codegen->builtin_types.entry_invalid;
             }
         } else if (child_type->id == TypeTableEntryIdArray) {
-            if (buf_eql_str(field_name, "child")) {
+            if (buf_eql_str(field_name, "Child")) {
                 bool ptr_is_const = true;
                 bool ptr_is_volatile = false;
                 return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,

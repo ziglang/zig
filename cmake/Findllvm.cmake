@@ -104,9 +104,11 @@ else()
 
   set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_SYSTEM_LIBS})
 
-  if(LLVM_LIBRARY)
+  if(LLVM_LIBRARY AND NOT LLVM_LIBRARIES)
     set(LLVM_LIBRARIES ${LLVM_LIBRARY})
   endif()
+
+  link_directories("${CMAKE_PREFIX_PATH}/lib")
 endif()
 
 

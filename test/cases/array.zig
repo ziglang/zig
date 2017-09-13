@@ -89,7 +89,7 @@ test "array literal with specified size" {
 
 test "array child property" {
     var x: [5]i32 = undefined;
-    assert(@typeOf(x).child == i32);
+    assert(@typeOf(x).Child == i32);
 }
 
 test "array len property" {
