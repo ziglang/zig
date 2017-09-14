@@ -13,27 +13,25 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#if defined(_MSC_VER)
-// TODO support 128 bit floats with msvc
-typedef long double __float128;
-#endif
+#include "softfloat_types.h"
+
 
 struct BigFloat {
-    __float128 value;
+    float128_t value;
 };
 
 struct Buf;
 
 void bigfloat_init_32(BigFloat *dest, float x);
 void bigfloat_init_64(BigFloat *dest, double x);
-void bigfloat_init_128(BigFloat *dest, __float128 x);
+void bigfloat_init_128(BigFloat *dest, float128_t x);
 void bigfloat_init_bigfloat(BigFloat *dest, const BigFloat *x);
 void bigfloat_init_bigint(BigFloat *dest, const BigInt *op);
 int bigfloat_init_buf_base10(BigFloat *dest, const uint8_t *buf_ptr, size_t buf_len);
 
 float bigfloat_to_f32(const BigFloat *bigfloat);
 double bigfloat_to_f64(const BigFloat *bigfloat);
-__float128 bigfloat_to_f128(const BigFloat *bigfloat);
+float128_t bigfloat_to_f128(const BigFloat *bigfloat);
 
 void bigfloat_add(BigFloat *dest, const BigFloat *op1, const BigFloat *op2);
 void bigfloat_negate(BigFloat *dest, const BigFloat *op);

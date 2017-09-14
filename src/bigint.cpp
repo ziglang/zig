@@ -10,6 +10,7 @@
 #include "buffer.hpp"
 #include "list.hpp"
 #include "os.hpp"
+#include "softfloat.hpp"
 
 static void bigint_normalize(BigInt *dest) {
     const uint64_t *digits = bigint_ptr(dest);
@@ -200,12 +201,36 @@ void bigint_init_bigint(BigInt *dest, const BigInt *src) {
 }
 
 void bigint_init_bigfloat(BigInt *dest, const BigFloat *op) {
-    if (op->value >= 0) {
-        bigint_init_u128(dest, (uint128_t)(op->value));
+    float128_t zero;
+    ui32_to_f128M(0, &zero);
+
+    dest->is_negative = f128M_lt(&op->value, &zero);
+    float128_t abs_val;
+    if (dest->is_negative) {
+        f128M_sub(&zero, &op->value, &abs_val);
     } else {
-        bigint_init_u128(dest, (uint128_t)(-op->value));
-        dest->is_negative = true;
+        memcpy(&abs_val, &op->value, sizeof(float128_t));
     }
+
+    float128_t max_u64;
+    ui64_to_f128M(UINT64_MAX, &max_u64);
+    if (f128M_le(&abs_val, &max_u64)) {
+        dest->digit_count = 1;
+        dest->data.digit = f128M_to_ui64(&op->value, softfloat_round_minMag, false);
+        bigint_normalize(dest);
+        return;
+    }
+
+    float128_t amt;
+    f128M_div(&abs_val, &max_u64, &amt);
+    float128_t remainder;
+    f128M_rem(&abs_val, &max_u64, &remainder);
+
+    dest->digit_count = 2;
+    dest->data.digits = allocate_nonzero<uint64_t>(dest->digit_count);
+    dest->data.digits[0] = f128M_to_ui64(&remainder, softfloat_round_minMag, false);
+    dest->data.digits[1] = f128M_to_ui64(&amt, softfloat_round_minMag, false);
+    bigint_normalize(dest);
 }
 
 bool bigint_fits_in_bits(const BigInt *bn, size_t bit_count, bool is_signed) {
