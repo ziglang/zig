@@ -24,27 +24,12 @@
 #define ATTRIBUTE_RETURNS_NOALIAS __declspec(restrict)
 #define ATTRIBUTE_NORETURN __declspec(noreturn)
 
-static inline int clzll(unsigned long long mask) {
-    unsigned long lz;
-#if defined(_WIN64)
-    if (_BitScanReverse64(&lz, mask))
-        return static_cast<int>(63-lz);
-    zig_unreachable();
-#else
-    if  (_BitScanReverse(&lz, mask >> 32))
-        lz += 32;
-    else
-        _BitScanReverse(&lz, mask & 0xffffffff);
-    return 63 - lz;
-#endif
-}
 #else
 
 #define ATTRIBUTE_COLD         __attribute__((cold))
 #define ATTRIBUTE_PRINTF(a, b) __attribute__((format(printf, a, b)))
 #define ATTRIBUTE_RETURNS_NOALIAS __attribute__((__malloc__))
 #define ATTRIBUTE_NORETURN __attribute__((noreturn))
-#define clzll(x) __builtin_clzll(x)
 
 #endif
 
@@ -60,6 +45,25 @@ ATTRIBUTE_NORETURN
 static inline void zig_unreachable(void) {
     zig_panic("unreachable");
 }
+
+#if defined(_MSC_VER)
+static inline int clzll(unsigned long long mask) {
+	unsigned long lz;
+#if defined(_WIN64)
+	if (_BitScanReverse64(&lz, mask))
+		return static_cast<int>(63 - lz);
+	zig_unreachable();
+#else
+	if (_BitScanReverse(&lz, mask >> 32))
+		lz += 32;
+	else
+		_BitScanReverse(&lz, mask & 0xffffffff);
+	return 63 - lz;
+#endif
+}
+#else
+#define clzll(x) __builtin_clzll(x)
+#endif
 
 template<typename T>
 ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate_nonzero(size_t count) {
