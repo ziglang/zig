@@ -11,15 +11,6 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#if defined(_MSC_VER)
-    // TEMPORARY WORKAROUND FOR MSVC NOT SUPPORTING __int128
-    typedef long long int128_t;
-    typedef unsigned long long uint128_t;
-#else
-    typedef __int128 int128_t;
-    typedef unsigned __int128 uint128_t;
-#endif
-
 struct BigInt {
     size_t digit_count;
     union {
@@ -39,7 +30,6 @@ enum Cmp {
 };
 
 void bigint_init_unsigned(BigInt *dest, uint64_t x);
-void bigint_init_u128(BigInt *dest, uint128_t x);
 void bigint_init_signed(BigInt *dest, int64_t x);
 void bigint_init_bigint(BigInt *dest, const BigInt *src);
 void bigint_init_bigfloat(BigInt *dest, const BigFloat *op);

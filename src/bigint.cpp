@@ -142,21 +142,6 @@ void bigint_init_unsigned(BigInt *dest, uint64_t x) {
     dest->is_negative = false;
 }
 
-void bigint_init_u128(BigInt *dest, uint128_t x) {
-    uint64_t low = (uint64_t)(x & UINT64_MAX);
-    uint64_t high = (uint64_t)(x >> 64);
-
-    if (high == 0) {
-        return bigint_init_unsigned(dest, low);
-    }
-
-    dest->digit_count = 2;
-    dest->data.digits = allocate_nonzero<uint64_t>(2);
-    dest->data.digits[0] = low;
-    dest->data.digits[1] = high;
-    dest->is_negative = false;
-}
-
 void bigint_init_signed(BigInt *dest, int64_t x) {
     if (x >= 0) {
         return bigint_init_unsigned(dest, x);
@@ -580,16 +565,24 @@ void bigint_sub_wrap(BigInt *dest, const BigInt *op1, const BigInt *op2, size_t 
     return bigint_add_wrap(dest, op1, &op2_negated, bit_count, is_signed);
 }
 
-static void mul_overflow(uint64_t x, uint64_t y, uint64_t *result, uint64_t *carry) {
-    if (!mul_u64_overflow(x, y, result)) {
-        *carry = 0;
-        return;
-    }
+static void mul_overflow(uint64_t op1, uint64_t op2, uint64_t *lo, uint64_t *hi) {
+    uint64_t u1 = (op1 & 0xffffffff);
+    uint64_t v1 = (op2 & 0xffffffff);
+    uint64_t t = (u1 * v1);
+    uint64_t w3 = (t & 0xffffffff);
+    uint64_t k = (t >> 32);
 
-    uint128_t big_x = x;
-    uint128_t big_y = y;
-    uint128_t big_result = big_x * big_y;
-    *carry = big_result >> 64;
+    op1 >>= 32;
+    t = (op1 * v1) + k;
+    k = (t & 0xffffffff);
+    uint64_t w1 = (t >> 32);
+
+    op2 >>= 32;
+    t = (u1 * op2) + k;
+    k = (t >> 32);
+
+    *hi = (op1 * op2) + w1 + k;
+    *lo = (t << 32) + w3;
 }
 
 static void mul_scalar(BigInt *dest, const BigInt *op, uint64_t scalar) {
