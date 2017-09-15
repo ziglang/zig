@@ -43,7 +43,7 @@ pub fn main() -> %void {
     };
 
     // TODO use a more general purpose allocator here
-    var inc_allocator = %%mem.IncrementingAllocator.init(10 * 1024 * 1024);
+    var inc_allocator = %%mem.IncrementingAllocator.init(20 * 1024 * 1024);
     defer inc_allocator.deinit();
 
     const allocator = &inc_allocator.allocator;
