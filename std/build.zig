@@ -902,9 +902,9 @@ pub const LibExeObjStep = struct {
         defer zig_args.deinit();
 
         const cmd = switch (self.kind) {
-            Kind.Lib => "build_lib",
-            Kind.Exe => "build_exe",
-            Kind.Obj => "build_obj",
+            Kind.Lib => "build-lib",
+            Kind.Exe => "build-exe",
+            Kind.Obj => "build-obj",
         };
         %%zig_args.append(cmd);
 
