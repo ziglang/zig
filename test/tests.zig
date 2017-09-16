@@ -535,7 +535,7 @@ pub const CompileErrorContext = struct {
             const obj_path = %%os.path.join(b.allocator, b.cache_root, "test.o");
 
             var zig_args = ArrayList([]const u8).init(b.allocator);
-            %%zig_args.append(if (self.case.is_exe) "build_exe" else "build_obj");
+            %%zig_args.append(if (self.case.is_exe) "build-exe" else "build-obj");
             %%zig_args.append(b.pathFromRoot(root_src));
 
             %%zig_args.append("--name");

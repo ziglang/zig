@@ -20,9 +20,9 @@ static int usage(const char *arg0) {
     fprintf(stderr, "Usage: %s [command] [options]\n"
         "Commands:\n"
         "  build                        build project from build.zig\n"
-        "  build_exe [source]           create executable from source or object files\n"
-        "  build_lib [source]           create library from source or object files\n"
-        "  build_obj [source]           create object from source or assembly\n"
+        "  build-exe [source]           create executable from source or object files\n"
+        "  build-lib [source]           create library from source or object files\n"
+        "  build-obj [source]           create object from source or assembly\n"
         "  parsec [source]              convert c code to zig code\n"
         "  targets                      list available compilation targets\n"
         "  test [source]                create and run a test build\n"
@@ -457,13 +457,13 @@ int main(int argc, char **argv) {
                 }
             }
         } else if (cmd == CmdInvalid) {
-            if (strcmp(arg, "build_exe") == 0) {
+            if (strcmp(arg, "build-exe") == 0) {
                 cmd = CmdBuild;
                 out_type = OutTypeExe;
-            } else if (strcmp(arg, "build_obj") == 0) {
+            } else if (strcmp(arg, "build-obj") == 0) {
                 cmd = CmdBuild;
                 out_type = OutTypeObj;
-            } else if (strcmp(arg, "build_lib") == 0) {
+            } else if (strcmp(arg, "build-lib") == 0) {
                 cmd = CmdBuild;
                 out_type = OutTypeLib;
             } else if (strcmp(arg, "version") == 0) {
