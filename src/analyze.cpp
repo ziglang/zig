@@ -1314,7 +1314,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
         di_enumerators[i] = ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(type_enum_field->name), i);
 
         ensure_complete_type(g, field_type);
-        if (field_type->id == TypeTableEntryIdInvalid) {
+        if (type_is_invalid(field_type)) {
             enum_type->data.enumeration.is_invalid = true;
             continue;
         }
