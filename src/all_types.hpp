@@ -1524,6 +1524,9 @@ struct CodeGen {
     size_t clang_argv_len;
     ZigList<const char *> lib_dirs;
 
+    const char **llvm_argv;
+    size_t llvm_argv_len;
+
     ZigList<FnTableEntry *> test_fns;
     TypeTableEntry *test_fn_type;
 

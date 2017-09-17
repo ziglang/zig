@@ -50,6 +50,7 @@ static int usage(const char *arg0) {
         "  --zig-std-dir [path]         directory where zig standard library resides\n"
         "  -dirafter [dir]              same as -isystem but do it last\n"
         "  -isystem [dir]               add additional search path for other .h files\n"
+        "  -mllvm [arg]                 additional arguments to forward to LLVM's option processing\n"
         "Link Options:\n"
         "  --ar-path [path]             set the path to ar\n"
         "  --dynamic-linker [path]      set the path to ld.so\n"
@@ -190,6 +191,7 @@ int main(int argc, char **argv) {
     const char *zig_std_dir = nullptr;
     const char *dynamic_linker = nullptr;
     ZigList<const char *> clang_argv = {0};
+    ZigList<const char *> llvm_argv = {0};
     ZigList<const char *> lib_dirs = {0};
     ZigList<const char *> link_libs = {0};
     ZigList<const char *> frameworks = {0};
@@ -420,6 +422,11 @@ int main(int argc, char **argv) {
                 } else if (strcmp(arg, "-dirafter") == 0) {
                     clang_argv.append("-dirafter");
                     clang_argv.append(argv[i]);
+                } else if (strcmp(arg, "-mllvm") == 0) {
+                    clang_argv.append("-mllvm");
+                    clang_argv.append(argv[i]);
+
+                    llvm_argv.append(argv[i]);
                 } else if (strcmp(arg, "--library-path") == 0 || strcmp(arg, "-L") == 0) {
                     lib_dirs.append(argv[i]);
                 } else if (strcmp(arg, "--library") == 0) {
@@ -604,6 +611,7 @@ int main(int argc, char **argv) {
                 codegen_set_each_lib_rpath(g, each_lib_rpath);
 
             codegen_set_clang_argv(g, clang_argv.items, clang_argv.length);
+            codegen_set_llvm_argv(g, llvm_argv.items, llvm_argv.length);
             codegen_set_strip(g, strip);
             codegen_set_is_static(g, is_static);
             if (libc_lib_dir)

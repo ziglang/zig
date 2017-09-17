@@ -602,6 +602,10 @@ void ZigLLVMAddFunctionAttrCold(LLVMValueRef fn_ref) {
     func->setAttributes(new_attr_set);
 }
 
+void ZigLLVMParseCommandLineOptions(int argc, const char *const *argv) {
+    llvm::cl::ParseCommandLineOptions(argc, argv);
+}
+
 
 static_assert((Triple::ArchType)ZigLLVM_LastArchType == Triple::LastArchType, "");
 static_assert((Triple::VendorType)ZigLLVM_LastVendorType == Triple::LastVendorType, "");
