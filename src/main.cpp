@@ -75,6 +75,8 @@ static int usage(const char *arg0) {
         "Test Options:\n"
         "  --test-filter [text]         skip tests that do not match filter\n"
         "  --test-name-prefix [text]    add prefix to all tests\n"
+        "  --test-cmd [arg]             specify test execution command one arg at a time\n"
+        "  --test-cmd-bin               appends test binary path to test cmd args\n"
     , arg0);
     return EXIT_FAILURE;
 }
@@ -215,6 +217,7 @@ int main(int argc, char **argv) {
     const char *cache_dir = nullptr;
     CliPkg *cur_pkg = allocate<CliPkg>(1);
     BuildMode build_mode = BuildModeDebug;
+    ZigList<const char *> test_exec_args = {0};
 
     if (argc >= 2 && strcmp(argv[1], "build") == 0) {
         const char *zig_exe_path = arg0;
@@ -355,6 +358,8 @@ int main(int argc, char **argv) {
                 each_lib_rpath = true;
             } else if (strcmp(arg, "--enable-timing-info") == 0) {
                 timing_info = true;
+            } else if (strcmp(arg, "--test-cmd-bin") == 0) {
+                test_exec_args.append(nullptr);
             } else if (arg[1] == 'L' && arg[2] != 0) {
                 // alias for --library-path
                 lib_dirs.append(&arg[2]);
@@ -451,6 +456,8 @@ int main(int argc, char **argv) {
                     ver_minor = atoi(argv[i]);
                 } else if (strcmp(arg, "--ver-patch") == 0) {
                     ver_patch = atoi(argv[i]);
+                } else if (strcmp(arg, "--test-cmd") == 0) {
+                    test_exec_args.append(argv[i]);
                 } else {
                     fprintf(stderr, "Invalid argument: %s\n", arg);
                     return usage(arg0);
@@ -682,6 +689,12 @@ int main(int argc, char **argv) {
 
                 Buf *test_exe_name = buf_sprintf("./test%s", target_exe_file_ext(non_null_target));
 
+                for (size_t i = 0; i < test_exec_args.length; i += 1) {
+                    if (test_exec_args.items[i] == nullptr) {
+                        test_exec_args.items[i] = buf_ptr(test_exe_name);
+                    }
+                }
+
                 codegen_build(g);
                 codegen_link(g, buf_ptr(test_exe_name));
 
@@ -693,9 +706,18 @@ int main(int argc, char **argv) {
                     return 0;
                 }
 
-                ZigList<const char *> args = {0};
                 Termination term;
-                os_spawn_process(buf_ptr(test_exe_name), args, &term);
+                if (test_exec_args.length > 0) {
+                    ZigList<const char *> rest_args = {0};
+                    for (size_t i = 1; i < test_exec_args.length; i += 1) {
+                        rest_args.append(test_exec_args.at(i));
+                    }
+                    os_spawn_process(test_exec_args.items[0], rest_args, &term);
+                } else {
+                    ZigList<const char *> no_args = {0};
+                    os_spawn_process(buf_ptr(test_exe_name), no_args, &term);
+                }
+
                 if (term.how != TerminationIdClean || term.code != 0) {
                     fprintf(stderr, "\nTests failed. Use the following command to reproduce the failure:\n");
                     fprintf(stderr, "%s\n", buf_ptr(test_exe_name));

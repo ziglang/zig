@@ -1028,6 +1028,7 @@ pub const TestStep = struct {
     name_prefix: []const u8,
     filter: ?[]const u8,
     target: Target,
+    exec_cmd_args: ?[]const ?[]const u8,
 
     pub fn init(builder: &Builder, root_src: []const u8) -> TestStep {
         const step_name = builder.fmt("test {}", root_src);
@@ -1041,6 +1042,7 @@ pub const TestStep = struct {
             .filter = null,
             .link_libs = BufSet.init(builder.allocator),
             .target = Target.Native,
+            .exec_cmd_args = null,
         }
     }
 
@@ -1074,6 +1076,10 @@ pub const TestStep = struct {
                 .environ = target_environ,
             }
         };
+    }
+
+    pub fn setExecCmd(self: &TestStep, args: []const ?[]const u8) {
+        self.exec_cmd_args = args;
     }
 
     fn make(step: &Step) -> %void {
@@ -1126,6 +1132,17 @@ pub const TestStep = struct {
                 const entry = it.next() ?? break;
                 %%zig_args.append("--library");
                 %%zig_args.append(entry.key);
+            }
+        }
+
+        if (self.exec_cmd_args) |exec_cmd_args| {
+            for (exec_cmd_args) |cmd_arg| {
+                if (cmd_arg) |arg| {
+                    %%zig_args.append("--test-cmd");
+                    %%zig_args.append(arg);
+                } else {
+                    %%zig_args.append("--test-cmd-bin");
+                }
             }
         }
 

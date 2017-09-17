@@ -130,19 +130,19 @@ pub fn addParseCTests(b: &build.Builder, test_filter: ?[]const u8) -> &build.Ste
 }
 
 pub fn addPkgTests(b: &build.Builder, test_filter: ?[]const u8, root_src: []const u8,
-    name:[] const u8, desc: []const u8) -> &build.Step
+    name:[] const u8, desc: []const u8, with_lldb: bool) -> &build.Step
 {
-    return addPkgTestsRaw(b, test_filter, root_src, name, desc, false);
+    return addPkgTestsRaw(b, test_filter, root_src, name, desc, false, with_lldb);
 }
 
 pub fn addPkgTestsAlwaysLibc(b: &build.Builder, test_filter: ?[]const u8, root_src: []const u8,
-    name:[] const u8, desc: []const u8) -> &build.Step
+    name:[] const u8, desc: []const u8, with_lldb: bool) -> &build.Step
 {
-    return addPkgTestsRaw(b, test_filter, root_src, name, desc, true);
+    return addPkgTestsRaw(b, test_filter, root_src, name, desc, true, with_lldb);
 }
 
 pub fn addPkgTestsRaw(b: &build.Builder, test_filter: ?[]const u8, root_src: []const u8,
-    name:[] const u8, desc: []const u8, always_link_libc: bool) -> &build.Step
+    name:[] const u8, desc: []const u8, always_link_libc: bool, with_lldb: bool) -> &build.Step
 {
     const libc_bools = if (always_link_libc) []bool{true} else []bool{false, true};
     const step = b.step(b.fmt("test-{}", name), desc);
@@ -164,6 +164,10 @@ pub fn addPkgTestsRaw(b: &build.Builder, test_filter: ?[]const u8, root_src: []c
                 }
                 if (link_libc) {
                     these_tests.linkSystemLibrary("c");
+                }
+                if (with_lldb) {
+                    these_tests.setExecCmd([]?[]const u8{
+                        "lldb", null, "-o", "run", "-o", "bt", "-o", "exit"});
                 }
                 step.dependOn(&these_tests.step);
             }
