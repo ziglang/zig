@@ -1343,7 +1343,11 @@ pub const CLibExeObjStep = struct {
             %%args.append("-g");
         }
         switch (self.build_mode) {
-            builtin.Mode.Debug => {},
+            builtin.Mode.Debug => {
+                %%args.append("-fstack-protector-strong");
+                %%args.append("--param");
+                %%args.append("ssp-buffer-size=4");
+            },
             builtin.Mode.ReleaseSafe => {
                 %%args.append("-O2");
                 %%args.append("-D_FORTIFY_SOURCE=2");
