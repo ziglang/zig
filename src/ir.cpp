@@ -14732,6 +14732,7 @@ static IrInstruction *ir_align_cast(IrAnalyze *ira, IrInstruction *target, uint3
 
     if (target_type->id == TypeTableEntryIdPointer) {
         result_type = adjust_ptr_align(ira->codegen, target_type, align_bytes);
+        old_align_bytes = target_type->data.pointer.alignment;
     } else if (target_type->id == TypeTableEntryIdFn) {
         FnTypeId fn_type_id = target_type->data.fn.fn_type_id;
         old_align_bytes = fn_type_id.alignment;
