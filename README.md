@@ -104,6 +104,7 @@ mkdir build
 cd build
 cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@5/ -DCMAKE_INSTALL_PREFIX=$(pwd)
 make install
+./zig build --build-file ../build.zig test
 ```
 
 ### Release / Install Build
