@@ -2127,4 +2127,30 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     ,
         ".tmp_source.zig:2:33: error: expected type 'GlobalLinkage', found 'u32'");
 
+    cases.add("struct with invalid field",
+        \\const std = @import("std");
+        \\const Allocator = std.mem.Allocator;
+        \\const ArrayList = std.ArrayList;
+        \\
+        \\const HeaderWeight = enum {
+        \\    H1, H2, H3, H4, H5, H6,
+        \\};
+        \\
+        \\const MdText = ArrayList(u8);
+        \\
+        \\const MdNode = enum {
+        \\    Header: struct {
+        \\        text: MdText,
+        \\        weight: HeaderValue,
+        \\    },
+        \\};
+        \\
+        \\export fn entry() {
+        \\    const a = MdNode.Header {
+        \\        .text = MdText.init(&std.debug.global_allocator),
+        \\        .weight = HeaderWeight.H1,
+        \\    };
+        \\}
+    ,
+        ".tmp_source.zig:14:17: error: use of undeclared identifier 'HeaderValue'");
 }
