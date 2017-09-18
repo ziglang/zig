@@ -84,8 +84,6 @@ If you have gcc or clang installed, you can find out what `ZIG_LIBC_LIB_DIR`,
 `ZIG_LIBC_STATIC_LIB_DIR`, and `ZIG_LIBC_INCLUDE_DIR` should be set to
 (example below).
 
-For MacOS, `ZIG_LIBC_LIB_DIR` and `ZIG_LIBC_STATIC_LIB_DIR` are unused.
-
 ```
 mkdir build
 cd build
@@ -97,12 +95,14 @@ make install
 
 #### MacOS
 
+`ZIG_LIBC_LIB_DIR` and `ZIG_LIBC_STATIC_LIB_DIR` are unused.
+
 ```
 brew install llvm@5
 brew outdated llvm@5 || brew upgrade llvm@5
 mkdir build
 cd build
-cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@5/ -DCMAKE_INSTALL_PREFIX=$(pwd) -DZIG_LIBC_INCLUDE_DIR=/usr/include
+cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@5/ -DCMAKE_INSTALL_PREFIX=$(pwd)
 make install
 ```
 
