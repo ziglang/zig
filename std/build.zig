@@ -1167,7 +1167,9 @@ pub const LibExeObjStep = struct {
         }
         switch (self.build_mode) {
             builtin.Mode.Debug => {
-                if (!self.disable_libc) {
+                if (self.disable_libc) {
+                    %%args.append("-fno-stack-protector");
+                } else {
                     %%args.append("-fstack-protector-strong");
                     %%args.append("--param");
                     %%args.append("ssp-buffer-size=4");
@@ -1175,7 +1177,9 @@ pub const LibExeObjStep = struct {
             },
             builtin.Mode.ReleaseSafe => {
                 %%args.append("-O2");
-                if (!self.disable_libc) {
+                if (self.disable_libc) {
+                    %%args.append("-fno-stack-protector");
+                } else {
                     %%args.append("-D_FORTIFY_SOURCE=2");
                     %%args.append("-fstack-protector-strong");
                     %%args.append("--param");
@@ -1184,6 +1188,7 @@ pub const LibExeObjStep = struct {
             },
             builtin.Mode.ReleaseFast => {
                 %%args.append("-O2");
+                %%args.append("-fno-stack-protector");
             },
         }
 
