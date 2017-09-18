@@ -95,6 +95,17 @@ make install
 ./zig build --build-file ../build.zig test
 ```
 
+#### MacOS
+
+```
+brew install llvm@5
+brew outdated llvm@5 || brew upgrade llvm@5
+mkdir build
+cd build
+cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@5/ -DCMAKE_INSTALL_PREFIX=$(pwd) -DZIG_LIBC_INCLUDE_DIR=/usr/include
+make install
+```
+
 ### Release / Install Build
 
 Once installed, `ZIG_LIBC_LIB_DIR` and `ZIG_LIBC_INCLUDE_DIR` can be overridden
