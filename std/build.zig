@@ -937,8 +937,13 @@ pub const LibExeObjStep = struct {
         self.build_mode = mode;
     }
 
-    pub fn setOutputPath(self: &LibExeObjStep, value: []const u8) {
-        self.output_path = value;
+    pub fn setOutputPath(self: &LibExeObjStep, file_path: []const u8) {
+        self.output_path = file_path;
+
+        // catch a common mistake
+        if (mem.eql(u8, self.builder.pathFromRoot(file_path), self.builder.pathFromRoot("."))) {
+            debug.panic("setOutputPath wants a file path, not a directory\n");
+        }
     }
 
     pub fn getOutputPath(self: &LibExeObjStep) -> []const u8 {
@@ -949,8 +954,13 @@ pub const LibExeObjStep = struct {
         }
     }
 
-    pub fn setOutputHPath(self: &LibExeObjStep, value: []const u8) {
-        self.output_h_path = value;
+    pub fn setOutputHPath(self: &LibExeObjStep, file_path: []const u8) {
+        self.output_h_path = file_path;
+
+        // catch a common mistake
+        if (mem.eql(u8, self.builder.pathFromRoot(file_path), self.builder.pathFromRoot("."))) {
+            debug.panic("setOutputHPath wants a file path, not a directory\n");
+        }
     }
 
     pub fn getOutputHPath(self: &LibExeObjStep) -> []const u8 {
