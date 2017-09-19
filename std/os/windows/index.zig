@@ -37,6 +37,8 @@ pub extern "kernel32" stdcallcc fn WriteFile(in_hFile: HANDLE, in_lpBuffer: &con
     in_nNumberOfBytesToWrite: DWORD, out_lpNumberOfBytesWritten: ?&DWORD,
     in_out_lpOverlapped: ?&OVERLAPPED) -> BOOL;
 
+pub extern "kernel32" stdcallcc fn Sleep(dwMilliseconds: DWORD);
+
 pub const PROV_RSA_FULL = 1;
 
 pub const UNICODE = false;

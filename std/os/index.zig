@@ -949,7 +949,21 @@ pub fn readLink(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
     }
 }
 
-pub fn sleep(seconds: u64, nanoseconds: u64) {
+pub fn sleep(seconds: usize, nanoseconds: usize) {
+    switch(builtin.os) {
+        Os.linux, Os.darwin, Os.macosx, Os.ios => {
+            posixSleep(u63(seconds), u63(nanoseconds));
+        },
+        Os.windows => {
+            const milliseconds = seconds * 1000 + nanoseconds / 1000000;
+            windows.Sleep(windows.DWORD(milliseconds));
+        },
+        else => @compileError("Unsupported OS"),
+    }
+}
+
+const u63 = @IntType(false, 63);
+pub fn posixSleep(seconds: u63, nanoseconds: u63) {
     var req = posix.timespec {
         .tv_sec = seconds,
         .tv_nsec = nanoseconds,
@@ -961,7 +975,11 @@ pub fn sleep(seconds: u64, nanoseconds: u64) {
         if (err == 0) return;
         switch (err) {
             posix.EFAULT => unreachable,
-            posix.EINVAL => unreachable,
+            posix.EINVAL => {
+                // Sometimes Darwin returns EINVAL for no reason.
+                // We treat it as a spurious wakeup.
+                return;
+            },
             posix.EINTR => {
                 req = rem;
                 continue;
@@ -969,4 +987,8 @@ pub fn sleep(seconds: u64, nanoseconds: u64) {
             else => return,
         }
     }
+}
+
+test "os.sleep" {
+    sleep(0, 1);
 }

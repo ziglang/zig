@@ -221,6 +221,10 @@ pub fn readlink(noalias path: &const u8, noalias buf_ptr: &u8, buf_len: usize) -
     errnoWrap(c.readlink(path, buf_ptr, buf_len))
 }
 
+pub fn nanosleep(req: &const timespec, rem: ?&timespec) -> usize {
+    errnoWrap(c.nanosleep(req, rem))
+}
+
 pub fn realpath(noalias filename: &const u8, noalias resolved_name: &u8) -> usize {
     if (c.realpath(filename, resolved_name) == null) @bitCast(usize, -isize(*c._errno())) else 0
 }
@@ -254,6 +258,8 @@ pub fn sigaction(sig: u5, noalias act: &const Sigaction, noalias oact: ?&Sigacti
 
 pub const sigset_t = c.sigset_t;
 pub const empty_sigset = sigset_t(0);
+
+pub const timespec = c.timespec;
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = struct {
