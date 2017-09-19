@@ -1508,6 +1508,7 @@ struct CodeGen {
     size_t version_minor;
     size_t version_patch;
     bool verbose;
+    bool verbose_link;
     ErrColor err_color;
     ImportTableEntry *root_import;
     ImportTableEntry *bootstrap_import;
