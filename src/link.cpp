@@ -348,6 +348,10 @@ static void construct_linker_job_coff(LinkJob *lj) {
 
     lj->args.append("-NOLOGO");
 
+    if (!g->strip_debug_symbols) {
+        lj->args.append("-DEBUG");
+    }
+
     coff_append_machine_arg(g, &lj->args);
 
     if (g->windows_subsystem_windows) {
