@@ -484,6 +484,6 @@ pub const Stat = extern struct {
 };
 
 pub const timespec = extern struct {
-    tv_sec: usize,
-    tv_nsec: usize,
+    tv_sec: isize,
+    tv_nsec: isize,
 };

@@ -130,25 +130,25 @@ pub fn addParseCTests(b: &build.Builder, test_filter: ?[]const u8) -> &build.Ste
 }
 
 pub fn addPkgTests(b: &build.Builder, test_filter: ?[]const u8, root_src: []const u8,
-    name:[] const u8, desc: []const u8) -> &build.Step
+    name:[] const u8, desc: []const u8, with_lldb: bool) -> &build.Step
 {
-    return addPkgTestsRaw(b, test_filter, root_src, name, desc, false);
+    return addPkgTestsRaw(b, test_filter, root_src, name, desc, false, with_lldb);
 }
 
 pub fn addPkgTestsAlwaysLibc(b: &build.Builder, test_filter: ?[]const u8, root_src: []const u8,
-    name:[] const u8, desc: []const u8) -> &build.Step
+    name:[] const u8, desc: []const u8, with_lldb: bool) -> &build.Step
 {
-    return addPkgTestsRaw(b, test_filter, root_src, name, desc, true);
+    return addPkgTestsRaw(b, test_filter, root_src, name, desc, true, with_lldb);
 }
 
 pub fn addPkgTestsRaw(b: &build.Builder, test_filter: ?[]const u8, root_src: []const u8,
-    name:[] const u8, desc: []const u8, always_link_libc: bool) -> &build.Step
+    name:[] const u8, desc: []const u8, always_link_libc: bool, with_lldb: bool) -> &build.Step
 {
     const libc_bools = if (always_link_libc) []bool{true} else []bool{false, true};
     const step = b.step(b.fmt("test-{}", name), desc);
     for (test_targets) |test_target| {
         const is_native = (test_target.os == builtin.os and test_target.arch == builtin.arch);
-        for ([]Mode{Mode.Debug, Mode.ReleaseFast}) |mode| {
+        for ([]Mode{Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast}) |mode| {
             for (libc_bools) |link_libc| {
                 if (link_libc and !is_native) {
                     // don't assume we have a cross-compiling libc set up
@@ -164,6 +164,10 @@ pub fn addPkgTestsRaw(b: &build.Builder, test_filter: ?[]const u8, root_src: []c
                 }
                 if (link_libc) {
                     these_tests.linkSystemLibrary("c");
+                }
+                if (with_lldb) {
+                    these_tests.setExecCmd([]?[]const u8{
+                        "lldb", null, "-o", "run", "-o", "bt", "-o", "exit"});
                 }
                 step.dependOn(&these_tests.step);
             }
@@ -418,7 +422,7 @@ pub const CompareOutputContext = struct {
                 self.step.dependOn(&run_and_cmp_output.step);
             },
             Special.None => {
-                for ([]Mode{Mode.Debug, Mode.ReleaseFast}) |mode| {
+                for ([]Mode{Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast}) |mode| {
                     const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "{} {} ({})",
                         "compare-output", case.name, @enumTagName(mode));
                     if (self.test_filter) |filter| {
@@ -535,7 +539,7 @@ pub const CompileErrorContext = struct {
             const obj_path = %%os.path.join(b.allocator, b.cache_root, "test.o");
 
             var zig_args = ArrayList([]const u8).init(b.allocator);
-            %%zig_args.append(if (self.case.is_exe) "build_exe" else "build_obj");
+            %%zig_args.append(if (self.case.is_exe) "build-exe" else "build-obj");
             %%zig_args.append(b.pathFromRoot(root_src));
 
             %%zig_args.append("--name");
@@ -664,7 +668,7 @@ pub const CompileErrorContext = struct {
     pub fn addCase(self: &CompileErrorContext, case: &const TestCase) {
         const b = self.b;
 
-        for ([]Mode{Mode.Debug, Mode.ReleaseFast}) |mode| {
+        for ([]Mode{Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast}) |mode| {
             const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "compile-error {} ({})",
                 case.name, @enumTagName(mode));
             if (self.test_filter) |filter| {
@@ -730,7 +734,7 @@ pub const BuildExamplesContext = struct {
     pub fn addAllArgs(self: &BuildExamplesContext, root_src: []const u8, link_libc: bool) {
         const b = self.b;
 
-        for ([]Mode{Mode.Debug, Mode.ReleaseFast}) |mode| {
+        for ([]Mode{Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast}) |mode| {
             const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "build {} ({})",
                 root_src, @enumTagName(mode));
             if (self.test_filter) |filter| {

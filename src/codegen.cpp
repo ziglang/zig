@@ -152,6 +152,11 @@ void codegen_set_clang_argv(CodeGen *g, const char **args, size_t len) {
     g->clang_argv_len = len;
 }
 
+void codegen_set_llvm_argv(CodeGen *g, const char **args, size_t len) {
+    g->llvm_argv = args;
+    g->llvm_argv_len = len;
+}
+
 void codegen_set_omit_zigrt(CodeGen *g, bool omit_zigrt) {
     g->omit_zigrt = omit_zigrt;
 }
@@ -4918,6 +4923,17 @@ static void init(CodeGen *g) {
     if (g->module)
         return;
 
+
+    if (g->llvm_argv_len > 0) {
+        const char **args = allocate_nonzero<const char *>(g->llvm_argv_len + 2);
+        args[0] = "zig (LLVM option parsing)";
+        for (size_t i = 0; i < g->llvm_argv_len; i += 1) {
+            args[i + 1] = g->llvm_argv[i];
+        }
+        args[g->llvm_argv_len + 1] = nullptr;
+        ZigLLVMParseCommandLineOptions(g->llvm_argv_len + 1, args);
+    }
+
     if (g->is_test_build) {
         g->windows_subsystem_windows = false;
         g->windows_subsystem_console = true;
@@ -5194,16 +5210,16 @@ void codegen_add_object(CodeGen *g, Buf *object_path) {
     g->link_objects.append(object_path);
 }
 
-
+// Must be coordinated with with CIntType enum
 static const char *c_int_type_names[] = {
-    [CIntTypeShort] = "short",
-    [CIntTypeUShort] = "unsigned short",
-    [CIntTypeInt] = "int",
-    [CIntTypeUInt] = "unsigned int",
-    [CIntTypeLong] = "long",
-    [CIntTypeULong] = "unsigned long",
-    [CIntTypeLongLong] = "long long",
-    [CIntTypeULongLong] = "unsigned long long",
+    "short",
+    "unsigned short",
+    "int",
+    "unsigned int",
+    "long",
+    "unsigned long",
+    "long long",
+    "unsigned long long",
 };
 
 static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {

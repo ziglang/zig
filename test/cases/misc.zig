@@ -536,7 +536,7 @@ export fn writeToVRam() {
 }
 
 test "pointer child field" {
-    assert((&u32).child == u32);
+    assert((&u32).Child == u32);
 }
 
 const OpaqueA = @OpaqueType();

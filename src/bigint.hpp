@@ -30,7 +30,6 @@ enum Cmp {
 };
 
 void bigint_init_unsigned(BigInt *dest, uint64_t x);
-void bigint_init_u128(BigInt *dest, unsigned __int128 x);
 void bigint_init_signed(BigInt *dest, int64_t x);
 void bigint_init_bigint(BigInt *dest, const BigInt *src);
 void bigint_init_bigfloat(BigInt *dest, const BigFloat *op);
@@ -88,5 +87,7 @@ size_t bigint_bits_needed(const BigInt *op);
 
 // convenience functions
 Cmp bigint_cmp_zero(const BigInt *op);
+
+bool mul_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result);
 
 #endif

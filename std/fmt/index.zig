@@ -208,7 +208,7 @@ pub fn formatValue(value: var, context: var, output: fn(@typeOf(context), []cons
             return output(context, @errorName(value));
         },
         builtin.TypeId.Pointer => {
-            if (@typeId(T.child) == builtin.TypeId.Array and T.child.child == u8) {
+            if (@typeId(T.Child) == builtin.TypeId.Array and T.Child.Child == u8) {
                 return output(context, (*value)[0..]);
             } else {
                 @compileError("Unable to format type '" ++ @typeName(T) ++ "'");

@@ -234,7 +234,7 @@ struct Tokenize {
     BigInt significand;
 };
 
-__attribute__ ((format (printf, 2, 3)))
+ATTRIBUTE_PRINTF(2, 3)
 static void tokenize_error(Tokenize *t, const char *format, ...) {
     t->state = TokenizeStateError;
 
@@ -331,7 +331,7 @@ static void end_float_token(Tokenize *t) {
         if (t->radix == 10) {
             zig_panic("TODO: decimal floats");
         } else {
-            int significand_magnitude_in_bin = __builtin_clzll(1) - __builtin_clzll(significand);
+            int significand_magnitude_in_bin = clzll(1) - clzll(significand);
             t->exponent_in_bin_or_dec += significand_magnitude_in_bin;
             if (!(-1022 <= t->exponent_in_bin_or_dec && t->exponent_in_bin_or_dec <= 1023)) {
                 t->cur_tok->data.float_lit.overflow = true;

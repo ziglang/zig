@@ -37,6 +37,7 @@ static Buf *build_o_raw(CodeGen *parent_gen, const char *oname, Buf *full_path) 
 
     codegen_set_omit_zigrt(child_gen, true);
     child_gen->want_h_file = false;
+    child_gen->verbose_link = parent_gen->verbose_link;
 
     codegen_set_cache_dir(child_gen, parent_gen->cache_dir);
 
@@ -346,6 +347,10 @@ static void construct_linker_job_coff(LinkJob *lj) {
     }
 
     lj->args.append("-NOLOGO");
+
+    if (!g->strip_debug_symbols) {
+        lj->args.append("-DEBUG");
+    }
 
     coff_append_machine_arg(g, &lj->args);
 
@@ -816,7 +821,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
         fprintf(stderr, "---------------\n");
         LLVMDumpModule(g->module);
     }
-    if (g->verbose) {
+    if (g->verbose || g->verbose_link) {
         fprintf(stderr, "\nLink:\n");
         fprintf(stderr, "-------\n");
     }
@@ -840,7 +845,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
                 zig_panic("unable to rename object file into final output: %s", err_str(err));
             }
         }
-        if (g->verbose) {
+        if (g->verbose || g->verbose_link) {
             fprintf(stderr, "OK\n");
         }
         return;
@@ -860,7 +865,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
     construct_linker_job(&lj);
 
 
-    if (g->verbose) {
+    if (g->verbose || g->verbose_link) {
         for (size_t i = 0; i < lj.args.length; i += 1) {
             const char *space = (i != 0) ? " " : "";
             fprintf(stderr, "%s%s", space, lj.args.at(i));
@@ -878,7 +883,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
 
     codegen_add_time_event(g, "Done");
 
-    if (g->verbose) {
+    if (g->verbose || g->verbose_link) {
         fprintf(stderr, "OK\n");
     }
 }

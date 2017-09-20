@@ -12,8 +12,8 @@
 #include "ir_print.hpp"
 #include "os.hpp"
 #include "parsec.hpp"
-#include "quadmath.hpp"
 #include "range_set.hpp"
+#include "softfloat.hpp"
 
 struct IrExecContext {
     ConstExprValue *mem_slot_list;
@@ -6439,7 +6439,11 @@ static bool float_has_fraction(ConstExprValue *const_val) {
             case 64:
                 return floor(const_val->data.x_f64) != const_val->data.x_f64;
             case 128:
-                return floorq(const_val->data.x_f128) != const_val->data.x_f128;
+                {
+                    float128_t floored;
+                    f128M_roundToInt(&const_val->data.x_f128, softfloat_round_minMag, false, &floored);
+                    return !f128M_eq(&floored, &const_val->data.x_f128);
+                }
             default:
                 zig_unreachable();
         }
@@ -6461,10 +6465,16 @@ static void float_append_buf(Buf *buf, ConstExprValue *const_val) {
                 break;
             case 128:
                 {
+                    // TODO actual implementation
                     const size_t extra_len = 100;
                     size_t old_len = buf_len(buf);
                     buf_resize(buf, old_len + extra_len);
-                    int len = quadmath_snprintf(buf_ptr(buf) + old_len, extra_len, "%Qf", const_val->data.x_f128);
+
+                    float64_t f64_value = f128M_to_f64(&const_val->data.x_f128);
+                    double double_value;
+                    memcpy(&double_value, &f64_value, sizeof(double));
+
+                    int len = snprintf(buf_ptr(buf) + old_len, extra_len, "%f", double_value);
                     assert(len > 0);
                     buf_resize(buf, old_len + len);
                     break;
@@ -6499,11 +6509,10 @@ static void float_init_bigint(BigInt *bigint, ConstExprValue *const_val) {
                 }
                 break;
             case 128:
-                if (const_val->data.x_f128 >= 0) {
-                    bigint_init_u128(bigint, (unsigned __int128)(const_val->data.x_f128));
-                } else {
-                    bigint_init_u128(bigint, (unsigned __int128)(-const_val->data.x_f128));
-                    bigint->is_negative = true;
+                {
+                    BigFloat tmp_float;
+                    bigfloat_init_128(&tmp_float, const_val->data.x_f128);
+                    bigint_init_bigfloat(bigint, &tmp_float);
                 }
                 break;
             default:
@@ -6548,8 +6557,12 @@ static void float_init_f32(ConstExprValue *dest_val, float x) {
                 dest_val->data.x_f64 = x;
                 break;
             case 128:
-                dest_val->data.x_f128 = x;
-                break;
+                {
+                    float32_t x_f32;
+                    memcpy(&x_f32, &x, sizeof(float));
+                    f32_to_f128M(x_f32, &dest_val->data.x_f128);
+                    break;
+                }
             default:
                 zig_unreachable();
         }
@@ -6570,8 +6583,12 @@ static void float_init_f64(ConstExprValue *dest_val, double x) {
                 dest_val->data.x_f64 = x;
                 break;
             case 128:
-                dest_val->data.x_f128 = x;
-                break;
+                {
+                    float64_t x_f64;
+                    memcpy(&x_f64, &x, sizeof(double));
+                    f64_to_f128M(x_f64, &dest_val->data.x_f128);
+                    break;
+                }
             default:
                 zig_unreachable();
         }
@@ -6580,20 +6597,28 @@ static void float_init_f64(ConstExprValue *dest_val, double x) {
     }
 }
 
-static void float_init_f128(ConstExprValue *dest_val, __float128 x) {
+static void float_init_f128(ConstExprValue *dest_val, float128_t x) {
     if (dest_val->type->id == TypeTableEntryIdNumLitFloat) {
         bigfloat_init_128(&dest_val->data.x_bigfloat, x);
     } else if (dest_val->type->id == TypeTableEntryIdFloat) {
         switch (dest_val->type->data.floating.bit_count) {
             case 32:
-                dest_val->data.x_f32 = x;
-                break;
+                {
+                    float32_t f32_val = f128M_to_f32(&x);
+                    memcpy(&dest_val->data.x_f32, &f32_val, sizeof(float));
+                    break;
+                }
             case 64:
-                dest_val->data.x_f64 = x;
-                break;
+                {
+                    float64_t f64_val = f128M_to_f64(&x);
+                    memcpy(&dest_val->data.x_f64, &f64_val, sizeof(double));
+                    break;
+                }
             case 128:
-                dest_val->data.x_f128 = x;
-                break;
+                {
+                    memcpy(&dest_val->data.x_f128, &x, sizeof(float128_t));
+                    break;
+                }
             default:
                 zig_unreachable();
         }
@@ -6647,12 +6672,12 @@ static Cmp float_cmp(ConstExprValue *op1, ConstExprValue *op2) {
                     return CmpEQ;
                 }
             case 128:
-                if (op1->data.x_f128 > op2->data.x_f128) {
-                    return CmpGT;
-                } else if (op1->data.x_f128 < op2->data.x_f128) {
+                if (f128M_lt(&op1->data.x_f128, &op2->data.x_f128)) {
                     return CmpLT;
-                } else {
+                } else if (f128M_eq(&op1->data.x_f128, &op2->data.x_f128)) {
                     return CmpEQ;
+                } else {
+                    return CmpGT;
                 }
             default:
                 zig_unreachable();
@@ -6684,12 +6709,14 @@ static Cmp float_cmp_zero(ConstExprValue *op) {
                     return CmpEQ;
                 }
             case 128:
-                if (op->data.x_f128 < 0.0) {
+                float128_t zero_float;
+                ui32_to_f128M(0, &zero_float);
+                if (f128M_lt(&op->data.x_f128, &zero_float)) {
                     return CmpLT;
-                } else if (op->data.x_f128 > 0.0) {
-                    return CmpGT;
-                } else {
+                } else if (f128M_eq(&op->data.x_f128, &zero_float)) {
                     return CmpEQ;
+                } else {
+                    return CmpGT;
                 }
             default:
                 zig_unreachable();
@@ -6713,7 +6740,7 @@ static void float_add(ConstExprValue *out_val, ConstExprValue *op1, ConstExprVal
                 out_val->data.x_f64 =  op1->data.x_f64 + op2->data.x_f64;
                 return;
             case 128:
-                out_val->data.x_f128 =  op1->data.x_f128 + op2->data.x_f128;
+                f128M_add(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
                 return;
             default:
                 zig_unreachable();
@@ -6737,7 +6764,7 @@ static void float_sub(ConstExprValue *out_val, ConstExprValue *op1, ConstExprVal
                 out_val->data.x_f64 = op1->data.x_f64 - op2->data.x_f64;
                 return;
             case 128:
-                out_val->data.x_f128 = op1->data.x_f128 - op2->data.x_f128;
+                f128M_sub(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
                 return;
             default:
                 zig_unreachable();
@@ -6761,7 +6788,7 @@ static void float_mul(ConstExprValue *out_val, ConstExprValue *op1, ConstExprVal
                 out_val->data.x_f64 = op1->data.x_f64 * op2->data.x_f64;
                 return;
             case 128:
-                out_val->data.x_f128 = op1->data.x_f128 * op2->data.x_f128;
+                f128M_mul(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
                 return;
             default:
                 zig_unreachable();
@@ -6785,7 +6812,7 @@ static void float_div(ConstExprValue *out_val, ConstExprValue *op1, ConstExprVal
                 out_val->data.x_f64 = op1->data.x_f64 / op2->data.x_f64;
                 return;
             case 128:
-                out_val->data.x_f128 = op1->data.x_f128 / op2->data.x_f128;
+                f128M_div(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
                 return;
             default:
                 zig_unreachable();
@@ -6819,12 +6846,8 @@ static void float_div_trunc(ConstExprValue *out_val, ConstExprValue *op1, ConstE
                 }
                 return;
             case 128:
-                out_val->data.x_f128 = op1->data.x_f128 / op2->data.x_f128;
-                if (out_val->data.x_f128 >= 0.0) {
-                    out_val->data.x_f128 = floorq(out_val->data.x_f128);
-                } else {
-                    out_val->data.x_f128 = ceilq(out_val->data.x_f128);
-                }
+                f128M_div(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
+                f128M_roundToInt(&out_val->data.x_f128, softfloat_round_minMag, false, &out_val->data.x_f128);
                 return;
             default:
                 zig_unreachable();
@@ -6848,7 +6871,8 @@ static void float_div_floor(ConstExprValue *out_val, ConstExprValue *op1, ConstE
                 out_val->data.x_f64 = floor(op1->data.x_f64 / op2->data.x_f64);
                 return;
             case 128:
-                out_val->data.x_f128 = floorq(op1->data.x_f128 / op2->data.x_f128);
+                f128M_div(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
+                f128M_roundToInt(&out_val->data.x_f128, softfloat_round_min, false, &out_val->data.x_f128);
                 return;
             default:
                 zig_unreachable();
@@ -6872,7 +6896,7 @@ static void float_rem(ConstExprValue *out_val, ConstExprValue *op1, ConstExprVal
                 out_val->data.x_f64 = fmod(op1->data.x_f64, op2->data.x_f64);
                 return;
             case 128:
-                out_val->data.x_f128 = fmodq(op1->data.x_f128, op2->data.x_f128);
+                f128M_rem(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
                 return;
             default:
                 zig_unreachable();
@@ -6896,7 +6920,9 @@ static void float_mod(ConstExprValue *out_val, ConstExprValue *op1, ConstExprVal
                 out_val->data.x_f64 = fmod(fmod(op1->data.x_f64, op2->data.x_f64) + op2->data.x_f64, op2->data.x_f64);
                 return;
             case 128:
-                out_val->data.x_f128 = fmodq(fmodq(op1->data.x_f128, op2->data.x_f128) + op2->data.x_f128, op2->data.x_f128);
+                f128M_rem(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
+                f128M_add(&out_val->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
+                f128M_rem(&out_val->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
                 return;
             default:
                 zig_unreachable();
@@ -6919,7 +6945,9 @@ static void float_negate(ConstExprValue *out_val, ConstExprValue *op) {
                 out_val->data.x_f64 = -op->data.x_f64;
                 return;
             case 128:
-                out_val->data.x_f128 = -op->data.x_f128;
+                float128_t zero_f128;
+                ui32_to_f128M(0, &zero_f128);
+                f128M_sub(&zero_f128, &op->data.x_f128, &out_val->data.x_f128);
                 return;
             default:
                 zig_unreachable();
@@ -9731,8 +9759,7 @@ static TypeTableEntry *ir_analyze_array_mult(IrAnalyze *ira, IrInstructionBinOp 
     uint64_t old_array_len = array_type->data.array.len;
     uint64_t new_array_len;
 
-    if (__builtin_umulll_overflow((unsigned long long)old_array_len, (unsigned long long)mult_amt,
-                (unsigned long long*)&new_array_len))
+    if (mul_u64_overflow(old_array_len, mult_amt, &new_array_len))
     {
         ir_add_error(ira, &instruction->base, buf_sprintf("operation results in overflow"));
         return ira->codegen->builtin_types.entry_invalid;
@@ -11433,6 +11460,17 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
         if (type_is_invalid(child_type)) {
             return ira->codegen->builtin_types.entry_invalid;
         } else if (is_container(child_type)) {
+            if (is_slice(child_type) && buf_eql_str(field_name, "Child")) {
+                bool ptr_is_const = true;
+                bool ptr_is_volatile = false;
+                TypeStructField *ptr_field = &child_type->data.structure.fields[slice_ptr_index];
+                assert(ptr_field->type_entry->id == TypeTableEntryIdPointer);
+                TypeTableEntry *child_type = ptr_field->type_entry->data.pointer.child_type;
+                return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
+                    create_const_type(ira->codegen, child_type),
+                    ira->codegen->builtin_types.entry_type,
+                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile);
+            }
             if (child_type->id == TypeTableEntryIdEnum) {
                 ensure_complete_type(ira->codegen, child_type);
                 if (child_type->data.enumeration.is_invalid)
@@ -11523,7 +11561,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
                 return ira->codegen->builtin_types.entry_invalid;
             }
         } else if (child_type->id == TypeTableEntryIdPointer) {
-            if (buf_eql_str(field_name, "child")) {
+            if (buf_eql_str(field_name, "Child")) {
                 bool ptr_is_const = true;
                 bool ptr_is_volatile = false;
                 return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
@@ -11545,7 +11583,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
                 return ira->codegen->builtin_types.entry_invalid;
             }
         } else if (child_type->id == TypeTableEntryIdArray) {
-            if (buf_eql_str(field_name, "child")) {
+            if (buf_eql_str(field_name, "Child")) {
                 bool ptr_is_const = true;
                 bool ptr_is_volatile = false;
                 return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
@@ -14694,6 +14732,7 @@ static IrInstruction *ir_align_cast(IrAnalyze *ira, IrInstruction *target, uint3
 
     if (target_type->id == TypeTableEntryIdPointer) {
         result_type = adjust_ptr_align(ira->codegen, target_type, align_bytes);
+        old_align_bytes = target_type->data.pointer.alignment;
     } else if (target_type->id == TypeTableEntryIdFn) {
         FnTypeId fn_type_id = target_type->data.fn.fn_type_id;
         old_align_bytes = fn_type_id.alignment;

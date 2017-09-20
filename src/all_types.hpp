@@ -227,7 +227,7 @@ struct ConstExprValue {
         BigFloat x_bigfloat;
         float x_f32;
         double x_f64;
-        __float128 x_f128;
+        float128_t x_f128;
         bool x_bool;
         ConstFn x_fn;
         ConstBoundFnValue x_bound_fn;
@@ -1508,6 +1508,7 @@ struct CodeGen {
     size_t version_minor;
     size_t version_patch;
     bool verbose;
+    bool verbose_link;
     ErrColor err_color;
     ImportTableEntry *root_import;
     ImportTableEntry *bootstrap_import;
@@ -1523,6 +1524,9 @@ struct CodeGen {
     const char **clang_argv;
     size_t clang_argv_len;
     ZigList<const char *> lib_dirs;
+
+    const char **llvm_argv;
+    size_t llvm_argv_len;
 
     ZigList<FnTableEntry *> test_fns;
     TypeTableEntry *test_fn_type;

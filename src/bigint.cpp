@@ -10,6 +10,7 @@
 #include "buffer.hpp"
 #include "list.hpp"
 #include "os.hpp"
+#include "softfloat.hpp"
 
 static void bigint_normalize(BigInt *dest) {
     const uint64_t *digits = bigint_ptr(dest);
@@ -141,21 +142,6 @@ void bigint_init_unsigned(BigInt *dest, uint64_t x) {
     dest->is_negative = false;
 }
 
-void bigint_init_u128(BigInt *dest, unsigned __int128 x) {
-    uint64_t low = (uint64_t)(x & UINT64_MAX);
-    uint64_t high = (uint64_t)(x >> 64);
-
-    if (high == 0) {
-        return bigint_init_unsigned(dest, low);
-    }
-
-    dest->digit_count = 2;
-    dest->data.digits = allocate_nonzero<uint64_t>(2);
-    dest->data.digits[0] = low;
-    dest->data.digits[1] = high;
-    dest->is_negative = false;
-}
-
 void bigint_init_signed(BigInt *dest, int64_t x) {
     if (x >= 0) {
         return bigint_init_unsigned(dest, x);
@@ -200,12 +186,36 @@ void bigint_init_bigint(BigInt *dest, const BigInt *src) {
 }
 
 void bigint_init_bigfloat(BigInt *dest, const BigFloat *op) {
-    if (op->value >= 0) {
-        bigint_init_u128(dest, (unsigned __int128)(op->value));
+    float128_t zero;
+    ui32_to_f128M(0, &zero);
+
+    dest->is_negative = f128M_lt(&op->value, &zero);
+    float128_t abs_val;
+    if (dest->is_negative) {
+        f128M_sub(&zero, &op->value, &abs_val);
     } else {
-        bigint_init_u128(dest, (unsigned __int128)(-op->value));
-        dest->is_negative = true;
+        memcpy(&abs_val, &op->value, sizeof(float128_t));
     }
+
+    float128_t max_u64;
+    ui64_to_f128M(UINT64_MAX, &max_u64);
+    if (f128M_le(&abs_val, &max_u64)) {
+        dest->digit_count = 1;
+        dest->data.digit = f128M_to_ui64(&op->value, softfloat_round_minMag, false);
+        bigint_normalize(dest);
+        return;
+    }
+
+    float128_t amt;
+    f128M_div(&abs_val, &max_u64, &amt);
+    float128_t remainder;
+    f128M_rem(&abs_val, &max_u64, &remainder);
+
+    dest->digit_count = 2;
+    dest->data.digits = allocate_nonzero<uint64_t>(dest->digit_count);
+    dest->data.digits[0] = f128M_to_ui64(&remainder, softfloat_round_minMag, false);
+    dest->data.digits[1] = f128M_to_ui64(&amt, softfloat_round_minMag, false);
+    bigint_normalize(dest);
 }
 
 bool bigint_fits_in_bits(const BigInt *bn, size_t bit_count, bool is_signed) {
@@ -377,6 +387,32 @@ void bigint_read_twos_complement(BigInt *dest, const uint8_t *buf, size_t bit_co
     }
 }
 
+#if defined(_MSC_VER)
+static bool add_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result) {
+   *result = op1 + op2;
+   return *result < op1 || *result < op2;
+}
+
+static bool sub_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result) {
+   *result = op1 - op2;
+   return *result > op1;
+}
+
+bool mul_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result) {
+    *result = op1 * op2;
+
+    if (op1 == 0 || op2 == 0)
+        return false;
+
+    if (op1 > UINT64_MAX / op2)
+        return true;
+
+    if (op2 > UINT64_MAX / op1)
+        return true;
+
+    return false;
+}
+#else
 static bool add_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result) {
     return __builtin_uaddll_overflow((unsigned long long)op1, (unsigned long long)op2,
             (unsigned long long *)result);
@@ -387,10 +423,11 @@ static bool sub_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result) {
             (unsigned long long *)result);
 }
 
-static bool mul_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result) {
+bool mul_u64_overflow(uint64_t op1, uint64_t op2, uint64_t *result) {
     return __builtin_umulll_overflow((unsigned long long)op1, (unsigned long long)op2,
             (unsigned long long *)result);
 }
+#endif
 
 void bigint_add(BigInt *dest, const BigInt *op1, const BigInt *op2) {
     if (op1->digit_count == 0) {
@@ -404,7 +441,7 @@ void bigint_add(BigInt *dest, const BigInt *op1, const BigInt *op2) {
 
         const uint64_t *op1_digits = bigint_ptr(op1);
         const uint64_t *op2_digits = bigint_ptr(op2);
-        uint64_t overflow = add_u64_overflow(op1_digits[0], op2_digits[0], &dest->data.digit);
+        bool overflow = add_u64_overflow(op1_digits[0], op2_digits[0], &dest->data.digit);
         if (overflow == 0 && op1->digit_count == 1 && op2->digit_count == 1) {
             dest->digit_count = 1;
             bigint_normalize(dest);
@@ -528,16 +565,24 @@ void bigint_sub_wrap(BigInt *dest, const BigInt *op1, const BigInt *op2, size_t 
     return bigint_add_wrap(dest, op1, &op2_negated, bit_count, is_signed);
 }
 
-static void mul_overflow(uint64_t x, uint64_t y, uint64_t *result, uint64_t *carry) {
-    if (!mul_u64_overflow(x, y, result)) {
-        *carry = 0;
-        return;
-    }
+static void mul_overflow(uint64_t op1, uint64_t op2, uint64_t *lo, uint64_t *hi) {
+    uint64_t u1 = (op1 & 0xffffffff);
+    uint64_t v1 = (op2 & 0xffffffff);
+    uint64_t t = (u1 * v1);
+    uint64_t w3 = (t & 0xffffffff);
+    uint64_t k = (t >> 32);
 
-    unsigned __int128 big_x = x;
-    unsigned __int128 big_y = y;
-    unsigned __int128 big_result = big_x * big_y;
-    *carry = big_result >> 64;
+    op1 >>= 32;
+    t = (op1 * v1) + k;
+    k = (t & 0xffffffff);
+    uint64_t w1 = (t >> 32);
+
+    op2 >>= 32;
+    t = (u1 * op2) + k;
+    k = (t >> 32);
+
+    *hi = (op1 * op2) + w1 + k;
+    *lo = (t << 32) + w3;
 }
 
 static void mul_scalar(BigInt *dest, const BigInt *op, uint64_t scalar) {

@@ -15,21 +15,58 @@
 
 #include <new>
 
+#if defined(_MSC_VER)
+
+#include <intrin.h>  
+
+#define ATTRIBUTE_COLD __declspec(noinline)
+#define ATTRIBUTE_PRINTF(a, b)
+#define ATTRIBUTE_RETURNS_NOALIAS __declspec(restrict)
+#define ATTRIBUTE_NORETURN __declspec(noreturn)
+
+#else
+
+#define ATTRIBUTE_COLD         __attribute__((cold))
+#define ATTRIBUTE_PRINTF(a, b) __attribute__((format(printf, a, b)))
+#define ATTRIBUTE_RETURNS_NOALIAS __attribute__((__malloc__))
+#define ATTRIBUTE_NORETURN __attribute__((noreturn))
+
+#endif
+
 #define BREAKPOINT __asm("int $0x03")
 
-void zig_panic(const char *format, ...)
-    __attribute__((cold))
-    __attribute__ ((noreturn))
-    __attribute__ ((format (printf, 1, 2)));
+ATTRIBUTE_COLD
+ATTRIBUTE_NORETURN
+ATTRIBUTE_PRINTF(1, 2)
+void zig_panic(const char *format, ...);
 
-__attribute__((cold))
-__attribute__ ((noreturn))
+ATTRIBUTE_COLD
+ATTRIBUTE_NORETURN
 static inline void zig_unreachable(void) {
     zig_panic("unreachable");
 }
 
+#if defined(_MSC_VER)
+static inline int clzll(unsigned long long mask) {
+	unsigned long lz;
+#if defined(_WIN64)
+	if (_BitScanReverse64(&lz, mask))
+		return static_cast<int>(63 - lz);
+	zig_unreachable();
+#else
+	if (_BitScanReverse(&lz, mask >> 32))
+		lz += 32;
+	else
+		_BitScanReverse(&lz, mask & 0xffffffff);
+	return 63 - lz;
+#endif
+}
+#else
+#define clzll(x) __builtin_clzll(x)
+#endif
+
 template<typename T>
-__attribute__((malloc)) static inline T *allocate_nonzero(size_t count) {
+ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate_nonzero(size_t count) {
     T *ptr = reinterpret_cast<T*>(malloc(count * sizeof(T)));
     if (!ptr)
         zig_panic("allocation failed");
@@ -37,7 +74,7 @@ __attribute__((malloc)) static inline T *allocate_nonzero(size_t count) {
 }
 
 template<typename T>
-__attribute__((malloc)) static inline T *allocate(size_t count) {
+ATTRIBUTE_RETURNS_NOALIAS static inline T *allocate(size_t count) {
     T *ptr = reinterpret_cast<T*>(calloc(count, sizeof(T)));
     if (!ptr)
         zig_panic("allocation failed");

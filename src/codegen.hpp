@@ -17,6 +17,7 @@
 CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type, BuildMode build_mode);
 
 void codegen_set_clang_argv(CodeGen *codegen, const char **args, size_t len);
+void codegen_set_llvm_argv(CodeGen *codegen, const char **args, size_t len);
 void codegen_set_is_test(CodeGen *codegen, bool is_test);
 void codegen_set_each_lib_rpath(CodeGen *codegen, bool each_lib_rpath);
 

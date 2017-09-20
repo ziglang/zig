@@ -26,10 +26,8 @@ option(ZIG_TEST_COVERAGE "Build Zig with test coverage instrumentation" OFF)
 # git log -p -- deps/lld
 option(ZIG_FORCE_EXTERNAL_LLD "If your system has the LLD patches use it instead of the embedded LLD" OFF)
 
-
 find_package(llvm)
-include_directories(${LLVM_INCLUDE_DIR})
-link_directories(${LLVM_LIBDIRS})
+include_directories(${LLVM_INCLUDE_DIRS})
 
 find_package(clang)
 include_directories(${CLANG_INCLUDE_DIRS})
@@ -130,16 +128,21 @@ else()
     add_library(embedded_lld_lib ${EMBEDDED_LLD_LIB_SOURCES})
     add_library(embedded_lld_elf ${EMBEDDED_LLD_ELF_SOURCES})
     add_library(embedded_lld_coff ${EMBEDDED_LLD_COFF_SOURCES})
+    if(MSVC)
+        set(ZIG_LLD_COMPILE_FLAGS "-std=c++11")
+    else()
+        set(ZIG_LLD_COMPILE_FLAGS "-std=c++11 -fno-exceptions -fno-rtti -Wno-comment")
+    endif()
     set_target_properties(embedded_lld_lib PROPERTIES
-        COMPILE_FLAGS "-std=c++11 -fno-exceptions -fno-rtti -Wno-comment"
+        COMPILE_FLAGS ${ZIG_LLD_COMPILE_FLAGS}
         LINK_FLAGS " "
     )
     set_target_properties(embedded_lld_elf PROPERTIES
-        COMPILE_FLAGS "-std=c++11 -fno-exceptions -fno-rtti -Wno-comment"
+        COMPILE_FLAGS ${ZIG_LLD_COMPILE_FLAGS}
         LINK_FLAGS " "
     )
     set_target_properties(embedded_lld_coff PROPERTIES
-        COMPILE_FLAGS "-std=c++11 -fno-exceptions -fno-rtti -Wno-comment"
+        COMPILE_FLAGS ${ZIG_LLD_COMPILE_FLAGS}
         LINK_FLAGS " "
     )
     target_include_directories(embedded_lld_lib PUBLIC
@@ -166,12 +169,135 @@ else()
     )
 endif()
 
-find_package(Threads)
-
-include_directories(
-    ${CMAKE_SOURCE_DIR}
-    ${CMAKE_BINARY_DIR}
+# No patches have been applied to SoftFloat-3d
+set(EMBEDDED_SOFTFLOAT_SOURCES
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/8086/f128M_isSignalingNaN.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/8086/s_commonNaNToF128M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/8086/s_commonNaNToF32UI.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/8086/s_commonNaNToF64UI.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/8086/s_f128MToCommonNaN.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/8086/s_f32UIToCommonNaN.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/8086/s_f64UIToCommonNaN.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/8086/s_propagateNaNF128M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/8086/softfloat_raiseFlags.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_add.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_div.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_eq.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_eq_signaling.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_le.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_le_quiet.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_lt.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_lt_quiet.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_mul.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_mulAdd.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_rem.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_roundToInt.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_sqrt.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_sub.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_to_f16.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_to_f32.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_to_f64.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_to_i32.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_to_i32_r_minMag.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_to_i64.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_to_i64_r_minMag.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_to_ui32.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_to_ui32_r_minMag.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_to_ui64.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f128M_to_ui64_r_minMag.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f32_to_f128M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/f64_to_f128M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_add256M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_addCarryM.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_addComplCarryM.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_addF128M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_addM.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_addMagsF16.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_addMagsF32.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_addMagsF64.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_approxRecip32_1.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_approxRecipSqrt32_1.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_approxRecipSqrt_1Ks.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_approxRecip_1Ks.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_compare128M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_compare96M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_countLeadingZeros16.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_countLeadingZeros32.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_countLeadingZeros64.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_countLeadingZeros8.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_eq128.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_invalidF128M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_isNaNF128M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_le128.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_lt128.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_mul128MTo256M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_mul64To128M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_mulAddF128M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_mulAddF16.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_mulAddF32.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_mulAddF64.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_negXM.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_normRoundPackMToF128M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_normRoundPackToF16.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_normRoundPackToF32.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_normRoundPackToF64.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_normSubnormalF128SigM.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_normSubnormalF16Sig.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_normSubnormalF32Sig.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_normSubnormalF64Sig.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_remStepMBy32.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_roundMToI64.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_roundMToUI64.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_roundPackMToF128M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_roundPackToF16.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_roundPackToF32.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_roundPackToF64.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_roundToI32.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_roundToI64.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_roundToUI32.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_roundToUI64.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_shiftLeftM.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_shiftNormSigF128M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_shiftRightJam256M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_shiftRightJam32.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_shiftRightJam64.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_shiftRightJamM.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_shiftRightM.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_shortShiftLeft64To96M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_shortShiftLeftM.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_shortShiftRightExtendM.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_shortShiftRightJam64.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_shortShiftRightJamM.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_shortShiftRightM.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_sub1XM.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_sub256M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_subM.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_subMagsF16.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_subMagsF32.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_subMagsF64.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/s_tryPropagateNaNF128M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/softfloat_state.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/ui32_to_f128M.c"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/ui64_to_f128M.c"
 )
+add_library(embedded_softfloat ${EMBEDDED_SOFTFLOAT_SOURCES})
+if(MSVC)
+    set_target_properties(embedded_softfloat PROPERTIES
+        COMPILE_FLAGS "-std=c99"
+    )
+else()
+    set_target_properties(embedded_softfloat PROPERTIES
+        COMPILE_FLAGS "-std=c99"
+    )
+endif()
+target_include_directories(embedded_softfloat PUBLIC
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d-prebuilt"
+    "${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/8086"
+)
+include_directories("${CMAKE_SOURCE_DIR}/deps/SoftFloat-3d/source/include")
+set(SOFTFLOAT_LIBRARIES embedded_softfloat)
+
+find_package(Threads)
 
 set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/analyze.cpp"
@@ -211,14 +337,20 @@ include_directories(
     "${CMAKE_SOURCE_DIR}/src"
 )
 
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Werror -Wall")
-
-
-if(MINGW)
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wno-error=format= -Wno-error=format -Wno-error=format-extra-args")
+if(MSVC)
+  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -W4")
+elseif(MINGW)
+  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Werror -Wno-error=format= -Wno-error=format -Wno-error=format-extra-args")
+else()
+  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Werror -Wall")
 endif()
 
-set(EXE_CFLAGS "-std=c++11 -fno-exceptions -fno-rtti -D_GNU_SOURCE -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -Werror=strict-prototypes -Werror=old-style-definition -Werror=type-limits -Wno-missing-braces")
+if(MSVC)
+  set(EXE_CFLAGS "-std=c++11")
+else()
+  set(EXE_CFLAGS "-std=c++11 -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS -D_GNU_SOURCE -fno-exceptions -fno-rtti  -Werror=strict-prototypes -Werror=old-style-definition -Werror=type-limits -Wno-missing-braces")
+endif()
+
 set(EXE_LDFLAGS " ")
 if(ZIG_TEST_COVERAGE)
     set(EXE_CFLAGS "${EXE_CFLAGS} -fprofile-arcs -ftest-coverage")
@@ -230,14 +362,15 @@ set_target_properties(zig PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
     LINK_FLAGS ${EXE_LDFLAGS}
 )
+
 target_link_libraries(zig LINK_PUBLIC
+    ${SOFTFLOAT_LIBRARIES}
     ${CLANG_LIBRARIES}
     ${LLD_LIBRARIES}
     ${LLVM_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
-    quadmath
 )
-if(MINGW)
+if(MSVC OR MINGW)
     target_link_libraries(zig LINK_PUBLIC version)
 endif()
 install(TARGETS zig DESTINATION bin)
@@ -455,3 +588,4 @@ if (ZIG_TEST_COVERAGE)
         COMMAND rm coverage.info coverage.info.cleaned
     )
 endif()
+

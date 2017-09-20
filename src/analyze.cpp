@@ -13,8 +13,9 @@
 #include "ir_print.hpp"
 #include "os.hpp"
 #include "parser.hpp"
-#include "quadmath.hpp"
+#include "softfloat.hpp"
 #include "zig_llvm.hpp"
+
 
 static const size_t default_backward_branch_quota = 1000;
 
@@ -163,7 +164,7 @@ static TypeTableEntry *new_container_type_entry(TypeTableEntryId id, AstNode *so
 }
 
 static uint8_t log2_u64(uint64_t x) {
-    return (63 - __builtin_clzll(x));
+    return (63 - clzll(x));
 }
 
 static uint8_t bits_needed_for_unsigned(uint64_t x) {
@@ -1313,7 +1314,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
         di_enumerators[i] = ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(type_enum_field->name), i);
 
         ensure_complete_type(g, field_type);
-        if (field_type->id == TypeTableEntryIdInvalid) {
+        if (type_is_invalid(field_type)) {
             enum_type->data.enumeration.is_invalid = true;
             continue;
         }
@@ -3462,7 +3463,7 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
             }
         case TypeTableEntryIdNumLitFloat:
             {
-                __float128 f128 = bigfloat_to_f128(&const_val->data.x_bigfloat);
+                float128_t f128 = bigfloat_to_f128(&const_val->data.x_bigfloat);
                 uint32_t ints[4];
                 memcpy(&ints[0], &f128, 16);
                 return ints[0] ^ ints[1] ^ ints[2] ^ ints[3] ^ 0xed8b3dfb;
@@ -3778,7 +3779,7 @@ void init_const_float(ConstExprValue *const_val, TypeTableEntry *type, double va
                 const_val->data.x_f64 = value;
                 break;
             case 128:
-                // if we need this, we should add a function that accepts a __float128 param
+                // if we need this, we should add a function that accepts a float128_t param
                 zig_unreachable();
             default:
                 zig_unreachable();
@@ -4035,7 +4036,7 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
                 case 64:
                     return a->data.x_f64 == b->data.x_f64;
                 case 128:
-                    return a->data.x_f128 == b->data.x_f128;
+                    return f128M_eq(&a->data.x_f128, &b->data.x_f128);
                 default:
                     zig_unreachable();
             }
@@ -4222,7 +4223,11 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
                         const size_t extra_len = 100;
                         size_t old_len = buf_len(buf);
                         buf_resize(buf, old_len + extra_len);
-                        int len = quadmath_snprintf(buf_ptr(buf) + old_len, extra_len, "%Qf", const_val->data.x_f128);
+                        float64_t f64_value = f128M_to_f64(&const_val->data.x_f128);
+                        double double_value;
+                        memcpy(&double_value, &f64_value, sizeof(double));
+                        // TODO actual f128 printing to decimal
+                        int len = snprintf(buf_ptr(buf) + old_len, extra_len, "%f", double_value);
                         assert(len > 0);
                         buf_resize(buf, old_len + len);
                         return;

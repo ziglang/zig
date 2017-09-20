@@ -164,6 +164,8 @@ void ZigLLVMSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state);
 void ZigLLVMAddFunctionAttr(LLVMValueRef fn, const char *attr_name, const char *attr_value);
 void ZigLLVMAddFunctionAttrCold(LLVMValueRef fn);
 
+void ZigLLVMParseCommandLineOptions(int argc, const char *const *argv);
+
 
 // copied from include/llvm/ADT/Triple.h
 
