@@ -2241,7 +2241,8 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
 
     // it worked
 
-    AstNode *parameter_init_block = trans_create_node(c, NodeTypeBlock);
+    assert(actual_body_node->type == NodeTypeBlock);
+    AstNode *body_node_with_param_inits = trans_create_node(c, NodeTypeBlock);
 
     for (size_t i = 0; i < proto_node->data.fn_proto.params.length; i += 1) {
         AstNode *param_node = proto_node->data.fn_proto.params.at(i);
@@ -2253,14 +2254,16 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
         // var c_name = _mangled_name;
         AstNode *parameter_init = trans_create_node_var_decl_local(c, false, good_name, nullptr, trans_create_node_symbol(c, mangled_name));
 
-        parameter_init_block->data.block.statements.append(parameter_init);
+        body_node_with_param_inits->data.block.statements.append(parameter_init);
     }
 
-    parameter_init_block->data.block.statements.append(actual_body_node);
+    for (size_t i = 0; i < actual_body_node->data.block.statements.length; i += 1) {
+        body_node_with_param_inits->data.block.statements.append(actual_body_node->data.block.statements.at(i));
+    }
 
     AstNode *fn_def_node = trans_create_node(c, NodeTypeFnDef);
     fn_def_node->data.fn_def.fn_proto = proto_node;
-    fn_def_node->data.fn_def.body = parameter_init_block;
+    fn_def_node->data.fn_def.body = body_node_with_param_inits;
 
     proto_node->data.fn_proto.fn_def_node = fn_def_node;
     c->root->data.root.top_level_decls.append(fn_def_node);
