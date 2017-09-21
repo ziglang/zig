@@ -13,26 +13,29 @@ pub fn LinkedList(comptime T: type) -> type {
             prev: ?&Node,
             next: ?&Node,
             data: T,
+
+            pub fn init(data: &const T) -> Node {
+                Node {
+                    .prev = null,
+                    .next = null,
+                    .data = *data,
+                }
+            }
         };
 
         first: ?&Node,
         last:  ?&Node,
         len:   usize,
-        allocator: &Allocator,
 
         /// Initialize a linked list.
         ///
-        /// Arguments:
-        ///     allocator: Dynamic memory allocator.
-        ///
         /// Returns:
         ///     An empty linked list.
-        pub fn init(allocator: &Allocator) -> Self {
+        pub fn init() -> Self {
             Self {
                 .first = null,
                 .last  = null,
                 .len   = 0,
-                .allocator = allocator,
             }
         }
 
@@ -157,53 +160,55 @@ pub fn LinkedList(comptime T: type) -> type {
 
         /// Allocate a new node.
         ///
+        /// Arguments:
+        ///     allocator: Dynamic memory allocator.
+        ///
         /// Returns:
         ///     A pointer to the new node.
-        pub fn allocateNode(list: &Self) -> %&Node {
-            list.allocator.create(Node)
+        pub fn allocateNode(list: &Self, allocator: &Allocator) -> %&Node {
+            allocator.create(Node)
         }
 
         /// Deallocate a node.
         ///
         /// Arguments:
         ///     node: Pointer to the node to deallocate.
-        pub fn destroyNode(list: &Self, node: &Node) {
-            list.allocator.destroy(node);
+        ///     allocator: Dynamic memory allocator.
+        pub fn destroyNode(list: &Self, node: &Node, allocator: &Allocator) {
+            allocator.destroy(node);
         }
 
         /// Allocate and initialize a node and its data.
         ///
         /// Arguments:
         ///     data: The data to put inside the node.
+        ///     allocator: Dynamic memory allocator.
         ///
         /// Returns:
         ///     A pointer to the new node.
-        pub fn createNode(list: &Self, data: &const T) -> %&Node {
-            var node = %return list.allocateNode();
-            *node = Node {
-                .prev = null,
-                .next = null,
-                .data = *data,
-            };
+        pub fn createNode(list: &Self, data: &const T, allocator: &Allocator) -> %&Node {
+            var node = %return list.allocateNode(allocator);
+            *node = Node.init(data);
             return node;
         }
     }
 }
 
 test "basic linked list test" {
-    var list = LinkedList(u32).init(&debug.global_allocator);
+    const allocator = &debug.global_allocator;
+    var list = LinkedList(u32).init();
 
-    var one   = %%list.createNode(1);
-    var two   = %%list.createNode(2);
-    var three = %%list.createNode(3);
-    var four  = %%list.createNode(4);
-    var five  = %%list.createNode(5);
+    var one   = %%list.createNode(1, allocator);
+    var two   = %%list.createNode(2, allocator);
+    var three = %%list.createNode(3, allocator);
+    var four  = %%list.createNode(4, allocator);
+    var five  = %%list.createNode(5, allocator);
     defer {
-        list.destroyNode(one);
-        list.destroyNode(two);
-        list.destroyNode(three);
-        list.destroyNode(four);
-        list.destroyNode(five);
+        list.destroyNode(one, allocator);
+        list.destroyNode(two, allocator);
+        list.destroyNode(three, allocator);
+        list.destroyNode(four, allocator);
+        list.destroyNode(five, allocator);
     }
 
     list.append(two);               // {2}
@@ -212,7 +217,7 @@ test "basic linked list test" {
     list.insertBefore(five, four);  // {1, 2, 4, 5}
     list.insertAfter(two, three);   // {1, 2, 3, 4, 5}
 
-    // traverse forwards
+    // Traverse forwards.
     {
         var it = list.first;
         var index: u32 = 1;
@@ -222,7 +227,7 @@ test "basic linked list test" {
         }
     }
 
-    // traverse backwards
+    // Traverse backwards.
     {
         var it = list.last;
         var index: u32 = 1;
