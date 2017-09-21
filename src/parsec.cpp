@@ -978,8 +978,7 @@ static AstNode *trans_binary_operator(Context *c, bool result_used, AstNode *blo
         case BO_EQ:
             return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeCmpEq, stmt->getRHS());
         case BO_NE:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_NE");
-            return nullptr;
+            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeCmpNotEq, stmt->getRHS());
         case BO_And:
             emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_And");
             return nullptr;

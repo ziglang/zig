@@ -373,6 +373,22 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
+    cases.add("==, !=",
+        \\int max(int a, int b) {
+        \\    if (a == b)
+        \\        return a;
+        \\    if (a != b)
+        \\        return b;
+        \\    return a;
+        \\}
+    ,
+        \\export fn max(a: c_int, b: c_int) -> c_int {
+        \\    if (a == b) return a;
+        \\    if (a != b) return b;
+        \\    return a;
+        \\}
+    );
+
     cases.add("logical and, logical or",
         \\int max(int a, int b) {
         \\    if (a < b || a == b)
