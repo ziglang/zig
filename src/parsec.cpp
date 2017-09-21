@@ -49,6 +49,8 @@ struct Context {
 
     CodeGen *codegen;
     ASTContext *ctx;
+
+    HashMap<Buf *, bool, buf_hash, buf_eql_buf> ptr_params;
 };
 
 static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl);
@@ -126,11 +128,25 @@ static AstNode *trans_create_node_opaque(Context *c) {
     return trans_create_node_builtin_fn_call_str(c, "OpaqueType");
 }
 
+static AstNode *trans_create_node_fn_call_1(Context *c, AstNode *fn_ref_expr, AstNode *arg1) {
+    AstNode *node = trans_create_node(c, NodeTypeFnCallExpr);
+    node->data.fn_call_expr.fn_ref_expr = fn_ref_expr;
+    node->data.fn_call_expr.params.append(arg1);
+    return node;
+}
+
 static AstNode *trans_create_node_field_access(Context *c, AstNode *container, Buf *field_name) {
     AstNode *node = trans_create_node(c, NodeTypeFieldAccessExpr);
+	if (container->type == NodeTypeSymbol) {
+		assert(container->data.symbol_expr.symbol != nullptr);
+	}
     node->data.field_access_expr.struct_expr = container;
     node->data.field_access_expr.field_name = field_name;
     return node;
+}
+
+static AstNode *trans_create_node_field_access_str(Context *c, AstNode *container, const char *field_name) {
+    return trans_create_node_field_access(c, container, buf_create_from_str(field_name));
 }
 
 static AstNode *trans_create_node_prefix_op(Context *c, PrefixOp op, AstNode *child_node) {
@@ -138,6 +154,22 @@ static AstNode *trans_create_node_prefix_op(Context *c, PrefixOp op, AstNode *ch
     node->data.prefix_op_expr.prefix_op = op;
     node->data.prefix_op_expr.primary_expr = child_node;
     return node;
+}
+
+static AstNode *trans_create_node_bin_op(Context *c, AstNode *lhs_node, BinOpType op, AstNode *rhs_node) {
+    AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
+    node->data.bin_op_expr.op1 = lhs_node;
+    node->data.bin_op_expr.bin_op = op;
+    node->data.bin_op_expr.op2 = rhs_node;
+    return node;
+}
+
+static AstNode *maybe_suppress_result(Context *c, bool result_used, AstNode *node) {
+    if (result_used) return node;
+    return trans_create_node_bin_op(c,
+        trans_create_node_symbol_str(c, "_"),
+        BinOpTypeAssign,
+        node);
 }
 
 static AstNode *trans_create_node_addr_of(Context *c, bool is_const, bool is_volatile, AstNode *child_node) {
@@ -152,6 +184,13 @@ static AstNode *trans_create_node_str_lit_c(Context *c, Buf *buf) {
     AstNode *node = trans_create_node(c, NodeTypeStringLiteral);
     node->data.string_literal.buf = buf;
     node->data.string_literal.c = true;
+    return node;
+}
+
+static AstNode *trans_create_node_str_lit_non_c(Context *c, Buf *buf) {
+    AstNode *node = trans_create_node(c, NodeTypeStringLiteral);
+    node->data.string_literal.buf = buf;
+    node->data.string_literal.c = false;
     return node;
 }
 
@@ -188,16 +227,28 @@ static AstNode *trans_create_node_array_type(Context *c, AstNode *size_node, Ast
     return node;
 }
 
-static AstNode *trans_create_node_var_decl(Context *c, bool is_const, Buf *var_name, AstNode *type_node,
-        AstNode *init_node)
+static AstNode *trans_create_node_var_decl(Context *c, VisibMod visib_mod, bool is_const, Buf *var_name,
+        AstNode *type_node, AstNode *init_node)
 {
     AstNode *node = trans_create_node(c, NodeTypeVariableDeclaration);
-    node->data.variable_declaration.visib_mod = c->visib_mod;
+    node->data.variable_declaration.visib_mod = visib_mod;
     node->data.variable_declaration.symbol = var_name;
     node->data.variable_declaration.is_const = is_const;
     node->data.variable_declaration.type = type_node;
     node->data.variable_declaration.expr = init_node;
     return node;
+}
+
+static AstNode *trans_create_node_var_decl_global(Context *c, bool is_const, Buf *var_name, AstNode *type_node,
+        AstNode *init_node)
+{
+    return trans_create_node_var_decl(c, c->visib_mod, is_const, var_name, type_node, init_node);
+}
+
+static AstNode *trans_create_node_var_decl_local(Context *c, bool is_const, Buf *var_name, AstNode *type_node,
+        AstNode *init_node)
+{
+    return trans_create_node_var_decl(c, VisibModPrivate, is_const, var_name, type_node, init_node);
 }
 
 
@@ -240,6 +291,10 @@ static AstNode *trans_create_node_inline_fn(Context *c, Buf *fn_name, Buf *var_n
     return fn_def;
 }
 
+static AstNode *trans_create_node_unwrap_null(Context *c, AstNode *child) {
+    return trans_create_node_prefix_op(c, PrefixOpUnwrapMaybe, child);
+}
+
 static AstNode *get_global(Context *c, Buf *name) {
     for (size_t i = 0; i < c->root->data.root.top_level_decls.length; i += 1) {
         AstNode *decl_node = c->root->data.root.top_level_decls.items[i];
@@ -268,7 +323,7 @@ static AstNode *get_global(Context *c, Buf *name) {
 static AstNode *add_global_var(Context *c, Buf *var_name, AstNode *value_node) {
     bool is_const = true;
     AstNode *type_node = nullptr;
-    AstNode *node = trans_create_node_var_decl(c, is_const, var_name, type_node, value_node);
+    AstNode *node = trans_create_node_var_decl_global(c, is_const, var_name, type_node, value_node);
     c->root->data.root.top_level_decls.append(node);
     return node;
 }
@@ -286,8 +341,94 @@ static AstNode *trans_create_node_apint(Context *c, const llvm::APSInt &aps_int)
 
 }
 
+static AstNode *trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc);
+
 static bool is_c_void_type(AstNode *node) {
     return (node->type == NodeTypeSymbol && buf_eql_str(node->data.symbol_expr.symbol, "c_void"));
+}
+
+static AstNode* trans_c_cast(Context *c, const SourceLocation &source_location, const QualType &qt, AstNode *expr) {
+    // TODO: maybe widen to increase size
+    // TODO: maybe bitcast to change sign
+    // TODO: maybe truncate to reduce size
+    return trans_create_node_fn_call_1(c, trans_qual_type(c, qt, source_location), expr);
+}
+
+static uint32_t qual_type_int_bit_width(Context *c, const QualType &qt, const SourceLocation &source_loc) {
+    const Type *ty = qt.getTypePtr();
+    switch (ty->getTypeClass()) {
+        case Type::Builtin:
+            {
+                const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(ty);
+                switch (builtin_ty->getKind()) {
+                    case BuiltinType::Char_U:
+                    case BuiltinType::UChar:
+                    case BuiltinType::Char_S:
+                    case BuiltinType::SChar:
+                        return 8;
+                    case BuiltinType::UInt128:
+                    case BuiltinType::Int128:
+                        return 128;
+                    default:
+                        return 0;
+                }
+                zig_unreachable();
+            }
+        case Type::Typedef:
+            {
+                const TypedefType *typedef_ty = static_cast<const TypedefType*>(ty);
+                const TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
+                const char *type_name = decl_name(typedef_decl);
+                if (strcmp(type_name, "uint8_t") == 0 || strcmp(type_name, "int8_t") == 0) {
+                    return 8;
+                } else if (strcmp(type_name, "uint16_t") == 0 || strcmp(type_name, "int16_t") == 0) {
+                    return 16;
+                } else if (strcmp(type_name, "uint32_t") == 0 || strcmp(type_name, "int32_t") == 0) {
+                    return 32;
+                } else if (strcmp(type_name, "uint64_t") == 0 || strcmp(type_name, "int64_t") == 0) {
+                    return 64;
+                } else {
+                    return 0;
+                }
+            }
+        default:
+            return 0;
+    }
+    zig_unreachable();
+}
+
+
+static AstNode *qual_type_to_log2_int_ref(Context *c, const QualType &qt,
+        const SourceLocation &source_loc)
+{
+    uint32_t int_bit_width = qual_type_int_bit_width(c, qt, source_loc);
+    if (int_bit_width != 0) {
+        // we can perform the log2 now.
+        uint64_t cast_bit_width = log2_u64(int_bit_width);
+        return trans_create_node_symbol(c, buf_sprintf("u%" ZIG_PRI_u64, cast_bit_width));
+    }
+
+    AstNode *zig_type_node = trans_qual_type(c, qt, source_loc);
+
+//    @import("std").math.Log2Int(c_long);
+//
+//    FnCall
+//        FieldAccess
+//            FieldAccess
+//                FnCall (.builtin = true)
+//                    Symbol "import"
+//                    StringLiteral "std"
+//                Symbol "math"
+//            Symbol "Log2Int"
+//        zig_type_node
+
+    AstNode *import_fn_call = trans_create_node_builtin_fn_call_str(c, "import");
+    import_fn_call->data.fn_call_expr.params.append(trans_create_node_str_lit_non_c(c, buf_create_from_str("std")));
+    AstNode *inner_field_access = trans_create_node_field_access_str(c, import_fn_call, "math");
+    AstNode *outer_field_access = trans_create_node_field_access_str(c, inner_field_access, "Log2Int");
+    AstNode *log2int_fn_call = trans_create_node_fn_call_1(c, outer_field_access, zig_type_node);
+
+    return log2int_fn_call;
 }
 
 static bool qual_type_child_is_fn_proto(const QualType &qt) {
@@ -303,8 +444,17 @@ static bool qual_type_child_is_fn_proto(const QualType &qt) {
     return false;
 }
 
+static QualType resolve_any_typedef(Context *c, QualType qt) {
+    const Type * ty = qt.getTypePtr();
+    if (ty->getTypeClass() != Type::Typedef)
+        return qt;
+    const TypedefType *typedef_ty = static_cast<const TypedefType*>(ty);
+    const TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
+    return typedef_decl->getUnderlyingType();
+}
+
 static bool c_is_signed_integer(Context *c, QualType qt) {
-    const Type *c_type = qt.getTypePtr();
+    const Type *c_type = resolve_any_typedef(c, qt).getTypePtr();
     if (c_type->getTypeClass() != Type::Builtin)
         return false;
     const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(c_type);
@@ -323,7 +473,7 @@ static bool c_is_signed_integer(Context *c, QualType qt) {
 }
 
 static bool c_is_unsigned_integer(Context *c, QualType qt) {
-    const Type *c_type = qt.getTypePtr();
+    const Type *c_type = resolve_any_typedef(c, qt).getTypePtr();
     if (c_type->getTypeClass() != Type::Builtin)
         return false;
     const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(c_type);
@@ -360,12 +510,26 @@ static bool c_is_float(Context *c, QualType qt) {
     }
 }
 
-static AstNode *trans_stmt(Context *c, AstNode *block, Stmt *stmt);
-static AstNode *trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc);
+static bool qual_type_has_wrapping_overflow(Context *c, QualType qt) {
+    if (c_is_signed_integer(c, qt) || c_is_float(c, qt)) {
+        // float and signed integer overflow is undefined behavior.
+        return false;
+    } else {
+        // unsigned integer overflow wraps around.
+        return true;
+    }
+}
+
+enum TransLRValue {
+    TransLValue,
+    TransRValue,
+};
+
+static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *stmt, TransLRValue lrval);
 static AstNode *const skip_add_to_block_node = (AstNode *) 0x2;
 
-static AstNode *trans_expr(Context *c, AstNode *block, Expr *expr) {
-    return trans_stmt(c, block, expr);
+static AstNode *trans_expr(Context *c, bool result_used, AstNode *block, Expr *expr, TransLRValue lrval) {
+    return trans_stmt(c, result_used, block, expr, lrval);
 }
 
 static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &source_loc) {
@@ -709,7 +873,7 @@ static AstNode *trans_qual_type(Context *c, QualType qt, const SourceLocation &s
 static AstNode *trans_compound_stmt(Context *c, AstNode *parent, CompoundStmt *stmt) {
     AstNode *child_block = trans_create_node(c, NodeTypeBlock);
     for (CompoundStmt::body_iterator it = stmt->body_begin(), end_it = stmt->body_end(); it != end_it; ++it) {
-        AstNode *child_node = trans_stmt(c, child_block, *it);
+        AstNode *child_node = trans_stmt(c, false, child_block, *it, TransRValue);
         if (child_node == nullptr)
             return nullptr;
         if (child_node != skip_add_to_block_node)
@@ -725,7 +889,7 @@ static AstNode *trans_return_stmt(Context *c, AstNode *block, ReturnStmt *stmt) 
         return nullptr;
     } else {
         AstNode *return_node = trans_create_node(c, NodeTypeReturnExpr);
-        return_node->data.return_expr.expr = trans_expr(c, block, value_expr);
+        return_node->data.return_expr.expr = trans_expr(c, true, block, value_expr, TransRValue);
         if (return_node->data.return_expr.expr == nullptr)
             return nullptr;
         return return_node;
@@ -741,44 +905,93 @@ static AstNode *trans_integer_literal(Context *c, IntegerLiteral *stmt) {
     return trans_create_node_apint(c, result);
 }
 
-static AstNode *trans_conditional_operator(Context *c, AstNode *block, ConditionalOperator *stmt) {
+static AstNode *trans_conditional_operator(Context *c, bool result_used, AstNode *block, ConditionalOperator *stmt) {
     AstNode *node = trans_create_node(c, NodeTypeIfBoolExpr);
 
     Expr *cond_expr = stmt->getCond();
     Expr *true_expr = stmt->getTrueExpr();
     Expr *false_expr = stmt->getFalseExpr();
 
-    node->data.if_bool_expr.condition = trans_expr(c, block, cond_expr);
+    node->data.if_bool_expr.condition = trans_expr(c, true, block, cond_expr, TransRValue);
     if (node->data.if_bool_expr.condition == nullptr)
         return nullptr;
 
-    node->data.if_bool_expr.then_block = trans_expr(c, block, true_expr);
+    node->data.if_bool_expr.then_block = trans_expr(c, result_used, block, true_expr, TransRValue);
     if (node->data.if_bool_expr.then_block == nullptr)
         return nullptr;
 
-    node->data.if_bool_expr.else_node = trans_expr(c, block, false_expr);
+    node->data.if_bool_expr.else_node = trans_expr(c, result_used, block, false_expr, TransRValue);
     if (node->data.if_bool_expr.else_node == nullptr)
         return nullptr;
 
-    return node;
+    return maybe_suppress_result(c, result_used, node);
 }
 
 static AstNode *trans_create_bin_op(Context *c, AstNode *block, Expr *lhs, BinOpType bin_op, Expr *rhs) {
     AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
     node->data.bin_op_expr.bin_op = bin_op;
 
-    node->data.bin_op_expr.op1 = trans_expr(c, block, lhs);
+    node->data.bin_op_expr.op1 = trans_expr(c, true, block, lhs, TransRValue);
     if (node->data.bin_op_expr.op1 == nullptr)
         return nullptr;
 
-    node->data.bin_op_expr.op2 = trans_expr(c, block, rhs);
+    node->data.bin_op_expr.op2 = trans_expr(c, true, block, rhs, TransRValue);
     if (node->data.bin_op_expr.op2 == nullptr)
         return nullptr;
 
     return node;
 }
 
-static AstNode *trans_binary_operator(Context *c, AstNode *block, BinaryOperator *stmt) {
+static AstNode *trans_create_assign(Context *c, bool result_used, AstNode *block, Expr *lhs, Expr *rhs) {
+    if (!result_used) {
+        // common case
+        AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
+        node->data.bin_op_expr.bin_op = BinOpTypeAssign;
+
+        node->data.bin_op_expr.op1 = trans_expr(c, true, block, lhs, TransLValue);
+        if (node->data.bin_op_expr.op1 == nullptr)
+            return nullptr;
+
+        node->data.bin_op_expr.op2 = trans_expr(c, true, block, rhs, TransRValue);
+        if (node->data.bin_op_expr.op2 == nullptr)
+            return nullptr;
+
+        return node;
+    } else {
+        // worst case
+        // c: lhs = rhs
+        // zig: {
+        // zig:     const _tmp = rhs;
+        // zig:     lhs = _tmp;
+        // zig:     _tmp
+        // zig: }
+
+        AstNode *child_block = trans_create_node(c, NodeTypeBlock);
+
+        // const _tmp = rhs;
+        AstNode *rhs_node = trans_expr(c, true, child_block, rhs, TransRValue);
+        if (rhs_node == nullptr) return nullptr;
+        // TODO: avoid name collisions with generated variable names
+        Buf* tmp_var_name = buf_create_from_str("_tmp");
+        AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr, rhs_node);
+        child_block->data.block.statements.append(tmp_var_decl);
+
+        // lhs = _tmp;
+        AstNode *lhs_node = trans_expr(c, true, child_block, lhs, TransLValue);
+        if (lhs_node == nullptr) return nullptr;
+        child_block->data.block.statements.append(
+            trans_create_node_bin_op(c, lhs_node, BinOpTypeAssign,
+                trans_create_node_symbol(c, tmp_var_name)));
+
+        // _tmp
+        child_block->data.block.statements.append(trans_create_node_symbol(c, tmp_var_name));
+        child_block->data.block.last_statement_is_result_expression = true;
+
+        return child_block;
+    }
+}
+
+static AstNode *trans_binary_operator(Context *c, bool result_used, AstNode *block, BinaryOperator *stmt) {
     switch (stmt->getOpcode()) {
         case BO_PtrMemD:
             emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_PtrMemD");
@@ -787,20 +1000,47 @@ static AstNode *trans_binary_operator(Context *c, AstNode *block, BinaryOperator
             emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_PtrMemI");
             return nullptr;
         case BO_Mul:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Mul");
-            return nullptr;
+            return trans_create_bin_op(c, block, stmt->getLHS(),
+                qual_type_has_wrapping_overflow(c, stmt->getType()) ? BinOpTypeMultWrap : BinOpTypeMult,
+                stmt->getRHS());
         case BO_Div:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Div");
-            return nullptr;
+            if (qual_type_has_wrapping_overflow(c, stmt->getType())) {
+                // unsigned/float division uses the operator
+                return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeDiv, stmt->getRHS());
+            } else {
+                // signed integer division uses @divTrunc
+                AstNode *fn_call = trans_create_node_builtin_fn_call_str(c, "divTrunc");
+                AstNode *lhs = trans_expr(c, true, block, stmt->getLHS(), TransLValue);
+                if (lhs == nullptr) return nullptr;
+                fn_call->data.fn_call_expr.params.append(lhs);
+                AstNode *rhs = trans_expr(c, true, block, stmt->getRHS(), TransLValue);
+                if (rhs == nullptr) return nullptr;
+                fn_call->data.fn_call_expr.params.append(rhs);
+                return fn_call;
+            }
         case BO_Rem:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Rem");
-            return nullptr;
+            if (qual_type_has_wrapping_overflow(c, stmt->getType())) {
+                // unsigned/float division uses the operator
+                return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeMod, stmt->getRHS());
+            } else {
+                // signed integer division uses @divTrunc
+                AstNode *fn_call = trans_create_node_builtin_fn_call_str(c, "rem");
+                AstNode *lhs = trans_expr(c, true, block, stmt->getLHS(), TransLValue);
+                if (lhs == nullptr) return nullptr;
+                fn_call->data.fn_call_expr.params.append(lhs);
+                AstNode *rhs = trans_expr(c, true, block, stmt->getRHS(), TransLValue);
+                if (rhs == nullptr) return nullptr;
+                fn_call->data.fn_call_expr.params.append(rhs);
+                return fn_call;
+            }
         case BO_Add:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Add");
-            return nullptr;
+            return trans_create_bin_op(c, block, stmt->getLHS(),
+                qual_type_has_wrapping_overflow(c, stmt->getType()) ? BinOpTypeAddWrap : BinOpTypeAdd,
+                stmt->getRHS());
         case BO_Sub:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Sub");
-            return nullptr;
+            return trans_create_bin_op(c, block, stmt->getLHS(),
+                qual_type_has_wrapping_overflow(c, stmt->getType()) ? BinOpTypeSubWrap : BinOpTypeSub,
+                stmt->getRHS());
         case BO_Shl:
             emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Shl");
             return nullptr;
@@ -816,29 +1056,22 @@ static AstNode *trans_binary_operator(Context *c, AstNode *block, BinaryOperator
         case BO_GE:
             return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeCmpGreaterOrEq, stmt->getRHS());
         case BO_EQ:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_EQ");
-            return nullptr;
+            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeCmpEq, stmt->getRHS());
         case BO_NE:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_NE");
-            return nullptr;
+            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeCmpNotEq, stmt->getRHS());
         case BO_And:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_And");
-            return nullptr;
+            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeBinAnd, stmt->getRHS());
         case BO_Xor:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Xor");
-            return nullptr;
+            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeBinXor, stmt->getRHS());
         case BO_Or:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Or");
-            return nullptr;
+            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeBinOr, stmt->getRHS());
         case BO_LAnd:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_LAnd");
-            return nullptr;
+            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeBoolAnd, stmt->getRHS());
         case BO_LOr:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_LOr");
-            return nullptr;
+            // TODO: int vs bool
+            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeBoolOr, stmt->getRHS());
         case BO_Assign:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Assign");
-            return nullptr;
+            return trans_create_assign(c, result_used, block, stmt->getLHS(), stmt->getRHS());
         case BO_MulAssign:
             emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_MulAssign");
             return nullptr;
@@ -877,31 +1110,169 @@ static AstNode *trans_binary_operator(Context *c, AstNode *block, BinaryOperator
     zig_unreachable();
 }
 
+static AstNode *trans_compound_assign_operator(Context *c, bool result_used, AstNode *block, CompoundAssignOperator *stmt) {
+    switch (stmt->getOpcode()) {
+        case BO_MulAssign:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_MulAssign");
+            return nullptr;
+        case BO_DivAssign:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_DivAssign");
+            return nullptr;
+        case BO_RemAssign:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_RemAssign");
+            return nullptr;
+        case BO_AddAssign:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_AddAssign");
+            return nullptr;
+        case BO_SubAssign:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_SubAssign");
+            return nullptr;
+        case BO_ShlAssign:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_ShlAssign");
+            return nullptr;
+        case BO_ShrAssign: {
+            BinOpType bin_op = BinOpTypeBitShiftRight;
+
+            const SourceLocation &rhs_location = stmt->getRHS()->getLocStart();
+            AstNode *rhs_type = qual_type_to_log2_int_ref(c, stmt->getComputationLHSType(), rhs_location);
+
+            bool use_intermediate_casts = stmt->getComputationLHSType().getTypePtr() != stmt->getComputationResultType().getTypePtr();
+            if (!use_intermediate_casts && !result_used) {
+                // simple common case, where the C and Zig are identical:
+                // lhs >>= rh* s
+                AstNode *lhs = trans_expr(c, true, block, stmt->getLHS(), TransLValue);
+                if (lhs == nullptr) return nullptr;
+
+                AstNode *rhs = trans_expr(c, true, block, stmt->getRHS(), TransRValue);
+                if (rhs == nullptr) return nullptr;
+                AstNode *coerced_rhs = trans_create_node_fn_call_1(c, rhs_type, rhs);
+
+                return trans_create_node_bin_op(c, lhs, BinOpTypeAssignBitShiftRight, coerced_rhs);
+            } else {
+                // need more complexity. worst case, this looks like this:
+                // c:   lhs >>= rhs
+                // zig: {
+                // zig:     const _ref = &lhs;
+                // zig:     *_ref = result_type(operation_type(*_ref) >> u5(rhs));
+                // zig:     *_ref
+                // zig: }
+                // where u5 is the appropriate type
+
+                // TODO: avoid mess when we don't need the assignment value for chained assignments or anything.
+                AstNode *child_block = trans_create_node(c, NodeTypeBlock);
+
+                // const _ref = &lhs;
+                AstNode *lhs = trans_expr(c, true, child_block, stmt->getLHS(), TransLValue);
+                if (lhs == nullptr) return nullptr;
+                AstNode *addr_of_lhs = trans_create_node_addr_of(c, false, false, lhs);
+                // TODO: avoid name collisions with generated variable names
+                Buf* tmp_var_name = buf_create_from_str("_ref");
+                AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr, addr_of_lhs);
+                child_block->data.block.statements.append(tmp_var_decl);
+
+                // *_ref = result_type(operation_type(*_ref) >> u5(rhs));
+
+                AstNode *rhs = trans_expr(c, true, child_block, stmt->getRHS(), TransRValue);
+                if (rhs == nullptr) return nullptr;
+                AstNode *coerced_rhs = trans_create_node_fn_call_1(c, rhs_type, rhs);
+
+                AstNode *assign_statement = trans_create_node_bin_op(c,
+                    trans_create_node_prefix_op(c, PrefixOpDereference,
+                        trans_create_node_symbol(c, tmp_var_name)),
+                    BinOpTypeAssign,
+                    trans_c_cast(c, rhs_location,
+                        stmt->getComputationResultType(),
+                        trans_create_node_bin_op(c,
+                            trans_c_cast(c, rhs_location,
+                                stmt->getComputationLHSType(),
+                                trans_create_node_prefix_op(c, PrefixOpDereference,
+                                    trans_create_node_symbol(c, tmp_var_name))),
+                            bin_op,
+                            coerced_rhs)));
+                child_block->data.block.statements.append(assign_statement);
+
+                if (result_used) {
+                    // *_ref
+                    child_block->data.block.statements.append(
+                        trans_create_node_prefix_op(c, PrefixOpDereference,
+                            trans_create_node_symbol(c, tmp_var_name)));
+                    child_block->data.block.last_statement_is_result_expression = true;
+                }
+
+                return child_block;
+            }
+        }
+        case BO_AndAssign:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_AndAssign");
+            return nullptr;
+        case BO_XorAssign:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_XorAssign");
+            return nullptr;
+        case BO_OrAssign:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_OrAssign");
+            return nullptr;
+        case BO_PtrMemD:
+        case BO_PtrMemI:
+        case BO_Assign:
+        case BO_Mul:
+        case BO_Div:
+        case BO_Rem:
+        case BO_Add:
+        case BO_Sub:
+        case BO_Shl:
+        case BO_Shr:
+        case BO_LT:
+        case BO_GT:
+        case BO_LE:
+        case BO_GE:
+        case BO_EQ:
+        case BO_NE:
+        case BO_And:
+        case BO_Xor:
+        case BO_Or:
+        case BO_LAnd:
+        case BO_LOr:
+        case BO_Comma:
+            zig_panic("compound assign expected to be handled by binary operator");
+    }
+
+    zig_unreachable();
+}
+
 static AstNode *trans_implicit_cast_expr(Context *c, AstNode *block, ImplicitCastExpr *stmt) {
     switch (stmt->getCastKind()) {
         case CK_LValueToRValue:
-            return trans_expr(c, block, stmt->getSubExpr());
+            return trans_expr(c, true, block, stmt->getSubExpr(), TransRValue);
         case CK_IntegralCast:
             {
-                AstNode *node = trans_create_node_builtin_fn_call_str(c, "bitCast");
-
-                AstNode *result_type_node = trans_qual_type(c, stmt->getType(), stmt->getExprLoc());
-                if (result_type_node == nullptr)
+                AstNode *target_node = trans_expr(c, true, block, stmt->getSubExpr(), TransRValue);
+                if (target_node == nullptr)
                     return nullptr;
-
-                AstNode *target_node = trans_expr(c, block, stmt->getSubExpr());
+                return trans_c_cast(c, stmt->getExprLoc(), stmt->getType(), target_node);
+            }
+        case CK_FunctionToPointerDecay:
+        case CK_ArrayToPointerDecay:
+            {
+                AstNode *target_node = trans_expr(c, true, block, stmt->getSubExpr(), TransRValue);
+                if (target_node == nullptr)
+                    return nullptr;
+                return target_node;
+            }
+        case CK_BitCast:
+            {
+                AstNode *target_node = trans_expr(c, true, block, stmt->getSubExpr(), TransRValue);
                 if (target_node == nullptr)
                     return nullptr;
 
-                node->data.fn_call_expr.params.append(result_type_node);
+                AstNode *dest_type_node = trans_qual_type(c, stmt->getType(), stmt->getLocStart());
+
+                AstNode *node = trans_create_node_builtin_fn_call_str(c, "ptrCast");
+                node->data.fn_call_expr.params.append(dest_type_node);
                 node->data.fn_call_expr.params.append(target_node);
                 return node;
             }
         case CK_Dependent:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_Dependent");
-            return nullptr;
-        case CK_BitCast:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_BitCast");
             return nullptr;
         case CK_LValueBitCast:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_LValueBitCast");
@@ -923,12 +1294,6 @@ static AstNode *trans_implicit_cast_expr(Context *c, AstNode *block, ImplicitCas
             return nullptr;
         case CK_ToUnion:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ToUnion");
-            return nullptr;
-        case CK_ArrayToPointerDecay:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ArrayToPointerDecay");
-            return nullptr;
-        case CK_FunctionToPointerDecay:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_FunctionToPointerDecay");
             return nullptr;
         case CK_NullToPointer:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_NullToPointer");
@@ -1069,17 +1434,44 @@ static AstNode *trans_implicit_cast_expr(Context *c, AstNode *block, ImplicitCas
     zig_unreachable();
 }
 
-static AstNode *trans_decl_ref_expr(Context *c, DeclRefExpr *stmt) {
+static AstNode *trans_decl_ref_expr(Context *c, DeclRefExpr *stmt, TransLRValue lrval) {
     ValueDecl *value_decl = stmt->getDecl();
-    const char *name = decl_name(value_decl);
-    return trans_create_node_symbol_str(c, name);
+    Buf *symbol_name = buf_create_from_str(decl_name(value_decl));
+    if (lrval == TransLValue) {
+        c->ptr_params.put(symbol_name, true);
+    }
+    return trans_create_node_symbol(c, symbol_name);
 }
 
-static AstNode *trans_unary_operator(Context *c, AstNode *block, UnaryOperator *stmt) {
+static AstNode *trans_unary_operator(Context *c, bool result_used, AstNode *block, UnaryOperator *stmt) {
     switch (stmt->getOpcode()) {
-        case UO_PostInc:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_PostInc");
-            return nullptr;
+        case UO_PostInc: {
+            Expr *op_expr = stmt->getSubExpr();
+            BinOpType bin_op = qual_type_has_wrapping_overflow(c, op_expr->getType())
+                ? BinOpTypeAssignPlusWrap
+                : BinOpTypeAssignPlus;
+
+            if (!result_used) {
+                // common case
+                // c: expr++
+                // zig: expr += 1
+                return trans_create_node_bin_op(c,
+                    trans_expr(c, true, block, op_expr, TransLValue),
+                    bin_op,
+                    trans_create_node_unsigned(c, 1));
+            } else {
+                // worst case
+                // c: expr++
+                // zig: {
+                // zig:     const _ref = &expr;
+                // zig:     const _tmp = *_ref;
+                // zig:     *_ref += 1;
+                // zig:     _tmp
+                // zig: }
+                emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_PostInc with result_used");
+                return nullptr;
+            }
+        }
         case UO_PostDec:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_PostDec");
             return nullptr;
@@ -1101,11 +1493,11 @@ static AstNode *trans_unary_operator(Context *c, AstNode *block, UnaryOperator *
         case UO_Minus:
             {
                 Expr *op_expr = stmt->getSubExpr();
-                if (c_is_signed_integer(c, op_expr->getType()) || c_is_float(c, op_expr->getType())) {
+                if (!qual_type_has_wrapping_overflow(c, op_expr->getType())) {
                     AstNode *node = trans_create_node(c, NodeTypePrefixOpExpr);
                     node->data.prefix_op_expr.prefix_op = PrefixOpNegation;
 
-                    node->data.prefix_op_expr.primary_expr = trans_expr(c, block, op_expr);
+                    node->data.prefix_op_expr.primary_expr = trans_expr(c, true, block, op_expr, TransRValue);
                     if (node->data.prefix_op_expr.primary_expr == nullptr)
                         return nullptr;
 
@@ -1115,7 +1507,7 @@ static AstNode *trans_unary_operator(Context *c, AstNode *block, UnaryOperator *
                     AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
                     node->data.bin_op_expr.op1 = trans_create_node_unsigned(c, 0);
 
-                    node->data.bin_op_expr.op2 = trans_expr(c, block, op_expr);
+                    node->data.bin_op_expr.op2 = trans_expr(c, true, block, op_expr, TransRValue);
                     if (node->data.bin_op_expr.op2 == nullptr)
                         return nullptr;
 
@@ -1157,7 +1549,7 @@ static AstNode *trans_local_declaration(Context *c, AstNode *block, DeclStmt *st
                 QualType qual_type = var_decl->getTypeSourceInfo()->getType();
                 AstNode *init_node = nullptr;
                 if (var_decl->hasInit()) {
-                    init_node = trans_expr(c, block, var_decl->getInit());
+                    init_node = trans_expr(c, true, block, var_decl->getInit(), TransRValue);
                     if (init_node == nullptr)
                         return nullptr;
 
@@ -1166,8 +1558,10 @@ static AstNode *trans_local_declaration(Context *c, AstNode *block, DeclStmt *st
                 if (type_node == nullptr)
                     return nullptr;
 
-                AstNode *node = trans_create_node_var_decl(c, qual_type.isConstQualified(),
-                        buf_create_from_str(decl_name(var_decl)), type_node, init_node);
+                Buf *symbol_name = buf_create_from_str(decl_name(var_decl));
+
+                AstNode *node = trans_create_node_var_decl_local(c, qual_type.isConstQualified(),
+                        symbol_name, type_node, init_node);
                 block->data.block.statements.append(node);
                 continue;
             }
@@ -1398,18 +1792,112 @@ static AstNode *trans_local_declaration(Context *c, AstNode *block, DeclStmt *st
 static AstNode *trans_while_loop(Context *c, AstNode *block, WhileStmt *stmt) {
     AstNode *while_node = trans_create_node(c, NodeTypeWhileExpr);
 
-    while_node->data.while_expr.condition = trans_expr(c, block, stmt->getCond());
+    while_node->data.while_expr.condition = trans_expr(c, true, block, stmt->getCond(), TransRValue);
     if (while_node->data.while_expr.condition == nullptr)
         return nullptr;
 
-    while_node->data.while_expr.body = trans_stmt(c, block, stmt->getBody());
+    while_node->data.while_expr.body = trans_stmt(c, false, block, stmt->getBody(), TransRValue);
     if (while_node->data.while_expr.body == nullptr)
         return nullptr;
 
     return while_node;
 }
 
-static AstNode *trans_stmt(Context *c, AstNode *block, Stmt *stmt) {
+static AstNode *trans_if_statement(Context *c, AstNode *block, IfStmt *stmt) {
+    // if (c) t
+    // if (c) t else e
+    AstNode *if_node = trans_create_node(c, NodeTypeIfBoolExpr);
+
+    // TODO: condition != 0
+    AstNode *condition_node = trans_expr(c, true, block, stmt->getCond(), TransRValue);
+    if (condition_node == nullptr)
+        return nullptr;
+    if_node->data.if_bool_expr.condition = condition_node;
+
+    if_node->data.if_bool_expr.then_block = trans_stmt(c, false, block, stmt->getThen(), TransRValue);
+    if (if_node->data.if_bool_expr.then_block == nullptr)
+        return nullptr;
+
+    if (stmt->getElse() != nullptr) {
+        if_node->data.if_bool_expr.else_node = trans_stmt(c, false, block, stmt->getElse(), TransRValue);
+        if (if_node->data.if_bool_expr.else_node == nullptr)
+            return nullptr;
+    }
+
+    return if_node;
+}
+
+static AstNode *trans_call_expr(Context *c, bool result_used, AstNode *block, CallExpr *stmt) {
+    AstNode *node = trans_create_node(c, NodeTypeFnCallExpr);
+    node->data.fn_call_expr.fn_ref_expr = trans_expr(c, true, block, stmt->getCallee(), TransRValue);
+    if (node->data.fn_call_expr.fn_ref_expr == nullptr)
+        return nullptr;
+
+    unsigned num_args = stmt->getNumArgs();
+    Expr **args = stmt->getArgs();
+    for (unsigned i = 0; i < num_args; i += 1) {
+        AstNode *arg_node = trans_expr(c, true, block, args[i], TransRValue);
+        if (arg_node == nullptr)
+            return nullptr;
+
+        node->data.fn_call_expr.params.append(arg_node);
+    }
+
+    return node;
+}
+
+static AstNode *trans_member_expr(Context *c, AstNode *block, MemberExpr *stmt) {
+    AstNode *container_node = trans_expr(c, true, block, stmt->getBase(), TransRValue);
+    if (container_node == nullptr)
+        return nullptr;
+
+    if (stmt->isArrow()) {
+        container_node = trans_create_node_unwrap_null(c, container_node);
+    }
+
+    const char *name = decl_name(stmt->getMemberDecl());
+
+    AstNode *node = trans_create_node_field_access_str(c, container_node, name);
+    return node;
+}
+
+static AstNode *trans_array_subscript_expr(Context *c, AstNode *block, ArraySubscriptExpr *stmt) {
+    AstNode *container_node = trans_expr(c, true, block, stmt->getBase(), TransRValue);
+    if (container_node == nullptr)
+        return nullptr;
+
+    AstNode *idx_node = trans_expr(c, true, block, stmt->getIdx(), TransRValue);
+    if (idx_node == nullptr)
+        return nullptr;
+
+
+    AstNode *node = trans_create_node(c, NodeTypeArrayAccessExpr);
+    node->data.array_access_expr.array_ref_expr = container_node;
+    node->data.array_access_expr.subscript = idx_node;
+    return node;
+}
+
+static AstNode *trans_c_style_cast_expr(Context *c, bool result_used, AstNode *block,
+        CStyleCastExpr *stmt, TransLRValue lrvalue)
+{
+    AstNode *sub_expr_node = trans_expr(c, result_used, block, stmt->getSubExpr(), lrvalue);
+    if (sub_expr_node == nullptr)
+        return nullptr;
+
+    return trans_c_cast(c, stmt->getLocStart(), stmt->getType(), sub_expr_node);
+}
+
+static AstNode *trans_unary_expr_or_type_trait_expr(Context *c, AstNode *block, UnaryExprOrTypeTraitExpr *stmt) {
+    AstNode *type_node = trans_qual_type(c, stmt->getTypeOfArgument(), stmt->getLocStart());
+    if (type_node == nullptr)
+        return nullptr;
+
+    AstNode *node = trans_create_node_builtin_fn_call_str(c, "sizeOf");
+    node->data.fn_call_expr.params.append(type_node);
+    return node;
+}
+
+static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *stmt, TransLRValue lrvalue) {
     Stmt::StmtClass sc = stmt->getStmtClass();
     switch (sc) {
         case Stmt::ReturnStmtClass:
@@ -1419,19 +1907,35 @@ static AstNode *trans_stmt(Context *c, AstNode *block, Stmt *stmt) {
         case Stmt::IntegerLiteralClass:
             return trans_integer_literal(c, (IntegerLiteral *)stmt);
         case Stmt::ConditionalOperatorClass:
-            return trans_conditional_operator(c, block, (ConditionalOperator *)stmt);
+            return trans_conditional_operator(c, result_used, block, (ConditionalOperator *)stmt);
         case Stmt::BinaryOperatorClass:
-            return trans_binary_operator(c, block, (BinaryOperator *)stmt);
+            return trans_binary_operator(c, result_used, block, (BinaryOperator *)stmt);
+        case Stmt::CompoundAssignOperatorClass:
+            return trans_compound_assign_operator(c, result_used, block, (CompoundAssignOperator *)stmt);
         case Stmt::ImplicitCastExprClass:
             return trans_implicit_cast_expr(c, block, (ImplicitCastExpr *)stmt);
         case Stmt::DeclRefExprClass:
-            return trans_decl_ref_expr(c, (DeclRefExpr *)stmt);
+            return trans_decl_ref_expr(c, (DeclRefExpr *)stmt, lrvalue);
         case Stmt::UnaryOperatorClass:
-            return trans_unary_operator(c, block, (UnaryOperator *)stmt);
+            return trans_unary_operator(c, result_used, block, (UnaryOperator *)stmt);
         case Stmt::DeclStmtClass:
             return trans_local_declaration(c, block, (DeclStmt *)stmt);
         case Stmt::WhileStmtClass:
             return trans_while_loop(c, block, (WhileStmt *)stmt);
+        case Stmt::IfStmtClass:
+            return trans_if_statement(c, block, (IfStmt *)stmt);
+        case Stmt::CallExprClass:
+            return trans_call_expr(c, result_used, block, (CallExpr *)stmt);
+        case Stmt::NullStmtClass:
+            return skip_add_to_block_node;
+        case Stmt::MemberExprClass:
+            return trans_member_expr(c, block, (MemberExpr *)stmt);
+        case Stmt::ArraySubscriptExprClass:
+            return trans_array_subscript_expr(c, block, (ArraySubscriptExpr *)stmt);
+        case Stmt::CStyleCastExprClass:
+            return trans_c_style_cast_expr(c, result_used, block, (CStyleCastExpr *)stmt, lrvalue);
+        case Stmt::UnaryExprOrTypeTraitExprClass:
+            return trans_unary_expr_or_type_trait_expr(c, block, (UnaryExprOrTypeTraitExpr *)stmt);
         case Stmt::CaseStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CaseStmtClass");
             return nullptr;
@@ -1492,9 +1996,6 @@ static AstNode *trans_stmt(Context *c, AstNode *block, Stmt *stmt) {
         case Stmt::ArrayInitLoopExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ArrayInitLoopExprClass");
             return nullptr;
-        case Stmt::ArraySubscriptExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ArraySubscriptExprClass");
-            return nullptr;
         case Stmt::ArrayTypeTraitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ArrayTypeTraitExprClass");
             return nullptr;
@@ -1503,9 +2004,6 @@ static AstNode *trans_stmt(Context *c, AstNode *block, Stmt *stmt) {
             return nullptr;
         case Stmt::AtomicExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C AtomicExprClass");
-            return nullptr;
-        case Stmt::CompoundAssignOperatorClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CompoundAssignOperatorClass");
             return nullptr;
         case Stmt::BlockExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C BlockExprClass");
@@ -1573,13 +2071,11 @@ static AstNode *trans_stmt(Context *c, AstNode *block, Stmt *stmt) {
         case Stmt::CXXUuidofExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXUuidofExprClass");
             return nullptr;
-        case Stmt::CallExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CallExprClass");
-            return nullptr;
         case Stmt::CUDAKernelCallExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CUDAKernelCallExprClass");
             return nullptr;
         case Stmt::CXXMemberCallExprClass:
+            (void)result_used;
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXMemberCallExprClass");
             return nullptr;
         case Stmt::CXXOperatorCallExprClass:
@@ -1587,9 +2083,6 @@ static AstNode *trans_stmt(Context *c, AstNode *block, Stmt *stmt) {
             return nullptr;
         case Stmt::UserDefinedLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C UserDefinedLiteralClass");
-            return nullptr;
-        case Stmt::CStyleCastExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CStyleCastExprClass");
             return nullptr;
         case Stmt::CXXFunctionalCastExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXFunctionalCastExprClass");
@@ -1681,9 +2174,6 @@ static AstNode *trans_stmt(Context *c, AstNode *block, Stmt *stmt) {
         case Stmt::MaterializeTemporaryExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C MaterializeTemporaryExprClass");
             return nullptr;
-        case Stmt::MemberExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C MemberExprClass");
-            return nullptr;
         case Stmt::NoInitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C NoInitExprClass");
             return nullptr;
@@ -1751,8 +2241,7 @@ static AstNode *trans_stmt(Context *c, AstNode *block, Stmt *stmt) {
             emit_warning(c, stmt->getLocStart(), "TODO handle C PackExpansionExprClass");
             return nullptr;
         case Stmt::ParenExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ParenExprClass");
-            return nullptr;
+            return trans_expr(c, result_used, block, ((ParenExpr*)stmt)->getSubExpr(), lrvalue);
         case Stmt::ParenListExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ParenListExprClass");
             return nullptr;
@@ -1786,9 +2275,6 @@ static AstNode *trans_stmt(Context *c, AstNode *block, Stmt *stmt) {
         case Stmt::TypoExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C TypoExprClass");
             return nullptr;
-        case Stmt::UnaryExprOrTypeTraitExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C UnaryExprOrTypeTraitExprClass");
-            return nullptr;
         case Stmt::VAArgExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C VAArgExprClass");
             return nullptr;
@@ -1798,9 +2284,6 @@ static AstNode *trans_stmt(Context *c, AstNode *block, Stmt *stmt) {
         case Stmt::GotoStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C GotoStmtClass");
             return nullptr;
-        case Stmt::IfStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C IfStmtClass");
-            return nullptr;
         case Stmt::IndirectGotoStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C IndirectGotoStmtClass");
             return nullptr;
@@ -1809,9 +2292,6 @@ static AstNode *trans_stmt(Context *c, AstNode *block, Stmt *stmt) {
             return nullptr;
         case Stmt::MSDependentExistsStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C MSDependentExistsStmtClass");
-            return nullptr;
-        case Stmt::NullStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C NullStmtClass");
             return nullptr;
         case Stmt::OMPAtomicDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPAtomicDirectiveClass");
@@ -2025,36 +2505,65 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
         AstNode *param_node = proto_node->data.fn_proto.params.at(i);
         const ParmVarDecl *param = fn_decl->getParamDecl(i);
         const char *name = decl_name(param);
-        if (strlen(name) == 0) {
-            Buf *proto_param_name = param_node->data.param_decl.name;
-            if (proto_param_name == nullptr) {
-                param_node->data.param_decl.name = buf_sprintf("arg%" ZIG_PRI_usize "", i);
-            } else {
-                param_node->data.param_decl.name = proto_param_name;
-            }
+        Buf *proto_param_name;
+        if (strlen(name) != 0) {
+            proto_param_name = buf_create_from_str(name);
         } else {
-            param_node->data.param_decl.name = buf_create_from_str(name);
+            proto_param_name = param_node->data.param_decl.name;
+            if (proto_param_name == nullptr) {
+                proto_param_name = buf_sprintf("arg%" ZIG_PRI_usize "", i);
+            }
         }
+        param_node->data.param_decl.name = proto_param_name;
     }
 
-    if (fn_decl->hasBody()) {
-        Stmt *body = fn_decl->getBody();
-
-        AstNode *fn_def_node = trans_create_node(c, NodeTypeFnDef);
-        fn_def_node->data.fn_def.fn_proto = proto_node;
-        fn_def_node->data.fn_def.body = trans_stmt(c, nullptr, body);
-        assert(fn_def_node->data.fn_def.body != skip_add_to_block_node);
-        if (fn_def_node->data.fn_def.body == nullptr) {
-            emit_warning(c, fn_decl->getLocation(), "unable to translate function");
-            return;
-        }
-
-        proto_node->data.fn_proto.fn_def_node = fn_def_node;
-        c->root->data.root.top_level_decls.append(fn_def_node);
+    if (!fn_decl->hasBody()) {
+        // just a prototype
+        c->root->data.root.top_level_decls.append(proto_node);
         return;
     }
 
-    c->root->data.root.top_level_decls.append(proto_node);
+    // actual function definition with body
+    c->ptr_params.clear();
+    Stmt *body = fn_decl->getBody();
+    AstNode *actual_body_node = trans_stmt(c, false, nullptr, body, TransRValue);
+    assert(actual_body_node != skip_add_to_block_node);
+    if (actual_body_node == nullptr) {
+        emit_warning(c, fn_decl->getLocation(), "unable to translate function");
+        return;
+    }
+
+    // it worked
+
+    assert(actual_body_node->type == NodeTypeBlock);
+    AstNode *body_node_with_param_inits = trans_create_node(c, NodeTypeBlock);
+
+    for (size_t i = 0; i < proto_node->data.fn_proto.params.length; i += 1) {
+        AstNode *param_node = proto_node->data.fn_proto.params.at(i);
+        Buf *good_name = param_node->data.param_decl.name;
+
+        if (c->ptr_params.maybe_get(good_name) != nullptr) {
+            // TODO: avoid name collisions
+            Buf *mangled_name = buf_sprintf("_arg_%s", buf_ptr(good_name));
+            param_node->data.param_decl.name = mangled_name;
+
+            // var c_name = _mangled_name;
+            AstNode *parameter_init = trans_create_node_var_decl_local(c, false, good_name, nullptr, trans_create_node_symbol(c, mangled_name));
+
+            body_node_with_param_inits->data.block.statements.append(parameter_init);
+        }
+    }
+
+    for (size_t i = 0; i < actual_body_node->data.block.statements.length; i += 1) {
+        body_node_with_param_inits->data.block.statements.append(actual_body_node->data.block.statements.at(i));
+    }
+
+    AstNode *fn_def_node = trans_create_node(c, NodeTypeFnDef);
+    fn_def_node->data.fn_def.fn_proto = proto_node;
+    fn_def_node->data.fn_def.body = body_node_with_param_inits;
+
+    proto_node->data.fn_proto.fn_def_node = fn_def_node;
+    c->root->data.root.top_level_decls.append(fn_def_node);
 }
 
 static AstNode *resolve_typdef_as_builtin(Context *c, const TypedefNameDecl *typedef_decl, const char *primitive_name) {
@@ -2190,9 +2699,14 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
 
             // in C each enum value is in the global namespace. so we put them there too.
             // at this point we can rely on the enum emitting successfully
-            AstNode *field_access_node = trans_create_node_field_access(c,
-                    trans_create_node_symbol(c, full_type_name), field_name);
-            add_global_var(c, enum_val_name, field_access_node);
+            if (is_anonymous) {
+                AstNode *lit_node = trans_create_node_unsigned(c, i);
+                add_global_var(c, enum_val_name, lit_node);
+            } else {
+                AstNode *field_access_node = trans_create_node_field_access(c,
+                        trans_create_node_symbol(c, full_type_name), field_name);
+                add_global_var(c, enum_val_name, field_access_node);
+            }
         }
 
         if (is_anonymous) {
@@ -2376,7 +2890,7 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
                     init_node = trans_create_node_apint(c, ap_value->getInt());
                     break;
                 case APValue::Uninitialized:
-                    init_node = trans_create_node_symbol_str(c, "undefined");
+                    init_node = trans_create_node(c, NodeTypeUndefinedLiteral);
                     break;
                 case APValue::Float:
                 case APValue::ComplexInt:
@@ -2393,16 +2907,16 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
                     return;
             }
         } else {
-            init_node = trans_create_node_symbol_str(c, "undefined");
+            init_node = trans_create_node(c, NodeTypeUndefinedLiteral);
         }
 
-        AstNode *var_node = trans_create_node_var_decl(c, is_const, name, var_type, init_node);
+        AstNode *var_node = trans_create_node_var_decl_global(c, is_const, name, var_type, init_node);
         c->root->data.root.top_level_decls.append(var_node);
         return;
     }
 
     if (is_extern) {
-        AstNode *var_node = trans_create_node_var_decl(c, is_const, name, var_type, nullptr);
+        AstNode *var_node = trans_create_node_var_decl_global(c, is_const, name, var_type, nullptr);
         var_node->data.variable_declaration.is_extern = true;
         c->root->data.root.top_level_decls.append(var_node);
         return;
@@ -2663,6 +3177,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     c->visib_mod = VisibModPub;
     c->decl_table.init(8);
     c->macro_table.init(8);
+    c->ptr_params.init(8);
     c->codegen = codegen;
     c->source_node = source_node;
 

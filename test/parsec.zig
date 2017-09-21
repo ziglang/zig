@@ -98,7 +98,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
     ,
         \\pub const BarB = enum_Bar.B;
     ,
-        \\pub extern fn func(a: ?&struct_Foo, b: ?&?&enum_Bar);
+        \\pub extern fn func(a: ?&struct_Foo, b: ?&(?&enum_Bar));
     ,
         \\pub const Foo = struct_Foo;
     ,
@@ -314,4 +314,298 @@ pub fn addCases(cases: &tests.ParseCContext) {
     ,
         \\pub const LUA_GLOBALSINDEX = -10002;
     );
+
+    cases.add("post increment",
+        \\unsigned foo1(unsigned a) {
+        \\    a++;
+        \\    return a;
+        \\}
+        \\int foo2(int a) {
+        \\    a++;
+        \\    return a;
+        \\}
+    ,
+        \\export fn foo1(_arg_a: c_uint) -> c_uint {
+        \\    var a = _arg_a;
+        \\    a +%= 1;
+        \\    return a;
+        \\}
+        \\export fn foo2(_arg_a: c_int) -> c_int {
+        \\    var a = _arg_a;
+        \\    a += 1;
+        \\    return a;
+        \\}
+    );
+
+    cases.add("shift right assign",
+        \\int log2(unsigned a) {
+        \\    int i = 0;
+        \\    while (a > 0) {
+        \\        a >>= 1;
+        \\    }
+        \\    return i;
+        \\}
+    ,
+        \\export fn log2(_arg_a: c_uint) -> c_int {
+        \\    var a = _arg_a;
+        \\    var i: c_int = 0;
+        \\    while (a > c_uint(0)) {
+        \\        a >>= @import("std").math.Log2Int(c_uint)(1);
+        \\    };
+        \\    return i;
+        \\}
+    );
+
+    cases.add("if statement",
+        \\int max(int a, int b) {
+        \\    if (a < b)
+        \\        return b;
+        \\
+        \\    if (a < b)
+        \\        return b;
+        \\    else
+        \\        return a;
+        \\}
+    ,
+        \\export fn max(a: c_int, b: c_int) -> c_int {
+        \\    if (a < b) return b;
+        \\    if (a < b) return b else return a;
+        \\}
+    );
+
+    cases.add("==, !=",
+        \\int max(int a, int b) {
+        \\    if (a == b)
+        \\        return a;
+        \\    if (a != b)
+        \\        return b;
+        \\    return a;
+        \\}
+    ,
+        \\export fn max(a: c_int, b: c_int) -> c_int {
+        \\    if (a == b) return a;
+        \\    if (a != b) return b;
+        \\    return a;
+        \\}
+    );
+
+    cases.add("add, sub, mul, div, rem",
+        \\int s(int a, int b) {
+        \\    int c;
+        \\    c = a + b;
+        \\    c = a - b;
+        \\    c = a * b;
+        \\    c = a / b;
+        \\    c = a % b;
+        \\}
+        \\unsigned u(unsigned a, unsigned b) {
+        \\    unsigned c;
+        \\    c = a + b;
+        \\    c = a - b;
+        \\    c = a * b;
+        \\    c = a / b;
+        \\    c = a % b;
+        \\}
+    ,
+        \\export fn s(a: c_int, b: c_int) -> c_int {
+        \\    var c: c_int;
+        \\    c = (a + b);
+        \\    c = (a - b);
+        \\    c = (a * b);
+        \\    c = @divTrunc(a, b);
+        \\    c = @rem(a, b);
+        \\}
+        \\export fn u(a: c_uint, b: c_uint) -> c_uint {
+        \\    var c: c_uint;
+        \\    c = (a +% b);
+        \\    c = (a -% b);
+        \\    c = (a *% b);
+        \\    c = (a / b);
+        \\    c = (a % b);
+        \\}
+    );
+
+    cases.add("bitwise binary operators",
+        \\int max(int a, int b) {
+        \\    return (a & b) ^ (a | b);
+        \\}
+    ,
+        \\export fn max(a: c_int, b: c_int) -> c_int {
+        \\    return (a & b) ^ (a | b);
+        \\}
+    );
+
+    cases.add("logical and, logical or",
+        \\int max(int a, int b) {
+        \\    if (a < b || a == b)
+        \\        return b;
+        \\    if (a >= b && a == b)
+        \\        return a;
+        \\    return a;
+        \\}
+    ,
+        \\export fn max(a: c_int, b: c_int) -> c_int {
+        \\    if ((a < b) or (a == b)) return b;
+        \\    if ((a >= b) and (a == b)) return a;
+        \\    return a;
+        \\}
+    );
+
+    cases.add("assign",
+        \\int max(int a) {
+        \\    int tmp;
+        \\    tmp = a;
+        \\    a = tmp;
+        \\}
+    ,
+        \\export fn max(_arg_a: c_int) -> c_int {
+        \\    var a = _arg_a;
+        \\    var tmp: c_int;
+        \\    tmp = a;
+        \\    a = tmp;
+        \\}
+    );
+
+    cases.add("chaining assign",
+        \\void max(int a) {
+        \\    int b, c;
+        \\    c = b = a;
+        \\}
+    ,
+        \\export fn max(a: c_int) {
+        \\    var b: c_int;
+        \\    var c: c_int;
+        \\    c = {
+        \\        const _tmp = a;
+        \\        b = _tmp;
+        \\        _tmp
+        \\    };
+        \\}
+    );
+
+    cases.add("shift right assign with a fixed size type",
+        \\#include <stdint.h>
+        \\int log2(uint32_t a) {
+        \\    int i = 0;
+        \\    while (a > 0) {
+        \\        a >>= 1;
+        \\    }
+        \\    return i;
+        \\}
+    ,
+        \\export fn log2(_arg_a: u32) -> c_int {
+        \\    var a = _arg_a;
+        \\    var i: c_int = 0;
+        \\    while (a > c_uint(0)) {
+        \\        a >>= u5(1);
+        \\    };
+        \\    return i;
+        \\}
+    );
+
+    cases.add("anonymous enum",
+        \\enum {
+        \\    One,
+        \\    Two,
+        \\};
+    ,
+        \\pub const One = 0;
+        \\pub const Two = 1;
+    );
+
+    cases.add("function call",
+        \\static void bar(void) { }
+        \\void foo(void) { bar(); }
+    ,
+        \\pub fn bar() {}
+        \\export fn foo() {
+        \\    bar();
+        \\}
+    );
+
+    cases.add("field access expression",
+        \\struct Foo {
+        \\    int field;
+        \\};
+        \\int read_field(struct Foo *foo) {
+        \\    return foo->field;
+        \\}
+    ,
+        \\pub const struct_Foo = extern struct {
+        \\    field: c_int,
+        \\};
+        \\export fn read_field(foo: ?&struct_Foo) -> c_int {
+        \\    return (??foo).field;
+        \\}
+    );
+
+    cases.add("null statements",
+        \\void foo(void) {
+        \\    ;;;;;
+        \\}
+    ,
+        \\export fn foo() {}
+    );
+
+    cases.add("undefined array global",
+        \\int array[100];
+    ,
+        \\pub var array: [100]c_int = undefined;
+    );
+
+    cases.add("array access",
+        \\int array[100];
+        \\int foo(int index) {
+        \\    return array[index];
+        \\}
+    ,
+        \\pub var array: [100]c_int = undefined;
+        \\export fn foo(index: c_int) -> c_int {
+        \\    return array[index];
+        \\}
+    );
+
+
+    cases.add("c style cast",
+        \\int float_to_int(float a) {
+        \\    return (int)a;
+        \\}
+    ,
+        \\export fn float_to_int(a: f32) -> c_int {
+        \\    return c_int(a);
+        \\}
+    );
+
+    cases.add("implicit cast to void *",
+        \\void *foo(unsigned short *x) {
+        \\    return x;
+        \\}
+    ,
+        \\export fn foo(x: ?&c_ushort) -> ?&c_void {
+        \\    return @ptrCast(?&c_void, x);
+        \\}
+    );
+
+    cases.add("sizeof",
+        \\#include <stddef.h>
+        \\size_t size_of(void) {
+        \\        return sizeof(int);
+        \\}
+    ,
+        \\export fn size_of() -> usize {
+        \\    return @sizeOf(c_int);
+        \\}
+    );
 }
+
+
+
+
+// TODO
+//float *ptrcast(int *a) {
+//    return (float *)a;
+//}
+// should translate to
+// fn ptrcast(a: ?&c_int) -> ?&f32 {
+//     return @ptrCast(?&f32, a);
+// }

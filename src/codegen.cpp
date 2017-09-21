@@ -5037,7 +5037,7 @@ void codegen_parsec(CodeGen *g, Buf *full_path) {
     ZigList<ErrorMsg *> errors = {0};
     int err = parse_h_file(import, &errors, buf_ptr(full_path), g, nullptr);
     if (err) {
-        fprintf(stderr, "unable to parse .h file: %s\n", err_str(err));
+        fprintf(stderr, "unable to parse C file: %s\n", err_str(err));
         exit(1);
     }
 

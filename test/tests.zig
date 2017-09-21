@@ -780,7 +780,7 @@ pub const ParseCContext = struct {
             });
         }
 
-        pub fn addExpectedError(self: &TestCase, text: []const u8) {
+        pub fn addExpectedLine(self: &TestCase, text: []const u8) {
             %%self.expected_lines.append(text);
         }
     };
@@ -905,7 +905,7 @@ pub const ParseCContext = struct {
         tc.addSourceFile("source.h", source);
         comptime var arg_i = 0;
         inline while (arg_i < expected_lines.len) : (arg_i += 1) {
-            tc.addExpectedError(expected_lines[arg_i]);
+            tc.addExpectedLine(expected_lines[arg_i]);
         }
         return tc;
     }
