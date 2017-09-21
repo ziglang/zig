@@ -319,7 +319,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\int log2(unsigned a) {
         \\    int i = 0;
         \\    while (a > 0) {
-        \\        a >>= 100;
+        \\        a >>= 1;
         \\        //i++;
         \\    }
         \\    return i;
@@ -329,10 +329,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\    var a = _arg_a;
         \\    var i: c_int = 0;
         \\    while (a > c_uint(0)) {
-        \\        {
-        \\            const _ref = &a;
-        \\            *_ref = c_uint(c_uint(*_ref) >> @import("std").math.Log2Int(c_uint)(100));
-        \\        };
+        \\        a >>= @import("std").math.Log2Int(c_uint)(1);
         \\    };
         \\    return i;
         \\}
