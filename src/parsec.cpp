@@ -1716,6 +1716,30 @@ static AstNode *trans_while_loop(Context *c, AstNode *block, WhileStmt *stmt) {
     return while_node;
 }
 
+static AstNode *trans_if_statement(Context *c, AstNode *block, IfStmt *stmt) {
+    // if (c) t
+    // if (c) t else e
+    AstNode *if_node = trans_create_node(c, NodeTypeIfBoolExpr);
+
+    // TODO: condition != 0
+    AstNode *condition_node = trans_expr(c, true, block, stmt->getCond(), TransRValue);
+    if (condition_node == nullptr)
+        return nullptr;
+    if_node->data.if_bool_expr.condition = condition_node;
+
+    if_node->data.if_bool_expr.then_block = trans_stmt(c, false, block, stmt->getThen(), TransRValue);
+    if (if_node->data.if_bool_expr.then_block == nullptr)
+        return nullptr;
+
+    if (stmt->getElse() != nullptr) {
+        if_node->data.if_bool_expr.else_node = trans_stmt(c, false, block, stmt->getElse(), TransRValue);
+        if (if_node->data.if_bool_expr.else_node == nullptr)
+            return nullptr;
+    }
+
+    return if_node;
+}
+
 static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *stmt, TransLRValue lrvalue) {
     Stmt::StmtClass sc = stmt->getStmtClass();
     switch (sc) {
@@ -1741,6 +1765,9 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
             return trans_local_declaration(c, block, (DeclStmt *)stmt);
         case Stmt::WhileStmtClass:
             return trans_while_loop(c, block, (WhileStmt *)stmt);
+        case Stmt::IfStmtClass:
+            return trans_if_statement(c, block, (IfStmt *)stmt);
+
         case Stmt::CaseStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CaseStmtClass");
             return nullptr;
@@ -2105,9 +2132,6 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
             return nullptr;
         case Stmt::GotoStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C GotoStmtClass");
-            return nullptr;
-        case Stmt::IfStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C IfStmtClass");
             return nullptr;
         case Stmt::IndirectGotoStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C IndirectGotoStmtClass");
