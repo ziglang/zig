@@ -548,4 +548,14 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
+
+    cases.add("c style cast",
+        \\int float_to_int(float a) {
+        \\    return (int)a;
+        \\}
+    ,
+        \\export fn float_to_int(a: f32) -> c_int {
+        \\    return c_int(a);
+        \\}
+    );
 }

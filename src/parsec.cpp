@@ -1837,6 +1837,16 @@ static AstNode *trans_array_subscript_expr(Context *c, AstNode *block, ArraySubs
     return node;
 }
 
+static AstNode *trans_c_style_cast_expr(Context *c, bool result_used, AstNode *block,
+        CStyleCastExpr *stmt, TransLRValue lrvalue)
+{
+    AstNode *sub_expr_node = trans_expr(c, result_used, block, stmt->getSubExpr(), lrvalue);
+    if (sub_expr_node == nullptr)
+        return nullptr;
+
+    return trans_c_cast(c, stmt->getLocStart(), stmt->getType(), sub_expr_node);
+}
+
 static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *stmt, TransLRValue lrvalue) {
     Stmt::StmtClass sc = stmt->getStmtClass();
     switch (sc) {
@@ -1872,6 +1882,8 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
             return trans_member_expr(c, block, (MemberExpr *)stmt);
         case Stmt::ArraySubscriptExprClass:
             return trans_array_subscript_expr(c, block, (ArraySubscriptExpr *)stmt);
+        case Stmt::CStyleCastExprClass:
+            return trans_c_style_cast_expr(c, result_used, block, (CStyleCastExpr *)stmt, lrvalue);
         case Stmt::CaseStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CaseStmtClass");
             return nullptr;
@@ -2019,9 +2031,6 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
             return nullptr;
         case Stmt::UserDefinedLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C UserDefinedLiteralClass");
-            return nullptr;
-        case Stmt::CStyleCastExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CStyleCastExprClass");
             return nullptr;
         case Stmt::CXXFunctionalCastExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXFunctionalCastExprClass");
