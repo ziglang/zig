@@ -353,4 +353,24 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\    return i;
         \\}
     );
+
+    cases.add("anonymous enum",
+        \\enum {
+        \\    One,
+        \\    Two,
+        \\};
+    ,
+        \\pub const One = 0;
+        \\pub const Two = 1;
+    );
+
+    cases.add("function call",
+        \\static void bar(void) { }
+        \\void foo(void) { bar(); }
+    ,
+        \\pub fn bar() {}
+        \\export fn foo() {
+        \\    bar();
+        \\}
+    );
 }
