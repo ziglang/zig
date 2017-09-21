@@ -987,59 +987,75 @@ static AstNode *trans_compound_assign_operator(Context *c, bool result_used, Ast
             return nullptr;
         case BO_ShrAssign: {
             BinOpType bin_op = BinOpTypeBitShiftRight;
-            // c: lhs >>= rhs;
-            // zig: {
-            // zig:     const _ref = &lhs;
-            // zig:     *_ref = result_type(operation_type(*_ref) >> u5(rhs));
-            // zig:     *_ref
-            // zig: };
-            // where u5 is the appropriate type
 
-            // TODO: avoid mess when we don't need the assignment value for chained assignments or anything.
-            AstNode *child_block = trans_create_node(c, NodeTypeBlock);
-
-            // const _ref = &lhs;
-            AstNode *lhs = trans_expr(c, true, child_block, stmt->getLHS(), TransLValue);
-            if (lhs == nullptr) return nullptr;
-            AstNode *addr_of_lhs = trans_create_node_addr_of(c, false, false, lhs);
-            // TODO: avoid name collisions with generated variable names
-            Buf* tmp_var_name = buf_create_from_str("_ref");
-            AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr, addr_of_lhs);
-            child_block->data.block.statements.append(tmp_var_decl);
-
-            // *_ref = result_type(operation_type(*_ref) >> u5(rhs));
-
-            AstNode *rhs = trans_expr(c, true, child_block, stmt->getRHS(), TransRValue);
-            if (rhs == nullptr) return nullptr;
             const SourceLocation &rhs_location = stmt->getRHS()->getLocStart();
             AstNode *rhs_type = qual_type_to_log2_int_ref(c, stmt->getComputationLHSType(), rhs_location);
 
-            AstNode *assign_statement = trans_create_node_bin_op(c,
-                trans_create_node_prefix_op(c, PrefixOpDereference,
-                    trans_create_node_symbol(c, tmp_var_name)),
-                BinOpTypeAssign,
-                trans_c_cast(c, rhs_location,
-                    stmt->getComputationResultType(),
-                    trans_create_node_bin_op(c,
-                        trans_c_cast(c, rhs_location,
-                            stmt->getComputationLHSType(),
-                            trans_create_node_prefix_op(c, PrefixOpDereference,
-                                trans_create_node_symbol(c, tmp_var_name))),
-                        bin_op,
-                        trans_create_node_fn_call_1(c,
-                            rhs_type,
-                            rhs))));
-            child_block->data.block.statements.append(assign_statement);
+            bool use_intermediate_casts = stmt->getComputationLHSType().getTypePtr() != stmt->getComputationResultType().getTypePtr();
+            if (!use_intermediate_casts && !result_used) {
+                // simple common case, where the C and Zig are identical:
+                // lhs >>= rh* s
+                AstNode *lhs = trans_expr(c, true, block, stmt->getLHS(), TransLValue);
+                if (lhs == nullptr) return nullptr;
 
-            if (result_used) {
-                // *_ref
-                child_block->data.block.statements.append(
+                AstNode *rhs = trans_expr(c, true, block, stmt->getRHS(), TransRValue);
+                if (rhs == nullptr) return nullptr;
+                AstNode *coerced_rhs = trans_create_node_fn_call_1(c, rhs_type, rhs);
+
+                return trans_create_node_bin_op(c, lhs, BinOpTypeAssignBitShiftRight, coerced_rhs);
+            } else {
+                // need more complexity. worst case, this looks like this:
+                // c:   lhs >>= rhs
+                // zig: {
+                // zig:     const _ref = &lhs;
+                // zig:     *_ref = result_type(operation_type(*_ref) >> u5(rhs));
+                // zig:     *_ref
+                // zig: }
+                // where u5 is the appropriate type
+
+                // TODO: avoid mess when we don't need the assignment value for chained assignments or anything.
+                AstNode *child_block = trans_create_node(c, NodeTypeBlock);
+
+                // const _ref = &lhs;
+                AstNode *lhs = trans_expr(c, true, child_block, stmt->getLHS(), TransLValue);
+                if (lhs == nullptr) return nullptr;
+                AstNode *addr_of_lhs = trans_create_node_addr_of(c, false, false, lhs);
+                // TODO: avoid name collisions with generated variable names
+                Buf* tmp_var_name = buf_create_from_str("_ref");
+                AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr, addr_of_lhs);
+                child_block->data.block.statements.append(tmp_var_decl);
+
+                // *_ref = result_type(operation_type(*_ref) >> u5(rhs));
+
+                AstNode *rhs = trans_expr(c, true, child_block, stmt->getRHS(), TransRValue);
+                if (rhs == nullptr) return nullptr;
+                AstNode *coerced_rhs = trans_create_node_fn_call_1(c, rhs_type, rhs);
+
+                AstNode *assign_statement = trans_create_node_bin_op(c,
                     trans_create_node_prefix_op(c, PrefixOpDereference,
-                        trans_create_node_symbol(c, tmp_var_name)));
-                child_block->data.block.last_statement_is_result_expression = true;
-            }
+                        trans_create_node_symbol(c, tmp_var_name)),
+                    BinOpTypeAssign,
+                    trans_c_cast(c, rhs_location,
+                        stmt->getComputationResultType(),
+                        trans_create_node_bin_op(c,
+                            trans_c_cast(c, rhs_location,
+                                stmt->getComputationLHSType(),
+                                trans_create_node_prefix_op(c, PrefixOpDereference,
+                                    trans_create_node_symbol(c, tmp_var_name))),
+                            bin_op,
+                            coerced_rhs)));
+                child_block->data.block.statements.append(assign_statement);
 
-            return child_block;
+                if (result_used) {
+                    // *_ref
+                    child_block->data.block.statements.append(
+                        trans_create_node_prefix_op(c, PrefixOpDereference,
+                            trans_create_node_symbol(c, tmp_var_name)));
+                    child_block->data.block.last_statement_is_result_expression = true;
+                }
+
+                return child_block;
+            }
         }
         case BO_AndAssign:
             emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_AndAssign");
