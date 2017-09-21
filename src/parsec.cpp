@@ -347,9 +347,60 @@ static AstNode* trans_c_cast(Context *c, const SourceLocation &source_location, 
     return trans_create_node_fn_call_1(c, trans_qual_type(c, qt, source_location), expr);
 }
 
+static uint32_t qual_type_int_bit_width(Context *c, const QualType &qt, const SourceLocation &source_loc) {
+    const Type *ty = qt.getTypePtr();
+    switch (ty->getTypeClass()) {
+        case Type::Builtin:
+            {
+                const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(ty);
+                switch (builtin_ty->getKind()) {
+                    case BuiltinType::Char_U:
+                    case BuiltinType::UChar:
+                    case BuiltinType::Char_S:
+                    case BuiltinType::SChar:
+                        return 8;
+                    case BuiltinType::UInt128:
+                    case BuiltinType::Int128:
+                        return 128;
+                    default:
+                        return 0;
+                }
+                zig_unreachable();
+            }
+        case Type::Typedef:
+            {
+                const TypedefType *typedef_ty = static_cast<const TypedefType*>(ty);
+                const TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
+                const char *type_name = decl_name(typedef_decl);
+                if (strcmp(type_name, "uint8_t") == 0 || strcmp(type_name, "int8_t") == 0) {
+                    return 8;
+                } else if (strcmp(type_name, "uint16_t") == 0 || strcmp(type_name, "int16_t") == 0) {
+                    return 16;
+                } else if (strcmp(type_name, "uint32_t") == 0 || strcmp(type_name, "int32_t") == 0) {
+                    return 32;
+                } else if (strcmp(type_name, "uint64_t") == 0 || strcmp(type_name, "int64_t") == 0) {
+                    return 64;
+                } else {
+                    return 0;
+                }
+            }
+        default:
+            return 0;
+    }
+    zig_unreachable();
+}
+
+
 static AstNode *qual_type_to_log2_int_ref(Context *c, const QualType &qt,
         const SourceLocation &source_loc)
 {
+    uint32_t int_bit_width = qual_type_int_bit_width(c, qt, source_loc);
+    if (int_bit_width != 0) {
+        // we can perform the log2 now.
+        uint64_t cast_bit_width = log2_u64(int_bit_width);
+        return trans_create_node_symbol(c, buf_sprintf("u%" ZIG_PRI_u64, cast_bit_width));
+    }
+
     AstNode *zig_type_node = trans_qual_type(c, qt, source_loc);
 
 //    @import("std").math.Log2Int(c_long);
