@@ -1228,11 +1228,21 @@ static AstNode *trans_implicit_cast_expr(Context *c, AstNode *block, ImplicitCas
                     return nullptr;
                 return target_node;
             }
+        case CK_BitCast:
+            {
+                AstNode *target_node = trans_expr(c, true, block, stmt->getSubExpr(), TransRValue);
+                if (target_node == nullptr)
+                    return nullptr;
+
+                AstNode *dest_type_node = trans_qual_type(c, stmt->getType(), stmt->getLocStart());
+
+                AstNode *node = trans_create_node_builtin_fn_call_str(c, "ptrCast");
+                node->data.fn_call_expr.params.append(dest_type_node);
+                node->data.fn_call_expr.params.append(target_node);
+                return node;
+            }
         case CK_Dependent:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_Dependent");
-            return nullptr;
-        case CK_BitCast:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_BitCast");
             return nullptr;
         case CK_LValueBitCast:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_LValueBitCast");

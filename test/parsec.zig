@@ -558,4 +558,26 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\    return c_int(a);
         \\}
     );
+
+    cases.add("implicit cast to void *",
+        \\void *foo(unsigned short *x) {
+        \\    return x;
+        \\}
+    ,
+        \\export fn foo(x: ?&c_ushort) -> ?&c_void {
+        \\    return @ptrCast(?&c_void, x);
+        \\}
+    );
 }
+
+
+
+
+// TODO
+//float *ptrcast(int *a) {
+//    return (float *)a;
+//}
+// should translate to
+// fn ptrcast(a: ?&c_int) -> ?&f32 {
+//     return @ptrCast(?&f32, a);
+// }
