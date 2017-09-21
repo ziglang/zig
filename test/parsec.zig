@@ -466,6 +466,23 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
+    cases.add("chaining assign",
+        \\void max(int a) {
+        \\    int b, c;
+        \\    c = b = a;
+        \\}
+    ,
+        \\export fn max(a: c_int) {
+        \\    var b: c_int;
+        \\    var c: c_int;
+        \\    c = {
+        \\        const _tmp = a;
+        \\        b = _tmp;
+        \\        _tmp;
+        \\    };
+        \\}
+    );
+
     cases.add("shift right assign with a fixed size type",
         \\#include <stdint.h>
         \\int log2(uint32_t a) {

@@ -942,19 +942,52 @@ static AstNode *trans_create_bin_op(Context *c, AstNode *block, Expr *lhs, BinOp
     return node;
 }
 
-static AstNode *trans_create_assign(Context *c, AstNode *block, Expr *lhs, Expr *rhs) {
-    AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
-    node->data.bin_op_expr.bin_op = BinOpTypeAssign;
+static AstNode *trans_create_assign(Context *c, bool result_used, AstNode *block, Expr *lhs, Expr *rhs) {
+    if (!result_used) {
+        // common case
+        AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
+        node->data.bin_op_expr.bin_op = BinOpTypeAssign;
 
-    node->data.bin_op_expr.op1 = trans_expr(c, true, block, lhs, TransLValue);
-    if (node->data.bin_op_expr.op1 == nullptr)
-        return nullptr;
+        node->data.bin_op_expr.op1 = trans_expr(c, true, block, lhs, TransLValue);
+        if (node->data.bin_op_expr.op1 == nullptr)
+            return nullptr;
 
-    node->data.bin_op_expr.op2 = trans_expr(c, true, block, rhs, TransRValue);
-    if (node->data.bin_op_expr.op2 == nullptr)
-        return nullptr;
+        node->data.bin_op_expr.op2 = trans_expr(c, true, block, rhs, TransRValue);
+        if (node->data.bin_op_expr.op2 == nullptr)
+            return nullptr;
 
-    return node;
+        return node;
+    } else {
+        // worst case
+        // c: lhs = rhs
+        // zig: {
+        // zig:     const _tmp = rhs;
+        // zig:     lhs = _tmp;
+        // zig:     _tmp
+        // zig: }
+
+        AstNode *child_block = trans_create_node(c, NodeTypeBlock);
+
+        // const _tmp = rhs;
+        AstNode *rhs_node = trans_expr(c, true, child_block, rhs, TransRValue);
+        if (rhs_node == nullptr) return nullptr;
+        // TODO: avoid name collisions with generated variable names
+        Buf* tmp_var_name = buf_create_from_str("_tmp");
+        AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr, rhs_node);
+        child_block->data.block.statements.append(tmp_var_decl);
+
+        // lhs = _tmp;
+        AstNode *lhs_node = trans_expr(c, true, child_block, lhs, TransLValue);
+        if (lhs_node == nullptr) return nullptr;
+        child_block->data.block.statements.append(
+            trans_create_node_bin_op(c, lhs_node, BinOpTypeAssign,
+                trans_create_node_symbol(c, tmp_var_name)));
+
+        // _tmp
+        child_block->data.block.statements.append(trans_create_node_symbol(c, tmp_var_name));
+
+        return child_block;
+    }
 }
 
 static AstNode *trans_binary_operator(Context *c, bool result_used, AstNode *block, BinaryOperator *stmt) {
@@ -1037,11 +1070,7 @@ static AstNode *trans_binary_operator(Context *c, bool result_used, AstNode *blo
             // TODO: int vs bool
             return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeBoolOr, stmt->getRHS());
         case BO_Assign:
-            if (result_used) {
-                emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Assign with result_used");
-                return nullptr;
-            }
-            return trans_create_assign(c, block, stmt->getLHS(), stmt->getRHS());
+            return trans_create_assign(c, result_used, block, stmt->getLHS(), stmt->getRHS());
         case BO_MulAssign:
             emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_MulAssign");
             return nullptr;
