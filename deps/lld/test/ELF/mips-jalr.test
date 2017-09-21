@@ -1,0 +1,52 @@
+# Check that lld ignores R_MIPS_JALR relocation for now.
+
+# RUN: yaml2obj %s -o %t.o
+# RUN: ld.lld %t.o -o %t.so -shared
+# RUN: llvm-objdump -d %t.so | FileCheck %s
+# RUN: llvm-readobj -relocations %t.so | FileCheck -check-prefix=REL %s
+
+# REQUIRES: mips
+
+# CHECK: 10000:   09 f8 20 03   jalr    $25
+
+# REL:      Relocations [
+# REL-NEXT: ]
+
+!ELF
+FileHeader:
+  Class:    ELFCLASS32
+  Data:     ELFDATA2LSB
+  Type:     ET_REL
+  Machine:  EM_MIPS
+  Flags:    [EF_MIPS_PIC, EF_MIPS_CPIC, EF_MIPS_ABI_O32, EF_MIPS_ARCH_32]
+
+Sections:
+  - Name:          .text
+    Type:          SHT_PROGBITS
+    Flags:         [ SHF_ALLOC, SHF_EXECINSTR ]
+    AddressAlign:  16
+    Content:       "09f82003"
+#                   ^-- jalr T1
+
+  - Name:          .rel.text
+    Type:          SHT_REL
+    Link:          .symtab
+    Info:          .text
+    Relocations:
+      - Offset:  0
+        Symbol:  T1
+        Type:    R_MIPS_JALR
+
+Symbols:
+  Local:
+    - Name:     T1
+      Type:     STT_FUNC
+      Section:  .text
+      Value:    0
+      Size:     4
+  Global:
+    - Name:     __start
+      Type:     STT_FUNC
+      Section:  .text
+      Value:    0
+      Size:     4

@@ -1,5 +1,4 @@
 const linux = @import("os/linux.zig");
-const errno = @import("os/errno.zig");
 const assert = @import("debug.zig").assert;
 const endian = @import("endian.zig");
 
@@ -21,10 +20,10 @@ const Connection = struct {
         const send_err = linux.getErrno(send_ret);
         switch (send_err) {
             0 => return send_ret,
-            errno.EINVAL => unreachable,
-            errno.EFAULT => unreachable,
-            errno.ECONNRESET => return error.ConnectionReset,
-            errno.EINTR => return error.SigInterrupt,
+            linux.EINVAL => unreachable,
+            linux.EFAULT => unreachable,
+            linux.ECONNRESET => return error.ConnectionReset,
+            linux.EINTR => return error.SigInterrupt,
             // TODO there are more possible errors
             else => return error.Unexpected,
         }
@@ -35,13 +34,13 @@ const Connection = struct {
         const recv_err = linux.getErrno(recv_ret);
         switch (recv_err) {
             0 => return buf[0..recv_ret],
-            errno.EINVAL => unreachable,
-            errno.EFAULT => unreachable,
-            errno.ENOTSOCK => return error.NotSocket,
-            errno.EINTR => return error.SigInterrupt,
-            errno.ENOMEM => return error.NoMem,
-            errno.ECONNREFUSED => return error.ConnectionRefused,
-            errno.EBADF => return error.BadFd,
+            linux.EINVAL => unreachable,
+            linux.EFAULT => unreachable,
+            linux.ENOTSOCK => return error.NotSocket,
+            linux.EINTR => return error.SigInterrupt,
+            linux.ENOMEM => return error.NoMem,
+            linux.ECONNREFUSED => return error.ConnectionRefused,
+            linux.EBADF => return error.BadFd,
             // TODO more error values
             else => return error.Unexpected,
         }
@@ -50,9 +49,9 @@ const Connection = struct {
     pub fn close(c: Connection) -> %void {
         switch (linux.getErrno(linux.close(c.socket_fd))) {
             0 => return,
-            errno.EBADF => unreachable,
-            errno.EINTR => return error.SigInterrupt,
-            errno.EIO => return error.Io,
+            linux.EBADF => unreachable,
+            linux.EINTR => return error.SigInterrupt,
+            linux.EIO => return error.Io,
             else => return error.Unexpected,
         }
     }
@@ -119,7 +118,7 @@ pub fn connectAddr(addr: &Address, port: u16) -> %Connection {
     const connect_err = linux.getErrno(connect_ret);
     if (connect_err > 0) {
         switch (connect_err) {
-            errno.ETIMEDOUT => return error.TimedOut,
+            linux.ETIMEDOUT => return error.TimedOut,
             else => {
                 // TODO figure out possible errors from connect()
                 return error.Unexpected;

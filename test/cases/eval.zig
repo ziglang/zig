@@ -342,3 +342,36 @@ test "const global shares pointer with other same one" {
 fn assertEqualPtrs(ptr1: &const u8, ptr2: &const u8) {
     assert(ptr1 == ptr2);
 }
+
+test "@setEvalBranchQuota" {
+    comptime {
+        // 1001 for the loop and then 1 more for the assert fn call
+        @setEvalBranchQuota(1002);
+        var i = 0;
+        var sum = 0;
+        while (i < 1001) : (i += 1) {
+            sum += i;
+        }
+        assert(sum == 500500);
+    }
+}
+
+// TODO test "float literal at compile time not lossy" {
+// TODO     assert(16777216.0 + 1.0 == 16777217.0);
+// TODO     assert(9007199254740992.0 + 1.0 == 9007199254740993.0);
+// TODO }
+
+test "f32 at compile time is lossy" {
+    assert(f32(1 << 24) + 1 == 1 << 24);
+}
+
+test "f64 at compile time is lossy" {
+    assert(f64(1 << 53) + 1 == 1 << 53);
+}
+
+test "f128 at compile time is lossy" {
+    assert(f128(10384593717069655257060992658440192.0) + 1 == 10384593717069655257060992658440192.0);
+}
+
+// TODO need a better implementation of bigfloat_init_bigint
+// assert(f128(1 << 113) == 10384593717069655257060992658440192);

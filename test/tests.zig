@@ -9,14 +9,39 @@ const io = std.io;
 const mem = std.mem;
 const fmt = std.fmt;
 const ArrayList = std.ArrayList;
-const Mode = @import("builtin").Mode;
+const builtin = @import("builtin");
+const Mode = builtin.Mode;
 
 const compare_output = @import("compare_output.zig");
 const build_examples = @import("build_examples.zig");
 const compile_errors = @import("compile_errors.zig");
 const assemble_and_link = @import("assemble_and_link.zig");
 const debug_safety = @import("debug_safety.zig");
-const parseh = @import("parseh.zig");
+const parsec = @import("parsec.zig");
+
+const TestTarget = struct {
+    os: builtin.Os,
+    arch: builtin.Arch,
+    environ: builtin.Environ,
+};
+
+const test_targets = []TestTarget {
+    TestTarget {
+        .os = builtin.Os.linux,
+        .arch = builtin.Arch.x86_64,
+        .environ = builtin.Environ.gnu,
+    },
+    TestTarget {
+        .os = builtin.Os.darwin,
+        .arch = builtin.Arch.x86_64,
+        .environ = builtin.Environ.unknown,
+    },
+    TestTarget {
+        .os = builtin.Os.windows,
+        .arch = builtin.Arch.x86_64,
+        .environ = builtin.Environ.msvc,
+    },
+};
 
 error TestFailed;
 
@@ -90,35 +115,62 @@ pub fn addAssembleAndLinkTests(b: &build.Builder, test_filter: ?[]const u8) -> &
     return cases.step;
 }
 
-pub fn addParseHTests(b: &build.Builder, test_filter: ?[]const u8) -> &build.Step {
-    const cases = %%b.allocator.create(ParseHContext);
-    *cases = ParseHContext {
+pub fn addParseCTests(b: &build.Builder, test_filter: ?[]const u8) -> &build.Step {
+    const cases = %%b.allocator.create(ParseCContext);
+    *cases = ParseCContext {
         .b = b,
-        .step = b.step("test-parseh", "Run the C header file parsing tests"),
+        .step = b.step("test-parsec", "Run the C header file parsing tests"),
         .test_index = 0,
         .test_filter = test_filter,
     };
 
-    parseh.addCases(cases);
+    parsec.addCases(cases);
 
     return cases.step;
 }
 
 pub fn addPkgTests(b: &build.Builder, test_filter: ?[]const u8, root_src: []const u8,
-    name:[] const u8, desc: []const u8) -> &build.Step
+    name:[] const u8, desc: []const u8, with_lldb: bool) -> &build.Step
 {
+    return addPkgTestsRaw(b, test_filter, root_src, name, desc, false, with_lldb);
+}
+
+pub fn addPkgTestsAlwaysLibc(b: &build.Builder, test_filter: ?[]const u8, root_src: []const u8,
+    name:[] const u8, desc: []const u8, with_lldb: bool) -> &build.Step
+{
+    return addPkgTestsRaw(b, test_filter, root_src, name, desc, true, with_lldb);
+}
+
+pub fn addPkgTestsRaw(b: &build.Builder, test_filter: ?[]const u8, root_src: []const u8,
+    name:[] const u8, desc: []const u8, always_link_libc: bool, with_lldb: bool) -> &build.Step
+{
+    const libc_bools = if (always_link_libc) []bool{true} else []bool{false, true};
     const step = b.step(b.fmt("test-{}", name), desc);
-    for ([]Mode{Mode.Debug, Mode.ReleaseFast}) |mode| {
-        for ([]bool{false, true}) |link_libc| {
-            const these_tests = b.addTest(root_src);
-            these_tests.setNamePrefix(b.fmt("{}-{}-{} ", name, @enumTagName(mode),
-                if (link_libc) "c" else "bare"));
-            these_tests.setFilter(test_filter);
-            these_tests.setBuildMode(mode);
-            if (link_libc) {
-                these_tests.linkSystemLibrary("c");
+    for (test_targets) |test_target| {
+        const is_native = (test_target.os == builtin.os and test_target.arch == builtin.arch);
+        for ([]Mode{Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast}) |mode| {
+            for (libc_bools) |link_libc| {
+                if (link_libc and !is_native) {
+                    // don't assume we have a cross-compiling libc set up
+                    continue;
+                }
+                const these_tests = b.addTest(root_src);
+                these_tests.setNamePrefix(b.fmt("{}-{}-{}-{}-{} ", name, @enumTagName(test_target.os),
+                    @enumTagName(test_target.arch), @enumTagName(mode), if (link_libc) "c" else "bare"));
+                these_tests.setFilter(test_filter);
+                these_tests.setBuildMode(mode);
+                if (!is_native) {
+                    these_tests.setTarget(test_target.arch, test_target.os, test_target.environ);
+                }
+                if (link_libc) {
+                    these_tests.linkSystemLibrary("c");
+                }
+                if (with_lldb) {
+                    these_tests.setExecCmd([]?[]const u8{
+                        "lldb", null, "-o", "run", "-o", "bt", "-o", "exit"});
+                }
+                step.dependOn(&these_tests.step);
             }
-            step.dependOn(&these_tests.step);
         }
     }
     return step;
@@ -190,7 +242,7 @@ pub const CompareOutputContext = struct {
             %%io.stderr.printf("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
 
             var child = os.ChildProcess.spawn(full_exe_path, [][]u8{}, null, &b.env_map,
-                StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, b.allocator) %% |err|
+                StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, null, b.allocator) %% |err|
             {
                 debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
             };
@@ -205,7 +257,7 @@ pub const CompareOutputContext = struct {
                 debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
             };
             switch (term) {
-                Term.Clean => |code| {
+                Term.Exited => |code| {
                     if (code != 0) {
                         %%io.stderr.printf("Process {} exited with error code {}\n", full_exe_path, code);
                         return error.TestFailed;
@@ -265,7 +317,7 @@ pub const CompareOutputContext = struct {
             %%io.stderr.printf("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
 
             var child = os.ChildProcess.spawn(full_exe_path, [][]u8{}, null, &b.env_map,
-                StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, b.allocator) %% |err|
+                StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, null, b.allocator) %% |err|
             {
                 debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
             };
@@ -276,7 +328,7 @@ pub const CompareOutputContext = struct {
 
             const debug_trap_signal: i32 = 5;
             switch (term) {
-                Term.Clean => |code| {
+                Term.Exited => |code| {
                     %%io.stderr.printf("\nProgram expected to hit debug trap (signal {}) " ++
                         "but exited with return code {}\n", debug_trap_signal, code);
                     return error.TestFailed;
@@ -370,7 +422,7 @@ pub const CompareOutputContext = struct {
                 self.step.dependOn(&run_and_cmp_output.step);
             },
             Special.None => {
-                for ([]Mode{Mode.Debug, Mode.ReleaseFast}) |mode| {
+                for ([]Mode{Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast}) |mode| {
                     const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "{} {} ({})",
                         "compare-output", case.name, @enumTagName(mode));
                     if (self.test_filter) |filter| {
@@ -487,7 +539,7 @@ pub const CompileErrorContext = struct {
             const obj_path = %%os.path.join(b.allocator, b.cache_root, "test.o");
 
             var zig_args = ArrayList([]const u8).init(b.allocator);
-            %%zig_args.append(if (self.case.is_exe) "build_exe" else "build_obj");
+            %%zig_args.append(if (self.case.is_exe) "build-exe" else "build-obj");
             %%zig_args.append(b.pathFromRoot(root_src));
 
             %%zig_args.append("--name");
@@ -509,7 +561,7 @@ pub const CompileErrorContext = struct {
             }
 
             var child = os.ChildProcess.spawn(b.zig_exe, zig_args.toSliceConst(), null, &b.env_map,
-                StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, b.allocator) %% |err|
+                StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, null, b.allocator) %% |err|
             {
                 debug.panic("Unable to spawn {}: {}\n", b.zig_exe, @errorName(err));
             };
@@ -524,7 +576,7 @@ pub const CompileErrorContext = struct {
                 debug.panic("Unable to spawn {}: {}\n", b.zig_exe, @errorName(err));
             };
             switch (term) {
-                Term.Clean => |code| {
+                Term.Exited => |code| {
                     if (code == 0) {
                         %%io.stderr.printf("Compilation incorrectly succeeded\n");
                         return error.TestFailed;
@@ -616,7 +668,7 @@ pub const CompileErrorContext = struct {
     pub fn addCase(self: &CompileErrorContext, case: &const TestCase) {
         const b = self.b;
 
-        for ([]Mode{Mode.Debug, Mode.ReleaseFast}) |mode| {
+        for ([]Mode{Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast}) |mode| {
             const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "compile-error {} ({})",
                 case.name, @enumTagName(mode));
             if (self.test_filter) |filter| {
@@ -682,7 +734,7 @@ pub const BuildExamplesContext = struct {
     pub fn addAllArgs(self: &BuildExamplesContext, root_src: []const u8, link_libc: bool) {
         const b = self.b;
 
-        for ([]Mode{Mode.Debug, Mode.ReleaseFast}) |mode| {
+        for ([]Mode{Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast}) |mode| {
             const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "build {} ({})",
                 root_src, @enumTagName(mode));
             if (self.test_filter) |filter| {
@@ -704,7 +756,7 @@ pub const BuildExamplesContext = struct {
     }
 };
 
-pub const ParseHContext = struct {
+pub const ParseCContext = struct {
     b: &build.Builder,
     step: &build.Step,
     test_index: usize,
@@ -728,23 +780,23 @@ pub const ParseHContext = struct {
             });
         }
 
-        pub fn addExpectedError(self: &TestCase, text: []const u8) {
+        pub fn addExpectedLine(self: &TestCase, text: []const u8) {
             %%self.expected_lines.append(text);
         }
     };
 
-    const ParseHCmpOutputStep = struct {
+    const ParseCCmpOutputStep = struct {
         step: build.Step,
-        context: &ParseHContext,
+        context: &ParseCContext,
         name: []const u8,
         test_index: usize,
         case: &const TestCase,
 
-        pub fn create(context: &ParseHContext, name: []const u8, case: &const TestCase) -> &ParseHCmpOutputStep {
+        pub fn create(context: &ParseCContext, name: []const u8, case: &const TestCase) -> &ParseCCmpOutputStep {
             const allocator = context.b.allocator;
-            const ptr = %%allocator.create(ParseHCmpOutputStep);
-            *ptr = ParseHCmpOutputStep {
-                .step = build.Step.init("ParseHCmpOutput", allocator, make),
+            const ptr = %%allocator.create(ParseCCmpOutputStep);
+            *ptr = ParseCCmpOutputStep {
+                .step = build.Step.init("ParseCCmpOutput", allocator, make),
                 .context = context,
                 .name = name,
                 .test_index = context.test_index,
@@ -755,13 +807,13 @@ pub const ParseHContext = struct {
         }
 
         fn make(step: &build.Step) -> %void {
-            const self = @fieldParentPtr(ParseHCmpOutputStep, "step", step);
+            const self = @fieldParentPtr(ParseCCmpOutputStep, "step", step);
             const b = self.context.b;
 
             const root_src = %%os.path.join(b.allocator, b.cache_root, self.case.sources.items[0].filename);
 
             var zig_args = ArrayList([]const u8).init(b.allocator);
-            %%zig_args.append("parseh");
+            %%zig_args.append("parsec");
             %%zig_args.append(b.pathFromRoot(root_src));
 
             %%io.stderr.printf("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
@@ -771,7 +823,7 @@ pub const ParseHContext = struct {
             }
 
             var child = os.ChildProcess.spawn(b.zig_exe, zig_args.toSliceConst(), null, &b.env_map,
-                StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, b.allocator) %% |err|
+                StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, null, b.allocator) %% |err|
             {
                 debug.panic("Unable to spawn {}: {}\n", b.zig_exe, @errorName(err));
             };
@@ -786,7 +838,7 @@ pub const ParseHContext = struct {
                 debug.panic("Unable to spawn {}: {}\n", b.zig_exe, @errorName(err));
             };
             switch (term) {
-                Term.Clean => |code| {
+                Term.Exited => |code| {
                     if (code != 0) {
                         %%io.stderr.printf("Compilation failed with exit code {}\n", code);
                         return error.TestFailed;
@@ -807,7 +859,7 @@ pub const ParseHContext = struct {
 
             if (stderr.len != 0 and !self.case.allow_warnings) {
                 %%io.stderr.printf(
-                    \\====== parseh emitted warnings: ============
+                    \\====== parsec emitted warnings: ============
                     \\{}
                     \\============================================
                     \\
@@ -840,7 +892,7 @@ pub const ParseHContext = struct {
         %%io.stderr.printf("\n");
     }
 
-    pub fn create(self: &ParseHContext, allow_warnings: bool, name: []const u8,
+    pub fn create(self: &ParseCContext, allow_warnings: bool, name: []const u8,
         source: []const u8, expected_lines: ...) -> &TestCase
     {
         const tc = %%self.b.allocator.create(TestCase);
@@ -853,37 +905,37 @@ pub const ParseHContext = struct {
         tc.addSourceFile("source.h", source);
         comptime var arg_i = 0;
         inline while (arg_i < expected_lines.len) : (arg_i += 1) {
-            tc.addExpectedError(expected_lines[arg_i]);
+            tc.addExpectedLine(expected_lines[arg_i]);
         }
         return tc;
     }
 
-    pub fn add(self: &ParseHContext, name: []const u8, source: []const u8, expected_lines: ...) {
+    pub fn add(self: &ParseCContext, name: []const u8, source: []const u8, expected_lines: ...) {
         const tc = self.create(false, name, source, expected_lines);
         self.addCase(tc);
     }
 
-    pub fn addAllowWarnings(self: &ParseHContext, name: []const u8, source: []const u8, expected_lines: ...) {
+    pub fn addAllowWarnings(self: &ParseCContext, name: []const u8, source: []const u8, expected_lines: ...) {
         const tc = self.create(true, name, source, expected_lines);
         self.addCase(tc);
     }
 
-    pub fn addCase(self: &ParseHContext, case: &const TestCase) {
+    pub fn addCase(self: &ParseCContext, case: &const TestCase) {
         const b = self.b;
 
-        const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "parseh {}", case.name);
+        const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "parsec {}", case.name);
         if (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null)
                 return;
         }
 
-        const parseh_and_cmp = ParseHCmpOutputStep.create(self, annotated_case_name, case);
-        self.step.dependOn(&parseh_and_cmp.step);
+        const parsec_and_cmp = ParseCCmpOutputStep.create(self, annotated_case_name, case);
+        self.step.dependOn(&parsec_and_cmp.step);
 
         for (case.sources.toSliceConst()) |src_file| {
             const expanded_src_path = %%os.path.join(b.allocator, b.cache_root, src_file.filename);
             const write_src = b.addWriteFile(expanded_src_path, src_file.source);
-            parseh_and_cmp.step.dependOn(&write_src.step);
+            parsec_and_cmp.step.dependOn(&write_src.step);
         }
     }
 };

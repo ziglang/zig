@@ -1,0 +1,53 @@
+# RUN: lld -flavor darwin -arch x86_64  %s -dylib -o %t %p/Inputs/x86_64/libSystem.yaml
+# RUN: llvm-nm -m -n %t | FileCheck %s
+#
+# Test that __mh_dylib_header symbol is available for dylibs
+#
+
+--- !mach-o
+arch:            x86_64
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    address:         0x0000000000000000
+    content:         [ 0x55, 0x48, 0x89, 0xE5, 0x31, 0xC0, 0x5D, 0xC3 ]
+  - segment:         __DATA
+    section:         __data
+    type:            S_REGULAR
+    attributes:      [  ]
+    alignment:       8
+    address:         0x0000000000000008
+    content:         [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
+    relocations:
+      - offset:          0x00000000
+        type:            X86_64_RELOC_UNSIGNED
+        length:          3
+        pc-rel:          false
+        extern:          true
+        symbol:          2
+global-symbols:
+  - name:            _d
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            2
+    value:           0x0000000000000008
+  - name:            _foo
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+undefined-symbols:
+  - name:            __mh_dylib_header
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+
+
+...
+
+# CHECK_NOT:	__mh_dylib_header
+# CHECK:      _foo

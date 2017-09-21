@@ -1,0 +1,30 @@
+# RUN: yaml2obj %s > %t.obj
+# RUN: llvm-as -o %t.lto.obj %S/Inputs/weak-external2.ll
+# RUN: lld-link /out:%t.exe /entry:g /subsystem:console %t.obj %t.lto.obj
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_AMD64
+  Characteristics: [  ]
+sections:
+  - Name:            '.text'
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       16
+    SectionData:     00
+symbols:
+  - Name:            'f'
+    Value:           0
+    SectionNumber:   0
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            'g'
+    Value:           0
+    SectionNumber:   0
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_WEAK_EXTERNAL
+    WeakExternal:
+      TagIndex:        0
+      Characteristics: IMAGE_WEAK_EXTERN_SEARCH_LIBRARY
+...

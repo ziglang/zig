@@ -11,8 +11,9 @@
 #include "ir.hpp"
 #include "ir_print.hpp"
 #include "os.hpp"
-#include "parseh.hpp"
+#include "parsec.hpp"
 #include "range_set.hpp"
+#include "softfloat.hpp"
 
 struct IrExecContext {
     ConstExprValue *mem_slot_list;
@@ -50,6 +51,7 @@ static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, Scope *sc
 static TypeTableEntry *ir_analyze_instruction(IrAnalyze *ira, IrInstruction *instruction);
 static IrInstruction *ir_implicit_cast(IrAnalyze *ira, IrInstruction *value, TypeTableEntry *expected_type);
 static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruction, IrInstruction *ptr);
+static ErrorMsg *exec_add_error_node(CodeGen *codegen, IrExecutable *exec, AstNode *source_node, Buf *msg);
 
 ConstExprValue *const_ptr_pointee(CodeGen *g, ConstExprValue *const_val) {
     assert(const_val->type->id == TypeTableEntryIdPointer);
@@ -469,6 +471,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionPtrCast *) {
     return IrInstructionIdPtrCast;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionBitCast *) {
+    return IrInstructionIdBitCast;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionWidenOrShorten *) {
     return IrInstructionIdWidenOrShorten;
 }
@@ -509,10 +515,6 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionCanImplicitCast 
     return IrInstructionIdCanImplicitCast;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionSetGlobalAlign *) {
-    return IrInstructionIdSetGlobalAlign;
-}
-
 static constexpr IrInstructionId ir_instruction_id(IrInstructionSetGlobalSection *) {
     return IrInstructionIdSetGlobalSection;
 }
@@ -543,6 +545,22 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionOffsetOf *) {
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionTypeId *) {
     return IrInstructionIdTypeId;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSetEvalBranchQuota *) {
+    return IrInstructionIdSetEvalBranchQuota;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionPtrTypeOf *) {
+    return IrInstructionIdPtrTypeOf;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionAlignCast *) {
+    return IrInstructionIdAlignCast;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionOpaqueType *) {
+    return IrInstructionIdOpaqueType;
 }
 
 template<typename T>
@@ -652,16 +670,23 @@ static IrInstruction *ir_build_const_uint(IrBuilder *irb, Scope *scope, AstNode 
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
     const_instruction->base.value.type = irb->codegen->builtin_types.entry_num_lit_int;
     const_instruction->base.value.special = ConstValSpecialStatic;
-    bignum_init_unsigned(&const_instruction->base.value.data.x_bignum, value);
+    bigint_init_unsigned(&const_instruction->base.value.data.x_bigint, value);
     return &const_instruction->base;
 }
 
-static IrInstruction *ir_build_const_bignum(IrBuilder *irb, Scope *scope, AstNode *source_node, BigNum *bignum) {
+static IrInstruction *ir_build_const_bigint(IrBuilder *irb, Scope *scope, AstNode *source_node, BigInt *bigint) {
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
-    const_instruction->base.value.type = (bignum->kind == BigNumKindInt) ?
-        irb->codegen->builtin_types.entry_num_lit_int : irb->codegen->builtin_types.entry_num_lit_float;
+    const_instruction->base.value.type = irb->codegen->builtin_types.entry_num_lit_int;
     const_instruction->base.value.special = ConstValSpecialStatic;
-    const_instruction->base.value.data.x_bignum = *bignum;
+    bigint_init_bigint(&const_instruction->base.value.data.x_bigint, bigint);
+    return &const_instruction->base;
+}
+
+static IrInstruction *ir_build_const_bigfloat(IrBuilder *irb, Scope *scope, AstNode *source_node, BigFloat *bigfloat) {
+    IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
+    const_instruction->base.value.type = irb->codegen->builtin_types.entry_num_lit_float;
+    const_instruction->base.value.special = ConstValSpecialStatic;
+    bigfloat_init_bigfloat(&const_instruction->base.value.data.x_bigfloat, bigfloat);
     return &const_instruction->base;
 }
 
@@ -676,7 +701,7 @@ static IrInstruction *ir_build_const_usize(IrBuilder *irb, Scope *scope, AstNode
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
     const_instruction->base.value.type = irb->codegen->builtin_types.entry_usize;
     const_instruction->base.value.special = ConstValSpecialStatic;
-    bignum_init_unsigned(&const_instruction->base.value.data.x_bignum, value);
+    bigint_init_unsigned(&const_instruction->base.value.data.x_bigint, value);
     return &const_instruction->base;
 }
 
@@ -968,6 +993,24 @@ static IrInstruction *ir_build_br_from(IrBuilder *irb, IrInstruction *old_instru
     return new_instruction;
 }
 
+static IrInstruction *ir_build_ptr_type_of(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *child_type, bool is_const, bool is_volatile, IrInstruction *align_value,
+        uint32_t bit_offset_start, uint32_t bit_offset_end)
+{
+    IrInstructionPtrTypeOf *ptr_type_of_instruction = ir_build_instruction<IrInstructionPtrTypeOf>(irb, scope, source_node);
+    ptr_type_of_instruction->align_value = align_value;
+    ptr_type_of_instruction->child_type = child_type;
+    ptr_type_of_instruction->is_const = is_const;
+    ptr_type_of_instruction->is_volatile = is_volatile;
+    ptr_type_of_instruction->bit_offset_start = bit_offset_start;
+    ptr_type_of_instruction->bit_offset_end = bit_offset_end;
+
+    ir_ref_instruction(align_value, irb->current_basic_block);
+    ir_ref_instruction(child_type, irb->current_basic_block);
+
+    return &ptr_type_of_instruction->base;
+}
+
 static IrInstruction *ir_build_un_op(IrBuilder *irb, Scope *scope, AstNode *source_node, IrUnOp op_id, IrInstruction *value) {
     IrInstructionUnOp *br_instruction = ir_build_instruction<IrInstructionUnOp>(irb, scope, source_node);
     br_instruction->op_id = op_id;
@@ -1092,26 +1135,28 @@ static IrInstruction *ir_build_store_ptr_from(IrBuilder *irb, IrInstruction *old
 }
 
 static IrInstruction *ir_build_var_decl(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        VariableTableEntry *var, IrInstruction *var_type, IrInstruction *init_value)
+        VariableTableEntry *var, IrInstruction *var_type, IrInstruction *align_value, IrInstruction *init_value)
 {
     IrInstructionDeclVar *decl_var_instruction = ir_build_instruction<IrInstructionDeclVar>(irb, scope, source_node);
     decl_var_instruction->base.value.special = ConstValSpecialStatic;
     decl_var_instruction->base.value.type = irb->codegen->builtin_types.entry_void;
     decl_var_instruction->var = var;
     decl_var_instruction->var_type = var_type;
+    decl_var_instruction->align_value = align_value;
     decl_var_instruction->init_value = init_value;
 
     if (var_type) ir_ref_instruction(var_type, irb->current_basic_block);
+    if (align_value) ir_ref_instruction(align_value, irb->current_basic_block);
     ir_ref_instruction(init_value, irb->current_basic_block);
 
     return &decl_var_instruction->base;
 }
 
 static IrInstruction *ir_build_var_decl_from(IrBuilder *irb, IrInstruction *old_instruction,
-        VariableTableEntry *var, IrInstruction *var_type, IrInstruction *init_value)
+        VariableTableEntry *var, IrInstruction *var_type, IrInstruction *align_value, IrInstruction *init_value)
 {
     IrInstruction *new_instruction = ir_build_var_decl(irb, old_instruction->scope,
-            old_instruction->source_node, var, var_type, init_value);
+            old_instruction->source_node, var, var_type, align_value, init_value);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
 }
@@ -1201,14 +1246,17 @@ static IrInstruction *ir_build_array_type(IrBuilder *irb, Scope *scope, AstNode 
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_slice_type(IrBuilder *irb, Scope *scope, AstNode *source_node, bool is_const,
-        IrInstruction *child_type)
+static IrInstruction *ir_build_slice_type(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *child_type, bool is_const, bool is_volatile, IrInstruction *align_value)
 {
     IrInstructionSliceType *instruction = ir_build_instruction<IrInstructionSliceType>(irb, scope, source_node);
     instruction->is_const = is_const;
+    instruction->is_volatile = is_volatile;
     instruction->child_type = child_type;
+    instruction->align_value = align_value;
 
     ir_ref_instruction(child_type, irb->current_basic_block);
+    if (align_value) ir_ref_instruction(align_value, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -1790,7 +1838,7 @@ static IrInstruction *ir_build_overflow_op_from(IrBuilder *irb, IrInstruction *o
     return new_instruction;
 }
 
-static IrInstruction *ir_build_alignof(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *type_value) {
+static IrInstruction *ir_build_align_of(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *type_value) {
     IrInstructionAlignOf *instruction = ir_build_instruction<IrInstructionAlignOf>(irb, scope, source_node);
     instruction->type_value = type_value;
 
@@ -1859,10 +1907,11 @@ static IrInstruction *ir_build_unwrap_err_payload_from(IrBuilder *irb, IrInstruc
 }
 
 static IrInstruction *ir_build_fn_proto(IrBuilder *irb, Scope *scope, AstNode *source_node,
-    IrInstruction **param_types, IrInstruction *return_type, bool is_var_args)
+    IrInstruction **param_types, IrInstruction *align_value, IrInstruction *return_type, bool is_var_args)
 {
     IrInstructionFnProto *instruction = ir_build_instruction<IrInstructionFnProto>(irb, scope, source_node);
     instruction->param_types = param_types;
+    instruction->align_value = align_value;
     instruction->return_type = return_type;
     instruction->is_var_args = is_var_args;
 
@@ -1872,6 +1921,7 @@ static IrInstruction *ir_build_fn_proto(IrBuilder *irb, Scope *scope, AstNode *s
     for (size_t i = 0; i < param_count; i += 1) {
         ir_ref_instruction(param_types[i], irb->current_basic_block);
     }
+    if (align_value != nullptr) ir_ref_instruction(align_value, irb->current_basic_block);
     ir_ref_instruction(return_type, irb->current_basic_block);
 
     return &instruction->base;
@@ -1918,6 +1968,20 @@ static IrInstruction *ir_build_ptr_cast(IrBuilder *irb, Scope *scope, AstNode *s
 
     if (dest_type) ir_ref_instruction(dest_type, irb->current_basic_block);
     ir_ref_instruction(ptr, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_bit_cast(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *dest_type, IrInstruction *value)
+{
+    IrInstructionBitCast *instruction = ir_build_instruction<IrInstructionBitCast>(
+            irb, scope, source_node);
+    instruction->dest_type = dest_type;
+    instruction->value = value;
+
+    if (dest_type) ir_ref_instruction(dest_type, irb->current_basic_block);
+    ir_ref_instruction(value, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -2054,19 +2118,6 @@ static IrInstruction *ir_build_can_implicit_cast(IrBuilder *irb, Scope *scope, A
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_set_global_align(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        Tld *tld, IrInstruction *value)
-{
-    IrInstructionSetGlobalAlign *instruction = ir_build_instruction<IrInstructionSetGlobalAlign>(
-            irb, scope, source_node);
-    instruction->tld = tld;
-    instruction->value = value;
-
-    ir_ref_instruction(value, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
 static IrInstruction *ir_build_set_global_section(IrBuilder *irb, Scope *scope, AstNode *source_node,
         Tld *tld, IrInstruction *value)
 {
@@ -2167,6 +2218,36 @@ static IrInstruction *ir_build_type_id(IrBuilder *irb, Scope *scope, AstNode *so
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_set_eval_branch_quota(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *new_quota)
+{
+    IrInstructionSetEvalBranchQuota *instruction = ir_build_instruction<IrInstructionSetEvalBranchQuota>(irb, scope, source_node);
+    instruction->new_quota = new_quota;
+
+    ir_ref_instruction(new_quota, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_align_cast(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *align_bytes, IrInstruction *target)
+{
+    IrInstructionAlignCast *instruction = ir_build_instruction<IrInstructionAlignCast>(irb, scope, source_node);
+    instruction->align_bytes = align_bytes;
+    instruction->target = target;
+
+    if (align_bytes) ir_ref_instruction(align_bytes, irb->current_basic_block);
+    ir_ref_instruction(target, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_opaque_type(IrBuilder *irb, Scope *scope, AstNode *source_node) {
+    IrInstructionOpaqueType *instruction = ir_build_instruction<IrInstructionOpaqueType>(irb, scope, source_node);
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_instruction_br_get_dep(IrInstructionBr *instruction, size_t index) {
     return nullptr;
 }
@@ -2223,11 +2304,20 @@ static IrInstruction *ir_instruction_binop_get_dep(IrInstructionBinOp *instructi
 }
 
 static IrInstruction *ir_instruction_declvar_get_dep(IrInstructionDeclVar *instruction, size_t index) {
-    switch (index) {
-        case 0: return instruction->init_value;
-        case 1: return instruction->var_type;
-        default: return nullptr;
+    if (index == 0) return instruction->init_value;
+    index -= 1;
+
+    if (instruction->align_value != nullptr) {
+        if (index == 0) return instruction->align_value;
+        index -= 1;
     }
+
+    if (instruction->var_type != nullptr) {
+        if (index == 0) return instruction->var_type;
+        index -= 1;
+    }
+
+    return nullptr;
 }
 
 static IrInstruction *ir_instruction_loadptr_get_dep(IrInstructionLoadPtr *instruction, size_t index) {
@@ -2677,6 +2767,10 @@ static IrInstruction *ir_instruction_fnproto_get_dep(IrInstructionFnProto *instr
     if (param_index < instruction->base.source_node->data.fn_proto.params.length) {
         return instruction->param_types[param_index];
     }
+    size_t next_index = param_index - instruction->base.source_node->data.fn_proto.params.length;
+    if (next_index == 0 && instruction->align_value != nullptr) {
+        return instruction->align_value;
+    }
     return nullptr;
 }
 
@@ -2699,6 +2793,16 @@ static IrInstruction *ir_instruction_ptrcast_get_dep(IrInstructionPtrCast *instr
 {
     switch (index) {
         case 0: return instruction->ptr;
+        case 1: return instruction->dest_type;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_bitcast_get_dep(IrInstructionBitCast *instruction,
+        size_t index)
+{
+    switch (index) {
+        case 0: return instruction->value;
         case 1: return instruction->dest_type;
         default: return nullptr;
     }
@@ -2783,13 +2887,6 @@ static IrInstruction *ir_instruction_canimplicitcast_get_dep(IrInstructionCanImp
     }
 }
 
-static IrInstruction *ir_instruction_setglobalalign_get_dep(IrInstructionSetGlobalAlign *instruction, size_t index) {
-    switch (index) {
-        case 0: return instruction->value;
-        default: return nullptr;
-    }
-}
-
 static IrInstruction *ir_instruction_setglobalsection_get_dep(IrInstructionSetGlobalSection *instruction, size_t index) {
     switch (index) {
         case 0: return instruction->value;
@@ -2844,6 +2941,33 @@ static IrInstruction *ir_instruction_typeid_get_dep(IrInstructionTypeId *instruc
         case 0: return instruction->type_value;
         default: return nullptr;
     }
+}
+
+static IrInstruction *ir_instruction_setevalbranchquota_get_dep(IrInstructionSetEvalBranchQuota *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->new_quota;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_ptrtypeof_get_dep(IrInstructionPtrTypeOf *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->align_value;
+        case 1: return instruction->child_type;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_aligncast_get_dep(IrInstructionAlignCast *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->target;
+        case 1: return instruction->align_bytes; // can be null
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_opaquetype_get_dep(IrInstructionOpaqueType *instruction, size_t index) {
+    return nullptr;
 }
 
 static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t index) {
@@ -3000,6 +3124,8 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_initenum_get_dep((IrInstructionInitEnum *) instruction, index);
         case IrInstructionIdPtrCast:
             return ir_instruction_ptrcast_get_dep((IrInstructionPtrCast *) instruction, index);
+        case IrInstructionIdBitCast:
+            return ir_instruction_bitcast_get_dep((IrInstructionBitCast *) instruction, index);
         case IrInstructionIdWidenOrShorten:
             return ir_instruction_widenorshorten_get_dep((IrInstructionWidenOrShorten *) instruction, index);
         case IrInstructionIdIntToPtr:
@@ -3020,8 +3146,6 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_typename_get_dep((IrInstructionTypeName *) instruction, index);
         case IrInstructionIdCanImplicitCast:
             return ir_instruction_canimplicitcast_get_dep((IrInstructionCanImplicitCast *) instruction, index);
-        case IrInstructionIdSetGlobalAlign:
-            return ir_instruction_setglobalalign_get_dep((IrInstructionSetGlobalAlign *) instruction, index);
         case IrInstructionIdSetGlobalSection:
             return ir_instruction_setglobalsection_get_dep((IrInstructionSetGlobalSection *) instruction, index);
         case IrInstructionIdSetGlobalLinkage:
@@ -3038,6 +3162,14 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_offsetof_get_dep((IrInstructionOffsetOf *) instruction, index);
         case IrInstructionIdTypeId:
             return ir_instruction_typeid_get_dep((IrInstructionTypeId *) instruction, index);
+        case IrInstructionIdSetEvalBranchQuota:
+            return ir_instruction_setevalbranchquota_get_dep((IrInstructionSetEvalBranchQuota *) instruction, index);
+        case IrInstructionIdPtrTypeOf:
+            return ir_instruction_ptrtypeof_get_dep((IrInstructionPtrTypeOf *) instruction, index);
+        case IrInstructionIdAlignCast:
+            return ir_instruction_aligncast_get_dep((IrInstructionAlignCast *) instruction, index);
+        case IrInstructionIdOpaqueType:
+            return ir_instruction_opaquetype_get_dep((IrInstructionOpaqueType *) instruction, index);
     }
     zig_unreachable();
 }
@@ -3588,11 +3720,9 @@ static IrInstruction *ir_gen_bin_op(IrBuilder *irb, Scope *scope, AstNode *node)
         case BinOpTypeAssignMinusWrap:
             return ir_gen_assign_op(irb, scope, node, IrBinOpSubWrap);
         case BinOpTypeAssignBitShiftLeft:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpBitShiftLeft);
-        case BinOpTypeAssignBitShiftLeftWrap:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpBitShiftLeftWrap);
+            return ir_gen_assign_op(irb, scope, node, IrBinOpBitShiftLeftLossy);
         case BinOpTypeAssignBitShiftRight:
-            return ir_gen_assign_op(irb, scope, node, IrBinOpBitShiftRight);
+            return ir_gen_assign_op(irb, scope, node, IrBinOpBitShiftRightLossy);
         case BinOpTypeAssignBitAnd:
             return ir_gen_assign_op(irb, scope, node, IrBinOpBinAnd);
         case BinOpTypeAssignBitXor:
@@ -3626,11 +3756,9 @@ static IrInstruction *ir_gen_bin_op(IrBuilder *irb, Scope *scope, AstNode *node)
         case BinOpTypeBinAnd:
             return ir_gen_bin_op_id(irb, scope, node, IrBinOpBinAnd);
         case BinOpTypeBitShiftLeft:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpBitShiftLeft);
-        case BinOpTypeBitShiftLeftWrap:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpBitShiftLeftWrap);
+            return ir_gen_bin_op_id(irb, scope, node, IrBinOpBitShiftLeftLossy);
         case BinOpTypeBitShiftRight:
-            return ir_gen_bin_op_id(irb, scope, node, IrBinOpBitShiftRight);
+            return ir_gen_bin_op_id(irb, scope, node, IrBinOpBitShiftRightLossy);
         case BinOpTypeAdd:
             return ir_gen_bin_op_id(irb, scope, node, IrBinOpAdd);
         case BinOpTypeAddWrap:
@@ -3657,15 +3785,21 @@ static IrInstruction *ir_gen_bin_op(IrBuilder *irb, Scope *scope, AstNode *node)
     zig_unreachable();
 }
 
-static IrInstruction *ir_gen_num_lit(IrBuilder *irb, Scope *scope, AstNode *node) {
-    assert(node->type == NodeTypeNumberLiteral);
+static IrInstruction *ir_gen_int_lit(IrBuilder *irb, Scope *scope, AstNode *node) {
+    assert(node->type == NodeTypeIntLiteral);
 
-    if (node->data.number_literal.overflow) {
-        add_node_error(irb->codegen, node, buf_sprintf("number literal too large to be represented in any type"));
+    return ir_build_const_bigint(irb, scope, node, node->data.int_literal.bigint);
+}
+
+static IrInstruction *ir_gen_float_lit(IrBuilder *irb, Scope *scope, AstNode *node) {
+    assert(node->type == NodeTypeFloatLiteral);
+
+    if (node->data.float_literal.overflow) {
+        add_node_error(irb->codegen, node, buf_sprintf("float literal out of range of any type"));
         return irb->codegen->invalid_instruction;
     }
 
-    return ir_build_const_bignum(irb, scope, node, node->data.number_literal.bignum);
+    return ir_build_const_bigfloat(irb, scope, node, node->data.float_literal.bigfloat);
 }
 
 static IrInstruction *ir_gen_char_lit(IrBuilder *irb, Scope *scope, AstNode *node) {
@@ -3824,8 +3958,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     builtin_fn->param_count, actual_param_count));
         return irb->codegen->invalid_instruction;
     }
-
-    builtin_fn->ref_count += 1;
 
     switch (builtin_fn->id) {
         case BuiltinFnIdInvalid:
@@ -4202,14 +4334,14 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
             return ir_build_return_address(irb, scope, node);
         case BuiltinFnIdFrameAddress:
             return ir_build_frame_address(irb, scope, node);
-        case BuiltinFnIdAlignof:
+        case BuiltinFnIdAlignOf:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
                 IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
                 if (arg0_value == irb->codegen->invalid_instruction)
                     return arg0_value;
 
-                return ir_build_alignof(irb, scope, node, arg0_value);
+                return ir_build_align_of(irb, scope, node, arg0_value);
             }
         case BuiltinFnIdAddWithOverflow:
             return ir_gen_overflow_op(irb, scope, node, IrOverflowOpAdd);
@@ -4242,7 +4374,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 return ir_build_can_implicit_cast(irb, scope, node, arg0_value, arg1_value);
             }
-        case BuiltinFnIdSetGlobalAlign:
         case BuiltinFnIdSetGlobalSection:
         case BuiltinFnIdSetGlobalLinkage:
             {
@@ -4268,9 +4399,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg1_value == irb->codegen->invalid_instruction)
                     return arg1_value;
 
-                if (builtin_fn->id == BuiltinFnIdSetGlobalAlign) {
-                    return ir_build_set_global_align(irb, scope, node, tld, arg1_value);
-                } else if (builtin_fn->id == BuiltinFnIdSetGlobalSection) {
+                if (builtin_fn->id == BuiltinFnIdSetGlobalSection) {
                     return ir_build_set_global_section(irb, scope, node, tld, arg1_value);
                 } else if (builtin_fn->id == BuiltinFnIdSetGlobalLinkage) {
                     return ir_build_set_global_linkage(irb, scope, node, tld, arg1_value);
@@ -4301,6 +4430,20 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 return ir_build_ptr_cast(irb, scope, node, arg0_value, arg1_value);
             }
+        case BuiltinFnIdBitCast:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                return ir_build_bit_cast(irb, scope, node, arg0_value, arg1_value);
+            }
         case BuiltinFnIdIntToPtr:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
@@ -4314,6 +4457,15 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 return ir_build_int_to_ptr(irb, scope, node, arg0_value, arg1_value);
+            }
+        case BuiltinFnIdPtrToInt:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                return ir_build_ptr_to_int(irb, scope, node, arg0_value);
             }
         case BuiltinFnIdEnumTagName:
             {
@@ -4391,6 +4543,59 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 return ir_build_type_id(irb, scope, node, arg0_value);
             }
+        case BuiltinFnIdShlExact:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                return ir_build_bin_op(irb, scope, node, IrBinOpBitShiftLeftExact, arg0_value, arg1_value, true);
+            }
+        case BuiltinFnIdShrExact:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                return ir_build_bin_op(irb, scope, node, IrBinOpBitShiftRightExact, arg0_value, arg1_value, true);
+            }
+        case BuiltinFnIdSetEvalBranchQuota:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                return ir_build_set_eval_branch_quota(irb, scope, node, arg0_value);
+            }
+        case BuiltinFnIdAlignCast:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                return ir_build_align_cast(irb, scope, node, arg0_value, arg1_value);
+            }
+        case BuiltinFnIdOpaqueType:
+            return ir_build_opaque_type(irb, scope, node);
     }
     zig_unreachable();
 }
@@ -4499,17 +4704,57 @@ static IrInstruction *ir_lval_wrap(IrBuilder *irb, Scope *scope, IrInstruction *
     return ir_build_ref(irb, scope, value->source_node, value, lval.is_const, lval.is_volatile);
 }
 
-static IrInstruction *ir_gen_address_of(IrBuilder *irb, Scope *scope, AstNode *node,
-        bool is_const, bool is_volatile, LVal lval)
-{
-    assert(node->type == NodeTypePrefixOpExpr);
-    AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
+static IrInstruction *ir_gen_address_of(IrBuilder *irb, Scope *scope, AstNode *node) {
+    assert(node->type == NodeTypeAddrOfExpr);
+    bool is_const = node->data.addr_of_expr.is_const;
+    bool is_volatile = node->data.addr_of_expr.is_volatile;
+    AstNode *expr_node = node->data.addr_of_expr.op_expr;
+    AstNode *align_expr = node->data.addr_of_expr.align_expr;
 
-    IrInstruction *value = ir_gen_node_extra(irb, expr_node, scope, make_lval_addr(is_const, is_volatile));
-    if (value == irb->codegen->invalid_instruction)
-        return value;
+    if (align_expr == nullptr) {
+        return ir_gen_node_extra(irb, expr_node, scope, make_lval_addr(is_const, is_volatile));
+    }
 
-    return ir_lval_wrap(irb, scope, value, lval);
+    IrInstruction *align_value = ir_gen_node(irb, align_expr, scope);
+    if (align_value == irb->codegen->invalid_instruction)
+        return align_value;
+
+    IrInstruction *child_type = ir_gen_node(irb, expr_node, scope);
+    if (child_type == irb->codegen->invalid_instruction)
+        return child_type;
+
+    uint32_t bit_offset_start = 0;
+    if (node->data.addr_of_expr.bit_offset_start != nullptr) {
+        if (!bigint_fits_in_bits(node->data.addr_of_expr.bit_offset_start, 32, false)) {
+            Buf *val_buf = buf_alloc();
+            bigint_append_buf(val_buf, node->data.addr_of_expr.bit_offset_start, 10);
+            exec_add_error_node(irb->codegen, irb->exec, node,
+                    buf_sprintf("value %s too large for u32 bit offset", buf_ptr(val_buf)));
+            return irb->codegen->invalid_instruction;
+        }
+        bit_offset_start = bigint_as_unsigned(node->data.addr_of_expr.bit_offset_start);
+    }
+
+    uint32_t bit_offset_end = 0;
+    if (node->data.addr_of_expr.bit_offset_end != nullptr) {
+        if (!bigint_fits_in_bits(node->data.addr_of_expr.bit_offset_end, 32, false)) {
+            Buf *val_buf = buf_alloc();
+            bigint_append_buf(val_buf, node->data.addr_of_expr.bit_offset_end, 10);
+            exec_add_error_node(irb->codegen, irb->exec, node,
+                    buf_sprintf("value %s too large for u32 bit offset", buf_ptr(val_buf)));
+            return irb->codegen->invalid_instruction;
+        }
+        bit_offset_end = bigint_as_unsigned(node->data.addr_of_expr.bit_offset_end);
+    }
+
+    if ((bit_offset_start != 0 || bit_offset_end != 0) && bit_offset_start >= bit_offset_end) {
+        exec_add_error_node(irb->codegen, irb->exec, node,
+                buf_sprintf("bit offset start must be less than bit offset end"));
+        return irb->codegen->invalid_instruction;
+    }
+
+    return ir_build_ptr_type_of(irb, scope, node, child_type, is_const, is_volatile,
+            align_value, bit_offset_start, bit_offset_end);
 }
 
 static IrInstruction *ir_gen_err_assert_ok(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval) {
@@ -4572,14 +4817,6 @@ static IrInstruction *ir_gen_prefix_op_expr(IrBuilder *irb, Scope *scope, AstNod
             return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpNegation), lval);
         case PrefixOpNegationWrap:
             return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpNegationWrap), lval);
-        case PrefixOpAddressOf:
-            return ir_gen_address_of(irb, scope, node, false, false, lval);
-        case PrefixOpConstAddressOf:
-            return ir_gen_address_of(irb, scope, node, true, false, lval);
-        case PrefixOpVolatileAddressOf:
-            return ir_gen_address_of(irb, scope, node, false, true, lval);
-        case PrefixOpConstVolatileAddressOf:
-            return ir_gen_address_of(irb, scope, node, true, true, lval);
         case PrefixOpDereference:
             return ir_gen_prefix_op_id_lval(irb, scope, node, IrUnOpDereference, lval);
         case PrefixOpMaybe:
@@ -4669,11 +4906,18 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
         return irb->codegen->invalid_instruction;
     }
 
+    IrInstruction *align_value = nullptr;
+    if (variable_declaration->align_expr != nullptr) {
+        align_value = ir_gen_node(irb, variable_declaration->align_expr, scope);
+        if (align_value == irb->codegen->invalid_instruction)
+            return align_value;
+    }
+
     IrInstruction *init_value = ir_gen_node(irb, variable_declaration->expr, scope);
     if (init_value == irb->codegen->invalid_instruction)
         return init_value;
 
-    IrInstruction *result = ir_build_var_decl(irb, scope, node, var, type_instruction, init_value);
+    IrInstruction *result = ir_build_var_decl(irb, scope, node, var, type_instruction, align_value, init_value);
     var->decl_instruction = result;
     return result;
 }
@@ -4730,7 +4974,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
                     err_val_ptr, false);
             IrInstruction *var_value = node->data.while_expr.var_is_ptr ?
                 var_ptr_value : ir_build_load_ptr(irb, payload_scope, symbol_node, var_ptr_value);
-            ir_build_var_decl(irb, payload_scope, symbol_node, payload_var, nullptr, var_value);
+            ir_build_var_decl(irb, payload_scope, symbol_node, payload_var, nullptr, nullptr, var_value);
         }
 
         ZigList<IrInstruction *> incoming_values = {0};
@@ -4769,7 +5013,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
                     true, false, false, is_comptime);
             Scope *err_scope = err_var->child_scope;
             IrInstruction *err_var_value = ir_build_unwrap_err_code(irb, err_scope, err_symbol_node, err_val_ptr);
-            ir_build_var_decl(irb, err_scope, symbol_node, err_var, nullptr, err_var_value);
+            ir_build_var_decl(irb, err_scope, symbol_node, err_var, nullptr, nullptr, err_var_value);
 
             else_result = ir_gen_node(irb, else_node, err_scope);
             if (else_result == irb->codegen->invalid_instruction)
@@ -4811,7 +5055,7 @@ static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *n
         IrInstruction *var_ptr_value = ir_build_unwrap_maybe(irb, child_scope, symbol_node, maybe_val_ptr, false);
         IrInstruction *var_value = node->data.while_expr.var_is_ptr ?
             var_ptr_value : ir_build_load_ptr(irb, child_scope, symbol_node, var_ptr_value);
-        ir_build_var_decl(irb, child_scope, symbol_node, payload_var, nullptr, var_value);
+        ir_build_var_decl(irb, child_scope, symbol_node, payload_var, nullptr, nullptr, var_value);
 
         ZigList<IrInstruction *> incoming_values = {0};
         ZigList<IrBasicBlock *> incoming_blocks = {0};
@@ -4962,7 +5206,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     Scope *child_scope = elem_var->child_scope;
 
     IrInstruction *undefined_value = ir_build_const_undefined(irb, child_scope, elem_node);
-    ir_build_var_decl(irb, child_scope, elem_node, elem_var, elem_var_type, undefined_value);
+    ir_build_var_decl(irb, child_scope, elem_node, elem_var, elem_var_type, nullptr, undefined_value);
     IrInstruction *elem_var_ptr = ir_build_var_ptr(irb, child_scope, node, elem_var, false, false);
 
     AstNode *index_var_source_node;
@@ -4980,7 +5224,7 @@ static IrInstruction *ir_gen_for_expr(IrBuilder *irb, Scope *parent_scope, AstNo
     IrInstruction *usize = ir_build_const_type(irb, child_scope, node, irb->codegen->builtin_types.entry_usize);
     IrInstruction *zero = ir_build_const_usize(irb, child_scope, node, 0);
     IrInstruction *one = ir_build_const_usize(irb, child_scope, node, 1);
-    ir_build_var_decl(irb, child_scope, index_var_source_node, index_var, usize, zero);
+    ir_build_var_decl(irb, child_scope, index_var_source_node, index_var, usize, nullptr, zero);
     IrInstruction *index_ptr = ir_build_var_ptr(irb, child_scope, node, index_var, false, false);
 
 
@@ -5101,10 +5345,20 @@ static IrInstruction *ir_gen_array_type(IrBuilder *irb, Scope *scope, AstNode *n
     AstNode *size_node = node->data.array_type.size;
     AstNode *child_type_node = node->data.array_type.child_type;
     bool is_const = node->data.array_type.is_const;
+    bool is_volatile = node->data.array_type.is_volatile;
+    AstNode *align_expr = node->data.array_type.align_expr;
 
     if (size_node) {
         if (is_const) {
             add_node_error(irb->codegen, node, buf_create_from_str("const qualifier invalid on array type"));
+            return irb->codegen->invalid_instruction;
+        }
+        if (is_volatile) {
+            add_node_error(irb->codegen, node, buf_create_from_str("volatile qualifier invalid on array type"));
+            return irb->codegen->invalid_instruction;
+        }
+        if (align_expr != nullptr) {
+            add_node_error(irb->codegen, node, buf_create_from_str("align qualifier invalid on array type"));
             return irb->codegen->invalid_instruction;
         }
 
@@ -5118,11 +5372,20 @@ static IrInstruction *ir_gen_array_type(IrBuilder *irb, Scope *scope, AstNode *n
 
         return ir_build_array_type(irb, scope, node, size_value, child_type);
     } else {
+        IrInstruction *align_value;
+        if (align_expr != nullptr) {
+            align_value = ir_gen_node(irb, align_expr, scope);
+            if (align_value == irb->codegen->invalid_instruction)
+                return align_value;
+        } else {
+            align_value = nullptr;
+        }
+
         IrInstruction *child_type = ir_gen_node(irb, child_type_node, scope);
         if (child_type == irb->codegen->invalid_instruction)
             return child_type;
 
-        return ir_build_slice_type(irb, scope, node, is_const, child_type);
+        return ir_build_slice_type(irb, scope, node, child_type, is_const, is_volatile, align_value);
     }
 }
 
@@ -5222,7 +5485,7 @@ static IrInstruction *ir_gen_test_expr(IrBuilder *irb, Scope *scope, AstNode *no
 
         IrInstruction *var_ptr_value = ir_build_unwrap_maybe(irb, scope, node, maybe_val_ptr, false);
         IrInstruction *var_value = var_is_ptr ? var_ptr_value : ir_build_load_ptr(irb, scope, node, var_ptr_value);
-        ir_build_var_decl(irb, scope, node, var, var_type, var_value);
+        ir_build_var_decl(irb, scope, node, var, var_type, nullptr, var_value);
         var_scope = var->child_scope;
     } else {
         var_scope = scope;
@@ -5299,7 +5562,7 @@ static IrInstruction *ir_gen_try_expr(IrBuilder *irb, Scope *scope, AstNode *nod
 
         IrInstruction *var_ptr_value = ir_build_unwrap_err_payload(irb, scope, node, err_val_ptr, false);
         IrInstruction *var_value = var_is_ptr ? var_ptr_value : ir_build_load_ptr(irb, scope, node, var_ptr_value);
-        ir_build_var_decl(irb, scope, node, var, var_type, var_value);
+        ir_build_var_decl(irb, scope, node, var, var_type, nullptr, var_value);
         var_scope = var->child_scope;
     } else {
         var_scope = scope;
@@ -5324,7 +5587,7 @@ static IrInstruction *ir_gen_try_expr(IrBuilder *irb, Scope *scope, AstNode *nod
                     err_symbol, is_const, is_const, is_shadowable, is_comptime);
 
             IrInstruction *var_value = ir_build_unwrap_err_code(irb, scope, node, err_val_ptr);
-            ir_build_var_decl(irb, scope, node, var, var_type, var_value);
+            ir_build_var_decl(irb, scope, node, var, var_type, nullptr, var_value);
             err_var_scope = var->child_scope;
         } else {
             err_var_scope = scope;
@@ -5378,7 +5641,7 @@ static bool ir_gen_switch_prong_expr(IrBuilder *irb, Scope *scope, AstNode *swit
             var_value = var_is_ptr ? target_value_ptr : ir_build_load_ptr(irb, scope, var_symbol_node, target_value_ptr);
         }
         IrInstruction *var_type = nullptr; // infer the type
-        ir_build_var_decl(irb, scope, var_symbol_node, var, var_type, var_value);
+        ir_build_var_decl(irb, scope, var_symbol_node, var, var_type, nullptr, var_value);
     } else {
         child_scope = scope;
     }
@@ -5759,7 +6022,7 @@ static IrInstruction *ir_gen_err_ok_or(IrBuilder *irb, Scope *parent_scope, AstN
             is_const, is_const, is_shadowable, is_comptime);
         err_scope = var->child_scope;
         IrInstruction *err_val = ir_build_unwrap_err_code(irb, err_scope, node, err_union_ptr);
-        ir_build_var_decl(irb, err_scope, var_node, var, var_type, err_val);
+        ir_build_var_decl(irb, err_scope, var_node, var, var_type, nullptr, err_val);
     } else {
         err_scope = parent_scope;
     }
@@ -5799,27 +6062,30 @@ static bool render_instance_name_recursive(CodeGen *codegen, Buf *name, Scope *o
     return true;
 }
 
+static Buf *get_anon_type_name(CodeGen *codegen, IrExecutable *exec, const char *kind_name, AstNode *source_node) {
+    if (exec->name) {
+        return exec->name;
+    } else {
+        FnTableEntry *fn_entry = exec_fn_entry(exec);
+        if (fn_entry) {
+            Buf *name = buf_alloc();
+            buf_append_buf(name, &fn_entry->symbol_name);
+            buf_appendf(name, "(");
+            render_instance_name_recursive(codegen, name, &fn_entry->fndef_scope->base, exec->begin_scope);
+            buf_appendf(name, ")");
+            return name;
+        } else {
+            return buf_sprintf("(anonymous %s at %s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ")", kind_name,
+                buf_ptr(source_node->owner->path), source_node->line + 1, source_node->column + 1);
+        }
+    }
+}
+
 static IrInstruction *ir_gen_container_decl(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeContainerDecl);
 
     ContainerKind kind = node->data.container_decl.kind;
-    Buf *name;
-    if (irb->exec->name) {
-        name = irb->exec->name;
-    } else {
-        FnTableEntry *fn_entry = exec_fn_entry(irb->exec);
-        if (fn_entry) {
-            name = buf_alloc();
-            buf_append_buf(name, &fn_entry->symbol_name);
-            buf_appendf(name, "(");
-            render_instance_name_recursive(irb->codegen, name, &fn_entry->fndef_scope->base, irb->exec->begin_scope);
-            buf_appendf(name, ")");
-        } else {
-            name = buf_sprintf("(anonymous %s at %s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ")", container_string(kind),
-                buf_ptr(node->owner->path), node->line + 1, node->column + 1);
-        }
-    }
-
+    Buf *name = get_anon_type_name(irb->codegen, irb->exec, container_string(kind), node);
 
     VisibMod visib_mod = VisibModPub;
     TldContainer *tld_container = allocate<TldContainer>(1);
@@ -5862,11 +6128,23 @@ static IrInstruction *ir_gen_fn_proto(IrBuilder *irb, Scope *parent_scope, AstNo
         param_types[i] = type_value;
     }
 
-    IrInstruction *return_type = ir_gen_node(irb, node->data.fn_proto.return_type, parent_scope);
-    if (return_type == irb->codegen->invalid_instruction)
-        return irb->codegen->invalid_instruction;
+    IrInstruction *align_value = nullptr;
+    if (node->data.fn_proto.align_expr != nullptr) {
+        align_value = ir_gen_node(irb, node->data.fn_proto.align_expr, parent_scope);
+        if (align_value == irb->codegen->invalid_instruction)
+            return irb->codegen->invalid_instruction;
+    }
 
-    return ir_build_fn_proto(irb, parent_scope, node, param_types, return_type, is_var_args);
+    IrInstruction *return_type;
+    if (node->data.fn_proto.return_type == nullptr) {
+        return_type = ir_build_const_type(irb, parent_scope, node, irb->codegen->builtin_types.entry_void);
+    } else {
+        return_type = ir_gen_node(irb, node->data.fn_proto.return_type, parent_scope);
+        if (return_type == irb->codegen->invalid_instruction)
+            return irb->codegen->invalid_instruction;
+    }
+
+    return ir_build_fn_proto(irb, parent_scope, node, param_types, align_value, return_type, is_var_args);
 }
 
 static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scope,
@@ -5889,8 +6167,10 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_gen_node_raw(irb, node->data.grouped_expr, scope, lval);
         case NodeTypeBinOpExpr:
             return ir_lval_wrap(irb, scope, ir_gen_bin_op(irb, scope, node), lval);
-        case NodeTypeNumberLiteral:
-            return ir_lval_wrap(irb, scope, ir_gen_num_lit(irb, scope, node), lval);
+        case NodeTypeIntLiteral:
+            return ir_lval_wrap(irb, scope, ir_gen_int_lit(irb, scope, node), lval);
+        case NodeTypeFloatLiteral:
+            return ir_lval_wrap(irb, scope, ir_gen_float_lit(irb, scope, node), lval);
         case NodeTypeCharLiteral:
             return ir_lval_wrap(irb, scope, ir_gen_char_lit(irb, scope, node), lval);
         case NodeTypeSymbol:
@@ -5901,6 +6181,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_if_bool_expr(irb, scope, node), lval);
         case NodeTypePrefixOpExpr:
             return ir_gen_prefix_op_expr(irb, scope, node, lval);
+        case NodeTypeAddrOfExpr:
+            return ir_lval_wrap(irb, scope, ir_gen_address_of(irb, scope, node), lval);
         case NodeTypeContainerInitExpr:
             return ir_lval_wrap(irb, scope, ir_gen_container_init_expr(irb, scope, node), lval);
         case NodeTypeVariableDeclaration:
@@ -6140,51 +6422,661 @@ static bool ir_emit_global_runtime_side_effect(IrAnalyze *ira, IrInstruction *so
     return true;
 }
 
-static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruction, TypeTableEntry *other_type) {
+static bool const_val_fits_in_num_lit(ConstExprValue *const_val, TypeTableEntry *num_lit_type) {
+    return ((num_lit_type->id == TypeTableEntryIdNumLitFloat &&
+        (const_val->type->id == TypeTableEntryIdFloat || const_val->type->id == TypeTableEntryIdNumLitFloat)) ||
+               (num_lit_type->id == TypeTableEntryIdNumLitInt &&
+        (const_val->type->id == TypeTableEntryIdInt || const_val->type->id == TypeTableEntryIdNumLitInt)));
+}
+
+static bool float_has_fraction(ConstExprValue *const_val) {
+    if (const_val->type->id == TypeTableEntryIdNumLitFloat) {
+        return bigfloat_has_fraction(&const_val->data.x_bigfloat);
+    } else if (const_val->type->id == TypeTableEntryIdFloat) {
+        switch (const_val->type->data.floating.bit_count) {
+            case 32:
+                return floorf(const_val->data.x_f32) != const_val->data.x_f32;
+            case 64:
+                return floor(const_val->data.x_f64) != const_val->data.x_f64;
+            case 128:
+                {
+                    float128_t floored;
+                    f128M_roundToInt(&const_val->data.x_f128, softfloat_round_minMag, false, &floored);
+                    return !f128M_eq(&floored, &const_val->data.x_f128);
+                }
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_append_buf(Buf *buf, ConstExprValue *const_val) {
+    if (const_val->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_append_buf(buf, &const_val->data.x_bigfloat);
+    } else if (const_val->type->id == TypeTableEntryIdFloat) {
+        switch (const_val->type->data.floating.bit_count) {
+            case 32:
+                buf_appendf(buf, "%f", const_val->data.x_f32);
+                break;
+            case 64:
+                buf_appendf(buf, "%f", const_val->data.x_f64);
+                break;
+            case 128:
+                {
+                    // TODO actual implementation
+                    const size_t extra_len = 100;
+                    size_t old_len = buf_len(buf);
+                    buf_resize(buf, old_len + extra_len);
+
+                    float64_t f64_value = f128M_to_f64(&const_val->data.x_f128);
+                    double double_value;
+                    memcpy(&double_value, &f64_value, sizeof(double));
+
+                    int len = snprintf(buf_ptr(buf) + old_len, extra_len, "%f", double_value);
+                    assert(len > 0);
+                    buf_resize(buf, old_len + len);
+                    break;
+                }
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_init_bigint(BigInt *bigint, ConstExprValue *const_val) {
+    if (const_val->type->id == TypeTableEntryIdNumLitFloat) {
+        bigint_init_bigfloat(bigint, &const_val->data.x_bigfloat);
+    } else if (const_val->type->id == TypeTableEntryIdFloat) {
+        switch (const_val->type->data.floating.bit_count) {
+            case 32:
+                if (const_val->data.x_f32 >= 0) {
+                    bigint_init_unsigned(bigint, (uint64_t)(const_val->data.x_f32));
+                } else {
+                    bigint_init_unsigned(bigint, (uint64_t)(-const_val->data.x_f32));
+                    bigint->is_negative = true;
+                }
+                break;
+            case 64:
+                if (const_val->data.x_f64 >= 0) {
+                    bigint_init_unsigned(bigint, (uint64_t)(const_val->data.x_f64));
+                } else {
+                    bigint_init_unsigned(bigint, (uint64_t)(-const_val->data.x_f64));
+                    bigint->is_negative = true;
+                }
+                break;
+            case 128:
+                {
+                    BigFloat tmp_float;
+                    bigfloat_init_128(&tmp_float, const_val->data.x_f128);
+                    bigint_init_bigfloat(bigint, &tmp_float);
+                }
+                break;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_init_bigfloat(ConstExprValue *dest_val, BigFloat *bigfloat) {
+    if (dest_val->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_init_bigfloat(&dest_val->data.x_bigfloat, bigfloat);
+    } else if (dest_val->type->id == TypeTableEntryIdFloat) {
+        switch (dest_val->type->data.floating.bit_count) {
+            case 32:
+                dest_val->data.x_f32 = bigfloat_to_f32(bigfloat);
+                break;
+            case 64:
+                dest_val->data.x_f64 = bigfloat_to_f64(bigfloat);
+                break;
+            case 128:
+                dest_val->data.x_f128 = bigfloat_to_f128(bigfloat);
+                break;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_init_f32(ConstExprValue *dest_val, float x) {
+    if (dest_val->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_init_32(&dest_val->data.x_bigfloat, x);
+    } else if (dest_val->type->id == TypeTableEntryIdFloat) {
+        switch (dest_val->type->data.floating.bit_count) {
+            case 32:
+                dest_val->data.x_f32 = x;
+                break;
+            case 64:
+                dest_val->data.x_f64 = x;
+                break;
+            case 128:
+                {
+                    float32_t x_f32;
+                    memcpy(&x_f32, &x, sizeof(float));
+                    f32_to_f128M(x_f32, &dest_val->data.x_f128);
+                    break;
+                }
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_init_f64(ConstExprValue *dest_val, double x) {
+    if (dest_val->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_init_64(&dest_val->data.x_bigfloat, x);
+    } else if (dest_val->type->id == TypeTableEntryIdFloat) {
+        switch (dest_val->type->data.floating.bit_count) {
+            case 32:
+                dest_val->data.x_f32 = x;
+                break;
+            case 64:
+                dest_val->data.x_f64 = x;
+                break;
+            case 128:
+                {
+                    float64_t x_f64;
+                    memcpy(&x_f64, &x, sizeof(double));
+                    f64_to_f128M(x_f64, &dest_val->data.x_f128);
+                    break;
+                }
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_init_f128(ConstExprValue *dest_val, float128_t x) {
+    if (dest_val->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_init_128(&dest_val->data.x_bigfloat, x);
+    } else if (dest_val->type->id == TypeTableEntryIdFloat) {
+        switch (dest_val->type->data.floating.bit_count) {
+            case 32:
+                {
+                    float32_t f32_val = f128M_to_f32(&x);
+                    memcpy(&dest_val->data.x_f32, &f32_val, sizeof(float));
+                    break;
+                }
+            case 64:
+                {
+                    float64_t f64_val = f128M_to_f64(&x);
+                    memcpy(&dest_val->data.x_f64, &f64_val, sizeof(double));
+                    break;
+                }
+            case 128:
+                {
+                    memcpy(&dest_val->data.x_f128, &x, sizeof(float128_t));
+                    break;
+                }
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_init_float(ConstExprValue *dest_val, ConstExprValue *src_val) {
+    if (src_val->type->id == TypeTableEntryIdNumLitFloat) {
+        float_init_bigfloat(dest_val, &src_val->data.x_bigfloat);
+    } else if (src_val->type->id == TypeTableEntryIdFloat) {
+        switch (src_val->type->data.floating.bit_count) {
+            case 32:
+                float_init_f32(dest_val, src_val->data.x_f32);
+                break;
+            case 64:
+                float_init_f64(dest_val, src_val->data.x_f64);
+                break;
+            case 128:
+                float_init_f128(dest_val, src_val->data.x_f128);
+                break;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static Cmp float_cmp(ConstExprValue *op1, ConstExprValue *op2) {
+    assert(op1->type == op2->type);
+    if (op1->type->id == TypeTableEntryIdNumLitFloat) {
+        return bigfloat_cmp(&op1->data.x_bigfloat, &op2->data.x_bigfloat);
+    } else if (op1->type->id == TypeTableEntryIdFloat) {
+        switch (op1->type->data.floating.bit_count) {
+            case 32:
+                if (op1->data.x_f32 > op2->data.x_f32) {
+                    return CmpGT;
+                } else if (op1->data.x_f32 < op2->data.x_f32) {
+                    return CmpLT;
+                } else {
+                    return CmpEQ;
+                }
+            case 64:
+                if (op1->data.x_f64 > op2->data.x_f64) {
+                    return CmpGT;
+                } else if (op1->data.x_f64 < op2->data.x_f64) {
+                    return CmpLT;
+                } else {
+                    return CmpEQ;
+                }
+            case 128:
+                if (f128M_lt(&op1->data.x_f128, &op2->data.x_f128)) {
+                    return CmpLT;
+                } else if (f128M_eq(&op1->data.x_f128, &op2->data.x_f128)) {
+                    return CmpEQ;
+                } else {
+                    return CmpGT;
+                }
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static Cmp float_cmp_zero(ConstExprValue *op) {
+    if (op->type->id == TypeTableEntryIdNumLitFloat) {
+        return bigfloat_cmp_zero(&op->data.x_bigfloat);
+    } else if (op->type->id == TypeTableEntryIdFloat) {
+        switch (op->type->data.floating.bit_count) {
+            case 32:
+                if (op->data.x_f32 < 0.0) {
+                    return CmpLT;
+                } else if (op->data.x_f32 > 0.0) {
+                    return CmpGT;
+                } else {
+                    return CmpEQ;
+                }
+            case 64:
+                if (op->data.x_f64 < 0.0) {
+                    return CmpLT;
+                } else if (op->data.x_f64 > 0.0) {
+                    return CmpGT;
+                } else {
+                    return CmpEQ;
+                }
+            case 128:
+                float128_t zero_float;
+                ui32_to_f128M(0, &zero_float);
+                if (f128M_lt(&op->data.x_f128, &zero_float)) {
+                    return CmpLT;
+                } else if (f128M_eq(&op->data.x_f128, &zero_float)) {
+                    return CmpEQ;
+                } else {
+                    return CmpGT;
+                }
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_add(ConstExprValue *out_val, ConstExprValue *op1, ConstExprValue *op2) {
+    assert(op1->type == op2->type);
+    out_val->type = op1->type;
+    if (op1->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_add(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
+    } else if (op1->type->id == TypeTableEntryIdFloat) {
+        switch (op1->type->data.floating.bit_count) {
+            case 32:
+                out_val->data.x_f32 =  op1->data.x_f32 + op2->data.x_f32;
+                return;
+            case 64:
+                out_val->data.x_f64 =  op1->data.x_f64 + op2->data.x_f64;
+                return;
+            case 128:
+                f128M_add(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_sub(ConstExprValue *out_val, ConstExprValue *op1, ConstExprValue *op2) {
+    assert(op1->type == op2->type);
+    out_val->type = op1->type;
+    if (op1->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_sub(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
+    } else if (op1->type->id == TypeTableEntryIdFloat) {
+        switch (op1->type->data.floating.bit_count) {
+            case 32:
+                out_val->data.x_f32 = op1->data.x_f32 - op2->data.x_f32;
+                return;
+            case 64:
+                out_val->data.x_f64 = op1->data.x_f64 - op2->data.x_f64;
+                return;
+            case 128:
+                f128M_sub(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_mul(ConstExprValue *out_val, ConstExprValue *op1, ConstExprValue *op2) {
+    assert(op1->type == op2->type);
+    out_val->type = op1->type;
+    if (op1->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_mul(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
+    } else if (op1->type->id == TypeTableEntryIdFloat) {
+        switch (op1->type->data.floating.bit_count) {
+            case 32:
+                out_val->data.x_f32 = op1->data.x_f32 * op2->data.x_f32;
+                return;
+            case 64:
+                out_val->data.x_f64 = op1->data.x_f64 * op2->data.x_f64;
+                return;
+            case 128:
+                f128M_mul(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_div(ConstExprValue *out_val, ConstExprValue *op1, ConstExprValue *op2) {
+    assert(op1->type == op2->type);
+    out_val->type = op1->type;
+    if (op1->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_div(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
+    } else if (op1->type->id == TypeTableEntryIdFloat) {
+        switch (op1->type->data.floating.bit_count) {
+            case 32:
+                out_val->data.x_f32 = op1->data.x_f32 / op2->data.x_f32;
+                return;
+            case 64:
+                out_val->data.x_f64 = op1->data.x_f64 / op2->data.x_f64;
+                return;
+            case 128:
+                f128M_div(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_div_trunc(ConstExprValue *out_val, ConstExprValue *op1, ConstExprValue *op2) {
+    assert(op1->type == op2->type);
+    out_val->type = op1->type;
+    if (op1->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_div_trunc(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
+    } else if (op1->type->id == TypeTableEntryIdFloat) {
+        switch (op1->type->data.floating.bit_count) {
+            case 32:
+                out_val->data.x_f32 = op1->data.x_f32 / op2->data.x_f32;
+                if (out_val->data.x_f32 >= 0.0) {
+                    out_val->data.x_f32 = floorf(out_val->data.x_f32);
+                } else {
+                    out_val->data.x_f32 = ceilf(out_val->data.x_f32);
+                }
+                return;
+            case 64:
+                out_val->data.x_f64 = op1->data.x_f64 / op2->data.x_f64;
+                if (out_val->data.x_f64 >= 0.0) {
+                    out_val->data.x_f64 = floor(out_val->data.x_f64);
+                } else {
+                    out_val->data.x_f64 = ceil(out_val->data.x_f64);
+                }
+                return;
+            case 128:
+                f128M_div(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
+                f128M_roundToInt(&out_val->data.x_f128, softfloat_round_minMag, false, &out_val->data.x_f128);
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_div_floor(ConstExprValue *out_val, ConstExprValue *op1, ConstExprValue *op2) {
+    assert(op1->type == op2->type);
+    out_val->type = op1->type;
+    if (op1->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_div_floor(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
+    } else if (op1->type->id == TypeTableEntryIdFloat) {
+        switch (op1->type->data.floating.bit_count) {
+            case 32:
+                out_val->data.x_f32 = floorf(op1->data.x_f32 / op2->data.x_f32);
+                return;
+            case 64:
+                out_val->data.x_f64 = floor(op1->data.x_f64 / op2->data.x_f64);
+                return;
+            case 128:
+                f128M_div(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
+                f128M_roundToInt(&out_val->data.x_f128, softfloat_round_min, false, &out_val->data.x_f128);
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_rem(ConstExprValue *out_val, ConstExprValue *op1, ConstExprValue *op2) {
+    assert(op1->type == op2->type);
+    out_val->type = op1->type;
+    if (op1->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_rem(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
+    } else if (op1->type->id == TypeTableEntryIdFloat) {
+        switch (op1->type->data.floating.bit_count) {
+            case 32:
+                out_val->data.x_f32 = fmodf(op1->data.x_f32, op2->data.x_f32);
+                return;
+            case 64:
+                out_val->data.x_f64 = fmod(op1->data.x_f64, op2->data.x_f64);
+                return;
+            case 128:
+                f128M_rem(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_mod(ConstExprValue *out_val, ConstExprValue *op1, ConstExprValue *op2) {
+    assert(op1->type == op2->type);
+    out_val->type = op1->type;
+    if (op1->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_mod(&out_val->data.x_bigfloat, &op1->data.x_bigfloat, &op2->data.x_bigfloat);
+    } else if (op1->type->id == TypeTableEntryIdFloat) {
+        switch (op1->type->data.floating.bit_count) {
+            case 32:
+                out_val->data.x_f32 = fmodf(fmodf(op1->data.x_f32, op2->data.x_f32) + op2->data.x_f32, op2->data.x_f32);
+                return;
+            case 64:
+                out_val->data.x_f64 = fmod(fmod(op1->data.x_f64, op2->data.x_f64) + op2->data.x_f64, op2->data.x_f64);
+                return;
+            case 128:
+                f128M_rem(&op1->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
+                f128M_add(&out_val->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
+                f128M_rem(&out_val->data.x_f128, &op2->data.x_f128, &out_val->data.x_f128);
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static void float_negate(ConstExprValue *out_val, ConstExprValue *op) {
+    out_val->type = op->type;
+    if (op->type->id == TypeTableEntryIdNumLitFloat) {
+        bigfloat_negate(&out_val->data.x_bigfloat, &op->data.x_bigfloat);
+    } else if (op->type->id == TypeTableEntryIdFloat) {
+        switch (op->type->data.floating.bit_count) {
+            case 32:
+                out_val->data.x_f32 = -op->data.x_f32;
+                return;
+            case 64:
+                out_val->data.x_f64 = -op->data.x_f64;
+                return;
+            case 128:
+                float128_t zero_f128;
+                ui32_to_f128M(0, &zero_f128);
+                f128M_sub(&zero_f128, &op->data.x_f128, &out_val->data.x_f128);
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+void float_write_ieee597(ConstExprValue *op, uint8_t *buf, bool is_big_endian) {
+    if (op->type->id == TypeTableEntryIdFloat) {
+        switch (op->type->data.floating.bit_count) {
+            case 32:
+                memcpy(buf, &op->data.x_f32, 4); // TODO wrong when compiler is big endian
+                return;
+            case 64:
+                memcpy(buf, &op->data.x_f64, 8); // TODO wrong when compiler is big endian
+                return;
+            case 128:
+                memcpy(buf, &op->data.x_f128, 16); // TODO wrong when compiler is big endian
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+void float_read_ieee597(ConstExprValue *val, uint8_t *buf, bool is_big_endian) {
+    if (val->type->id == TypeTableEntryIdFloat) {
+        switch (val->type->data.floating.bit_count) {
+            case 32:
+                memcpy(&val->data.x_f32, buf, 4); // TODO wrong when compiler is big endian
+                return;
+            case 64:
+                memcpy(&val->data.x_f64, buf, 8); // TODO wrong when compiler is big endian
+                return;
+            case 128:
+                memcpy(&val->data.x_f128, buf, 16); // TODO wrong when compiler is big endian
+                return;
+            default:
+                zig_unreachable();
+        }
+    } else {
+        zig_unreachable();
+    }
+}
+
+static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruction, TypeTableEntry *other_type,
+        bool explicit_cast)
+{
     if (type_is_invalid(other_type)) {
         return false;
     }
 
     ConstExprValue *const_val = &instruction->value;
     assert(const_val->special != ConstValSpecialRuntime);
+
+    bool const_val_is_int = (const_val->type->id == TypeTableEntryIdInt ||
+            const_val->type->id == TypeTableEntryIdNumLitInt);
+    bool const_val_is_float = (const_val->type->id == TypeTableEntryIdFloat ||
+            const_val->type->id == TypeTableEntryIdNumLitFloat);
     if (other_type->id == TypeTableEntryIdFloat) {
         return true;
-    } else if (other_type->id == TypeTableEntryIdInt &&
-               const_val->data.x_bignum.kind == BigNumKindInt)
-    {
-        if (bignum_fits_in_bits(&const_val->data.x_bignum, other_type->data.integral.bit_count,
+    } else if (other_type->id == TypeTableEntryIdInt && const_val_is_int) {
+        if (bigint_fits_in_bits(&const_val->data.x_bigint, other_type->data.integral.bit_count,
                     other_type->data.integral.is_signed))
         {
             return true;
         }
-    } else if ((other_type->id == TypeTableEntryIdNumLitFloat && const_val->data.x_bignum.kind == BigNumKindFloat) ||
-               (other_type->id == TypeTableEntryIdNumLitInt   && const_val->data.x_bignum.kind == BigNumKindInt  ))
-    {
+    } else if (const_val_fits_in_num_lit(const_val, other_type)) {
         return true;
     } else if (other_type->id == TypeTableEntryIdMaybe) {
         TypeTableEntry *child_type = other_type->data.maybe.child_type;
-        if ((child_type->id == TypeTableEntryIdNumLitFloat && const_val->data.x_bignum.kind == BigNumKindFloat) ||
-            (child_type->id == TypeTableEntryIdNumLitInt   && const_val->data.x_bignum.kind == BigNumKindInt  ))
-        {
+        if (const_val_fits_in_num_lit(const_val, child_type)) {
             return true;
-        } else if (child_type->id == TypeTableEntryIdInt && const_val->data.x_bignum.kind == BigNumKindInt) {
-            if (bignum_fits_in_bits(&const_val->data.x_bignum,
+        } else if (child_type->id == TypeTableEntryIdInt && const_val_is_int) {
+            if (bigint_fits_in_bits(&const_val->data.x_bigint,
                         child_type->data.integral.bit_count,
                         child_type->data.integral.is_signed))
             {
                 return true;
             }
-        } else if (child_type->id == TypeTableEntryIdFloat && const_val->data.x_bignum.kind == BigNumKindFloat) {
+        } else if (child_type->id == TypeTableEntryIdFloat && const_val_is_float) {
             return true;
         }
     }
+    if (explicit_cast && (other_type->id == TypeTableEntryIdInt || other_type->id == TypeTableEntryIdNumLitInt) &&
+        const_val_is_float)
+    {
+        if (float_has_fraction(const_val)) {
+            Buf *val_buf = buf_alloc();
+            float_append_buf(val_buf, const_val);
 
-    const char *num_lit_str = (const_val->data.x_bignum.kind == BigNumKindFloat) ? "float" : "integer";
+            ir_add_error(ira, instruction,
+                buf_sprintf("fractional component prevents float value %s from being casted to type '%s'",
+                    buf_ptr(val_buf),
+                    buf_ptr(&other_type->name)));
+            return false;
+        } else {
+            if (other_type->id == TypeTableEntryIdNumLitInt) {
+                return true;
+            } else {
+                BigInt bigint;
+                float_init_bigint(&bigint, const_val);
+                if (bigint_fits_in_bits(&bigint, other_type->data.integral.bit_count,
+                    other_type->data.integral.is_signed))
+                {
+                    return true;
+                }
+            }
+        }
+    }
+
+    const char *num_lit_str;
+    Buf *val_buf = buf_alloc();
+    if (const_val_is_float) {
+        num_lit_str = "float";
+        float_append_buf(val_buf, const_val);
+    } else {
+        num_lit_str = "integer";
+        bigint_append_buf(val_buf, &const_val->data.x_bigint, 10);
+    }
 
     ir_add_error(ira, instruction,
         buf_sprintf("%s value %s cannot be implicitly casted to type '%s'",
             num_lit_str,
-            buf_ptr(bignum_to_buf(&const_val->data.x_bignum)),
+            buf_ptr(val_buf),
             buf_ptr(&other_type->name)));
     return false;
 }
@@ -6352,12 +7244,12 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
         if (expected_type->id == TypeTableEntryIdPointer &&
             expected_type->data.pointer.is_const)
         {
-            if (ir_num_lit_fits_in_other_type(ira, value, expected_type->data.pointer.child_type)) {
+            if (ir_num_lit_fits_in_other_type(ira, value, expected_type->data.pointer.child_type, false)) {
                 return ImplicitCastMatchResultYes;
             } else {
                 return ImplicitCastMatchResultReportedError;
             }
-        } else if (ir_num_lit_fits_in_other_type(ira, value, expected_type)) {
+        } else if (ir_num_lit_fits_in_other_type(ira, value, expected_type, false)) {
             return ImplicitCastMatchResultYes;
         } else {
             return ImplicitCastMatchResultReportedError;
@@ -6416,6 +7308,9 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             prev_inst = cur_inst;
             continue;
         } else if (cur_type->id == TypeTableEntryIdPureError) {
+            if (prev_type->id == TypeTableEntryIdArray) {
+                convert_to_const_slice = true;
+            }
             any_are_pure_error = true;
             continue;
         } else if (cur_type->id == TypeTableEntryIdNullLit) {
@@ -6466,7 +7361,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         } else if (prev_type->id == TypeTableEntryIdNumLitInt ||
                     prev_type->id == TypeTableEntryIdNumLitFloat)
         {
-            if (ir_num_lit_fits_in_other_type(ira, prev_inst, cur_type)) {
+            if (ir_num_lit_fits_in_other_type(ira, prev_inst, cur_type, false)) {
                 prev_inst = cur_inst;
                 continue;
             } else {
@@ -6475,7 +7370,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         } else if (cur_type->id == TypeTableEntryIdNumLitInt ||
                    cur_type->id == TypeTableEntryIdNumLitFloat)
         {
-            if (ir_num_lit_fits_in_other_type(ira, cur_inst, prev_type)) {
+            if (ir_num_lit_fits_in_other_type(ira, cur_inst, prev_type, false)) {
                 continue;
             } else {
                 return ira->codegen->builtin_types.entry_invalid;
@@ -6524,7 +7419,13 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
     }
     if (convert_to_const_slice) {
         assert(prev_inst->value.type->id == TypeTableEntryIdArray);
-        return get_slice_type(ira->codegen, prev_inst->value.type->data.array.child_type, true);
+        TypeTableEntry *ptr_type = get_pointer_to_type(ira->codegen, prev_inst->value.type->data.array.child_type, true);
+        TypeTableEntry *slice_type = get_slice_type(ira->codegen, ptr_type);
+        if (any_are_pure_error) {
+            return get_error_type(ira->codegen, slice_type);
+        } else {
+            return slice_type;
+        }
     } else if (any_are_pure_error && prev_inst->value.type->id != TypeTableEntryIdPureError) {
         if (prev_inst->value.type->id == TypeTableEntryIdNumLitInt ||
             prev_inst->value.type->id == TypeTableEntryIdNumLitFloat)
@@ -6591,23 +7492,60 @@ static void eval_const_expr_implicit_cast(CastOp cast_op,
                 break;
             }
         case CastOpNumLitToConcrete:
-            const_val->data.x_bignum = other_val->data.x_bignum;
+            if (other_val->type->id == TypeTableEntryIdNumLitFloat) {
+                assert(new_type->id == TypeTableEntryIdFloat);
+                switch (new_type->data.floating.bit_count) {
+                    case 32:
+                        const_val->data.x_f32 = bigfloat_to_f32(&other_val->data.x_bigfloat);
+                        break;
+                    case 64:
+                        const_val->data.x_f64 = bigfloat_to_f64(&other_val->data.x_bigfloat);
+                        break;
+                    case 128:
+                        const_val->data.x_f128 = bigfloat_to_f128(&other_val->data.x_bigfloat);
+                        break;
+                    default:
+                        zig_unreachable();
+                }
+            } else if (other_val->type->id == TypeTableEntryIdNumLitInt) {
+                bigint_init_bigint(&const_val->data.x_bigint, &other_val->data.x_bigint);
+            } else {
+                zig_unreachable();
+            }
             const_val->type = new_type;
             break;
         case CastOpResizeSlice:
         case CastOpBytesToSlice:
             // can't do it
-            break;
+            zig_unreachable();
         case CastOpIntToFloat:
-            bignum_cast_to_float(&const_val->data.x_bignum, &other_val->data.x_bignum);
-            const_val->special = ConstValSpecialStatic;
-            break;
+            {
+                assert(new_type->id == TypeTableEntryIdFloat);
+
+                BigFloat bigfloat;
+                bigfloat_init_bigint(&bigfloat, &other_val->data.x_bigint);
+                switch (new_type->data.floating.bit_count) {
+                    case 32:
+                        const_val->data.x_f32 = bigfloat_to_f32(&bigfloat);
+                        break;
+                    case 64:
+                        const_val->data.x_f64 = bigfloat_to_f64(&bigfloat);
+                        break;
+                    case 128:
+                        const_val->data.x_f128 = bigfloat_to_f128(&bigfloat);
+                        break;
+                    default:
+                        zig_unreachable();
+                }
+                const_val->special = ConstValSpecialStatic;
+                break;
+            }
         case CastOpFloatToInt:
-            bignum_cast_to_int(&const_val->data.x_bignum, &other_val->data.x_bignum);
+            float_init_bigint(&const_val->data.x_bigint, other_val);
             const_val->special = ConstValSpecialStatic;
             break;
         case CastOpBoolToInt:
-            bignum_init_unsigned(&const_val->data.x_bignum, other_val->data.x_bool ? 1 : 0);
+            bigint_init_unsigned(&const_val->data.x_bigint, other_val->data.x_bool ? 1 : 0);
             const_val->special = ConstValSpecialStatic;
             break;
     }
@@ -6615,7 +7553,9 @@ static void eval_const_expr_implicit_cast(CastOp cast_op,
 static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
         TypeTableEntry *wanted_type, CastOp cast_op, bool need_alloca)
 {
-    if (value->value.special != ConstValSpecialRuntime) {
+    if (value->value.special != ConstValSpecialRuntime &&
+        cast_op != CastOpResizeSlice && cast_op != CastOpBytesToSlice)
+    {
         IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
                 source_instr->source_node, wanted_type);
         eval_const_expr_implicit_cast(cast_op, &value->value, value->value.type,
@@ -6719,8 +7659,9 @@ static bool ir_emit_backward_branch(IrAnalyze *ira, IrInstruction *source_instru
     size_t quota = ira->new_irb.exec->backward_branch_quota;
 
     // If we're already over quota, we've already given an error message for this.
-    if (*bbc > quota)
+    if (*bbc > quota) {
         return false;
+    }
 
     *bbc += 1;
     if (*bbc > quota) {
@@ -6785,7 +7726,7 @@ static TypeTableEntry *ir_analyze_void(IrAnalyze *ira, IrInstruction *instructio
 
 static IrInstruction *ir_get_const_ptr(IrAnalyze *ira, IrInstruction *instruction,
         ConstExprValue *pointee, TypeTableEntry *pointee_type,
-        ConstPtrMut ptr_mut, bool ptr_is_const, bool ptr_is_volatile)
+        ConstPtrMut ptr_mut, bool ptr_is_const, bool ptr_is_volatile, uint32_t ptr_align)
 {
     if (pointee_type->id == TypeTableEntryIdMetaType) {
         TypeTableEntry *type_entry = pointee->data.x_type;
@@ -6799,11 +7740,11 @@ static IrInstruction *ir_get_const_ptr(IrAnalyze *ira, IrInstruction *instructio
         const_val->type = pointee_type;
         type_ensure_zero_bits_known(ira->codegen, type_entry);
         const_val->data.x_type = get_pointer_to_type_extra(ira->codegen, type_entry,
-                ptr_is_const, ptr_is_volatile, 0, 0);
+                ptr_is_const, ptr_is_volatile, get_abi_alignment(ira->codegen, type_entry), 0, 0);
         return const_instr;
     } else {
         TypeTableEntry *ptr_type = get_pointer_to_type_extra(ira->codegen, pointee_type,
-                ptr_is_const, ptr_is_volatile, 0, 0);
+                ptr_is_const, ptr_is_volatile, ptr_align, 0, 0);
         IrInstruction *const_instr = ir_get_const(ira, instruction);
         ConstExprValue *const_val = &const_instr->value;
         const_val->type = ptr_type;
@@ -6819,14 +7760,15 @@ static TypeTableEntry *ir_analyze_const_ptr(IrAnalyze *ira, IrInstruction *instr
         ConstPtrMut ptr_mut, bool ptr_is_const, bool ptr_is_volatile)
 {
     IrInstruction *const_instr = ir_get_const_ptr(ira, instruction, pointee,
-            pointee_type, ptr_mut, ptr_is_const, ptr_is_volatile);
+            pointee_type, ptr_mut, ptr_is_const, ptr_is_volatile,
+            get_abi_alignment(ira->codegen, pointee_type));
     ir_link_new_instruction(const_instr, instruction);
     return const_instr->value.type;
 }
 
 static TypeTableEntry *ir_analyze_const_usize(IrAnalyze *ira, IrInstruction *instruction, uint64_t value) {
     ConstExprValue *const_val = ir_build_const_from(ira, instruction);
-    bignum_init_unsigned(&const_val->data.x_bignum, value);
+    bigint_init_unsigned(&const_val->data.x_bigint, value);
     return ira->codegen->builtin_types.entry_usize;
 }
 
@@ -6858,6 +7800,9 @@ IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node
         FnTableEntry *fn_entry, Buf *c_import_buf, AstNode *source_node, Buf *exec_name,
         IrExecutable *parent_exec)
 {
+    if (expected_type != nullptr && type_is_invalid(expected_type))
+        return codegen->invalid_instruction;
+
     IrExecutable ir_executable = {0};
     ir_executable.source_node = source_node;
     ir_executable.parent_exec = parent_exec;
@@ -7089,10 +8034,12 @@ static IrInstruction *ir_get_ref(IrAnalyze *ira, IrInstruction *source_instructi
             return ira->codegen->invalid_instruction;
         bool final_is_const = (value->value.type->id == TypeTableEntryIdMetaType) ? is_const : true;
         return ir_get_const_ptr(ira, source_instruction, val, value->value.type,
-                ConstPtrMutComptimeConst, final_is_const, is_volatile);
+                ConstPtrMutComptimeConst, final_is_const, is_volatile,
+                get_abi_alignment(ira->codegen, value->value.type));
     }
 
-    TypeTableEntry *ptr_type = get_pointer_to_type_extra(ira->codegen, value->value.type, is_const, is_volatile, 0, 0);
+    TypeTableEntry *ptr_type = get_pointer_to_type_extra(ira->codegen, value->value.type,
+            is_const, is_volatile, get_abi_alignment(ira->codegen, value->value.type), 0, 0);
     FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
     assert(fn_entry);
     IrInstruction *new_instruction = ir_build_ref(&ira->new_irb, source_instruction->scope,
@@ -7187,12 +8134,12 @@ static IrInstruction *ir_analyze_widen_or_shorten(IrAnalyze *ira, IrInstruction 
         if (!val)
             return ira->codegen->invalid_instruction;
         if (wanted_type->id == TypeTableEntryIdInt) {
-            if (val->data.x_bignum.is_negative && !wanted_type->data.integral.is_signed) {
+            if (bigint_cmp_zero(&val->data.x_bigint) == CmpLT && !wanted_type->data.integral.is_signed) {
                 ir_add_error(ira, source_instr,
                     buf_sprintf("attempt to cast negative value to unsigned integer"));
                 return ira->codegen->invalid_instruction;
             }
-            if (!bignum_fits_in_bits(&val->data.x_bignum, wanted_type->data.integral.bit_count,
+            if (!bigint_fits_in_bits(&val->data.x_bigint, wanted_type->data.integral.bit_count,
                     wanted_type->data.integral.is_signed))
             {
                 ir_add_error(ira, source_instr,
@@ -7203,8 +8150,12 @@ static IrInstruction *ir_analyze_widen_or_shorten(IrAnalyze *ira, IrInstruction 
         }
         IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
                 source_instr->source_node, wanted_type);
-        result->value.data.x_bignum = val->data.x_bignum;
         result->value.type = wanted_type;
+        if (wanted_type->id == TypeTableEntryIdInt) {
+            bigint_init_bigint(&result->value.data.x_bigint, &val->data.x_bigint);
+        } else {
+            float_init_float(&result->value, val);
+        }
         return result;
     }
 
@@ -7213,30 +8164,6 @@ static IrInstruction *ir_analyze_widen_or_shorten(IrAnalyze *ira, IrInstruction 
     result->value.type = wanted_type;
     return result;
 }
-
-static IrInstruction *ir_analyze_ptr_to_int(IrAnalyze *ira, IrInstruction *source_instr,
-        IrInstruction *target, TypeTableEntry *wanted_type)
-{
-    assert(wanted_type->id == TypeTableEntryIdInt);
-
-    if (instr_is_comptime(target)) {
-        ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
-        if (!val)
-            return ira->codegen->invalid_instruction;
-        if (val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
-            IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
-                    source_instr->source_node, wanted_type);
-            bignum_init_unsigned(&result->value.data.x_bignum, val->data.x_ptr.data.hard_coded_addr.addr);
-            return result;
-        }
-    }
-
-    IrInstruction *result = ir_build_ptr_to_int(&ira->new_irb, source_instr->scope,
-            source_instr->source_node, target);
-    result->value.type = wanted_type;
-    return result;
-}
-
 
 static IrInstruction *ir_analyze_int_to_enum(IrAnalyze *ira, IrInstruction *source_instr,
         IrInstruction *target, TypeTableEntry *wanted_type)
@@ -7247,9 +8174,20 @@ static IrInstruction *ir_analyze_int_to_enum(IrAnalyze *ira, IrInstruction *sour
         ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
         if (!val)
             return ira->codegen->invalid_instruction;
+        BigInt enum_member_count;
+        bigint_init_unsigned(&enum_member_count, wanted_type->data.enumeration.src_field_count);
+        if (bigint_cmp(&val->data.x_bigint, &enum_member_count) != CmpLT) {
+            Buf *val_buf = buf_alloc();
+            bigint_append_buf(val_buf, &val->data.x_bigint, 10);
+            ir_add_error(ira, source_instr,
+                buf_sprintf("integer value %s too big for enum '%s' which has %" PRIu32 " fields",
+                    buf_ptr(val_buf), buf_ptr(&wanted_type->name), wanted_type->data.enumeration.src_field_count));
+            return ira->codegen->invalid_instruction;
+        }
+
         IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
                 source_instr->source_node, wanted_type);
-        result->value.data.x_enum.tag = val->data.x_bignum.data.x_uint;
+        result->value.data.x_enum.tag = bigint_as_unsigned(&val->data.x_bigint);
         return result;
     }
 
@@ -7268,7 +8206,13 @@ static IrInstruction *ir_analyze_number_to_literal(IrAnalyze *ira, IrInstruction
 
     IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
             source_instr->source_node, wanted_type);
-    bignum_init_bignum(&result->value.data.x_bignum, &val->data.x_bignum);
+    if (wanted_type->id == TypeTableEntryIdNumLitFloat) {
+        float_init_float(&result->value, val);
+    } else if (wanted_type->id == TypeTableEntryIdNumLitInt) {
+        bigint_init_bigint(&result->value.data.x_bigint, &val->data.x_bigint);
+    } else {
+        zig_unreachable();
+    }
     return result;
 }
 
@@ -7284,13 +8228,17 @@ static IrInstruction *ir_analyze_int_to_err(IrAnalyze *ira, IrInstruction *sourc
         IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
                 source_instr->source_node, ira->codegen->builtin_types.entry_pure_error);
 
-        uint64_t index = val->data.x_bignum.data.x_uint;
-        if (index == 0 || index >= ira->codegen->error_decls.length) {
+        BigInt err_count;
+        bigint_init_unsigned(&err_count, ira->codegen->error_decls.length);
+        if (bigint_cmp_zero(&val->data.x_bigint) == CmpEQ || bigint_cmp(&val->data.x_bigint, &err_count) != CmpLT) {
+            Buf *val_buf = buf_alloc();
+            bigint_append_buf(val_buf, &val->data.x_bigint, 10);
             ir_add_error(ira, source_instr,
-                buf_sprintf("integer value %" ZIG_PRI_u64 " represents no error", index));
+                buf_sprintf("integer value %s represents no error", buf_ptr(val_buf)));
             return ira->codegen->invalid_instruction;
         }
 
+        size_t index = bigint_as_unsigned(&val->data.x_bigint);
         AstNode *error_decl_node = ira->codegen->error_decls.at(index);
         result->value.data.x_pure_err = error_decl_node->data.error_value_decl.err;
         return result;
@@ -7326,9 +8274,9 @@ static IrInstruction *ir_analyze_err_to_int(IrAnalyze *ira, IrInstruction *sourc
         }
         result->value.type = wanted_type;
         uint64_t err_value = err ? err->value : 0;
-        bignum_init_unsigned(&result->value.data.x_bignum, err_value);
+        bigint_init_unsigned(&result->value.data.x_bigint, err_value);
 
-        if (!bignum_fits_in_bits(&result->value.data.x_bignum,
+        if (!bigint_fits_in_bits(&result->value.data.x_bigint,
             wanted_type->data.integral.bit_count, wanted_type->data.integral.is_signed))
         {
             ir_add_error_node(ira, source_instr->source_node,
@@ -7340,9 +8288,9 @@ static IrInstruction *ir_analyze_err_to_int(IrAnalyze *ira, IrInstruction *sourc
         return result;
     }
 
-    BigNum bn;
-    bignum_init_unsigned(&bn, ira->codegen->error_decls.length);
-    if (!bignum_fits_in_bits(&bn, wanted_type->data.integral.bit_count, wanted_type->data.integral.is_signed)) {
+    BigInt bn;
+    bigint_init_unsigned(&bn, ira->codegen->error_decls.length);
+    if (!bigint_fits_in_bits(&bn, wanted_type->data.integral.bit_count, wanted_type->data.integral.is_signed)) {
         ir_add_error_node(ira, source_instr->source_node,
                 buf_sprintf("too many error values to fit in '%s'", buf_ptr(&wanted_type->name)));
         return ira->codegen->invalid_instruction;
@@ -7357,7 +8305,6 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     TypeTableEntry *wanted_type, IrInstruction *value)
 {
     TypeTableEntry *actual_type = value->value.type;
-    TypeTableEntry *usize_type = ira->codegen->builtin_types.entry_usize;
 
     if (type_is_invalid(wanted_type) || type_is_invalid(actual_type)) {
         return ira->codegen->invalid_instruction;
@@ -7376,11 +8323,6 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         actual_type->id == TypeTableEntryIdBool)
     {
         return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpBoolToInt, false);
-    }
-
-    // explicit cast from pointer to usize
-    if (wanted_type == usize_type && type_is_codegen_pointer(actual_type)) {
-        return ir_analyze_ptr_to_int(ira, source_instr, value, wanted_type);
     }
 
     // explicit widening or shortening cast
@@ -7417,7 +8359,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         }
     }
 
-    // expliict cast from &const [N]T to []const T
+    // explicit cast from &const [N]T to []const T
     if (is_slice(wanted_type) &&
         actual_type->id == TypeTableEntryIdPointer &&
         actual_type->data.pointer.is_const &&
@@ -7483,15 +8425,29 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     }
 
     // explicit cast from []T to []u8 or []u8 to []T
-    if (is_slice(wanted_type) && is_slice(actual_type) &&
-        (is_u8(wanted_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type) ||
-        is_u8(actual_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type)) &&
-        (wanted_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const ||
-         !actual_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const))
-    {
-        if (!ir_emit_global_runtime_side_effect(ira, source_instr))
-            return ira->codegen->invalid_instruction;
-        return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpResizeSlice, true);
+    if (is_slice(wanted_type) && is_slice(actual_type)) {
+        TypeTableEntry *wanted_ptr_type = wanted_type->data.structure.fields[slice_ptr_index].type_entry;
+        TypeTableEntry *actual_ptr_type = actual_type->data.structure.fields[slice_ptr_index].type_entry;
+        if ((is_u8(wanted_ptr_type->data.pointer.child_type) || is_u8(actual_ptr_type->data.pointer.child_type)) &&
+            (wanted_ptr_type->data.pointer.is_const || !actual_ptr_type->data.pointer.is_const))
+        {
+            uint32_t src_align_bytes = get_ptr_align(actual_ptr_type);
+            uint32_t dest_align_bytes = get_ptr_align(wanted_ptr_type);
+
+            if (dest_align_bytes > src_align_bytes) {
+                ErrorMsg *msg = ir_add_error(ira, source_instr,
+                        buf_sprintf("cast increases pointer alignment"));
+                add_error_note(ira->codegen, msg, source_instr->source_node,
+                        buf_sprintf("'%s' has alignment %" PRIu32, buf_ptr(&actual_type->name), src_align_bytes));
+                add_error_note(ira->codegen, msg, source_instr->source_node,
+                        buf_sprintf("'%s' has alignment %" PRIu32, buf_ptr(&wanted_type->name), dest_align_bytes));
+                return ira->codegen->invalid_instruction;
+            }
+
+            if (!ir_emit_global_runtime_side_effect(ira, source_instr))
+                return ira->codegen->invalid_instruction;
+            return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpResizeSlice, true);
+        }
     }
 
     // explicit cast from [N]u8 to []const T
@@ -7503,7 +8459,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         if (!ir_emit_global_runtime_side_effect(ira, source_instr))
             return ira->codegen->invalid_instruction;
         uint64_t child_type_size = type_size(ira->codegen,
-                wanted_type->data.structure.fields[0].type_entry->data.pointer.child_type);
+                wanted_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type);
         if (actual_type->data.array.len % child_type_size == 0) {
             return ir_resolve_cast(ira, source_instr, value, wanted_type, CastOpBytesToSlice, true);
         } else {
@@ -7521,7 +8477,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         } else if (actual_type->id == TypeTableEntryIdNumLitInt ||
                    actual_type->id == TypeTableEntryIdNumLitFloat)
         {
-            if (ir_num_lit_fits_in_other_type(ira, value, wanted_type->data.maybe.child_type)) {
+            if (ir_num_lit_fits_in_other_type(ira, value, wanted_type->data.maybe.child_type, true)) {
                 return ir_analyze_maybe_wrap(ira, source_instr, value, wanted_type);
             } else {
                 return ira->codegen->invalid_instruction;
@@ -7543,7 +8499,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         } else if (actual_type->id == TypeTableEntryIdNumLitInt ||
                    actual_type->id == TypeTableEntryIdNumLitFloat)
         {
-            if (ir_num_lit_fits_in_other_type(ira, value, wanted_type->data.error.child_type)) {
+            if (ir_num_lit_fits_in_other_type(ira, value, wanted_type->data.error.child_type, true)) {
                 return ir_analyze_err_wrap_payload(ira, source_instr, value, wanted_type);
             } else {
                 return ira->codegen->invalid_instruction;
@@ -7621,7 +8577,7 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
                 return ira->codegen->invalid_instruction;
 
             return cast2;
-        } else if (ir_num_lit_fits_in_other_type(ira, value, wanted_type)) {
+        } else if (ir_num_lit_fits_in_other_type(ira, value, wanted_type, true)) {
             CastOp op;
             if ((actual_type->id == TypeTableEntryIdNumLitFloat &&
                  wanted_type->id == TypeTableEntryIdFloat) ||
@@ -7797,6 +8753,33 @@ static TypeTableEntry *ir_analyze_ref(IrAnalyze *ira, IrInstruction *source_inst
     return result->value.type;
 }
 
+static bool ir_resolve_align(IrAnalyze *ira, IrInstruction *value, uint32_t *out) {
+    if (type_is_invalid(value->value.type))
+        return false;
+
+    IrInstruction *casted_value = ir_implicit_cast(ira, value, get_align_amt_type(ira->codegen));
+    if (type_is_invalid(casted_value->value.type))
+        return false;
+
+    ConstExprValue *const_val = ir_resolve_const(ira, casted_value, UndefBad);
+    if (!const_val)
+        return false;
+
+    uint32_t align_bytes = bigint_as_unsigned(&const_val->data.x_bigint);
+    if (align_bytes == 0) {
+        ir_add_error(ira, value, buf_sprintf("alignment must be >= 1"));
+        return false;
+    }
+
+    if (!is_power_of_2(align_bytes)) {
+        ir_add_error(ira, value, buf_sprintf("alignment value %" PRIu32 " is not a power of 2", align_bytes));
+        return false;
+    }
+
+    *out = align_bytes;
+    return true;
+}
+
 static bool ir_resolve_usize(IrAnalyze *ira, IrInstruction *value, uint64_t *out) {
     if (type_is_invalid(value->value.type))
         return false;
@@ -7809,7 +8792,7 @@ static bool ir_resolve_usize(IrAnalyze *ira, IrInstruction *value, uint64_t *out
     if (!const_val)
         return false;
 
-    *out = const_val->data.x_bignum.data.x_uint;
+    *out = bigint_as_unsigned(&const_val->data.x_bigint);
     return true;
 }
 
@@ -7837,11 +8820,25 @@ static bool ir_resolve_comptime(IrAnalyze *ira, IrInstruction *value, bool *out)
     return ir_resolve_bool(ira, value, out);
 }
 
+static ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
+    Tld *tld = codegen->compile_var_import->decls_scope->decl_table.get(buf_create_from_str(name));
+    resolve_top_level_decl(codegen, tld, false, nullptr);
+    assert(tld->id == TldIdVar);
+    TldVar *tld_var = (TldVar *)tld;
+    ConstExprValue *var_value = tld_var->var->value;
+    assert(var_value != nullptr);
+    return var_value;
+}
+
 static bool ir_resolve_atomic_order(IrAnalyze *ira, IrInstruction *value, AtomicOrder *out) {
     if (type_is_invalid(value->value.type))
         return false;
 
-    IrInstruction *casted_value = ir_implicit_cast(ira, value, ira->codegen->builtin_types.entry_atomic_order_enum);
+    ConstExprValue *atomic_order_val = get_builtin_value(ira->codegen, "AtomicOrder");
+    assert(atomic_order_val->type->id == TypeTableEntryIdMetaType);
+    TypeTableEntry *atomic_order_type = atomic_order_val->data.x_type;
+
+    IrInstruction *casted_value = ir_implicit_cast(ira, value, atomic_order_type);
     if (type_is_invalid(casted_value->value.type))
         return false;
 
@@ -7857,7 +8854,11 @@ static bool ir_resolve_global_linkage(IrAnalyze *ira, IrInstruction *value, Glob
     if (type_is_invalid(value->value.type))
         return false;
 
-    IrInstruction *casted_value = ir_implicit_cast(ira, value, ira->codegen->builtin_types.entry_global_linkage_enum);
+    ConstExprValue *global_linkage_val = get_builtin_value(ira->codegen, "GlobalLinkage");
+    assert(global_linkage_val->type->id == TypeTableEntryIdMetaType);
+    TypeTableEntry *global_linkage_type = global_linkage_val->data.x_type;
+
+    IrInstruction *casted_value = ir_implicit_cast(ira, value, global_linkage_type);
     if (type_is_invalid(casted_value->value.type))
         return false;
 
@@ -7874,7 +8875,8 @@ static Buf *ir_resolve_str(IrAnalyze *ira, IrInstruction *value) {
     if (type_is_invalid(value->value.type))
         return nullptr;
 
-    TypeTableEntry *str_type = get_slice_type(ira->codegen, ira->codegen->builtin_types.entry_u8, true);
+    TypeTableEntry *ptr_type = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_u8, true);
+    TypeTableEntry *str_type = get_slice_type(ira->codegen, ptr_type);
     IrInstruction *casted_value = ir_implicit_cast(ira, value, str_type);
     if (type_is_invalid(casted_value->value.type))
         return nullptr;
@@ -7889,7 +8891,7 @@ static Buf *ir_resolve_str(IrAnalyze *ira, IrInstruction *value) {
     assert(ptr_field->data.x_ptr.special == ConstPtrSpecialBaseArray);
     ConstExprValue *array_val = ptr_field->data.x_ptr.data.base_array.array_val;
     expand_undef_array(ira->codegen, array_val);
-    size_t len = len_field->data.x_bignum.data.x_uint;
+    size_t len = bigint_as_unsigned(&len_field->data.x_bigint);
     Buf *result = buf_alloc();
     buf_resize(result, len);
     for (size_t i = 0; i < len; i += 1) {
@@ -7899,22 +8901,12 @@ static Buf *ir_resolve_str(IrAnalyze *ira, IrInstruction *value) {
             ir_add_error(ira, casted_value, buf_sprintf("use of undefined value"));
             return nullptr;
         }
-        uint64_t big_c = char_val->data.x_bignum.data.x_uint;
+        uint64_t big_c = bigint_as_unsigned(&char_val->data.x_bigint);
         assert(big_c <= UINT8_MAX);
         uint8_t c = (uint8_t)big_c;
         buf_ptr(result)[i] = c;
     }
     return result;
-}
-
-static ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
-    Tld *tld = codegen->compile_var_import->decls_scope->decl_table.get(buf_create_from_str(name));
-    resolve_top_level_decl(codegen, tld, false);
-    assert(tld->id == TldIdVar);
-    TldVar *tld_var = (TldVar *)tld;
-    ConstExprValue *var_value = tld_var->var->value;
-    assert(var_value != nullptr);
-    return var_value;
 }
 
 static TypeTableEntry *ir_analyze_instruction_return(IrAnalyze *ira,
@@ -7985,6 +8977,24 @@ static TypeTableEntry *ir_analyze_bin_op_bool(IrAnalyze *ira, IrInstructionBinOp
     ir_build_bin_op_from(&ira->new_irb, &bin_op_instruction->base, bin_op_instruction->op_id,
             casted_op1, casted_op2, bin_op_instruction->safety_check_on);
     return bool_type;
+}
+
+static bool resolve_cmp_op_id(IrBinOp op_id, Cmp cmp) {
+    if (op_id == IrBinOpCmpEq) {
+        return cmp == CmpEQ;
+    } else if (op_id == IrBinOpCmpNotEq) {
+        return cmp != CmpEQ;
+    } else if (op_id == IrBinOpCmpLessThan) {
+        return cmp == CmpLT;
+    } else if (op_id == IrBinOpCmpGreaterThan) {
+        return cmp == CmpGT;
+    } else if (op_id == IrBinOpCmpLessOrEq) {
+        return cmp != CmpGT;
+    } else if (op_id == IrBinOpCmpGreaterOrEq) {
+        return cmp != CmpLT;
+    } else {
+        zig_unreachable();
+    }
 }
 
 static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *bin_op_instruction) {
@@ -8105,30 +9115,13 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
     ConstExprValue *op1_val = &casted_op1->value;
     ConstExprValue *op2_val = &casted_op2->value;
     if ((value_is_comptime(op1_val) && value_is_comptime(op2_val)) || resolved_type->id == TypeTableEntryIdVoid) {
-        bool type_can_gt_lt_cmp = (resolved_type->id == TypeTableEntryIdNumLitFloat ||
-                resolved_type->id == TypeTableEntryIdNumLitInt ||
-                resolved_type->id == TypeTableEntryIdFloat ||
-                resolved_type->id == TypeTableEntryIdInt);
         bool answer;
-        if (type_can_gt_lt_cmp) {
-            bool (*bignum_cmp)(BigNum *, BigNum *);
-            if (op_id == IrBinOpCmpEq) {
-                bignum_cmp = bignum_cmp_eq;
-            } else if (op_id == IrBinOpCmpNotEq) {
-                bignum_cmp = bignum_cmp_neq;
-            } else if (op_id == IrBinOpCmpLessThan) {
-                bignum_cmp = bignum_cmp_lt;
-            } else if (op_id == IrBinOpCmpGreaterThan) {
-                bignum_cmp = bignum_cmp_gt;
-            } else if (op_id == IrBinOpCmpLessOrEq) {
-                bignum_cmp = bignum_cmp_lte;
-            } else if (op_id == IrBinOpCmpGreaterOrEq) {
-                bignum_cmp = bignum_cmp_gte;
-            } else {
-                zig_unreachable();
-            }
-
-            answer = bignum_cmp(&op1_val->data.x_bignum, &op2_val->data.x_bignum);
+        if (resolved_type->id == TypeTableEntryIdNumLitFloat || resolved_type->id == TypeTableEntryIdFloat) {
+            Cmp cmp_result = float_cmp(op1_val, op2_val);
+            answer = resolve_cmp_op_id(op_id, cmp_result);
+        } else if (resolved_type->id == TypeTableEntryIdNumLitInt || resolved_type->id == TypeTableEntryIdInt) {
+            Cmp cmp_result = bigint_cmp(&op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            answer = resolve_cmp_op_id(op_id, cmp_result);
         } else {
             bool are_equal = resolved_type->id == TypeTableEntryIdVoid || const_values_equal(op1_val, op2_val);
             if (op_id == IrBinOpCmpEq) {
@@ -8168,7 +9161,7 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
         } else {
             known_left_val = nullptr;
         }
-        if (known_left_val != nullptr && known_left_val->data.x_bignum.data.x_uint == 0 &&
+        if (known_left_val != nullptr && bigint_cmp_zero(&known_left_val->data.x_bigint) == CmpEQ &&
             (flipped_op_id == IrBinOpCmpLessOrEq || flipped_op_id == IrBinOpCmpGreaterThan))
         {
             bool answer = (flipped_op_id == IrBinOpCmpLessOrEq);
@@ -8184,101 +9177,35 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
     return ira->codegen->builtin_types.entry_bool;
 }
 
-enum EvalBigNumSpecial {
-    EvalBigNumSpecialNone,
-    EvalBigNumSpecialWrapping,
-    EvalBigNumSpecialExact,
-};
-
-static int ir_eval_bignum(ConstExprValue *op1_val, ConstExprValue *op2_val,
-        ConstExprValue *out_val, bool (*bignum_fn)(BigNum *, BigNum *, BigNum *),
-        TypeTableEntry *type, EvalBigNumSpecial special)
+static int ir_eval_math_op(TypeTableEntry *type_entry, ConstExprValue *op1_val,
+        IrBinOp op_id, ConstExprValue *op2_val, ConstExprValue *out_val)
 {
-    bool is_int = false;
-    bool is_float = false;
-    if (type->id == TypeTableEntryIdInt ||
-        type->id == TypeTableEntryIdNumLitInt)
-    {
+    bool is_int;
+    bool is_float;
+    Cmp op2_zcmp;
+    if (type_entry->id == TypeTableEntryIdInt || type_entry->id == TypeTableEntryIdNumLitInt) {
         is_int = true;
-    } else if (type->id == TypeTableEntryIdFloat ||
-                type->id == TypeTableEntryIdNumLitFloat)
+        is_float = false;
+        op2_zcmp = bigint_cmp_zero(&op2_val->data.x_bigint);
+    } else if (type_entry->id == TypeTableEntryIdFloat ||
+                type_entry->id == TypeTableEntryIdNumLitFloat)
     {
+        is_int = false;
         is_float = true;
+        op2_zcmp = float_cmp_zero(op2_val);
     } else {
         zig_unreachable();
     }
-    if (bignum_fn == bignum_div || bignum_fn == bignum_rem || bignum_fn == bignum_mod ||
-        bignum_fn == bignum_div_trunc || bignum_fn == bignum_div_floor)
+
+    if ((op_id == IrBinOpDivUnspecified || op_id == IrBinOpRemRem || op_id == IrBinOpRemMod ||
+        op_id == IrBinOpDivTrunc || op_id == IrBinOpDivFloor) && op2_zcmp == CmpEQ)
     {
-        if ((is_int && op2_val->data.x_bignum.data.x_uint == 0) ||
-            (is_float && op2_val->data.x_bignum.data.x_float == 0.0))
-        {
-            return ErrorDivByZero;
-        }
+        return ErrorDivByZero;
     }
-    if (bignum_fn == bignum_rem || bignum_fn == bignum_mod) {
-        BigNum zero;
-        if (is_float) {
-            bignum_init_float(&zero, 0.0);
-        } else {
-            bignum_init_unsigned(&zero, 0);
-        }
-        if (bignum_cmp_lt(&op2_val->data.x_bignum, &zero)) {
-            return ErrorNegativeDenominator;
-        }
+    if ((op_id == IrBinOpRemRem || op_id == IrBinOpRemMod) && op2_zcmp == CmpLT) {
+        return ErrorNegativeDenominator;
     }
 
-    if (special == EvalBigNumSpecialExact) {
-        assert(bignum_fn == bignum_div);
-        BigNum remainder;
-        if (bignum_rem(&remainder, &op1_val->data.x_bignum, &op2_val->data.x_bignum)) {
-            return ErrorOverflow;
-        }
-        BigNum zero;
-        if (is_float) {
-            bignum_init_float(&zero, 0.0);
-        } else {
-            bignum_init_unsigned(&zero, 0);
-        }
-        if (bignum_cmp_neq(&remainder, &zero)) {
-            return ErrorExactDivRemainder;
-        }
-    }
-
-    bool overflow = bignum_fn(&out_val->data.x_bignum, &op1_val->data.x_bignum, &op2_val->data.x_bignum);
-    if (overflow) {
-        if (special == EvalBigNumSpecialWrapping) {
-            zig_panic("TODO compiler bug, implement compile-time wrapping arithmetic for >= 64 bit ints");
-        } else {
-            return ErrorOverflow;
-        }
-    }
-
-    if (type->id == TypeTableEntryIdInt && !bignum_fits_in_bits(&out_val->data.x_bignum,
-                type->data.integral.bit_count, type->data.integral.is_signed))
-    {
-        if (special == EvalBigNumSpecialWrapping) {
-            if (type->data.integral.is_signed) {
-                out_val->data.x_bignum.data.x_uint = max_unsigned_val(type) - out_val->data.x_bignum.data.x_uint + 1;
-                out_val->data.x_bignum.is_negative = !out_val->data.x_bignum.is_negative;
-            } else if (out_val->data.x_bignum.is_negative) {
-                out_val->data.x_bignum.data.x_uint = max_unsigned_val(type) - out_val->data.x_bignum.data.x_uint + 1;
-                out_val->data.x_bignum.is_negative = false;
-            } else {
-                bignum_truncate(&out_val->data.x_bignum, type->data.integral.bit_count);
-            }
-        } else {
-            return ErrorOverflow;
-        }
-    }
-
-    out_val->special = ConstValSpecialStatic;
-    return 0;
-}
-
-static int ir_eval_math_op(TypeTableEntry *canon_type, ConstExprValue *op1_val,
-        IrBinOp op_id, ConstExprValue *op2_val, ConstExprValue *out_val)
-{
     switch (op_id) {
         case IrBinOpInvalid:
         case IrBinOpBoolOr:
@@ -8294,43 +9221,206 @@ static int ir_eval_math_op(TypeTableEntry *canon_type, ConstExprValue *op1_val,
         case IrBinOpRemUnspecified:
             zig_unreachable();
         case IrBinOpBinOr:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_or, canon_type, EvalBigNumSpecialNone);
+            assert(is_int);
+            bigint_or(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            break;
         case IrBinOpBinXor:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_xor, canon_type, EvalBigNumSpecialNone);
+            assert(is_int);
+            bigint_xor(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            break;
         case IrBinOpBinAnd:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_and, canon_type, EvalBigNumSpecialNone);
-        case IrBinOpBitShiftLeft:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_shl, canon_type, EvalBigNumSpecialNone);
-        case IrBinOpBitShiftLeftWrap:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_shl, canon_type, EvalBigNumSpecialWrapping);
-        case IrBinOpBitShiftRight:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_shr, canon_type, EvalBigNumSpecialNone);
+            assert(is_int);
+            bigint_and(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            break;
+        case IrBinOpBitShiftLeftExact:
+            assert(is_int);
+            bigint_shl(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            break;
+        case IrBinOpBitShiftLeftLossy:
+            assert(type_entry->id == TypeTableEntryIdInt);
+            bigint_shl_trunc(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint,
+                    type_entry->data.integral.bit_count, type_entry->data.integral.is_signed);
+            break;
+        case IrBinOpBitShiftRightExact:
+            {
+                assert(is_int);
+                bigint_shr(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+                BigInt orig_bigint;
+                bigint_shl(&orig_bigint, &out_val->data.x_bigint, &op2_val->data.x_bigint);
+                if (bigint_cmp(&op1_val->data.x_bigint, &orig_bigint) != CmpEQ) {
+                    return ErrorShiftedOutOneBits;
+                }
+                break;
+            }
+        case IrBinOpBitShiftRightLossy:
+            assert(is_int);
+            bigint_shr(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            break;
         case IrBinOpAdd:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_add, canon_type, EvalBigNumSpecialNone);
+            if (is_int) {
+                bigint_add(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            } else {
+                float_add(out_val, op1_val, op2_val);
+            }
+            break;
         case IrBinOpAddWrap:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_add, canon_type, EvalBigNumSpecialWrapping);
+            assert(type_entry->id == TypeTableEntryIdInt);
+            bigint_add_wrap(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint,
+                    type_entry->data.integral.bit_count, type_entry->data.integral.is_signed);
+            break;
         case IrBinOpSub:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_sub, canon_type, EvalBigNumSpecialNone);
+            if (is_int) {
+                bigint_sub(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            } else {
+                float_sub(out_val, op1_val, op2_val);
+            }
+            break;
         case IrBinOpSubWrap:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_sub, canon_type, EvalBigNumSpecialWrapping);
+            assert(type_entry->id == TypeTableEntryIdInt);
+            bigint_sub_wrap(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint,
+                    type_entry->data.integral.bit_count, type_entry->data.integral.is_signed);
+            break;
         case IrBinOpMult:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_mul, canon_type, EvalBigNumSpecialNone);
+            if (is_int) {
+                bigint_mul(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            } else {
+                float_mul(out_val, op1_val, op2_val);
+            }
+            break;
         case IrBinOpMultWrap:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_mul, canon_type, EvalBigNumSpecialWrapping);
+            assert(type_entry->id == TypeTableEntryIdInt);
+            bigint_mul_wrap(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint,
+                    type_entry->data.integral.bit_count, type_entry->data.integral.is_signed);
+            break;
         case IrBinOpDivUnspecified:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_div, canon_type, EvalBigNumSpecialNone);
+            assert(is_float);
+            float_div(out_val, op1_val, op2_val);
+            break;
         case IrBinOpDivTrunc:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_div_trunc, canon_type, EvalBigNumSpecialNone);
+            if (is_int) {
+                bigint_div_trunc(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            } else {
+                float_div_trunc(out_val, op1_val, op2_val);
+            }
+            break;
         case IrBinOpDivFloor:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_div_floor, canon_type, EvalBigNumSpecialNone);
+            if (is_int) {
+                bigint_div_floor(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            } else {
+                float_div_floor(out_val, op1_val, op2_val);
+            }
+            break;
         case IrBinOpDivExact:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_div, canon_type, EvalBigNumSpecialExact);
+            if (is_int) {
+                bigint_div_trunc(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+                BigInt remainder;
+                bigint_rem(&remainder, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+                if (bigint_cmp_zero(&remainder) != CmpEQ) {
+                    return ErrorExactDivRemainder;
+                }
+            } else {
+                float_div_trunc(out_val, op1_val, op2_val);
+                ConstExprValue remainder;
+                float_rem(&remainder, op1_val, op2_val);
+                if (float_cmp_zero(&remainder) != CmpEQ) {
+                    return ErrorExactDivRemainder;
+                }
+            }
+            break;
         case IrBinOpRemRem:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_rem, canon_type, EvalBigNumSpecialNone);
+            if (is_int) {
+                bigint_rem(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            } else {
+                float_rem(out_val, op1_val, op2_val);
+            }
+            break;
         case IrBinOpRemMod:
-            return ir_eval_bignum(op1_val, op2_val, out_val, bignum_mod, canon_type, EvalBigNumSpecialNone);
+            if (is_int) {
+                bigint_mod(&out_val->data.x_bigint, &op1_val->data.x_bigint, &op2_val->data.x_bigint);
+            } else {
+                float_mod(out_val, op1_val, op2_val);
+            }
+            break;
     }
-    zig_unreachable();
+
+    if (type_entry->id == TypeTableEntryIdInt) {
+        if (!bigint_fits_in_bits(&out_val->data.x_bigint, type_entry->data.integral.bit_count,
+                type_entry->data.integral.is_signed))
+        {
+            return ErrorOverflow;
+        }
+    }
+
+    out_val->type = type_entry;
+    out_val->special = ConstValSpecialStatic;
+    return 0;
+}
+
+static TypeTableEntry *ir_analyze_bit_shift(IrAnalyze *ira, IrInstructionBinOp *bin_op_instruction) {
+    IrInstruction *op1 = bin_op_instruction->op1->other;
+    if (type_is_invalid(op1->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (op1->value.type->id != TypeTableEntryIdInt && op1->value.type->id != TypeTableEntryIdNumLitInt) {
+        ir_add_error(ira, &bin_op_instruction->base,
+            buf_sprintf("bit shifting operation expected integer type, found '%s'",
+                buf_ptr(&op1->value.type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    IrInstruction *op2 = bin_op_instruction->op2->other;
+    if (type_is_invalid(op2->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *casted_op2;
+    IrBinOp op_id = bin_op_instruction->op_id;
+    if (op1->value.type->id == TypeTableEntryIdNumLitInt) {
+        casted_op2 = op2;
+
+        if (op_id == IrBinOpBitShiftLeftLossy) {
+            op_id = IrBinOpBitShiftLeftExact;
+        }
+    } else {
+        TypeTableEntry *shift_amt_type = get_smallest_unsigned_int_type(ira->codegen,
+                op1->value.type->data.integral.bit_count - 1);
+
+        casted_op2 = ir_implicit_cast(ira, op2, shift_amt_type);
+        if (casted_op2 == ira->codegen->invalid_instruction)
+            return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    if (instr_is_comptime(op1) && instr_is_comptime(casted_op2)) {
+        ConstExprValue *op1_val = &op1->value;
+        ConstExprValue *op2_val = &casted_op2->value;
+        ConstExprValue *out_val = &bin_op_instruction->base.value;
+
+        bin_op_instruction->base.other = &bin_op_instruction->base;
+
+        int err;
+        if ((err = ir_eval_math_op(op1->value.type, op1_val, op_id, op2_val, out_val))) {
+            if (err == ErrorOverflow) {
+                ir_add_error(ira, &bin_op_instruction->base, buf_sprintf("operation caused overflow"));
+                return ira->codegen->builtin_types.entry_invalid;
+            } else if (err == ErrorShiftedOutOneBits) {
+                ir_add_error(ira, &bin_op_instruction->base, buf_sprintf("exact shift shifted out 1 bits"));
+                return ira->codegen->builtin_types.entry_invalid;
+            } else {
+                zig_unreachable();
+            }
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+
+        ir_num_lit_fits_in_other_type(ira, &bin_op_instruction->base, op1->value.type, false);
+        return op1->value.type;
+    } else if (op1->value.type->id == TypeTableEntryIdNumLitInt) {
+        ir_add_error(ira, &bin_op_instruction->base,
+                buf_sprintf("LHS of shift must be an integer type, or RHS must be compile-time known"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    ir_build_bin_op_from(&ira->new_irb, &bin_op_instruction->base, op_id,
+            op1, casted_op2, bin_op_instruction->safety_check_on);
+    return op1->value.type;
 }
 
 static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp *bin_op_instruction) {
@@ -8343,35 +9433,36 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
     IrBinOp op_id = bin_op_instruction->op_id;
 
     bool is_int = resolved_type->id == TypeTableEntryIdInt || resolved_type->id == TypeTableEntryIdNumLitInt;
-    bool is_signed = ((resolved_type->id == TypeTableEntryIdInt && resolved_type->data.integral.is_signed) ||
-            resolved_type->id == TypeTableEntryIdFloat ||
-            (resolved_type->id == TypeTableEntryIdNumLitFloat &&
-                (op1->value.data.x_bignum.data.x_float < 0.0 || op2->value.data.x_bignum.data.x_float < 0.0)) ||
-            (resolved_type->id == TypeTableEntryIdNumLitInt &&
-                (op1->value.data.x_bignum.is_negative || op2->value.data.x_bignum.is_negative)));
-    if (op_id == IrBinOpDivUnspecified) {
-        if (is_int && is_signed) {
+    bool is_float = resolved_type->id == TypeTableEntryIdFloat || resolved_type->id == TypeTableEntryIdNumLitFloat;
+    bool is_signed_div = (
+        (resolved_type->id == TypeTableEntryIdInt && resolved_type->data.integral.is_signed) ||
+        resolved_type->id == TypeTableEntryIdFloat ||
+        (resolved_type->id == TypeTableEntryIdNumLitFloat &&
+            ((bigfloat_cmp_zero(&op1->value.data.x_bigfloat) != CmpGT) !=
+             (bigfloat_cmp_zero(&op2->value.data.x_bigfloat) != CmpGT))) ||
+        (resolved_type->id == TypeTableEntryIdNumLitInt &&
+            ((bigint_cmp_zero(&op1->value.data.x_bigint) != CmpGT) !=
+             (bigint_cmp_zero(&op2->value.data.x_bigint) != CmpGT)))
+    );
+    if (op_id == IrBinOpDivUnspecified && is_int) {
+        if (is_signed_div) {
             bool ok = false;
             if (instr_is_comptime(op1) && instr_is_comptime(op2)) {
-				if (op2->value.data.x_bignum.data.x_uint == 0) {
+                if (bigint_cmp_zero(&op2->value.data.x_bigint) == CmpEQ) {
                     // the division by zero error will be caught later, but we don't have a
                     // division function ambiguity problem.
                     op_id = IrBinOpDivTrunc;
-					ok = true;
-				} else {
-					BigNum trunc_result;
-					BigNum floor_result;
-					if (bignum_div_trunc(&trunc_result, &op1->value.data.x_bignum, &op2->value.data.x_bignum)) {
-						zig_unreachable();
-					}
-					if (bignum_div_floor(&floor_result, &op1->value.data.x_bignum, &op2->value.data.x_bignum)) {
-						zig_unreachable();
-					}
-					if (bignum_cmp_eq(&trunc_result, &floor_result)) {
-						ok = true;
-						op_id = IrBinOpDivTrunc;
-					}
-				}
+                    ok = true;
+                } else {
+                    BigInt trunc_result;
+                    BigInt floor_result;
+                    bigint_div_trunc(&trunc_result, &op1->value.data.x_bigint, &op2->value.data.x_bigint);
+                    bigint_div_floor(&floor_result, &op1->value.data.x_bigint, &op2->value.data.x_bigint);
+                    if (bigint_cmp(&trunc_result, &floor_result) == CmpEQ) {
+                        ok = true;
+                        op_id = IrBinOpDivTrunc;
+                    }
+                }
             }
             if (!ok) {
                 ir_add_error(ira, &bin_op_instruction->base,
@@ -8380,29 +9471,37 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
                         buf_ptr(&op2->value.type->name)));
                 return ira->codegen->builtin_types.entry_invalid;
             }
-        } else if (is_int) {
+        } else {
             op_id = IrBinOpDivTrunc;
         }
     } else if (op_id == IrBinOpRemUnspecified) {
-        if (is_signed) {
+        if (is_signed_div && (is_int || is_float)) {
             bool ok = false;
             if (instr_is_comptime(op1) && instr_is_comptime(op2)) {
-                if ((is_int && op2->value.data.x_bignum.data.x_uint == 0) ||
-                    (!is_int && op2->value.data.x_bignum.data.x_float == 0.0))
-                {
-                    // the division by zero error will be caught later, but we don't
-                    // have a remainder function ambiguity problem
-                    ok = true;
+                if (is_int) {
+                    if (bigint_cmp_zero(&op2->value.data.x_bigint) == CmpEQ) {
+                        // the division by zero error will be caught later, but we don't
+                        // have a remainder function ambiguity problem
+                        ok = true;
+                    } else {
+                        BigInt rem_result;
+                        BigInt mod_result;
+                        bigint_rem(&rem_result, &op1->value.data.x_bigint, &op2->value.data.x_bigint);
+                        bigint_mod(&mod_result, &op1->value.data.x_bigint, &op2->value.data.x_bigint);
+                        ok = bigint_cmp(&rem_result, &mod_result) == CmpEQ;
+                    }
                 } else {
-                    BigNum rem_result;
-                    BigNum mod_result;
-                    if (bignum_rem(&rem_result, &op1->value.data.x_bignum, &op2->value.data.x_bignum)) {
-                        zig_unreachable();
+                    if (float_cmp_zero(&op2->value) == CmpEQ) {
+                        // the division by zero error will be caught later, but we don't
+                        // have a remainder function ambiguity problem
+                        ok = true;
+                    } else {
+                        ConstExprValue rem_result;
+                        ConstExprValue mod_result;
+                        float_rem(&rem_result, &op1->value, &op2->value);
+                        float_mod(&mod_result, &op1->value, &op2->value);
+                        ok = float_cmp(&rem_result, &mod_result) == CmpEQ;
                     }
-                    if (bignum_mod(&mod_result, &op1->value.data.x_bignum, &op2->value.data.x_bignum)) {
-                        zig_unreachable();
-                    }
-                    ok = bignum_cmp_eq(&rem_result, &mod_result);
                 }
             }
             if (!ok) {
@@ -8416,21 +9515,18 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
         op_id = IrBinOpRemRem;
     }
 
-    if (resolved_type->id == TypeTableEntryIdInt ||
-        resolved_type->id == TypeTableEntryIdNumLitInt)
-    {
+    if (is_int) {
         // int
-    } else if ((resolved_type->id == TypeTableEntryIdFloat ||
-                resolved_type->id == TypeTableEntryIdNumLitFloat) &&
+    } else if (is_float &&
         (op_id == IrBinOpAdd ||
-            op_id == IrBinOpSub ||
-            op_id == IrBinOpMult ||
-            op_id == IrBinOpDivUnspecified ||
-            op_id == IrBinOpDivTrunc ||
-            op_id == IrBinOpDivFloor ||
-            op_id == IrBinOpDivExact ||
-            op_id == IrBinOpRemRem ||
-            op_id == IrBinOpRemMod))
+        op_id == IrBinOpSub ||
+        op_id == IrBinOpMult ||
+        op_id == IrBinOpDivUnspecified ||
+        op_id == IrBinOpDivTrunc ||
+        op_id == IrBinOpDivFloor ||
+        op_id == IrBinOpDivExact ||
+        op_id == IrBinOpRemRem ||
+        op_id == IrBinOpRemMod))
     {
         // float
     } else {
@@ -8442,6 +9538,16 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
         return ira->codegen->builtin_types.entry_invalid;
     }
 
+    if (resolved_type->id == TypeTableEntryIdNumLitInt) {
+        if (op_id == IrBinOpAddWrap) {
+            op_id = IrBinOpAdd;
+        } else if (op_id == IrBinOpSubWrap) {
+            op_id = IrBinOpSub;
+        } else if (op_id == IrBinOpMultWrap) {
+            op_id = IrBinOpMult;
+        }
+    }
+
     IrInstruction *casted_op1 = ir_implicit_cast(ira, op1, resolved_type);
     if (casted_op1 == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
@@ -8450,8 +9556,7 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
     if (casted_op2 == ira->codegen->invalid_instruction)
         return ira->codegen->builtin_types.entry_invalid;
 
-
-    if (casted_op1->value.special != ConstValSpecialRuntime && casted_op2->value.special != ConstValSpecialRuntime) {
+    if (instr_is_comptime(casted_op1) && instr_is_comptime(casted_op2)) {
         ConstExprValue *op1_val = &casted_op1->value;
         ConstExprValue *op2_val = &casted_op2->value;
         ConstExprValue *out_val = &bin_op_instruction->base.value;
@@ -8478,7 +9583,7 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
             return ira->codegen->builtin_types.entry_invalid;
         }
 
-        ir_num_lit_fits_in_other_type(ira, &bin_op_instruction->base, resolved_type);
+        ir_num_lit_fits_in_other_type(ira, &bin_op_instruction->base, resolved_type, false);
         return resolved_type;
     }
 
@@ -8652,17 +9757,16 @@ static TypeTableEntry *ir_analyze_array_mult(IrAnalyze *ira, IrInstructionBinOp 
     }
 
     uint64_t old_array_len = array_type->data.array.len;
+    uint64_t new_array_len;
 
-    BigNum array_len;
-    bignum_init_unsigned(&array_len, old_array_len);
-    if (bignum_multiply_by_scalar(&array_len, mult_amt)) {
+    if (mul_u64_overflow(old_array_len, mult_amt, &new_array_len))
+    {
         ir_add_error(ira, &instruction->base, buf_sprintf("operation results in overflow"));
         return ira->codegen->builtin_types.entry_invalid;
     }
 
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
 
-    uint64_t new_array_len = array_len.data.x_uint;
     out_val->data.x_array.s_none.elements = create_const_vals(new_array_len);
 
     expand_undef_array(ira->codegen, array_val);
@@ -8695,12 +9799,14 @@ static TypeTableEntry *ir_analyze_instruction_bin_op(IrAnalyze *ira, IrInstructi
         case IrBinOpCmpLessOrEq:
         case IrBinOpCmpGreaterOrEq:
             return ir_analyze_bin_op_cmp(ira, bin_op_instruction);
+        case IrBinOpBitShiftLeftLossy:
+        case IrBinOpBitShiftLeftExact:
+        case IrBinOpBitShiftRightLossy:
+        case IrBinOpBitShiftRightExact:
+            return ir_analyze_bit_shift(ira, bin_op_instruction);
         case IrBinOpBinOr:
         case IrBinOpBinXor:
         case IrBinOpBinAnd:
-        case IrBinOpBitShiftLeft:
-        case IrBinOpBitShiftLeftWrap:
-        case IrBinOpBitShiftRight:
         case IrBinOpAdd:
         case IrBinOpAddWrap:
         case IrBinOpSub:
@@ -8723,6 +9829,62 @@ static TypeTableEntry *ir_analyze_instruction_bin_op(IrAnalyze *ira, IrInstructi
     zig_unreachable();
 }
 
+enum VarClassRequired {
+    VarClassRequiredAny,
+    VarClassRequiredConst,
+    VarClassRequiredIllegal,
+};
+
+static VarClassRequired get_var_class_required(TypeTableEntry *type_entry) {
+    switch (type_entry->id) {
+        case TypeTableEntryIdInvalid:
+            zig_unreachable();
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdVar:
+            return VarClassRequiredIllegal;
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdEnumTag:
+            return VarClassRequiredAny;
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+            return VarClassRequiredConst;
+
+        case TypeTableEntryIdPointer:
+            if (type_entry->data.pointer.child_type->id == TypeTableEntryIdOpaque) {
+                return VarClassRequiredAny;
+            } else {
+                return get_var_class_required(type_entry->data.pointer.child_type);
+            }
+        case TypeTableEntryIdArray:
+            return get_var_class_required(type_entry->data.array.child_type);
+        case TypeTableEntryIdMaybe:
+            return get_var_class_required(type_entry->data.maybe.child_type);
+        case TypeTableEntryIdErrorUnion:
+            return get_var_class_required(type_entry->data.error.child_type);
+
+        case TypeTableEntryIdStruct:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdUnion:
+            // TODO check the fields of these things and make sure that they don't recursively
+            // contain any of the other variable classes
+            return VarClassRequiredAny;
+    }
+    zig_unreachable();
+}
+
 static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstructionDeclVar *decl_var_instruction) {
     VariableTableEntry *var = decl_var_instruction->var;
 
@@ -8731,10 +9893,6 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         var->value->type = ira->codegen->builtin_types.entry_invalid;
         return var->value->type;
     }
-
-    AstNodeVariableDeclaration *variable_declaration = &var->decl_node->data.variable_declaration;
-    bool is_export = (variable_declaration->visib_mod == VisibModExport);
-    bool is_extern = variable_declaration->is_extern;
 
     var->ref_count = 0;
 
@@ -8753,59 +9911,30 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
     AstNode *source_node = decl_var_instruction->base.source_node;
 
     IrInstruction *casted_init_value = ir_implicit_cast(ira, init_value, explicit_type);
+    bool is_comptime_var = ir_get_var_is_comptime(var);
+
     TypeTableEntry *result_type = casted_init_value->value.type;
     if (type_is_invalid(result_type)) {
         result_type = ira->codegen->builtin_types.entry_invalid;
-    }
-
-    bool is_comptime_var = ir_get_var_is_comptime(var);
-
-    switch (result_type->id) {
-        case TypeTableEntryIdInvalid:
-            break; // handled above
-        case TypeTableEntryIdNumLitFloat:
-        case TypeTableEntryIdNumLitInt:
-        case TypeTableEntryIdUndefLit:
-            if (is_export || is_extern || (!var->src_is_const && !is_comptime_var)) {
-                ir_add_error_node(ira, source_node, buf_sprintf("unable to infer variable type"));
-                result_type = ira->codegen->builtin_types.entry_invalid;
-            }
-            break;
-        case TypeTableEntryIdUnreachable:
-        case TypeTableEntryIdVar:
-        case TypeTableEntryIdBlock:
-        case TypeTableEntryIdNullLit:
-        case TypeTableEntryIdOpaque:
-            ir_add_error_node(ira, source_node,
-                buf_sprintf("variable of type '%s' not allowed", buf_ptr(&result_type->name)));
-            result_type = ira->codegen->builtin_types.entry_invalid;
-            break;
-        case TypeTableEntryIdMetaType:
-        case TypeTableEntryIdNamespace:
-            if (casted_init_value->value.special == ConstValSpecialRuntime) {
+    } else {
+        switch (get_var_class_required(result_type)) {
+            case VarClassRequiredIllegal:
                 ir_add_error_node(ira, source_node,
-                    buf_sprintf("variable of type '%s' must be constant", buf_ptr(&result_type->name)));
+                    buf_sprintf("variable of type '%s' not allowed", buf_ptr(&result_type->name)));
                 result_type = ira->codegen->builtin_types.entry_invalid;
-            }
-            break;
-        case TypeTableEntryIdVoid:
-        case TypeTableEntryIdBool:
-        case TypeTableEntryIdInt:
-        case TypeTableEntryIdFloat:
-        case TypeTableEntryIdPointer:
-        case TypeTableEntryIdArray:
-        case TypeTableEntryIdStruct:
-        case TypeTableEntryIdMaybe:
-        case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
-        case TypeTableEntryIdEnum:
-        case TypeTableEntryIdUnion:
-        case TypeTableEntryIdFn:
-        case TypeTableEntryIdBoundFn:
-        case TypeTableEntryIdEnumTag:
-        case TypeTableEntryIdArgTuple:
-            // OK
-            break;
+                break;
+            case VarClassRequiredConst:
+                if (!var->src_is_const && !is_comptime_var) {
+                    ir_add_error_node(ira, source_node,
+                        buf_sprintf("variable of type '%s' must be const or comptime",
+                            buf_ptr(&result_type->name)));
+                    result_type = ira->codegen->builtin_types.entry_invalid;
+                }
+                break;
+            case VarClassRequiredAny:
+                // OK
+                break;
+        }
     }
 
     var->value->type = result_type;
@@ -8817,6 +9946,14 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
     }
 
     bool is_comptime = ir_get_var_is_comptime(var);
+
+    if (decl_var_instruction->align_value == nullptr) {
+        var->align_bytes = get_abi_alignment(ira->codegen, result_type);
+    } else {
+        if (!ir_resolve_align(ira, decl_var_instruction->align_value->other, &var->align_bytes)) {
+            var->value->type = ira->codegen->builtin_types.entry_invalid;
+        }
+    }
 
     if (casted_init_value->value.special != ConstValSpecialRuntime) {
         if (var->mem_slot_index != SIZE_MAX) {
@@ -8836,7 +9973,7 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    ir_build_var_decl_from(&ira->new_irb, &decl_var_instruction->base, var, var_type, casted_init_value);
+    ir_build_var_decl_from(&ira->new_irb, &decl_var_instruction->base, var, var_type, nullptr, casted_init_value);
 
     FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
     if (fn_entry)
@@ -8995,11 +10132,12 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
             ptr_mut = ConstPtrMutRuntimeVar;
         }
         return ir_get_const_ptr(ira, instruction, mem_slot, var->value->type,
-                ptr_mut, is_const, is_volatile);
+                ptr_mut, is_const, is_volatile, var->align_bytes);
     } else {
         IrInstruction *var_ptr_instruction = ir_build_var_ptr(&ira->new_irb,
                 instruction->scope, instruction->source_node, var, is_const, is_volatile);
-        var_ptr_instruction->value.type = get_pointer_to_type(ira->codegen, var->value->type, var->src_is_const);
+        var_ptr_instruction->value.type = get_pointer_to_type_extra(ira->codegen, var->value->type,
+                var->src_is_const, is_volatile, var->align_bytes, 0, 0);
         type_ensure_zero_bits_known(ira->codegen, var->value->type);
 
         bool in_fn_scope = (scope_fn_entry(var->parent_scope) != nullptr);
@@ -9044,7 +10182,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
     if (comptime_fn_call) {
         // No special handling is needed for compile time evaluation of generic functions.
-        if (!fn_entry || fn_entry->type_entry->data.fn.fn_type_id.is_extern) {
+        if (!fn_entry || fn_entry->body_node == nullptr) {
             ir_add_error(ira, fn_ref, buf_sprintf("unable to evaluate constant expression"));
             return ira->codegen->builtin_types.entry_invalid;
         }
@@ -9234,6 +10372,19 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
                 impl_fn->child_scope, param_name, true, var_args_val, nullptr);
             impl_fn->child_scope = var->child_scope;
         }
+
+        if (fn_proto_node->data.fn_proto.align_expr != nullptr) {
+            IrInstruction *align_result = ir_eval_const_value(ira->codegen, impl_fn->child_scope,
+                    fn_proto_node->data.fn_proto.align_expr, get_align_amt_type(ira->codegen),
+                    ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota,
+                    nullptr, nullptr, fn_proto_node->data.fn_proto.align_expr, nullptr, ira->new_irb.exec);
+
+            uint32_t align_bytes = 0;
+            ir_resolve_align(ira, align_result, &align_bytes);
+            impl_fn->align_bytes = align_bytes;
+            inst_fn_type_id.alignment = align_bytes;
+        }
+
         {
             AstNode *return_type_node = fn_proto_node->data.fn_proto.return_type;
             TypeTableEntry *return_type = analyze_type_expr(ira->codegen, impl_fn->child_scope, return_type_node);
@@ -9529,9 +10680,10 @@ static TypeTableEntry *ir_analyze_negation(IrAnalyze *ira, IrInstructionUnOp *un
 
     bool is_wrap_op = (un_op_instruction->op_id == IrUnOpNegationWrap);
 
+    bool is_float = (expr_type->id == TypeTableEntryIdFloat || expr_type->id == TypeTableEntryIdNumLitFloat);
+
     if ((expr_type->id == TypeTableEntryIdInt && expr_type->data.integral.is_signed) ||
-        expr_type->id == TypeTableEntryIdNumLitInt ||
-        ((expr_type->id == TypeTableEntryIdFloat || expr_type->id == TypeTableEntryIdNumLitFloat) && !is_wrap_op))
+        expr_type->id == TypeTableEntryIdNumLitInt || (is_float && !is_wrap_op))
     {
         if (instr_is_comptime(value)) {
             ConstExprValue *target_const_val = ir_resolve_const(ira, value, UndefBad);
@@ -9539,19 +10691,19 @@ static TypeTableEntry *ir_analyze_negation(IrAnalyze *ira, IrInstructionUnOp *un
                 return ira->codegen->builtin_types.entry_invalid;
 
             ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base);
-            bignum_negate(&out_val->data.x_bignum, &target_const_val->data.x_bignum);
-            if (expr_type->id == TypeTableEntryIdFloat ||
-                expr_type->id == TypeTableEntryIdNumLitFloat ||
-                expr_type->id == TypeTableEntryIdNumLitInt)
-            {
+            if (is_float) {
+                float_negate(out_val, target_const_val);
+            } else if (is_wrap_op) {
+                bigint_negate_wrap(&out_val->data.x_bigint, &target_const_val->data.x_bigint,
+                        expr_type->data.integral.bit_count);
+            } else {
+                bigint_negate(&out_val->data.x_bigint, &target_const_val->data.x_bigint);
+            }
+            if (is_wrap_op || is_float || expr_type->id == TypeTableEntryIdNumLitInt) {
                 return expr_type;
             }
 
-            bool overflow = !bignum_fits_in_bits(&out_val->data.x_bignum, expr_type->data.integral.bit_count, true);
-            if (is_wrap_op) {
-                if (overflow)
-                    out_val->data.x_bignum.is_negative = true;
-            } else if (overflow) {
+            if (!bigint_fits_in_bits(&out_val->data.x_bigint, expr_type->data.integral.bit_count, true)) {
                 ir_add_error(ira, &un_op_instruction->base, buf_sprintf("negation caused overflow"));
                 return ira->codegen->builtin_types.entry_invalid;
             }
@@ -9580,7 +10732,7 @@ static TypeTableEntry *ir_analyze_bin_not(IrAnalyze *ira, IrInstructionUnOp *ins
                 return ira->codegen->builtin_types.entry_invalid;
 
             ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-            bignum_not(&out_val->data.x_bignum, &target_const_val->data.x_bignum,
+            bigint_not(&out_val->data.x_bigint, &target_const_val->data.x_bigint,
                     expr_type->data.integral.bit_count, expr_type->data.integral.is_signed);
             return expr_type;
         }
@@ -9803,6 +10955,15 @@ static TypeTableEntry *ir_analyze_instruction_var_ptr(IrAnalyze *ira, IrInstruct
             var_ptr_instruction->is_volatile);
 }
 
+static TypeTableEntry *adjust_ptr_align(CodeGen *g, TypeTableEntry *ptr_type, uint32_t new_align) {
+    assert(ptr_type->id == TypeTableEntryIdPointer);
+    return get_pointer_to_type_extra(g,
+            ptr_type->data.pointer.child_type,
+            ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
+            new_align,
+            ptr_type->data.pointer.bit_offset, ptr_type->data.pointer.unaligned_bit_count);
+}
+
 static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstructionElemPtr *elem_ptr_instruction) {
     IrInstruction *array_ptr = elem_ptr_instruction->array_ptr->other;
     if (type_is_invalid(array_ptr->value.type))
@@ -9821,6 +10982,9 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
     assert(ptr_type->id == TypeTableEntryIdPointer);
 
     TypeTableEntry *array_type = ptr_type->data.pointer.child_type;
+
+    // At first return_type will be the pointer type we want to return, except with an optimistic alignment.
+    // We will adjust return_type's alignment before returning it.
     TypeTableEntry *return_type;
 
     if (type_is_invalid(array_type)) {
@@ -9829,27 +10993,29 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
         if (array_type->data.array.len == 0) {
             ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
                     buf_sprintf("index 0 outside array of size 0"));
+            return ira->codegen->builtin_types.entry_invalid;
         }
         TypeTableEntry *child_type = array_type->data.array.child_type;
         if (ptr_type->data.pointer.unaligned_bit_count == 0) {
             return_type = get_pointer_to_type_extra(ira->codegen, child_type,
-                    ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile, 0, 0);
+                    ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
+                    ptr_type->data.pointer.alignment, 0, 0);
         } else {
-            ConstExprValue *elem_val = ir_resolve_const(ira, elem_index, UndefBad);
-            if (!elem_val)
+            uint64_t elem_val_scalar;
+            if (!ir_resolve_usize(ira, elem_index, &elem_val_scalar))
                 return ira->codegen->builtin_types.entry_invalid;
 
             size_t bit_width = type_size_bits(ira->codegen, child_type);
-            size_t bit_offset = bit_width * elem_val->data.x_bignum.data.x_uint;
+            size_t bit_offset = bit_width * elem_val_scalar;
 
             return_type = get_pointer_to_type_extra(ira->codegen, child_type,
                     ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
-                    (uint32_t)bit_offset, (uint32_t)bit_width);
+                    1, (uint32_t)bit_offset, (uint32_t)bit_width);
         }
     } else if (array_type->id == TypeTableEntryIdPointer) {
         return_type = array_type;
     } else if (is_slice(array_type)) {
-        return_type = array_type->data.structure.fields[0].type_entry;
+        return_type = array_type->data.structure.fields[slice_ptr_index].type_entry;
     } else if (array_type->id == TypeTableEntryIdArgTuple) {
         ConstExprValue *ptr_val = ir_resolve_const(ira, array_ptr, UndefBad);
         if (!ptr_val)
@@ -9857,10 +11023,10 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
         ConstExprValue *args_val = const_ptr_pointee(ira->codegen, ptr_val);
         size_t start = args_val->data.x_arg_tuple.start_index;
         size_t end = args_val->data.x_arg_tuple.end_index;
-        ConstExprValue *elem_index_val = ir_resolve_const(ira, elem_index, UndefBad);
-        if (!elem_index_val)
+        uint64_t elem_index_val;
+        if (!ir_resolve_usize(ira, elem_index, &elem_index_val))
             return ira->codegen->builtin_types.entry_invalid;
-        size_t index = bignum_to_twos_complement(&elem_index_val->data.x_bignum);
+        size_t index = elem_index_val;
         size_t len = end - start;
         if (index >= len) {
             ir_add_error(ira, &elem_ptr_instruction->base,
@@ -9892,8 +11058,12 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
         return ira->codegen->builtin_types.entry_invalid;
 
     bool safety_check_on = elem_ptr_instruction->safety_check_on;
+    ensure_complete_type(ira->codegen, return_type->data.pointer.child_type);
+    uint64_t elem_size = type_size(ira->codegen, return_type->data.pointer.child_type);
+    uint64_t abi_align = get_abi_alignment(ira->codegen, return_type->data.pointer.child_type);
+    uint64_t ptr_align = return_type->data.pointer.alignment;
     if (instr_is_comptime(casted_elem_index)) {
-        uint64_t index = casted_elem_index->value.data.x_bignum.data.x_uint;
+        uint64_t index = bigint_as_unsigned(&casted_elem_index->value.data.x_bigint);
         if (array_type->id == TypeTableEntryIdArray) {
             uint64_t array_len = array_type->data.array.len;
             if (index >= array_len) {
@@ -9905,6 +11075,26 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
             safety_check_on = false;
         }
 
+        {
+            // figure out the largest alignment possible
+            uint64_t chosen_align = abi_align;
+            if (ptr_align >= abi_align) {
+                while (ptr_align > abi_align) {
+                    if ((index * elem_size) % ptr_align == 0) {
+                        chosen_align = ptr_align;
+                        break;
+                    }
+                    ptr_align >>= 1;
+                }
+            } else if (elem_size >= ptr_align && elem_size % ptr_align == 0) {
+                chosen_align = ptr_align;
+            } else {
+                // can't get here because guaranteed elem_size >= abi_align
+                zig_unreachable();
+            }
+            return_type = adjust_ptr_align(ira->codegen, return_type, chosen_align);
+        }
+
         ConstExprValue *array_ptr_val;
         if (array_ptr->value.special != ConstValSpecialRuntime &&
             (array_ptr->value.data.x_ptr.mut != ConstPtrMutRuntimeVar || array_type->id == TypeTableEntryIdArray) &&
@@ -9913,8 +11103,8 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
             (array_type->id != TypeTableEntryIdPointer ||
                 array_ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr))
         {
-            ConstExprValue *out_val = ir_build_const_from(ira, &elem_ptr_instruction->base);
             if (array_type->id == TypeTableEntryIdPointer) {
+                ConstExprValue *out_val = ir_build_const_from(ira, &elem_ptr_instruction->base);
                 out_val->data.x_ptr.mut = array_ptr_val->data.x_ptr.mut;
                 size_t new_index;
                 size_t mem_size;
@@ -9959,10 +11149,17 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                         buf_sprintf("index %" ZIG_PRI_u64 " outside pointer of size %" ZIG_PRI_usize "", index, old_size));
                     return ira->codegen->builtin_types.entry_invalid;
                 }
+                return return_type;
             } else if (is_slice(array_type)) {
                 ConstExprValue *ptr_field = &array_ptr_val->data.x_struct.fields[slice_ptr_index];
+                if (ptr_field->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
+                    ir_build_elem_ptr_from(&ira->new_irb, &elem_ptr_instruction->base, array_ptr,
+                            casted_elem_index, false);
+                    return return_type;
+                }
                 ConstExprValue *len_field = &array_ptr_val->data.x_struct.fields[slice_len_index];
-                uint64_t slice_len = len_field->data.x_bignum.data.x_uint;
+                ConstExprValue *out_val = ir_build_const_from(ira, &elem_ptr_instruction->base);
+                uint64_t slice_len = bigint_as_unsigned(&len_field->data.x_bigint);
                 if (index >= slice_len) {
                     ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
                         buf_sprintf("index %" ZIG_PRI_u64 " outside slice of size %" ZIG_PRI_u64,
@@ -9996,17 +11193,31 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                     case ConstPtrSpecialHardCodedAddr:
                         zig_unreachable();
                 }
+                return return_type;
             } else if (array_type->id == TypeTableEntryIdArray) {
+                ConstExprValue *out_val = ir_build_const_from(ira, &elem_ptr_instruction->base);
                 out_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
                 out_val->data.x_ptr.mut = array_ptr->value.data.x_ptr.mut;
                 out_val->data.x_ptr.data.base_array.array_val = array_ptr_val;
                 out_val->data.x_ptr.data.base_array.elem_index = index;
+                return return_type;
             } else {
                 zig_unreachable();
             }
-            return return_type;
         }
 
+    } else {
+        // runtime known element index
+        if (ptr_align < abi_align) {
+            if (elem_size >= ptr_align && elem_size % ptr_align == 0) {
+                return_type = adjust_ptr_align(ira->codegen, return_type, ptr_align);
+            } else {
+                // can't get here because guaranteed elem_size >= abi_align
+                zig_unreachable();
+            }
+        } else {
+            return_type = adjust_ptr_align(ira->codegen, return_type, abi_align);
+        }
     }
 
     ir_build_elem_ptr_from(&ira->new_irb, &elem_ptr_instruction->base, array_ptr,
@@ -10023,7 +11234,7 @@ static TypeTableEntry *ir_analyze_container_member_access_inner(IrAnalyze *ira,
         auto entry = container_scope->decl_table.maybe_get(field_name);
         Tld *tld = entry ? entry->value : nullptr;
         if (tld && tld->id == TldIdFn) {
-            resolve_top_level_decl(ira->codegen, tld, false);
+            resolve_top_level_decl(ira->codegen, tld, false, field_ptr_instruction->base.source_node);
             if (tld->resolution == TldResolutionInvalid)
                 return ira->codegen->builtin_types.entry_invalid;
             TldFn *tld_fn = (TldFn *)tld;
@@ -10057,6 +11268,12 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
 
         TypeStructField *field = find_struct_type_field(bare_type, field_name);
         if (field) {
+            bool is_packed = (bare_type->data.structure.layout == ContainerLayoutPacked);
+            uint32_t align_bytes = is_packed ? 1 : get_abi_alignment(ira->codegen, field->type_entry);
+            size_t ptr_bit_offset = container_ptr->value.type->data.pointer.bit_offset;
+            size_t ptr_unaligned_bit_count = container_ptr->value.type->data.pointer.unaligned_bit_count;
+            size_t unaligned_bit_count_for_result_type = (ptr_unaligned_bit_count == 0) ?
+                field->unaligned_bit_count : type_size_bits(ira->codegen, field->type_entry);
             if (instr_is_comptime(container_ptr)) {
                 ConstExprValue *ptr_val = ir_resolve_const(ira, container_ptr, UndefBad);
                 if (!ptr_val)
@@ -10066,7 +11283,9 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
                     ConstExprValue *struct_val = const_ptr_pointee(ira->codegen, ptr_val);
                     ConstExprValue *field_val = &struct_val->data.x_struct.fields[field->src_index];
                     TypeTableEntry *ptr_type = get_pointer_to_type_extra(ira->codegen, field_val->type,
-                            is_const, is_volatile, 0, 0);
+                            is_const, is_volatile, align_bytes,
+                            (uint32_t)(ptr_bit_offset + field->packed_bits_offset),
+                            (uint32_t)unaligned_bit_count_for_result_type);
                     ConstExprValue *const_val = ir_build_const_from(ira, &field_ptr_instruction->base);
                     const_val->data.x_ptr.special = ConstPtrSpecialBaseStruct;
                     const_val->data.x_ptr.mut = container_ptr->value.data.x_ptr.mut;
@@ -10075,12 +11294,9 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
                     return ptr_type;
                 }
             }
-            size_t ptr_bit_offset = container_ptr->value.type->data.pointer.bit_offset;
-            size_t ptr_unaligned_bit_count = container_ptr->value.type->data.pointer.unaligned_bit_count;
-            size_t unaligned_bit_count_for_result_type = (ptr_unaligned_bit_count == 0) ?
-                field->unaligned_bit_count : type_size_bits(ira->codegen, field->type_entry);
             ir_build_struct_field_ptr_from(&ira->new_irb, &field_ptr_instruction->base, container_ptr, field);
             return get_pointer_to_type_extra(ira->codegen, field->type_entry, is_const, is_volatile,
+                    align_bytes,
                     (uint32_t)(ptr_bit_offset + field->packed_bits_offset),
                     (uint32_t)unaligned_bit_count_for_result_type);
         } else {
@@ -10094,7 +11310,8 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
         TypeEnumField *field = find_enum_type_field(bare_type, field_name);
         if (field) {
             ir_build_enum_field_ptr_from(&ira->new_irb, &field_ptr_instruction->base, container_ptr, field);
-            return get_pointer_to_type_extra(ira->codegen, field->type_entry, is_const, is_volatile, 0, 0);
+            return get_pointer_to_type_extra(ira->codegen, field->type_entry, is_const, is_volatile,
+                    get_abi_alignment(ira->codegen, field->type_entry), 0, 0);
         } else {
             return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
                 field_ptr_instruction, container_ptr, container_type);
@@ -10108,7 +11325,7 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
 
 static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source_instruction, Tld *tld) {
     bool pointer_only = false;
-    resolve_top_level_decl(ira->codegen, tld, pointer_only);
+    resolve_top_level_decl(ira->codegen, tld, pointer_only, source_instruction->source_node);
     if (tld->resolution == TldResolutionInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
@@ -10120,6 +11337,10 @@ static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source
         {
             TldVar *tld_var = (TldVar *)tld;
             VariableTableEntry *var = tld_var->var;
+            if (tld_var->extern_lib_name != nullptr) {
+                add_link_lib_symbol(ira->codegen, tld_var->extern_lib_name, &var->name);
+            }
+
             return ir_analyze_var_ptr(ira, source_instruction, var, false, false);
         }
         case TldIdFn:
@@ -10137,6 +11358,10 @@ static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source
             const_val->special = ConstValSpecialStatic;
             const_val->type = fn_entry->type_entry;
             const_val->data.x_fn.fn_entry = fn_entry;
+
+            if (tld_fn->extern_lib_name != nullptr) {
+                add_link_lib_symbol(ira->codegen, tld_fn->extern_lib_name, &fn_entry->symbol_name);
+            }
 
             bool ptr_is_const = true;
             bool ptr_is_volatile = false;
@@ -10235,6 +11460,17 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
         if (type_is_invalid(child_type)) {
             return ira->codegen->builtin_types.entry_invalid;
         } else if (is_container(child_type)) {
+            if (is_slice(child_type) && buf_eql_str(field_name, "Child")) {
+                bool ptr_is_const = true;
+                bool ptr_is_volatile = false;
+                TypeStructField *ptr_field = &child_type->data.structure.fields[slice_ptr_index];
+                assert(ptr_field->type_entry->id == TypeTableEntryIdPointer);
+                TypeTableEntry *child_type = ptr_field->type_entry->data.pointer.child_type;
+                return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
+                    create_const_type(ira->codegen, child_type),
+                    ira->codegen->builtin_types.entry_type,
+                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile);
+            }
             if (child_type->id == TypeTableEntryIdEnum) {
                 ensure_complete_type(ira->codegen, child_type);
                 if (child_type->data.enumeration.is_invalid)
@@ -10316,6 +11552,50 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
                 return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
                     create_const_unsigned_negative(ira->codegen->builtin_types.entry_num_lit_int,
                         child_type->data.floating.bit_count, false),
+                    ira->codegen->builtin_types.entry_num_lit_int,
+                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile);
+            } else {
+                ir_add_error(ira, &field_ptr_instruction->base,
+                    buf_sprintf("type '%s' has no member called '%s'",
+                        buf_ptr(&child_type->name), buf_ptr(field_name)));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+        } else if (child_type->id == TypeTableEntryIdPointer) {
+            if (buf_eql_str(field_name, "Child")) {
+                bool ptr_is_const = true;
+                bool ptr_is_volatile = false;
+                return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
+                    create_const_type(ira->codegen, child_type->data.pointer.child_type),
+                    ira->codegen->builtin_types.entry_type,
+                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile);
+            } else if (buf_eql_str(field_name, "alignment")) {
+                bool ptr_is_const = true;
+                bool ptr_is_volatile = false;
+                return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
+                    create_const_unsigned_negative(ira->codegen->builtin_types.entry_num_lit_int,
+                        child_type->data.pointer.alignment, false),
+                    ira->codegen->builtin_types.entry_num_lit_int,
+                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile);
+            } else {
+                ir_add_error(ira, &field_ptr_instruction->base,
+                    buf_sprintf("type '%s' has no member called '%s'",
+                        buf_ptr(&child_type->name), buf_ptr(field_name)));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+        } else if (child_type->id == TypeTableEntryIdArray) {
+            if (buf_eql_str(field_name, "Child")) {
+                bool ptr_is_const = true;
+                bool ptr_is_volatile = false;
+                return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
+                    create_const_type(ira->codegen, child_type->data.array.child_type),
+                    ira->codegen->builtin_types.entry_type,
+                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile);
+            } else if (buf_eql_str(field_name, "len")) {
+                bool ptr_is_const = true;
+                bool ptr_is_volatile = false;
+                return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
+                    create_const_unsigned_negative(ira->codegen->builtin_types.entry_num_lit_int,
+                        child_type->data.array.len, false),
                     ira->codegen->builtin_types.entry_num_lit_int,
                     ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile);
             } else {
@@ -10512,7 +11792,6 @@ static TypeTableEntry *ir_analyze_instruction_ptr_type_child(IrAnalyze *ira,
     if (type_is_invalid(type_entry))
         return type_entry;
 
-    // TODO handle typedefs
     if (type_entry->id != TypeTableEntryIdPointer) {
         ir_add_error_node(ira, ptr_type_child_instruction->base.source_node,
                 buf_sprintf("expected pointer type, found '%s'", buf_ptr(&type_entry->name)));
@@ -10524,76 +11803,13 @@ static TypeTableEntry *ir_analyze_instruction_ptr_type_child(IrAnalyze *ira,
     return ira->codegen->builtin_types.entry_type;
 }
 
-static TypeTableEntry *ir_analyze_instruction_set_global_align(IrAnalyze *ira,
-        IrInstructionSetGlobalAlign *instruction)
-{
-    Tld *tld = instruction->tld;
-    IrInstruction *align_value = instruction->value->other;
-
-    resolve_top_level_decl(ira->codegen, tld, true);
-    if (tld->resolution == TldResolutionInvalid)
-        return ira->codegen->builtin_types.entry_invalid;
-
-    uint64_t scalar_align;
-    if (!ir_resolve_usize(ira, align_value, &scalar_align))
-        return ira->codegen->builtin_types.entry_invalid;
-
-    if (!is_power_of_2(scalar_align)) {
-        ir_add_error(ira, instruction->value, buf_sprintf("alignment value must be power of 2"));
-        return ira->codegen->builtin_types.entry_invalid;
-    }
-
-    AstNode **set_global_align_node;
-    uint32_t *alignment_ptr;
-    if (tld->id == TldIdVar) {
-        TldVar *tld_var = (TldVar *)tld;
-        set_global_align_node = &tld_var->set_global_align_node;
-        alignment_ptr = &tld_var->alignment;
-
-        if (tld_var->var->linkage == VarLinkageExternal) {
-            ErrorMsg *msg = ir_add_error(ira, &instruction->base,
-                    buf_sprintf("cannot set alignment of external variable '%s'", buf_ptr(&tld_var->var->name)));
-            add_error_note(ira->codegen, msg, tld->source_node, buf_sprintf("declared here"));
-            return ira->codegen->builtin_types.entry_invalid;
-        }
-    } else if (tld->id == TldIdFn) {
-        TldFn *tld_fn = (TldFn *)tld;
-        FnTableEntry *fn_entry = tld_fn->fn_entry;
-        set_global_align_node = &fn_entry->set_global_align_node;
-        alignment_ptr = &fn_entry->alignment;
-
-        if (fn_entry->def_scope == nullptr) {
-            ErrorMsg *msg = ir_add_error(ira, &instruction->base,
-                    buf_sprintf("cannot set alignment of external function '%s'", buf_ptr(&fn_entry->symbol_name)));
-            add_error_note(ira->codegen, msg, tld->source_node, buf_sprintf("declared here"));
-            return ira->codegen->builtin_types.entry_invalid;
-        }
-    } else {
-        // error is caught in pass1 IR gen
-        zig_unreachable();
-    }
-
-    AstNode *source_node = instruction->base.source_node;
-    if (*set_global_align_node) {
-        ErrorMsg *msg = ir_add_error_node(ira, source_node,
-                buf_sprintf("alignment set twice"));
-        add_error_note(ira->codegen, msg, *set_global_align_node, buf_sprintf("first set here"));
-        return ira->codegen->builtin_types.entry_invalid;
-    }
-    *set_global_align_node = source_node;
-    *alignment_ptr = (uint32_t)scalar_align;
-
-    ir_build_const_from(ira, &instruction->base);
-    return ira->codegen->builtin_types.entry_void;
-}
-
 static TypeTableEntry *ir_analyze_instruction_set_global_section(IrAnalyze *ira,
         IrInstructionSetGlobalSection *instruction)
 {
     Tld *tld = instruction->tld;
     IrInstruction *section_value = instruction->value->other;
 
-    resolve_top_level_decl(ira->codegen, tld, true);
+    resolve_top_level_decl(ira->codegen, tld, true, instruction->base.source_node);
     if (tld->resolution == TldResolutionInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
@@ -10835,16 +12051,24 @@ static TypeTableEntry *ir_analyze_instruction_set_float_mode(IrAnalyze *ira,
 static TypeTableEntry *ir_analyze_instruction_slice_type(IrAnalyze *ira,
         IrInstructionSliceType *slice_type_instruction)
 {
-    IrInstruction *child_type = slice_type_instruction->child_type->other;
-    if (type_is_invalid(child_type->value.type))
+    uint32_t align_bytes;
+    if (slice_type_instruction->align_value != nullptr) {
+        if (!ir_resolve_align(ira, slice_type_instruction->align_value->other, &align_bytes))
+            return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    TypeTableEntry *child_type = ir_resolve_type(ira, slice_type_instruction->child_type->other);
+    if (type_is_invalid(child_type))
         return ira->codegen->builtin_types.entry_invalid;
+
+    if (slice_type_instruction->align_value == nullptr) {
+        align_bytes = get_abi_alignment(ira->codegen, child_type);
+    }
+
     bool is_const = slice_type_instruction->is_const;
+    bool is_volatile = slice_type_instruction->is_volatile;
 
-    TypeTableEntry *resolved_child_type = ir_resolve_type(ira, child_type);
-    if (type_is_invalid(resolved_child_type))
-        return ira->codegen->builtin_types.entry_invalid;
-
-    switch (resolved_child_type->id) {
+    switch (child_type->id) {
         case TypeTableEntryIdInvalid: // handled above
             zig_unreachable();
         case TypeTableEntryIdVar:
@@ -10855,7 +12079,7 @@ static TypeTableEntry *ir_analyze_instruction_slice_type(IrAnalyze *ira,
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
             ir_add_error_node(ira, slice_type_instruction->base.source_node,
-                    buf_sprintf("slice of type '%s' not allowed", buf_ptr(&resolved_child_type->name)));
+                    buf_sprintf("slice of type '%s' not allowed", buf_ptr(&child_type->name)));
             return ira->codegen->builtin_types.entry_invalid;
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdVoid:
@@ -10877,8 +12101,10 @@ static TypeTableEntry *ir_analyze_instruction_slice_type(IrAnalyze *ira,
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdEnumTag:
             {
-                type_ensure_zero_bits_known(ira->codegen, resolved_child_type);
-                TypeTableEntry *result_type = get_slice_type(ira->codegen, resolved_child_type, is_const);
+                type_ensure_zero_bits_known(ira->codegen, child_type);
+                TypeTableEntry *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, child_type,
+                        is_const, is_volatile, align_bytes, 0, 0);
+                TypeTableEntry *result_type = get_slice_type(ira->codegen, slice_ptr_type);
                 ConstExprValue *out_val = ir_build_const_from(ira, &slice_type_instruction->base);
                 out_val->data.x_type = result_type;
                 return ira->codegen->builtin_types.entry_type;
@@ -11038,7 +12264,7 @@ static TypeTableEntry *ir_analyze_instruction_size_of(IrAnalyze *ira,
             {
                 uint64_t size_in_bytes = type_size(ira->codegen, type_entry);
                 ConstExprValue *out_val = ir_build_const_from(ira, &size_of_instruction->base);
-                bignum_init_unsigned(&out_val->data.x_bignum, size_in_bytes);
+                bigint_init_unsigned(&out_val->data.x_bigint, size_in_bytes);
                 return ira->codegen->builtin_types.entry_num_lit_int;
             }
     }
@@ -11103,7 +12329,6 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_maybe(IrAnalyze *ira,
     assert(ptr_type->id == TypeTableEntryIdPointer);
 
     TypeTableEntry *type_entry = ptr_type->data.pointer.child_type;
-    // TODO handle typedef
     if (type_is_invalid(type_entry)) {
         return ira->codegen->builtin_types.entry_invalid;
     } else if (type_entry->id != TypeTableEntryIdMaybe) {
@@ -11113,16 +12338,16 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_maybe(IrAnalyze *ira,
     }
     TypeTableEntry *child_type = type_entry->data.maybe.child_type;
     TypeTableEntry *result_type = get_pointer_to_type_extra(ira->codegen, child_type,
-            ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile, 0, 0);
+            ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
+            get_abi_alignment(ira->codegen, child_type), 0, 0);
 
     if (instr_is_comptime(value)) {
         ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
         if (!val)
             return ira->codegen->builtin_types.entry_invalid;
-        assert(val->data.x_ptr.special == ConstPtrSpecialRef);
-        ConstExprValue *maybe_val = val->data.x_ptr.data.ref.pointee;
+        ConstExprValue *maybe_val = const_ptr_pointee(ira->codegen, val);
 
-        if (maybe_val->special != ConstValSpecialRuntime) {
+        if (val->data.x_ptr.mut != ConstPtrMutRuntimeVar) {
             if (!maybe_val->data.x_maybe) {
                 ir_add_error(ira, &unwrap_maybe_instruction->base, buf_sprintf("unable to unwrap null"));
                 return ira->codegen->builtin_types.entry_invalid;
@@ -11144,16 +12369,18 @@ static TypeTableEntry *ir_analyze_instruction_ctz(IrAnalyze *ira, IrInstructionC
     if (type_is_invalid(value->value.type)) {
         return ira->codegen->builtin_types.entry_invalid;
     } else if (value->value.type->id == TypeTableEntryIdInt) {
+        TypeTableEntry *return_type = get_smallest_unsigned_int_type(ira->codegen,
+                value->value.type->data.integral.bit_count);
         if (value->value.special != ConstValSpecialRuntime) {
-            uint32_t result = bignum_ctz(&value->value.data.x_bignum,
+            size_t result = bigint_ctz(&value->value.data.x_bigint,
                     value->value.type->data.integral.bit_count);
             ConstExprValue *out_val = ir_build_const_from(ira, &ctz_instruction->base);
-            bignum_init_unsigned(&out_val->data.x_bignum, result);
-            return value->value.type;
+            bigint_init_unsigned(&out_val->data.x_bigint, result);
+            return return_type;
         }
 
         ir_build_ctz_from(&ira->new_irb, &ctz_instruction->base, value);
-        return value->value.type;
+        return return_type;
     } else {
         ir_add_error_node(ira, ctz_instruction->base.source_node,
             buf_sprintf("expected integer type, found '%s'", buf_ptr(&value->value.type->name)));
@@ -11166,16 +12393,18 @@ static TypeTableEntry *ir_analyze_instruction_clz(IrAnalyze *ira, IrInstructionC
     if (type_is_invalid(value->value.type)) {
         return ira->codegen->builtin_types.entry_invalid;
     } else if (value->value.type->id == TypeTableEntryIdInt) {
+        TypeTableEntry *return_type = get_smallest_unsigned_int_type(ira->codegen,
+                value->value.type->data.integral.bit_count);
         if (value->value.special != ConstValSpecialRuntime) {
-            uint32_t result = bignum_clz(&value->value.data.x_bignum,
+            size_t result = bigint_clz(&value->value.data.x_bigint,
                     value->value.type->data.integral.bit_count);
             ConstExprValue *out_val = ir_build_const_from(ira, &clz_instruction->base);
-            bignum_init_unsigned(&out_val->data.x_bignum, result);
-            return value->value.type;
+            bigint_init_unsigned(&out_val->data.x_bigint, result);
+            return return_type;
         }
 
         ir_build_clz_from(&ira->new_irb, &clz_instruction->base, value);
-        return value->value.type;
+        return return_type;
     } else {
         ir_add_error_node(ira, clz_instruction->base.source_node,
             buf_sprintf("expected integer type, found '%s'", buf_ptr(&value->value.type->name)));
@@ -11204,7 +12433,7 @@ static IrInstruction *ir_analyze_enum_tag(IrAnalyze *ira, IrInstruction *source_
                 source_instr->scope, source_instr->source_node);
         const_instruction->base.value.type = tag_type;
         const_instruction->base.value.special = ConstValSpecialStatic;
-        bignum_init_unsigned(&const_instruction->base.value.data.x_bignum, val->data.x_enum.tag);
+        bigint_init_unsigned(&const_instruction->base.value.data.x_bigint, val->data.x_enum.tag);
         return &const_instruction->base;
     }
 
@@ -11373,7 +12602,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
                 TypeTableEntry *tag_type = target_type->data.enumeration.tag_type;
                 if (pointee_val) {
                     ConstExprValue *out_val = ir_build_const_from(ira, &switch_target_instruction->base);
-                    bignum_init_unsigned(&out_val->data.x_bignum, pointee_val->data.x_enum.tag);
+                    bigint_init_unsigned(&out_val->data.x_bigint, pointee_val->data.x_enum.tag);
                     return tag_type;
                 }
 
@@ -11422,9 +12651,9 @@ static TypeTableEntry *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstr
         if (!prong_val)
             return ira->codegen->builtin_types.entry_invalid;
 
-        TypeEnumField *field = &target_type->data.enumeration.fields[prong_val->data.x_bignum.data.x_uint];
+        TypeEnumField *field;
         if (prong_value->value.type->id == TypeTableEntryIdEnumTag) {
-            field = &target_type->data.enumeration.fields[prong_val->data.x_bignum.data.x_uint];
+            field = &target_type->data.enumeration.fields[bigint_as_unsigned(&prong_val->data.x_bigint)];
         } else if (prong_value->value.type->id == TypeTableEntryIdEnum) {
             field = &target_type->data.enumeration.fields[prong_val->data.x_enum.tag];
         } else {
@@ -11551,7 +12780,7 @@ static TypeTableEntry *ir_analyze_instruction_array_len(IrAnalyze *ira,
             ConstExprValue *len_val = &array_value->value.data.x_struct.fields[slice_len_index];
             if (len_val->special != ConstValSpecialRuntime) {
                 return ir_analyze_const_usize(ira, &array_len_instruction->base,
-                        len_val->data.x_bignum.data.x_uint);
+                        bigint_as_unsigned(&len_val->data.x_bigint));
             }
         }
         TypeStructField *field = &type_entry->data.structure.fields[slice_len_index];
@@ -11704,10 +12933,25 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
         if (container_type->id == TypeTableEntryIdStruct && !is_slice(container_type) && elem_count == 0) {
             return ir_analyze_container_init_fields(ira, &instruction->base, container_type,
                     0, nullptr);
-        } else if (is_slice(container_type)) {
-            TypeTableEntry *pointer_type = container_type->data.structure.fields[slice_ptr_index].type_entry;
-            assert(pointer_type->id == TypeTableEntryIdPointer);
-            TypeTableEntry *child_type = pointer_type->data.pointer.child_type;
+        } else if (is_slice(container_type) || container_type->id == TypeTableEntryIdArray) {
+            // array is same as slice init but we make a compile error if the length is wrong
+            TypeTableEntry *child_type;
+            if (container_type->id == TypeTableEntryIdArray) {
+                child_type = container_type->data.array.child_type;
+                if (container_type->data.array.len != elem_count) {
+                    TypeTableEntry *literal_type = get_array_type(ira->codegen, child_type, elem_count);
+
+                    ir_add_error(ira, &instruction->base,
+                        buf_sprintf("expected %s literal, found %s literal",
+                            buf_ptr(&container_type->name), buf_ptr(&literal_type->name)));
+                    return ira->codegen->builtin_types.entry_invalid;
+                }
+            } else {
+                TypeTableEntry *pointer_type = container_type->data.structure.fields[slice_ptr_index].type_entry;
+                assert(pointer_type->id == TypeTableEntryIdPointer);
+                child_type = pointer_type->data.pointer.child_type;
+            }
+
             TypeTableEntry *fixed_size_array_type = get_array_type(ira->codegen, child_type, elem_count);
 
             ConstExprValue const_val = {};
@@ -11771,9 +13015,6 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
                 container_type_value, elem_count, new_items);
             ir_add_alloca(ira, new_instruction, fixed_size_array_type);
             return fixed_size_array_type;
-        } else if (container_type->id == TypeTableEntryIdArray) {
-            // same as slice init but we make a compile error if the length is wrong
-            zig_panic("TODO array container init");
         } else if (container_type->id == TypeTableEntryIdVoid) {
             if (elem_count != 0) {
                 ir_add_error_node(ira, instruction->base.source_node,
@@ -11798,7 +13039,7 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
 
         TypeTableEntry *enum_type = container_type_value->value.type->data.enum_tag.enum_type;
 
-        uint64_t tag_uint = tag_value->data.x_bignum.data.x_uint;
+        uint64_t tag_uint = bigint_as_unsigned(&tag_value->data.x_bigint);
         TypeEnumField *field = &enum_type->data.enumeration.fields[tag_uint];
         TypeTableEntry *this_field_type = field->type_entry;
 
@@ -11924,7 +13165,19 @@ static TypeTableEntry *ir_analyze_instruction_compile_err(IrAnalyze *ira,
     if (!msg_buf)
         return ira->codegen->builtin_types.entry_invalid;
 
-    ir_add_error(ira, &instruction->base, msg_buf);
+    ErrorMsg *msg = ir_add_error(ira, &instruction->base, msg_buf);
+    size_t i = ira->codegen->tld_ref_source_node_stack.length;
+    for (;;) {
+        if (i == 0)
+            break;
+        i -= 1;
+        AstNode *source_node = ira->codegen->tld_ref_source_node_stack.at(i);
+        if (source_node) {
+            add_error_note(ira->codegen, msg, source_node,
+                buf_sprintf("referenced here"));
+        }
+    }
+
     return ira->codegen->builtin_types.entry_invalid;
 }
 
@@ -11957,7 +13210,8 @@ static TypeTableEntry *ir_analyze_instruction_err_name(IrAnalyze *ira, IrInstruc
     if (type_is_invalid(casted_value->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    TypeTableEntry *str_type = get_slice_type(ira->codegen, ira->codegen->builtin_types.entry_u8, true);
+    TypeTableEntry *u8_ptr_type = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_u8, true);
+    TypeTableEntry *str_type = get_slice_type(ira->codegen, u8_ptr_type);
     if (casted_value->value.special == ConstValSpecialStatic) {
         ErrorTableEntry *err = casted_value->value.data.x_pure_err;
         if (!err->cached_error_name_val) {
@@ -11983,7 +13237,7 @@ static TypeTableEntry *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrIn
 
     if (instr_is_comptime(target)) {
         TypeTableEntry *enum_type = target->value.type->data.enum_tag.enum_type;
-        uint64_t tag_value = target->value.data.x_bignum.data.x_uint;
+        uint64_t tag_value = bigint_as_unsigned(&target->value.data.x_bigint);
         TypeEnumField *field = &enum_type->data.enumeration.fields[tag_value];
         ConstExprValue *array_val = create_const_str_lit(ira->codegen, field->name);
         ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
@@ -11999,7 +13253,8 @@ static TypeTableEntry *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrIn
     IrInstruction *result = ir_build_enum_tag_name(&ira->new_irb, instruction->base.scope,
             instruction->base.source_node, target);
     ir_link_new_instruction(result, &instruction->base);
-    result->value.type = get_slice_type(ira->codegen, ira->codegen->builtin_types.entry_u8, true);
+    TypeTableEntry *u8_ptr_type = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_u8, true);
+    result->value.type = get_slice_type(ira->codegen, u8_ptr_type);
     return result->value.type;
 }
 
@@ -12042,16 +13297,22 @@ static TypeTableEntry *ir_analyze_instruction_field_parent_ptr(IrAnalyze *ira,
         return ira->codegen->builtin_types.entry_invalid;
     }
 
+    bool is_packed = (container_type->data.structure.layout == ContainerLayoutPacked);
+    uint32_t field_ptr_align = is_packed ? 1 : get_abi_alignment(ira->codegen, field->type_entry);
+    uint32_t parent_ptr_align = is_packed ? 1 : get_abi_alignment(ira->codegen, container_type);
+
     TypeTableEntry *field_ptr_type = get_pointer_to_type_extra(ira->codegen, field->type_entry,
             field_ptr->value.type->data.pointer.is_const,
-            field_ptr->value.type->data.pointer.is_volatile, 0, 0);
+            field_ptr->value.type->data.pointer.is_volatile,
+            field_ptr_align, 0, 0);
     IrInstruction *casted_field_ptr = ir_implicit_cast(ira, field_ptr, field_ptr_type);
     if (type_is_invalid(casted_field_ptr->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
     TypeTableEntry *result_type = get_pointer_to_type_extra(ira->codegen, container_type,
             casted_field_ptr->value.type->data.pointer.is_const,
-            casted_field_ptr->value.type->data.pointer.is_volatile, 0, 0);
+            casted_field_ptr->value.type->data.pointer.is_volatile,
+            parent_ptr_align, 0, 0);
 
     if (instr_is_comptime(casted_field_ptr)) {
         ConstExprValue *field_ptr_val = ir_resolve_const(ira, casted_field_ptr, UndefBad);
@@ -12117,7 +13378,7 @@ static TypeTableEntry *ir_analyze_instruction_offset_of(IrAnalyze *ira,
 
     size_t byte_offset = LLVMOffsetOfElement(ira->codegen->target_data_ref, container_type->type_ref, field->gen_index);
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-    bignum_init_unsigned(&out_val->data.x_bignum, byte_offset);
+    bigint_init_unsigned(&out_val->data.x_bigint, byte_offset);
     return ira->codegen->builtin_types.entry_num_lit_int;
 }
 
@@ -12136,6 +13397,27 @@ static TypeTableEntry *ir_analyze_instruction_type_id(IrAnalyze *ira,
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
     out_val->data.x_enum.tag = type_id_index(type_entry->id);
     return result_type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_set_eval_branch_quota(IrAnalyze *ira,
+        IrInstructionSetEvalBranchQuota *instruction)
+{
+    if (ira->new_irb.exec->parent_exec != nullptr) {
+        ir_add_error(ira, &instruction->base,
+                buf_sprintf("@setEvalBranchQuota must be called from the top of the comptime stack"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    uint64_t new_quota;
+    if (!ir_resolve_usize(ira, instruction->new_quota->other, &new_quota))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (new_quota > ira->new_irb.exec->backward_branch_quota) {
+        ira->new_irb.exec->backward_branch_quota = new_quota;
+    }
+
+    ir_build_const_from(ira, &instruction->base);
+    return ira->codegen->builtin_types.entry_void;
 }
 
 static TypeTableEntry *ir_analyze_instruction_type_name(IrAnalyze *ira, IrInstructionTypeName *instruction) {
@@ -12177,7 +13459,7 @@ static TypeTableEntry *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruc
 
     int err;
     if ((err = parse_h_buf(child_import, &errors, &cimport_scope->buf, ira->codegen, node))) {
-        zig_panic("unable to parse h file: %s\n", err_str(err));
+        zig_panic("unable to parse C file: %s\n", err_str(err));
     }
 
     if (errors.length > 0) {
@@ -12193,8 +13475,10 @@ static TypeTableEntry *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruc
     if (ira->codegen->verbose) {
         fprintf(stderr, "\nC imports:\n");
         fprintf(stderr, "-----------\n");
-        ast_render_decls(ira->codegen, stderr, 4, child_import);
+        ast_render(ira->codegen, stderr, child_import->root, 4);
     }
+
+    scan_decls(ira->codegen, child_import->decls_scope, child_import->root);
 
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
     out_val->data.x_import = child_import;
@@ -12342,6 +13626,15 @@ static TypeTableEntry *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstruct
 
     TypeTableEntry *child_type = ptr->value.type->data.pointer.child_type;
 
+    uint32_t align_bytes = ptr->value.type->data.pointer.alignment;
+    uint64_t size_bytes = type_size(ira->codegen, child_type);
+    if (align_bytes < size_bytes) {
+        ir_add_error(ira, instruction->ptr,
+            buf_sprintf("expected pointer alignment of at least %" ZIG_PRI_u64 ", found %" PRIu32,
+                size_bytes, align_bytes));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
     IrInstruction *casted_cmp_value = ir_implicit_cast(ira, cmp_value, child_type);
     if (type_is_invalid(casted_cmp_value->value.type))
         return ira->codegen->builtin_types.entry_invalid;
@@ -12426,8 +13719,8 @@ static TypeTableEntry *ir_analyze_instruction_truncate(IrAnalyze *ira, IrInstruc
 
     if (target->value.special == ConstValSpecialStatic) {
         ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-        bignum_init_bignum(&out_val->data.x_bignum, &target->value.data.x_bignum);
-        bignum_truncate(&out_val->data.x_bignum, dest_type->data.integral.bit_count);
+        bigint_truncate(&out_val->data.x_bigint, &target->value.data.x_bigint, dest_type->data.integral.bit_count,
+                dest_type->data.integral.is_signed);
         return dest_type;
     }
 
@@ -12491,7 +13784,9 @@ static TypeTableEntry *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructi
 
     TypeTableEntry *usize = ira->codegen->builtin_types.entry_usize;
     TypeTableEntry *u8 = ira->codegen->builtin_types.entry_u8;
-    TypeTableEntry *u8_ptr = get_pointer_to_type_extra(ira->codegen, u8, false, dest_is_volatile, 0, 0);
+    uint32_t dest_align = (dest_uncasted_type->id == TypeTableEntryIdPointer) ?
+        dest_uncasted_type->data.pointer.alignment : get_abi_alignment(ira->codegen, u8);
+    TypeTableEntry *u8_ptr = get_pointer_to_type_extra(ira->codegen, u8, false, dest_is_volatile, dest_align, 0, 0);
 
     IrInstruction *casted_dest_ptr = ir_implicit_cast(ira, dest_ptr, u8_ptr);
     if (type_is_invalid(casted_dest_ptr->value.type))
@@ -12539,7 +13834,7 @@ static TypeTableEntry *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructi
                 zig_unreachable();
         }
 
-        size_t count = casted_count->value.data.x_bignum.data.x_uint;
+        size_t count = bigint_as_unsigned(&casted_count->value.data.x_bigint);
         size_t end = start + count;
         if (end > bound_end) {
             ir_add_error(ira, count_value, buf_sprintf("out of bounds pointer access"));
@@ -12572,17 +13867,21 @@ static TypeTableEntry *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructi
     if (type_is_invalid(count_value->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
+    TypeTableEntry *u8 = ira->codegen->builtin_types.entry_u8;
     TypeTableEntry *dest_uncasted_type = dest_ptr->value.type;
     TypeTableEntry *src_uncasted_type = src_ptr->value.type;
     bool dest_is_volatile = (dest_uncasted_type->id == TypeTableEntryIdPointer) &&
         dest_uncasted_type->data.pointer.is_volatile;
     bool src_is_volatile = (src_uncasted_type->id == TypeTableEntryIdPointer) &&
         src_uncasted_type->data.pointer.is_volatile;
+    uint32_t dest_align = (dest_uncasted_type->id == TypeTableEntryIdPointer) ?
+        dest_uncasted_type->data.pointer.alignment : get_abi_alignment(ira->codegen, u8);
+    uint32_t src_align = (src_uncasted_type->id == TypeTableEntryIdPointer) ?
+        src_uncasted_type->data.pointer.alignment : get_abi_alignment(ira->codegen, u8);
 
     TypeTableEntry *usize = ira->codegen->builtin_types.entry_usize;
-    TypeTableEntry *u8 = ira->codegen->builtin_types.entry_u8;
-    TypeTableEntry *u8_ptr_mut = get_pointer_to_type_extra(ira->codegen, u8, false, dest_is_volatile, 0, 0);
-    TypeTableEntry *u8_ptr_const = get_pointer_to_type_extra(ira->codegen, u8, true, src_is_volatile, 0, 0);
+    TypeTableEntry *u8_ptr_mut = get_pointer_to_type_extra(ira->codegen, u8, false, dest_is_volatile, dest_align, 0, 0);
+    TypeTableEntry *u8_ptr_const = get_pointer_to_type_extra(ira->codegen, u8, true, src_is_volatile, src_align, 0, 0);
 
     IrInstruction *casted_dest_ptr = ir_implicit_cast(ira, dest_ptr, u8_ptr_mut);
     if (type_is_invalid(casted_dest_ptr->value.type))
@@ -12601,7 +13900,7 @@ static TypeTableEntry *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructi
         casted_count->value.special == ConstValSpecialStatic &&
         casted_dest_ptr->value.data.x_ptr.special != ConstPtrSpecialHardCodedAddr)
     {
-        size_t count = casted_count->value.data.x_bignum.data.x_uint;
+        size_t count = bigint_as_unsigned(&casted_count->value.data.x_bigint);
 
         ConstExprValue *dest_ptr_val = &casted_dest_ptr->value;
         ConstExprValue *dest_elements;
@@ -12717,17 +14016,22 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
     TypeTableEntry *return_type;
 
     if (array_type->id == TypeTableEntryIdArray) {
-        return_type = get_slice_type(ira->codegen, array_type->data.array.child_type, ptr_type->data.pointer.is_const);
+        TypeTableEntry *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, array_type->data.array.child_type,
+            ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
+            ptr_type->data.pointer.alignment, 0, 0);
+        return_type = get_slice_type(ira->codegen, slice_ptr_type);
     } else if (array_type->id == TypeTableEntryIdPointer) {
-        return_type = get_slice_type(ira->codegen, array_type->data.pointer.child_type,
-                array_type->data.pointer.is_const);
+        TypeTableEntry *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, array_type->data.pointer.child_type,
+                array_type->data.pointer.is_const, array_type->data.pointer.is_volatile,
+                array_type->data.pointer.alignment, 0, 0);
+        return_type = get_slice_type(ira->codegen, slice_ptr_type);
         if (!end) {
             ir_add_error(ira, &instruction->base, buf_sprintf("slice of pointer must include end value"));
             return ira->codegen->builtin_types.entry_invalid;
         }
     } else if (is_slice(array_type)) {
         TypeTableEntry *ptr_type = array_type->data.structure.fields[slice_ptr_index].type_entry;
-        return_type = get_slice_type(ira->codegen, ptr_type->data.pointer.child_type, ptr_type->data.pointer.is_const);
+        return_type = get_slice_type(ira->codegen, ptr_type);
     } else {
         ir_add_error(ira, &instruction->base,
             buf_sprintf("slice of non-array type '%s'", buf_ptr(&array_type->name)));
@@ -12788,21 +14092,21 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
                 case ConstPtrSpecialBaseArray:
                     array_val = parent_ptr->data.x_ptr.data.base_array.array_val;
                     abs_offset = parent_ptr->data.x_ptr.data.base_array.elem_index;
-                    rel_end = len_val->data.x_bignum.data.x_uint;
+                    rel_end = bigint_as_unsigned(&len_val->data.x_bigint);
                     break;
                 case ConstPtrSpecialBaseStruct:
                     zig_panic("TODO slice const inner struct");
                 case ConstPtrSpecialHardCodedAddr:
                     array_val = nullptr;
                     abs_offset = 0;
-                    rel_end = len_val->data.x_bignum.data.x_uint;
+                    rel_end = bigint_as_unsigned(&len_val->data.x_bigint);
                     break;
             }
         } else {
             zig_unreachable();
         }
 
-        uint64_t start_scalar = casted_start->value.data.x_bignum.data.x_uint;
+        uint64_t start_scalar = bigint_as_unsigned(&casted_start->value.data.x_bigint);
         if (start_scalar > rel_end) {
             ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds slice"));
             return ira->codegen->builtin_types.entry_invalid;
@@ -12810,7 +14114,7 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
 
         uint64_t end_scalar;
         if (end) {
-            end_scalar = end->value.data.x_bignum.data.x_uint;
+            end_scalar = bigint_as_unsigned(&end->value.data.x_bigint);
         } else {
             end_scalar = rel_end;
         }
@@ -12890,7 +14194,7 @@ static TypeTableEntry *ir_analyze_instruction_member_count(IrAnalyze *ira, IrIns
     }
 
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-    bignum_init_unsigned(&out_val->data.x_bignum, result);
+    bigint_init_unsigned(&out_val->data.x_bigint, result);
     return ira->codegen->builtin_types.entry_num_lit_int;
 }
 
@@ -12915,30 +14219,63 @@ static TypeTableEntry *ir_analyze_instruction_frame_address(IrAnalyze *ira, IrIn
     return u8_ptr_const;
 }
 
-static TypeTableEntry *ir_analyze_instruction_alignof(IrAnalyze *ira, IrInstructionAlignOf *instruction) {
+static TypeTableEntry *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstructionAlignOf *instruction) {
     IrInstruction *type_value = instruction->type_value->other;
     if (type_is_invalid(type_value->value.type))
         return ira->codegen->builtin_types.entry_invalid;
     TypeTableEntry *type_entry = ir_resolve_type(ira, type_value);
 
-    if (type_is_invalid(type_entry)) {
+    ensure_complete_type(ira->codegen, type_entry);
+    if (type_is_invalid(type_entry))
         return ira->codegen->builtin_types.entry_invalid;
-    } else if (type_entry->id == TypeTableEntryIdUnreachable) {
-        ir_add_error(ira, instruction->type_value,
-                buf_sprintf("no align available for type '%s'", buf_ptr(&type_entry->name)));
-        return ira->codegen->builtin_types.entry_invalid;
-    } else {
-        uint64_t align_in_bytes = LLVMABISizeOfType(ira->codegen->target_data_ref, type_entry->type_ref);
-        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-        bignum_init_unsigned(&out_val->data.x_bignum, align_in_bytes);
-        return ira->codegen->builtin_types.entry_num_lit_int;
+
+    switch (type_entry->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+            zig_unreachable();
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdOpaque:
+            ir_add_error(ira, instruction->type_value,
+                    buf_sprintf("no align available for type '%s'", buf_ptr(&type_entry->name)));
+            return ira->codegen->builtin_types.entry_invalid;
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdStruct:
+        case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdEnumTag:
+        case TypeTableEntryIdUnion:
+        case TypeTableEntryIdFn:
+            {
+                uint64_t align_in_bytes = get_abi_alignment(ira->codegen, type_entry);
+                ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+                bigint_init_unsigned(&out_val->data.x_bigint, align_in_bytes);
+                return ira->codegen->builtin_types.entry_num_lit_int;
+            }
     }
+    zig_unreachable();
 }
 
 static TypeTableEntry *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInstructionOverflowOp *instruction) {
     IrInstruction *type_value = instruction->type_value->other;
     if (type_is_invalid(type_value->value.type))
         return ira->codegen->builtin_types.entry_invalid;
+
     TypeTableEntry *dest_type = ir_resolve_type(ira, type_value);
     if (type_is_invalid(dest_type))
         return ira->codegen->builtin_types.entry_invalid;
@@ -12961,7 +14298,14 @@ static TypeTableEntry *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInst
     if (type_is_invalid(op2->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    IrInstruction *casted_op2 = ir_implicit_cast(ira, op2, dest_type);
+    IrInstruction *casted_op2;
+    if (instruction->op == IrOverflowOpShl) {
+        TypeTableEntry *shift_amt_type = get_smallest_unsigned_int_type(ira->codegen,
+                dest_type->data.integral.bit_count - 1);
+        casted_op2 = ir_implicit_cast(ira, op2, shift_amt_type);
+    } else {
+        casted_op2 = ir_implicit_cast(ira, op2, dest_type);
+    }
     if (type_is_invalid(casted_op2->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
@@ -12969,7 +14313,15 @@ static TypeTableEntry *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInst
     if (type_is_invalid(result_ptr->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    TypeTableEntry *expected_ptr_type = get_pointer_to_type(ira->codegen, dest_type, false);
+    TypeTableEntry *expected_ptr_type;
+    if (result_ptr->value.type->id == TypeTableEntryIdPointer) {
+        expected_ptr_type = get_pointer_to_type_extra(ira->codegen, dest_type,
+                false, result_ptr->value.type->data.pointer.is_volatile,
+                result_ptr->value.type->data.pointer.alignment, 0, 0);
+    } else {
+        expected_ptr_type = get_pointer_to_type(ira->codegen, dest_type, false);
+    }
+
     IrInstruction *casted_result_ptr = ir_implicit_cast(ira, result_ptr, expected_ptr_type);
     if (type_is_invalid(casted_result_ptr->value.type))
         return ira->codegen->builtin_types.entry_invalid;
@@ -12979,29 +14331,32 @@ static TypeTableEntry *ir_analyze_instruction_overflow_op(IrAnalyze *ira, IrInst
         casted_result_ptr->value.special == ConstValSpecialStatic)
     {
         ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-        BigNum *op1_bignum = &casted_op1->value.data.x_bignum;
-        BigNum *op2_bignum = &casted_op2->value.data.x_bignum;
+        BigInt *op1_bigint = &casted_op1->value.data.x_bigint;
+        BigInt *op2_bigint = &casted_op2->value.data.x_bigint;
         ConstExprValue *pointee_val = const_ptr_pointee(ira->codegen, &casted_result_ptr->value);
-        BigNum *dest_bignum = &pointee_val->data.x_bignum;
+        BigInt *dest_bigint = &pointee_val->data.x_bigint;
         switch (instruction->op) {
             case IrOverflowOpAdd:
-                out_val->data.x_bool = bignum_add(dest_bignum, op1_bignum, op2_bignum);
+                bigint_add(dest_bigint, op1_bigint, op2_bigint);
                 break;
             case IrOverflowOpSub:
-                out_val->data.x_bool = bignum_sub(dest_bignum, op1_bignum, op2_bignum);
+                bigint_sub(dest_bigint, op1_bigint, op2_bigint);
                 break;
             case IrOverflowOpMul:
-                out_val->data.x_bool = bignum_mul(dest_bignum, op1_bignum, op2_bignum);
+                bigint_mul(dest_bigint, op1_bigint, op2_bigint);
                 break;
             case IrOverflowOpShl:
-                out_val->data.x_bool = bignum_shl(dest_bignum, op1_bignum, op2_bignum);
+                bigint_shl(dest_bigint, op1_bigint, op2_bigint);
                 break;
         }
-        if (!bignum_fits_in_bits(dest_bignum, dest_type->data.integral.bit_count,
+        if (!bigint_fits_in_bits(dest_bigint, dest_type->data.integral.bit_count,
             dest_type->data.integral.is_signed))
         {
             out_val->data.x_bool = true;
-            bignum_truncate(dest_bignum, dest_type->data.integral.bit_count);
+            BigInt tmp_bigint;
+            bigint_init_bigint(&tmp_bigint, dest_bigint);
+            bigint_truncate(dest_bigint, &tmp_bigint, dest_type->data.integral.bit_count,
+                    dest_type->data.integral.is_signed);
         }
         pointee_val->special = ConstValSpecialStatic;
         return ira->codegen->builtin_types.entry_bool;
@@ -13103,7 +14458,8 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_err_payload(IrAnalyze *ira,
     } else if (type_entry->id == TypeTableEntryIdErrorUnion) {
         TypeTableEntry *child_type = type_entry->data.error.child_type;
         TypeTableEntry *result_type = get_pointer_to_type_extra(ira->codegen, child_type,
-                ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile, 0, 0);
+                ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
+                get_abi_alignment(ira->codegen, child_type), 0, 0);
         if (instr_is_comptime(value)) {
             ConstExprValue *ptr_val = ir_resolve_const(ira, value, UndefBad);
             if (!ptr_val)
@@ -13147,17 +14503,19 @@ static TypeTableEntry *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstruc
 
         bool param_is_var_args = param_node->data.param_decl.is_var_args;
         if (param_is_var_args) {
-            if (fn_type_id.is_extern) {
+            if (fn_type_id.cc == CallingConventionC) {
                 fn_type_id.param_count = fn_type_id.next_param_index;
                 continue;
-            } else {
+            } else if (fn_type_id.cc == CallingConventionUnspecified) {
                 ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
                 out_val->data.x_type = get_generic_fn_type(ira->codegen, &fn_type_id);
                 return ira->codegen->builtin_types.entry_type;
+            } else {
+                zig_unreachable();
             }
         }
         IrInstruction *param_type_value = instruction->param_types[fn_type_id.next_param_index]->other;
-        if (type_is_invalid(param_type_value->value.type)) 
+        if (type_is_invalid(param_type_value->value.type))
             return ira->codegen->builtin_types.entry_invalid;
 
         FnTypeParamInfo *param_info = &fn_type_id.param_info[fn_type_id.next_param_index];
@@ -13171,6 +14529,11 @@ static TypeTableEntry *ir_analyze_instruction_fn_proto(IrAnalyze *ira, IrInstruc
             out_val->data.x_type = get_generic_fn_type(ira->codegen, &fn_type_id);
             return ira->codegen->builtin_types.entry_type;
         }
+    }
+
+    if (instruction->align_value != nullptr) {
+        if (!ir_resolve_align(ira, instruction->align_value->other, &fn_type_id.alignment))
+            return ira->codegen->builtin_types.entry_invalid;
     }
 
     IrInstruction *return_type_value = instruction->return_type->other;
@@ -13218,14 +14581,14 @@ static TypeTableEntry *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira
             size_t start_index;
             size_t end_index;
             if (start_value->value.type->id == TypeTableEntryIdEnumTag) {
-                start_index = start_value->value.data.x_bignum.data.x_uint;
+                start_index = bigint_as_unsigned(&start_value->value.data.x_bigint);
             } else if (start_value->value.type->id == TypeTableEntryIdEnum) {
                 start_index = start_value->value.data.x_enum.tag;
             } else {
                 zig_unreachable();
             }
             if (end_value->value.type->id == TypeTableEntryIdEnumTag) {
-                end_index = end_value->value.data.x_bignum.data.x_uint;
+                end_index = bigint_as_unsigned(&end_value->value.data.x_bigint);
             } else if (end_value->value.type->id == TypeTableEntryIdEnum) {
                 end_index = end_value->value.data.x_enum.tag;
             } else {
@@ -13274,7 +14637,9 @@ static TypeTableEntry *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira
             if (!end_val)
                 return ira->codegen->builtin_types.entry_invalid;
 
-            AstNode *prev_node = rangeset_add_range(&rs, &start_val->data.x_bignum, &end_val->data.x_bignum,
+            assert(start_val->type->id == TypeTableEntryIdInt || start_val->type->id == TypeTableEntryIdNumLitInt);
+            assert(end_val->type->id == TypeTableEntryIdInt || end_val->type->id == TypeTableEntryIdNumLitInt);
+            AstNode *prev_node = rangeset_add_range(&rs, &start_val->data.x_bigint, &end_val->data.x_bigint,
                     start_value->source_node);
             if (prev_node != nullptr) {
                 ErrorMsg *msg = ir_add_error(ira, start_value, buf_sprintf("duplicate switch value"));
@@ -13283,9 +14648,9 @@ static TypeTableEntry *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira
             }
         }
         if (!instruction->have_else_prong) {
-            BigNum min_val;
+            BigInt min_val;
             eval_min_max_value_int(ira->codegen, switch_type, &min_val, false);
-            BigNum max_val;
+            BigInt max_val;
             eval_min_max_value_int(ira->codegen, switch_type, &max_val, true);
             if (!rangeset_spans(&rs, &min_val, &max_val)) {
                 ir_add_error(ira, &instruction->base, buf_sprintf("switch must handle all possibilities"));
@@ -13346,7 +14711,8 @@ static TypeTableEntry *ir_analyze_instruction_panic(IrAnalyze *ira, IrInstructio
     if (type_is_invalid(msg->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    TypeTableEntry *str_type = get_slice_type(ira->codegen, ira->codegen->builtin_types.entry_u8, true);
+    TypeTableEntry *u8_ptr_type = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_u8, true);
+    TypeTableEntry *str_type = get_slice_type(ira->codegen, u8_ptr_type);
     IrInstruction *casted_msg = ir_implicit_cast(ira, msg, str_type);
     if (type_is_invalid(casted_msg->value.type))
         return ira->codegen->builtin_types.entry_invalid;
@@ -13355,6 +14721,69 @@ static TypeTableEntry *ir_analyze_instruction_panic(IrAnalyze *ira, IrInstructio
             instruction->base.source_node, casted_msg);
     ir_link_new_instruction(new_instruction, &instruction->base);
     return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
+}
+
+static IrInstruction *ir_align_cast(IrAnalyze *ira, IrInstruction *target, uint32_t align_bytes, bool safety_check_on) {
+    TypeTableEntry *target_type = target->value.type;
+    assert(!type_is_invalid(target_type));
+
+    TypeTableEntry *result_type;
+    uint32_t old_align_bytes;
+
+    if (target_type->id == TypeTableEntryIdPointer) {
+        result_type = adjust_ptr_align(ira->codegen, target_type, align_bytes);
+        old_align_bytes = target_type->data.pointer.alignment;
+    } else if (target_type->id == TypeTableEntryIdFn) {
+        FnTypeId fn_type_id = target_type->data.fn.fn_type_id;
+        old_align_bytes = fn_type_id.alignment;
+        fn_type_id.alignment = align_bytes;
+        result_type = get_fn_type(ira->codegen, &fn_type_id);
+    } else if (target_type->id == TypeTableEntryIdMaybe &&
+            target_type->data.maybe.child_type->id == TypeTableEntryIdPointer)
+    {
+        TypeTableEntry *ptr_type = target_type->data.maybe.child_type;
+        old_align_bytes = ptr_type->data.pointer.alignment;
+        TypeTableEntry *better_ptr_type = adjust_ptr_align(ira->codegen, ptr_type, align_bytes);
+
+        result_type = get_maybe_type(ira->codegen, better_ptr_type);
+    } else if (target_type->id == TypeTableEntryIdMaybe &&
+            target_type->data.maybe.child_type->id == TypeTableEntryIdFn)
+    {
+        FnTypeId fn_type_id = target_type->data.maybe.child_type->data.fn.fn_type_id;
+        old_align_bytes = fn_type_id.alignment;
+        fn_type_id.alignment = align_bytes;
+        TypeTableEntry *fn_type = get_fn_type(ira->codegen, &fn_type_id);
+        result_type = get_maybe_type(ira->codegen, fn_type);
+    } else if (is_slice(target_type)) {
+        TypeTableEntry *slice_ptr_type = target_type->data.structure.fields[slice_ptr_index].type_entry;
+        old_align_bytes = slice_ptr_type->data.pointer.alignment;
+        TypeTableEntry *result_ptr_type = adjust_ptr_align(ira->codegen, slice_ptr_type, align_bytes);
+        result_type = get_slice_type(ira->codegen, result_ptr_type);
+    } else {
+        ir_add_error(ira, target,
+                buf_sprintf("expected pointer or slice, found '%s'", buf_ptr(&target_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    if (instr_is_comptime(target)) {
+        ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
+        if (!val)
+            return ira->codegen->invalid_instruction;
+
+        IrInstruction *result = ir_create_const(&ira->new_irb, target->scope, target->source_node, result_type);
+        copy_const_val(&result->value, val, false);
+        result->value.type = result_type;
+        return result;
+    }
+
+    IrInstruction *result;
+    if (safety_check_on && align_bytes > old_align_bytes && align_bytes != 1) {
+        result = ir_build_align_cast(&ira->new_irb, target->scope, target->source_node, nullptr, target);
+    } else {
+        result = ir_build_cast(&ira->new_irb, target->scope, target->source_node, result_type, target, CastOpNoop);
+    }
+    result->value.type = result_type;
+    return result;
 }
 
 static TypeTableEntry *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, IrInstructionPtrCast *instruction) {
@@ -13390,8 +14819,257 @@ static TypeTableEntry *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, IrInstruc
         return dest_type;
     }
 
-    IrInstruction *result = ir_build_ptr_cast(&ira->new_irb, instruction->base.scope,
+    uint32_t src_align_bytes = get_ptr_align(src_type);
+    uint32_t dest_align_bytes = get_ptr_align(dest_type);
+
+    if (dest_align_bytes > src_align_bytes) {
+        ErrorMsg *msg = ir_add_error(ira, &instruction->base, buf_sprintf("cast increases pointer alignment"));
+        add_error_note(ira->codegen, msg, ptr->source_node,
+                buf_sprintf("'%s' has alignment %" PRIu32, buf_ptr(&src_type->name), src_align_bytes));
+        add_error_note(ira->codegen, msg, dest_type_value->source_node,
+                buf_sprintf("'%s' has alignment %" PRIu32, buf_ptr(&dest_type->name), dest_align_bytes));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    IrInstruction *casted_ptr = ir_build_ptr_cast(&ira->new_irb, instruction->base.scope,
             instruction->base.source_node, nullptr, ptr);
+    casted_ptr->value.type = dest_type;
+
+    // keep the bigger alignment, it can only help
+    IrInstruction *result;
+    if (src_align_bytes > dest_align_bytes) {
+        result = ir_align_cast(ira, casted_ptr, src_align_bytes, false);
+        if (type_is_invalid(result->value.type))
+            return ira->codegen->builtin_types.entry_invalid;
+    } else {
+        result = casted_ptr;
+    }
+    ir_link_new_instruction(result, &instruction->base);
+    return result->value.type;
+}
+
+static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue *val) {
+    assert(val->special == ConstValSpecialStatic);
+    switch (val->type->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+            zig_unreachable();
+        case TypeTableEntryIdVoid:
+            return;
+        case TypeTableEntryIdBool:
+            buf[0] = val->data.x_bool ? 1 : 0;
+            return;
+        case TypeTableEntryIdInt:
+            bigint_write_twos_complement(&val->data.x_bigint, buf, val->type->data.integral.bit_count,
+                    codegen->is_big_endian);
+            return;
+        case TypeTableEntryIdFloat:
+            float_write_ieee597(val, buf, codegen->is_big_endian);
+            return;
+        case TypeTableEntryIdPointer:
+            if (val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
+                BigInt bn;
+                bigint_init_unsigned(&bn, val->data.x_ptr.data.hard_coded_addr.addr);
+                bigint_write_twos_complement(&bn, buf, codegen->builtin_types.entry_usize->data.integral.bit_count, codegen->is_big_endian);
+                return;
+            } else {
+                zig_unreachable();
+            }
+        case TypeTableEntryIdArray:
+            {
+                size_t buf_i = 0;
+                expand_undef_array(codegen, val);
+                for (size_t elem_i = 0; elem_i < val->type->data.array.len; elem_i += 1) {
+                    ConstExprValue *elem = &val->data.x_array.s_none.elements[elem_i];
+                    buf_write_value_bytes(codegen, &buf[buf_i], elem);
+                    buf_i += type_size(codegen, elem->type);
+                }
+            }
+            return;
+        case TypeTableEntryIdStruct:
+            zig_panic("TODO buf_write_value_bytes struct type");
+        case TypeTableEntryIdMaybe:
+            zig_panic("TODO buf_write_value_bytes maybe type");
+        case TypeTableEntryIdErrorUnion:
+            zig_panic("TODO buf_write_value_bytes error union");
+        case TypeTableEntryIdPureError:
+            zig_panic("TODO buf_write_value_bytes pure error type");
+        case TypeTableEntryIdEnum:
+            zig_panic("TODO buf_write_value_bytes enum type");
+        case TypeTableEntryIdEnumTag:
+            zig_panic("TODO buf_write_value_bytes enum tag type");
+        case TypeTableEntryIdFn:
+            zig_panic("TODO buf_write_value_bytes fn type");
+        case TypeTableEntryIdUnion:
+            zig_panic("TODO buf_write_value_bytes union type");
+    }
+    zig_unreachable();
+}
+
+static void buf_read_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue *val) {
+    assert(val->special == ConstValSpecialStatic);
+    switch (val->type->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+            zig_unreachable();
+        case TypeTableEntryIdVoid:
+            return;
+        case TypeTableEntryIdBool:
+            val->data.x_bool = (buf[0] != 0);
+            return;
+        case TypeTableEntryIdInt:
+            bigint_read_twos_complement(&val->data.x_bigint, buf, val->type->data.integral.bit_count,
+                    codegen->is_big_endian, val->type->data.integral.is_signed);
+            return;
+        case TypeTableEntryIdFloat:
+            float_read_ieee597(val, buf, codegen->is_big_endian);
+            return;
+        case TypeTableEntryIdPointer:
+            {
+                val->data.x_ptr.special = ConstPtrSpecialHardCodedAddr;
+                BigInt bn;
+                bigint_read_twos_complement(&bn, buf, codegen->builtin_types.entry_usize->data.integral.bit_count,
+                        codegen->is_big_endian, false);
+                val->data.x_ptr.data.hard_coded_addr.addr = bigint_as_unsigned(&bn);
+                return;
+            }
+        case TypeTableEntryIdArray:
+            zig_panic("TODO buf_read_value_bytes array type");
+        case TypeTableEntryIdStruct:
+            zig_panic("TODO buf_read_value_bytes struct type");
+        case TypeTableEntryIdMaybe:
+            zig_panic("TODO buf_read_value_bytes maybe type");
+        case TypeTableEntryIdErrorUnion:
+            zig_panic("TODO buf_read_value_bytes error union");
+        case TypeTableEntryIdPureError:
+            zig_panic("TODO buf_read_value_bytes pure error type");
+        case TypeTableEntryIdEnum:
+            zig_panic("TODO buf_read_value_bytes enum type");
+        case TypeTableEntryIdEnumTag:
+            zig_panic("TODO buf_read_value_bytes enum tag type");
+        case TypeTableEntryIdFn:
+            zig_panic("TODO buf_read_value_bytes fn type");
+        case TypeTableEntryIdUnion:
+            zig_panic("TODO buf_read_value_bytes union type");
+    }
+    zig_unreachable();
+}
+
+static TypeTableEntry *ir_analyze_instruction_bit_cast(IrAnalyze *ira, IrInstructionBitCast *instruction) {
+    IrInstruction *dest_type_value = instruction->dest_type->other;
+    TypeTableEntry *dest_type = ir_resolve_type(ira, dest_type_value);
+    if (type_is_invalid(dest_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *value = instruction->value->other;
+    TypeTableEntry *src_type = value->value.type;
+    if (type_is_invalid(src_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    ensure_complete_type(ira->codegen, dest_type);
+    ensure_complete_type(ira->codegen, src_type);
+
+    if (type_is_codegen_pointer(src_type)) {
+        ir_add_error(ira, value,
+            buf_sprintf("unable to @bitCast from type '%s'", buf_ptr(&src_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    switch (src_type->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+            ir_add_error(ira, dest_type_value,
+                    buf_sprintf("unable to @bitCast from type '%s'", buf_ptr(&src_type->name)));
+            return ira->codegen->builtin_types.entry_invalid;
+        default:
+            break;
+    }
+
+    if (type_is_codegen_pointer(dest_type)) {
+        ir_add_error(ira, dest_type_value,
+                buf_sprintf("unable to @bitCast to type '%s'", buf_ptr(&dest_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    switch (dest_type->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+            ir_add_error(ira, dest_type_value,
+                    buf_sprintf("unable to @bitCast to type '%s'", buf_ptr(&dest_type->name)));
+            return ira->codegen->builtin_types.entry_invalid;
+        default:
+            break;
+    }
+
+    uint64_t dest_size_bytes = type_size(ira->codegen, dest_type);
+    uint64_t src_size_bytes = type_size(ira->codegen, src_type);
+    if (dest_size_bytes != src_size_bytes) {
+        ir_add_error(ira, &instruction->base,
+            buf_sprintf("destination type '%s' has size %" ZIG_PRI_u64 " but source type '%s' has size %" ZIG_PRI_u64,
+                buf_ptr(&dest_type->name), dest_size_bytes,
+                buf_ptr(&src_type->name), src_size_bytes));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    if (instr_is_comptime(value)) {
+        ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
+        if (!val)
+            return ira->codegen->builtin_types.entry_invalid;
+
+        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+        out_val->type = dest_type;
+        uint8_t *buf = allocate_nonzero<uint8_t>(src_size_bytes);
+        buf_write_value_bytes(ira->codegen, buf, val);
+        buf_read_value_bytes(ira->codegen, buf, out_val);
+        return dest_type;
+    }
+
+    IrInstruction *result = ir_build_bit_cast(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, nullptr, value);
     ir_link_new_instruction(result, &instruction->base);
     result->value.type = dest_type;
     return dest_type;
@@ -13430,7 +15108,7 @@ static TypeTableEntry *ir_analyze_instruction_int_to_ptr(IrAnalyze *ira, IrInstr
 
         ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
         out_val->data.x_ptr.special = ConstPtrSpecialHardCodedAddr;
-        out_val->data.x_ptr.data.hard_coded_addr.addr = bignum_to_twos_complement(&val->data.x_bignum);
+        out_val->data.x_ptr.data.hard_coded_addr.addr = bigint_as_unsigned(&val->data.x_bigint);
         return dest_type;
     }
 
@@ -13446,7 +15124,7 @@ static TypeTableEntry *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
     Tld *tld = instruction->tld;
     LVal lval = instruction->lval;
 
-    resolve_top_level_decl(ira->codegen, tld, lval.is_ptr);
+    resolve_top_level_decl(ira->codegen, tld, lval.is_ptr, instruction->base.source_node);
     if (tld->resolution == TldResolutionInvalid)
         return ira->codegen->builtin_types.entry_invalid;
 
@@ -13464,6 +15142,10 @@ static TypeTableEntry *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
             if (type_is_invalid(var_ptr->value.type))
                 return ira->codegen->builtin_types.entry_invalid;
 
+            if (tld_var->extern_lib_name != nullptr) {
+                add_link_lib_symbol(ira->codegen, tld_var->extern_lib_name, &var->name);
+            }
+
             if (lval.is_ptr) {
                 ir_link_new_instruction(var_ptr, &instruction->base);
                 return var_ptr->value.type;
@@ -13478,6 +15160,10 @@ static TypeTableEntry *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
             TldFn *tld_fn = (TldFn *)tld;
             FnTableEntry *fn_entry = tld_fn->fn_entry;
             assert(fn_entry->type_entry);
+
+            if (tld_fn->extern_lib_name != nullptr) {
+                add_link_lib_symbol(ira->codegen, tld_fn->extern_lib_name, &fn_entry->symbol_name);
+            }
 
             IrInstruction *ref_instruction = ir_create_const_fn(&ira->new_irb, instruction->base.scope,
                     instruction->base.source_node, fn_entry);
@@ -13494,6 +15180,90 @@ static TypeTableEntry *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
     zig_unreachable();
 }
 
+static TypeTableEntry *ir_analyze_instruction_ptr_to_int(IrAnalyze *ira, IrInstructionPtrToInt *instruction) {
+    IrInstruction *target = instruction->target->other;
+    if (type_is_invalid(target->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    TypeTableEntry *usize = ira->codegen->builtin_types.entry_usize;
+
+    if (!(target->value.type->id == TypeTableEntryIdPointer ||
+          target->value.type->id == TypeTableEntryIdFn ||
+        (target->value.type->id == TypeTableEntryIdMaybe &&
+        (target->value.type->data.maybe.child_type->id == TypeTableEntryIdPointer ||
+        target->value.type->data.maybe.child_type->id == TypeTableEntryIdFn))))
+    {
+        ir_add_error(ira, target,
+                buf_sprintf("expected pointer, found '%s'", buf_ptr(&target->value.type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    if (instr_is_comptime(target)) {
+        ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
+        if (!val)
+            return ira->codegen->builtin_types.entry_invalid;
+        if (target->value.type->id == TypeTableEntryIdMaybe) {
+            val = val->data.x_maybe;
+        }
+        if (val->type->id == TypeTableEntryIdPointer && val->data.x_ptr.special == ConstPtrSpecialHardCodedAddr) {
+            IrInstruction *result = ir_create_const(&ira->new_irb, instruction->base.scope,
+                    instruction->base.source_node, usize);
+            bigint_init_unsigned(&result->value.data.x_bigint, val->data.x_ptr.data.hard_coded_addr.addr);
+            ir_link_new_instruction(result, &instruction->base);
+            return usize;
+        }
+    }
+
+    IrInstruction *result = ir_build_ptr_to_int(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, target);
+    result->value.type = usize;
+    ir_link_new_instruction(result, &instruction->base);
+    return usize;
+}
+
+static TypeTableEntry *ir_analyze_instruction_ptr_type_of(IrAnalyze *ira, IrInstructionPtrTypeOf *instruction) {
+    TypeTableEntry *child_type = ir_resolve_type(ira, instruction->child_type->other);
+    if (type_is_invalid(child_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    uint32_t align_bytes;
+    if (!ir_resolve_align(ira, instruction->align_value->other, &align_bytes))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+    out_val->data.x_type = get_pointer_to_type_extra(ira->codegen, child_type,
+            instruction->is_const, instruction->is_volatile, align_bytes,
+            instruction->bit_offset_start, instruction->bit_offset_end - instruction->bit_offset_start);
+
+    return ira->codegen->builtin_types.entry_type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_align_cast(IrAnalyze *ira, IrInstructionAlignCast *instruction) {
+    uint32_t align_bytes;
+    IrInstruction *align_bytes_inst = instruction->align_bytes->other;
+    if (!ir_resolve_align(ira, align_bytes_inst, &align_bytes))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *target = instruction->target->other;
+    if (type_is_invalid(target->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *result = ir_align_cast(ira, target, align_bytes, true);
+    if (type_is_invalid(result->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    ir_link_new_instruction(result, &instruction->base);
+    return result->value.type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_opaque_type(IrAnalyze *ira, IrInstructionOpaqueType *instruction) {
+    Buf *name = get_anon_type_name(ira->codegen, ira->new_irb.exec, "opaque", instruction->base.source_node);
+    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+    out_val->data.x_type = get_opaque_type(ira->codegen, instruction->base.scope, instruction->base.source_node,
+            buf_ptr(name));
+    return ira->codegen->builtin_types.entry_type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -13505,7 +15275,10 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdEnumFieldPtr:
         case IrInstructionIdInitEnum:
-        case IrInstructionIdPtrToInt:
+        case IrInstructionIdMaybeWrap:
+        case IrInstructionIdErrWrapCode:
+        case IrInstructionIdErrWrapPayload:
+        case IrInstructionIdCast:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_analyze_instruction_return(ira, (IrInstructionReturn *)instruction);
@@ -13543,8 +15316,6 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_to_ptr_type(ira, (IrInstructionToPtrType *)instruction);
         case IrInstructionIdPtrTypeChild:
             return ir_analyze_instruction_ptr_type_child(ira, (IrInstructionPtrTypeChild *)instruction);
-        case IrInstructionIdSetGlobalAlign:
-            return ir_analyze_instruction_set_global_align(ira, (IrInstructionSetGlobalAlign *)instruction);
         case IrInstructionIdSetGlobalSection:
             return ir_analyze_instruction_set_global_section(ira, (IrInstructionSetGlobalSection *)instruction);
         case IrInstructionIdSetGlobalLinkage:
@@ -13634,7 +15405,7 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
         case IrInstructionIdFrameAddress:
             return ir_analyze_instruction_frame_address(ira, (IrInstructionFrameAddress *)instruction);
         case IrInstructionIdAlignOf:
-            return ir_analyze_instruction_alignof(ira, (IrInstructionAlignOf *)instruction);
+            return ir_analyze_instruction_align_of(ira, (IrInstructionAlignOf *)instruction);
         case IrInstructionIdOverflowOp:
             return ir_analyze_instruction_overflow_op(ira, (IrInstructionOverflowOp *)instruction);
         case IrInstructionIdTestErr:
@@ -13659,8 +15430,12 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_panic(ira, (IrInstructionPanic *)instruction);
         case IrInstructionIdPtrCast:
             return ir_analyze_instruction_ptr_cast(ira, (IrInstructionPtrCast *)instruction);
+        case IrInstructionIdBitCast:
+            return ir_analyze_instruction_bit_cast(ira, (IrInstructionBitCast *)instruction);
         case IrInstructionIdIntToPtr:
             return ir_analyze_instruction_int_to_ptr(ira, (IrInstructionIntToPtr *)instruction);
+        case IrInstructionIdPtrToInt:
+            return ir_analyze_instruction_ptr_to_int(ira, (IrInstructionPtrToInt *)instruction);
         case IrInstructionIdEnumTagName:
             return ir_analyze_instruction_enum_tag_name(ira, (IrInstructionEnumTagName *)instruction);
         case IrInstructionIdFieldParentPtr:
@@ -13669,11 +15444,14 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_offset_of(ira, (IrInstructionOffsetOf *)instruction);
         case IrInstructionIdTypeId:
             return ir_analyze_instruction_type_id(ira, (IrInstructionTypeId *)instruction);
-        case IrInstructionIdMaybeWrap:
-        case IrInstructionIdErrWrapCode:
-        case IrInstructionIdErrWrapPayload:
-        case IrInstructionIdCast:
-            zig_panic("TODO analyze more instructions");
+        case IrInstructionIdSetEvalBranchQuota:
+            return ir_analyze_instruction_set_eval_branch_quota(ira, (IrInstructionSetEvalBranchQuota *)instruction);
+        case IrInstructionIdPtrTypeOf:
+            return ir_analyze_instruction_ptr_type_of(ira, (IrInstructionPtrTypeOf *)instruction);
+        case IrInstructionIdAlignCast:
+            return ir_analyze_instruction_align_cast(ira, (IrInstructionAlignCast *)instruction);
+        case IrInstructionIdOpaqueType:
+            return ir_analyze_instruction_opaque_type(ira, (IrInstructionOpaqueType *)instruction);
     }
     zig_unreachable();
 }
@@ -13698,6 +15476,7 @@ TypeTableEntry *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutabl
         TypeTableEntry *expected_type, AstNode *expected_type_source_node)
 {
     assert(!old_exec->invalid);
+    assert(expected_type == nullptr || !type_is_invalid(expected_type));
 
     IrAnalyze ir_analyze_data = {};
     IrAnalyze *ira = &ir_analyze_data;
@@ -13780,10 +15559,11 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdOverflowOp: // TODO when we support multiple returns this can be side effect free
         case IrInstructionIdCheckSwitchProngs:
         case IrInstructionIdCheckStatementIsVoid:
-        case IrInstructionIdSetGlobalAlign:
         case IrInstructionIdSetGlobalSection:
         case IrInstructionIdSetGlobalLinkage:
         case IrInstructionIdPanic:
+        case IrInstructionIdSetEvalBranchQuota:
+        case IrInstructionIdPtrTypeOf:
             return true;
         case IrInstructionIdPhi:
         case IrInstructionIdUnOp:
@@ -13834,6 +15614,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdTestComptime:
         case IrInstructionIdInitEnum:
         case IrInstructionIdPtrCast:
+        case IrInstructionIdBitCast:
         case IrInstructionIdWidenOrShorten:
         case IrInstructionIdPtrToInt:
         case IrInstructionIdIntToPtr:
@@ -13848,6 +15629,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdFieldParentPtr:
         case IrInstructionIdOffsetOf:
         case IrInstructionIdTypeId:
+        case IrInstructionIdAlignCast:
+        case IrInstructionIdOpaqueType:
             return false;
         case IrInstructionIdAsm:
             {
@@ -13863,65 +15646,3 @@ bool ir_has_side_effects(IrInstruction *instruction) {
     }
     zig_unreachable();
 }
-
-FnTableEntry *ir_create_inline_fn(CodeGen *codegen, Buf *fn_name, VariableTableEntry *var, Scope *parent_scope) {
-    FnTableEntry *fn_entry = create_fn_raw(FnInlineAuto, GlobalLinkageIdInternal);
-    buf_init_from_buf(&fn_entry->symbol_name, fn_name);
-
-    fn_entry->fndef_scope = create_fndef_scope(nullptr, parent_scope, fn_entry);
-    fn_entry->child_scope = &fn_entry->fndef_scope->base;
-
-    assert(var->value->type->id == TypeTableEntryIdMaybe);
-    TypeTableEntry *src_fn_type = var->value->type->data.maybe.child_type;
-    assert(src_fn_type->id == TypeTableEntryIdFn);
-
-    FnTypeId new_fn_type = src_fn_type->data.fn.fn_type_id;
-    new_fn_type.is_extern = false;
-
-    fn_entry->type_entry = get_fn_type(codegen, &new_fn_type);
-
-    IrBuilder ir_builder = {0};
-    IrBuilder *irb = &ir_builder;
-
-    irb->codegen = codegen;
-    irb->exec = &fn_entry->ir_executable;
-
-    AstNode *source_node = parent_scope->source_node;
-
-    size_t arg_count = fn_entry->type_entry->data.fn.fn_type_id.param_count;
-    IrInstruction **args = allocate<IrInstruction *>(arg_count);
-    VariableTableEntry **arg_vars = allocate<VariableTableEntry *>(arg_count);
-
-    define_local_param_variables(codegen, fn_entry, arg_vars);
-    Scope *scope = fn_entry->child_scope;
-
-    irb->current_basic_block = ir_build_basic_block(irb, scope, "Entry");
-    // Entry block gets a reference because we enter it to begin.
-    ir_ref_bb(irb->current_basic_block);
-
-    IrInstruction *maybe_fn_ptr = ir_build_var_ptr(irb, scope, source_node, var, true, false);
-    IrInstruction *unwrapped_fn_ptr = ir_build_unwrap_maybe(irb, scope, source_node, maybe_fn_ptr, true);
-    IrInstruction *fn_ref_instruction = ir_build_load_ptr(irb, scope, source_node, unwrapped_fn_ptr);
-
-    for (size_t i = 0; i < arg_count; i += 1) {
-        IrInstruction *var_ptr_instruction = ir_build_var_ptr(irb, scope, source_node, arg_vars[i], true, false);
-        args[i] = ir_build_load_ptr(irb, scope, source_node, var_ptr_instruction);
-    }
-
-    IrInstruction *call_instruction = ir_build_call(irb, scope, source_node, nullptr, fn_ref_instruction,
-            arg_count, args, false, false);
-    ir_build_return(irb, scope, source_node, call_instruction);
-
-    if (codegen->verbose) {
-        fprintf(stderr, "{\n");
-        ir_print(codegen, stderr, &fn_entry->ir_executable, 4);
-        fprintf(stderr, "}\n");
-    }
-
-    analyze_fn_ir(codegen, fn_entry, nullptr);
-
-    codegen->fn_defs.append(fn_entry);
-
-    return fn_entry;
-}
-

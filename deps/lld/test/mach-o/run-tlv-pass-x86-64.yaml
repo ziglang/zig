@@ -1,0 +1,144 @@
+# RUN: lld -flavor darwin -macosx_version_min 10.7 -arch x86_64 -print_atoms %s -o %t | FileCheck %s
+# RUN: not lld -flavor darwin -macosx_version_min 10.6 -arch x86_64 -o %t %s 2> %t2
+# RUN: FileCheck < %t2 %s --check-prefix=CHECK-ERROR
+# RUN: llvm-objdump -macho -private-headers %t | FileCheck %s --check-prefix=CHECK-LOADCMDS
+#
+# Test parsing of x86_64 tlv relocations.
+
+--- !mach-o
+arch:            x86_64
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+compat-version:  0.0
+current-version: 0.0
+has-UUID:        false
+OS:              unknown
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    alignment:       16
+    address:         0x0000000000000000
+    content:         [ 0x55, 0x48, 0x89, 0xE5, 0x48, 0x8B, 0x3D, 0x00,
+                       0x00, 0x00, 0x00, 0xFF, 0x17, 0x8B, 0x00, 0x5D,
+                       0xC3 ]
+    relocations:
+      - offset:          0x00000007
+        type:            X86_64_RELOC_TLV
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          2
+  - segment:         __DATA
+    section:         __thread_bss
+    type:            S_THREAD_LOCAL_ZEROFILL
+    attributes:      [  ]
+    alignment:       4
+    address:         0x0000000000000014
+    size:            4
+  - segment:         __DATA
+    section:         __thread_vars
+    type:            S_THREAD_LOCAL_VARIABLES
+    attributes:      [  ]
+    address:         0x0000000000000018
+    content:         [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
+    relocations:
+      - offset:          0x00000010
+        type:            X86_64_RELOC_UNSIGNED
+        length:          3
+        pc-rel:          false
+        extern:          true
+        symbol:          0
+      - offset:          0x00000000
+        type:            X86_64_RELOC_UNSIGNED
+        length:          3
+        pc-rel:          false
+        extern:          true
+        symbol:          3
+  - segment:         __DATA
+    section:         __dummy
+    type:            S_REGULAR
+    attributes:      [  ]
+    alignment:       8
+    address:         0x00000000000000C0
+    content:         [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
+local-symbols:
+  - name:            '_x$tlv$init'
+    type:            N_SECT
+    sect:            2
+    value:           0x0000000000000014
+global-symbols:
+  - name:            _main
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+  - name:            _x
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            3
+    value:           0x0000000000000018
+  - name:            '__tlv_bootstrap'
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            4
+    value:           0x00000000000000C0
+  - name:            'dyld_stub_binder'
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            4
+    value:           0x00000000000000C8
+  - name:            'start'
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            4
+    value:           0x00000000000000D0
+page-size:       0x00000000
+...
+
+# CHECK:       - name:            _x
+# CHECK-NEXT:    scope:           global
+# CHECK-NEXT:    type:            tlv-thunk
+# CHECK-NOT:   - name:
+# CHECK:         references:
+# CHECK-NEXT:      - kind:            pointer64
+# CHECK-NEXT:         offset:          0
+# CHECK-NEXT:         target:          __tlv_bootstrap
+# CHECK-NEXT:       - kind:            tlvInitSectionOffset
+# CHECK-NEXT:         offset:          16
+# CHECK-NEXT:         target:          '_x$tlv$init'
+# CHECK:       - name:            '_x$tlv$init'
+# CHECK-NEXT:    type:            tlv-zero-fill
+# CHECK:        - name:            _main
+# CHECK-NOT:    - name:
+# CHECK:          references:
+# CHECK-NEXT:       - kind:            ripRel32
+# CHECK-NEXT:         offset:          7
+# CHECK-NEXT:         target:          L[[ID:[0-9]+]]
+# CHECK:        - ref-name:        L[[ID]]
+# CHECK-NEXT:     scope:           hidden
+# CHECK-NEXT:     type:            tlv-initializer-ptr
+# CHECK-NEXT:     content:         [ 00, 00, 00, 00, 00, 00, 00, 00 ]
+# CHECK-NEXT:     alignment:       8
+# CHECK-NEXT:     permissions:     rw-
+# CHECK-NEXT:     references:
+# CHECK-NEXT:       - kind:            pointer64
+# CHECK-NEXT:         offset:          0
+# CHECK-NEXT:         target:          _x
+
+# CHECK-ERROR: targeted OS version does not support use of thread local variables in _main for architecture x86_64
+
+# CHECK-LOADCMDS: sectname __thread_bss
+# CHECK-LOADCMDS:   segname __DATA
+# CHECK-LOADCMDS:      addr 0x{{[0-9A-F]*}}
+# CHECK-LOADCMDS:      size 0x0000000000000004
+# CHECK-LOADCMDS:    offset 0
+# CHECK-LOADCMDS:     align 2^2 (4)
+# CHECK-LOADCMDS:    reloff 0
+# CHECK-LOADCMDS:    nreloc 0
+# CHECK-LOADCMDS:      type S_THREAD_LOCAL_ZEROFILL

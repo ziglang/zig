@@ -486,6 +486,23 @@ pub inline fn syscall6(number: usize, arg1: usize, arg2: usize, arg3: usize,
             [arg6] "{ebp}" (arg6))
 }
 
+pub nakedcc fn restore() {
+    asm volatile (
+        \\popl %%eax
+        \\movl $119, %%eax
+        \\int $0x80
+        :
+        :
+        : "rcx", "r11")
+}
+
+pub nakedcc fn restore_rt() {
+    asm volatile ("int $0x80"
+        :
+        : [number] "{eax}" (usize(SYS_rt_sigreturn))
+        : "rcx", "r11")
+}
+
 export struct msghdr {
     msg_name: &u8,
     msg_namelen: socklen_t,

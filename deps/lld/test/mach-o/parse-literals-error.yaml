@@ -1,0 +1,25 @@
+# RUN: not lld -flavor darwin -arch x86_64 -r -print_atoms %s -o %t 2> %t.err
+# RUN: FileCheck %s < %t.err
+#
+# Test for error if literal section is not correct size mulitple.
+#
+
+--- !mach-o
+arch:            x86_64
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+has-UUID:        false
+OS:              unknown
+sections:
+  - segment:         __TEXT
+    section:         __literal8
+    type:            S_8BYTE_LITERALS
+    attributes:      [  ]
+    alignment:       0
+    address:         0x0000000000000120
+    content:         [ 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                       0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D ]
+...
+
+# CHECK:       error:
+

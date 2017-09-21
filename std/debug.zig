@@ -1,3 +1,4 @@
+const math = @import("math/index.zig");
 const mem = @import("mem.zig");
 const io = @import("io.zig");
 const os = @import("os/index.zig");
@@ -11,12 +12,22 @@ error InvalidDebugInfo;
 error UnsupportedDebugInfo;
 
 pub fn assert(ok: bool) {
-    if (!ok) unreachable // assertion failure
+    if (!ok) {
+        // In ReleaseFast test mode, we still want assert(false) to crash, so
+        // we insert an explicit call to @panic instead of unreachable.
+        if (builtin.is_test) {
+            @panic("assertion failure")
+        } else {
+            unreachable // assertion failure
+        }
+    }
 }
 
 var panicking = false;
 /// This is the default panic implementation.
-pub coldcc fn panic(comptime format: []const u8, args: ...) -> noreturn {
+pub fn panic(comptime format: []const u8, args: ...) -> noreturn {
+    // TODO an intrinsic that labels this as unlikely to be reached
+
     // TODO
     // if (@atomicRmw(AtomicOp.XChg, &panicking, true, AtomicOrder.SeqCst)) { }
     if (panicking) {
@@ -30,14 +41,14 @@ pub coldcc fn panic(comptime format: []const u8, args: ...) -> noreturn {
     }
 
     %%io.stderr.printf(format ++ "\n", args);
-    %%writeStackTrace(&io.stderr, &global_allocator, io.stderr.isTty(), 1);
+    %%writeStackTrace(&io.stderr, &global_allocator, io.stderr.isTty() %% false, 1);
     %%io.stderr.flush();
 
     os.abort();
 }
 
 pub fn printStackTrace() -> %void {
-    %return writeStackTrace(&io.stderr, &global_allocator, io.stderr.isTty(), 1);
+    %return writeStackTrace(&io.stderr, &global_allocator, io.stderr.isTty() %% false, 1);
     %return io.stderr.flush();
 }
 
@@ -47,6 +58,9 @@ const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
 pub var user_main_fn: ?fn() -> %void = null;
+
+error PathNotFound;
+error InvalidDebugInfo;
 
 pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty_color: bool,
     ignore_frame_count: usize) -> %void
@@ -78,7 +92,7 @@ pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty
 
             var ignored_count: usize = 0;
 
-            var fp = usize(@frameAddress());
+            var fp = @ptrToInt(@frameAddress());
             while (fp != 0) : (fp = *@intToPtr(&const usize, fp)) {
                 if (ignored_count < ignore_frame_count) {
                     ignored_count += 1;
@@ -132,6 +146,9 @@ pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty
         },
         builtin.ObjectFormat.macho => {
             %return out_stream.write("(stack trace unavailable for Mach-O object format)\n");
+        },
+        builtin.ObjectFormat.wasm => {
+            %return out_stream.write("(stack trace unavailable for WASM object format)\n");
         },
         builtin.ObjectFormat.unknown => {
             %return out_stream.write("(stack trace unavailable for unknown object format)\n");
@@ -704,7 +721,8 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
                         });
                     },
                     else => {
-                        %return in_stream.seekForward(op_size - 1);
+                        const fwd_amt = math.cast(isize, op_size - 1) %% return error.InvalidDebugInfo;
+                        %return in_stream.seekForward(fwd_amt);
                     },
                 }
             } else if (opcode >= opcode_base) {
@@ -888,13 +906,14 @@ fn readInitialLength(in_stream: &io.InStream, is_64: &bool) -> %u64 {
 
 fn readULeb128(in_stream: &io.InStream) -> %u64 {
     var result: u64 = 0;
-    var shift: u64 = 0;
+    var shift: usize = 0;
 
     while (true) {
         const byte = %return in_stream.readByte();
+
         var operand: u64 = undefined;
 
-        if (@shlWithOverflow(u64, byte & 0b01111111, shift, &operand))
+        if (@shlWithOverflow(u64, byte & 0b01111111, u6(shift), &operand))
             return error.InvalidDebugInfo;
 
         result |= operand;
@@ -908,13 +927,14 @@ fn readULeb128(in_stream: &io.InStream) -> %u64 {
 
 fn readILeb128(in_stream: &io.InStream) -> %i64 {
     var result: i64 = 0;
-    var shift: i64 = 0;
+    var shift: usize = 0;
 
     while (true) {
         const byte = %return in_stream.readByte();
+
         var operand: i64 = undefined;
 
-        if (@shlWithOverflow(i64, byte & 0b01111111, shift, &operand))
+        if (@shlWithOverflow(i64, byte & 0b01111111, u6(shift), &operand))
             return error.InvalidDebugInfo;
 
         result |= operand;
@@ -922,8 +942,7 @@ fn readILeb128(in_stream: &io.InStream) -> %i64 {
 
         if ((byte & 0b10000000) == 0) {
             if (shift < @sizeOf(i64) * 8 and (byte & 0b01000000) != 0)
-                result |= -(i64(1) << shift);
-
+                result |= -(i64(1) << u6(shift));
             return result;
         }
     }
@@ -938,16 +957,26 @@ pub var global_allocator = mem.Allocator {
 var some_mem: [100 * 1024]u8 = undefined;
 var some_mem_index: usize = 0;
 
-fn globalAlloc(self: &mem.Allocator, n: usize) -> %[]u8 {
-    const result = some_mem[some_mem_index .. some_mem_index + n];
-    some_mem_index += n;
+error OutOfMemory;
+
+fn globalAlloc(self: &mem.Allocator, n: usize, alignment: usize) -> %[]u8 {
+    const addr = @ptrToInt(&some_mem[some_mem_index]);
+    const rem = @rem(addr, alignment);
+    const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
+    const adjusted_index = some_mem_index + march_forward_bytes;
+    const end_index = adjusted_index + n;
+    if (end_index > some_mem.len) {
+        return error.OutOfMemory;
+    }
+    const result = some_mem[adjusted_index .. end_index];
+    some_mem_index = end_index;
     return result;
 }
 
-fn globalRealloc(self: &mem.Allocator, old_mem: []u8, new_size: usize) -> %[]u8 {
-    const result = %return globalAlloc(self, new_size);
+fn globalRealloc(self: &mem.Allocator, old_mem: []u8, new_size: usize, alignment: usize) -> %[]u8 {
+    const result = %return globalAlloc(self, new_size, alignment);
     @memcpy(result.ptr, old_mem.ptr, old_mem.len);
     return result;
 }
 
-fn globalFree(self: &mem.Allocator, old_mem: []u8) { }
+fn globalFree(self: &mem.Allocator, ptr: &u8) { }

@@ -1,0 +1,88 @@
+# RUN: lld -flavor darwin -arch x86_64 -r -print_atoms %s -o %t  | FileCheck %s
+#
+# Test parsing of tentative definitions, including size, scope, and alignment.
+#
+#
+# int tent4;
+# long tent8;
+# __attribute__((visibility("hidden"))) int tentHidden;
+# __attribute__((aligned(16))) int tent4_16;
+# __attribute__((aligned(32))) long tent64_32[8];
+#
+
+--- !mach-o
+arch:            x86_64
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+has-UUID:        false
+OS:              unknown
+sections:
+  - segment:         __TEXT
+    section:         __tex
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS ]
+    address:         0x0000000000000000
+undefined-symbols:
+  - name:            _tent4
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    desc:            0x0200
+    value:           0x0000000000000004
+  - name:            _tent4_16
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    desc:            0x0400
+    value:           0x0000000000000004
+  - name:            _tent64_32
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    desc:            0x0500
+    value:           0x0000000000000040
+  - name:            _tent8
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    desc:            0x0300
+    value:           0x0000000000000008
+  - name:            _tentHidden
+    type:            N_UNDF
+    scope:           [ N_EXT, N_PEXT ]
+    desc:            0x0200
+    value:           0x0000000000000004
+...
+
+
+# CHECK:    defined-atoms:
+# CHECK:       name:             _tent4
+# CHECK:        scope:           global
+# CHECK:        type:            zero-fill
+# CHECK:        size:            4
+# CHECK:        merge:           as-tentative
+# CHECK:        alignment:       4
+
+# CHECK:       name:             _tent4_16
+# CHECK:        scope:           global
+# CHECK:        type:            zero-fill
+# CHECK:        size:            4
+# CHECK:        merge:           as-tentative
+# CHECK:        alignment:       16
+
+# CHECK:       name:             _tent64_32
+# CHECK:        scope:           global
+# CHECK:        type:            zero-fill
+# CHECK:        size:            64
+# CHECK:        merge:           as-tentative
+# CHECK:        alignment:       32
+
+# CHECK:       name:             _tent8
+# CHECK:        scope:           global
+# CHECK:        type:            zero-fill
+# CHECK:        size:            8
+# CHECK:        merge:           as-tentative
+# CHECK:        alignment:       8
+
+# CHECK:       name:             _tentHidden
+# CHECK:        scope:           hidden
+# CHECK:        type:            zero-fill
+# CHECK:        size:            4
+# CHECK:        merge:           as-tentative
+# CHECK:        alignment:       4

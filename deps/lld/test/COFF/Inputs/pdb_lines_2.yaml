@@ -1,0 +1,209 @@
+--- !COFF
+header:          
+  Machine:         IMAGE_FILE_MACHINE_AMD64
+  Characteristics: [  ]
+sections:        
+  - Name:            .drectve
+    Characteristics: [ IMAGE_SCN_LNK_INFO, IMAGE_SCN_LNK_REMOVE ]
+    Alignment:       1
+    SectionData:     2020202F44454641554C544C49423A224C4942434D5422202F44454641554C544C49423A224F4C444E414D45532220
+  - Name:            '.debug$S'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    Subsections:     
+      - !Symbols
+        Records:         
+          - Kind:            S_OBJNAME
+            ObjNameSym:      
+              Signature:       0
+              ObjectName:      'C:\src\llvm-project\build\pdb_lines_2.obj'
+          - Kind:            S_COMPILE3
+            Compile3Sym:     
+              Flags:           [ SecurityChecks, HotPatch ]
+              Machine:         X64
+              FrontendMajor:   19
+              FrontendMinor:   0
+              FrontendBuild:   24215
+              FrontendQFE:     1
+              BackendMajor:    19
+              BackendMinor:    0
+              BackendBuild:    24215
+              BackendQFE:      1
+              Version:         'Microsoft (R) Optimizing Compiler'
+      - !Symbols
+        Records:         
+          - Kind:            S_GPROC32_ID
+            ProcSym:         
+              PtrParent:       0
+              PtrEnd:          0
+              PtrNext:         0
+              CodeSize:        1
+              DbgStart:        0
+              DbgEnd:          0
+              FunctionType:    4098
+              Segment:         0
+              Flags:           [  ]
+              DisplayName:     bar
+          - Kind:            S_FRAMEPROC
+            FrameProcSym:    
+              TotalFrameBytes: 0
+              PaddingFrameBytes: 0
+              OffsetToPadding: 0
+              BytesOfCalleeSavedRegisters: 0
+              OffsetOfExceptionHandler: 0
+              SectionIdOfExceptionHandler: 0
+              Flags:           [ AsynchronousExceptionHandling, OptimizedForSpeed ]
+          - Kind:            S_PROC_ID_END
+            ScopeEndSym:     
+      - !Lines
+        CodeSize:        1
+        Flags:           [  ]
+        RelocOffset:     0
+        RelocSegment:    0
+        Blocks:          
+          - FileName:        'c:\src\llvm-project\build\pdb_lines_2.c'
+            Lines:           
+              - Offset:          0
+                LineStart:       1
+                IsStatement:     true
+                EndDelta:        0
+              - Offset:          0
+                LineStart:       2
+                IsStatement:     true
+                EndDelta:        0
+            Columns:         
+      - !FileChecksums
+        Checksums:       
+          - FileName:        'c:\src\llvm-project\build\pdb_lines_2.c'
+            Kind:            MD5
+            Checksum:        DF91CB3A2B8D917486574BB50CAC4CC7
+      - !StringTable
+        Strings:         
+          - 'c:\src\llvm-project\build\pdb_lines_2.c'
+      - !Symbols
+        Records:         
+          - Kind:            S_BUILDINFO
+            BuildInfoSym:    
+              BuildId:         4106
+    Relocations:     
+      - VirtualAddress:  164
+        SymbolName:      bar
+        Type:            IMAGE_REL_AMD64_SECREL
+      - VirtualAddress:  168
+        SymbolName:      bar
+        Type:            IMAGE_REL_AMD64_SECTION
+      - VirtualAddress:  220
+        SymbolName:      bar
+        Type:            IMAGE_REL_AMD64_SECREL
+      - VirtualAddress:  224
+        SymbolName:      bar
+        Type:            IMAGE_REL_AMD64_SECTION
+  - Name:            '.debug$T'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    Types:           
+      - Kind:            LF_ARGLIST
+        ArgList:         
+          ArgIndices:      [  ]
+      - Kind:            LF_PROCEDURE
+        Procedure:       
+          ReturnType:      3
+          CallConv:        NearC
+          Options:         [ None ]
+          ParameterCount:  0
+          ArgumentList:    4096
+      - Kind:            LF_FUNC_ID
+        FuncId:          
+          ParentScope:     0
+          FunctionType:    4097
+          Name:            bar
+      - Kind:            LF_STRING_ID
+        StringId:        
+          Id:              0
+          String:          'C:\src\llvm-project\build'
+      - Kind:            LF_STRING_ID
+        StringId:        
+          Id:              0
+          String:          'C:\PROGRA~2\MICROS~1.0\VC\Bin\amd64\cl.exe'
+      - Kind:            LF_STRING_ID
+        StringId:        
+          Id:              0
+          String:          '-c -Z7 -MT -IC:\PROGRA~2\MICROS~1.0\VC\include -IC:\PROGRA~2\MICROS~1.0\VC\atlmfc\include -IC:\PROGRA~2\WI3CF2~1\10\include\10.0.14393.0\ucrt -IC:\PROGRA~2\WI3CF2~1\10\include\10.0.14393.0\shared -IC:\PROGRA~2\WI3CF2~1\10\include\10.0.14393.0\um'
+      - Kind:            LF_SUBSTR_LIST
+        StringList:      
+          StringIndices:   [ 4101 ]
+      - Kind:            LF_STRING_ID
+        StringId:        
+          Id:              4102
+          String:          ' -IC:\PROGRA~2\WI3CF2~1\10\include\10.0.14393.0\winrt -TC -X'
+      - Kind:            LF_STRING_ID
+        StringId:        
+          Id:              0
+          String:          pdb_lines_2.c
+      - Kind:            LF_STRING_ID
+        StringId:        
+          Id:              0
+          String:          'C:\src\llvm-project\build\vc140.pdb'
+      - Kind:            LF_BUILDINFO
+        BuildInfo:       
+          ArgIndices:      [ 4099, 4100, 4104, 4105, 4103 ]
+  - Name:            '.text$mn'
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       16
+    SectionData:     C3
+symbols:         
+  - Name:            .drectve
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition: 
+      Length:          47
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          0
+  - Name:            '.debug$S'
+    Value:           0
+    SectionNumber:   2
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition: 
+      Length:          360
+      NumberOfRelocations: 4
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          0
+  - Name:            '.debug$T'
+    Value:           0
+    SectionNumber:   3
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition: 
+      Length:          568
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          0
+  - Name:            '.text$mn'
+    Value:           0
+    SectionNumber:   4
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition: 
+      Length:          1
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        40735498
+      Number:          0
+  - Name:            bar
+    Value:           0
+    SectionNumber:   4
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+...

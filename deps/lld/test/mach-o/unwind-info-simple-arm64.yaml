@@ -1,0 +1,267 @@
+# RUN: lld -flavor darwin -arch arm64 -o %t %s \
+# RUN: %p/Inputs/unwind-info-simple-arm64.yaml -e _main %p/Inputs/arm64/libSystem.yaml
+# RUN: llvm-objdump -unwind-info %t | FileCheck %s
+
+--- !mach-o
+arch:            arm64
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    alignment:       2
+    address:         0x0000000000000000
+    content:         [ 0xFD, 0x7B, 0xBF, 0xA9, 0xFD, 0x03, 0x00, 0x91,
+                       0xE0, 0x03, 0x1E, 0x32, 0x00, 0x00, 0x00, 0x94,
+                       0x48, 0x01, 0x80, 0x52, 0x08, 0x00, 0x00, 0xB9,
+                       0x02, 0x00, 0x80, 0xD2, 0x01, 0x00, 0x00, 0x90,
+                       0x21, 0x00, 0x40, 0xF9, 0x00, 0x00, 0x00, 0x94,
+                       0xFD, 0x7B, 0xBF, 0xA9, 0xFD, 0x03, 0x00, 0x91,
+                       0xE0, 0x03, 0x1E, 0x32, 0x00, 0x00, 0x00, 0x94,
+                       0x48, 0x01, 0x80, 0x52, 0x08, 0x00, 0x00, 0xB9,
+                       0x02, 0x00, 0x80, 0xD2, 0x01, 0x00, 0x00, 0x90,
+                       0x21, 0x00, 0x40, 0xF9, 0x00, 0x00, 0x00, 0x94,
+                       0x3F, 0x04, 0x00, 0x71, 0x81, 0x00, 0x00, 0x54,
+                       0x00, 0x00, 0x00, 0x94, 0xFD, 0x7B, 0xC1, 0xA8,
+                       0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x94,
+                       0xFD, 0x7B, 0xBF, 0xA9, 0xFD, 0x03, 0x00, 0x91,
+                       0x00, 0x00, 0x00, 0x94 ]
+    relocations:
+      - offset:          0x00000070
+        type:            ARM64_RELOC_BRANCH26
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          5
+      - offset:          0x00000064
+        type:            ARM64_RELOC_BRANCH26
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          7
+      - offset:          0x00000060
+        type:            ARM64_RELOC_BRANCH26
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          12
+      - offset:          0x00000058
+        type:            ARM64_RELOC_BRANCH26
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          11
+      - offset:          0x0000004C
+        type:            ARM64_RELOC_BRANCH26
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          13
+      - offset:          0x00000048
+        type:            ARM64_RELOC_GOT_LOAD_PAGEOFF12
+        length:          2
+        pc-rel:          false
+        extern:          true
+        symbol:          8
+      - offset:          0x00000044
+        type:            ARM64_RELOC_GOT_LOAD_PAGE21
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          8
+      - offset:          0x00000034
+        type:            ARM64_RELOC_BRANCH26
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          10
+      - offset:          0x00000024
+        type:            ARM64_RELOC_BRANCH26
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          13
+      - offset:          0x00000020
+        type:            ARM64_RELOC_GOT_LOAD_PAGEOFF12
+        length:          2
+        pc-rel:          false
+        extern:          true
+        symbol:          8
+      - offset:          0x0000001C
+        type:            ARM64_RELOC_GOT_LOAD_PAGE21
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          8
+      - offset:          0x0000000C
+        type:            ARM64_RELOC_BRANCH26
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          10
+  - segment:         __TEXT
+    section:         __gcc_except_tab
+    type:            S_REGULAR
+    attributes:      [  ]
+    alignment:       2
+    address:         0x0000000000000074
+    content:         [ 0xFF, 0x9B, 0xAF, 0x80, 0x00, 0x03, 0x27, 0x00,
+                       0x00, 0x00, 0x00, 0x18, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x18, 0x00, 0x00, 0x00,
+                       0x10, 0x00, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00,
+                       0x01, 0x28, 0x00, 0x00, 0x00, 0x18, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
+                       0xD0, 0xFF, 0xFF, 0xFF ]
+    relocations:
+      - offset:          0x00000030
+        type:            ARM64_RELOC_POINTER_TO_GOT
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          9
+  - segment:         __LD
+    section:         __compact_unwind
+    type:            S_REGULAR
+    attributes:      [  ]
+    alignment:       8
+    address:         0x00000000000000A8
+    content:         [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x28, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x44,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x74, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x68, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x0C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
+    relocations:
+      - offset:          0x00000040
+        type:            ARM64_RELOC_UNSIGNED
+        length:          3
+        pc-rel:          false
+        extern:          false
+        symbol:          1
+      - offset:          0x00000038
+        type:            ARM64_RELOC_UNSIGNED
+        length:          3
+        pc-rel:          false
+        extern:          false
+        symbol:          2
+      - offset:          0x00000030
+        type:            ARM64_RELOC_UNSIGNED
+        length:          3
+        pc-rel:          false
+        extern:          true
+        symbol:          14
+      - offset:          0x00000020
+        type:            ARM64_RELOC_UNSIGNED
+        length:          3
+        pc-rel:          false
+        extern:          false
+        symbol:          1
+      - offset:          0x00000000
+        type:            ARM64_RELOC_UNSIGNED
+        length:          3
+        pc-rel:          false
+        extern:          false
+        symbol:          1
+local-symbols:
+  - name:            ltmp0
+    type:            N_SECT
+    sect:            1
+    value:           0x0000000000000000
+  - name:            ltmp14
+    type:            N_SECT
+    sect:            2
+    value:           0x0000000000000074
+  - name:            GCC_except_table1
+    type:            N_SECT
+    sect:            2
+    value:           0x0000000000000074
+  - name:            ltmp21
+    type:            N_SECT
+    sect:            3
+    value:           0x00000000000000A8
+global-symbols:
+  - name:            __Z3barv
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000028
+  - name:            __Z3foov
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+  - name:            _main
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000068
+undefined-symbols:
+  - name:            __Unwind_Resume
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+  - name:            __ZTIi
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+  - name:            __ZTIl
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+  - name:            ___cxa_allocate_exception
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+  - name:            ___cxa_begin_catch
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+  - name:            ___cxa_end_catch
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+  - name:            ___cxa_throw
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+  - name:            ___gxx_personality_v0
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+
+...
+
+
+# CHECK: Contents of __unwind_info section:
+# CHECK:   Version:                                   0x1
+# CHECK:   Common encodings array section offset:     0x1c
+# CHECK:   Number of common encodings in array:       0x0
+# CHECK:   Personality function array section offset: 0x1c
+# CHECK:   Number of personality functions in array:  0x1
+# CHECK:   Index array section offset:                0x20
+# CHECK:   Number of indices in array:                0x2
+# CHECK:   Common encodings: (count = 0)
+# CHECK:   Personality functions: (count = 1)
+# CHECK:     personality[1]: 0x00004020
+# CHECK:   Top level indices: (count = 2)
+# CHECK:     [0]: function offset=0x00003e68, 2nd level page offset=0x00000040, LSDA offset=0x00000038
+# CHECK:     [1]: function offset=0x00003edc, 2nd level page offset=0x00000000, LSDA offset=0x00000040
+# CHECK:   LSDA descriptors:
+# CHECK:     [0]: function offset=0x00003e90, LSDA offset=0x00003f6c
+# CHECK:   Second level indices:
+# CHECK:     Second level index[0]: offset in section=0x00000040, base function offset=0x00003e68
+# CHECK:       [0]: function offset=0x00003e68, encoding=0x04000000
+# CHECK:       [1]: function offset=0x00003e90, encoding=0x54000000
+# CHECK:       [2]: function offset=0x00003ed0, encoding=0x04000000
+# CHECK-NOT: Contents of __compact_unwind section
+
+
+

@@ -2,7 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const mem = std.mem;
 
-test "continueInForLoop" {
+test "continue in for loop" {
     const array = []i32 {1, 2, 3, 4, 5};
     var sum : i32 = 0;
     for (array) |x| {
@@ -15,7 +15,7 @@ test "continueInForLoop" {
     if (sum != 6) unreachable
 }
 
-test "forLoopWithPointerElemVar" {
+test "for loop with pointer elem var" {
     const source = "abcdefg";
     var target: [source.len]u8 = undefined;
     mem.copy(u8, target[0..], source);
@@ -28,7 +28,7 @@ fn mangleString(s: []u8) {
     }
 }
 
-test "basicForLoop" {
+test "basic for loop" {
     const expected_result = []u8{9, 8, 7, 6, 0, 1, 2, 3, 9, 8, 7, 6, 0, 1, 2, 3 };
 
     var buffer: [expected_result.len]u8 = undefined;

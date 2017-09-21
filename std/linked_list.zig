@@ -1,7 +1,6 @@
 const debug = @import("debug.zig");
 const assert = debug.assert;
 const mem = @import("mem.zig");
-const Allocator = mem.Allocator;
 
 /// Generic doubly linked list.
 pub fn LinkedList(comptime T: type) -> type {

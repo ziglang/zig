@@ -1,0 +1,51 @@
+# RUN: sed s/FEAT_VALUE/1/ %s | yaml2obj > %t.obj
+# RUN: lld-link /out:%t.exe /subsystem:console /entry:main /safeseh %t.obj
+
+# RUN: sed s/FEAT_VALUE/0/ %s | yaml2obj > %t.obj
+# RUN: not lld-link /out:%t.exe /subsystem:console /entry:main \
+# RUN:   /safeseh %t.obj >& %t.log
+# RUN: FileCheck %s < %t.log
+
+# CHECK: /safeseh: {{.*}} is not compatible with SEH
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_I386
+  Characteristics: [  ]
+sections:
+  - Name:            .text
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    SectionData:     0000000000000000
+symbols:
+  - Name:            '@comp.id'
+    Value:           14766605
+    SectionNumber:   65535
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+  - Name:            '@feat.00'
+    Value:           FEAT_VALUE
+    SectionNumber:   65535
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+  - Name:            .text
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          8
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          0
+  - Name:            _main
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+...

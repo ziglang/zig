@@ -25,6 +25,7 @@ enum Error {
     ErrorUnexpected,
     ErrorExactDivRemainder,
     ErrorNegativeDenominator,
+    ErrorShiftedOutOneBits,
 };
 
 const char *err_str(int err);

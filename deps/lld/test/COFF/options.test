@@ -1,0 +1,45 @@
+# RUN: yaml2obj < %p/Inputs/ret42.yaml > %t.obj
+
+# RUN: lld-link /out:%t.exe /entry:main %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=BIND %s
+BIND: IMAGE_DLL_CHARACTERISTICS_NO_BIND
+
+# RUN: lld-link /out:%t.exe /entry:main %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=ISO %s
+# RUN: lld-link /allowisolation /out:%t.exe /entry:main %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=ISO %s
+ISO-NOT: IMAGE_DLL_CHARACTERISTICS_NO_ISOLATION
+
+# RUN: lld-link /allowisolation:no /out:%t.exe /entry:main %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=NOISO %s
+NOISO: IMAGE_DLL_CHARACTERISTICS_NO_ISOLATION
+
+# RUN: lld-link /out:%t.exe /entry:main %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=ENT %s
+# RUN: lld-link /out:%t.exe /entry:main /highentropyva %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=ENT %s
+ENT: IMAGE_DLL_CHARACTERISTICS_HIGH_ENTROPY_VA
+
+# RUN: lld-link /out:%t.exe /highentropyva:no /out:%t.exe /entry:main %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=NOENT %s
+NOENT-NOT: IMAGE_DLL_CHARACTERISTICS_HIGH_ENTROPY_VA
+
+# RUN: lld-link /out:%t.exe /entry:main %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=NXCOMPAT %s
+# RUN: lld-link /out:%t.exe /entry:main /nxcompat %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=NXCOMPAT %s
+NXCOMPAT: IMAGE_DLL_CHARACTERISTICS_NX_COMPAT
+
+# RUN: lld-link /out:%t.exe /nxcompat:no /out:%t.exe /entry:main %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=NONXCOMPAT %s
+NONXCOMPAT-NOT: IMAGE_DLL_CHARACTERISTICS_NX_COMPAT
+
+# RUN: lld-link /out:%t.exe /entry:main %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=TSAWARE %s
+# RUN: lld-link /out:%t.exe /entry:main /tsaware %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=TSAWARE %s
+TSAWARE: IMAGE_DLL_CHARACTERISTICS_TERMINAL_SERVER_AWARE
+
+# RUN: lld-link /tsaware:no /out:%t.exe /entry:main %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=NOTSAWARE %s
+NOTSAWARE-NOT: IMAGE_DLL_CHARACTERISTICS_TERMINAL_SERVER_AWARE

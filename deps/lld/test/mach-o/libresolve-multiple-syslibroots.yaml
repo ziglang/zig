@@ -1,0 +1,17 @@
+# RUN: lld -flavor darwin -test_file_usage -v \
+# RUN:        -path_exists /usr/lib \
+# RUN:        -path_exists /Applications/MyFirstSDK/usr/local/lib \
+# RUN:        -path_exists /Applications/MySecondSDK/usr/local/lib \
+# RUN:        -path_exists /Applications/MyFirstSDK/usr/local/lib/libSystem.a \
+# RUN:        -path_exists /Applications/MySecondSDK/usr/local/lib/libSystem.a \
+# RUN:        -syslibroot /Applications/MyFirstSDK \
+# RUN:        -syslibroot /Applications/MySecondSDK \
+# RUN:        -lSystem \
+# RUN: 2>&1 | FileCheck %s
+
+
+# CHECK: Library search paths:
+# CHECK:     /usr/lib
+# CHECK:     /Applications/MyFirstSDK/usr/local/lib
+# CHECK:     /Applications/MySecondSDK/usr/local/lib
+# CHECK: Found library /Applications/MyFirstSDK/usr/local/lib/libSystem.a

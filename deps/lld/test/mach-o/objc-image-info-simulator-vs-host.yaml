@@ -1,0 +1,23 @@
+# RUN: not lld -flavor darwin -ios_simulator_version_min 5.0 -arch x86_64 -r %s 2>&1 | FileCheck %s
+
+# The file is built for the simulator, but the objc image info flags are for
+# the host.
+
+--- !mach-o
+arch:            x86_64
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+compat-version:  0.0
+current-version: 0.0
+has-UUID:        false
+OS:              unknown
+sections:
+  - segment:         __DATA
+    section:         __objc_imageinfo
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_NO_DEAD_STRIP ]
+    address:         0x0000000000000100
+    content:         [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ]
+...
+
+# CHECK: {{.*}} cannot be linked.  It contains ObjC built for a non-simulator target while we are linking a simulator target

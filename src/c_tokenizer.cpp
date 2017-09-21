@@ -107,10 +107,16 @@ static void begin_token(CTokenize *ctok, CTokId id) {
             memset(&ctok->cur_tok->data.symbol, 0, sizeof(Buf));
             buf_resize(&ctok->cur_tok->data.symbol, 0);
             break;
-        case CTokIdCharLit:
         case CTokIdNumLitInt:
+            ctok->cur_tok->data.num_lit_int.x = 0;
+            ctok->cur_tok->data.num_lit_int.suffix = CNumLitSuffixNone;
+            break;
+        case CTokIdCharLit:
         case CTokIdNumLitFloat:
         case CTokIdMinus:
+        case CTokIdLParen:
+        case CTokIdRParen:
+        case CTokIdEOF:
             break;
     }
 }
@@ -138,9 +144,9 @@ static void add_char(CTokenize *ctok, uint8_t c) {
 
 static void hex_digit(CTokenize *ctok, uint8_t value) {
     // TODO @mul_with_overflow
-    ctok->cur_tok->data.num_lit_int *= 16;
+    ctok->cur_tok->data.num_lit_int.x *= 16;
     // TODO @add_with_overflow
-    ctok->cur_tok->data.num_lit_int += value;
+    ctok->cur_tok->data.num_lit_int.x += value;
 
     static const uint8_t hex_digit[] = "0123456789abcdef";
     buf_append_char(&ctok->buf, hex_digit[value]);
@@ -194,19 +200,15 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                         break;
                     case DIGIT_NON_ZERO:
                         ctok->state = CTokStateDecimal;
-                        ctok->unsigned_suffix = false;
-                        ctok->long_suffix = false;
                         begin_token(ctok, CTokIdNumLitInt);
-                        ctok->cur_tok->data.num_lit_int = *c - '0';
+                        ctok->cur_tok->data.num_lit_int.x = *c - '0';
                         buf_resize(&ctok->buf, 0);
                         buf_append_char(&ctok->buf, *c);
                         break;
                     case '0':
                         ctok->state = CTokStateGotZero;
-                        ctok->unsigned_suffix = false;
-                        ctok->long_suffix = false;
                         begin_token(ctok, CTokIdNumLitInt);
-                        ctok->cur_tok->data.num_lit_int = 0;
+                        ctok->cur_tok->data.num_lit_int.x = 0;
                         buf_resize(&ctok->buf, 0);
                         buf_append_char(&ctok->buf, '0');
                         break;
@@ -214,6 +216,18 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                         begin_token(ctok, CTokIdNumLitFloat);
                         ctok->state = CTokStateFloat;
                         buf_init_from_str(&ctok->buf, "0.");
+                        break;
+                    case '(':
+                        begin_token(ctok, CTokIdLParen);
+                        end_token(ctok);
+                        break;
+                    case ')':
+                        begin_token(ctok, CTokIdRParen);
+                        end_token(ctok);
+                        break;
+                    case '-':
+                        begin_token(ctok, CTokIdMinus);
+                        end_token(ctok);
                         break;
                     default:
                         return mark_error(ctok);
@@ -289,70 +303,26 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                         buf_append_char(&ctok->buf, *c);
 
                         // TODO @mul_with_overflow
-                        ctok->cur_tok->data.num_lit_int *= 10;
+                        ctok->cur_tok->data.num_lit_int.x *= 10;
                         // TODO @add_with_overflow
-                        ctok->cur_tok->data.num_lit_int += *c - '0';
+                        ctok->cur_tok->data.num_lit_int.x += *c - '0';
                         break;
                     case '\'':
                         break;
                     case 'u':
                     case 'U':
-                        ctok->unsigned_suffix = true;
-                        ctok->state = CTokStateIntSuffix;
+                        ctok->state = CTokStateNumLitIntSuffixU;
+                        ctok->cur_tok->data.num_lit_int.suffix = CNumLitSuffixU;
                         break;
                     case 'l':
                     case 'L':
-                        ctok->long_suffix = true;
-                        ctok->state = CTokStateIntSuffixLong;
+                        ctok->state = CTokStateNumLitIntSuffixL;
+                        ctok->cur_tok->data.num_lit_int.suffix = CNumLitSuffixL;
                         break;
                     case '.':
                         buf_append_char(&ctok->buf, '.');
                         ctok->cur_tok->id = CTokIdNumLitFloat;
                         ctok->state = CTokStateFloat;
-                        break;
-                    default:
-                        c -= 1;
-                        end_token(ctok);
-                        ctok->state = CTokStateStart;
-                        continue;
-                }
-                break;
-            case CTokStateIntSuffix:
-                switch (*c) {
-                    case 'l':
-                    case 'L':
-                        if (ctok->long_suffix) {
-                            return mark_error(ctok);
-                        }
-                        ctok->long_suffix = true;
-                        ctok->state = CTokStateIntSuffixLong;
-                        break;
-                    case 'u':
-                    case 'U':
-                        if (ctok->unsigned_suffix) {
-                            return mark_error(ctok);
-                        }
-                        ctok->unsigned_suffix = true;
-                        break;
-                    default:
-                        c -= 1;
-                        end_token(ctok);
-                        ctok->state = CTokStateStart;
-                        continue;
-                }
-                break;
-            case CTokStateIntSuffixLong:
-                switch (*c) {
-                    case 'l':
-                    case 'L':
-                        ctok->state = CTokStateIntSuffix;
-                        break;
-                    case 'u':
-                    case 'U':
-                        if (ctok->unsigned_suffix) {
-                            return mark_error(ctok);
-                        }
-                        ctok->unsigned_suffix = true;
                         break;
                     default:
                         c -= 1;
@@ -389,9 +359,9 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                     case '6':
                     case '7':
                         // TODO @mul_with_overflow
-                        ctok->cur_tok->data.num_lit_int *= 8;
+                        ctok->cur_tok->data.num_lit_int.x *= 8;
                         // TODO @add_with_overflow
-                        ctok->cur_tok->data.num_lit_int += *c - '0';
+                        ctok->cur_tok->data.num_lit_int.x += *c - '0';
                         break;
                     case '8':
                     case '9':
@@ -465,6 +435,82 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                     case 'P':
                         ctok->cur_tok->id = CTokIdNumLitFloat;
                         ctok->state = CTokStateExpSign;
+                        break;
+                    case 'u':
+                    case 'U':
+                        // marks the number literal as unsigned
+                        ctok->state = CTokStateNumLitIntSuffixU;
+                        ctok->cur_tok->data.num_lit_int.suffix = CNumLitSuffixU;
+                        break;
+                    case 'l':
+                    case 'L':
+                        // marks the number literal as long
+                        ctok->state = CTokStateNumLitIntSuffixL;
+                        ctok->cur_tok->data.num_lit_int.suffix = CNumLitSuffixL;
+                        break;
+                    default:
+                        c -= 1;
+                        end_token(ctok);
+                        ctok->state = CTokStateStart;
+                        continue;
+                }
+                break;
+            case CTokStateNumLitIntSuffixU:
+                switch (*c) {
+                    case 'l':
+                    case 'L':
+                        ctok->cur_tok->data.num_lit_int.suffix = CNumLitSuffixLU;
+                        ctok->state = CTokStateNumLitIntSuffixUL;
+                        break;
+                    default:
+                        c -= 1;
+                        end_token(ctok);
+                        ctok->state = CTokStateStart;
+                        continue;
+                }
+                break;
+            case CTokStateNumLitIntSuffixL:
+                switch (*c) {
+                    case 'l':
+                    case 'L':
+                        ctok->cur_tok->data.num_lit_int.suffix = CNumLitSuffixLL;
+                        ctok->state = CTokStateNumLitIntSuffixLL;
+                        break;
+                    case 'u':
+                    case 'U':
+                        ctok->cur_tok->data.num_lit_int.suffix = CNumLitSuffixLU;
+                        end_token(ctok);
+                        ctok->state = CTokStateStart;
+                        break;
+                    default:
+                        c -= 1;
+                        end_token(ctok);
+                        ctok->state = CTokStateStart;
+                        continue;
+                }
+                break;
+            case CTokStateNumLitIntSuffixLL:
+                switch (*c) {
+                    case 'u':
+                    case 'U':
+                        ctok->cur_tok->data.num_lit_int.suffix = CNumLitSuffixLLU;
+                        end_token(ctok);
+                        ctok->state = CTokStateStart;
+                        break;
+                    default:
+                        c -= 1;
+                        end_token(ctok);
+                        ctok->state = CTokStateStart;
+                        continue;
+                }
+                break;
+            case CTokStateNumLitIntSuffixUL:
+                switch (*c) {
+                    case 'l':
+                    case 'L':
+                        ctok->cur_tok->data.num_lit_int.suffix = CNumLitSuffixLLU;
+                        end_token(ctok);
+                        ctok->state = CTokStateStart;
                         break;
                     default:
                         c -= 1;
@@ -552,7 +598,8 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                         ctok->octal_index = 1;
                         break;
                     case 'x':
-                        zig_panic("TODO hex");
+                        ctok->state = CTokStateStrHex;
+                        ctok->cur_char = 0;
                         break;
                     case 'u':
                         zig_panic("TODO unicode");
@@ -564,6 +611,54 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                         return mark_error(ctok);
                 }
                 break;
+            case CTokStateStrHex: {
+                uint8_t value = 0;
+                switch (*c) {
+                    case '0':
+                    case '1':
+                    case '2':
+                    case '3':
+                    case '4':
+                    case '5':
+                    case '6':
+                    case '7':
+                    case '8':
+                    case '9':
+                        value = *c - '0';
+                        break;
+                    case 'a':
+                    case 'b':
+                    case 'c':
+                    case 'd':
+                    case 'e':
+                    case 'f':
+                        value = (*c - 'a') + 10;
+                        break;
+                    case 'A':
+                    case 'B':
+                    case 'C':
+                    case 'D':
+                    case 'E':
+                    case 'F':
+                        value = (*c - 'A') + 10;
+                        break;
+                    default:
+                        c -= 1;
+                        add_char(ctok, ctok->cur_char);
+                        continue;
+                }
+                // TODO @mul_with_overflow
+                if (((long)ctok->cur_char) * 16 >= 256) {
+                    zig_panic("TODO str hex mul overflow");
+                }
+                ctok->cur_char = (uint8_t)(ctok->cur_char * (uint8_t)16);
+                // TODO @add_with_overflow
+                if (((long)ctok->cur_char) + (long)(value) >= 256) {
+                    zig_panic("TODO str hex add overflow");
+                }
+                ctok->cur_char = (uint8_t)(ctok->cur_char + value);
+                break;
+            }
             case CTokStateStrOctal:
                 switch (*c) {
                     case '0':
@@ -586,28 +681,12 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                         ctok->cur_char = (uint8_t)(ctok->cur_char + (uint8_t)(*c - '0'));
                         ctok->octal_index += 1;
                         if (ctok->octal_index == 3) {
-                            if (ctok->cur_tok->id == CTokIdStrLit) {
-                                add_char(ctok, ctok->cur_char);
-                                ctok->state = CTokStateString;
-                            } else if (ctok->cur_tok->id == CTokIdCharLit) {
-                                ctok->cur_tok->data.char_lit = ctok->cur_char;
-                                ctok->state = CTokStateExpectEndQuot;
-                            } else {
-                                zig_unreachable();
-                            }
+                            add_char(ctok, ctok->cur_char);
                         }
                         break;
                     default:
                         c -= 1;
-                        if (ctok->cur_tok->id == CTokIdStrLit) {
-                            add_char(ctok, ctok->cur_char);
-                            ctok->state = CTokStateString;
-                        } else if (ctok->cur_tok->id == CTokIdCharLit) {
-                            ctok->cur_tok->data.char_lit = ctok->cur_char;
-                            ctok->state = CTokStateExpectEndQuot;
-                        } else {
-                            zig_unreachable();
-                        }
+                        add_char(ctok, ctok->cur_char);
                         continue;
                 }
                 break;
@@ -681,8 +760,10 @@ found_end_of_macro:
         case CTokStateHex:
         case CTokStateOctal:
         case CTokStateGotZero:
-        case CTokStateIntSuffix:
-        case CTokStateIntSuffixLong:
+        case CTokStateNumLitIntSuffixU:
+        case CTokStateNumLitIntSuffixL:
+        case CTokStateNumLitIntSuffixUL:
+        case CTokStateNumLitIntSuffixLL:
             end_token(ctok);
             break;
         case CTokStateFloat:
@@ -700,9 +781,13 @@ found_end_of_macro:
         case CTokStateString:
         case CTokStateExpSign:
         case CTokStateFloatExpFirst:
+        case CTokStateStrHex:
         case CTokStateStrOctal:
             return mark_error(ctok);
     }
 
     assert(ctok->cur_tok == nullptr);
+
+    begin_token(ctok, CTokIdEOF);
+    end_token(ctok);
 }

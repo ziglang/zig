@@ -1,0 +1,45 @@
+# RUN: lld -flavor darwin -arch x86_64 -r %s -o %t -print_atoms | FileCheck %s
+# RUN: lld -flavor darwin -arch x86_64 -r %t -o %t2 -print_atoms | FileCheck %s
+#
+# Test that alignment info round trips through -r
+#
+
+--- !mach-o
+arch:            x86_64
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    alignment:       16
+    address:         0x0000000000000000
+    content:         [ 0x90, 0x90, 0x90, 0xC3, 0xC3, 0xC3 ]
+local-symbols:
+  - name:            _f1
+    type:            N_SECT
+    sect:            1
+    value:           0x0000000000000003
+  - name:            _f2
+    type:            N_SECT
+    sect:            1
+    value:           0x0000000000000004
+  - name:            _f3
+    type:            N_SECT
+    sect:            1
+    value:           0x0000000000000005
+...
+
+# CHECK: defined-atoms:
+# CHECK:   - content:         [ 90, 90, 90 ]
+# CHECK:     alignment:       16
+# CHECK:   - name:            _f1
+# CHECK:     content:         [ C3 ]
+# CHECK:     alignment:       3 mod 16
+# CHECK:   - name:            _f2
+# CHECK:     content:         [ C3 ]
+# CHECK:     alignment:       4 mod 16
+# CHECK:   - name:            _f3
+# CHECK:     content:         [ C3 ]
+# CHECK:     alignment:       5 mod 16

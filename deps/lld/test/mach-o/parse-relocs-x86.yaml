@@ -1,0 +1,296 @@
+# RUN: lld -flavor darwin -arch i386 -r -print_atoms %s -o %t  | FileCheck %s \
+# RUN: && lld -flavor darwin -arch i386 -r -print_atoms %t -o %t2  | FileCheck %s
+#
+# Test parsing and writing of x86 relocations.
+#
+# The first step tests if the supplied mach-o file is parsed into the correct
+# set of references.  The second step verifies relocations can be round-tripped
+# by writing to a new .o file, then parsing that file which should result in
+# the same references.
+#
+#  .text
+#_test:
+#  	call _undef
+#  	call _undef+2
+#  	call _foo
+#  	call _foo+2
+#   callw _undef
+#  	callw _foo
+#  	callw _foo+2
+#L1:
+#  	movl	_undef, %eax
+#   movl	_x, %eax
+#   movl	_x+4, %eax
+#  	movl	_x-L1(%eax), %eax
+#  	movl	_x+4-L1(%eax), %eax
+#
+#_foo:
+#    ret
+#
+#  .data
+#_x:
+#  .long _undef
+#  .long _undef+7
+#  .long _foo
+#  .long _foo+3
+#  .long _test - .
+#  .long _test+3 - .
+#
+
+--- !mach-o
+arch:            x86
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+OS:              unknown
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    address:         0x0000000000000000
+    content:         [ 0xE8, 0xFB, 0xFF, 0xFF, 0xFF, 0xE8, 0xF8, 0xFF,
+                       0xFF, 0xFF, 0xE8, 0x2C, 0x00, 0x00, 0x00, 0xE8,
+                       0x29, 0x00, 0x00, 0x00, 0x66, 0xE8, 0xE8, 0xFF,
+                       0x66, 0xE8, 0x1F, 0x00, 0x66, 0xE8, 0x1D, 0x00,
+                       0xA1, 0x00, 0x00, 0x00, 0x00, 0xA1, 0x3C, 0x00,
+                       0x00, 0x00, 0xA1, 0x40, 0x00, 0x00, 0x00, 0x8B,
+                       0x80, 0x1C, 0x00, 0x00, 0x00, 0x8B, 0x80, 0x20,
+                       0x00, 0x00, 0x00, 0xC3 ]
+    relocations:
+      - offset:          0x00000037
+        scattered:       true
+        type:            GENERIC_RELOC_LOCAL_SECTDIFF
+        length:          2
+        pc-rel:          false
+        value:           0x0000003C
+      - offset:          0x00000000
+        scattered:       true
+        type:            GENERIC_RELOC_PAIR
+        length:          2
+        pc-rel:          false
+        value:           0x00000020
+      - offset:          0x00000031
+        scattered:       true
+        type:            GENERIC_RELOC_LOCAL_SECTDIFF
+        length:          2
+        pc-rel:          false
+        value:           0x0000003C
+      - offset:          0x00000000
+        scattered:       true
+        type:            GENERIC_RELOC_PAIR
+        length:          2
+        pc-rel:          false
+        value:           0x00000020
+      - offset:          0x0000002B
+        scattered:       true
+        type:            GENERIC_RELOC_VANILLA
+        length:          2
+        pc-rel:          false
+        value:           0x0000003C
+      - offset:          0x00000026
+        type:            GENERIC_RELOC_VANILLA
+        length:          2
+        pc-rel:          false
+        extern:          false
+        symbol:          2
+      - offset:          0x00000021
+        type:            GENERIC_RELOC_VANILLA
+        length:          2
+        pc-rel:          false
+        extern:          true
+        symbol:          3
+      - offset:          0x0000001E
+        scattered:       true
+        type:            GENERIC_RELOC_VANILLA
+        length:          1
+        pc-rel:          true
+        value:           0x0000003B
+      - offset:          0x0000001A
+        type:            GENERIC_RELOC_VANILLA
+        length:          1
+        pc-rel:          true
+        extern:          false
+        symbol:          1
+      - offset:          0x00000016
+        type:            GENERIC_RELOC_VANILLA
+        length:          1
+        pc-rel:          true
+        extern:          true
+        symbol:          3
+      - offset:          0x00000010
+        scattered:       true
+        type:            GENERIC_RELOC_VANILLA
+        length:          2
+        pc-rel:          true
+        value:           0x0000003B
+      - offset:          0x0000000B
+        type:            GENERIC_RELOC_VANILLA
+        length:          2
+        pc-rel:          true
+        extern:          false
+        symbol:          1
+      - offset:          0x00000006
+        type:            GENERIC_RELOC_VANILLA
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          3
+      - offset:          0x00000001
+        type:            GENERIC_RELOC_VANILLA
+        length:          2
+        pc-rel:          true
+        extern:          true
+        symbol:          3
+  - segment:         __DATA
+    section:         __data
+    type:            S_REGULAR
+    attributes:      [  ]
+    address:         0x000000000000003C
+    content:         [ 0x00, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00,
+                       0x3B, 0x00, 0x00, 0x00, 0x3E, 0x00, 0x00, 0x00,
+                       0xB4, 0xFF, 0xFF, 0xFF, 0xB3, 0xFF, 0xFF, 0xFF ]
+    relocations:
+      - offset:          0x00000014
+        scattered:       true
+        type:            GENERIC_RELOC_LOCAL_SECTDIFF
+        length:          2
+        pc-rel:          false
+        value:           0x00000000
+      - offset:          0x00000000
+        scattered:       true
+        type:            GENERIC_RELOC_PAIR
+        length:          2
+        pc-rel:          false
+        value:           0x00000050
+      - offset:          0x00000010
+        scattered:       true
+        type:            GENERIC_RELOC_LOCAL_SECTDIFF
+        length:          2
+        pc-rel:          false
+        value:           0x00000000
+      - offset:          0x00000000
+        scattered:       true
+        type:            GENERIC_RELOC_PAIR
+        length:          2
+        pc-rel:          false
+        value:           0x0000004C
+      - offset:          0x0000000C
+        scattered:       true
+        type:            GENERIC_RELOC_VANILLA
+        length:          2
+        pc-rel:          false
+        value:           0x0000003B
+      - offset:          0x00000008
+        type:            GENERIC_RELOC_VANILLA
+        length:          2
+        pc-rel:          false
+        extern:          false
+        symbol:          1
+      - offset:          0x00000004
+        type:            GENERIC_RELOC_VANILLA
+        length:          2
+        pc-rel:          false
+        extern:          true
+        symbol:          3
+      - offset:          0x00000000
+        type:            GENERIC_RELOC_VANILLA
+        length:          2
+        pc-rel:          false
+        extern:          true
+        symbol:          3
+local-symbols:
+  - name:            _test
+    type:            N_SECT
+    sect:            1
+    value:           0x0000000000000000
+  - name:            _foo
+    type:            N_SECT
+    sect:            1
+    value:           0x000000000000003B
+  - name:            _x
+    type:            N_SECT
+    sect:            2
+    value:           0x000000000000003C
+undefined-symbols:
+  - name:            _undef
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000
+...
+
+# CHECK: defined-atoms:
+# CHECK:   - name:            _x
+# CHECK:     type:            data
+# CHECK:     references:
+# CHECK:       - kind:            pointer32
+# CHECK:         offset:          0
+# CHECK:         target:          _undef
+# CHECK-NOT:     addend:
+# CHECK:       - kind:            pointer32
+# CHECK:         offset:          4
+# CHECK:         target:          _undef
+# CHECK:         addend:          7
+# CHECK:       - kind:            pointer32
+# CHECK:         offset:          8
+# CHECK:         target:          _foo
+# CHECK-NOT:     addend:
+# CHECK:       - kind:            pointer32
+# CHECK:         offset:          12
+# CHECK:         target:          _foo
+# CHECK:         addend:          3
+# CHECK:       - kind:            delta32
+# CHECK:         offset:          16
+# CHECK:         target:          _test
+# CHECK:       - kind:            delta32
+# CHECK:         offset:          20
+# CHECK:         target:          _test
+# CHECK:         addend:          3
+# CHECK:  - name:            _test
+# CHECK:    references:
+# CHECK:      - kind:            branch32
+# CHECK:        offset:          1
+# CHECK:        target:          _undef
+# CHECK-NOT:    addend:
+# CHECK:      - kind:            branch32
+# CHECK:        offset:          6
+# CHECK:        target:          _undef
+# CHECK:        addend:          2
+# CHECK:      - kind:            branch32
+# CHECK:        offset:          11
+# CHECK:        target:          _foo
+# CHECK-NOT:    addend:
+# CHECK:      - kind:            branch32
+# CHECK:        offset:          16
+# CHECK:        target:          _foo
+# CHECK:        addend:          2
+# CHECK:      - kind:            branch16
+# CHECK:        offset:          22
+# CHECK:        target:          _undef
+# CHECK-NOT:    addend:
+# CHECK:      - kind:            branch16
+# CHECK:        offset:          26
+# CHECK:        target:          _foo
+# CHECK-NOT:    addend:
+# CHECK:      - kind:            branch16
+# CHECK:        offset:          30
+# CHECK:        target:          _foo
+# CHECK:        addend:          2
+# CHECK:      - kind:            abs32
+# CHECK:        offset:          33
+# CHECK:        target:          _undef
+# CHECK:      - kind:            abs32
+# CHECK:        offset:          38
+# CHECK:        target:          _x
+# CHECK:      - kind:            abs32
+# CHECK:        offset:          43
+# CHECK:        target:          _x
+# CHECK:        addend:          4
+# CHECK:      - kind:            funcRel32
+# CHECK:        offset:          49
+# CHECK:        target:          _x
+# CHECK:        addend:          -32
+# CHECK:      - kind:            funcRel32
+# CHECK:        offset:          55
+# CHECK:        target:          _x
+# CHECK:        addend:          -28
+

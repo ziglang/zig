@@ -1,0 +1,23 @@
+# RUN: yaml2obj %s -o %t
+# RUN: not ld.lld %t -o %tout 2>&1 | FileCheck %s
+
+!ELF
+FileHeader:
+  Class:           ELFCLASS64
+  Data:            ELFDATA2LSB
+  Type:            ET_REL
+  Machine:         EM_X86_64
+Sections:
+  - Type:            SHT_PROGBITS
+  - Name:            .rela.text
+    Type:            SHT_RELA
+    Info:            12 # Invalid index
+    Relocations:
+      - Offset:          0x0000000000000001
+        Symbol:          lulz
+        Type:            R_X86_64_PC32
+Symbols:
+  Global:
+    - Name:            lulz
+
+# CHECK: invalid relocated section index

@@ -1,0 +1,24 @@
+# RUN: yaml2obj %s -o %t.o
+# RUN: ld.lld -shared %t.o -o %t.so
+
+# Test that we can handle R_X86_64_NONE as produced by dtrace.
+
+!ELF
+FileHeader:
+  Class:           ELFCLASS64
+  Data:            ELFDATA2LSB
+  OSABI:           ELFOSABI_FREEBSD
+  Type:            ET_REL
+  Machine:         EM_X86_64
+Sections:
+  - Name:            .text
+    Type:            SHT_PROGBITS
+    Flags:           [ SHF_ALLOC ]
+  - Name:            .rela.text
+    Type:            SHT_RELA
+    Link:            .symtab
+    Info:            .text
+    Relocations:
+      - Offset:          0x0000000000000000
+        Symbol:          ''
+        Type:            R_X86_64_NONE

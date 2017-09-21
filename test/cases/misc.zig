@@ -404,7 +404,7 @@ test "cast slice to u8 slice" {
     bytes[6] = 0;
     bytes[7] = 0;
     assert(big_thing_slice[1] == 0);
-    const big_thing_again = ([]i32)(bytes);
+    const big_thing_again = ([]align(1) i32)(bytes);
     assert(big_thing_again[2] == 3);
     big_thing_again[2] = -1;
     assert(bytes[8] == @maxValue(u8));
@@ -526,3 +526,32 @@ var gdt = []GDTEntry {
     GDTEntry {.field = 2},
 };
 var global_ptr = &gdt[0];
+
+
+// can't really run this test but we can make sure it has no compile error
+// and generates code
+const vram = @intToPtr(&volatile u8, 0x20000000)[0..0x8000];
+export fn writeToVRam() {
+    vram[0] = 'X';
+}
+
+test "pointer child field" {
+    assert((&u32).Child == u32);
+}
+
+const OpaqueA = @OpaqueType();
+const OpaqueB = @OpaqueType();
+test "@OpaqueType" {
+    assert(&OpaqueA != &OpaqueB);
+    assert(mem.eql(u8, @typeName(OpaqueA), "OpaqueA"));
+    assert(mem.eql(u8, @typeName(OpaqueB), "OpaqueB"));
+}
+
+test "variable is allowed to be a pointer to an opaque type" {
+    var x: i32 = 1234;
+    _ = hereIsAnOpaqueType(@ptrCast(&OpaqueA, &x));
+}
+fn hereIsAnOpaqueType(ptr: &OpaqueA) -> &OpaqueA {
+    var a = ptr;
+    return a;
+}

@@ -14,15 +14,14 @@ pub const dwarf = @import("dwarf.zig");
 pub const elf = @import("elf.zig");
 pub const empty_import = @import("empty.zig");
 pub const endian = @import("endian.zig");
-pub const fmt = @import("fmt.zig");
+pub const fmt = @import("fmt/index.zig");
 pub const io = @import("io.zig");
-pub const math = @import("math.zig");
+pub const math = @import("math/index.zig");
 pub const mem = @import("mem.zig");
 pub const net = @import("net.zig");
 pub const os = @import("os/index.zig");
 pub const rand = @import("rand.zig");
 pub const sort = @import("sort.zig");
-pub const target = @import("target.zig");
 
 test "std" {
     // run tests from these
@@ -42,13 +41,12 @@ test "std" {
     _ = @import("elf.zig");
     _ = @import("empty.zig");
     _ = @import("endian.zig");
-    _ = @import("fmt.zig");
+    _ = @import("fmt/index.zig");
     _ = @import("io.zig");
-    _ = @import("math.zig");
+    _ = @import("math/index.zig");
     _ = @import("mem.zig");
     _ = @import("net.zig");
     _ = @import("os/index.zig");
     _ = @import("rand.zig");
     _ = @import("sort.zig");
-    _ = @import("target.zig");
 }

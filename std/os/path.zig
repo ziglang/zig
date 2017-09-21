@@ -3,11 +3,13 @@ const Os = builtin.Os;
 const debug = @import("../debug.zig");
 const assert = debug.assert;
 const mem = @import("../mem.zig");
-const fmt = @import("../fmt.zig");
+const fmt = @import("../fmt/index.zig");
 const Allocator = mem.Allocator;
 const os = @import("index.zig");
 const math = @import("../math.zig");
 const posix = os.posix;
+const c = @import("../c/index.zig");
+const cstr = @import("../cstr.zig");
 
 pub const sep = switch (builtin.os) {
     Os.windows => '\\',
@@ -279,19 +281,60 @@ fn testRelative(from: []const u8, to: []const u8, expected_output: []const u8) {
     assert(mem.eql(u8, result, expected_output));
 }
 
+error AccessDenied;
+error FileNotFound;
+error NotSupported;
+error NotDir;
+error NameTooLong;
+error SymLinkLoop;
+error InputOutput;
+error Unexpected;
 /// Return the canonicalized absolute pathname.
 /// Expands all symbolic links and resolves references to `.`, `..`, and
 /// extra `/` characters in ::pathname.
 /// Caller must deallocate result.
 pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
-    if (builtin.os == builtin.Os.windows) {
-        @compileError("TODO implement os.path.real for windows");
+    switch (builtin.os) {
+        Os.windows => @compileError("TODO implement os.path.real for windows"),
+        Os.darwin, Os.macosx, Os.ios => {
+            // TODO instead of calling the libc function here, port the implementation
+            // to Zig, and then remove the NameTooLong error possibility.
+            const pathname_buf = %return allocator.alloc(u8, pathname.len + 1);
+            defer allocator.free(pathname_buf);
+
+            const result_buf = %return allocator.alloc(u8, posix.PATH_MAX);
+            %defer allocator.free(result_buf);
+
+            mem.copy(u8, pathname_buf, pathname);
+            pathname_buf[pathname.len] = 0;
+
+            const err = posix.getErrno(posix.realpath(pathname_buf.ptr, result_buf.ptr));
+            if (err > 0) {
+                return switch (err) {
+                    posix.EINVAL => unreachable,
+                    posix.EBADF => unreachable,
+                    posix.EFAULT => unreachable,
+                    posix.EACCES => error.AccessDenied,
+                    posix.ENOENT => error.FileNotFound,
+                    posix.ENOTSUP => error.NotSupported,
+                    posix.ENOTDIR => error.NotDir,
+                    posix.ENAMETOOLONG => error.NameTooLong,
+                    posix.ELOOP => error.SymLinkLoop,
+                    posix.EIO => error.InputOutput,
+                    else => error.Unexpected,
+                };
+            }
+            return cstr.toSlice(result_buf.ptr);
+        },
+        Os.linux => {
+            const fd = %return os.posixOpen(pathname, posix.O_PATH|posix.O_NONBLOCK|posix.O_CLOEXEC, 0, allocator);
+            defer os.posixClose(fd);
+
+            var buf: ["/proc/self/fd/-2147483648".len]u8 = undefined;
+            const proc_path = fmt.bufPrint(buf[0..], "/proc/self/fd/{}", fd);
+
+            return os.readLink(allocator, proc_path);
+        },
+        else => @compileError("TODO implement os.path.real for " ++ @enumTagName(builtin.os)),
     }
-    const fd = %return os.posixOpen(pathname, posix.O_PATH|posix.O_NONBLOCK|posix.O_CLOEXEC, 0, allocator);
-    defer os.posixClose(fd);
-
-    var buf: ["/proc/self/fd/-2147483648".len]u8 = undefined;
-    const proc_path = fmt.bufPrint(buf[0..], "/proc/self/fd/{}", fd);
-
-    return os.readLink(allocator, proc_path);
 }

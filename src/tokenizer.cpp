@@ -107,6 +107,7 @@ struct ZigKeyword {
 };
 
 static const struct ZigKeyword zig_keywords[] = {
+    {"align", TokenIdKeywordAlign},
     {"and", TokenIdKeywordAnd},
     {"asm", TokenIdKeywordAsm},
     {"break", TokenIdKeywordBreak},
@@ -133,6 +134,7 @@ static const struct ZigKeyword zig_keywords[] = {
     {"packed", TokenIdKeywordPacked},
     {"pub", TokenIdKeywordPub},
     {"return", TokenIdKeywordReturn},
+    {"stdcallcc", TokenIdKeywordStdcallCC},
     {"struct", TokenIdKeywordStruct},
     {"switch", TokenIdKeywordSwitch},
     {"test", TokenIdKeywordTest},
@@ -200,7 +202,6 @@ enum TokenizeState {
     TokenizeStateSawBang,
     TokenizeStateSawLessThan,
     TokenizeStateSawLessThanLessThan,
-    TokenizeStateSawShiftLeftPercent,
     TokenizeStateSawGreaterThan,
     TokenizeStateSawGreaterThanGreaterThan,
     TokenizeStateSawDot,
@@ -224,16 +225,16 @@ struct Tokenize {
     uint32_t radix;
     int32_t exp_add_amt;
     bool is_exp_negative;
-    bool is_num_lit_float;
     size_t char_code_index;
     size_t char_code_end;
     bool unicode;
     uint32_t char_code;
     int exponent_in_bin_or_dec;
-    BigNum specified_exponent;
+    BigInt specified_exponent;
+    BigInt significand;
 };
 
-__attribute__ ((format (printf, 2, 3)))
+ATTRIBUTE_PRINTF(2, 3)
 static void tokenize_error(Tokenize *t, const char *format, ...) {
     t->state = TokenizeStateError;
 
@@ -254,8 +255,11 @@ static void tokenize_error(Tokenize *t, const char *format, ...) {
 static void set_token_id(Tokenize *t, Token *token, TokenId id) {
     token->id = id;
 
-    if (id == TokenIdNumberLiteral) {
-        token->data.num_lit.overflow = false;
+    if (id == TokenIdIntLiteral) {
+        bigint_init_unsigned(&token->data.int_lit.bigint, 0);
+    } else if (id == TokenIdFloatLiteral) {
+        bigfloat_init_32(&token->data.float_lit.bigfloat, 0.0f);
+        token->data.float_lit.overflow = false;
     } else if (id == TokenIdStringLiteral || id == TokenIdSymbol) {
         memset(&token->data.str_lit.str, 0, sizeof(Buf));
         buf_resize(&token->data.str_lit.str, 0);
@@ -282,34 +286,40 @@ static void cancel_token(Tokenize *t) {
 }
 
 static void end_float_token(Tokenize *t) {
-    t->cur_tok->data.num_lit.bignum.kind = BigNumKindFloat;
-
     if (t->radix == 10) {
-        char *str_begin = buf_ptr(t->buf) + t->cur_tok->start_pos;
-        char *str_end;
-        errno = 0;
-        t->cur_tok->data.num_lit.bignum.data.x_float = strtod(str_begin, &str_end);
-        if (errno) {
-            t->cur_tok->data.num_lit.overflow = true;
-            return;
+        uint8_t *ptr_buf = (uint8_t*)buf_ptr(t->buf) + t->cur_tok->start_pos;
+        size_t buf_len = t->cur_tok->end_pos - t->cur_tok->start_pos;
+        if (bigfloat_init_buf_base10(&t->cur_tok->data.float_lit.bigfloat, ptr_buf, buf_len)) {
+            t->cur_tok->data.float_lit.overflow = true;
         }
-        assert(str_end <= buf_ptr(t->buf) + t->cur_tok->end_pos);
         return;
     }
 
+    BigInt int_max;
+    bigint_init_unsigned(&int_max, INT_MAX);
 
-    if (t->specified_exponent.data.x_uint >= INT_MAX) {
-        t->cur_tok->data.num_lit.overflow = true;
+    if (bigint_cmp(&t->specified_exponent, &int_max) != CmpLT) {
+        t->cur_tok->data.float_lit.overflow = true;
         return;
     }
 
-    int64_t specified_exponent = t->specified_exponent.data.x_uint;
+    if (!bigint_fits_in_bits(&t->specified_exponent, 64, true)) {
+        t->cur_tok->data.float_lit.overflow = true;
+        return;
+    }
+
+    int64_t specified_exponent = bigint_as_signed(&t->specified_exponent);
     if (t->is_exp_negative) {
         specified_exponent = -specified_exponent;
     }
     t->exponent_in_bin_or_dec = (int)(t->exponent_in_bin_or_dec + specified_exponent);
 
-    uint64_t significand = t->cur_tok->data.num_lit.bignum.data.x_uint;
+    if (!bigint_fits_in_bits(&t->significand, 64, false)) {
+        t->cur_tok->data.float_lit.overflow = true;
+        return;
+    }
+
+    uint64_t significand = bigint_as_unsigned(&t->significand);
     uint64_t significand_bits;
     uint64_t exponent_bits;
     if (significand == 0) {
@@ -321,10 +331,10 @@ static void end_float_token(Tokenize *t) {
         if (t->radix == 10) {
             zig_panic("TODO: decimal floats");
         } else {
-            int significand_magnitude_in_bin = __builtin_clzll(1) - __builtin_clzll(significand);
+            int significand_magnitude_in_bin = clzll(1) - clzll(significand);
             t->exponent_in_bin_or_dec += significand_magnitude_in_bin;
-            if (!(-1023 <= t->exponent_in_bin_or_dec && t->exponent_in_bin_or_dec < 1023)) {
-                t->cur_tok->data.num_lit.overflow = true;
+            if (!(-1022 <= t->exponent_in_bin_or_dec && t->exponent_in_bin_or_dec <= 1023)) {
+                t->cur_tok->data.float_lit.overflow = true;
                 return;
             } else {
                 // this should chop off exactly one 1 bit from the top.
@@ -334,20 +344,17 @@ static void end_float_token(Tokenize *t) {
         }
     }
     uint64_t double_bits = (exponent_bits << 52) | significand_bits;
-    safe_memcpy(&t->cur_tok->data.num_lit.bignum.data.x_float, (double *)&double_bits, 1);
+    double dbl_value;
+    safe_memcpy(&dbl_value, (double *)&double_bits, 1);
+    bigfloat_init_64(&t->cur_tok->data.float_lit.bigfloat, dbl_value);
 }
 
 static void end_token(Tokenize *t) {
     assert(t->cur_tok);
     t->cur_tok->end_pos = t->pos + 1;
 
-    if (t->cur_tok->id == TokenIdNumberLiteral) {
-        if (t->cur_tok->data.num_lit.overflow) {
-            return;
-        }
-        if (t->is_num_lit_float) {
-            end_float_token(t);
-        }
+    if (t->cur_tok->id == TokenIdFloatLiteral) {
+        end_float_token(t);
     } else if (t->cur_tok->id == TokenIdSymbol) {
         char *token_mem = buf_ptr(t->buf) + t->cur_tok->start_pos;
         int token_len = (int)(t->cur_tok->end_pos - t->cur_tok->start_pos);
@@ -427,23 +434,21 @@ void tokenize(Buf *buf, Tokenization *out) {
                         break;
                     case '0':
                         t.state = TokenizeStateZero;
-                        begin_token(&t, TokenIdNumberLiteral);
+                        begin_token(&t, TokenIdIntLiteral);
                         t.radix = 10;
                         t.exp_add_amt = 1;
                         t.exponent_in_bin_or_dec = 0;
-                        t.is_num_lit_float = false;
-                        bignum_init_unsigned(&t.cur_tok->data.num_lit.bignum, 0);
-                        bignum_init_unsigned(&t.specified_exponent, 0);
+                        bigint_init_unsigned(&t.cur_tok->data.int_lit.bigint, 0);
+                        bigint_init_unsigned(&t.specified_exponent, 0);
                         break;
                     case DIGIT_NON_ZERO:
                         t.state = TokenizeStateNumber;
-                        begin_token(&t, TokenIdNumberLiteral);
+                        begin_token(&t, TokenIdIntLiteral);
                         t.radix = 10;
                         t.exp_add_amt = 1;
                         t.exponent_in_bin_or_dec = 0;
-                        t.is_num_lit_float = false;
-                        bignum_init_unsigned(&t.cur_tok->data.num_lit.bignum, get_digit_value(c));
-                        bignum_init_unsigned(&t.specified_exponent, 0);
+                        bigint_init_unsigned(&t.cur_tok->data.int_lit.bigint, get_digit_value(c));
+                        bigint_init_unsigned(&t.specified_exponent, 0);
                         break;
                     case '"':
                         begin_token(&t, TokenIdStringLiteral);
@@ -665,24 +670,6 @@ void tokenize(Buf *buf, Tokenization *out) {
                 switch (c) {
                     case '=':
                         set_token_id(&t, t.cur_tok, TokenIdBitShiftLeftEq);
-                        end_token(&t);
-                        t.state = TokenizeStateStart;
-                        break;
-                    case '%':
-                        set_token_id(&t, t.cur_tok, TokenIdBitShiftLeftPercent);
-                        t.state = TokenizeStateSawShiftLeftPercent;
-                        break;
-                    default:
-                        t.pos -= 1;
-                        end_token(&t);
-                        t.state = TokenizeStateStart;
-                        continue;
-                }
-                break;
-            case TokenizeStateSawShiftLeftPercent:
-                switch (c) {
-                    case '=':
-                        set_token_id(&t, t.cur_tok, TokenIdBitShiftLeftPercentEq);
                         end_token(&t);
                         t.state = TokenizeStateStart;
                         break;
@@ -1181,7 +1168,9 @@ void tokenize(Buf *buf, Tokenization *out) {
                     }
                     if (is_exponent_signifier(c, t.radix)) {
                         t.state = TokenizeStateFloatExponentUnsigned;
-                        t.is_num_lit_float = true;
+                        assert(t.cur_tok->id == TokenIdIntLiteral);
+                        bigint_init_bigint(&t.significand, &t.cur_tok->data.int_lit.bigint);
+                        set_token_id(&t, t.cur_tok, TokenIdFloatLiteral);
                         break;
                     }
                     uint32_t digit_value = get_digit_value(c);
@@ -1195,23 +1184,33 @@ void tokenize(Buf *buf, Tokenization *out) {
                         t.state = TokenizeStateStart;
                         continue;
                     }
-                    t.cur_tok->data.num_lit.overflow = t.cur_tok->data.num_lit.overflow ||
-                        bignum_multiply_by_scalar(&t.cur_tok->data.num_lit.bignum, t.radix);
-                    t.cur_tok->data.num_lit.overflow = t.cur_tok->data.num_lit.overflow ||
-                        bignum_increment_by_scalar(&t.cur_tok->data.num_lit.bignum, digit_value);
+                    BigInt digit_value_bi;
+                    bigint_init_unsigned(&digit_value_bi, digit_value);
+
+                    BigInt radix_bi;
+                    bigint_init_unsigned(&radix_bi, t.radix);
+
+                    BigInt multiplied;
+                    bigint_mul(&multiplied, &t.cur_tok->data.int_lit.bigint, &radix_bi);
+
+                    bigint_add(&t.cur_tok->data.int_lit.bigint, &multiplied, &digit_value_bi);
                     break;
                 }
             case TokenizeStateNumberDot:
-                if (c == '.') {
-                    t.pos -= 2;
-                    end_token(&t);
-                    t.state = TokenizeStateStart;
+                {
+                    if (c == '.') {
+                        t.pos -= 2;
+                        end_token(&t);
+                        t.state = TokenizeStateStart;
+                        continue;
+                    }
+                    t.pos -= 1;
+                    t.state = TokenizeStateFloatFraction;
+                    assert(t.cur_tok->id == TokenIdIntLiteral);
+                    bigint_init_bigint(&t.significand, &t.cur_tok->data.int_lit.bigint);
+                    set_token_id(&t, t.cur_tok, TokenIdFloatLiteral);
                     continue;
                 }
-                t.pos -= 1;
-                t.state = TokenizeStateFloatFraction;
-                t.is_num_lit_float = true;
-                continue;
             case TokenizeStateFloatFraction:
                 {
                     if (is_exponent_signifier(c, t.radix)) {
@@ -1235,10 +1234,16 @@ void tokenize(Buf *buf, Tokenization *out) {
                         // end of the token.
                         break;
                     }
-                    t.cur_tok->data.num_lit.overflow = t.cur_tok->data.num_lit.overflow ||
-                        bignum_multiply_by_scalar(&t.cur_tok->data.num_lit.bignum, t.radix);
-                    t.cur_tok->data.num_lit.overflow = t.cur_tok->data.num_lit.overflow ||
-                        bignum_increment_by_scalar(&t.cur_tok->data.num_lit.bignum, digit_value);
+                    BigInt digit_value_bi;
+                    bigint_init_unsigned(&digit_value_bi, digit_value);
+
+                    BigInt radix_bi;
+                    bigint_init_unsigned(&radix_bi, t.radix);
+
+                    BigInt multiplied;
+                    bigint_mul(&multiplied, &t.significand, &radix_bi);
+
+                    bigint_add(&t.significand, &multiplied, &digit_value_bi);
                     break;
                 }
             case TokenizeStateFloatExponentUnsigned:
@@ -1277,10 +1282,16 @@ void tokenize(Buf *buf, Tokenization *out) {
                         // end of the token.
                         break;
                     }
-                    t.cur_tok->data.num_lit.overflow = t.cur_tok->data.num_lit.overflow ||
-                        bignum_multiply_by_scalar(&t.specified_exponent, 10);
-                    t.cur_tok->data.num_lit.overflow = t.cur_tok->data.num_lit.overflow ||
-                        bignum_increment_by_scalar(&t.specified_exponent, digit_value);
+                    BigInt digit_value_bi;
+                    bigint_init_unsigned(&digit_value_bi, digit_value);
+
+                    BigInt radix_bi;
+                    bigint_init_unsigned(&radix_bi, 10);
+
+                    BigInt multiplied;
+                    bigint_mul(&multiplied, &t.specified_exponent, &radix_bi);
+
+                    bigint_add(&t.specified_exponent, &multiplied, &digit_value_bi);
                 }
                 break;
             case TokenizeStateSawDash:
@@ -1381,7 +1392,6 @@ void tokenize(Buf *buf, Tokenization *out) {
         case TokenizeStateSawStarPercent:
         case TokenizeStateSawPlusPercent:
         case TokenizeStateSawMinusPercent:
-        case TokenizeStateSawShiftLeftPercent:
         case TokenizeStateLineString:
         case TokenizeStateLineStringEnd:
             end_token(&t);
@@ -1422,8 +1432,6 @@ const char * token_name(TokenId id) {
         case TokenIdBitOrEq: return "|=";
         case TokenIdBitShiftLeft: return "<<";
         case TokenIdBitShiftLeftEq: return "<<=";
-        case TokenIdBitShiftLeftPercent: return "<<%";
-        case TokenIdBitShiftLeftPercentEq: return "<<%=";
         case TokenIdBitShiftRight: return ">>";
         case TokenIdBitShiftRightEq: return ">>=";
         case TokenIdBitXorEq: return "^=";
@@ -1440,11 +1448,14 @@ const char * token_name(TokenId id) {
         case TokenIdDivEq: return "/=";
         case TokenIdDot: return ".";
         case TokenIdDoubleQuestion: return "??";
-        case TokenIdEllipsis3: return "...";
         case TokenIdEllipsis2: return "..";
+        case TokenIdEllipsis3: return "...";
         case TokenIdEof: return "EOF";
         case TokenIdEq: return "=";
         case TokenIdFatArrow: return "=>";
+        case TokenIdFloatLiteral: return "FloatLiteral";
+        case TokenIdIntLiteral: return "IntLiteral";
+        case TokenIdKeywordAlign: return "align";
         case TokenIdKeywordAnd: return "and";
         case TokenIdKeywordAsm: return "asm";
         case TokenIdKeywordBreak: return "break";
@@ -1471,6 +1482,7 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordPacked: return "packed";
         case TokenIdKeywordPub: return "pub";
         case TokenIdKeywordReturn: return "return";
+        case TokenIdKeywordStdcallCC: return "stdcallcc";
         case TokenIdKeywordStruct: return "struct";
         case TokenIdKeywordSwitch: return "switch";
         case TokenIdKeywordTest: return "test";
@@ -1492,7 +1504,6 @@ const char * token_name(TokenId id) {
         case TokenIdMinusPercent: return "-%";
         case TokenIdMinusPercentEq: return "-%=";
         case TokenIdModEq: return "%=";
-        case TokenIdNumberLiteral: return "NumberLiteral";
         case TokenIdNumberSign: return "#";
         case TokenIdPercent: return "%";
         case TokenIdPercentDot: return "%.";

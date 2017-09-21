@@ -1,0 +1,6 @@
+--- !mach-o
+arch:            x86_64
+file-type:       MH_DYLIB
+install-name:    /usr/lib/libSystem.B.dylib
+exports:
+  - name:            _open

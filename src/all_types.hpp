@@ -13,7 +13,8 @@
 #include "zig_llvm.hpp"
 #include "hash_map.hpp"
 #include "errmsg.hpp"
-#include "bignum.hpp"
+#include "bigint.hpp"
+#include "bigfloat.hpp"
 #include "target.hpp"
 
 struct AstNode;
@@ -222,7 +223,11 @@ struct ConstExprValue {
 
     union {
         // populated if special == ConstValSpecialStatic
-        BigNum x_bignum;
+        BigInt x_bigint;
+        BigFloat x_bigfloat;
+        float x_f32;
+        double x_f64;
+        float128_t x_f128;
         bool x_bool;
         ConstFn x_fn;
         ConstBoundFnValue x_bound_fn;
@@ -298,18 +303,18 @@ struct TldVar {
     Tld base;
 
     VariableTableEntry *var;
-    AstNode *set_global_align_node;
-    uint32_t alignment;
     AstNode *set_global_section_node;
     Buf *section_name;
     AstNode *set_global_linkage_node;
     GlobalLinkageId linkage;
+    Buf *extern_lib_name;
 };
 
 struct TldFn {
     Tld base;
 
     FnTableEntry *fn_entry;
+    Buf *extern_lib_name;
 };
 
 struct TldContainer {
@@ -345,11 +350,13 @@ enum NodeType {
     NodeTypeTestDecl,
     NodeTypeBinOpExpr,
     NodeTypeUnwrapErrorExpr,
-    NodeTypeNumberLiteral,
+    NodeTypeFloatLiteral,
+    NodeTypeIntLiteral,
     NodeTypeStringLiteral,
     NodeTypeCharLiteral,
     NodeTypeSymbol,
     NodeTypePrefixOpExpr,
+    NodeTypeAddrOfExpr,
     NodeTypeFnCallExpr,
     NodeTypeArrayAccessExpr,
     NodeTypeSliceExpr,
@@ -387,6 +394,14 @@ struct AstNodeRoot {
     ZigList<AstNode *> top_level_decls;
 };
 
+enum CallingConvention {
+    CallingConventionUnspecified,
+    CallingConventionC,
+    CallingConventionCold,
+    CallingConventionNaked,
+    CallingConventionStdcall,
+};
+
 struct AstNodeFnProto {
     VisibMod visib_mod;
     Buf *name;
@@ -395,9 +410,12 @@ struct AstNodeFnProto {
     bool is_var_args;
     bool is_extern;
     bool is_inline;
-    bool is_coldcc;
-    bool is_nakedcc;
+    CallingConvention cc;
     AstNode *fn_def_node;
+    // populated if this is an extern declaration
+    Buf *lib_name;
+    // populated if the "align A" is present
+    AstNode *align_expr;
 };
 
 struct AstNodeFnDef {
@@ -451,6 +469,10 @@ struct AstNodeVariableDeclaration {
     // one or both of type and expr will be non null
     AstNode *type;
     AstNode *expr;
+    // populated if this is an extern declaration
+    Buf *lib_name;
+    // populated if the "align A" is present
+    AstNode *align_expr;
 };
 
 struct AstNodeErrorValueDecl {
@@ -477,7 +499,6 @@ enum BinOpType {
     BinOpTypeAssignMinus,
     BinOpTypeAssignMinusWrap,
     BinOpTypeAssignBitShiftLeft,
-    BinOpTypeAssignBitShiftLeftWrap,
     BinOpTypeAssignBitShiftRight,
     BinOpTypeAssignBitAnd,
     BinOpTypeAssignBitXor,
@@ -496,7 +517,6 @@ enum BinOpType {
     BinOpTypeBinXor,
     BinOpTypeBinAnd,
     BinOpTypeBitShiftLeft,
-    BinOpTypeBitShiftLeftWrap,
     BinOpTypeBitShiftRight,
     BinOpTypeAdd,
     BinOpTypeAddWrap,
@@ -562,10 +582,6 @@ enum PrefixOp {
     PrefixOpBinNot,
     PrefixOpNegation,
     PrefixOpNegationWrap,
-    PrefixOpAddressOf,
-    PrefixOpConstAddressOf,
-    PrefixOpVolatileAddressOf,
-    PrefixOpConstVolatileAddressOf,
     PrefixOpDereference,
     PrefixOpMaybe,
     PrefixOpError,
@@ -576,6 +592,23 @@ enum PrefixOp {
 struct AstNodePrefixOpExpr {
     PrefixOp prefix_op;
     AstNode *primary_expr;
+};
+
+struct AstNodeAddrOfExpr {
+    AstNode *align_expr;
+    BigInt *bit_offset_start;
+    BigInt *bit_offset_end;
+    bool is_const;
+    bool is_volatile;
+    AstNode *op_expr;
+};
+
+struct AstNodeArrayType {
+    AstNode *size;
+    AstNode *child_type;
+    AstNode *align_expr;
+    bool is_const;
+    bool is_volatile;
 };
 
 struct AstNodeUse {
@@ -718,6 +751,7 @@ struct AstNodeContainerDecl {
     ZigList<AstNode *> fields;
     ZigList<AstNode *> decls;
     ContainerLayout layout;
+    AstNode *init_arg_expr; // enum(T) or struct(endianness)
 };
 
 struct AstNodeStructField {
@@ -735,12 +769,16 @@ struct AstNodeCharLiteral {
     uint8_t value;
 };
 
-struct AstNodeNumberLiteral {
-    BigNum *bignum;
+struct AstNodeFloatLiteral {
+    BigFloat *bigfloat;
 
     // overflow is true if when parsing the number, we discovered it would not
-    // fit without losing data in a uint64_t or double
+    // fit without losing data in a double
     bool overflow;
+};
+
+struct AstNodeIntLiteral {
+    BigInt *bigint;
 };
 
 struct AstNodeStructValueField {
@@ -786,12 +824,6 @@ struct AstNodeUnreachableExpr {
 };
 
 
-struct AstNodeArrayType {
-    AstNode *size;
-    AstNode *child_type;
-    bool is_const;
-};
-
 struct AstNodeErrorType {
 };
 
@@ -802,7 +834,6 @@ struct AstNode {
     enum NodeType type;
     size_t line;
     size_t column;
-    uint32_t create_index; // for determinism purposes
     ImportTableEntry *owner;
     union {
         AstNodeRoot root;
@@ -820,6 +851,7 @@ struct AstNode {
         AstNodeBinOpExpr bin_op_expr;
         AstNodeUnwrapErrorExpr unwrap_err_expr;
         AstNodePrefixOpExpr prefix_op_expr;
+        AstNodeAddrOfExpr addr_of_expr;
         AstNodeFnCallExpr fn_call_expr;
         AstNodeArrayAccessExpr array_access_expr;
         AstNodeSliceExpr slice_expr;
@@ -841,7 +873,8 @@ struct AstNode {
         AstNodeStructField struct_field;
         AstNodeStringLiteral string_literal;
         AstNodeCharLiteral char_literal;
-        AstNodeNumberLiteral number_literal;
+        AstNodeFloatLiteral float_literal;
+        AstNodeIntLiteral int_literal;
         AstNodeContainerInitExpr container_init_expr;
         AstNodeStructValueField struct_val_field;
         AstNodeNullLiteral null_literal;
@@ -879,9 +912,8 @@ struct FnTypeId {
     size_t param_count;
     size_t next_param_index;
     bool is_var_args;
-    bool is_naked;
-    bool is_cold;
-    bool is_extern;
+    CallingConvention cc;
+    uint32_t alignment;
 };
 
 uint32_t fn_type_id_hash(FnTypeId*);
@@ -891,8 +923,10 @@ struct TypeTableEntryPointer {
     TypeTableEntry *child_type;
     bool is_const;
     bool is_volatile;
+    uint32_t alignment;
     uint32_t bit_offset;
     uint32_t unaligned_bit_count;
+    TypeTableEntry *slice_parent;
 };
 
 struct TypeTableEntryInt {
@@ -938,6 +972,7 @@ struct TypeTableEntryStruct {
 
     bool zero_bits_loop_flag;
     bool zero_bits_known;
+    uint32_t abi_alignment; // also figured out with zero_bits pass
 };
 
 struct TypeTableEntryMaybe {
@@ -957,7 +992,7 @@ struct TypeTableEntryEnum {
     TypeEnumField *fields;
     bool is_invalid; // true if any fields are invalid
     TypeTableEntry *tag_type;
-    TypeTableEntry *union_type;
+    LLVMTypeRef union_type_ref;
 
     ScopeDecls *decls_scope;
 
@@ -969,6 +1004,10 @@ struct TypeTableEntryEnum {
 
     bool zero_bits_loop_flag;
     bool zero_bits_known;
+    uint32_t abi_alignment; // also figured out with zero_bits pass
+
+    size_t gen_union_index;
+    size_t gen_tag_index;
 };
 
 struct TypeTableEntryEnumTag {
@@ -1013,7 +1052,6 @@ struct TypeTableEntryFn {
     FnGenParamInfo *gen_param_info;
 
     LLVMTypeRef raw_type_ref;
-    LLVMCallConv calling_convention;
 
     TypeTableEntry *bound_fn_parent;
 };
@@ -1079,7 +1117,6 @@ struct TypeTableEntry {
 
     // use these fields to make sure we don't duplicate type table entries for the same type
     TypeTableEntry *pointer_parent[2]; // [0 - mut, 1 - const]
-    TypeTableEntry *slice_parent[2]; // [0 - mut, 1 - const]
     TypeTableEntry *maybe_parent;
     TypeTableEntry *error_parent;
     // If we generate a constant name value for this type, we memoize it here.
@@ -1142,6 +1179,7 @@ struct FnTableEntry {
     size_t prealloc_bbc;
     AstNode **param_source_nodes;
     Buf **param_names;
+    uint32_t align_bytes;
 
     AstNode *fn_no_inline_set_node;
     AstNode *fn_static_eval_set_node;
@@ -1149,8 +1187,6 @@ struct FnTableEntry {
     ZigList<IrInstruction *> alloca_list;
     ZigList<VariableTableEntry *> variable_list;
 
-    AstNode *set_global_align_node;
-    uint32_t alignment;
     AstNode *set_global_section_node;
     Buf *section_name;
     AstNode *set_global_linkage_node;
@@ -1165,7 +1201,7 @@ enum BuiltinFnId {
     BuiltinFnIdMemcpy,
     BuiltinFnIdMemset,
     BuiltinFnIdSizeof,
-    BuiltinFnIdAlignof,
+    BuiltinFnIdAlignOf,
     BuiltinFnIdMaxValue,
     BuiltinFnIdMinValue,
     BuiltinFnIdMemberCount,
@@ -1201,25 +1237,29 @@ enum BuiltinFnId {
     BuiltinFnIdSetFloatMode,
     BuiltinFnIdTypeName,
     BuiltinFnIdCanImplicitCast,
-    BuiltinFnIdSetGlobalAlign,
     BuiltinFnIdSetGlobalSection,
     BuiltinFnIdSetGlobalLinkage,
     BuiltinFnIdPanic,
     BuiltinFnIdPtrCast,
+    BuiltinFnIdBitCast,
     BuiltinFnIdIntToPtr,
+    BuiltinFnIdPtrToInt,
     BuiltinFnIdEnumTagName,
     BuiltinFnIdFieldParentPtr,
     BuiltinFnIdOffsetOf,
     BuiltinFnIdInlineCall,
     BuiltinFnIdTypeId,
+    BuiltinFnIdShlExact,
+    BuiltinFnIdShrExact,
+    BuiltinFnIdSetEvalBranchQuota,
+    BuiltinFnIdAlignCast,
+    BuiltinFnIdOpaqueType,
 };
 
 struct BuiltinFnEntry {
     BuiltinFnId id;
     Buf name;
     size_t param_count;
-    uint32_t ref_count;
-    LLVMValueRef fn_val;
 };
 
 enum PanicMsgId {
@@ -1228,13 +1268,15 @@ enum PanicMsgId {
     PanicMsgIdCastNegativeToUnsigned,
     PanicMsgIdCastTruncatedData,
     PanicMsgIdIntegerOverflow,
-    PanicMsgIdShiftOverflowedBits,
+    PanicMsgIdShlOverflowedBits,
+    PanicMsgIdShrOverflowedBits,
     PanicMsgIdDivisionByZero,
     PanicMsgIdRemainderDivisionByZero,
     PanicMsgIdExactDivisionRemainder,
     PanicMsgIdSliceWidenRemainder,
     PanicMsgIdUnwrapMaybeFail,
     PanicMsgIdInvalidErrorCode,
+    PanicMsgIdIncorrectAlignment,
 
     PanicMsgIdCount,
 };
@@ -1250,6 +1292,7 @@ struct TypeId {
             TypeTableEntry *child_type;
             bool is_const;
             bool is_volatile;
+            uint32_t alignment;
             uint32_t bit_offset;
             uint32_t unaligned_bit_count;
         } pointer;
@@ -1316,6 +1359,13 @@ enum BuildMode {
     BuildModeSafeRelease,
 };
 
+struct LinkLib {
+    Buf *name;
+    Buf *path;
+    ZigList<Buf *> symbols; // the list of symbols that we depend on from this lib
+    bool provided_explicitly;
+};
+
 struct CodeGen {
     LLVMModuleRef module;
     ZigList<ErrorMsg*> errors;
@@ -1324,7 +1374,9 @@ struct CodeGen {
     ZigLLVMDICompileUnit *compile_unit;
     ZigLLVMDIFile *compile_unit_file;
 
-    ZigList<Buf *> link_libs; // non-libc link libs
+    ZigList<LinkLib *> link_libs_list;
+    LinkLib *libc_link_lib;
+
     // add -framework [name] args to linker
     ZigList<Buf *> darwin_frameworks;
     // add -rpath [name] args to linker
@@ -1344,6 +1396,7 @@ struct CodeGen {
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> exported_symbol_names;
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_prototypes;
 
+
     ZigList<ImportTableEntry *> import_queue;
     size_t import_queue_index;
     ZigList<Tld *> resolve_queue;
@@ -1355,7 +1408,7 @@ struct CodeGen {
 
     struct {
         TypeTableEntry *entry_bool;
-        TypeTableEntry *entry_int[2][4]; // [signed,unsigned][8,16,32,64]
+        TypeTableEntry *entry_int[2][11]; // [signed,unsigned][2,3,4,5,6,7,8,16,32,64,128]
         TypeTableEntry *entry_c_int[CIntTypeCount];
         TypeTableEntry *entry_c_longdouble;
         TypeTableEntry *entry_c_void;
@@ -1363,14 +1416,17 @@ struct CodeGen {
         TypeTableEntry *entry_u16;
         TypeTableEntry *entry_u32;
         TypeTableEntry *entry_u64;
+        TypeTableEntry *entry_u128;
         TypeTableEntry *entry_i8;
         TypeTableEntry *entry_i16;
         TypeTableEntry *entry_i32;
         TypeTableEntry *entry_i64;
+        TypeTableEntry *entry_i128;
         TypeTableEntry *entry_isize;
         TypeTableEntry *entry_usize;
         TypeTableEntry *entry_f32;
         TypeTableEntry *entry_f64;
+        TypeTableEntry *entry_f128;
         TypeTableEntry *entry_void;
         TypeTableEntry *entry_unreachable;
         TypeTableEntry *entry_type;
@@ -1383,12 +1439,6 @@ struct CodeGen {
         TypeTableEntry *entry_null;
         TypeTableEntry *entry_var;
         TypeTableEntry *entry_pure_error;
-        TypeTableEntry *entry_os_enum;
-        TypeTableEntry *entry_arch_enum;
-        TypeTableEntry *entry_environ_enum;
-        TypeTableEntry *entry_oformat_enum;
-        TypeTableEntry *entry_atomic_order_enum;
-        TypeTableEntry *entry_global_linkage_enum;
         TypeTableEntry *entry_arg_tuple;
     } builtin_types;
 
@@ -1402,7 +1452,6 @@ struct CodeGen {
     bool have_pub_main;
     bool have_c_main;
     bool have_pub_panic;
-    bool link_libc;
     Buf *libc_lib_dir;
     Buf *libc_static_lib_dir;
     Buf *libc_include_dir;
@@ -1430,7 +1479,6 @@ struct CodeGen {
     bool windows_subsystem_windows;
     bool windows_subsystem_console;
     bool windows_linker_unicode;
-    Buf *darwin_linker_version;
     Buf *mmacosx_version_min;
     Buf *mios_version_min;
     bool linker_rdynamic;
@@ -1453,8 +1501,6 @@ struct CodeGen {
     FnTableEntry *extern_panic_fn;
     LLVMValueRef cur_ret_ptr;
     LLVMValueRef cur_fn_val;
-    ZigList<LLVMBasicBlockRef> break_block_stack;
-    ZigList<LLVMBasicBlockRef> continue_block_stack;
     bool c_want_stdint;
     bool c_want_stdbool;
     AstNode *root_export_decl;
@@ -1462,6 +1508,7 @@ struct CodeGen {
     size_t version_minor;
     size_t version_patch;
     bool verbose;
+    bool verbose_link;
     ErrColor err_color;
     ImportTableEntry *root_import;
     ImportTableEntry *bootstrap_import;
@@ -1472,12 +1519,14 @@ struct CodeGen {
     LLVMValueRef return_address_fn_val;
     LLVMValueRef frame_address_fn_val;
     bool error_during_imports;
-    uint32_t next_node_index;
     TypeTableEntry *err_tag_type;
 
     const char **clang_argv;
     size_t clang_argv_len;
     ZigList<const char *> lib_dirs;
+
+    const char **llvm_argv;
+    size_t llvm_argv_len;
 
     ZigList<FnTableEntry *> test_fns;
     TypeTableEntry *test_fn_type;
@@ -1510,6 +1559,9 @@ struct CodeGen {
     Buf *out_h_path;
 
     ZigList<FnTableEntry *> inline_fns;
+    ZigList<AstNode *> tld_ref_source_node_stack;
+
+    TypeTableEntry *align_amt_type;
 };
 
 enum VarLinkage {
@@ -1538,6 +1590,7 @@ struct VariableTableEntry {
     size_t ref_count;
     VarLinkage linkage;
     IrInstruction *decl_instruction;
+    uint32_t align_bytes;
 };
 
 struct ErrorTableEntry {
@@ -1598,7 +1651,7 @@ struct ScopeDecls {
 struct ScopeBlock {
     Scope base;
 
-    HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table; 
+    HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table;
     bool safety_off;
     AstNode *safety_set_node;
     bool fast_math_off;
@@ -1782,6 +1835,7 @@ enum IrInstructionId {
     IrInstructionIdTestComptime,
     IrInstructionIdInitEnum,
     IrInstructionIdPtrCast,
+    IrInstructionIdBitCast,
     IrInstructionIdWidenOrShorten,
     IrInstructionIdIntToPtr,
     IrInstructionIdPtrToInt,
@@ -1792,7 +1846,6 @@ enum IrInstructionId {
     IrInstructionIdCheckStatementIsVoid,
     IrInstructionIdTypeName,
     IrInstructionIdCanImplicitCast,
-    IrInstructionIdSetGlobalAlign,
     IrInstructionIdSetGlobalSection,
     IrInstructionIdSetGlobalLinkage,
     IrInstructionIdDeclRef,
@@ -1801,6 +1854,10 @@ enum IrInstructionId {
     IrInstructionIdFieldParentPtr,
     IrInstructionIdOffsetOf,
     IrInstructionIdTypeId,
+    IrInstructionIdSetEvalBranchQuota,
+    IrInstructionIdPtrTypeOf,
+    IrInstructionIdAlignCast,
+    IrInstructionIdOpaqueType,
 };
 
 struct IrInstruction {
@@ -1901,9 +1958,10 @@ enum IrBinOp {
     IrBinOpBinOr,
     IrBinOpBinXor,
     IrBinOpBinAnd,
-    IrBinOpBitShiftLeft,
-    IrBinOpBitShiftLeftWrap,
-    IrBinOpBitShiftRight,
+    IrBinOpBitShiftLeftLossy,
+    IrBinOpBitShiftLeftExact,
+    IrBinOpBitShiftRightLossy,
+    IrBinOpBitShiftRightExact,
     IrBinOpAdd,
     IrBinOpAddWrap,
     IrBinOpSub,
@@ -1935,6 +1993,7 @@ struct IrInstructionDeclVar {
 
     VariableTableEntry *var;
     IrInstruction *var_type;
+    IrInstruction *align_value;
     IrInstruction *init_value;
 };
 
@@ -2111,7 +2170,9 @@ struct IrInstructionArrayType {
 struct IrInstructionSliceType {
     IrInstruction base;
 
+    IrInstruction *align_value;
     bool is_const;
+    bool is_volatile;
     IrInstruction *child_type;
 };
 
@@ -2403,6 +2464,7 @@ struct IrInstructionFnProto {
     IrInstruction base;
 
     IrInstruction **param_types;
+    IrInstruction *align_value;
     IrInstruction *return_type;
     bool is_var_args;
 };
@@ -2428,6 +2490,13 @@ struct IrInstructionPtrCast {
 
     IrInstruction *dest_type;
     IrInstruction *ptr;
+};
+
+struct IrInstructionBitCast {
+    IrInstruction base;
+
+    IrInstruction *dest_type;
+    IrInstruction *value;
 };
 
 struct IrInstructionWidenOrShorten {
@@ -2500,13 +2569,6 @@ struct IrInstructionCanImplicitCast {
     IrInstruction *target_value;
 };
 
-struct IrInstructionSetGlobalAlign {
-    IrInstruction base;
-
-    Tld *tld;
-    IrInstruction *value;
-};
-
 struct IrInstructionSetGlobalSection {
     IrInstruction base;
 
@@ -2562,14 +2624,39 @@ struct IrInstructionTypeId {
     IrInstruction *type_value;
 };
 
+struct IrInstructionSetEvalBranchQuota {
+    IrInstruction base;
+
+    IrInstruction *new_quota;
+};
+
+struct IrInstructionPtrTypeOf {
+    IrInstruction base;
+
+    IrInstruction *align_value;
+    IrInstruction *child_type;
+    uint32_t bit_offset_start;
+    uint32_t bit_offset_end;
+    bool is_const;
+    bool is_volatile;
+};
+
+struct IrInstructionAlignCast {
+    IrInstruction base;
+
+    IrInstruction *align_bytes;
+    IrInstruction *target;
+};
+
+struct IrInstructionOpaqueType {
+    IrInstruction base;
+};
+
 static const size_t slice_ptr_index = 0;
 static const size_t slice_len_index = 1;
 
 static const size_t maybe_child_index = 0;
 static const size_t maybe_null_index = 1;
-
-static const size_t enum_gen_tag_index = 0;
-static const size_t enum_gen_union_index = 1;
 
 static const size_t err_union_err_index = 0;
 static const size_t err_union_payload_index = 1;

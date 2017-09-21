@@ -17,6 +17,7 @@
 CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type, BuildMode build_mode);
 
 void codegen_set_clang_argv(CodeGen *codegen, const char **args, size_t len);
+void codegen_set_llvm_argv(CodeGen *codegen, const char **args, size_t len);
 void codegen_set_is_test(CodeGen *codegen, bool is_test);
 void codegen_set_each_lib_rpath(CodeGen *codegen, bool each_lib_rpath);
 
@@ -33,10 +34,9 @@ void codegen_set_dynamic_linker(CodeGen *g, Buf *dynamic_linker);
 void codegen_set_windows_subsystem(CodeGen *g, bool mwindows, bool mconsole);
 void codegen_set_windows_unicode(CodeGen *g, bool municode);
 void codegen_add_lib_dir(CodeGen *codegen, const char *dir);
-void codegen_add_link_lib(CodeGen *codegen, const char *lib);
+LinkLib *codegen_add_link_lib(CodeGen *codegen, Buf *lib);
 void codegen_add_framework(CodeGen *codegen, const char *name);
 void codegen_add_rpath(CodeGen *codegen, const char *name);
-void codegen_set_mlinker_version(CodeGen *g, Buf *darwin_linker_version);
 void codegen_set_rdynamic(CodeGen *g, bool rdynamic);
 void codegen_set_mmacosx_version_min(CodeGen *g, Buf *mmacosx_version_min);
 void codegen_set_mios_version_min(CodeGen *g, Buf *mios_version_min);
@@ -55,8 +55,7 @@ PackageTableEntry *codegen_create_package(CodeGen *g, const char *root_src_dir, 
 void codegen_add_assembly(CodeGen *g, Buf *path);
 void codegen_add_object(CodeGen *g, Buf *object_path);
 
-void codegen_parseh(CodeGen *g, Buf *path);
-void codegen_render_ast(CodeGen *g, FILE *f, int indent_size);
+void codegen_parsec(CodeGen *g, Buf *path);
 
 
 #endif

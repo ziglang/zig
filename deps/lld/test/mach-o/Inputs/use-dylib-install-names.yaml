@@ -1,0 +1,28 @@
+--- !mach-o
+arch:            x86_64
+file-type:       MH_OBJECT
+flags:           [  ]
+has-UUID:        false
+OS:              unknown
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS ]
+    address:         0x0000000000000000
+    content:         [ 0x55, 0x48, 0x89, 0xE5, 0xE8, 0x00, 0x00, 0x00,
+                       0x00, 0xE8, 0x00, 0x00, 0x00, 0x00, 0xE8, 0x00,
+                       0x00, 0x00, 0x00, 0xE8, 0x00, 0x00, 0x00, 0x00,
+                       0xE8, 0x00, 0x00, 0x00, 0x00, 0x5D, 0xE9, 0x00,
+                       0x00, 0x00, 0x00 ]
+global-symbols:
+  - name:            _foo
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+undefined-symbols:
+  - name:            _myGlobal
+    type:            N_UNDF
+    scope:           [ N_EXT ]
+    value:           0x0000000000000000

@@ -24,10 +24,6 @@
 #ifndef __EMMINTRIN_H
 #define __EMMINTRIN_H
 
-#ifndef __SSE2__
-#error "SSE2 instruction set not enabled"
-#else
-
 #include <xmmintrin.h>
 
 typedef double __m128d __attribute__((__vector_size__(16)));
@@ -39,9 +35,35 @@ typedef long long __v2di __attribute__ ((__vector_size__ (16)));
 typedef short __v8hi __attribute__((__vector_size__(16)));
 typedef char __v16qi __attribute__((__vector_size__(16)));
 
-/* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__))
+/* Unsigned types */
+typedef unsigned long long __v2du __attribute__ ((__vector_size__ (16)));
+typedef unsigned short __v8hu __attribute__((__vector_size__(16)));
+typedef unsigned char __v16qu __attribute__((__vector_size__(16)));
 
+/* We need an explicitly signed variant for char. Note that this shouldn't
+ * appear in the interface though. */
+typedef signed char __v16qs __attribute__((__vector_size__(16)));
+
+#include <f16cintrin.h>
+
+/* Define the default attributes for the functions in this file. */
+#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("sse2")))
+
+/// \brief Adds lower double-precision values in both operands and returns the
+///    sum in the lower 64 bits of the result. The upper 64 bits of the result
+///    are copied from the upper double-precision value of the first operand.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VADDSD / ADDSD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double] containing one of the source operands.
+/// \param __b
+///    A 128-bit vector of [2 x double] containing one of the source operands.
+/// \returns A 128-bit vector of [2 x double] whose lower 64 bits contain the
+///    sum of the lower 64 bits of both operands. The upper 64 bits are copied
+///    from the upper 64 bits of the first source operand.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_add_sd(__m128d __a, __m128d __b)
 {
@@ -49,12 +71,41 @@ _mm_add_sd(__m128d __a, __m128d __b)
   return __a;
 }
 
+/// \brief Adds two 128-bit vectors of [2 x double].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VADDPD / ADDPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double] containing one of the source operands.
+/// \param __b
+///    A 128-bit vector of [2 x double] containing one of the source operands.
+/// \returns A 128-bit vector of [2 x double] containing the sums of both
+///    operands.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_add_pd(__m128d __a, __m128d __b)
 {
-  return __a + __b;
+  return (__m128d)((__v2df)__a + (__v2df)__b);
 }
 
+/// \brief Subtracts the lower double-precision value of the second operand
+///    from the lower double-precision value of the first operand and returns
+///    the difference in the lower 64 bits of the result. The upper 64 bits of
+///    the result are copied from the upper double-precision value of the first
+///    operand.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VSUBSD / SUBSD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double] containing the minuend.
+/// \param __b
+///    A 128-bit vector of [2 x double] containing the subtrahend.
+/// \returns A 128-bit vector of [2 x double] whose lower 64 bits contain the
+///    difference of the lower 64 bits of both operands. The upper 64 bits are
+///    copied from the upper 64 bits of the first source operand.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_sub_sd(__m128d __a, __m128d __b)
 {
@@ -62,12 +113,40 @@ _mm_sub_sd(__m128d __a, __m128d __b)
   return __a;
 }
 
+/// \brief Subtracts two 128-bit vectors of [2 x double].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VSUBPD / SUBPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double] containing the minuend.
+/// \param __b
+///    A 128-bit vector of [2 x double] containing the subtrahend.
+/// \returns A 128-bit vector of [2 x double] containing the differences between
+///    both operands.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_sub_pd(__m128d __a, __m128d __b)
 {
-  return __a - __b;
+  return (__m128d)((__v2df)__a - (__v2df)__b);
 }
 
+/// \brief Multiplies lower double-precision values in both operands and returns
+///    the product in the lower 64 bits of the result. The upper 64 bits of the
+///    result are copied from the upper double-precision value of the first
+///    operand.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMULSD / MULSD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double] containing one of the source operands.
+/// \param __b
+///    A 128-bit vector of [2 x double] containing one of the source operands.
+/// \returns A 128-bit vector of [2 x double] whose lower 64 bits contain the
+///    product of the lower 64 bits of both operands. The upper 64 bits are
+///    copied from the upper 64 bits of the first source operand.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_mul_sd(__m128d __a, __m128d __b)
 {
@@ -75,12 +154,41 @@ _mm_mul_sd(__m128d __a, __m128d __b)
   return __a;
 }
 
+/// \brief Multiplies two 128-bit vectors of [2 x double].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMULPD / MULPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double] containing one of the operands.
+/// \param __b
+///    A 128-bit vector of [2 x double] containing one of the operands.
+/// \returns A 128-bit vector of [2 x double] containing the products of both
+///    operands.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_mul_pd(__m128d __a, __m128d __b)
 {
-  return __a * __b;
+  return (__m128d)((__v2df)__a * (__v2df)__b);
 }
 
+/// \brief Divides the lower double-precision value of the first operand by the
+///    lower double-precision value of the second operand and returns the
+///    quotient in the lower 64 bits of the result. The upper 64 bits of the
+///    result are copied from the upper double-precision value of the first
+///    operand.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VDIVSD / DIVSD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double] containing the dividend.
+/// \param __b
+///    A 128-bit vector of [2 x double] containing divisor.
+/// \returns A 128-bit vector of [2 x double] whose lower 64 bits contain the
+///    quotient of the lower 64 bits of both operands. The upper 64 bits are
+///    copied from the upper 64 bits of the first source operand.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_div_sd(__m128d __a, __m128d __b)
 {
@@ -88,330 +196,1184 @@ _mm_div_sd(__m128d __a, __m128d __b)
   return __a;
 }
 
+/// \brief Performs an element-by-element division of two 128-bit vectors of
+///    [2 x double].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VDIVPD / DIVPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double] containing the dividend.
+/// \param __b
+///    A 128-bit vector of [2 x double] containing the divisor.
+/// \returns A 128-bit vector of [2 x double] containing the quotients of both
+///    operands.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_div_pd(__m128d __a, __m128d __b)
 {
-  return __a / __b;
+  return (__m128d)((__v2df)__a / (__v2df)__b);
 }
 
+/// \brief Calculates the square root of the lower double-precision value of
+///    the second operand and returns it in the lower 64 bits of the result.
+///    The upper 64 bits of the result are copied from the upper double-
+///    precision value of the first operand.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VSQRTSD / SQRTSD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double] containing one of the operands. The
+///    upper 64 bits of this operand are copied to the upper 64 bits of the
+///    result.
+/// \param __b
+///    A 128-bit vector of [2 x double] containing one of the operands. The
+///    square root is calculated using the lower 64 bits of this operand.
+/// \returns A 128-bit vector of [2 x double] whose lower 64 bits contain the
+///    square root of the lower 64 bits of operand \a __b, and whose upper 64
+///    bits are copied from the upper 64 bits of operand \a __a.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_sqrt_sd(__m128d __a, __m128d __b)
 {
-  __m128d __c = __builtin_ia32_sqrtsd(__b);
+  __m128d __c = __builtin_ia32_sqrtsd((__v2df)__b);
   return (__m128d) { __c[0], __a[1] };
 }
 
+/// \brief Calculates the square root of the each of two values stored in a
+///    128-bit vector of [2 x double].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VSQRTPD / SQRTPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double].
+/// \returns A 128-bit vector of [2 x double] containing the square roots of the
+///    values in the operand.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_sqrt_pd(__m128d __a)
 {
-  return __builtin_ia32_sqrtpd(__a);
+  return __builtin_ia32_sqrtpd((__v2df)__a);
 }
 
+/// \brief Compares lower 64-bit double-precision values of both operands, and
+///    returns the lesser of the pair of values in the lower 64-bits of the
+///    result. The upper 64 bits of the result are copied from the upper double-
+///    precision value of the first operand.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMINSD / MINSD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double] containing one of the operands. The
+///    lower 64 bits of this operand are used in the comparison.
+/// \param __b
+///    A 128-bit vector of [2 x double] containing one of the operands. The
+///    lower 64 bits of this operand are used in the comparison.
+/// \returns A 128-bit vector of [2 x double] whose lower 64 bits contain the
+///    minimum value between both operands. The upper 64 bits are copied from
+///    the upper 64 bits of the first source operand.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_min_sd(__m128d __a, __m128d __b)
 {
-  return __builtin_ia32_minsd(__a, __b);
+  return __builtin_ia32_minsd((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Performs element-by-element comparison of the two 128-bit vectors of
+///    [2 x double] and returns the vector containing the lesser of each pair of
+///    values.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMINPD / MINPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double] containing one of the operands.
+/// \param __b
+///    A 128-bit vector of [2 x double] containing one of the operands.
+/// \returns A 128-bit vector of [2 x double] containing the minimum values
+///    between both operands.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_min_pd(__m128d __a, __m128d __b)
 {
-  return __builtin_ia32_minpd(__a, __b);
+  return __builtin_ia32_minpd((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares lower 64-bits double-precision values of both operands, and
+///    returns the greater of the pair of values in the lower 64-bits of the
+///    result. The upper 64 bits of the result are copied from the upper double-
+///    precision value of the first operand.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMAXSD / MAXSD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double] containing one of the operands. The
+///    lower 64 bits of this operand are used in the comparison.
+/// \param __b
+///    A 128-bit vector of [2 x double] containing one of the operands. The
+///    lower 64 bits of this operand are used in the comparison.
+/// \returns A 128-bit vector of [2 x double] whose lower 64 bits contain the
+///    maximum value between both operands. The upper 64 bits are copied from
+///    the upper 64 bits of the first source operand.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_max_sd(__m128d __a, __m128d __b)
 {
-  return __builtin_ia32_maxsd(__a, __b);
+  return __builtin_ia32_maxsd((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Performs element-by-element comparison of the two 128-bit vectors of
+///    [2 x double] and returns the vector containing the greater of each pair
+///    of values.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMAXPD / MAXPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double] containing one of the operands.
+/// \param __b
+///    A 128-bit vector of [2 x double] containing one of the operands.
+/// \returns A 128-bit vector of [2 x double] containing the maximum values
+///    between both operands.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_max_pd(__m128d __a, __m128d __b)
 {
-  return __builtin_ia32_maxpd(__a, __b);
+  return __builtin_ia32_maxpd((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Performs a bitwise AND of two 128-bit vectors of [2 x double].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPAND / PAND </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double] containing one of the source operands.
+/// \param __b
+///    A 128-bit vector of [2 x double] containing one of the source operands.
+/// \returns A 128-bit vector of [2 x double] containing the bitwise AND of the
+///    values between both operands.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_and_pd(__m128d __a, __m128d __b)
 {
-  return (__m128d)((__v4si)__a & (__v4si)__b);
+  return (__m128d)((__v2du)__a & (__v2du)__b);
 }
 
+/// \brief Performs a bitwise AND of two 128-bit vectors of [2 x double], using
+///    the one's complement of the values contained in the first source operand.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPANDN / PANDN </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double] containing the left source operand. The
+///    one's complement of this value is used in the bitwise AND.
+/// \param __b
+///    A 128-bit vector of [2 x double] containing the right source operand.
+/// \returns A 128-bit vector of [2 x double] containing the bitwise AND of the
+///    values in the second operand and the one's complement of the first
+///    operand.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_andnot_pd(__m128d __a, __m128d __b)
 {
-  return (__m128d)(~(__v4si)__a & (__v4si)__b);
+  return (__m128d)(~(__v2du)__a & (__v2du)__b);
 }
 
+/// \brief Performs a bitwise OR of two 128-bit vectors of [2 x double].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPOR / POR </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double] containing one of the source operands.
+/// \param __b
+///    A 128-bit vector of [2 x double] containing one of the source operands.
+/// \returns A 128-bit vector of [2 x double] containing the bitwise OR of the
+///    values between both operands.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_or_pd(__m128d __a, __m128d __b)
 {
-  return (__m128d)((__v4si)__a | (__v4si)__b);
+  return (__m128d)((__v2du)__a | (__v2du)__b);
 }
 
+/// \brief Performs a bitwise XOR of two 128-bit vectors of [2 x double].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPXOR / PXOR </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double] containing one of the source operands.
+/// \param __b
+///    A 128-bit vector of [2 x double] containing one of the source operands.
+/// \returns A 128-bit vector of [2 x double] containing the bitwise XOR of the
+///    values between both operands.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_xor_pd(__m128d __a, __m128d __b)
 {
-  return (__m128d)((__v4si)__a ^ (__v4si)__b);
+  return (__m128d)((__v2du)__a ^ (__v2du)__b);
 }
 
+/// \brief Compares each of the corresponding double-precision values of the
+///    128-bit vectors of [2 x double] for equality. Each comparison yields 0h
+///    for false, FFFFFFFFFFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPEQPD / CMPEQPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double].
+/// \param __b
+///    A 128-bit vector of [2 x double].
+/// \returns A 128-bit vector containing the comparison results.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpeq_pd(__m128d __a, __m128d __b)
 {
-  return (__m128d)__builtin_ia32_cmpeqpd(__a, __b);
+  return (__m128d)__builtin_ia32_cmpeqpd((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares each of the corresponding double-precision values of the
+///    128-bit vectors of [2 x double] to determine if the values in the first
+///    operand are less than those in the second operand. Each comparison
+///    yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPLTPD / CMPLTPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double].
+/// \param __b
+///    A 128-bit vector of [2 x double].
+/// \returns A 128-bit vector containing the comparison results.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmplt_pd(__m128d __a, __m128d __b)
 {
-  return (__m128d)__builtin_ia32_cmpltpd(__a, __b);
+  return (__m128d)__builtin_ia32_cmpltpd((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares each of the corresponding double-precision values of the
+///    128-bit vectors of [2 x double] to determine if the values in the first
+///    operand are less than or equal to those in the second operand. Each
+///    comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPLEPD / CMPLEPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double].
+/// \param __b
+///    A 128-bit vector of [2 x double].
+/// \returns A 128-bit vector containing the comparison results.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmple_pd(__m128d __a, __m128d __b)
 {
-  return (__m128d)__builtin_ia32_cmplepd(__a, __b);
+  return (__m128d)__builtin_ia32_cmplepd((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares each of the corresponding double-precision values of the
+///    128-bit vectors of [2 x double] to determine if the values in the first
+///    operand are greater than those in the second operand. Each comparison
+///    yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPLTPD / CMPLTPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double].
+/// \param __b
+///    A 128-bit vector of [2 x double].
+/// \returns A 128-bit vector containing the comparison results.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpgt_pd(__m128d __a, __m128d __b)
 {
-  return (__m128d)__builtin_ia32_cmpltpd(__b, __a);
+  return (__m128d)__builtin_ia32_cmpltpd((__v2df)__b, (__v2df)__a);
 }
 
+/// \brief Compares each of the corresponding double-precision values of the
+///    128-bit vectors of [2 x double] to determine if the values in the first
+///    operand are greater than or equal to those in the second operand. Each
+///    comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPLEPD / CMPLEPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double].
+/// \param __b
+///    A 128-bit vector of [2 x double].
+/// \returns A 128-bit vector containing the comparison results.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpge_pd(__m128d __a, __m128d __b)
 {
-  return (__m128d)__builtin_ia32_cmplepd(__b, __a);
+  return (__m128d)__builtin_ia32_cmplepd((__v2df)__b, (__v2df)__a);
 }
 
+/// \brief Compares each of the corresponding double-precision values of the
+///    128-bit vectors of [2 x double] to determine if the values in the first
+///    operand are ordered with respect to those in the second operand. A pair
+///    of double-precision values are "ordered" with respect to each other if
+///    neither value is a NaN. Each comparison yields 0h for false,
+///    FFFFFFFFFFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPORDPD / CMPORDPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double].
+/// \param __b
+///    A 128-bit vector of [2 x double].
+/// \returns A 128-bit vector containing the comparison results.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpord_pd(__m128d __a, __m128d __b)
 {
-  return (__m128d)__builtin_ia32_cmpordpd(__a, __b);
+  return (__m128d)__builtin_ia32_cmpordpd((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares each of the corresponding double-precision values of the
+///    128-bit vectors of [2 x double] to determine if the values in the first
+///    operand are unordered with respect to those in the second operand. A pair
+///    of double-precision values are "unordered" with respect to each other if
+///    one or both values are NaN. Each comparison yields 0h for false,
+///    FFFFFFFFFFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPUNORDPD / CMPUNORDPD </c>
+///   instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double].
+/// \param __b
+///    A 128-bit vector of [2 x double].
+/// \returns A 128-bit vector containing the comparison results.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpunord_pd(__m128d __a, __m128d __b)
 {
-  return (__m128d)__builtin_ia32_cmpunordpd(__a, __b);
+  return (__m128d)__builtin_ia32_cmpunordpd((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares each of the corresponding double-precision values of the
+///    128-bit vectors of [2 x double] to determine if the values in the first
+///    operand are unequal to those in the second operand. Each comparison
+///    yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPNEQPD / CMPNEQPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double].
+/// \param __b
+///    A 128-bit vector of [2 x double].
+/// \returns A 128-bit vector containing the comparison results.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpneq_pd(__m128d __a, __m128d __b)
 {
-  return (__m128d)__builtin_ia32_cmpneqpd(__a, __b);
+  return (__m128d)__builtin_ia32_cmpneqpd((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares each of the corresponding double-precision values of the
+///    128-bit vectors of [2 x double] to determine if the values in the first
+///    operand are not less than those in the second operand. Each comparison
+///    yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPNLTPD / CMPNLTPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double].
+/// \param __b
+///    A 128-bit vector of [2 x double].
+/// \returns A 128-bit vector containing the comparison results.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpnlt_pd(__m128d __a, __m128d __b)
 {
-  return (__m128d)__builtin_ia32_cmpnltpd(__a, __b);
+  return (__m128d)__builtin_ia32_cmpnltpd((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares each of the corresponding double-precision values of the
+///    128-bit vectors of [2 x double] to determine if the values in the first
+///    operand are not less than or equal to those in the second operand. Each
+///    comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPNLEPD / CMPNLEPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double].
+/// \param __b
+///    A 128-bit vector of [2 x double].
+/// \returns A 128-bit vector containing the comparison results.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpnle_pd(__m128d __a, __m128d __b)
 {
-  return (__m128d)__builtin_ia32_cmpnlepd(__a, __b);
+  return (__m128d)__builtin_ia32_cmpnlepd((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares each of the corresponding double-precision values of the
+///    128-bit vectors of [2 x double] to determine if the values in the first
+///    operand are not greater than those in the second operand. Each
+///    comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPNLTPD / CMPNLTPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double].
+/// \param __b
+///    A 128-bit vector of [2 x double].
+/// \returns A 128-bit vector containing the comparison results.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpngt_pd(__m128d __a, __m128d __b)
 {
-  return (__m128d)__builtin_ia32_cmpnltpd(__b, __a);
+  return (__m128d)__builtin_ia32_cmpnltpd((__v2df)__b, (__v2df)__a);
 }
 
+/// \brief Compares each of the corresponding double-precision values of the
+///    128-bit vectors of [2 x double] to determine if the values in the first
+///    operand are not greater than or equal to those in the second operand.
+///    Each comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPNLEPD / CMPNLEPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double].
+/// \param __b
+///    A 128-bit vector of [2 x double].
+/// \returns A 128-bit vector containing the comparison results.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpnge_pd(__m128d __a, __m128d __b)
 {
-  return (__m128d)__builtin_ia32_cmpnlepd(__b, __a);
+  return (__m128d)__builtin_ia32_cmpnlepd((__v2df)__b, (__v2df)__a);
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] for equality. The
+///    comparison yields 0h for false, FFFFFFFFFFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPEQSD / CMPEQSD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __a.
+/// \returns A 128-bit vector. The lower 64 bits contains the comparison
+///    results. The upper 64 bits are copied from the upper 64 bits of \a __a.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpeq_sd(__m128d __a, __m128d __b)
 {
-  return (__m128d)__builtin_ia32_cmpeqsd(__a, __b);
+  return (__m128d)__builtin_ia32_cmpeqsd((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] to determine if
+///    the value in the first parameter is less than the corresponding value in
+///    the second parameter. The comparison yields 0h for false,
+///    FFFFFFFFFFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPLTSD / CMPLTSD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __a.
+/// \returns A 128-bit vector. The lower 64 bits contains the comparison
+///    results. The upper 64 bits are copied from the upper 64 bits of \a __a.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmplt_sd(__m128d __a, __m128d __b)
 {
-  return (__m128d)__builtin_ia32_cmpltsd(__a, __b);
+  return (__m128d)__builtin_ia32_cmpltsd((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] to determine if
+///    the value in the first parameter is less than or equal to the
+///    corresponding value in the second parameter. The comparison yields 0h for
+///    false, FFFFFFFFFFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPLESD / CMPLESD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __a.
+/// \returns A 128-bit vector. The lower 64 bits contains the comparison
+///    results. The upper 64 bits are copied from the upper 64 bits of \a __a.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmple_sd(__m128d __a, __m128d __b)
 {
-  return (__m128d)__builtin_ia32_cmplesd(__a, __b);
+  return (__m128d)__builtin_ia32_cmplesd((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] to determine if
+///    the value in the first parameter is greater than the corresponding value
+///    in the second parameter. The comparison yields 0h for false,
+///    FFFFFFFFFFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPLTSD / CMPLTSD </c> instruction.
+///
+/// \param __a
+///     A 128-bit vector of [2 x double]. The lower double-precision value is
+///     compared to the lower double-precision value of \a __b.
+/// \param __b
+///     A 128-bit vector of [2 x double]. The lower double-precision value is
+///     compared to the lower double-precision value of \a __a.
+/// \returns A 128-bit vector. The lower 64 bits contains the comparison
+///     results. The upper 64 bits are copied from the upper 64 bits of \a __a.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpgt_sd(__m128d __a, __m128d __b)
 {
-  __m128d __c = __builtin_ia32_cmpltsd(__b, __a);
+  __m128d __c = __builtin_ia32_cmpltsd((__v2df)__b, (__v2df)__a);
   return (__m128d) { __c[0], __a[1] };
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] to determine if
+///    the value in the first parameter is greater than or equal to the
+///    corresponding value in the second parameter. The comparison yields 0h for
+///    false, FFFFFFFFFFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPLESD / CMPLESD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __a.
+/// \returns A 128-bit vector. The lower 64 bits contains the comparison
+///    results. The upper 64 bits are copied from the upper 64 bits of \a __a.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpge_sd(__m128d __a, __m128d __b)
 {
-  __m128d __c = __builtin_ia32_cmplesd(__b, __a);
+  __m128d __c = __builtin_ia32_cmplesd((__v2df)__b, (__v2df)__a);
   return (__m128d) { __c[0], __a[1] };
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] to determine if
+///    the value in the first parameter is "ordered" with respect to the
+///    corresponding value in the second parameter. The comparison yields 0h for
+///    false, FFFFFFFFFFFFFFFFh for true. A pair of double-precision values are
+///    "ordered" with respect to each other if neither value is a NaN.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPORDSD / CMPORDSD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __a.
+/// \returns A 128-bit vector. The lower 64 bits contains the comparison
+///    results. The upper 64 bits are copied from the upper 64 bits of \a __a.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpord_sd(__m128d __a, __m128d __b)
 {
-  return (__m128d)__builtin_ia32_cmpordsd(__a, __b);
+  return (__m128d)__builtin_ia32_cmpordsd((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] to determine if
+///    the value in the first parameter is "unordered" with respect to the
+///    corresponding value in the second parameter. The comparison yields 0h
+///    for false, FFFFFFFFFFFFFFFFh for true. A pair of double-precision values
+///    are "unordered" with respect to each other if one or both values are NaN.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPUNORDSD / CMPUNORDSD </c>
+///   instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __a.
+/// \returns A 128-bit vector. The lower 64 bits contains the comparison
+///    results. The upper 64 bits are copied from the upper 64 bits of \a __a.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpunord_sd(__m128d __a, __m128d __b)
 {
-  return (__m128d)__builtin_ia32_cmpunordsd(__a, __b);
+  return (__m128d)__builtin_ia32_cmpunordsd((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] to determine if
+///    the value in the first parameter is unequal to the corresponding value in
+///    the second parameter. The comparison yields 0h for false,
+///    FFFFFFFFFFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPNEQSD / CMPNEQSD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __a.
+/// \returns A 128-bit vector. The lower 64 bits contains the comparison
+///    results. The upper 64 bits are copied from the upper 64 bits of \a __a.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpneq_sd(__m128d __a, __m128d __b)
 {
-  return (__m128d)__builtin_ia32_cmpneqsd(__a, __b);
+  return (__m128d)__builtin_ia32_cmpneqsd((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] to determine if
+///    the value in the first parameter is not less than the corresponding
+///    value in the second parameter. The comparison yields 0h for false,
+///    FFFFFFFFFFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPNLTSD / CMPNLTSD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __a.
+/// \returns A 128-bit vector. The lower 64 bits contains the comparison
+///    results. The upper 64 bits are copied from the upper 64 bits of \a __a.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpnlt_sd(__m128d __a, __m128d __b)
 {
-  return (__m128d)__builtin_ia32_cmpnltsd(__a, __b);
+  return (__m128d)__builtin_ia32_cmpnltsd((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] to determine if
+///    the value in the first parameter is not less than or equal to the
+///    corresponding value in the second parameter. The comparison yields 0h
+///    for false, FFFFFFFFFFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPNLESD / CMPNLESD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __a.
+/// \returns  A 128-bit vector. The lower 64 bits contains the comparison
+///    results. The upper 64 bits are copied from the upper 64 bits of \a __a.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpnle_sd(__m128d __a, __m128d __b)
 {
-  return (__m128d)__builtin_ia32_cmpnlesd(__a, __b);
+  return (__m128d)__builtin_ia32_cmpnlesd((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] to determine if
+///    the value in the first parameter is not greater than the corresponding
+///    value in the second parameter. The comparison yields 0h for false,
+///    FFFFFFFFFFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPNLTSD / CMPNLTSD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __a.
+/// \returns A 128-bit vector. The lower 64 bits contains the comparison
+///    results. The upper 64 bits are copied from the upper 64 bits of \a __a.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpngt_sd(__m128d __a, __m128d __b)
 {
-  __m128d __c = __builtin_ia32_cmpnltsd(__b, __a);
+  __m128d __c = __builtin_ia32_cmpnltsd((__v2df)__b, (__v2df)__a);
   return (__m128d) { __c[0], __a[1] };
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] to determine if
+///    the value in the first parameter is not greater than or equal to the
+///    corresponding value in the second parameter. The comparison yields 0h
+///    for false, FFFFFFFFFFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCMPNLESD / CMPNLESD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __a.
+/// \returns A 128-bit vector. The lower 64 bits contains the comparison
+///    results. The upper 64 bits are copied from the upper 64 bits of \a __a.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cmpnge_sd(__m128d __a, __m128d __b)
 {
-  __m128d __c = __builtin_ia32_cmpnlesd(__b, __a);
+  __m128d __c = __builtin_ia32_cmpnlesd((__v2df)__b, (__v2df)__a);
   return (__m128d) { __c[0], __a[1] };
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] for equality. The
+///    comparison yields 0 for false, 1 for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCOMISD / COMISD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __a.
+/// \returns An integer containing the comparison results.
 static __inline__ int __DEFAULT_FN_ATTRS
 _mm_comieq_sd(__m128d __a, __m128d __b)
 {
-  return __builtin_ia32_comisdeq(__a, __b);
+  return __builtin_ia32_comisdeq((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] to determine if
+///    the value in the first parameter is less than the corresponding value in
+///    the second parameter. The comparison yields 0 for false, 1 for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCOMISD / COMISD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __a.
+/// \returns An integer containing the comparison results.
 static __inline__ int __DEFAULT_FN_ATTRS
 _mm_comilt_sd(__m128d __a, __m128d __b)
 {
-  return __builtin_ia32_comisdlt(__a, __b);
+  return __builtin_ia32_comisdlt((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] to determine if
+///    the value in the first parameter is less than or equal to the
+///    corresponding value in the second parameter. The comparison yields 0 for
+///    false, 1 for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCOMISD / COMISD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///     A 128-bit vector of [2 x double]. The lower double-precision value is
+///     compared to the lower double-precision value of \a __a.
+/// \returns An integer containing the comparison results.
 static __inline__ int __DEFAULT_FN_ATTRS
 _mm_comile_sd(__m128d __a, __m128d __b)
 {
-  return __builtin_ia32_comisdle(__a, __b);
+  return __builtin_ia32_comisdle((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] to determine if
+///    the value in the first parameter is greater than the corresponding value
+///    in the second parameter. The comparison yields 0 for false, 1 for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCOMISD / COMISD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __a.
+/// \returns An integer containing the comparison results.
 static __inline__ int __DEFAULT_FN_ATTRS
 _mm_comigt_sd(__m128d __a, __m128d __b)
 {
-  return __builtin_ia32_comisdgt(__a, __b);
+  return __builtin_ia32_comisdgt((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] to determine if
+///    the value in the first parameter is greater than or equal to the
+///    corresponding value in the second parameter. The comparison yields 0 for
+///    false, 1 for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCOMISD / COMISD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __a.
+/// \returns An integer containing the comparison results.
 static __inline__ int __DEFAULT_FN_ATTRS
 _mm_comige_sd(__m128d __a, __m128d __b)
 {
-  return __builtin_ia32_comisdge(__a, __b);
+  return __builtin_ia32_comisdge((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] to determine if
+///    the value in the first parameter is unequal to the corresponding value in
+///    the second parameter. The comparison yields 0 for false, 1 for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCOMISD / COMISD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __a.
+/// \returns An integer containing the comparison results.
 static __inline__ int __DEFAULT_FN_ATTRS
 _mm_comineq_sd(__m128d __a, __m128d __b)
 {
-  return __builtin_ia32_comisdneq(__a, __b);
+  return __builtin_ia32_comisdneq((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] for equality. The
+///    comparison yields 0 for false, 1 for true. If either of the two lower
+///    double-precision values is NaN, 1 is returned.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VUCOMISD / UCOMISD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __a.
+/// \returns An integer containing the comparison results. If either of the two
+///    lower double-precision values is NaN, 1 is returned.
 static __inline__ int __DEFAULT_FN_ATTRS
 _mm_ucomieq_sd(__m128d __a, __m128d __b)
 {
-  return __builtin_ia32_ucomisdeq(__a, __b);
+  return __builtin_ia32_ucomisdeq((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] to determine if
+///    the value in the first parameter is less than the corresponding value in
+///    the second parameter. The comparison yields 0 for false, 1 for true. If
+///    either of the two lower double-precision values is NaN, 1 is returned.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VUCOMISD / UCOMISD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __a.
+/// \returns An integer containing the comparison results. If either of the two
+///    lower double-precision values is NaN, 1 is returned.
 static __inline__ int __DEFAULT_FN_ATTRS
 _mm_ucomilt_sd(__m128d __a, __m128d __b)
 {
-  return __builtin_ia32_ucomisdlt(__a, __b);
+  return __builtin_ia32_ucomisdlt((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] to determine if
+///    the value in the first parameter is less than or equal to the
+///    corresponding value in the second parameter. The comparison yields 0 for
+///    false, 1 for true. If either of the two lower double-precision values is
+///    NaN, 1 is returned.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VUCOMISD / UCOMISD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///     A 128-bit vector of [2 x double]. The lower double-precision value is
+///     compared to the lower double-precision value of \a __a.
+/// \returns An integer containing the comparison results. If either of the two
+///     lower double-precision values is NaN, 1 is returned.
 static __inline__ int __DEFAULT_FN_ATTRS
 _mm_ucomile_sd(__m128d __a, __m128d __b)
 {
-  return __builtin_ia32_ucomisdle(__a, __b);
+  return __builtin_ia32_ucomisdle((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] to determine if
+///    the value in the first parameter is greater than the corresponding value
+///    in the second parameter. The comparison yields 0 for false, 1 for true.
+///    If either of the two lower double-precision values is NaN, 0 is returned.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VUCOMISD / UCOMISD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///     A 128-bit vector of [2 x double]. The lower double-precision value is
+///     compared to the lower double-precision value of \a __a.
+/// \returns An integer containing the comparison results. If either of the two
+///     lower double-precision values is NaN, 0 is returned.
 static __inline__ int __DEFAULT_FN_ATTRS
 _mm_ucomigt_sd(__m128d __a, __m128d __b)
 {
-  return __builtin_ia32_ucomisdgt(__a, __b);
+  return __builtin_ia32_ucomisdgt((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] to determine if
+///    the value in the first parameter is greater than or equal to the
+///    corresponding value in the second parameter. The comparison yields 0 for
+///    false, 1 for true.  If either of the two lower double-precision values
+///    is NaN, 0 is returned.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VUCOMISD / UCOMISD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __a.
+/// \returns An integer containing the comparison results. If either of the two
+///    lower double-precision values is NaN, 0 is returned.
 static __inline__ int __DEFAULT_FN_ATTRS
 _mm_ucomige_sd(__m128d __a, __m128d __b)
 {
-  return __builtin_ia32_ucomisdge(__a, __b);
+  return __builtin_ia32_ucomisdge((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Compares the lower double-precision floating-point values in each of
+///    the two 128-bit floating-point vectors of [2 x double] to determine if
+///    the value in the first parameter is unequal to the corresponding value in
+///    the second parameter. The comparison yields 0 for false, 1 for true. If
+///    either of the two lower double-precision values is NaN, 0 is returned.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VUCOMISD / UCOMISD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __b.
+/// \param __b
+///    A 128-bit vector of [2 x double]. The lower double-precision value is
+///    compared to the lower double-precision value of \a __a.
+/// \returns An integer containing the comparison result. If either of the two
+///    lower double-precision values is NaN, 0 is returned.
 static __inline__ int __DEFAULT_FN_ATTRS
 _mm_ucomineq_sd(__m128d __a, __m128d __b)
 {
-  return __builtin_ia32_ucomisdneq(__a, __b);
+  return __builtin_ia32_ucomisdneq((__v2df)__a, (__v2df)__b);
 }
 
+/// \brief Converts the two double-precision floating-point elements of a
+///    128-bit vector of [2 x double] into two single-precision floating-point
+///    values, returned in the lower 64 bits of a 128-bit vector of [4 x float].
+///    The upper 64 bits of the result vector are set to zero.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCVTPD2PS / CVTPD2PS </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double].
+/// \returns A 128-bit vector of [4 x float] whose lower 64 bits contain the
+///    converted values. The upper 64 bits are set to zero.
 static __inline__ __m128 __DEFAULT_FN_ATTRS
 _mm_cvtpd_ps(__m128d __a)
 {
-  return __builtin_ia32_cvtpd2ps(__a);
+  return __builtin_ia32_cvtpd2ps((__v2df)__a);
 }
 
+/// \brief Converts the lower two single-precision floating-point elements of a
+///    128-bit vector of [4 x float] into two double-precision floating-point
+///    values, returned in a 128-bit vector of [2 x double]. The upper two
+///    elements of the input vector are unused.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCVTPS2PD / CVTPS2PD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [4 x float]. The lower two single-precision
+///    floating-point elements are converted to double-precision values. The
+///    upper two elements are unused.
+/// \returns A 128-bit vector of [2 x double] containing the converted values.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cvtps_pd(__m128 __a)
 {
-  return __builtin_ia32_cvtps2pd(__a);
+  return (__m128d) __builtin_convertvector(
+      __builtin_shufflevector((__v4sf)__a, (__v4sf)__a, 0, 1), __v2df);
 }
 
+/// \brief Converts the lower two integer elements of a 128-bit vector of
+///    [4 x i32] into two double-precision floating-point values, returned in a
+///    128-bit vector of [2 x double]. The upper two elements of the input
+///    vector are unused.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCVTDQ2PD / CVTDQ2PD </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector of [4 x i32]. The lower two integer elements are
+///    converted to double-precision values. The upper two elements are unused.
+/// \returns A 128-bit vector of [2 x double] containing the converted values.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cvtepi32_pd(__m128i __a)
 {
-  return __builtin_ia32_cvtdq2pd((__v4si)__a);
+  return (__m128d) __builtin_convertvector(
+      __builtin_shufflevector((__v4si)__a, (__v4si)__a, 0, 1), __v2df);
 }
 
+/// \brief Converts the two double-precision floating-point elements of a
+///    128-bit vector of [2 x double] into two signed 32-bit integer values,
+///    returned in the lower 64 bits of a 128-bit vector of [4 x i32]. The upper
+///    64 bits of the result vector are set to zero.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCVTPD2DQ / CVTPD2DQ </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double].
+/// \returns A 128-bit vector of [4 x i32] whose lower 64 bits contain the
+///    converted values. The upper 64 bits are set to zero.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_cvtpd_epi32(__m128d __a)
 {
-  return __builtin_ia32_cvtpd2dq(__a);
+  return __builtin_ia32_cvtpd2dq((__v2df)__a);
 }
 
+/// \brief Converts the low-order element of a 128-bit vector of [2 x double]
+///    into a 32-bit signed integer value.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCVTSD2SI / CVTSD2SI </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower 64 bits are used in the
+///    conversion.
+/// \returns A 32-bit signed integer containing the converted value.
 static __inline__ int __DEFAULT_FN_ATTRS
 _mm_cvtsd_si32(__m128d __a)
 {
-  return __builtin_ia32_cvtsd2si(__a);
+  return __builtin_ia32_cvtsd2si((__v2df)__a);
 }
 
+/// \brief Converts the lower double-precision floating-point element of a
+///    128-bit vector of [2 x double], in the second parameter, into a
+///    single-precision floating-point value, returned in the lower 32 bits of a
+///    128-bit vector of [4 x float]. The upper 96 bits of the result vector are
+///    copied from the upper 96 bits of the first parameter.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCVTSD2SS / CVTSD2SS </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [4 x float]. The upper 96 bits of this parameter are
+///    copied to the upper 96 bits of the result.
+/// \param __b
+///    A 128-bit vector of [2 x double]. The lower double-precision
+///    floating-point element is used in the conversion.
+/// \returns A 128-bit vector of [4 x float]. The lower 32 bits contain the
+///    converted value from the second parameter. The upper 96 bits are copied
+///    from the upper 96 bits of the first parameter.
 static __inline__ __m128 __DEFAULT_FN_ATTRS
 _mm_cvtsd_ss(__m128 __a, __m128d __b)
 {
-  __a[0] = __b[0];
-  return __a;
+  return (__m128)__builtin_ia32_cvtsd2ss((__v4sf)__a, (__v2df)__b);
 }
 
+/// \brief Converts a 32-bit signed integer value, in the second parameter, into
+///    a double-precision floating-point value, returned in the lower 64 bits of
+///    a 128-bit vector of [2 x double]. The upper 64 bits of the result vector
+///    are copied from the upper 64 bits of the first parameter.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCVTSI2SD / CVTSI2SD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The upper 64 bits of this parameter are
+///    copied to the upper 64 bits of the result.
+/// \param __b
+///    A 32-bit signed integer containing the value to be converted.
+/// \returns A 128-bit vector of [2 x double]. The lower 64 bits contain the
+///    converted value from the second parameter. The upper 64 bits are copied
+///    from the upper 64 bits of the first parameter.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cvtsi32_sd(__m128d __a, int __b)
 {
@@ -419,6 +1381,25 @@ _mm_cvtsi32_sd(__m128d __a, int __b)
   return __a;
 }
 
+/// \brief Converts the lower single-precision floating-point element of a
+///    128-bit vector of [4 x float], in the second parameter, into a
+///    double-precision floating-point value, returned in the lower 64 bits of
+///    a 128-bit vector of [2 x double]. The upper 64 bits of the result vector
+///    are copied from the upper 64 bits of the first parameter.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCVTSS2SD / CVTSS2SD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The upper 64 bits of this parameter are
+///    copied to the upper 64 bits of the result.
+/// \param __b
+///    A 128-bit vector of [4 x float]. The lower single-precision
+///    floating-point element is used in the conversion.
+/// \returns A 128-bit vector of [2 x double]. The lower 64 bits contain the
+///    converted value from the second parameter. The upper 64 bits are copied
+///    from the upper 64 bits of the first parameter.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cvtss_sd(__m128d __a, __m128 __b)
 {
@@ -426,48 +1407,145 @@ _mm_cvtss_sd(__m128d __a, __m128 __b)
   return __a;
 }
 
+/// \brief Converts the two double-precision floating-point elements of a
+///    128-bit vector of [2 x double] into two signed 32-bit integer values,
+///    returned in the lower 64 bits of a 128-bit vector of [4 x i32]. If the
+///    result of either conversion is inexact, the result is truncated (rounded
+///    towards zero) regardless of the current MXCSR setting. The upper 64 bits
+///    of the result vector are set to zero.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCVTTPD2DQ / CVTTPD2DQ </c>
+///   instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double].
+/// \returns A 128-bit vector of [4 x i32] whose lower 64 bits contain the
+///    converted values. The upper 64 bits are set to zero.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_cvttpd_epi32(__m128d __a)
 {
-  return (__m128i)__builtin_ia32_cvttpd2dq(__a);
+  return (__m128i)__builtin_ia32_cvttpd2dq((__v2df)__a);
 }
 
+/// \brief Converts the low-order element of a [2 x double] vector into a 32-bit
+///    signed integer value, truncating the result when it is inexact.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCVTTSD2SI / CVTTSD2SI </c>
+///   instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower 64 bits are used in the
+///    conversion.
+/// \returns A 32-bit signed integer containing the converted value.
 static __inline__ int __DEFAULT_FN_ATTRS
 _mm_cvttsd_si32(__m128d __a)
 {
-  return __a[0];
+  return __builtin_ia32_cvttsd2si((__v2df)__a);
 }
 
+/// \brief Converts the two double-precision floating-point elements of a
+///    128-bit vector of [2 x double] into two signed 32-bit integer values,
+///    returned in a 64-bit vector of [2 x i32].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> CVTPD2PI </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double].
+/// \returns A 64-bit vector of [2 x i32] containing the converted values.
 static __inline__ __m64 __DEFAULT_FN_ATTRS
 _mm_cvtpd_pi32(__m128d __a)
 {
-  return (__m64)__builtin_ia32_cvtpd2pi(__a);
+  return (__m64)__builtin_ia32_cvtpd2pi((__v2df)__a);
 }
 
+/// \brief Converts the two double-precision floating-point elements of a
+///    128-bit vector of [2 x double] into two signed 32-bit integer values,
+///    returned in a 64-bit vector of [2 x i32]. If the result of either
+///    conversion is inexact, the result is truncated (rounded towards zero)
+///    regardless of the current MXCSR setting.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> CVTTPD2PI </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double].
+/// \returns A 64-bit vector of [2 x i32] containing the converted values.
 static __inline__ __m64 __DEFAULT_FN_ATTRS
 _mm_cvttpd_pi32(__m128d __a)
 {
-  return (__m64)__builtin_ia32_cvttpd2pi(__a);
+  return (__m64)__builtin_ia32_cvttpd2pi((__v2df)__a);
 }
 
+/// \brief Converts the two signed 32-bit integer elements of a 64-bit vector of
+///    [2 x i32] into two double-precision floating-point values, returned in a
+///    128-bit vector of [2 x double].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> CVTPI2PD </c> instruction.
+///
+/// \param __a
+///    A 64-bit vector of [2 x i32].
+/// \returns A 128-bit vector of [2 x double] containing the converted values.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cvtpi32_pd(__m64 __a)
 {
   return __builtin_ia32_cvtpi2pd((__v2si)__a);
 }
 
+/// \brief Returns the low-order element of a 128-bit vector of [2 x double] as
+///    a double-precision floating-point value.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic has no corresponding instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower 64 bits are returned.
+/// \returns A double-precision floating-point value copied from the lower 64
+///    bits of \a __a.
 static __inline__ double __DEFAULT_FN_ATTRS
 _mm_cvtsd_f64(__m128d __a)
 {
   return __a[0];
 }
 
+/// \brief Loads a 128-bit floating-point vector of [2 x double] from an aligned
+///    memory location.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVAPD / MOVAPD </c> instruction.
+///
+/// \param __dp
+///    A pointer to a 128-bit memory location. The address of the memory
+///    location has to be 16-byte aligned.
+/// \returns A 128-bit vector of [2 x double] containing the loaded values.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_load_pd(double const *__dp)
 {
   return *(__m128d*)__dp;
 }
 
+/// \brief Loads a double-precision floating-point value from a specified memory
+///    location and duplicates it to both vector elements of a 128-bit vector of
+///    [2 x double].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVDDUP / MOVDDUP </c> instruction.
+///
+/// \param __dp
+///    A pointer to a memory location containing a double-precision value.
+/// \returns A 128-bit vector of [2 x double] containing the loaded and
+///    duplicated values.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_load1_pd(double const *__dp)
 {
@@ -480,13 +1558,38 @@ _mm_load1_pd(double const *__dp)
 
 #define        _mm_load_pd1(dp)        _mm_load1_pd(dp)
 
+/// \brief Loads two double-precision values, in reverse order, from an aligned
+///    memory location into a 128-bit vector of [2 x double].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVAPD / MOVAPD </c> instruction +
+/// needed shuffling instructions. In AVX mode, the shuffling may be combined
+/// with the \c VMOVAPD, resulting in only a \c VPERMILPD instruction.
+///
+/// \param __dp
+///    A 16-byte aligned pointer to an array of double-precision values to be
+///    loaded in reverse order.
+/// \returns A 128-bit vector of [2 x double] containing the reversed loaded
+///    values.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_loadr_pd(double const *__dp)
 {
   __m128d __u = *(__m128d*)__dp;
-  return __builtin_shufflevector(__u, __u, 1, 0);
+  return __builtin_shufflevector((__v2df)__u, (__v2df)__u, 1, 0);
 }
 
+/// \brief Loads a 128-bit floating-point vector of [2 x double] from an
+///    unaligned memory location.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVUPD / MOVUPD </c> instruction.
+///
+/// \param __dp
+///    A pointer to a 128-bit memory location. The address of the memory
+///    location does not have to be aligned.
+/// \returns A 128-bit vector of [2 x double] containing the loaded values.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_loadu_pd(double const *__dp)
 {
@@ -494,6 +1597,16 @@ _mm_loadu_pd(double const *__dp)
     __m128d __v;
   } __attribute__((__packed__, __may_alias__));
   return ((struct __loadu_pd*)__dp)->__v;
+}
+
+static __inline__ __m128i __DEFAULT_FN_ATTRS
+_mm_loadu_si64(void const *__a)
+{
+  struct __loadu_si64 {
+    long long __v;
+  } __attribute__((__packed__, __may_alias__));
+  long long __u = ((struct __loadu_si64*)__a)->__v;
+  return (__m128i){__u, 0L};
 }
 
 static __inline__ __m128d __DEFAULT_FN_ATTRS
@@ -506,6 +1619,23 @@ _mm_load_sd(double const *__dp)
   return (__m128d){ __u, 0 };
 }
 
+/// \brief Loads a double-precision value into the high-order bits of a 128-bit
+///    vector of [2 x double]. The low-order bits are copied from the low-order
+///    bits of the first operand.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVHPD / MOVHPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. \n
+///    Bits [63:0] are written to bits [63:0] of the result.
+/// \param __dp
+///    A pointer to a 64-bit memory location containing a double-precision
+///    floating-point value that is loaded. The loaded value is written to bits
+///    [127:64] of the result. The address of the memory location does not have
+///    to be aligned.
+/// \returns A 128-bit vector of [2 x double] containing the moved values.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_loadh_pd(__m128d __a, double const *__dp)
 {
@@ -516,6 +1646,23 @@ _mm_loadh_pd(__m128d __a, double const *__dp)
   return (__m128d){ __a[0], __u };
 }
 
+/// \brief Loads a double-precision value into the low-order bits of a 128-bit
+///    vector of [2 x double]. The high-order bits are copied from the
+///    high-order bits of the first operand.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVLPD / MOVLPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. \n
+///    Bits [127:64] are written to bits [127:64] of the result.
+/// \param __dp
+///    A pointer to a 64-bit memory location containing a double-precision
+///    floating-point value that is loaded. The loaded value is written to bits
+///    [63:0] of the result. The address of the memory location does not have to
+///    be aligned.
+/// \returns A 128-bit vector of [2 x double] containing the moved values.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_loadl_pd(__m128d __a, double const *__dp)
 {
@@ -526,42 +1673,149 @@ _mm_loadl_pd(__m128d __a, double const *__dp)
   return (__m128d){ __u, __a[1] };
 }
 
+/// \brief Constructs a 128-bit floating-point vector of [2 x double] with
+///    unspecified content. This could be used as an argument to another
+///    intrinsic function where the argument is required but the value is not
+///    actually used.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic has no corresponding instruction.
+///
+/// \returns A 128-bit floating-point vector of [2 x double] with unspecified
+///    content.
+static __inline__ __m128d __DEFAULT_FN_ATTRS
+_mm_undefined_pd(void)
+{
+  return (__m128d)__builtin_ia32_undef128();
+}
+
+/// \brief Constructs a 128-bit floating-point vector of [2 x double]. The lower
+///    64 bits of the vector are initialized with the specified double-precision
+///    floating-point value. The upper 64 bits are set to zero.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVQ / MOVQ </c> instruction.
+///
+/// \param __w
+///    A double-precision floating-point value used to initialize the lower 64
+///    bits of the result.
+/// \returns An initialized 128-bit floating-point vector of [2 x double]. The
+///    lower 64 bits contain the value of the parameter. The upper 64 bits are
+///    set to zero.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_set_sd(double __w)
 {
   return (__m128d){ __w, 0 };
 }
 
+/// \brief Constructs a 128-bit floating-point vector of [2 x double], with each
+///    of the two double-precision floating-point vector elements set to the
+///    specified double-precision floating-point value.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVDDUP / MOVLHPS </c> instruction.
+///
+/// \param __w
+///    A double-precision floating-point value used to initialize each vector
+///    element of the result.
+/// \returns An initialized 128-bit floating-point vector of [2 x double].
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_set1_pd(double __w)
 {
   return (__m128d){ __w, __w };
 }
 
+/// \brief Constructs a 128-bit floating-point vector of [2 x double]
+///    initialized with the specified double-precision floating-point values.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VUNPCKLPD / UNPCKLPD </c> instruction.
+///
+/// \param __w
+///    A double-precision floating-point value used to initialize the upper 64
+///    bits of the result.
+/// \param __x
+///    A double-precision floating-point value used to initialize the lower 64
+///    bits of the result.
+/// \returns An initialized 128-bit floating-point vector of [2 x double].
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_set_pd(double __w, double __x)
 {
   return (__m128d){ __x, __w };
 }
 
+/// \brief Constructs a 128-bit floating-point vector of [2 x double],
+///    initialized in reverse order with the specified double-precision
+///    floating-point values.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VUNPCKLPD / UNPCKLPD </c> instruction.
+///
+/// \param __w
+///    A double-precision floating-point value used to initialize the lower 64
+///    bits of the result.
+/// \param __x
+///    A double-precision floating-point value used to initialize the upper 64
+///    bits of the result.
+/// \returns An initialized 128-bit floating-point vector of [2 x double].
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_setr_pd(double __w, double __x)
 {
   return (__m128d){ __w, __x };
 }
 
+/// \brief Constructs a 128-bit floating-point vector of [2 x double]
+///    initialized to zero.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VXORPS / XORPS </c> instruction.
+///
+/// \returns An initialized 128-bit floating-point vector of [2 x double] with
+///    all elements set to zero.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_setzero_pd(void)
 {
   return (__m128d){ 0, 0 };
 }
 
+/// \brief Constructs a 128-bit floating-point vector of [2 x double]. The lower
+///    64 bits are set to the lower 64 bits of the second parameter. The upper
+///    64 bits are set to the upper 64 bits of the first parameter.
+//
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VBLENDPD / BLENDPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The upper 64 bits are written to the
+///    upper 64 bits of the result.
+/// \param __b
+///    A 128-bit vector of [2 x double]. The lower 64 bits are written to the
+///    lower 64 bits of the result.
+/// \returns A 128-bit vector of [2 x double] containing the moved values.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_move_sd(__m128d __a, __m128d __b)
 {
   return (__m128d){ __b[0], __a[1] };
 }
 
+/// \brief Stores the lower 64 bits of a 128-bit vector of [2 x double] to a
+///    memory location.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVSD / MOVSD </c> instruction.
+///
+/// \param __dp
+///    A pointer to a 64-bit memory location.
+/// \param __a
+///    A 128-bit vector of [2 x double] containing the value to be stored.
 static __inline__ void __DEFAULT_FN_ATTRS
 _mm_store_sd(double *__dp, __m128d __a)
 {
@@ -572,34 +1826,89 @@ _mm_store_sd(double *__dp, __m128d __a)
 }
 
 static __inline__ void __DEFAULT_FN_ATTRS
-_mm_store1_pd(double *__dp, __m128d __a)
+_mm_store_pd(double *__dp, __m128d __a)
 {
-  struct __mm_store1_pd_struct {
-    double __u[2];
-  } __attribute__((__packed__, __may_alias__));
-  ((struct __mm_store1_pd_struct*)__dp)->__u[0] = __a[0];
-  ((struct __mm_store1_pd_struct*)__dp)->__u[1] = __a[0];
+  *(__m128d*)__dp = __a;
 }
 
 static __inline__ void __DEFAULT_FN_ATTRS
-_mm_store_pd(double *__dp, __m128d __a)
+_mm_store1_pd(double *__dp, __m128d __a)
 {
-  *(__m128d *)__dp = __a;
+  __a = __builtin_shufflevector((__v2df)__a, (__v2df)__a, 0, 0);
+  _mm_store_pd(__dp, __a);
 }
 
+/// \brief Stores a 128-bit vector of [2 x double] into an aligned memory
+///    location.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVAPD / MOVAPD </c> instruction.
+///
+/// \param __dp
+///    A pointer to a 128-bit memory location. The address of the memory
+///    location has to be 16-byte aligned.
+/// \param __a
+///    A 128-bit vector of [2 x double] containing the values to be stored.
+static __inline__ void __DEFAULT_FN_ATTRS
+_mm_store_pd1(double *__dp, __m128d __a)
+{
+  return _mm_store1_pd(__dp, __a);
+}
+
+/// \brief Stores a 128-bit vector of [2 x double] into an unaligned memory
+///    location.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVUPD / MOVUPD </c> instruction.
+///
+/// \param __dp
+///    A pointer to a 128-bit memory location. The address of the memory
+///    location does not have to be aligned.
+/// \param __a
+///    A 128-bit vector of [2 x double] containing the values to be stored.
 static __inline__ void __DEFAULT_FN_ATTRS
 _mm_storeu_pd(double *__dp, __m128d __a)
 {
-  __builtin_ia32_storeupd(__dp, __a);
+  struct __storeu_pd {
+    __m128d __v;
+  } __attribute__((__packed__, __may_alias__));
+  ((struct __storeu_pd*)__dp)->__v = __a;
 }
 
+/// \brief Stores two double-precision values, in reverse order, from a 128-bit
+///    vector of [2 x double] to a 16-byte aligned memory location.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to a shuffling instruction followed by a
+/// <c> VMOVAPD / MOVAPD </c> instruction.
+///
+/// \param __dp
+///    A pointer to a 16-byte aligned memory location that can store two
+///    double-precision values.
+/// \param __a
+///    A 128-bit vector of [2 x double] containing the values to be reversed and
+///    stored.
 static __inline__ void __DEFAULT_FN_ATTRS
 _mm_storer_pd(double *__dp, __m128d __a)
 {
-  __a = __builtin_shufflevector(__a, __a, 1, 0);
+  __a = __builtin_shufflevector((__v2df)__a, (__v2df)__a, 1, 0);
   *(__m128d *)__dp = __a;
 }
 
+/// \brief Stores the upper 64 bits of a 128-bit vector of [2 x double] to a
+///    memory location.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVHPD / MOVHPD </c> instruction.
+///
+/// \param __dp
+///    A pointer to a 64-bit memory location.
+/// \param __a
+///    A 128-bit vector of [2 x double] containing the value to be stored.
 static __inline__ void __DEFAULT_FN_ATTRS
 _mm_storeh_pd(double *__dp, __m128d __a)
 {
@@ -609,6 +1918,17 @@ _mm_storeh_pd(double *__dp, __m128d __a)
   ((struct __mm_storeh_pd_struct*)__dp)->__u = __a[1];
 }
 
+/// \brief Stores the lower 64 bits of a 128-bit vector of [2 x double] to a
+///    memory location.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVLPD / MOVLPD </c> instruction.
+///
+/// \param __dp
+///    A pointer to a 64-bit memory location.
+/// \param __a
+///    A 128-bit vector of [2 x double] containing the value to be stored.
 static __inline__ void __DEFAULT_FN_ATTRS
 _mm_storel_pd(double *__dp, __m128d __a)
 {
@@ -618,409 +1938,1266 @@ _mm_storel_pd(double *__dp, __m128d __a)
   ((struct __mm_storeh_pd_struct*)__dp)->__u = __a[0];
 }
 
+/// \brief Adds the corresponding elements of two 128-bit vectors of [16 x i8],
+///    saving the lower 8 bits of each sum in the corresponding element of a
+///    128-bit result vector of [16 x i8]. The integer elements of both
+///    parameters can be either signed or unsigned.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPADDB / PADDB </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [16 x i8].
+/// \param __b
+///    A 128-bit vector of [16 x i8].
+/// \returns A 128-bit vector of [16 x i8] containing the sums of both
+///    parameters.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_add_epi8(__m128i __a, __m128i __b)
 {
-  return (__m128i)((__v16qi)__a + (__v16qi)__b);
+  return (__m128i)((__v16qu)__a + (__v16qu)__b);
 }
 
+/// \brief Adds the corresponding elements of two 128-bit vectors of [8 x i16],
+///    saving the lower 16 bits of each sum in the corresponding element of a
+///    128-bit result vector of [8 x i16]. The integer elements of both
+///    parameters can be either signed or unsigned.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPADDW / PADDW </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [8 x i16].
+/// \param __b
+///    A 128-bit vector of [8 x i16].
+/// \returns A 128-bit vector of [8 x i16] containing the sums of both
+///    parameters.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_add_epi16(__m128i __a, __m128i __b)
 {
-  return (__m128i)((__v8hi)__a + (__v8hi)__b);
+  return (__m128i)((__v8hu)__a + (__v8hu)__b);
 }
 
+/// \brief Adds the corresponding elements of two 128-bit vectors of [4 x i32],
+///    saving the lower 32 bits of each sum in the corresponding element of a
+///    128-bit result vector of [4 x i32]. The integer elements of both
+///    parameters can be either signed or unsigned.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPADDD / PADDD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [4 x i32].
+/// \param __b
+///    A 128-bit vector of [4 x i32].
+/// \returns A 128-bit vector of [4 x i32] containing the sums of both
+///    parameters.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_add_epi32(__m128i __a, __m128i __b)
 {
-  return (__m128i)((__v4si)__a + (__v4si)__b);
+  return (__m128i)((__v4su)__a + (__v4su)__b);
 }
 
+/// \brief Adds two signed or unsigned 64-bit integer values, returning the
+///    lower 64 bits of the sum.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> PADDQ </c> instruction.
+///
+/// \param __a
+///    A 64-bit integer.
+/// \param __b
+///    A 64-bit integer.
+/// \returns A 64-bit integer containing the sum of both parameters.
 static __inline__ __m64 __DEFAULT_FN_ATTRS
 _mm_add_si64(__m64 __a, __m64 __b)
 {
-  return __a + __b;
+  return (__m64)__builtin_ia32_paddq((__v1di)__a, (__v1di)__b);
 }
 
+/// \brief Adds the corresponding elements of two 128-bit vectors of [2 x i64],
+///    saving the lower 64 bits of each sum in the corresponding element of a
+///    128-bit result vector of [2 x i64]. The integer elements of both
+///    parameters can be either signed or unsigned.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPADDQ / PADDQ </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x i64].
+/// \param __b
+///    A 128-bit vector of [2 x i64].
+/// \returns A 128-bit vector of [2 x i64] containing the sums of both
+///    parameters.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_add_epi64(__m128i __a, __m128i __b)
 {
-  return __a + __b;
+  return (__m128i)((__v2du)__a + (__v2du)__b);
 }
 
+/// \brief Adds, with saturation, the corresponding elements of two 128-bit
+///    signed [16 x i8] vectors, saving each sum in the corresponding element of
+///    a 128-bit result vector of [16 x i8]. Positive sums greater than 7Fh are
+///    saturated to 7Fh. Negative sums less than 80h are saturated to 80h.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPADDSB / PADDSB </c> instruction.
+///
+/// \param __a
+///    A 128-bit signed [16 x i8] vector.
+/// \param __b
+///    A 128-bit signed [16 x i8] vector.
+/// \returns A 128-bit signed [16 x i8] vector containing the saturated sums of
+///    both parameters.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_adds_epi8(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_ia32_paddsb128((__v16qi)__a, (__v16qi)__b);
 }
 
+/// \brief Adds, with saturation, the corresponding elements of two 128-bit
+///    signed [8 x i16] vectors, saving each sum in the corresponding element of
+///    a 128-bit result vector of [8 x i16]. Positive sums greater than 7FFFh
+///    are saturated to 7FFFh. Negative sums less than 8000h are saturated to
+///    8000h.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPADDSW / PADDSW </c> instruction.
+///
+/// \param __a
+///    A 128-bit signed [8 x i16] vector.
+/// \param __b
+///    A 128-bit signed [8 x i16] vector.
+/// \returns A 128-bit signed [8 x i16] vector containing the saturated sums of
+///    both parameters.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_adds_epi16(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_ia32_paddsw128((__v8hi)__a, (__v8hi)__b);
 }
 
+/// \brief Adds, with saturation, the corresponding elements of two 128-bit
+///    unsigned [16 x i8] vectors, saving each sum in the corresponding element
+///    of a 128-bit result vector of [16 x i8]. Positive sums greater than FFh
+///    are saturated to FFh. Negative sums are saturated to 00h.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPADDUSB / PADDUSB </c> instruction.
+///
+/// \param __a
+///    A 128-bit unsigned [16 x i8] vector.
+/// \param __b
+///    A 128-bit unsigned [16 x i8] vector.
+/// \returns A 128-bit unsigned [16 x i8] vector containing the saturated sums
+///    of both parameters.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_adds_epu8(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_ia32_paddusb128((__v16qi)__a, (__v16qi)__b);
 }
 
+/// \brief Adds, with saturation, the corresponding elements of two 128-bit
+///    unsigned [8 x i16] vectors, saving each sum in the corresponding element
+///    of a 128-bit result vector of [8 x i16]. Positive sums greater than FFFFh
+///    are saturated to FFFFh. Negative sums are saturated to 0000h.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPADDUSB / PADDUSB </c> instruction.
+///
+/// \param __a
+///    A 128-bit unsigned [8 x i16] vector.
+/// \param __b
+///    A 128-bit unsigned [8 x i16] vector.
+/// \returns A 128-bit unsigned [8 x i16] vector containing the saturated sums
+///    of both parameters.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_adds_epu16(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_ia32_paddusw128((__v8hi)__a, (__v8hi)__b);
 }
 
+/// \brief Computes the rounded avarages of corresponding elements of two
+///    128-bit unsigned [16 x i8] vectors, saving each result in the
+///    corresponding element of a 128-bit result vector of [16 x i8].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPAVGB / PAVGB </c> instruction.
+///
+/// \param __a
+///    A 128-bit unsigned [16 x i8] vector.
+/// \param __b
+///    A 128-bit unsigned [16 x i8] vector.
+/// \returns A 128-bit unsigned [16 x i8] vector containing the rounded
+///    averages of both parameters.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_avg_epu8(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_ia32_pavgb128((__v16qi)__a, (__v16qi)__b);
 }
 
+/// \brief Computes the rounded avarages of corresponding elements of two
+///    128-bit unsigned [8 x i16] vectors, saving each result in the
+///    corresponding element of a 128-bit result vector of [8 x i16].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPAVGW / PAVGW </c> instruction.
+///
+/// \param __a
+///    A 128-bit unsigned [8 x i16] vector.
+/// \param __b
+///    A 128-bit unsigned [8 x i16] vector.
+/// \returns A 128-bit unsigned [8 x i16] vector containing the rounded
+///    averages of both parameters.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_avg_epu16(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_ia32_pavgw128((__v8hi)__a, (__v8hi)__b);
 }
 
+/// \brief Multiplies the corresponding elements of two 128-bit signed [8 x i16]
+///    vectors, producing eight intermediate 32-bit signed integer products, and
+///    adds the consecutive pairs of 32-bit products to form a 128-bit signed
+///    [4 x i32] vector. For example, bits [15:0] of both parameters are
+///    multiplied producing a 32-bit product, bits [31:16] of both parameters
+///    are multiplied producing a 32-bit product, and the sum of those two
+///    products becomes bits [31:0] of the result.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPMADDWD / PMADDWD </c> instruction.
+///
+/// \param __a
+///    A 128-bit signed [8 x i16] vector.
+/// \param __b
+///    A 128-bit signed [8 x i16] vector.
+/// \returns A 128-bit signed [4 x i32] vector containing the sums of products
+///    of both parameters.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_madd_epi16(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_ia32_pmaddwd128((__v8hi)__a, (__v8hi)__b);
 }
 
+/// \brief Compares corresponding elements of two 128-bit signed [8 x i16]
+///    vectors, saving the greater value from each comparison in the
+///    corresponding element of a 128-bit result vector of [8 x i16].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPMAXSW / PMAXSW </c> instruction.
+///
+/// \param __a
+///    A 128-bit signed [8 x i16] vector.
+/// \param __b
+///    A 128-bit signed [8 x i16] vector.
+/// \returns A 128-bit signed [8 x i16] vector containing the greater value of
+///    each comparison.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_max_epi16(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_ia32_pmaxsw128((__v8hi)__a, (__v8hi)__b);
 }
 
+/// \brief Compares corresponding elements of two 128-bit unsigned [16 x i8]
+///    vectors, saving the greater value from each comparison in the
+///    corresponding element of a 128-bit result vector of [16 x i8].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPMAXUB / PMAXUB </c> instruction.
+///
+/// \param __a
+///    A 128-bit unsigned [16 x i8] vector.
+/// \param __b
+///    A 128-bit unsigned [16 x i8] vector.
+/// \returns A 128-bit unsigned [16 x i8] vector containing the greater value of
+///    each comparison.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_max_epu8(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_ia32_pmaxub128((__v16qi)__a, (__v16qi)__b);
 }
 
+/// \brief Compares corresponding elements of two 128-bit signed [8 x i16]
+///    vectors, saving the smaller value from each comparison in the
+///    corresponding element of a 128-bit result vector of [8 x i16].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPMINSW / PMINSW </c> instruction.
+///
+/// \param __a
+///    A 128-bit signed [8 x i16] vector.
+/// \param __b
+///    A 128-bit signed [8 x i16] vector.
+/// \returns A 128-bit signed [8 x i16] vector containing the smaller value of
+///    each comparison.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_min_epi16(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_ia32_pminsw128((__v8hi)__a, (__v8hi)__b);
 }
 
+/// \brief Compares corresponding elements of two 128-bit unsigned [16 x i8]
+///    vectors, saving the smaller value from each comparison in the
+///    corresponding element of a 128-bit result vector of [16 x i8].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPMINUB / PMINUB </c> instruction.
+///
+/// \param __a
+///    A 128-bit unsigned [16 x i8] vector.
+/// \param __b
+///    A 128-bit unsigned [16 x i8] vector.
+/// \returns A 128-bit unsigned [16 x i8] vector containing the smaller value of
+///    each comparison.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_min_epu8(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_ia32_pminub128((__v16qi)__a, (__v16qi)__b);
 }
 
+/// \brief Multiplies the corresponding elements of two signed [8 x i16]
+///    vectors, saving the upper 16 bits of each 32-bit product in the
+///    corresponding element of a 128-bit signed [8 x i16] result vector.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPMULHW / PMULHW </c> instruction.
+///
+/// \param __a
+///    A 128-bit signed [8 x i16] vector.
+/// \param __b
+///    A 128-bit signed [8 x i16] vector.
+/// \returns A 128-bit signed [8 x i16] vector containing the upper 16 bits of
+///    each of the eight 32-bit products.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_mulhi_epi16(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_ia32_pmulhw128((__v8hi)__a, (__v8hi)__b);
 }
 
+/// \brief Multiplies the corresponding elements of two unsigned [8 x i16]
+///    vectors, saving the upper 16 bits of each 32-bit product in the
+///    corresponding element of a 128-bit unsigned [8 x i16] result vector.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPMULHUW / PMULHUW </c> instruction.
+///
+/// \param __a
+///    A 128-bit unsigned [8 x i16] vector.
+/// \param __b
+///    A 128-bit unsigned [8 x i16] vector.
+/// \returns A 128-bit unsigned [8 x i16] vector containing the upper 16 bits
+///    of each of the eight 32-bit products.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_mulhi_epu16(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_ia32_pmulhuw128((__v8hi)__a, (__v8hi)__b);
 }
 
+/// \brief Multiplies the corresponding elements of two signed [8 x i16]
+///    vectors, saving the lower 16 bits of each 32-bit product in the
+///    corresponding element of a 128-bit signed [8 x i16] result vector.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPMULLW / PMULLW </c> instruction.
+///
+/// \param __a
+///    A 128-bit signed [8 x i16] vector.
+/// \param __b
+///    A 128-bit signed [8 x i16] vector.
+/// \returns A 128-bit signed [8 x i16] vector containing the lower 16 bits of
+///    each of the eight 32-bit products.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_mullo_epi16(__m128i __a, __m128i __b)
 {
-  return (__m128i)((__v8hi)__a * (__v8hi)__b);
+  return (__m128i)((__v8hu)__a * (__v8hu)__b);
 }
 
+/// \brief Multiplies 32-bit unsigned integer values contained in the lower bits
+///    of the two 64-bit integer vectors and returns the 64-bit unsigned
+///    product.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> PMULUDQ </c> instruction.
+///
+/// \param __a
+///    A 64-bit integer containing one of the source operands.
+/// \param __b
+///    A 64-bit integer containing one of the source operands.
+/// \returns A 64-bit integer vector containing the product of both operands.
 static __inline__ __m64 __DEFAULT_FN_ATTRS
 _mm_mul_su32(__m64 __a, __m64 __b)
 {
   return __builtin_ia32_pmuludq((__v2si)__a, (__v2si)__b);
 }
 
+/// \brief Multiplies 32-bit unsigned integer values contained in the lower
+///    bits of the corresponding elements of two [2 x i64] vectors, and returns
+///    the 64-bit products in the corresponding elements of a [2 x i64] vector.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPMULUDQ / PMULUDQ </c> instruction.
+///
+/// \param __a
+///    A [2 x i64] vector containing one of the source operands.
+/// \param __b
+///    A [2 x i64] vector containing one of the source operands.
+/// \returns A [2 x i64] vector containing the product of both operands.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_mul_epu32(__m128i __a, __m128i __b)
 {
   return __builtin_ia32_pmuludq128((__v4si)__a, (__v4si)__b);
 }
 
+/// \brief Computes the absolute differences of corresponding 8-bit integer
+///    values in two 128-bit vectors. Sums the first 8 absolute differences, and
+///    separately sums the second 8 absolute differences. Packss these two
+///    unsigned 16-bit integer sums into the upper and lower elements of a
+///    [2 x i64] vector.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSADBW / PSADBW </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing one of the source operands.
+/// \param __b
+///    A 128-bit integer vector containing one of the source operands.
+/// \returns A [2 x i64] vector containing the sums of the sets of absolute
+///    differences between both operands.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_sad_epu8(__m128i __a, __m128i __b)
 {
   return __builtin_ia32_psadbw128((__v16qi)__a, (__v16qi)__b);
 }
 
+/// \brief Subtracts the corresponding 8-bit integer values in the operands.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSUBB / PSUBB </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the minuends.
+/// \param __b
+///    A 128-bit integer vector containing the subtrahends.
+/// \returns A 128-bit integer vector containing the differences of the values
+///    in the operands.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_sub_epi8(__m128i __a, __m128i __b)
 {
-  return (__m128i)((__v16qi)__a - (__v16qi)__b);
+  return (__m128i)((__v16qu)__a - (__v16qu)__b);
 }
 
+/// \brief Subtracts the corresponding 16-bit integer values in the operands.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSUBW / PSUBW </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the minuends.
+/// \param __b
+///    A 128-bit integer vector containing the subtrahends.
+/// \returns A 128-bit integer vector containing the differences of the values
+///    in the operands.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_sub_epi16(__m128i __a, __m128i __b)
 {
-  return (__m128i)((__v8hi)__a - (__v8hi)__b);
+  return (__m128i)((__v8hu)__a - (__v8hu)__b);
 }
 
+/// \brief Subtracts the corresponding 32-bit integer values in the operands.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSUBD / PSUBD </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the minuends.
+/// \param __b
+///    A 128-bit integer vector containing the subtrahends.
+/// \returns A 128-bit integer vector containing the differences of the values
+///    in the operands.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_sub_epi32(__m128i __a, __m128i __b)
 {
-  return (__m128i)((__v4si)__a - (__v4si)__b);
+  return (__m128i)((__v4su)__a - (__v4su)__b);
 }
 
+/// \brief Subtracts signed or unsigned 64-bit integer values and writes the
+///    difference to the corresponding bits in the destination.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> PSUBQ </c> instruction.
+///
+/// \param __a
+///    A 64-bit integer vector containing the minuend.
+/// \param __b
+///    A 64-bit integer vector containing the subtrahend.
+/// \returns A 64-bit integer vector containing the difference of the values in
+///    the operands.
 static __inline__ __m64 __DEFAULT_FN_ATTRS
 _mm_sub_si64(__m64 __a, __m64 __b)
 {
-  return __a - __b;
+  return (__m64)__builtin_ia32_psubq((__v1di)__a, (__v1di)__b);
 }
 
+/// \brief Subtracts the corresponding elements of two [2 x i64] vectors.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSUBQ / PSUBQ </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the minuends.
+/// \param __b
+///    A 128-bit integer vector containing the subtrahends.
+/// \returns A 128-bit integer vector containing the differences of the values
+///    in the operands.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_sub_epi64(__m128i __a, __m128i __b)
 {
-  return __a - __b;
+  return (__m128i)((__v2du)__a - (__v2du)__b);
 }
 
+/// \brief Subtracts corresponding 8-bit signed integer values in the input and
+///    returns the differences in the corresponding bytes in the destination.
+///    Differences greater than 7Fh are saturated to 7Fh, and differences less
+///    than 80h are saturated to 80h.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSUBSB / PSUBSB </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the minuends.
+/// \param __b
+///    A 128-bit integer vector containing the subtrahends.
+/// \returns A 128-bit integer vector containing the differences of the values
+///    in the operands.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_subs_epi8(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_ia32_psubsb128((__v16qi)__a, (__v16qi)__b);
 }
 
+/// \brief Subtracts corresponding 16-bit signed integer values in the input and
+///    returns the differences in the corresponding bytes in the destination.
+///    Differences greater than 7FFFh are saturated to 7FFFh, and values less
+///    than 8000h are saturated to 8000h.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSUBSW / PSUBSW </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the minuends.
+/// \param __b
+///    A 128-bit integer vector containing the subtrahends.
+/// \returns A 128-bit integer vector containing the differences of the values
+///    in the operands.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_subs_epi16(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_ia32_psubsw128((__v8hi)__a, (__v8hi)__b);
 }
 
+/// \brief Subtracts corresponding 8-bit unsigned integer values in the input
+///    and returns the differences in the corresponding bytes in the
+///    destination. Differences less than 00h are saturated to 00h.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSUBUSB / PSUBUSB </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the minuends.
+/// \param __b
+///    A 128-bit integer vector containing the subtrahends.
+/// \returns A 128-bit integer vector containing the unsigned integer
+///    differences of the values in the operands.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_subs_epu8(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_ia32_psubusb128((__v16qi)__a, (__v16qi)__b);
 }
 
+/// \brief Subtracts corresponding 16-bit unsigned integer values in the input
+///    and returns the differences in the corresponding bytes in the
+///    destination. Differences less than 0000h are saturated to 0000h.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSUBUSW / PSUBUSW </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the minuends.
+/// \param __b
+///    A 128-bit integer vector containing the subtrahends.
+/// \returns A 128-bit integer vector containing the unsigned integer
+///    differences of the values in the operands.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_subs_epu16(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_ia32_psubusw128((__v8hi)__a, (__v8hi)__b);
 }
 
+/// \brief Performs a bitwise AND of two 128-bit integer vectors.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPAND / PAND </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing one of the source operands.
+/// \param __b
+///    A 128-bit integer vector containing one of the source operands.
+/// \returns A 128-bit integer vector containing the bitwise AND of the values
+///    in both operands.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_and_si128(__m128i __a, __m128i __b)
 {
-  return __a & __b;
+  return (__m128i)((__v2du)__a & (__v2du)__b);
 }
 
+/// \brief Performs a bitwise AND of two 128-bit integer vectors, using the
+///    one's complement of the values contained in the first source operand.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPANDN / PANDN </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector containing the left source operand. The one's complement
+///    of this value is used in the bitwise AND.
+/// \param __b
+///    A 128-bit vector containing the right source operand.
+/// \returns A 128-bit integer vector containing the bitwise AND of the one's
+///    complement of the first operand and the values in the second operand.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_andnot_si128(__m128i __a, __m128i __b)
 {
-  return ~__a & __b;
+  return (__m128i)(~(__v2du)__a & (__v2du)__b);
 }
-
+/// \brief Performs a bitwise OR of two 128-bit integer vectors.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPOR / POR </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing one of the source operands.
+/// \param __b
+///    A 128-bit integer vector containing one of the source operands.
+/// \returns A 128-bit integer vector containing the bitwise OR of the values
+///    in both operands.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_or_si128(__m128i __a, __m128i __b)
 {
-  return __a | __b;
+  return (__m128i)((__v2du)__a | (__v2du)__b);
 }
 
+/// \brief Performs a bitwise exclusive OR of two 128-bit integer vectors.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPXOR / PXOR </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing one of the source operands.
+/// \param __b
+///    A 128-bit integer vector containing one of the source operands.
+/// \returns A 128-bit integer vector containing the bitwise exclusive OR of the
+///    values in both operands.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_xor_si128(__m128i __a, __m128i __b)
 {
-  return __a ^ __b;
+  return (__m128i)((__v2du)__a ^ (__v2du)__b);
 }
 
-#define _mm_slli_si128(a, imm) __extension__ ({                         \
-  (__m128i)__builtin_shufflevector((__v16qi)_mm_setzero_si128(),        \
-                                   (__v16qi)(__m128i)(a),               \
-                                   ((imm)&0xF0) ? 0 : 16 - ((imm)&0xF), \
-                                   ((imm)&0xF0) ? 0 : 17 - ((imm)&0xF), \
-                                   ((imm)&0xF0) ? 0 : 18 - ((imm)&0xF), \
-                                   ((imm)&0xF0) ? 0 : 19 - ((imm)&0xF), \
-                                   ((imm)&0xF0) ? 0 : 20 - ((imm)&0xF), \
-                                   ((imm)&0xF0) ? 0 : 21 - ((imm)&0xF), \
-                                   ((imm)&0xF0) ? 0 : 22 - ((imm)&0xF), \
-                                   ((imm)&0xF0) ? 0 : 23 - ((imm)&0xF), \
-                                   ((imm)&0xF0) ? 0 : 24 - ((imm)&0xF), \
-                                   ((imm)&0xF0) ? 0 : 25 - ((imm)&0xF), \
-                                   ((imm)&0xF0) ? 0 : 26 - ((imm)&0xF), \
-                                   ((imm)&0xF0) ? 0 : 27 - ((imm)&0xF), \
-                                   ((imm)&0xF0) ? 0 : 28 - ((imm)&0xF), \
-                                   ((imm)&0xF0) ? 0 : 29 - ((imm)&0xF), \
-                                   ((imm)&0xF0) ? 0 : 30 - ((imm)&0xF), \
-                                   ((imm)&0xF0) ? 0 : 31 - ((imm)&0xF)); })
+/// \brief Left-shifts the 128-bit integer vector operand by the specified
+///    number of bytes. Low-order bits are cleared.
+///
+/// \headerfile <x86intrin.h>
+///
+/// \code
+/// __m128i _mm_slli_si128(__m128i a, const int imm);
+/// \endcode
+///
+/// This intrinsic corresponds to the <c> VPSLLDQ / PSLLDQ </c> instruction.
+///
+/// \param a
+///    A 128-bit integer vector containing the source operand.
+/// \param imm
+///    An immediate value specifying the number of bytes to left-shift operand
+///    \a a.
+/// \returns A 128-bit integer vector containing the left-shifted value.
+#define _mm_slli_si128(a, imm) __extension__ ({                              \
+  (__m128i)__builtin_shufflevector(                                          \
+                                 (__v16qi)_mm_setzero_si128(),               \
+                                 (__v16qi)(__m128i)(a),                      \
+                                 ((char)(imm)&0xF0) ?  0 : 16 - (char)(imm), \
+                                 ((char)(imm)&0xF0) ?  1 : 17 - (char)(imm), \
+                                 ((char)(imm)&0xF0) ?  2 : 18 - (char)(imm), \
+                                 ((char)(imm)&0xF0) ?  3 : 19 - (char)(imm), \
+                                 ((char)(imm)&0xF0) ?  4 : 20 - (char)(imm), \
+                                 ((char)(imm)&0xF0) ?  5 : 21 - (char)(imm), \
+                                 ((char)(imm)&0xF0) ?  6 : 22 - (char)(imm), \
+                                 ((char)(imm)&0xF0) ?  7 : 23 - (char)(imm), \
+                                 ((char)(imm)&0xF0) ?  8 : 24 - (char)(imm), \
+                                 ((char)(imm)&0xF0) ?  9 : 25 - (char)(imm), \
+                                 ((char)(imm)&0xF0) ? 10 : 26 - (char)(imm), \
+                                 ((char)(imm)&0xF0) ? 11 : 27 - (char)(imm), \
+                                 ((char)(imm)&0xF0) ? 12 : 28 - (char)(imm), \
+                                 ((char)(imm)&0xF0) ? 13 : 29 - (char)(imm), \
+                                 ((char)(imm)&0xF0) ? 14 : 30 - (char)(imm), \
+                                 ((char)(imm)&0xF0) ? 15 : 31 - (char)(imm)); })
 
 #define _mm_bslli_si128(a, imm) \
   _mm_slli_si128((a), (imm))
 
+/// \brief Left-shifts each 16-bit value in the 128-bit integer vector operand
+///    by the specified number of bits. Low-order bits are cleared.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSLLW / PSLLW </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the source operand.
+/// \param __count
+///    An integer value specifying the number of bits to left-shift each value
+///    in operand \a __a.
+/// \returns A 128-bit integer vector containing the left-shifted values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_slli_epi16(__m128i __a, int __count)
 {
   return (__m128i)__builtin_ia32_psllwi128((__v8hi)__a, __count);
 }
 
+/// \brief Left-shifts each 16-bit value in the 128-bit integer vector operand
+///    by the specified number of bits. Low-order bits are cleared.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSLLW / PSLLW </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the source operand.
+/// \param __count
+///    A 128-bit integer vector in which bits [63:0] specify the number of bits
+///    to left-shift each value in operand \a __a.
+/// \returns A 128-bit integer vector containing the left-shifted values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_sll_epi16(__m128i __a, __m128i __count)
 {
   return (__m128i)__builtin_ia32_psllw128((__v8hi)__a, (__v8hi)__count);
 }
 
+/// \brief Left-shifts each 32-bit value in the 128-bit integer vector operand
+///    by the specified number of bits. Low-order bits are cleared.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSLLD / PSLLD </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the source operand.
+/// \param __count
+///    An integer value specifying the number of bits to left-shift each value
+///    in operand \a __a.
+/// \returns A 128-bit integer vector containing the left-shifted values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_slli_epi32(__m128i __a, int __count)
 {
   return (__m128i)__builtin_ia32_pslldi128((__v4si)__a, __count);
 }
 
+/// \brief Left-shifts each 32-bit value in the 128-bit integer vector operand
+///    by the specified number of bits. Low-order bits are cleared.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSLLD / PSLLD </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the source operand.
+/// \param __count
+///    A 128-bit integer vector in which bits [63:0] specify the number of bits
+///    to left-shift each value in operand \a __a.
+/// \returns A 128-bit integer vector containing the left-shifted values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_sll_epi32(__m128i __a, __m128i __count)
 {
   return (__m128i)__builtin_ia32_pslld128((__v4si)__a, (__v4si)__count);
 }
 
+/// \brief Left-shifts each 64-bit value in the 128-bit integer vector operand
+///    by the specified number of bits. Low-order bits are cleared.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSLLQ / PSLLQ </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the source operand.
+/// \param __count
+///    An integer value specifying the number of bits to left-shift each value
+///    in operand \a __a.
+/// \returns A 128-bit integer vector containing the left-shifted values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_slli_epi64(__m128i __a, int __count)
 {
-  return __builtin_ia32_psllqi128(__a, __count);
+  return __builtin_ia32_psllqi128((__v2di)__a, __count);
 }
 
+/// \brief Left-shifts each 64-bit value in the 128-bit integer vector operand
+///    by the specified number of bits. Low-order bits are cleared.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSLLQ / PSLLQ </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the source operand.
+/// \param __count
+///    A 128-bit integer vector in which bits [63:0] specify the number of bits
+///    to left-shift each value in operand \a __a.
+/// \returns A 128-bit integer vector containing the left-shifted values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_sll_epi64(__m128i __a, __m128i __count)
 {
-  return __builtin_ia32_psllq128(__a, __count);
+  return __builtin_ia32_psllq128((__v2di)__a, (__v2di)__count);
 }
 
+/// \brief Right-shifts each 16-bit value in the 128-bit integer vector operand
+///    by the specified number of bits. High-order bits are filled with the sign
+///    bit of the initial value.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSRAW / PSRAW </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the source operand.
+/// \param __count
+///    An integer value specifying the number of bits to right-shift each value
+///    in operand \a __a.
+/// \returns A 128-bit integer vector containing the right-shifted values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_srai_epi16(__m128i __a, int __count)
 {
   return (__m128i)__builtin_ia32_psrawi128((__v8hi)__a, __count);
 }
 
+/// \brief Right-shifts each 16-bit value in the 128-bit integer vector operand
+///    by the specified number of bits. High-order bits are filled with the sign
+///    bit of the initial value.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSRAW / PSRAW </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the source operand.
+/// \param __count
+///    A 128-bit integer vector in which bits [63:0] specify the number of bits
+///    to right-shift each value in operand \a __a.
+/// \returns A 128-bit integer vector containing the right-shifted values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_sra_epi16(__m128i __a, __m128i __count)
 {
   return (__m128i)__builtin_ia32_psraw128((__v8hi)__a, (__v8hi)__count);
 }
 
+/// \brief Right-shifts each 32-bit value in the 128-bit integer vector operand
+///    by the specified number of bits. High-order bits are filled with the sign
+///    bit of the initial value.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSRAD / PSRAD </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the source operand.
+/// \param __count
+///    An integer value specifying the number of bits to right-shift each value
+///    in operand \a __a.
+/// \returns A 128-bit integer vector containing the right-shifted values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_srai_epi32(__m128i __a, int __count)
 {
   return (__m128i)__builtin_ia32_psradi128((__v4si)__a, __count);
 }
 
+/// \brief Right-shifts each 32-bit value in the 128-bit integer vector operand
+///    by the specified number of bits. High-order bits are filled with the sign
+///    bit of the initial value.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSRAD / PSRAD </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the source operand.
+/// \param __count
+///    A 128-bit integer vector in which bits [63:0] specify the number of bits
+///    to right-shift each value in operand \a __a.
+/// \returns A 128-bit integer vector containing the right-shifted values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_sra_epi32(__m128i __a, __m128i __count)
 {
   return (__m128i)__builtin_ia32_psrad128((__v4si)__a, (__v4si)__count);
 }
 
-#define _mm_srli_si128(a, imm) __extension__ ({                          \
-  (__m128i)__builtin_shufflevector((__v16qi)(__m128i)(a),                \
-                                   (__v16qi)_mm_setzero_si128(),         \
-                                   ((imm)&0xF0) ? 16 : ((imm)&0xF) + 0,  \
-                                   ((imm)&0xF0) ? 16 : ((imm)&0xF) + 1,  \
-                                   ((imm)&0xF0) ? 16 : ((imm)&0xF) + 2,  \
-                                   ((imm)&0xF0) ? 16 : ((imm)&0xF) + 3,  \
-                                   ((imm)&0xF0) ? 16 : ((imm)&0xF) + 4,  \
-                                   ((imm)&0xF0) ? 16 : ((imm)&0xF) + 5,  \
-                                   ((imm)&0xF0) ? 16 : ((imm)&0xF) + 6,  \
-                                   ((imm)&0xF0) ? 16 : ((imm)&0xF) + 7,  \
-                                   ((imm)&0xF0) ? 16 : ((imm)&0xF) + 8,  \
-                                   ((imm)&0xF0) ? 16 : ((imm)&0xF) + 9,  \
-                                   ((imm)&0xF0) ? 16 : ((imm)&0xF) + 10, \
-                                   ((imm)&0xF0) ? 16 : ((imm)&0xF) + 11, \
-                                   ((imm)&0xF0) ? 16 : ((imm)&0xF) + 12, \
-                                   ((imm)&0xF0) ? 16 : ((imm)&0xF) + 13, \
-                                   ((imm)&0xF0) ? 16 : ((imm)&0xF) + 14, \
-                                   ((imm)&0xF0) ? 16 : ((imm)&0xF) + 15); })
+/// \brief Right-shifts the 128-bit integer vector operand by the specified
+///    number of bytes. High-order bits are cleared.
+///
+/// \headerfile <x86intrin.h>
+///
+/// \code
+/// __m128i _mm_srli_si128(__m128i a, const int imm);
+/// \endcode
+///
+/// This intrinsic corresponds to the <c> VPSRLDQ / PSRLDQ </c> instruction.
+///
+/// \param a
+///    A 128-bit integer vector containing the source operand.
+/// \param imm
+///    An immediate value specifying the number of bytes to right-shift operand
+///    \a a.
+/// \returns A 128-bit integer vector containing the right-shifted value.
+#define _mm_srli_si128(a, imm) __extension__ ({                              \
+  (__m128i)__builtin_shufflevector(                                          \
+                                 (__v16qi)(__m128i)(a),                      \
+                                 (__v16qi)_mm_setzero_si128(),               \
+                                 ((char)(imm)&0xF0) ? 16 : (char)(imm) + 0,  \
+                                 ((char)(imm)&0xF0) ? 17 : (char)(imm) + 1,  \
+                                 ((char)(imm)&0xF0) ? 18 : (char)(imm) + 2,  \
+                                 ((char)(imm)&0xF0) ? 19 : (char)(imm) + 3,  \
+                                 ((char)(imm)&0xF0) ? 20 : (char)(imm) + 4,  \
+                                 ((char)(imm)&0xF0) ? 21 : (char)(imm) + 5,  \
+                                 ((char)(imm)&0xF0) ? 22 : (char)(imm) + 6,  \
+                                 ((char)(imm)&0xF0) ? 23 : (char)(imm) + 7,  \
+                                 ((char)(imm)&0xF0) ? 24 : (char)(imm) + 8,  \
+                                 ((char)(imm)&0xF0) ? 25 : (char)(imm) + 9,  \
+                                 ((char)(imm)&0xF0) ? 26 : (char)(imm) + 10, \
+                                 ((char)(imm)&0xF0) ? 27 : (char)(imm) + 11, \
+                                 ((char)(imm)&0xF0) ? 28 : (char)(imm) + 12, \
+                                 ((char)(imm)&0xF0) ? 29 : (char)(imm) + 13, \
+                                 ((char)(imm)&0xF0) ? 30 : (char)(imm) + 14, \
+                                 ((char)(imm)&0xF0) ? 31 : (char)(imm) + 15); })
 
 #define _mm_bsrli_si128(a, imm) \
   _mm_srli_si128((a), (imm))
 
+/// \brief Right-shifts each of 16-bit values in the 128-bit integer vector
+///    operand by the specified number of bits. High-order bits are cleared.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSRLW / PSRLW </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the source operand.
+/// \param __count
+///    An integer value specifying the number of bits to right-shift each value
+///    in operand \a __a.
+/// \returns A 128-bit integer vector containing the right-shifted values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_srli_epi16(__m128i __a, int __count)
 {
   return (__m128i)__builtin_ia32_psrlwi128((__v8hi)__a, __count);
 }
 
+/// \brief Right-shifts each of 16-bit values in the 128-bit integer vector
+///    operand by the specified number of bits. High-order bits are cleared.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSRLW / PSRLW </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the source operand.
+/// \param __count
+///    A 128-bit integer vector in which bits [63:0] specify the number of bits
+///    to right-shift each value in operand \a __a.
+/// \returns A 128-bit integer vector containing the right-shifted values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_srl_epi16(__m128i __a, __m128i __count)
 {
   return (__m128i)__builtin_ia32_psrlw128((__v8hi)__a, (__v8hi)__count);
 }
 
+/// \brief Right-shifts each of 32-bit values in the 128-bit integer vector
+///    operand by the specified number of bits. High-order bits are cleared.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSRLD / PSRLD </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the source operand.
+/// \param __count
+///    An integer value specifying the number of bits to right-shift each value
+///    in operand \a __a.
+/// \returns A 128-bit integer vector containing the right-shifted values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_srli_epi32(__m128i __a, int __count)
 {
   return (__m128i)__builtin_ia32_psrldi128((__v4si)__a, __count);
 }
 
+/// \brief Right-shifts each of 32-bit values in the 128-bit integer vector
+///    operand by the specified number of bits. High-order bits are cleared.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSRLD / PSRLD </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the source operand.
+/// \param __count
+///    A 128-bit integer vector in which bits [63:0] specify the number of bits
+///    to right-shift each value in operand \a __a.
+/// \returns A 128-bit integer vector containing the right-shifted values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_srl_epi32(__m128i __a, __m128i __count)
 {
   return (__m128i)__builtin_ia32_psrld128((__v4si)__a, (__v4si)__count);
 }
 
+/// \brief Right-shifts each of 64-bit values in the 128-bit integer vector
+///    operand by the specified number of bits. High-order bits are cleared.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSRLQ / PSRLQ </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the source operand.
+/// \param __count
+///    An integer value specifying the number of bits to right-shift each value
+///    in operand \a __a.
+/// \returns A 128-bit integer vector containing the right-shifted values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_srli_epi64(__m128i __a, int __count)
 {
-  return __builtin_ia32_psrlqi128(__a, __count);
+  return __builtin_ia32_psrlqi128((__v2di)__a, __count);
 }
 
+/// \brief Right-shifts each of 64-bit values in the 128-bit integer vector
+///    operand by the specified number of bits. High-order bits are cleared.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPSRLQ / PSRLQ </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the source operand.
+/// \param __count
+///    A 128-bit integer vector in which bits [63:0] specify the number of bits
+///    to right-shift each value in operand \a __a.
+/// \returns A 128-bit integer vector containing the right-shifted values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_srl_epi64(__m128i __a, __m128i __count)
 {
-  return __builtin_ia32_psrlq128(__a, __count);
+  return __builtin_ia32_psrlq128((__v2di)__a, (__v2di)__count);
 }
 
+/// \brief Compares each of the corresponding 8-bit values of the 128-bit
+///    integer vectors for equality. Each comparison yields 0h for false, FFh
+///    for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPCMPEQB / PCMPEQB </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector.
+/// \param __b
+///    A 128-bit integer vector.
+/// \returns A 128-bit integer vector containing the comparison results.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_cmpeq_epi8(__m128i __a, __m128i __b)
 {
   return (__m128i)((__v16qi)__a == (__v16qi)__b);
 }
 
+/// \brief Compares each of the corresponding 16-bit values of the 128-bit
+///    integer vectors for equality. Each comparison yields 0h for false, FFFFh
+///    for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPCMPEQW / PCMPEQW </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector.
+/// \param __b
+///    A 128-bit integer vector.
+/// \returns A 128-bit integer vector containing the comparison results.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_cmpeq_epi16(__m128i __a, __m128i __b)
 {
   return (__m128i)((__v8hi)__a == (__v8hi)__b);
 }
 
+/// \brief Compares each of the corresponding 32-bit values of the 128-bit
+///    integer vectors for equality. Each comparison yields 0h for false,
+///    FFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPCMPEQD / PCMPEQD </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector.
+/// \param __b
+///    A 128-bit integer vector.
+/// \returns A 128-bit integer vector containing the comparison results.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_cmpeq_epi32(__m128i __a, __m128i __b)
 {
   return (__m128i)((__v4si)__a == (__v4si)__b);
 }
 
+/// \brief Compares each of the corresponding signed 8-bit values of the 128-bit
+///    integer vectors to determine if the values in the first operand are
+///    greater than those in the second operand. Each comparison yields 0h for
+///    false, FFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPCMPGTB / PCMPGTB </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector.
+/// \param __b
+///    A 128-bit integer vector.
+/// \returns A 128-bit integer vector containing the comparison results.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_cmpgt_epi8(__m128i __a, __m128i __b)
 {
   /* This function always performs a signed comparison, but __v16qi is a char
-     which may be signed or unsigned. */
-  typedef signed char __v16qs __attribute__((__vector_size__(16)));
+     which may be signed or unsigned, so use __v16qs. */
   return (__m128i)((__v16qs)__a > (__v16qs)__b);
 }
 
+/// \brief Compares each of the corresponding signed 16-bit values of the
+///    128-bit integer vectors to determine if the values in the first operand
+///    are greater than those in the second operand. Each comparison yields 0h
+///    for false, FFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPCMPGTW / PCMPGTW </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector.
+/// \param __b
+///    A 128-bit integer vector.
+/// \returns A 128-bit integer vector containing the comparison results.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_cmpgt_epi16(__m128i __a, __m128i __b)
 {
   return (__m128i)((__v8hi)__a > (__v8hi)__b);
 }
 
+/// \brief Compares each of the corresponding signed 32-bit values of the
+///    128-bit integer vectors to determine if the values in the first operand
+///    are greater than those in the second operand. Each comparison yields 0h
+///    for false, FFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPCMPGTD / PCMPGTD </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector.
+/// \param __b
+///    A 128-bit integer vector.
+/// \returns A 128-bit integer vector containing the comparison results.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_cmpgt_epi32(__m128i __a, __m128i __b)
 {
   return (__m128i)((__v4si)__a > (__v4si)__b);
 }
 
+/// \brief Compares each of the corresponding signed 8-bit values of the 128-bit
+///    integer vectors to determine if the values in the first operand are less
+///    than those in the second operand. Each comparison yields 0h for false,
+///    FFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPCMPGTB / PCMPGTB </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector.
+/// \param __b
+///    A 128-bit integer vector.
+/// \returns A 128-bit integer vector containing the comparison results.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_cmplt_epi8(__m128i __a, __m128i __b)
 {
   return _mm_cmpgt_epi8(__b, __a);
 }
 
+/// \brief Compares each of the corresponding signed 16-bit values of the
+///    128-bit integer vectors to determine if the values in the first operand
+///    are less than those in the second operand. Each comparison yields 0h for
+///    false, FFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPCMPGTW / PCMPGTW </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector.
+/// \param __b
+///    A 128-bit integer vector.
+/// \returns A 128-bit integer vector containing the comparison results.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_cmplt_epi16(__m128i __a, __m128i __b)
 {
   return _mm_cmpgt_epi16(__b, __a);
 }
 
+/// \brief Compares each of the corresponding signed 32-bit values of the
+///    128-bit integer vectors to determine if the values in the first operand
+///    are less than those in the second operand. Each comparison yields 0h for
+///    false, FFFFFFFFh for true.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPCMPGTD / PCMPGTD </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector.
+/// \param __b
+///    A 128-bit integer vector.
+/// \returns A 128-bit integer vector containing the comparison results.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_cmplt_epi32(__m128i __a, __m128i __b)
 {
@@ -1028,6 +3205,23 @@ _mm_cmplt_epi32(__m128i __a, __m128i __b)
 }
 
 #ifdef __x86_64__
+/// \brief Converts a 64-bit signed integer value from the second operand into a
+///    double-precision value and returns it in the lower element of a [2 x
+///    double] vector; the upper element of the returned vector is copied from
+///    the upper element of the first operand.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCVTSI2SD / CVTSI2SD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The upper 64 bits of this operand are
+///    copied to the upper 64 bits of the destination.
+/// \param __b
+///    A 64-bit signed integer operand containing the value to be converted.
+/// \returns A 128-bit vector of [2 x double] whose lower 64 bits contain the
+///    converted value of the second operand. The upper 64 bits are copied from
+///    the upper 64 bits of the first operand.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_cvtsi64_sd(__m128d __a, long long __b)
 {
@@ -1035,37 +3229,100 @@ _mm_cvtsi64_sd(__m128d __a, long long __b)
   return __a;
 }
 
+/// \brief Converts the first (lower) element of a vector of [2 x double] into a
+///    64-bit signed integer value, according to the current rounding mode.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCVTSD2SI / CVTSD2SI </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower 64 bits are used in the
+///    conversion.
+/// \returns A 64-bit signed integer containing the converted value.
 static __inline__ long long __DEFAULT_FN_ATTRS
 _mm_cvtsd_si64(__m128d __a)
 {
-  return __builtin_ia32_cvtsd2si64(__a);
+  return __builtin_ia32_cvtsd2si64((__v2df)__a);
 }
 
+/// \brief Converts the first (lower) element of a vector of [2 x double] into a
+///    64-bit signed integer value, truncating the result when it is inexact.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCVTTSD2SI / CVTTSD2SI </c>
+///   instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. The lower 64 bits are used in the
+///    conversion.
+/// \returns A 64-bit signed integer containing the converted value.
 static __inline__ long long __DEFAULT_FN_ATTRS
 _mm_cvttsd_si64(__m128d __a)
 {
-  return __a[0];
+  return __builtin_ia32_cvttsd2si64((__v2df)__a);
 }
 #endif
 
+/// \brief Converts a vector of [4 x i32] into a vector of [4 x float].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCVTDQ2PS / CVTDQ2PS </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector.
+/// \returns A 128-bit vector of [4 x float] containing the converted values.
 static __inline__ __m128 __DEFAULT_FN_ATTRS
 _mm_cvtepi32_ps(__m128i __a)
 {
   return __builtin_ia32_cvtdq2ps((__v4si)__a);
 }
 
+/// \brief Converts a vector of [4 x float] into a vector of [4 x i32].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCVTPS2DQ / CVTPS2DQ </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [4 x float].
+/// \returns A 128-bit integer vector of [4 x i32] containing the converted
+///    values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_cvtps_epi32(__m128 __a)
 {
-  return (__m128i)__builtin_ia32_cvtps2dq(__a);
+  return (__m128i)__builtin_ia32_cvtps2dq((__v4sf)__a);
 }
 
+/// \brief Converts a vector of [4 x float] into a vector of [4 x i32],
+///    truncating the result when it is inexact.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VCVTTPS2DQ / CVTTPS2DQ </c>
+///   instruction.
+///
+/// \param __a
+///    A 128-bit vector of [4 x float].
+/// \returns A 128-bit vector of [4 x i32] containing the converted values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_cvttps_epi32(__m128 __a)
 {
-  return (__m128i)__builtin_ia32_cvttps2dq(__a);
+  return (__m128i)__builtin_ia32_cvttps2dq((__v4sf)__a);
 }
 
+/// \brief Returns a vector of [4 x i32] where the lowest element is the input
+///    operand and the remaining elements are zero.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVD / MOVD </c> instruction.
+///
+/// \param __a
+///    A 32-bit signed integer operand.
+/// \returns A 128-bit vector of [4 x i32].
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_cvtsi32_si128(int __a)
 {
@@ -1073,6 +3330,16 @@ _mm_cvtsi32_si128(int __a)
 }
 
 #ifdef __x86_64__
+/// \brief Returns a vector of [2 x i64] where the lower element is the input
+///    operand and the upper element is zero.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVQ / MOVQ </c> instruction.
+///
+/// \param __a
+///    A 64-bit signed integer operand containing the value to be converted.
+/// \returns A 128-bit vector of [2 x i64] containing the converted value.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_cvtsi64_si128(long long __a)
 {
@@ -1080,6 +3347,17 @@ _mm_cvtsi64_si128(long long __a)
 }
 #endif
 
+/// \brief Moves the least significant 32 bits of a vector of [4 x i32] to a
+///    32-bit signed integer value.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVD / MOVD </c> instruction.
+///
+/// \param __a
+///    A vector of [4 x i32]. The least significant 32 bits are moved to the
+///    destination.
+/// \returns A 32-bit signed integer containing the moved value.
 static __inline__ int __DEFAULT_FN_ATTRS
 _mm_cvtsi128_si32(__m128i __a)
 {
@@ -1088,6 +3366,17 @@ _mm_cvtsi128_si32(__m128i __a)
 }
 
 #ifdef __x86_64__
+/// \brief Moves the least significant 64 bits of a vector of [2 x i64] to a
+///    64-bit signed integer value.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVQ / MOVQ </c> instruction.
+///
+/// \param __a
+///    A vector of [2 x i64]. The least significant 64 bits are moved to the
+///    destination.
+/// \returns A 64-bit signed integer containing the moved value.
 static __inline__ long long __DEFAULT_FN_ATTRS
 _mm_cvtsi128_si64(__m128i __a)
 {
@@ -1095,12 +3384,32 @@ _mm_cvtsi128_si64(__m128i __a)
 }
 #endif
 
+/// \brief Moves packed integer values from an aligned 128-bit memory location
+///    to elements in a 128-bit integer vector.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVDQA / MOVDQA </c> instruction.
+///
+/// \param __p
+///    An aligned pointer to a memory location containing integer values.
+/// \returns A 128-bit integer vector containing the moved values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_load_si128(__m128i const *__p)
 {
   return *__p;
 }
 
+/// \brief Moves packed integer values from an unaligned 128-bit memory location
+///    to elements in a 128-bit integer vector.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVDQU / MOVDQU </c> instruction.
+///
+/// \param __p
+///    A pointer to a memory location containing integer values.
+/// \returns A 128-bit integer vector containing the moved values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_loadu_si128(__m128i const *__p)
 {
@@ -1110,6 +3419,18 @@ _mm_loadu_si128(__m128i const *__p)
   return ((struct __loadu_si128*)__p)->__v;
 }
 
+/// \brief Returns a vector of [2 x i64] where the lower element is taken from
+///    the lower element of the operand, and the upper element is zero.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVQ / MOVQ </c> instruction.
+///
+/// \param __p
+///    A 128-bit vector of [2 x i64]. Bits [63:0] are written to bits [63:0] of
+///    the destination.
+/// \returns A 128-bit vector of [2 x i64]. The lower order bits contain the
+///    moved value. The higher order bits are cleared.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_loadl_epi64(__m128i const *__p)
 {
@@ -1119,114 +3440,488 @@ _mm_loadl_epi64(__m128i const *__p)
   return (__m128i) { ((struct __mm_loadl_epi64_struct*)__p)->__u, 0};
 }
 
+/// \brief Generates a 128-bit vector of [4 x i32] with unspecified content.
+///    This could be used as an argument to another intrinsic function where the
+///    argument is required but the value is not actually used.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic has no corresponding instruction.
+///
+/// \returns A 128-bit vector of [4 x i32] with unspecified content.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
-_mm_set_epi64x(long long q1, long long q0)
+_mm_undefined_si128(void)
 {
-  return (__m128i){ q0, q1 };
+  return (__m128i)__builtin_ia32_undef128();
 }
 
+/// \brief Initializes both 64-bit values in a 128-bit vector of [2 x i64] with
+///    the specified 64-bit integer values.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic is a utility function and does not correspond to a specific
+///    instruction.
+///
+/// \param __q1
+///    A 64-bit integer value used to initialize the upper 64 bits of the
+///    destination vector of [2 x i64].
+/// \param __q0
+///    A 64-bit integer value used to initialize the lower 64 bits of the
+///    destination vector of [2 x i64].
+/// \returns An initialized 128-bit vector of [2 x i64] containing the values
+///    provided in the operands.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
-_mm_set_epi64(__m64 q1, __m64 q0)
+_mm_set_epi64x(long long __q1, long long __q0)
 {
-  return (__m128i){ (long long)q0, (long long)q1 };
+  return (__m128i){ __q0, __q1 };
 }
 
+/// \brief Initializes both 64-bit values in a 128-bit vector of [2 x i64] with
+///    the specified 64-bit integer values.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic is a utility function and does not correspond to a specific
+///    instruction.
+///
+/// \param __q1
+///    A 64-bit integer value used to initialize the upper 64 bits of the
+///    destination vector of [2 x i64].
+/// \param __q0
+///    A 64-bit integer value used to initialize the lower 64 bits of the
+///    destination vector of [2 x i64].
+/// \returns An initialized 128-bit vector of [2 x i64] containing the values
+///    provided in the operands.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
-_mm_set_epi32(int i3, int i2, int i1, int i0)
+_mm_set_epi64(__m64 __q1, __m64 __q0)
 {
-  return (__m128i)(__v4si){ i0, i1, i2, i3};
+  return (__m128i){ (long long)__q0, (long long)__q1 };
 }
 
+/// \brief Initializes the 32-bit values in a 128-bit vector of [4 x i32] with
+///    the specified 32-bit integer values.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic is a utility function and does not correspond to a specific
+///    instruction.
+///
+/// \param __i3
+///    A 32-bit integer value used to initialize bits [127:96] of the
+///    destination vector.
+/// \param __i2
+///    A 32-bit integer value used to initialize bits [95:64] of the destination
+///    vector.
+/// \param __i1
+///    A 32-bit integer value used to initialize bits [63:32] of the destination
+///    vector.
+/// \param __i0
+///    A 32-bit integer value used to initialize bits [31:0] of the destination
+///    vector.
+/// \returns An initialized 128-bit vector of [4 x i32] containing the values
+///    provided in the operands.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
-_mm_set_epi16(short w7, short w6, short w5, short w4, short w3, short w2, short w1, short w0)
+_mm_set_epi32(int __i3, int __i2, int __i1, int __i0)
 {
-  return (__m128i)(__v8hi){ w0, w1, w2, w3, w4, w5, w6, w7 };
+  return (__m128i)(__v4si){ __i0, __i1, __i2, __i3};
 }
 
+/// \brief Initializes the 16-bit values in a 128-bit vector of [8 x i16] with
+///    the specified 16-bit integer values.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic is a utility function and does not correspond to a specific
+///    instruction.
+///
+/// \param __w7
+///    A 16-bit integer value used to initialize bits [127:112] of the
+///    destination vector.
+/// \param __w6
+///    A 16-bit integer value used to initialize bits [111:96] of the
+///    destination vector.
+/// \param __w5
+///    A 16-bit integer value used to initialize bits [95:80] of the destination
+///    vector.
+/// \param __w4
+///    A 16-bit integer value used to initialize bits [79:64] of the destination
+///    vector.
+/// \param __w3
+///    A 16-bit integer value used to initialize bits [63:48] of the destination
+///    vector.
+/// \param __w2
+///    A 16-bit integer value used to initialize bits [47:32] of the destination
+///    vector.
+/// \param __w1
+///    A 16-bit integer value used to initialize bits [31:16] of the destination
+///    vector.
+/// \param __w0
+///    A 16-bit integer value used to initialize bits [15:0] of the destination
+///    vector.
+/// \returns An initialized 128-bit vector of [8 x i16] containing the values
+///    provided in the operands.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
-_mm_set_epi8(char b15, char b14, char b13, char b12, char b11, char b10, char b9, char b8, char b7, char b6, char b5, char b4, char b3, char b2, char b1, char b0)
+_mm_set_epi16(short __w7, short __w6, short __w5, short __w4, short __w3, short __w2, short __w1, short __w0)
 {
-  return (__m128i)(__v16qi){ b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15 };
+  return (__m128i)(__v8hi){ __w0, __w1, __w2, __w3, __w4, __w5, __w6, __w7 };
 }
 
+/// \brief Initializes the 8-bit values in a 128-bit vector of [16 x i8] with
+///    the specified 8-bit integer values.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic is a utility function and does not correspond to a specific
+///    instruction.
+///
+/// \param __b15
+///    Initializes bits [127:120] of the destination vector.
+/// \param __b14
+///    Initializes bits [119:112] of the destination vector.
+/// \param __b13
+///    Initializes bits [111:104] of the destination vector.
+/// \param __b12
+///    Initializes bits [103:96] of the destination vector.
+/// \param __b11
+///    Initializes bits [95:88] of the destination vector.
+/// \param __b10
+///    Initializes bits [87:80] of the destination vector.
+/// \param __b9
+///    Initializes bits [79:72] of the destination vector.
+/// \param __b8
+///    Initializes bits [71:64] of the destination vector.
+/// \param __b7
+///    Initializes bits [63:56] of the destination vector.
+/// \param __b6
+///    Initializes bits [55:48] of the destination vector.
+/// \param __b5
+///    Initializes bits [47:40] of the destination vector.
+/// \param __b4
+///    Initializes bits [39:32] of the destination vector.
+/// \param __b3
+///    Initializes bits [31:24] of the destination vector.
+/// \param __b2
+///    Initializes bits [23:16] of the destination vector.
+/// \param __b1
+///    Initializes bits [15:8] of the destination vector.
+/// \param __b0
+///    Initializes bits [7:0] of the destination vector.
+/// \returns An initialized 128-bit vector of [16 x i8] containing the values
+///    provided in the operands.
+static __inline__ __m128i __DEFAULT_FN_ATTRS
+_mm_set_epi8(char __b15, char __b14, char __b13, char __b12, char __b11, char __b10, char __b9, char __b8, char __b7, char __b6, char __b5, char __b4, char __b3, char __b2, char __b1, char __b0)
+{
+  return (__m128i)(__v16qi){ __b0, __b1, __b2, __b3, __b4, __b5, __b6, __b7, __b8, __b9, __b10, __b11, __b12, __b13, __b14, __b15 };
+}
+
+/// \brief Initializes both values in a 128-bit integer vector with the
+///    specified 64-bit integer value.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic is a utility function and does not correspond to a specific
+///    instruction.
+///
+/// \param __q
+///    Integer value used to initialize the elements of the destination integer
+///    vector.
+/// \returns An initialized 128-bit integer vector of [2 x i64] with both
+///    elements containing the value provided in the operand.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_set1_epi64x(long long __q)
 {
   return (__m128i){ __q, __q };
 }
 
+/// \brief Initializes both values in a 128-bit vector of [2 x i64] with the
+///    specified 64-bit value.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic is a utility function and does not correspond to a specific
+///    instruction.
+///
+/// \param __q
+///    A 64-bit value used to initialize the elements of the destination integer
+///    vector.
+/// \returns An initialized 128-bit vector of [2 x i64] with all elements
+///    containing the value provided in the operand.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_set1_epi64(__m64 __q)
 {
   return (__m128i){ (long long)__q, (long long)__q };
 }
 
+/// \brief Initializes all values in a 128-bit vector of [4 x i32] with the
+///    specified 32-bit value.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic is a utility function and does not correspond to a specific
+///    instruction.
+///
+/// \param __i
+///    A 32-bit value used to initialize the elements of the destination integer
+///    vector.
+/// \returns An initialized 128-bit vector of [4 x i32] with all elements
+///    containing the value provided in the operand.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_set1_epi32(int __i)
 {
   return (__m128i)(__v4si){ __i, __i, __i, __i };
 }
 
+/// \brief Initializes all values in a 128-bit vector of [8 x i16] with the
+///    specified 16-bit value.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic is a utility function and does not correspond to a specific
+///    instruction.
+///
+/// \param __w
+///    A 16-bit value used to initialize the elements of the destination integer
+///    vector.
+/// \returns An initialized 128-bit vector of [8 x i16] with all elements
+///    containing the value provided in the operand.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_set1_epi16(short __w)
 {
   return (__m128i)(__v8hi){ __w, __w, __w, __w, __w, __w, __w, __w };
 }
 
+/// \brief Initializes all values in a 128-bit vector of [16 x i8] with the
+///    specified 8-bit value.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic is a utility function and does not correspond to a specific
+///    instruction.
+///
+/// \param __b
+///    An 8-bit value used to initialize the elements of the destination integer
+///    vector.
+/// \returns An initialized 128-bit vector of [16 x i8] with all elements
+///    containing the value provided in the operand.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_set1_epi8(char __b)
 {
   return (__m128i)(__v16qi){ __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b, __b };
 }
 
+/// \brief Constructs a 128-bit integer vector, initialized in reverse order
+///     with the specified 64-bit integral values.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPUNPCKLQDQ / PUNPCKLQDQ </c>
+///   instruction.
+///
+/// \param __q0
+///    A 64-bit integral value used to initialize the lower 64 bits of the
+///    result.
+/// \param __q1
+///    A 64-bit integral value used to initialize the upper 64 bits of the
+///    result.
+/// \returns An initialized 128-bit integer vector.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
-_mm_setr_epi64(__m64 q0, __m64 q1)
+_mm_setr_epi64(__m64 __q0, __m64 __q1)
 {
-  return (__m128i){ (long long)q0, (long long)q1 };
+  return (__m128i){ (long long)__q0, (long long)__q1 };
 }
 
+/// \brief Constructs a 128-bit integer vector, initialized in reverse order
+///     with the specified 32-bit integral values.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic is a utility function and does not correspond to a specific
+///    instruction.
+///
+/// \param __i0
+///    A 32-bit integral value used to initialize bits [31:0] of the result.
+/// \param __i1
+///    A 32-bit integral value used to initialize bits [63:32] of the result.
+/// \param __i2
+///    A 32-bit integral value used to initialize bits [95:64] of the result.
+/// \param __i3
+///    A 32-bit integral value used to initialize bits [127:96] of the result.
+/// \returns An initialized 128-bit integer vector.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
-_mm_setr_epi32(int i0, int i1, int i2, int i3)
+_mm_setr_epi32(int __i0, int __i1, int __i2, int __i3)
 {
-  return (__m128i)(__v4si){ i0, i1, i2, i3};
+  return (__m128i)(__v4si){ __i0, __i1, __i2, __i3};
 }
 
+/// \brief Constructs a 128-bit integer vector, initialized in reverse order
+///     with the specified 16-bit integral values.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic is a utility function and does not correspond to a specific
+///    instruction.
+///
+/// \param __w0
+///    A 16-bit integral value used to initialize bits [15:0] of the result.
+/// \param __w1
+///    A 16-bit integral value used to initialize bits [31:16] of the result.
+/// \param __w2
+///    A 16-bit integral value used to initialize bits [47:32] of the result.
+/// \param __w3
+///    A 16-bit integral value used to initialize bits [63:48] of the result.
+/// \param __w4
+///    A 16-bit integral value used to initialize bits [79:64] of the result.
+/// \param __w5
+///    A 16-bit integral value used to initialize bits [95:80] of the result.
+/// \param __w6
+///    A 16-bit integral value used to initialize bits [111:96] of the result.
+/// \param __w7
+///    A 16-bit integral value used to initialize bits [127:112] of the result.
+/// \returns An initialized 128-bit integer vector.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
-_mm_setr_epi16(short w0, short w1, short w2, short w3, short w4, short w5, short w6, short w7)
+_mm_setr_epi16(short __w0, short __w1, short __w2, short __w3, short __w4, short __w5, short __w6, short __w7)
 {
-  return (__m128i)(__v8hi){ w0, w1, w2, w3, w4, w5, w6, w7 };
+  return (__m128i)(__v8hi){ __w0, __w1, __w2, __w3, __w4, __w5, __w6, __w7 };
 }
 
+/// \brief Constructs a 128-bit integer vector, initialized in reverse order
+///     with the specified 8-bit integral values.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic is a utility function and does not correspond to a specific
+///    instruction.
+///
+/// \param __b0
+///    An 8-bit integral value used to initialize bits [7:0] of the result.
+/// \param __b1
+///    An 8-bit integral value used to initialize bits [15:8] of the result.
+/// \param __b2
+///    An 8-bit integral value used to initialize bits [23:16] of the result.
+/// \param __b3
+///    An 8-bit integral value used to initialize bits [31:24] of the result.
+/// \param __b4
+///    An 8-bit integral value used to initialize bits [39:32] of the result.
+/// \param __b5
+///    An 8-bit integral value used to initialize bits [47:40] of the result.
+/// \param __b6
+///    An 8-bit integral value used to initialize bits [55:48] of the result.
+/// \param __b7
+///    An 8-bit integral value used to initialize bits [63:56] of the result.
+/// \param __b8
+///    An 8-bit integral value used to initialize bits [71:64] of the result.
+/// \param __b9
+///    An 8-bit integral value used to initialize bits [79:72] of the result.
+/// \param __b10
+///    An 8-bit integral value used to initialize bits [87:80] of the result.
+/// \param __b11
+///    An 8-bit integral value used to initialize bits [95:88] of the result.
+/// \param __b12
+///    An 8-bit integral value used to initialize bits [103:96] of the result.
+/// \param __b13
+///    An 8-bit integral value used to initialize bits [111:104] of the result.
+/// \param __b14
+///    An 8-bit integral value used to initialize bits [119:112] of the result.
+/// \param __b15
+///    An 8-bit integral value used to initialize bits [127:120] of the result.
+/// \returns An initialized 128-bit integer vector.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
-_mm_setr_epi8(char b0, char b1, char b2, char b3, char b4, char b5, char b6, char b7, char b8, char b9, char b10, char b11, char b12, char b13, char b14, char b15)
+_mm_setr_epi8(char __b0, char __b1, char __b2, char __b3, char __b4, char __b5, char __b6, char __b7, char __b8, char __b9, char __b10, char __b11, char __b12, char __b13, char __b14, char __b15)
 {
-  return (__m128i)(__v16qi){ b0, b1, b2, b3, b4, b5, b6, b7, b8, b9, b10, b11, b12, b13, b14, b15 };
+  return (__m128i)(__v16qi){ __b0, __b1, __b2, __b3, __b4, __b5, __b6, __b7, __b8, __b9, __b10, __b11, __b12, __b13, __b14, __b15 };
 }
 
+/// \brief Creates a 128-bit integer vector initialized to zero.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VXORPS / XORPS </c> instruction.
+///
+/// \returns An initialized 128-bit integer vector with all elements set to
+///    zero.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_setzero_si128(void)
 {
   return (__m128i){ 0LL, 0LL };
 }
 
+/// \brief Stores a 128-bit integer vector to a memory location aligned on a
+///    128-bit boundary.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVAPS / MOVAPS </c> instruction.
+///
+/// \param __p
+///    A pointer to an aligned memory location that will receive the integer
+///    values.
+/// \param __b
+///    A 128-bit integer vector containing the values to be moved.
 static __inline__ void __DEFAULT_FN_ATTRS
 _mm_store_si128(__m128i *__p, __m128i __b)
 {
   *__p = __b;
 }
 
+/// \brief Stores a 128-bit integer vector to an unaligned memory location.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVUPS / MOVUPS </c> instruction.
+///
+/// \param __p
+///    A pointer to a memory location that will receive the integer values.
+/// \param __b
+///    A 128-bit integer vector containing the values to be moved.
 static __inline__ void __DEFAULT_FN_ATTRS
 _mm_storeu_si128(__m128i *__p, __m128i __b)
 {
-  __builtin_ia32_storedqu((char *)__p, (__v16qi)__b);
+  struct __storeu_si128 {
+    __m128i __v;
+  } __attribute__((__packed__, __may_alias__));
+  ((struct __storeu_si128*)__p)->__v = __b;
 }
 
+/// \brief Moves bytes selected by the mask from the first operand to the
+///    specified unaligned memory location. When a mask bit is 1, the
+///    corresponding byte is written, otherwise it is not written. To minimize
+///    caching, the date is flagged as non-temporal (unlikely to be used again
+///    soon). Exception and trap behavior for elements not selected for storage
+///    to memory are implementation dependent.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMASKMOVDQU / MASKMOVDQU </c>
+///   instruction.
+///
+/// \param __d
+///    A 128-bit integer vector containing the values to be moved.
+/// \param __n
+///    A 128-bit integer vector containing the mask. The most significant bit of
+///    each byte represents the mask bits.
+/// \param __p
+///    A pointer to an unaligned 128-bit memory location where the specified
+///    values are moved.
 static __inline__ void __DEFAULT_FN_ATTRS
 _mm_maskmoveu_si128(__m128i __d, __m128i __n, char *__p)
 {
   __builtin_ia32_maskmovdqu((__v16qi)__d, (__v16qi)__n, __p);
 }
 
+/// \brief Stores the lower 64 bits of a 128-bit integer vector of [2 x i64] to
+///    a memory location.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVLPS / MOVLPS </c> instruction.
+///
+/// \param __p
+///    A pointer to a 64-bit memory location that will receive the lower 64 bits
+///    of the integer vector parameter.
+/// \param __a
+///    A 128-bit integer vector of [2 x i64]. The lower 64 bits contain the
+///    value to be stored.
 static __inline__ void __DEFAULT_FN_ATTRS
 _mm_storel_epi64(__m128i *__p, __m128i __a)
 {
@@ -1236,18 +3931,54 @@ _mm_storel_epi64(__m128i *__p, __m128i __a)
   ((struct __mm_storel_epi64_struct*)__p)->__u = __a[0];
 }
 
+/// \brief Stores a 128-bit floating point vector of [2 x double] to a 128-bit
+///    aligned memory location. To minimize caching, the data is flagged as
+///    non-temporal (unlikely to be used again soon).
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVNTPS / MOVNTPS </c> instruction.
+///
+/// \param __p
+///    A pointer to the 128-bit aligned memory location used to store the value.
+/// \param __a
+///    A vector of [2 x double] containing the 64-bit values to be stored.
 static __inline__ void __DEFAULT_FN_ATTRS
 _mm_stream_pd(double *__p, __m128d __a)
 {
-  __builtin_ia32_movntpd(__p, __a);
+  __builtin_nontemporal_store((__v2df)__a, (__v2df*)__p);
 }
 
+/// \brief Stores a 128-bit integer vector to a 128-bit aligned memory location.
+///    To minimize caching, the data is flagged as non-temporal (unlikely to be
+///    used again soon).
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVNTPS / MOVNTPS </c> instruction.
+///
+/// \param __p
+///    A pointer to the 128-bit aligned memory location used to store the value.
+/// \param __a
+///    A 128-bit integer vector containing the values to be stored.
 static __inline__ void __DEFAULT_FN_ATTRS
 _mm_stream_si128(__m128i *__p, __m128i __a)
 {
-  __builtin_ia32_movntdq(__p, __a);
+  __builtin_nontemporal_store((__v2di)__a, (__v2di*)__p);
 }
 
+/// \brief Stores a 32-bit integer value in the specified memory location. To
+///    minimize caching, the data is flagged as non-temporal (unlikely to be
+///    used again soon).
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> MOVNTI </c> instruction.
+///
+/// \param __p
+///    A pointer to the 32-bit memory location used to store the value.
+/// \param __a
+///    A 32-bit integer containing the value to be stored.
 static __inline__ void __DEFAULT_FN_ATTRS
 _mm_stream_si32(int *__p, int __a)
 {
@@ -1255,6 +3986,18 @@ _mm_stream_si32(int *__p, int __a)
 }
 
 #ifdef __x86_64__
+/// \brief Stores a 64-bit integer value in the specified memory location. To
+///    minimize caching, the data is flagged as non-temporal (unlikely to be
+///    used again soon).
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> MOVNTIQ </c> instruction.
+///
+/// \param __p
+///    A pointer to the 64-bit memory location used to store the value.
+/// \param __a
+///    A 64-bit integer containing the value to be stored.
 static __inline__ void __DEFAULT_FN_ATTRS
 _mm_stream_si64(long long *__p, long long __a)
 {
@@ -1262,42 +4005,154 @@ _mm_stream_si64(long long *__p, long long __a)
 }
 #endif
 
-static __inline__ void __DEFAULT_FN_ATTRS
-_mm_clflush(void const *__p)
-{
-  __builtin_ia32_clflush(__p);
-}
+#if defined(__cplusplus)
+extern "C" {
+#endif
 
-static __inline__ void __DEFAULT_FN_ATTRS
-_mm_lfence(void)
-{
-  __builtin_ia32_lfence();
-}
+/// \brief The cache line containing \a __p is flushed and invalidated from all
+///    caches in the coherency domain.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> CLFLUSH </c> instruction.
+///
+/// \param __p
+///    A pointer to the memory location used to identify the cache line to be
+///    flushed.
+void _mm_clflush(void const *);
 
-static __inline__ void __DEFAULT_FN_ATTRS
-_mm_mfence(void)
-{
-  __builtin_ia32_mfence();
-}
+/// \brief Forces strong memory ordering (serialization) between load
+///    instructions preceding this instruction and load instructions following
+///    this instruction, ensuring the system completes all previous loads before
+///    executing subsequent loads.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> LFENCE </c> instruction.
+///
+void _mm_lfence(void);
 
+/// \brief Forces strong memory ordering (serialization) between load and store
+///    instructions preceding this instruction and load and store instructions
+///    following this instruction, ensuring that the system completes all
+///    previous memory accesses before executing subsequent memory accesses.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> MFENCE </c> instruction.
+///
+void _mm_mfence(void);
+
+#if defined(__cplusplus)
+} // extern "C"
+#endif
+
+/// \brief Converts 16-bit signed integers from both 128-bit integer vector
+///    operands into 8-bit signed integers, and packs the results into the
+///    destination. Positive values greater than 0x7F are saturated to 0x7F.
+///    Negative values less than 0x80 are saturated to 0x80.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPACKSSWB / PACKSSWB </c> instruction.
+///
+/// \param __a
+///   A 128-bit integer vector of [8 x i16]. Each 16-bit element is treated as
+///   a signed integer and is converted to a 8-bit signed integer with
+///   saturation. Values greater than 0x7F are saturated to 0x7F. Values less
+///   than 0x80 are saturated to 0x80. The converted [8 x i8] values are
+///   written to the lower 64 bits of the result.
+/// \param __b
+///   A 128-bit integer vector of [8 x i16]. Each 16-bit element is treated as
+///   a signed integer and is converted to a 8-bit signed integer with
+///   saturation. Values greater than 0x7F are saturated to 0x7F. Values less
+///   than 0x80 are saturated to 0x80. The converted [8 x i8] values are
+///   written to the higher 64 bits of the result.
+/// \returns A 128-bit vector of [16 x i8] containing the converted values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_packs_epi16(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_ia32_packsswb128((__v8hi)__a, (__v8hi)__b);
 }
 
+/// \brief Converts 32-bit signed integers from both 128-bit integer vector
+///    operands into 16-bit signed integers, and packs the results into the
+///    destination. Positive values greater than 0x7FFF are saturated to 0x7FFF.
+///    Negative values less than 0x8000 are saturated to 0x8000.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPACKSSDW / PACKSSDW </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector of [4 x i32]. Each 32-bit element is treated as
+///    a signed integer and is converted to a 16-bit signed integer with
+///    saturation. Values greater than 0x7FFF are saturated to 0x7FFF. Values
+///    less than 0x8000 are saturated to 0x8000. The converted [4 x i16] values
+///    are written to the lower 64 bits of the result.
+/// \param __b
+///    A 128-bit integer vector of [4 x i32]. Each 32-bit element is treated as
+///    a signed integer and is converted to a 16-bit signed integer with
+///    saturation. Values greater than 0x7FFF are saturated to 0x7FFF. Values
+///    less than 0x8000 are saturated to 0x8000. The converted [4 x i16] values
+///    are written to the higher 64 bits of the result.
+/// \returns A 128-bit vector of [8 x i16] containing the converted values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_packs_epi32(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_ia32_packssdw128((__v4si)__a, (__v4si)__b);
 }
 
+/// \brief Converts 16-bit signed integers from both 128-bit integer vector
+///    operands into 8-bit unsigned integers, and packs the results into the
+///    destination. Values greater than 0xFF are saturated to 0xFF. Values less
+///    than 0x00 are saturated to 0x00.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPACKUSWB / PACKUSWB </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector of [8 x i16]. Each 16-bit element is treated as
+///    a signed integer and is converted to an 8-bit unsigned integer with
+///    saturation. Values greater than 0xFF are saturated to 0xFF. Values less
+///    than 0x00 are saturated to 0x00. The converted [8 x i8] values are
+///    written to the lower 64 bits of the result.
+/// \param __b
+///    A 128-bit integer vector of [8 x i16]. Each 16-bit element is treated as
+///    a signed integer and is converted to an 8-bit unsigned integer with
+///    saturation. Values greater than 0xFF are saturated to 0xFF. Values less
+///    than 0x00 are saturated to 0x00. The converted [8 x i8] values are
+///    written to the higher 64 bits of the result.
+/// \returns A 128-bit vector of [16 x i8] containing the converted values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_packus_epi16(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_ia32_packuswb128((__v8hi)__a, (__v8hi)__b);
 }
 
+/// \brief Extracts 16 bits from a 128-bit integer vector of [8 x i16], using
+///    the immediate-value parameter as a selector.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPEXTRW / PEXTRW </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector.
+/// \param __imm
+///    An immediate value. Bits [3:0] selects values from \a __a to be assigned
+///    to bits[15:0] of the result. \n
+///    000: assign values from bits [15:0] of \a __a. \n
+///    001: assign values from bits [31:16] of \a __a. \n
+///    010: assign values from bits [47:32] of \a __a. \n
+///    011: assign values from bits [63:48] of \a __a. \n
+///    100: assign values from bits [79:64] of \a __a. \n
+///    101: assign values from bits [95:80] of \a __a. \n
+///    110: assign values from bits [111:96] of \a __a. \n
+///    111: assign values from bits [127:112] of \a __a.
+/// \returns An integer, whose lower 16 bits are selected from the 128-bit
+///    integer vector parameter and the remaining bits are assigned zeros.
 static __inline__ int __DEFAULT_FN_ATTRS
 _mm_extract_epi16(__m128i __a, int __imm)
 {
@@ -1305,6 +4160,26 @@ _mm_extract_epi16(__m128i __a, int __imm)
   return (unsigned short)__b[__imm & 7];
 }
 
+/// \brief Constructs a 128-bit integer vector by first making a copy of the
+///    128-bit integer vector parameter, and then inserting the lower 16 bits
+///    of an integer parameter into an offset specified by the immediate-value
+///    parameter.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPINSRW / PINSRW </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector of [8 x i16]. This vector is copied to the
+///    result and then one of the eight elements in the result is replaced by
+///    the lower 16 bits of \a __b.
+/// \param __b
+///    An integer. The lower 16 bits of this parameter are written to the
+///    result beginning at an offset specified by \a __imm.
+/// \param __imm
+///    An immediate value specifying the bit offset in the result at which the
+///    lower 16 bits of \a __b are written.
+/// \returns A 128-bit integer vector containing the constructed values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_insert_epi16(__m128i __a, int __b, int __imm)
 {
@@ -1313,168 +4188,604 @@ _mm_insert_epi16(__m128i __a, int __b, int __imm)
   return (__m128i)__c;
 }
 
+/// \brief Copies the values of the most significant bits from each 8-bit
+///    element in a 128-bit integer vector of [16 x i8] to create a 16-bit mask
+///    value, zero-extends the value, and writes it to the destination.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPMOVMSKB / PMOVMSKB </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector containing the values with bits to be extracted.
+/// \returns The most significant bits from each 8-bit element in \a __a,
+///    written to bits [15:0]. The other bits are assigned zeros.
 static __inline__ int __DEFAULT_FN_ATTRS
 _mm_movemask_epi8(__m128i __a)
 {
   return __builtin_ia32_pmovmskb128((__v16qi)__a);
 }
 
+/// \brief Constructs a 128-bit integer vector by shuffling four 32-bit
+///    elements of a 128-bit integer vector parameter, using the immediate-value
+///    parameter as a specifier.
+///
+/// \headerfile <x86intrin.h>
+///
+/// \code
+/// __m128i _mm_shuffle_epi32(__m128i a, const int imm);
+/// \endcode
+///
+/// This intrinsic corresponds to the <c> VPSHUFD / PSHUFD </c> instruction.
+///
+/// \param a
+///    A 128-bit integer vector containing the values to be copied.
+/// \param imm
+///    An immediate value containing an 8-bit value specifying which elements to
+///    copy from a. The destinations within the 128-bit destination are assigned
+///    values as follows: \n
+///    Bits [1:0] are used to assign values to bits [31:0] of the result. \n
+///    Bits [3:2] are used to assign values to bits [63:32] of the result. \n
+///    Bits [5:4] are used to assign values to bits [95:64] of the result. \n
+///    Bits [7:6] are used to assign values to bits [127:96] of the result. \n
+///    Bit value assignments: \n
+///    00: assign values from bits [31:0] of \a a. \n
+///    01: assign values from bits [63:32] of \a a. \n
+///    10: assign values from bits [95:64] of \a a. \n
+///    11: assign values from bits [127:96] of \a a.
+/// \returns A 128-bit integer vector containing the shuffled values.
 #define _mm_shuffle_epi32(a, imm) __extension__ ({ \
   (__m128i)__builtin_shufflevector((__v4si)(__m128i)(a), \
-                                   (__v4si)_mm_set1_epi32(0), \
-                                   (imm) & 0x3, ((imm) & 0xc) >> 2, \
-                                   ((imm) & 0x30) >> 4, ((imm) & 0xc0) >> 6); })
+                                   (__v4si)_mm_undefined_si128(), \
+                                   ((imm) >> 0) & 0x3, ((imm) >> 2) & 0x3, \
+                                   ((imm) >> 4) & 0x3, ((imm) >> 6) & 0x3); })
 
+/// \brief Constructs a 128-bit integer vector by shuffling four lower 16-bit
+///    elements of a 128-bit integer vector of [8 x i16], using the immediate
+///    value parameter as a specifier.
+///
+/// \headerfile <x86intrin.h>
+///
+/// \code
+/// __m128i _mm_shufflelo_epi16(__m128i a, const int imm);
+/// \endcode
+///
+/// This intrinsic corresponds to the <c> VPSHUFLW / PSHUFLW </c> instruction.
+///
+/// \param a
+///    A 128-bit integer vector of [8 x i16]. Bits [127:64] are copied to bits
+///    [127:64] of the result.
+/// \param imm
+///    An 8-bit immediate value specifying which elements to copy from \a a. \n
+///    Bits[1:0] are used to assign values to bits [15:0] of the result. \n
+///    Bits[3:2] are used to assign values to bits [31:16] of the result. \n
+///    Bits[5:4] are used to assign values to bits [47:32] of the result. \n
+///    Bits[7:6] are used to assign values to bits [63:48] of the result. \n
+///    Bit value assignments: \n
+///    00: assign values from bits [15:0] of \a a. \n
+///    01: assign values from bits [31:16] of \a a. \n
+///    10: assign values from bits [47:32] of \a a. \n
+///    11: assign values from bits [63:48] of \a a. \n
+/// \returns A 128-bit integer vector containing the shuffled values.
 #define _mm_shufflelo_epi16(a, imm) __extension__ ({ \
   (__m128i)__builtin_shufflevector((__v8hi)(__m128i)(a), \
-                                   (__v8hi)_mm_set1_epi16(0), \
-                                   (imm) & 0x3, ((imm) & 0xc) >> 2, \
-                                   ((imm) & 0x30) >> 4, ((imm) & 0xc0) >> 6, \
+                                   (__v8hi)_mm_undefined_si128(), \
+                                   ((imm) >> 0) & 0x3, ((imm) >> 2) & 0x3, \
+                                   ((imm) >> 4) & 0x3, ((imm) >> 6) & 0x3, \
                                    4, 5, 6, 7); })
 
+/// \brief Constructs a 128-bit integer vector by shuffling four upper 16-bit
+///    elements of a 128-bit integer vector of [8 x i16], using the immediate
+///    value parameter as a specifier.
+///
+/// \headerfile <x86intrin.h>
+///
+/// \code
+/// __m128i _mm_shufflehi_epi16(__m128i a, const int imm);
+/// \endcode
+///
+/// This intrinsic corresponds to the <c> VPSHUFHW / PSHUFHW </c> instruction.
+///
+/// \param a
+///    A 128-bit integer vector of [8 x i16]. Bits [63:0] are copied to bits
+///    [63:0] of the result.
+/// \param imm
+///    An 8-bit immediate value specifying which elements to copy from \a a. \n
+///    Bits[1:0] are used to assign values to bits [79:64] of the result. \n
+///    Bits[3:2] are used to assign values to bits [95:80] of the result. \n
+///    Bits[5:4] are used to assign values to bits [111:96] of the result. \n
+///    Bits[7:6] are used to assign values to bits [127:112] of the result. \n
+///    Bit value assignments: \n
+///    00: assign values from bits [79:64] of \a a. \n
+///    01: assign values from bits [95:80] of \a a. \n
+///    10: assign values from bits [111:96] of \a a. \n
+///    11: assign values from bits [127:112] of \a a. \n
+/// \returns A 128-bit integer vector containing the shuffled values.
 #define _mm_shufflehi_epi16(a, imm) __extension__ ({ \
   (__m128i)__builtin_shufflevector((__v8hi)(__m128i)(a), \
-                                   (__v8hi)_mm_set1_epi16(0), \
+                                   (__v8hi)_mm_undefined_si128(), \
                                    0, 1, 2, 3, \
-                                   4 + (((imm) & 0x03) >> 0), \
-                                   4 + (((imm) & 0x0c) >> 2), \
-                                   4 + (((imm) & 0x30) >> 4), \
-                                   4 + (((imm) & 0xc0) >> 6)); })
+                                   4 + (((imm) >> 0) & 0x3), \
+                                   4 + (((imm) >> 2) & 0x3), \
+                                   4 + (((imm) >> 4) & 0x3), \
+                                   4 + (((imm) >> 6) & 0x3)); })
 
+/// \brief Unpacks the high-order (index 8-15) values from two 128-bit vectors
+///    of [16 x i8] and interleaves them into a 128-bit vector of [16 x i8].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPUNPCKHBW / PUNPCKHBW </c>
+///   instruction.
+///
+/// \param __a
+///    A 128-bit vector of [16 x i8].
+///    Bits [71:64] are written to bits [7:0] of the result. \n
+///    Bits [79:72] are written to bits [23:16] of the result. \n
+///    Bits [87:80] are written to bits [39:32] of the result. \n
+///    Bits [95:88] are written to bits [55:48] of the result. \n
+///    Bits [103:96] are written to bits [71:64] of the result. \n
+///    Bits [111:104] are written to bits [87:80] of the result. \n
+///    Bits [119:112] are written to bits [103:96] of the result. \n
+///    Bits [127:120] are written to bits [119:112] of the result.
+/// \param __b
+///    A 128-bit vector of [16 x i8]. \n
+///    Bits [71:64] are written to bits [15:8] of the result. \n
+///    Bits [79:72] are written to bits [31:24] of the result. \n
+///    Bits [87:80] are written to bits [47:40] of the result. \n
+///    Bits [95:88] are written to bits [63:56] of the result. \n
+///    Bits [103:96] are written to bits [79:72] of the result. \n
+///    Bits [111:104] are written to bits [95:88] of the result. \n
+///    Bits [119:112] are written to bits [111:104] of the result. \n
+///    Bits [127:120] are written to bits [127:120] of the result.
+/// \returns A 128-bit vector of [16 x i8] containing the interleaved values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_unpackhi_epi8(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_shufflevector((__v16qi)__a, (__v16qi)__b, 8, 16+8, 9, 16+9, 10, 16+10, 11, 16+11, 12, 16+12, 13, 16+13, 14, 16+14, 15, 16+15);
 }
 
+/// \brief Unpacks the high-order (index 4-7) values from two 128-bit vectors of
+///    [8 x i16] and interleaves them into a 128-bit vector of [8 x i16].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPUNPCKHWD / PUNPCKHWD </c>
+///   instruction.
+///
+/// \param __a
+///    A 128-bit vector of [8 x i16].
+///    Bits [79:64] are written to bits [15:0] of the result. \n
+///    Bits [95:80] are written to bits [47:32] of the result. \n
+///    Bits [111:96] are written to bits [79:64] of the result. \n
+///    Bits [127:112] are written to bits [111:96] of the result.
+/// \param __b
+///    A 128-bit vector of [8 x i16].
+///    Bits [79:64] are written to bits [31:16] of the result. \n
+///    Bits [95:80] are written to bits [63:48] of the result. \n
+///    Bits [111:96] are written to bits [95:80] of the result. \n
+///    Bits [127:112] are written to bits [127:112] of the result.
+/// \returns A 128-bit vector of [8 x i16] containing the interleaved values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_unpackhi_epi16(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_shufflevector((__v8hi)__a, (__v8hi)__b, 4, 8+4, 5, 8+5, 6, 8+6, 7, 8+7);
 }
 
+/// \brief Unpacks the high-order (index 2,3) values from two 128-bit vectors of
+///    [4 x i32] and interleaves them into a 128-bit vector of [4 x i32].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPUNPCKHDQ / PUNPCKHDQ </c>
+///   instruction.
+///
+/// \param __a
+///    A 128-bit vector of [4 x i32]. \n
+///    Bits [95:64] are written to bits [31:0] of the destination. \n
+///    Bits [127:96] are written to bits [95:64] of the destination.
+/// \param __b
+///    A 128-bit vector of [4 x i32]. \n
+///    Bits [95:64] are written to bits [64:32] of the destination. \n
+///    Bits [127:96] are written to bits [127:96] of the destination.
+/// \returns A 128-bit vector of [4 x i32] containing the interleaved values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_unpackhi_epi32(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_shufflevector((__v4si)__a, (__v4si)__b, 2, 4+2, 3, 4+3);
 }
 
+/// \brief Unpacks the high-order (odd-indexed) values from two 128-bit vectors
+///    of [2 x i64] and interleaves them into a 128-bit vector of [2 x i64].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPUNPCKHQDQ / PUNPCKHQDQ </c>
+///   instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x i64]. \n
+///    Bits [127:64] are written to bits [63:0] of the destination.
+/// \param __b
+///    A 128-bit vector of [2 x i64]. \n
+///    Bits [127:64] are written to bits [127:64] of the destination.
+/// \returns A 128-bit vector of [2 x i64] containing the interleaved values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_unpackhi_epi64(__m128i __a, __m128i __b)
 {
-  return (__m128i)__builtin_shufflevector(__a, __b, 1, 2+1);
+  return (__m128i)__builtin_shufflevector((__v2di)__a, (__v2di)__b, 1, 2+1);
 }
 
+/// \brief Unpacks the low-order (index 0-7) values from two 128-bit vectors of
+///    [16 x i8] and interleaves them into a 128-bit vector of [16 x i8].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPUNPCKLBW / PUNPCKLBW </c>
+///   instruction.
+///
+/// \param __a
+///    A 128-bit vector of [16 x i8]. \n
+///    Bits [7:0] are written to bits [7:0] of the result. \n
+///    Bits [15:8] are written to bits [23:16] of the result. \n
+///    Bits [23:16] are written to bits [39:32] of the result. \n
+///    Bits [31:24] are written to bits [55:48] of the result. \n
+///    Bits [39:32] are written to bits [71:64] of the result. \n
+///    Bits [47:40] are written to bits [87:80] of the result. \n
+///    Bits [55:48] are written to bits [103:96] of the result. \n
+///    Bits [63:56] are written to bits [119:112] of the result.
+/// \param __b
+///    A 128-bit vector of [16 x i8].
+///    Bits [7:0] are written to bits [15:8] of the result. \n
+///    Bits [15:8] are written to bits [31:24] of the result. \n
+///    Bits [23:16] are written to bits [47:40] of the result. \n
+///    Bits [31:24] are written to bits [63:56] of the result. \n
+///    Bits [39:32] are written to bits [79:72] of the result. \n
+///    Bits [47:40] are written to bits [95:88] of the result. \n
+///    Bits [55:48] are written to bits [111:104] of the result. \n
+///    Bits [63:56] are written to bits [127:120] of the result.
+/// \returns A 128-bit vector of [16 x i8] containing the interleaved values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_unpacklo_epi8(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_shufflevector((__v16qi)__a, (__v16qi)__b, 0, 16+0, 1, 16+1, 2, 16+2, 3, 16+3, 4, 16+4, 5, 16+5, 6, 16+6, 7, 16+7);
 }
 
+/// \brief Unpacks the low-order (index 0-3) values from each of the two 128-bit
+///    vectors of [8 x i16] and interleaves them into a 128-bit vector of
+///    [8 x i16].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPUNPCKLWD / PUNPCKLWD </c>
+///   instruction.
+///
+/// \param __a
+///    A 128-bit vector of [8 x i16].
+///    Bits [15:0] are written to bits [15:0] of the result. \n
+///    Bits [31:16] are written to bits [47:32] of the result. \n
+///    Bits [47:32] are written to bits [79:64] of the result. \n
+///    Bits [63:48] are written to bits [111:96] of the result.
+/// \param __b
+///    A 128-bit vector of [8 x i16].
+///    Bits [15:0] are written to bits [31:16] of the result. \n
+///    Bits [31:16] are written to bits [63:48] of the result. \n
+///    Bits [47:32] are written to bits [95:80] of the result. \n
+///    Bits [63:48] are written to bits [127:112] of the result.
+/// \returns A 128-bit vector of [8 x i16] containing the interleaved values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_unpacklo_epi16(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_shufflevector((__v8hi)__a, (__v8hi)__b, 0, 8+0, 1, 8+1, 2, 8+2, 3, 8+3);
 }
 
+/// \brief Unpacks the low-order (index 0,1) values from two 128-bit vectors of
+///    [4 x i32] and interleaves them into a 128-bit vector of [4 x i32].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPUNPCKLDQ / PUNPCKLDQ </c>
+///   instruction.
+///
+/// \param __a
+///    A 128-bit vector of [4 x i32]. \n
+///    Bits [31:0] are written to bits [31:0] of the destination. \n
+///    Bits [63:32] are written to bits [95:64] of the destination.
+/// \param __b
+///    A 128-bit vector of [4 x i32]. \n
+///    Bits [31:0] are written to bits [64:32] of the destination. \n
+///    Bits [63:32] are written to bits [127:96] of the destination.
+/// \returns A 128-bit vector of [4 x i32] containing the interleaved values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_unpacklo_epi32(__m128i __a, __m128i __b)
 {
   return (__m128i)__builtin_shufflevector((__v4si)__a, (__v4si)__b, 0, 4+0, 1, 4+1);
 }
 
+/// \brief Unpacks the low-order 64-bit elements from two 128-bit vectors of
+///    [2 x i64] and interleaves them into a 128-bit vector of [2 x i64].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VPUNPCKLQDQ / PUNPCKLQDQ </c>
+///   instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x i64]. \n
+///    Bits [63:0] are written to bits [63:0] of the destination. \n
+/// \param __b
+///    A 128-bit vector of [2 x i64]. \n
+///    Bits [63:0] are written to bits [127:64] of the destination. \n
+/// \returns A 128-bit vector of [2 x i64] containing the interleaved values.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_unpacklo_epi64(__m128i __a, __m128i __b)
 {
-  return (__m128i)__builtin_shufflevector(__a, __b, 0, 2+0);
+  return (__m128i)__builtin_shufflevector((__v2di)__a, (__v2di)__b, 0, 2+0);
 }
 
+/// \brief Returns the lower 64 bits of a 128-bit integer vector as a 64-bit
+///    integer.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic has no corresponding instruction.
+///
+/// \param __a
+///    A 128-bit integer vector operand. The lower 64 bits are moved to the
+///    destination.
+/// \returns A 64-bit integer containing the lower 64 bits of the parameter.
 static __inline__ __m64 __DEFAULT_FN_ATTRS
 _mm_movepi64_pi64(__m128i __a)
 {
   return (__m64)__a[0];
 }
 
+/// \brief Moves the 64-bit operand to a 128-bit integer vector, zeroing the
+///    upper bits.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVQ / MOVQ / MOVD </c> instruction.
+///
+/// \param __a
+///    A 64-bit value.
+/// \returns A 128-bit integer vector. The lower 64 bits contain the value from
+///    the operand. The upper 64 bits are assigned zeros.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_movpi64_epi64(__m64 __a)
 {
   return (__m128i){ (long long)__a, 0 };
 }
 
+/// \brief Moves the lower 64 bits of a 128-bit integer vector to a 128-bit
+///    integer vector, zeroing the upper bits.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVQ / MOVQ </c> instruction.
+///
+/// \param __a
+///    A 128-bit integer vector operand. The lower 64 bits are moved to the
+///    destination.
+/// \returns A 128-bit integer vector. The lower 64 bits contain the value from
+///    the operand. The upper 64 bits are assigned zeros.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_move_epi64(__m128i __a)
 {
-  return __builtin_shufflevector(__a, (__m128i){ 0 }, 0, 2);
+  return __builtin_shufflevector((__v2di)__a, (__m128i){ 0 }, 0, 2);
 }
 
+/// \brief Unpacks the high-order (odd-indexed) values from two 128-bit vectors
+///    of [2 x double] and interleaves them into a 128-bit vector of [2 x
+///    double].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VUNPCKHPD / UNPCKHPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. \n
+///    Bits [127:64] are written to bits [63:0] of the destination.
+/// \param __b
+///    A 128-bit vector of [2 x double]. \n
+///    Bits [127:64] are written to bits [127:64] of the destination.
+/// \returns A 128-bit vector of [2 x double] containing the interleaved values.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_unpackhi_pd(__m128d __a, __m128d __b)
 {
-  return __builtin_shufflevector(__a, __b, 1, 2+1);
+  return __builtin_shufflevector((__v2df)__a, (__v2df)__b, 1, 2+1);
 }
 
+/// \brief Unpacks the low-order (even-indexed) values from two 128-bit vectors
+///    of [2 x double] and interleaves them into a 128-bit vector of [2 x
+///    double].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VUNPCKLPD / UNPCKLPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double]. \n
+///    Bits [63:0] are written to bits [63:0] of the destination.
+/// \param __b
+///    A 128-bit vector of [2 x double]. \n
+///    Bits [63:0] are written to bits [127:64] of the destination.
+/// \returns A 128-bit vector of [2 x double] containing the interleaved values.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_unpacklo_pd(__m128d __a, __m128d __b)
 {
-  return __builtin_shufflevector(__a, __b, 0, 2+0);
+  return __builtin_shufflevector((__v2df)__a, (__v2df)__b, 0, 2+0);
 }
 
+/// \brief Extracts the sign bits of the double-precision values in the 128-bit
+///    vector of [2 x double], zero-extends the value, and writes it to the
+///    low-order bits of the destination.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> VMOVMSKPD / MOVMSKPD </c> instruction.
+///
+/// \param __a
+///    A 128-bit vector of [2 x double] containing the values with sign bits to
+///    be extracted.
+/// \returns The sign bits from each of the double-precision elements in \a __a,
+///    written to bits [1:0]. The remaining bits are assigned values of zero.
 static __inline__ int __DEFAULT_FN_ATTRS
 _mm_movemask_pd(__m128d __a)
 {
-  return __builtin_ia32_movmskpd(__a);
+  return __builtin_ia32_movmskpd((__v2df)__a);
 }
 
-#define _mm_shuffle_pd(a, b, i) __extension__ ({ \
-  __builtin_shufflevector((__m128d)(a), (__m128d)(b), \
-                          (i) & 1, (((i) & 2) >> 1) + 2); })
 
+/// \brief Constructs a 128-bit floating-point vector of [2 x double] from two
+///    128-bit vector parameters of [2 x double], using the immediate-value
+///     parameter as a specifier.
+///
+/// \headerfile <x86intrin.h>
+///
+/// \code
+/// __m128d _mm_shuffle_pd(__m128d a, __m128d b, const int i);
+/// \endcode
+///
+/// This intrinsic corresponds to the <c> VSHUFPD / SHUFPD </c> instruction.
+///
+/// \param a
+///    A 128-bit vector of [2 x double].
+/// \param b
+///    A 128-bit vector of [2 x double].
+/// \param i
+///    An 8-bit immediate value. The least significant two bits specify which
+///    elements to copy from a and b: \n
+///    Bit[0] = 0: lower element of a copied to lower element of result. \n
+///    Bit[0] = 1: upper element of a copied to lower element of result. \n
+///    Bit[1] = 0: lower element of \a b copied to upper element of result. \n
+///    Bit[1] = 1: upper element of \a b copied to upper element of result. \n
+/// \returns A 128-bit vector of [2 x double] containing the shuffled values.
+#define _mm_shuffle_pd(a, b, i) __extension__ ({ \
+  (__m128d)__builtin_shufflevector((__v2df)(__m128d)(a), (__v2df)(__m128d)(b), \
+                                   0 + (((i) >> 0) & 0x1), \
+                                   2 + (((i) >> 1) & 0x1)); })
+
+/// \brief Casts a 128-bit floating-point vector of [2 x double] into a 128-bit
+///    floating-point vector of [4 x float].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic has no corresponding instruction.
+///
+/// \param __a
+///    A 128-bit floating-point vector of [2 x double].
+/// \returns A 128-bit floating-point vector of [4 x float] containing the same
+///    bitwise pattern as the parameter.
 static __inline__ __m128 __DEFAULT_FN_ATTRS
 _mm_castpd_ps(__m128d __a)
 {
   return (__m128)__a;
 }
 
+/// \brief Casts a 128-bit floating-point vector of [2 x double] into a 128-bit
+///    integer vector.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic has no corresponding instruction.
+///
+/// \param __a
+///    A 128-bit floating-point vector of [2 x double].
+/// \returns A 128-bit integer vector containing the same bitwise pattern as the
+///    parameter.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_castpd_si128(__m128d __a)
 {
   return (__m128i)__a;
 }
 
+/// \brief Casts a 128-bit floating-point vector of [4 x float] into a 128-bit
+///    floating-point vector of [2 x double].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic has no corresponding instruction.
+///
+/// \param __a
+///    A 128-bit floating-point vector of [4 x float].
+/// \returns A 128-bit floating-point vector of [2 x double] containing the same
+///    bitwise pattern as the parameter.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_castps_pd(__m128 __a)
 {
   return (__m128d)__a;
 }
 
+/// \brief Casts a 128-bit floating-point vector of [4 x float] into a 128-bit
+///    integer vector.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic has no corresponding instruction.
+///
+/// \param __a
+///    A 128-bit floating-point vector of [4 x float].
+/// \returns A 128-bit integer vector containing the same bitwise pattern as the
+///    parameter.
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_castps_si128(__m128 __a)
 {
   return (__m128i)__a;
 }
 
+/// \brief Casts a 128-bit integer vector into a 128-bit floating-point vector
+///    of [4 x float].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic has no corresponding instruction.
+///
+/// \param __a
+///    A 128-bit integer vector.
+/// \returns A 128-bit floating-point vector of [4 x float] containing the same
+///    bitwise pattern as the parameter.
 static __inline__ __m128 __DEFAULT_FN_ATTRS
 _mm_castsi128_ps(__m128i __a)
 {
   return (__m128)__a;
 }
 
+/// \brief Casts a 128-bit integer vector into a 128-bit floating-point vector
+///    of [2 x double].
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic has no corresponding instruction.
+///
+/// \param __a
+///    A 128-bit integer vector.
+/// \returns A 128-bit floating-point vector of [2 x double] containing the same
+///    bitwise pattern as the parameter.
 static __inline__ __m128d __DEFAULT_FN_ATTRS
 _mm_castsi128_pd(__m128i __a)
 {
   return (__m128d)__a;
 }
 
-static __inline__ void __DEFAULT_FN_ATTRS
-_mm_pause(void)
-{
-  __asm__ volatile ("pause");
-}
+#if defined(__cplusplus)
+extern "C" {
+#endif
 
+/// \brief Indicates that a spin loop is being executed for the purposes of
+///    optimizing power consumption during the loop.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the <c> PAUSE </c> instruction.
+///
+void _mm_pause(void);
+
+#if defined(__cplusplus)
+} // extern "C"
+#endif
 #undef __DEFAULT_FN_ATTRS
 
 #define _MM_SHUFFLE2(x, y) (((x) << 1) | (y))
-
-#endif /* __SSE2__ */
 
 #endif /* __EMMINTRIN_H */

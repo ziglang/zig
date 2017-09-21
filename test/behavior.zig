@@ -1,7 +1,10 @@
 comptime {
+    _ = @import("cases/align.zig");
+    _ = @import("cases/alignof.zig");
     _ = @import("cases/array.zig");
     _ = @import("cases/asm.zig");
     _ = @import("cases/atomics.zig");
+    _ = @import("cases/bitcast.zig");
     _ = @import("cases/bool.zig");
     _ = @import("cases/cast.zig");
     _ = @import("cases/const_slice_child.zig");
@@ -32,6 +35,7 @@ comptime {
     _ = @import("cases/switch.zig");
     _ = @import("cases/switch_prong_err_enum.zig");
     _ = @import("cases/switch_prong_implicit_cast.zig");
+    _ = @import("cases/syntax.zig");
     _ = @import("cases/this.zig");
     _ = @import("cases/try.zig");
     _ = @import("cases/undefined.zig");

@@ -1,0 +1,41 @@
+# RUN: lld-link /out:%t.exe /entry:main /subsystem:console \
+# RUN:   %p/Inputs/hello64.obj %p/Inputs/std64.lib /delayload:STD64.DLL \
+# RUN:   /alternatename:__delayLoadHelper2=main
+# RUN: llvm-readobj -coff-imports %t.exe | FileCheck -check-prefix=IMPORT %s
+# RUN: llvm-readobj -coff-basereloc %t.exe | FileCheck -check-prefix=BASEREL %s
+
+IMPORT:      DelayImport {
+IMPORT-NEXT:   Name: std64.dll
+IMPORT-NEXT:   Attributes: 0x1
+IMPORT-NEXT:   ModuleHandle: 0x1018
+IMPORT-NEXT:   ImportAddressTable: 0x1020
+IMPORT-NEXT:   ImportNameTable: 0x3040
+IMPORT-NEXT:   BoundDelayImportTable: 0x0
+IMPORT-NEXT:   UnloadDelayImportTable: 0x0
+IMPORT-NEXT:   Import {
+IMPORT-NEXT:     Symbol: ExitProcess (0)
+IMPORT-NEXT:     Address: 0x140002066
+IMPORT-NEXT:   }
+IMPORT-NEXT:   Import {
+IMPORT-NEXT:     Symbol:  (50)
+IMPORT-NEXT:     Address: 0x1400020BD
+IMPORT-NEXT:   }
+IMPORT-NEXT:   Import {
+IMPORT-NEXT:     Symbol: MessageBoxA (0)
+IMPORT-NEXT:     Address: 0x140002114
+IMPORT-NEXT:   }
+IMPORT-NEXT: }
+
+BASEREL:      BaseReloc [
+BASEREL-NEXT:   Entry {
+BASEREL-NEXT:     Type: DIR64
+BASEREL-NEXT:     Address: 0x1020
+BASEREL-NEXT:   }
+BASEREL-NEXT:   Entry {
+BASEREL-NEXT:     Type: DIR64
+BASEREL-NEXT:     Address: 0x1028
+BASEREL-NEXT:   }
+BASEREL-NEXT:   Entry {
+BASEREL-NEXT:     Type: DIR64
+BASEREL-NEXT:     Address: 0x1030
+BASEREL-NEXT:   }

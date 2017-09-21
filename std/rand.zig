@@ -1,6 +1,7 @@
 const assert = @import("debug.zig").assert;
 const rand_test = @import("rand_test.zig");
 const mem = @import("mem.zig");
+const math = @import("math/index.zig");
 
 pub const MT19937_32 = MersenneTwister(
     u32, 624, 397, 31,
@@ -63,18 +64,43 @@ pub const Rand = struct {
 
     /// Get a random unsigned integer with even distribution between `start`
     /// inclusive and `end` exclusive.
-    // TODO support signed integers and then rename to "range"
-    pub fn rangeUnsigned(r: &Rand, comptime T: type, start: T, end: T) -> T {
-        const range = end - start;
-        const leftover = @maxValue(T) % range;
-        const upper_bound = @maxValue(T) - leftover;
-        var rand_val_array: [@sizeOf(T)]u8 = undefined;
+    pub fn range(r: &Rand, comptime T: type, start: T, end: T) -> T {
+        assert(start <= end);
+        if (T.is_signed) {
+            const uint = @IntType(false, T.bit_count);
+            if (start >= 0 and end >= 0) {
+                return T(r.range(uint, uint(start), uint(end)));
+            } else if (start < 0 and end < 0) {
+                // Can't overflow because the range is over signed ints
+                return %%math.negateCast(r.range(uint, math.absCast(end), math.absCast(start)) + 1);
+            } else if (start < 0 and end >= 0) {
+                const end_uint = uint(end);
+                const total_range = math.absCast(start) + end_uint;
+                const value = r.range(uint, 0, total_range);
+                const result = if (value < end_uint) {
+                    T(value)
+                } else if (value == end_uint) {
+                    start
+                } else {
+                    // Can't overflow because the range is over signed ints
+                    %%math.negateCast(value - end_uint)
+                };
+                return result;
+            } else {
+                unreachable;
+            }
+        } else {
+            const total_range = end - start;
+            const leftover = @maxValue(T) % total_range;
+            const upper_bound = @maxValue(T) - leftover;
+            var rand_val_array: [@sizeOf(T)]u8 = undefined;
 
-        while (true) {
-            r.fillBytes(rand_val_array[0..]);
-            const rand_val = mem.readInt(rand_val_array, T, false);
-            if (rand_val < upper_bound) {
-                return start + (rand_val % range);
+            while (true) {
+                r.fillBytes(rand_val_array[0..]);
+                const rand_val = mem.readInt(rand_val_array, T, false);
+                if (rand_val < upper_bound) {
+                    return start + (rand_val % total_range);
+                }
             }
         }
     }
@@ -94,17 +120,17 @@ pub const Rand = struct {
         } else {
             @compileError("unknown floating point type")
         };
-        return T(r.rangeUnsigned(int_type, 0, precision)) / T(precision);
+        return T(r.range(int_type, 0, precision)) / T(precision);
     }
 };
 
 fn MersenneTwister(
     comptime int: type, comptime n: usize, comptime m: usize, comptime r: int,
     comptime a: int,
-    comptime u: int, comptime d: int,
-    comptime s: int, comptime b: int,
-    comptime t: int, comptime c: int,
-    comptime l: int, comptime f: int) -> type
+    comptime u: math.Log2Int(int), comptime d: int,
+    comptime s: math.Log2Int(int), comptime b: int,
+    comptime t: math.Log2Int(int), comptime c: int,
+    comptime l: math.Log2Int(int), comptime f: int) -> type
 {
     struct {
         const Self = this;
@@ -156,8 +182,8 @@ fn MersenneTwister(
             mt.index += 1;
 
             x ^= ((x >> u) & d);
-            x ^= ((x <<% s) & b);
-            x ^= ((x <<% t) & c);
+            x ^= ((x << s) & b);
+            x ^= ((x << t) & c);
             x ^= (x >> l);
 
             return x;
@@ -175,16 +201,38 @@ test "rand float 32" {
     }
 }
 
-test "testMT19937_64" {
+test "rand.MT19937_64" {
     var rng = MT19937_64.init(rand_test.mt64_seed);
     for (rand_test.mt64_data) |value| {
         assert(value == rng.get());
     }
 }
 
-test "testMT19937_32" {
+test "rand.MT19937_32" {
     var rng = MT19937_32.init(rand_test.mt32_seed);
     for (rand_test.mt32_data) |value| {
         assert(value == rng.get());
+    }
+}
+
+test "rand.Rand.range" {
+    var r = Rand.init(42);
+    testRange(&r, -4, 3);
+    testRange(&r, -4, -1);
+    testRange(&r, 10, 14);
+}
+
+fn testRange(r: &Rand, start: i32, end: i32) {
+    const count = usize(end - start);
+    var values_buffer = []bool{false} ** 20;
+    const values = values_buffer[0..count];
+    var i: usize = 0;
+    while (i < count) {
+        const value = r.range(i32, start, end);
+        const index = usize(value - start);
+        if (!values[index]) {
+            i += 1;
+            values[index] = true;
+        }
     }
 }

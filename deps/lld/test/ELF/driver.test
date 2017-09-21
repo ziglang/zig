@@ -1,0 +1,60 @@
+# REQUIRES: x86
+
+# RUN: not ld.lld --unknown1 --unknown2 -m foo /no/such/file -lnosuchlib \
+# RUN:   2>&1 | FileCheck -check-prefix=UNKNOWN %s
+
+# UNKNOWN: unknown argument: --unknown1
+# UNKNOWN: unknown argument: --unknown2
+# UNKNOWN: unknown emulation: foo
+# UNKNOWN: cannot open /no/such/file
+# UNKNOWN: unable to find library -lnosuchlib
+
+# RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
+# RUN: not ld.lld %t -o /no/such/file 2>&1 | FileCheck -check-prefix=MISSING %s
+# MISSING: cannot open output file /no/such/file
+
+# RUN: ld.lld --help 2>&1 | FileCheck -check-prefix=HELP %s
+# HELP: USAGE:
+# HELP: : supported targets:{{.*}} elf
+
+# RUN: ld.lld --version 2>&1 | FileCheck -check-prefix=VERSION %s
+# VERSION: LLD {{.*}} (compatible with GNU linkers)
+
+# RUN: not ld.lld -v 2>&1 | FileCheck -check-prefix=VERSION %s
+
+## Attempt to link DSO with -r
+# RUN: ld.lld -shared %t -o %t.so
+# RUN: not ld.lld -r %t.so %t -o %tfail 2>&1 | FileCheck -check-prefix=ERR %s
+# ERR: attempted static link of dynamic object
+
+## Attempt to use -r and -shared together
+# RUN: not ld.lld -r -shared %t -o %tfail 2>&1 | FileCheck -check-prefix=ERR2 %s
+# ERR2: -r and -shared may not be used together
+
+## Attempt to use -r and --gc-sections together
+# RUN: not ld.lld -r --gc-sections %t -o %tfail 2>&1 | FileCheck -check-prefix=ERR3 %s
+# ERR3: -r and --gc-sections may not be used together
+
+## Attempt to use -r and --icf together
+# RUN: not ld.lld -r --icf=all %t -o %tfail 2>&1 | FileCheck -check-prefix=ERR4 %s
+# ERR4: -r and --icf may not be used together
+
+## Attempt to use -r and -pie together
+# RUN: not ld.lld -r -pie %t -o %tfail 2>&1 | FileCheck -check-prefix=ERR5 %s
+# ERR5: -r and -pie may not be used together
+
+## Attempt to use -shared and -pie together
+# RUN: not ld.lld -shared -pie %t -o %tfail 2>&1 | FileCheck -check-prefix=ERR6 %s
+# ERR6: -shared and -pie may not be used together
+
+## "--output=foo" is equivalent to "-o foo".
+# RUN: not ld.lld %t --output=/no/such/file 2>&1 | FileCheck -check-prefix=ERR7 %s
+# ERR7: cannot open output file /no/such/file
+
+## "-output=foo" is equivalent to "-o utput=foo".
+# RUN: not ld.lld %t -output=/no/such/file 2>&1 | FileCheck -check-prefix=ERR8 %s
+# ERR8: cannot open output file utput=/no/such/file
+
+.globl _start
+_start:
+  nop

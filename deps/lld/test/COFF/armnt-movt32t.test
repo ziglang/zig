@@ -1,0 +1,72 @@
+# REQUIRES: arm
+
+# RUN: yaml2obj < %s > %t.obj
+# RUN: llvm-objdump -d %t.obj | FileCheck %s -check-prefix BEFORE
+# RUN: lld-link /entry:get_buffer /subsystem:console /out:%t.exe %t.obj
+# RUN: llvm-objdump -d %t.exe | FileCheck %s -check-prefix AFTER
+
+# BEFORE: Disassembly of section .text:
+# BEFORE:        0: 40 f2 00 00   movw r0, #0
+# BEFORE:        4: c0 f2 00 00   movt r0, #0
+# BEFORE:        8: 70 47         bx lr
+
+# AFTER: Disassembly of section .text:
+# AFTER:        0: 41 f2 00 00   movw r0, #4096
+# AFTER:        4: c0 f2 40 00   movt r0, #64
+# AFTER:        8: 70 47         bx lr
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_ARMNT
+  Characteristics: [  ]
+sections:
+  - Name:            .text
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_PURGEABLE, IMAGE_SCN_MEM_16BIT, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    SectionData:     40F20000C0F200007047
+    Relocations:
+      - VirtualAddress:  0
+        SymbolName:      buffer
+        Type:            17
+  - Name:            .rdata
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    SectionData:     '62756666657200'
+symbols:
+  - Name:            .text
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          10
+      NumberOfRelocations: 1
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          1
+  - Name:            .rdata
+    Value:           0
+    SectionNumber:   2
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          7
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          2
+  - Name:            get_buffer
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            buffer
+    Value:           0
+    SectionNumber:   2
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+...

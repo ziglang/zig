@@ -409,18 +409,6 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
             ".tmp_source.zig:2:1: error: redefinition of 'a'",
             ".tmp_source.zig:1:1: note: previous definition is here");
 
-    cases.add("byvalue struct parameter in exported function",
-        \\const A = struct { x : i32, };
-        \\export fn f(a : A) {}
-    , ".tmp_source.zig:2:13: error: byvalue types not yet supported on extern function parameters");
-
-    cases.add("byvalue struct return value in exported function",
-        \\const A = struct { x: i32, };
-        \\export fn f() -> A {
-        \\    A {.x = 1234 }
-        \\}
-    , ".tmp_source.zig:2:18: error: byvalue types not yet supported on extern function return values");
-
     cases.add("duplicate field in struct value expression",
         \\const A = struct {
         \\    x : i32,
@@ -1070,7 +1058,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\export fn foo(comptime x: i32, y: i32) -> i32{
         \\    x + y
         \\}
-    , ".tmp_source.zig:1:15: error: comptime parameter not allowed in extern function");
+    , ".tmp_source.zig:1:15: error: comptime parameter not allowed in function with calling convention 'ccc'");
 
     cases.add("extern function with comptime parameter",
         \\extern fn foo(comptime x: i32, y: i32) -> i32;
@@ -1078,7 +1066,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    foo(1, 2)
         \\}
         \\export fn entry() -> usize { @sizeOf(@typeOf(f)) }
-    , ".tmp_source.zig:1:15: error: comptime parameter not allowed in extern function");
+    , ".tmp_source.zig:1:15: error: comptime parameter not allowed in function with calling convention 'ccc'");
 
     cases.add("convert fixed size array to slice with invalid size",
         \\export fn f() {
@@ -1328,13 +1316,15 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     , ".tmp_source.zig:2:24: error: integer value 753664 cannot be implicitly casted to type 'u16'");
 
-    cases.add("set global variable alignment to non power of 2",
-        \\const some_data: [100]u8 = undefined;
-        \\comptime {
-        \\    @setGlobalAlign(some_data, 3);
-        \\}
+    cases.add("global variable alignment non power of 2",
+        \\const some_data: [100]u8 align(3) = undefined;
         \\export fn entry() -> usize { @sizeOf(@typeOf(some_data)) }
-    , ".tmp_source.zig:3:32: error: alignment value must be power of 2");
+    , ".tmp_source.zig:1:32: error: alignment value 3 is not a power of 2");
+
+    cases.add("function alignment non power of 2",
+        \\extern fn foo() align(3);
+        \\export fn entry() { foo() }
+    , ".tmp_source.zig:1:23: error: alignment value 3 is not a power of 2");
 
     cases.add("compile log",
         \\export fn foo() {
@@ -1354,9 +1344,6 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         ".tmp_source.zig:2:17: note: called from here");
 
     cases.add("casting bit offset pointer to regular pointer",
-        \\const u2 = @IntType(false, 2);
-        \\const u3 = @IntType(false, 3);
-        \\
         \\const BitField = packed struct {
         \\    a: u3,
         \\    b: u3,
@@ -1372,7 +1359,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
         \\
         \\export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
-    , ".tmp_source.zig:11:26: error: expected type '&const u3', found '&:3:6 const u3'");
+    , ".tmp_source.zig:8:26: error: expected type '&const u3', found '&align(1:3:6) const u3'");
 
     cases.add("referring to a struct that is invalid",
         \\const UsbDeviceRequest = struct {
@@ -1447,20 +1434,6 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
         \\fn bar() -> %i32 { 0 }
     , ".tmp_source.zig:2:14: error: expression value is ignored");
-
-    cases.add("integer literal on a non-comptime var",
-        \\export fn foo() {
-        \\    var i = 0;
-        \\    while (i < 10) : (i += 1) { }
-        \\}
-    , ".tmp_source.zig:2:5: error: unable to infer variable type");
-
-    cases.add("undefined literal on a non-comptime var",
-        \\export fn foo() {
-        \\    var i = undefined;
-        \\    i = i32(1);
-        \\}
-    , ".tmp_source.zig:2:5: error: unable to infer variable type");
 
     cases.add("dereference an array",
         \\var s_buffer: [10]u8 = undefined;
@@ -1638,24 +1611,6 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         "error: 'main' is private",
         ".tmp_source.zig:1:1: note: declared here");
 
-    cases.add("@setGlobalAlign extern variable",
-        \\extern var foo: i32;
-        \\comptime {
-        \\    @setGlobalAlign(foo, 4);
-        \\}
-    ,
-        ".tmp_source.zig:3:5: error: cannot set alignment of external variable 'foo'",
-        ".tmp_source.zig:1:8: note: declared here");
-
-    cases.add("@setGlobalAlign extern fn",
-        \\extern fn foo();
-        \\comptime {
-        \\    @setGlobalAlign(foo, 4);
-        \\}
-    ,
-        ".tmp_source.zig:3:5: error: cannot set alignment of external function 'foo'",
-        ".tmp_source.zig:1:8: note: declared here");
-
     cases.add("@setGlobalSection extern variable",
         \\extern var foo: i32;
         \\comptime {
@@ -1781,7 +1736,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("save reference to inline function",
         \\export fn foo() {
-        \\    quux(usize(bar));
+        \\    quux(@ptrToInt(bar));
         \\}
         \\inline fn bar() { }
         \\extern fn quux(usize);
@@ -1916,4 +1871,286 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:7:9: error: calling a generic function requires compile-time known function value");
+
+    cases.add("@compileError shows traceback of references that caused it",
+        \\const foo = @compileError("aoeu");
+        \\
+        \\const bar = baz + foo;
+        \\const baz = 1;
+        \\
+        \\export fn entry() -> i32 {
+        \\    return bar;
+        \\}
+    ,
+        ".tmp_source.zig:1:13: error: aoeu",
+        ".tmp_source.zig:3:19: note: referenced here",
+        ".tmp_source.zig:7:12: note: referenced here");
+
+    cases.add("instantiating an undefined value for an invalid struct that contains itself",
+        \\const Foo = struct {
+        \\    x: Foo,
+        \\};
+        \\
+        \\var foo: Foo = undefined;
+        \\
+        \\export fn entry() -> usize {
+        \\    return @sizeOf(@typeOf(foo.x));
+        \\}
+    ,
+        ".tmp_source.zig:1:13: error: struct 'Foo' contains itself");
+
+    cases.add("float literal too large error",
+        \\comptime {
+        \\    const a = 0x1.0p1024;
+        \\}
+    ,
+        ".tmp_source.zig:2:15: error: float literal out of range of any type");
+
+    cases.add("float literal too small error (denormal)",
+        \\comptime {
+        \\    const a = 0x1.0p-1023;
+        \\}
+    ,
+        ".tmp_source.zig:2:15: error: float literal out of range of any type");
+
+    cases.add("explicit cast float literal to integer when there is a fraction component",
+        \\export fn entry() -> i32 {
+        \\    i32(12.34)
+        \\}
+    ,
+        ".tmp_source.zig:2:9: error: fractional component prevents float value 12.340000 from being casted to type 'i32'");
+
+    cases.add("non pointer given to @ptrToInt",
+        \\export fn entry(x: i32) -> usize {
+        \\    @ptrToInt(x)
+        \\}
+    ,
+        ".tmp_source.zig:2:15: error: expected pointer, found 'i32'");
+
+    cases.add("@shlExact shifts out 1 bits",
+        \\comptime {
+        \\    const x = @shlExact(u8(0b01010101), 2);
+        \\}
+    ,
+        ".tmp_source.zig:2:15: error: operation caused overflow");
+
+    cases.add("@shrExact shifts out 1 bits",
+        \\comptime {
+        \\    const x = @shrExact(u8(0b10101010), 2);
+        \\}
+    ,
+        ".tmp_source.zig:2:15: error: exact shift shifted out 1 bits");
+
+    cases.add("shifting without int type or comptime known",
+        \\export fn entry(x: u8) -> u8 {
+        \\    return 0x11 << x;
+        \\}
+    ,
+        ".tmp_source.zig:2:17: error: LHS of shift must be an integer type, or RHS must be compile-time known");
+
+    cases.add("shifting RHS is log2 of LHS int bit width",
+        \\export fn entry(x: u8, y: u8) -> u8 {
+        \\    return x << y;
+        \\}
+    ,
+        ".tmp_source.zig:2:17: error: expected type 'u3', found 'u8'");
+
+    cases.add("globally shadowing a primitive type",
+        \\const u16 = @intType(false, 8);
+        \\export fn entry() {
+        \\    const a: u16 = 300;
+        \\}
+    ,
+        ".tmp_source.zig:1:1: error: declaration shadows type 'u16'");
+
+    cases.add("implicitly increasing pointer alignment",
+        \\const Foo = packed struct {
+        \\    a: u8,
+        \\    b: u32,
+        \\};
+        \\
+        \\export fn entry() {
+        \\    var foo = Foo { .a = 1, .b = 10 };
+        \\    bar(&foo.b);
+        \\}
+        \\
+        \\fn bar(x: &u32) {
+        \\    *x += 1;
+        \\}
+    ,
+        ".tmp_source.zig:8:13: error: expected type '&u32', found '&align(1) u32'");
+
+    cases.add("implicitly increasing slice alignment",
+        \\const Foo = packed struct {
+        \\    a: u8,
+        \\    b: u32,
+        \\};
+        \\
+        \\export fn entry() {
+        \\    var foo = Foo { .a = 1, .b = 10 };
+        \\    foo.b += 1;
+        \\    bar((&foo.b)[0..1]);
+        \\}
+        \\
+        \\fn bar(x: []u32) {
+        \\    x[0] += 1;
+        \\}
+    ,
+        ".tmp_source.zig:9:17: error: expected type '[]u32', found '[]align(1) u32'");
+
+    cases.add("increase pointer alignment in @ptrCast",
+        \\export fn entry() -> u32 {
+        \\    var bytes: [4]u8 = []u8{0x01, 0x02, 0x03, 0x04};
+        \\    const ptr = @ptrCast(&u32, &bytes[0]);
+        \\    return *ptr;
+        \\}
+    ,
+        ".tmp_source.zig:3:17: error: cast increases pointer alignment",
+        ".tmp_source.zig:3:38: note: '&u8' has alignment 1",
+        ".tmp_source.zig:3:27: note: '&u32' has alignment 4");
+
+    cases.add("increase pointer alignment in slice resize",
+        \\export fn entry() -> u32 {
+        \\    var bytes = []u8{0x01, 0x02, 0x03, 0x04};
+        \\    return ([]u32)(bytes[0..])[0];
+        \\}
+    ,
+        ".tmp_source.zig:3:19: error: cast increases pointer alignment",
+        ".tmp_source.zig:3:19: note: '[]u8' has alignment 1",
+        ".tmp_source.zig:3:19: note: '[]u32' has alignment 4");
+
+    cases.add("@alignCast expects pointer or slice",
+        \\export fn entry() {
+        \\    @alignCast(4, u32(3))
+        \\}
+    ,
+        ".tmp_source.zig:2:22: error: expected pointer or slice, found 'u32'");
+
+    cases.add("passing an under-aligned function pointer",
+        \\export fn entry() {
+        \\    testImplicitlyDecreaseFnAlign(alignedSmall, 1234);
+        \\}
+        \\fn testImplicitlyDecreaseFnAlign(ptr: fn () align(8) -> i32, answer: i32) {
+        \\    if (ptr() != answer) unreachable;
+        \\}
+        \\fn alignedSmall() align(4) -> i32 { 1234 }
+    ,
+        ".tmp_source.zig:2:35: error: expected type 'fn() align(8) -> i32', found 'fn() align(4) -> i32'");
+
+    cases.add("passing a not-aligned-enough pointer to cmpxchg",
+        \\const AtomicOrder = @import("builtin").AtomicOrder;
+        \\export fn entry() -> bool {
+        \\    var x: i32 align(1) = 1234;
+        \\    while (!@cmpxchg(&x, 1234, 5678, AtomicOrder.SeqCst, AtomicOrder.SeqCst)) {}
+        \\    return x == 5678;
+        \\}
+    ,
+        ".tmp_source.zig:4:23: error: expected pointer alignment of at least 4, found 1");
+
+    cases.add("wrong size to an array literal",
+        \\comptime {
+        \\    const array = [2]u8{1, 2, 3};
+        \\}
+    ,
+        ".tmp_source.zig:2:24: error: expected [2]u8 literal, found [3]u8 literal");
+
+    cases.add("@setEvalBranchQuota in non-root comptime execution context",
+        \\comptime {
+        \\    foo();
+        \\}
+        \\fn foo() {
+        \\    @setEvalBranchQuota(1001);
+        \\}
+    ,
+        ".tmp_source.zig:5:5: error: @setEvalBranchQuota must be called from the top of the comptime stack",
+        ".tmp_source.zig:2:8: note: called from here",
+        ".tmp_source.zig:1:10: note: called from here");
+
+    cases.add("wrong pointer implicitly casted to pointer to @OpaqueType()",
+        \\const Derp = @OpaqueType();
+        \\extern fn bar(d: &Derp);
+        \\export fn foo() {
+        \\    const x = u8(1);
+        \\    bar(@ptrCast(&c_void, &x));
+        \\}
+    ,
+        ".tmp_source.zig:5:9: error: expected type '&Derp', found '&c_void'");
+
+    cases.add("non-const variables of things that require const variables",
+        \\const Opaque = @OpaqueType();
+        \\
+        \\export fn entry(opaque: &Opaque) {
+        \\   var m2 = &2;
+        \\   const y: u32 = *m2;
+        \\
+        \\   var a = undefined;
+        \\   var b = 1;
+        \\   var c = 1.0;
+        \\   var d = this;
+        \\   var e = null;
+        \\   var f = *opaque;
+        \\   var g = i32;
+        \\   var h = @import("std");
+        \\   var i = (Foo {}).bar;
+        \\
+        \\   var z: noreturn = return;
+        \\}
+        \\
+        \\const Foo = struct {
+        \\    fn bar(self: &const Foo) {}
+        \\};
+    ,
+        ".tmp_source.zig:4:4: error: variable of type '&const (integer literal)' must be const or comptime",
+        ".tmp_source.zig:7:4: error: variable of type '(undefined)' must be const or comptime",
+        ".tmp_source.zig:8:4: error: variable of type '(integer literal)' must be const or comptime",
+        ".tmp_source.zig:9:4: error: variable of type '(float literal)' must be const or comptime",
+        ".tmp_source.zig:10:4: error: variable of type '(block)' must be const or comptime",
+        ".tmp_source.zig:11:4: error: variable of type '(null)' must be const or comptime",
+        ".tmp_source.zig:12:4: error: variable of type 'Opaque' must be const or comptime",
+        ".tmp_source.zig:13:4: error: variable of type 'type' must be const or comptime",
+        ".tmp_source.zig:14:4: error: variable of type '(namespace)' must be const or comptime",
+        ".tmp_source.zig:15:4: error: variable of type '(bound fn(&const Foo))' must be const or comptime",
+        ".tmp_source.zig:17:4: error: unreachable code");
+
+    cases.add("wrong types given to atomic order args in cmpxchg",
+        \\export fn entry() {
+        \\    var x: i32 = 1234;
+        \\    while (!@cmpxchg(&x, 1234, 5678, u32(1234), u32(1234))) {}
+        \\}
+    ,
+        ".tmp_source.zig:3:41: error: expected type 'AtomicOrder', found 'u32'");
+
+    cases.add("wrong types given to setGlobalLinkage",
+        \\export fn entry() {
+        \\    @setGlobalLinkage(entry, u32(1234));
+        \\}
+    ,
+        ".tmp_source.zig:2:33: error: expected type 'GlobalLinkage', found 'u32'");
+
+    cases.add("struct with invalid field",
+        \\const std = @import("std");
+        \\const Allocator = std.mem.Allocator;
+        \\const ArrayList = std.ArrayList;
+        \\
+        \\const HeaderWeight = enum {
+        \\    H1, H2, H3, H4, H5, H6,
+        \\};
+        \\
+        \\const MdText = ArrayList(u8);
+        \\
+        \\const MdNode = enum {
+        \\    Header: struct {
+        \\        text: MdText,
+        \\        weight: HeaderValue,
+        \\    },
+        \\};
+        \\
+        \\export fn entry() {
+        \\    const a = MdNode.Header {
+        \\        .text = MdText.init(&std.debug.global_allocator),
+        \\        .weight = HeaderWeight.H1,
+        \\    };
+        \\}
+    ,
+        ".tmp_source.zig:14:17: error: use of undeclared identifier 'HeaderValue'");
 }

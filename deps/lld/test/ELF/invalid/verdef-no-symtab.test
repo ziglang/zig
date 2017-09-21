@@ -1,0 +1,26 @@
+# RUN: yaml2obj %s -o %t
+# RUN: not ld.lld %t -o %tout 2>&1 | FileCheck %s
+
+## When we have SHT_GNU_versym section, it is should be associated
+## with symbol table section.
+--- !ELF
+FileHeader:
+  Class:           ELFCLASS64
+  Data:            ELFDATA2LSB
+  Type:            ET_DYN
+  Machine:         EM_X86_64
+Sections:
+  - Name:            .versym
+    Type:            SHT_GNU_versym
+    Flags:           [ SHF_ALLOC, SHF_EXECINSTR ]
+    AddressAlign:    0x1
+    Content:         "00000000"
+
+  - Name:            .verdef
+    Type:            SHT_GNU_verdef
+    Flags:           [ SHF_ALLOC, SHF_EXECINSTR ]
+    AddressAlign:    0x1
+    Content:         "00000000"
+
+
+# CHECK: SHT_GNU_versym should be associated with symbol table

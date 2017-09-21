@@ -104,11 +104,9 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     PMBuilder->DisableTailCalls = is_debug;
     PMBuilder->DisableUnitAtATime = is_debug;
     PMBuilder->DisableUnrollLoops = is_debug;
-    PMBuilder->BBVectorize = !is_debug;
     PMBuilder->SLPVectorize = !is_debug;
     PMBuilder->LoopVectorize = !is_debug;
     PMBuilder->RerollLoops = !is_debug;
-    PMBuilder->LoadCombine = !is_debug;
     PMBuilder->NewGVN = !is_debug;
     PMBuilder->DisableGVNLoadPRE = is_debug;
     PMBuilder->VerifyInput = assertions_on;
@@ -124,13 +122,10 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     if (is_debug) {
         PMBuilder->Inliner = createAlwaysInlinerLegacyPass(false);
     } else {
-        PMBuilder->addExtension(PassManagerBuilder::EP_EarlyAsPossible,
-            [&](const PassManagerBuilder &, legacy::PassManagerBase &PM) {
-            target_machine->addEarlyAsPossiblePasses(PM);
-            });
+        target_machine->adjustPassManager(*PMBuilder);
 
         PMBuilder->addExtension(PassManagerBuilder::EP_EarlyAsPossible, addDiscriminatorsPass);
-        PMBuilder->Inliner = createFunctionInliningPass(PMBuilder->OptLevel, PMBuilder->SizeLevel);
+        PMBuilder->Inliner = createFunctionInliningPass(PMBuilder->OptLevel, PMBuilder->SizeLevel, false);
     }
 
     // Set up the per-function pass manager.
@@ -181,7 +176,7 @@ LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *A
     CallInst *call_inst = CallInst::Create(unwrap(Fn), makeArrayRef(unwrap(Args), NumArgs), Name);
     call_inst->setCallingConv(CC);
     if (always_inline) {
-        call_inst->addAttribute(AttributeSet::FunctionIndex, Attribute::AlwaysInline);
+        call_inst->addAttribute(AttributeList::FunctionIndex, Attribute::AlwaysInline);
     }
     return wrap(unwrap(B)->Insert(call_inst));
 }
@@ -197,7 +192,7 @@ ZigLLVMDIType *ZigLLVMCreateDebugPointerType(ZigLLVMDIBuilder *dibuilder, ZigLLV
         uint64_t size_in_bits, uint64_t align_in_bits, const char *name)
 {
     DIType *di_type = reinterpret_cast<DIBuilder*>(dibuilder)->createPointerType(
-            reinterpret_cast<DIType*>(pointee_type), size_in_bits, align_in_bits, name);
+            reinterpret_cast<DIType*>(pointee_type), size_in_bits, align_in_bits, Optional<unsigned>(), name);
     return reinterpret_cast<ZigLLVMDIType*>(di_type);
 }
 
@@ -284,7 +279,7 @@ ZigLLVMDIType *ZigLLVMCreateDebugUnionType(ZigLLVMDIBuilder *dibuilder, ZigLLVMD
 
 ZigLLVMDIType *ZigLLVMCreateDebugStructType(ZigLLVMDIBuilder *dibuilder, ZigLLVMDIScope *scope,
         const char *name, ZigLLVMDIFile *file, unsigned line_number, uint64_t size_in_bits,
-        uint64_t align_in_bits, unsigned flags, ZigLLVMDIType *derived_from, 
+        uint64_t align_in_bits, unsigned flags, ZigLLVMDIType *derived_from,
         ZigLLVMDIType **types_array, int types_array_len, unsigned run_time_lang, ZigLLVMDIType *vtable_holder,
         const char *unique_id)
 {
@@ -546,17 +541,6 @@ void ZigLLVMDIBuilderFinalize(ZigLLVMDIBuilder *dibuilder) {
     reinterpret_cast<DIBuilder*>(dibuilder)->finalize();
 }
 
-ZigLLVMInsertionPoint *ZigLLVMSaveInsertPoint(LLVMBuilderRef builder_wrapped) {
-    IRBuilderBase::InsertPoint *ip = new IRBuilderBase::InsertPoint();
-    *ip = unwrap(builder_wrapped)->saveIP();
-    return reinterpret_cast<ZigLLVMInsertionPoint*>(ip);
-}
-
-void ZigLLVMRestoreInsertPoint(LLVMBuilderRef builder, ZigLLVMInsertionPoint *ip_wrapped) {
-    IRBuilderBase::InsertPoint *ip = reinterpret_cast<IRBuilderBase::InsertPoint*>(ip_wrapped);
-    unwrap(builder)->restoreIP(*ip);
-}
-
 LLVMValueRef ZigLLVMInsertDeclareAtEnd(ZigLLVMDIBuilder *dibuilder, LLVMValueRef storage,
         ZigLLVMDILocalVariable *var_info, ZigLLVMDILocation *debug_loc, LLVMBasicBlockRef basic_block_ref)
 {
@@ -598,25 +582,28 @@ void ZigLLVMSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state) {
 
 void ZigLLVMAddFunctionAttr(LLVMValueRef fn_ref, const char *attr_name, const char *attr_value) {
     Function *func = unwrap<Function>(fn_ref);
-    const AttributeSet attr_set = func->getAttributes();
+    const AttributeList attr_set = func->getAttributes();
     AttrBuilder attr_builder;
     if (attr_value) {
         attr_builder.addAttribute(attr_name, attr_value);
     } else {
         attr_builder.addAttribute(attr_name);
     }
-    const AttributeSet new_attr_set = attr_set.addAttributes(func->getContext(),
-            AttributeSet::FunctionIndex, AttributeSet::get(func->getContext(),
-                AttributeSet::FunctionIndex, attr_builder));
+    const AttributeList new_attr_set = attr_set.addAttributes(func->getContext(),
+            AttributeList::FunctionIndex, attr_builder);
     func->setAttributes(new_attr_set);
 }
 
 void ZigLLVMAddFunctionAttrCold(LLVMValueRef fn_ref) {
     Function *func = unwrap<Function>(fn_ref);
-    const AttributeSet attr_set = func->getAttributes();
-    const AttributeSet new_attr_set = attr_set.addAttribute(func->getContext(), AttributeSet::FunctionIndex,
+    const AttributeList attr_set = func->getAttributes();
+    const AttributeList new_attr_set = attr_set.addAttribute(func->getContext(), AttributeList::FunctionIndex,
             Attribute::Cold);
     func->setAttributes(new_attr_set);
+}
+
+void ZigLLVMParseCommandLineOptions(int argc, const char *const *argv) {
+    llvm::cl::ParseCommandLineOptions(argc, argv);
 }
 
 
@@ -689,6 +676,8 @@ const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
             return "v7s";
         case ZigLLVM_ARMSubArch_v7k:
             return "v7k";
+        case ZigLLVM_ARMSubArch_v7ve:
+            return "v7ve";
         case ZigLLVM_ARMSubArch_v6:
             return "v6";
         case ZigLLVM_ARMSubArch_v6m:
@@ -717,11 +706,6 @@ void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module) {
     unwrap(module)->addModuleFlag(Module::Warning, "Debug Info Version", DEBUG_METADATA_VERSION);
 }
 
-unsigned ZigLLVMGetPrefTypeAlignment(LLVMTargetDataRef TD, LLVMTypeRef Ty) {
-    return unwrap(TD)->getPrefTypeAlignment(unwrap(Ty));
-}
-
-
 static AtomicOrdering mapFromLLVMOrdering(LLVMAtomicOrdering Ordering) {
     switch (Ordering) {
         case LLVMAtomicOrderingNotAtomic: return AtomicOrdering::NotAtomic;
@@ -740,8 +724,7 @@ LLVMValueRef ZigLLVMBuildCmpXchg(LLVMBuilderRef builder, LLVMValueRef ptr, LLVMV
         LLVMAtomicOrdering failure_ordering)
 {
     return wrap(unwrap(builder)->CreateAtomicCmpXchg(unwrap(ptr), unwrap(cmp), unwrap(new_val),
-                mapFromLLVMOrdering(success_ordering), mapFromLLVMOrdering(failure_ordering),
-                CrossThread));
+                mapFromLLVMOrdering(success_ordering), mapFromLLVMOrdering(failure_ordering)));
 }
 
 LLVMValueRef ZigLLVMBuildNSWShl(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS,
@@ -753,8 +736,21 @@ LLVMValueRef ZigLLVMBuildNSWShl(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMVa
 LLVMValueRef ZigLLVMBuildNUWShl(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS,
         const char *name)
 {
-    return wrap(unwrap(builder)->CreateShl(unwrap(LHS), unwrap(RHS), name, false, true));
+    return wrap(unwrap(builder)->CreateShl(unwrap(LHS), unwrap(RHS), name, true, false));
 }
+
+LLVMValueRef ZigLLVMBuildLShrExact(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS,
+        const char *name)
+{
+    return wrap(unwrap(builder)->CreateLShr(unwrap(LHS), unwrap(RHS), name, true));
+}
+
+LLVMValueRef ZigLLVMBuildAShrExact(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS,
+        const char *name)
+{
+    return wrap(unwrap(builder)->CreateAShr(unwrap(LHS), unwrap(RHS), name, true));
+}
+
 
 #include "buffer.hpp"
 
@@ -788,6 +784,9 @@ bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_
 
         case ZigLLVM_MachO:
             return lld::mach_o::link(array_ref_args, diag);
+
+        case ZigLLVM_Wasm:
+            zig_panic("ZigLLDLink for Wasm");
     }
     zig_unreachable();
 }

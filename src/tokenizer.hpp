@@ -9,7 +9,8 @@
 #define ZIG_TOKENIZER_HPP
 
 #include "buffer.hpp"
-#include "bignum.hpp"
+#include "bigint.hpp"
+#include "bigfloat.hpp"
 
 enum TokenId {
     TokenIdAmpersand,
@@ -22,8 +23,6 @@ enum TokenId {
     TokenIdBitOrEq,
     TokenIdBitShiftLeft,
     TokenIdBitShiftLeftEq,
-    TokenIdBitShiftLeftPercent,
-    TokenIdBitShiftLeftPercentEq,
     TokenIdBitShiftRight,
     TokenIdBitShiftRightEq,
     TokenIdBitXorEq,
@@ -40,11 +39,14 @@ enum TokenId {
     TokenIdDivEq,
     TokenIdDot,
     TokenIdDoubleQuestion,
-    TokenIdEllipsis3,
     TokenIdEllipsis2,
+    TokenIdEllipsis3,
     TokenIdEof,
     TokenIdEq,
     TokenIdFatArrow,
+    TokenIdFloatLiteral,
+    TokenIdIntLiteral,
+    TokenIdKeywordAlign,
     TokenIdKeywordAnd,
     TokenIdKeywordAsm,
     TokenIdKeywordBreak,
@@ -71,6 +73,7 @@ enum TokenId {
     TokenIdKeywordPacked,
     TokenIdKeywordPub,
     TokenIdKeywordReturn,
+    TokenIdKeywordStdcallCC,
     TokenIdKeywordStruct,
     TokenIdKeywordSwitch,
     TokenIdKeywordTest,
@@ -92,7 +95,6 @@ enum TokenId {
     TokenIdMinusPercent,
     TokenIdMinusPercentEq,
     TokenIdModEq,
-    TokenIdNumberLiteral,
     TokenIdNumberSign,
     TokenIdPercent,
     TokenIdPercentDot,
@@ -117,11 +119,15 @@ enum TokenId {
     TokenIdTimesPercentEq,
 };
 
-struct TokenNumLit {
-    BigNum bignum;
-    // overflow is true if when parsing the number, we discovered it would not
-    // fit without losing data in a uint64_t or double
+struct TokenFloatLit {
+    BigFloat bigfloat;
+    // overflow is true if when parsing the number, we discovered it would not fit
+    // without losing data
     bool overflow;
+};
+
+struct TokenIntLit {
+    BigInt bigint;
 };
 
 struct TokenStrLit {
@@ -141,8 +147,11 @@ struct Token {
     size_t start_column;
 
     union {
-        // TokenIdNumberLiteral
-        TokenNumLit num_lit;
+        // TokenIdIntLiteral
+        TokenIntLit int_lit;
+
+        // TokenIdFloatLiteral
+        TokenFloatLit float_lit;
 
         // TokenIdStringLiteral or TokenIdSymbol
         TokenStrLit str_lit;

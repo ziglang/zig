@@ -1,6 +1,6 @@
 ![ZIG](http://ziglang.org/zig-logo.svg)
 
-A programming language which prioritizes optimality, robustness, and
+A programming language designed for robustness, optimality, and
 clarity.
 
 [ziglang.org](http://ziglang.org)
@@ -59,6 +59,7 @@ clarity.
 ## Building
 
 [![Build Status](https://travis-ci.org/zig-lang/zig.svg?branch=master)](https://travis-ci.org/zig-lang/zig)
+[![Build status](https://ci.appveyor.com/api/projects/status/4t80mk2dmucrc38i/branch/master?svg=true)](https://ci.appveyor.com/project/andrewrk/zig-d3l86/branch/master)
 
 ### Dependencies
 
@@ -75,7 +76,7 @@ the Zig compiler itself:
 These libraries must be installed on your system, with the development files
 available. The Zig compiler links against them.
 
- * LLVM, Clang, and LLD libraries == 4.x
+ * LLVM, Clang, and LLD libraries == 5.x
 
 ### Debug / Development Build
 
@@ -83,13 +84,25 @@ If you have gcc or clang installed, you can find out what `ZIG_LIBC_LIB_DIR`,
 `ZIG_LIBC_STATIC_LIB_DIR`, and `ZIG_LIBC_INCLUDE_DIR` should be set to
 (example below).
 
-For MacOS, `ZIG_LIBC_LIB_DIR` and `ZIG_LIBC_STATIC_LIB_DIR` are unused.
-
 ```
 mkdir build
 cd build
 cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd) -DZIG_LIBC_LIB_DIR=$(dirname $(cc -print-file-name=crt1.o)) -DZIG_LIBC_INCLUDE_DIR=$(echo -n | cc -E -x c - -v 2>&1 | grep -B1 "End of search list." | head -n1 | cut -c 2- | sed "s/ .*//") -DZIG_LIBC_STATIC_LIB_DIR=$(dirname $(cc -print-file-name=crtbegin.o))
 make
+make install
+./zig build --build-file ../build.zig test
+```
+
+#### MacOS
+
+`ZIG_LIBC_LIB_DIR` and `ZIG_LIBC_STATIC_LIB_DIR` are unused.
+
+```
+brew install llvm@5
+brew outdated llvm@5 || brew upgrade llvm@5
+mkdir build
+cd build
+cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@5/ -DCMAKE_INSTALL_PREFIX=$(pwd)
 make install
 ./zig build --build-file ../build.zig test
 ```
@@ -125,3 +138,6 @@ produced .gcov files.
 
  * [zig-mode](https://github.com/AndreaOrru/zig-mode) - Emacs integration
  * [zig.vim](https://github.com/zig-lang/zig.vim) - Vim configuration files
+ * [vscode-zig](https://github.com/zig-lang/vscode-zig) - Visual Studio Code extension
+ * [zig-compiler-completions](https://github.com/tiehuis/zig-compiler-completions) - bash and zsh completions for the zig compiler
+ * [NppExtension](https://github.com/ice1000/NppExtension) - Notepad++ syntax highlighting

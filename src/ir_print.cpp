@@ -92,12 +92,14 @@ static const char *ir_bin_op_id_str(IrBinOp op_id) {
             return "^";
         case IrBinOpBinAnd:
             return "&";
-        case IrBinOpBitShiftLeft:
+        case IrBinOpBitShiftLeftLossy:
             return "<<";
-        case IrBinOpBitShiftLeftWrap:
-            return "<<%";
-        case IrBinOpBitShiftRight:
+        case IrBinOpBitShiftLeftExact:
+            return "@shlExact";
+        case IrBinOpBitShiftRightLossy:
             return ">>";
+        case IrBinOpBitShiftRightExact:
+            return "@shrExact";
         case IrBinOpAdd:
             return "+";
         case IrBinOpAddWrap:
@@ -172,10 +174,16 @@ static void ir_print_decl_var(IrPrint *irp, IrInstructionDeclVar *decl_var_instr
     if (decl_var_instruction->var_type) {
         fprintf(irp->f, "%s %s: ", var_or_const, name);
         ir_print_other_instruction(irp, decl_var_instruction->var_type);
-        fprintf(irp->f, " = ");
+        fprintf(irp->f, " ");
     } else {
-        fprintf(irp->f, "%s %s = ", var_or_const, name);
+        fprintf(irp->f, "%s %s ", var_or_const, name);
     }
+    if (decl_var_instruction->align_value) {
+        fprintf(irp->f, "align ");
+        ir_print_other_instruction(irp, decl_var_instruction->align_value);
+        fprintf(irp->f, " ");
+    }
+    fprintf(irp->f, "= ");
     ir_print_other_instruction(irp, decl_var_instruction->init_value);
     if (decl_var_instruction->var->is_comptime != nullptr) {
         fprintf(irp->f, " // comptime = ");
@@ -638,7 +646,7 @@ static void ir_print_slice(IrPrint *irp, IrInstructionSlice *instruction) {
     ir_print_other_instruction(irp, instruction->ptr);
     fprintf(irp->f, "[");
     ir_print_other_instruction(irp, instruction->start);
-    fprintf(irp->f, "...");
+    fprintf(irp->f, "..");
     if (instruction->end)
         ir_print_other_instruction(irp, instruction->end);
     fprintf(irp->f, "]");
@@ -662,7 +670,7 @@ static void ir_print_return_address(IrPrint *irp, IrInstructionReturnAddress *in
     fprintf(irp->f, "@returnAddress()");
 }
 
-static void ir_print_alignof(IrPrint *irp, IrInstructionAlignOf *instruction) {
+static void ir_print_align_of(IrPrint *irp, IrInstructionAlignOf *instruction) {
     fprintf(irp->f, "@alignOf(");
     ir_print_other_instruction(irp, instruction->type_value);
     fprintf(irp->f, ")");
@@ -737,9 +745,19 @@ static void ir_print_fn_proto(IrPrint *irp, IrInstructionFnProto *instruction) {
     for (size_t i = 0; i < instruction->base.source_node->data.fn_proto.params.length; i += 1) {
         if (i != 0)
             fprintf(irp->f, ",");
-        ir_print_other_instruction(irp, instruction->param_types[i]);
+        if (instruction->is_var_args && i == instruction->base.source_node->data.fn_proto.params.length - 1) {
+            fprintf(irp->f, "...");
+        } else {
+            ir_print_other_instruction(irp, instruction->param_types[i]);
+        }
     }
-    fprintf(irp->f, ")->");
+    fprintf(irp->f, ")");
+    if (instruction->align_value != nullptr) {
+        fprintf(irp->f, " align ");
+        ir_print_other_instruction(irp, instruction->align_value);
+        fprintf(irp->f, " ");
+    }
+    fprintf(irp->f, "->");
     ir_print_other_instruction(irp, instruction->return_type);
 }
 
@@ -756,12 +774,22 @@ static void ir_print_init_enum(IrPrint *irp, IrInstructionInitEnum *instruction)
 }
 
 static void ir_print_ptr_cast(IrPrint *irp, IrInstructionPtrCast *instruction) {
-    fprintf(irp->f, "@ptrcast(");
+    fprintf(irp->f, "@ptrCast(");
     if (instruction->dest_type) {
         ir_print_other_instruction(irp, instruction->dest_type);
     }
     fprintf(irp->f, ",");
     ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_bit_cast(IrPrint *irp, IrInstructionBitCast *instruction) {
+    fprintf(irp->f, "@bitCast(");
+    if (instruction->dest_type) {
+        ir_print_other_instruction(irp, instruction->dest_type);
+    }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->value);
     fprintf(irp->f, ")");
 }
 
@@ -838,10 +866,14 @@ static void ir_print_can_implicit_cast(IrPrint *irp, IrInstructionCanImplicitCas
     fprintf(irp->f, ")");
 }
 
-static void ir_print_set_global_align(IrPrint *irp, IrInstructionSetGlobalAlign *instruction) {
-    fprintf(irp->f, "@setGlobalAlign(%s,", buf_ptr(instruction->tld->name));
-    ir_print_other_instruction(irp, instruction->value);
-    fprintf(irp->f, ")");
+static void ir_print_ptr_type_of(IrPrint *irp, IrInstructionPtrTypeOf *instruction) {
+    fprintf(irp->f, "&align ");
+    ir_print_other_instruction(irp, instruction->align_value);
+    const char *const_str = instruction->is_const ? "const " : "";
+    const char *volatile_str = instruction->is_volatile ? "volatile " : "";
+    fprintf(irp->f, ":%" PRIu32 ":%" PRIu32 " %s%s", instruction->bit_offset_start, instruction->bit_offset_end,
+            const_str, volatile_str);
+    ir_print_other_instruction(irp, instruction->child_type);
 }
 
 static void ir_print_set_global_section(IrPrint *irp, IrInstructionSetGlobalSection *instruction) {
@@ -892,6 +924,28 @@ static void ir_print_type_id(IrPrint *irp, IrInstructionTypeId *instruction) {
     fprintf(irp->f, "@typeId(");
     ir_print_other_instruction(irp, instruction->type_value);
     fprintf(irp->f, ")");
+}
+
+static void ir_print_set_eval_branch_quota(IrPrint *irp, IrInstructionSetEvalBranchQuota *instruction) {
+    fprintf(irp->f, "@setEvalBranchQuota(");
+    ir_print_other_instruction(irp, instruction->new_quota);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_align_cast(IrPrint *irp, IrInstructionAlignCast *instruction) {
+    fprintf(irp->f, "@alignCast(");
+    if (instruction->align_bytes == nullptr) {
+        fprintf(irp->f, "null");
+    } else {
+        ir_print_other_instruction(irp, instruction->align_bytes);
+    }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_opaque_type(IrPrint *irp, IrInstructionOpaqueType *instruction) {
+    fprintf(irp->f, "@OpaqueType()");
 }
 
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
@@ -1089,7 +1143,7 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             ir_print_frame_address(irp, (IrInstructionFrameAddress *)instruction);
             break;
         case IrInstructionIdAlignOf:
-            ir_print_alignof(irp, (IrInstructionAlignOf *)instruction);
+            ir_print_align_of(irp, (IrInstructionAlignOf *)instruction);
             break;
         case IrInstructionIdOverflowOp:
             ir_print_overflow_op(irp, (IrInstructionOverflowOp *)instruction);
@@ -1124,6 +1178,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdPtrCast:
             ir_print_ptr_cast(irp, (IrInstructionPtrCast *)instruction);
             break;
+        case IrInstructionIdBitCast:
+            ir_print_bit_cast(irp, (IrInstructionBitCast *)instruction);
+            break;
         case IrInstructionIdWidenOrShorten:
             ir_print_widen_or_shorten(irp, (IrInstructionWidenOrShorten *)instruction);
             break;
@@ -1157,8 +1214,8 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdCanImplicitCast:
             ir_print_can_implicit_cast(irp, (IrInstructionCanImplicitCast *)instruction);
             break;
-        case IrInstructionIdSetGlobalAlign:
-            ir_print_set_global_align(irp, (IrInstructionSetGlobalAlign *)instruction);
+        case IrInstructionIdPtrTypeOf:
+            ir_print_ptr_type_of(irp, (IrInstructionPtrTypeOf *)instruction);
             break;
         case IrInstructionIdSetGlobalSection:
             ir_print_set_global_section(irp, (IrInstructionSetGlobalSection *)instruction);
@@ -1180,6 +1237,15 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdTypeId:
             ir_print_type_id(irp, (IrInstructionTypeId *)instruction);
+            break;
+        case IrInstructionIdSetEvalBranchQuota:
+            ir_print_set_eval_branch_quota(irp, (IrInstructionSetEvalBranchQuota *)instruction);
+            break;
+        case IrInstructionIdAlignCast:
+            ir_print_align_cast(irp, (IrInstructionAlignCast *)instruction);
+            break;
+        case IrInstructionIdOpaqueType:
+            ir_print_opaque_type(irp, (IrInstructionOpaqueType *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

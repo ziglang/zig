@@ -1,0 +1,30 @@
+# RUN: cp %p/Inputs/hello64.obj %T
+# RUN: cp %p/Inputs/std64.lib %T
+
+# RUN: not lld-link /out:%t.exe /entry:main /subsystem:console \
+# RUN:   hello64.obj /defaultlib:std64.lib >& %t.log
+# RUN: FileCheck -check-prefix=CHECK1 %s < %t.log
+
+# RUN: not lld-link /out:%t.exe /entry:main /subsystem:console \
+# RUN:   hello64 /defaultlib:std64.lib >& %t.log
+# RUN: FileCheck -check-prefix=CHECK2 %s < %t.log
+
+# RUN: lld-link /libpath:%T /out:%t.exe /entry:main \
+# RUN:   /subsystem:console hello64.obj /defaultlib:std64.lib \
+# RUN:   /nodefaultlib:std64.lib >& %t.log || true
+# RUN: FileCheck -check-prefix=CHECK3 %s < %t.log
+
+# RUN: lld-link /libpath:%T /out:%t.exe /entry:main \
+# RUN:   /subsystem:console hello64.obj /defaultlib:std64 \
+# RUN:   /nodefaultlib:std64.lib >& %t.log || true
+# RUN: FileCheck -check-prefix=CHECK3 %s < %t.log
+
+CHECK1: hello64.obj: {{[Nn]}}o such file or directory
+CHECK2: hello64: {{[Nn]}}o such file or directory
+CHECK3: hello64.obj: undefined symbol: MessageBoxA
+
+# RUN: lld-link /libpath:%T /out:%t.exe /entry:main \
+# RUN:   /subsystem:console hello64.obj /defaultlib:std64.lib
+
+# RUN: env LIB=%T lld-link /out:%t.exe /entry:main \
+# RUN:   /subsystem:console hello64.obj /defaultlib:std64.lib

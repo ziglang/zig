@@ -48,6 +48,10 @@ LLVMValueRef ZigLLVMBuildNSWShl(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMVa
         const char *name);
 LLVMValueRef ZigLLVMBuildNUWShl(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS,
         const char *name);
+LLVMValueRef ZigLLVMBuildLShrExact(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS,
+        const char *name);
+LLVMValueRef ZigLLVMBuildAShrExact(LLVMBuilderRef builder, LLVMValueRef LHS, LLVMValueRef RHS,
+        const char *name);
 
 ZigLLVMDIType *ZigLLVMCreateDebugPointerType(ZigLLVMDIBuilder *dibuilder, ZigLLVMDIType *pointee_type,
         uint64_t size_in_bits, uint64_t align_in_bits, const char *name);
@@ -68,7 +72,7 @@ ZigLLVMDIType *ZigLLVMCreateDebugEnumerationType(ZigLLVMDIBuilder *dibuilder, Zi
 
 ZigLLVMDIType *ZigLLVMCreateDebugStructType(ZigLLVMDIBuilder *dibuilder, ZigLLVMDIScope *scope,
         const char *name, ZigLLVMDIFile *file, unsigned line_number, uint64_t size_in_bits,
-        uint64_t align_in_bits, unsigned flags, ZigLLVMDIType *derived_from, 
+        uint64_t align_in_bits, unsigned flags, ZigLLVMDIType *derived_from,
         ZigLLVMDIType **types_array, int types_array_len, unsigned run_time_lang, ZigLLVMDIType *vtable_holder,
         const char *unique_id);
 
@@ -149,9 +153,6 @@ void ZigLLVMFnSetSubprogram(LLVMValueRef fn, ZigLLVMDISubprogram *subprogram);
 
 void ZigLLVMDIBuilderFinalize(ZigLLVMDIBuilder *dibuilder);
 
-ZigLLVMInsertionPoint *ZigLLVMSaveInsertPoint(LLVMBuilderRef builder);
-void ZigLLVMRestoreInsertPoint(LLVMBuilderRef builder, ZigLLVMInsertionPoint *point);
-
 LLVMValueRef ZigLLVMInsertDeclareAtEnd(ZigLLVMDIBuilder *dibuilder, LLVMValueRef storage,
         ZigLLVMDILocalVariable *var_info, ZigLLVMDILocation *debug_loc, LLVMBasicBlockRef basic_block_ref);
 LLVMValueRef ZigLLVMInsertDeclare(ZigLLVMDIBuilder *dibuilder, LLVMValueRef storage,
@@ -163,7 +164,7 @@ void ZigLLVMSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state);
 void ZigLLVMAddFunctionAttr(LLVMValueRef fn, const char *attr_name, const char *attr_value);
 void ZigLLVMAddFunctionAttrCold(LLVMValueRef fn);
 
-unsigned ZigLLVMGetPrefTypeAlignment(LLVMTargetDataRef TD, LLVMTypeRef Ty);
+void ZigLLVMParseCommandLineOptions(int argc, const char *const *argv);
 
 
 // copied from include/llvm/ADT/Triple.h
@@ -184,6 +185,7 @@ enum ZigLLVM_ArchType {
     ZigLLVM_mips64,         // MIPS64: mips64
     ZigLLVM_mips64el,       // MIPS64EL: mips64el
     ZigLLVM_msp430,         // MSP430: msp430
+    ZigLLVM_nios2,          // NIOSII: nios2
     ZigLLVM_ppc,            // PPC: powerpc
     ZigLLVM_ppc64,          // PPC64: powerpc64, ppu
     ZigLLVM_ppc64le,        // PPC64LE: powerpc64le
@@ -224,30 +226,31 @@ enum ZigLLVM_ArchType {
 };
 
 enum ZigLLVM_SubArchType {
-  ZigLLVM_NoSubArch,
+    ZigLLVM_NoSubArch,
 
-  ZigLLVM_ARMSubArch_v8_2a,
-  ZigLLVM_ARMSubArch_v8_1a,
-  ZigLLVM_ARMSubArch_v8,
-  ZigLLVM_ARMSubArch_v8r,
-  ZigLLVM_ARMSubArch_v8m_baseline,
-  ZigLLVM_ARMSubArch_v8m_mainline,
-  ZigLLVM_ARMSubArch_v7,
-  ZigLLVM_ARMSubArch_v7em,
-  ZigLLVM_ARMSubArch_v7m,
-  ZigLLVM_ARMSubArch_v7s,
-  ZigLLVM_ARMSubArch_v7k,
-  ZigLLVM_ARMSubArch_v6,
-  ZigLLVM_ARMSubArch_v6m,
-  ZigLLVM_ARMSubArch_v6k,
-  ZigLLVM_ARMSubArch_v6t2,
-  ZigLLVM_ARMSubArch_v5,
-  ZigLLVM_ARMSubArch_v5te,
-  ZigLLVM_ARMSubArch_v4t,
+    ZigLLVM_ARMSubArch_v8_2a,
+    ZigLLVM_ARMSubArch_v8_1a,
+    ZigLLVM_ARMSubArch_v8,
+    ZigLLVM_ARMSubArch_v8r,
+    ZigLLVM_ARMSubArch_v8m_baseline,
+    ZigLLVM_ARMSubArch_v8m_mainline,
+    ZigLLVM_ARMSubArch_v7,
+    ZigLLVM_ARMSubArch_v7em,
+    ZigLLVM_ARMSubArch_v7m,
+    ZigLLVM_ARMSubArch_v7s,
+    ZigLLVM_ARMSubArch_v7k,
+    ZigLLVM_ARMSubArch_v7ve,
+    ZigLLVM_ARMSubArch_v6,
+    ZigLLVM_ARMSubArch_v6m,
+    ZigLLVM_ARMSubArch_v6k,
+    ZigLLVM_ARMSubArch_v6t2,
+    ZigLLVM_ARMSubArch_v5,
+    ZigLLVM_ARMSubArch_v5te,
+    ZigLLVM_ARMSubArch_v4t,
 
-  ZigLLVM_KalimbaSubArch_v3,
-  ZigLLVM_KalimbaSubArch_v4,
-  ZigLLVM_KalimbaSubArch_v5,
+    ZigLLVM_KalimbaSubArch_v3,
+    ZigLLVM_KalimbaSubArch_v4,
+    ZigLLVM_KalimbaSubArch_v5,
 };
 
 enum ZigLLVM_VendorType {
@@ -267,13 +270,15 @@ enum ZigLLVM_VendorType {
     ZigLLVM_Myriad,
     ZigLLVM_AMD,
     ZigLLVM_Mesa,
+    ZigLLVM_SUSE,
 
-    ZigLLVM_LastVendorType = ZigLLVM_Mesa
+    ZigLLVM_LastVendorType = ZigLLVM_SUSE
 };
 
 enum ZigLLVM_OSType {
     ZigLLVM_UnknownOS,
 
+    ZigLLVM_Ananas,
     ZigLLVM_CloudABI,
     ZigLLVM_Darwin,
     ZigLLVM_DragonFly,
@@ -340,6 +345,7 @@ enum ZigLLVM_ObjectFormatType {
     ZigLLVM_COFF,
     ZigLLVM_ELF,
     ZigLLVM_MachO,
+    ZigLLVM_Wasm,
 };
 
 const char *ZigLLVMGetArchTypeName(ZigLLVM_ArchType arch);
@@ -358,6 +364,5 @@ bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_
 void ZigLLVMGetNativeTarget(ZigLLVM_ArchType *arch_type, ZigLLVM_SubArchType *sub_arch_type,
         ZigLLVM_VendorType *vendor_type, ZigLLVM_OSType *os_type, ZigLLVM_EnvironmentType *environ_type,
         ZigLLVM_ObjectFormatType *oformat);
-
 
 #endif

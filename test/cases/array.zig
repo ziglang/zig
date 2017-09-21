@@ -80,3 +80,19 @@ test "set global var array via slice embedded in struct" {
     assert(s_array[1].b == 2);
     assert(s_array[2].b == 3);
 }
+
+test "array literal with specified size" {
+    var array = [2]u8{1, 2};
+    assert(array[0] == 1);
+    assert(array[1] == 2);
+}
+
+test "array child property" {
+    var x: [5]i32 = undefined;
+    assert(@typeOf(x).Child == i32);
+}
+
+test "array len property" {
+    var x: [5]i32 = undefined;
+    assert(@typeOf(x).len == 5);
+}

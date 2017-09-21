@@ -25,6 +25,8 @@
 
 #include <windows.h>
 #include <io.h>
+
+typedef SSIZE_T ssize_t;
 #else
 #define ZIG_OS_POSIX
 
@@ -620,7 +622,7 @@ int os_get_cwd(Buf *out_cwd) {
 
 bool os_stderr_tty(void) {
 #if defined(ZIG_OS_WINDOWS)
-    return _isatty(STDERR_FILENO) != 0;
+    return _isatty(_fileno(stderr)) != 0;
 #elif defined(ZIG_OS_POSIX)
     return isatty(STDERR_FILENO) != 0;
 #else
@@ -709,10 +711,6 @@ int os_delete_file(Buf *path) {
     }
 }
 
-void os_init(void) {
-    srand((unsigned)time(NULL));
-}
-
 int os_rename(Buf *src_path, Buf *dest_path) {
     if (rename(buf_ptr(src_path), buf_ptr(dest_path)) == -1) {
         return ErrorFileSystem;
@@ -781,12 +779,12 @@ int os_make_path(Buf *path) {
 
 int os_make_dir(Buf *path) {
 #if defined(ZIG_OS_WINDOWS)
-    if (mkdir(buf_ptr(path)) == -1) {
-        if (errno == EEXIST)
+    if (!CreateDirectory(buf_ptr(path), NULL)) {
+        if (GetLastError() == ERROR_ALREADY_EXISTS)
             return ErrorPathAlreadyExists;
-        if (errno == ENOENT)
+        if (GetLastError() == ERROR_PATH_NOT_FOUND)
             return ErrorFileNotFound;
-        if (errno == EACCES)
+        if (GetLastError() == ERROR_ACCESS_DENIED)
             return ErrorAccess;
         return ErrorUnexpected;
     }
@@ -805,7 +803,8 @@ int os_make_dir(Buf *path) {
 #endif
 }
 
-int zig_os_init(void) {
+int os_init(void) {
+    srand((unsigned)time(NULL));
 #if defined(ZIG_OS_WINDOWS)
     unsigned __int64 frequency;
     if (QueryPerformanceFrequency((LARGE_INTEGER*) &frequency)) {

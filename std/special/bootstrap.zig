@@ -5,17 +5,21 @@ const root = @import("@root");
 const std = @import("std");
 const builtin = @import("builtin");
 
-const want_main_symbol = std.target.linking_libc;
+const want_main_symbol = builtin.link_libc;
 const want_start_symbol = !want_main_symbol;
 
-const exit = std.os.posix.exit;
-
 var argc_ptr: &usize = undefined;
+
+const is_windows = builtin.os == builtin.Os.windows;
 
 export nakedcc fn _start() -> noreturn {
     if (!want_start_symbol) {
         @setGlobalLinkage(_start, builtin.GlobalLinkage.Internal);
         unreachable;
+    }
+
+    if (is_windows) {
+        windowsCallMainAndExit()
     }
 
     switch (builtin.arch) {
@@ -27,15 +31,21 @@ export nakedcc fn _start() -> noreturn {
         },
         else => @compileError("unsupported arch"),
     }
-    callMainAndExit()
+    posixCallMainAndExit()
 }
 
-fn callMainAndExit() -> noreturn {
+fn windowsCallMainAndExit() -> noreturn {
+    std.debug.user_main_fn = root.main;
+    root.main() %% std.os.windows.ExitProcess(1);
+    std.os.windows.ExitProcess(0);
+}
+
+fn posixCallMainAndExit() -> noreturn {
     const argc = *argc_ptr;
     const argv = @ptrCast(&&u8, &argc_ptr[1]);
     const envp = @ptrCast(&?&u8, &argv[argc + 1]);
-    callMain(argc, argv, envp) %% exit(1);
-    exit(0);
+    callMain(argc, argv, envp) %% std.os.posix.exit(1);
+    std.os.posix.exit(0);
 }
 
 fn callMain(argc: usize, argv: &&u8, envp: &?&u8) -> %void {

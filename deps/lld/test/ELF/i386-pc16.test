@@ -1,0 +1,40 @@
+# REQUIRES: x86
+
+# RUN: yaml2obj %s -o %t.o
+# RUN: ld.lld -Ttext 0x0 %t.o -o %t.exe
+# RUN: llvm-objdump -s -section=.text %t.exe 2>&1 | FileCheck %s
+
+# CHECK:      Contents of section .text:
+# CHECK-NEXT:  0000 45231111 41231111
+
+!ELF
+FileHeader:
+  Class:           ELFCLASS32
+  Data:            ELFDATA2LSB
+  Type:            ET_REL
+  Machine:         EM_386
+Sections:
+  - Type:            SHT_PROGBITS
+    Name:            .text
+    Flags:           [ SHF_ALLOC, SHF_EXECINSTR ]
+    AddressAlign:    0x04
+    Content:         "1111111111111111"
+  - Type:            SHT_REL
+    Name:            .rel.text
+    Link:            .symtab
+    Info:            .text
+    AddressAlign:    0x04
+    Relocations:
+      - Offset:          0
+        Symbol:          _start
+        Type:            R_386_16
+      - Offset:          4
+        Symbol:          _start
+        Type:            R_386_PC16
+Symbols:
+  Global:
+    - Name:     _start
+      Type:     STT_FUNC
+      Section:  .text
+      Value:    0x1234
+      Size:     4

@@ -1,0 +1,30 @@
+# RUN: yaml2obj %p/Inputs/machine-x64.yaml > %t.obj
+# RUN: lld-link /entry:main /subsystem:console /out:%t.exe %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=AMD64 %s
+# RUN: lld-link /entry:main /subsystem:console /machine:x64 \
+# RUN:   /out:%t.exe %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=AMD64 %s
+
+AMD64: Machine: IMAGE_FILE_MACHINE_AMD64
+
+# RUN: yaml2obj %p/Inputs/machine-x86.yaml > %t.obj
+# RUN: lld-link /entry:main /subsystem:console /out:%t.exe %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=I386 %s
+# RUN: lld-link /entry:main /subsystem:console /machine:x86 \
+# RUN:   /out:%t.exe %t.obj /fixed
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=I386 %s
+
+I386: Machine: IMAGE_FILE_MACHINE_I386
+
+# RUN: yaml2obj %p/Inputs/machine-x64.yaml > %t.obj
+# RUN: not lld-link /entry:main /subsystem:console /machine:x86 \
+# RUN:   /out:%t.exe %t.obj /fixed >& %t.log
+# RUN: FileCheck -check-prefix=INCOMPAT %s < %t.log
+
+# RUN: yaml2obj %p/Inputs/machine-x86.yaml > %t1.obj
+# RUN: sed -e s/main/foo/ %p/Inputs/machine-x64.yaml | yaml2obj > %t2.obj
+# RUN: not lld-link /entry:main /subsystem:console /out:%t.exe \
+# RUN:   %t1.obj %t2.obj >& %t.log
+# RUN: FileCheck -check-prefix=INCOMPAT %s < %t.log
+
+INCOMPAT: .obj: machine type x64 conflicts with x86

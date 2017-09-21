@@ -14,8 +14,8 @@
 static const char *bin_op_str(BinOpType bin_op) {
     switch (bin_op) {
         case BinOpTypeInvalid:                return "(invalid)";
-        case BinOpTypeBoolOr:                 return "||";
-        case BinOpTypeBoolAnd:                return "&&";
+        case BinOpTypeBoolOr:                 return "or";
+        case BinOpTypeBoolAnd:                return "and";
         case BinOpTypeCmpEq:                  return "==";
         case BinOpTypeCmpNotEq:               return "!=";
         case BinOpTypeCmpLessThan:            return "<";
@@ -26,7 +26,6 @@ static const char *bin_op_str(BinOpType bin_op) {
         case BinOpTypeBinXor:                 return "^";
         case BinOpTypeBinAnd:                 return "&";
         case BinOpTypeBitShiftLeft:           return "<<";
-        case BinOpTypeBitShiftLeftWrap:       return "<<%";
         case BinOpTypeBitShiftRight:          return ">>";
         case BinOpTypeAdd:                    return "+";
         case BinOpTypeAddWrap:                return "+%";
@@ -46,7 +45,6 @@ static const char *bin_op_str(BinOpType bin_op) {
         case BinOpTypeAssignMinus:            return "-=";
         case BinOpTypeAssignMinusWrap:        return "-%=";
         case BinOpTypeAssignBitShiftLeft:     return "<<=";
-        case BinOpTypeAssignBitShiftLeftWrap: return "<<%=";
         case BinOpTypeAssignBitShiftRight:    return ">>=";
         case BinOpTypeAssignBitAnd:           return "&=";
         case BinOpTypeAssignBitXor:           return "^=";
@@ -67,10 +65,6 @@ static const char *prefix_op_str(PrefixOp prefix_op) {
         case PrefixOpNegationWrap: return "-%";
         case PrefixOpBoolNot: return "!";
         case PrefixOpBinNot: return "~";
-        case PrefixOpAddressOf: return "&";
-        case PrefixOpConstAddressOf: return "&const ";
-        case PrefixOpVolatileAddressOf: return "&volatile ";
-        case PrefixOpConstVolatileAddressOf: return "&const volatile ";
         case PrefixOpDereference: return "*";
         case PrefixOpMaybe: return "?";
         case PrefixOpError: return "%";
@@ -117,6 +111,17 @@ static const char *layout_string(ContainerLayout layout) {
 static const char *extern_string(bool is_extern) {
     return is_extern ? "extern " : "";
 }
+
+//static const char *calling_convention_string(CallingConvention cc) {
+//    switch (cc) {
+//        case CallingConventionUnspecified: return "";
+//        case CallingConventionC: return "extern ";
+//        case CallingConventionCold: return "coldcc ";
+//        case CallingConventionNaked: return "nakedcc ";
+//        case CallingConventionStdcall: return "stdcallcc ";
+//    }
+//    zig_unreachable();
+//}
 
 static const char *inline_string(bool is_inline) {
     return is_inline ? "inline " : "";
@@ -171,8 +176,10 @@ static const char *node_type_str(NodeType node_type) {
             return "ErrorValueDecl";
         case NodeTypeTestDecl:
             return "TestDecl";
-        case NodeTypeNumberLiteral:
-            return "NumberLiteral";
+        case NodeTypeIntLiteral:
+            return "IntLiteral";
+        case NodeTypeFloatLiteral:
+            return "FloatLiteral";
         case NodeTypeStringLiteral:
             return "StringLiteral";
         case NodeTypeCharLiteral:
@@ -181,6 +188,8 @@ static const char *node_type_str(NodeType node_type) {
             return "Symbol";
         case NodeTypePrefixOpExpr:
             return "PrefixOpExpr";
+        case NodeTypeAddrOfExpr:
+            return "AddrOfExpr";
         case NodeTypeUse:
             return "Use";
         case NodeTypeBoolLiteral:
@@ -403,14 +412,17 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 const char *pub_str = visib_mod_string(node->data.fn_proto.visib_mod);
                 const char *extern_str = extern_string(node->data.fn_proto.is_extern);
                 const char *inline_str = inline_string(node->data.fn_proto.is_inline);
-                fprintf(ar->f, "%s%s%sfn ", pub_str, inline_str, extern_str);
-                print_symbol(ar, node->data.fn_proto.name);
+                fprintf(ar->f, "%s%s%sfn", pub_str, inline_str, extern_str);
+                if (node->data.fn_proto.name != nullptr) {
+                    fprintf(ar->f, " ");
+                    print_symbol(ar, node->data.fn_proto.name);
+                }
                 fprintf(ar->f, "(");
                 size_t arg_count = node->data.fn_proto.params.length;
                 for (size_t arg_i = 0; arg_i < arg_count; arg_i += 1) {
                     AstNode *param_decl = node->data.fn_proto.params.at(arg_i);
                     assert(param_decl->type == NodeTypeParamDecl);
-                    if (buf_len(param_decl->data.param_decl.name) > 0) {
+                    if (param_decl->data.param_decl.name != nullptr) {
                         const char *noalias_str = param_decl->data.param_decl.is_noalias ? "noalias " : "";
                         const char *inline_str = param_decl->data.param_decl.is_inline ? "inline " : "";
                         fprintf(ar->f, "%s%s", noalias_str, inline_str);
@@ -430,8 +442,10 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 fprintf(ar->f, ")");
 
                 AstNode *return_type_node = node->data.fn_proto.return_type;
-                fprintf(ar->f, " -> ");
-                render_node_grouped(ar, return_type_node);
+                if (return_type_node != nullptr) {
+                    fprintf(ar->f, " -> ");
+                    render_node_grouped(ar, return_type_node);
+                }
                 break;
             }
         case NodeTypeFnDef:
@@ -525,17 +539,20 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             render_node_ungrouped(ar, node->data.bin_op_expr.op2);
             if (!grouped) fprintf(ar->f, ")");
             break;
-        case NodeTypeNumberLiteral:
-            switch (node->data.number_literal.bignum->kind) {
-                case BigNumKindInt:
-                    {
-                        const char *negative_str = node->data.number_literal.bignum->is_negative ? "-" : "";
-                        fprintf(ar->f, "%s%" ZIG_PRI_llu, negative_str, node->data.number_literal.bignum->data.x_uint);
-                    }
-                    break;
-                case BigNumKindFloat:
-                    fprintf(ar->f, "%f", node->data.number_literal.bignum->data.x_float);
-                    break;
+        case NodeTypeFloatLiteral:
+            {
+                Buf rendered_buf = BUF_INIT;
+                buf_resize(&rendered_buf, 0);
+                bigfloat_append_buf(&rendered_buf, node->data.float_literal.bigfloat);
+                fprintf(ar->f, "%s", buf_ptr(&rendered_buf));
+            }
+            break;
+        case NodeTypeIntLiteral:
+            {
+                Buf rendered_buf = BUF_INIT;
+                buf_resize(&rendered_buf, 0);
+                bigint_append_buf(&rendered_buf, node->data.int_literal.bigint, 10);
+                fprintf(ar->f, "%s", buf_ptr(&rendered_buf));
             }
             break;
         case NodeTypeStringLiteral:
@@ -563,10 +580,43 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             break;
         case NodeTypePrefixOpExpr:
             {
+                if (!grouped) fprintf(ar->f, "(");
                 PrefixOp op = node->data.prefix_op_expr.prefix_op;
                 fprintf(ar->f, "%s", prefix_op_str(op));
 
                 render_node_ungrouped(ar, node->data.prefix_op_expr.primary_expr);
+                if (!grouped) fprintf(ar->f, ")");
+                break;
+            }
+        case NodeTypeAddrOfExpr:
+            {
+                fprintf(ar->f, "&");
+                if (node->data.addr_of_expr.align_expr != nullptr) {
+                    fprintf(ar->f, "align(");
+                    render_node_grouped(ar, node->data.addr_of_expr.align_expr);
+                    if (node->data.addr_of_expr.bit_offset_start != nullptr) {
+                        assert(node->data.addr_of_expr.bit_offset_end != nullptr);
+
+                        Buf offset_start_buf = BUF_INIT;
+                        buf_resize(&offset_start_buf, 0);
+                        bigint_append_buf(&offset_start_buf, node->data.addr_of_expr.bit_offset_start, 10);
+
+                        Buf offset_end_buf = BUF_INIT;
+                        buf_resize(&offset_end_buf, 0);
+                        bigint_append_buf(&offset_end_buf, node->data.addr_of_expr.bit_offset_end, 10);
+
+                        fprintf(ar->f, ":%s:%s ", buf_ptr(&offset_start_buf), buf_ptr(&offset_end_buf));
+                    }
+                    fprintf(ar->f, ") ");
+                }
+                if (node->data.addr_of_expr.is_const) {
+                    fprintf(ar->f, "const ");
+                }
+                if (node->data.addr_of_expr.is_volatile) {
+                    fprintf(ar->f, "volatile ");
+                }
+
+                render_node_ungrouped(ar, node->data.addr_of_expr.op_expr);
                 break;
             }
         case NodeTypeFnCallExpr:
@@ -608,16 +658,19 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             break;
         case NodeTypeContainerDecl:
             {
+                const char *layout_str = layout_string(node->data.container_decl.layout);
                 const char *container_str = container_string(node->data.container_decl.kind);
-                fprintf(ar->f, "%s {\n", container_str);
+                fprintf(ar->f, "%s%s {\n", layout_str, container_str);
                 ar->indent += ar->indent_size;
                 for (size_t field_i = 0; field_i < node->data.container_decl.fields.length; field_i += 1) {
                     AstNode *field_node = node->data.container_decl.fields.at(field_i);
                     assert(field_node->type == NodeTypeStructField);
                     print_indent(ar);
                     print_symbol(ar, field_node->data.struct_field.name);
-                    fprintf(ar->f, ": ");
-                    render_node_grouped(ar, field_node->data.struct_field.type);
+                    if (field_node->data.struct_field.type != nullptr) {
+                        fprintf(ar->f, ": ");
+                        render_node_grouped(ar, field_node->data.struct_field.type);
+                    }
                     fprintf(ar->f, ",\n");
                 }
 
@@ -909,7 +962,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 render_node_ungrouped(ar, node->data.slice_expr.array_ref_expr);
                 fprintf(ar->f, "[");
                 render_node_grouped(ar, node->data.slice_expr.start);
-                fprintf(ar->f, "...");
+                fprintf(ar->f, "..");
                 if (node->data.slice_expr.end)
                     render_node_grouped(ar, node->data.slice_expr.end);
                 fprintf(ar->f, "]");
@@ -946,148 +999,3 @@ void ast_render(CodeGen *codegen, FILE *f, AstNode *node, int indent_size) {
 
     render_node_grouped(&ar, node);
 }
-
-static void ast_render_tld_fn(AstRender *ar, Buf *name, TldFn *tld_fn) {
-    FnTableEntry *fn_entry = tld_fn->fn_entry;
-    FnTypeId *fn_type_id = &fn_entry->type_entry->data.fn.fn_type_id;
-    const char *visib_mod_str = visib_mod_string(tld_fn->base.visib_mod);
-    const char *extern_str = extern_string(fn_type_id->is_extern);
-    const char *coldcc_str = fn_type_id->is_cold ? "coldcc " : "";
-    const char *nakedcc_str = fn_type_id->is_naked ? "nakedcc " : "";
-    fprintf(ar->f, "%s%s%s%sfn %s(", visib_mod_str, extern_str, coldcc_str, nakedcc_str, buf_ptr(&fn_entry->symbol_name));
-    for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
-        FnTypeParamInfo *param_info = &fn_type_id->param_info[i];
-        if (i != 0) {
-            fprintf(ar->f, ", ");
-        }
-        if (param_info->is_noalias) {
-            fprintf(ar->f, "noalias ");
-        }
-        Buf *param_name = tld_fn->fn_entry->param_names ? tld_fn->fn_entry->param_names[i] : buf_sprintf("arg%" ZIG_PRI_usize "", i);
-        fprintf(ar->f, "%s: %s", buf_ptr(param_name), buf_ptr(&param_info->type->name));
-    }
-    if (fn_type_id->return_type->id == TypeTableEntryIdVoid) {
-        fprintf(ar->f, ");\n");
-    } else {
-        fprintf(ar->f, ") -> %s;\n", buf_ptr(&fn_type_id->return_type->name));
-    }
-}
-
-static void ast_render_tld_var(AstRender *ar, Buf *name, TldVar *tld_var) {
-    VariableTableEntry *var = tld_var->var;
-    const char *visib_mod_str = visib_mod_string(tld_var->base.visib_mod);
-    const char *const_or_var = const_or_var_string(var->src_is_const);
-    const char *extern_str = extern_string(var->linkage == VarLinkageExternal);
-    fprintf(ar->f, "%s%s%s %s", visib_mod_str, extern_str, const_or_var, buf_ptr(name));
-
-    if (var->value->type->id == TypeTableEntryIdNumLitFloat ||
-        var->value->type->id == TypeTableEntryIdNumLitInt ||
-        var->value->type->id == TypeTableEntryIdMetaType)
-    {
-        // skip type
-    } else {
-        fprintf(ar->f, ": %s", buf_ptr(&var->value->type->name));
-    }
-
-    if (var->value->special == ConstValSpecialRuntime) {
-        fprintf(ar->f, ";\n");
-        return;
-    }
-
-    fprintf(ar->f, " = ");
-
-    if (var->value->special == ConstValSpecialStatic &&
-        var->value->type->id == TypeTableEntryIdMetaType)
-    {
-        TypeTableEntry *type_entry = var->value->data.x_type;
-        if (type_entry->id == TypeTableEntryIdStruct) {
-            const char *layout_str = layout_string(type_entry->data.structure.layout);
-            fprintf(ar->f, "%sstruct {\n", layout_str);
-            if (type_entry->data.structure.complete) {
-                for (size_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
-                    TypeStructField *field = &type_entry->data.structure.fields[i];
-                    fprintf(ar->f, "    ");
-                    print_symbol(ar, field->name);
-                    fprintf(ar->f, ": %s,\n", buf_ptr(&field->type_entry->name));
-                }
-            }
-            fprintf(ar->f, "}");
-        } else if (type_entry->id == TypeTableEntryIdEnum) {
-            const char *layout_str = layout_string(type_entry->data.enumeration.layout);
-            fprintf(ar->f, "%senum {\n", layout_str);
-            if (type_entry->data.enumeration.complete) {
-                for (size_t i = 0; i < type_entry->data.enumeration.src_field_count; i += 1) {
-                    TypeEnumField *field = &type_entry->data.enumeration.fields[i];
-                    fprintf(ar->f, "    ");
-                    print_symbol(ar, field->name);
-                    if (field->type_entry->id == TypeTableEntryIdVoid) {
-                        fprintf(ar->f, ",\n");
-                    } else {
-                        fprintf(ar->f, ": %s,\n", buf_ptr(&field->type_entry->name));
-                    }
-                }
-            }
-            fprintf(ar->f, "}");
-        } else if (type_entry->id == TypeTableEntryIdUnion) {
-            fprintf(ar->f, "union {");
-            fprintf(ar->f, "TODO");
-            fprintf(ar->f, "}");
-        } else if (type_entry->id == TypeTableEntryIdOpaque) {
-            if (buf_eql_buf(&type_entry->name, name)) {
-                fprintf(ar->f, "@OpaqueType()");
-            } else {
-                fprintf(ar->f, "%s", buf_ptr(&type_entry->name));
-            }
-        } else {
-            fprintf(ar->f, "%s", buf_ptr(&type_entry->name));
-        }
-    } else {
-        Buf buf = BUF_INIT;
-        buf_resize(&buf, 0);
-        render_const_value(ar->codegen, &buf, var->value);
-        fprintf(ar->f, "%s", buf_ptr(&buf));
-    }
-
-    fprintf(ar->f, ";\n");
-}
-
-void ast_render_decls(CodeGen *codegen, FILE *f, int indent_size, ImportTableEntry *import) {
-    AstRender ar = {0};
-    ar.codegen = codegen;
-    ar.f = f;
-    ar.indent_size = indent_size;
-    ar.indent = 0;
-
-    auto it = import->decls_scope->decl_table.entry_iterator();
-    for (;;) {
-        auto *entry = it.next();
-        if (!entry)
-            break;
-
-        Tld *tld = entry->value;
-
-        if (tld->name != nullptr && !buf_eql_buf(entry->key, tld->name)) {
-            fprintf(ar.f, "pub const ");
-            print_symbol(&ar, entry->key);
-            fprintf(ar.f, " = %s;\n", buf_ptr(tld->name));
-            continue;
-        }
-
-        switch (tld->id) {
-            case TldIdVar:
-                ast_render_tld_var(&ar, entry->key, (TldVar *)tld);
-                break;
-            case TldIdFn:
-                ast_render_tld_fn(&ar, entry->key, (TldFn *)tld);
-                break;
-            case TldIdContainer:
-                fprintf(stdout, "container\n");
-                break;
-            case TldIdCompTime:
-                fprintf(stdout, "comptime\n");
-                break;
-        }
-    }
-}
-
-

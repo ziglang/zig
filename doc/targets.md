@@ -12,4 +12,4 @@ Write the target-specific code in the standard library.
 
 Update the C integer types to be the correct size for the target.
 
-Make sure that `c_long_double` codegens the correct floating point value.
+Make sure that `c_longdouble` codegens the correct floating point value.

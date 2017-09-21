@@ -1,0 +1,3 @@
+# REQUIRES: system-windows
+# RUN: not LLD-LINK 2>&1 | FileCheck %s
+CHECK: no input files

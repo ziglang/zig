@@ -1,0 +1,62 @@
+# RUN: yaml2obj < %s > %t.obj
+# RUN: lld-link /out:%t.exe /entry:main /subsystem:console /force \
+# RUN:   /section:.foo,r %t.obj
+# RUN: llvm-readobj -sections %t.exe | FileCheck -check-prefix=R %s
+
+# RUN: lld-link /out:%t.exe /entry:main /subsystem:console /force \
+# RUN:   /section:.foo,w %t.obj
+# RUN: llvm-readobj -sections %t.exe | FileCheck -check-prefix=W %s
+
+# RUN: lld-link /out:%t.exe /entry:main /subsystem:console /force \
+# RUN:   /section:.foo,e %t.obj
+# RUN: llvm-readobj -sections %t.exe | FileCheck -check-prefix=E %s
+
+# RUN: lld-link /out:%t.exe /entry:main /subsystem:console /force \
+# RUN:   /section:.foo,s %t.obj
+# RUN: llvm-readobj -sections %t.exe | FileCheck -check-prefix=S %s
+
+# R:      Characteristics [
+# R-NEXT:   IMAGE_SCN_MEM_READ
+# R-NEXT: ]
+
+# W:      Characteristics [
+# W-NEXT:   IMAGE_SCN_MEM_WRITE
+# W-NEXT: ]
+
+# E:      Characteristics [
+# E-NEXT:   IMAGE_SCN_MEM_EXECUTE
+# E-NEXT: ]
+
+# S:      Characteristics [
+# S-NEXT:   IMAGE_SCN_MEM_SHARED
+# S-NEXT: ]
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_AMD64
+  Characteristics: []
+sections:
+  - Name:            .foo
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
+    Alignment:       4
+    SectionData:     000000000000
+symbols:
+  - Name:            .foo
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          6
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          0
+  - Name:            main
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+...

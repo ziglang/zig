@@ -1,5 +1,5 @@
 const io = @import("io.zig");
-const math = @import("math.zig");
+const math = @import("math/index.zig");
 const mem = @import("mem.zig");
 const debug = @import("debug.zig");
 

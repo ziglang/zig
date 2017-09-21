@@ -1,0 +1,75 @@
+# RUN: lld -flavor darwin -arch x86_64 %s %p/Inputs/x86_64/libSystem.yaml \
+# RUN:     -order_file %p/Inputs/order_file-basic.order \
+# RUN:     -force_load %p/Inputs/libfoo.a -o %t
+# RUN: llvm-nm -m -n %t | FileCheck %s
+#
+# Test -order_file
+#
+
+--- !mach-o
+arch:            x86_64
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+sections:
+  - segment:         __TEXT
+    section:         __text
+    type:            S_REGULAR
+    attributes:      [ S_ATTR_PURE_INSTRUCTIONS, S_ATTR_SOME_INSTRUCTIONS ]
+    address:         0x0000000000000000
+    content:         [ 0xC3, 0xC3, 0xC3, 0xC3 ]
+  - segment:         __DATA
+    section:         __data
+    type:            S_REGULAR
+    attributes:      [  ]
+    alignment:       2
+    address:         0x0000000000000014
+    content:         [ 0x05, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00,
+                       0x07, 0x00, 0x00, 0x00 ]
+global-symbols:
+  - name:            _data1
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            2
+    value:           0x0000000000000014
+  - name:            _data2
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            2
+    value:           0x0000000000000018
+  - name:            _data3
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            2
+    value:           0x000000000000001C
+  - name:            _func1
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+  - name:            _func2
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000001
+  - name:            _func3
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000002
+  - name:            _main
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000003
+...
+
+
+# CHECK:	{{[0-9a-f]+}} (__TEXT,__text) external _func2
+# CHECK:	{{[0-9a-f]+}} (__TEXT,__text) external _foo
+# CHECK:	{{[0-9a-f]+}} (__TEXT,__text) external _func1
+# CHECK:	{{[0-9a-f]+}} (__TEXT,__text) external _func3
+# CHECK:	{{[0-9a-f]+}} (__TEXT,__text) external _main
+# CHECK:	{{[0-9a-f]+}} (__DATA,__data) external _data3
+# CHECK:	{{[0-9a-f]+}} (__DATA,__data) external _data1
+# CHECK:	{{[0-9a-f]+}} (__DATA,__data) external _data2
+

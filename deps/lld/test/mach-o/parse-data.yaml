@@ -1,0 +1,119 @@
+# RUN: lld -flavor darwin -arch x86_64 -r -print_atoms %s -o %t  | FileCheck %s
+#
+# Test parsing of mach-o data symbols.
+#
+# long a = 0x0807060504030201;
+# int b = 0x14131211;
+# int c = 0x24232221;
+# static int s1;
+# static int s2 = 0x34333231;
+#
+#
+
+
+--- !mach-o
+arch:            x86_64
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+has-UUID:        false
+OS:              unknown
+sections:
+  - segment:         __DATA
+    section:         __data
+    type:            S_REGULAR
+    attributes:      [  ]
+    alignment:       8
+    address:         0x0000000000000000
+    content:         [ 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                       0x11, 0x12, 0x13, 0x14, 0x21, 0x22, 0x23, 0x24,
+                       0x31, 0x32, 0x33, 0x34, 0x41, 0x42, 0x43, 0x44 ]
+  - segment:         __CUST
+    section:         __custom
+    type:            S_REGULAR
+    attributes:      [  ]
+    alignment:       8
+    address:         0x0000000000000018
+    content:         [ 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 ]
+  - segment:         __DATA
+    section:         __bss
+    type:            S_ZEROFILL
+    attributes:      [  ]
+    alignment:       2
+    address:         0x0000000000000020
+    size:            4
+local-symbols:
+  - name:            _s1
+    type:            N_SECT
+    sect:            3
+    value:           0x0000000000000020
+  - name:            _s2
+    type:            N_SECT
+    sect:            1
+    value:           0x0000000000000010
+global-symbols:
+  - name:            _a
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000000
+  - name:            _b
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x0000000000000008
+  - name:            _c
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    value:           0x000000000000000C
+  - name:            _cWeak
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            1
+    desc:            [ N_WEAK_DEF ]
+    value:           0x0000000000000014
+  - name:            _kustom
+    type:            N_SECT
+    scope:           [ N_EXT ]
+    sect:            2
+    value:           0x0000000000000018
+...
+
+# CHECK: defined-atoms:
+
+# CHECK:   - name:            _a
+# CHECK:     scope:           global
+# CHECK:     type:            data
+# CHECK:     content:         [ 01, 02, 03, 04, 05, 06, 07, 08 ]
+
+# CHECK:   - name:            _b
+# CHECK:     scope:           global
+# CHECK:     type:            data
+# CHECK:     content:         [ 11, 12, 13, 14 ]
+
+# CHECK:   - name:            _c
+# CHECK:     scope:           global
+# CHECK:     type:            data
+# CHECK:     content:         [ 21, 22, 23, 24 ]
+
+# CHECK:   - name:            _s2
+# CHECK:     type:            data
+# CHECK:     content:         [ 31, 32, 33, 34 ]
+
+# CHECK:   - name:            _cWeak
+# CHECK:     scope:           global
+# CHECK:     type:            data
+# CHECK:     content:         [ 41, 42, 43, 44 ]
+# CHECK:     merge:           as-weak
+
+# CHECK:   - name:            _s1
+# CHECK:     type:            zero-fill
+# CHECK:     size:            4
+
+# CHECK:   - name:            _kustom
+# CHECK:     scope:           global
+# CHECK:     type:            unknown
+# CHECK:     content:         [ 01, 02, 03, 04, 05, 06, 07, 08 ]
+# CHECK:     section-choice:  custom-required
+# CHECK:     section-name:    __CUST/__custom
+

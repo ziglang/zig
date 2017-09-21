@@ -1,0 +1,25 @@
+--- !mach-o
+arch:            x86_64
+file-type:       MH_OBJECT
+flags:           [ MH_SUBSECTIONS_VIA_SYMBOLS ]
+has-UUID:        false
+OS:              unknown
+sections:
+  - segment:         __TEXT
+    section:         __objc_methname
+    type:            S_CSTRING_LITERALS
+    attributes:      [  ]
+    address:         0x0000000000000000
+    content:         [ 0x61, 0x62, 0x63, 0x00 ]
+  - segment:         __TEXT
+    section:         __objc_classname
+    type:            S_CSTRING_LITERALS
+    attributes:      [  ]
+    address:         0x0000000000000006
+    content:         [ 0x61, 0x62, 0x63, 0x00 ]
+  - segment:         __TEXT
+    section:         __cstring
+    type:            S_CSTRING_LITERALS
+    attributes:      [  ]
+    address:         0x000000000000000A
+    content:         [ 0x61, 0x62, 0x63, 0x00 ]

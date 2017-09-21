@@ -4,13 +4,13 @@ const mem = @import("std").mem;
 test "int to ptr cast" {
     const x = usize(13);
     const y = @intToPtr(&u8, x);
-    const z = usize(y);
+    const z = @ptrToInt(y);
     assert(z == 13);
 }
 
 test "integer literal to pointer cast" {
     const vga_mem = @intToPtr(&u16, 0xB8000);
-    assert(usize(vga_mem) == 0xB8000);
+    assert(@ptrToInt(vga_mem) == 0xB8000);
 }
 
 test "pointer reinterpret const float to int" {
@@ -226,4 +226,61 @@ test "var args implicitly casts by value arg to const ref" {
 
 fn foo(args: ...) {
     assert(@typeOf(args[0]) == &const [5]u8);
+}
+
+
+test "peer type resolution: error and [N]T" {
+    assert(mem.eql(u8, %%testPeerErrorAndArray(0), "OK"));
+    comptime assert(mem.eql(u8, %%testPeerErrorAndArray(0), "OK"));
+
+    assert(mem.eql(u8, %%testPeerErrorAndArray2(1), "OKK"));
+    comptime assert(mem.eql(u8, %%testPeerErrorAndArray2(1), "OKK"));
+}
+
+error BadValue;
+fn testPeerErrorAndArray(x: u8) -> %[]const u8 {
+    switch (x) {
+        0x00 => "OK",
+        else => error.BadValue,
+    }
+}
+fn testPeerErrorAndArray2(x: u8) -> %[]const u8 {
+    switch (x) {
+        0x00 => "OK",
+        0x01 => "OKK",
+        else => error.BadValue,
+    }
+}
+
+test "explicit cast float number literal to integer if no fraction component" {
+    const x = i32(1e4);
+    assert(x == 10000);
+    const y = i32(f32(1e4));
+    assert(y == 10000);
+}
+
+test "cast u128 to f128 and back" {
+    comptime testCast128();
+    testCast128();
+}
+
+fn testCast128() {
+    assert(cast128Int(cast128Float(0x7fff0000000000000000000000000000)) == 0x7fff0000000000000000000000000000);
+}
+
+fn cast128Int(x: f128) -> u128 {
+    @bitCast(u128, x)
+}
+
+fn cast128Float(x: u128) -> f128 {
+    @bitCast(f128, x)
+}
+
+test "const slice widen cast" {
+    const bytes align(4) = []u8{0x12, 0x12, 0x12, 0x12};
+
+    const u32_value = ([]const u32)(bytes[0..])[0];
+    assert(u32_value == 0x12121212);
+
+    assert(@bitCast(u32, bytes) == 0x12121212);
 }

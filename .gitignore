@@ -1,6 +1,3 @@
 zig-cache/
 build/
-build-release/
-/.cproject
-/.project
-/.settings/
+build-*/

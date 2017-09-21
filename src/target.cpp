@@ -16,6 +16,7 @@ static const ArchType arch_list[] = {
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8_2a},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8_1a},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8},
+    {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8r},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8m_baseline},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8m_mainline},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v7},
@@ -23,6 +24,7 @@ static const ArchType arch_list[] = {
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v7m},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v7s},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v7k},
+    {ZigLLVM_arm, ZigLLVM_ARMSubArch_v7ve},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v6},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v6m},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v6k},
@@ -43,16 +45,20 @@ static const ArchType arch_list[] = {
     {ZigLLVM_mips64, ZigLLVM_NoSubArch},
     {ZigLLVM_mips64el, ZigLLVM_NoSubArch},
     {ZigLLVM_msp430, ZigLLVM_NoSubArch},
+    {ZigLLVM_nios2, ZigLLVM_NoSubArch},
     {ZigLLVM_ppc, ZigLLVM_NoSubArch},
     {ZigLLVM_ppc64, ZigLLVM_NoSubArch},
     {ZigLLVM_ppc64le, ZigLLVM_NoSubArch},
     {ZigLLVM_r600, ZigLLVM_NoSubArch},
     {ZigLLVM_amdgcn, ZigLLVM_NoSubArch},
+    {ZigLLVM_riscv32, ZigLLVM_NoSubArch},
+    {ZigLLVM_riscv64, ZigLLVM_NoSubArch},
     {ZigLLVM_sparc, ZigLLVM_NoSubArch},
     {ZigLLVM_sparcv9, ZigLLVM_NoSubArch},
     {ZigLLVM_sparcel, ZigLLVM_NoSubArch},
     {ZigLLVM_systemz, ZigLLVM_NoSubArch},
     {ZigLLVM_tce, ZigLLVM_NoSubArch},
+    {ZigLLVM_tcele, ZigLLVM_NoSubArch},
     {ZigLLVM_thumb, ZigLLVM_NoSubArch},
     {ZigLLVM_thumbeb, ZigLLVM_NoSubArch},
     {ZigLLVM_x86, ZigLLVM_NoSubArch},
@@ -96,14 +102,17 @@ static const ZigLLVM_VendorType vendor_list[] = {
     ZigLLVM_Myriad,
     ZigLLVM_AMD,
     ZigLLVM_Mesa,
+    ZigLLVM_SUSE,
 };
 
 static const ZigLLVM_OSType os_list[] = {
     ZigLLVM_UnknownOS,
+    ZigLLVM_Ananas,
     ZigLLVM_CloudABI,
     ZigLLVM_Darwin,
     ZigLLVM_DragonFly,
     ZigLLVM_FreeBSD,
+    ZigLLVM_Fuchsia,
     ZigLLVM_IOS,
     ZigLLVM_KFreeBSD,
     ZigLLVM_Linux,
@@ -128,9 +137,12 @@ static const ZigLLVM_OSType os_list[] = {
     ZigLLVM_TvOS,
     ZigLLVM_WatchOS,
     ZigLLVM_Mesa3D,
+    ZigLLVM_Contiki,
 };
 
 static const ZigLLVM_EnvironmentType environ_list[] = {
+    ZigLLVM_UnknownEnvironment,
+
     ZigLLVM_GNU,
     ZigLLVM_GNUABI64,
     ZigLLVM_GNUEABI,
@@ -148,6 +160,7 @@ static const ZigLLVM_EnvironmentType environ_list[] = {
     ZigLLVM_Cygnus,
     ZigLLVM_AMDOpenCL,
     ZigLLVM_CoreCLR,
+    ZigLLVM_OpenCL,
 };
 
 static const ZigLLVM_ObjectFormatType oformat_list[] = {
@@ -155,6 +168,7 @@ static const ZigLLVM_ObjectFormatType oformat_list[] = {
     ZigLLVM_COFF,
     ZigLLVM_ELF,
     ZigLLVM_MachO,
+    ZigLLVM_Wasm,
 };
 
 size_t target_oformat_count(void) {
@@ -171,6 +185,7 @@ const char *get_target_oformat_name(ZigLLVM_ObjectFormatType oformat) {
         case ZigLLVM_COFF: return "coff";
         case ZigLLVM_ELF: return "elf";
         case ZigLLVM_MachO: return "macho";
+        case ZigLLVM_Wasm: return "wasm";
     }
     zig_unreachable();
 }
@@ -345,6 +360,7 @@ void resolve_target_object_format(ZigTarget *target) {
         case ZigLLVM_mips64el:
         case ZigLLVM_mipsel:
         case ZigLLVM_msp430:
+        case ZigLLVM_nios2:
         case ZigLLVM_nvptx:
         case ZigLLVM_nvptx64:
         case ZigLLVM_ppc64le:
@@ -381,6 +397,7 @@ void resolve_target_object_format(ZigTarget *target) {
 }
 
 // See lib/Support/Triple.cpp in LLVM for the source of this data.
+// getArchPointerBitWidth
 static int get_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
     switch (arch) {
         case ZigLLVM_UnknownArch:
@@ -396,6 +413,7 @@ static int get_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
         case ZigLLVM_le32:
         case ZigLLVM_mips:
         case ZigLLVM_mipsel:
+        case ZigLLVM_nios2:
         case ZigLLVM_nvptx:
         case ZigLLVM_ppc:
         case ZigLLVM_r600:
@@ -464,6 +482,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
             }
         case ZigLLVM_Linux:
         case ZigLLVM_Darwin:
+        case ZigLLVM_MacOSX:
             switch (id) {
                 case CIntTypeShort:
                 case CIntTypeUShort:
@@ -496,13 +515,13 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
                 case CIntTypeCount:
                     zig_unreachable();
             }
+        case ZigLLVM_Ananas:
         case ZigLLVM_CloudABI:
         case ZigLLVM_DragonFly:
         case ZigLLVM_FreeBSD:
         case ZigLLVM_IOS:
         case ZigLLVM_KFreeBSD:
         case ZigLLVM_Lv2:
-        case ZigLLVM_MacOSX:
         case ZigLLVM_NetBSD:
         case ZigLLVM_OpenBSD:
         case ZigLLVM_Solaris:
@@ -533,6 +552,14 @@ const char *target_o_file_ext(ZigTarget *target) {
         return ".obj";
     } else {
         return ".o";
+    }
+}
+
+const char *target_exe_file_ext(ZigTarget *target) {
+    if (target->os == ZigLLVM_Win32) {
+        return ".exe";
+    } else {
+        return "";
     }
 }
 

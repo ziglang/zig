@@ -58,15 +58,35 @@ test "@shlWithOverflow" {
 }
 
 test "@clz" {
-    assert(@clz(u8(0b00001010)) == 4);
-    assert(@clz(u8(0b10001010)) == 0);
-    assert(@clz(u8(0b00000000)) == 8);
+    testClz();
+    comptime testClz();
+}
+
+fn testClz() {
+    assert(clz(u8(0b00001010)) == 4);
+    assert(clz(u8(0b10001010)) == 0);
+    assert(clz(u8(0b00000000)) == 8);
+    assert(clz(u128(0xffffffffffffffff)) == 64);
+    assert(clz(u128(0x10000000000000000)) == 63);
+}
+
+fn clz(x: var) -> usize {
+    @clz(x)
 }
 
 test "@ctz" {
-    assert(@ctz(u8(0b10100000)) == 5);
-    assert(@ctz(u8(0b10001010)) == 1);
-    assert(@ctz(u8(0b00000000)) == 8);
+    testCtz();
+    comptime testCtz();
+}
+
+fn testCtz() {
+    assert(ctz(u8(0b10100000)) == 5);
+    assert(ctz(u8(0b10001010)) == 1);
+    assert(ctz(u8(0b00000000)) == 8);
+}
+
+fn ctz(x: var) -> usize {
+    @ctz(x)
 }
 
 test "assignment operators" {
@@ -150,15 +170,6 @@ fn testNegationWrappingEval(x: i16) {
     assert(neg == -32768);
 }
 
-test "shift left wrapping" {
-    testShlWrappingEval(@maxValue(u16));
-    comptime testShlWrappingEval(@maxValue(u16));
-}
-fn testShlWrappingEval(x: u16) {
-    const shifted = x <<% 1;
-    assert(shifted == 65534);
-}
-
 test "unsigned 64-bit division" {
     test_u64_div();
     comptime test_u64_div();
@@ -228,4 +239,103 @@ test "allow signed integer division/remainder when values are comptime known and
 
     assert(5 % 3 == 2);
     assert(-6 % 3 == 0);
+}
+
+test "float literal parsing" {
+    comptime assert(0x1.0 == 1.0);
+}
+
+test "hex float literal within range" {
+    const a = 0x1.0p1023;
+    const b = 0x0.1p1027;
+    const c = 0x1.0p-1022;
+}
+
+test "truncating shift left" {
+    testShlTrunc(@maxValue(u16));
+    comptime testShlTrunc(@maxValue(u16));
+}
+fn testShlTrunc(x: u16) {
+    const shifted = x << 1;
+    assert(shifted == 65534);
+}
+
+test "truncating shift right" {
+    testShrTrunc(@maxValue(u16));
+    comptime testShrTrunc(@maxValue(u16));
+}
+fn testShrTrunc(x: u16) {
+    const shifted = x >> 1;
+    assert(shifted == 32767);
+}
+
+test "exact shift left" {
+    testShlExact(0b00110101);
+    comptime testShlExact(0b00110101);
+}
+fn testShlExact(x: u8) {
+    const shifted = @shlExact(x, 2);
+    assert(shifted == 0b11010100);
+}
+
+test "exact shift right" {
+    testShrExact(0b10110100);
+    comptime testShrExact(0b10110100);
+}
+fn testShrExact(x: u8) {
+    const shifted = @shrExact(x, 2);
+    assert(shifted == 0b00101101);
+}
+
+test "big number addition" {
+    comptime {
+        assert(
+            35361831660712422535336160538497375248 +
+            101752735581729509668353361206450473702 ==
+            137114567242441932203689521744947848950);
+        assert(
+            594491908217841670578297176641415611445982232488944558774612 +
+            390603545391089362063884922208143568023166603618446395589768 ==
+            985095453608931032642182098849559179469148836107390954364380);
+    }
+}
+
+test "big number multiplication" {
+    comptime {
+        assert(
+            45960427431263824329884196484953148229 *
+            128339149605334697009938835852565949723 ==
+            5898522172026096622534201617172456926982464453350084962781392314016180490567);
+        assert(
+            594491908217841670578297176641415611445982232488944558774612 *
+            390603545391089362063884922208143568023166603618446395589768 ==
+            232210647056203049913662402532976186578842425262306016094292237500303028346593132411865381225871291702600263463125370016);
+    }
+}
+
+test "big number shifting" {
+    comptime {
+        assert((u128(1) << 127) == 0x80000000000000000000000000000000);
+    }
+}
+
+test "f128" {
+    test_f128();
+    comptime test_f128();
+}
+
+fn make_f128(x: f128) -> f128 { x }
+
+fn test_f128() {
+    assert(@sizeOf(f128) == 16);
+    assert(make_f128(1.0) == 1.0);
+    assert(make_f128(1.0) != 1.1);
+    assert(make_f128(1.0) > 0.9);
+    assert(make_f128(1.0) >= 0.9);
+    assert(make_f128(1.0) >= 1.0);
+    should_not_be_zero(1.0);
+}
+
+fn should_not_be_zero(x: f128) {
+    assert(x != 0.0);
 }

@@ -1,0 +1,18 @@
+# Check that if input file contains .MIPS.options section and symbol
+# points to the section and the linker generates a relocatable output,
+# LLD does not crash.
+#
+# PR 27878
+#
+# Input object file created using the following script:
+# % cat t.s
+#   .text
+#   nop
+# % as -mabi=64 -mips64r2 t.s
+
+# RUN: ld.lld -r %p/Inputs/mips-options.o -o %t.o
+# RUN: llvm-readobj -s %t.o | FileCheck %s
+
+# REQUIRES: mips
+
+# CHECK: Name: .MIPS.options

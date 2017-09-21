@@ -120,3 +120,16 @@ const BareNumber = enum {
     Two,
     Three,
 };
+
+
+test "enum alignment" {
+    comptime {
+        assert(@alignOf(AlignTestEnum) >= @alignOf([9]u8));
+        assert(@alignOf(AlignTestEnum) >= @alignOf(u64));
+    }
+}
+
+const AlignTestEnum = enum {
+    A: [9]u8,
+    B: u64,
+};

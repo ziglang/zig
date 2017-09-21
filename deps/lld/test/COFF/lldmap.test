@@ -1,0 +1,10 @@
+# RUN: yaml2obj < %p/Inputs/ret42.yaml > %t.obj
+# RUN: lld-link /out:%t.exe /entry:main /lldmap:%T/foo.map %t.obj
+# RUN: FileCheck -strict-whitespace %s < %T/foo.map
+# RUN: lld-link /out:%T/bar.exe /entry:main /lldmap %t.obj
+# RUN: FileCheck -strict-whitespace %s < %T/bar.map
+
+# CHECK:      Address  Size     Align Out     In      Symbol
+# CHECK-NEXT: 00001000 00000006  4096 .text
+# CHECK-NEXT: 00001000 00000006    16         {{.*}}lldmap.test.tmp.obj:(.text$mn)
+# CHECK-NEXT: 00001000 00000000     0                 main

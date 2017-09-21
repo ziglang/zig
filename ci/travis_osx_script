@@ -1,0 +1,19 @@
+#!/bin/sh
+
+set -x
+
+mkdir build
+cd build
+cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@5/ -DCMAKE_INSTALL_PREFIX=$(pwd) -DZIG_LIBC_INCLUDE_DIR=/usr/include
+make VERBOSE=1
+make install
+
+./zig build --build-file ../build.zig test-behavior --verbose
+./zig build --build-file ../build.zig test-std --verbose
+./zig build --build-file ../build.zig test-compiler-rt --verbose
+./zig build --build-file ../build.zig test-compare-output --verbose
+./zig build --build-file ../build.zig test-build-examples --verbose
+./zig build --build-file ../build.zig test-compile-errors --verbose
+./zig build --build-file ../build.zig test-asm-link --verbose
+./zig build --build-file ../build.zig test-debug-safety --verbose
+./zig build --build-file ../build.zig test-parsec --verbose

@@ -1,6 +1,6 @@
 const assert = @import("debug.zig").assert;
 const mem = @import("mem.zig");
-const math = @import("math.zig");
+const math = @import("math/index.zig");
 
 pub const Cmp = math.Cmp;
 

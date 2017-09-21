@@ -1,0 +1,3 @@
+.globl foo
+foo:
+ret

@@ -1,12 +1,11 @@
 const builtin = @import("builtin");
 const Os = builtin.Os;
-pub const windows = @import("windows.zig");
+pub const windows = @import("windows/index.zig");
 pub const darwin = @import("darwin.zig");
 pub const linux = @import("linux.zig");
 pub const posix = switch(builtin.os) {
     Os.linux => linux,
     Os.darwin, Os.macosx, Os.ios => darwin,
-    Os.windows => windows,
     else => @compileError("Unsupported OS"),
 };
 
@@ -24,8 +23,6 @@ pub const page_size = 4 * 1024;
 const debug = @import("../debug.zig");
 const assert = debug.assert;
 
-const errno = @import("errno.zig");
-const linking_libc = @import("../target.zig").linking_libc;
 const c = @import("../c/index.zig");
 
 const mem = @import("../mem.zig");
@@ -58,45 +55,40 @@ error WouldBlock;
 /// appropriate OS-specific library call. Otherwise it uses the zig standard
 /// library implementation.
 pub fn getRandomBytes(buf: []u8) -> %void {
-    while (true) {
-        const err = switch (builtin.os) {
-            Os.linux => {
-                if (linking_libc) {
-                    if (c.getrandom(buf.ptr, buf.len, 0) == -1) *c._errno() else 0
-                } else {
-                    posix.getErrno(posix.getrandom(buf.ptr, buf.len, 0))
+    switch (builtin.os) {
+        Os.linux => while (true) {
+            // TODO check libc version and potentially call c.getrandom.
+            // See #397
+            const err = posix.getErrno(posix.getrandom(buf.ptr, buf.len, 0));
+            if (err > 0) {
+                return switch (err) {
+                    posix.EINVAL => unreachable,
+                    posix.EFAULT => unreachable,
+                    posix.EINTR  => continue,
+                    else         => error.Unexpected,
                 }
-            },
-            Os.darwin, Os.macosx, Os.ios => {
-                if (linking_libc) {
-                    if (posix.getrandom(buf.ptr, buf.len) == -1) *c._errno() else 0
-                } else {
-                    posix.getErrno(posix.getrandom(buf.ptr, buf.len))
-                }
-            },
-            Os.windows => {
-                var hCryptProv: windows.HCRYPTPROV = undefined;
-                if (!windows.CryptAcquireContext(&hCryptProv, null, null, windows.PROV_RSA_FULL, 0)) {
-                    return error.Unexpected;
-                }
-                defer _ = windows.CryptReleaseContext(hCryptProv, 0);
-
-                if (!windows.CryptGenRandom(hCryptProv, windows.DWORD(buf.len), buf.ptr)) {
-                    return error.Unexpected;
-                }
-                return;
-            },
-            else => @compileError("Unsupported OS"),
-        };
-        if (err > 0) {
-            return switch (err) {
-                errno.EINVAL => unreachable,
-                errno.EFAULT => unreachable,
-                errno.EINTR  => continue,
-                else         => error.Unexpected,
             }
-        }
-        return;
+            return;
+        },
+        Os.darwin, Os.macosx, Os.ios => {
+            const fd = %return posixOpen("/dev/urandom", posix.O_RDONLY|posix.O_CLOEXEC,
+                0, null);
+            defer posixClose(fd);
+
+            %return posixRead(fd, buf);
+        },
+        Os.windows => {
+            var hCryptProv: windows.HCRYPTPROV = undefined;
+            if (!windows.CryptAcquireContext(&hCryptProv, null, null, windows.PROV_RSA_FULL, 0)) {
+                return error.Unexpected;
+            }
+            defer _ = windows.CryptReleaseContext(hCryptProv, 0);
+
+            if (!windows.CryptGenRandom(hCryptProv, windows.DWORD(buf.len), buf.ptr)) {
+                return error.Unexpected;
+            }
+        },
+        else => @compileError("Unsupported OS"),
     }
 }
 
@@ -104,7 +96,7 @@ pub fn getRandomBytes(buf: []u8) -> %void {
 /// If linking against libc, this calls the abort() libc function. Otherwise
 /// it uses the zig standard library implementation.
 pub coldcc fn abort() -> noreturn {
-    if (linking_libc) {
+    if (builtin.link_libc) {
         c.abort();
     }
     switch (builtin.os) {
@@ -112,6 +104,33 @@ pub coldcc fn abort() -> noreturn {
             _ = posix.raise(posix.SIGABRT);
             _ = posix.raise(posix.SIGKILL);
             while (true) {}
+        },
+        Os.windows => {
+            windows.ExitProcess(1);
+        },
+        else => @compileError("Unsupported OS"),
+    }
+}
+
+/// Exits the program cleanly with the specified status code.
+pub coldcc fn exit(status: i32) -> noreturn {
+    if (builtin.link_libc) {
+        c.exit(status);
+    }
+    switch (builtin.os) {
+        Os.linux, Os.darwin, Os.macosx, Os.ios => {
+            posix.exit(status)
+        },
+        Os.windows => {
+            // Map a possibly negative status code to a non-negative status for the systems default
+            // integer width.
+            const p_status = if (@sizeOf(c_uint) < @sizeOf(u32)) {
+                @truncate(c_uint, @bitCast(u32, status))
+            } else {
+                c_uint(@bitCast(u32, status))
+            };
+
+            windows.ExitProcess(p_status)
         },
         else => @compileError("Unsupported OS"),
     }
@@ -121,7 +140,7 @@ pub coldcc fn abort() -> noreturn {
 pub fn posixClose(fd: i32) {
     while (true) {
         const err = posix.getErrno(posix.close(fd));
-        if (err == errno.EINTR) {
+        if (err == posix.EINTR) {
             continue;
         } else {
             return;
@@ -129,10 +148,37 @@ pub fn posixClose(fd: i32) {
     }
 }
 
+/// Calls POSIX read, and keeps trying if it gets interrupted.
+pub fn posixRead(fd: i32, buf: []u8) -> %void {
+    var index: usize = 0;
+    while (index < buf.len) {
+        const amt_written = posix.read(fd, &buf[index], buf.len - index);
+        const err = posix.getErrno(amt_written);
+        if (err > 0) {
+            return switch (err) {
+                posix.EINTR => continue,
+                posix.EINVAL, posix.EFAULT => unreachable,
+                posix.EAGAIN => error.WouldBlock,
+                posix.EBADF => error.FileClosed,
+                posix.EIO => error.InputOutput,
+                posix.EISDIR => error.IsDir,
+                posix.ENOBUFS, posix.ENOMEM => error.SystemResources,
+                else => return error.Unexpected,
+            }
+        }
+        index += amt_written;
+    }
+}
+
 error WouldBlock;
 error FileClosed;
 error DestinationAddressRequired;
-error FileSystem;
+error DiskQuota;
+error FileTooBig;
+error InputOutput;
+error NoSpaceLeft;
+error BrokenPipe;
+error Unexpected;
 
 /// Calls POSIX write, and keeps trying if it gets interrupted.
 pub fn posixWrite(fd: i32, bytes: []const u8) -> %void {
@@ -141,17 +187,17 @@ pub fn posixWrite(fd: i32, bytes: []const u8) -> %void {
         const write_err = posix.getErrno(write_ret);
         if (write_err > 0) {
             return switch (write_err) {
-                errno.EINTR  => continue,
-                errno.EINVAL, errno.EFAULT => unreachable,
-                errno.EAGAIN => error.WouldBlock,
-                errno.EBADF => error.FileClosed,
-                errno.EDESTADDRREQ => error.DestinationAddressRequired,
-                errno.EDQUOT => error.DiskQuota,
-                errno.EFBIG  => error.FileTooBig,
-                errno.EIO    => error.FileSystem,
-                errno.ENOSPC => error.NoSpaceLeft,
-                errno.EPERM  => error.AccessDenied,
-                errno.EPIPE  => error.PipeFail,
+                posix.EINTR  => continue,
+                posix.EINVAL, posix.EFAULT => unreachable,
+                posix.EAGAIN => error.WouldBlock,
+                posix.EBADF => error.FileClosed,
+                posix.EDESTADDRREQ => error.DestinationAddressRequired,
+                posix.EDQUOT => error.DiskQuota,
+                posix.EFBIG  => error.FileTooBig,
+                posix.EIO    => error.InputOutput,
+                posix.ENOSPC => error.NoSpaceLeft,
+                posix.EPERM  => error.AccessDenied,
+                posix.EPIPE  => error.BrokenPipe,
                 else         => error.Unexpected,
             }
         }
@@ -159,6 +205,49 @@ pub fn posixWrite(fd: i32, bytes: []const u8) -> %void {
     }
 }
 
+error SystemResources;
+error OperationAborted;
+error IoPending;
+error BrokenPipe;
+
+pub fn windowsWrite(handle: windows.HANDLE, bytes: []const u8) -> %void {
+    if (!windows.WriteFile(handle, @ptrCast(&const c_void, bytes.ptr), u32(bytes.len), null, null)) {
+        return switch (windows.GetLastError()) {
+            windows.ERROR.INVALID_USER_BUFFER => error.SystemResources,
+            windows.ERROR.NOT_ENOUGH_MEMORY => error.SystemResources,
+            windows.ERROR.OPERATION_ABORTED => error.OperationAborted,
+            windows.ERROR.NOT_ENOUGH_QUOTA => error.SystemResources,
+            windows.ERROR.IO_PENDING => error.IoPending,
+            windows.ERROR.BROKEN_PIPE => error.BrokenPipe,
+            else => error.Unexpected,
+        };
+    }
+}
+
+pub fn windowsIsTty(handle: windows.HANDLE) -> bool {
+    if (windowsIsCygwinPty(handle))
+        return true;
+
+    var out: windows.DWORD = undefined;
+    return windows.GetConsoleMode(handle, &out);
+}
+
+pub fn windowsIsCygwinPty(handle: windows.HANDLE) -> bool {
+    const size = @sizeOf(windows.FILE_NAME_INFO);
+    var name_info_bytes align(@alignOf(windows.FILE_NAME_INFO)) = []u8{0} ** (size + windows.MAX_PATH);
+
+    if (!windows.GetFileInformationByHandleEx(handle, windows.FileNameInfo,
+        @ptrCast(&c_void, &name_info_bytes[0]), u32(name_info_bytes.len)))
+    {
+        return true;
+    }
+
+    const name_info = @ptrCast(&const windows.FILE_NAME_INFO, &name_info_bytes[0]);
+    const name_bytes = name_info_bytes[size..size + usize(name_info.FileNameLength)];
+    const name_wide  = ([]u16)(name_bytes);
+    return mem.indexOf(u16, name_wide, []u16{'m','s','y','s','-'}) != null or
+           mem.indexOf(u16, name_wide, []u16{'-','p','t','y'}) != null;
+}
 
 /// ::file_path may need to be copied in memory to add a null terminating byte. In this case
 /// a fixed size buffer of size ::max_noalloc_path_len is an attempted solution. If the fixed
@@ -166,7 +255,7 @@ pub fn posixWrite(fd: i32, bytes: []const u8) -> %void {
 /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
 /// Calls POSIX open, keeps trying if it gets interrupted, and translates
 /// the return value into zig errors.
-pub fn posixOpen(file_path: []const u8, flags: usize, perm: usize, allocator: ?&Allocator) -> %i32 {
+pub fn posixOpen(file_path: []const u8, flags: u32, perm: usize, allocator: ?&Allocator) -> %i32 {
     var stack_buf: [max_noalloc_path_len]u8 = undefined;
     var path0: []u8 = undefined;
     var need_free = false;
@@ -190,23 +279,23 @@ pub fn posixOpen(file_path: []const u8, flags: usize, perm: usize, allocator: ?&
         const err = posix.getErrno(result);
         if (err > 0) {
             return switch (err) {
-                errno.EINTR => continue,
+                posix.EINTR => continue,
 
-                errno.EFAULT => unreachable,
-                errno.EINVAL => unreachable,
-                errno.EACCES => error.AccessDenied,
-                errno.EFBIG, errno.EOVERFLOW => error.FileTooBig,
-                errno.EISDIR => error.IsDir,
-                errno.ELOOP => error.SymLinkLoop,
-                errno.EMFILE => error.ProcessFdQuotaExceeded,
-                errno.ENAMETOOLONG => error.NameTooLong,
-                errno.ENFILE => error.SystemFdQuotaExceeded,
-                errno.ENODEV => error.NoDevice,
-                errno.ENOENT => error.PathNotFound,
-                errno.ENOMEM => error.SystemResources,
-                errno.ENOSPC => error.NoSpaceLeft,
-                errno.ENOTDIR => error.NotDir,
-                errno.EPERM => error.AccessDenied,
+                posix.EFAULT => unreachable,
+                posix.EINVAL => unreachable,
+                posix.EACCES => error.AccessDenied,
+                posix.EFBIG, posix.EOVERFLOW => error.FileTooBig,
+                posix.EISDIR => error.IsDir,
+                posix.ELOOP => error.SymLinkLoop,
+                posix.EMFILE => error.ProcessFdQuotaExceeded,
+                posix.ENAMETOOLONG => error.NameTooLong,
+                posix.ENFILE => error.SystemFdQuotaExceeded,
+                posix.ENODEV => error.NoDevice,
+                posix.ENOENT => error.PathNotFound,
+                posix.ENOMEM => error.SystemResources,
+                posix.ENOSPC => error.NoSpaceLeft,
+                posix.ENOTDIR => error.NotDir,
+                posix.EPERM => error.AccessDenied,
                 else => error.Unexpected,
             }
         }
@@ -219,9 +308,9 @@ pub fn posixDup2(old_fd: i32, new_fd: i32) -> %void {
         const err = posix.getErrno(posix.dup2(old_fd, new_fd));
         if (err > 0) {
             return switch (err) {
-                errno.EBUSY, errno.EINTR => continue,
-                errno.EMFILE => error.ProcessFdQuotaExceeded,
-                errno.EINVAL => unreachable,
+                posix.EBUSY, posix.EINTR => continue,
+                posix.EMFILE => error.ProcessFdQuotaExceeded,
+                posix.EINVAL => unreachable,
                 else => error.Unexpected,
             };
         }
@@ -315,14 +404,14 @@ pub fn posixExecve(exe_path: []const u8, argv: []const []const u8, env_map: &con
         path_buf[search_path.len + exe_path.len + 1] = 0;
         err = posix.getErrno(posix.execve(path_buf.ptr, argv_buf.ptr, envp_buf.ptr));
         assert(err > 0);
-        if (err == errno.EACCES) {
+        if (err == posix.EACCES) {
             seen_eacces = true;
-        } else if (err != errno.ENOENT) {
+        } else if (err != posix.ENOENT) {
             return posixExecveErrnoToErr(err);
         }
     }
     if (seen_eacces) {
-        err = errno.EACCES;
+        err = posix.EACCES;
     }
     return posixExecveErrnoToErr(err);
 }
@@ -330,15 +419,15 @@ pub fn posixExecve(exe_path: []const u8, argv: []const []const u8, env_map: &con
 fn posixExecveErrnoToErr(err: usize) -> error {
     assert(err > 0);
     return switch (err) {
-        errno.EFAULT => unreachable,
-        errno.E2BIG, errno.EMFILE, errno.ENAMETOOLONG, errno.ENFILE, errno.ENOMEM => error.SystemResources,
-        errno.EACCES, errno.EPERM => error.AccessDenied,
-        errno.EINVAL, errno.ENOEXEC => error.InvalidExe,
-        errno.EIO, errno.ELOOP => error.FileSystem,
-        errno.EISDIR => error.IsDir,
-        errno.ENOENT => error.FileNotFound,
-        errno.ENOTDIR => error.NotDir,
-        errno.ETXTBSY => error.FileBusy,
+        posix.EFAULT => unreachable,
+        posix.E2BIG, posix.EMFILE, posix.ENAMETOOLONG, posix.ENFILE, posix.ENOMEM => error.SystemResources,
+        posix.EACCES, posix.EPERM => error.AccessDenied,
+        posix.EINVAL, posix.ENOEXEC => error.InvalidExe,
+        posix.EIO, posix.ELOOP => error.FileSystem,
+        posix.EISDIR => error.IsDir,
+        posix.ENOENT => error.FileNotFound,
+        posix.ENOTDIR => error.NotDir,
+        posix.ETXTBSY => error.FileBusy,
         else => error.Unexpected,
     };
 }
@@ -398,7 +487,7 @@ pub fn getCwd(allocator: &Allocator) -> %[]u8 {
     %defer allocator.free(buf);
     while (true) {
         const err = posix.getErrno(posix.getcwd(buf.ptr, buf.len));
-        if (err == errno.ERANGE) {
+        if (err == posix.ERANGE) {
             buf = %return allocator.realloc(u8, buf, buf.len * 2);
             continue;
         } else if (err > 0) {
@@ -424,18 +513,18 @@ pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []con
     const err = posix.getErrno(posix.symlink(existing_buf.ptr, new_buf.ptr));
     if (err > 0) {
         return switch (err) {
-            errno.EFAULT, errno.EINVAL => unreachable,
-            errno.EACCES, errno.EPERM => error.AccessDenied,
-            errno.EDQUOT => error.DiskQuota,
-            errno.EEXIST => error.PathAlreadyExists,
-            errno.EIO => error.FileSystem,
-            errno.ELOOP => error.SymLinkLoop,
-            errno.ENAMETOOLONG => error.NameTooLong,
-            errno.ENOENT => error.FileNotFound,
-            errno.ENOTDIR => error.NotDir,
-            errno.ENOMEM => error.SystemResources,
-            errno.ENOSPC => error.NoSpaceLeft,
-            errno.EROFS => error.ReadOnlyFileSystem,
+            posix.EFAULT, posix.EINVAL => unreachable,
+            posix.EACCES, posix.EPERM => error.AccessDenied,
+            posix.EDQUOT => error.DiskQuota,
+            posix.EEXIST => error.PathAlreadyExists,
+            posix.EIO => error.FileSystem,
+            posix.ELOOP => error.SymLinkLoop,
+            posix.ENAMETOOLONG => error.NameTooLong,
+            posix.ENOENT => error.FileNotFound,
+            posix.ENOTDIR => error.NotDir,
+            posix.ENOMEM => error.SystemResources,
+            posix.ENOSPC => error.NoSpaceLeft,
+            posix.EROFS => error.ReadOnlyFileSystem,
             else => error.Unexpected,
         };
     }
@@ -483,17 +572,17 @@ pub fn deleteFile(allocator: &Allocator, file_path: []const u8) -> %void {
     const err = posix.getErrno(posix.unlink(buf.ptr));
     if (err > 0) {
         return switch (err) {
-            errno.EACCES, errno.EPERM => error.AccessDenied,
-            errno.EBUSY => error.FileBusy,
-            errno.EFAULT, errno.EINVAL => unreachable,
-            errno.EIO => error.FileSystem,
-            errno.EISDIR => error.IsDir,
-            errno.ELOOP => error.SymLinkLoop,
-            errno.ENAMETOOLONG => error.NameTooLong,
-            errno.ENOENT => error.FileNotFound,
-            errno.ENOTDIR => error.NotDir,
-            errno.ENOMEM => error.SystemResources,
-            errno.EROFS => error.ReadOnlyFileSystem,
+            posix.EACCES, posix.EPERM => error.AccessDenied,
+            posix.EBUSY => error.FileBusy,
+            posix.EFAULT, posix.EINVAL => unreachable,
+            posix.EIO => error.FileSystem,
+            posix.EISDIR => error.IsDir,
+            posix.ELOOP => error.SymLinkLoop,
+            posix.ENAMETOOLONG => error.NameTooLong,
+            posix.ENOENT => error.FileNotFound,
+            posix.ENOTDIR => error.NotDir,
+            posix.ENOMEM => error.SystemResources,
+            posix.EROFS => error.ReadOnlyFileSystem,
             else => error.Unexpected,
         };
     }
@@ -546,21 +635,21 @@ pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8)
     const err = posix.getErrno(posix.rename(old_buf.ptr, new_buf.ptr));
     if (err > 0) {
         return switch (err) {
-            errno.EACCES, errno.EPERM => error.AccessDenied,
-            errno.EBUSY => error.FileBusy,
-            errno.EDQUOT => error.DiskQuota,
-            errno.EFAULT, errno.EINVAL => unreachable,
-            errno.EISDIR => error.IsDir,
-            errno.ELOOP => error.SymLinkLoop,
-            errno.EMLINK => error.LinkQuotaExceeded,
-            errno.ENAMETOOLONG => error.NameTooLong,
-            errno.ENOENT => error.FileNotFound,
-            errno.ENOTDIR => error.NotDir,
-            errno.ENOMEM => error.SystemResources,
-            errno.ENOSPC => error.NoSpaceLeft,
-            errno.EEXIST, errno.ENOTEMPTY => error.PathAlreadyExists,
-            errno.EROFS => error.ReadOnlyFileSystem,
-            errno.EXDEV => error.RenameAcrossMountPoints,
+            posix.EACCES, posix.EPERM => error.AccessDenied,
+            posix.EBUSY => error.FileBusy,
+            posix.EDQUOT => error.DiskQuota,
+            posix.EFAULT, posix.EINVAL => unreachable,
+            posix.EISDIR => error.IsDir,
+            posix.ELOOP => error.SymLinkLoop,
+            posix.EMLINK => error.LinkQuotaExceeded,
+            posix.ENAMETOOLONG => error.NameTooLong,
+            posix.ENOENT => error.FileNotFound,
+            posix.ENOTDIR => error.NotDir,
+            posix.ENOMEM => error.SystemResources,
+            posix.ENOSPC => error.NoSpaceLeft,
+            posix.EEXIST, posix.ENOTEMPTY => error.PathAlreadyExists,
+            posix.EROFS => error.ReadOnlyFileSystem,
+            posix.EXDEV => error.RenameAcrossMountPoints,
             else => error.Unexpected,
         };
     }
@@ -576,18 +665,18 @@ pub fn makeDir(allocator: &Allocator, dir_path: []const u8) -> %void {
     const err = posix.getErrno(posix.mkdir(path_buf.ptr, 0o755));
     if (err > 0) {
         return switch (err) {
-            errno.EACCES, errno.EPERM => error.AccessDenied,
-            errno.EDQUOT => error.DiskQuota,
-            errno.EEXIST => error.PathAlreadyExists,
-            errno.EFAULT => unreachable,
-            errno.ELOOP => error.SymLinkLoop,
-            errno.EMLINK => error.LinkQuotaExceeded,
-            errno.ENAMETOOLONG => error.NameTooLong,
-            errno.ENOENT => error.FileNotFound,
-            errno.ENOMEM => error.SystemResources,
-            errno.ENOSPC => error.NoSpaceLeft,
-            errno.ENOTDIR => error.NotDir,
-            errno.EROFS => error.ReadOnlyFileSystem,
+            posix.EACCES, posix.EPERM => error.AccessDenied,
+            posix.EDQUOT => error.DiskQuota,
+            posix.EEXIST => error.PathAlreadyExists,
+            posix.EFAULT => unreachable,
+            posix.ELOOP => error.SymLinkLoop,
+            posix.EMLINK => error.LinkQuotaExceeded,
+            posix.ENAMETOOLONG => error.NameTooLong,
+            posix.ENOENT => error.FileNotFound,
+            posix.ENOMEM => error.SystemResources,
+            posix.ENOSPC => error.NoSpaceLeft,
+            posix.ENOTDIR => error.NotDir,
+            posix.EROFS => error.ReadOnlyFileSystem,
             else => error.Unexpected,
         };
     }
@@ -643,16 +732,16 @@ pub fn deleteDir(allocator: &Allocator, dir_path: []const u8) -> %void {
     const err = posix.getErrno(posix.rmdir(path_buf.ptr));
     if (err > 0) {
         return switch (err) {
-            errno.EACCES, errno.EPERM => error.AccessDenied,
-            errno.EBUSY => error.FileBusy,
-            errno.EFAULT, errno.EINVAL => unreachable,
-            errno.ELOOP => error.SymLinkLoop,
-            errno.ENAMETOOLONG => error.NameTooLong,
-            errno.ENOENT => error.FileNotFound,
-            errno.ENOMEM => error.SystemResources,
-            errno.ENOTDIR => error.NotDir,
-            errno.EEXIST, errno.ENOTEMPTY => error.DirNotEmpty,
-            errno.EROFS => error.ReadOnlyFileSystem,
+            posix.EACCES, posix.EPERM => error.AccessDenied,
+            posix.EBUSY => error.FileBusy,
+            posix.EFAULT, posix.EINVAL => unreachable,
+            posix.ELOOP => error.SymLinkLoop,
+            posix.ENAMETOOLONG => error.NameTooLong,
+            posix.ENOENT => error.FileNotFound,
+            posix.ENOMEM => error.SystemResources,
+            posix.ENOTDIR => error.NotDir,
+            posix.EEXIST, posix.ENOTEMPTY => error.DirNotEmpty,
+            posix.EROFS => error.ReadOnlyFileSystem,
             else => error.Unexpected,
         };
     }
@@ -759,8 +848,8 @@ pub const Dir = struct {
                 const err = linux.getErrno(result);
                 if (err > 0) {
                     switch (err) {
-                        errno.EBADF, errno.EFAULT, errno.ENOTDIR => unreachable,
-                        errno.EINVAL => {
+                        posix.EBADF, posix.EFAULT, posix.ENOTDIR => unreachable,
+                        posix.EINVAL => {
                             self.buf = %return self.allocator.realloc(u8, self.buf, self.buf.len * 2);
                             continue;
                         },
@@ -813,14 +902,14 @@ pub fn changeCurDir(allocator: &Allocator, dir_path: []const u8) -> %void {
     const err = posix.getErrno(posix.chdir(path_buf.ptr));
     if (err > 0) {
         return switch (err) {
-            errno.EACCES => error.AccessDenied,
-            errno.EFAULT => unreachable,
-            errno.EIO => error.FileSystem,
-            errno.ELOOP => error.SymLinkLoop,
-            errno.ENAMETOOLONG => error.NameTooLong,
-            errno.ENOENT => error.FileNotFound,
-            errno.ENOMEM => error.SystemResources,
-            errno.ENOTDIR => error.NotDir,
+            posix.EACCES => error.AccessDenied,
+            posix.EFAULT => unreachable,
+            posix.EIO => error.FileSystem,
+            posix.ELOOP => error.SymLinkLoop,
+            posix.ENAMETOOLONG => error.NameTooLong,
+            posix.ENOENT => error.FileNotFound,
+            posix.ENOMEM => error.SystemResources,
+            posix.ENOTDIR => error.NotDir,
             else => error.Unexpected,
         };
     }
@@ -841,14 +930,14 @@ pub fn readLink(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
         const err = posix.getErrno(ret_val);
         if (err > 0) {
             return switch (err) {
-                errno.EACCES => error.AccessDenied,
-                errno.EFAULT, errno.EINVAL => unreachable,
-                errno.EIO => error.FileSystem,
-                errno.ELOOP => error.SymLinkLoop,
-                errno.ENAMETOOLONG => error.NameTooLong,
-                errno.ENOENT => error.FileNotFound,
-                errno.ENOMEM => error.SystemResources,
-                errno.ENOTDIR => error.NotDir,
+                posix.EACCES => error.AccessDenied,
+                posix.EFAULT, posix.EINVAL => unreachable,
+                posix.EIO => error.FileSystem,
+                posix.ELOOP => error.SymLinkLoop,
+                posix.ENAMETOOLONG => error.NameTooLong,
+                posix.ENOENT => error.FileNotFound,
+                posix.ENOMEM => error.SystemResources,
+                posix.ENOTDIR => error.NotDir,
                 else => error.Unexpected,
             };
         }
@@ -858,4 +947,48 @@ pub fn readLink(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
         }
         return result_buf[0..ret_val];
     }
+}
+
+pub fn sleep(seconds: usize, nanoseconds: usize) {
+    switch(builtin.os) {
+        Os.linux, Os.darwin, Os.macosx, Os.ios => {
+            posixSleep(u63(seconds), u63(nanoseconds));
+        },
+        Os.windows => {
+            const milliseconds = seconds * 1000 + nanoseconds / 1000000;
+            windows.Sleep(windows.DWORD(milliseconds));
+        },
+        else => @compileError("Unsupported OS"),
+    }
+}
+
+const u63 = @IntType(false, 63);
+pub fn posixSleep(seconds: u63, nanoseconds: u63) {
+    var req = posix.timespec {
+        .tv_sec = seconds,
+        .tv_nsec = nanoseconds,
+    };
+    var rem: posix.timespec = undefined;
+    while (true) {
+        const ret_val = posix.nanosleep(&req, &rem);
+        const err = posix.getErrno(ret_val);
+        if (err == 0) return;
+        switch (err) {
+            posix.EFAULT => unreachable,
+            posix.EINVAL => {
+                // Sometimes Darwin returns EINVAL for no reason.
+                // We treat it as a spurious wakeup.
+                return;
+            },
+            posix.EINTR => {
+                req = rem;
+                continue;
+            },
+            else => return,
+        }
+    }
+}
+
+test "os.sleep" {
+    sleep(0, 1);
 }
