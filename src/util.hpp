@@ -147,4 +147,8 @@ bool uint64_eq(uint64_t a, uint64_t b);
 uint32_t ptr_hash(const void *ptr);
 bool ptr_eq(const void *a, const void *b);
 
+static inline uint8_t log2_u64(uint64_t x) {
+    return (63 - clzll(x));
+}
+
 #endif

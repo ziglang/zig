@@ -315,12 +315,11 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\pub const LUA_GLOBALSINDEX = -10002;
     );
 
-    cases.add("sift right assign",
+    cases.add("shift right assign",
         \\int log2(unsigned a) {
         \\    int i = 0;
         \\    while (a > 0) {
         \\        a >>= 1;
-        \\        //i++;
         \\    }
         \\    return i;
         \\}
@@ -330,6 +329,26 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\    var i: c_int = 0;
         \\    while (a > c_uint(0)) {
         \\        a >>= @import("std").math.Log2Int(c_uint)(1);
+        \\    };
+        \\    return i;
+        \\}
+    );
+
+    cases.add("shift right assign with a fixed size type",
+        \\#include <stdint.h>
+        \\int log2(uint32_t a) {
+        \\    int i = 0;
+        \\    while (a > 0) {
+        \\        a >>= 1;
+        \\    }
+        \\    return i;
+        \\}
+    ,
+        \\export fn log2(_arg_a: u32) -> c_int {
+        \\    var a = _arg_a;
+        \\    var i: c_int = 0;
+        \\    while (a > c_uint(0)) {
+        \\        a >>= u5(1);
         \\    };
         \\    return i;
         \\}
