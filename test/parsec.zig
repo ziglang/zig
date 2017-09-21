@@ -314,4 +314,27 @@ pub fn addCases(cases: &tests.ParseCContext) {
     ,
         \\pub const LUA_GLOBALSINDEX = -10002;
     );
+
+    cases.add("sift right assign",
+        \\int log2(unsigned a) {
+        \\    int i = 0;
+        \\    while (a > 0) {
+        \\        a >>= 100;
+        \\        //i++;
+        \\    }
+        \\    return i;
+        \\}
+    ,
+        \\export fn log2(_arg_a: c_uint) -> c_int {
+        \\    var a = _arg_a;
+        \\    var i: c_int = 0;
+        \\    while (a > c_uint(0)) {
+        \\        {
+        \\            const _ref = &a;
+        \\            *_ref = c_uint(c_uint(*_ref) >> @import("std").math.Log2Int(c_uint)(100));
+        \\        };
+        \\    };
+        \\    return i;
+        \\}
+    );
 }

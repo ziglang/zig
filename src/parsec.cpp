@@ -49,6 +49,8 @@ struct Context {
 
     CodeGen *codegen;
     ASTContext *ctx;
+
+    HashMap<Buf *, bool, buf_hash, buf_eql_buf> ptr_params;
 };
 
 static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl);
@@ -441,11 +443,16 @@ static bool c_is_float(Context *c, QualType qt) {
     }
 }
 
-static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *stmt);
+enum TransLRValue {
+    TransLValue,
+    TransRValue,
+};
+
+static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *stmt, TransLRValue lrval);
 static AstNode *const skip_add_to_block_node = (AstNode *) 0x2;
 
-static AstNode *trans_expr(Context *c, bool result_used, AstNode *block, Expr *expr) {
-    return trans_stmt(c, result_used, block, expr);
+static AstNode *trans_expr(Context *c, bool result_used, AstNode *block, Expr *expr, TransLRValue lrval) {
+    return trans_stmt(c, result_used, block, expr, lrval);
 }
 
 static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &source_loc) {
@@ -789,7 +796,7 @@ static AstNode *trans_qual_type(Context *c, QualType qt, const SourceLocation &s
 static AstNode *trans_compound_stmt(Context *c, AstNode *parent, CompoundStmt *stmt) {
     AstNode *child_block = trans_create_node(c, NodeTypeBlock);
     for (CompoundStmt::body_iterator it = stmt->body_begin(), end_it = stmt->body_end(); it != end_it; ++it) {
-        AstNode *child_node = trans_stmt(c, false, child_block, *it);
+        AstNode *child_node = trans_stmt(c, false, child_block, *it, TransRValue);
         if (child_node == nullptr)
             return nullptr;
         if (child_node != skip_add_to_block_node)
@@ -805,7 +812,7 @@ static AstNode *trans_return_stmt(Context *c, AstNode *block, ReturnStmt *stmt) 
         return nullptr;
     } else {
         AstNode *return_node = trans_create_node(c, NodeTypeReturnExpr);
-        return_node->data.return_expr.expr = trans_expr(c, true, block, value_expr);
+        return_node->data.return_expr.expr = trans_expr(c, true, block, value_expr, TransRValue);
         if (return_node->data.return_expr.expr == nullptr)
             return nullptr;
         return return_node;
@@ -828,15 +835,15 @@ static AstNode *trans_conditional_operator(Context *c, bool result_used, AstNode
     Expr *true_expr = stmt->getTrueExpr();
     Expr *false_expr = stmt->getFalseExpr();
 
-    node->data.if_bool_expr.condition = trans_expr(c, true, block, cond_expr);
+    node->data.if_bool_expr.condition = trans_expr(c, true, block, cond_expr, TransRValue);
     if (node->data.if_bool_expr.condition == nullptr)
         return nullptr;
 
-    node->data.if_bool_expr.then_block = trans_expr(c, result_used, block, true_expr);
+    node->data.if_bool_expr.then_block = trans_expr(c, result_used, block, true_expr, TransRValue);
     if (node->data.if_bool_expr.then_block == nullptr)
         return nullptr;
 
-    node->data.if_bool_expr.else_node = trans_expr(c, result_used, block, false_expr);
+    node->data.if_bool_expr.else_node = trans_expr(c, result_used, block, false_expr, TransRValue);
     if (node->data.if_bool_expr.else_node == nullptr)
         return nullptr;
 
@@ -847,11 +854,11 @@ static AstNode *trans_create_bin_op(Context *c, AstNode *block, Expr *lhs, BinOp
     AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
     node->data.bin_op_expr.bin_op = bin_op;
 
-    node->data.bin_op_expr.op1 = trans_expr(c, true, block, lhs);
+    node->data.bin_op_expr.op1 = trans_expr(c, true, block, lhs, TransRValue);
     if (node->data.bin_op_expr.op1 == nullptr)
         return nullptr;
 
-    node->data.bin_op_expr.op2 = trans_expr(c, true, block, rhs);
+    node->data.bin_op_expr.op2 = trans_expr(c, true, block, rhs, TransRValue);
     if (node->data.bin_op_expr.op2 == nullptr)
         return nullptr;
 
@@ -992,7 +999,7 @@ static AstNode *trans_compound_assign_operator(Context *c, bool result_used, Ast
             AstNode *child_block = trans_create_node(c, NodeTypeBlock);
 
             // const _ref = &lhs;
-            AstNode *lhs = trans_expr(c, true, child_block, stmt->getLHS());
+            AstNode *lhs = trans_expr(c, true, child_block, stmt->getLHS(), TransLValue);
             if (lhs == nullptr) return nullptr;
             AstNode *addr_of_lhs = trans_create_node_addr_of(c, false, false, lhs);
             // TODO: avoid name collisions with generated variable names
@@ -1002,7 +1009,7 @@ static AstNode *trans_compound_assign_operator(Context *c, bool result_used, Ast
 
             // *_ref = result_type(operation_type(*_ref) >> u5(rhs));
 
-            AstNode *rhs = trans_expr(c, true, child_block, stmt->getRHS());
+            AstNode *rhs = trans_expr(c, true, child_block, stmt->getRHS(), TransRValue);
             if (rhs == nullptr) return nullptr;
             const SourceLocation &rhs_location = stmt->getRHS()->getLocStart();
             AstNode *rhs_type = qual_type_to_log2_int_ref(c, stmt->getComputationLHSType(), rhs_location);
@@ -1074,10 +1081,10 @@ static AstNode *trans_compound_assign_operator(Context *c, bool result_used, Ast
 static AstNode *trans_implicit_cast_expr(Context *c, AstNode *block, ImplicitCastExpr *stmt) {
     switch (stmt->getCastKind()) {
         case CK_LValueToRValue:
-            return trans_expr(c, true, block, stmt->getSubExpr());
+            return trans_expr(c, true, block, stmt->getSubExpr(), TransRValue);
         case CK_IntegralCast:
             {
-                AstNode *target_node = trans_expr(c, true, block, stmt->getSubExpr());
+                AstNode *target_node = trans_expr(c, true, block, stmt->getSubExpr(), TransRValue);
                 if (target_node == nullptr)
                     return nullptr;
                 return trans_c_cast(c, stmt->getExprLoc(), stmt->getType(), target_node);
@@ -1254,10 +1261,13 @@ static AstNode *trans_implicit_cast_expr(Context *c, AstNode *block, ImplicitCas
     zig_unreachable();
 }
 
-static AstNode *trans_decl_ref_expr(Context *c, DeclRefExpr *stmt) {
+static AstNode *trans_decl_ref_expr(Context *c, DeclRefExpr *stmt, TransLRValue lrval) {
     ValueDecl *value_decl = stmt->getDecl();
-    const char *name = decl_name(value_decl);
-    return trans_create_node_symbol_str(c, name);
+    Buf *symbol_name = buf_create_from_str(decl_name(value_decl));
+    if (lrval == TransLValue) {
+        c->ptr_params.put(symbol_name, true);
+    }
+    return trans_create_node_symbol(c, symbol_name);
 }
 
 static AstNode *trans_unary_operator(Context *c, AstNode *block, UnaryOperator *stmt) {
@@ -1290,7 +1300,7 @@ static AstNode *trans_unary_operator(Context *c, AstNode *block, UnaryOperator *
                     AstNode *node = trans_create_node(c, NodeTypePrefixOpExpr);
                     node->data.prefix_op_expr.prefix_op = PrefixOpNegation;
 
-                    node->data.prefix_op_expr.primary_expr = trans_expr(c, true, block, op_expr);
+                    node->data.prefix_op_expr.primary_expr = trans_expr(c, true, block, op_expr, TransRValue);
                     if (node->data.prefix_op_expr.primary_expr == nullptr)
                         return nullptr;
 
@@ -1300,7 +1310,7 @@ static AstNode *trans_unary_operator(Context *c, AstNode *block, UnaryOperator *
                     AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
                     node->data.bin_op_expr.op1 = trans_create_node_unsigned(c, 0);
 
-                    node->data.bin_op_expr.op2 = trans_expr(c, true, block, op_expr);
+                    node->data.bin_op_expr.op2 = trans_expr(c, true, block, op_expr, TransRValue);
                     if (node->data.bin_op_expr.op2 == nullptr)
                         return nullptr;
 
@@ -1342,7 +1352,7 @@ static AstNode *trans_local_declaration(Context *c, AstNode *block, DeclStmt *st
                 QualType qual_type = var_decl->getTypeSourceInfo()->getType();
                 AstNode *init_node = nullptr;
                 if (var_decl->hasInit()) {
-                    init_node = trans_expr(c, true, block, var_decl->getInit());
+                    init_node = trans_expr(c, true, block, var_decl->getInit(), TransRValue);
                     if (init_node == nullptr)
                         return nullptr;
 
@@ -1351,8 +1361,10 @@ static AstNode *trans_local_declaration(Context *c, AstNode *block, DeclStmt *st
                 if (type_node == nullptr)
                     return nullptr;
 
+                Buf *symbol_name = buf_create_from_str(decl_name(var_decl));
+
                 AstNode *node = trans_create_node_var_decl_local(c, qual_type.isConstQualified(),
-                        buf_create_from_str(decl_name(var_decl)), type_node, init_node);
+                        symbol_name, type_node, init_node);
                 block->data.block.statements.append(node);
                 continue;
             }
@@ -1583,18 +1595,18 @@ static AstNode *trans_local_declaration(Context *c, AstNode *block, DeclStmt *st
 static AstNode *trans_while_loop(Context *c, AstNode *block, WhileStmt *stmt) {
     AstNode *while_node = trans_create_node(c, NodeTypeWhileExpr);
 
-    while_node->data.while_expr.condition = trans_expr(c, true, block, stmt->getCond());
+    while_node->data.while_expr.condition = trans_expr(c, true, block, stmt->getCond(), TransRValue);
     if (while_node->data.while_expr.condition == nullptr)
         return nullptr;
 
-    while_node->data.while_expr.body = trans_stmt(c, false, block, stmt->getBody());
+    while_node->data.while_expr.body = trans_stmt(c, false, block, stmt->getBody(), TransRValue);
     if (while_node->data.while_expr.body == nullptr)
         return nullptr;
 
     return while_node;
 }
 
-static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *stmt) {
+static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *stmt, TransLRValue lrvalue) {
     Stmt::StmtClass sc = stmt->getStmtClass();
     switch (sc) {
         case Stmt::ReturnStmtClass:
@@ -1612,7 +1624,7 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
         case Stmt::ImplicitCastExprClass:
             return trans_implicit_cast_expr(c, block, (ImplicitCastExpr *)stmt);
         case Stmt::DeclRefExprClass:
-            return trans_decl_ref_expr(c, (DeclRefExpr *)stmt);
+            return trans_decl_ref_expr(c, (DeclRefExpr *)stmt, lrvalue);
         case Stmt::UnaryOperatorClass:
             return trans_unary_operator(c, block, (UnaryOperator *)stmt);
         case Stmt::DeclStmtClass:
@@ -2230,9 +2242,9 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     }
 
     // actual function definition with body
-
+    c->ptr_params.clear();
     Stmt *body = fn_decl->getBody();
-    AstNode *actual_body_node = trans_stmt(c, false, nullptr, body);
+    AstNode *actual_body_node = trans_stmt(c, false, nullptr, body, TransRValue);
     assert(actual_body_node != skip_add_to_block_node);
     if (actual_body_node == nullptr) {
         emit_warning(c, fn_decl->getLocation(), "unable to translate function");
@@ -2247,14 +2259,17 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     for (size_t i = 0; i < proto_node->data.fn_proto.params.length; i += 1) {
         AstNode *param_node = proto_node->data.fn_proto.params.at(i);
         Buf *good_name = param_node->data.param_decl.name;
-        // TODO: avoid name collisions
-        Buf *mangled_name = buf_sprintf("_arg_%s", buf_ptr(good_name));
-        param_node->data.param_decl.name = mangled_name;
 
-        // var c_name = _mangled_name;
-        AstNode *parameter_init = trans_create_node_var_decl_local(c, false, good_name, nullptr, trans_create_node_symbol(c, mangled_name));
+        if (c->ptr_params.maybe_get(good_name) != nullptr) {
+            // TODO: avoid name collisions
+            Buf *mangled_name = buf_sprintf("_arg_%s", buf_ptr(good_name));
+            param_node->data.param_decl.name = mangled_name;
 
-        body_node_with_param_inits->data.block.statements.append(parameter_init);
+            // var c_name = _mangled_name;
+            AstNode *parameter_init = trans_create_node_var_decl_local(c, false, good_name, nullptr, trans_create_node_symbol(c, mangled_name));
+
+            body_node_with_param_inits->data.block.statements.append(parameter_init);
+        }
     }
 
     for (size_t i = 0; i < actual_body_node->data.block.statements.length; i += 1) {
@@ -2875,6 +2890,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     c->visib_mod = VisibModPub;
     c->decl_table.init(8);
     c->macro_table.init(8);
+    c->ptr_params.init(8);
     c->codegen = codegen;
     c->source_node = source_node;
 
