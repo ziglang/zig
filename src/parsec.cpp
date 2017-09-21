@@ -995,9 +995,11 @@ static AstNode *trans_binary_operator(Context *c, bool result_used, AstNode *blo
             // TODO: int vs bool
             return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeBoolOr, stmt->getRHS());
         case BO_Assign:
-            (void)result_used;
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Assign");
-            return nullptr;
+            if (result_used) {
+                emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Assign with result_used");
+                return nullptr;
+            }
+            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeAssign, stmt->getRHS());
         case BO_MulAssign:
             emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_MulAssign");
             return nullptr;

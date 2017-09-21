@@ -415,6 +415,18 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
+    cases.add("assign",
+        \\int max(int a) {
+        \\    int tmp;
+        \\    tmp = a;
+        \\}
+    ,
+        \\export fn max(a: c_int) -> c_int {
+        \\    var tmp: c_int;
+        \\    tmp = a;
+        \\}
+    );
+
     cases.add("shift right assign with a fixed size type",
         \\#include <stdint.h>
         \\int log2(uint32_t a) {
