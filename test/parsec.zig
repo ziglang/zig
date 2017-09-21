@@ -490,4 +490,10 @@ pub fn addCases(cases: &tests.ParseCContext) {
     ,
         \\export fn foo() {}
     );
+
+    cases.add("undefined array global",
+        \\int array[100];
+    ,
+        \\pub var array: [100]c_int = undefined;
+    );
 }

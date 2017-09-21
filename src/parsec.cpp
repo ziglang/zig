@@ -2777,7 +2777,7 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
                     init_node = trans_create_node_apint(c, ap_value->getInt());
                     break;
                 case APValue::Uninitialized:
-                    init_node = trans_create_node_symbol_str(c, "undefined");
+                    init_node = trans_create_node(c, NodeTypeUndefinedLiteral);
                     break;
                 case APValue::Float:
                 case APValue::ComplexInt:
@@ -2794,7 +2794,7 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
                     return;
             }
         } else {
-            init_node = trans_create_node_symbol_str(c, "undefined");
+            init_node = trans_create_node(c, NodeTypeUndefinedLiteral);
         }
 
         AstNode *var_node = trans_create_node_var_decl_global(c, is_const, name, var_type, init_node);
