@@ -1178,6 +1178,13 @@ static AstNode *trans_implicit_cast_expr(Context *c, AstNode *block, ImplicitCas
                     return nullptr;
                 return trans_c_cast(c, stmt->getExprLoc(), stmt->getType(), target_node);
             }
+        case CK_FunctionToPointerDecay:
+            {
+                AstNode *target_node = trans_expr(c, true, block, stmt->getSubExpr(), TransRValue);
+                if (target_node == nullptr)
+                    return nullptr;
+                return target_node;
+            }
         case CK_Dependent:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_Dependent");
             return nullptr;
@@ -1207,9 +1214,6 @@ static AstNode *trans_implicit_cast_expr(Context *c, AstNode *block, ImplicitCas
             return nullptr;
         case CK_ArrayToPointerDecay:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ArrayToPointerDecay");
-            return nullptr;
-        case CK_FunctionToPointerDecay:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_FunctionToPointerDecay");
             return nullptr;
         case CK_NullToPointer:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_NullToPointer");
@@ -1719,6 +1723,25 @@ static AstNode *trans_while_loop(Context *c, AstNode *block, WhileStmt *stmt) {
     return while_node;
 }
 
+static AstNode *trans_call_expr(Context *c, bool result_used, AstNode *block, CallExpr *stmt) {
+    AstNode *node = trans_create_node(c, NodeTypeFnCallExpr);
+    node->data.fn_call_expr.fn_ref_expr = trans_expr(c, true, block, stmt->getCallee(), TransRValue);
+    if (node->data.fn_call_expr.fn_ref_expr == nullptr)
+        return nullptr;
+
+    unsigned num_args = stmt->getNumArgs();
+    Expr **args = stmt->getArgs();
+    for (unsigned i = 0; i < num_args; i += 1) {
+        AstNode *arg_node = trans_expr(c, true, block, args[i], TransRValue);
+        if (arg_node == nullptr)
+            return nullptr;
+
+        node->data.fn_call_expr.params.append(arg_node);
+    }
+
+    return node;
+}
+
 static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *stmt, TransLRValue lrvalue) {
     Stmt::StmtClass sc = stmt->getStmtClass();
     switch (sc) {
@@ -1744,6 +1767,8 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
             return trans_local_declaration(c, block, (DeclStmt *)stmt);
         case Stmt::WhileStmtClass:
             return trans_while_loop(c, block, (WhileStmt *)stmt);
+        case Stmt::CallExprClass:
+            return trans_call_expr(c, result_used, block, (CallExpr *)stmt);
         case Stmt::CaseStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CaseStmtClass");
             return nullptr;
@@ -1881,10 +1906,6 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
             return nullptr;
         case Stmt::CXXUuidofExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXUuidofExprClass");
-            return nullptr;
-        case Stmt::CallExprClass:
-            (void)result_used;
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CallExprClass");
             return nullptr;
         case Stmt::CUDAKernelCallExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CUDAKernelCallExprClass");
