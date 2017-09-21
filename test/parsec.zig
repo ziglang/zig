@@ -460,4 +460,12 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\    return (??foo).field;
         \\}
     );
+
+    cases.add("null statements",
+        \\void foo(void) {
+        \\    ;;;;;
+        \\}
+    ,
+        \\export fn foo() {}
+    );
 }

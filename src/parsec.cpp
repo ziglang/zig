@@ -1811,7 +1811,8 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
             return trans_if_statement(c, block, (IfStmt *)stmt);
         case Stmt::CallExprClass:
             return trans_call_expr(c, result_used, block, (CallExpr *)stmt);
-
+        case Stmt::NullStmtClass:
+            return skip_add_to_block_node;
         case Stmt::MemberExprClass:
             return trans_member_expr(c, block, (MemberExpr *)stmt);
         case Stmt::CaseStmtClass:
@@ -2180,9 +2181,6 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
             return nullptr;
         case Stmt::MSDependentExistsStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C MSDependentExistsStmtClass");
-            return nullptr;
-        case Stmt::NullStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C NullStmtClass");
             return nullptr;
         case Stmt::OMPAtomicDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPAtomicDirectiveClass");
