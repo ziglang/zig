@@ -951,20 +951,47 @@ static AstNode *trans_binary_operator(Context *c, bool result_used, AstNode *blo
             emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_PtrMemI");
             return nullptr;
         case BO_Mul:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Mul");
-            return nullptr;
+            return trans_create_bin_op(c, block, stmt->getLHS(),
+                qual_type_has_wrapping_overflow(c, stmt->getType()) ? BinOpTypeMultWrap : BinOpTypeMult,
+                stmt->getRHS());
         case BO_Div:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Div");
-            return nullptr;
+            if (qual_type_has_wrapping_overflow(c, stmt->getType())) {
+                // unsigned/float division uses the operator
+                return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeDiv, stmt->getRHS());
+            } else {
+                // signed integer division uses @divTrunc
+                AstNode *fn_call = trans_create_node_builtin_fn_call_str(c, "divTrunc");
+                AstNode *lhs = trans_expr(c, true, block, stmt->getLHS(), TransLValue);
+                if (lhs == nullptr) return nullptr;
+                fn_call->data.fn_call_expr.params.append(lhs);
+                AstNode *rhs = trans_expr(c, true, block, stmt->getRHS(), TransLValue);
+                if (rhs == nullptr) return nullptr;
+                fn_call->data.fn_call_expr.params.append(rhs);
+                return fn_call;
+            }
         case BO_Rem:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Rem");
-            return nullptr;
+            if (qual_type_has_wrapping_overflow(c, stmt->getType())) {
+                // unsigned/float division uses the operator
+                return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeMod, stmt->getRHS());
+            } else {
+                // signed integer division uses @divTrunc
+                AstNode *fn_call = trans_create_node_builtin_fn_call_str(c, "rem");
+                AstNode *lhs = trans_expr(c, true, block, stmt->getLHS(), TransLValue);
+                if (lhs == nullptr) return nullptr;
+                fn_call->data.fn_call_expr.params.append(lhs);
+                AstNode *rhs = trans_expr(c, true, block, stmt->getRHS(), TransLValue);
+                if (rhs == nullptr) return nullptr;
+                fn_call->data.fn_call_expr.params.append(rhs);
+                return fn_call;
+            }
         case BO_Add:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Add");
-            return nullptr;
+            return trans_create_bin_op(c, block, stmt->getLHS(),
+                qual_type_has_wrapping_overflow(c, stmt->getType()) ? BinOpTypeAddWrap : BinOpTypeAdd,
+                stmt->getRHS());
         case BO_Sub:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Sub");
-            return nullptr;
+            return trans_create_bin_op(c, block, stmt->getLHS(),
+                qual_type_has_wrapping_overflow(c, stmt->getType()) ? BinOpTypeSubWrap : BinOpTypeSub,
+                stmt->getRHS());
         case BO_Shl:
             emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Shl");
             return nullptr;

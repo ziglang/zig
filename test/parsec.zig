@@ -389,6 +389,42 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
+    cases.add("add, sub, mul, div, rem",
+        \\int s(int a, int b) {
+        \\    int c;
+        \\    c = a + b;
+        \\    c = a - b;
+        \\    c = a * b;
+        \\    c = a / b;
+        \\    c = a % b;
+        \\}
+        \\unsigned u(unsigned a, unsigned b) {
+        \\    unsigned c;
+        \\    c = a + b;
+        \\    c = a - b;
+        \\    c = a * b;
+        \\    c = a / b;
+        \\    c = a % b;
+        \\}
+    ,
+        \\export fn s(a: c_int, b: c_int) -> c_int {
+        \\    var c: c_int;
+        \\    c = (a + b);
+        \\    c = (a - b);
+        \\    c = (a * b);
+        \\    c = @divTrunc(a, b);
+        \\    c = @rem(a, b);
+        \\}
+        \\export fn u(a: c_uint, b: c_uint) -> c_uint {
+        \\    var c: c_uint;
+        \\    c = (a +% b);
+        \\    c = (a -% b);
+        \\    c = (a *% b);
+        \\    c = (a / b);
+        \\    c = (a % b);
+        \\}
+    );
+
     cases.add("bitwise binary operators",
         \\int max(int a, int b) {
         \\    return (a & b) ^ (a | b);
