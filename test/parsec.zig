@@ -98,7 +98,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
     ,
         \\pub const BarB = enum_Bar.B;
     ,
-        \\pub extern fn func(a: ?&struct_Foo, b: ?&?&enum_Bar);
+        \\pub extern fn func(a: ?&struct_Foo, b: ?&(?&enum_Bar));
     ,
         \\pub const Foo = struct_Foo;
     ,
@@ -442,6 +442,22 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\pub fn bar() {}
         \\export fn foo() {
         \\    bar();
+        \\}
+    );
+
+    cases.add("field access expression",
+        \\struct Foo {
+        \\    int field;
+        \\};
+        \\int read_field(struct Foo *foo) {
+        \\    return foo->field;
+        \\}
+    ,
+        \\pub const struct_Foo = extern struct {
+        \\    field: c_int,
+        \\};
+        \\export fn read_field(foo: ?&struct_Foo) -> c_int {
+        \\    return (??foo).field;
         \\}
     );
 }

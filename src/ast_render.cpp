@@ -580,10 +580,12 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             break;
         case NodeTypePrefixOpExpr:
             {
+                if (!grouped) fprintf(ar->f, "(");
                 PrefixOp op = node->data.prefix_op_expr.prefix_op;
                 fprintf(ar->f, "%s", prefix_op_str(op));
 
                 render_node_ungrouped(ar, node->data.prefix_op_expr.primary_expr);
+                if (!grouped) fprintf(ar->f, ")");
                 break;
             }
         case NodeTypeAddrOfExpr:

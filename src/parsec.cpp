@@ -291,6 +291,10 @@ static AstNode *trans_create_node_inline_fn(Context *c, Buf *fn_name, Buf *var_n
     return fn_def;
 }
 
+static AstNode *trans_create_node_unwrap_null(Context *c, AstNode *child) {
+    return trans_create_node_prefix_op(c, PrefixOpUnwrapMaybe, child);
+}
+
 static AstNode *get_global(Context *c, Buf *name) {
     for (size_t i = 0; i < c->root->data.root.top_level_decls.length; i += 1) {
         AstNode *decl_node = c->root->data.root.top_level_decls.items[i];
@@ -1763,6 +1767,21 @@ static AstNode *trans_call_expr(Context *c, bool result_used, AstNode *block, Ca
     return node;
 }
 
+static AstNode *trans_member_expr(Context *c, AstNode *block, MemberExpr *stmt) {
+    AstNode *container_node = trans_expr(c, true, block, stmt->getBase(), TransRValue);
+    if (container_node == nullptr)
+        return nullptr;
+
+    if (stmt->isArrow()) {
+        container_node = trans_create_node_unwrap_null(c, container_node);
+    }
+
+    const char *name = decl_name(stmt->getMemberDecl());
+
+    AstNode *node = trans_create_node_field_access_str(c, container_node, name);
+    return node;
+}
+
 static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *stmt, TransLRValue lrvalue) {
     Stmt::StmtClass sc = stmt->getStmtClass();
     switch (sc) {
@@ -1793,6 +1812,8 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
         case Stmt::CallExprClass:
             return trans_call_expr(c, result_used, block, (CallExpr *)stmt);
 
+        case Stmt::MemberExprClass:
+            return trans_member_expr(c, block, (MemberExpr *)stmt);
         case Stmt::CaseStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CaseStmtClass");
             return nullptr;
@@ -2036,9 +2057,6 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
             return nullptr;
         case Stmt::MaterializeTemporaryExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C MaterializeTemporaryExprClass");
-            return nullptr;
-        case Stmt::MemberExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C MemberExprClass");
             return nullptr;
         case Stmt::NoInitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C NoInitExprClass");
