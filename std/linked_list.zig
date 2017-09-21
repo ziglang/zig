@@ -1,6 +1,7 @@
 const debug = @import("debug.zig");
 const assert = debug.assert;
 const mem = @import("mem.zig");
+const Allocator = mem.Allocator;
 
 /// Generic doubly linked list.
 pub fn LinkedList(comptime T: type) -> type {
@@ -15,9 +16,9 @@ pub fn LinkedList(comptime T: type) -> type {
 
             pub fn init(data: &const T) -> Node {
                 Node {
-                    .data = *data,
                     .prev = null,
                     .next = null,
+                    .data = *data,
                 }
             }
         };
@@ -157,38 +158,57 @@ pub fn LinkedList(comptime T: type) -> type {
             return first;
         }
 
+        /// Allocate a new node.
+        ///
+        /// Arguments:
+        ///     allocator: Dynamic memory allocator.
+        ///
+        /// Returns:
+        ///     A pointer to the new node.
+        pub fn allocateNode(list: &Self, allocator: &Allocator) -> %&Node {
+            allocator.create(Node)
+        }
+
+        /// Deallocate a node.
+        ///
+        /// Arguments:
+        ///     node: Pointer to the node to deallocate.
+        ///     allocator: Dynamic memory allocator.
+        pub fn destroyNode(list: &Self, node: &Node, allocator: &Allocator) {
+            allocator.destroy(node);
+        }
+
+        /// Allocate and initialize a node and its data.
+        ///
+        /// Arguments:
+        ///     data: The data to put inside the node.
+        ///     allocator: Dynamic memory allocator.
+        ///
+        /// Returns:
+        ///     A pointer to the new node.
+        pub fn createNode(list: &Self, data: &const T, allocator: &Allocator) -> %&Node {
+            var node = %return list.allocateNode(allocator);
+            *node = Node.init(data);
+            return node;
+        }
     }
-}
-
-pub fn testAllocateNode(comptime T: type, list: &LinkedList(T), allocator: &mem.Allocator) -> %&LinkedList(T).Node {
-    allocator.create(LinkedList(T).Node)
-}
-
-pub fn testDestroyNode(comptime T: type, list: &LinkedList(T), node: &LinkedList(T).Node, allocator: &mem.Allocator) {
-    allocator.destroy(node);
-}
-
-pub fn testCreateNode(comptime T: type, list: &LinkedList(T), data: &const T, allocator: &mem.Allocator) -> %&LinkedList(T).Node {
-    var node = %return testAllocateNode(T, list, allocator);
-    *node = LinkedList(T).Node.init(data);
-    return node;
 }
 
 test "basic linked list test" {
     const allocator = &debug.global_allocator;
     var list = LinkedList(u32).init();
 
-    var one   = %%testCreateNode(u32, &list, 1, allocator);
-    var two   = %%testCreateNode(u32, &list, 2, allocator);
-    var three = %%testCreateNode(u32, &list, 3, allocator);
-    var four  = %%testCreateNode(u32, &list, 4, allocator);
-    var five  = %%testCreateNode(u32, &list, 5, allocator);
+    var one   = %%list.createNode(1, allocator);
+    var two   = %%list.createNode(2, allocator);
+    var three = %%list.createNode(3, allocator);
+    var four  = %%list.createNode(4, allocator);
+    var five  = %%list.createNode(5, allocator);
     defer {
-        testDestroyNode(u32, &list, one, allocator);
-        testDestroyNode(u32, &list, two, allocator);
-        testDestroyNode(u32, &list, three, allocator);
-        testDestroyNode(u32, &list, four, allocator);
-        testDestroyNode(u32, &list, five, allocator);
+        list.destroyNode(one, allocator);
+        list.destroyNode(two, allocator);
+        list.destroyNode(three, allocator);
+        list.destroyNode(four, allocator);
+        list.destroyNode(five, allocator);
     }
 
     list.append(two);               // {2}
@@ -197,7 +217,7 @@ test "basic linked list test" {
     list.insertBefore(five, four);  // {1, 2, 4, 5}
     list.insertAfter(two, three);   // {1, 2, 3, 4, 5}
 
-    // traverse forwards
+    // Traverse forwards.
     {
         var it = list.first;
         var index: u32 = 1;
@@ -207,7 +227,7 @@ test "basic linked list test" {
         }
     }
 
-    // traverse backwards
+    // Traverse backwards.
     {
         var it = list.last;
         var index: u32 = 1;
