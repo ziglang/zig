@@ -455,11 +455,14 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\int max(int a) {
         \\    int tmp;
         \\    tmp = a;
+        \\    a = tmp;
         \\}
     ,
-        \\export fn max(a: c_int) -> c_int {
+        \\export fn max(_arg_a: c_int) -> c_int {
+        \\    var a = _arg_a;
         \\    var tmp: c_int;
         \\    tmp = a;
+        \\    a = tmp;
         \\}
     );
 

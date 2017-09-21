@@ -942,6 +942,21 @@ static AstNode *trans_create_bin_op(Context *c, AstNode *block, Expr *lhs, BinOp
     return node;
 }
 
+static AstNode *trans_create_assign(Context *c, AstNode *block, Expr *lhs, Expr *rhs) {
+    AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
+    node->data.bin_op_expr.bin_op = BinOpTypeAssign;
+
+    node->data.bin_op_expr.op1 = trans_expr(c, true, block, lhs, TransLValue);
+    if (node->data.bin_op_expr.op1 == nullptr)
+        return nullptr;
+
+    node->data.bin_op_expr.op2 = trans_expr(c, true, block, rhs, TransRValue);
+    if (node->data.bin_op_expr.op2 == nullptr)
+        return nullptr;
+
+    return node;
+}
+
 static AstNode *trans_binary_operator(Context *c, bool result_used, AstNode *block, BinaryOperator *stmt) {
     switch (stmt->getOpcode()) {
         case BO_PtrMemD:
@@ -1026,7 +1041,7 @@ static AstNode *trans_binary_operator(Context *c, bool result_used, AstNode *blo
                 emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Assign with result_used");
                 return nullptr;
             }
-            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeAssign, stmt->getRHS());
+            return trans_create_assign(c, block, stmt->getLHS(), stmt->getRHS());
         case BO_MulAssign:
             emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_MulAssign");
             return nullptr;
