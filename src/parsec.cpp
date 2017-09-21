@@ -980,14 +980,11 @@ static AstNode *trans_binary_operator(Context *c, bool result_used, AstNode *blo
         case BO_NE:
             return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeCmpNotEq, stmt->getRHS());
         case BO_And:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_And");
-            return nullptr;
+            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeBinAnd, stmt->getRHS());
         case BO_Xor:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Xor");
-            return nullptr;
+            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeBinXor, stmt->getRHS());
         case BO_Or:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Or");
-            return nullptr;
+            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeBinOr, stmt->getRHS());
         case BO_LAnd:
             return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeBoolAnd, stmt->getRHS());
         case BO_LOr:
@@ -2107,8 +2104,7 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
             emit_warning(c, stmt->getLocStart(), "TODO handle C PackExpansionExprClass");
             return nullptr;
         case Stmt::ParenExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ParenExprClass");
-            return nullptr;
+            return trans_expr(c, result_used, block, ((ParenExpr*)stmt)->getSubExpr(), lrvalue);
         case Stmt::ParenListExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ParenListExprClass");
             return nullptr;

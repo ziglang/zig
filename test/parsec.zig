@@ -389,6 +389,16 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
+    cases.add("bitwise binary operators",
+        \\int max(int a, int b) {
+        \\    return (a & b) ^ (a | b);
+        \\}
+    ,
+        \\export fn max(a: c_int, b: c_int) -> c_int {
+        \\    return (a & b) ^ (a | b);
+        \\}
+    );
+
     cases.add("logical and, logical or",
         \\int max(int a, int b) {
         \\    if (a < b || a == b)
