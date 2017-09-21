@@ -532,4 +532,17 @@ pub fn addCases(cases: &tests.ParseCContext) {
     ,
         \\pub var array: [100]c_int = undefined;
     );
+
+    cases.add("array access",
+        \\int array[100];
+        \\int foo(int index) {
+        \\    return array[index];
+        \\}
+    ,
+        \\pub var array: [100]c_int = undefined;
+        \\export fn foo(index: c_int) -> c_int {
+        \\    return array[index];
+        \\}
+    );
+
 }

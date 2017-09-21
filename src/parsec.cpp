@@ -1206,6 +1206,7 @@ static AstNode *trans_implicit_cast_expr(Context *c, AstNode *block, ImplicitCas
                 return trans_c_cast(c, stmt->getExprLoc(), stmt->getType(), target_node);
             }
         case CK_FunctionToPointerDecay:
+        case CK_ArrayToPointerDecay:
             {
                 AstNode *target_node = trans_expr(c, true, block, stmt->getSubExpr(), TransRValue);
                 if (target_node == nullptr)
@@ -1238,9 +1239,6 @@ static AstNode *trans_implicit_cast_expr(Context *c, AstNode *block, ImplicitCas
             return nullptr;
         case CK_ToUnion:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ToUnion");
-            return nullptr;
-        case CK_ArrayToPointerDecay:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ArrayToPointerDecay");
             return nullptr;
         case CK_NullToPointer:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_NullToPointer");
@@ -1808,6 +1806,22 @@ static AstNode *trans_member_expr(Context *c, AstNode *block, MemberExpr *stmt) 
     return node;
 }
 
+static AstNode *trans_array_subscript_expr(Context *c, AstNode *block, ArraySubscriptExpr *stmt) {
+    AstNode *container_node = trans_expr(c, true, block, stmt->getBase(), TransRValue);
+    if (container_node == nullptr)
+        return nullptr;
+
+    AstNode *idx_node = trans_expr(c, true, block, stmt->getIdx(), TransRValue);
+    if (idx_node == nullptr)
+        return nullptr;
+
+
+    AstNode *node = trans_create_node(c, NodeTypeArrayAccessExpr);
+    node->data.array_access_expr.array_ref_expr = container_node;
+    node->data.array_access_expr.subscript = idx_node;
+    return node;
+}
+
 static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *stmt, TransLRValue lrvalue) {
     Stmt::StmtClass sc = stmt->getStmtClass();
     switch (sc) {
@@ -1841,6 +1855,8 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
             return skip_add_to_block_node;
         case Stmt::MemberExprClass:
             return trans_member_expr(c, block, (MemberExpr *)stmt);
+        case Stmt::ArraySubscriptExprClass:
+            return trans_array_subscript_expr(c, block, (ArraySubscriptExpr *)stmt);
         case Stmt::CaseStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CaseStmtClass");
             return nullptr;
@@ -1900,9 +1916,6 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
             return nullptr;
         case Stmt::ArrayInitLoopExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ArrayInitLoopExprClass");
-            return nullptr;
-        case Stmt::ArraySubscriptExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ArraySubscriptExprClass");
             return nullptr;
         case Stmt::ArrayTypeTraitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ArrayTypeTraitExprClass");
