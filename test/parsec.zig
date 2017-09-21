@@ -315,6 +315,28 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\pub const LUA_GLOBALSINDEX = -10002;
     );
 
+    cases.add("post increment",
+        \\unsigned foo1(unsigned a) {
+        \\    a++;
+        \\    return a;
+        \\}
+        \\int foo2(int a) {
+        \\    a++;
+        \\    return a;
+        \\}
+    ,
+        \\export fn foo1(_arg_a: c_uint) -> c_uint {
+        \\    var a = _arg_a;
+        \\    a +%= 1;
+        \\    return a;
+        \\}
+        \\export fn foo2(_arg_a: c_int) -> c_int {
+        \\    var a = _arg_a;
+        \\    a += 1;
+        \\    return a;
+        \\}
+    );
+
     cases.add("shift right assign",
         \\int log2(unsigned a) {
         \\    int i = 0;
@@ -331,6 +353,23 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\        a >>= @import("std").math.Log2Int(c_uint)(1);
         \\    };
         \\    return i;
+        \\}
+    );
+
+    cases.add("if statement",
+        \\int max(int a, int b) {
+        \\    if (a < b)
+        \\        return b;
+        \\
+        \\    if (a < b)
+        \\        return b;
+        \\    else
+        \\        return a;
+        \\}
+    ,
+        \\export fn max(a: c_int, b: c_int) -> c_int {
+        \\    if (a < b) return b;
+        \\    if (a < b) return b else return a;
         \\}
     );
 
