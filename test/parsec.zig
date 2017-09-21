@@ -478,7 +478,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\    c = {
         \\        const _tmp = a;
         \\        b = _tmp;
-        \\        _tmp;
+        \\        _tmp
         \\    };
         \\}
     );

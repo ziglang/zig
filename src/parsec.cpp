@@ -985,6 +985,7 @@ static AstNode *trans_create_assign(Context *c, bool result_used, AstNode *block
 
         // _tmp
         child_block->data.block.statements.append(trans_create_node_symbol(c, tmp_var_name));
+        child_block->data.block.last_statement_is_result_expression = true;
 
         return child_block;
     }
