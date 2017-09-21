@@ -373,6 +373,22 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
+    cases.add("logical and, logical or",
+        \\int max(int a, int b) {
+        \\    if (a < b || a == b)
+        \\        return b;
+        \\    if (a >= b && a == b)
+        \\        return a;
+        \\    return a;
+        \\}
+    ,
+        \\export fn max(a: c_int, b: c_int) -> c_int {
+        \\    if ((a < b) or (a == b)) return b;
+        \\    if ((a >= b) and (a == b)) return a;
+        \\    return a;
+        \\}
+    );
+
     cases.add("shift right assign with a fixed size type",
         \\#include <stdint.h>
         \\int log2(uint32_t a) {

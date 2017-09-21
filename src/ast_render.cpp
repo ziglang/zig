@@ -14,8 +14,8 @@
 static const char *bin_op_str(BinOpType bin_op) {
     switch (bin_op) {
         case BinOpTypeInvalid:                return "(invalid)";
-        case BinOpTypeBoolOr:                 return "||";
-        case BinOpTypeBoolAnd:                return "&&";
+        case BinOpTypeBoolOr:                 return "or";
+        case BinOpTypeBoolAnd:                return "and";
         case BinOpTypeCmpEq:                  return "==";
         case BinOpTypeCmpNotEq:               return "!=";
         case BinOpTypeCmpLessThan:            return "<";

@@ -976,8 +976,7 @@ static AstNode *trans_binary_operator(Context *c, bool result_used, AstNode *blo
         case BO_GE:
             return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeCmpGreaterOrEq, stmt->getRHS());
         case BO_EQ:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_EQ");
-            return nullptr;
+            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeCmpEq, stmt->getRHS());
         case BO_NE:
             emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_NE");
             return nullptr;
@@ -991,11 +990,10 @@ static AstNode *trans_binary_operator(Context *c, bool result_used, AstNode *blo
             emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Or");
             return nullptr;
         case BO_LAnd:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_LAnd");
-            return nullptr;
+            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeBoolAnd, stmt->getRHS());
         case BO_LOr:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_LOr");
-            return nullptr;
+            // TODO: int vs bool
+            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeBoolOr, stmt->getRHS());
         case BO_Assign:
             (void)result_used;
             emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Assign");
