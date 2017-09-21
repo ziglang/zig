@@ -137,6 +137,9 @@ static AstNode *trans_create_node_fn_call_1(Context *c, AstNode *fn_ref_expr, As
 
 static AstNode *trans_create_node_field_access(Context *c, AstNode *container, Buf *field_name) {
     AstNode *node = trans_create_node(c, NodeTypeFieldAccessExpr);
+	if (container->type == NodeTypeSymbol) {
+		assert(container->data.symbol_expr.symbol != nullptr);
+	}
     node->data.field_access_expr.struct_expr = container;
     node->data.field_access_expr.field_name = field_name;
     return node;
@@ -2527,9 +2530,14 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
 
             // in C each enum value is in the global namespace. so we put them there too.
             // at this point we can rely on the enum emitting successfully
-            AstNode *field_access_node = trans_create_node_field_access(c,
-                    trans_create_node_symbol(c, full_type_name), field_name);
-            add_global_var(c, enum_val_name, field_access_node);
+            if (is_anonymous) {
+                AstNode *lit_node = trans_create_node_unsigned(c, i);
+                add_global_var(c, enum_val_name, lit_node);
+            } else {
+                AstNode *field_access_node = trans_create_node_field_access(c,
+                        trans_create_node_symbol(c, full_type_name), field_name);
+                add_global_var(c, enum_val_name, field_access_node);
+            }
         }
 
         if (is_anonymous) {
