@@ -1857,6 +1857,16 @@ static AstNode *trans_c_style_cast_expr(Context *c, bool result_used, AstNode *b
     return trans_c_cast(c, stmt->getLocStart(), stmt->getType(), sub_expr_node);
 }
 
+static AstNode *trans_unary_expr_or_type_trait_expr(Context *c, AstNode *block, UnaryExprOrTypeTraitExpr *stmt) {
+    AstNode *type_node = trans_qual_type(c, stmt->getTypeOfArgument(), stmt->getLocStart());
+    if (type_node == nullptr)
+        return nullptr;
+
+    AstNode *node = trans_create_node_builtin_fn_call_str(c, "sizeOf");
+    node->data.fn_call_expr.params.append(type_node);
+    return node;
+}
+
 static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *stmt, TransLRValue lrvalue) {
     Stmt::StmtClass sc = stmt->getStmtClass();
     switch (sc) {
@@ -1894,6 +1904,8 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
             return trans_array_subscript_expr(c, block, (ArraySubscriptExpr *)stmt);
         case Stmt::CStyleCastExprClass:
             return trans_c_style_cast_expr(c, result_used, block, (CStyleCastExpr *)stmt, lrvalue);
+        case Stmt::UnaryExprOrTypeTraitExprClass:
+            return trans_unary_expr_or_type_trait_expr(c, block, (UnaryExprOrTypeTraitExpr *)stmt);
         case Stmt::CaseStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CaseStmtClass");
             return nullptr;
@@ -2232,9 +2244,6 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
             return nullptr;
         case Stmt::TypoExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C TypoExprClass");
-            return nullptr;
-        case Stmt::UnaryExprOrTypeTraitExprClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C UnaryExprOrTypeTraitExprClass");
             return nullptr;
         case Stmt::VAArgExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C VAArgExprClass");

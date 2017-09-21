@@ -568,6 +568,17 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\    return @ptrCast(?&c_void, x);
         \\}
     );
+
+    cases.add("sizeof",
+        \\#include <stddef.h>
+        \\size_t size_of(void) {
+        \\        return sizeof(int);
+        \\}
+    ,
+        \\export fn size_of() -> usize {
+        \\    return @sizeOf(c_int);
+        \\}
+    );
 }
 
 
