@@ -386,8 +386,17 @@ static bool qual_type_child_is_fn_proto(const QualType &qt) {
     return false;
 }
 
+static QualType resolve_any_typedef(Context *c, QualType qt) {
+    const Type * ty = qt.getTypePtr();
+    if (ty->getTypeClass() != Type::Typedef)
+        return qt;
+    const TypedefType *typedef_ty = static_cast<const TypedefType*>(ty);
+    const TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
+    return typedef_decl->getUnderlyingType();
+}
+
 static bool c_is_signed_integer(Context *c, QualType qt) {
-    const Type *c_type = qt.getTypePtr();
+    const Type *c_type = resolve_any_typedef(c, qt).getTypePtr();
     if (c_type->getTypeClass() != Type::Builtin)
         return false;
     const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(c_type);
@@ -406,7 +415,7 @@ static bool c_is_signed_integer(Context *c, QualType qt) {
 }
 
 static bool c_is_unsigned_integer(Context *c, QualType qt) {
-    const Type *c_type = qt.getTypePtr();
+    const Type *c_type = resolve_any_typedef(c, qt).getTypePtr();
     if (c_type->getTypeClass() != Type::Builtin)
         return false;
     const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(c_type);
@@ -440,6 +449,16 @@ static bool c_is_float(Context *c, QualType qt) {
             return true;
         default: 
             return false;
+    }
+}
+
+static bool qual_type_has_wrapping_overflow(Context *c, QualType qt) {
+    if (c_is_signed_integer(c, qt) || c_is_float(c, qt)) {
+        // float and signed integer overflow is undefined behavior.
+        return false;
+    } else {
+        // unsigned integer overflow wraps around.
+        return true;
     }
 }
 
@@ -1286,11 +1305,35 @@ static AstNode *trans_decl_ref_expr(Context *c, DeclRefExpr *stmt, TransLRValue 
     return trans_create_node_symbol(c, symbol_name);
 }
 
-static AstNode *trans_unary_operator(Context *c, AstNode *block, UnaryOperator *stmt) {
+static AstNode *trans_unary_operator(Context *c, bool result_used, AstNode *block, UnaryOperator *stmt) {
     switch (stmt->getOpcode()) {
-        case UO_PostInc:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_PostInc");
-            return nullptr;
+        case UO_PostInc: {
+            Expr *op_expr = stmt->getSubExpr();
+            BinOpType bin_op = qual_type_has_wrapping_overflow(c, op_expr->getType())
+                ? BinOpTypeAssignPlusWrap
+                : BinOpTypeAssignPlus;
+
+            if (!result_used) {
+                // common case
+                // c: expr++
+                // zig: expr += 1
+                return trans_create_node_bin_op(c,
+                    trans_expr(c, true, block, op_expr, TransLValue),
+                    bin_op,
+                    trans_create_node_unsigned(c, 1));
+            } else {
+                // worst case
+                // c: expr++
+                // zig: {
+                // zig:     const _ref = &expr;
+                // zig:     const _tmp = *_ref;
+                // zig:     *_ref += 1;
+                // zig:     _tmp
+                // zig: }
+                emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_PostInc with result_used");
+                return nullptr;
+            }
+        }
         case UO_PostDec:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_PostDec");
             return nullptr;
@@ -1312,7 +1355,7 @@ static AstNode *trans_unary_operator(Context *c, AstNode *block, UnaryOperator *
         case UO_Minus:
             {
                 Expr *op_expr = stmt->getSubExpr();
-                if (c_is_signed_integer(c, op_expr->getType()) || c_is_float(c, op_expr->getType())) {
+                if (!qual_type_has_wrapping_overflow(c, op_expr->getType())) {
                     AstNode *node = trans_create_node(c, NodeTypePrefixOpExpr);
                     node->data.prefix_op_expr.prefix_op = PrefixOpNegation;
 
@@ -1642,7 +1685,7 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
         case Stmt::DeclRefExprClass:
             return trans_decl_ref_expr(c, (DeclRefExpr *)stmt, lrvalue);
         case Stmt::UnaryOperatorClass:
-            return trans_unary_operator(c, block, (UnaryOperator *)stmt);
+            return trans_unary_operator(c, result_used, block, (UnaryOperator *)stmt);
         case Stmt::DeclStmtClass:
             return trans_local_declaration(c, block, (DeclStmt *)stmt);
         case Stmt::WhileStmtClass:
