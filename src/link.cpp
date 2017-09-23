@@ -757,8 +757,12 @@ static void construct_linker_job_macho(LinkJob *lj) {
                 // so we always link against libSystem
                 lj->args.append("-lSystem");
             } else {
-                Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
-                lj->args.append(buf_ptr(arg));
+                if (strchr(buf_ptr(link_lib->name), '/') == nullptr) {
+                    Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
+                    lj->args.append(buf_ptr(arg));
+            } else {
+                    lj->args.append(buf_ptr(link_lib->name));
+                }
             }
         }
     } else {
