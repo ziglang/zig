@@ -81,7 +81,7 @@ bool os_is_sep(uint8_t c);
 #endif
 
 #if defined(ZIG_OS_WINDOWS)
-#define ZIG_PRI_usize "Iu"
+#define ZIG_PRI_usize "I64u"
 #define ZIG_PRI_u64 "I64u"
 #define ZIG_PRI_llu "I64u"
 #define ZIG_PRI_x64 "I64x"

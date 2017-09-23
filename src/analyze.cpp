@@ -3189,6 +3189,8 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *a
             if (is_pub) {
                 if (buf_eql_str(proto_name, "main")) {
                     g->have_pub_main = true;
+                    g->windows_subsystem_windows = false;
+                    g->windows_subsystem_console = true;
                 } else if (buf_eql_str(proto_name, "panic")) {
                     g->have_pub_panic = true;
                 }
@@ -3196,6 +3198,8 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *a
                     g->libc_link_lib != nullptr)
             {
                 g->have_c_main = true;
+                g->windows_subsystem_windows = false;
+                g->windows_subsystem_console = true;
             }
 
         }

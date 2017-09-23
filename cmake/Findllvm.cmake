@@ -80,32 +80,51 @@ else()
           "c:/msys64/mingw64/bin"
           "C:/Libraries/llvm-5.0.0/bin")
 
-  execute_process(
-      COMMAND ${LLVM_CONFIG_EXE} --libs
-      OUTPUT_VARIABLE LLVM_LIBRARIES
-      OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if(NOT(CMAKE_BUILD_TYPE STREQUAL "Debug"))
+    execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --libfiles --link-static
+        OUTPUT_VARIABLE LLVM_LIBRARIES_SPACES
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    string(REPLACE " " ";" LLVM_LIBRARIES "${LLVM_LIBRARIES_SPACES}")
 
-  execute_process(
-      COMMAND ${LLVM_CONFIG_EXE} --system-libs
-      OUTPUT_VARIABLE LLVM_SYSTEM_LIBS
-      OUTPUT_STRIP_TRAILING_WHITESPACE)
+    execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --system-libs --link-static
+        OUTPUT_VARIABLE LLVM_SYSTEM_LIBS_SPACES
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    string(REPLACE " " ";" LLVM_SYSTEM_LIBS "${LLVM_SYSTEM_LIBS_SPACES}")
 
-  execute_process(
-      COMMAND ${LLVM_CONFIG_EXE} --libdir
-      OUTPUT_VARIABLE LLVM_LIBDIRS
-      OUTPUT_STRIP_TRAILING_WHITESPACE)
+    execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --libdir --link-static
+        OUTPUT_VARIABLE LLVM_LIBDIRS_SPACES
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    string(REPLACE " " ";" LLVM_LIBDIRS "${LLVM_LIBDIRS_SPACES}")
+  endif()
+  if(NOT LLVM_LIBRARIES)
+    execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --libs
+        OUTPUT_VARIABLE LLVM_LIBRARIES
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+    execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --system-libs
+        OUTPUT_VARIABLE LLVM_SYSTEM_LIBS
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+    execute_process(
+        COMMAND ${LLVM_CONFIG_EXE} --libdir
+        OUTPUT_VARIABLE LLVM_LIBDIRS
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+  endif()
 
   execute_process(
       COMMAND ${LLVM_CONFIG_EXE} --includedir
       OUTPUT_VARIABLE LLVM_INCLUDE_DIRS
       OUTPUT_STRIP_TRAILING_WHITESPACE)
 
-  find_library(LLVM_LIBRARY NAMES LLVM)
-
   set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_SYSTEM_LIBS})
 
-  if(LLVM_LIBRARY AND NOT LLVM_LIBRARIES)
-    set(LLVM_LIBRARIES ${LLVM_LIBRARY})
+  if(NOT LLVM_LIBRARIES)
+    find_library(LLVM_LIBRARIES NAMES LLVM LLVM-5.0 LLVM-5)
   endif()
 
   link_directories("${CMAKE_PREFIX_PATH}/lib")
