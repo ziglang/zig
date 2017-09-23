@@ -867,9 +867,9 @@ pub const LibExeObjStep = struct {
                     };
                     switch (target_os) {
                         builtin.Os.darwin, builtin.Os.ios, builtin.Os.macosx => {
-                            self.out_filename = self.builder.fmt("lib{}.dylib.{d}.{d}.{d}",
+                            self.out_filename = self.builder.fmt("lib{}.{d}.{d}.{d}.dylib",
                                 self.name, self.version.major, self.version.minor, self.version.patch);
-                            self.major_only_filename = self.builder.fmt("lib{}.dylib.{d}", self.name, self.version.major);
+                            self.major_only_filename = self.builder.fmt("lib{}.{d}.dylib", self.name, self.version.major);
                             self.name_only_filename = self.builder.fmt("lib{}.dylib", self.name);
                         },
                         builtin.Os.windows => {
@@ -1225,6 +1225,15 @@ pub const LibExeObjStep = struct {
         var cc_args = ArrayList([]const u8).init(builder.allocator);
         defer cc_args.deinit();
 
+        const target_os = switch (self.target) {
+            Target.Native => builtin.os,
+            Target.Cross => |t| t.os,
+        };
+        const is_darwin = switch (target_os) {
+            builtin.Os.darwin, builtin.Os.ios, builtin.Os.macosx => true,
+            else => false,
+        };
+
         switch (self.kind) {
             Kind.Obj => {
                 %%cc_args.append("-c");
@@ -1286,12 +1295,27 @@ pub const LibExeObjStep = struct {
                 } else {
                     %%cc_args.resize(0);
 
-                    %%cc_args.append("-fPIC");
-                    %%cc_args.append("-shared");
+                    if (is_darwin) {
+                        %%cc_args.append("-dynamiclib");
 
-                    const soname_arg = builder.fmt("-Wl,-soname,lib{}.so.{d}", self.name, self.version.major);
-                    defer builder.allocator.free(soname_arg);
-                    %%cc_args.append(soname_arg);
+                        %%cc_args.append("-Wl,-headerpad_max_install_names");
+
+                        %%cc_args.append("-compatibility_version");
+                        %%cc_args.append(builder.fmt("{}.0.0", self.version.major));
+
+                        %%cc_args.append("-current_version");
+                        %%cc_args.append(builder.fmt("{}.{}.{}", self.version.major, self.version.minor, self.version.patch));
+
+                        %%cc_args.append("-install_name");
+                        %%cc_args.append(builder.pathFromRoot(self.major_only_filename));
+                    } else {
+                        %%cc_args.append("-fPIC");
+                        %%cc_args.append("-shared");
+
+                        const soname_arg = builder.fmt("-Wl,-soname,lib{}.so.{d}", self.name, self.version.major);
+                        defer builder.allocator.free(soname_arg);
+                        %%cc_args.append(soname_arg);
+                    }
 
                     const output_path = builder.pathFromRoot(self.getOutputPath());
                     %%cc_args.append("-o");
@@ -1301,12 +1325,14 @@ pub const LibExeObjStep = struct {
                         %%cc_args.append(builder.pathFromRoot(object_file));
                     }
 
-                    const rpath_arg = builder.fmt("-Wl,-rpath,{}",
-                        %%os.path.real(builder.allocator, builder.pathFromRoot(builder.cache_root)));
-                    defer builder.allocator.free(rpath_arg);
-                    %%cc_args.append(rpath_arg);
+                    if (!is_darwin) {
+                        const rpath_arg = builder.fmt("-Wl,-rpath,{}",
+                            %%os.path.real(builder.allocator, builder.pathFromRoot(builder.cache_root)));
+                        defer builder.allocator.free(rpath_arg);
+                        %%cc_args.append(rpath_arg);
 
-                    %%cc_args.append("-rdynamic");
+                        %%cc_args.append("-rdynamic");
+                    }
 
                     for (self.full_path_libs.toSliceConst()) |full_path_lib| {
                         %%cc_args.append(builder.pathFromRoot(full_path_lib));
@@ -1364,10 +1390,6 @@ pub const LibExeObjStep = struct {
 
                 %%cc_args.append("-rdynamic");
 
-                const target_os = switch (self.target) {
-                    Target.Native => builtin.os,
-                    Target.Cross => |t| t.os,
-                };
                 switch (target_os) {
                     builtin.Os.darwin, builtin.Os.ios, builtin.Os.macosx => {
                         if (self.need_flat_namespace_hack) {
