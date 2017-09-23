@@ -1306,8 +1306,9 @@ pub const LibExeObjStep = struct {
                         %%cc_args.append("-current_version");
                         %%cc_args.append(builder.fmt("{}.{}.{}", self.version.major, self.version.minor, self.version.patch));
 
+                        const install_name = builder.pathFromRoot(%%os.path.join(builder.allocator, builder.cache_root, self.major_only_filename));
                         %%cc_args.append("-install_name");
-                        %%cc_args.append(builder.pathFromRoot(self.major_only_filename));
+                        %%cc_args.append(install_name);
                     } else {
                         %%cc_args.append("-fPIC");
                         %%cc_args.append("-shared");
