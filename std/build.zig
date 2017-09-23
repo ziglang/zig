@@ -663,13 +663,23 @@ const Target = enum {
     }
 
     pub fn exeFileExt(self: &const Target) -> []const u8 {
-        const target_os = switch (*self) {
+        return switch (self.getOs()) {
+            builtin.Os.windows => ".exe",
+            else => "",
+        };
+    }
+
+    pub fn getOs(self: &const Target) -> builtin.Os {
+        return switch (*self) {
             Target.Native => builtin.os,
             Target.Cross => |t| t.os,
         };
-        return switch (target_os) {
-            builtin.Os.windows => ".exe",
-            else => "",
+    }
+
+    pub fn isDarwin(self: &const Target) -> bool {
+        return switch (self.getOs()) {
+            builtin.Os.darwin, builtin.Os.ios, builtin.Os.macosx => true,
+            else => false,
         };
     }
 };
@@ -697,6 +707,7 @@ pub const LibExeObjStep = struct {
     cflags: ArrayList([]const u8),
     include_dirs: ArrayList([]const u8),
     disable_libc: bool,
+    frameworks: BufSet,
 
     // zig only stuff
     root_src: ?[]const u8,
@@ -787,6 +798,7 @@ pub const LibExeObjStep = struct {
             .target = Target.Native,
             .linker_script = null,
             .link_libs = BufSet.init(builder.allocator),
+            .frameworks = BufSet.init(builder.allocator),
             .step = Step.init(name, builder.allocator, make),
             .output_path = null,
             .output_h_path = null,
@@ -824,6 +836,7 @@ pub const LibExeObjStep = struct {
             .object_files = ArrayList([]const u8).init(builder.allocator),
             .step = Step.init(name, builder.allocator, make),
             .link_libs = BufSet.init(builder.allocator),
+            .frameworks = BufSet.init(builder.allocator),
             .full_path_libs = ArrayList([]const u8).init(builder.allocator),
             .include_dirs = ArrayList([]const u8).init(builder.allocator),
             .output_path = null,
@@ -861,11 +874,7 @@ pub const LibExeObjStep = struct {
                 if (self.static) {
                     self.out_filename = self.builder.fmt("lib{}.a", self.name);
                 } else {
-                    const target_os = switch (self.target) {
-                        Target.Native => builtin.os,
-                        Target.Cross => |t| t.os,
-                    };
-                    switch (target_os) {
+                    switch (self.target.getOs()) {
                         builtin.Os.darwin, builtin.Os.ios, builtin.Os.macosx => {
                             self.out_filename = self.builder.fmt("lib{}.{d}.{d}.{d}.dylib",
                                 self.name, self.version.major, self.version.minor, self.version.patch);
@@ -905,6 +914,11 @@ pub const LibExeObjStep = struct {
         self.linker_script = path;
     }
 
+    pub fn linkFramework(self: &LibExeObjStep, framework_name: []const u8) {
+        assert(self.target.isDarwin());
+        %%self.frameworks.put(framework_name);
+    }
+
     pub fn linkLibrary(self: &LibExeObjStep, lib: &LibExeObjStep) {
         assert(self.kind != Kind.Obj);
         assert(lib.kind == Kind.Lib);
@@ -916,6 +930,14 @@ pub const LibExeObjStep = struct {
         // TODO should be some kind of isolated directory that only has this header in it
         %%self.include_dirs.append(self.builder.cache_root);
         self.need_flat_namespace_hack = true;
+
+        // inherit the object's frameworks
+        if (self.target.isDarwin() and lib.static) {
+            var it = lib.frameworks.iterator();
+            while (it.next()) |entry| {
+                %%self.frameworks.put(entry.key);
+            }
+        }
     }
 
     pub fn linkSystemLibrary(self: &LibExeObjStep, name: []const u8) {
@@ -1163,6 +1185,14 @@ pub const LibExeObjStep = struct {
             %%zig_args.append(builder.pathFromRoot(full_path_lib));
         }
 
+        if (self.target.isDarwin()) {
+            var it = self.frameworks.iterator();
+            while (it.next()) |entry| {
+                %%zig_args.append("-framework");
+                %%zig_args.append(entry.key);
+            }
+        }
+
         %return builder.spawnChild(builder.zig_exe, zig_args.toSliceConst());
 
         if (self.kind == Kind.Lib and !self.static) {
@@ -1225,14 +1255,7 @@ pub const LibExeObjStep = struct {
         var cc_args = ArrayList([]const u8).init(builder.allocator);
         defer cc_args.deinit();
 
-        const target_os = switch (self.target) {
-            Target.Native => builtin.os,
-            Target.Cross => |t| t.os,
-        };
-        const is_darwin = switch (target_os) {
-            builtin.Os.darwin, builtin.Os.ios, builtin.Os.macosx => true,
-            else => false,
-        };
+        const is_darwin = self.target.isDarwin();
 
         switch (self.kind) {
             Kind.Obj => {
@@ -1339,6 +1362,14 @@ pub const LibExeObjStep = struct {
                         %%cc_args.append(builder.pathFromRoot(full_path_lib));
                     }
 
+                    if (is_darwin and !self.static) {
+                        var it = self.frameworks.iterator();
+                        while (it.next()) |entry| {
+                            %%cc_args.append("-framework");
+                            %%cc_args.append(entry.key);
+                        }
+                    }
+
                     %return builder.spawnChild(cc, cc_args.toSliceConst());
 
                     %return doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename,
@@ -1391,18 +1422,23 @@ pub const LibExeObjStep = struct {
 
                 %%cc_args.append("-rdynamic");
 
-                switch (target_os) {
-                    builtin.Os.darwin, builtin.Os.ios, builtin.Os.macosx => {
-                        if (self.need_flat_namespace_hack) {
-                            %%cc_args.append("-Wl,-flat_namespace");
-                        }
-                        %%cc_args.append("-Wl,-search_paths_first");
-                    },
-                    else => {}
+                if (is_darwin) {
+                    if (self.need_flat_namespace_hack) {
+                        %%cc_args.append("-Wl,-flat_namespace");
+                    }
+                    %%cc_args.append("-Wl,-search_paths_first");
                 }
 
                 for (self.full_path_libs.toSliceConst()) |full_path_lib| {
                     %%cc_args.append(builder.pathFromRoot(full_path_lib));
+                }
+
+                if (is_darwin) {
+                    var it = self.frameworks.iterator();
+                    while (it.next()) |entry| {
+                        %%cc_args.append("-framework");
+                        %%cc_args.append(entry.key);
+                    }
                 }
 
                 %return builder.spawnChild(cc, cc_args.toSliceConst());
