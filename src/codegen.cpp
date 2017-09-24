@@ -362,6 +362,14 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     bool external_linkage = (fn_table_entry->linkage != GlobalLinkageIdInternal);
     Buf *symbol_name = get_mangled_name(g, &fn_table_entry->symbol_name, external_linkage);
 
+    if (fn_table_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionStdcall && external_linkage &&
+        g->zig_target.arch.arch == ZigLLVM_x86)
+    {
+        // prevent name mangling
+        symbol_name = buf_sprintf("\x01_%s", buf_ptr(symbol_name));
+    }
+
+
     TypeTableEntry *fn_type = fn_table_entry->type_entry;
     LLVMTypeRef fn_llvm_type = fn_type->data.fn.raw_type_ref;
     if (external_linkage && fn_table_entry->body_node == nullptr) {
@@ -375,17 +383,6 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
         fn_table_entry->llvm_value = LLVMAddFunction(g->module, buf_ptr(symbol_name), fn_llvm_type);
     }
     fn_table_entry->llvm_name = LLVMGetValueName(fn_table_entry->llvm_value);
-
-    // TODO this is for testing windows DLL stuff
-    //if (buf_eql_str(&fn_table_entry->symbol_name, "ExitProcess") ||
-    //    buf_eql_str(&fn_table_entry->symbol_name, "GetConsoleMode") ||
-    //    buf_eql_str(&fn_table_entry->symbol_name, "GetStdHandle") ||
-    //    buf_eql_str(&fn_table_entry->symbol_name, "GetFileInformationByHandleEx") ||
-    //    buf_eql_str(&fn_table_entry->symbol_name, "GetLastError") ||
-    //    buf_eql_str(&fn_table_entry->symbol_name, "WriteFile"))
-    //{
-    //    LLVMSetDLLStorageClass(fn_table_entry->llvm_value, LLVMDLLImportStorageClass);
-    //}
 
     switch (fn_table_entry->fn_inline) {
         case FnInlineAlways:
