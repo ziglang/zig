@@ -398,7 +398,11 @@ static void construct_linker_job_coff(LinkJob *lj) {
         //lj->args.append(get_libc_static_file(g, "crtbegin.o"));
     } else {
         lj->args.append("-NODEFAULTLIB");
-        lj->args.append("-ENTRY:_start");
+        if (g->have_winmain) {
+            lj->args.append("-ENTRY:WinMain");
+        } else {
+            lj->args.append("-ENTRY:_start");
+        }
     }
 
     for (size_t i = 0; i < g->lib_dirs.length; i += 1) {
@@ -424,6 +428,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
     }
 
     Buf *def_contents = buf_alloc();
+    ZigList<const char *> gen_lib_args = {0};
     for (size_t lib_i = 0; lib_i < g->link_libs_list.length; lib_i += 1) {
         LinkLib *link_lib = g->link_libs_list.at(lib_i);
         if (buf_eql_str(link_lib->name, "c")) {
@@ -433,38 +438,34 @@ static void construct_linker_job_coff(LinkJob *lj) {
             Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
             lj->args.append(buf_ptr(arg));
         } else {
+            buf_resize(def_contents, 0);
             buf_appendf(def_contents, "LIBRARY %s\nEXPORTS\n", buf_ptr(link_lib->name));
             for (size_t exp_i = 0; exp_i < link_lib->symbols.length; exp_i += 1) {
                 Buf *symbol_name = link_lib->symbols.at(exp_i);
                 buf_appendf(def_contents, "%s\n", buf_ptr(symbol_name));
             }
             buf_appendf(def_contents, "\n");
+
+            Buf *def_path = buf_alloc();
+            os_path_join(g->cache_dir, buf_sprintf("%s.def", buf_ptr(link_lib->name)), def_path);
+            os_write_file(def_path, def_contents);
+
+            Buf *generated_lib_path = buf_alloc();
+            os_path_join(g->cache_dir, buf_sprintf("%s.lib", buf_ptr(link_lib->name)), generated_lib_path);
+
+            gen_lib_args.resize(0);
+            gen_lib_args.append("link");
+
+            coff_append_machine_arg(g, &gen_lib_args);
+            gen_lib_args.append(buf_ptr(buf_sprintf("-DEF:%s", buf_ptr(def_path))));
+            gen_lib_args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(generated_lib_path))));
+            Buf diag = BUF_INIT;
+            if (!ZigLLDLink(g->zig_target.oformat, gen_lib_args.items, gen_lib_args.length, &diag)) {
+                fprintf(stderr, "%s\n", buf_ptr(&diag));
+                exit(1);
+            }
+            lj->args.append(buf_ptr(generated_lib_path));
         }
-    }
-    if (buf_len(def_contents) != 0) {
-        Buf *def_path = buf_alloc();
-        os_path_join(g->cache_dir, buf_create_from_str("all.def"), def_path);
-        os_write_file(def_path, def_contents);
-
-        Buf *all_lib_path = buf_alloc();
-        os_path_join(g->cache_dir, buf_create_from_str("all.lib"), all_lib_path);
-
-        //Buf *dll_path = buf_alloc();
-        //os_path_join(g->cache_dir, buf_create_from_str("all.dll"), dll_path);
-
-        ZigList<const char *> args = {0};
-        args.append("link");
-
-        coff_append_machine_arg(g, &args);
-        args.append(buf_ptr(buf_sprintf("-DEF:%s", buf_ptr(def_path))));
-        args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(all_lib_path))));
-        Buf diag = BUF_INIT;
-        if (!ZigLLDLink(g->zig_target.oformat, args.items, args.length, &diag)) {
-            fprintf(stderr, "%s\n", buf_ptr(&diag));
-            exit(1);
-        }
-
-        lj->args.append(buf_ptr(all_lib_path));
     }
 
     if (g->libc_link_lib != nullptr) {

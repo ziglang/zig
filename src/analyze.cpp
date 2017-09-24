@@ -3200,6 +3200,12 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *a
                 g->have_c_main = true;
                 g->windows_subsystem_windows = false;
                 g->windows_subsystem_console = true;
+            } else if (proto_node->data.fn_proto.visib_mod == VisibModExport && buf_eql_str(proto_name, "WinMain") &&
+                    g->zig_target.os == ZigLLVM_Win32)
+            {
+                g->have_winmain = true;
+                g->windows_subsystem_windows = true;
+                g->windows_subsystem_console = false;
             }
 
         }

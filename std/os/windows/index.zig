@@ -39,6 +39,9 @@ pub extern "kernel32" stdcallcc fn WriteFile(in_hFile: HANDLE, in_lpBuffer: &con
 
 pub extern "kernel32" stdcallcc fn Sleep(dwMilliseconds: DWORD);
 
+
+pub extern "user32" stdcallcc fn MessageBoxA(hWnd: ?HANDLE, lpText: ?LPCTSTR, lpCaption: ?LPCTSTR, uType: UINT) -> c_int;
+
 pub const PROV_RSA_FULL = 1;
 
 pub const UNICODE = false;
@@ -46,13 +49,14 @@ pub const LPTSTR = if (unicode) LPWSTR else LPSTR;
 pub const LPWSTR = &WCHAR;
 pub const LPSTR = &CHAR;
 pub const CHAR = u8;
-
+pub const PWSTR = &WCHAR;
 
 pub const BOOL = bool;
 pub const BYTE = u8;
 pub const DWORD = u32;
 pub const FLOAT = f32;
 pub const HANDLE = &c_void;
+pub const HINSTANCE = &@OpaqueType();
 pub const HCRYPTPROV = ULONG_PTR;
 pub const LPCTSTR = &const TCHAR;
 pub const LPDWORD = &DWORD;
@@ -60,6 +64,7 @@ pub const LPVOID = &c_void;
 pub const PVOID = &c_void;
 pub const TCHAR = if (UNICODE) WCHAR else u8;
 pub const UINT = c_uint;
+pub const INT = c_int;
 pub const ULONG_PTR = usize;
 pub const WCHAR = u16;
 pub const LPCVOID = &const c_void;
