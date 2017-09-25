@@ -6,8 +6,8 @@ choose to add more files to the compilation, for example bootstrap.zig which
 contains the code that calls main.
 
 Our goal now is to treat everything that is marked with the `export` keyword
-as a root node, and then then parse and semantically analyze as little as
-possible in order to fulfill these exports.
+as a root node, and then parse and semantically analyze as little as possible
+in order to fulfill these exports.
 
 So, some parts of the code very well may have uncaught semantic errors, but as
 long as the code is not referenced in any way, the compiler will not complain

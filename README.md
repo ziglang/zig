@@ -106,13 +106,20 @@ libc. Create demo games using Zig.
 These compile tools must be available on your system and are used to build
 the Zig compiler itself:
 
+##### POSIX
+
  * gcc >= 5.0.0 or clang >= 3.6.0
  * cmake >= 2.8.5
+
+##### Windows
+
+ * Microsoft Visual Studio 2015
 
 #### Library Dependencies
 
 These libraries must be installed on your system, with the development files
-available. The Zig compiler links against them.
+available. The Zig compiler links against them. You have to use the same
+compiler for these libraries as you do to compile Zig.
 
  * LLVM, Clang, and LLD libraries == 5.x
 
