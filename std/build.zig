@@ -180,11 +180,11 @@ pub const Builder = struct {
         return LibExeObjStep.createCObject(self, name, src);
     }
 
-    /// ::args are copied.
+    /// ::argv is copied.
     pub fn addCommand(self: &Builder, cwd: ?[]const u8, env_map: &const BufMap,
-        path: []const u8, args: []const []const u8) -> &CommandStep
+        argv: []const []const u8) -> &CommandStep
     {
-        return CommandStep.create(self, cwd, env_map, path, args);
+        return CommandStep.create(self, cwd, env_map, argv);
     }
 
     pub fn addWriteFile(self: &Builder, file_path: []const u8, data: []const u8) -> &WriteFileStep {
@@ -528,42 +528,41 @@ pub const Builder = struct {
         return self.invalid_user_input;
     }
 
-    fn spawnChild(self: &Builder, exe_path: []const u8, args: []const []const u8) -> %void {
-        return self.spawnChildEnvMap(null, &self.env_map, exe_path, args);
+    fn spawnChild(self: &Builder, argv: []const []const u8) -> %void {
+        return self.spawnChildEnvMap(null, &self.env_map, argv);
     }
 
     fn spawnChildEnvMap(self: &Builder, cwd: ?[]const u8, env_map: &const BufMap,
-        exe_path: []const u8, args: []const []const u8) -> %void
+        argv: []const []const u8) -> %void
     {
         if (self.verbose) {
             if (cwd) |yes_cwd| %%io.stderr.print("cd {}; ", yes_cwd);
-            %%io.stderr.print("{}", exe_path);
-            for (args) |arg| {
-                %%io.stderr.print(" {}", arg);
+            for (argv) |arg| {
+                %%io.stderr.print("{} ", arg);
             }
             %%io.stderr.printf("\n");
         }
 
-        var child = os.ChildProcess.spawn(exe_path, args, cwd, env_map,
-            StdIo.Inherit, StdIo.Inherit, StdIo.Inherit, null, self.allocator) %% |err|
-        {
-            %%io.stderr.printf("Unable to spawn {}: {}\n", exe_path, @errorName(err));
+        const child = %%os.ChildProcess.init(argv, self.allocator);
+        defer child.deinit();
+
+        child.cwd = cwd;
+        child.env_map = env_map;
+
+        const term = child.spawnAndWait() %% |err| {
+            %%io.stderr.printf("Unable to spawn {}: {}\n", argv[0], @errorName(err));
             return err;
         };
 
-        const term = child.wait() %% |err| {
-            %%io.stderr.printf("Unable to spawn {}: {}\n", exe_path, @errorName(err));
-            return err;
-        };
         switch (term) {
             Term.Exited => |code| {
                 if (code != 0) {
-                    %%io.stderr.printf("Process {} exited with error code {}\n", exe_path, code);
+                    %%io.stderr.printf("Process {} exited with error code {}\n", argv[0], code);
                     return error.UncleanExit;
                 }
             },
             else => {
-                %%io.stderr.printf("Process {} terminated unexpectedly\n", exe_path);
+                %%io.stderr.printf("Process {} terminated unexpectedly\n", argv[0]);
                 return error.UncleanExit;
             },
         };
@@ -1063,6 +1062,8 @@ pub const LibExeObjStep = struct {
         var zig_args = ArrayList([]const u8).init(builder.allocator);
         defer zig_args.deinit();
 
+        %%zig_args.append(builder.zig_exe);
+
         const cmd = switch (self.kind) {
             Kind.Lib => "build-lib",
             Kind.Exe => "build-exe",
@@ -1193,7 +1194,7 @@ pub const LibExeObjStep = struct {
             }
         }
 
-        %return builder.spawnChild(builder.zig_exe, zig_args.toSliceConst());
+        %return builder.spawnChild(zig_args.toSliceConst());
 
         if (self.kind == Kind.Lib and !self.static) {
             %return doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename,
@@ -1255,6 +1256,8 @@ pub const LibExeObjStep = struct {
         var cc_args = ArrayList([]const u8).init(builder.allocator);
         defer cc_args.deinit();
 
+        %%cc_args.append(cc);
+
         const is_darwin = self.target.isDarwin();
 
         switch (self.kind) {
@@ -1268,11 +1271,12 @@ pub const LibExeObjStep = struct {
 
                 self.appendCompileFlags(&cc_args);
 
-                %return builder.spawnChild(cc, cc_args.toSliceConst());
+                %return builder.spawnChild(cc_args.toSliceConst());
             },
             Kind.Lib => {
                 for (self.source_files.toSliceConst()) |source_file| {
                     %%cc_args.resize(0);
+                    %%cc_args.append(cc);
 
                     if (!self.static) {
                         %%cc_args.append("-fPIC");
@@ -1291,7 +1295,7 @@ pub const LibExeObjStep = struct {
 
                     self.appendCompileFlags(&cc_args);
 
-                    %return builder.spawnChild(cc, cc_args.toSliceConst());
+                    %return builder.spawnChild(cc_args.toSliceConst());
 
                     %%self.object_files.append(cache_o_file);
                 }
@@ -1299,6 +1303,8 @@ pub const LibExeObjStep = struct {
                 if (self.static) {
                     // ar
                     %%cc_args.resize(0);
+                    %%cc_args.append("ar");
+
                     %%cc_args.append("qc");
 
                     const output_path = builder.pathFromRoot(self.getOutputPath());
@@ -1308,15 +1314,17 @@ pub const LibExeObjStep = struct {
                         %%cc_args.append(builder.pathFromRoot(object_file));
                     }
 
-                    %return builder.spawnChild("ar", cc_args.toSliceConst());
+                    %return builder.spawnChild(cc_args.toSliceConst());
 
                     // ranlib
                     %%cc_args.resize(0);
+                    %%cc_args.append("ranlib");
                     %%cc_args.append(output_path);
 
-                    %return builder.spawnChild("ranlib", cc_args.toSliceConst());
+                    %return builder.spawnChild(cc_args.toSliceConst());
                 } else {
                     %%cc_args.resize(0);
+                    %%cc_args.append(cc);
 
                     if (is_darwin) {
                         %%cc_args.append("-dynamiclib");
@@ -1370,7 +1378,7 @@ pub const LibExeObjStep = struct {
                         }
                     }
 
-                    %return builder.spawnChild(cc, cc_args.toSliceConst());
+                    %return builder.spawnChild(cc_args.toSliceConst());
 
                     %return doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename,
                         self.name_only_filename);
@@ -1379,6 +1387,7 @@ pub const LibExeObjStep = struct {
             Kind.Exe => {
                 for (self.source_files.toSliceConst()) |source_file| {
                     %%cc_args.resize(0);
+                    %%cc_args.append(cc);
 
                     const abs_source_file = builder.pathFromRoot(source_file);
                     %%cc_args.append("-c");
@@ -1400,12 +1409,13 @@ pub const LibExeObjStep = struct {
                         %%cc_args.append(builder.pathFromRoot(dir));
                     }
 
-                    %return builder.spawnChild(cc, cc_args.toSliceConst());
+                    %return builder.spawnChild(cc_args.toSliceConst());
 
                     %%self.object_files.append(cache_o_file);
                 }
 
                 %%cc_args.resize(0);
+                %%cc_args.append(cc);
 
                 for (self.object_files.toSliceConst()) |object_file| {
                     %%cc_args.append(builder.pathFromRoot(object_file));
@@ -1441,7 +1451,7 @@ pub const LibExeObjStep = struct {
                     }
                 }
 
-                %return builder.spawnChild(cc, cc_args.toSliceConst());
+                %return builder.spawnChild(cc_args.toSliceConst());
             },
         }
     }
@@ -1518,6 +1528,8 @@ pub const TestStep = struct {
         var zig_args = ArrayList([]const u8).init(builder.allocator);
         defer zig_args.deinit();
 
+        %%zig_args.append(builder.zig_exe);
+
         %%zig_args.append("test");
         %%zig_args.append(builder.pathFromRoot(self.root_src));
 
@@ -1590,32 +1602,31 @@ pub const TestStep = struct {
             %%zig_args.append(lib_path);
         }
 
-        %return builder.spawnChild(builder.zig_exe, zig_args.toSliceConst());
+        %return builder.spawnChild(zig_args.toSliceConst());
     }
 };
 
 pub const CommandStep = struct {
     step: Step,
     builder: &Builder,
-    exe_path: []const u8,
-    args: [][]const u8,
+    argv: [][]const u8,
     cwd: ?[]const u8,
     env_map: &const BufMap,
 
-    /// ::args are copied.
+    /// ::argv is copied.
     pub fn create(builder: &Builder, cwd: ?[]const u8, env_map: &const BufMap,
-        exe_path: []const u8, args: []const []const u8) -> &CommandStep
+        argv: []const []const u8) -> &CommandStep
     {
         const self = %%builder.allocator.create(CommandStep);
         *self = CommandStep {
             .builder = builder,
-            .step = Step.init(exe_path, builder.allocator, make),
-            .exe_path = exe_path,
-            .args = %%builder.allocator.alloc([]u8, args.len),
+            .step = Step.init(argv[0], builder.allocator, make),
+            .argv = %%builder.allocator.alloc([]u8, argv.len),
             .cwd = cwd,
             .env_map = env_map,
         };
-        mem.copy([]const u8, self.args, args);
+        mem.copy([]const u8, self.argv, argv);
+        self.step.name = self.argv[0];
         return self;
     }
 
@@ -1623,7 +1634,7 @@ pub const CommandStep = struct {
         const self = @fieldParentPtr(CommandStep, "step", step);
 
         const cwd = if (self.cwd) |cwd| self.builder.pathFromRoot(cwd) else null;
-        return self.builder.spawnChildEnvMap(cwd, self.env_map, self.exe_path, self.args);
+        return self.builder.spawnChildEnvMap(cwd, self.env_map, self.argv);
     }
 };
 

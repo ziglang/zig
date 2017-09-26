@@ -241,11 +241,15 @@ pub const CompareOutputContext = struct {
 
             %%io.stderr.printf("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
 
-            var child = os.ChildProcess.spawn(full_exe_path, [][]u8{}, null, &b.env_map,
-                StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, null, b.allocator) %% |err|
-            {
-                debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
-            };
+            const child = %%os.ChildProcess.init([][]u8{full_exe_path}, b.allocator);
+            defer child.deinit();
+
+            child.stdin_behavior = StdIo.Ignore;
+            child.stdout_behavior = StdIo.Pipe;
+            child.stderr_behavior = StdIo.Pipe;
+            child.env_map = &b.env_map;
+
+            child.spawn() %% |err| debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
 
             var stdout = Buffer.initNull(b.allocator);
             var stderr = Buffer.initNull(b.allocator);
@@ -316,13 +320,15 @@ pub const CompareOutputContext = struct {
 
             %%io.stderr.printf("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
 
-            var child = os.ChildProcess.spawn(full_exe_path, [][]u8{}, null, &b.env_map,
-                StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, null, b.allocator) %% |err|
-            {
-                debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
-            };
+            const child = %%os.ChildProcess.init([][]u8{full_exe_path}, b.allocator);
+            defer child.deinit();
 
-            const term = child.wait() %% |err| {
+            child.env_map = &b.env_map;
+            child.stdin_behavior = StdIo.Ignore;
+            child.stdout_behavior = StdIo.Ignore;
+            child.stderr_behavior = StdIo.Ignore;
+
+            const term = child.spawnAndWait() %% |err| {
                 debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
             };
 
@@ -539,6 +545,8 @@ pub const CompileErrorContext = struct {
             const obj_path = %%os.path.join(b.allocator, b.cache_root, "test.o");
 
             var zig_args = ArrayList([]const u8).init(b.allocator);
+            %%zig_args.append(b.zig_exe);
+
             %%zig_args.append(if (self.case.is_exe) "build-exe" else "build-obj");
             %%zig_args.append(b.pathFromRoot(root_src));
 
@@ -560,11 +568,15 @@ pub const CompileErrorContext = struct {
                 printInvocation(b.zig_exe, zig_args.toSliceConst());
             }
 
-            var child = os.ChildProcess.spawn(b.zig_exe, zig_args.toSliceConst(), null, &b.env_map,
-                StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, null, b.allocator) %% |err|
-            {
-                debug.panic("Unable to spawn {}: {}\n", b.zig_exe, @errorName(err));
-            };
+            const child = %%os.ChildProcess.init(zig_args.toSliceConst(), b.allocator);
+            defer child.deinit();
+
+            child.env_map = &b.env_map;
+            child.stdin_behavior = StdIo.Ignore;
+            child.stdout_behavior = StdIo.Pipe;
+            child.stderr_behavior = StdIo.Pipe;
+
+            child.spawn() %% |err| debug.panic("Unable to spawn {}: {}\n", zig_args.items[0], @errorName(err));
 
             var stdout_buf = Buffer.initNull(b.allocator);
             var stderr_buf = Buffer.initNull(b.allocator);
@@ -573,7 +585,7 @@ pub const CompileErrorContext = struct {
             %%(??child.stderr).readAll(&stderr_buf);
 
             const term = child.wait() %% |err| {
-                debug.panic("Unable to spawn {}: {}\n", b.zig_exe, @errorName(err));
+                debug.panic("Unable to spawn {}: {}\n", zig_args.items[0], @errorName(err));
             };
             switch (term) {
                 Term.Exited => |code| {
@@ -712,6 +724,7 @@ pub const BuildExamplesContext = struct {
         }
 
         var zig_args = ArrayList([]const u8).init(b.allocator);
+        %%zig_args.append(b.zig_exe);
         %%zig_args.append("build");
 
         %%zig_args.append("--build-file");
@@ -723,7 +736,7 @@ pub const BuildExamplesContext = struct {
             %%zig_args.append("--verbose");
         }
 
-        const run_cmd = b.addCommand(null, b.env_map, b.zig_exe, zig_args.toSliceConst());
+        const run_cmd = b.addCommand(null, b.env_map, zig_args.toSliceConst());
 
         const log_step = b.addLog("PASS {}\n", annotated_case_name);
         log_step.step.dependOn(&run_cmd.step);
@@ -813,6 +826,8 @@ pub const ParseCContext = struct {
             const root_src = %%os.path.join(b.allocator, b.cache_root, self.case.sources.items[0].filename);
 
             var zig_args = ArrayList([]const u8).init(b.allocator);
+            %%zig_args.append(b.zig_exe);
+
             %%zig_args.append("parsec");
             %%zig_args.append(b.pathFromRoot(root_src));
 
@@ -822,11 +837,15 @@ pub const ParseCContext = struct {
                 printInvocation(b.zig_exe, zig_args.toSliceConst());
             }
 
-            var child = os.ChildProcess.spawn(b.zig_exe, zig_args.toSliceConst(), null, &b.env_map,
-                StdIo.Ignore, StdIo.Pipe, StdIo.Pipe, null, b.allocator) %% |err|
-            {
-                debug.panic("Unable to spawn {}: {}\n", b.zig_exe, @errorName(err));
-            };
+            const child = %%os.ChildProcess.init(zig_args.toSliceConst(), b.allocator);
+            defer child.deinit();
+
+            child.env_map = &b.env_map;
+            child.stdin_behavior = StdIo.Ignore;
+            child.stdout_behavior = StdIo.Pipe;
+            child.stderr_behavior = StdIo.Pipe;
+
+            child.spawn() %% |err| debug.panic("Unable to spawn {}: {}\n", zig_args.toSliceConst()[0], @errorName(err));
 
             var stdout_buf = Buffer.initNull(b.allocator);
             var stderr_buf = Buffer.initNull(b.allocator);
@@ -835,7 +854,7 @@ pub const ParseCContext = struct {
             %%(??child.stderr).readAll(&stderr_buf);
 
             const term = child.wait() %% |err| {
-                debug.panic("Unable to spawn {}: {}\n", b.zig_exe, @errorName(err));
+                debug.panic("Unable to spawn {}: {}\n", zig_args.toSliceConst()[0], @errorName(err));
             };
             switch (term) {
                 Term.Exited => |code| {

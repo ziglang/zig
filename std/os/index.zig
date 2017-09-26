@@ -20,6 +20,8 @@ pub const line_sep = switch (builtin.os) {
 
 pub const page_size = 4 * 1024;
 
+pub const getUserId = @import("get_user_id.zig").getUserId;
+
 const debug = @import("../debug.zig");
 const assert = debug.assert;
 
@@ -321,12 +323,12 @@ pub fn posixDup2(old_fd: i32, new_fd: i32) -> %void {
 /// This function must allocate memory to add a null terminating bytes on path and each arg.
 /// It must also convert to KEY=VALUE\0 format for environment variables, and include null
 /// pointers after the args and after the environment variables.
-/// Also make the first arg equal to exe_path.
+/// `argv[0]` is the executable path.
 /// This function also uses the PATH environment variable to get the full path to the executable.
-pub fn posixExecve(exe_path: []const u8, argv: []const []const u8, env_map: &const BufMap,
+pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap,
     allocator: &Allocator) -> %void
 {
-    const argv_buf = %return allocator.alloc(?&u8, argv.len + 2);
+    const argv_buf = %return allocator.alloc(?&u8, argv.len + 1);
     mem.set(?&u8, argv_buf, null);
     defer {
         for (argv_buf) |arg| {
@@ -335,22 +337,14 @@ pub fn posixExecve(exe_path: []const u8, argv: []const []const u8, env_map: &con
         }
         allocator.free(argv_buf);
     }
-    {
-        // Add exe_path to the first argument.
-        const arg_buf = %return allocator.alloc(u8, exe_path.len + 1);
-        @memcpy(&arg_buf[0], exe_path.ptr, exe_path.len);
-        arg_buf[exe_path.len] = 0;
-
-        argv_buf[0] = arg_buf.ptr;
-    }
     for (argv) |arg, i| {
         const arg_buf = %return allocator.alloc(u8, arg.len + 1);
         @memcpy(&arg_buf[0], arg.ptr, arg.len);
         arg_buf[arg.len] = 0;
 
-        argv_buf[i + 1] = arg_buf.ptr;
+        argv_buf[i] = arg_buf.ptr;
     }
-    argv_buf[argv.len + 1] = null;
+    argv_buf[argv.len] = null;
 
     const envp_count = env_map.count();
     const envp_buf = %return allocator.alloc(?&u8, envp_count + 1);
@@ -378,14 +372,9 @@ pub fn posixExecve(exe_path: []const u8, argv: []const []const u8, env_map: &con
     }
     envp_buf[envp_count] = null;
 
-
+    const exe_path = argv[0];
     if (mem.indexOfScalar(u8, exe_path, '/') != null) {
-        // +1 for the null terminating byte
-        const path_buf = %return allocator.alloc(u8, exe_path.len + 1);
-        defer allocator.free(path_buf);
-        @memcpy(&path_buf[0], &exe_path[0], exe_path.len);
-        path_buf[exe_path.len] = 0;
-        return posixExecveErrnoToErr(posix.getErrno(posix.execve(path_buf.ptr, argv_buf.ptr, envp_buf.ptr)));
+        return posixExecveErrnoToErr(posix.getErrno(posix.execve(??argv_buf[0], argv_buf.ptr, envp_buf.ptr)));
     }
 
     const PATH = getEnv("PATH") ?? "/usr/local/bin:/bin/:/usr/bin";
@@ -434,6 +423,7 @@ fn posixExecveErrnoToErr(err: usize) -> error {
 
 pub var environ_raw: []&u8 = undefined;
 
+/// Caller must free result when done.
 pub fn getEnvMap(allocator: &Allocator) -> %BufMap {
     var result = BufMap.init(allocator);
     %defer result.deinit();
@@ -840,7 +830,7 @@ pub const Dir = struct {
     start_over:
         if (self.index >= self.end_index) {
             if (self.buf.len == 0) {
-                self.buf = %return self.allocator.alloc(u8, 2); //page_size);
+                self.buf = %return self.allocator.alloc(u8, page_size);
             }
 
             while (true) {
@@ -991,4 +981,21 @@ pub fn posixSleep(seconds: u63, nanoseconds: u63) {
 
 test "os.sleep" {
     sleep(0, 1);
+}
+
+
+error ResourceLimitReached;
+error InvalidUserId;
+error PermissionDenied;
+error Unexpected;
+
+pub fn posix_setuid(uid: u32) -> %void {
+    const err = posix.getErrno(posix.setuid(uid));
+    if (err == 0) return;
+    return switch (err) {
+        posix.EAGAIN => error.ResourceLimitReached,
+        posix.EINVAL => error.InvalidUserId,
+        posix.EPERM => error.PermissionDenied,
+        else => error.Unexpected,
+    };
 }

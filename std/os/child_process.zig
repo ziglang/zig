@@ -16,20 +16,35 @@ error ProcessNotFound;
 var children_nodes = LinkedList(&ChildProcess).init();
 
 pub const ChildProcess = struct {
-    pid: i32,
+    pub pid: i32,
+    pub allocator: &mem.Allocator,
+
+    pub stdin: ?&io.OutStream,
+    pub stdout: ?&io.InStream,
+    pub stderr: ?&io.InStream,
+
+    pub term: ?%Term,
+
+    pub argv: []const []const u8,
+
+    /// Possibly called from a signal handler. Must set this before calling `spawn`.
+    pub onTerm: ?fn(&ChildProcess),
+
+    /// Leave as null to use the current env map using the supplied allocator.
+    pub env_map: ?&const BufMap,
+
+    pub stdin_behavior: StdIo,
+    pub stdout_behavior: StdIo,
+    pub stderr_behavior: StdIo,
+
+    /// Set to change the user id when spawning the child process.
+    pub uid: ?u32,
+
+    /// Set to change the current working directory when spawning the child process.
+    pub cwd: ?[]const u8,
 
     err_pipe: [2]i32,
     llnode: LinkedList(&ChildProcess).Node,
-    allocator: &mem.Allocator,
-
-    stdin: ?&io.OutStream,
-    stdout: ?&io.InStream,
-    stderr: ?&io.InStream,
-
-    term: ?%Term,
-
-    /// Possibly called from a signal handler.
-    onTerm: ?fn(&ChildProcess),
 
     pub const Term = enum {
         Exited: i32,
@@ -45,18 +60,50 @@ pub const ChildProcess = struct {
         Close,
     };
 
+    /// First argument in argv is the executable.
+    /// On success must call deinit.
+    pub fn init(argv: []const []const u8, allocator: &Allocator) -> %&ChildProcess {
+        const child = %return allocator.create(ChildProcess);
+        %defer allocator.destroy(child);
+
+        *child = ChildProcess {
+            .allocator = allocator,
+            .argv = argv,
+            .pid = undefined,
+            .err_pipe = undefined,
+            .llnode = undefined,
+            .term = null,
+            .onTerm = null,
+            .env_map = null,
+            .cwd = null,
+            .uid = null,
+            .stdin = null,
+            .stdout = null,
+            .stderr = null,
+            .stdin_behavior = StdIo.Inherit,
+            .stdout_behavior = StdIo.Inherit,
+            .stderr_behavior = StdIo.Inherit,
+        };
+
+        return child;
+    }
+
+    pub fn setUserName(self: &ChildProcess, name: []const u8) -> %void {
+        self.uid = %return os.getUserId(name);
+    }
+
     /// onTerm can be called before `spawn` returns.
-    pub fn spawn(exe_path: []const u8, args: []const []const u8,
-        cwd: ?[]const u8, env_map: &const BufMap,
-        stdin: StdIo, stdout: StdIo, stderr: StdIo,
-        onTerm: ?fn(&ChildProcess), allocator: &Allocator) -> %&ChildProcess
-    {
-        switch (builtin.os) {
-            Os.linux, Os.macosx, Os.ios, Os.darwin => {
-                return spawnPosix(exe_path, args, cwd, env_map, stdin, stdout, stderr, onTerm, allocator);
-            },
+    /// On success must call `kill` or `wait`.
+    pub fn spawn(self: &ChildProcess) -> %void {
+        return switch (builtin.os) {
+            Os.linux, Os.macosx, Os.ios, Os.darwin => self.spawnPosix(),
             else => @compileError("Unsupported OS"),
-        }
+        };
+    }
+
+    pub fn spawnAndWait(self: &ChildProcess) -> %Term {
+        %return self.spawn();
+        return self.wait();
     }
 
     /// Forcibly terminates child process and then cleans up all resources.
@@ -94,6 +141,10 @@ pub const ChildProcess = struct {
 
         self.waitUnwrapped();
         return ??self.term;
+    }
+
+    pub fn deinit(self: &ChildProcess) {
+        self.allocator.destroy(self);
     }
 
     fn waitUnwrapped(self: &ChildProcess) {
@@ -162,50 +213,56 @@ pub const ChildProcess = struct {
         };
     }
 
-    fn spawnPosix(exe_path: []const u8, args: []const []const u8,
-        maybe_cwd: ?[]const u8, env_map: &const BufMap,
-        stdin: StdIo, stdout: StdIo, stderr: StdIo,
-        onTerm: ?fn(&ChildProcess), allocator: &Allocator) -> %&ChildProcess
-    {
+    fn spawnPosix(self: &ChildProcess) -> %void {
         // TODO atomically set a flag saying that we already did this
         install_SIGCHLD_handler();
 
-        const stdin_pipe = if (stdin == StdIo.Pipe) %return makePipe() else undefined;
-        %defer if (stdin == StdIo.Pipe) { destroyPipe(stdin_pipe); };
+        const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) %return makePipe() else undefined;
+        %defer if (self.stdin_behavior == StdIo.Pipe) { destroyPipe(stdin_pipe); };
 
-        const stdout_pipe = if (stdout == StdIo.Pipe) %return makePipe() else undefined;
-        %defer if (stdout == StdIo.Pipe) { destroyPipe(stdout_pipe); };
+        const stdout_pipe = if (self.stdout_behavior == StdIo.Pipe) %return makePipe() else undefined;
+        %defer if (self.stdout_behavior == StdIo.Pipe) { destroyPipe(stdout_pipe); };
 
-        const stderr_pipe = if (stderr == StdIo.Pipe) %return makePipe() else undefined;
-        %defer if (stderr == StdIo.Pipe) { destroyPipe(stderr_pipe); };
+        const stderr_pipe = if (self.stderr_behavior == StdIo.Pipe) %return makePipe() else undefined;
+        %defer if (self.stderr_behavior == StdIo.Pipe) { destroyPipe(stderr_pipe); };
 
-        const any_ignore = (stdin == StdIo.Ignore or stdout == StdIo.Ignore or stderr == StdIo.Ignore);
+        const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
         const dev_null_fd = if (any_ignore) {
             %return os.posixOpen("/dev/null", posix.O_RDWR, 0, null)
         } else {
             undefined
         };
+        defer { if (any_ignore) os.posixClose(dev_null_fd); };
+
+        var env_map_owned: BufMap = undefined;
+        var we_own_env_map: bool = undefined;
+        const env_map = if (self.env_map) |env_map| {
+            we_own_env_map = false;
+            env_map
+        } else {
+            we_own_env_map = true;
+            env_map_owned = %return os.getEnvMap(self.allocator);
+            &env_map_owned
+        };
+        defer { if (we_own_env_map) env_map_owned.deinit(); }
 
         // This pipe is used to communicate errors between the time of fork
         // and execve from the child process to the parent process.
         const err_pipe = %return makePipe();
         %defer destroyPipe(err_pipe);
 
-        const child = %return allocator.create(ChildProcess);
-        %defer allocator.destroy(child);
-
-        const stdin_ptr = if (stdin == StdIo.Pipe) {
-            %return allocator.create(io.OutStream)
+        const stdin_ptr = if (self.stdin_behavior == StdIo.Pipe) {
+            %return self.allocator.create(io.OutStream)
         } else {
             null
         };
-        const stdout_ptr = if (stdout == StdIo.Pipe) {
-            %return allocator.create(io.InStream)
+        const stdout_ptr = if (self.stdout_behavior == StdIo.Pipe) {
+            %return self.allocator.create(io.InStream)
         } else {
             null
         };
-        const stderr_ptr = if (stderr == StdIo.Pipe) {
-            %return allocator.create(io.InStream)
+        const stderr_ptr = if (self.stderr_behavior == StdIo.Pipe) {
+            %return self.allocator.create(io.InStream)
         } else {
             null
         };
@@ -224,19 +281,23 @@ pub const ChildProcess = struct {
             // we are the child
             restore_SIGCHLD();
 
-            setUpChildIo(stdin, stdin_pipe[0], posix.STDIN_FILENO, dev_null_fd) %%
+            setUpChildIo(self.stdin_behavior, stdin_pipe[0], posix.STDIN_FILENO, dev_null_fd) %%
                 |err| forkChildErrReport(err_pipe[1], err);
-            setUpChildIo(stdout, stdout_pipe[1], posix.STDOUT_FILENO, dev_null_fd) %%
+            setUpChildIo(self.stdout_behavior, stdout_pipe[1], posix.STDOUT_FILENO, dev_null_fd) %%
                 |err| forkChildErrReport(err_pipe[1], err);
-            setUpChildIo(stderr, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) %%
+            setUpChildIo(self.stderr_behavior, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) %%
                 |err| forkChildErrReport(err_pipe[1], err);
 
-            if (maybe_cwd) |cwd| {
-                os.changeCurDir(allocator, cwd) %%
+            if (self.cwd) |cwd| {
+                os.changeCurDir(self.allocator, cwd) %%
                     |err| forkChildErrReport(err_pipe[1], err);
             }
 
-            os.posixExecve(exe_path, args, env_map, allocator) %%
+            if (self.uid) |uid| {
+                os.posix_setuid(uid) %% |err| forkChildErrReport(err_pipe[1], err);
+            }
+
+            os.posixExecve(self.argv, env_map, self.allocator) %%
                 |err| forkChildErrReport(err_pipe[1], err);
         }
 
@@ -266,28 +327,22 @@ pub const ChildProcess = struct {
             };
         }
 
-        *child = ChildProcess {
-            .allocator = allocator,
-            .pid = pid,
-            .err_pipe = err_pipe,
-            .llnode = LinkedList(&ChildProcess).Node.init(child),
-            .term = null,
-            .onTerm = onTerm,
-            .stdin = stdin_ptr,
-            .stdout = stdout_ptr,
-            .stderr = stderr_ptr,
-        };
+        self.pid = pid;
+        self.err_pipe = err_pipe;
+        self.llnode = LinkedList(&ChildProcess).Node.init(self);
+        self.term = null;
+        self.stdin = stdin_ptr;
+        self.stdout = stdout_ptr;
+        self.stderr = stderr_ptr;
 
-        children_nodes.prepend(&child.llnode);
+        // TODO make this atomic so it works even with threads
+        children_nodes.prepend(&self.llnode);
 
         restore_SIGCHLD();
 
-        if (stdin == StdIo.Pipe) { os.posixClose(stdin_pipe[0]); }
-        if (stdout == StdIo.Pipe) { os.posixClose(stdout_pipe[1]); }
-        if (stderr == StdIo.Pipe) { os.posixClose(stderr_pipe[1]); }
-        if (any_ignore) { os.posixClose(dev_null_fd); }
-
-        return child;
+        if (self.stdin_behavior == StdIo.Pipe) { os.posixClose(stdin_pipe[0]); }
+        if (self.stdout_behavior == StdIo.Pipe) { os.posixClose(stdout_pipe[1]); }
+        if (self.stderr_behavior == StdIo.Pipe) { os.posixClose(stderr_pipe[1]); }
     }
 
     fn setUpChildIo(stdio: StdIo, pipe_fd: i32, std_fileno: i32, dev_null_fd: i32) -> %void {

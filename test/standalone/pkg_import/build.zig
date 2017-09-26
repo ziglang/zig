@@ -9,7 +9,7 @@ pub fn build(b: &Builder) {
     exe.setBuildMode(b.standardReleaseOptions());
     exe.setBuildMode(b.standardReleaseOptions());
 
-    const run = b.addCommand(".", b.env_map, exe.getOutputPath(), [][]const u8{});
+    const run = b.addCommand(".", b.env_map, [][]const u8{exe.getOutputPath()});
     run.step.dependOn(&exe.step);
 
     const test_step = b.step("test", "Test it");
