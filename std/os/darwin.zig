@@ -229,6 +229,14 @@ pub fn realpath(noalias filename: &const u8, noalias resolved_name: &u8) -> usiz
     if (c.realpath(filename, resolved_name) == null) @bitCast(usize, -isize(*c._errno())) else 0
 }
 
+pub fn setreuid(ruid: u32, euid: u32) -> usize {
+    errnoWrap(c.setreuid(ruid, euid))
+}
+
+pub fn setregid(rgid: u32, egid: u32) -> usize {
+    errnoWrap(c.setregid(rgid, egid))
+}
+
 pub fn sigprocmask(flags: u32, noalias set: &const sigset_t, noalias oldset: ?&sigset_t) -> usize {
     errnoWrap(c.sigprocmask(@bitCast(c_int, flags), set, oldset))
 }

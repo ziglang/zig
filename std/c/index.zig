@@ -41,3 +41,5 @@ pub extern "c" fn realpath(noalias file_name: &const u8, noalias resolved_name: 
 pub extern "c" fn sigprocmask(how: c_int, noalias set: &const sigset_t, noalias oset: ?&sigset_t) -> c_int;
 pub extern "c" fn sigaction(sig: c_int, noalias act: &const Sigaction, noalias oact: ?&Sigaction) -> c_int;
 pub extern "c" fn nanosleep(rqtp: &const timespec, rmtp: ?&timespec) -> c_int;
+pub extern "c" fn setreuid(ruid: c_uint, euid: c_uint) -> c_int;
+pub extern "c" fn setregid(rgid: c_uint, egid: c_uint) -> c_int;
