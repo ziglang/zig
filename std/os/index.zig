@@ -20,7 +20,8 @@ pub const line_sep = switch (builtin.os) {
 
 pub const page_size = 4 * 1024;
 
-pub const getUserId = @import("get_user_id.zig").getUserId;
+pub const UserInfo = @import("get_user_id.zig").UserInfo;
+pub const getUserInfo = @import("get_user_id.zig").getUserInfo;
 
 const debug = @import("../debug.zig");
 const assert = debug.assert;
@@ -991,6 +992,39 @@ error Unexpected;
 
 pub fn posix_setuid(uid: u32) -> %void {
     const err = posix.getErrno(posix.setuid(uid));
+    if (err == 0) return;
+    return switch (err) {
+        posix.EAGAIN => error.ResourceLimitReached,
+        posix.EINVAL => error.InvalidUserId,
+        posix.EPERM => error.PermissionDenied,
+        else => error.Unexpected,
+    };
+}
+
+pub fn posix_setreuid(ruid: u32, euid: u32) -> %void {
+    const err = posix.getErrno(posix.setreuid(ruid, euid));
+    if (err == 0) return;
+    return switch (err) {
+        posix.EAGAIN => error.ResourceLimitReached,
+        posix.EINVAL => error.InvalidUserId,
+        posix.EPERM => error.PermissionDenied,
+        else => error.Unexpected,
+    };
+}
+
+pub fn posix_setgid(gid: u32) -> %void {
+    const err = posix.getErrno(posix.setgid(gid));
+    if (err == 0) return;
+    return switch (err) {
+        posix.EAGAIN => error.ResourceLimitReached,
+        posix.EINVAL => error.InvalidUserId,
+        posix.EPERM => error.PermissionDenied,
+        else => error.Unexpected,
+    };
+}
+
+pub fn posix_setregid(rgid: u32, egid: u32) -> %void {
+    const err = posix.getErrno(posix.setregid(rgid, egid));
     if (err == 0) return;
     return switch (err) {
         posix.EAGAIN => error.ResourceLimitReached,

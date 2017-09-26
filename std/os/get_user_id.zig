@@ -3,10 +3,15 @@ const Os = builtin.Os;
 const os = @import("index.zig");
 const io = @import("../io.zig");
 
+pub const UserInfo = struct {
+    uid: u32,
+    gid: u32,
+};
+
 /// POSIX function which gets a uid from username.
-pub fn getUserId(name: []const u8) -> %u32 {
+pub fn getUserInfo(name: []const u8) -> %UserInfo {
     return switch (builtin.os) {
-        Os.linux, Os.darwin, Os.macosx, Os.ios => posixGetUserId(name),
+        Os.linux, Os.darwin, Os.macosx, Os.ios => posixGetUserInfo(name),
         else => @compileError("Unsupported OS"),
     };
 }
@@ -15,13 +20,17 @@ const State = enum {
     Start,
     WaitForNextLine,
     SkipPassword,
-    ReadId,
+    ReadUserId,
+    ReadGroupId,
 };
 
 error UserNotFound;
 error CorruptPasswordFile;
 
-pub fn posixGetUserId(name: []const u8) -> %u32 {
+// TODO this reads /etc/passwd. But sometimes the user/id mapping is in something else
+// like NIS, AD, etc. See `man nss` or look at an strace for `id myuser`.
+
+pub fn posixGetUserInfo(name: []const u8) -> %UserInfo {
     var in_stream = %return io.InStream.open("/etc/passwd", null);
     defer in_stream.close();
 
@@ -29,6 +38,7 @@ pub fn posixGetUserId(name: []const u8) -> %u32 {
     var name_index: usize = 0;
     var state = State.Start;
     var uid: u32 = 0;
+    var gid: u32 = 0;
 
     while (true) {
         const amt_read = %return in_stream.read(buf[0..]);
@@ -56,12 +66,15 @@ pub fn posixGetUserId(name: []const u8) -> %u32 {
                 State.SkipPassword => switch (byte) {
                     '\n' => return error.CorruptPasswordFile,
                     ':' => {
-                        state = State.ReadId;
+                        state = State.ReadUserId;
                     },
                     else => continue,
                 },
-                State.ReadId => switch (byte) {
-                    '\n', ':' => return uid,
+                State.ReadUserId => switch (byte) {
+                    ':' => {
+                        state = State.ReadGroupId;
+                    },
+                    '\n' => return error.CorruptPasswordFile,
                     else => {
                         const digit = switch (byte) {
                             '0' ... '9' => byte - '0',
@@ -69,6 +82,22 @@ pub fn posixGetUserId(name: []const u8) -> %u32 {
                         };
                         if (@mulWithOverflow(u32, uid, 10, &uid)) return error.CorruptPasswordFile;
                         if (@addWithOverflow(u32, uid, digit, &uid)) return error.CorruptPasswordFile;
+                    },
+                },
+                State.ReadGroupId => switch (byte) {
+                    '\n', ':' => {
+                        return UserInfo {
+                            .uid = uid,
+                            .gid = gid,
+                        };
+                    },
+                    else => {
+                        const digit = switch (byte) {
+                            '0' ... '9' => byte - '0',
+                            else => return error.CorruptPasswordFile,
+                        };
+                        if (@mulWithOverflow(u32, gid, 10, &gid)) return error.CorruptPasswordFile;
+                        if (@addWithOverflow(u32, gid, digit, &gid)) return error.CorruptPasswordFile;
                     },
                 },
             }

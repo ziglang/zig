@@ -484,6 +484,18 @@ pub fn setuid(uid: u32) -> usize {
     arch.syscall1(arch.SYS_setuid, uid)
 }
 
+pub fn setgid(gid: u32) -> usize {
+    arch.syscall1(arch.SYS_setgid, gid)
+}
+
+pub fn setreuid(ruid: u32, euid: u32) -> usize {
+    arch.syscall2(arch.SYS_setreuid, ruid, euid)
+}
+
+pub fn setregid(rgid: u32, egid: u32) -> usize {
+    arch.syscall2(arch.SYS_setregid, rgid, egid)
+}
+
 pub fn sigprocmask(flags: u32, noalias set: &const sigset_t, noalias oldset: ?&sigset_t) -> usize {
     arch.syscall4(arch.SYS_rt_sigprocmask, flags, @ptrToInt(set), @ptrToInt(oldset), NSIG/8)
 }

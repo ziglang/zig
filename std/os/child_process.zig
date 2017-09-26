@@ -40,6 +40,9 @@ pub const ChildProcess = struct {
     /// Set to change the user id when spawning the child process.
     pub uid: ?u32,
 
+    /// Set to change the group id when spawning the child process.
+    pub gid: ?u32,
+
     /// Set to change the current working directory when spawning the child process.
     pub cwd: ?[]const u8,
 
@@ -77,6 +80,7 @@ pub const ChildProcess = struct {
             .env_map = null,
             .cwd = null,
             .uid = null,
+            .gid = null,
             .stdin = null,
             .stdout = null,
             .stderr = null,
@@ -89,7 +93,9 @@ pub const ChildProcess = struct {
     }
 
     pub fn setUserName(self: &ChildProcess, name: []const u8) -> %void {
-        self.uid = %return os.getUserId(name);
+        const user_info = %return os.getUserInfo(name);
+        self.uid = user_info.uid;
+        self.gid = user_info.gid;
     }
 
     /// onTerm can be called before `spawn` returns.
@@ -294,7 +300,11 @@ pub const ChildProcess = struct {
             }
 
             if (self.uid) |uid| {
-                os.posix_setuid(uid) %% |err| forkChildErrReport(err_pipe[1], err);
+                os.posix_setreuid(uid, uid) %% |err| forkChildErrReport(err_pipe[1], err);
+            }
+
+            if (self.gid) |gid| {
+                os.posix_setregid(gid, gid) %% |err| forkChildErrReport(err_pipe[1], err);
             }
 
             os.posixExecve(self.argv, env_map, self.allocator) %%
