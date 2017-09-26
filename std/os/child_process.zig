@@ -299,12 +299,12 @@ pub const ChildProcess = struct {
                     |err| forkChildErrReport(err_pipe[1], err);
             }
 
-            if (self.uid) |uid| {
-                os.posix_setreuid(uid, uid) %% |err| forkChildErrReport(err_pipe[1], err);
-            }
-
             if (self.gid) |gid| {
                 os.posix_setregid(gid, gid) %% |err| forkChildErrReport(err_pipe[1], err);
+            }
+
+            if (self.uid) |uid| {
+                os.posix_setreuid(uid, uid) %% |err| forkChildErrReport(err_pipe[1], err);
             }
 
             os.posixExecve(self.argv, env_map, self.allocator) %%
