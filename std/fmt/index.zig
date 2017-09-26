@@ -364,6 +364,26 @@ fn formatIntCallback(context: &FormatIntBuf, bytes: []const u8) -> bool {
     return true;
 }
 
+pub fn parseInt(comptime T: type, buf: []const u8, radix: u8) -> %T {
+    if (!T.is_signed)
+        return parseUnsigned(T, buf, radix);
+    if (buf.len == 0)
+        return T(0);
+    if (buf[0] == '-') {
+        return math.negate(%return parseUnsigned(T, buf[1..], radix));
+    } else if (buf[0] == '+') {
+        return parseUnsigned(T, buf[1..], radix);
+    } else {
+        return parseUnsigned(T, buf, radix);
+    }
+}
+
+test "fmt.parseInt" {
+    assert(%%parseInt(i32, "-10", 10) == -10);
+    assert(%%parseInt(i32, "+10", 10) == 10);
+    assert(if (parseInt(i32, " 10", 10)) |_| false else |err| err == error.InvalidChar);
+}
+
 pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) -> %T {
     var x: T = 0;
 
