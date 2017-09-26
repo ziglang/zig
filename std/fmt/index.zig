@@ -489,3 +489,37 @@ test "fmt.format" {
         assert(mem.eql(u8, result, "error union: error.InvalidChar\n"));
     }
 }
+
+pub fn trim(buf: []const u8) -> []const u8 {
+    var start: usize = 0;
+    while (start < buf.len and isWhiteSpace(buf[start])) : (start += 1) { }
+
+    var end: usize = buf.len;
+    while (true) {
+        if (end > start) {
+            const new_end = end - 1;
+            if (isWhiteSpace(buf[new_end])) {
+                end = new_end;
+                continue;
+            }
+        }
+        break;
+
+    }
+    return buf[start..end];
+}
+
+test "fmt.trim" {
+    assert(mem.eql(u8, "abc", trim("\n  abc  \t")));
+    assert(mem.eql(u8, "", trim("   ")));
+    assert(mem.eql(u8, "", trim("")));
+    assert(mem.eql(u8, "abc", trim(" abc")));
+    assert(mem.eql(u8, "abc", trim("abc ")));
+}
+
+pub fn isWhiteSpace(byte: u8) -> bool {
+    return switch (byte) {
+        ' ', '\t', '\n', '\r' => true,
+        else => false,
+    };
+}
