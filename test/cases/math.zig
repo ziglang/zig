@@ -241,14 +241,21 @@ test "allow signed integer division/remainder when values are comptime known and
     assert(-6 % 3 == 0);
 }
 
-test "float literal parsing" {
+test "hex float literal parsing" {
     comptime assert(0x1.0 == 1.0);
 }
 
+test "quad hex float literal parsing in range" {
+    const a = 0x1.af23456789bbaaab347645365cdep+5;
+    const b = 0x1.dedafcff354b6ae9758763545432p-9;
+    const c = 0x1.2f34dd5f437e849b4baab754cdefp+4534;
+    const d = 0x1.edcbff8ad76ab5bf46463233214fp-435;
+}
+
 test "hex float literal within range" {
-    const a = 0x1.0p1023;
-    const b = 0x0.1p1027;
-    const c = 0x1.0p-1022;
+    const a = 0x1.0p16383;
+    const b = 0x0.1p16387;
+    const c = 0x1.0p-16382;
 }
 
 test "truncating shift left" {

@@ -303,7 +303,7 @@ static void end_float_token(Tokenize *t) {
         return;
     }
 
-    if (!bigint_fits_in_bits(&t->specified_exponent, 64, true)) {
+    if (!bigint_fits_in_bits(&t->specified_exponent, 128, true)) {
         t->cur_tok->data.float_lit.overflow = true;
         return;
     }
@@ -314,39 +314,52 @@ static void end_float_token(Tokenize *t) {
     }
     t->exponent_in_bin_or_dec = (int)(t->exponent_in_bin_or_dec + specified_exponent);
 
-    if (!bigint_fits_in_bits(&t->significand, 64, false)) {
+    if (!bigint_fits_in_bits(&t->significand, 128, false)) {
         t->cur_tok->data.float_lit.overflow = true;
         return;
     }
 
-    uint64_t significand = bigint_as_unsigned(&t->significand);
-    uint64_t significand_bits;
-    uint64_t exponent_bits;
-    if (significand == 0) {
-        // 0 is all 0's
-        significand_bits = 0;
-        exponent_bits = 0;
+    // A SoftFloat-3d float128 is represented internally as a standard
+    // quad-precision float with 15bit exponent and 113bit fractional.
+    union { uint64_t repr[2]; float128_t actual; } f_bits;
+
+    if (bigint_cmp_zero(&t->significand) == CmpEQ) {
+        f_bits.repr[0] = 0;
+        f_bits.repr[1] = 0;
     } else {
         // normalize the significand
         if (t->radix == 10) {
             zig_panic("TODO: decimal floats");
         } else {
-            int significand_magnitude_in_bin = clzll(1) - clzll(significand);
+            int significand_magnitude_in_bin = 127 - bigint_clz(&t->significand, 128);
             t->exponent_in_bin_or_dec += significand_magnitude_in_bin;
-            if (!(-1022 <= t->exponent_in_bin_or_dec && t->exponent_in_bin_or_dec <= 1023)) {
+            if (!(-16382 <= t->exponent_in_bin_or_dec && t->exponent_in_bin_or_dec <= 16383)) {
                 t->cur_tok->data.float_lit.overflow = true;
                 return;
-            } else {
-                // this should chop off exactly one 1 bit from the top.
-                significand_bits = ((uint64_t)significand << (52 - significand_magnitude_in_bin)) & 0xfffffffffffffULL;
-                exponent_bits = t->exponent_in_bin_or_dec + 1023;
             }
+
+            uint64_t sig_bits[2] = {0, 0};
+            bigint_write_twos_complement(&t->significand, (uint8_t*) sig_bits, 128, false);
+
+            const uint64_t shift = 112 - significand_magnitude_in_bin;
+            const uint64_t exp_shift = 48;
+            // Mask the sign bit to 0 since always non-negative lex
+            const uint64_t exp_mask = 0xfffful << exp_shift;
+
+            if (shift >= 64) {
+                f_bits.repr[0] = 0;
+                f_bits.repr[1] = sig_bits[0] << (shift - 64);
+            } else {
+                f_bits.repr[0] = sig_bits[0] << shift;
+                f_bits.repr[1] = ((sig_bits[1] << shift) | (sig_bits[0] >> (64 - shift)));
+            }
+
+            f_bits.repr[1] &= ~exp_mask;
+            f_bits.repr[1] |= (uint64_t)(t->exponent_in_bin_or_dec + 16383) << exp_shift;
         }
     }
-    uint64_t double_bits = (exponent_bits << 52) | significand_bits;
-    double dbl_value;
-    safe_memcpy(&dbl_value, (double *)&double_bits, 1);
-    bigfloat_init_64(&t->cur_tok->data.float_lit.bigfloat, dbl_value);
+
+    bigfloat_init_128(&t->cur_tok->data.float_lit.bigfloat, f_bits.actual);
 }
 
 static void end_token(Tokenize *t) {
