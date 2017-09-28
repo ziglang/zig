@@ -94,6 +94,10 @@ pub const IncrementingAllocator = struct {
         _ = os.posix.munmap(self.bytes.ptr, self.bytes.len);
     }
 
+    fn reset(self: &IncrementingAllocator) {
+        self.end_index = 0;
+    }
+
     fn alloc(allocator: &Allocator, n: usize, alignment: usize) -> %[]u8 {
         const self = @fieldParentPtr(IncrementingAllocator, "allocator", allocator);
         const addr = @ptrToInt(&self.bytes[self.end_index]);
