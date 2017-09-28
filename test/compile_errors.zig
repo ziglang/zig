@@ -1901,14 +1901,14 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("float literal too large error",
         \\comptime {
-        \\    const a = 0x1.0p1024;
+        \\    const a = 0x1.0p16384;
         \\}
     ,
         ".tmp_source.zig:2:15: error: float literal out of range of any type");
 
     cases.add("float literal too small error (denormal)",
         \\comptime {
-        \\    const a = 0x1.0p-1023;
+        \\    const a = 0x1.0p-16384;
         \\}
     ,
         ".tmp_source.zig:2:15: error: float literal out of range of any type");

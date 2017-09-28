@@ -255,7 +255,7 @@ fn expm1_64(x_: f64) -> f64 {
     if (k < 0 or k > 56) {
         var y = x - e + 1.0;
         if (k == 1024) {
-            y = y * 2.0 * 0x1.0p1022 * 10;
+            y = y * 2.0 * 0x1.0p1023;
         } else {
             y = y * twopk;
         }
