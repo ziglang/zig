@@ -39,6 +39,11 @@ pub extern "kernel32" stdcallcc fn WriteFile(in_hFile: HANDLE, in_lpBuffer: &con
 
 pub extern "kernel32" stdcallcc fn Sleep(dwMilliseconds: DWORD);
 
+pub extern "kernel32" stdcallcc fn HeapAlloc(hHeap: HANDLE, dwFlags: DWORD, dwBytes: SIZE_T) -> LPVOID;
+
+pub extern "kernel32" stdcallcc fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: LPVOID) -> BOOL;
+
+pub extern "kernel32" stdcallcc fn GetProcessHeap() -> HANDLE;
 
 pub extern "user32" stdcallcc fn MessageBoxA(hWnd: ?HANDLE, lpText: ?LPCTSTR, lpCaption: ?LPCTSTR, uType: UINT) -> c_int;
 
@@ -50,6 +55,7 @@ pub const LPWSTR = &WCHAR;
 pub const LPSTR = &CHAR;
 pub const CHAR = u8;
 pub const PWSTR = &WCHAR;
+pub const SIZE_T = usize;
 
 pub const BOOL = bool;
 pub const BYTE = u8;

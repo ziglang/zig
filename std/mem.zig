@@ -86,12 +86,34 @@ pub const IncrementingAllocator = struct {
                     .end_index = 0,
                 };
             },
+            Os.windows => {
+                const heap_handle = os.windows.GetProcessHeap();
+                const ptr = os.windows.HeapAlloc(heap_handle, 0, capacity);
+                return IncrementingAllocator {
+                    .allocator = Allocator {
+                        .allocFn = alloc,
+                        .reallocFn = realloc,
+                        .freeFn = free,
+                    },
+                    .bytes = @ptrCast(&u8, ptr)[0..capacity],
+                    .end_index = 0,
+                };
+            },
             else => @compileError("Unsupported OS"),
         }
     }
 
     fn deinit(self: &IncrementingAllocator) {
-        _ = os.posix.munmap(self.bytes.ptr, self.bytes.len);
+        switch (builtin.os) {
+            Os.linux, Os.darwin, Os.macosx, Os.ios => {
+                _ = os.posix.munmap(self.bytes.ptr, self.bytes.len);
+            },
+            Os.windows => {
+                const heap_handle = os.windows.GetProcessHeap();
+                _ = os.windows.HeapFree(heap_handle, 0, @ptrCast(os.windows.LPVOID, self.bytes.ptr));
+            },
+            else => @compileError("Unsupported OS"),
+        }
     }
 
     fn reset(self: &IncrementingAllocator) {
