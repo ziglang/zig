@@ -45,6 +45,7 @@ clarity.
    case. You can export an auto-generated .h file.
  * Standard library supports Operating System abstractions for:
    * `x86_64` `linux`
+   * `x86_64` `macos`
    * Support for all popular operating systems and architectures is planned.
  * For OS development, Zig supports all architectures that LLVM does. All the
    standard library that does not depend on an OS is available to you in
