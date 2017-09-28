@@ -344,7 +344,7 @@ static void end_float_token(Tokenize *t) {
             const uint64_t shift = 112 - significand_magnitude_in_bin;
             const uint64_t exp_shift = 48;
             // Mask the sign bit to 0 since always non-negative lex
-            const uint64_t exp_mask = 0xfffful << exp_shift;
+            const uint64_t exp_mask = 0xffffull << exp_shift;
 
             if (shift >= 64) {
                 f_bits.repr[0] = 0;
