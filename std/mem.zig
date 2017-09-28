@@ -98,6 +98,10 @@ pub const IncrementingAllocator = struct {
         self.end_index = 0;
     }
 
+    fn bytesLeft(self: &const IncrementingAllocator) -> usize {
+        return self.bytes.len - self.end_index;
+    }
+
     fn alloc(allocator: &Allocator, n: usize, alignment: usize) -> %[]u8 {
         const self = @fieldParentPtr(IncrementingAllocator, "allocator", allocator);
         const addr = @ptrToInt(&self.bytes[self.end_index]);
@@ -123,6 +127,26 @@ pub const IncrementingAllocator = struct {
         // Do nothing. That's the point of an incrementing allocator.
     }
 };
+
+test "mem.IncrementingAllocator" {
+    const total_bytes = 100 * 1024 * 1024;
+    var inc_allocator = %%IncrementingAllocator.init(total_bytes);
+    defer inc_allocator.deinit();
+
+    const allocator = &inc_allocator.allocator;
+    const slice = %%allocator.alloc(&i32, 100);
+
+    for (slice) |*item, i| {
+        *item = %%allocator.create(i32);
+        **item = i32(i);
+    }
+
+    assert(inc_allocator.bytesLeft() == total_bytes - @sizeOf(i32) * 100 - @sizeOf(usize) * 100);
+
+    inc_allocator.reset();
+
+    assert(inc_allocator.bytesLeft() == total_bytes);
+}
 
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
