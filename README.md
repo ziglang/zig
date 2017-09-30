@@ -10,7 +10,7 @@ clarity.
 ## Feature Highlights
 
  * Small, simple language. Focus on debugging your application rather than
-   debugging your knowledge of your programming language.
+   debugging knowledge of your programming language.
  * Ships with a build system that obviates the need for a configure script
    or a makefile. In fact, existing C and C++ projects may choose to depend on
    Zig instead of e.g. cmake.
