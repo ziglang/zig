@@ -563,6 +563,8 @@ install(FILES "${CMAKE_SOURCE_DIR}/std/special/bootstrap.zig" DESTINATION "${ZIG
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/build_file_template.zig" DESTINATION "${ZIG_STD_DEST}/special")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/build_runner.zig" DESTINATION "${ZIG_STD_DEST}/special")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/builtin.zig" DESTINATION "${ZIG_STD_DEST}/special")
+install(FILES "${CMAKE_SOURCE_DIR}/std/special/compiler_rt/aulldiv.zig" DESTINATION "${ZIG_STD_DEST}/special/compiler_rt")
+install(FILES "${CMAKE_SOURCE_DIR}/std/special/compiler_rt/aullrem.zig" DESTINATION "${ZIG_STD_DEST}/special/compiler_rt")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/compiler_rt/comparetf2.zig" DESTINATION "${ZIG_STD_DEST}/special/compiler_rt")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/compiler_rt/fixuint.zig" DESTINATION "${ZIG_STD_DEST}/special/compiler_rt")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/compiler_rt/fixunsdfdi.zig" DESTINATION "${ZIG_STD_DEST}/special/compiler_rt")

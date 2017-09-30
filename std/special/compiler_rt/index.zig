@@ -13,6 +13,8 @@ comptime {
     _ = @import("udivmodti4.zig");
     _ = @import("udivti3.zig");
     _ = @import("umodti3.zig");
+    _ = @import("aulldiv.zig");
+    _ = @import("aullrem.zig");
 }
 
 const builtin = @import("builtin");
