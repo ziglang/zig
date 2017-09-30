@@ -98,7 +98,7 @@ export nakedcc fn __aeabi_uidivmod() {
     @setGlobalLinkage(__aeabi_uidivmod, builtin.GlobalLinkage.Internal);
 }
 
-export nakedcc fn __chkstk() {
+export nakedcc fn __chkstk() align 4 {
     @setDebugSafety(this, false);
 
     if (comptime builtin.os == builtin.Os.windows) {
@@ -124,6 +124,37 @@ export nakedcc fn __chkstk() {
                 \\         push   (%%rax)           // push return address onto the stack
                 \\         sub    %%rsp,%%rax        // restore the original value in rax
                 \\         ret
+            );
+            unreachable;
+        }
+    }
+
+    @setGlobalLinkage(__chkstk, builtin.GlobalLinkage.Internal);
+}
+
+export nakedcc fn ___chkstk_ms() align 4 {
+    @setDebugSafety(this, false);
+
+    if (comptime builtin.os == builtin.Os.windows) {
+        if (comptime builtin.arch == builtin.Arch.x86_64) {
+            asm volatile (
+                \\        push   %%rcx
+                \\        push   %%rax
+                \\        cmp    $0x1000,%%rax
+                \\        lea    24(%%rsp),%%rcx
+                \\        jb     1f
+                \\2:
+                \\        sub    $0x1000,%%rcx
+                \\        test   %%rcx,(%%rcx)
+                \\        sub    $0x1000,%%rax
+                \\        cmp    $0x1000,%%rax
+                \\        ja     2b
+                \\1:
+                \\        sub    %%rax,%%rcx
+                \\        test   %%rcx,(%%rcx)
+                \\        pop    %%rax
+                \\        pop    %%rcx
+                \\        ret
             );
             unreachable;
         }
