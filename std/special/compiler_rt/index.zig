@@ -98,7 +98,7 @@ export nakedcc fn __aeabi_uidivmod() {
     @setGlobalLinkage(__aeabi_uidivmod, builtin.GlobalLinkage.Internal);
 }
 
-export nakedcc fn __chkstk() align 4 {
+export nakedcc fn __chkstk() align(4) {
     @setDebugSafety(this, false);
 
     if (comptime builtin.os == builtin.Os.windows) {
@@ -132,7 +132,7 @@ export nakedcc fn __chkstk() align 4 {
     @setGlobalLinkage(__chkstk, builtin.GlobalLinkage.Internal);
 }
 
-export nakedcc fn ___chkstk_ms() align 4 {
+export nakedcc fn ___chkstk_ms() align(4) {
     @setDebugSafety(this, false);
 
     if (comptime builtin.os == builtin.Os.windows) {
@@ -160,7 +160,7 @@ export nakedcc fn ___chkstk_ms() align 4 {
         }
     }
 
-    @setGlobalLinkage(__chkstk, builtin.GlobalLinkage.Internal);
+    @setGlobalLinkage(___chkstk_ms, builtin.GlobalLinkage.Internal);
 }
 
 export fn __udivmodsi4(a: u32, b: u32, rem: &u32) -> u32 {
