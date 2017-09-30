@@ -23,6 +23,16 @@ const assert = @import("../../debug.zig").assert;
 
 const __udivmoddi4 = @import("udivmoddi4.zig").__udivmoddi4;
 
+// Avoid dragging in the debug safety mechanisms into this .o file,
+// unless we're trying to test this file.
+pub coldcc fn panic(msg: []const u8) -> noreturn {
+    if (is_test) {
+        @import("std").debug.panic("{}", msg);
+    } else {
+        unreachable;
+    }
+}
+
 export fn __udivdi3(a: u64, b: u64) -> u64 {
     @setDebugSafety(this, is_test);
     @setGlobalLinkage(__udivdi3, builtin.GlobalLinkage.LinkOnce);

@@ -157,10 +157,6 @@ void codegen_set_llvm_argv(CodeGen *g, const char **args, size_t len) {
     g->llvm_argv_len = len;
 }
 
-void codegen_set_omit_zigrt(CodeGen *g, bool omit_zigrt) {
-    g->omit_zigrt = omit_zigrt;
-}
-
 void codegen_set_test_filter(CodeGen *g, Buf *filter) {
     g->test_filter = filter;
 }
@@ -751,26 +747,12 @@ static LLVMValueRef get_panic_msg_ptr_val(CodeGen *g, PanicMsgId msg_id) {
     return val->global_refs->llvm_global;
 }
 
-static void gen_panic_raw(CodeGen *g, LLVMValueRef msg_ptr, LLVMValueRef msg_len) {
-    FnTableEntry *panic_fn = get_extern_panic_fn(g);
-    LLVMValueRef fn_val = fn_llvm_value(g, panic_fn);
-    LLVMValueRef args[] = { msg_ptr, msg_len };
-    LLVMCallConv llvm_cc = get_llvm_cc(g, panic_fn->type_entry->data.fn.fn_type_id.cc);
-    ZigLLVMBuildCall(g->builder, fn_val, args, 2, llvm_cc, false, "");
-    LLVMBuildUnreachable(g->builder);
-}
-
 static void gen_panic(CodeGen *g, LLVMValueRef msg_arg) {
-    TypeTableEntry *ptr_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
-    TypeTableEntry *str_type = get_slice_type(g, ptr_type);
-    size_t ptr_index = str_type->data.structure.fields[slice_ptr_index].gen_index;
-    size_t len_index = str_type->data.structure.fields[slice_len_index].gen_index;
-    LLVMValueRef ptr_ptr = LLVMBuildStructGEP(g->builder, msg_arg, (unsigned)ptr_index, "");
-    LLVMValueRef len_ptr = LLVMBuildStructGEP(g->builder, msg_arg, (unsigned)len_index, "");
-
-    LLVMValueRef msg_ptr = gen_load_untyped(g, ptr_ptr, 0, false, "");
-    LLVMValueRef msg_len = gen_load_untyped(g, len_ptr, 0, false, "");
-    gen_panic_raw(g, msg_ptr, msg_len);
+    assert(g->panic_fn != nullptr);
+    LLVMValueRef fn_val = fn_llvm_value(g, g->panic_fn);
+    LLVMCallConv llvm_cc = get_llvm_cc(g, g->panic_fn->type_entry->data.fn.fn_type_id.cc);
+    ZigLLVMBuildCall(g->builder, fn_val, &msg_arg, 1, llvm_cc, false, "");
+    LLVMBuildUnreachable(g->builder);
 }
 
 static void gen_debug_safety_crash(CodeGen *g, PanicMsgId msg_id) {
@@ -818,26 +800,40 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     }
     uint32_t u8_align_bytes = get_abi_alignment(g, g->builtin_types.entry_u8);
     LLVMValueRef init_value = LLVMConstArray(LLVMInt8Type(), err_buf_vals, err_buf_len);
-    Buf *global_name = get_mangled_name(g, buf_create_from_str("__zig_panic_buf"), false);
-    LLVMValueRef global_value = LLVMAddGlobal(g->module, LLVMTypeOf(init_value), buf_ptr(global_name));
-    LLVMSetInitializer(global_value, init_value);
-    LLVMSetLinkage(global_value, LLVMInternalLinkage);
-    LLVMSetGlobalConstant(global_value, false);
-    LLVMSetUnnamedAddr(global_value, true);
-    LLVMSetAlignment(global_value, u8_align_bytes);
+    LLVMValueRef global_array = LLVMAddGlobal(g->module, LLVMTypeOf(init_value), "");
+    LLVMSetInitializer(global_array, init_value);
+    LLVMSetLinkage(global_array, LLVMInternalLinkage);
+    LLVMSetGlobalConstant(global_array, false);
+    LLVMSetUnnamedAddr(global_array, true);
+    LLVMSetAlignment(global_array, u8_align_bytes);
 
     TypeTableEntry *usize = g->builtin_types.entry_usize;
     LLVMValueRef full_buf_ptr_indices[] = {
         LLVMConstNull(usize->type_ref),
         LLVMConstNull(usize->type_ref),
     };
-    LLVMValueRef full_buf_ptr = LLVMConstInBoundsGEP(global_value, full_buf_ptr_indices, 2);
+    LLVMValueRef full_buf_ptr = LLVMConstInBoundsGEP(global_array, full_buf_ptr_indices, 2);
+
+
+    TypeTableEntry *u8_ptr_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
+    TypeTableEntry *str_type = get_slice_type(g, u8_ptr_type);
+    LLVMValueRef global_slice_fields[] = {
+        full_buf_ptr,
+        LLVMConstNull(usize->type_ref),
+    };
+    LLVMValueRef slice_init_value = LLVMConstNamedStruct(str_type->type_ref, global_slice_fields, 2);
+    LLVMValueRef global_slice = LLVMAddGlobal(g->module, LLVMTypeOf(slice_init_value), "");
+    LLVMSetInitializer(global_slice, slice_init_value);
+    LLVMSetLinkage(global_slice, LLVMInternalLinkage);
+    LLVMSetGlobalConstant(global_slice, false);
+    LLVMSetUnnamedAddr(global_slice, true);
+    LLVMSetAlignment(global_slice, get_abi_alignment(g, str_type));
 
     LLVMValueRef offset_ptr_indices[] = {
         LLVMConstNull(usize->type_ref),
         LLVMConstInt(usize->type_ref, unwrap_err_msg_text_len, false),
     };
-    LLVMValueRef offset_buf_ptr = LLVMConstInBoundsGEP(global_value, offset_ptr_indices, 2);
+    LLVMValueRef offset_buf_ptr = LLVMConstInBoundsGEP(global_array, offset_ptr_indices, 2);
 
     Buf *fn_name = get_mangled_name(g, buf_create_from_str("__zig_fail_unwrap"), false);
     LLVMTypeRef fn_type_ref = LLVMFunctionType(LLVMVoidType(), &g->err_tag_type->type_ref, 1, false);
@@ -888,7 +884,10 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     LLVMValueRef const_prefix_len = LLVMConstInt(LLVMTypeOf(err_name_len), strlen(unwrap_err_msg_text), false);
     LLVMValueRef full_buf_len = LLVMBuildNUWAdd(g->builder, const_prefix_len, err_name_len, "");
 
-    gen_panic_raw(g, full_buf_ptr, full_buf_len);
+    LLVMValueRef global_slice_len_field_ptr = LLVMBuildStructGEP(g->builder, global_slice, slice_len_index, "");
+    gen_store(g, full_buf_len, global_slice_len_field_ptr, u8_ptr_type);
+
+    gen_panic(g, global_slice);
 
     LLVMPositionBuilderAtEnd(g->builder, prev_block);
     LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
@@ -3744,8 +3743,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                         fields[type_struct_field->gen_index] = gen_const_val(g, &const_val->data.x_struct.fields[i]);
                     }
                 }
-                return LLVMConstStruct(fields, type_entry->data.structure.gen_field_count,
-                        type_entry->data.structure.layout == ContainerLayoutPacked);
+                return LLVMConstNamedStruct(type_entry->type_ref, fields, type_entry->data.structure.gen_field_count);
             }
         case TypeTableEntryIdUnion:
             {
@@ -4103,7 +4101,7 @@ static void validate_inline_fns(CodeGen *g) {
 }
 
 static void do_code_gen(CodeGen *g) {
-    if (g->verbose || g->verbose_ir) {
+    if (g->verbose) {
         fprintf(stderr, "\nCode Generation:\n");
         fprintf(stderr, "------------------\n");
     }
@@ -4918,8 +4916,6 @@ static void define_builtin_compile_vars(CodeGen *g) {
     buf_appendf(contents, "pub const mode = %s;\n", build_mode_to_str(g->build_mode));
     buf_appendf(contents, "pub const link_libc = %s;\n", bool_to_str(g->libc_link_lib != nullptr));
 
-    buf_appendf(contents, "pub const __zig_panic_implementation_provided = %s; // overwritten later\n",
-            bool_to_str(false));
     buf_appendf(contents, "pub const __zig_test_fn_slice = {}; // overwritten later\n");
 
     ensure_cache_dir(g);
@@ -5105,10 +5101,8 @@ static PackageTableEntry *create_test_runner_pkg(CodeGen *g) {
     return codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "test_runner.zig");
 }
 
-static PackageTableEntry *create_zigrt_pkg(CodeGen *g) {
-    PackageTableEntry *package = codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "zigrt.zig");
-    package->package_table.put(buf_create_from_str("@root"), g->root_package);
-    return package;
+static PackageTableEntry *create_panic_pkg(CodeGen *g) {
+    return codegen_create_package(g, buf_ptr(g->zig_std_special_dir), "panic.zig");
 }
 
 static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
@@ -5190,9 +5184,19 @@ static void gen_root_source(CodeGen *g) {
     {
         g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g, g->root_package), "bootstrap.zig");
     }
-    if (!g->omit_zigrt) {
-        g->zigrt_package = create_zigrt_pkg(g);
-        add_special_code(g, g->zigrt_package, "zigrt.zig");
+    ImportTableEntry *import_with_panic;
+    if (g->have_pub_panic) {
+        import_with_panic = g->root_import;
+    } else {
+        g->panic_package = create_panic_pkg(g);
+        import_with_panic = add_special_code(g, g->panic_package, "panic.zig");
+    }
+    // Zig has lazy top level definitions. Here we semantically analyze the panic function.
+    {
+        scan_import(g, import_with_panic);
+        Tld *panic_tld = find_decl(g, &import_with_panic->decls_scope->base, buf_create_from_str("panic"));
+        assert(panic_tld != nullptr);
+        resolve_top_level_decl(g, panic_tld, false, nullptr);
     }
 
     if (g->verbose) {

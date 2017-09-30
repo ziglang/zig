@@ -2072,11 +2072,10 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
             if (fn_def_node)
                 g->fn_defs.append(fn_table_entry);
 
-            if (g->have_pub_main && scope_is_root_decls(tld_fn->base.parent_scope) &&
-                ((!g->is_test_build && import == g->root_import) ||
-                (g->is_test_build && import == g->test_runner_import)))
+            if (scope_is_root_decls(tld_fn->base.parent_scope) &&
+                (import == g->root_import || import->package == g->panic_package))
             {
-                if (buf_eql_str(&fn_table_entry->symbol_name, "main")) {
+                if (g->have_pub_main && buf_eql_str(&fn_table_entry->symbol_name, "main")) {
                     g->main_fn = fn_table_entry;
 
                     if (tld_fn->base.visib_mod != VisibModExport) {
@@ -2088,12 +2087,11 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
                                         buf_ptr(&actual_return_type->name)));
                         }
                     }
-                } else if (buf_eql_str(&fn_table_entry->symbol_name, "panic")) {
+                } else if ((import->package == g->panic_package || g->have_pub_panic) &&
+                        buf_eql_str(&fn_table_entry->symbol_name, "panic"))
+                {
+                    g->panic_fn = fn_table_entry;
                     typecheck_panic_fn(g, fn_table_entry);
-                }
-            } else if (import->package == g->zigrt_package && scope_is_root_decls(tld_fn->base.parent_scope)) {
-                if (buf_eql_str(&fn_table_entry->symbol_name, "__zig_panic")) {
-                    g->extern_panic_fn = fn_table_entry;
                 }
             }
         }
@@ -2271,14 +2269,6 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
                 init_tld(&tld_fn->base, TldIdFn, fn_name, visib_mod, node, &decls_scope->base);
                 tld_fn->extern_lib_name = node->data.fn_proto.lib_name;
                 add_top_level_decl(g, decls_scope, &tld_fn->base);
-
-                ImportTableEntry *import = get_scope_import(&decls_scope->base);
-                if (import == g->root_import && scope_is_root_decls(&decls_scope->base) &&
-                    buf_eql_str(fn_name, "panic"))
-                {
-                    update_compile_var(g, buf_create_from_str("__zig_panic_implementation_provided"),
-                            create_const_bool(g, true));
-                }
 
                 break;
             }
@@ -4604,37 +4594,6 @@ ConstParent *get_const_val_parent(CodeGen *g, ConstExprValue *value) {
         return &value->data.x_struct.parent;
     }
     return nullptr;
-}
-
-FnTableEntry *get_extern_panic_fn(CodeGen *g) {
-    if (g->extern_panic_fn)
-        return g->extern_panic_fn;
-
-    FnTypeId fn_type_id = {0};
-    fn_type_id.cc = CallingConventionCold;
-    fn_type_id.param_count = 2;
-    fn_type_id.param_info = allocate<FnTypeParamInfo>(2);
-    fn_type_id.next_param_index = 0;
-    fn_type_id.param_info[0].type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
-    fn_type_id.param_info[1].type = g->builtin_types.entry_usize;
-    fn_type_id.return_type = g->builtin_types.entry_unreachable;
-
-    TypeTableEntry *fn_type = get_fn_type(g, &fn_type_id);
-    assert(!type_is_invalid(fn_type));
-
-    FnTableEntry *fn_entry = create_fn_raw(FnInlineAuto, GlobalLinkageIdStrong);
-    buf_init_from_str(&fn_entry->symbol_name, "__zig_panic");
-
-    TldFn *tld_fn = allocate<TldFn>(1);
-    init_tld(&tld_fn->base, TldIdFn, &fn_entry->symbol_name, VisibModPrivate, nullptr, nullptr);
-    tld_fn->fn_entry = fn_entry;
-
-    g->external_prototypes.put_unique(tld_fn->base.name, &tld_fn->base);
-
-    fn_entry->type_entry = fn_type;
-
-    g->extern_panic_fn = fn_entry;
-    return g->extern_panic_fn;
 }
 
 static const TypeTableEntryId all_type_ids[] = {

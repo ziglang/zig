@@ -157,7 +157,6 @@ ConstExprValue *create_const_vals(size_t count);
 
 TypeTableEntry *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits);
 ConstParent *get_const_val_parent(CodeGen *g, ConstExprValue *value);
-FnTableEntry *get_extern_panic_fn(CodeGen *g);
 TypeTableEntry *create_enum_tag_type(CodeGen *g, TypeTableEntry *enum_type, TypeTableEntry *int_type);
 void expand_undef_array(CodeGen *g, ConstExprValue *const_val);
 void update_compile_var(CodeGen *g, Buf *name, ConstExprValue *value);

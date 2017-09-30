@@ -35,7 +35,6 @@ static Buf *build_o_raw(CodeGen *parent_gen, const char *oname, Buf *full_path) 
     ZigTarget *child_target = parent_gen->is_native_target ? nullptr : &parent_gen->zig_target;
     CodeGen *child_gen = codegen_create(full_path, child_target, OutTypeObj, parent_gen->build_mode);
 
-    codegen_set_omit_zigrt(child_gen, true);
     child_gen->want_h_file = false;
     child_gen->verbose_link = parent_gen->verbose_link;
 

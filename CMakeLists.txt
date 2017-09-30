@@ -585,8 +585,8 @@ install(FILES "${CMAKE_SOURCE_DIR}/std/special/compiler_rt/udivmod.zig" DESTINAT
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/compiler_rt/udivmoddi4.zig" DESTINATION "${ZIG_STD_DEST}/special/compiler_rt")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/compiler_rt/udivmodti4.zig" DESTINATION "${ZIG_STD_DEST}/special/compiler_rt")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/compiler_rt/umodti3.zig" DESTINATION "${ZIG_STD_DEST}/special/compiler_rt")
+install(FILES "${CMAKE_SOURCE_DIR}/std/special/panic.zig" DESTINATION "${ZIG_STD_DEST}/special")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/test_runner.zig" DESTINATION "${ZIG_STD_DEST}/special")
-install(FILES "${CMAKE_SOURCE_DIR}/std/special/zigrt.zig" DESTINATION "${ZIG_STD_DEST}/special")
 
 if (ZIG_TEST_COVERAGE)
     add_custom_target(coverage

@@ -1472,7 +1472,7 @@ struct CodeGen {
     bool is_native_target;
     PackageTableEntry *root_package;
     PackageTableEntry *std_package;
-    PackageTableEntry *zigrt_package;
+    PackageTableEntry *panic_package;
     PackageTableEntry *test_runner_package;
     PackageTableEntry *compile_var_package;
     ImportTableEntry *compile_var_import;
@@ -1484,7 +1484,6 @@ struct CodeGen {
     Buf *mios_version_min;
     bool linker_rdynamic;
     const char *linker_script;
-    bool omit_zigrt;
 
     // The function definitions this module includes. There must be a corresponding
     // fn_protos entry.
@@ -1498,8 +1497,7 @@ struct CodeGen {
     OutType out_type;
     FnTableEntry *cur_fn;
     FnTableEntry *main_fn;
-    FnTableEntry *user_panic_fn;
-    FnTableEntry *extern_panic_fn;
+    FnTableEntry *panic_fn;
     LLVMValueRef cur_ret_ptr;
     LLVMValueRef cur_fn_val;
     bool c_want_stdint;
