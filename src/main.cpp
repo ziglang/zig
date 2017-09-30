@@ -48,6 +48,7 @@ static int usage(const char *arg0) {
         "  --target-os [name]           specify target operating system\n"
         "  --verbose                    turn on compiler debug output\n"
         "  --verbose-link               turn on compiler debug output for linking only\n"
+        "  --verbose-ir                 turn on compiler debug output for IR only\n"
         "  --zig-std-dir [path]         directory where zig standard library resides\n"
         "  -dirafter [dir]              same as -isystem but do it last\n"
         "  -isystem [dir]               add additional search path for other .h files\n"
@@ -186,6 +187,7 @@ int main(int argc, char **argv) {
     const char *out_name = nullptr;
     bool verbose = false;
     bool verbose_link = false;
+    bool verbose_ir = false;
     ErrColor color = ErrColorAuto;
     const char *libc_lib_dir = nullptr;
     const char *libc_static_lib_dir = nullptr;
@@ -352,6 +354,8 @@ int main(int argc, char **argv) {
                 verbose = true;
             } else if (strcmp(arg, "--verbose-link") == 0) {
                 verbose_link = true;
+            } else if (strcmp(arg, "--verbose-ir") == 0) {
+                verbose_ir = true;
             } else if (strcmp(arg, "-mwindows") == 0) {
                 mwindows = true;
             } else if (strcmp(arg, "-mconsole") == 0) {
@@ -630,6 +634,7 @@ int main(int argc, char **argv) {
                 codegen_set_dynamic_linker(g, buf_create_from_str(dynamic_linker));
             codegen_set_verbose(g, verbose);
             g->verbose_link = verbose_link;
+            g->verbose_ir = verbose_ir;
             codegen_set_errmsg_color(g, color);
 
             for (size_t i = 0; i < lib_dirs.length; i += 1) {

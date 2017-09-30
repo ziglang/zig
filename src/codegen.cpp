@@ -1343,10 +1343,28 @@ static LLVMValueRef gen_div(CodeGen *g, bool want_debug_safety, bool want_fast_m
                 return result;
             case DivKindTrunc:
                 {
-                    LLVMValueRef floored = gen_floor(g, result, type_entry);
-                    LLVMValueRef ceiled = gen_ceil(g, result, type_entry);
+                    LLVMBasicBlockRef ltz_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivTruncLTZero");
+                    LLVMBasicBlockRef gez_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivTruncGEZero");
+                    LLVMBasicBlockRef end_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivTruncEnd");
                     LLVMValueRef ltz = LLVMBuildFCmp(g->builder, LLVMRealOLT, val1, zero, "");
-                    return LLVMBuildSelect(g->builder, ltz, ceiled, floored, "");
+                    LLVMBuildCondBr(g->builder, ltz, ltz_block, gez_block);
+
+                    LLVMPositionBuilderAtEnd(g->builder, ltz_block);
+                    LLVMValueRef ceiled = gen_ceil(g, result, type_entry);
+                    LLVMBasicBlockRef ceiled_end_block = LLVMGetInsertBlock(g->builder);
+                    LLVMBuildBr(g->builder, end_block);
+
+                    LLVMPositionBuilderAtEnd(g->builder, gez_block);
+                    LLVMValueRef floored = gen_floor(g, result, type_entry);
+                    LLVMBasicBlockRef floored_end_block = LLVMGetInsertBlock(g->builder);
+                    LLVMBuildBr(g->builder, end_block);
+
+                    LLVMPositionBuilderAtEnd(g->builder, end_block);
+                    LLVMValueRef phi = LLVMBuildPhi(g->builder, type_entry->type_ref, "");
+                    LLVMValueRef incoming_values[] = { ceiled, floored };
+                    LLVMBasicBlockRef incoming_blocks[] = { ceiled_end_block, floored_end_block };
+                    LLVMAddIncoming(phi, incoming_values, incoming_blocks, 2);
+                    return phi;
                 }
             case DivKindFloor:
                 return gen_floor(g, result, type_entry);
@@ -4080,7 +4098,7 @@ static void validate_inline_fns(CodeGen *g) {
 }
 
 static void do_code_gen(CodeGen *g) {
-    if (g->verbose) {
+    if (g->verbose || g->verbose_ir) {
         fprintf(stderr, "\nCode Generation:\n");
         fprintf(stderr, "------------------\n");
     }
@@ -4358,7 +4376,7 @@ static void do_code_gen(CodeGen *g) {
 
     ZigLLVMDIBuilderFinalize(g->dbuilder);
 
-    if (g->verbose) {
+    if (g->verbose || g->verbose_ir) {
         LLVMDumpModule(g->module);
     }
 
