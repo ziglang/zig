@@ -22,11 +22,20 @@
  *
 \*===----------------------------------------------------------------------===*/
 
-#ifndef __TGMATH_H
-#define __TGMATH_H
+#ifndef __CLANG_TGMATH_H
+#define __CLANG_TGMATH_H
 
 /* C99 7.22 Type-generic math <tgmath.h>. */
 #include <math.h>
+
+/*
+ * Allow additional definitions and implementation-defined values on Apple
+ * platforms. This is done after #include <math.h> to avoid depcycle conflicts
+ * between libcxx and darwin in C++ modules builds.
+ */
+#if defined(__APPLE__) && __STDC_HOSTED__ && __has_include_next(<tgmath.h>)
+#  include_next <tgmath.h>
+#else
 
 /* C++ handles type genericity with overloading in math.h. */
 #ifndef __cplusplus
@@ -1371,4 +1380,5 @@ static long double
 #undef _TG_ATTRS
 
 #endif /* __cplusplus */
-#endif /* __TGMATH_H */
+#endif /* __has_include_next */
+#endif /* __CLANG_TGMATH_H */

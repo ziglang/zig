@@ -72,6 +72,10 @@
 #include <tbmintrin.h>
 #endif
 
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__LWP__)
+#include <lwpintrin.h>
+#endif
+
 #if !defined(_MSC_VER) || __has_feature(modules) || defined(__F16C__)
 #include <f16cintrin.h>
 #endif
@@ -80,6 +84,8 @@
 #include <mwaitxintrin.h>
 #endif
 
-/* FIXME: LWP */
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__CLZERO__)
+#include <clzerointrin.h>
+#endif
 
 #endif /* __X86INTRIN_H */

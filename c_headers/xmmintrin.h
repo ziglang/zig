@@ -2067,7 +2067,7 @@ _mm_storer_ps(float *__p, __m128 __a)
 ///    _MM_HINT_T1: Move data using the T1 hint. The PREFETCHT1 instruction will
 ///    be generated. \n
 ///    _MM_HINT_T2: Move data using the T2 hint. The PREFETCHT2 instruction will
-///    be generated.                                   
+///    be generated.
 #define _mm_prefetch(a, sel) (__builtin_prefetch((void *)(a), 0, (sel)))
 #endif
 
@@ -2099,7 +2099,7 @@ _mm_stream_pi(__m64 *__p, __m64 __a)
 ///
 /// \param __p
 ///    A pointer to a 128-bit aligned memory location that will receive the
-///    integer values.
+///    single-precision floating-point values.
 /// \param __a
 ///    A 128-bit vector of [4 x float] containing the values to be moved.
 static __inline__ void __DEFAULT_FN_ATTRS
@@ -2133,7 +2133,7 @@ void _mm_sfence(void);
 /// \headerfile <x86intrin.h>
 ///
 /// \code
-/// void _mm_extract_pi(__m64 a, int n);
+/// int _mm_extract_pi16(__m64 a, int n);
 /// \endcode
 ///
 /// This intrinsic corresponds to the <c> VPEXTRW / PEXTRW </c> instruction.
@@ -2157,7 +2157,7 @@ void _mm_sfence(void);
 /// \headerfile <x86intrin.h>
 ///
 /// \code
-/// void _mm_insert_pi(__m64 a, int d, int n);
+/// __m64 _mm_insert_pi16(__m64 a, int d, int n);
 /// \endcode
 ///
 /// This intrinsic corresponds to the <c> VPINSRW / PINSRW </c> instruction.
@@ -2331,8 +2331,10 @@ _mm_mulhi_pu16(__m64 __a, __m64 __b)
 /// \brief Conditionally copies the values from each 8-bit element in the first
 ///    64-bit integer vector operand to the specified memory location, as
 ///    specified by the most significant bit in the corresponding element in the
-///    second 64-bit integer vector operand. To minimize caching, the data is
-///    flagged as non-temporal (unlikely to be used again soon).
+///    second 64-bit integer vector operand.
+///
+///    To minimize caching, the data is flagged as non-temporal
+///    (unlikely to be used again soon).
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -2435,17 +2437,17 @@ extern "C" {
 ///      For checking exception masks: _MM_MASK_UNDERFLOW, _MM_MASK_OVERFLOW,
 ///      _MM_MASK_INVALID, _MM_MASK_DENORM, _MM_MASK_DIV_ZERO, _MM_MASK_INEXACT.
 ///      There is a convenience wrapper _MM_GET_EXCEPTION_MASK().
-///    </li>            
+///    </li>
 ///    <li>
 ///      For checking rounding modes: _MM_ROUND_NEAREST, _MM_ROUND_DOWN,
 ///      _MM_ROUND_UP, _MM_ROUND_TOWARD_ZERO. There is a convenience wrapper
 ///      _MM_GET_ROUNDING_MODE(x) where x is one of these macros.
 ///    </li>
-///    <li> 
+///    <li>
 ///      For checking flush-to-zero mode: _MM_FLUSH_ZERO_ON, _MM_FLUSH_ZERO_OFF.
 ///      There is a convenience wrapper _MM_GET_FLUSH_ZERO_MODE().
 ///    </li>
-///    <li> 
+///    <li>
 ///      For checking denormals-are-zero mode: _MM_DENORMALS_ZERO_ON,
 ///      _MM_DENORMALS_ZERO_OFF. There is a convenience wrapper
 ///      _MM_GET_DENORMALS_ZERO_MODE().
@@ -2468,11 +2470,11 @@ extern "C" {
 unsigned int _mm_getcsr(void);
 
 /// \brief Sets the MXCSR register with the 32-bit unsigned integer value.
-///   
+///
 ///    There are several groups of macros associated with this intrinsic,
 ///    including:
 ///    <ul>
-///    <li> 
+///    <li>
 ///      For setting exception states: _MM_EXCEPT_INVALID, _MM_EXCEPT_DIV_ZERO,
 ///      _MM_EXCEPT_DENORM, _MM_EXCEPT_OVERFLOW, _MM_EXCEPT_UNDERFLOW,
 ///      _MM_EXCEPT_INEXACT. There is a convenience wrapper
@@ -2517,7 +2519,7 @@ unsigned int _mm_getcsr(void);
 ///
 /// \param __i
 ///    A 32-bit unsigned integer value to be written to the MXCSR register.
-void _mm_setcsr(unsigned int);
+void _mm_setcsr(unsigned int __i);
 
 #if defined(__cplusplus)
 } // extern "C"
@@ -2540,7 +2542,7 @@ void _mm_setcsr(unsigned int);
 ///    A 128-bit vector of [4 x float].
 /// \param mask
 ///    An immediate value containing an 8-bit value specifying which elements to
-///    copy from \ a and \a b. \n
+///    copy from \a a and \a b. \n
 ///    Bits [3:0] specify the values copied from operand \a a. \n
 ///    Bits [7:4] specify the values copied from operand \a b. \n
 ///    The destinations within the 128-bit destination are assigned values as
@@ -2678,8 +2680,7 @@ _mm_movelh_ps(__m128 __a, __m128 __b)
 ///
 /// \headerfile <x86intrin.h>
 ///
-/// This intrinsic corresponds to the <c> CVTPI2PS + \c COMPOSITE </c>
-///   instruction.
+/// This intrinsic corresponds to the <c> CVTPI2PS + COMPOSITE </c> instruction.
 ///
 /// \param __a
 ///    A 64-bit vector of [4 x i16]. The elements of the destination are copied
@@ -2709,8 +2710,7 @@ _mm_cvtpi16_ps(__m64 __a)
 ///
 /// \headerfile <x86intrin.h>
 ///
-/// This intrinsic corresponds to the <c> CVTPI2PS + \c COMPOSITE </c>
-///   instruction.
+/// This intrinsic corresponds to the <c> CVTPI2PS + COMPOSITE </c> instruction.
 ///
 /// \param __a
 ///    A 64-bit vector of 16-bit unsigned integer values. The elements of the
@@ -2739,8 +2739,7 @@ _mm_cvtpu16_ps(__m64 __a)
 ///
 /// \headerfile <x86intrin.h>
 ///
-/// This intrinsic corresponds to the <c> CVTPI2PS + \c COMPOSITE </c>
-///   instruction.
+/// This intrinsic corresponds to the <c> CVTPI2PS + COMPOSITE </c> instruction.
 ///
 /// \param __a
 ///    A 64-bit vector of [8 x i8]. The elements of the destination are copied
@@ -2764,8 +2763,7 @@ _mm_cvtpi8_ps(__m64 __a)
 ///
 /// \headerfile <x86intrin.h>
 ///
-/// This intrinsic corresponds to the <c> CVTPI2PS + \c COMPOSITE </c>
-///   instruction.
+/// This intrinsic corresponds to the <c> CVTPI2PS + COMPOSITE </c> instruction.
 ///
 /// \param __a
 ///    A 64-bit vector of unsigned 8-bit integer values. The elements of the
@@ -2789,8 +2787,7 @@ _mm_cvtpu8_ps(__m64 __a)
 ///
 /// \headerfile <x86intrin.h>
 ///
-/// This intrinsic corresponds to the <c> CVTPI2PS + \c COMPOSITE </c>
-///   instruction.
+/// This intrinsic corresponds to the <c> CVTPI2PS + COMPOSITE </c> instruction.
 ///
 /// \param __a
 ///    A 64-bit vector of [2 x i32]. The lower elements of the destination are
@@ -2815,16 +2812,16 @@ _mm_cvtpi32x2_ps(__m64 __a, __m64 __b)
 
 /// \brief Converts each single-precision floating-point element of a 128-bit
 ///    floating-point vector of [4 x float] into a 16-bit signed integer, and
-///    packs the results into a 64-bit integer vector of [4 x i16]. If the
-///    floating-point element is NaN or infinity, or if the floating-point
-///    element is greater than 0x7FFFFFFF or less than -0x8000, it is converted
-///    to 0x8000. Otherwise if the floating-point element is greater than
-///    0x7FFF, it is converted to 0x7FFF.
+///    packs the results into a 64-bit integer vector of [4 x i16].
+///
+///    If the floating-point element is NaN or infinity, or if the
+///    floating-point element is greater than 0x7FFFFFFF or less than -0x8000,
+///    it is converted to 0x8000. Otherwise if the floating-point element is
+///    greater than 0x7FFF, it is converted to 0x7FFF.
 ///
 /// \headerfile <x86intrin.h>
 ///
-/// This intrinsic corresponds to the <c> CVTPS2PI + \c COMPOSITE </c>
-///   instruction.
+/// This intrinsic corresponds to the <c> CVTPS2PI + COMPOSITE </c> instruction.
 ///
 /// \param __a
 ///    A 128-bit floating-point vector of [4 x float].
@@ -2845,16 +2842,16 @@ _mm_cvtps_pi16(__m128 __a)
 /// \brief Converts each single-precision floating-point element of a 128-bit
 ///    floating-point vector of [4 x float] into an 8-bit signed integer, and
 ///    packs the results into the lower 32 bits of a 64-bit integer vector of
-///    [8 x i8]. The upper 32 bits of the vector are set to 0. If the
-///    floating-point element is NaN or infinity, or if the floating-point
-///    element is greater than 0x7FFFFFFF or less than -0x80, it is converted
-///    to 0x80. Otherwise if the floating-point element is greater than 0x7F,
-///    it is converted to 0x7F.
+///    [8 x i8]. The upper 32 bits of the vector are set to 0.
+///
+///    If the floating-point element is NaN or infinity, or if the
+///    floating-point element is greater than 0x7FFFFFFF or less than -0x80, it
+///    is converted to 0x80. Otherwise if the floating-point element is greater
+///    than 0x7F, it is converted to 0x7F.
 ///
 /// \headerfile <x86intrin.h>
 ///
-/// This intrinsic corresponds to the <c> CVTPS2PI + \c COMPOSITE </c>
-///   instruction.
+/// This intrinsic corresponds to the <c> CVTPS2PI + COMPOSITE </c> instruction.
 ///
 /// \param __a
 ///    128-bit floating-point vector of [4 x float].

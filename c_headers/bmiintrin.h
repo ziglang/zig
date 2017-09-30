@@ -28,107 +28,17 @@
 #ifndef __BMIINTRIN_H
 #define __BMIINTRIN_H
 
-/// \brief Counts the number of trailing zero bits in the operand.
-///
-/// \headerfile <x86intrin.h>
-///
-/// \code
-/// unsigned short _tzcnt_u16(unsigned short a);
-/// \endcode
-///
-/// This intrinsic corresponds to the <c> TZCNT </c> instruction.
-///
-/// \param a
-///    An unsigned 16-bit integer whose trailing zeros are to be counted.
-/// \returns An unsigned 16-bit integer containing the number of trailing zero
-///    bits in the operand.
 #define _tzcnt_u16(a)     (__tzcnt_u16((a)))
 
-/// \brief Performs a bitwise AND of the second operand with the one's
-///    complement of the first operand.
-///
-/// \headerfile <x86intrin.h>
-///
-/// \code
-/// unsigned int _andn_u32(unsigned int a, unsigned int b);
-/// \endcode
-///
-/// This intrinsic corresponds to the <c> ANDN </c> instruction.
-///
-/// \param a
-///    An unsigned integer containing one of the operands.
-/// \param b
-///    An unsigned integer containing one of the operands.
-/// \returns An unsigned integer containing the bitwise AND of the second
-///    operand with the one's complement of the first operand.
 #define _andn_u32(a, b)   (__andn_u32((a), (b)))
 
 /* _bextr_u32 != __bextr_u32 */
-/// \brief Clears all bits in the source except for the least significant bit
-///    containing a value of 1 and returns the result.
-///
-/// \headerfile <x86intrin.h>
-///
-/// \code
-/// unsigned int _blsi_u32(unsigned int a);
-/// \endcode
-///
-/// This intrinsic corresponds to the <c> BLSI </c> instruction.
-///
-/// \param a
-///    An unsigned integer whose bits are to be cleared.
-/// \returns An unsigned integer containing the result of clearing the bits from
-///    the source operand.
 #define _blsi_u32(a)      (__blsi_u32((a)))
 
-/// \brief Creates a mask whose bits are set to 1, using bit 0 up to and
-///    including the least siginificant bit that is set to 1 in the source
-///    operand and returns the result.
-///
-/// \headerfile <x86intrin.h>
-///
-/// \code
-/// unsigned int _blsmsk_u32(unsigned int a);
-/// \endcode
-///
-/// This intrinsic corresponds to the <c> BLSMSK </c> instruction.
-///
-/// \param a
-///    An unsigned integer used to create the mask.
-/// \returns An unsigned integer containing the newly created mask.
 #define _blsmsk_u32(a)    (__blsmsk_u32((a)))
 
-/// \brief Clears the least siginificant bit that is set to 1 in the source
-///    operand and returns the result.
-///
-/// \headerfile <x86intrin.h>
-///
-/// \code
-/// unsigned int _blsr_u32(unsigned int a);
-/// \endcode
-///
-/// This intrinsic corresponds to the <c> BLSR </c> instruction.
-///
-/// \param a
-///    An unsigned integer containing the operand to be cleared.
-/// \returns An unsigned integer containing the result of clearing the source
-///    operand.
 #define _blsr_u32(a)      (__blsr_u32((a)))
 
-/// \brief Counts the number of trailing zero bits in the operand.
-///
-/// \headerfile <x86intrin.h>
-///
-/// \code
-/// unsigned int _tzcnt_u32(unsigned int a);
-/// \endcode
-///
-/// This intrinsic corresponds to the <c> TZCNT </c> instruction.
-///
-/// \param a
-///    An unsigned 32-bit integer whose trailing zeros are to be counted.
-/// \returns An unsigned 32-bit integer containing the number of trailing zero
-///    bits in the operand.
 #define _tzcnt_u32(a)     (__tzcnt_u32((a)))
 
 /* Define the default attributes for the functions in this file. */
@@ -238,7 +148,7 @@ __blsi_u32(unsigned int __X)
 }
 
 /// \brief Creates a mask whose bits are set to 1, using bit 0 up to and
-///    including the least siginificant bit that is set to 1 in the source
+///    including the least significant bit that is set to 1 in the source
 ///    operand and returns the result.
 ///
 /// \headerfile <x86intrin.h>
@@ -254,7 +164,7 @@ __blsmsk_u32(unsigned int __X)
   return __X ^ (__X - 1);
 }
 
-/// \brief Clears the least siginificant bit that is set to 1 in the source
+/// \brief Clears the least significant bit that is set to 1 in the source
 ///    operand and returns the result.
 ///
 /// \headerfile <x86intrin.h>
@@ -305,91 +215,15 @@ _mm_tzcnt_32(unsigned int __X)
 
 #ifdef __x86_64__
 
-/// \brief Performs a bitwise AND of the second operand with the one's
-///    complement of the first operand.
-///
-/// \headerfile <x86intrin.h>
-///
-/// \code
-/// unsigned long long _andn_u64 (unsigned long long a, unsigned long long b);
-/// \endcode
-///
-/// This intrinsic corresponds to the <c> ANDN </c> instruction.
-///
-/// \param a
-///    An unsigned 64-bit integer containing one of the operands.
-/// \param b
-///    An unsigned 64-bit integer containing one of the operands.
-/// \returns An unsigned 64-bit integer containing the bitwise AND of the second
-///    operand with the one's complement of the first operand.
 #define _andn_u64(a, b)   (__andn_u64((a), (b)))
 
 /* _bextr_u64 != __bextr_u64 */
-/// \brief Clears all bits in the source except for the least significant bit
-///    containing a value of 1 and returns the result.
-///
-/// \headerfile <x86intrin.h>
-///
-/// \code
-/// unsigned long long _blsi_u64(unsigned long long a);
-/// \endcode
-///
-/// This intrinsic corresponds to the <c> BLSI </c> instruction.
-///
-/// \param a
-///    An unsigned 64-bit integer whose bits are to be cleared.
-/// \returns An unsigned 64-bit integer containing the result of clearing the
-///    bits from the source operand.
 #define _blsi_u64(a)      (__blsi_u64((a)))
 
-/// \brief Creates a mask whose bits are set to 1, using bit 0 up to and
-///    including the least siginificant bit that is set to 1 in the source
-///    operand and returns the result.
-///
-/// \headerfile <x86intrin.h>
-///
-/// \code
-/// unsigned long long _blsmsk_u64(unsigned long long a);
-/// \endcode
-///
-/// This intrinsic corresponds to the <c> BLSMSK </c> instruction.
-///
-/// \param a
-///    An unsigned 64-bit integer used to create the mask.
-/// \returns A unsigned 64-bit integer containing the newly created mask.
 #define _blsmsk_u64(a)    (__blsmsk_u64((a)))
 
-/// \brief Clears the least siginificant bit that is set to 1 in the source
-///    operand and returns the result.
-///
-/// \headerfile <x86intrin.h>
-///
-/// \code
-/// unsigned long long _blsr_u64(unsigned long long a);
-/// \endcode
-///
-/// This intrinsic corresponds to the <c> BLSR </c> instruction.
-///
-/// \param a
-///    An unsigned 64-bit integer containing the operand to be cleared.
-/// \returns An unsigned 64-bit integer containing the result of clearing the
-///    source operand.
 #define _blsr_u64(a)      (__blsr_u64((a)))
 
-/// \brief Counts the number of trailing zero bits in the operand.
-///
-/// \headerfile <x86intrin.h>
-///
-/// \code
-/// unsigned long long _tzcnt_u64(unsigned long long a);
-/// \endcode
-///
-/// This intrinsic corresponds to the <c> TZCNT </c> instruction.
-///
-/// \param a
-///    An unsigned 64-bit integer whose trailing zeros are to be counted.
-/// \returns An unsigned 64-bit integer containing the number of trailing zero
-///    bits in the operand.
 #define _tzcnt_u64(a)     (__tzcnt_u64((a)))
 
 /// \brief Performs a bitwise AND of the second operand with the one's
@@ -475,7 +309,7 @@ __blsi_u64(unsigned long long __X)
 }
 
 /// \brief Creates a mask whose bits are set to 1, using bit 0 up to and
-///    including the least siginificant bit that is set to 1 in the source
+///    including the least significant bit that is set to 1 in the source
 ///    operand and returns the result.
 ///
 /// \headerfile <x86intrin.h>
@@ -484,14 +318,14 @@ __blsi_u64(unsigned long long __X)
 ///
 /// \param __X
 ///    An unsigned 64-bit integer used to create the mask.
-/// \returns A unsigned 64-bit integer containing the newly created mask.
+/// \returns An unsigned 64-bit integer containing the newly created mask.
 static __inline__ unsigned long long __DEFAULT_FN_ATTRS
 __blsmsk_u64(unsigned long long __X)
 {
   return __X ^ (__X - 1);
 }
 
-/// \brief Clears the least siginificant bit that is set to 1 in the source
+/// \brief Clears the least significant bit that is set to 1 in the source
 ///    operand and returns the result.
 ///
 /// \headerfile <x86intrin.h>

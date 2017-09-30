@@ -198,13 +198,13 @@ _mm_hsubq_epi32(__m128i __A)
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_cmov_si128(__m128i __A, __m128i __B, __m128i __C)
 {
-  return (__m128i)__builtin_ia32_vpcmov((__v2di)__A, (__v2di)__B, (__v2di)__C);
+  return (__m128i)(((__v2du)__A & (__v2du)__C) | ((__v2du)__B & ~(__v2du)__C));
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_cmov_si256(__m256i __A, __m256i __B, __m256i __C)
 {
-  return (__m256i)__builtin_ia32_vpcmov_256((__v4di)__A, (__v4di)__B, (__v4di)__C);
+  return (__m256i)(((__v4du)__A & (__v4du)__C) | ((__v4du)__B & ~(__v4du)__C));
 }
 
 static __inline__ __m128i __DEFAULT_FN_ATTRS

@@ -31,9 +31,11 @@
   __attribute__((__always_inline__, __nodebug__, __target__("sse3")))
 
 /// \brief Loads data from an unaligned memory location to elements in a 128-bit
-///    vector. If the address of the data is not 16-byte aligned, the
-///    instruction may read two adjacent aligned blocks of memory to retrieve
-///    the requested data.
+///    vector.
+///
+///    If the address of the data is not 16-byte aligned, the instruction may
+///    read two adjacent aligned blocks of memory to retrieve the requested
+///    data.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -115,7 +117,7 @@ _mm_hsub_ps(__m128 __a, __m128 __b)
 
 /// \brief Moves and duplicates high-order (odd-indexed) values from a 128-bit
 ///    vector of [4 x float] to float values stored in a 128-bit vector of
-///    [4 x float]. 
+///    [4 x float].
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -136,7 +138,7 @@ _mm_movehdup_ps(__m128 __a)
 }
 
 /// \brief Duplicates low-order (even-indexed) values from a 128-bit vector of
-///    [4 x float] to float values stored in a 128-bit vector of [4 x float]. 
+///    [4 x float] to float values stored in a 128-bit vector of [4 x float].
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -256,14 +258,6 @@ _mm_movedup_pd(__m128d __a)
 {
   return __builtin_shufflevector((__v2df)__a, (__v2df)__a, 0, 0);
 }
-
-#define _MM_DENORMALS_ZERO_ON   (0x0040)
-#define _MM_DENORMALS_ZERO_OFF  (0x0000)
-
-#define _MM_DENORMALS_ZERO_MASK (0x0040)
-
-#define _MM_GET_DENORMALS_ZERO_MODE() (_mm_getcsr() & _MM_DENORMALS_ZERO_MASK)
-#define _MM_SET_DENORMALS_ZERO_MODE(x) (_mm_setcsr((_mm_getcsr() & ~_MM_DENORMALS_ZERO_MASK) | (x)))
 
 /// \brief Establishes a linear address memory range to be monitored and puts
 ///    the processor in the monitor event pending state. Data stored in the

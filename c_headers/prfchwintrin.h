@@ -29,12 +29,38 @@
 #define __PRFCHWINTRIN_H
 
 #if defined(__PRFCHW__) || defined(__3dNOW__)
+/// \brief Loads a memory sequence containing the specified memory address into
+///    all data cache levels. The cache-coherency state is set to exclusive.
+///    Data can be read from and written to the cache line without additional
+///    delay.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the \c PREFETCHT0 instruction.
+///
+/// \param __P
+///    A pointer specifying the memory address to be prefetched.
 static __inline__ void __attribute__((__always_inline__, __nodebug__))
 _m_prefetch(void *__P)
 {
   __builtin_prefetch (__P, 0, 3 /* _MM_HINT_T0 */);
 }
 
+/// \brief Loads a memory sequence containing the specified memory address into
+///    the L1 data cache and sets the cache-coherency to modified. This
+///    provides a hint to the processor that the cache line will be modified.
+///    It is intended for use when the cache line will be written to shortly
+///    after the prefetch is performed.
+///
+///    Note that the effect of this intrinsic is dependent on the processor
+///    implementation.
+///
+/// \headerfile <x86intrin.h>
+///
+/// This intrinsic corresponds to the \c PREFETCHW instruction.
+///
+/// \param __P
+///    A pointer specifying the memory address to be prefetched.
 static __inline__ void __attribute__((__always_inline__, __nodebug__))
 _m_prefetchw(void *__P)
 {

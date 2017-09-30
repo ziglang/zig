@@ -211,7 +211,7 @@ _mm_packs_pu16(__m64 __m1, __m64 __m2)
 /// This intrinsic corresponds to the <c> PUNPCKHBW </c> instruction.
 ///
 /// \param __m1
-///    A 64-bit integer vector of [8 x i8]. \n 
+///    A 64-bit integer vector of [8 x i8]. \n
 ///    Bits [39:32] are written to bits [7:0] of the result. \n
 ///    Bits [47:40] are written to bits [23:16] of the result. \n
 ///    Bits [55:48] are written to bits [39:32] of the result. \n
@@ -608,10 +608,11 @@ _mm_subs_pi16(__m64 __m1, __m64 __m2)
 
 /// \brief Subtracts each 8-bit unsigned integer element of the second 64-bit
 ///    integer vector of [8 x i8] from the corresponding 8-bit unsigned integer
-///    element of the first 64-bit integer vector of [8 x i8]. If an element of
-///    the first vector is less than the corresponding element of the second
-///    vector, the result is saturated to 0. The results are packed into a
-///    64-bit integer vector of [8 x i8].
+///    element of the first 64-bit integer vector of [8 x i8].
+///
+///    If an element of the first vector is less than the corresponding element
+///    of the second vector, the result is saturated to 0. The results are
+///    packed into a 64-bit integer vector of [8 x i8].
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -631,10 +632,11 @@ _mm_subs_pu8(__m64 __m1, __m64 __m2)
 
 /// \brief Subtracts each 16-bit unsigned integer element of the second 64-bit
 ///    integer vector of [4 x i16] from the corresponding 16-bit unsigned
-///    integer element of the first 64-bit integer vector of [4 x i16]. If an
-///    element of the first vector is less than the corresponding element of the
-///    second vector, the result is saturated to 0. The results are packed into
-///    a 64-bit integer vector of [4 x i16].
+///    integer element of the first 64-bit integer vector of [4 x i16].
+///
+///    If an element of the first vector is less than the corresponding element
+///    of the second vector, the result is saturated to 0. The results are
+///    packed into a 64-bit integer vector of [4 x i16].
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -657,9 +659,11 @@ _mm_subs_pu16(__m64 __m1, __m64 __m2)
 ///    element of the second 64-bit integer vector of [4 x i16] and get four
 ///    32-bit products. Adds adjacent pairs of products to get two 32-bit sums.
 ///    The lower 32 bits of these two sums are packed into a 64-bit integer
-///    vector of [2 x i32]. For example, bits [15:0] of both parameters are
-///    multiplied, bits [31:16] of both parameters are multiplied, and the sum
-///    of both results is written to bits [31:0] of the result.
+///    vector of [2 x i32].
+///
+///    For example, bits [15:0] of both parameters are multiplied, bits [31:16]
+///    of both parameters are multiplied, and the sum of both results is written
+///    to bits [31:0] of the result.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -851,10 +855,11 @@ _mm_slli_si64(__m64 __m, int __count)
 
 /// \brief Right-shifts each 16-bit integer element of the first parameter,
 ///    which is a 64-bit integer vector of [4 x i16], by the number of bits
-///    specified by the second parameter, which is a 64-bit integer. High-order
-///    bits are filled with the sign bit of the initial value of each 16-bit
-///    element. The 16-bit results are packed into a 64-bit integer vector of
-///    [4 x i16].
+///    specified by the second parameter, which is a 64-bit integer.
+///
+///    High-order bits are filled with the sign bit of the initial value of each
+///    16-bit element. The 16-bit results are packed into a 64-bit integer
+///    vector of [4 x i16].
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -874,6 +879,7 @@ _mm_sra_pi16(__m64 __m, __m64 __count)
 
 /// \brief Right-shifts each 16-bit integer element of a 64-bit integer vector
 ///    of [4 x i16] by the number of bits specified by a 32-bit integer.
+///
 ///    High-order bits are filled with the sign bit of the initial value of each
 ///    16-bit element. The 16-bit results are packed into a 64-bit integer
 ///    vector of [4 x i16].
@@ -896,10 +902,11 @@ _mm_srai_pi16(__m64 __m, int __count)
 
 /// \brief Right-shifts each 32-bit integer element of the first parameter,
 ///    which is a 64-bit integer vector of [2 x i32], by the number of bits
-///    specified by the second parameter, which is a 64-bit integer. High-order
-///    bits are filled with the sign bit of the initial value of each 32-bit
-///    element. The 32-bit results are packed into a 64-bit integer vector of
-///    [2 x i32].
+///    specified by the second parameter, which is a 64-bit integer.
+///
+///    High-order bits are filled with the sign bit of the initial value of each
+///    32-bit element. The 32-bit results are packed into a 64-bit integer
+///    vector of [2 x i32].
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -919,6 +926,7 @@ _mm_sra_pi32(__m64 __m, __m64 __count)
 
 /// \brief Right-shifts each 32-bit integer element of a 64-bit integer vector
 ///    of [2 x i32] by the number of bits specified by a 32-bit integer.
+///
 ///    High-order bits are filled with the sign bit of the initial value of each
 ///    32-bit element. The 32-bit results are packed into a 64-bit integer
 ///    vector of [2 x i32].
@@ -941,9 +949,10 @@ _mm_srai_pi32(__m64 __m, int __count)
 
 /// \brief Right-shifts each 16-bit integer element of the first parameter,
 ///    which is a 64-bit integer vector of [4 x i16], by the number of bits
-///    specified by the second parameter, which is a 64-bit integer. High-order
-///    bits are cleared. The 16-bit results are packed into a 64-bit integer
-///    vector of [4 x i16].
+///    specified by the second parameter, which is a 64-bit integer.
+///
+///    High-order bits are cleared. The 16-bit results are packed into a 64-bit
+///    integer vector of [4 x i16].
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -963,6 +972,7 @@ _mm_srl_pi16(__m64 __m, __m64 __count)
 
 /// \brief Right-shifts each 16-bit integer element of a 64-bit integer vector
 ///    of [4 x i16] by the number of bits specified by a 32-bit integer.
+///
 ///    High-order bits are cleared. The 16-bit results are packed into a 64-bit
 ///    integer vector of [4 x i16].
 ///
@@ -984,9 +994,10 @@ _mm_srli_pi16(__m64 __m, int __count)
 
 /// \brief Right-shifts each 32-bit integer element of the first parameter,
 ///    which is a 64-bit integer vector of [2 x i32], by the number of bits
-///    specified by the second parameter, which is a 64-bit integer. High-order
-///    bits are cleared. The 32-bit results are packed into a 64-bit integer
-///    vector of [2 x i32].
+///    specified by the second parameter, which is a 64-bit integer.
+///
+///    High-order bits are cleared. The 32-bit results are packed into a 64-bit
+///    integer vector of [2 x i32].
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -1006,6 +1017,7 @@ _mm_srl_pi32(__m64 __m, __m64 __count)
 
 /// \brief Right-shifts each 32-bit integer element of a 64-bit integer vector
 ///    of [2 x i32] by the number of bits specified by a 32-bit integer.
+///
 ///    High-order bits are cleared. The 32-bit results are packed into a 64-bit
 ///    integer vector of [2 x i32].
 ///
@@ -1026,8 +1038,9 @@ _mm_srli_pi32(__m64 __m, int __count)
 }
 
 /// \brief Right-shifts the first 64-bit integer parameter by the number of bits
-///    specified by the second 64-bit integer parameter. High-order bits are
-///    cleared.
+///    specified by the second 64-bit integer parameter.
+///
+///    High-order bits are cleared.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -1046,7 +1059,9 @@ _mm_srl_si64(__m64 __m, __m64 __count)
 
 /// \brief Right-shifts the first parameter, which is a 64-bit integer, by the
 ///    number of bits specified by the second parameter, which is a 32-bit
-///    integer. High-order bits are cleared.
+///    integer.
+///
+///    High-order bits are cleared.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -1140,8 +1155,9 @@ _mm_xor_si64(__m64 __m1, __m64 __m2)
 
 /// \brief Compares the 8-bit integer elements of two 64-bit integer vectors of
 ///    [8 x i8] to determine if the element of the first vector is equal to the
-///    corresponding element of the second vector. The comparison yields 0 for
-///    false, 0xFF for true.
+///    corresponding element of the second vector.
+///
+///    The comparison yields 0 for false, 0xFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -1161,8 +1177,9 @@ _mm_cmpeq_pi8(__m64 __m1, __m64 __m2)
 
 /// \brief Compares the 16-bit integer elements of two 64-bit integer vectors of
 ///    [4 x i16] to determine if the element of the first vector is equal to the
-///    corresponding element of the second vector. The comparison yields 0 for
-///    false, 0xFFFF for true.
+///    corresponding element of the second vector.
+///
+///    The comparison yields 0 for false, 0xFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -1182,8 +1199,9 @@ _mm_cmpeq_pi16(__m64 __m1, __m64 __m2)
 
 /// \brief Compares the 32-bit integer elements of two 64-bit integer vectors of
 ///    [2 x i32] to determine if the element of the first vector is equal to the
-///    corresponding element of the second vector. The comparison yields 0 for
-///    false, 0xFFFFFFFF for true.
+///    corresponding element of the second vector.
+///
+///    The comparison yields 0 for false, 0xFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -1203,8 +1221,9 @@ _mm_cmpeq_pi32(__m64 __m1, __m64 __m2)
 
 /// \brief Compares the 8-bit integer elements of two 64-bit integer vectors of
 ///    [8 x i8] to determine if the element of the first vector is greater than
-///    the corresponding element of the second vector. The comparison yields 0
-///    for false, 0xFF for true.
+///    the corresponding element of the second vector.
+///
+///    The comparison yields 0 for false, 0xFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -1224,8 +1243,9 @@ _mm_cmpgt_pi8(__m64 __m1, __m64 __m2)
 
 /// \brief Compares the 16-bit integer elements of two 64-bit integer vectors of
 ///    [4 x i16] to determine if the element of the first vector is greater than
-///    the corresponding element of the second vector. The comparison yields 0
-///    for false, 0xFFFF for true.
+///    the corresponding element of the second vector.
+///
+///    The comparison yields 0 for false, 0xFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -1245,8 +1265,9 @@ _mm_cmpgt_pi16(__m64 __m1, __m64 __m2)
 
 /// \brief Compares the 32-bit integer elements of two 64-bit integer vectors of
 ///    [2 x i32] to determine if the element of the first vector is greater than
-///    the corresponding element of the second vector. The comparison yields 0
-///    for false, 0xFFFFFFFF for true.
+///    the corresponding element of the second vector.
+///
+///    The comparison yields 0 for false, 0xFFFFFFFF for true.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -1268,7 +1289,7 @@ _mm_cmpgt_pi32(__m64 __m1, __m64 __m2)
 ///
 /// \headerfile <x86intrin.h>
 ///
-/// This intrinsic corresponds to the the <c> VXORPS / XORPS </c> instruction.
+/// This intrinsic corresponds to the <c> VXORPS / XORPS </c> instruction.
 ///
 /// \returns An initialized 64-bit integer vector with all elements set to zero.
 static __inline__ __m64 __DEFAULT_FN_ATTRS

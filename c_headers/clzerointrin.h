@@ -1,6 +1,4 @@
-/*===---- stdarg.h - Variable argument handling ----------------------------===
- *
- * Copyright (c) 2008 Eli Friedman
+/*===----------------------- clzerointrin.h - CLZERO ----------------------===
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,33 +20,31 @@
  *
  *===-----------------------------------------------------------------------===
  */
-
-#ifndef __STDARG_H
-#define __STDARG_H
-
-#ifndef _VA_LIST
-typedef __builtin_va_list va_list;
-#define _VA_LIST
-#endif
-#define va_start(ap, param) __builtin_va_start(ap, param)
-#define va_end(ap)          __builtin_va_end(ap)
-#define va_arg(ap, type)    __builtin_va_arg(ap, type)
-
-/* GCC always defines __va_copy, but does not define va_copy unless in c99 mode
- * or -ansi is not specified, since it was not part of C90.
- */
-#define __va_copy(d,s) __builtin_va_copy(d,s)
-
-#if __STDC_VERSION__ >= 199901L || __cplusplus >= 201103L || !defined(__STRICT_ANSI__)
-#define va_copy(dest, src)  __builtin_va_copy(dest, src)
+#ifndef __X86INTRIN_H
+#error "Never use <clzerointrin.h> directly; include <x86intrin.h> instead."
 #endif
 
-#ifndef __GNUC_VA_LIST
-#define __GNUC_VA_LIST 1
-typedef __builtin_va_list __gnuc_va_list;
-/* zig: added because glibc stdio.h was duplicately defining va_list
- */
-#define _VA_LIST_DEFINED
-#endif
+#ifndef _CLZEROINTRIN_H
+#define _CLZEROINTRIN_H
 
-#endif /* __STDARG_H */
+/* Define the default attributes for the functions in this file. */
+#define __DEFAULT_FN_ATTRS \
+  __attribute__((__always_inline__, __nodebug__,  __target__("clzero")))
+
+/// \brief Loads the cache line address and zero's out the cacheline
+///
+/// \headerfile <clzerointrin.h>
+///
+/// This intrinsic corresponds to the <c> CLZERO </c> instruction.
+///
+/// \param __line
+///    A pointer to a cacheline which needs to be zeroed out.
+static __inline__ void __DEFAULT_FN_ATTRS
+_mm_clzero (void * __line)
+{
+  __builtin_ia32_clzero ((void *)__line);
+}
+
+#undef __DEFAULT_FN_ATTRS 
+
+#endif /* _CLZEROINTRIN_H */

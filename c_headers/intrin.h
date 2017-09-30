@@ -69,7 +69,6 @@ static __inline__
 __int64 __emul(int, int);
 static __inline__
 unsigned __int64 __emulu(unsigned int, unsigned int);
-void __cdecl __fastfail(unsigned int);
 unsigned int __getcallerseflags(void);
 static __inline__
 void __halt(void);
@@ -80,16 +79,12 @@ void __incfsdword(unsigned long);
 void __incfsword(unsigned long);
 unsigned long __indword(unsigned short);
 void __indwordstring(unsigned short, unsigned long *, unsigned long);
-void __int2c(void);
 void __invlpg(void *);
 unsigned short __inword(unsigned short);
 void __inwordstring(unsigned short, unsigned short *, unsigned long);
 void __lidt(void *);
 unsigned __int64 __ll_lshift(unsigned __int64, int);
 __int64 __ll_rshift(__int64, int);
-void __llwpcb(void *);
-unsigned char __lwpins32(unsigned int, unsigned int, unsigned int);
-void __lwpval32(unsigned int, unsigned int, unsigned int);
 unsigned int __lzcnt(unsigned int);
 unsigned short __lzcnt16(unsigned short);
 static __inline__
@@ -128,7 +123,6 @@ unsigned __int64 __readmsr(unsigned long);
 unsigned __int64 __readpmc(unsigned long);
 unsigned long __segmentlimit(unsigned long);
 void __sidt(void *);
-void *__slwpcb(void);
 static __inline__
 void __stosb(unsigned char *, unsigned char, size_t);
 static __inline__
@@ -142,7 +136,6 @@ void __svm_stgi(void);
 void __svm_vmload(size_t);
 void __svm_vmrun(size_t);
 void __svm_vmsave(size_t);
-void __ud2(void);
 unsigned __int64 __ull_rshift(unsigned __int64, int);
 void __vmx_off(void);
 void __vmx_vmptrst(unsigned __int64 *);
@@ -176,7 +169,6 @@ void __cdecl _disable(void);
 void __cdecl _enable(void);
 long _InterlockedAddLargeStatistic(__int64 volatile *_Addend, long _Value);
 unsigned char _interlockedbittestandreset(long volatile *, long);
-static __inline__
 unsigned char _interlockedbittestandset(long volatile *, long);
 long _InterlockedCompareExchange_HLEAcquire(long volatile *, long, long);
 long _InterlockedCompareExchange_HLERelease(long volatile *, long, long);
@@ -231,8 +223,6 @@ void __incgsbyte(unsigned long);
 void __incgsdword(unsigned long);
 void __incgsqword(unsigned long);
 void __incgsword(unsigned long);
-unsigned char __lwpins64(unsigned __int64, unsigned int, unsigned int);
-void __lwpval64(unsigned __int64, unsigned int, unsigned int);
 unsigned __int64 __lzcnt64(unsigned __int64);
 static __inline__
 void __movsq(unsigned long long *, unsigned long long const *, size_t);
@@ -371,11 +361,6 @@ _bittestandset(long *_BitBase, long _BitPos) {
   unsigned char _Res = (*_BitBase >> _BitPos) & 1;
   *_BitBase = *_BitBase | (1 << _BitPos);
   return _Res;
-}
-static __inline__ unsigned char __DEFAULT_FN_ATTRS
-_interlockedbittestandset(long volatile *_BitBase, long _BitPos) {
-  long _PrevVal = __atomic_fetch_or(_BitBase, 1l << _BitPos, __ATOMIC_SEQ_CST);
-  return (_PrevVal >> _BitPos) & 1;
 }
 #if defined(__arm__) || defined(__aarch64__)
 static __inline__ unsigned char __DEFAULT_FN_ATTRS
@@ -872,48 +857,7 @@ _InterlockedCompareExchange64_rel(__int64 volatile *_Destination,
   return _Comparand;
 }
 #endif
-/*----------------------------------------------------------------------------*\
-|* readfs, readgs
-|* (Pointers in address space #256 and #257 are relative to the GS and FS
-|* segment registers, respectively.)
-\*----------------------------------------------------------------------------*/
-#define __ptr_to_addr_space(__addr_space_nbr, __type, __offset)              \
-    ((volatile __type __attribute__((__address_space__(__addr_space_nbr)))*) \
-    (__offset))
 
-#ifdef __i386__
-static __inline__ unsigned char __DEFAULT_FN_ATTRS
-__readfsbyte(unsigned long __offset) {
-  return *__ptr_to_addr_space(257, unsigned char, __offset);
-}
-static __inline__ unsigned short __DEFAULT_FN_ATTRS
-__readfsword(unsigned long __offset) {
-  return *__ptr_to_addr_space(257, unsigned short, __offset);
-}
-static __inline__ unsigned __int64 __DEFAULT_FN_ATTRS
-__readfsqword(unsigned long __offset) {
-  return *__ptr_to_addr_space(257, unsigned __int64, __offset);
-}
-#endif
-#ifdef __x86_64__
-static __inline__ unsigned char __DEFAULT_FN_ATTRS
-__readgsbyte(unsigned long __offset) {
-  return *__ptr_to_addr_space(256, unsigned char, __offset);
-}
-static __inline__ unsigned short __DEFAULT_FN_ATTRS
-__readgsword(unsigned long __offset) {
-  return *__ptr_to_addr_space(256, unsigned short, __offset);
-}
-static __inline__ unsigned long __DEFAULT_FN_ATTRS
-__readgsdword(unsigned long __offset) {
-  return *__ptr_to_addr_space(256, unsigned long, __offset);
-}
-static __inline__ unsigned __int64 __DEFAULT_FN_ATTRS
-__readgsqword(unsigned long __offset) {
-  return *__ptr_to_addr_space(256, unsigned __int64, __offset);
-}
-#endif
-#undef __ptr_to_addr_space
 /*----------------------------------------------------------------------------*\
 |* movs, stos
 \*----------------------------------------------------------------------------*/

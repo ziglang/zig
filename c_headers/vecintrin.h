@@ -116,6 +116,13 @@ vec_extract(vector unsigned long long __vec, int __index) {
   return __vec[__index & 1];
 }
 
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai float
+vec_extract(vector float __vec, int __index) {
+  return __vec[__index & 3];
+}
+#endif
+
 static inline __ATTRS_o_ai double
 vec_extract(vector double __vec, int __index) {
   return __vec[__index & 1];
@@ -129,6 +136,7 @@ vec_insert(signed char __scalar, vector signed char __vec, int __index) {
   return __vec;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned char
 vec_insert(unsigned char __scalar, vector bool char __vec, int __index) {
   vector unsigned char __newvec = (vector unsigned char)__vec;
@@ -148,6 +156,7 @@ vec_insert(signed short __scalar, vector signed short __vec, int __index) {
   return __vec;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned short
 vec_insert(unsigned short __scalar, vector bool short __vec, int __index) {
   vector unsigned short __newvec = (vector unsigned short)__vec;
@@ -167,6 +176,7 @@ vec_insert(signed int __scalar, vector signed int __vec, int __index) {
   return __vec;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned int
 vec_insert(unsigned int __scalar, vector bool int __vec, int __index) {
   vector unsigned int __newvec = (vector unsigned int)__vec;
@@ -187,6 +197,7 @@ vec_insert(signed long long __scalar, vector signed long long __vec,
   return __vec;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned long long
 vec_insert(unsigned long long __scalar, vector bool long long __vec,
            int __index) {
@@ -201,6 +212,14 @@ vec_insert(unsigned long long __scalar, vector unsigned long long __vec,
   __vec[__index & 1] = __scalar;
   return __vec;
 }
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_insert(float __scalar, vector float __vec, int __index) {
+  __vec[__index & 1] = __scalar;
+  return __vec;
+}
+#endif
 
 static inline __ATTRS_o_ai vector double
 vec_insert(double __scalar, vector double __vec, int __index) {
@@ -282,6 +301,16 @@ vec_promote(unsigned long long __scalar, int __index) {
   return __vec;
 }
 
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_promote(float __scalar, int __index) {
+  const vector float __zero = (vector float)0;
+  vector float __vec = __builtin_shufflevector(__zero, __zero, -1, -1, -1, -1);
+  __vec[__index & 3] = __scalar;
+  return __vec;
+}
+#endif
+
 static inline __ATTRS_o_ai vector double
 vec_promote(double __scalar, int __index) {
   const vector double __zero = (vector double)0;
@@ -347,6 +376,15 @@ vec_insert_and_zero(const unsigned long long *__ptr) {
   __vec[0] = *__ptr;
   return __vec;
 }
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_insert_and_zero(const float *__ptr) {
+  vector float __vec = (vector float)0;
+  __vec[0] = *__ptr;
+  return __vec;
+}
+#endif
 
 static inline __ATTRS_o_ai vector double
 vec_insert_and_zero(const double *__ptr) {
@@ -441,6 +479,15 @@ vec_perm(vector bool long long __a, vector bool long long __b,
            (vector unsigned char)__a, (vector unsigned char)__b, __c);
 }
 
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_perm(vector float __a, vector float __b,
+         vector unsigned char __c) {
+  return (vector float)__builtin_s390_vperm(
+           (vector unsigned char)__a, (vector unsigned char)__b, __c);
+}
+#endif
+
 static inline __ATTRS_o_ai vector double
 vec_perm(vector double __a, vector double __b,
          vector unsigned char __c) {
@@ -450,18 +497,22 @@ vec_perm(vector double __a, vector double __b,
 
 /*-- vec_permi --------------------------------------------------------------*/
 
+// This prototype is deprecated.
 extern __ATTRS_o vector signed long long
 vec_permi(vector signed long long __a, vector signed long long __b, int __c)
   __constant_range(__c, 0, 3);
 
+// This prototype is deprecated.
 extern __ATTRS_o vector unsigned long long
 vec_permi(vector unsigned long long __a, vector unsigned long long __b, int __c)
   __constant_range(__c, 0, 3);
 
+// This prototype is deprecated.
 extern __ATTRS_o vector bool long long
 vec_permi(vector bool long long __a, vector bool long long __b, int __c)
   __constant_range(__c, 0, 3);
 
+// This prototype is deprecated.
 extern __ATTRS_o vector double
 vec_permi(vector double __a, vector double __b, int __c)
   __constant_range(__c, 0, 3);
@@ -470,6 +521,15 @@ vec_permi(vector double __a, vector double __b, int __c)
   __builtin_s390_vpdi((vector unsigned long long)(X), \
                       (vector unsigned long long)(Y), \
                       (((Z) & 2) << 1) | ((Z) & 1)))
+
+/*-- vec_bperm_u128 ---------------------------------------------------------*/
+
+#if __ARCH__ >= 12
+static inline __ATTRS_ai vector unsigned long long
+vec_bperm_u128(vector unsigned char __a, vector unsigned char __b) {
+  return __builtin_s390_vbperm(__a, __b);
+}
+#endif
 
 /*-- vec_sel ----------------------------------------------------------------*/
 
@@ -614,6 +674,22 @@ vec_sel(vector unsigned long long __a, vector unsigned long long __b,
           (~(vector unsigned long long)__c & __a));
 }
 
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_sel(vector float __a, vector float __b, vector unsigned int __c) {
+  return (vector float)((__c & (vector unsigned int)__b) |
+                        (~__c & (vector unsigned int)__a));
+}
+
+static inline __ATTRS_o_ai vector float
+vec_sel(vector float __a, vector float __b, vector bool int __c) {
+  vector unsigned int __ac = (vector unsigned int)__a;
+  vector unsigned int __bc = (vector unsigned int)__b;
+  vector unsigned int __cc = (vector unsigned int)__c;
+  return (vector float)((__cc & __bc) | (~__cc & __ac));
+}
+#endif
+
 static inline __ATTRS_o_ai vector double
 vec_sel(vector double __a, vector double __b, vector unsigned long long __c) {
   return (vector double)((__c & (vector unsigned long long)__b) |
@@ -687,6 +763,17 @@ vec_gather_element(vector unsigned long long __vec,
   return __vec;
 }
 
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_gather_element(vector float __vec, vector unsigned int __offset,
+                   const float *__ptr, int __index)
+  __constant_range(__index, 0, 3) {
+  __vec[__index] = *(const float *)(
+    (__INTPTR_TYPE__)__ptr + (__INTPTR_TYPE__)__offset[__index]);
+  return __vec;
+}
+#endif
+
 static inline __ATTRS_o_ai vector double
 vec_gather_element(vector double __vec, vector unsigned long long __offset,
                    const double *__ptr, int __index)
@@ -749,6 +836,16 @@ vec_scatter_element(vector unsigned long long __vec,
     __vec[__index];
 }
 
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai void
+vec_scatter_element(vector float __vec, vector unsigned int __offset,
+                    float *__ptr, int __index)
+  __constant_range(__index, 0, 3) {
+  *(float *)((__INTPTR_TYPE__)__ptr + __offset[__index]) =
+    __vec[__index];
+}
+#endif
+
 static inline __ATTRS_o_ai void
 vec_scatter_element(vector double __vec, vector unsigned long long __offset,
                     double *__ptr, int __index)
@@ -757,48 +854,111 @@ vec_scatter_element(vector double __vec, vector unsigned long long __offset,
     __vec[__index];
 }
 
+/*-- vec_xl -----------------------------------------------------------------*/
+
+static inline __ATTRS_o_ai vector signed char
+vec_xl(long __offset, const signed char *__ptr) {
+  return *(const vector signed char *)((__INTPTR_TYPE__)__ptr + __offset);
+}
+
+static inline __ATTRS_o_ai vector unsigned char
+vec_xl(long __offset, const unsigned char *__ptr) {
+  return *(const vector unsigned char *)((__INTPTR_TYPE__)__ptr + __offset);
+}
+
+static inline __ATTRS_o_ai vector signed short
+vec_xl(long __offset, const signed short *__ptr) {
+  return *(const vector signed short *)((__INTPTR_TYPE__)__ptr + __offset);
+}
+
+static inline __ATTRS_o_ai vector unsigned short
+vec_xl(long __offset, const unsigned short *__ptr) {
+  return *(const vector unsigned short *)((__INTPTR_TYPE__)__ptr + __offset);
+}
+
+static inline __ATTRS_o_ai vector signed int
+vec_xl(long __offset, const signed int *__ptr) {
+  return *(const vector signed int *)((__INTPTR_TYPE__)__ptr + __offset);
+}
+
+static inline __ATTRS_o_ai vector unsigned int
+vec_xl(long __offset, const unsigned int *__ptr) {
+  return *(const vector unsigned int *)((__INTPTR_TYPE__)__ptr + __offset);
+}
+
+static inline __ATTRS_o_ai vector signed long long
+vec_xl(long __offset, const signed long long *__ptr) {
+  return *(const vector signed long long *)((__INTPTR_TYPE__)__ptr + __offset);
+}
+
+static inline __ATTRS_o_ai vector unsigned long long
+vec_xl(long __offset, const unsigned long long *__ptr) {
+  return *(const vector unsigned long long *)((__INTPTR_TYPE__)__ptr + __offset);
+}
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_xl(long __offset, const float *__ptr) {
+  return *(const vector float *)((__INTPTR_TYPE__)__ptr + __offset);
+}
+#endif
+
+static inline __ATTRS_o_ai vector double
+vec_xl(long __offset, const double *__ptr) {
+  return *(const vector double *)((__INTPTR_TYPE__)__ptr + __offset);
+}
+
 /*-- vec_xld2 ---------------------------------------------------------------*/
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed char
 vec_xld2(long __offset, const signed char *__ptr) {
   return *(const vector signed char *)((__INTPTR_TYPE__)__ptr + __offset);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned char
 vec_xld2(long __offset, const unsigned char *__ptr) {
   return *(const vector unsigned char *)((__INTPTR_TYPE__)__ptr + __offset);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed short
 vec_xld2(long __offset, const signed short *__ptr) {
   return *(const vector signed short *)((__INTPTR_TYPE__)__ptr + __offset);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned short
 vec_xld2(long __offset, const unsigned short *__ptr) {
   return *(const vector unsigned short *)((__INTPTR_TYPE__)__ptr + __offset);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed int
 vec_xld2(long __offset, const signed int *__ptr) {
   return *(const vector signed int *)((__INTPTR_TYPE__)__ptr + __offset);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned int
 vec_xld2(long __offset, const unsigned int *__ptr) {
   return *(const vector unsigned int *)((__INTPTR_TYPE__)__ptr + __offset);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed long long
 vec_xld2(long __offset, const signed long long *__ptr) {
   return *(const vector signed long long *)((__INTPTR_TYPE__)__ptr + __offset);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned long long
 vec_xld2(long __offset, const unsigned long long *__ptr) {
   return *(const vector unsigned long long *)((__INTPTR_TYPE__)__ptr + __offset);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector double
 vec_xld2(long __offset, const double *__ptr) {
   return *(const vector double *)((__INTPTR_TYPE__)__ptr + __offset);
@@ -806,74 +966,145 @@ vec_xld2(long __offset, const double *__ptr) {
 
 /*-- vec_xlw4 ---------------------------------------------------------------*/
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed char
 vec_xlw4(long __offset, const signed char *__ptr) {
   return *(const vector signed char *)((__INTPTR_TYPE__)__ptr + __offset);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned char
 vec_xlw4(long __offset, const unsigned char *__ptr) {
   return *(const vector unsigned char *)((__INTPTR_TYPE__)__ptr + __offset);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed short
 vec_xlw4(long __offset, const signed short *__ptr) {
   return *(const vector signed short *)((__INTPTR_TYPE__)__ptr + __offset);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned short
 vec_xlw4(long __offset, const unsigned short *__ptr) {
   return *(const vector unsigned short *)((__INTPTR_TYPE__)__ptr + __offset);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed int
 vec_xlw4(long __offset, const signed int *__ptr) {
   return *(const vector signed int *)((__INTPTR_TYPE__)__ptr + __offset);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned int
 vec_xlw4(long __offset, const unsigned int *__ptr) {
   return *(const vector unsigned int *)((__INTPTR_TYPE__)__ptr + __offset);
 }
 
+/*-- vec_xst ----------------------------------------------------------------*/
+
+static inline __ATTRS_o_ai void
+vec_xst(vector signed char __vec, long __offset, signed char *__ptr) {
+  *(vector signed char *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
+}
+
+static inline __ATTRS_o_ai void
+vec_xst(vector unsigned char __vec, long __offset, unsigned char *__ptr) {
+  *(vector unsigned char *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
+}
+
+static inline __ATTRS_o_ai void
+vec_xst(vector signed short __vec, long __offset, signed short *__ptr) {
+  *(vector signed short *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
+}
+
+static inline __ATTRS_o_ai void
+vec_xst(vector unsigned short __vec, long __offset, unsigned short *__ptr) {
+  *(vector unsigned short *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
+}
+
+static inline __ATTRS_o_ai void
+vec_xst(vector signed int __vec, long __offset, signed int *__ptr) {
+  *(vector signed int *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
+}
+
+static inline __ATTRS_o_ai void
+vec_xst(vector unsigned int __vec, long __offset, unsigned int *__ptr) {
+  *(vector unsigned int *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
+}
+
+static inline __ATTRS_o_ai void
+vec_xst(vector signed long long __vec, long __offset,
+          signed long long *__ptr) {
+  *(vector signed long long *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
+}
+
+static inline __ATTRS_o_ai void
+vec_xst(vector unsigned long long __vec, long __offset,
+          unsigned long long *__ptr) {
+  *(vector unsigned long long *)((__INTPTR_TYPE__)__ptr + __offset) =
+    __vec;
+}
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai void
+vec_xst(vector float __vec, long __offset, float *__ptr) {
+  *(vector float *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
+}
+#endif
+
+static inline __ATTRS_o_ai void
+vec_xst(vector double __vec, long __offset, double *__ptr) {
+  *(vector double *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
+}
+
 /*-- vec_xstd2 --------------------------------------------------------------*/
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstd2(vector signed char __vec, long __offset, signed char *__ptr) {
   *(vector signed char *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstd2(vector unsigned char __vec, long __offset, unsigned char *__ptr) {
   *(vector unsigned char *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstd2(vector signed short __vec, long __offset, signed short *__ptr) {
   *(vector signed short *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstd2(vector unsigned short __vec, long __offset, unsigned short *__ptr) {
   *(vector unsigned short *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstd2(vector signed int __vec, long __offset, signed int *__ptr) {
   *(vector signed int *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstd2(vector unsigned int __vec, long __offset, unsigned int *__ptr) {
   *(vector unsigned int *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstd2(vector signed long long __vec, long __offset,
           signed long long *__ptr) {
   *(vector signed long long *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstd2(vector unsigned long long __vec, long __offset,
           unsigned long long *__ptr) {
@@ -881,6 +1112,7 @@ vec_xstd2(vector unsigned long long __vec, long __offset,
     __vec;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstd2(vector double __vec, long __offset, double *__ptr) {
   *(vector double *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
@@ -888,31 +1120,37 @@ vec_xstd2(vector double __vec, long __offset, double *__ptr) {
 
 /*-- vec_xstw4 --------------------------------------------------------------*/
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstw4(vector signed char __vec, long __offset, signed char *__ptr) {
   *(vector signed char *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstw4(vector unsigned char __vec, long __offset, unsigned char *__ptr) {
   *(vector unsigned char *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstw4(vector signed short __vec, long __offset, signed short *__ptr) {
   *(vector signed short *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstw4(vector unsigned short __vec, long __offset, unsigned short *__ptr) {
   *(vector unsigned short *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstw4(vector signed int __vec, long __offset, signed int *__ptr) {
   *(vector signed int *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai void
 vec_xstw4(vector unsigned int __vec, long __offset, unsigned int *__ptr) {
   *(vector unsigned int *)((__INTPTR_TYPE__)__ptr + __offset) = __vec;
@@ -951,6 +1189,12 @@ vec_load_bndry(const signed long long *__ptr, unsigned short __len)
 extern __ATTRS_o vector unsigned long long
 vec_load_bndry(const unsigned long long *__ptr, unsigned short __len)
   __constant_pow2_range(__len, 64, 4096);
+
+#if __ARCH__ >= 12
+extern __ATTRS_o vector float
+vec_load_bndry(const float *__ptr, unsigned short __len)
+  __constant_pow2_range(__len, 64, 4096);
+#endif
 
 extern __ATTRS_o vector double
 vec_load_bndry(const double *__ptr, unsigned short __len)
@@ -1007,10 +1251,26 @@ vec_load_len(const unsigned long long *__ptr, unsigned int __len) {
   return (vector unsigned long long)__builtin_s390_vll(__len, __ptr);
 }
 
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_load_len(const float *__ptr, unsigned int __len) {
+  return (vector float)__builtin_s390_vll(__len, __ptr);
+}
+#endif
+
 static inline __ATTRS_o_ai vector double
 vec_load_len(const double *__ptr, unsigned int __len) {
   return (vector double)__builtin_s390_vll(__len, __ptr);
 }
+
+/*-- vec_load_len_r ---------------------------------------------------------*/
+
+#if __ARCH__ >= 12
+static inline __ATTRS_ai vector unsigned char
+vec_load_len_r(const unsigned char *__ptr, unsigned int __len) {
+  return (vector unsigned char)__builtin_s390_vlrl(__len, __ptr);
+}
+#endif
 
 /*-- vec_store_len ----------------------------------------------------------*/
 
@@ -1062,11 +1322,29 @@ vec_store_len(vector unsigned long long __vec, unsigned long long *__ptr,
   __builtin_s390_vstl((vector signed char)__vec, __len, __ptr);
 }
 
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai void
+vec_store_len(vector float __vec, float *__ptr,
+              unsigned int __len) {
+  __builtin_s390_vstl((vector signed char)__vec, __len, __ptr);
+}
+#endif
+
 static inline __ATTRS_o_ai void
 vec_store_len(vector double __vec, double *__ptr,
               unsigned int __len) {
   __builtin_s390_vstl((vector signed char)__vec, __len, __ptr);
 }
+
+/*-- vec_store_len_r --------------------------------------------------------*/
+
+#if __ARCH__ >= 12
+static inline __ATTRS_ai void
+vec_store_len_r(vector unsigned char __vec, unsigned char *__ptr,
+                unsigned int __len) {
+  __builtin_s390_vstrl((vector signed char)__vec, __len, __ptr);
+}
+#endif
 
 /*-- vec_load_pair ----------------------------------------------------------*/
 
@@ -1232,6 +1510,14 @@ vec_splat(vector unsigned long long __vec, int __index)
   return (vector unsigned long long)__vec[__index];
 }
 
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_splat(vector float __vec, int __index)
+  __constant_range(__index, 0, 3) {
+  return (vector float)__vec[__index];
+}
+#endif
+
 static inline __ATTRS_o_ai vector double
 vec_splat(vector double __vec, int __index)
   __constant_range(__index, 0, 1) {
@@ -1332,6 +1618,13 @@ vec_splats(unsigned long long __scalar) {
   return (vector unsigned long long)__scalar;
 }
 
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_splats(float __scalar) {
+  return (vector float)__scalar;
+}
+#endif
+
 static inline __ATTRS_o_ai vector double
 vec_splats(double __scalar) {
   return (vector double)__scalar;
@@ -1425,6 +1718,13 @@ vec_mergeh(vector unsigned long long __a, vector unsigned long long __b) {
   return (vector unsigned long long)(__a[0], __b[0]);
 }
 
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_mergeh(vector float __a, vector float __b) {
+  return (vector float)(__a[0], __b[0], __a[1], __b[1]);
+}
+#endif
+
 static inline __ATTRS_o_ai vector double
 vec_mergeh(vector double __a, vector double __b) {
   return (vector double)(__a[0], __b[0]);
@@ -1500,6 +1800,13 @@ static inline __ATTRS_o_ai vector unsigned long long
 vec_mergel(vector unsigned long long __a, vector unsigned long long __b) {
   return (vector unsigned long long)(__a[1], __b[1]);
 }
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_mergel(vector float __a, vector float __b) {
+  return (vector float)(__a[2], __b[2], __a[3], __b[3]);
+}
+#endif
 
 static inline __ATTRS_o_ai vector double
 vec_mergel(vector double __a, vector double __b) {
@@ -1866,6 +2173,13 @@ vec_cmpeq(vector unsigned long long __a, vector unsigned long long __b) {
   return (vector bool long long)(__a == __b);
 }
 
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector bool int
+vec_cmpeq(vector float __a, vector float __b) {
+  return (vector bool int)(__a == __b);
+}
+#endif
+
 static inline __ATTRS_o_ai vector bool long long
 vec_cmpeq(vector double __a, vector double __b) {
   return (vector bool long long)(__a == __b);
@@ -1912,6 +2226,13 @@ static inline __ATTRS_o_ai vector bool long long
 vec_cmpge(vector unsigned long long __a, vector unsigned long long __b) {
   return (vector bool long long)(__a >= __b);
 }
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector bool int
+vec_cmpge(vector float __a, vector float __b) {
+  return (vector bool int)(__a >= __b);
+}
+#endif
 
 static inline __ATTRS_o_ai vector bool long long
 vec_cmpge(vector double __a, vector double __b) {
@@ -1960,6 +2281,13 @@ vec_cmpgt(vector unsigned long long __a, vector unsigned long long __b) {
   return (vector bool long long)(__a > __b);
 }
 
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector bool int
+vec_cmpgt(vector float __a, vector float __b) {
+  return (vector bool int)(__a > __b);
+}
+#endif
+
 static inline __ATTRS_o_ai vector bool long long
 vec_cmpgt(vector double __a, vector double __b) {
   return (vector bool long long)(__a > __b);
@@ -2006,6 +2334,13 @@ static inline __ATTRS_o_ai vector bool long long
 vec_cmple(vector unsigned long long __a, vector unsigned long long __b) {
   return (vector bool long long)(__a <= __b);
 }
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector bool int
+vec_cmple(vector float __a, vector float __b) {
+  return (vector bool int)(__a <= __b);
+}
+#endif
 
 static inline __ATTRS_o_ai vector bool long long
 vec_cmple(vector double __a, vector double __b) {
@@ -2054,6 +2389,13 @@ vec_cmplt(vector unsigned long long __a, vector unsigned long long __b) {
   return (vector bool long long)(__a < __b);
 }
 
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector bool int
+vec_cmplt(vector float __a, vector float __b) {
+  return (vector bool int)(__a < __b);
+}
+#endif
+
 static inline __ATTRS_o_ai vector bool long long
 vec_cmplt(vector double __a, vector double __b) {
   return (vector bool long long)(__a < __b);
@@ -2068,6 +2410,7 @@ vec_all_eq(vector signed char __a, vector signed char __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_eq(vector signed char __a, vector bool char __b) {
   int __cc;
@@ -2075,6 +2418,7 @@ vec_all_eq(vector signed char __a, vector bool char __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_eq(vector bool char __a, vector signed char __b) {
   int __cc;
@@ -2090,6 +2434,7 @@ vec_all_eq(vector unsigned char __a, vector unsigned char __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_eq(vector unsigned char __a, vector bool char __b) {
   int __cc;
@@ -2098,6 +2443,7 @@ vec_all_eq(vector unsigned char __a, vector bool char __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_eq(vector bool char __a, vector unsigned char __b) {
   int __cc;
@@ -2121,6 +2467,7 @@ vec_all_eq(vector signed short __a, vector signed short __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_eq(vector signed short __a, vector bool short __b) {
   int __cc;
@@ -2128,6 +2475,7 @@ vec_all_eq(vector signed short __a, vector bool short __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_eq(vector bool short __a, vector signed short __b) {
   int __cc;
@@ -2143,6 +2491,7 @@ vec_all_eq(vector unsigned short __a, vector unsigned short __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_eq(vector unsigned short __a, vector bool short __b) {
   int __cc;
@@ -2151,6 +2500,7 @@ vec_all_eq(vector unsigned short __a, vector bool short __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_eq(vector bool short __a, vector unsigned short __b) {
   int __cc;
@@ -2174,6 +2524,7 @@ vec_all_eq(vector signed int __a, vector signed int __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_eq(vector signed int __a, vector bool int __b) {
   int __cc;
@@ -2181,6 +2532,7 @@ vec_all_eq(vector signed int __a, vector bool int __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_eq(vector bool int __a, vector signed int __b) {
   int __cc;
@@ -2196,6 +2548,7 @@ vec_all_eq(vector unsigned int __a, vector unsigned int __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_eq(vector unsigned int __a, vector bool int __b) {
   int __cc;
@@ -2204,6 +2557,7 @@ vec_all_eq(vector unsigned int __a, vector bool int __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_eq(vector bool int __a, vector unsigned int __b) {
   int __cc;
@@ -2227,6 +2581,7 @@ vec_all_eq(vector signed long long __a, vector signed long long __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_eq(vector signed long long __a, vector bool long long __b) {
   int __cc;
@@ -2234,6 +2589,7 @@ vec_all_eq(vector signed long long __a, vector bool long long __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_eq(vector bool long long __a, vector signed long long __b) {
   int __cc;
@@ -2249,6 +2605,7 @@ vec_all_eq(vector unsigned long long __a, vector unsigned long long __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_eq(vector unsigned long long __a, vector bool long long __b) {
   int __cc;
@@ -2257,6 +2614,7 @@ vec_all_eq(vector unsigned long long __a, vector bool long long __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_eq(vector bool long long __a, vector unsigned long long __b) {
   int __cc;
@@ -2272,6 +2630,15 @@ vec_all_eq(vector bool long long __a, vector bool long long __b) {
                         (vector signed long long)__b, &__cc);
   return __cc == 0;
 }
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_all_eq(vector float __a, vector float __b) {
+  int __cc;
+  __builtin_s390_vfcesbs(__a, __b, &__cc);
+  return __cc == 0;
+}
+#endif
 
 static inline __ATTRS_o_ai int
 vec_all_eq(vector double __a, vector double __b) {
@@ -2289,6 +2656,7 @@ vec_all_ne(vector signed char __a, vector signed char __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ne(vector signed char __a, vector bool char __b) {
   int __cc;
@@ -2296,6 +2664,7 @@ vec_all_ne(vector signed char __a, vector bool char __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ne(vector bool char __a, vector signed char __b) {
   int __cc;
@@ -2311,6 +2680,7 @@ vec_all_ne(vector unsigned char __a, vector unsigned char __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ne(vector unsigned char __a, vector bool char __b) {
   int __cc;
@@ -2319,6 +2689,7 @@ vec_all_ne(vector unsigned char __a, vector bool char __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ne(vector bool char __a, vector unsigned char __b) {
   int __cc;
@@ -2342,6 +2713,7 @@ vec_all_ne(vector signed short __a, vector signed short __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ne(vector signed short __a, vector bool short __b) {
   int __cc;
@@ -2349,6 +2721,7 @@ vec_all_ne(vector signed short __a, vector bool short __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ne(vector bool short __a, vector signed short __b) {
   int __cc;
@@ -2364,6 +2737,7 @@ vec_all_ne(vector unsigned short __a, vector unsigned short __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ne(vector unsigned short __a, vector bool short __b) {
   int __cc;
@@ -2372,6 +2746,7 @@ vec_all_ne(vector unsigned short __a, vector bool short __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ne(vector bool short __a, vector unsigned short __b) {
   int __cc;
@@ -2395,6 +2770,7 @@ vec_all_ne(vector signed int __a, vector signed int __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ne(vector signed int __a, vector bool int __b) {
   int __cc;
@@ -2402,6 +2778,7 @@ vec_all_ne(vector signed int __a, vector bool int __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ne(vector bool int __a, vector signed int __b) {
   int __cc;
@@ -2417,6 +2794,7 @@ vec_all_ne(vector unsigned int __a, vector unsigned int __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ne(vector unsigned int __a, vector bool int __b) {
   int __cc;
@@ -2425,6 +2803,7 @@ vec_all_ne(vector unsigned int __a, vector bool int __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ne(vector bool int __a, vector unsigned int __b) {
   int __cc;
@@ -2448,6 +2827,7 @@ vec_all_ne(vector signed long long __a, vector signed long long __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ne(vector signed long long __a, vector bool long long __b) {
   int __cc;
@@ -2455,6 +2835,7 @@ vec_all_ne(vector signed long long __a, vector bool long long __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ne(vector bool long long __a, vector signed long long __b) {
   int __cc;
@@ -2470,6 +2851,7 @@ vec_all_ne(vector unsigned long long __a, vector unsigned long long __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ne(vector unsigned long long __a, vector bool long long __b) {
   int __cc;
@@ -2478,6 +2860,7 @@ vec_all_ne(vector unsigned long long __a, vector bool long long __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ne(vector bool long long __a, vector unsigned long long __b) {
   int __cc;
@@ -2493,6 +2876,15 @@ vec_all_ne(vector bool long long __a, vector bool long long __b) {
                         (vector signed long long)__b, &__cc);
   return __cc == 3;
 }
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_all_ne(vector float __a, vector float __b) {
+  int __cc;
+  __builtin_s390_vfcesbs(__a, __b, &__cc);
+  return __cc == 3;
+}
+#endif
 
 static inline __ATTRS_o_ai int
 vec_all_ne(vector double __a, vector double __b) {
@@ -2510,6 +2902,7 @@ vec_all_ge(vector signed char __a, vector signed char __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ge(vector signed char __a, vector bool char __b) {
   int __cc;
@@ -2517,6 +2910,7 @@ vec_all_ge(vector signed char __a, vector bool char __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ge(vector bool char __a, vector signed char __b) {
   int __cc;
@@ -2531,6 +2925,7 @@ vec_all_ge(vector unsigned char __a, vector unsigned char __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ge(vector unsigned char __a, vector bool char __b) {
   int __cc;
@@ -2538,6 +2933,7 @@ vec_all_ge(vector unsigned char __a, vector bool char __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ge(vector bool char __a, vector unsigned char __b) {
   int __cc;
@@ -2545,6 +2941,7 @@ vec_all_ge(vector bool char __a, vector unsigned char __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ge(vector bool char __a, vector bool char __b) {
   int __cc;
@@ -2560,6 +2957,7 @@ vec_all_ge(vector signed short __a, vector signed short __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ge(vector signed short __a, vector bool short __b) {
   int __cc;
@@ -2567,6 +2965,7 @@ vec_all_ge(vector signed short __a, vector bool short __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ge(vector bool short __a, vector signed short __b) {
   int __cc;
@@ -2581,6 +2980,7 @@ vec_all_ge(vector unsigned short __a, vector unsigned short __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ge(vector unsigned short __a, vector bool short __b) {
   int __cc;
@@ -2588,6 +2988,7 @@ vec_all_ge(vector unsigned short __a, vector bool short __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ge(vector bool short __a, vector unsigned short __b) {
   int __cc;
@@ -2595,6 +2996,7 @@ vec_all_ge(vector bool short __a, vector unsigned short __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ge(vector bool short __a, vector bool short __b) {
   int __cc;
@@ -2610,6 +3012,7 @@ vec_all_ge(vector signed int __a, vector signed int __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ge(vector signed int __a, vector bool int __b) {
   int __cc;
@@ -2617,6 +3020,7 @@ vec_all_ge(vector signed int __a, vector bool int __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ge(vector bool int __a, vector signed int __b) {
   int __cc;
@@ -2631,6 +3035,7 @@ vec_all_ge(vector unsigned int __a, vector unsigned int __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ge(vector unsigned int __a, vector bool int __b) {
   int __cc;
@@ -2638,6 +3043,7 @@ vec_all_ge(vector unsigned int __a, vector bool int __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ge(vector bool int __a, vector unsigned int __b) {
   int __cc;
@@ -2645,6 +3051,7 @@ vec_all_ge(vector bool int __a, vector unsigned int __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ge(vector bool int __a, vector bool int __b) {
   int __cc;
@@ -2660,6 +3067,7 @@ vec_all_ge(vector signed long long __a, vector signed long long __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ge(vector signed long long __a, vector bool long long __b) {
   int __cc;
@@ -2667,6 +3075,7 @@ vec_all_ge(vector signed long long __a, vector bool long long __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ge(vector bool long long __a, vector signed long long __b) {
   int __cc;
@@ -2681,6 +3090,7 @@ vec_all_ge(vector unsigned long long __a, vector unsigned long long __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ge(vector unsigned long long __a, vector bool long long __b) {
   int __cc;
@@ -2688,6 +3098,7 @@ vec_all_ge(vector unsigned long long __a, vector bool long long __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ge(vector bool long long __a, vector unsigned long long __b) {
   int __cc;
@@ -2695,6 +3106,7 @@ vec_all_ge(vector bool long long __a, vector unsigned long long __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_ge(vector bool long long __a, vector bool long long __b) {
   int __cc;
@@ -2702,6 +3114,15 @@ vec_all_ge(vector bool long long __a, vector bool long long __b) {
                         (vector unsigned long long)__a, &__cc);
   return __cc == 3;
 }
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_all_ge(vector float __a, vector float __b) {
+  int __cc;
+  __builtin_s390_vfchesbs(__a, __b, &__cc);
+  return __cc == 0;
+}
+#endif
 
 static inline __ATTRS_o_ai int
 vec_all_ge(vector double __a, vector double __b) {
@@ -2719,6 +3140,7 @@ vec_all_gt(vector signed char __a, vector signed char __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_gt(vector signed char __a, vector bool char __b) {
   int __cc;
@@ -2726,6 +3148,7 @@ vec_all_gt(vector signed char __a, vector bool char __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_gt(vector bool char __a, vector signed char __b) {
   int __cc;
@@ -2740,6 +3163,7 @@ vec_all_gt(vector unsigned char __a, vector unsigned char __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_gt(vector unsigned char __a, vector bool char __b) {
   int __cc;
@@ -2747,6 +3171,7 @@ vec_all_gt(vector unsigned char __a, vector bool char __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_gt(vector bool char __a, vector unsigned char __b) {
   int __cc;
@@ -2754,6 +3179,7 @@ vec_all_gt(vector bool char __a, vector unsigned char __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_gt(vector bool char __a, vector bool char __b) {
   int __cc;
@@ -2769,6 +3195,7 @@ vec_all_gt(vector signed short __a, vector signed short __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_gt(vector signed short __a, vector bool short __b) {
   int __cc;
@@ -2776,6 +3203,7 @@ vec_all_gt(vector signed short __a, vector bool short __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_gt(vector bool short __a, vector signed short __b) {
   int __cc;
@@ -2790,6 +3218,7 @@ vec_all_gt(vector unsigned short __a, vector unsigned short __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_gt(vector unsigned short __a, vector bool short __b) {
   int __cc;
@@ -2797,6 +3226,7 @@ vec_all_gt(vector unsigned short __a, vector bool short __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_gt(vector bool short __a, vector unsigned short __b) {
   int __cc;
@@ -2804,6 +3234,7 @@ vec_all_gt(vector bool short __a, vector unsigned short __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_gt(vector bool short __a, vector bool short __b) {
   int __cc;
@@ -2819,6 +3250,7 @@ vec_all_gt(vector signed int __a, vector signed int __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_gt(vector signed int __a, vector bool int __b) {
   int __cc;
@@ -2826,6 +3258,7 @@ vec_all_gt(vector signed int __a, vector bool int __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_gt(vector bool int __a, vector signed int __b) {
   int __cc;
@@ -2840,6 +3273,7 @@ vec_all_gt(vector unsigned int __a, vector unsigned int __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_gt(vector unsigned int __a, vector bool int __b) {
   int __cc;
@@ -2847,6 +3281,7 @@ vec_all_gt(vector unsigned int __a, vector bool int __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_gt(vector bool int __a, vector unsigned int __b) {
   int __cc;
@@ -2854,6 +3289,7 @@ vec_all_gt(vector bool int __a, vector unsigned int __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_gt(vector bool int __a, vector bool int __b) {
   int __cc;
@@ -2869,6 +3305,7 @@ vec_all_gt(vector signed long long __a, vector signed long long __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_gt(vector signed long long __a, vector bool long long __b) {
   int __cc;
@@ -2876,6 +3313,7 @@ vec_all_gt(vector signed long long __a, vector bool long long __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_gt(vector bool long long __a, vector signed long long __b) {
   int __cc;
@@ -2890,6 +3328,7 @@ vec_all_gt(vector unsigned long long __a, vector unsigned long long __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_gt(vector unsigned long long __a, vector bool long long __b) {
   int __cc;
@@ -2897,6 +3336,7 @@ vec_all_gt(vector unsigned long long __a, vector bool long long __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_gt(vector bool long long __a, vector unsigned long long __b) {
   int __cc;
@@ -2904,6 +3344,7 @@ vec_all_gt(vector bool long long __a, vector unsigned long long __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_gt(vector bool long long __a, vector bool long long __b) {
   int __cc;
@@ -2911,6 +3352,15 @@ vec_all_gt(vector bool long long __a, vector bool long long __b) {
                         (vector unsigned long long)__b, &__cc);
   return __cc == 0;
 }
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_all_gt(vector float __a, vector float __b) {
+  int __cc;
+  __builtin_s390_vfchsbs(__a, __b, &__cc);
+  return __cc == 0;
+}
+#endif
 
 static inline __ATTRS_o_ai int
 vec_all_gt(vector double __a, vector double __b) {
@@ -2928,6 +3378,7 @@ vec_all_le(vector signed char __a, vector signed char __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_le(vector signed char __a, vector bool char __b) {
   int __cc;
@@ -2935,6 +3386,7 @@ vec_all_le(vector signed char __a, vector bool char __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_le(vector bool char __a, vector signed char __b) {
   int __cc;
@@ -2949,6 +3401,7 @@ vec_all_le(vector unsigned char __a, vector unsigned char __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_le(vector unsigned char __a, vector bool char __b) {
   int __cc;
@@ -2956,6 +3409,7 @@ vec_all_le(vector unsigned char __a, vector bool char __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_le(vector bool char __a, vector unsigned char __b) {
   int __cc;
@@ -2963,6 +3417,7 @@ vec_all_le(vector bool char __a, vector unsigned char __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_le(vector bool char __a, vector bool char __b) {
   int __cc;
@@ -2978,6 +3433,7 @@ vec_all_le(vector signed short __a, vector signed short __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_le(vector signed short __a, vector bool short __b) {
   int __cc;
@@ -2985,6 +3441,7 @@ vec_all_le(vector signed short __a, vector bool short __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_le(vector bool short __a, vector signed short __b) {
   int __cc;
@@ -2999,6 +3456,7 @@ vec_all_le(vector unsigned short __a, vector unsigned short __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_le(vector unsigned short __a, vector bool short __b) {
   int __cc;
@@ -3006,6 +3464,7 @@ vec_all_le(vector unsigned short __a, vector bool short __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_le(vector bool short __a, vector unsigned short __b) {
   int __cc;
@@ -3013,6 +3472,7 @@ vec_all_le(vector bool short __a, vector unsigned short __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_le(vector bool short __a, vector bool short __b) {
   int __cc;
@@ -3028,6 +3488,7 @@ vec_all_le(vector signed int __a, vector signed int __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_le(vector signed int __a, vector bool int __b) {
   int __cc;
@@ -3035,6 +3496,7 @@ vec_all_le(vector signed int __a, vector bool int __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_le(vector bool int __a, vector signed int __b) {
   int __cc;
@@ -3049,6 +3511,7 @@ vec_all_le(vector unsigned int __a, vector unsigned int __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_le(vector unsigned int __a, vector bool int __b) {
   int __cc;
@@ -3056,6 +3519,7 @@ vec_all_le(vector unsigned int __a, vector bool int __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_le(vector bool int __a, vector unsigned int __b) {
   int __cc;
@@ -3063,6 +3527,7 @@ vec_all_le(vector bool int __a, vector unsigned int __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_le(vector bool int __a, vector bool int __b) {
   int __cc;
@@ -3078,6 +3543,7 @@ vec_all_le(vector signed long long __a, vector signed long long __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_le(vector signed long long __a, vector bool long long __b) {
   int __cc;
@@ -3085,6 +3551,7 @@ vec_all_le(vector signed long long __a, vector bool long long __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_le(vector bool long long __a, vector signed long long __b) {
   int __cc;
@@ -3099,6 +3566,7 @@ vec_all_le(vector unsigned long long __a, vector unsigned long long __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_le(vector unsigned long long __a, vector bool long long __b) {
   int __cc;
@@ -3106,6 +3574,7 @@ vec_all_le(vector unsigned long long __a, vector bool long long __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_le(vector bool long long __a, vector unsigned long long __b) {
   int __cc;
@@ -3113,6 +3582,7 @@ vec_all_le(vector bool long long __a, vector unsigned long long __b) {
   return __cc == 3;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_le(vector bool long long __a, vector bool long long __b) {
   int __cc;
@@ -3120,6 +3590,15 @@ vec_all_le(vector bool long long __a, vector bool long long __b) {
                         (vector unsigned long long)__b, &__cc);
   return __cc == 3;
 }
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_all_le(vector float __a, vector float __b) {
+  int __cc;
+  __builtin_s390_vfchesbs(__b, __a, &__cc);
+  return __cc == 0;
+}
+#endif
 
 static inline __ATTRS_o_ai int
 vec_all_le(vector double __a, vector double __b) {
@@ -3137,6 +3616,7 @@ vec_all_lt(vector signed char __a, vector signed char __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_lt(vector signed char __a, vector bool char __b) {
   int __cc;
@@ -3144,6 +3624,7 @@ vec_all_lt(vector signed char __a, vector bool char __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_lt(vector bool char __a, vector signed char __b) {
   int __cc;
@@ -3158,6 +3639,7 @@ vec_all_lt(vector unsigned char __a, vector unsigned char __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_lt(vector unsigned char __a, vector bool char __b) {
   int __cc;
@@ -3165,6 +3647,7 @@ vec_all_lt(vector unsigned char __a, vector bool char __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_lt(vector bool char __a, vector unsigned char __b) {
   int __cc;
@@ -3172,6 +3655,7 @@ vec_all_lt(vector bool char __a, vector unsigned char __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_lt(vector bool char __a, vector bool char __b) {
   int __cc;
@@ -3187,6 +3671,7 @@ vec_all_lt(vector signed short __a, vector signed short __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_lt(vector signed short __a, vector bool short __b) {
   int __cc;
@@ -3194,6 +3679,7 @@ vec_all_lt(vector signed short __a, vector bool short __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_lt(vector bool short __a, vector signed short __b) {
   int __cc;
@@ -3208,6 +3694,7 @@ vec_all_lt(vector unsigned short __a, vector unsigned short __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_lt(vector unsigned short __a, vector bool short __b) {
   int __cc;
@@ -3215,6 +3702,7 @@ vec_all_lt(vector unsigned short __a, vector bool short __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_lt(vector bool short __a, vector unsigned short __b) {
   int __cc;
@@ -3222,6 +3710,7 @@ vec_all_lt(vector bool short __a, vector unsigned short __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_lt(vector bool short __a, vector bool short __b) {
   int __cc;
@@ -3237,6 +3726,7 @@ vec_all_lt(vector signed int __a, vector signed int __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_lt(vector signed int __a, vector bool int __b) {
   int __cc;
@@ -3244,6 +3734,7 @@ vec_all_lt(vector signed int __a, vector bool int __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_lt(vector bool int __a, vector signed int __b) {
   int __cc;
@@ -3258,6 +3749,7 @@ vec_all_lt(vector unsigned int __a, vector unsigned int __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_lt(vector unsigned int __a, vector bool int __b) {
   int __cc;
@@ -3265,6 +3757,7 @@ vec_all_lt(vector unsigned int __a, vector bool int __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_lt(vector bool int __a, vector unsigned int __b) {
   int __cc;
@@ -3272,6 +3765,7 @@ vec_all_lt(vector bool int __a, vector unsigned int __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_lt(vector bool int __a, vector bool int __b) {
   int __cc;
@@ -3287,6 +3781,7 @@ vec_all_lt(vector signed long long __a, vector signed long long __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_lt(vector signed long long __a, vector bool long long __b) {
   int __cc;
@@ -3294,6 +3789,7 @@ vec_all_lt(vector signed long long __a, vector bool long long __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_lt(vector bool long long __a, vector signed long long __b) {
   int __cc;
@@ -3308,6 +3804,7 @@ vec_all_lt(vector unsigned long long __a, vector unsigned long long __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_lt(vector unsigned long long __a, vector bool long long __b) {
   int __cc;
@@ -3315,6 +3812,7 @@ vec_all_lt(vector unsigned long long __a, vector bool long long __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_lt(vector bool long long __a, vector unsigned long long __b) {
   int __cc;
@@ -3322,6 +3820,7 @@ vec_all_lt(vector bool long long __a, vector unsigned long long __b) {
   return __cc == 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_all_lt(vector bool long long __a, vector bool long long __b) {
   int __cc;
@@ -3329,6 +3828,15 @@ vec_all_lt(vector bool long long __a, vector bool long long __b) {
                         (vector unsigned long long)__a, &__cc);
   return __cc == 0;
 }
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_all_lt(vector float __a, vector float __b) {
+  int __cc;
+  __builtin_s390_vfchsbs(__b, __a, &__cc);
+  return __cc == 0;
+}
+#endif
 
 static inline __ATTRS_o_ai int
 vec_all_lt(vector double __a, vector double __b) {
@@ -3339,7 +3847,16 @@ vec_all_lt(vector double __a, vector double __b) {
 
 /*-- vec_all_nge ------------------------------------------------------------*/
 
-static inline __ATTRS_ai int
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_all_nge(vector float __a, vector float __b) {
+  int __cc;
+  __builtin_s390_vfchesbs(__a, __b, &__cc);
+  return __cc == 3;
+}
+#endif
+
+static inline __ATTRS_o_ai int
 vec_all_nge(vector double __a, vector double __b) {
   int __cc;
   __builtin_s390_vfchedbs(__a, __b, &__cc);
@@ -3348,7 +3865,16 @@ vec_all_nge(vector double __a, vector double __b) {
 
 /*-- vec_all_ngt ------------------------------------------------------------*/
 
-static inline __ATTRS_ai int
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_all_ngt(vector float __a, vector float __b) {
+  int __cc;
+  __builtin_s390_vfchsbs(__a, __b, &__cc);
+  return __cc == 3;
+}
+#endif
+
+static inline __ATTRS_o_ai int
 vec_all_ngt(vector double __a, vector double __b) {
   int __cc;
   __builtin_s390_vfchdbs(__a, __b, &__cc);
@@ -3357,7 +3883,16 @@ vec_all_ngt(vector double __a, vector double __b) {
 
 /*-- vec_all_nle ------------------------------------------------------------*/
 
-static inline __ATTRS_ai int
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_all_nle(vector float __a, vector float __b) {
+  int __cc;
+  __builtin_s390_vfchesbs(__b, __a, &__cc);
+  return __cc == 3;
+}
+#endif
+
+static inline __ATTRS_o_ai int
 vec_all_nle(vector double __a, vector double __b) {
   int __cc;
   __builtin_s390_vfchedbs(__b, __a, &__cc);
@@ -3366,7 +3901,16 @@ vec_all_nle(vector double __a, vector double __b) {
 
 /*-- vec_all_nlt ------------------------------------------------------------*/
 
-static inline __ATTRS_ai int
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_all_nlt(vector float __a, vector float __b) {
+  int __cc;
+  __builtin_s390_vfchsbs(__b, __a, &__cc);
+  return __cc == 3;
+}
+#endif
+
+static inline __ATTRS_o_ai int
 vec_all_nlt(vector double __a, vector double __b) {
   int __cc;
   __builtin_s390_vfchdbs(__b, __a, &__cc);
@@ -3375,7 +3919,16 @@ vec_all_nlt(vector double __a, vector double __b) {
 
 /*-- vec_all_nan ------------------------------------------------------------*/
 
-static inline __ATTRS_ai int
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_all_nan(vector float __a) {
+  int __cc;
+  __builtin_s390_vftcisb(__a, 15, &__cc);
+  return __cc == 0;
+}
+#endif
+
+static inline __ATTRS_o_ai int
 vec_all_nan(vector double __a) {
   int __cc;
   __builtin_s390_vftcidb(__a, 15, &__cc);
@@ -3384,7 +3937,16 @@ vec_all_nan(vector double __a) {
 
 /*-- vec_all_numeric --------------------------------------------------------*/
 
-static inline __ATTRS_ai int
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_all_numeric(vector float __a) {
+  int __cc;
+  __builtin_s390_vftcisb(__a, 15, &__cc);
+  return __cc == 3;
+}
+#endif
+
+static inline __ATTRS_o_ai int
 vec_all_numeric(vector double __a) {
   int __cc;
   __builtin_s390_vftcidb(__a, 15, &__cc);
@@ -3400,6 +3962,7 @@ vec_any_eq(vector signed char __a, vector signed char __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_eq(vector signed char __a, vector bool char __b) {
   int __cc;
@@ -3407,6 +3970,7 @@ vec_any_eq(vector signed char __a, vector bool char __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_eq(vector bool char __a, vector signed char __b) {
   int __cc;
@@ -3422,6 +3986,7 @@ vec_any_eq(vector unsigned char __a, vector unsigned char __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_eq(vector unsigned char __a, vector bool char __b) {
   int __cc;
@@ -3430,6 +3995,7 @@ vec_any_eq(vector unsigned char __a, vector bool char __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_eq(vector bool char __a, vector unsigned char __b) {
   int __cc;
@@ -3453,6 +4019,7 @@ vec_any_eq(vector signed short __a, vector signed short __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_eq(vector signed short __a, vector bool short __b) {
   int __cc;
@@ -3460,6 +4027,7 @@ vec_any_eq(vector signed short __a, vector bool short __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_eq(vector bool short __a, vector signed short __b) {
   int __cc;
@@ -3475,6 +4043,7 @@ vec_any_eq(vector unsigned short __a, vector unsigned short __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_eq(vector unsigned short __a, vector bool short __b) {
   int __cc;
@@ -3483,6 +4052,7 @@ vec_any_eq(vector unsigned short __a, vector bool short __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_eq(vector bool short __a, vector unsigned short __b) {
   int __cc;
@@ -3506,6 +4076,7 @@ vec_any_eq(vector signed int __a, vector signed int __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_eq(vector signed int __a, vector bool int __b) {
   int __cc;
@@ -3513,6 +4084,7 @@ vec_any_eq(vector signed int __a, vector bool int __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_eq(vector bool int __a, vector signed int __b) {
   int __cc;
@@ -3528,6 +4100,7 @@ vec_any_eq(vector unsigned int __a, vector unsigned int __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_eq(vector unsigned int __a, vector bool int __b) {
   int __cc;
@@ -3536,6 +4109,7 @@ vec_any_eq(vector unsigned int __a, vector bool int __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_eq(vector bool int __a, vector unsigned int __b) {
   int __cc;
@@ -3559,6 +4133,7 @@ vec_any_eq(vector signed long long __a, vector signed long long __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_eq(vector signed long long __a, vector bool long long __b) {
   int __cc;
@@ -3566,6 +4141,7 @@ vec_any_eq(vector signed long long __a, vector bool long long __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_eq(vector bool long long __a, vector signed long long __b) {
   int __cc;
@@ -3581,6 +4157,7 @@ vec_any_eq(vector unsigned long long __a, vector unsigned long long __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_eq(vector unsigned long long __a, vector bool long long __b) {
   int __cc;
@@ -3589,6 +4166,7 @@ vec_any_eq(vector unsigned long long __a, vector bool long long __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_eq(vector bool long long __a, vector unsigned long long __b) {
   int __cc;
@@ -3604,6 +4182,15 @@ vec_any_eq(vector bool long long __a, vector bool long long __b) {
                         (vector signed long long)__b, &__cc);
   return __cc <= 1;
 }
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_any_eq(vector float __a, vector float __b) {
+  int __cc;
+  __builtin_s390_vfcesbs(__a, __b, &__cc);
+  return __cc <= 1;
+}
+#endif
 
 static inline __ATTRS_o_ai int
 vec_any_eq(vector double __a, vector double __b) {
@@ -3621,6 +4208,7 @@ vec_any_ne(vector signed char __a, vector signed char __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ne(vector signed char __a, vector bool char __b) {
   int __cc;
@@ -3628,6 +4216,7 @@ vec_any_ne(vector signed char __a, vector bool char __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ne(vector bool char __a, vector signed char __b) {
   int __cc;
@@ -3643,6 +4232,7 @@ vec_any_ne(vector unsigned char __a, vector unsigned char __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ne(vector unsigned char __a, vector bool char __b) {
   int __cc;
@@ -3651,6 +4241,7 @@ vec_any_ne(vector unsigned char __a, vector bool char __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ne(vector bool char __a, vector unsigned char __b) {
   int __cc;
@@ -3674,6 +4265,7 @@ vec_any_ne(vector signed short __a, vector signed short __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ne(vector signed short __a, vector bool short __b) {
   int __cc;
@@ -3681,6 +4273,7 @@ vec_any_ne(vector signed short __a, vector bool short __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ne(vector bool short __a, vector signed short __b) {
   int __cc;
@@ -3696,6 +4289,7 @@ vec_any_ne(vector unsigned short __a, vector unsigned short __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ne(vector unsigned short __a, vector bool short __b) {
   int __cc;
@@ -3704,6 +4298,7 @@ vec_any_ne(vector unsigned short __a, vector bool short __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ne(vector bool short __a, vector unsigned short __b) {
   int __cc;
@@ -3727,6 +4322,7 @@ vec_any_ne(vector signed int __a, vector signed int __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ne(vector signed int __a, vector bool int __b) {
   int __cc;
@@ -3734,6 +4330,7 @@ vec_any_ne(vector signed int __a, vector bool int __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ne(vector bool int __a, vector signed int __b) {
   int __cc;
@@ -3749,6 +4346,7 @@ vec_any_ne(vector unsigned int __a, vector unsigned int __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ne(vector unsigned int __a, vector bool int __b) {
   int __cc;
@@ -3757,6 +4355,7 @@ vec_any_ne(vector unsigned int __a, vector bool int __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ne(vector bool int __a, vector unsigned int __b) {
   int __cc;
@@ -3780,6 +4379,7 @@ vec_any_ne(vector signed long long __a, vector signed long long __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ne(vector signed long long __a, vector bool long long __b) {
   int __cc;
@@ -3787,6 +4387,7 @@ vec_any_ne(vector signed long long __a, vector bool long long __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ne(vector bool long long __a, vector signed long long __b) {
   int __cc;
@@ -3802,6 +4403,7 @@ vec_any_ne(vector unsigned long long __a, vector unsigned long long __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ne(vector unsigned long long __a, vector bool long long __b) {
   int __cc;
@@ -3810,6 +4412,7 @@ vec_any_ne(vector unsigned long long __a, vector bool long long __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ne(vector bool long long __a, vector unsigned long long __b) {
   int __cc;
@@ -3825,6 +4428,15 @@ vec_any_ne(vector bool long long __a, vector bool long long __b) {
                         (vector signed long long)__b, &__cc);
   return __cc != 0;
 }
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_any_ne(vector float __a, vector float __b) {
+  int __cc;
+  __builtin_s390_vfcesbs(__a, __b, &__cc);
+  return __cc != 0;
+}
+#endif
 
 static inline __ATTRS_o_ai int
 vec_any_ne(vector double __a, vector double __b) {
@@ -3842,6 +4454,7 @@ vec_any_ge(vector signed char __a, vector signed char __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ge(vector signed char __a, vector bool char __b) {
   int __cc;
@@ -3849,6 +4462,7 @@ vec_any_ge(vector signed char __a, vector bool char __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ge(vector bool char __a, vector signed char __b) {
   int __cc;
@@ -3863,6 +4477,7 @@ vec_any_ge(vector unsigned char __a, vector unsigned char __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ge(vector unsigned char __a, vector bool char __b) {
   int __cc;
@@ -3870,6 +4485,7 @@ vec_any_ge(vector unsigned char __a, vector bool char __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ge(vector bool char __a, vector unsigned char __b) {
   int __cc;
@@ -3877,6 +4493,7 @@ vec_any_ge(vector bool char __a, vector unsigned char __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ge(vector bool char __a, vector bool char __b) {
   int __cc;
@@ -3892,6 +4509,7 @@ vec_any_ge(vector signed short __a, vector signed short __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ge(vector signed short __a, vector bool short __b) {
   int __cc;
@@ -3899,6 +4517,7 @@ vec_any_ge(vector signed short __a, vector bool short __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ge(vector bool short __a, vector signed short __b) {
   int __cc;
@@ -3913,6 +4532,7 @@ vec_any_ge(vector unsigned short __a, vector unsigned short __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ge(vector unsigned short __a, vector bool short __b) {
   int __cc;
@@ -3920,6 +4540,7 @@ vec_any_ge(vector unsigned short __a, vector bool short __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ge(vector bool short __a, vector unsigned short __b) {
   int __cc;
@@ -3927,6 +4548,7 @@ vec_any_ge(vector bool short __a, vector unsigned short __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ge(vector bool short __a, vector bool short __b) {
   int __cc;
@@ -3942,6 +4564,7 @@ vec_any_ge(vector signed int __a, vector signed int __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ge(vector signed int __a, vector bool int __b) {
   int __cc;
@@ -3949,6 +4572,7 @@ vec_any_ge(vector signed int __a, vector bool int __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ge(vector bool int __a, vector signed int __b) {
   int __cc;
@@ -3963,6 +4587,7 @@ vec_any_ge(vector unsigned int __a, vector unsigned int __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ge(vector unsigned int __a, vector bool int __b) {
   int __cc;
@@ -3970,6 +4595,7 @@ vec_any_ge(vector unsigned int __a, vector bool int __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ge(vector bool int __a, vector unsigned int __b) {
   int __cc;
@@ -3977,6 +4603,7 @@ vec_any_ge(vector bool int __a, vector unsigned int __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ge(vector bool int __a, vector bool int __b) {
   int __cc;
@@ -3992,6 +4619,7 @@ vec_any_ge(vector signed long long __a, vector signed long long __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ge(vector signed long long __a, vector bool long long __b) {
   int __cc;
@@ -3999,6 +4627,7 @@ vec_any_ge(vector signed long long __a, vector bool long long __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ge(vector bool long long __a, vector signed long long __b) {
   int __cc;
@@ -4013,6 +4642,7 @@ vec_any_ge(vector unsigned long long __a, vector unsigned long long __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ge(vector unsigned long long __a, vector bool long long __b) {
   int __cc;
@@ -4020,6 +4650,7 @@ vec_any_ge(vector unsigned long long __a, vector bool long long __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ge(vector bool long long __a, vector unsigned long long __b) {
   int __cc;
@@ -4027,6 +4658,7 @@ vec_any_ge(vector bool long long __a, vector unsigned long long __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_ge(vector bool long long __a, vector bool long long __b) {
   int __cc;
@@ -4034,6 +4666,15 @@ vec_any_ge(vector bool long long __a, vector bool long long __b) {
                         (vector unsigned long long)__a, &__cc);
   return __cc != 0;
 }
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_any_ge(vector float __a, vector float __b) {
+  int __cc;
+  __builtin_s390_vfchesbs(__a, __b, &__cc);
+  return __cc <= 1;
+}
+#endif
 
 static inline __ATTRS_o_ai int
 vec_any_ge(vector double __a, vector double __b) {
@@ -4051,6 +4692,7 @@ vec_any_gt(vector signed char __a, vector signed char __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_gt(vector signed char __a, vector bool char __b) {
   int __cc;
@@ -4058,6 +4700,7 @@ vec_any_gt(vector signed char __a, vector bool char __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_gt(vector bool char __a, vector signed char __b) {
   int __cc;
@@ -4072,6 +4715,7 @@ vec_any_gt(vector unsigned char __a, vector unsigned char __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_gt(vector unsigned char __a, vector bool char __b) {
   int __cc;
@@ -4079,6 +4723,7 @@ vec_any_gt(vector unsigned char __a, vector bool char __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_gt(vector bool char __a, vector unsigned char __b) {
   int __cc;
@@ -4086,6 +4731,7 @@ vec_any_gt(vector bool char __a, vector unsigned char __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_gt(vector bool char __a, vector bool char __b) {
   int __cc;
@@ -4101,6 +4747,7 @@ vec_any_gt(vector signed short __a, vector signed short __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_gt(vector signed short __a, vector bool short __b) {
   int __cc;
@@ -4108,6 +4755,7 @@ vec_any_gt(vector signed short __a, vector bool short __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_gt(vector bool short __a, vector signed short __b) {
   int __cc;
@@ -4122,6 +4770,7 @@ vec_any_gt(vector unsigned short __a, vector unsigned short __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_gt(vector unsigned short __a, vector bool short __b) {
   int __cc;
@@ -4129,6 +4778,7 @@ vec_any_gt(vector unsigned short __a, vector bool short __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_gt(vector bool short __a, vector unsigned short __b) {
   int __cc;
@@ -4136,6 +4786,7 @@ vec_any_gt(vector bool short __a, vector unsigned short __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_gt(vector bool short __a, vector bool short __b) {
   int __cc;
@@ -4151,6 +4802,7 @@ vec_any_gt(vector signed int __a, vector signed int __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_gt(vector signed int __a, vector bool int __b) {
   int __cc;
@@ -4158,6 +4810,7 @@ vec_any_gt(vector signed int __a, vector bool int __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_gt(vector bool int __a, vector signed int __b) {
   int __cc;
@@ -4172,6 +4825,7 @@ vec_any_gt(vector unsigned int __a, vector unsigned int __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_gt(vector unsigned int __a, vector bool int __b) {
   int __cc;
@@ -4179,6 +4833,7 @@ vec_any_gt(vector unsigned int __a, vector bool int __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_gt(vector bool int __a, vector unsigned int __b) {
   int __cc;
@@ -4186,6 +4841,7 @@ vec_any_gt(vector bool int __a, vector unsigned int __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_gt(vector bool int __a, vector bool int __b) {
   int __cc;
@@ -4201,6 +4857,7 @@ vec_any_gt(vector signed long long __a, vector signed long long __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_gt(vector signed long long __a, vector bool long long __b) {
   int __cc;
@@ -4208,6 +4865,7 @@ vec_any_gt(vector signed long long __a, vector bool long long __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_gt(vector bool long long __a, vector signed long long __b) {
   int __cc;
@@ -4222,6 +4880,7 @@ vec_any_gt(vector unsigned long long __a, vector unsigned long long __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_gt(vector unsigned long long __a, vector bool long long __b) {
   int __cc;
@@ -4229,6 +4888,7 @@ vec_any_gt(vector unsigned long long __a, vector bool long long __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_gt(vector bool long long __a, vector unsigned long long __b) {
   int __cc;
@@ -4236,6 +4896,7 @@ vec_any_gt(vector bool long long __a, vector unsigned long long __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_gt(vector bool long long __a, vector bool long long __b) {
   int __cc;
@@ -4243,6 +4904,15 @@ vec_any_gt(vector bool long long __a, vector bool long long __b) {
                         (vector unsigned long long)__b, &__cc);
   return __cc <= 1;
 }
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_any_gt(vector float __a, vector float __b) {
+  int __cc;
+  __builtin_s390_vfchsbs(__a, __b, &__cc);
+  return __cc <= 1;
+}
+#endif
 
 static inline __ATTRS_o_ai int
 vec_any_gt(vector double __a, vector double __b) {
@@ -4260,6 +4930,7 @@ vec_any_le(vector signed char __a, vector signed char __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_le(vector signed char __a, vector bool char __b) {
   int __cc;
@@ -4267,6 +4938,7 @@ vec_any_le(vector signed char __a, vector bool char __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_le(vector bool char __a, vector signed char __b) {
   int __cc;
@@ -4281,6 +4953,7 @@ vec_any_le(vector unsigned char __a, vector unsigned char __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_le(vector unsigned char __a, vector bool char __b) {
   int __cc;
@@ -4288,6 +4961,7 @@ vec_any_le(vector unsigned char __a, vector bool char __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_le(vector bool char __a, vector unsigned char __b) {
   int __cc;
@@ -4295,6 +4969,7 @@ vec_any_le(vector bool char __a, vector unsigned char __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_le(vector bool char __a, vector bool char __b) {
   int __cc;
@@ -4310,6 +4985,7 @@ vec_any_le(vector signed short __a, vector signed short __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_le(vector signed short __a, vector bool short __b) {
   int __cc;
@@ -4317,6 +4993,7 @@ vec_any_le(vector signed short __a, vector bool short __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_le(vector bool short __a, vector signed short __b) {
   int __cc;
@@ -4331,6 +5008,7 @@ vec_any_le(vector unsigned short __a, vector unsigned short __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_le(vector unsigned short __a, vector bool short __b) {
   int __cc;
@@ -4338,6 +5016,7 @@ vec_any_le(vector unsigned short __a, vector bool short __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_le(vector bool short __a, vector unsigned short __b) {
   int __cc;
@@ -4345,6 +5024,7 @@ vec_any_le(vector bool short __a, vector unsigned short __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_le(vector bool short __a, vector bool short __b) {
   int __cc;
@@ -4360,6 +5040,7 @@ vec_any_le(vector signed int __a, vector signed int __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_le(vector signed int __a, vector bool int __b) {
   int __cc;
@@ -4367,6 +5048,7 @@ vec_any_le(vector signed int __a, vector bool int __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_le(vector bool int __a, vector signed int __b) {
   int __cc;
@@ -4381,6 +5063,7 @@ vec_any_le(vector unsigned int __a, vector unsigned int __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_le(vector unsigned int __a, vector bool int __b) {
   int __cc;
@@ -4388,6 +5071,7 @@ vec_any_le(vector unsigned int __a, vector bool int __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_le(vector bool int __a, vector unsigned int __b) {
   int __cc;
@@ -4395,6 +5079,7 @@ vec_any_le(vector bool int __a, vector unsigned int __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_le(vector bool int __a, vector bool int __b) {
   int __cc;
@@ -4410,6 +5095,7 @@ vec_any_le(vector signed long long __a, vector signed long long __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_le(vector signed long long __a, vector bool long long __b) {
   int __cc;
@@ -4417,6 +5103,7 @@ vec_any_le(vector signed long long __a, vector bool long long __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_le(vector bool long long __a, vector signed long long __b) {
   int __cc;
@@ -4431,6 +5118,7 @@ vec_any_le(vector unsigned long long __a, vector unsigned long long __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_le(vector unsigned long long __a, vector bool long long __b) {
   int __cc;
@@ -4438,6 +5126,7 @@ vec_any_le(vector unsigned long long __a, vector bool long long __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_le(vector bool long long __a, vector unsigned long long __b) {
   int __cc;
@@ -4445,6 +5134,7 @@ vec_any_le(vector bool long long __a, vector unsigned long long __b) {
   return __cc != 0;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_le(vector bool long long __a, vector bool long long __b) {
   int __cc;
@@ -4452,6 +5142,15 @@ vec_any_le(vector bool long long __a, vector bool long long __b) {
                         (vector unsigned long long)__b, &__cc);
   return __cc != 0;
 }
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_any_le(vector float __a, vector float __b) {
+  int __cc;
+  __builtin_s390_vfchesbs(__b, __a, &__cc);
+  return __cc <= 1;
+}
+#endif
 
 static inline __ATTRS_o_ai int
 vec_any_le(vector double __a, vector double __b) {
@@ -4469,6 +5168,7 @@ vec_any_lt(vector signed char __a, vector signed char __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_lt(vector signed char __a, vector bool char __b) {
   int __cc;
@@ -4476,6 +5176,7 @@ vec_any_lt(vector signed char __a, vector bool char __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_lt(vector bool char __a, vector signed char __b) {
   int __cc;
@@ -4490,6 +5191,7 @@ vec_any_lt(vector unsigned char __a, vector unsigned char __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_lt(vector unsigned char __a, vector bool char __b) {
   int __cc;
@@ -4497,6 +5199,7 @@ vec_any_lt(vector unsigned char __a, vector bool char __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_lt(vector bool char __a, vector unsigned char __b) {
   int __cc;
@@ -4504,6 +5207,7 @@ vec_any_lt(vector bool char __a, vector unsigned char __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_lt(vector bool char __a, vector bool char __b) {
   int __cc;
@@ -4519,6 +5223,7 @@ vec_any_lt(vector signed short __a, vector signed short __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_lt(vector signed short __a, vector bool short __b) {
   int __cc;
@@ -4526,6 +5231,7 @@ vec_any_lt(vector signed short __a, vector bool short __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_lt(vector bool short __a, vector signed short __b) {
   int __cc;
@@ -4540,6 +5246,7 @@ vec_any_lt(vector unsigned short __a, vector unsigned short __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_lt(vector unsigned short __a, vector bool short __b) {
   int __cc;
@@ -4547,6 +5254,7 @@ vec_any_lt(vector unsigned short __a, vector bool short __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_lt(vector bool short __a, vector unsigned short __b) {
   int __cc;
@@ -4554,6 +5262,7 @@ vec_any_lt(vector bool short __a, vector unsigned short __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_lt(vector bool short __a, vector bool short __b) {
   int __cc;
@@ -4569,6 +5278,7 @@ vec_any_lt(vector signed int __a, vector signed int __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_lt(vector signed int __a, vector bool int __b) {
   int __cc;
@@ -4576,6 +5286,7 @@ vec_any_lt(vector signed int __a, vector bool int __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_lt(vector bool int __a, vector signed int __b) {
   int __cc;
@@ -4590,6 +5301,7 @@ vec_any_lt(vector unsigned int __a, vector unsigned int __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_lt(vector unsigned int __a, vector bool int __b) {
   int __cc;
@@ -4597,6 +5309,7 @@ vec_any_lt(vector unsigned int __a, vector bool int __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_lt(vector bool int __a, vector unsigned int __b) {
   int __cc;
@@ -4604,6 +5317,7 @@ vec_any_lt(vector bool int __a, vector unsigned int __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_lt(vector bool int __a, vector bool int __b) {
   int __cc;
@@ -4619,6 +5333,7 @@ vec_any_lt(vector signed long long __a, vector signed long long __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_lt(vector signed long long __a, vector bool long long __b) {
   int __cc;
@@ -4626,6 +5341,7 @@ vec_any_lt(vector signed long long __a, vector bool long long __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_lt(vector bool long long __a, vector signed long long __b) {
   int __cc;
@@ -4640,6 +5356,7 @@ vec_any_lt(vector unsigned long long __a, vector unsigned long long __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_lt(vector unsigned long long __a, vector bool long long __b) {
   int __cc;
@@ -4647,6 +5364,7 @@ vec_any_lt(vector unsigned long long __a, vector bool long long __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_lt(vector bool long long __a, vector unsigned long long __b) {
   int __cc;
@@ -4654,6 +5372,7 @@ vec_any_lt(vector bool long long __a, vector unsigned long long __b) {
   return __cc <= 1;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai int
 vec_any_lt(vector bool long long __a, vector bool long long __b) {
   int __cc;
@@ -4661,6 +5380,15 @@ vec_any_lt(vector bool long long __a, vector bool long long __b) {
                         (vector unsigned long long)__a, &__cc);
   return __cc <= 1;
 }
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_any_lt(vector float __a, vector float __b) {
+  int __cc;
+  __builtin_s390_vfchsbs(__b, __a, &__cc);
+  return __cc <= 1;
+}
+#endif
 
 static inline __ATTRS_o_ai int
 vec_any_lt(vector double __a, vector double __b) {
@@ -4671,7 +5399,16 @@ vec_any_lt(vector double __a, vector double __b) {
 
 /*-- vec_any_nge ------------------------------------------------------------*/
 
-static inline __ATTRS_ai int
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_any_nge(vector float __a, vector float __b) {
+  int __cc;
+  __builtin_s390_vfchesbs(__a, __b, &__cc);
+  return __cc != 0;
+}
+#endif
+
+static inline __ATTRS_o_ai int
 vec_any_nge(vector double __a, vector double __b) {
   int __cc;
   __builtin_s390_vfchedbs(__a, __b, &__cc);
@@ -4680,7 +5417,16 @@ vec_any_nge(vector double __a, vector double __b) {
 
 /*-- vec_any_ngt ------------------------------------------------------------*/
 
-static inline __ATTRS_ai int
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_any_ngt(vector float __a, vector float __b) {
+  int __cc;
+  __builtin_s390_vfchsbs(__a, __b, &__cc);
+  return __cc != 0;
+}
+#endif
+
+static inline __ATTRS_o_ai int
 vec_any_ngt(vector double __a, vector double __b) {
   int __cc;
   __builtin_s390_vfchdbs(__a, __b, &__cc);
@@ -4689,7 +5435,16 @@ vec_any_ngt(vector double __a, vector double __b) {
 
 /*-- vec_any_nle ------------------------------------------------------------*/
 
-static inline __ATTRS_ai int
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_any_nle(vector float __a, vector float __b) {
+  int __cc;
+  __builtin_s390_vfchesbs(__b, __a, &__cc);
+  return __cc != 0;
+}
+#endif
+
+static inline __ATTRS_o_ai int
 vec_any_nle(vector double __a, vector double __b) {
   int __cc;
   __builtin_s390_vfchedbs(__b, __a, &__cc);
@@ -4698,7 +5453,16 @@ vec_any_nle(vector double __a, vector double __b) {
 
 /*-- vec_any_nlt ------------------------------------------------------------*/
 
-static inline __ATTRS_ai int
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_any_nlt(vector float __a, vector float __b) {
+  int __cc;
+  __builtin_s390_vfchsbs(__b, __a, &__cc);
+  return __cc != 0;
+}
+#endif
+
+static inline __ATTRS_o_ai int
 vec_any_nlt(vector double __a, vector double __b) {
   int __cc;
   __builtin_s390_vfchdbs(__b, __a, &__cc);
@@ -4707,7 +5471,16 @@ vec_any_nlt(vector double __a, vector double __b) {
 
 /*-- vec_any_nan ------------------------------------------------------------*/
 
-static inline __ATTRS_ai int
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_any_nan(vector float __a) {
+  int __cc;
+  __builtin_s390_vftcisb(__a, 15, &__cc);
+  return __cc != 3;
+}
+#endif
+
+static inline __ATTRS_o_ai int
 vec_any_nan(vector double __a) {
   int __cc;
   __builtin_s390_vftcidb(__a, 15, &__cc);
@@ -4716,7 +5489,16 @@ vec_any_nan(vector double __a) {
 
 /*-- vec_any_numeric --------------------------------------------------------*/
 
-static inline __ATTRS_ai int
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_any_numeric(vector float __a) {
+  int __cc;
+  __builtin_s390_vftcisb(__a, 15, &__cc);
+  return __cc != 0;
+}
+#endif
+
+static inline __ATTRS_o_ai int
 vec_any_numeric(vector double __a) {
   int __cc;
   __builtin_s390_vftcidb(__a, 15, &__cc);
@@ -4735,11 +5517,13 @@ vec_andc(vector signed char __a, vector signed char __b) {
   return __a & ~__b;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed char
 vec_andc(vector bool char __a, vector signed char __b) {
   return __a & ~__b;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed char
 vec_andc(vector signed char __a, vector bool char __b) {
   return __a & ~__b;
@@ -4750,11 +5534,13 @@ vec_andc(vector unsigned char __a, vector unsigned char __b) {
   return __a & ~__b;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned char
 vec_andc(vector bool char __a, vector unsigned char __b) {
   return __a & ~__b;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned char
 vec_andc(vector unsigned char __a, vector bool char __b) {
   return __a & ~__b;
@@ -4770,11 +5556,13 @@ vec_andc(vector signed short __a, vector signed short __b) {
   return __a & ~__b;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed short
 vec_andc(vector bool short __a, vector signed short __b) {
   return __a & ~__b;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed short
 vec_andc(vector signed short __a, vector bool short __b) {
   return __a & ~__b;
@@ -4785,11 +5573,13 @@ vec_andc(vector unsigned short __a, vector unsigned short __b) {
   return __a & ~__b;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned short
 vec_andc(vector bool short __a, vector unsigned short __b) {
   return __a & ~__b;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned short
 vec_andc(vector unsigned short __a, vector bool short __b) {
   return __a & ~__b;
@@ -4805,11 +5595,13 @@ vec_andc(vector signed int __a, vector signed int __b) {
   return __a & ~__b;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed int
 vec_andc(vector bool int __a, vector signed int __b) {
   return __a & ~__b;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed int
 vec_andc(vector signed int __a, vector bool int __b) {
   return __a & ~__b;
@@ -4820,11 +5612,13 @@ vec_andc(vector unsigned int __a, vector unsigned int __b) {
   return __a & ~__b;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned int
 vec_andc(vector bool int __a, vector unsigned int __b) {
   return __a & ~__b;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned int
 vec_andc(vector unsigned int __a, vector bool int __b) {
   return __a & ~__b;
@@ -4840,11 +5634,13 @@ vec_andc(vector signed long long __a, vector signed long long __b) {
   return __a & ~__b;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed long long
 vec_andc(vector bool long long __a, vector signed long long __b) {
   return __a & ~__b;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed long long
 vec_andc(vector signed long long __a, vector bool long long __b) {
   return __a & ~__b;
@@ -4855,15 +5651,25 @@ vec_andc(vector unsigned long long __a, vector unsigned long long __b) {
   return __a & ~__b;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned long long
 vec_andc(vector bool long long __a, vector unsigned long long __b) {
   return __a & ~__b;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned long long
 vec_andc(vector unsigned long long __a, vector bool long long __b) {
   return __a & ~__b;
 }
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_andc(vector float __a, vector float __b) {
+  return (vector float)((vector unsigned int)__a &
+                         ~(vector unsigned int)__b);
+}
+#endif
 
 static inline __ATTRS_o_ai vector double
 vec_andc(vector double __a, vector double __b) {
@@ -4871,12 +5677,14 @@ vec_andc(vector double __a, vector double __b) {
                          ~(vector unsigned long long)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector double
 vec_andc(vector bool long long __a, vector double __b) {
   return (vector double)((vector unsigned long long)__a &
                          ~(vector unsigned long long)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector double
 vec_andc(vector double __a, vector bool long long __b) {
   return (vector double)((vector unsigned long long)__a &
@@ -4895,11 +5703,13 @@ vec_nor(vector signed char __a, vector signed char __b) {
   return ~(__a | __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed char
 vec_nor(vector bool char __a, vector signed char __b) {
   return ~(__a | __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed char
 vec_nor(vector signed char __a, vector bool char __b) {
   return ~(__a | __b);
@@ -4910,11 +5720,13 @@ vec_nor(vector unsigned char __a, vector unsigned char __b) {
   return ~(__a | __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned char
 vec_nor(vector bool char __a, vector unsigned char __b) {
   return ~(__a | __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned char
 vec_nor(vector unsigned char __a, vector bool char __b) {
   return ~(__a | __b);
@@ -4930,11 +5742,13 @@ vec_nor(vector signed short __a, vector signed short __b) {
   return ~(__a | __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed short
 vec_nor(vector bool short __a, vector signed short __b) {
   return ~(__a | __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed short
 vec_nor(vector signed short __a, vector bool short __b) {
   return ~(__a | __b);
@@ -4945,11 +5759,13 @@ vec_nor(vector unsigned short __a, vector unsigned short __b) {
   return ~(__a | __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned short
 vec_nor(vector bool short __a, vector unsigned short __b) {
   return ~(__a | __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned short
 vec_nor(vector unsigned short __a, vector bool short __b) {
   return ~(__a | __b);
@@ -4965,11 +5781,13 @@ vec_nor(vector signed int __a, vector signed int __b) {
   return ~(__a | __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed int
 vec_nor(vector bool int __a, vector signed int __b) {
   return ~(__a | __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed int
 vec_nor(vector signed int __a, vector bool int __b) {
   return ~(__a | __b);
@@ -4980,11 +5798,13 @@ vec_nor(vector unsigned int __a, vector unsigned int __b) {
   return ~(__a | __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned int
 vec_nor(vector bool int __a, vector unsigned int __b) {
   return ~(__a | __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned int
 vec_nor(vector unsigned int __a, vector bool int __b) {
   return ~(__a | __b);
@@ -5000,11 +5820,13 @@ vec_nor(vector signed long long __a, vector signed long long __b) {
   return ~(__a | __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed long long
 vec_nor(vector bool long long __a, vector signed long long __b) {
   return ~(__a | __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed long long
 vec_nor(vector signed long long __a, vector bool long long __b) {
   return ~(__a | __b);
@@ -5015,15 +5837,25 @@ vec_nor(vector unsigned long long __a, vector unsigned long long __b) {
   return ~(__a | __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned long long
 vec_nor(vector bool long long __a, vector unsigned long long __b) {
   return ~(__a | __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned long long
 vec_nor(vector unsigned long long __a, vector bool long long __b) {
   return ~(__a | __b);
 }
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_nor(vector float __a, vector float __b) {
+  return (vector float)~((vector unsigned int)__a |
+                         (vector unsigned int)__b);
+}
+#endif
 
 static inline __ATTRS_o_ai vector double
 vec_nor(vector double __a, vector double __b) {
@@ -5031,17 +5863,247 @@ vec_nor(vector double __a, vector double __b) {
                           (vector unsigned long long)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector double
 vec_nor(vector bool long long __a, vector double __b) {
   return (vector double)~((vector unsigned long long)__a |
                           (vector unsigned long long)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector double
 vec_nor(vector double __a, vector bool long long __b) {
   return (vector double)~((vector unsigned long long)__a |
                           (vector unsigned long long)__b);
 }
+
+/*-- vec_orc ----------------------------------------------------------------*/
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector bool char
+vec_orc(vector bool char __a, vector bool char __b) {
+  return __a | ~__b;
+}
+
+static inline __ATTRS_o_ai vector signed char
+vec_orc(vector signed char __a, vector signed char __b) {
+  return __a | ~__b;
+}
+
+static inline __ATTRS_o_ai vector unsigned char
+vec_orc(vector unsigned char __a, vector unsigned char __b) {
+  return __a | ~__b;
+}
+
+static inline __ATTRS_o_ai vector bool short
+vec_orc(vector bool short __a, vector bool short __b) {
+  return __a | ~__b;
+}
+
+static inline __ATTRS_o_ai vector signed short
+vec_orc(vector signed short __a, vector signed short __b) {
+  return __a | ~__b;
+}
+
+static inline __ATTRS_o_ai vector unsigned short
+vec_orc(vector unsigned short __a, vector unsigned short __b) {
+  return __a | ~__b;
+}
+
+static inline __ATTRS_o_ai vector bool int
+vec_orc(vector bool int __a, vector bool int __b) {
+  return __a | ~__b;
+}
+
+static inline __ATTRS_o_ai vector signed int
+vec_orc(vector signed int __a, vector signed int __b) {
+  return __a | ~__b;
+}
+
+static inline __ATTRS_o_ai vector unsigned int
+vec_orc(vector unsigned int __a, vector unsigned int __b) {
+  return __a | ~__b;
+}
+
+static inline __ATTRS_o_ai vector bool long long
+vec_orc(vector bool long long __a, vector bool long long __b) {
+  return __a | ~__b;
+}
+
+static inline __ATTRS_o_ai vector signed long long
+vec_orc(vector signed long long __a, vector signed long long __b) {
+  return __a | ~__b;
+}
+
+static inline __ATTRS_o_ai vector unsigned long long
+vec_orc(vector unsigned long long __a, vector unsigned long long __b) {
+  return __a | ~__b;
+}
+
+static inline __ATTRS_o_ai vector float
+vec_orc(vector float __a, vector float __b) {
+  return (vector float)((vector unsigned int)__a &
+                        ~(vector unsigned int)__b);
+}
+
+static inline __ATTRS_o_ai vector double
+vec_orc(vector double __a, vector double __b) {
+  return (vector double)((vector unsigned long long)__a &
+                         ~(vector unsigned long long)__b);
+}
+#endif
+
+/*-- vec_nand ---------------------------------------------------------------*/
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector bool char
+vec_nand(vector bool char __a, vector bool char __b) {
+  return ~(__a & __b);
+}
+
+static inline __ATTRS_o_ai vector signed char
+vec_nand(vector signed char __a, vector signed char __b) {
+  return ~(__a & __b);
+}
+
+static inline __ATTRS_o_ai vector unsigned char
+vec_nand(vector unsigned char __a, vector unsigned char __b) {
+  return ~(__a & __b);
+}
+
+static inline __ATTRS_o_ai vector bool short
+vec_nand(vector bool short __a, vector bool short __b) {
+  return ~(__a & __b);
+}
+
+static inline __ATTRS_o_ai vector signed short
+vec_nand(vector signed short __a, vector signed short __b) {
+  return ~(__a & __b);
+}
+
+static inline __ATTRS_o_ai vector unsigned short
+vec_nand(vector unsigned short __a, vector unsigned short __b) {
+  return ~(__a & __b);
+}
+
+static inline __ATTRS_o_ai vector bool int
+vec_nand(vector bool int __a, vector bool int __b) {
+  return ~(__a & __b);
+}
+
+static inline __ATTRS_o_ai vector signed int
+vec_nand(vector signed int __a, vector signed int __b) {
+  return ~(__a & __b);
+}
+
+static inline __ATTRS_o_ai vector unsigned int
+vec_nand(vector unsigned int __a, vector unsigned int __b) {
+  return ~(__a & __b);
+}
+
+static inline __ATTRS_o_ai vector bool long long
+vec_nand(vector bool long long __a, vector bool long long __b) {
+  return ~(__a & __b);
+}
+
+static inline __ATTRS_o_ai vector signed long long
+vec_nand(vector signed long long __a, vector signed long long __b) {
+  return ~(__a & __b);
+}
+
+static inline __ATTRS_o_ai vector unsigned long long
+vec_nand(vector unsigned long long __a, vector unsigned long long __b) {
+  return ~(__a & __b);
+}
+
+static inline __ATTRS_o_ai vector float
+vec_nand(vector float __a, vector float __b) {
+  return (vector float)~((vector unsigned int)__a &
+                         (vector unsigned int)__b);
+}
+
+static inline __ATTRS_o_ai vector double
+vec_nand(vector double __a, vector double __b) {
+  return (vector double)~((vector unsigned long long)__a &
+                          (vector unsigned long long)__b);
+}
+#endif
+
+/*-- vec_eqv ----------------------------------------------------------------*/
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector bool char
+vec_eqv(vector bool char __a, vector bool char __b) {
+  return ~(__a ^ __b);
+}
+
+static inline __ATTRS_o_ai vector signed char
+vec_eqv(vector signed char __a, vector signed char __b) {
+  return ~(__a ^ __b);
+}
+
+static inline __ATTRS_o_ai vector unsigned char
+vec_eqv(vector unsigned char __a, vector unsigned char __b) {
+  return ~(__a ^ __b);
+}
+
+static inline __ATTRS_o_ai vector bool short
+vec_eqv(vector bool short __a, vector bool short __b) {
+  return ~(__a ^ __b);
+}
+
+static inline __ATTRS_o_ai vector signed short
+vec_eqv(vector signed short __a, vector signed short __b) {
+  return ~(__a ^ __b);
+}
+
+static inline __ATTRS_o_ai vector unsigned short
+vec_eqv(vector unsigned short __a, vector unsigned short __b) {
+  return ~(__a ^ __b);
+}
+
+static inline __ATTRS_o_ai vector bool int
+vec_eqv(vector bool int __a, vector bool int __b) {
+  return ~(__a ^ __b);
+}
+
+static inline __ATTRS_o_ai vector signed int
+vec_eqv(vector signed int __a, vector signed int __b) {
+  return ~(__a ^ __b);
+}
+
+static inline __ATTRS_o_ai vector unsigned int
+vec_eqv(vector unsigned int __a, vector unsigned int __b) {
+  return ~(__a ^ __b);
+}
+
+static inline __ATTRS_o_ai vector bool long long
+vec_eqv(vector bool long long __a, vector bool long long __b) {
+  return ~(__a ^ __b);
+}
+
+static inline __ATTRS_o_ai vector signed long long
+vec_eqv(vector signed long long __a, vector signed long long __b) {
+  return ~(__a ^ __b);
+}
+
+static inline __ATTRS_o_ai vector unsigned long long
+vec_eqv(vector unsigned long long __a, vector unsigned long long __b) {
+  return ~(__a ^ __b);
+}
+
+static inline __ATTRS_o_ai vector float
+vec_eqv(vector float __a, vector float __b) {
+  return (vector float)~((vector unsigned int)__a ^
+                         (vector unsigned int)__b);
+}
+
+static inline __ATTRS_o_ai vector double
+vec_eqv(vector double __a, vector double __b) {
+  return (vector double)~((vector unsigned long long)__a ^
+                          (vector unsigned long long)__b);
+}
+#endif
 
 /*-- vec_cntlz --------------------------------------------------------------*/
 
@@ -5323,30 +6385,35 @@ vec_sll(vector signed char __a, vector unsigned char __b) {
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed char
 vec_sll(vector signed char __a, vector unsigned short __b) {
   return (vector signed char)__builtin_s390_vsl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed char
 vec_sll(vector signed char __a, vector unsigned int __b) {
   return (vector signed char)__builtin_s390_vsl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool char
 vec_sll(vector bool char __a, vector unsigned char __b) {
   return (vector bool char)__builtin_s390_vsl(
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool char
 vec_sll(vector bool char __a, vector unsigned short __b) {
   return (vector bool char)__builtin_s390_vsl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool char
 vec_sll(vector bool char __a, vector unsigned int __b) {
   return (vector bool char)__builtin_s390_vsl(
@@ -5358,11 +6425,13 @@ vec_sll(vector unsigned char __a, vector unsigned char __b) {
   return __builtin_s390_vsl(__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned char
 vec_sll(vector unsigned char __a, vector unsigned short __b) {
   return __builtin_s390_vsl(__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned char
 vec_sll(vector unsigned char __a, vector unsigned int __b) {
   return __builtin_s390_vsl(__a, (vector unsigned char)__b);
@@ -5374,30 +6443,35 @@ vec_sll(vector signed short __a, vector unsigned char __b) {
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed short
 vec_sll(vector signed short __a, vector unsigned short __b) {
   return (vector signed short)__builtin_s390_vsl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed short
 vec_sll(vector signed short __a, vector unsigned int __b) {
   return (vector signed short)__builtin_s390_vsl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool short
 vec_sll(vector bool short __a, vector unsigned char __b) {
   return (vector bool short)__builtin_s390_vsl(
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool short
 vec_sll(vector bool short __a, vector unsigned short __b) {
   return (vector bool short)__builtin_s390_vsl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool short
 vec_sll(vector bool short __a, vector unsigned int __b) {
   return (vector bool short)__builtin_s390_vsl(
@@ -5410,12 +6484,14 @@ vec_sll(vector unsigned short __a, vector unsigned char __b) {
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned short
 vec_sll(vector unsigned short __a, vector unsigned short __b) {
   return (vector unsigned short)__builtin_s390_vsl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned short
 vec_sll(vector unsigned short __a, vector unsigned int __b) {
   return (vector unsigned short)__builtin_s390_vsl(
@@ -5428,30 +6504,35 @@ vec_sll(vector signed int __a, vector unsigned char __b) {
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed int
 vec_sll(vector signed int __a, vector unsigned short __b) {
   return (vector signed int)__builtin_s390_vsl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed int
 vec_sll(vector signed int __a, vector unsigned int __b) {
   return (vector signed int)__builtin_s390_vsl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool int
 vec_sll(vector bool int __a, vector unsigned char __b) {
   return (vector bool int)__builtin_s390_vsl(
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool int
 vec_sll(vector bool int __a, vector unsigned short __b) {
   return (vector bool int)__builtin_s390_vsl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool int
 vec_sll(vector bool int __a, vector unsigned int __b) {
   return (vector bool int)__builtin_s390_vsl(
@@ -5464,12 +6545,14 @@ vec_sll(vector unsigned int __a, vector unsigned char __b) {
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned int
 vec_sll(vector unsigned int __a, vector unsigned short __b) {
   return (vector unsigned int)__builtin_s390_vsl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned int
 vec_sll(vector unsigned int __a, vector unsigned int __b) {
   return (vector unsigned int)__builtin_s390_vsl(
@@ -5482,30 +6565,35 @@ vec_sll(vector signed long long __a, vector unsigned char __b) {
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed long long
 vec_sll(vector signed long long __a, vector unsigned short __b) {
   return (vector signed long long)__builtin_s390_vsl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed long long
 vec_sll(vector signed long long __a, vector unsigned int __b) {
   return (vector signed long long)__builtin_s390_vsl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool long long
 vec_sll(vector bool long long __a, vector unsigned char __b) {
   return (vector bool long long)__builtin_s390_vsl(
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool long long
 vec_sll(vector bool long long __a, vector unsigned short __b) {
   return (vector bool long long)__builtin_s390_vsl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool long long
 vec_sll(vector bool long long __a, vector unsigned int __b) {
   return (vector bool long long)__builtin_s390_vsl(
@@ -5518,12 +6606,14 @@ vec_sll(vector unsigned long long __a, vector unsigned char __b) {
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned long long
 vec_sll(vector unsigned long long __a, vector unsigned short __b) {
   return (vector unsigned long long)__builtin_s390_vsl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned long long
 vec_sll(vector unsigned long long __a, vector unsigned int __b) {
   return (vector unsigned long long)__builtin_s390_vsl(
@@ -5626,6 +6716,20 @@ vec_slb(vector unsigned long long __a, vector unsigned long long __b) {
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_slb(vector float __a, vector signed int __b) {
+  return (vector float)__builtin_s390_vslb(
+    (vector unsigned char)__a, (vector unsigned char)__b);
+}
+
+static inline __ATTRS_o_ai vector float
+vec_slb(vector float __a, vector unsigned int __b) {
+  return (vector float)__builtin_s390_vslb(
+    (vector unsigned char)__a, (vector unsigned char)__b);
+}
+#endif
+
 static inline __ATTRS_o_ai vector double
 vec_slb(vector double __a, vector signed long long __b) {
   return (vector double)__builtin_s390_vslb(
@@ -5644,12 +6748,20 @@ extern __ATTRS_o vector signed char
 vec_sld(vector signed char __a, vector signed char __b, int __c)
   __constant_range(__c, 0, 15);
 
+extern __ATTRS_o vector bool char
+vec_sld(vector bool char __a, vector bool char __b, int __c)
+  __constant_range(__c, 0, 15);
+
 extern __ATTRS_o vector unsigned char
 vec_sld(vector unsigned char __a, vector unsigned char __b, int __c)
   __constant_range(__c, 0, 15);
 
 extern __ATTRS_o vector signed short
 vec_sld(vector signed short __a, vector signed short __b, int __c)
+  __constant_range(__c, 0, 15);
+
+extern __ATTRS_o vector bool short
+vec_sld(vector bool short __a, vector bool short __b, int __c)
   __constant_range(__c, 0, 15);
 
 extern __ATTRS_o vector unsigned short
@@ -5660,6 +6772,10 @@ extern __ATTRS_o vector signed int
 vec_sld(vector signed int __a, vector signed int __b, int __c)
   __constant_range(__c, 0, 15);
 
+extern __ATTRS_o vector bool int
+vec_sld(vector bool int __a, vector bool int __b, int __c)
+  __constant_range(__c, 0, 15);
+
 extern __ATTRS_o vector unsigned int
 vec_sld(vector unsigned int __a, vector unsigned int __b, int __c)
   __constant_range(__c, 0, 15);
@@ -5668,9 +6784,19 @@ extern __ATTRS_o vector signed long long
 vec_sld(vector signed long long __a, vector signed long long __b, int __c)
   __constant_range(__c, 0, 15);
 
+extern __ATTRS_o vector bool long long
+vec_sld(vector bool long long __a, vector bool long long __b, int __c)
+  __constant_range(__c, 0, 15);
+
 extern __ATTRS_o vector unsigned long long
 vec_sld(vector unsigned long long __a, vector unsigned long long __b, int __c)
   __constant_range(__c, 0, 15);
+
+#if __ARCH__ >= 12
+extern __ATTRS_o vector float
+vec_sld(vector float __a, vector float __b, int __c)
+  __constant_range(__c, 0, 15);
+#endif
 
 extern __ATTRS_o vector double
 vec_sld(vector double __a, vector double __b, int __c)
@@ -5714,6 +6840,7 @@ extern __ATTRS_o vector unsigned long long
 vec_sldw(vector unsigned long long __a, vector unsigned long long __b, int __c)
   __constant_range(__c, 0, 3);
 
+// This prototype is deprecated.
 extern __ATTRS_o vector double
 vec_sldw(vector double __a, vector double __b, int __c)
   __constant_range(__c, 0, 3);
@@ -5730,30 +6857,35 @@ vec_sral(vector signed char __a, vector unsigned char __b) {
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed char
 vec_sral(vector signed char __a, vector unsigned short __b) {
   return (vector signed char)__builtin_s390_vsra(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed char
 vec_sral(vector signed char __a, vector unsigned int __b) {
   return (vector signed char)__builtin_s390_vsra(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool char
 vec_sral(vector bool char __a, vector unsigned char __b) {
   return (vector bool char)__builtin_s390_vsra(
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool char
 vec_sral(vector bool char __a, vector unsigned short __b) {
   return (vector bool char)__builtin_s390_vsra(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool char
 vec_sral(vector bool char __a, vector unsigned int __b) {
   return (vector bool char)__builtin_s390_vsra(
@@ -5765,11 +6897,13 @@ vec_sral(vector unsigned char __a, vector unsigned char __b) {
   return __builtin_s390_vsra(__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned char
 vec_sral(vector unsigned char __a, vector unsigned short __b) {
   return __builtin_s390_vsra(__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned char
 vec_sral(vector unsigned char __a, vector unsigned int __b) {
   return __builtin_s390_vsra(__a, (vector unsigned char)__b);
@@ -5781,30 +6915,35 @@ vec_sral(vector signed short __a, vector unsigned char __b) {
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed short
 vec_sral(vector signed short __a, vector unsigned short __b) {
   return (vector signed short)__builtin_s390_vsra(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed short
 vec_sral(vector signed short __a, vector unsigned int __b) {
   return (vector signed short)__builtin_s390_vsra(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool short
 vec_sral(vector bool short __a, vector unsigned char __b) {
   return (vector bool short)__builtin_s390_vsra(
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool short
 vec_sral(vector bool short __a, vector unsigned short __b) {
   return (vector bool short)__builtin_s390_vsra(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool short
 vec_sral(vector bool short __a, vector unsigned int __b) {
   return (vector bool short)__builtin_s390_vsra(
@@ -5817,12 +6956,14 @@ vec_sral(vector unsigned short __a, vector unsigned char __b) {
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned short
 vec_sral(vector unsigned short __a, vector unsigned short __b) {
   return (vector unsigned short)__builtin_s390_vsra(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned short
 vec_sral(vector unsigned short __a, vector unsigned int __b) {
   return (vector unsigned short)__builtin_s390_vsra(
@@ -5835,30 +6976,35 @@ vec_sral(vector signed int __a, vector unsigned char __b) {
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed int
 vec_sral(vector signed int __a, vector unsigned short __b) {
   return (vector signed int)__builtin_s390_vsra(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed int
 vec_sral(vector signed int __a, vector unsigned int __b) {
   return (vector signed int)__builtin_s390_vsra(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool int
 vec_sral(vector bool int __a, vector unsigned char __b) {
   return (vector bool int)__builtin_s390_vsra(
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool int
 vec_sral(vector bool int __a, vector unsigned short __b) {
   return (vector bool int)__builtin_s390_vsra(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool int
 vec_sral(vector bool int __a, vector unsigned int __b) {
   return (vector bool int)__builtin_s390_vsra(
@@ -5871,12 +7017,14 @@ vec_sral(vector unsigned int __a, vector unsigned char __b) {
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned int
 vec_sral(vector unsigned int __a, vector unsigned short __b) {
   return (vector unsigned int)__builtin_s390_vsra(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned int
 vec_sral(vector unsigned int __a, vector unsigned int __b) {
   return (vector unsigned int)__builtin_s390_vsra(
@@ -5889,30 +7037,35 @@ vec_sral(vector signed long long __a, vector unsigned char __b) {
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed long long
 vec_sral(vector signed long long __a, vector unsigned short __b) {
   return (vector signed long long)__builtin_s390_vsra(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed long long
 vec_sral(vector signed long long __a, vector unsigned int __b) {
   return (vector signed long long)__builtin_s390_vsra(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool long long
 vec_sral(vector bool long long __a, vector unsigned char __b) {
   return (vector bool long long)__builtin_s390_vsra(
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool long long
 vec_sral(vector bool long long __a, vector unsigned short __b) {
   return (vector bool long long)__builtin_s390_vsra(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool long long
 vec_sral(vector bool long long __a, vector unsigned int __b) {
   return (vector bool long long)__builtin_s390_vsra(
@@ -5925,12 +7078,14 @@ vec_sral(vector unsigned long long __a, vector unsigned char __b) {
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned long long
 vec_sral(vector unsigned long long __a, vector unsigned short __b) {
   return (vector unsigned long long)__builtin_s390_vsra(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned long long
 vec_sral(vector unsigned long long __a, vector unsigned int __b) {
   return (vector unsigned long long)__builtin_s390_vsra(
@@ -6033,6 +7188,20 @@ vec_srab(vector unsigned long long __a, vector unsigned long long __b) {
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_srab(vector float __a, vector signed int __b) {
+  return (vector float)__builtin_s390_vsrab(
+    (vector unsigned char)__a, (vector unsigned char)__b);
+}
+
+static inline __ATTRS_o_ai vector float
+vec_srab(vector float __a, vector unsigned int __b) {
+  return (vector float)__builtin_s390_vsrab(
+    (vector unsigned char)__a, (vector unsigned char)__b);
+}
+#endif
+
 static inline __ATTRS_o_ai vector double
 vec_srab(vector double __a, vector signed long long __b) {
   return (vector double)__builtin_s390_vsrab(
@@ -6053,30 +7222,35 @@ vec_srl(vector signed char __a, vector unsigned char __b) {
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed char
 vec_srl(vector signed char __a, vector unsigned short __b) {
   return (vector signed char)__builtin_s390_vsrl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed char
 vec_srl(vector signed char __a, vector unsigned int __b) {
   return (vector signed char)__builtin_s390_vsrl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool char
 vec_srl(vector bool char __a, vector unsigned char __b) {
   return (vector bool char)__builtin_s390_vsrl(
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool char
 vec_srl(vector bool char __a, vector unsigned short __b) {
   return (vector bool char)__builtin_s390_vsrl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool char
 vec_srl(vector bool char __a, vector unsigned int __b) {
   return (vector bool char)__builtin_s390_vsrl(
@@ -6088,11 +7262,13 @@ vec_srl(vector unsigned char __a, vector unsigned char __b) {
   return __builtin_s390_vsrl(__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned char
 vec_srl(vector unsigned char __a, vector unsigned short __b) {
   return __builtin_s390_vsrl(__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned char
 vec_srl(vector unsigned char __a, vector unsigned int __b) {
   return __builtin_s390_vsrl(__a, (vector unsigned char)__b);
@@ -6104,30 +7280,35 @@ vec_srl(vector signed short __a, vector unsigned char __b) {
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed short
 vec_srl(vector signed short __a, vector unsigned short __b) {
   return (vector signed short)__builtin_s390_vsrl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed short
 vec_srl(vector signed short __a, vector unsigned int __b) {
   return (vector signed short)__builtin_s390_vsrl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool short
 vec_srl(vector bool short __a, vector unsigned char __b) {
   return (vector bool short)__builtin_s390_vsrl(
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool short
 vec_srl(vector bool short __a, vector unsigned short __b) {
   return (vector bool short)__builtin_s390_vsrl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool short
 vec_srl(vector bool short __a, vector unsigned int __b) {
   return (vector bool short)__builtin_s390_vsrl(
@@ -6140,12 +7321,14 @@ vec_srl(vector unsigned short __a, vector unsigned char __b) {
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned short
 vec_srl(vector unsigned short __a, vector unsigned short __b) {
   return (vector unsigned short)__builtin_s390_vsrl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned short
 vec_srl(vector unsigned short __a, vector unsigned int __b) {
   return (vector unsigned short)__builtin_s390_vsrl(
@@ -6158,30 +7341,35 @@ vec_srl(vector signed int __a, vector unsigned char __b) {
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed int
 vec_srl(vector signed int __a, vector unsigned short __b) {
   return (vector signed int)__builtin_s390_vsrl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed int
 vec_srl(vector signed int __a, vector unsigned int __b) {
   return (vector signed int)__builtin_s390_vsrl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool int
 vec_srl(vector bool int __a, vector unsigned char __b) {
   return (vector bool int)__builtin_s390_vsrl(
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool int
 vec_srl(vector bool int __a, vector unsigned short __b) {
   return (vector bool int)__builtin_s390_vsrl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool int
 vec_srl(vector bool int __a, vector unsigned int __b) {
   return (vector bool int)__builtin_s390_vsrl(
@@ -6194,12 +7382,14 @@ vec_srl(vector unsigned int __a, vector unsigned char __b) {
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned int
 vec_srl(vector unsigned int __a, vector unsigned short __b) {
   return (vector unsigned int)__builtin_s390_vsrl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned int
 vec_srl(vector unsigned int __a, vector unsigned int __b) {
   return (vector unsigned int)__builtin_s390_vsrl(
@@ -6212,30 +7402,35 @@ vec_srl(vector signed long long __a, vector unsigned char __b) {
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed long long
 vec_srl(vector signed long long __a, vector unsigned short __b) {
   return (vector signed long long)__builtin_s390_vsrl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed long long
 vec_srl(vector signed long long __a, vector unsigned int __b) {
   return (vector signed long long)__builtin_s390_vsrl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool long long
 vec_srl(vector bool long long __a, vector unsigned char __b) {
   return (vector bool long long)__builtin_s390_vsrl(
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool long long
 vec_srl(vector bool long long __a, vector unsigned short __b) {
   return (vector bool long long)__builtin_s390_vsrl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector bool long long
 vec_srl(vector bool long long __a, vector unsigned int __b) {
   return (vector bool long long)__builtin_s390_vsrl(
@@ -6248,12 +7443,14 @@ vec_srl(vector unsigned long long __a, vector unsigned char __b) {
     (vector unsigned char)__a, __b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned long long
 vec_srl(vector unsigned long long __a, vector unsigned short __b) {
   return (vector unsigned long long)__builtin_s390_vsrl(
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned long long
 vec_srl(vector unsigned long long __a, vector unsigned int __b) {
   return (vector unsigned long long)__builtin_s390_vsrl(
@@ -6356,6 +7553,20 @@ vec_srb(vector unsigned long long __a, vector unsigned long long __b) {
     (vector unsigned char)__a, (vector unsigned char)__b);
 }
 
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_srb(vector float __a, vector signed int __b) {
+  return (vector float)__builtin_s390_vsrlb(
+    (vector unsigned char)__a, (vector unsigned char)__b);
+}
+
+static inline __ATTRS_o_ai vector float
+vec_srb(vector float __a, vector unsigned int __b) {
+  return (vector float)__builtin_s390_vsrlb(
+    (vector unsigned char)__a, (vector unsigned char)__b);
+}
+#endif
+
 static inline __ATTRS_o_ai vector double
 vec_srb(vector double __a, vector signed long long __b) {
   return (vector double)__builtin_s390_vsrlb(
@@ -6390,6 +7601,13 @@ vec_abs(vector signed long long __a) {
   return vec_sel(__a, -__a, vec_cmplt(__a, (vector signed long long)0));
 }
 
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_abs(vector float __a) {
+  return __builtin_s390_vflpsb(__a);
+}
+#endif
+
 static inline __ATTRS_o_ai vector double
 vec_abs(vector double __a) {
   return __builtin_s390_vflpdb(__a);
@@ -6397,7 +7615,14 @@ vec_abs(vector double __a) {
 
 /*-- vec_nabs ---------------------------------------------------------------*/
 
-static inline __ATTRS_ai vector double
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_nabs(vector float __a) {
+  return __builtin_s390_vflnsb(__a);
+}
+#endif
+
+static inline __ATTRS_o_ai vector double
 vec_nabs(vector double __a) {
   return __builtin_s390_vflndb(__a);
 }
@@ -6409,12 +7634,14 @@ vec_max(vector signed char __a, vector signed char __b) {
   return vec_sel(__b, __a, vec_cmpgt(__a, __b));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed char
 vec_max(vector signed char __a, vector bool char __b) {
   vector signed char __bc = (vector signed char)__b;
   return vec_sel(__bc, __a, vec_cmpgt(__a, __bc));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed char
 vec_max(vector bool char __a, vector signed char __b) {
   vector signed char __ac = (vector signed char)__a;
@@ -6426,12 +7653,14 @@ vec_max(vector unsigned char __a, vector unsigned char __b) {
   return vec_sel(__b, __a, vec_cmpgt(__a, __b));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned char
 vec_max(vector unsigned char __a, vector bool char __b) {
   vector unsigned char __bc = (vector unsigned char)__b;
   return vec_sel(__bc, __a, vec_cmpgt(__a, __bc));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned char
 vec_max(vector bool char __a, vector unsigned char __b) {
   vector unsigned char __ac = (vector unsigned char)__a;
@@ -6443,12 +7672,14 @@ vec_max(vector signed short __a, vector signed short __b) {
   return vec_sel(__b, __a, vec_cmpgt(__a, __b));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed short
 vec_max(vector signed short __a, vector bool short __b) {
   vector signed short __bc = (vector signed short)__b;
   return vec_sel(__bc, __a, vec_cmpgt(__a, __bc));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed short
 vec_max(vector bool short __a, vector signed short __b) {
   vector signed short __ac = (vector signed short)__a;
@@ -6460,12 +7691,14 @@ vec_max(vector unsigned short __a, vector unsigned short __b) {
   return vec_sel(__b, __a, vec_cmpgt(__a, __b));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned short
 vec_max(vector unsigned short __a, vector bool short __b) {
   vector unsigned short __bc = (vector unsigned short)__b;
   return vec_sel(__bc, __a, vec_cmpgt(__a, __bc));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned short
 vec_max(vector bool short __a, vector unsigned short __b) {
   vector unsigned short __ac = (vector unsigned short)__a;
@@ -6477,12 +7710,14 @@ vec_max(vector signed int __a, vector signed int __b) {
   return vec_sel(__b, __a, vec_cmpgt(__a, __b));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed int
 vec_max(vector signed int __a, vector bool int __b) {
   vector signed int __bc = (vector signed int)__b;
   return vec_sel(__bc, __a, vec_cmpgt(__a, __bc));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed int
 vec_max(vector bool int __a, vector signed int __b) {
   vector signed int __ac = (vector signed int)__a;
@@ -6494,12 +7729,14 @@ vec_max(vector unsigned int __a, vector unsigned int __b) {
   return vec_sel(__b, __a, vec_cmpgt(__a, __b));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned int
 vec_max(vector unsigned int __a, vector bool int __b) {
   vector unsigned int __bc = (vector unsigned int)__b;
   return vec_sel(__bc, __a, vec_cmpgt(__a, __bc));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned int
 vec_max(vector bool int __a, vector unsigned int __b) {
   vector unsigned int __ac = (vector unsigned int)__a;
@@ -6511,12 +7748,14 @@ vec_max(vector signed long long __a, vector signed long long __b) {
   return vec_sel(__b, __a, vec_cmpgt(__a, __b));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed long long
 vec_max(vector signed long long __a, vector bool long long __b) {
   vector signed long long __bc = (vector signed long long)__b;
   return vec_sel(__bc, __a, vec_cmpgt(__a, __bc));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed long long
 vec_max(vector bool long long __a, vector signed long long __b) {
   vector signed long long __ac = (vector signed long long)__a;
@@ -6528,21 +7767,34 @@ vec_max(vector unsigned long long __a, vector unsigned long long __b) {
   return vec_sel(__b, __a, vec_cmpgt(__a, __b));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned long long
 vec_max(vector unsigned long long __a, vector bool long long __b) {
   vector unsigned long long __bc = (vector unsigned long long)__b;
   return vec_sel(__bc, __a, vec_cmpgt(__a, __bc));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned long long
 vec_max(vector bool long long __a, vector unsigned long long __b) {
   vector unsigned long long __ac = (vector unsigned long long)__a;
   return vec_sel(__b, __ac, vec_cmpgt(__ac, __b));
 }
 
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_max(vector float __a, vector float __b) {
+  return __builtin_s390_vfmaxsb(__a, __b, 0);
+}
+#endif
+
 static inline __ATTRS_o_ai vector double
 vec_max(vector double __a, vector double __b) {
+#if __ARCH__ >= 12
+  return __builtin_s390_vfmaxdb(__a, __b, 0);
+#else
   return vec_sel(__b, __a, vec_cmpgt(__a, __b));
+#endif
 }
 
 /*-- vec_min ----------------------------------------------------------------*/
@@ -6552,12 +7804,14 @@ vec_min(vector signed char __a, vector signed char __b) {
   return vec_sel(__a, __b, vec_cmpgt(__a, __b));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed char
 vec_min(vector signed char __a, vector bool char __b) {
   vector signed char __bc = (vector signed char)__b;
   return vec_sel(__a, __bc, vec_cmpgt(__a, __bc));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed char
 vec_min(vector bool char __a, vector signed char __b) {
   vector signed char __ac = (vector signed char)__a;
@@ -6569,12 +7823,14 @@ vec_min(vector unsigned char __a, vector unsigned char __b) {
   return vec_sel(__a, __b, vec_cmpgt(__a, __b));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned char
 vec_min(vector unsigned char __a, vector bool char __b) {
   vector unsigned char __bc = (vector unsigned char)__b;
   return vec_sel(__a, __bc, vec_cmpgt(__a, __bc));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned char
 vec_min(vector bool char __a, vector unsigned char __b) {
   vector unsigned char __ac = (vector unsigned char)__a;
@@ -6586,12 +7842,14 @@ vec_min(vector signed short __a, vector signed short __b) {
   return vec_sel(__a, __b, vec_cmpgt(__a, __b));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed short
 vec_min(vector signed short __a, vector bool short __b) {
   vector signed short __bc = (vector signed short)__b;
   return vec_sel(__a, __bc, vec_cmpgt(__a, __bc));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed short
 vec_min(vector bool short __a, vector signed short __b) {
   vector signed short __ac = (vector signed short)__a;
@@ -6603,12 +7861,14 @@ vec_min(vector unsigned short __a, vector unsigned short __b) {
   return vec_sel(__a, __b, vec_cmpgt(__a, __b));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned short
 vec_min(vector unsigned short __a, vector bool short __b) {
   vector unsigned short __bc = (vector unsigned short)__b;
   return vec_sel(__a, __bc, vec_cmpgt(__a, __bc));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned short
 vec_min(vector bool short __a, vector unsigned short __b) {
   vector unsigned short __ac = (vector unsigned short)__a;
@@ -6620,12 +7880,14 @@ vec_min(vector signed int __a, vector signed int __b) {
   return vec_sel(__a, __b, vec_cmpgt(__a, __b));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed int
 vec_min(vector signed int __a, vector bool int __b) {
   vector signed int __bc = (vector signed int)__b;
   return vec_sel(__a, __bc, vec_cmpgt(__a, __bc));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed int
 vec_min(vector bool int __a, vector signed int __b) {
   vector signed int __ac = (vector signed int)__a;
@@ -6637,12 +7899,14 @@ vec_min(vector unsigned int __a, vector unsigned int __b) {
   return vec_sel(__a, __b, vec_cmpgt(__a, __b));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned int
 vec_min(vector unsigned int __a, vector bool int __b) {
   vector unsigned int __bc = (vector unsigned int)__b;
   return vec_sel(__a, __bc, vec_cmpgt(__a, __bc));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned int
 vec_min(vector bool int __a, vector unsigned int __b) {
   vector unsigned int __ac = (vector unsigned int)__a;
@@ -6654,12 +7918,14 @@ vec_min(vector signed long long __a, vector signed long long __b) {
   return vec_sel(__a, __b, vec_cmpgt(__a, __b));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed long long
 vec_min(vector signed long long __a, vector bool long long __b) {
   vector signed long long __bc = (vector signed long long)__b;
   return vec_sel(__a, __bc, vec_cmpgt(__a, __bc));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed long long
 vec_min(vector bool long long __a, vector signed long long __b) {
   vector signed long long __ac = (vector signed long long)__a;
@@ -6671,21 +7937,34 @@ vec_min(vector unsigned long long __a, vector unsigned long long __b) {
   return vec_sel(__a, __b, vec_cmpgt(__a, __b));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned long long
 vec_min(vector unsigned long long __a, vector bool long long __b) {
   vector unsigned long long __bc = (vector unsigned long long)__b;
   return vec_sel(__a, __bc, vec_cmpgt(__a, __bc));
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned long long
 vec_min(vector bool long long __a, vector unsigned long long __b) {
   vector unsigned long long __ac = (vector unsigned long long)__a;
   return vec_sel(__ac, __b, vec_cmpgt(__ac, __b));
 }
 
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_min(vector float __a, vector float __b) {
+  return __builtin_s390_vfminsb(__a, __b, 0);
+}
+#endif
+
 static inline __ATTRS_o_ai vector double
 vec_min(vector double __a, vector double __b) {
+#if __ARCH__ >= 12
+  return __builtin_s390_vfmindb(__a, __b, 0);
+#else
   return vec_sel(__a, __b, vec_cmpgt(__a, __b));
+#endif
 }
 
 /*-- vec_add_u128 -----------------------------------------------------------*/
@@ -7126,6 +8405,13 @@ vec_mulo(vector unsigned int __a, vector unsigned int __b) {
   return __builtin_s390_vmlof(__a, __b);
 }
 
+/*-- vec_msum_u128 ----------------------------------------------------------*/
+
+#if __ARCH__ >= 12
+#define vec_msum_u128(X, Y, Z, W) \
+  ((vector unsigned char)__builtin_s390_vmslg((X), (Y), (Z), (W)));
+#endif
+
 /*-- vec_sub_u128 -----------------------------------------------------------*/
 
 static inline __ATTRS_ai vector unsigned char
@@ -7263,6 +8549,14 @@ vec_test_mask(vector unsigned long long __a, vector unsigned long long __b) {
                             (vector unsigned char)__b);
 }
 
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai int
+vec_test_mask(vector float __a, vector unsigned int __b) {
+  return __builtin_s390_vtm((vector unsigned char)__a,
+                            (vector unsigned char)__b);
+}
+#endif
+
 static inline __ATTRS_o_ai int
 vec_test_mask(vector double __a, vector unsigned long long __b) {
   return __builtin_s390_vtm((vector unsigned char)__a,
@@ -7271,27 +8565,77 @@ vec_test_mask(vector double __a, vector unsigned long long __b) {
 
 /*-- vec_madd ---------------------------------------------------------------*/
 
-static inline __ATTRS_ai vector double
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_madd(vector float __a, vector float __b, vector float __c) {
+  return __builtin_s390_vfmasb(__a, __b, __c);
+}
+#endif
+
+static inline __ATTRS_o_ai vector double
 vec_madd(vector double __a, vector double __b, vector double __c) {
   return __builtin_s390_vfmadb(__a, __b, __c);
 }
 
 /*-- vec_msub ---------------------------------------------------------------*/
 
-static inline __ATTRS_ai vector double
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_msub(vector float __a, vector float __b, vector float __c) {
+  return __builtin_s390_vfmssb(__a, __b, __c);
+}
+#endif
+
+static inline __ATTRS_o_ai vector double
 vec_msub(vector double __a, vector double __b, vector double __c) {
   return __builtin_s390_vfmsdb(__a, __b, __c);
 }
 
+/*-- vec_nmadd ---------------------------------------------------------------*/
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_nmadd(vector float __a, vector float __b, vector float __c) {
+  return __builtin_s390_vfnmasb(__a, __b, __c);
+}
+
+static inline __ATTRS_o_ai vector double
+vec_nmadd(vector double __a, vector double __b, vector double __c) {
+  return __builtin_s390_vfnmadb(__a, __b, __c);
+}
+#endif
+
+/*-- vec_nmsub ---------------------------------------------------------------*/
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_nmsub(vector float __a, vector float __b, vector float __c) {
+  return __builtin_s390_vfnmssb(__a, __b, __c);
+}
+
+static inline __ATTRS_o_ai vector double
+vec_nmsub(vector double __a, vector double __b, vector double __c) {
+  return __builtin_s390_vfnmsdb(__a, __b, __c);
+}
+#endif
+
 /*-- vec_sqrt ---------------------------------------------------------------*/
 
-static inline __ATTRS_ai vector double
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_sqrt(vector float __a) {
+  return __builtin_s390_vfsqsb(__a);
+}
+#endif
+
+static inline __ATTRS_o_ai vector double
 vec_sqrt(vector double __a) {
   return __builtin_s390_vfsqdb(__a);
 }
 
 /*-- vec_ld2f ---------------------------------------------------------------*/
 
+// This prototype is deprecated.
 static inline __ATTRS_ai vector double
 vec_ld2f(const float *__ptr) {
   typedef float __v2f32 __attribute__((__vector_size__(8)));
@@ -7300,6 +8644,7 @@ vec_ld2f(const float *__ptr) {
 
 /*-- vec_st2f ---------------------------------------------------------------*/
 
+// This prototype is deprecated.
 static inline __ATTRS_ai void
 vec_st2f(vector double __a, float *__ptr) {
   typedef float __v2f32 __attribute__((__vector_size__(8)));
@@ -7308,6 +8653,7 @@ vec_st2f(vector double __a, float *__ptr) {
 
 /*-- vec_ctd ----------------------------------------------------------------*/
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector double
 vec_ctd(vector signed long long __a, int __b)
   __constant_range(__b, 0, 31) {
@@ -7316,6 +8662,7 @@ vec_ctd(vector signed long long __a, int __b)
   return __conv;
 }
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector double
 vec_ctd(vector unsigned long long __a, int __b)
   __constant_range(__b, 0, 31) {
@@ -7326,6 +8673,7 @@ vec_ctd(vector unsigned long long __a, int __b)
 
 /*-- vec_ctsl ---------------------------------------------------------------*/
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector signed long long
 vec_ctsl(vector double __a, int __b)
   __constant_range(__b, 0, 31) {
@@ -7335,6 +8683,7 @@ vec_ctsl(vector double __a, int __b)
 
 /*-- vec_ctul ---------------------------------------------------------------*/
 
+// This prototype is deprecated.
 static inline __ATTRS_o_ai vector unsigned long long
 vec_ctul(vector double __a, int __b)
   __constant_range(__b, 0, 31) {
@@ -7342,16 +8691,79 @@ vec_ctul(vector double __a, int __b)
   return __builtin_convertvector(__a, vector unsigned long long);
 }
 
+/*-- vec_doublee ------------------------------------------------------------*/
+
+#if __ARCH__ >= 12
+static inline __ATTRS_ai vector double
+vec_doublee(vector float __a) {
+  typedef float __v2f32 __attribute__((__vector_size__(8)));
+  __v2f32 __pack = __builtin_shufflevector(__a, __a, 0, 2);
+  return __builtin_convertvector(__pack, vector double);
+}
+#endif
+
+/*-- vec_floate -------------------------------------------------------------*/
+
+#if __ARCH__ >= 12
+static inline __ATTRS_ai vector float
+vec_floate(vector double __a) {
+  typedef float __v2f32 __attribute__((__vector_size__(8)));
+  __v2f32 __pack = __builtin_convertvector(__a, __v2f32);
+  return __builtin_shufflevector(__pack, __pack, 0, -1, 1, -1);
+}
+#endif
+
+/*-- vec_double -------------------------------------------------------------*/
+
+static inline __ATTRS_o_ai vector double
+vec_double(vector signed long long __a) {
+  return __builtin_convertvector(__a, vector double);
+}
+
+static inline __ATTRS_o_ai vector double
+vec_double(vector unsigned long long __a) {
+  return __builtin_convertvector(__a, vector double);
+}
+
+/*-- vec_signed -------------------------------------------------------------*/
+
+static inline __ATTRS_o_ai vector signed long long
+vec_signed(vector double __a) {
+  return __builtin_convertvector(__a, vector signed long long);
+}
+
+/*-- vec_unsigned -----------------------------------------------------------*/
+
+static inline __ATTRS_o_ai vector unsigned long long
+vec_unsigned(vector double __a) {
+  return __builtin_convertvector(__a, vector unsigned long long);
+}
+
 /*-- vec_roundp -------------------------------------------------------------*/
 
-static inline __ATTRS_ai vector double
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_roundp(vector float __a) {
+  return __builtin_s390_vfisb(__a, 4, 6);
+}
+#endif
+
+static inline __ATTRS_o_ai vector double
 vec_roundp(vector double __a) {
   return __builtin_s390_vfidb(__a, 4, 6);
 }
 
 /*-- vec_ceil ---------------------------------------------------------------*/
 
-static inline __ATTRS_ai vector double
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_ceil(vector float __a) {
+  // On this platform, vec_ceil never triggers the IEEE-inexact exception.
+  return __builtin_s390_vfisb(__a, 4, 6);
+}
+#endif
+
+static inline __ATTRS_o_ai vector double
 vec_ceil(vector double __a) {
   // On this platform, vec_ceil never triggers the IEEE-inexact exception.
   return __builtin_s390_vfidb(__a, 4, 6);
@@ -7359,14 +8771,29 @@ vec_ceil(vector double __a) {
 
 /*-- vec_roundm -------------------------------------------------------------*/
 
-static inline __ATTRS_ai vector double
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_roundm(vector float __a) {
+  return __builtin_s390_vfisb(__a, 4, 7);
+}
+#endif
+
+static inline __ATTRS_o_ai vector double
 vec_roundm(vector double __a) {
   return __builtin_s390_vfidb(__a, 4, 7);
 }
 
 /*-- vec_floor --------------------------------------------------------------*/
 
-static inline __ATTRS_ai vector double
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_floor(vector float __a) {
+  // On this platform, vec_floor never triggers the IEEE-inexact exception.
+  return __builtin_s390_vfisb(__a, 4, 7);
+}
+#endif
+
+static inline __ATTRS_o_ai vector double
 vec_floor(vector double __a) {
   // On this platform, vec_floor never triggers the IEEE-inexact exception.
   return __builtin_s390_vfidb(__a, 4, 7);
@@ -7374,14 +8801,29 @@ vec_floor(vector double __a) {
 
 /*-- vec_roundz -------------------------------------------------------------*/
 
-static inline __ATTRS_ai vector double
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_roundz(vector float __a) {
+  return __builtin_s390_vfisb(__a, 4, 5);
+}
+#endif
+
+static inline __ATTRS_o_ai vector double
 vec_roundz(vector double __a) {
   return __builtin_s390_vfidb(__a, 4, 5);
 }
 
 /*-- vec_trunc --------------------------------------------------------------*/
 
-static inline __ATTRS_ai vector double
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_trunc(vector float __a) {
+  // On this platform, vec_trunc never triggers the IEEE-inexact exception.
+  return __builtin_s390_vfisb(__a, 4, 5);
+}
+#endif
+
+static inline __ATTRS_o_ai vector double
 vec_trunc(vector double __a) {
   // On this platform, vec_trunc never triggers the IEEE-inexact exception.
   return __builtin_s390_vfidb(__a, 4, 5);
@@ -7389,22 +8831,104 @@ vec_trunc(vector double __a) {
 
 /*-- vec_roundc -------------------------------------------------------------*/
 
-static inline __ATTRS_ai vector double
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_roundc(vector float __a) {
+  return __builtin_s390_vfisb(__a, 4, 0);
+}
+#endif
+
+static inline __ATTRS_o_ai vector double
 vec_roundc(vector double __a) {
   return __builtin_s390_vfidb(__a, 4, 0);
 }
 
+/*-- vec_rint ---------------------------------------------------------------*/
+
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_rint(vector float __a) {
+  // vec_rint may trigger the IEEE-inexact exception.
+  return __builtin_s390_vfisb(__a, 0, 0);
+}
+#endif
+
+static inline __ATTRS_o_ai vector double
+vec_rint(vector double __a) {
+  // vec_rint may trigger the IEEE-inexact exception.
+  return __builtin_s390_vfidb(__a, 0, 0);
+}
+
 /*-- vec_round --------------------------------------------------------------*/
 
-static inline __ATTRS_ai vector double
+#if __ARCH__ >= 12
+static inline __ATTRS_o_ai vector float
+vec_round(vector float __a) {
+  return __builtin_s390_vfisb(__a, 4, 4);
+}
+#endif
+
+static inline __ATTRS_o_ai vector double
 vec_round(vector double __a) {
   return __builtin_s390_vfidb(__a, 4, 4);
 }
 
 /*-- vec_fp_test_data_class -------------------------------------------------*/
 
+#if __ARCH__ >= 12
+extern __ATTRS_o vector bool int
+vec_fp_test_data_class(vector float __a, int __b, int *__c)
+  __constant_range(__b, 0, 4095);
+
+extern __ATTRS_o vector bool long long
+vec_fp_test_data_class(vector double __a, int __b, int *__c)
+  __constant_range(__b, 0, 4095);
+
+#define vec_fp_test_data_class(X, Y, Z) \
+  ((__typeof__((vec_fp_test_data_class)((X), (Y), (Z)))) \
+   __extension__ ({ \
+     vector unsigned char __res; \
+     vector unsigned char __x = (vector unsigned char)(X); \
+     int *__z = (Z); \
+     switch (sizeof ((X)[0])) { \
+     case 4:  __res = (vector unsigned char) \
+                      __builtin_s390_vftcisb((vector float)__x, (Y), __z); \
+              break; \
+     default: __res = (vector unsigned char) \
+                      __builtin_s390_vftcidb((vector double)__x, (Y), __z); \
+              break; \
+     } __res; }))
+#else
 #define vec_fp_test_data_class(X, Y, Z) \
   ((vector bool long long)__builtin_s390_vftcidb((X), (Y), (Z)))
+#endif
+
+#define __VEC_CLASS_FP_ZERO_P (1 << 11)
+#define __VEC_CLASS_FP_ZERO_N (1 << 10)
+#define __VEC_CLASS_FP_ZERO (__VEC_CLASS_FP_ZERO_P | __VEC_CLASS_FP_ZERO_N)
+#define __VEC_CLASS_FP_NORMAL_P (1 << 9)
+#define __VEC_CLASS_FP_NORMAL_N (1 << 8)
+#define __VEC_CLASS_FP_NORMAL (__VEC_CLASS_FP_NORMAL_P | \
+                               __VEC_CLASS_FP_NORMAL_N)
+#define __VEC_CLASS_FP_SUBNORMAL_P (1 << 7)
+#define __VEC_CLASS_FP_SUBNORMAL_N (1 << 6)
+#define __VEC_CLASS_FP_SUBNORMAL (__VEC_CLASS_FP_SUBNORMAL_P | \
+                                  __VEC_CLASS_FP_SUBNORMAL_N)
+#define __VEC_CLASS_FP_INFINITY_P (1 << 5)
+#define __VEC_CLASS_FP_INFINITY_N (1 << 4)
+#define __VEC_CLASS_FP_INFINITY (__VEC_CLASS_FP_INFINITY_P | \
+                                 __VEC_CLASS_FP_INFINITY_N)
+#define __VEC_CLASS_FP_QNAN_P (1 << 3)
+#define __VEC_CLASS_FP_QNAN_N (1 << 2)
+#define __VEC_CLASS_FP_QNAN (__VEC_CLASS_FP_QNAN_P | __VEC_CLASS_FP_QNAN_N)
+#define __VEC_CLASS_FP_SNAN_P (1 << 1)
+#define __VEC_CLASS_FP_SNAN_N (1 << 0)
+#define __VEC_CLASS_FP_SNAN (__VEC_CLASS_FP_SNAN_P | __VEC_CLASS_FP_SNAN_N)
+#define __VEC_CLASS_FP_NAN (__VEC_CLASS_FP_QNAN | __VEC_CLASS_FP_SNAN)
+#define __VEC_CLASS_FP_NOT_NORMAL (__VEC_CLASS_FP_NAN | \
+                                   __VEC_CLASS_FP_SUBNORMAL | \
+                                   __VEC_CLASS_FP_ZERO | \
+                                   __VEC_CLASS_FP_INFINITY)
 
 /*-- vec_cp_until_zero ------------------------------------------------------*/
 
