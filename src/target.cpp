@@ -640,3 +640,28 @@ Buf *target_dynamic_linker(ZigTarget *target) {
         return buf_create_from_str("/lib64/ld-linux-x86-64.so.2");
     }
 }
+
+bool target_can_exec(const ZigTarget *host_target, const ZigTarget *guest_target) {
+    assert(host_target != nullptr);
+
+    if (guest_target == nullptr) {
+        // null guest target means that the guest target is native
+        return true;
+    }
+
+    if (guest_target->os == host_target->os && guest_target->arch.arch == host_target->arch.arch &&
+        guest_target->arch.sub_arch == host_target->arch.sub_arch)
+    {
+        // OS, arch, and sub-arch match
+        return true;
+    }
+
+    if (guest_target->os == ZigLLVM_Win32 && guest_target->os == ZigLLVM_Win32 &&
+        host_target->arch.arch == ZigLLVM_x86_64 && guest_target->arch.arch == ZigLLVM_x86)
+    {
+        // 64-bit windows can run 32-bit programs
+        return true;
+    }
+    
+    return false;
+}

@@ -711,9 +711,7 @@ int main(int argc, char **argv) {
                 codegen_build(g);
                 codegen_link(g, buf_ptr(test_exe_name));
 
-                bool is_native_target = target == nullptr || (target->os == native.os &&
-                        target->arch.arch == native.arch.arch && target->arch.sub_arch == native.arch.sub_arch);
-                if (!is_native_target) {
+                if (!target_can_exec(&native, target)) {
                     fprintf(stderr, "Created %s but skipping execution because it is non-native.\n",
                             buf_ptr(test_exe_name));
                     return 0;

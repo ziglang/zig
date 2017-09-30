@@ -77,5 +77,7 @@ const char *target_exe_file_ext(ZigTarget *target);
 
 Buf *target_dynamic_linker(ZigTarget *target);
 
+bool target_can_exec(const ZigTarget *host_target, const ZigTarget *guest_target);
+
 
 #endif
