@@ -700,7 +700,7 @@ int main(int argc, char **argv) {
 
                 ZigTarget *non_null_target = target ? target : &native;
 
-                Buf *test_exe_name = buf_sprintf("./test%s", target_exe_file_ext(non_null_target));
+                Buf *test_exe_name = buf_sprintf("." OS_SEP "test%s", target_exe_file_ext(non_null_target));
 
                 for (size_t i = 0; i < test_exec_args.length; i += 1) {
                     if (test_exec_args.items[i] == nullptr) {

@@ -85,11 +85,13 @@ bool os_is_sep(uint8_t c);
 #define ZIG_PRI_u64 "I64u"
 #define ZIG_PRI_llu "I64u"
 #define ZIG_PRI_x64 "I64x"
+#define OS_SEP "\\"
 #else
 #define ZIG_PRI_usize "zu"
 #define ZIG_PRI_u64 PRIu64
 #define ZIG_PRI_llu "llu"
 #define ZIG_PRI_x64 PRIx64
+#define OS_SEP "/"
 #endif
 
 #endif
