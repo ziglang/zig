@@ -101,14 +101,50 @@ static void os_spawn_process_posix(const char *exe, ZigList<const char *> &args,
 #endif
 
 #if defined(ZIG_OS_WINDOWS)
-static void os_spawn_process_windows(const char *exe, ZigList<const char *> &args, Termination *term) {
-    Buf stderr_buf = BUF_INIT;
-    Buf stdout_buf = BUF_INIT;
+static void os_windows_create_command_line(Buf *command_line, const char *exe, ZigList<const char *> &args) {
+    buf_resize(command_line, 0);
 
-    // TODO this is supposed to inherit stdout/stderr instead of capturing it
-    os_exec_process(exe, args, term, &stderr_buf, &stdout_buf);
-    fwrite(buf_ptr(&stderr_buf), 1, buf_len(&stderr_buf), stderr);
-    fwrite(buf_ptr(&stdout_buf), 1, buf_len(&stdout_buf), stdout);
+    buf_append_char(command_line, '\"');
+    buf_append_str(command_line, exe);
+    buf_append_char(command_line, '\"');
+
+    for (size_t arg_i = 0; arg_i < args.length; arg_i += 1) {
+        buf_append_str(command_line, " \"");
+        const char *arg = args.at(arg_i);
+        size_t arg_len = strlen(arg);
+        for (size_t c_i = 0; c_i < arg_len; c_i += 1) {
+            if (arg[c_i] == '\"') {
+                zig_panic("TODO");
+            }
+            buf_append_char(command_line, arg[c_i]);
+        }
+        buf_append_char(command_line, '\"');
+    }
+}
+
+static void os_spawn_process_windows(const char *exe, ZigList<const char *> &args, Termination *term) {
+    Buf command_line = BUF_INIT;
+    os_windows_create_command_line(&command_line, exe, args);
+
+    PROCESS_INFORMATION piProcInfo = {0};
+    STARTUPINFO siStartInfo = {0};
+    siStartInfo.cb = sizeof(STARTUPINFO);
+
+    BOOL success = CreateProcessA(exe, buf_ptr(&command_line), nullptr, nullptr, TRUE, 0, nullptr, nullptr,
+            &siStartInfo, &piProcInfo);
+
+    if (!success) {
+        zig_panic("CreateProcess failed. exe: %s command_line: %s", exe, buf_ptr(&command_line));
+    }
+
+    WaitForSingleObject(piProcInfo.hProcess, INFINITE);
+
+    DWORD exit_code;
+    if (!GetExitCodeProcess(piProcInfo.hProcess, &exit_code)) {
+        zig_panic("GetExitCodeProcess failed");
+    }
+    term->how = TerminationIdClean;
+    term->code = exit_code;
 }
 #endif
 
@@ -368,25 +404,7 @@ static int os_exec_process_windows(const char *exe, ZigList<const char *> &args,
         Termination *term, Buf *out_stderr, Buf *out_stdout)
 {
     Buf command_line = BUF_INIT;
-    buf_resize(&command_line, 0);
-
-    buf_append_char(&command_line, '\"');
-    buf_append_str(&command_line, exe);
-    buf_append_char(&command_line, '\"');
-
-    for (size_t arg_i = 0; arg_i < args.length; arg_i += 1) {
-        buf_append_str(&command_line, " \"");
-        const char *arg = args.at(arg_i);
-        size_t arg_len = strlen(arg);
-        for (size_t c_i = 0; c_i < arg_len; c_i += 1) {
-            if (arg[c_i] == '\"') {
-                zig_panic("TODO");
-            }
-            buf_append_char(&command_line, arg[c_i]);
-        }
-        buf_append_char(&command_line, '\"');
-    }
-
+    os_windows_create_command_line(&command_line, exe, args);
 
     HANDLE g_hChildStd_IN_Rd = NULL;
     HANDLE g_hChildStd_IN_Wr = NULL;
