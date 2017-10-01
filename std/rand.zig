@@ -164,16 +164,16 @@ fn MersenneTwister(
 
                 while (i < n - m) : (i += 1) {
                     const x = (mt.array[i] & UM) | (mt.array[i + 1] & LM);
-                    mt.array[i] = mt.array[i + m] ^ (x >> 1) ^ mag01[x & 0x1];
+                    mt.array[i] = mt.array[i + m] ^ (x >> 1) ^ mag01[usize(x & 0x1)];
                 }
 
                 while (i < n - 1) : (i += 1) {
                     const x = (mt.array[i] & UM) | (mt.array[i + 1] & LM);
-                    mt.array[i] = mt.array[i + m - n] ^ (x >> 1) ^ mag01[x & 0x1];
+                    mt.array[i] = mt.array[i + m - n] ^ (x >> 1) ^ mag01[usize(x & 0x1)];
 
                 }
                 const x = (mt.array[i] & UM) | (mt.array[0] & LM);
-                mt.array[i] = mt.array[m - 1] ^ (x >> 1) ^ mag01[x & 0x1];
+                mt.array[i] = mt.array[m - 1] ^ (x >> 1) ^ mag01[usize(x & 0x1)];
 
                 mt.index = 0;
             }

@@ -110,6 +110,44 @@ export nakedcc fn __aeabi_uidivmod() {
     @setGlobalLinkage(__aeabi_uidivmod, builtin.GlobalLinkage.Internal);
 }
 
+// _chkstk (_alloca) routine - probe stack between %esp and (%esp-%eax) in 4k increments,
+// then decrement %esp by %eax.  Preserves all registers except %esp and flags.
+// This routine is windows specific
+// http://msdn.microsoft.com/en-us/library/ms648426.aspx
+export nakedcc fn _chkstk() align(4) {
+    @setDebugSafety(this, false);
+
+    if (comptime builtin.os == builtin.Os.windows) {
+        if (comptime builtin.arch == builtin.Arch.i386) {
+            asm volatile (
+                \\         push   %%ecx
+                \\         cmp    $0x1000,%%eax
+                \\         lea    8(%%esp),%%ecx     // esp before calling this routine -> ecx
+                \\         jb     1f
+                \\ 2:
+                \\         sub    $0x1000,%%ecx
+                \\         test   %%ecx,(%%ecx)
+                \\         sub    $0x1000,%%eax
+                \\         cmp    $0x1000,%%eax
+                \\         ja     2b
+                \\ 1:
+                \\         sub    %%eax,%%ecx
+                \\         test   %%ecx,(%%ecx)
+                \\ 
+                \\         lea    4(%%esp),%%eax     // load pointer to the return address into eax
+                \\         mov    %%ecx,%%esp        // install the new top of stack pointer into esp
+                \\         mov    -4(%%eax),%%ecx    // restore ecx
+                \\         push   (%%eax)           // push return address onto the stack
+                \\         sub    %%esp,%%eax        // restore the original value in eax
+                \\         ret
+            );
+            unreachable;
+        }
+    }
+
+    @setGlobalLinkage(_chkstk, builtin.GlobalLinkage.Internal);
+}
+
 export nakedcc fn __chkstk() align(4) {
     @setDebugSafety(this, false);
 
@@ -142,6 +180,40 @@ export nakedcc fn __chkstk() align(4) {
     }
 
     @setGlobalLinkage(__chkstk, builtin.GlobalLinkage.Internal);
+}
+
+// _chkstk routine
+// This routine is windows specific
+// http://msdn.microsoft.com/en-us/library/ms648426.aspx
+export nakedcc fn __chkstk_ms() align(4) {
+    @setDebugSafety(this, false);
+
+    if (comptime builtin.os == builtin.Os.windows) {
+        if (comptime builtin.arch == builtin.Arch.i386) {
+            asm volatile (
+                \\         push   %%ecx
+                \\         push   %%eax
+                \\         cmp    $0x1000,%%eax
+                \\         lea    12(%%esp),%%ecx
+                \\         jb     1f
+                \\ 2:
+                \\         sub    $0x1000,%%ecx
+                \\         test   %%ecx,(%%ecx)
+                \\         sub    $0x1000,%%eax
+                \\         cmp    $0x1000,%%eax
+                \\         ja     2b
+                \\ 1:
+                \\         sub    %%eax,%%ecx
+                \\         test   %%ecx,(%%ecx)
+                \\         pop    %%eax
+                \\         pop    %%ecx
+                \\         ret
+            );
+            unreachable;
+        }
+    }
+
+    @setGlobalLinkage(__chkstk_ms, builtin.GlobalLinkage.Internal);
 }
 
 export nakedcc fn ___chkstk_ms() align(4) {
