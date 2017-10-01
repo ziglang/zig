@@ -20,6 +20,10 @@ set(ZIG_LIBC_INCLUDE_DIR "/usr/include" CACHE STRING "Default native target libc
 set(ZIG_DYNAMIC_LINKER "" CACHE STRING "Override dynamic linker for native target")
 set(ZIG_EACH_LIB_RPATH off CACHE BOOL "Add each dynamic library to rpath for native target")
 
+string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_LIBC_LIB_DIR_ESCAPED ${ZIG_LIBC_LIB_DIR}) 
+string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_LIBC_STATIC_LIB_DIR_ESCAPED ${ZIG_LIBC_STATIC_LIB_DIR}) 
+string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_LIBC_INCLUDE_DIR_ESCAPED ${ZIG_LIBC_INCLUDE_DIR}) 
+
 option(ZIG_TEST_COVERAGE "Build Zig with test coverage instrumentation" OFF)
 
 # To see what patches have been applied to LLD in this repository:
