@@ -337,7 +337,12 @@ static LLVMCallConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
             if (g->zig_target.arch.arch == ZigLLVM_x86 ||
                 g->zig_target.arch.arch == ZigLLVM_x86_64)
             {
-                return LLVMColdCallConv;
+                // cold calling convention is not supported on windows
+                if (g->zig_target.os == ZigLLVM_Win32) {
+                    return LLVMCCallConv;
+                } else {
+                    return LLVMColdCallConv;
+                }
             } else {
                 return LLVMCCallConv;
             }
