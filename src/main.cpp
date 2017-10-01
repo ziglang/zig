@@ -347,8 +347,11 @@ int main(int argc, char **argv) {
 
         Buf *zig_lib_dir_buf = resolve_zig_lib_dir(zig_install_prefix);
 
+        Buf *zig_std_dir = buf_alloc();
+        os_path_join(zig_lib_dir_buf, buf_create_from_str("std"), zig_std_dir);
+
         Buf *special_dir = buf_alloc();
-        os_path_join(zig_lib_dir_buf, buf_sprintf("special"), special_dir);
+        os_path_join(zig_std_dir, buf_sprintf("special"), special_dir);
 
         Buf *build_runner_path = buf_alloc();
         os_path_join(special_dir, buf_create_from_str("build_runner.zig"), build_runner_path);
