@@ -14,7 +14,8 @@
 
 #include <stdio.h>
 
-CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type, BuildMode build_mode);
+CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type, BuildMode build_mode,
+    Buf *zig_std_dir);
 
 void codegen_set_clang_argv(CodeGen *codegen, const char **args, size_t len);
 void codegen_set_llvm_argv(CodeGen *codegen, const char **args, size_t len);
@@ -29,7 +30,6 @@ void codegen_set_out_name(CodeGen *codegen, Buf *out_name);
 void codegen_set_libc_lib_dir(CodeGen *codegen, Buf *libc_lib_dir);
 void codegen_set_libc_static_lib_dir(CodeGen *g, Buf *libc_static_lib_dir);
 void codegen_set_libc_include_dir(CodeGen *codegen, Buf *libc_include_dir);
-void codegen_set_zig_std_dir(CodeGen *codegen, Buf *zig_std_dir);
 void codegen_set_dynamic_linker(CodeGen *g, Buf *dynamic_linker);
 void codegen_set_windows_subsystem(CodeGen *g, bool mwindows, bool mconsole);
 void codegen_set_windows_unicode(CodeGen *g, bool municode);

@@ -232,13 +232,6 @@ int main(int argc, char **argv) {
 
         init_all_targets();
 
-        Buf *zig_std_dir = buf_create_from_str(ZIG_STD_DIR);
-        Buf *special_dir = buf_alloc();
-        os_path_join(zig_std_dir, buf_sprintf("special"), special_dir);
-
-        Buf *build_runner_path = buf_alloc();
-        os_path_join(special_dir, buf_create_from_str("build_runner.zig"), build_runner_path);
-
         ZigList<const char *> args = {0};
         args.append(zig_exe_path);
         args.append(NULL); // placeholder
@@ -255,12 +248,29 @@ int main(int argc, char **argv) {
             } else if (i + 1 < argc && strcmp(argv[i], "--cache-dir") == 0) {
                 cache_dir = argv[i + 1];
                 i += 1;
+            } else if (i + 1 < argc && strcmp(argv[i], "--zig-std-dir") == 0) {
+                args.append(argv[i]);
+                i += 1;
+                zig_std_dir = argv[i];
+                args.append(zig_std_dir);
             } else {
                 args.append(argv[i]);
             }
         }
 
-        CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe, BuildModeDebug);
+        if (zig_std_dir == nullptr) {
+            zig_std_dir = ZIG_STD_DIR;
+        }
+        Buf *zig_std_dir_buf = buf_create_from_str(zig_std_dir);
+
+        Buf *special_dir = buf_alloc();
+        os_path_join(zig_std_dir_buf, buf_sprintf("special"), special_dir);
+
+        Buf *build_runner_path = buf_alloc();
+        os_path_join(special_dir, buf_create_from_str("build_runner.zig"), build_runner_path);
+
+
+        CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe, BuildModeDebug, zig_std_dir_buf);
         codegen_set_out_name(g, buf_create_from_str("build"));
         codegen_set_verbose(g, verbose);
 
@@ -609,7 +619,12 @@ int main(int argc, char **argv) {
                     buf_create_from_str((cache_dir == nullptr) ? default_zig_cache_name : cache_dir),
                     full_cache_dir);
 
-            CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode);
+            if (zig_std_dir == nullptr) {
+                zig_std_dir = ZIG_STD_DIR;
+            }
+
+            CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode,
+                buf_create_from_str(zig_std_dir));
             codegen_set_out_name(g, buf_out_name);
             codegen_set_lib_version(g, ver_major, ver_minor, ver_patch);
             codegen_set_is_test(g, cmd == CmdTest);
@@ -628,8 +643,6 @@ int main(int argc, char **argv) {
                 codegen_set_libc_static_lib_dir(g, buf_create_from_str(libc_static_lib_dir));
             if (libc_include_dir)
                 codegen_set_libc_include_dir(g, buf_create_from_str(libc_include_dir));
-            if (zig_std_dir)
-                codegen_set_zig_std_dir(g, buf_create_from_str(zig_std_dir));
             if (dynamic_linker)
                 codegen_set_dynamic_linker(g, buf_create_from_str(dynamic_linker));
             codegen_set_verbose(g, verbose);
