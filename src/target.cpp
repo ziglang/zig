@@ -656,7 +656,7 @@ bool target_can_exec(const ZigTarget *host_target, const ZigTarget *guest_target
         return true;
     }
 
-    if (guest_target->os == ZigLLVM_Win32 && guest_target->os == ZigLLVM_Win32 &&
+    if (guest_target->os == ZigLLVM_Win32 && host_target->os == ZigLLVM_Win32 &&
         host_target->arch.arch == ZigLLVM_x86_64 && guest_target->arch.arch == ZigLLVM_x86)
     {
         // 64-bit windows can run 32-bit programs
