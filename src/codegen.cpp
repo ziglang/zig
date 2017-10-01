@@ -733,18 +733,21 @@ static Buf *panic_msg_buf(PanicMsgId msg_id) {
 
 static LLVMValueRef get_panic_msg_ptr_val(CodeGen *g, PanicMsgId msg_id) {
     ConstExprValue *val = &g->panic_msg_vals[msg_id];
-    if (val->global_refs->llvm_global)
-        return val->global_refs->llvm_global;
+    if (!val->global_refs->llvm_global) {
 
-    Buf *buf_msg = panic_msg_buf(msg_id);
-    ConstExprValue *array_val = create_const_str_lit(g, buf_msg);
-    init_const_slice(g, val, array_val, 0, buf_len(buf_msg), true);
+        Buf *buf_msg = panic_msg_buf(msg_id);
+        ConstExprValue *array_val = create_const_str_lit(g, buf_msg);
+        init_const_slice(g, val, array_val, 0, buf_len(buf_msg), true);
 
-    render_const_val(g, val);
-    render_const_val_global(g, val, "");
+        render_const_val(g, val);
+        render_const_val_global(g, val, "");
 
-    assert(val->global_refs->llvm_global);
-    return val->global_refs->llvm_global;
+        assert(val->global_refs->llvm_global);
+    }
+
+    TypeTableEntry *u8_ptr_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
+    TypeTableEntry *str_type = get_slice_type(g, u8_ptr_type);
+    return LLVMConstBitCast(val->global_refs->llvm_global, LLVMPointerType(str_type->type_ref, 0));
 }
 
 static void gen_panic(CodeGen *g, LLVMValueRef msg_arg) {
@@ -3743,7 +3746,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                         fields[type_struct_field->gen_index] = gen_const_val(g, &const_val->data.x_struct.fields[i]);
                     }
                 }
-                return LLVMConstNamedStruct(type_entry->type_ref, fields, type_entry->data.structure.gen_field_count);
+                return LLVMConstStruct(fields, type_entry->data.structure.gen_field_count,
+                    type_entry->data.structure.layout == ContainerLayoutPacked);
             }
         case TypeTableEntryIdUnion:
             {
