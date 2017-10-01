@@ -9,8 +9,7 @@ test "enum type" {
     assert(bar == Bar.B);
     assert(@memberCount(Foo) == 3);
     assert(@memberCount(Bar) == 4);
-    const expected_foo_size = 16 + @sizeOf(usize);
-    assert(@sizeOf(Foo) == expected_foo_size);
+    assert(@sizeOf(Foo) == @sizeOf(FooNoVoid));
     assert(@sizeOf(Bar) == 1);
 }
 
@@ -29,6 +28,10 @@ const Foo = enum {
     One: i32,
     Two: Point,
     Three: void,
+};
+const FooNoVoid = enum {
+    One: i32,
+    Two: Point,
 };
 const Bar = enum {
     A,

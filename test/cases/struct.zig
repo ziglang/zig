@@ -1,4 +1,5 @@
 const assert = @import("std").debug.assert;
+const builtin = @import("builtin");
 
 const StructWithNoFields = struct {
     fn add(a: i32, b: i32) -> i32 { a + b }
@@ -257,7 +258,12 @@ test "packed struct 24bits" {
         assert(@sizeOf(Foo96Bits) == 12);
     }
 
-    var value = Foo96Bits {
+    // TODO workaround for LLVM bug on windows
+    // http://lists.llvm.org/pipermail/llvm-dev/2017-September/117864.html
+    const align_bytes = if (builtin.os == builtin.Os.windows and
+        builtin.arch == builtin.Arch.x86_64) 32 else @alignOf(Foo96Bits);
+
+    var value align(align_bytes) = Foo96Bits {
         .a = 0,
         .b = 0,
         .c = 0,
