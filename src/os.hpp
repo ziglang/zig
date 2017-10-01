@@ -64,6 +64,8 @@ double os_get_time(void);
 
 bool os_is_sep(uint8_t c);
 
+int os_self_exe_path(Buf *out_path);
+
 #if defined(__APPLE__)
 #define ZIG_OS_DARWIN
 #elif defined(_WIN32)

@@ -1456,7 +1456,9 @@ struct CodeGen {
     Buf *libc_lib_dir;
     Buf *libc_static_lib_dir;
     Buf *libc_include_dir;
+    Buf *zig_lib_dir;
     Buf *zig_std_dir;
+    Buf *zig_c_headers_dir;
     Buf *zig_std_special_dir;
     Buf *dynamic_linker;
     Buf *ar_path;

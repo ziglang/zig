@@ -8,7 +8,6 @@
 #include "all_types.hpp"
 #include "analyze.hpp"
 #include "c_tokenizer.hpp"
-#include "config.h"
 #include "error.hpp"
 #include "ir.hpp"
 #include "os.hpp"
@@ -3206,7 +3205,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     }
 
     clang_argv.append("-isystem");
-    clang_argv.append(ZIG_HEADERS_DIR);
+    clang_argv.append(buf_ptr(codegen->zig_c_headers_dir));
 
     clang_argv.append("-isystem");
     clang_argv.append(buf_ptr(codegen->libc_include_dir));
@@ -3244,7 +3243,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     bool allow_pch_with_compiler_errors = false;
     bool single_file_parse = false;
     bool for_serialization = false;
-    const char *resources_path = ZIG_HEADERS_DIR;
+    const char *resources_path = buf_ptr(codegen->zig_c_headers_dir);
     std::unique_ptr<ASTUnit> err_unit;
     std::unique_ptr<ASTUnit> ast_unit(ASTUnit::LoadFromCommandLine(
             &clang_argv.at(0), &clang_argv.last(),

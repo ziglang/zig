@@ -56,13 +56,20 @@ static PackageTableEntry *new_package(const char *root_src_dir, const char *root
 }
 
 CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type, BuildMode build_mode,
-    Buf *zig_std_dir)
+    Buf *zig_lib_dir)
 {
     CodeGen *g = allocate<CodeGen>(1);
 
     codegen_add_time_event(g, "Initialize");
 
-    g->zig_std_dir = zig_std_dir;
+    g->zig_lib_dir = zig_lib_dir;
+
+    g->zig_std_dir = buf_alloc();
+    os_path_join(zig_lib_dir, buf_create_from_str("std"), g->zig_std_dir);
+
+    g->zig_c_headers_dir = buf_alloc();
+    os_path_join(zig_lib_dir, buf_create_from_str("include"), g->zig_c_headers_dir);
+
     g->build_mode = build_mode;
     g->out_type = out_type;
     g->import_table.init(32);

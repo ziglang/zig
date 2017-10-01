@@ -312,11 +312,12 @@ int os_fetch_file(FILE *f, Buf *out_buf) {
 }
 
 int os_file_exists(Buf *full_path, bool *result) {
-#if defined(ZIG_OS_POSIX)
-    *result = access(buf_ptr(full_path), F_OK) != -1;
+#if defined(ZIG_OS_WINDOWS)
+    *result = GetFileAttributes(buf_ptr(full_path)) != INVALID_FILE_ATTRIBUTES;
     return 0;
 #else
-    return GetFileAttributes(buf_ptr(full_path)) != INVALID_FILE_ATTRIBUTES;
+    *result = access(buf_ptr(full_path), F_OK) != -1;
+    return 0;
 #endif
 }
 
@@ -834,4 +835,27 @@ int os_init(void) {
     host_get_clock_service(mach_host_self(), SYSTEM_CLOCK, &cclock);
 #endif
     return 0;
+}
+
+int os_self_exe_path(Buf *out_path) {
+#if defined(ZIG_OS_WINDOWS)
+    buf_resize(out_path, 256);
+    for (;;) {
+        DWORD copied_amt = GetModuleFileName(nullptr, buf_ptr(out_path), buf_len(out_path));
+        if (copied_amt <= 0) {
+            return ErrorFileNotFound;
+        }
+        if (copied_amt < buf_len(out_path)) {
+            buf_resize(out_path, copied_amt);
+            return 0;
+        }
+        buf_resize(out_path, buf_len(out_path) * 2);
+    }
+
+#elif defined(ZIG_OS_DARWIN)
+    return ErrorFileNotFound;
+#elif defined(ZIG_OS_LINUX)
+    return ErrorFileNotFound;
+#endif
+    return ErrorFileNotFound;
 }

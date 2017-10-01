@@ -327,8 +327,9 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
 )
 
-set(C_HEADERS_DEST "lib/zig/include")
-set(ZIG_STD_DEST "lib/zig/std")
+set(ZIG_LIB_DIR "lib/zig")
+set(C_HEADERS_DEST "${ZIG_LIB_DIR}/include")
+set(ZIG_STD_DEST "${ZIG_LIB_DIR}/std")
 set(CONFIGURE_OUT_FILE "${CMAKE_BINARY_DIR}/config.h")
 configure_file (
     "${CMAKE_SOURCE_DIR}/src/config.h.in"

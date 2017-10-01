@@ -49,7 +49,7 @@ static int usage(const char *arg0) {
         "  --verbose                    turn on compiler debug output\n"
         "  --verbose-link               turn on compiler debug output for linking only\n"
         "  --verbose-ir                 turn on compiler debug output for IR only\n"
-        "  --zig-std-dir [path]         directory where zig standard library resides\n"
+        "  --zig-install-prefix [path]  override directory where zig thinks it is installed\n"
         "  -dirafter [dir]              same as -isystem but do it last\n"
         "  -isystem [dir]               add additional search path for other .h files\n"
         "  -mllvm [arg]                 additional arguments to forward to LLVM's option processing\n"
@@ -131,6 +131,93 @@ static int print_target_list(FILE *f) {
     return EXIT_SUCCESS;
 }
 
+static bool test_zig_install_prefix(Buf *test_path, Buf *out_zig_lib_dir) {
+    Buf lib_buf = BUF_INIT;
+    buf_init_from_str(&lib_buf, "lib");
+
+    Buf zig_buf = BUF_INIT;
+    buf_init_from_str(&zig_buf, "zig");
+
+    Buf std_buf = BUF_INIT;
+    buf_init_from_str(&std_buf, "std");
+
+    Buf index_zig_buf = BUF_INIT;
+    buf_init_from_str(&index_zig_buf, "index.zig");
+
+    Buf test_lib_dir = BUF_INIT;
+    Buf test_zig_dir = BUF_INIT;
+    Buf test_std_dir = BUF_INIT;
+    Buf test_index_file = BUF_INIT;
+
+    os_path_join(test_path, &lib_buf, &test_lib_dir);
+    os_path_join(&test_lib_dir, &zig_buf, &test_zig_dir);
+    os_path_join(&test_zig_dir, &std_buf, &test_std_dir);
+    os_path_join(&test_std_dir, &index_zig_buf, &test_index_file);
+
+    int err;
+    bool exists;
+    if ((err = os_file_exists(&test_index_file, &exists))) {
+        exists = false;
+    }
+    if (exists) {
+        buf_init_from_buf(out_zig_lib_dir, &test_zig_dir);
+        return true;
+    }
+    return false;
+}
+
+static int find_zig_lib_dir(Buf *out_path) {
+    int err;
+
+    Buf self_exe_path = BUF_INIT;
+    if (!(err = os_self_exe_path(&self_exe_path))) {
+        Buf *cur_path = &self_exe_path;
+
+        for (;;) {
+            Buf *test_dir = buf_alloc();
+            os_path_dirname(cur_path, test_dir);
+
+            if (buf_eql_buf(test_dir, cur_path)) {
+                break;
+            }
+
+            if (test_zig_install_prefix(test_dir, out_path)) {
+                return 0;
+            }
+
+            cur_path = test_dir;
+        }
+    }
+
+    if (ZIG_INSTALL_PREFIX != nullptr) {
+        if (test_zig_install_prefix(buf_create_from_str(ZIG_INSTALL_PREFIX), out_path)) {
+            return 0;
+        }
+    }
+
+
+    return ErrorFileNotFound;
+}
+
+static Buf *resolve_zig_lib_dir(const char *zig_install_prefix_arg) {
+    int err;
+    Buf *result = buf_alloc();
+    if (zig_install_prefix_arg == nullptr) {
+        if ((err = find_zig_lib_dir(result))) {
+            fprintf(stderr, "Unable to find zig lib directory. Reinstall Zig or use --zig-install-prefix.\n");
+            exit(EXIT_FAILURE);
+        }
+        return result;
+    }
+    Buf *zig_lib_dir_buf = buf_create_from_str(zig_install_prefix_arg);
+    if (test_zig_install_prefix(zig_lib_dir_buf, result)) {
+        return result;
+    }
+
+    fprintf(stderr, "No Zig installation found at prefix: %s\n", zig_install_prefix_arg);
+    exit(EXIT_FAILURE);
+}
+
 enum Cmd {
     CmdInvalid,
     CmdBuild,
@@ -192,7 +279,7 @@ int main(int argc, char **argv) {
     const char *libc_lib_dir = nullptr;
     const char *libc_static_lib_dir = nullptr;
     const char *libc_include_dir = nullptr;
-    const char *zig_std_dir = nullptr;
+    const char *zig_install_prefix = nullptr;
     const char *dynamic_linker = nullptr;
     ZigList<const char *> clang_argv = {0};
     ZigList<const char *> llvm_argv = {0};
@@ -248,29 +335,26 @@ int main(int argc, char **argv) {
             } else if (i + 1 < argc && strcmp(argv[i], "--cache-dir") == 0) {
                 cache_dir = argv[i + 1];
                 i += 1;
-            } else if (i + 1 < argc && strcmp(argv[i], "--zig-std-dir") == 0) {
+            } else if (i + 1 < argc && strcmp(argv[i], "--zig-install-prefix") == 0) {
                 args.append(argv[i]);
                 i += 1;
-                zig_std_dir = argv[i];
-                args.append(zig_std_dir);
+                zig_install_prefix = argv[i];
+                args.append(zig_install_prefix);
             } else {
                 args.append(argv[i]);
             }
         }
 
-        if (zig_std_dir == nullptr) {
-            zig_std_dir = ZIG_STD_DIR;
-        }
-        Buf *zig_std_dir_buf = buf_create_from_str(zig_std_dir);
+        Buf *zig_lib_dir_buf = resolve_zig_lib_dir(zig_install_prefix);
 
         Buf *special_dir = buf_alloc();
-        os_path_join(zig_std_dir_buf, buf_sprintf("special"), special_dir);
+        os_path_join(zig_lib_dir_buf, buf_sprintf("special"), special_dir);
 
         Buf *build_runner_path = buf_alloc();
         os_path_join(special_dir, buf_create_from_str("build_runner.zig"), build_runner_path);
 
 
-        CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe, BuildModeDebug, zig_std_dir_buf);
+        CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe, BuildModeDebug, zig_lib_dir_buf);
         codegen_set_out_name(g, buf_create_from_str("build"));
         codegen_set_verbose(g, verbose);
 
@@ -430,8 +514,8 @@ int main(int argc, char **argv) {
                     libc_static_lib_dir = argv[i];
                 } else if (strcmp(arg, "--libc-include-dir") == 0) {
                     libc_include_dir = argv[i];
-                } else if (strcmp(arg, "--zig-std-dir") == 0) {
-                    zig_std_dir = argv[i];
+                } else if (strcmp(arg, "--zig-install-prefix") == 0) {
+                    zig_install_prefix = argv[i];
                 } else if (strcmp(arg, "--dynamic-linker") == 0) {
                     dynamic_linker = argv[i];
                 } else if (strcmp(arg, "-isystem") == 0) {
@@ -619,12 +703,9 @@ int main(int argc, char **argv) {
                     buf_create_from_str((cache_dir == nullptr) ? default_zig_cache_name : cache_dir),
                     full_cache_dir);
 
-            if (zig_std_dir == nullptr) {
-                zig_std_dir = ZIG_STD_DIR;
-            }
+            Buf *zig_lib_dir_buf = resolve_zig_lib_dir(zig_install_prefix);
 
-            CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode,
-                buf_create_from_str(zig_std_dir));
+            CodeGen *g = codegen_create(zig_root_source_file, target, out_type, build_mode, zig_lib_dir_buf);
             codegen_set_out_name(g, buf_out_name);
             codegen_set_lib_version(g, ver_major, ver_minor, ver_patch);
             codegen_set_is_test(g, cmd == CmdTest);
