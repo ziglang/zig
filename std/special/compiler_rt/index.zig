@@ -27,6 +27,7 @@ const win64 = builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.
 const win32_nocrt = win32 and !builtin.link_libc;
 const win64_nocrt = win64 and !builtin.link_libc;
 const linkage = if (builtin.is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.LinkOnce;
+const strong_linkage = if (builtin.is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.Strong;
 
 const __udivmoddi4 = @import("udivmoddi4.zig").__udivmoddi4;
 
@@ -125,7 +126,7 @@ export nakedcc fn _chkstk() align(4) {
     @setDebugSafety(this, false);
 
     if (win32_nocrt) {
-        @setGlobalLinkage(_chkstk, linkage);
+        @setGlobalLinkage(_chkstk, strong_linkage);
         asm volatile (
             \\         push   %%ecx
             \\         cmp    $0x1000,%%eax
@@ -158,7 +159,7 @@ export nakedcc fn __chkstk() align(4) {
     @setDebugSafety(this, false);
 
     if (win64_nocrt) {
-        @setGlobalLinkage(__chkstk, linkage);
+        @setGlobalLinkage(__chkstk, strong_linkage);
         asm volatile (
             \\         push   %%rcx
             \\         cmp    $0x1000,%%rax
