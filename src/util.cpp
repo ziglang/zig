@@ -16,6 +16,7 @@ void zig_panic(const char *format, ...) {
     va_start(ap, format);
     vfprintf(stderr, format, ap);
     fprintf(stderr, "\n");
+    fflush(stderr);
     va_end(ap);
     abort();
 }

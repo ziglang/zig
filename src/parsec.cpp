@@ -36,8 +36,8 @@ struct Alias {
 struct Context {
     ImportTableEntry *import;
     ZigList<ErrorMsg *> *errors;
-    bool warnings_on;
     VisibMod visib_mod;
+    VisibMod export_visib_mod;
     AstNode *root;
     HashMap<const void *, AstNode *, ptr_hash, ptr_eq> decl_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> macro_table;
@@ -45,6 +45,7 @@ struct Context {
     ZigList<Alias> aliases;
     ZigList<MacroSymbol> macro_symbols;
     AstNode *source_node;
+    bool warnings_on;
 
     CodeGen *codegen;
     ASTContext *ctx;
@@ -2489,7 +2490,7 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
 
     StorageClass sc = fn_decl->getStorageClass();
     if (sc == SC_None) {
-        proto_node->data.fn_proto.visib_mod = fn_decl->hasBody() ? VisibModExport : c->visib_mod;
+        proto_node->data.fn_proto.visib_mod = fn_decl->hasBody() ? c->export_visib_mod : c->visib_mod;
     } else if (sc == SC_Extern || sc == SC_Static) {
         proto_node->data.fn_proto.visib_mod = c->visib_mod;
     } else if (sc == SC_PrivateExtern) {
@@ -3173,7 +3174,8 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     c->warnings_on = codegen->verbose;
     c->import = import;
     c->errors = errors;
-    c->visib_mod = VisibModPub;
+    c->visib_mod = (source_node == nullptr) ? VisibModPrivate : VisibModPub;
+    c->export_visib_mod = (source_node == nullptr) ? VisibModExport : VisibModPub;
     c->decl_table.init(8);
     c->macro_table.init(8);
     c->ptr_params.init(8);
@@ -3209,6 +3211,11 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
 
     clang_argv.append("-isystem");
     clang_argv.append(buf_ptr(codegen->libc_include_dir));
+
+    // windows c runtime requires -D_DEBUG if using debug libraries
+    if (codegen->build_mode == BuildModeDebug) {
+        clang_argv.append("-D_DEBUG");
+    }
 
     for (size_t i = 0; i < codegen->clang_argv_len; i += 1) {
         clang_argv.append(codegen->clang_argv[i]);

@@ -359,6 +359,10 @@ static void construct_linker_job_coff(LinkJob *lj) {
     } else if (g->windows_subsystem_console) {
         lj->args.append("/SUBSYSTEM:console");
     }
+    // The commented out stuff is from when we linked with MinGW
+    // Now that we're linking with LLD it remains to be determined
+    // how to handle --target-environ gnu
+    // These comments are a clue
 
     //bool dll = g->out_type == OutTypeLib;
     //bool shared = !g->is_static && dll;
@@ -385,7 +389,19 @@ static void construct_linker_job_coff(LinkJob *lj) {
     lj->args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(&lj->out_file))));
 
     if (lj->link_in_crt) {
-        zig_panic("TODO link in c runtime");
+        const char *lib_str = g->is_static ? "lib" : "";
+        const char *d_str = (g->build_mode == BuildModeDebug) ? "d" : "";
+
+        Buf *cmt_lib_name = buf_sprintf("libcmt%s.lib", d_str);
+        lj->args.append(buf_ptr(cmt_lib_name));
+
+        Buf *vcruntime_lib_name = buf_sprintf("%svcruntime%s.lib", lib_str, d_str);
+        lj->args.append(buf_ptr(vcruntime_lib_name));
+
+        Buf *crt_lib_name = buf_sprintf("%sucrt%s.lib", lib_str, d_str);
+        lj->args.append(buf_ptr(crt_lib_name));
+
+
         //if (shared || dll) {
         //    lj->args.append(get_libc_file(g, "dllcrt2.o"));
         //} else {
@@ -468,54 +484,54 @@ static void construct_linker_job_coff(LinkJob *lj) {
         }
     }
 
-    if (g->libc_link_lib != nullptr) {
-        if (g->is_static) {
-            lj->args.append("--start-group");
-        }
+    //if (g->libc_link_lib != nullptr) {
+        //if (g->is_static) {
+        //    lj->args.append("--start-group");
+        //}
 
-        lj->args.append("-lmingw32");
+        //lj->args.append("-lmingw32");
 
-        lj->args.append("-lgcc");
-        bool is_android = (g->zig_target.env_type == ZigLLVM_Android);
-        bool is_cyg_ming = is_target_cyg_mingw(&g->zig_target);
-        if (!g->is_static && !is_android) {
-            if (!is_cyg_ming) {
-                lj->args.append("--as-needed");
-            }
-            //lj->args.append("-lgcc_s");
-            if (!is_cyg_ming) {
-                lj->args.append("--no-as-needed");
-            }
-        }
-        if (g->is_static && !is_android) {
-            //lj->args.append("-lgcc_eh");
-        }
-        if (is_android && !g->is_static) {
-            lj->args.append("-ldl");
-        }
+        //lj->args.append("-lgcc");
+        //bool is_android = (g->zig_target.env_type == ZigLLVM_Android);
+        //bool is_cyg_ming = is_target_cyg_mingw(&g->zig_target);
+        //if (!g->is_static && !is_android) {
+        //    if (!is_cyg_ming) {
+        //        lj->args.append("--as-needed");
+        //    }
+        //    //lj->args.append("-lgcc_s");
+        //    if (!is_cyg_ming) {
+        //        lj->args.append("--no-as-needed");
+        //    }
+        //}
+        //if (g->is_static && !is_android) {
+        //    //lj->args.append("-lgcc_eh");
+        //}
+        //if (is_android && !g->is_static) {
+        //    lj->args.append("-ldl");
+        //}
 
-        lj->args.append("-lmoldname");
-        lj->args.append("-lmingwex");
-        lj->args.append("-lmsvcrt");
+        //lj->args.append("-lmoldname");
+        //lj->args.append("-lmingwex");
+        //lj->args.append("-lmsvcrt");
 
 
-        if (g->windows_subsystem_windows) {
-            lj->args.append("-lgdi32");
-            lj->args.append("-lcomdlg32");
-        }
-        lj->args.append("-ladvapi32");
-        lj->args.append("-lshell32");
-        lj->args.append("-luser32");
-        lj->args.append("-lkernel32");
+        //if (g->windows_subsystem_windows) {
+        //    lj->args.append("-lgdi32");
+        //    lj->args.append("-lcomdlg32");
+        //}
+        //lj->args.append("-ladvapi32");
+        //lj->args.append("-lshell32");
+        //lj->args.append("-luser32");
+        //lj->args.append("-lkernel32");
 
-        if (g->is_static) {
-            lj->args.append("--end-group");
-        }
+        //if (g->is_static) {
+        //    lj->args.append("--end-group");
+        //}
 
-        if (lj->link_in_crt) {
-            lj->args.append(get_libc_static_file(g, "crtend.o"));
-        }
-    }
+        //if (lj->link_in_crt) {
+        //    lj->args.append(get_libc_static_file(g, "crtend.o"));
+        //}
+    //}
 }
 
 
