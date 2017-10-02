@@ -324,10 +324,10 @@ static void construct_linker_job_elf(LinkJob *lj) {
     }
 }
 
-static bool is_target_cyg_mingw(const ZigTarget *target) {
-    return (target->os == ZigLLVM_Win32 && target->env_type == ZigLLVM_Cygnus) ||
-        (target->os == ZigLLVM_Win32 && target->env_type == ZigLLVM_GNU);
-}
+//static bool is_target_cyg_mingw(const ZigTarget *target) {
+//    return (target->os == ZigLLVM_Win32 && target->env_type == ZigLLVM_Cygnus) ||
+//        (target->os == ZigLLVM_Win32 && target->env_type == ZigLLVM_GNU);
+//}
 
 static void coff_append_machine_arg(CodeGen *g, ZigList<const char *> *list) {
     if (g->zig_target.arch.arch == ZigLLVM_x86) {
