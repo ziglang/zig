@@ -25,8 +25,8 @@ wine test.exe
 ./zig test ../test/behavior.zig --target-os windows --target-arch x86_64 --target-environ msvc
 wine64 test.exe
 
-./zig test ../test/behavior.zig --target-os windows --target-arch x86_64 --target-environ msvc --release-fast
-wine64 test.exe
-
-./zig test ../test/behavior.zig --target-os windows --target-arch x86_64 --target-environ msvc --release-safe
-wine64 test.exe
+#./zig test ../test/behavior.zig --target-os windows --target-arch x86_64 --target-environ msvc --release-fast
+#wine64 test.exe
+#
+#./zig test ../test/behavior.zig --target-os windows --target-arch x86_64 --target-environ msvc --release-safe
+#wine64 test.exe
