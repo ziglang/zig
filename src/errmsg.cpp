@@ -10,12 +10,6 @@
 
 #include <stdio.h>
 
-#define RED "\x1b[31;1m"
-#define GREEN "\x1b[32;1m"
-#define CYAN "\x1b[36;1m"
-#define WHITE "\x1b[37;1m"
-#define RESET "\x1b[0m"
-
 enum ErrType {
     ErrTypeError,
     ErrTypeNote,
@@ -27,12 +21,26 @@ static void print_err_msg_type(ErrorMsg *err, ErrColor color, ErrType err_type) 
     size_t col = err->column_start + 1;
     const char *text = buf_ptr(err->msg);
 
-
-    if (color == ErrColorOn || (color == ErrColorAuto && os_stderr_tty())) {
+    bool is_tty = os_stderr_tty();
+    if (color == ErrColorOn || (color == ErrColorAuto && is_tty)) {
         if (err_type == ErrTypeError) {
-            fprintf(stderr, WHITE "%s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ": " RED "error:" WHITE " %s" RESET "\n", path, line, col, text);
+            os_stderr_set_color(TermColorWhite);
+            fprintf(stderr, "%s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ": ", path, line, col);
+            os_stderr_set_color(TermColorRed);
+            fprintf(stderr, "error:");
+            os_stderr_set_color(TermColorWhite);
+            fprintf(stderr, " %s", text);
+            os_stderr_set_color(TermColorReset);
+            fprintf(stderr, "\n");
         } else if (err_type == ErrTypeNote) {
-            fprintf(stderr, WHITE "%s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ": " CYAN "note:" WHITE " %s" RESET "\n", path, line, col, text);
+            os_stderr_set_color(TermColorWhite);
+            fprintf(stderr, "%s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ": ", path, line, col);
+            os_stderr_set_color(TermColorCyan);
+            fprintf(stderr, "note:");
+            os_stderr_set_color(TermColorWhite);
+            fprintf(stderr, " %s", text);
+            os_stderr_set_color(TermColorReset);
+            fprintf(stderr, "\n");
         } else {
             zig_unreachable();
         }
@@ -41,7 +49,10 @@ static void print_err_msg_type(ErrorMsg *err, ErrColor color, ErrType err_type) 
         for (size_t i = 0; i < err->column_start; i += 1) {
             fprintf(stderr, " ");
         }
-        fprintf(stderr, GREEN "^" RESET "\n");
+        os_stderr_set_color(TermColorGreen);
+        fprintf(stderr, "^");
+        os_stderr_set_color(TermColorReset);
+        fprintf(stderr, "\n");
     } else {
         if (err_type == ErrTypeError) {
             fprintf(stderr, "%s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ": error: %s\n", path, line, col, text);

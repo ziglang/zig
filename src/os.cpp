@@ -639,9 +639,68 @@ int os_get_cwd(Buf *out_cwd) {
 #endif
 }
 
+#if defined(ZIG_OS_WINDOWS)
+#define is_wprefix(s, prefix) \
+    (wcsncmp((s), (prefix), sizeof(prefix) / sizeof(WCHAR) - 1) == 0)
+static bool is_stderr_cyg_pty(void) {
+    HANDLE stderr_handle = GetStdHandle(STD_ERROR_HANDLE);
+    if (stderr_handle == INVALID_HANDLE_VALUE)
+        return false;
+
+    HANDLE h;
+    int size = sizeof(FILE_NAME_INFO) + sizeof(WCHAR) * MAX_PATH;
+    FILE_NAME_INFO *nameinfo;
+    WCHAR *p = NULL;
+
+    // Cygwin/msys's pty is a pipe.
+    if (GetFileType(stderr_handle) != FILE_TYPE_PIPE) {
+        return 0;
+    }
+    nameinfo = (FILE_NAME_INFO *)allocate<char>(size);
+    if (nameinfo == NULL) {
+        return 0;
+    }
+    // Check the name of the pipe:
+    // '\{cygwin,msys}-XXXXXXXXXXXXXXXX-ptyN-{from,to}-master'
+    if (GetFileInformationByHandleEx(stderr_handle, FileNameInfo, nameinfo, size)) {
+        nameinfo->FileName[nameinfo->FileNameLength / sizeof(WCHAR)] = L'\0';
+        p = nameinfo->FileName;
+        if (is_wprefix(p, L"\\cygwin-")) {      /* Cygwin */
+            p += 8;
+        } else if (is_wprefix(p, L"\\msys-")) { /* MSYS and MSYS2 */
+            p += 6;
+        } else {
+            p = NULL;
+        }
+        if (p != NULL) {
+            while (*p && isxdigit(*p))  /* Skip 16-digit hexadecimal. */
+                ++p;
+            if (is_wprefix(p, L"-pty")) {
+                p += 4;
+            } else {
+                p = NULL;
+            }
+        }
+        if (p != NULL) {
+            while (*p && isdigit(*p))   /* Skip pty number. */
+                ++p;
+            if (is_wprefix(p, L"-from-master")) {
+                //p += 12;
+            } else if (is_wprefix(p, L"-to-master")) {
+                //p += 10;
+            } else {
+                p = NULL;
+            }
+        }
+    }
+    free(nameinfo);
+    return (p != NULL);
+}
+#endif
+
 bool os_stderr_tty(void) {
 #if defined(ZIG_OS_WINDOWS)
-    return _isatty(_fileno(stderr)) != 0;
+    return _isatty(_fileno(stderr)) != 0 || is_stderr_cyg_pty();
 #elif defined(ZIG_OS_POSIX)
     return isatty(STDERR_FILENO) != 0;
 #else
@@ -858,4 +917,77 @@ int os_self_exe_path(Buf *out_path) {
     return ErrorFileNotFound;
 #endif
     return ErrorFileNotFound;
+}
+
+#define VT_RED "\x1b[31;1m"
+#define VT_GREEN "\x1b[32;1m"
+#define VT_CYAN "\x1b[36;1m"
+#define VT_WHITE "\x1b[37;1m"
+#define VT_RESET "\x1b[0m"
+
+static void set_color_posix(TermColor color) {
+    switch (color) {
+        case TermColorRed:
+            fprintf(stderr, VT_RED);
+            break;
+        case TermColorGreen:
+            fprintf(stderr, VT_GREEN);
+            break;
+        case TermColorCyan:
+            fprintf(stderr, VT_CYAN);
+            break;
+        case TermColorWhite:
+            fprintf(stderr, VT_WHITE);
+            break;
+        case TermColorReset:
+            fprintf(stderr, VT_RESET);
+            break;
+    }
+}
+
+void os_stderr_set_color(TermColor color) {
+#if defined(ZIG_OS_WINDOWS)
+    if (is_stderr_cyg_pty()) {
+        set_color_posix(color);
+        return;
+    }
+    HANDLE stderr_handle = GetStdHandle(STD_ERROR_HANDLE);
+    if (stderr_handle == INVALID_HANDLE_VALUE)
+        zig_panic("unable to get stderr handle");
+    fflush(stderr);
+    DWORD ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004;
+    if (color != TermColorReset) {
+        DWORD mode_flags = 0;
+        GetConsoleMode(stderr_handle, &mode_flags);
+        mode_flags |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+        SetConsoleMode(stderr_handle, mode_flags);
+    }
+    DWORD chars_written;
+    switch (color) {
+        case TermColorRed:
+            WriteConsole(stderr_handle, VT_RED, strlen(VT_RED), &chars_written, NULL);
+            break;
+        case TermColorGreen:
+            WriteConsole(stderr_handle, VT_GREEN, strlen(VT_GREEN), &chars_written, NULL);
+            break;
+        case TermColorCyan:
+            WriteConsole(stderr_handle, VT_CYAN, strlen(VT_CYAN), &chars_written, NULL);
+            break;
+        case TermColorWhite:
+            WriteConsole(stderr_handle, VT_WHITE, strlen(VT_WHITE), &chars_written, NULL);
+            break;
+        case TermColorReset:
+        {
+            WriteConsole(stderr_handle, VT_RESET, strlen(VT_RESET), &chars_written, NULL);
+
+            DWORD mode_flags = 0;
+            GetConsoleMode(stderr_handle, &mode_flags);
+            mode_flags &= ~ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            SetConsoleMode(stderr_handle, mode_flags);
+            break;
+        }
+    }
+#else
+    set_color_posix(color);
+#endif
 }

@@ -15,6 +15,14 @@
 #include <stdio.h>
 #include <inttypes.h>
 
+enum TermColor {
+    TermColorRed,
+    TermColorGreen,
+    TermColorCyan,
+    TermColorWhite,
+    TermColorReset,
+};
+
 enum TerminationId {
     TerminationIdClean,
     TerminationIdSignaled,
@@ -53,6 +61,7 @@ int os_fetch_file_path(Buf *full_path, Buf *out_contents);
 int os_get_cwd(Buf *out_cwd);
 
 bool os_stderr_tty(void);
+void os_stderr_set_color(TermColor color);
 
 int os_buf_to_tmp_file(Buf *contents, Buf *suffix, Buf *out_tmp_path);
 int os_delete_file(Buf *path);
