@@ -117,6 +117,7 @@ export fn __unordtf2(a: f128, b: f128) -> c_int {
 }
 
 // The following are alternative names for the preceding routines.
+// TODO use aliases https://github.com/zig-lang/zig/issues/462
 
 export fn __eqtf2(a: f128, b: f128) -> c_int {
     @setGlobalLinkage(__eqtf2, builtin.GlobalLinkage.LinkOnce);
