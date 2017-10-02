@@ -290,12 +290,25 @@ static void addLLVMAttrStr(LLVMValueRef val, LLVMAttributeIndex attr_index,
     LLVMAddAttributeAtIndex(val, attr_index, llvm_attr);
 }
 
+static void addLLVMAttrInt(LLVMValueRef val, LLVMAttributeIndex attr_index,
+        const char *attr_name, uint64_t attr_val)
+{
+    unsigned kind_id = LLVMGetEnumAttributeKindForName(attr_name, strlen(attr_name));
+    assert(kind_id != 0);
+    LLVMAttributeRef llvm_attr = LLVMCreateEnumAttribute(LLVMGetGlobalContext(), kind_id, attr_val);
+    LLVMAddAttributeAtIndex(val, attr_index, llvm_attr);
+}
+
 static void addLLVMFnAttr(LLVMValueRef fn_val, const char *attr_name) {
     return addLLVMAttr(fn_val, -1, attr_name);
 }
 
 static void addLLVMFnAttrStr(LLVMValueRef fn_val, const char *attr_name, const char *attr_val) {
     return addLLVMAttrStr(fn_val, -1, attr_name, attr_val);
+}
+
+static void addLLVMFnAttrInt(LLVMValueRef fn_val, const char *attr_name, uint64_t attr_val) {
+    return addLLVMAttrInt(fn_val, -1, attr_name, attr_val);
 }
 
 static void addLLVMArgAttr(LLVMValueRef arg_val, unsigned param_index, const char *attr_name) {
@@ -437,6 +450,12 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
                 addLLVMFnAttrStr(fn_table_entry->llvm_value, "stack-protector-buffer-size", "4");
             }
         }
+    }
+
+    if (g->zig_target.os == ZigLLVM_Win32 && g->zig_target.arch.arch == ZigLLVM_x86_64 &&
+        fn_type->data.fn.fn_type_id.cc != CallingConventionNaked)
+    {
+        addLLVMFnAttrInt(fn_table_entry->llvm_value, "alignstack", 16);
     }
 
     addLLVMFnAttr(fn_table_entry->llvm_value, "nounwind");

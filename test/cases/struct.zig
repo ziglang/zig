@@ -258,12 +258,7 @@ test "packed struct 24bits" {
         assert(@sizeOf(Foo96Bits) == 12);
     }
 
-    // TODO workaround for LLVM bug on windows
-    // http://lists.llvm.org/pipermail/llvm-dev/2017-September/117864.html
-    const align_bytes = if (builtin.os == builtin.Os.windows and
-        builtin.arch == builtin.Arch.x86_64) 32 else @alignOf(Foo96Bits);
-
-    var value align(align_bytes) = Foo96Bits {
+    var value = Foo96Bits {
         .a = 0,
         .b = 0,
         .c = 0,
