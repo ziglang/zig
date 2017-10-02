@@ -3174,8 +3174,13 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     c->warnings_on = codegen->verbose;
     c->import = import;
     c->errors = errors;
-    c->visib_mod = (source_node == nullptr) ? VisibModPrivate : VisibModPub;
-    c->export_visib_mod = (source_node == nullptr) ? VisibModExport : VisibModPub;
+    if (buf_ends_with_str(buf_create_from_str(target_file), ".h")) {
+        c->visib_mod = VisibModPub;
+        c->export_visib_mod = VisibModPub;
+    } else {
+        c->visib_mod = VisibModPub;
+        c->export_visib_mod = VisibModExport;
+    }
     c->decl_table.init(8);
     c->macro_table.init(8);
     c->ptr_params.init(8);

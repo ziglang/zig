@@ -21,7 +21,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\pub extern fn foo() -> noreturn;
     );
 
-    cases.add("simple function",
+    cases.addC("simple function",
         \\int abs(int a) {
         \\    return a < 0 ? -a : a;
         \\}
@@ -315,7 +315,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\pub const LUA_GLOBALSINDEX = -10002;
     );
 
-    cases.add("post increment",
+    cases.addC("post increment",
         \\unsigned foo1(unsigned a) {
         \\    a++;
         \\    return a;
@@ -337,7 +337,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
-    cases.add("shift right assign",
+    cases.addC("shift right assign",
         \\int log2(unsigned a) {
         \\    int i = 0;
         \\    while (a > 0) {
@@ -356,7 +356,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
-    cases.add("if statement",
+    cases.addC("if statement",
         \\int max(int a, int b) {
         \\    if (a < b)
         \\        return b;
@@ -373,7 +373,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
-    cases.add("==, !=",
+    cases.addC("==, !=",
         \\int max(int a, int b) {
         \\    if (a == b)
         \\        return a;
@@ -389,7 +389,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
-    cases.add("add, sub, mul, div, rem",
+    cases.addC("add, sub, mul, div, rem",
         \\int s(int a, int b) {
         \\    int c;
         \\    c = a + b;
@@ -425,7 +425,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
-    cases.add("bitwise binary operators",
+    cases.addC("bitwise binary operators",
         \\int max(int a, int b) {
         \\    return (a & b) ^ (a | b);
         \\}
@@ -435,7 +435,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
-    cases.add("logical and, logical or",
+    cases.addC("logical and, logical or",
         \\int max(int a, int b) {
         \\    if (a < b || a == b)
         \\        return b;
@@ -451,7 +451,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
-    cases.add("assign",
+    cases.addC("assign",
         \\int max(int a) {
         \\    int tmp;
         \\    tmp = a;
@@ -466,7 +466,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
-    cases.add("chaining assign",
+    cases.addC("chaining assign",
         \\void max(int a) {
         \\    int b, c;
         \\    c = b = a;
@@ -483,7 +483,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
-    cases.add("shift right assign with a fixed size type",
+    cases.addC("shift right assign with a fixed size type",
         \\#include <stdint.h>
         \\int log2(uint32_t a) {
         \\    int i = 0;
@@ -513,7 +513,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\pub const Two = 1;
     );
 
-    cases.add("function call",
+    cases.addC("function call",
         \\static void bar(void) { }
         \\void foo(void) { bar(); }
     ,
@@ -523,7 +523,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
-    cases.add("field access expression",
+    cases.addC("field access expression",
         \\struct Foo {
         \\    int field;
         \\};
@@ -539,7 +539,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
-    cases.add("null statements",
+    cases.addC("null statements",
         \\void foo(void) {
         \\    ;;;;;
         \\}
@@ -553,7 +553,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\pub var array: [100]c_int = undefined;
     );
 
-    cases.add("array access",
+    cases.addC("array access",
         \\int array[100];
         \\int foo(int index) {
         \\    return array[index];
@@ -566,7 +566,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
     );
 
 
-    cases.add("c style cast",
+    cases.addC("c style cast",
         \\int float_to_int(float a) {
         \\    return (int)a;
         \\}
@@ -576,7 +576,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
-    cases.add("implicit cast to void *",
+    cases.addC("implicit cast to void *",
         \\void *foo(unsigned short *x) {
         \\    return x;
         \\}
@@ -586,7 +586,7 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
-    cases.add("sizeof",
+    cases.addC("sizeof",
         \\#include <stddef.h>
         \\size_t size_of(void) {
         \\        return sizeof(int);

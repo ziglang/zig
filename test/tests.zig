@@ -916,7 +916,7 @@ pub const ParseCContext = struct {
         %%io.stderr.printf("\n");
     }
 
-    pub fn create(self: &ParseCContext, allow_warnings: bool, name: []const u8,
+    pub fn create(self: &ParseCContext, allow_warnings: bool, filename: []const u8, name: []const u8,
         source: []const u8, expected_lines: ...) -> &TestCase
     {
         const tc = %%self.b.allocator.create(TestCase);
@@ -926,7 +926,7 @@ pub const ParseCContext = struct {
             .expected_lines = ArrayList([]const u8).init(self.b.allocator),
             .allow_warnings = allow_warnings,
         };
-        tc.addSourceFile("source.h", source);
+        tc.addSourceFile(filename, source);
         comptime var arg_i = 0;
         inline while (arg_i < expected_lines.len) : (arg_i += 1) {
             tc.addExpectedLine(expected_lines[arg_i]);
@@ -935,12 +935,17 @@ pub const ParseCContext = struct {
     }
 
     pub fn add(self: &ParseCContext, name: []const u8, source: []const u8, expected_lines: ...) {
-        const tc = self.create(false, name, source, expected_lines);
+        const tc = self.create(false, "source.h", name, source, expected_lines);
+        self.addCase(tc);
+    }
+
+    pub fn addC(self: &ParseCContext, name: []const u8, source: []const u8, expected_lines: ...) {
+        const tc = self.create(false, "source.c", name, source, expected_lines);
         self.addCase(tc);
     }
 
     pub fn addAllowWarnings(self: &ParseCContext, name: []const u8, source: []const u8, expected_lines: ...) {
-        const tc = self.create(true, name, source, expected_lines);
+        const tc = self.create(true, "source.h", name, source, expected_lines);
         self.addCase(tc);
     }
 
