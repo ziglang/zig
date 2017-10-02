@@ -194,7 +194,7 @@ export nakedcc fn __chkstk_ms() align(4) {
     @setDebugSafety(this, false);
 
     if (win32_nocrt) {
-        @setGlobalLinkage(__chkstk, linkage);
+        @setGlobalLinkage(__chkstk_ms, linkage);
         asm volatile (
             \\         push   %%ecx
             \\         push   %%eax
