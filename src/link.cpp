@@ -52,6 +52,12 @@ static Buf *build_o_raw(CodeGen *parent_gen, const char *oname, Buf *full_path) 
     codegen_set_mmacosx_version_min(child_gen, parent_gen->mmacosx_version_min);
     codegen_set_mios_version_min(child_gen, parent_gen->mios_version_min);
 
+    for (size_t i = 0; i < parent_gen->link_libs_list.length; i += 1) {
+        LinkLib *link_lib = parent_gen->link_libs_list.at(i);
+        LinkLib *new_link_lib = codegen_add_link_lib(child_gen, link_lib->name);
+        new_link_lib->provided_explicitly = link_lib->provided_explicitly;
+    }
+
     codegen_build(child_gen);
     const char *o_ext = target_o_file_ext(&child_gen->zig_target);
     Buf *o_out_name = buf_sprintf("%s%s", oname, o_ext);

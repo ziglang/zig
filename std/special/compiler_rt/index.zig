@@ -21,6 +21,13 @@ const builtin = @import("builtin");
 const is_test = builtin.is_test;
 const assert = @import("../../debug.zig").assert;
 
+
+const win32 = builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386;
+const win64 = builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.x86_64;
+const win32_nocrt = win32 and !builtin.link_libc;
+const win64_nocrt = win64 and !builtin.link_libc;
+const linkage = if (builtin.is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.LinkOnce;
+
 const __udivmoddi4 = @import("udivmoddi4.zig").__udivmoddi4;
 
 // Avoid dragging in the debug safety mechanisms into this .o file,
@@ -35,13 +42,13 @@ pub coldcc fn panic(msg: []const u8) -> noreturn {
 
 export fn __udivdi3(a: u64, b: u64) -> u64 {
     @setDebugSafety(this, is_test);
-    @setGlobalLinkage(__udivdi3, builtin.GlobalLinkage.LinkOnce);
+    @setGlobalLinkage(__udivdi3, linkage);
     return __udivmoddi4(a, b, null);
 }
 
 export fn __umoddi3(a: u64, b: u64) -> u64 {
     @setDebugSafety(this, is_test);
-    @setGlobalLinkage(__umoddi3, builtin.GlobalLinkage.LinkOnce);
+    @setGlobalLinkage(__umoddi3, linkage);
 
     var r: u64 = undefined;
     _ = __udivmoddi4(a, b, &r);
@@ -55,7 +62,7 @@ const AeabiUlDivModResult = extern struct {
 export fn __aeabi_uldivmod(numerator: u64, denominator: u64) -> AeabiUlDivModResult {
     @setDebugSafety(this, is_test);
     if (comptime isArmArch()) {
-        @setGlobalLinkage(__aeabi_uldivmod, builtin.GlobalLinkage.LinkOnce);
+        @setGlobalLinkage(__aeabi_uldivmod, linkage);
         var result: AeabiUlDivModResult = undefined;
         result.quot = __udivmoddi4(numerator, denominator, &result.rem);
         return result;
@@ -94,7 +101,7 @@ export nakedcc fn __aeabi_uidivmod() {
     @setDebugSafety(this, false);
 
     if (comptime isArmArch()) {
-        @setGlobalLinkage(__aeabi_uidivmod, builtin.GlobalLinkage.LinkOnce);
+        @setGlobalLinkage(__aeabi_uidivmod, linkage);
         asm volatile (
             \\ push    { lr }
             \\ sub     sp, sp, #4
@@ -117,32 +124,31 @@ export nakedcc fn __aeabi_uidivmod() {
 export nakedcc fn _chkstk() align(4) {
     @setDebugSafety(this, false);
 
-    if (comptime builtin.os == builtin.Os.windows) {
-        if (comptime builtin.arch == builtin.Arch.i386) {
-            asm volatile (
-                \\         push   %%ecx
-                \\         cmp    $0x1000,%%eax
-                \\         lea    8(%%esp),%%ecx     // esp before calling this routine -> ecx
-                \\         jb     1f
-                \\ 2:
-                \\         sub    $0x1000,%%ecx
-                \\         test   %%ecx,(%%ecx)
-                \\         sub    $0x1000,%%eax
-                \\         cmp    $0x1000,%%eax
-                \\         ja     2b
-                \\ 1:
-                \\         sub    %%eax,%%ecx
-                \\         test   %%ecx,(%%ecx)
-                \\ 
-                \\         lea    4(%%esp),%%eax     // load pointer to the return address into eax
-                \\         mov    %%ecx,%%esp        // install the new top of stack pointer into esp
-                \\         mov    -4(%%eax),%%ecx    // restore ecx
-                \\         push   (%%eax)           // push return address onto the stack
-                \\         sub    %%esp,%%eax        // restore the original value in eax
-                \\         ret
-            );
-            unreachable;
-        }
+    if (win32_nocrt) {
+        @setGlobalLinkage(_chkstk, linkage);
+        asm volatile (
+            \\         push   %%ecx
+            \\         cmp    $0x1000,%%eax
+            \\         lea    8(%%esp),%%ecx     // esp before calling this routine -> ecx
+            \\         jb     1f
+            \\ 2:
+            \\         sub    $0x1000,%%ecx
+            \\         test   %%ecx,(%%ecx)
+            \\         sub    $0x1000,%%eax
+            \\         cmp    $0x1000,%%eax
+            \\         ja     2b
+            \\ 1:
+            \\         sub    %%eax,%%ecx
+            \\         test   %%ecx,(%%ecx)
+            \\ 
+            \\         lea    4(%%esp),%%eax     // load pointer to the return address into eax
+            \\         mov    %%ecx,%%esp        // install the new top of stack pointer into esp
+            \\         mov    -4(%%eax),%%ecx    // restore ecx
+            \\         push   (%%eax)           // push return address onto the stack
+            \\         sub    %%esp,%%eax        // restore the original value in eax
+            \\         ret
+        );
+        unreachable;
     }
 
     @setGlobalLinkage(_chkstk, builtin.GlobalLinkage.Internal);
@@ -151,32 +157,31 @@ export nakedcc fn _chkstk() align(4) {
 export nakedcc fn __chkstk() align(4) {
     @setDebugSafety(this, false);
 
-    if (comptime builtin.os == builtin.Os.windows) {
-        if (comptime builtin.arch == builtin.Arch.x86_64) {
-            asm volatile (
-                \\         push   %%rcx
-                \\         cmp    $0x1000,%%rax
-                \\         lea    16(%%rsp),%%rcx     // rsp before calling this routine -> rcx
-                \\         jb     1f
-                \\ 2:
-                \\         sub    $0x1000,%%rcx
-                \\         test   %%rcx,(%%rcx)
-                \\         sub    $0x1000,%%rax
-                \\         cmp    $0x1000,%%rax
-                \\         ja     2b
-                \\ 1:
-                \\         sub    %%rax,%%rcx
-                \\         test   %%rcx,(%%rcx)
-                \\ 
-                \\         lea    8(%%rsp),%%rax     // load pointer to the return address into rax
-                \\         mov    %%rcx,%%rsp        // install the new top of stack pointer into rsp
-                \\         mov    -8(%%rax),%%rcx    // restore rcx
-                \\         push   (%%rax)           // push return address onto the stack
-                \\         sub    %%rsp,%%rax        // restore the original value in rax
-                \\         ret
-            );
-            unreachable;
-        }
+    if (win64_nocrt) {
+        @setGlobalLinkage(__chkstk, linkage);
+        asm volatile (
+            \\         push   %%rcx
+            \\         cmp    $0x1000,%%rax
+            \\         lea    16(%%rsp),%%rcx     // rsp before calling this routine -> rcx
+            \\         jb     1f
+            \\ 2:
+            \\         sub    $0x1000,%%rcx
+            \\         test   %%rcx,(%%rcx)
+            \\         sub    $0x1000,%%rax
+            \\         cmp    $0x1000,%%rax
+            \\         ja     2b
+            \\ 1:
+            \\         sub    %%rax,%%rcx
+            \\         test   %%rcx,(%%rcx)
+            \\ 
+            \\         lea    8(%%rsp),%%rax     // load pointer to the return address into rax
+            \\         mov    %%rcx,%%rsp        // install the new top of stack pointer into rsp
+            \\         mov    -8(%%rax),%%rcx    // restore rcx
+            \\         push   (%%rax)           // push return address onto the stack
+            \\         sub    %%rsp,%%rax        // restore the original value in rax
+            \\         ret
+        );
+        unreachable;
     }
 
     @setGlobalLinkage(__chkstk, builtin.GlobalLinkage.Internal);
@@ -188,29 +193,28 @@ export nakedcc fn __chkstk() align(4) {
 export nakedcc fn __chkstk_ms() align(4) {
     @setDebugSafety(this, false);
 
-    if (comptime builtin.os == builtin.Os.windows) {
-        if (comptime builtin.arch == builtin.Arch.i386) {
-            asm volatile (
-                \\         push   %%ecx
-                \\         push   %%eax
-                \\         cmp    $0x1000,%%eax
-                \\         lea    12(%%esp),%%ecx
-                \\         jb     1f
-                \\ 2:
-                \\         sub    $0x1000,%%ecx
-                \\         test   %%ecx,(%%ecx)
-                \\         sub    $0x1000,%%eax
-                \\         cmp    $0x1000,%%eax
-                \\         ja     2b
-                \\ 1:
-                \\         sub    %%eax,%%ecx
-                \\         test   %%ecx,(%%ecx)
-                \\         pop    %%eax
-                \\         pop    %%ecx
-                \\         ret
-            );
-            unreachable;
-        }
+    if (win32_nocrt) {
+        @setGlobalLinkage(__chkstk, linkage);
+        asm volatile (
+            \\         push   %%ecx
+            \\         push   %%eax
+            \\         cmp    $0x1000,%%eax
+            \\         lea    12(%%esp),%%ecx
+            \\         jb     1f
+            \\ 2:
+            \\         sub    $0x1000,%%ecx
+            \\         test   %%ecx,(%%ecx)
+            \\         sub    $0x1000,%%eax
+            \\         cmp    $0x1000,%%eax
+            \\         ja     2b
+            \\ 1:
+            \\         sub    %%eax,%%ecx
+            \\         test   %%ecx,(%%ecx)
+            \\         pop    %%eax
+            \\         pop    %%ecx
+            \\         ret
+        );
+        unreachable;
     }
 
     @setGlobalLinkage(__chkstk_ms, builtin.GlobalLinkage.Internal);
@@ -219,29 +223,28 @@ export nakedcc fn __chkstk_ms() align(4) {
 export nakedcc fn ___chkstk_ms() align(4) {
     @setDebugSafety(this, false);
 
-    if (comptime builtin.os == builtin.Os.windows) {
-        if (comptime builtin.arch == builtin.Arch.x86_64) {
-            asm volatile (
-                \\        push   %%rcx
-                \\        push   %%rax
-                \\        cmp    $0x1000,%%rax
-                \\        lea    24(%%rsp),%%rcx
-                \\        jb     1f
-                \\2:
-                \\        sub    $0x1000,%%rcx
-                \\        test   %%rcx,(%%rcx)
-                \\        sub    $0x1000,%%rax
-                \\        cmp    $0x1000,%%rax
-                \\        ja     2b
-                \\1:
-                \\        sub    %%rax,%%rcx
-                \\        test   %%rcx,(%%rcx)
-                \\        pop    %%rax
-                \\        pop    %%rcx
-                \\        ret
-            );
-            unreachable;
-        }
+    if (win64_nocrt) {
+        @setGlobalLinkage(___chkstk_ms, linkage);
+        asm volatile (
+            \\        push   %%rcx
+            \\        push   %%rax
+            \\        cmp    $0x1000,%%rax
+            \\        lea    24(%%rsp),%%rcx
+            \\        jb     1f
+            \\2:
+            \\        sub    $0x1000,%%rcx
+            \\        test   %%rcx,(%%rcx)
+            \\        sub    $0x1000,%%rax
+            \\        cmp    $0x1000,%%rax
+            \\        ja     2b
+            \\1:
+            \\        sub    %%rax,%%rcx
+            \\        test   %%rcx,(%%rcx)
+            \\        pop    %%rax
+            \\        pop    %%rcx
+            \\        ret
+        );
+        unreachable;
     }
 
     @setGlobalLinkage(___chkstk_ms, builtin.GlobalLinkage.Internal);
@@ -249,7 +252,7 @@ export nakedcc fn ___chkstk_ms() align(4) {
 
 export fn __udivmodsi4(a: u32, b: u32, rem: &u32) -> u32 {
     @setDebugSafety(this, is_test);
-    @setGlobalLinkage(__udivmodsi4, builtin.GlobalLinkage.LinkOnce);
+    @setGlobalLinkage(__udivmodsi4, linkage);
 
     const d = __udivsi3(a, b);
     *rem = u32(i32(a) -% (i32(d) * i32(b)));
@@ -262,14 +265,14 @@ export fn __udivmodsi4(a: u32, b: u32, rem: &u32) -> u32 {
 
 export fn __aeabi_uidiv(n: u32, d: u32) -> u32 {
     @setDebugSafety(this, is_test);
-    @setGlobalLinkage(__aeabi_uidiv, builtin.GlobalLinkage.LinkOnce);
+    @setGlobalLinkage(__aeabi_uidiv, linkage);
 
     return __udivsi3(n, d);
 }
 
 export fn __udivsi3(n: u32, d: u32) -> u32 {
     @setDebugSafety(this, is_test);
-    @setGlobalLinkage(__udivsi3, builtin.GlobalLinkage.LinkOnce);
+    @setGlobalLinkage(__udivsi3, linkage);
 
     const n_uword_bits: c_uint = u32.bit_count;
     // special cases
