@@ -181,7 +181,7 @@ pub const OutStream = struct {
     pub fn isTty(self: &OutStream) -> %bool {
         if (is_posix) {
             if (builtin.link_libc) {
-                return c.isatty(self.fd) == 0;
+                return c.isatty(self.fd) != 0;
             } else {
                 return system.isatty(self.fd);
             }
@@ -435,7 +435,7 @@ pub const InStream = struct {
     pub fn isTty(self: &InStream) -> %bool {
         if (is_posix) {
             if (builtin.link_libc) {
-                return c.isatty(self.fd) == 0;
+                return c.isatty(self.fd) != 0;
             } else {
                 return system.isatty(self.fd);
             }

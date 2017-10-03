@@ -125,7 +125,7 @@ pub fn exit(code: i32) -> noreturn {
 }
 
 pub fn isatty(fd: i32) -> bool {
-    c.isatty(fd) == 0
+    c.isatty(fd) != 0
 }
 
 pub fn fstat(fd: i32, buf: &c.stat) -> usize {
