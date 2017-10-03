@@ -14,7 +14,7 @@ pub fn build(b: &Builder) {
         "std/index.zig", "std", "Run the standard library tests",
         with_lldb));
 
-    test_step.dependOn(tests.addPkgTestsAlwaysLibc(b, test_filter,
+    test_step.dependOn(tests.addPkgTests(b, test_filter,
         "std/special/compiler_rt/index.zig", "compiler-rt", "Run the compiler_rt tests",
         with_lldb));
 

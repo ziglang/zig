@@ -137,24 +137,11 @@ pub fn addParseCTests(b: &build.Builder, test_filter: ?[]const u8) -> &build.Ste
 pub fn addPkgTests(b: &build.Builder, test_filter: ?[]const u8, root_src: []const u8,
     name:[] const u8, desc: []const u8, with_lldb: bool) -> &build.Step
 {
-    return addPkgTestsRaw(b, test_filter, root_src, name, desc, false, with_lldb);
-}
-
-pub fn addPkgTestsAlwaysLibc(b: &build.Builder, test_filter: ?[]const u8, root_src: []const u8,
-    name:[] const u8, desc: []const u8, with_lldb: bool) -> &build.Step
-{
-    return addPkgTestsRaw(b, test_filter, root_src, name, desc, true, with_lldb);
-}
-
-pub fn addPkgTestsRaw(b: &build.Builder, test_filter: ?[]const u8, root_src: []const u8,
-    name:[] const u8, desc: []const u8, always_link_libc: bool, with_lldb: bool) -> &build.Step
-{
-    const libc_bools = if (always_link_libc) []bool{true} else []bool{false, true};
     const step = b.step(b.fmt("test-{}", name), desc);
     for (test_targets) |test_target| {
         const is_native = (test_target.os == builtin.os and test_target.arch == builtin.arch);
         for ([]Mode{Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast}) |mode| {
-            for (libc_bools) |link_libc| {
+            for ([]bool{false, true}) |link_libc| {
                 if (link_libc and !is_native) {
                     // don't assume we have a cross-compiling libc set up
                     continue;
