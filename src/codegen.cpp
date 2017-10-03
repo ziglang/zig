@@ -867,7 +867,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     addLLVMFnAttr(fn_val, "noreturn");
     addLLVMFnAttr(fn_val, "cold");
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
-    LLVMSetFunctionCallConv(fn_val, LLVMFastCallConv);
+    LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
     if (g->build_mode == BuildModeDebug) {
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
@@ -924,7 +924,8 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
 
 static void gen_debug_safety_crash_for_err(CodeGen *g, LLVMValueRef err_val) {
     LLVMValueRef safety_crash_err_fn = get_safety_crash_err_fn(g);
-    ZigLLVMBuildCall(g->builder, safety_crash_err_fn, &err_val, 1, LLVMFastCallConv, false, "");
+    ZigLLVMBuildCall(g->builder, safety_crash_err_fn, &err_val, 1, get_llvm_cc(g, CallingConventionUnspecified),
+        false, "");
     LLVMBuildUnreachable(g->builder);
 }
 
@@ -5007,16 +5008,8 @@ static void init(CodeGen *g) {
     const char *target_specific_cpu_args;
     const char *target_specific_features;
     if (g->is_native_target) {
-        // LLVM creates invalid binaries on Windows sometimes.
-        // See https://github.com/zig-lang/zig/issues/508
-        // As a workaround we do not use target native features on Windows.
-        if (g->zig_target.os == ZigLLVM_Win32) {
-            target_specific_cpu_args = "";
-            target_specific_features = "";
-        } else {
-            target_specific_cpu_args = ZigLLVMGetHostCPUName();
-            target_specific_features = ZigLLVMGetNativeFeatures();
-        }
+        target_specific_cpu_args = ZigLLVMGetHostCPUName();
+        target_specific_features = ZigLLVMGetNativeFeatures();
     } else {
         target_specific_cpu_args = "";
         target_specific_features = "";

@@ -423,7 +423,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
         if (g->have_winmain) {
             lj->args.append("-ENTRY:WinMain");
         } else {
-            lj->args.append("-ENTRY:_start");
+            lj->args.append("-ENTRY:WinMainCRTStartup");
         }
     }
 
