@@ -948,6 +948,12 @@ static void ir_print_opaque_type(IrPrint *irp, IrInstructionOpaqueType *instruct
     fprintf(irp->f, "@OpaqueType()");
 }
 
+static void ir_print_set_align_stack(IrPrint *irp, IrInstructionSetAlignStack *instruction) {
+    fprintf(irp->f, "@setAlignStack(");
+    ir_print_other_instruction(irp, instruction->align_bytes);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1246,6 +1252,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdOpaqueType:
             ir_print_opaque_type(irp, (IrInstructionOpaqueType *)instruction);
+            break;
+        case IrInstructionIdSetAlignStack:
+            ir_print_set_align_stack(irp, (IrInstructionSetAlignStack *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

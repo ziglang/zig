@@ -1,4 +1,5 @@
 const assert = @import("std").debug.assert;
+const builtin = @import("builtin");
 
 var foo: u8 align(4) = 100;
 
@@ -179,4 +180,21 @@ fn testIndex(smaller: &align(2) u32, index: usize, comptime T: type) {
 }
 fn testIndex2(ptr: &align(4) u8, index: usize, comptime T: type) {
     assert(@typeOf(&ptr[index]) == T);
+}
+
+
+test "alignstack" {
+    fnWithAlignedStack();
+}
+
+fn fnWithAlignedStack() {
+    @setAlignStack(1024);
+    const stack_address = if (builtin.arch == builtin.Arch.x86_64) {
+        asm volatile ("" :[rsp] "={rsp}"(-> usize))
+    } else if (builtin.arch == builtin.Arch.i386) {
+        asm volatile ("" :[esp] "={esp}"(-> usize))
+    } else {
+        return;
+    };
+    assert(stack_address % 1024 == 0);
 }

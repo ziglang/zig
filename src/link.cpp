@@ -846,7 +846,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
         buf_resize(&lj.out_file, 0);
     }
 
-    if (g->verbose) {
+    if (g->verbose || g->verbose_ir) {
         fprintf(stderr, "\nOptimization:\n");
         fprintf(stderr, "---------------\n");
         LLVMDumpModule(g->module);

@@ -563,6 +563,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionOpaqueType *) {
     return IrInstructionIdOpaqueType;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSetAlignStack *) {
+    return IrInstructionIdSetAlignStack;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -2248,6 +2252,17 @@ static IrInstruction *ir_build_opaque_type(IrBuilder *irb, Scope *scope, AstNode
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_set_align_stack(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *align_bytes)
+{
+    IrInstructionSetAlignStack *instruction = ir_build_instruction<IrInstructionSetAlignStack>(irb, scope, source_node);
+    instruction->align_bytes = align_bytes;
+
+    ir_ref_instruction(align_bytes, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_instruction_br_get_dep(IrInstructionBr *instruction, size_t index) {
     return nullptr;
 }
@@ -2970,6 +2985,13 @@ static IrInstruction *ir_instruction_opaquetype_get_dep(IrInstructionOpaqueType 
     return nullptr;
 }
 
+static IrInstruction *ir_instruction_setalignstack_get_dep(IrInstructionSetAlignStack *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->align_bytes;
+        default: return nullptr;
+    }
+}
+
 static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t index) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -3170,6 +3192,8 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_aligncast_get_dep((IrInstructionAlignCast *) instruction, index);
         case IrInstructionIdOpaqueType:
             return ir_instruction_opaquetype_get_dep((IrInstructionOpaqueType *) instruction, index);
+        case IrInstructionIdSetAlignStack:
+            return ir_instruction_setalignstack_get_dep((IrInstructionSetAlignStack *) instruction, index);
     }
     zig_unreachable();
 }
@@ -4596,6 +4620,15 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
             }
         case BuiltinFnIdOpaqueType:
             return ir_build_opaque_type(irb, scope, node);
+        case BuiltinFnIdSetAlignStack:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                return ir_build_set_align_stack(irb, scope, node, arg0_value);
+            }
     }
     zig_unreachable();
 }
@@ -15264,6 +15297,41 @@ static TypeTableEntry *ir_analyze_instruction_opaque_type(IrAnalyze *ira, IrInst
     return ira->codegen->builtin_types.entry_type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_set_align_stack(IrAnalyze *ira, IrInstructionSetAlignStack *instruction) {
+    uint32_t align_bytes;
+    IrInstruction *align_bytes_inst = instruction->align_bytes->other;
+    if (!ir_resolve_align(ira, align_bytes_inst, &align_bytes))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
+    if (fn_entry == nullptr) {
+        ir_add_error(ira, &instruction->base, buf_sprintf("@setAlignStack outside function"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+    if (fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionNaked) {
+        ir_add_error(ira, &instruction->base, buf_sprintf("@setAlignStack in naked function"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    if (fn_entry->fn_inline == FnInlineAlways) {
+        ir_add_error(ira, &instruction->base, buf_sprintf("@setAlignStack in inline function"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    if (fn_entry->set_alignstack_node != nullptr) {
+        ErrorMsg *msg = ir_add_error_node(ira, instruction->base.source_node,
+            buf_sprintf("alignstack set twice"));
+        add_error_note(ira->codegen, msg, fn_entry->set_alignstack_node, buf_sprintf("first set here"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    fn_entry->set_alignstack_node = instruction->base.source_node;
+    fn_entry->alignstack_value = align_bytes;
+
+    ir_build_const_from(ira, &instruction->base);
+    return ira->codegen->builtin_types.entry_void;
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -15452,6 +15520,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_align_cast(ira, (IrInstructionAlignCast *)instruction);
         case IrInstructionIdOpaqueType:
             return ir_analyze_instruction_opaque_type(ira, (IrInstructionOpaqueType *)instruction);
+        case IrInstructionIdSetAlignStack:
+            return ir_analyze_instruction_set_align_stack(ira, (IrInstructionSetAlignStack *)instruction);
     }
     zig_unreachable();
 }
@@ -15564,6 +15634,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdPanic:
         case IrInstructionIdSetEvalBranchQuota:
         case IrInstructionIdPtrTypeOf:
+        case IrInstructionIdSetAlignStack:
             return true;
         case IrInstructionIdPhi:
         case IrInstructionIdUnOp:

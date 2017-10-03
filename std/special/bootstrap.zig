@@ -19,6 +19,14 @@ export nakedcc fn _start() -> noreturn {
     }
 
     if (is_windows) {
+        if (builtin.arch == builtin.Arch.x86_64) {
+            // Align the stack pointer to 16 bytes.
+            asm volatile (
+                \\ and    $0xfffffffffffffff0,%%rsp
+                \\ sub    $0x10,%%rsp
+                :::"rsp"
+            );
+        }
         windowsCallMainAndExit()
     }
 
@@ -35,6 +43,7 @@ export nakedcc fn _start() -> noreturn {
 }
 
 fn windowsCallMainAndExit() -> noreturn {
+    @setAlignStack(16);
     std.debug.user_main_fn = root.main;
     root.main() %% std.os.windows.ExitProcess(1);
     std.os.windows.ExitProcess(0);

@@ -410,6 +410,9 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
             addLLVMFnAttr(fn_table_entry->llvm_value, "noinline");
             break;
         case FnInlineAuto:
+            if (fn_table_entry->alignstack_value != 0) {
+                addLLVMFnAttr(fn_table_entry->llvm_value, "noinline");
+            }
             break;
     }
 
@@ -452,10 +455,8 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
         }
     }
 
-    if (g->zig_target.os == ZigLLVM_Win32 && g->zig_target.arch.arch == ZigLLVM_x86_64 &&
-        fn_type->data.fn.fn_type_id.cc != CallingConventionNaked)
-    {
-        addLLVMFnAttrInt(fn_table_entry->llvm_value, "alignstack", 16);
+    if (fn_table_entry->alignstack_value != 0) {
+        addLLVMFnAttrInt(fn_table_entry->llvm_value, "alignstack", fn_table_entry->alignstack_value);
     }
 
     addLLVMFnAttr(fn_table_entry->llvm_value, "nounwind");
@@ -3379,6 +3380,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdSetEvalBranchQuota:
         case IrInstructionIdPtrTypeOf:
         case IrInstructionIdOpaqueType:
+        case IrInstructionIdSetAlignStack:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -4784,6 +4786,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdSetEvalBranchQuota, "setEvalBranchQuota", 1);
     create_builtin_fn(g, BuiltinFnIdAlignCast, "alignCast", 2);
     create_builtin_fn(g, BuiltinFnIdOpaqueType, "OpaqueType", 0);
+    create_builtin_fn(g, BuiltinFnIdSetAlignStack, "setAlignStack", 1);
 }
 
 static const char *bool_to_str(bool b) {

@@ -1191,6 +1191,8 @@ struct FnTableEntry {
     Buf *section_name;
     AstNode *set_global_linkage_node;
     GlobalLinkageId linkage;
+    AstNode *set_alignstack_node;
+    uint32_t alignstack_value;
 };
 
 uint32_t fn_table_entry_hash(FnTableEntry*);
@@ -1254,6 +1256,7 @@ enum BuiltinFnId {
     BuiltinFnIdSetEvalBranchQuota,
     BuiltinFnIdAlignCast,
     BuiltinFnIdOpaqueType,
+    BuiltinFnIdSetAlignStack,
 };
 
 struct BuiltinFnEntry {
@@ -1860,6 +1863,7 @@ enum IrInstructionId {
     IrInstructionIdPtrTypeOf,
     IrInstructionIdAlignCast,
     IrInstructionIdOpaqueType,
+    IrInstructionIdSetAlignStack,
 };
 
 struct IrInstruction {
@@ -2652,6 +2656,12 @@ struct IrInstructionAlignCast {
 
 struct IrInstructionOpaqueType {
     IrInstruction base;
+};
+
+struct IrInstructionSetAlignStack {
+    IrInstruction base;
+
+    IrInstruction *align_bytes;
 };
 
 static const size_t slice_ptr_index = 0;
