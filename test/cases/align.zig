@@ -184,17 +184,10 @@ fn testIndex2(ptr: &align(4) u8, index: usize, comptime T: type) {
 
 
 test "alignstack" {
-    fnWithAlignedStack();
+    assert(fnWithAlignedStack() == 1234);
 }
 
-fn fnWithAlignedStack() {
+fn fnWithAlignedStack() -> i32 {
     @setAlignStack(1024);
-    const stack_address = if (builtin.arch == builtin.Arch.x86_64) {
-        asm volatile ("" :[rsp] "={rsp}"(-> usize))
-    } else if (builtin.arch == builtin.Arch.i386) {
-        asm volatile ("" :[esp] "={esp}"(-> usize))
-    } else {
-        return;
-    };
-    assert(stack_address % 1024 == 0);
+    return 1234;
 }
