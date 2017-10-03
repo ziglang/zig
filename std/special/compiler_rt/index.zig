@@ -129,8 +129,9 @@ export nakedcc fn _chkstk() align(4) {
         @setGlobalLinkage(_chkstk, strong_linkage);
         asm volatile (
             \\         push   %%ecx
+            \\         push   %%eax
             \\         cmp    $0x1000,%%eax
-            \\         lea    8(%%esp),%%ecx     // esp before calling this routine -> ecx
+            \\         lea    12(%%esp),%%ecx
             \\         jb     1f
             \\ 2:
             \\         sub    $0x1000,%%ecx
@@ -141,12 +142,8 @@ export nakedcc fn _chkstk() align(4) {
             \\ 1:
             \\         sub    %%eax,%%ecx
             \\         test   %%ecx,(%%ecx)
-            \\ 
-            \\         lea    4(%%esp),%%eax     // load pointer to the return address into eax
-            \\         mov    %%ecx,%%esp        // install the new top of stack pointer into esp
-            \\         mov    -4(%%eax),%%ecx    // restore ecx
-            \\         push   (%%eax)           // push return address onto the stack
-            \\         sub    %%esp,%%eax        // restore the original value in eax
+            \\         pop    %%eax
+            \\         pop    %%ecx
             \\         ret
         );
         unreachable;
@@ -155,32 +152,33 @@ export nakedcc fn _chkstk() align(4) {
     @setGlobalLinkage(_chkstk, builtin.GlobalLinkage.Internal);
 }
 
+// TODO The implementation from compiler-rt causes crashes and
+// the implementation from disassembled ntdll seems to depend on
+// thread local storage. So we have given up this safety check
+// and simply have `ret`.
 export nakedcc fn __chkstk() align(4) {
     @setDebugSafety(this, false);
 
     if (win64_nocrt) {
         @setGlobalLinkage(__chkstk, strong_linkage);
         asm volatile (
-            \\         push   %%rcx
-            \\         cmp    $0x1000,%%rax
-            \\         lea    16(%%rsp),%%rcx     // rsp before calling this routine -> rcx
-            \\         jb     1f
-            \\ 2:
-            \\         sub    $0x1000,%%rcx
-            \\         test   %%rcx,(%%rcx)
-            \\         sub    $0x1000,%%rax
-            \\         cmp    $0x1000,%%rax
-            \\         ja     2b
-            \\ 1:
-            \\         sub    %%rax,%%rcx
-            \\         test   %%rcx,(%%rcx)
-            \\ 
-            \\         lea    8(%%rsp),%%rax     // load pointer to the return address into rax
-            \\         mov    %%rcx,%%rsp        // install the new top of stack pointer into rsp
-            \\         mov    -8(%%rax),%%rcx    // restore rcx
-            \\         push   (%%rax)           // push return address onto the stack
-            \\         sub    %%rsp,%%rax        // restore the original value in rax
-            \\         ret
+            \\        push   %%rcx
+            \\        push   %%rax
+            \\        cmp    $0x1000,%%rax
+            \\        lea    24(%%rsp),%%rcx
+            \\        jb     1f
+            \\2:
+            \\        sub    $0x1000,%%rcx
+            \\        test   %%rcx,(%%rcx)
+            \\        sub    $0x1000,%%rax
+            \\        cmp    $0x1000,%%rax
+            \\        ja     2b
+            \\1:
+            \\        sub    %%rax,%%rcx
+            \\        test   %%rcx,(%%rcx)
+            \\        pop    %%rax
+            \\        pop    %%rcx
+            \\        ret
         );
         unreachable;
     }

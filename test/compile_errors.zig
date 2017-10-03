@@ -2153,4 +2153,37 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:14:17: error: use of undeclared identifier 'HeaderValue'");
+
+    cases.add("@setAlignStack outside function",
+        \\comptime {
+        \\    @setAlignStack(16);
+        \\}
+    ,
+        ".tmp_source.zig:2:5: error: @setAlignStack outside function");
+
+    cases.add("@setAlignStack in naked function",
+        \\export nakedcc fn entry() {
+        \\    @setAlignStack(16);
+        \\}
+    ,
+        ".tmp_source.zig:2:5: error: @setAlignStack in naked function");
+
+    cases.add("@setAlignStack in inline function",
+        \\export fn entry() {
+        \\    foo();
+        \\}
+        \\inline fn foo() {
+        \\    @setAlignStack(16);
+        \\}
+    ,
+        ".tmp_source.zig:5:5: error: @setAlignStack in inline function");
+
+    cases.add("@setAlignStack set twice",
+        \\export fn entry() {
+        \\    @setAlignStack(16);
+        \\    @setAlignStack(16);
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: alignstack set twice",
+        ".tmp_source.zig:2:5: note: first set here");
 }

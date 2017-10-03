@@ -5,21 +5,18 @@ const root = @import("@root");
 const std = @import("std");
 const builtin = @import("builtin");
 
+const is_windows = builtin.os == builtin.Os.windows;
 const want_main_symbol = builtin.link_libc;
-const want_start_symbol = !want_main_symbol;
+const want_start_symbol = !want_main_symbol and !is_windows;
+const want_WinMainCRTStartup = is_windows and !builtin.link_libc;
 
 var argc_ptr: &usize = undefined;
 
-const is_windows = builtin.os == builtin.Os.windows;
 
 export nakedcc fn _start() -> noreturn {
     if (!want_start_symbol) {
         @setGlobalLinkage(_start, builtin.GlobalLinkage.Internal);
         unreachable;
-    }
-
-    if (is_windows) {
-        windowsCallMainAndExit()
     }
 
     switch (builtin.arch) {
@@ -34,7 +31,13 @@ export nakedcc fn _start() -> noreturn {
     posixCallMainAndExit()
 }
 
-fn windowsCallMainAndExit() -> noreturn {
+export fn WinMainCRTStartup() -> noreturn {
+    if (!want_WinMainCRTStartup) {
+        @setGlobalLinkage(WinMainCRTStartup, builtin.GlobalLinkage.Internal);
+        unreachable;
+    }
+    @setAlignStack(16);
+
     std.debug.user_main_fn = root.main;
     root.main() %% std.os.windows.ExitProcess(1);
     std.os.windows.ExitProcess(0);
