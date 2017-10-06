@@ -324,7 +324,7 @@ pub fn split(buffer: []const u8, split_bytes: []const u8) -> SplitIterator {
 }
 
 test "mem.split" {
-    var it = split("   abc def   ghi  ", ' ');
+    var it = split("   abc def   ghi  ", " ");
     assert(eql(u8, ??it.next(), "abc"));
     assert(eql(u8, ??it.next(), "def"));
     assert(eql(u8, ??it.next(), "ghi"));
@@ -355,7 +355,15 @@ const SplitIterator = struct {
         return self.buffer[start..end];
     }
 
-    fn isSplitByte(self: &SplitIterator, byte: u8) -> bool {
+    /// Returns a slice of the remaining bytes. Does not affect iterator state.
+    pub fn rest(self: &const SplitIterator) -> []const u8 {
+        // move to beginning of token
+        var index: usize = self.index;
+        while (index < self.buffer.len and self.isSplitByte(self.buffer[index])) : (index += 1) {}
+        return self.buffer[index..];
+    }
+
+    fn isSplitByte(self: &const SplitIterator, byte: u8) -> bool {
         for (self.split_bytes) |split_byte| {
             if (byte == split_byte) {
                 return true;

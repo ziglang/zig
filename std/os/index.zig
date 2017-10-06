@@ -384,7 +384,7 @@ pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap,
     // +1 for the null terminating byte
     const path_buf = %return allocator.alloc(u8, PATH.len + exe_path.len + 2);
     defer allocator.free(path_buf);
-    var it = mem.split(PATH, ':');
+    var it = mem.split(PATH, ":");
     var seen_eacces = false;
     var err: usize = undefined;
     while (it.next()) |search_path| {
