@@ -474,18 +474,28 @@ pub const args = struct {
 
 /// Caller must free the returned memory.
 pub fn getCwd(allocator: &Allocator) -> %[]u8 {
-    var buf = %return allocator.alloc(u8, 1024);
-    %defer allocator.free(buf);
-    while (true) {
-        const err = posix.getErrno(posix.getcwd(buf.ptr, buf.len));
-        if (err == posix.ERANGE) {
-            buf = %return allocator.realloc(u8, buf, buf.len * 2);
-            continue;
-        } else if (err > 0) {
-            return error.Unexpected;
-        }
+    switch (builtin.os) {
+        Os.windows => {
+            @panic("implement getCwd for windows");
+            //if (windows.GetCurrentDirectoryA(buf_len(out_cwd), buf_ptr(out_cwd)) == 0) {
+            //    zig_panic("GetCurrentDirectory failed");
+            //}
+        },
+        else => {
+            var buf = %return allocator.alloc(u8, 1024);
+            %defer allocator.free(buf);
+            while (true) {
+                const err = posix.getErrno(posix.getcwd(buf.ptr, buf.len));
+                if (err == posix.ERANGE) {
+                    buf = %return allocator.realloc(u8, buf, buf.len * 2);
+                    continue;
+                } else if (err > 0) {
+                    return error.Unexpected;
+                }
 
-        return cstr.toSlice(buf.ptr);
+                return cstr.toSlice(buf.ptr);
+            }
+        },
     }
 }
 

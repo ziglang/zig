@@ -43,15 +43,12 @@ clarity.
  * Cross-compiling is a primary use case.
  * In addition to creating executables, creating a C library is a primary use
    case. You can export an auto-generated .h file.
- * Standard library supports Operating System abstractions for:
-   * `x86_64` `linux`
-   * `x86_64` `macos`
-   * Support for all popular operating systems and architectures is planned.
  * For OS development, Zig supports all architectures that LLVM does. All the
    standard library that does not depend on an OS is available to you in
    freestanding mode.
 
 ### Support Table
+
 Freestanding means that you do not directly interact with the OS
 or you are writing your own OS.
 

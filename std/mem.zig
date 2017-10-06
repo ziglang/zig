@@ -216,20 +216,28 @@ pub fn dupe(allocator: &Allocator, comptime T: type, m: []const T) -> %[]T {
 
 /// Linear search for the index of a scalar value inside a slice.
 pub fn indexOfScalar(comptime T: type, slice: []const T, value: T) -> ?usize {
-    for (slice) |item, i| {
-        if (item == value) {
+    return indexOfScalarPos(T, slice, 0, value);
+}
+
+pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, value: T) -> ?usize {
+    var i: usize = start_index;
+    while (i < slice.len) : (i += 1) {
+        if (slice[i] == value)
             return i;
-        }
     }
     return null;
 }
 
-// TODO boyer-moore algorithm
 pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) -> ?usize {
+    return indexOfPos(T, haystack, 0, needle);
+}
+
+// TODO boyer-moore algorithm
+pub fn indexOfPos(comptime T: type, haystack: []const T, start_index: usize, needle: []const T) -> ?usize {
     if (needle.len > haystack.len)
         return null;
 
-    var i: usize = 0;
+    var i: usize = start_index;
     const end = haystack.len - needle.len;
     while (i <= end) : (i += 1) {
         if (eql(T, haystack[i .. i + needle.len], needle))
@@ -303,15 +311,15 @@ pub fn eql_slice_u8(a: []const u8, b: []const u8) -> bool {
     return eql(u8, a, b);
 }
 
-/// Returns an iterator that iterates over the slices of ::s that are not
-/// the byte ::c.
-/// split("   abc def    ghi  ")
+/// Returns an iterator that iterates over the slices of `buffer` that are not
+/// any of the bytes in `split_bytes`.
+/// split("   abc def    ghi  ", " ")
 /// Will return slices for "abc", "def", "ghi", null, in that order.
-pub fn split(s: []const u8, c: u8) -> SplitIterator {
+pub fn split(buffer: []const u8, split_bytes: []const u8) -> SplitIterator {
     SplitIterator {
         .index = 0,
-        .s = s,
-        .c = c,
+        .buffer = buffer,
+        .split_bytes = split_bytes,
     }
 }
 
@@ -328,31 +336,32 @@ pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) -> b
 }
 
 const SplitIterator = struct {
-    s: []const u8,
-    c: u8,
+    buffer: []const u8,
+    split_bytes: []const u8, 
     index: usize,
 
     pub fn next(self: &SplitIterator) -> ?[]const u8 {
         // move to beginning of token
-        while (self.index < self.s.len and self.s[self.index] == self.c) : (self.index += 1) {}
+        while (self.index < self.buffer.len and self.isSplitByte(self.buffer[self.index])) : (self.index += 1) {}
         const start = self.index;
-        if (start == self.s.len) {
+        if (start == self.buffer.len) {
             return null;
         }
 
         // move to end of token
-        while (self.index < self.s.len and self.s[self.index] != self.c) : (self.index += 1) {}
+        while (self.index < self.buffer.len and !self.isSplitByte(self.buffer[self.index])) : (self.index += 1) {}
         const end = self.index;
 
-        return self.s[start..end];
+        return self.buffer[start..end];
     }
 
-    /// Returns a slice of the remaining bytes. Does not affect iterator state.
-    pub fn rest(self: &const SplitIterator) -> []const u8 {
-        // move to beginning of token
-        var index: usize = self.index;
-        while (index < self.s.len and self.s[index] == self.c) : (index += 1) {}
-        return self.s[index..];
+    fn isSplitByte(self: &SplitIterator, byte: u8) -> bool {
+        for (self.split_bytes) |split_byte| {
+            if (byte == split_byte) {
+                return true;
+            }
+        }
+        return false;
     }
 };
 
