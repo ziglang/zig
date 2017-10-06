@@ -2186,4 +2186,49 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     ,
         ".tmp_source.zig:3:5: error: alignstack set twice",
         ".tmp_source.zig:2:5: note: first set here");
+
+    cases.add("storing runtime value in compile time variable then using it",
+        \\const Mode = @import("builtin").Mode;
+        \\
+        \\fn Free(comptime filename: []const u8) -> TestCase {
+        \\    TestCase {
+        \\        .filename = filename,
+        \\        .problem_type = ProblemType.Free,
+        \\    }
+        \\}
+        \\
+        \\fn LibC(comptime filename: []const u8) -> TestCase {
+        \\    TestCase {
+        \\        .filename = filename,
+        \\        .problem_type = ProblemType.LinkLibC,
+        \\    }
+        \\}
+        \\
+        \\const TestCase = struct {
+        \\    filename: []const u8,
+        \\    problem_type: ProblemType,
+        \\};
+        \\
+        \\const ProblemType = enum {
+        \\    Free,
+        \\    LinkLibC,
+        \\};
+        \\
+        \\export fn entry() {
+        \\    const tests = []TestCase {
+        \\        Free("001"),
+        \\        Free("002"),
+        \\        LibC("078"),
+        \\        Free("116"),
+        \\        Free("117"),
+        \\    };
+        \\
+        \\    for ([]Mode { Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast }) |mode| {
+        \\        inline for (tests) |test_case| {
+        \\            const foo = test_case.filename ++ ".zig";
+        \\        }
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:37:16: error: cannot store runtime value in compile time variable");
 }

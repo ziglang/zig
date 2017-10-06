@@ -11314,6 +11314,8 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
 
                 if (ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
                     ConstExprValue *struct_val = const_ptr_pointee(ira->codegen, ptr_val);
+                    if (type_is_invalid(struct_val->type))
+                        return ira->codegen->builtin_types.entry_invalid;
                     ConstExprValue *field_val = &struct_val->data.x_struct.fields[field->src_index];
                     TypeTableEntry *ptr_type = get_pointer_to_type_extra(ira->codegen, field_val->type,
                             is_const, is_volatile, align_bytes,
@@ -11732,6 +11734,9 @@ static TypeTableEntry *ir_analyze_instruction_store_ptr(IrAnalyze *ira, IrInstru
             }
             ir_add_error(ira, &store_ptr_instruction->base,
                     buf_sprintf("cannot store runtime value in compile time variable"));
+            ConstExprValue *dest_val = const_ptr_pointee(ira->codegen, &ptr->value);
+            dest_val->type = ira->codegen->builtin_types.entry_invalid;
+
             return ira->codegen->builtin_types.entry_invalid;
         }
     }
