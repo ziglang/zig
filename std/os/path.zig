@@ -610,9 +610,14 @@ fn testDirnameWindows(input: []const u8, expected_output: []const u8) {
 }
 
 pub fn basename(path: []const u8) -> []const u8 {
-    if (builtin.os == builtin.Os.windows) {
-        @compileError("TODO implement os.path.basename for windows");
+    if (is_windows) {
+        return basenameWindows(path);
+    } else {
+        return basenamePosix(path);
     }
+}
+
+pub fn basenamePosix(path: []const u8) -> []const u8 {
     if (path.len == 0)
         return []u8{};
 
@@ -625,6 +630,38 @@ pub fn basename(path: []const u8) -> []const u8 {
     var start_index: usize = end_index;
     end_index += 1;
     while (path[start_index] != '/') {
+        if (start_index == 0)
+            return path[0..end_index];
+        start_index -= 1;
+    }
+
+    return path[start_index + 1..end_index];
+}
+
+pub fn basenameWindows(path: []const u8) -> []const u8 {
+    if (path.len == 0)
+        return []u8{};
+
+    var end_index: usize = path.len - 1;
+    while (true) {
+        const byte = path[end_index];
+        if (byte == '/' or byte == '\\') {
+            if (end_index == 0)
+                return []u8{};
+            end_index -= 1;
+            continue;
+        }
+        if (byte == ':' and end_index == 1) {
+            return []u8{};
+        }
+        break;
+    }
+
+    var start_index: usize = end_index;
+    end_index += 1;
+    while (path[start_index] != '/' and path[start_index] != '\\' and
+        !(path[start_index] == ':' and start_index == 1))
+    {
         if (start_index == 0)
             return path[0..end_index];
         start_index -= 1;
@@ -646,9 +683,42 @@ test "os.path.basename" {
     testBasename("/aaa/b", "b");
     testBasename("/a/b", "b");
     testBasename("//a", "a");
+
+    testBasenamePosix("\\dir\\basename.ext", "\\dir\\basename.ext");
+    testBasenamePosix("\\basename.ext", "\\basename.ext");
+    testBasenamePosix("basename.ext", "basename.ext");
+    testBasenamePosix("basename.ext\\", "basename.ext\\");
+    testBasenamePosix("basename.ext\\\\", "basename.ext\\\\");
+    testBasenamePosix("foo", "foo");
+
+    testBasenameWindows("\\dir\\basename.ext", "basename.ext");
+    testBasenameWindows("\\basename.ext", "basename.ext");
+    testBasenameWindows("basename.ext", "basename.ext");
+    testBasenameWindows("basename.ext\\", "basename.ext");
+    testBasenameWindows("basename.ext\\\\", "basename.ext");
+    testBasenameWindows("foo", "foo");
+    testBasenameWindows("C:", "");
+    testBasenameWindows("C:.", ".");
+    testBasenameWindows("C:\\", "");
+    testBasenameWindows("C:\\dir\\base.ext", "base.ext");
+    testBasenameWindows("C:\\basename.ext", "basename.ext");
+    testBasenameWindows("C:basename.ext", "basename.ext");
+    testBasenameWindows("C:basename.ext\\", "basename.ext");
+    testBasenameWindows("C:basename.ext\\\\", "basename.ext");
+    testBasenameWindows("C:foo", "foo");
+    testBasenameWindows("file:stream", "file:stream");
 }
+
 fn testBasename(input: []const u8, expected_output: []const u8) {
     assert(mem.eql(u8, basename(input), expected_output));
+}
+
+fn testBasenamePosix(input: []const u8, expected_output: []const u8) {
+    assert(mem.eql(u8, basenamePosix(input), expected_output));
+}
+
+fn testBasenameWindows(input: []const u8, expected_output: []const u8) {
+    assert(mem.eql(u8, basenameWindows(input), expected_output));
 }
 
 /// Returns the relative path from ::from to ::to. If ::from and ::to each
