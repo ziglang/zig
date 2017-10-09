@@ -177,9 +177,14 @@ test "os.path.networkShare" {
 }
 
 pub fn diskDesignator(path: []const u8) -> []const u8 {
-    if (!is_windows)
+    if (is_windows) {
+        return diskDesignatorWindows(path);
+    } else {
         return "";
+    }
+}
 
+pub fn diskDesignatorWindows(path: []const u8) -> []const u8 {
     return drive(path) ?? (networkShare(path) ?? []u8{});
 }
 
@@ -334,7 +339,7 @@ pub fn resolveWindows(allocator: &Allocator, paths: []const []const u8) -> %[]u8
         mem.copy(u8, result, cwd);
         result_index += cwd.len;
 
-        root_slice = diskDesignator(result[0..result_index]);
+        root_slice = diskDesignatorWindows(result[0..result_index]);
     }
     %defer allocator.free(result);
 
@@ -350,7 +355,7 @@ pub fn resolveWindows(allocator: &Allocator, paths: []const []const u8) -> %[]u8
                 continue;
             }
         }
-        var it = mem.split(p[diskDesignator(p).len..], "/\\");
+        var it = mem.split(p[diskDesignatorWindows(p).len..], "/\\");
         while (it.next()) |component| {
             if (mem.eql(u8, component, ".")) {
                 continue;
@@ -505,7 +510,7 @@ pub fn dirnameWindows(path: []const u8) -> []const u8 {
     if (path.len == 0)
         return path[0..0];
 
-    const root_slice = diskDesignator(path);
+    const root_slice = diskDesignatorWindows(path);
     if (path.len == root_slice.len)
         return path;
 
