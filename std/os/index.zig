@@ -476,10 +476,23 @@ pub const args = struct {
 pub fn getCwd(allocator: &Allocator) -> %[]u8 {
     switch (builtin.os) {
         Os.windows => {
-            @panic("implement getCwd for windows");
-            //if (windows.GetCurrentDirectoryA(buf_len(out_cwd), buf_ptr(out_cwd)) == 0) {
-            //    zig_panic("GetCurrentDirectory failed");
-            //}
+            var buf = %return allocator.alloc(u8, 256);
+            %defer allocator.free(buf);
+
+            while (true) {
+                const result = windows.GetCurrentDirectoryA(windows.WORD(buf.len), buf.ptr);
+
+                if (result == 0) {
+                    return error.Unexpected;
+                }
+
+                if (result > buf.len) {
+                    buf = %return allocator.realloc(u8, buf, result);
+                    continue;
+                }
+
+                return buf[0..result];
+            }
         },
         else => {
             var buf = %return allocator.alloc(u8, 1024);

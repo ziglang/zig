@@ -13,6 +13,8 @@ pub extern "kernel32" stdcallcc fn GetCommandLine() -> LPTSTR;
 
 pub extern "kernel32" stdcallcc fn GetConsoleMode(in_hConsoleHandle: HANDLE, out_lpMode: &DWORD) -> bool;
 
+pub extern "kernel32" stdcallcc fn GetCurrentDirectoryA(nBufferLength: WORD, lpBuffer: ?LPTSTR) -> DWORD;
+
 /// Retrieves the calling thread's last-error code value. The last-error code is maintained on a per-thread basis.
 /// Multiple threads do not overwrite each other's last-error code.
 pub extern "kernel32" stdcallcc fn GetLastError() -> DWORD;
@@ -50,7 +52,7 @@ pub extern "user32" stdcallcc fn MessageBoxA(hWnd: ?HANDLE, lpText: ?LPCTSTR, lp
 pub const PROV_RSA_FULL = 1;
 
 pub const UNICODE = false;
-pub const LPTSTR = if (unicode) LPWSTR else LPSTR;
+pub const LPTSTR = if (UNICODE) LPWSTR else LPSTR;
 pub const LPWSTR = &WCHAR;
 pub const LPSTR = &CHAR;
 pub const CHAR = u8;
@@ -59,6 +61,7 @@ pub const SIZE_T = usize;
 
 pub const BOOL = bool;
 pub const BYTE = u8;
+pub const WORD = u16;
 pub const DWORD = u32;
 pub const FLOAT = f32;
 pub const HANDLE = &c_void;

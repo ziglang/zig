@@ -176,23 +176,11 @@ test "os.path.networkShare" {
     assert(networkShare("\\\\a\\") == null);
 }
 
-pub fn root(path: []const u8) -> []const u8 {
-    if (is_windows) {
-        return rootWindows(path);
-    } else {
-        return rootPosix(path);
-    }
-}
+pub fn diskDesignator(path: []const u8) -> []const u8 {
+    if (!is_windows)
+        return "";
 
-pub fn rootWindows(path: []const u8) -> []const u8 {
     return drive(path) ?? (networkShare(path) ?? []u8{});
-}
-
-pub fn rootPosix(path: []const u8) -> []const u8 {
-    if (path.len == 0 or path[0] != '/')
-        return []u8{};
-
-    return path[0..1];
 }
 
 // TODO ASCII is wrong, we actually need full unicode support to compare paths.
@@ -346,7 +334,7 @@ pub fn resolveWindows(allocator: &Allocator, paths: []const []const u8) -> %[]u8
         mem.copy(u8, result, cwd);
         result_index += cwd.len;
 
-        root_slice = rootWindows(result[0..result_index]);
+        root_slice = diskDesignator(result[0..result_index]);
     }
     %defer allocator.free(result);
 
@@ -362,7 +350,7 @@ pub fn resolveWindows(allocator: &Allocator, paths: []const []const u8) -> %[]u8
                 continue;
             }
         }
-        var it = mem.split(p[rootWindows(p).len..], "/\\");
+        var it = mem.split(p[diskDesignator(p).len..], "/\\");
         while (it.next()) |component| {
             if (mem.eql(u8, component, ".")) {
                 continue;
@@ -517,7 +505,7 @@ pub fn dirnameWindows(path: []const u8) -> []const u8 {
     if (path.len == 0)
         return path[0..0];
 
-    const root_slice = rootWindows(path);
+    const root_slice = diskDesignator(path);
     if (path.len == root_slice.len)
         return path;
 
