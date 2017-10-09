@@ -491,7 +491,7 @@ pub fn getCwd(allocator: &Allocator) -> %[]u8 {
                     continue;
                 }
 
-                return buf[0..result];
+                return allocator.shrink(u8, buf, result);
             }
         },
         else => {
@@ -506,10 +506,15 @@ pub fn getCwd(allocator: &Allocator) -> %[]u8 {
                     return error.Unexpected;
                 }
 
-                return cstr.toSlice(buf.ptr);
+                return allocator.shrink(u8, buf, cstr.len(buf.ptr));
             }
         },
     }
+}
+
+test "os.getCwd" {
+    // at least call it so it gets compiled
+    _ = getCwd(&debug.global_allocator);
 }
 
 pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) -> %void {
@@ -988,7 +993,7 @@ pub fn readLink(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
             result_buf = %return allocator.realloc(u8, result_buf, result_buf.len * 2);
             continue;
         }
-        return result_buf[0..ret_val];
+        return allocator.shrink(u8, result_buf, ret_val);
     }
 }
 

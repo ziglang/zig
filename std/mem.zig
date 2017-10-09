@@ -8,17 +8,22 @@ const Os = builtin.Os;
 
 pub const Cmp = math.Cmp;
 
-error NoMem;
+error OutOfMemory;
 
 pub const Allocator = struct {
     /// Allocate byte_count bytes and return them in a slice, with the
     /// slicer's pointer aligned at least to alignment bytes.
     allocFn: fn (self: &Allocator, byte_count: usize, alignment: usize) -> %[]u8,
 
-    /// Guaranteed: old_mem.len > 0 and alignment >= alignment of old_mem.ptr
+    /// Guaranteed: `old_mem.len` is the same as what was returned from allocFn or reallocFn.
+    /// Guaranteed: alignment >= alignment of old_mem.ptr
+    ///
+    /// If `new_byte_count` is less than or equal to `old_mem.len` this function must
+    /// return successfully.
     reallocFn: fn (self: &Allocator, old_mem: []u8, new_byte_count: usize, alignment: usize) -> %[]u8,
 
-    freeFn: fn (self: &Allocator, ptr: &u8),
+    /// Guaranteed: `old_mem.len` is the same as what was returned from `allocFn` or `reallocFn`
+    freeFn: fn (self: &Allocator, old_mem: []u8),
 
     fn create(self: &Allocator, comptime T: type) -> %&T {
         const slice = %return self.alloc(T, 1);
@@ -41,24 +46,41 @@ pub const Allocator = struct {
         }
 
         // Assert that old_mem.ptr is properly aligned.
-        _ = @alignCast(@alignOf(T), old_mem.ptr);
+        const aligned_old_mem = @alignCast(@alignOf(T), old_mem);
 
         const byte_count = %return math.mul(usize, @sizeOf(T), n);
-        const byte_slice = %return self.reallocFn(self, ([]u8)(old_mem), byte_count, @alignOf(T));
-        ([]T)(@alignCast(@alignOf(T), byte_slice))
+        const byte_slice = %return self.reallocFn(self, ([]u8)(aligned_old_mem), byte_count, @alignOf(T));
+        return ([]T)(@alignCast(@alignOf(T), byte_slice));
+    }
+
+    /// Reallocate, but `n` must be less than or equal to `old_mem.len`.
+    /// Unlike `realloc`, this function cannot fail.
+    /// Shrinking to 0 is the same as calling `free`.
+    fn shrink(self: &Allocator, comptime T: type, old_mem: []T, n: usize) -> []T {
+        if (n == 0) {
+            self.free(old_mem);
+            return old_mem[0..0];
+        }
+
+        assert(n <= old_mem.len);
+
+        // Assert that old_mem.ptr is properly aligned.
+        const aligned_old_mem = @alignCast(@alignOf(T), old_mem);
+
+        // Here we skip the overflow checking on the multiplication because
+        // n <= old_mem.len and the multiplication didn't overflow for that operation.
+        const byte_count = @sizeOf(T) * n;
+
+        const byte_slice = %%self.reallocFn(self, ([]u8)(aligned_old_mem), byte_count, @alignOf(T));
+        return ([]T)(@alignCast(@alignOf(T), byte_slice));
     }
 
     fn free(self: &Allocator, memory: var) {
-        const ptr = if (@typeId(@typeOf(memory)) == builtin.TypeId.Pointer) {
-            memory
-        } else {
-            const const_slice = ([]const u8)(memory);
-            if (memory.len == 0)
-                return;
-            const_slice.ptr
-        };
-        const non_const_ptr = @intToPtr(&u8, @ptrToInt(ptr));
-        self.freeFn(self, non_const_ptr);
+        const bytes = ([]const u8)(memory);
+        if (bytes.len == 0)
+            return;
+        const non_const_ptr = @intToPtr(&u8, @ptrToInt(bytes.ptr));
+        self.freeFn(self, non_const_ptr[0..bytes.len]);
     }
 };
 
@@ -74,7 +96,7 @@ pub const IncrementingAllocator = struct {
                 const addr = p.mmap(null, capacity, p.PROT_READ|p.PROT_WRITE,
                     p.MAP_PRIVATE|p.MAP_ANONYMOUS|p.MAP_NORESERVE, -1, 0);
                 if (addr == p.MAP_FAILED) {
-                    return error.NoMem;
+                    return error.OutOfMemory;
                 }
                 return IncrementingAllocator {
                     .allocator = Allocator {
@@ -132,7 +154,7 @@ pub const IncrementingAllocator = struct {
         const adjusted_index = self.end_index + march_forward_bytes;
         const new_end_index = adjusted_index + n;
         if (new_end_index > self.bytes.len) {
-            return error.NoMem;
+            return error.OutOfMemory;
         }
         const result = self.bytes[adjusted_index .. new_end_index];
         self.end_index = new_end_index;
@@ -140,12 +162,16 @@ pub const IncrementingAllocator = struct {
     }
 
     fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: usize) -> %[]u8 {
-        const result = %return alloc(allocator, new_size, alignment);
-        copy(u8, result, old_mem);
-        return result;
+        if (new_size <= old_mem.len) {
+            return old_mem[0..new_size];
+        } else {
+            const result = %return alloc(allocator, new_size, alignment);
+            copy(u8, result, old_mem);
+            return result;
+        }
     }
 
-    fn free(allocator: &Allocator, bytes: &u8) {
+    fn free(allocator: &Allocator, bytes: []u8) {
         // Do nothing. That's the point of an incrementing allocator.
     }
 };

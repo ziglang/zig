@@ -6,8 +6,9 @@ const mem = @import("../mem.zig");
 const fmt = @import("../fmt/index.zig");
 const Allocator = mem.Allocator;
 const os = @import("index.zig");
-const math = @import("../math.zig");
+const math = @import("../math/index.zig");
 const posix = os.posix;
+const windows = os.windows;
 const c = @import("../c/index.zig");
 const cstr = @import("../cstr.zig");
 
@@ -921,7 +922,62 @@ error Unexpected;
 /// Caller must deallocate result.
 pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
     switch (builtin.os) {
-        Os.windows => @compileError("TODO implement os.path.real for windows"),
+        Os.windows => {
+            const pathname_buf = %return allocator.alloc(u8, pathname.len + 1);
+            defer allocator.free(pathname_buf);
+
+            mem.copy(u8, pathname_buf, pathname);
+            pathname_buf[pathname.len] = 0;
+
+            const h_file = windows.CreateFileA(pathname_buf.ptr,
+                windows.GENERIC_READ, windows.FILE_SHARE_READ, null, windows.OPEN_EXISTING,
+                windows.FILE_ATTRIBUTE_NORMAL, null);
+            if (h_file == windows.INVALID_HANDLE_VALUE) {
+                const err = windows.GetLastError();
+                return switch (err) {
+                    windows.ERROR.FILE_NOT_FOUND => error.FileNotFound,
+                    windows.ERROR.ACCESS_DENIED => error.AccessDenied,
+                    windows.ERROR.FILENAME_EXCED_RANGE => error.NameTooLong,
+                    else => error.Unexpected,
+                };
+            }
+            defer assert(windows.CloseHandle(h_file));
+            var buf = %return allocator.alloc(u8, 256);
+            %defer allocator.free(buf);
+            while (true) {
+                const buf_len = math.cast(windows.DWORD, buf.len) %% return error.NameTooLong;
+                const result = windows.GetFinalPathNameByHandleA(h_file, buf.ptr, buf_len, windows.VOLUME_NAME_DOS);
+
+                if (result == 0) {
+                    const err = windows.GetLastError();
+                    return switch (err) {
+                        windows.ERROR.PATH_NOT_FOUND => error.FileNotFound,
+                        windows.ERROR.NOT_ENOUGH_MEMORY => error.OutOfMemory,
+                        windows.ERROR.INVALID_PARAMETER => unreachable,
+                        else => error.Unexpected,
+                    };
+                }
+
+                if (result > buf.len) {
+                    buf = %return allocator.realloc(u8, buf, result);
+                    continue;
+                }
+
+                // windows returns \\?\ prepended to the path
+                // we strip it because nobody wants \\?\ prepended to their path
+                const final_len = if (result > 4 and mem.startsWith(u8, buf, "\\\\?\\")) {
+                    var i: usize = 4;
+                    while (i < result) : (i += 1) {
+                        buf[i - 4] = buf[i];
+                    }
+                    result - 4
+                } else {
+                    result
+                };
+
+                return allocator.shrink(u8, buf, final_len);
+            }
+        },
         Os.darwin, Os.macosx, Os.ios => {
             // TODO instead of calling the libc function here, port the implementation
             // to Zig, and then remove the NameTooLong error possibility.
@@ -950,7 +1006,7 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
                     else => error.Unexpected,
                 };
             }
-            return cstr.toSlice(result_buf.ptr);
+            return allocator.realloc(u8, result_buf, cstr.len(result_buf.ptr));
         },
         Os.linux => {
             const fd = %return os.posixOpen(pathname, posix.O_PATH|posix.O_NONBLOCK|posix.O_CLOEXEC, 0, allocator);
@@ -963,4 +1019,9 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
         },
         else => @compileError("TODO implement os.path.real for " ++ @enumTagName(builtin.os)),
     }
+}
+
+test "os.path.real" {
+    // at least call it so it gets compiled
+    _ = real(&debug.global_allocator, "some_path");
 }

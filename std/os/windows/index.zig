@@ -1,5 +1,11 @@
 pub const ERROR = @import("error.zig");
 
+pub extern "kernel32" stdcallcc fn CloseHandle(hObject: HANDLE) -> BOOL;
+
+pub extern "kernel32" stdcallcc fn CreateFileA(lpFileName: LPCSTR, dwDesiredAccess: DWORD,
+    dwShareMode: DWORD, lpSecurityAttributes: ?LPSECURITY_ATTRIBUTES, dwCreationDisposition: DWORD,
+        dwFlagsAndAttributes: DWORD, hTemplateFile: ?HANDLE) -> HANDLE;
+
 pub extern "kernel32" stdcallcc fn CryptAcquireContext(phProv: &HCRYPTPROV, pszContainer: LPCTSTR,
     pszProvider: LPCTSTR, dwProvType: DWORD, dwFlags: DWORD) -> bool;
 
@@ -25,6 +31,9 @@ pub extern "kernel32" stdcallcc fn GetLastError() -> DWORD;
 pub extern "kernel32" stdcallcc fn GetFileInformationByHandleEx(in_hFile: HANDLE,
     in_FileInformationClass: FILE_INFO_BY_HANDLE_CLASS, out_lpFileInformation: &c_void,
     in_dwBufferSize: DWORD) -> bool;
+
+pub extern "kernel32" stdcallcc fn GetFinalPathNameByHandleA(hFile: HANDLE, lpszFilePath: LPSTR,
+  cchFilePath: DWORD, dwFlags: DWORD) -> DWORD;
 
 /// Retrieves a handle to the specified standard device (standard input, standard output, or standard error).
 pub extern "kernel32" stdcallcc fn GetStdHandle(in_nStdHandle: DWORD) -> ?HANDLE;
@@ -131,3 +140,53 @@ pub const FILE_NAME_INFO = extern struct {
     FileNameLength: DWORD,
     FileName: [1]WCHAR,
 };
+
+
+/// Return the normalized drive name. This is the default.
+pub const FILE_NAME_NORMALIZED = 0x0;
+/// Return the opened file name (not normalized).
+pub const FILE_NAME_OPENED = 0x8;
+
+/// Return the path with the drive letter. This is the default.
+pub const VOLUME_NAME_DOS = 0x0;
+/// Return the path with a volume GUID path instead of the drive name.
+pub const VOLUME_NAME_GUID = 0x1;
+/// Return the path with no drive information.
+pub const VOLUME_NAME_NONE = 0x4;
+/// Return the path with the volume device path.
+pub const VOLUME_NAME_NT = 0x2;
+
+
+pub const SECURITY_ATTRIBUTES = extern struct {
+    nLength: DWORD,
+    lpSecurityDescriptor: LPVOID,
+    bInheritHandle: BOOL,
+};
+pub const PSECURITY_ATTRIBUTES = &SECURITY_ATTRIBUTES;
+pub const LPSECURITY_ATTRIBUTES = &SECURITY_ATTRIBUTES;
+
+
+pub const GENERIC_READ = 0x80000000;
+pub const GENERIC_WRITE = 0x40000000;
+pub const GENERIC_EXECUTE = 0x20000000;
+pub const GENERIC_ALL = 0x10000000;
+
+pub const FILE_SHARE_DELETE = 0x00000004;
+pub const FILE_SHARE_READ = 0x00000001;
+pub const FILE_SHARE_WRITE = 0x00000002;
+
+pub const CREATE_ALWAYS = 2;
+pub const CREATE_NEW = 1;
+pub const OPEN_ALWAYS = 4;
+pub const OPEN_EXISTING = 3;
+pub const TRUNCATE_EXISTING = 5;
+
+
+pub const FILE_ATTRIBUTE_ARCHIVE = 0x20;
+pub const FILE_ATTRIBUTE_ENCRYPTED = 0x4000;
+pub const FILE_ATTRIBUTE_HIDDEN = 0x2;
+pub const FILE_ATTRIBUTE_NORMAL = 0x80;
+pub const FILE_ATTRIBUTE_OFFLINE = 0x1000;
+pub const FILE_ATTRIBUTE_READONLY = 0x1;
+pub const FILE_ATTRIBUTE_SYSTEM = 0x4;
+pub const FILE_ATTRIBUTE_TEMPORARY = 0x100;

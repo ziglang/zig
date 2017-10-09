@@ -974,9 +974,13 @@ fn globalAlloc(self: &mem.Allocator, n: usize, alignment: usize) -> %[]u8 {
 }
 
 fn globalRealloc(self: &mem.Allocator, old_mem: []u8, new_size: usize, alignment: usize) -> %[]u8 {
-    const result = %return globalAlloc(self, new_size, alignment);
-    @memcpy(result.ptr, old_mem.ptr, old_mem.len);
-    return result;
+    if (new_size <= old_mem.len) {
+        return old_mem[0..new_size];
+    } else {
+        const result = %return globalAlloc(self, new_size, alignment);
+        @memcpy(result.ptr, old_mem.ptr, old_mem.len);
+        return result;
+    }
 }
 
-fn globalFree(self: &mem.Allocator, ptr: &u8) { }
+fn globalFree(self: &mem.Allocator, memory: []u8) { }

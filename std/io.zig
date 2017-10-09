@@ -65,7 +65,7 @@ error SystemFdQuotaExceeded;
 error NameTooLong;
 error NoDevice;
 error PathNotFound;
-error NoMem;
+error OutOfMemory;
 error Unseekable;
 error EndOfFile;
 error NoStdHandles;
@@ -394,7 +394,7 @@ pub const InStream = struct {
         if (err > 0) {
             return switch (err) {
                 system.EBADF => error.BadFd,
-                system.ENOMEM => error.NoMem,
+                system.ENOMEM => error.OutOfMemory,
                 else => error.Unexpected,
             }
         }

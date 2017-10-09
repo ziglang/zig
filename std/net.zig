@@ -8,7 +8,7 @@ error Io;
 error TimedOut;
 error ConnectionReset;
 error ConnectionRefused;
-error NoMem;
+error OutOfMemory;
 error NotSocket;
 error BadFd;
 
@@ -38,7 +38,7 @@ const Connection = struct {
             linux.EFAULT => unreachable,
             linux.ENOTSOCK => return error.NotSocket,
             linux.EINTR => return error.SigInterrupt,
-            linux.ENOMEM => return error.NoMem,
+            linux.ENOMEM => return error.OutOfMemory,
             linux.ECONNREFUSED => return error.ConnectionRefused,
             linux.EBADF => return error.BadFd,
             // TODO more error values
