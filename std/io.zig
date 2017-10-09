@@ -107,7 +107,7 @@ pub const OutStream = struct {
         } else if (is_windows) {
             @compileError("TODO: windows OutStream.openMode");
         } else {
-            @compileError("Unsupported OS");
+            unreachable;
         }
 
     }
@@ -174,8 +174,14 @@ pub const OutStream = struct {
     }
 
     pub fn close(self: &OutStream) {
-        assert(self.index == 0);
-        os.posixClose(self.fd);
+        assert(self.index == 0); // unflushed buffer
+        if (is_posix) {
+            os.posixClose(self.fd);
+        } else if (is_windows) {
+            os.windowsClose(%%self.getHandle());
+        } else {
+            unreachable;
+        }
     }
 
     pub fn isTty(self: &OutStream) -> %bool {
@@ -188,7 +194,7 @@ pub const OutStream = struct {
         } else if (is_windows) {
             return os.windowsIsTty(%return self.getHandle());
         } else {
-            @compileError("Unsupported OS");
+            unreachable;
         }
     }
 
