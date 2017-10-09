@@ -178,9 +178,9 @@ pub const ChildProcess = struct {
     }
 
     fn cleanupStreams(self: &ChildProcess) {
-        if (self.stdin) |stdin| { stdin.close(); self.allocator.free(stdin); self.stdin = null; }
-        if (self.stdout) |stdout| { stdout.close(); self.allocator.free(stdout); self.stdout = null; }
-        if (self.stderr) |stderr| { stderr.close(); self.allocator.free(stderr); self.stderr = null; }
+        if (self.stdin) |stdin| { stdin.close(); self.allocator.destroy(stdin); self.stdin = null; }
+        if (self.stdout) |stdout| { stdout.close(); self.allocator.destroy(stdout); self.stdout = null; }
+        if (self.stderr) |stderr| { stderr.close(); self.allocator.destroy(stderr); self.stderr = null; }
     }
 
     fn cleanupAfterWait(self: &ChildProcess, status: i32) -> %Term {
