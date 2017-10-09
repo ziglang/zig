@@ -195,12 +195,15 @@ pub fn rootPosix(path: []const u8) -> []const u8 {
     return path[0..1];
 }
 
-pub fn drivesEqual(drive1: []const u8, drive2: []const u8) -> bool {
-    assert(drive1.len == 2);
-    assert(drive2.len == 2);
-    assert(drive1[1] == ':');
-    assert(drive2[1] == ':');
-    return asciiUpper(drive1[0]) == asciiUpper(drive2[0]);
+// TODO ASCII is wrong, we actually need full unicode support to compare paths.
+fn networkShareServersEql(ns1: []const u8, ns2: []const u8) -> bool {
+    const sep1 = ns1[0];
+    const sep2 = ns2[0];
+
+    var it1 = mem.split(ns1, []u8{sep1});
+    var it2 = mem.split(ns2, []u8{sep2});
+
+    return asciiEqlIgnoreCase(??it1.next(), ??it2.next());
 }
 
 fn asciiUpper(byte: u8) -> u8 {
@@ -208,6 +211,17 @@ fn asciiUpper(byte: u8) -> u8 {
         'a' ... 'z' => 'A' + (byte - 'a'),
         else => byte,
     };
+}
+
+fn asciiEqlIgnoreCase(s1: []const u8, s2: []const u8) -> bool {
+    if (s1.len != s2.len)
+        return false;
+    var i: usize = 0;
+    while (i < s1.len) : (i += 1) {
+        if (asciiUpper(s1[i]) != asciiUpper(s2[i]))
+            return false;
+    }
+    return true;
 }
 
 /// Converts the command line arguments into a slice and calls `resolveSlice`.
@@ -721,26 +735,95 @@ fn testBasenameWindows(input: []const u8, expected_output: []const u8) {
     assert(mem.eql(u8, basenameWindows(input), expected_output));
 }
 
-/// Returns the relative path from ::from to ::to. If ::from and ::to each
-/// resolve to the same path (after calling ::resolve on each), a zero-length
+/// Returns the relative path from `from` to `to`. If `from` and `to` each
+/// resolve to the same path (after calling `resolve` on each), a zero-length
 /// string is returned.
+/// On Windows this canonicalizes the drive to a capital letter and paths to `\\`.
 pub fn relative(allocator: &Allocator, from: []const u8, to: []const u8) -> %[]u8 {
     if (is_windows) {
-        return windowsRelative(allocator, from, to);
+        return relativeWindows(allocator, from, to);
     } else {
-        return posixRelative(allocator, from, to);
+        return relativePosix(allocator, from, to);
     }
 }
 
-fn windowsRelative(allocator: &Allocator, from: []const u8, to: []const u8) -> %[]u8 {
-    @compileError("TODO implement this");
-}
-
-fn posixRelative(allocator: &Allocator, from: []const u8, to: []const u8) -> %[]u8 {
-    const resolved_from = %return resolve(allocator, from);
+pub fn relativeWindows(allocator: &Allocator, from: []const u8, to: []const u8) -> %[]u8 {
+    const resolved_from = %return resolveWindows(allocator, [][]const u8{from});
     defer allocator.free(resolved_from);
 
-    const resolved_to = %return resolve(allocator, to);
+    var clean_up_resolved_to = true;
+    const resolved_to = %return resolveWindows(allocator, [][]const u8{to});
+    defer if (clean_up_resolved_to) allocator.free(resolved_to);
+
+    const result_is_to = if (drive(resolved_to)) |to_drive| {
+        if (drive(resolved_from)) |from_drive| {
+            asciiUpper(from_drive[0]) != asciiUpper(to_drive[0])
+        } else {
+            true
+        }
+    } else if (networkShare(resolved_to)) |to_ns| {
+        if (networkShare(resolved_from)) |from_ns| {
+            !networkShareServersEql(to_ns, from_ns)
+        } else {
+            true
+        }
+    } else {
+        unreachable
+    };
+    if (result_is_to) {
+        clean_up_resolved_to = false;
+        return resolved_to;
+    }
+
+    var from_it = mem.split(resolved_from, "/\\");
+    var to_it = mem.split(resolved_to, "/\\");
+    while (true) {
+        const from_component = from_it.next() ?? return mem.dupe(allocator, u8, to_it.rest());
+        const to_rest = to_it.rest();
+        if (to_it.next()) |to_component| {
+            // TODO ASCII is wrong, we actually need full unicode support to compare paths.
+            if (asciiEqlIgnoreCase(from_component, to_component))
+                continue;
+        }
+        var up_count: usize = 1;
+        while (from_it.next()) |_| {
+            up_count += 1;
+        }
+        const up_index_end = up_count * "..\\".len;
+        const result = %return allocator.alloc(u8, up_index_end + to_rest.len);
+        %defer allocator.free(result);
+
+        var result_index: usize = 0;
+        while (result_index < up_index_end) {
+            result[result_index] = '.';
+            result_index += 1;
+            result[result_index] = '.';
+            result_index += 1;
+            result[result_index] = '\\';
+            result_index += 1;
+        }
+        // shave off the trailing slash
+        result_index -= 1;
+
+        var rest_it = mem.split(to_rest, "/\\");
+        while (rest_it.next()) |to_component| {
+            result[result_index] = '\\';
+            result_index += 1;
+            mem.copy(u8, result[result_index..], to_component);
+            result_index += to_component.len;
+        }
+
+        return result[0..result_index];
+    }
+
+    return []u8{};
+}
+
+pub fn relativePosix(allocator: &Allocator, from: []const u8, to: []const u8) -> %[]u8 {
+    const resolved_from = %return resolvePosix(allocator, [][]const u8{from});
+    defer allocator.free(resolved_from);
+
+    const resolved_to = %return resolvePosix(allocator, [][]const u8{to});
     defer allocator.free(resolved_to);
 
     var from_it = mem.split(resolved_from, "/");
@@ -782,48 +865,52 @@ fn posixRelative(allocator: &Allocator, from: []const u8, to: []const u8) -> %[]
 }
 
 test "os.path.relative" {
-    if (is_windows) {
-        testRelative("c:/blah\\blah", "d:/games", "d:\\games");
-        testRelative("c:/aaaa/bbbb", "c:/aaaa", "..");
-        testRelative("c:/aaaa/bbbb", "c:/cccc", "..\\..\\cccc");
-        testRelative("c:/aaaa/bbbb", "c:/aaaa/bbbb", "");
-        testRelative("c:/aaaa/bbbb", "c:/aaaa/cccc", "..\\cccc");
-        testRelative("c:/aaaa/", "c:/aaaa/cccc", "cccc");
-        testRelative("c:/", "c:\\aaaa\\bbbb", "aaaa\\bbbb");
-        testRelative("c:/aaaa/bbbb", "d:\\", "d:\\");
-        testRelative("c:/AaAa/bbbb", "c:/aaaa/bbbb", "");
-        testRelative("c:/aaaaa/", "c:/aaaa/cccc", "..\\aaaa\\cccc");
-        testRelative("C:\\foo\\bar\\baz\\quux", "C:\\", "..\\..\\..\\..");
-        testRelative("C:\\foo\\test", "C:\\foo\\test\\bar\\package.json", "bar\\package.json");
-        testRelative("C:\\foo\\bar\\baz-quux", "C:\\foo\\bar\\baz", "..\\baz");
-        testRelative("C:\\foo\\bar\\baz", "C:\\foo\\bar\\baz-quux", "..\\baz-quux");
-        testRelative("\\\\foo\\bar", "\\\\foo\\bar\\baz", "baz");
-        testRelative("\\\\foo\\bar\\baz", "\\\\foo\\bar", "..");
-        testRelative("\\\\foo\\bar\\baz-quux", "\\\\foo\\bar\\baz", "..\\baz");
-        testRelative("\\\\foo\\bar\\baz", "\\\\foo\\bar\\baz-quux", "..\\baz-quux");
-        testRelative("C:\\baz-quux", "C:\\baz", "..\\baz");
-        testRelative("C:\\baz", "C:\\baz-quux", "..\\baz-quux");
-        testRelative("\\\\foo\\baz-quux", "\\\\foo\\baz", "..\\baz");
-        testRelative("\\\\foo\\baz", "\\\\foo\\baz-quux", "..\\baz-quux");
-        testRelative("C:\\baz", "\\\\foo\\bar\\baz", "\\\\foo\\bar\\baz");
-        testRelative("\\\\foo\\bar\\baz", "C:\\baz", "C:\\baz")
-    } else {
-        testRelative("/var/lib", "/var", "..");
-        testRelative("/var/lib", "/bin", "../../bin");
-        testRelative("/var/lib", "/var/lib", "");
-        testRelative("/var/lib", "/var/apache", "../apache");
-        testRelative("/var/", "/var/lib", "lib");
-        testRelative("/", "/var/lib", "var/lib");
-        testRelative("/foo/test", "/foo/test/bar/package.json", "bar/package.json");
-        testRelative("/Users/a/web/b/test/mails", "/Users/a/web/b", "../..");
-        testRelative("/foo/bar/baz-quux", "/foo/bar/baz", "../baz");
-        testRelative("/foo/bar/baz", "/foo/bar/baz-quux", "../baz-quux");
-        testRelative("/baz-quux", "/baz", "../baz");
-        testRelative("/baz", "/baz-quux", "../baz-quux");
-    }
+    testRelativeWindows("c:/blah\\blah", "d:/games", "D:\\games");
+    testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa", "..");
+    testRelativeWindows("c:/aaaa/bbbb", "c:/cccc", "..\\..\\cccc");
+    testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa/bbbb", "");
+    testRelativeWindows("c:/aaaa/bbbb", "c:/aaaa/cccc", "..\\cccc");
+    testRelativeWindows("c:/aaaa/", "c:/aaaa/cccc", "cccc");
+    testRelativeWindows("c:/", "c:\\aaaa\\bbbb", "aaaa\\bbbb");
+    testRelativeWindows("c:/aaaa/bbbb", "d:\\", "D:\\");
+    testRelativeWindows("c:/AaAa/bbbb", "c:/aaaa/bbbb", "");
+    testRelativeWindows("c:/aaaaa/", "c:/aaaa/cccc", "..\\aaaa\\cccc");
+    testRelativeWindows("C:\\foo\\bar\\baz\\quux", "C:\\", "..\\..\\..\\..");
+    testRelativeWindows("C:\\foo\\test", "C:\\foo\\test\\bar\\package.json", "bar\\package.json");
+    testRelativeWindows("C:\\foo\\bar\\baz-quux", "C:\\foo\\bar\\baz", "..\\baz");
+    testRelativeWindows("C:\\foo\\bar\\baz", "C:\\foo\\bar\\baz-quux", "..\\baz-quux");
+    testRelativeWindows("\\\\foo\\bar", "\\\\foo\\bar\\baz", "baz");
+    testRelativeWindows("\\\\foo\\bar\\baz", "\\\\foo\\bar", "..");
+    testRelativeWindows("\\\\foo\\bar\\baz-quux", "\\\\foo\\bar\\baz", "..\\baz");
+    testRelativeWindows("\\\\foo\\bar\\baz", "\\\\foo\\bar\\baz-quux", "..\\baz-quux");
+    testRelativeWindows("C:\\baz-quux", "C:\\baz", "..\\baz");
+    testRelativeWindows("C:\\baz", "C:\\baz-quux", "..\\baz-quux");
+    testRelativeWindows("\\\\foo\\baz-quux", "\\\\foo\\baz", "..\\baz");
+    testRelativeWindows("\\\\foo\\baz", "\\\\foo\\baz-quux", "..\\baz-quux");
+    testRelativeWindows("C:\\baz", "\\\\foo\\bar\\baz", "\\\\foo\\bar\\baz");
+    testRelativeWindows("\\\\foo\\bar\\baz", "C:\\baz", "C:\\baz");
+
+    testRelativePosix("/var/lib", "/var", "..");
+    testRelativePosix("/var/lib", "/bin", "../../bin");
+    testRelativePosix("/var/lib", "/var/lib", "");
+    testRelativePosix("/var/lib", "/var/apache", "../apache");
+    testRelativePosix("/var/", "/var/lib", "lib");
+    testRelativePosix("/", "/var/lib", "var/lib");
+    testRelativePosix("/foo/test", "/foo/test/bar/package.json", "bar/package.json");
+    testRelativePosix("/Users/a/web/b/test/mails", "/Users/a/web/b", "../..");
+    testRelativePosix("/foo/bar/baz-quux", "/foo/bar/baz", "../baz");
+    testRelativePosix("/foo/bar/baz", "/foo/bar/baz-quux", "../baz-quux");
+    testRelativePosix("/baz-quux", "/baz", "../baz");
+    testRelativePosix("/baz", "/baz-quux", "../baz-quux");
 }
-fn testRelative(from: []const u8, to: []const u8, expected_output: []const u8) {
-    const result = %%relative(&debug.global_allocator, from, to);
+
+fn testRelativePosix(from: []const u8, to: []const u8, expected_output: []const u8) {
+    const result = %%relativePosix(&debug.global_allocator, from, to);
+    assert(mem.eql(u8, result, expected_output));
+}
+
+fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []const u8) {
+    const result = %%relativeWindows(&debug.global_allocator, from, to);
     assert(mem.eql(u8, result, expected_output));
 }
 

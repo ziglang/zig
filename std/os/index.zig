@@ -1043,3 +1043,16 @@ pub fn posix_setregid(rgid: u32, egid: u32) -> %void {
         else => error.Unexpected,
     };
 }
+
+test "std.os" {
+    _ = @import("child_process.zig");
+    _ = @import("darwin_errno.zig");
+    _ = @import("darwin.zig");
+    _ = @import("get_user_id.zig");
+    _ = @import("linux_errno.zig");
+    //_ = @import("linux_i386.zig");
+    _ = @import("linux_x86_64.zig");
+    _ = @import("linux.zig");
+    _ = @import("path.zig");
+    _ = @import("windows/index.zig");
+}
