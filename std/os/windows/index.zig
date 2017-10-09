@@ -7,13 +7,15 @@ pub extern "kernel32" stdcallcc fn CryptReleaseContext(hProv: HCRYPTPROV, dwFlag
 
 pub extern "kernel32" stdcallcc fn CryptGenRandom(hProv: HCRYPTPROV, dwLen: DWORD, pbBuffer: &BYTE) -> bool;
 
+pub extern "kernel32" stdcallcc fn DeleteFileA(lpFileName: LPCSTR) -> bool;
+
 pub extern "kernel32" stdcallcc fn ExitProcess(exit_code: UINT) -> noreturn;
 
 pub extern "kernel32" stdcallcc fn GetCommandLine() -> LPTSTR;
 
 pub extern "kernel32" stdcallcc fn GetConsoleMode(in_hConsoleHandle: HANDLE, out_lpMode: &DWORD) -> bool;
 
-pub extern "kernel32" stdcallcc fn GetCurrentDirectoryA(nBufferLength: WORD, lpBuffer: ?LPTSTR) -> DWORD;
+pub extern "kernel32" stdcallcc fn GetCurrentDirectoryA(nBufferLength: WORD, lpBuffer: ?LPSTR) -> DWORD;
 
 /// Retrieves the calling thread's last-error code value. The last-error code is maintained on a per-thread basis.
 /// Multiple threads do not overwrite each other's last-error code.
@@ -68,6 +70,7 @@ pub const HANDLE = &c_void;
 pub const HINSTANCE = &@OpaqueType();
 pub const HCRYPTPROV = ULONG_PTR;
 pub const LPCTSTR = &const TCHAR;
+pub const LPCSTR = &const CHAR;
 pub const LPDWORD = &DWORD;
 pub const LPVOID = &c_void;
 pub const PVOID = &c_void;

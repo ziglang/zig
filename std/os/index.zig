@@ -577,6 +577,35 @@ pub fn atomicSymLink(allocator: &Allocator, existing_path: []const u8, new_path:
 }
 
 pub fn deleteFile(allocator: &Allocator, file_path: []const u8) -> %void {
+    if (builtin.os == Os.windows) {
+        return deleteFileWindows(allocator, file_path);
+    } else {
+        return deleteFilePosix(allocator, file_path);
+    }
+}
+
+error FileNotFound;
+error AccessDenied;
+
+pub fn deleteFileWindows(allocator: &Allocator, file_path: []const u8) -> %void {
+    const buf = %return allocator.alloc(u8, file_path.len + 1);
+    defer allocator.free(buf);
+
+    mem.copy(u8, buf, file_path);
+    buf[file_path.len] = 0;
+
+    if (!windows.DeleteFileA(buf.ptr)) {
+        const err = windows.GetLastError();
+        return switch (err) {
+            windows.ERROR.FILE_NOT_FOUND => error.FileNotFound,
+            windows.ERROR.ACCESS_DENIED => error.AccessDenied,
+            windows.ERROR.FILENAME_EXCED_RANGE, windows.ERROR.INVALID_PARAMETER => error.NameTooLong,
+            else => error.Unexpected,
+        }
+    }
+}
+
+pub fn deleteFilePosix(allocator: &Allocator, file_path: []const u8) -> %void {
     const buf = %return allocator.alloc(u8, file_path.len + 1);
     defer allocator.free(buf);
 
