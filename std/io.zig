@@ -242,9 +242,15 @@ pub const InStream = struct {
                 .handle = {},
             };
         } else if (is_windows) {
-            @compileError("TODO windows InStream.open");
+            const handle = %return os.windowsOpen(path, system.GENERIC_READ, system.FILE_SHARE_READ,
+                system.OPEN_EXISTING, system.FILE_ATTRIBUTE_NORMAL, allocator);
+            return InStream {
+                .fd = {},
+                .handle_id = undefined,
+                .handle = handle,
+            };
         } else {
-            @compileError("Unsupported OS");
+            unreachable;
         }
     }
 
@@ -253,18 +259,20 @@ pub const InStream = struct {
     pub fn close(self: &InStream) {
         if (is_posix) {
             os.posixClose(self.fd);
+        } else if (is_windows) {
+            os.windowsClose(%%self.getHandle());
         } else {
-            @compileError("Unsupported OS");
+            unreachable;
         }
     }
 
     /// Returns the number of bytes read. If the number read is smaller than buf.len, then
     /// the stream reached End Of File.
-    pub fn read(is: &InStream, buf: []u8) -> %usize {
+    pub fn read(self: &InStream, buf: []u8) -> %usize {
         if (is_posix) {
             var index: usize = 0;
             while (index < buf.len) {
-                const amt_read = system.read(is.fd, &buf[index], buf.len - index);
+                const amt_read = system.read(self.fd, &buf[index], buf.len - index);
                 const read_err = system.getErrno(amt_read);
                 if (read_err > 0) {
                     switch (read_err) {
@@ -273,7 +281,7 @@ pub const InStream = struct {
                         system.EFAULT => unreachable,
                         system.EBADF  => return error.BadFd,
                         system.EIO    => return error.Io,
-                        else         => return error.Unexpected,
+                        else          => return error.Unexpected,
                     }
                 }
                 if (amt_read == 0) return index;
@@ -281,9 +289,25 @@ pub const InStream = struct {
             }
             return index;
         } else if (is_windows) {
-            @compileError("TODO windows read impl");
+            const handle = %return self.getHandle();
+            var index: usize = 0;
+            while (index < buf.len) {
+                const want_read_count = system.DWORD(math.min(system.DWORD(@maxValue(system.DWORD)), buf.len - index));
+                var amt_read: system.DWORD = undefined;
+                if (!system.ReadFile(handle, @ptrCast(&c_void, &buf[index]), want_read_count, &amt_read, null)) {
+                    const err = system.GetLastError();
+                    return switch (err) {
+                        system.ERROR.OPERATION_ABORTED => continue,
+                        system.ERROR.BROKEN_PIPE => error.PipeFail,
+                        else => error.Unexpected,
+                    };
+                }
+                if (amt_read == 0) return index;
+                index += amt_read;
+            }
+            return index;
         } else {
-            @compileError("Unsupported OS");
+            unreachable;
         }
     }
 

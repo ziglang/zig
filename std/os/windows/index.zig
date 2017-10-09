@@ -38,8 +38,6 @@ pub extern "kernel32" stdcallcc fn GetFinalPathNameByHandleA(hFile: HANDLE, lpsz
 /// Retrieves a handle to the specified standard device (standard input, standard output, or standard error).
 pub extern "kernel32" stdcallcc fn GetStdHandle(in_nStdHandle: DWORD) -> ?HANDLE;
 
-/// Reads data from the specified file or input/output (I/O) device. Reads occur at the position specified by the file pointer if supported by the device.
-/// This function is designed for both synchronous and asynchronous operations. For a similar function designed solely for asynchronous operation, see ReadFileEx.
 pub extern "kernel32" stdcallcc fn ReadFile(in_hFile: HANDLE, out_lpBuffer: LPVOID,
     in_nNumberOfBytesToRead: DWORD, out_lpNumberOfBytesRead: &DWORD,
     in_out_lpOverlapped: ?&OVERLAPPED) -> BOOL;

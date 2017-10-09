@@ -151,6 +151,10 @@ pub fn posixClose(fd: i32) {
     }
 }
 
+pub fn windowsClose(handle: windows.HANDLE) {
+    assert(windows.CloseHandle(handle));
+}
+
 /// Calls POSIX read, and keeps trying if it gets interrupted.
 pub fn posixRead(fd: i32, buf: []u8) -> %void {
     var index: usize = 0;
@@ -299,11 +303,57 @@ pub fn posixOpen(file_path: []const u8, flags: u32, perm: usize, allocator: ?&Al
                 posix.ENOSPC => error.NoSpaceLeft,
                 posix.ENOTDIR => error.NotDir,
                 posix.EPERM => error.AccessDenied,
+                posix.EEXIST => error.PathAlreadyExists,
                 else => error.Unexpected,
             }
         }
         return i32(result);
     }
+}
+
+
+error SharingViolation;
+error PipeBusy;
+
+/// `file_path` may need to be copied in memory to add a null terminating byte. In this case
+/// a fixed size buffer of size ::max_noalloc_path_len is an attempted solution. If the fixed
+/// size buffer is too small, and the provided allocator is null, ::error.NameTooLong is returned.
+/// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
+pub fn windowsOpen(file_path: []const u8, desired_access: windows.DWORD, share_mode: windows.DWORD,
+    creation_disposition: windows.DWORD, flags_and_attrs: windows.DWORD, allocator: ?&Allocator) -> %windows.HANDLE
+{
+    var stack_buf: [max_noalloc_path_len]u8 = undefined;
+    var path0: []u8 = undefined;
+    var need_free = false;
+    defer if (need_free) (??allocator).free(path0);
+
+    if (file_path.len < stack_buf.len) {
+        path0 = stack_buf[0..file_path.len + 1];
+    } else if (allocator) |a| {
+        path0 = %return a.alloc(u8, file_path.len + 1);
+        need_free = true;
+    } else {
+        return error.NameTooLong;
+    }
+    mem.copy(u8, path0, file_path);
+    path0[file_path.len] = 0;
+
+    const result = windows.CreateFileA(path0.ptr, desired_access, share_mode, null, creation_disposition,
+        flags_and_attrs, null);
+
+    if (result == windows.INVALID_HANDLE_VALUE) {
+        const err = windows.GetLastError();
+        return switch (err) {
+            windows.ERROR.SHARING_VIOLATION => error.SharingViolation,
+            windows.ERROR.ALREADY_EXISTS, windows.ERROR.FILE_EXISTS => error.PathAlreadyExists,
+            windows.ERROR.FILE_NOT_FOUND => error.FileNotFound,
+            windows.ERROR.ACCESS_DENIED => error.AccessDenied,
+            windows.ERROR.PIPE_BUSY => error.PipeBusy,
+            else => error.Unexpected,
+        };
+    }
+
+    return result;
 }
 
 pub fn posixDup2(old_fd: i32, new_fd: i32) -> %void {
