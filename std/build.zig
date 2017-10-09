@@ -309,7 +309,7 @@ pub const Builder = struct {
 
     fn processNixOSEnvVars(self: &Builder) {
         if (os.getEnv("NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {
-            var it = mem.split(nix_cflags_compile, ' ');
+            var it = mem.split(nix_cflags_compile, " ");
             while (true) {
                 const word = it.next() ?? break;
                 if (mem.eql(u8, word, "-isystem")) {
@@ -325,7 +325,7 @@ pub const Builder = struct {
             }
         }
         if (os.getEnv("NIX_LDFLAGS")) |nix_ldflags| {
-            var it = mem.split(nix_ldflags, ' ');
+            var it = mem.split(nix_ldflags, " ");
             while (true) {
                 const word = it.next() ?? break;
                 if (mem.eql(u8, word, "-rpath")) {

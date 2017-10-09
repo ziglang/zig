@@ -384,7 +384,7 @@ pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap,
     // +1 for the null terminating byte
     const path_buf = %return allocator.alloc(u8, PATH.len + exe_path.len + 2);
     defer allocator.free(path_buf);
-    var it = mem.split(PATH, ':');
+    var it = mem.split(PATH, ":");
     var seen_eacces = false;
     var err: usize = undefined;
     while (it.next()) |search_path| {
@@ -474,18 +474,41 @@ pub const args = struct {
 
 /// Caller must free the returned memory.
 pub fn getCwd(allocator: &Allocator) -> %[]u8 {
-    var buf = %return allocator.alloc(u8, 1024);
-    %defer allocator.free(buf);
-    while (true) {
-        const err = posix.getErrno(posix.getcwd(buf.ptr, buf.len));
-        if (err == posix.ERANGE) {
-            buf = %return allocator.realloc(u8, buf, buf.len * 2);
-            continue;
-        } else if (err > 0) {
-            return error.Unexpected;
-        }
+    switch (builtin.os) {
+        Os.windows => {
+            var buf = %return allocator.alloc(u8, 256);
+            %defer allocator.free(buf);
 
-        return cstr.toSlice(buf.ptr);
+            while (true) {
+                const result = windows.GetCurrentDirectoryA(windows.WORD(buf.len), buf.ptr);
+
+                if (result == 0) {
+                    return error.Unexpected;
+                }
+
+                if (result > buf.len) {
+                    buf = %return allocator.realloc(u8, buf, result);
+                    continue;
+                }
+
+                return buf[0..result];
+            }
+        },
+        else => {
+            var buf = %return allocator.alloc(u8, 1024);
+            %defer allocator.free(buf);
+            while (true) {
+                const err = posix.getErrno(posix.getcwd(buf.ptr, buf.len));
+                if (err == posix.ERANGE) {
+                    buf = %return allocator.realloc(u8, buf, buf.len * 2);
+                    continue;
+                } else if (err > 0) {
+                    return error.Unexpected;
+                }
+
+                return cstr.toSlice(buf.ptr);
+            }
+        },
     }
 }
 
@@ -1032,4 +1055,17 @@ pub fn posix_setregid(rgid: u32, egid: u32) -> %void {
         posix.EPERM => error.PermissionDenied,
         else => error.Unexpected,
     };
+}
+
+test "std.os" {
+    _ = @import("child_process.zig");
+    _ = @import("darwin_errno.zig");
+    _ = @import("darwin.zig");
+    _ = @import("get_user_id.zig");
+    _ = @import("linux_errno.zig");
+    //_ = @import("linux_i386.zig");
+    _ = @import("linux_x86_64.zig");
+    _ = @import("linux.zig");
+    _ = @import("path.zig");
+    _ = @import("windows/index.zig");
 }

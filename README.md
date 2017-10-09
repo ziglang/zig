@@ -43,13 +43,49 @@ clarity.
  * Cross-compiling is a primary use case.
  * In addition to creating executables, creating a C library is a primary use
    case. You can export an auto-generated .h file.
- * Standard library supports Operating System abstractions for:
-   * `x86_64` `linux`
-   * `x86_64` `macos`
-   * Support for all popular operating systems and architectures is planned.
  * For OS development, Zig supports all architectures that LLVM does. All the
    standard library that does not depend on an OS is available to you in
    freestanding mode.
+
+### Support Table
+
+Freestanding means that you do not directly interact with the OS
+or you are writing your own OS.
+
+Note that if you use libc or other libraries to interact with the OS,
+that counts as "freestanding" for the purposes of this table.
+
+|             | freestanding | linux   | macosx  | windows | other   |
+|-------------|--------------|---------|---------|---------|---------|
+|i386         | OK           | planned | OK      | OK      | planned |
+|x86_64       | OK           | OK      | OK      | OK      | planned |
+|arm          | OK           | planned | planned | N/A     | planned |
+|aarch64      | OK           | planned | planned | planned | planned |
+|avr          | OK           | planned | planned | N/A     | planned |
+|bpf          | OK           | planned | planned | N/A     | planned |
+|hexagon      | OK           | planned | planned | N/A     | planned |
+|mips         | OK           | planned | planned | N/A     | planned |
+|msp430       | OK           | planned | planned | N/A     | planned |
+|nios2        | OK           | planned | planned | N/A     | planned |
+|powerpc      | OK           | planned | planned | N/A     | planned |
+|r600         | OK           | planned | planned | N/A     | planned |
+|amdgcn       | OK           | planned | planned | N/A     | planned |
+|riscv        | OK           | planned | planned | N/A     | planned |
+|sparc        | OK           | planned | planned | N/A     | planned |
+|s390x        | OK           | planned | planned | N/A     | planned |
+|tce          | OK           | planned | planned | N/A     | planned |
+|thumb        | OK           | planned | planned | N/A     | planned |
+|xcore        | OK           | planned | planned | N/A     | planned |
+|nvptx        | OK           | planned | planned | N/A     | planned |
+|le           | OK           | planned | planned | N/A     | planned |
+|amdil        | OK           | planned | planned | N/A     | planned |
+|hsail        | OK           | planned | planned | N/A     | planned |
+|spir         | OK           | planned | planned | N/A     | planned |
+|kalimba      | OK           | planned | planned | N/A     | planned |
+|shave        | OK           | planned | planned | N/A     | planned |
+|lanai        | OK           | planned | planned | N/A     | planned |
+|wasm         | OK           | N/A     | N/A     | N/A     | N/A     |
+|renderscript | OK           | N/A     | N/A     | N/A     | N/A     |
 
 ## Community
 
