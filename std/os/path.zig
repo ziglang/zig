@@ -1006,7 +1006,7 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
                     else => error.Unexpected,
                 };
             }
-            return allocator.realloc(u8, result_buf, cstr.len(result_buf.ptr));
+            return allocator.shrink(u8, result_buf, cstr.len(result_buf.ptr));
         },
         Os.linux => {
             const fd = %return os.posixOpen(pathname, posix.O_PATH|posix.O_NONBLOCK|posix.O_CLOEXEC, 0, allocator);
