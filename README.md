@@ -189,6 +189,10 @@ make install
 ./zig build --build-file ../build.zig test
 ```
 
+#### Windows
+
+See https://github.com/zig-lang/zig/wiki/Building-Zig-on-Windows
+
 ### Release / Install Build
 
 Once installed, `ZIG_LIBC_LIB_DIR` and `ZIG_LIBC_INCLUDE_DIR` can be overridden

@@ -706,6 +706,10 @@ void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module) {
     unwrap(module)->addModuleFlag(Module::Warning, "Debug Info Version", DEBUG_METADATA_VERSION);
 }
 
+void ZigLLVMAddModuleCodeViewFlag(LLVMModuleRef module) {
+    unwrap(module)->addModuleFlag(Module::Warning, "CodeView", 1);
+}
+
 static AtomicOrdering mapFromLLVMOrdering(LLVMAtomicOrdering Ordering) {
     switch (Ordering) {
         case LLVMAtomicOrderingNotAtomic: return AtomicOrdering::NotAtomic;

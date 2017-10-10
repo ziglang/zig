@@ -4992,7 +4992,11 @@ static void init(CodeGen *g) {
 
     LLVMSetTarget(g->module, buf_ptr(&g->triple_str));
 
-    ZigLLVMAddModuleDebugInfoFlag(g->module);
+    if (g->zig_target.oformat == ZigLLVM_COFF) {
+        ZigLLVMAddModuleCodeViewFlag(g->module);
+    } else {
+        ZigLLVMAddModuleDebugInfoFlag(g->module);
+    }
 
     LLVMTargetRef target_ref;
     char *err_msg = nullptr;

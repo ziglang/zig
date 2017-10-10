@@ -112,6 +112,7 @@ unsigned ZigLLVMTag_DW_structure_type(void);
 
 ZigLLVMDIBuilder *ZigLLVMCreateDIBuilder(LLVMModuleRef module, bool allow_unresolved);
 void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module);
+void ZigLLVMAddModuleCodeViewFlag(LLVMModuleRef module);
 
 void ZigLLVMSetCurrentDebugLocation(LLVMBuilderRef builder, int line, int column, ZigLLVMDIScope *scope);
 void ZigLLVMClearCurrentDebugLocation(LLVMBuilderRef builder);
