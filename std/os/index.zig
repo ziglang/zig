@@ -109,7 +109,10 @@ pub coldcc fn abort() -> noreturn {
             while (true) {}
         },
         Os.windows => {
-            windows.ExitProcess(1);
+            if (builtin.mode == builtin.Mode.Debug) {
+                @breakpoint();
+            }
+            windows.ExitProcess(3);
         },
         else => @compileError("Unsupported OS"),
     }
