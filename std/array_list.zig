@@ -14,6 +14,7 @@ pub fn ArrayList(comptime T: type) -> type{
         len: usize,
         allocator: &Allocator,
 
+        /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn init(allocator: &Allocator) -> Self {
             Self {
                 .items = []T{},
@@ -32,6 +33,25 @@ pub fn ArrayList(comptime T: type) -> type{
 
         pub fn toSliceConst(l: &const Self) -> []const T {
             return l.items[0..l.len];
+        }
+
+        /// ArrayList takes ownership of the passed in slice. The slice must have been
+        /// allocated with `allocator`.
+        /// Deinitialize with `deinit` or use `toOwnedSlice`.
+        pub fn fromOwnedSlice(allocator: &Allocator, slice: []T) -> Self {
+            return Self {
+                .items = slice,
+                .len = slice.len,
+                .allocator = allocator,
+            };
+        }
+
+        /// The caller owns the returned memory. ArrayList becomes empty.
+        pub fn toOwnedSlice(self: &Self) -> []T {
+            const allocator = self.allocator;
+            const result = allocator.shrink(T, self.items, self.len);
+            *self = init(allocator);
+            return result;
         }
 
         pub fn append(l: &Self, item: &const T) -> %void {

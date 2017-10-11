@@ -10,43 +10,30 @@ const ArrayList = std.ArrayList;
 error InvalidArgs;
 
 pub fn main() -> %void {
-    var arg_i: usize = 1;
-
-    const zig_exe = {
-        if (arg_i >= os.args.count()) {
-            %%io.stderr.printf("Expected first argument to be path to zig compiler\n");
-            return error.InvalidArgs;
-        }
-        const result = os.args.at(arg_i);
-        arg_i += 1;
-        result
-    };
-
-    const build_root = {
-        if (arg_i >= os.args.count()) {
-            %%io.stderr.printf("Expected second argument to be build root directory path\n");
-            return error.InvalidArgs;
-        }
-        const result = os.args.at(arg_i);
-        arg_i += 1;
-        result
-    };
-
-    const cache_root = {
-        if (arg_i >= os.args.count()) {
-            %%io.stderr.printf("Expected third argument to be cache root directory path\n");
-            return error.InvalidArgs;
-        }
-        const result = os.args.at(arg_i);
-        arg_i += 1;
-        result
-    };
+    var arg_it = os.args();
 
     // TODO use a more general purpose allocator here
     var inc_allocator = %%mem.IncrementingAllocator.init(20 * 1024 * 1024);
     defer inc_allocator.deinit();
 
     const allocator = &inc_allocator.allocator;
+
+
+    // skip my own exe name
+    _ = arg_it.skip();
+
+    const zig_exe = %return unwrapArg(arg_it.next(allocator) ?? {
+        %%io.stderr.printf("Expected first argument to be path to zig compiler\n");
+        return error.InvalidArgs;
+    });
+    const build_root = %return unwrapArg(arg_it.next(allocator) ?? {
+        %%io.stderr.printf("Expected second argument to be build root directory path\n");
+        return error.InvalidArgs;
+    });
+    const cache_root = %return unwrapArg(arg_it.next(allocator) ?? {
+        %%io.stderr.printf("Expected third argument to be cache root directory path\n");
+        return error.InvalidArgs;
+    });
 
     var builder = Builder.init(allocator, zig_exe, build_root, cache_root);
     defer builder.deinit();
@@ -55,8 +42,8 @@ pub fn main() -> %void {
 
     var prefix: ?[]const u8 = null;
 
-    while (arg_i < os.args.count()) : (arg_i += 1) {
-        const arg = os.args.at(arg_i);
+    while (arg_it.next(allocator)) |err_or_arg| {
+        const arg = %return unwrapArg(err_or_arg);
         if (mem.startsWith(u8, arg, "-D")) {
             const option_contents = arg[2..];
             if (option_contents.len == 0) {
@@ -76,10 +63,12 @@ pub fn main() -> %void {
             if (mem.eql(u8, arg, "--verbose")) {
                 builder.verbose = true;
             } else if (mem.eql(u8, arg, "--help")) {
-                 return usage(&builder, false, &io.stdout);
-            } else if (mem.eql(u8, arg, "--prefix") and arg_i + 1 < os.args.count()) {
-                 arg_i += 1;
-                 prefix = os.args.at(arg_i);
+                return usage(&builder, false, &io.stdout);
+            } else if (mem.eql(u8, arg, "--prefix")) {
+                prefix = %return unwrapArg(arg_it.next(allocator) ?? {
+                    %%io.stderr.printf("Expected argument after --prefix\n\n");
+                    return usage(&builder, false, &io.stderr);
+                });
             } else {
                 %%io.stderr.printf("Unrecognized argument: {}\n\n", arg);
                 return usage(&builder, false, &io.stderr);
@@ -150,4 +139,11 @@ fn usage(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) 
 
     if (out_stream == &io.stderr)
         return error.InvalidArgs;
+}
+
+fn unwrapArg(arg: %[]u8) -> %[]u8 {
+    return arg %% |err| {
+        %%io.stderr.printf("Unable to parse command line: {}\n", err);
+        return err;
+    };
 }

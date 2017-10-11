@@ -17,7 +17,7 @@ pub extern "kernel32" stdcallcc fn DeleteFileA(lpFileName: LPCSTR) -> bool;
 
 pub extern "kernel32" stdcallcc fn ExitProcess(exit_code: UINT) -> noreturn;
 
-pub extern "kernel32" stdcallcc fn GetCommandLine() -> LPTSTR;
+pub extern "kernel32" stdcallcc fn GetCommandLineA() -> LPSTR;
 
 pub extern "kernel32" stdcallcc fn GetConsoleMode(in_hConsoleHandle: HANDLE, out_lpMode: &DWORD) -> bool;
 

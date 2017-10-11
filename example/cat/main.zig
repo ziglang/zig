@@ -4,11 +4,12 @@ const mem = std.mem;
 const os = std.os;
 
 pub fn main() -> %void {
-    const exe = os.args.at(0);
+    const allocator = &std.debug.global_allocator;
+    var args_it = os.args();
+    const exe = %return unwrapArg(??args_it.next(allocator));
     var catted_anything = false;
-    var arg_i: usize = 1;
-    while (arg_i < os.args.count()) : (arg_i += 1) {
-        const arg = os.args.at(arg_i);
+    while (args_it.next(allocator)) |arg_or_err| {
+        const arg = %return unwrapArg(arg_or_err);
         if (mem.eql(u8, arg, "-")) {
             catted_anything = true;
             %return cat_stream(&io.stdin);
@@ -54,4 +55,11 @@ fn cat_stream(is: &io.InStream) -> %void {
             return err;
         };
     }
+}
+
+fn unwrapArg(arg: %[]u8) -> %[]u8 {
+    return arg %% |err| {
+        %%io.stderr.printf("Unable to parse command line: {}\n", err);
+        return err;
+    };
 }

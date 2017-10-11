@@ -346,7 +346,8 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    %%io.stdout.printf("before\n");
         \\    defer %%io.stdout.printf("defer1\n");
         \\    defer %%io.stdout.printf("defer2\n");
-        \\    if (os.args.count() == 1) return;
+        \\    var args_it = @import("std").os.args();
+        \\    if (args_it.skip() and !args_it.skip()) return;
         \\    defer %%io.stdout.printf("defer3\n");
         \\    %%io.stdout.printf("after\n");
         \\}

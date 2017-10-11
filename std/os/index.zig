@@ -1,5 +1,7 @@
 const builtin = @import("builtin");
 const Os = builtin.Os;
+const is_windows = builtin.os == Os.windows;
+
 pub const windows = @import("windows/index.zig");
 pub const darwin = @import("darwin.zig");
 pub const linux = @import("linux.zig");
@@ -37,6 +39,7 @@ const cstr = @import("../cstr.zig");
 const io = @import("../io.zig");
 const base64 = @import("../base64.zig");
 const ArrayList = @import("../array_list.zig").ArrayList;
+const Buffer = @import("../buffer.zig").Buffer;
 
 error Unexpected;
 error SystemResources;
@@ -512,18 +515,6 @@ pub fn getEnv(key: []const u8) -> ?[]const u8 {
     }
     return null;
 }
-
-pub const args = struct {
-    pub var raw: []&u8 = undefined;
-
-    pub fn count() -> usize {
-        return raw.len;
-    }
-    pub fn at(i: usize) -> []const u8 {
-        const s = raw[i];
-        return cstr.toSlice(s);
-    }
-};
 
 /// Caller must free the returned memory.
 pub fn getCwd(allocator: &Allocator) -> %[]u8 {
@@ -1142,6 +1133,233 @@ pub fn posix_setregid(rgid: u32, egid: u32) -> %void {
         posix.EPERM => error.PermissionDenied,
         else => error.Unexpected,
     };
+}
+
+pub const ArgIteratorPosix = struct {
+    index: usize,
+    count: usize,
+
+    pub fn init() -> ArgIteratorPosix {
+        return ArgIteratorPosix {
+            .index = 0,
+            .count = raw.len,
+        };
+    }
+
+    pub fn next(self: &ArgIteratorPosix) -> ?[]const u8 {
+        if (self.index == self.count)
+            return null;
+
+        const s = raw[self.index];
+        self.index += 1;
+        return cstr.toSlice(s);
+    }
+
+    pub fn skip(self: &ArgIteratorPosix) -> bool {
+        if (self.index == self.count)
+            return false;
+
+        self.index += 1;
+        return true;
+    }
+
+    /// This is marked as public but actually it's only meant to be used
+    /// internally by zig's startup code.
+    pub var raw: []&u8 = undefined;
+};
+
+pub const ArgIteratorWindows = struct {
+    index: usize,
+    cmd_line: &const u8,
+    backslash_count: usize,
+    in_quote: bool,
+    quote_count: usize,
+    seen_quote_count: usize,
+
+    pub fn init() -> ArgIteratorWindows {
+        return initWithCmdLine(windows.GetCommandLineA());
+    }
+
+    pub fn initWithCmdLine(cmd_line: &const u8) -> ArgIteratorWindows {
+        return ArgIteratorWindows {
+            .index = 0,
+            .cmd_line = cmd_line,
+            .backslash_count = 0,
+            .in_quote = false,
+            .quote_count = countQuotes(cmd_line),
+            .seen_quote_count = 0,
+        };
+    }
+
+    /// You must free the returned memory when done.
+    pub fn next(self: &ArgIteratorWindows, allocator: &Allocator) -> ?%[]u8 {
+        // march forward over whitespace
+        while (true) : (self.index += 1) {
+            const byte = self.cmd_line[self.index];
+            switch (byte) {
+                0 => return null,
+                ' ', '\t' => continue,
+                else => break,
+            }
+        }
+
+        return self.internalNext(allocator);
+    }
+
+    pub fn skip(self: &ArgIteratorWindows) -> bool {
+        // march forward over whitespace
+        while (true) : (self.index += 1) {
+            const byte = self.cmd_line[self.index];
+            switch (byte) {
+                0 => return false,
+                ' ', '\t' => continue,
+                else => break,
+            }
+        }
+
+        while (true) : (self.index += 1) {
+            const byte = self.cmd_line[self.index];
+            switch (byte) {
+                0 => return true,
+                '"' => {
+                    const quote_is_real = self.backslash_count % 2 == 0;
+                    if (quote_is_real) {
+                        self.seen_quote_count += 1;
+                    }
+                },
+                '\\' => {
+                    self.backslash_count += 1;
+                },
+                ' ', '\t' => {
+                    if (self.seen_quote_count % 2 == 0 or self.seen_quote_count == self.quote_count) {
+                        return true;
+                    }
+                },
+                else => continue,
+            }
+        }
+    }
+
+    fn internalNext(self: &ArgIteratorWindows, allocator: &Allocator) -> %[]u8 {
+        var buf = %return Buffer.initSize(allocator, 0);
+        defer buf.deinit();
+
+        while (true) : (self.index += 1) {
+            const byte = self.cmd_line[self.index];
+            switch (byte) {
+                0 => return buf.toOwnedSlice(),
+                '"' => {
+                    const quote_is_real = self.backslash_count % 2 == 0;
+                    %return self.emitBackslashes(&buf, self.backslash_count / 2);
+
+                    if (quote_is_real) {
+                        self.seen_quote_count += 1;
+                        if (self.seen_quote_count == self.quote_count and self.seen_quote_count % 2 == 1) {
+                            %return buf.appendByte('"');
+                        }
+                    } else {
+                        %return buf.appendByte('"');
+                    }
+                },
+                '\\' => {
+                    self.backslash_count += 1;
+                },
+                ' ', '\t' => {
+                    %return self.emitBackslashes(&buf, self.backslash_count);
+                    if (self.seen_quote_count % 2 == 1 and self.seen_quote_count != self.quote_count) {
+                        %return buf.appendByte(byte);
+                    } else {
+                        return buf.toOwnedSlice();
+                    }
+                },
+                else => {
+                    %return self.emitBackslashes(&buf, self.backslash_count);
+                    %return buf.appendByte(byte);
+                },
+            }
+        }
+    }
+
+    fn emitBackslashes(self: &ArgIteratorWindows, buf: &Buffer, emit_count: usize) -> %void {
+        self.backslash_count = 0;
+        var i: usize = 0;
+        while (i < emit_count) : (i += 1) {
+            %return buf.appendByte('\\');
+        }
+    }
+
+    fn countQuotes(cmd_line: &const u8) -> usize {
+        var result: usize = 0;
+        var backslash_count: usize = 0;
+        var index: usize = 0;
+        while (true) : (index += 1) {
+            const byte = cmd_line[index];
+            switch (byte) {
+                0 => return result,
+                '\\' => backslash_count += 1,
+                '"' => {
+                    result += 1 - (backslash_count % 2);
+                    backslash_count = 0;
+                },
+                else => {
+                    backslash_count = 0;
+                },
+            }
+        }
+    }
+
+};
+
+pub const ArgIterator = struct {
+    inner: if (builtin.os == Os.windows) ArgIteratorWindows else ArgIteratorPosix,
+
+    pub fn init() -> ArgIterator {
+        return ArgIterator {
+            .inner = if (builtin.os == Os.windows) ArgIteratorWindows.init() else ArgIteratorPosix.init(),
+        };
+    }
+    
+    /// You must free the returned memory when done.
+    pub fn next(self: &ArgIterator, allocator: &Allocator) -> ?%[]u8 {
+        if (builtin.os == Os.windows) {
+            return self.inner.next(allocator);
+        } else {
+            return mem.dupe(allocator, u8, self.inner.next() ?? return null);
+        }
+    }
+
+    /// If you only are targeting posix you can call this and not need an allocator.
+    pub fn nextPosix(self: &ArgIterator) -> ?[]const u8 {
+        return self.inner.next();
+    }
+
+    /// Parse past 1 argument without capturing it.
+    /// Returns `true` if skipped an arg, `false` if we are at the end.
+    pub fn skip(self: &ArgIterator) -> bool {
+        return self.inner.skip();
+    }
+};
+
+pub fn args() -> ArgIterator {
+    return ArgIterator.init();
+}
+
+test "windows arg parsing" {
+    testWindowsCmdLine(c"a   b\tc d", [][]const u8{"a", "b", "c", "d"});
+    testWindowsCmdLine(c"\"abc\" d e", [][]const u8{"abc", "d", "e"});
+    testWindowsCmdLine(c"a\\\\\\b d\"e f\"g h", [][]const u8{"a\\\\\\b", "de fg", "h"});
+    testWindowsCmdLine(c"a\\\\\\\"b c d", [][]const u8{"a\\\"b", "c", "d"});
+    testWindowsCmdLine(c"a\\\\\\\\\"b c\" d e", [][]const u8{"a\\\\b c", "d", "e"});
+    testWindowsCmdLine(c"a   b\tc \"d f", [][]const u8{"a", "b", "c", "\"d", "f"});
+}
+
+fn testWindowsCmdLine(input_cmd_line: &const u8, expected_args: []const []const u8) {
+    var it = ArgIteratorWindows.initWithCmdLine(input_cmd_line);
+    for (expected_args) |expected_arg| {
+        const arg = %%??it.next(&debug.global_allocator);
+        assert(mem.eql(u8, arg, expected_arg));
+    }
+    assert(it.next(&debug.global_allocator) == null);
 }
 
 test "std.os" {

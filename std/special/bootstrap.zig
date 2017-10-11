@@ -52,7 +52,7 @@ fn posixCallMainAndExit() -> noreturn {
 }
 
 fn callMain(argc: usize, argv: &&u8, envp: &?&u8) -> %void {
-    std.os.args.raw = argv[0..argc];
+    std.os.ArgIteratorPosix.raw = argv[0..argc];
 
     var env_count: usize = 0;
     while (envp[env_count] != null) : (env_count += 1) {}

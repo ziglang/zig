@@ -38,6 +38,27 @@ pub const Buffer = struct {
         return Buffer.init(buffer.list.allocator, buffer.toSliceConst());
     }
 
+    /// Buffer takes ownership of the passed in slice. The slice must have been
+    /// allocated with `allocator`.
+    /// Must deinitialize with deinit.
+    pub fn fromOwnedSlice(allocator: &Allocator, slice: []u8) -> Buffer {
+        var self = Buffer {
+            .list = ArrayList(u8).fromOwnedSlice(allocator, slice),
+        };
+        self.list.append(0);
+        return self;
+    }
+
+    /// The caller owns the returned memory. The Buffer becomes null and
+    /// is safe to `deinit`.
+    pub fn toOwnedSlice(self: &Buffer) -> []u8 {
+        const allocator = self.list.allocator;
+        const result = allocator.shrink(u8, self.list.items, self.len());
+        *self = initNull(allocator);
+        return result;
+    }
+
+
     pub fn deinit(self: &Buffer) {
         self.list.deinit();
     }
