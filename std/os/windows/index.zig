@@ -1,17 +1,18 @@
 pub const ERROR = @import("error.zig");
 
+pub extern "advapi32" stdcallcc fn CryptAcquireContextA(phProv: &HCRYPTPROV, pszContainer: ?LPCSTR,
+    pszProvider: ?LPCSTR, dwProvType: DWORD, dwFlags: DWORD) -> bool;
+
+pub extern "advapi32" stdcallcc fn CryptReleaseContext(hProv: HCRYPTPROV, dwFlags: DWORD) -> bool;
+
+pub extern "advapi32" stdcallcc fn CryptGenRandom(hProv: HCRYPTPROV, dwLen: DWORD, pbBuffer: &BYTE) -> bool;
+
+
 pub extern "kernel32" stdcallcc fn CloseHandle(hObject: HANDLE) -> BOOL;
 
 pub extern "kernel32" stdcallcc fn CreateFileA(lpFileName: LPCSTR, dwDesiredAccess: DWORD,
     dwShareMode: DWORD, lpSecurityAttributes: ?LPSECURITY_ATTRIBUTES, dwCreationDisposition: DWORD,
         dwFlagsAndAttributes: DWORD, hTemplateFile: ?HANDLE) -> HANDLE;
-
-pub extern "kernel32" stdcallcc fn CryptAcquireContext(phProv: &HCRYPTPROV, pszContainer: LPCTSTR,
-    pszProvider: LPCTSTR, dwProvType: DWORD, dwFlags: DWORD) -> bool;
-
-pub extern "kernel32" stdcallcc fn CryptReleaseContext(hProv: HCRYPTPROV, dwFlags: DWORD) -> bool;
-
-pub extern "kernel32" stdcallcc fn CryptGenRandom(hProv: HCRYPTPROV, dwLen: DWORD, pbBuffer: &BYTE) -> bool;
 
 pub extern "kernel32" stdcallcc fn DeleteFileA(lpFileName: LPCSTR) -> bool;
 

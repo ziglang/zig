@@ -85,7 +85,7 @@ pub fn getRandomBytes(buf: []u8) -> %void {
         },
         Os.windows => {
             var hCryptProv: windows.HCRYPTPROV = undefined;
-            if (!windows.CryptAcquireContext(&hCryptProv, null, null, windows.PROV_RSA_FULL, 0)) {
+            if (!windows.CryptAcquireContextA(&hCryptProv, null, null, windows.PROV_RSA_FULL, 0)) {
                 return error.Unexpected;
             }
             defer _ = windows.CryptReleaseContext(hCryptProv, 0);
@@ -96,6 +96,11 @@ pub fn getRandomBytes(buf: []u8) -> %void {
         },
         else => @compileError("Unsupported OS"),
     }
+}
+
+test "os.getRandomBytes" {
+    var buf: [50]u8 = undefined;
+    %%getRandomBytes(buf[0..]);
 }
 
 /// Raises a signal in the current kernel thread, ending its execution.
