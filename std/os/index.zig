@@ -382,6 +382,37 @@ pub fn posixDup2(old_fd: i32, new_fd: i32) -> %void {
     }
 }
 
+pub fn createNullDelimitedEnvMap(allocator: &Allocator, env_map: &const BufMap) -> %[]?&u8 {
+    const envp_count = env_map.count();
+    const envp_buf = %return allocator.alloc(?&u8, envp_count + 1);
+    mem.set(?&u8, envp_buf, null);
+    %defer freeNullDelimitedEnvMap(allocator, envp_buf);
+    {
+        var it = env_map.iterator();
+        var i: usize = 0;
+        while (it.next()) |pair| : (i += 1) {
+            const env_buf = %return allocator.alloc(u8, pair.key.len + pair.value.len + 2);
+            @memcpy(&env_buf[0], pair.key.ptr, pair.key.len);
+            env_buf[pair.key.len] = '=';
+            @memcpy(&env_buf[pair.key.len + 1], pair.value.ptr, pair.value.len);
+            env_buf[env_buf.len - 1] = 0;
+
+            envp_buf[i] = env_buf.ptr;
+        }
+        assert(i == envp_count);
+    }
+    assert(envp_buf[envp_count] == null);
+    return envp_buf;
+}
+
+pub fn freeNullDelimitedEnvMap(allocator: &Allocator, envp_buf: []?&u8) {
+    for (envp_buf) |env| {
+        const env_buf = if (env) |ptr| cstr.toSlice(ptr) else break;
+        allocator.free(env_buf);
+    }
+    allocator.free(envp_buf);
+}
+
 /// This function must allocate memory to add a null terminating bytes on path and each arg.
 /// It must also convert to KEY=VALUE\0 format for environment variables, and include null
 /// pointers after the args and after the environment variables.
@@ -408,31 +439,8 @@ pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap,
     }
     argv_buf[argv.len] = null;
 
-    const envp_count = env_map.count();
-    const envp_buf = %return allocator.alloc(?&u8, envp_count + 1);
-    mem.set(?&u8, envp_buf, null);
-    defer {
-        for (envp_buf) |env| {
-            const env_buf = if (env) |ptr| cstr.toSlice(ptr) else break;
-            allocator.free(env_buf);
-        }
-        allocator.free(envp_buf);
-    }
-    {
-        var it = env_map.iterator();
-        var i: usize = 0;
-        while (it.next()) |pair| : (i += 1) {
-            const env_buf = %return allocator.alloc(u8, pair.key.len + pair.value.len + 2);
-            @memcpy(&env_buf[0], pair.key.ptr, pair.key.len);
-            env_buf[pair.key.len] = '=';
-            @memcpy(&env_buf[pair.key.len + 1], pair.value.ptr, pair.value.len);
-            env_buf[env_buf.len - 1] = 0;
-
-            envp_buf[i] = env_buf.ptr;
-        }
-        assert(i == envp_count);
-    }
-    envp_buf[envp_count] = null;
+    const envp_buf = %return createNullDelimitedEnvMap(allocator, env_map);
+    defer freeNullDelimitedEnvMap(allocator, envp_buf);
 
     const exe_path = argv[0];
     if (mem.indexOfScalar(u8, exe_path, '/') != null) {
@@ -1365,6 +1373,22 @@ fn testWindowsCmdLine(input_cmd_line: &const u8, expected_args: []const []const 
         assert(mem.eql(u8, arg, expected_arg));
     }
     assert(it.next(&debug.global_allocator) == null);
+}
+
+error WaitAbandoned;
+error WaitTimeOut;
+
+pub fn windowsWaitSingle(handle: windows.HANDLE, milliseconds: windows.DWORD) -> %void {
+    const result = windows.WaitForSingleObject(handle, milliseconds);
+    return switch (result) {
+        windows.WAIT_ABANDONED => error.WaitAbandoned,
+        windows.WAIT_OBJECT_0 => {},
+        windows.WAIT_TIMEOUT => error.WaitTimeOut,
+        windows.WAIT_FAILED => switch (windows.GetLastError()) {
+            else => error.Unexpected,
+        },
+        else => error.Unexpected,
+    };
 }
 
 test "std.os" {

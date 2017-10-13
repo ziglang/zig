@@ -18,7 +18,7 @@ clarity.
    writing buggy code.
  * Debug mode optimizes for fast compilation time and crashing with a stack trace
    when undefined behavior *would* happen.
- * Release mode produces heavily optimized code. What other projects call
+ * ReleaseFast mode produces heavily optimized code. What other projects call
    "Link Time Optimization" Zig does automatically.
  * Compatible with C libraries with no wrapper necessary. Directly include
    C .h files and get access to the functions and symbols therein.
@@ -36,16 +36,13 @@ clarity.
    a preprocessor or macros.
  * The binaries produced by Zig have complete debugging information so you can,
    for example, use GDB to debug your software.
- * Mark functions as tests and automatically run them with `zig test`.
+ * Built-in unit tests with `zig test`.
  * Friendly toward package maintainers. Reproducible build, bootstrapping
    process carefully documented. Issues filed by package maintainers are
    considered especially important.
  * Cross-compiling is a primary use case.
  * In addition to creating executables, creating a C library is a primary use
    case. You can export an auto-generated .h file.
- * For OS development, Zig supports all architectures that LLVM does. All the
-   standard library that does not depend on an OS is available to you in
-   freestanding mode.
 
 ### Support Table
 

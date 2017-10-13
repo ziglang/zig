@@ -1,4 +1,5 @@
 const debug = @import("debug.zig");
+const mem = @import("mem.zig");
 const assert = debug.assert;
 
 pub fn len(ptr: &const u8) -> usize {
@@ -35,4 +36,14 @@ test "cstr fns" {
 fn testCStrFnsImpl() {
     assert(cmp(c"aoeu", c"aoez") == -1);
     assert(len(c"123456789") == 9);
+}
+
+/// Returns a mutable slice with exactly the same size which is guaranteed to
+/// have a null byte after it.
+/// Caller owns the returned memory.
+pub fn addNullByte(allocator: &mem.Allocator, slice: []const u8) -> %[]u8 {
+    const result = %return allocator.alloc(u8, slice.len + 1);
+    mem.copy(u8, result, slice);
+    result[slice.len] = 0;
+    return result[0..slice.len];
 }

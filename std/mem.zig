@@ -254,6 +254,21 @@ pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, 
     return null;
 }
 
+pub fn indexOfAny(comptime T: type, slice: []const T, values: []const T) -> ?usize {
+    return indexOfAnyPos(T, slice, 0, values);
+}
+
+pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, values: []const T) -> ?usize {
+    var i: usize = start_index;
+    while (i < slice.len) : (i += 1) {
+        for (values) |value| {
+            if (slice[i] == value)
+                return i;
+        }
+    }
+    return null;
+}
+
 pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) -> ?usize {
     return indexOfPos(T, haystack, 0, needle);
 }

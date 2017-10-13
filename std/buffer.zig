@@ -91,8 +91,17 @@ pub const Buffer = struct {
     }
 
     pub fn appendByte(self: &Buffer, byte: u8) -> %void {
-        %return self.resize(self.len() + 1);
-        self.list.items[self.len() - 1] = byte;
+        return self.appendByteNTimes(byte, 1);
+    }
+
+    pub fn appendByteNTimes(self: &Buffer, byte: u8, count: usize) -> %void {
+        var prev_size: usize = self.len();
+        %return self.resize(prev_size + count);
+
+        var i: usize = 0;
+        while (i < count) : (i += 1) {
+            self.list.items[prev_size + i] = byte;
+        }
     }
 
     pub fn eql(self: &const Buffer, m: []const u8) -> bool {
