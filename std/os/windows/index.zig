@@ -57,6 +57,9 @@ pub extern "kernel32" stdcallcc fn HeapAlloc(hHeap: HANDLE, dwFlags: DWORD, dwBy
 
 pub extern "kernel32" stdcallcc fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: LPVOID) -> BOOL;
 
+pub extern "kernel32" stdcallcc fn MoveFileExA(lpExistingFileName: LPCSTR, lpNewFileName: LPCSTR,
+    dwFlags: DWORD) -> BOOL;
+
 pub extern "kernel32" stdcallcc fn ReadFile(in_hFile: HANDLE, out_lpBuffer: LPVOID,
     in_nNumberOfBytesToRead: DWORD, out_lpNumberOfBytesRead: &DWORD,
     in_out_lpOverlapped: ?&OVERLAPPED) -> BOOL;
@@ -258,3 +261,10 @@ pub const WAIT_FAILED = 0xFFFFFFFF;
 
 pub const HANDLE_FLAG_INHERIT = 0x00000001;
 pub const HANDLE_FLAG_PROTECT_FROM_CLOSE = 0x00000002;
+
+pub const MOVEFILE_COPY_ALLOWED = 2;
+pub const MOVEFILE_CREATE_HARDLINK = 16;
+pub const MOVEFILE_DELAY_UNTIL_REBOOT = 4;
+pub const MOVEFILE_FAIL_IF_NOT_TRACKABLE = 32;
+pub const MOVEFILE_REPLACE_EXISTING = 1;
+pub const MOVEFILE_WRITE_THROUGH = 8;

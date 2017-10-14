@@ -674,26 +674,36 @@ pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8)
     mem.copy(u8, new_buf, new_path);
     new_buf[new_path.len] = 0;
 
-    const err = posix.getErrno(posix.rename(old_buf.ptr, new_buf.ptr));
-    if (err > 0) {
-        return switch (err) {
-            posix.EACCES, posix.EPERM => error.AccessDenied,
-            posix.EBUSY => error.FileBusy,
-            posix.EDQUOT => error.DiskQuota,
-            posix.EFAULT, posix.EINVAL => unreachable,
-            posix.EISDIR => error.IsDir,
-            posix.ELOOP => error.SymLinkLoop,
-            posix.EMLINK => error.LinkQuotaExceeded,
-            posix.ENAMETOOLONG => error.NameTooLong,
-            posix.ENOENT => error.FileNotFound,
-            posix.ENOTDIR => error.NotDir,
-            posix.ENOMEM => error.SystemResources,
-            posix.ENOSPC => error.NoSpaceLeft,
-            posix.EEXIST, posix.ENOTEMPTY => error.PathAlreadyExists,
-            posix.EROFS => error.ReadOnlyFileSystem,
-            posix.EXDEV => error.RenameAcrossMountPoints,
-            else => error.Unexpected,
-        };
+    if (is_windows) {
+        const flags = windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH;
+        if (!windows.MoveFileExA(old_buf.ptr, new_buf.ptr, flags)) {
+            const err = windows.GetLastError();
+            return switch (err) {
+                else => return error.Unexpected,
+            };
+        }
+    } else {
+        const err = posix.getErrno(posix.rename(old_buf.ptr, new_buf.ptr));
+        if (err > 0) {
+            return switch (err) {
+                posix.EACCES, posix.EPERM => error.AccessDenied,
+                posix.EBUSY => error.FileBusy,
+                posix.EDQUOT => error.DiskQuota,
+                posix.EFAULT, posix.EINVAL => unreachable,
+                posix.EISDIR => error.IsDir,
+                posix.ELOOP => error.SymLinkLoop,
+                posix.EMLINK => error.LinkQuotaExceeded,
+                posix.ENAMETOOLONG => error.NameTooLong,
+                posix.ENOENT => error.FileNotFound,
+                posix.ENOTDIR => error.NotDir,
+                posix.ENOMEM => error.SystemResources,
+                posix.ENOSPC => error.NoSpaceLeft,
+                posix.EEXIST, posix.ENOTEMPTY => error.PathAlreadyExists,
+                posix.EROFS => error.ReadOnlyFileSystem,
+                posix.EXDEV => error.RenameAcrossMountPoints,
+                else => error.Unexpected,
+            };
+        }
     }
 }
 
