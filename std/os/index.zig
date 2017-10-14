@@ -783,7 +783,7 @@ pub fn makeDirWindows(allocator: &Allocator, dir_path: []const u8) -> %void {
 }
 
 pub fn makeDirPosix(allocator: &Allocator, dir_path: []const u8) -> %void {
-    const path_buf = cstr.addNullByte(allocator, dir_path);
+    const path_buf = %return cstr.addNullByte(allocator, dir_path);
     defer allocator.free(path_buf);
 
     const err = posix.getErrno(posix.mkdir(path_buf.ptr, 0o755));
