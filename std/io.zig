@@ -70,11 +70,6 @@ error Unseekable;
 error EndOfFile;
 error NoStdHandles;
 
-pub const OpenRead     = 0b0001;
-pub const OpenWrite    = 0b0010;
-pub const OpenCreate   = 0b0100;
-pub const OpenTruncate = 0b1000;
-
 pub const OutStream = struct {
     fd: if (is_posix) i32 else void,
     handle_id: if (is_windows) system.DWORD else void,
