@@ -1,4 +1,5 @@
 const std = @import("../../index.zig");
+const os = std.os;
 const windows = std.os.windows;
 const assert = std.debug.assert;
 const mem = std.mem;
@@ -75,9 +76,9 @@ error PipeBusy;
 /// size buffer is too small, and the provided allocator is null, ::error.NameTooLong is returned.
 /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
 pub fn windowsOpen(file_path: []const u8, desired_access: windows.DWORD, share_mode: windows.DWORD,
-    creation_disposition: windows.DWORD, flags_and_attrs: windows.DWORD, allocator: ?&Allocator) -> %windows.HANDLE
+    creation_disposition: windows.DWORD, flags_and_attrs: windows.DWORD, allocator: ?&mem.Allocator) -> %windows.HANDLE
 {
-    var stack_buf: [max_noalloc_path_len]u8 = undefined;
+    var stack_buf: [os.max_noalloc_path_len]u8 = undefined;
     var path0: []u8 = undefined;
     var need_free = false;
     defer if (need_free) (??allocator).free(path0);
