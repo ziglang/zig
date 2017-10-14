@@ -100,7 +100,17 @@ pub const OutStream = struct {
                 .buffer = undefined,
             };
         } else if (is_windows) {
-            @compileError("TODO: windows OutStream.openMode");
+            const handle = %return os.windowsOpen(path, system.GENERIC_WRITE,
+                system.FILE_SHARE_WRITE|system.FILE_SHARE_READ|system.FILE_SHARE_DELETE,
+                system.CREATE_ALWAYS, system.FILE_ATTRIBUTE_NORMAL, allocator);
+            return OutStream {
+                .fd = {},
+                .handle = handle,
+                .handle_id = undefined,
+                .index = 0,
+                .buffer = undefined,
+            };
+
         } else {
             unreachable;
         }
