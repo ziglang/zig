@@ -322,7 +322,7 @@ pub fn createNullDelimitedEnvMap(allocator: &Allocator, env_map: &const BufMap) 
 
 pub fn freeNullDelimitedEnvMap(allocator: &Allocator, envp_buf: []?&u8) {
     for (envp_buf) |env| {
-        const env_buf = if (env) |ptr| cstr.toSlice(ptr) else break;
+        const env_buf = if (env) |ptr| ptr[0 .. cstr.len(ptr) + 1] else break;
         allocator.free(env_buf);
     }
     allocator.free(envp_buf);
@@ -490,6 +490,28 @@ test "os.getCwd" {
 }
 
 pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) -> %void {
+    if (is_windows) {
+        return symLinkWindows(allocator, existing_path, new_path);
+    } else {
+        return symLinkPosix(allocator, existing_path, new_path);
+    }
+}
+
+pub fn symLinkWindows(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) -> %void {
+    const existing_with_null = %return cstr.addNullByte(allocator, existing_path);
+    defer allocator.free(existing_with_null);
+    const new_with_null = %return cstr.addNullByte(allocator, new_path);
+    defer allocator.free(new_with_null);
+
+    if (windows.CreateSymbolicLinkA(existing_with_null.ptr, new_with_null.ptr, 0) == 0) {
+        const err = windows.GetLastError();
+        return switch (err) {
+            else => error.Unexpected,
+        };
+    }
+}
+
+pub fn symLinkPosix(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) -> %void {
     const full_buf = %return allocator.alloc(u8, existing_path.len + new_path.len + 2);
     defer allocator.free(full_buf);
 

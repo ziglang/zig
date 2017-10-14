@@ -25,6 +25,9 @@ pub extern "kernel32" stdcallcc fn CreateProcessA(lpApplicationName: ?LPCSTR, lp
     dwCreationFlags: DWORD, lpEnvironment: ?LPVOID, lpCurrentDirectory: ?LPCSTR, lpStartupInfo: &STARTUPINFOA,
     lpProcessInformation: &PROCESS_INFORMATION) -> BOOL;
 
+pub extern "kernel32" stdcallcc fn CreateSymbolicLinkA(lpSymlinkFileName: LPCSTR, lpTargetFileName: LPCSTR,
+    dwFlags: DWORD) -> BOOLEAN;
+
 pub extern "kernel32" stdcallcc fn DeleteFileA(lpFileName: LPCSTR) -> bool;
 
 pub extern "kernel32" stdcallcc fn ExitProcess(exit_code: UINT) -> noreturn;
@@ -74,34 +77,34 @@ pub extern "user32" stdcallcc fn MessageBoxA(hWnd: ?HANDLE, lpText: ?LPCTSTR, lp
 
 pub const PROV_RSA_FULL = 1;
 
-pub const UNICODE = false;
-pub const LPTSTR = if (UNICODE) LPWSTR else LPSTR;
-pub const LPWSTR = &WCHAR;
-pub const LPSTR = &CHAR;
-pub const CHAR = u8;
-pub const PWSTR = &WCHAR;
-pub const SIZE_T = usize;
-
 pub const BOOL = bool;
+pub const BOOLEAN = BYTE;
 pub const BYTE = u8;
-pub const WORD = u16;
+pub const CHAR = u8;
 pub const DWORD = u32;
 pub const FLOAT = f32;
 pub const HANDLE = &c_void;
-pub const HINSTANCE = &@OpaqueType();
 pub const HCRYPTPROV = ULONG_PTR;
-pub const LPCTSTR = &const TCHAR;
+pub const HINSTANCE = &@OpaqueType();
+pub const INT = c_int;
+pub const LPBYTE = &BYTE;
 pub const LPCSTR = &const CHAR;
+pub const LPCTSTR = &const TCHAR;
+pub const LPCVOID = &const c_void;
 pub const LPDWORD = &DWORD;
+pub const LPSTR = &CHAR;
+pub const LPTSTR = if (UNICODE) LPWSTR else LPSTR;
 pub const LPVOID = &c_void;
+pub const LPWSTR = &WCHAR;
 pub const PVOID = &c_void;
+pub const PWSTR = &WCHAR;
+pub const SIZE_T = usize;
 pub const TCHAR = if (UNICODE) WCHAR else u8;
 pub const UINT = c_uint;
-pub const INT = c_int;
 pub const ULONG_PTR = usize;
+pub const UNICODE = false;
 pub const WCHAR = u16;
-pub const LPCVOID = &const c_void;
-pub const LPBYTE = &BYTE;
+pub const WORD = u16;
 
 /// The standard input device. Initially, this is the console input buffer, CONIN$.
 pub const STD_INPUT_HANDLE = @maxValue(DWORD) - 10 + 1;

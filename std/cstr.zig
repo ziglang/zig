@@ -45,5 +45,5 @@ pub fn addNullByte(allocator: &mem.Allocator, slice: []const u8) -> %[]u8 {
     const result = %return allocator.alloc(u8, slice.len + 1);
     mem.copy(u8, result, slice);
     result[slice.len] = 0;
-    return result[0..slice.len];
+    return result;
 }
