@@ -10,6 +10,9 @@ pub extern "advapi32" stdcallcc fn CryptGenRandom(hProv: HCRYPTPROV, dwLen: DWOR
 
 pub extern "kernel32" stdcallcc fn CloseHandle(hObject: HANDLE) -> BOOL;
 
+pub extern "kernel32" stdcallcc fn CreateDirectoryA(lpPathName: LPCSTR,
+    lpSecurityAttributes: ?&SECURITY_ATTRIBUTES) -> BOOL;
+
 pub extern "kernel32" stdcallcc fn CreateFileA(lpFileName: LPCSTR, dwDesiredAccess: DWORD,
     dwShareMode: DWORD, lpSecurityAttributes: ?LPSECURITY_ATTRIBUTES, dwCreationDisposition: DWORD,
         dwFlagsAndAttributes: DWORD, hTemplateFile: ?HANDLE) -> HANDLE;

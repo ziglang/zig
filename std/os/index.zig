@@ -761,11 +761,30 @@ pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8)
 }
 
 pub fn makeDir(allocator: &Allocator, dir_path: []const u8) -> %void {
-    const path_buf = %return allocator.alloc(u8, dir_path.len + 1);
+    if (is_windows) {
+        return makeDirWindows(allocator, dir_path);
+    } else {
+        return makeDirPosix(allocator, dir_path);
+    }
+}
+
+pub fn makeDirWindows(allocator: &Allocator, dir_path: []const u8) -> %void {
+    const path_buf = %return cstr.addNullByte(allocator, dir_path);
     defer allocator.free(path_buf);
 
-    mem.copy(u8, path_buf, dir_path);
-    path_buf[dir_path.len] = 0;
+    if (!windows.CreateDirectoryA(path_buf.ptr, null)) {
+        const err = windows.GetLastError();
+        return switch (err) {
+            windows.ERROR.ALREADY_EXISTS => error.PathAlreadyExists,
+            windows.ERROR.PATH_NOT_FOUND => error.FileNotFound,
+            else => error.Unexpected,
+        };
+    }
+}
+
+pub fn makeDirPosix(allocator: &Allocator, dir_path: []const u8) -> %void {
+    const path_buf = cstr.addNullByte(allocator, dir_path);
+    defer allocator.free(path_buf);
 
     const err = posix.getErrno(posix.mkdir(path_buf.ptr, 0o755));
     if (err > 0) {
