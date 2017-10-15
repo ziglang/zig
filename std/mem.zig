@@ -88,6 +88,7 @@ pub const IncrementingAllocator = struct {
     allocator: Allocator,
     bytes: []u8,
     end_index: usize,
+    heap_handle: if (builtin.os == Os.windows) os.windows.HANDLE else void,
 
     fn init(capacity: usize) -> %IncrementingAllocator {
         switch (builtin.os) {
@@ -106,11 +107,12 @@ pub const IncrementingAllocator = struct {
                     },
                     .bytes = @intToPtr(&u8, addr)[0..capacity],
                     .end_index = 0,
+                    .heap_handle = {},
                 };
             },
             Os.windows => {
-                const heap_handle = os.windows.GetProcessHeap();
-                const ptr = os.windows.HeapAlloc(heap_handle, 0, capacity);
+                const heap_handle = os.windows.GetProcessHeap() ?? return error.OutOfMemory;
+                const ptr = os.windows.HeapAlloc(heap_handle, 0, capacity) ?? return error.OutOfMemory;
                 return IncrementingAllocator {
                     .allocator = Allocator {
                         .allocFn = alloc,
@@ -119,6 +121,7 @@ pub const IncrementingAllocator = struct {
                     },
                     .bytes = @ptrCast(&u8, ptr)[0..capacity],
                     .end_index = 0,
+                    .heap_handle = heap_handle,
                 };
             },
             else => @compileError("Unsupported OS"),
@@ -131,8 +134,7 @@ pub const IncrementingAllocator = struct {
                 _ = os.posix.munmap(self.bytes.ptr, self.bytes.len);
             },
             Os.windows => {
-                const heap_handle = os.windows.GetProcessHeap();
-                _ = os.windows.HeapFree(heap_handle, 0, @ptrCast(os.windows.LPVOID, self.bytes.ptr));
+                _ = os.windows.HeapFree(self.heap_handle, 0, @ptrCast(os.windows.LPVOID, self.bytes.ptr));
             },
             else => @compileError("Unsupported OS"),
         }
