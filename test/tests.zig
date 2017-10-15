@@ -557,7 +557,7 @@ pub const CompileErrorContext = struct {
             %%io.stderr.printf("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
 
             if (b.verbose) {
-                printInvocation(b.zig_exe, zig_args.toSliceConst());
+                printInvocation(zig_args.toSliceConst());
             }
 
             const child = %%os.ChildProcess.init(zig_args.toSliceConst(), b.allocator);
@@ -625,10 +625,9 @@ pub const CompileErrorContext = struct {
         }
     };
 
-    fn printInvocation(exe_path: []const u8, args: []const []const u8) {
-        %%io.stderr.printf("{}", exe_path);
+    fn printInvocation(args: []const []const u8) {
         for (args) |arg| {
-            %%io.stderr.printf(" {}", arg);
+            %%io.stderr.printf("{} ", arg);
         }
         %%io.stderr.printf("\n");
     }
@@ -826,7 +825,7 @@ pub const ParseCContext = struct {
             %%io.stderr.printf("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
 
             if (b.verbose) {
-                printInvocation(b.zig_exe, zig_args.toSliceConst());
+                printInvocation(zig_args.toSliceConst());
             }
 
             const child = %%os.ChildProcess.init(zig_args.toSliceConst(), b.allocator);
@@ -895,10 +894,9 @@ pub const ParseCContext = struct {
         }
     };
 
-    fn printInvocation(exe_path: []const u8, args: []const []const u8) {
-        %%io.stderr.printf("{}", exe_path);
+    fn printInvocation(args: []const []const u8) {
         for (args) |arg| {
-            %%io.stderr.printf(" {}", arg);
+            %%io.stderr.printf("{} ", arg);
         }
         %%io.stderr.printf("\n");
     }

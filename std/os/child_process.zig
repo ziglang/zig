@@ -433,7 +433,7 @@ pub const ChildProcess = struct {
     }
 
     fn spawnWindows(self: &ChildProcess) -> %void {
-        var saAttr = windows.SECURITY_ATTRIBUTES {
+        const saAttr = windows.SECURITY_ATTRIBUTES {
             .nLength = @sizeOf(windows.SECURITY_ATTRIBUTES),
             .bInheritHandle = windows.TRUE,
             .lpSecurityDescriptor = null,
@@ -459,7 +459,7 @@ pub const ChildProcess = struct {
         var g_hChildStd_IN_Wr: ?windows.HANDLE = null;
         switch (self.stdin_behavior) {
             StdIo.Pipe => {
-                %return windowsMakePipeIn(&g_hChildStd_IN_Rd, &g_hChildStd_IN_Wr, &saAttr);
+                %return windowsMakePipeIn(&g_hChildStd_IN_Rd, &g_hChildStd_IN_Wr, saAttr);
             },
             StdIo.Ignore => {
                 g_hChildStd_IN_Rd = nul_handle;
@@ -477,7 +477,7 @@ pub const ChildProcess = struct {
         var g_hChildStd_OUT_Wr: ?windows.HANDLE = null;
         switch (self.stdout_behavior) {
             StdIo.Pipe => {
-                %return windowsMakePipeOut(&g_hChildStd_OUT_Rd, &g_hChildStd_OUT_Wr, &saAttr);
+                %return windowsMakePipeOut(&g_hChildStd_OUT_Rd, &g_hChildStd_OUT_Wr, saAttr);
             },
             StdIo.Ignore => {
                 g_hChildStd_OUT_Wr = nul_handle;
@@ -495,7 +495,7 @@ pub const ChildProcess = struct {
         var g_hChildStd_ERR_Wr: ?windows.HANDLE = null;
         switch (self.stderr_behavior) {
             StdIo.Pipe => {
-                %return windowsMakePipeOut(&g_hChildStd_ERR_Rd, &g_hChildStd_ERR_Wr, &saAttr);
+                %return windowsMakePipeOut(&g_hChildStd_ERR_Rd, &g_hChildStd_ERR_Wr, saAttr);
             },
             StdIo.Ignore => {
                 g_hChildStd_ERR_Wr = nul_handle;
@@ -675,7 +675,12 @@ fn windowsDestroyPipe(rd: ?windows.HANDLE, wr: ?windows.HANDLE) {
     if (wr) |h| os.windowsClose(h);
 }
 
-fn windowsMakePipe(rd: &windows.HANDLE, wr: &windows.HANDLE, sattr: &windows.SECURITY_ATTRIBUTES) -> %void {
+
+// TODO: workaround for bug where the `const` from `&const` is dropped when the type is
+// a namespace field lookup
+const SECURITY_ATTRIBUTES = windows.SECURITY_ATTRIBUTES;
+
+fn windowsMakePipe(rd: &windows.HANDLE, wr: &windows.HANDLE, sattr: &const SECURITY_ATTRIBUTES) -> %void {
     if (windows.CreatePipe(rd, wr, sattr, 0) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
@@ -693,19 +698,21 @@ fn windowsSetHandleInfo(h: windows.HANDLE, mask: windows.DWORD, flags: windows.D
     }
 }
 
-fn windowsMakePipeIn(rd: &?windows.HANDLE, wr: &?windows.HANDLE, sattr: &windows.SECURITY_ATTRIBUTES) -> %void {
+fn windowsMakePipeIn(rd: &?windows.HANDLE, wr: &?windows.HANDLE, sattr: &const SECURITY_ATTRIBUTES) -> %void {
     var rd_h: windows.HANDLE = undefined;
     var wr_h: windows.HANDLE = undefined;
     %return windowsMakePipe(&rd_h, &wr_h, sattr);
+    %defer windowsDestroyPipe(rd_h, wr_h);
     %return windowsSetHandleInfo(wr_h, windows.HANDLE_FLAG_INHERIT, 0);
     *rd = rd_h;
     *wr = wr_h;
 }
 
-fn windowsMakePipeOut(rd: &?windows.HANDLE, wr: &?windows.HANDLE, sattr: &windows.SECURITY_ATTRIBUTES) -> %void {
+fn windowsMakePipeOut(rd: &?windows.HANDLE, wr: &?windows.HANDLE, sattr: &const SECURITY_ATTRIBUTES) -> %void {
     var rd_h: windows.HANDLE = undefined;
     var wr_h: windows.HANDLE = undefined;
     %return windowsMakePipe(&rd_h, &wr_h, sattr);
+    %defer windowsDestroyPipe(rd_h, wr_h);
     %return windowsSetHandleInfo(rd_h, windows.HANDLE_FLAG_INHERIT, 0);
     *rd = rd_h;
     *wr = wr_h;

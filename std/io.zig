@@ -313,8 +313,8 @@ pub const InStream = struct {
                         else => error.Unexpected,
                     };
                 }
-                if (amt_read == 0) return index;
                 index += amt_read;
+                if (amt_read < want_read_count) return index;
             }
             return index;
         } else {

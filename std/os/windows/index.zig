@@ -18,7 +18,7 @@ pub extern "kernel32" stdcallcc fn CreateFileA(lpFileName: LPCSTR, dwDesiredAcce
         dwFlagsAndAttributes: DWORD, hTemplateFile: ?HANDLE) -> HANDLE;
 
 pub extern "kernel32" stdcallcc fn CreatePipe(hReadPipe: &HANDLE, hWritePipe: &HANDLE,
-    lpPipeAttributes: &SECURITY_ATTRIBUTES, nSize: DWORD) -> BOOL;
+    lpPipeAttributes: &const SECURITY_ATTRIBUTES, nSize: DWORD) -> BOOL;
 
 pub extern "kernel32" stdcallcc fn CreateProcessA(lpApplicationName: ?LPCSTR, lpCommandLine: LPSTR,
     lpProcessAttributes: ?&SECURITY_ATTRIBUTES, lpThreadAttributes: ?&SECURITY_ATTRIBUTES, bInheritHandles: BOOL,
