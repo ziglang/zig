@@ -25,6 +25,7 @@
 
 #include <windows.h>
 #include <io.h>
+#include <fcntl.h>
 
 typedef SSIZE_T ssize_t;
 #else
@@ -58,7 +59,6 @@ static clock_serv_t cclock;
 // these implementations are lazy. But who cares, we'll make a robust
 // implementation in the zig standard library and then this code all gets
 // deleted when we self-host. it works for now.
-
 
 #if defined(ZIG_OS_POSIX)
 static void populate_termination(Termination *term, int status) {
@@ -886,6 +886,10 @@ int os_make_dir(Buf *path) {
 
 int os_init(void) {
     srand((unsigned)time(NULL));
+#if defined(ZIG_OS_WINDOWS)
+    _setmode(fileno(stdout), _O_BINARY);
+    _setmode(fileno(stderr), _O_BINARY);
+#endif
 #if defined(ZIG_OS_WINDOWS)
     unsigned __int64 frequency;
     if (QueryPerformanceFrequency((LARGE_INTEGER*) &frequency)) {
