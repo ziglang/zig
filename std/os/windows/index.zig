@@ -32,11 +32,17 @@ pub extern "kernel32" stdcallcc fn DeleteFileA(lpFileName: LPCSTR) -> bool;
 
 pub extern "kernel32" stdcallcc fn ExitProcess(exit_code: UINT) -> noreturn;
 
+pub extern "kernel32" stdcallcc fn FreeEnvironmentStringsA(penv: LPCH) -> BOOL;
+
 pub extern "kernel32" stdcallcc fn GetCommandLineA() -> LPSTR;
 
 pub extern "kernel32" stdcallcc fn GetConsoleMode(in_hConsoleHandle: HANDLE, out_lpMode: &DWORD) -> bool;
 
 pub extern "kernel32" stdcallcc fn GetCurrentDirectoryA(nBufferLength: WORD, lpBuffer: ?LPSTR) -> DWORD;
+
+pub extern "kernel32" stdcallcc fn GetEnvironmentStringsA() -> ?LPCH;
+
+pub extern "kernel32" stdcallcc fn GetEnvironmentVariableA(lpName: LPCSTR, lpBuffer: LPSTR, nSize: DWORD) -> DWORD;
 
 pub extern "kernel32" stdcallcc fn GetExitCodeProcess(hProcess: HANDLE, lpExitCode: &DWORD) -> BOOL;
 
@@ -49,11 +55,11 @@ pub extern "kernel32" stdcallcc fn GetFileInformationByHandleEx(in_hFile: HANDLE
 pub extern "kernel32" stdcallcc fn GetFinalPathNameByHandleA(hFile: HANDLE, lpszFilePath: LPSTR,
   cchFilePath: DWORD, dwFlags: DWORD) -> DWORD;
 
-pub extern "kernel32" stdcallcc fn GetProcessHeap() -> HANDLE;
+pub extern "kernel32" stdcallcc fn GetProcessHeap() -> ?HANDLE;
 
 pub extern "kernel32" stdcallcc fn GetStdHandle(in_nStdHandle: DWORD) -> ?HANDLE;
 
-pub extern "kernel32" stdcallcc fn HeapAlloc(hHeap: HANDLE, dwFlags: DWORD, dwBytes: SIZE_T) -> LPVOID;
+pub extern "kernel32" stdcallcc fn HeapAlloc(hHeap: HANDLE, dwFlags: DWORD, dwBytes: SIZE_T) -> ?LPVOID;
 
 pub extern "kernel32" stdcallcc fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: LPVOID) -> BOOL;
 
@@ -91,6 +97,7 @@ pub const HCRYPTPROV = ULONG_PTR;
 pub const HINSTANCE = &@OpaqueType();
 pub const INT = c_int;
 pub const LPBYTE = &BYTE;
+pub const LPCH = &CHAR;
 pub const LPCSTR = &const CHAR;
 pub const LPCTSTR = &const TCHAR;
 pub const LPCVOID = &const c_void;

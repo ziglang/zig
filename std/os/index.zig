@@ -32,6 +32,7 @@ pub const windowsWrite = windows_util.windowsWrite;
 pub const windowsIsTty = windows_util.windowsIsTty;
 pub const windowsIsCygwinPty = windows_util.windowsIsCygwinPty;
 pub const windowsOpen = windows_util.windowsOpen;
+pub const createWindowsEnvBlock = windows_util.createWindowsEnvBlock;
 
 const debug = @import("../debug.zig");
 const assert = debug.assert;
@@ -48,6 +49,7 @@ const io = @import("../io.zig");
 const base64 = @import("../base64.zig");
 const ArrayList = @import("../array_list.zig").ArrayList;
 const Buffer = @import("../buffer.zig").Buffer;
+const math = @import("../index.zig").math;
 
 error Unexpected;
 error SystemResources;
@@ -362,7 +364,7 @@ pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap,
         return posixExecveErrnoToErr(posix.getErrno(posix.execve(??argv_buf[0], argv_buf.ptr, envp_buf.ptr)));
     }
 
-    const PATH = getEnv("PATH") ?? "/usr/local/bin:/bin/:/usr/bin";
+    const PATH = getEnvPosix("PATH") ?? "/usr/local/bin:/bin/:/usr/bin";
     // PATH.len because it is >= the largest search_path
     // +1 for the / to join the search path and exe_path
     // +1 for the null terminating byte
@@ -406,29 +408,55 @@ fn posixExecveErrnoToErr(err: usize) -> error {
     };
 }
 
-pub var environ_raw: []&u8 = undefined;
+pub var posix_environ_raw: []&u8 = undefined;
 
 /// Caller must free result when done.
 pub fn getEnvMap(allocator: &Allocator) -> %BufMap {
     var result = BufMap.init(allocator);
     %defer result.deinit();
 
-    for (environ_raw) |ptr| {
-        var line_i: usize = 0;
-        while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
-        const key = ptr[0..line_i];
+    if (is_windows) {
+        const ptr = windows.GetEnvironmentStringsA() ?? return error.OutOfMemory;
+        defer assert(windows.FreeEnvironmentStringsA(ptr));
 
-        var end_i: usize = line_i;
-        while (ptr[end_i] != 0) : (end_i += 1) {}
-        const value = ptr[line_i + 1..end_i];
+        var i: usize = 0;
+        while (true) {
+            if (ptr[i] == 0)
+                return result;
 
-        %return result.set(key, value);
+            const key_start = i;
+
+            while (ptr[i] != 0 and ptr[i] != '=') : (i += 1) {}
+            const key = ptr[key_start..i];
+
+            if (ptr[i] == '=') i += 1;
+
+            const value_start = i;
+            while (ptr[i] != 0) : (i += 1) {}
+            const value = ptr[value_start..i];
+
+            i += 1; // skip over null byte
+
+            %return result.set(key, value);
+        }
+    } else {
+        for (posix_environ_raw) |ptr| {
+            var line_i: usize = 0;
+            while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
+            const key = ptr[0..line_i];
+
+            var end_i: usize = line_i;
+            while (ptr[end_i] != 0) : (end_i += 1) {}
+            const value = ptr[line_i + 1..end_i];
+
+            %return result.set(key, value);
+        }
+        return result;
     }
-    return result;
 }
 
-pub fn getEnv(key: []const u8) -> ?[]const u8 {
-    for (environ_raw) |ptr| {
+pub fn getEnvPosix(key: []const u8) -> ?[]const u8 {
+    for (posix_environ_raw) |ptr| {
         var line_i: usize = 0;
         while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
         const this_key = ptr[0..line_i];
@@ -442,6 +470,42 @@ pub fn getEnv(key: []const u8) -> ?[]const u8 {
         return this_value;
     }
     return null;
+}
+
+error EnvironmentVariableNotFound;
+
+/// Caller must free returned memory.
+pub fn getEnvVarOwned(allocator: &mem.Allocator, key: []const u8) -> %[]u8 {
+    if (is_windows) {
+        const key_with_null = %return cstr.addNullByte(allocator, key);
+        defer allocator.free(key_with_null);
+
+        var buf = %return allocator.alloc(u8, 256);
+        %defer allocator.free(buf);
+
+        while (true) {
+            const windows_buf_len = %return math.cast(windows.DWORD, buf.len);
+            const result = windows.GetEnvironmentVariableA(key_with_null.ptr, buf.ptr, windows_buf_len);
+
+            if (result == 0) {
+                const err = windows.GetLastError();
+                return switch (err) {
+                    windows.ERROR.ENVVAR_NOT_FOUND => error.EnvironmentVariableNotFound,
+                    else => error.Unexpected,
+                };
+            }
+
+            if (result > buf.len) {
+                buf = %return allocator.realloc(u8, buf, result);
+                continue;
+            }
+
+            return allocator.shrink(u8, buf, result);
+        }
+    } else {
+        const result = getEnvPosix(key) ?? return error.EnvironmentVariableNotFound;
+        return mem.dupe(u8, allocator, result);
+    }
 }
 
 /// Caller must free the returned memory.

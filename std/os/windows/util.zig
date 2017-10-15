@@ -3,6 +3,7 @@ const os = std.os;
 const windows = std.os.windows;
 const assert = std.debug.assert;
 const mem = std.mem;
+const BufMap = std.BufMap;
 
 error WaitAbandoned;
 error WaitTimeOut;
@@ -109,5 +110,37 @@ pub fn windowsOpen(file_path: []const u8, desired_access: windows.DWORD, share_m
         };
     }
 
+    return result;
+}
+
+/// Caller must free result.
+pub fn createWindowsEnvBlock(allocator: &mem.Allocator, env_map: &const BufMap) -> %[]u8 {
+    // count bytes needed
+    const bytes_needed = {
+        var bytes_needed: usize = 1; // 1 for the final null byte
+        var it = env_map.iterator();
+        while (it.next()) |pair| {
+            // +1 for '='
+            // +1 for null byte
+            bytes_needed += pair.key.len + pair.value.len + 2;
+        }
+        bytes_needed
+    };
+    const result = %return allocator.alloc(u8, bytes_needed);
+    %defer allocator.free(result);
+
+    var it = env_map.iterator();
+    var i: usize = 0;
+    while (it.next()) |pair| {
+        mem.copy(u8, result[i..], pair.key);
+        i += pair.key.len;
+        result[i] = '=';
+        i += 1;
+        mem.copy(u8, result[i..], pair.value);
+        i += pair.value.len;
+        result[i] = 0;
+        i += 1;
+    }
+    result[i] = 0;
     return result;
 }

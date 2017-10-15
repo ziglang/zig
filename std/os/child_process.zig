@@ -564,7 +564,7 @@ pub const ChildProcess = struct {
         const cwd_ptr = if (cwd_slice) |cwd| cwd.ptr else null;
 
         const maybe_envp_buf = if (self.env_map) |env_map| {
-            %return os.createNullDelimitedEnvMap(self.allocator, env_map)
+            %return os.createWindowsEnvBlock(self.allocator, env_map)
         } else {
             null
         };
@@ -578,6 +578,7 @@ pub const ChildProcess = struct {
             const err = windows.GetLastError();
             return switch (err) {
                 windows.ERROR.FILE_NOT_FOUND => error.FileNotFound,
+                windows.ERROR.INVALID_PARAMETER => unreachable,
                 else => error.Unexpected,
             };
         }

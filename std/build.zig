@@ -308,7 +308,7 @@ pub const Builder = struct {
     }
 
     fn processNixOSEnvVars(self: &Builder) {
-        if (os.getEnv("NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {
+        if (os.getEnvVarOwned(self.allocator, "NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {
             var it = mem.split(nix_cflags_compile, " ");
             while (true) {
                 const word = it.next() ?? break;
@@ -323,8 +323,10 @@ pub const Builder = struct {
                     break;
                 }
             }
+        } else |err| {
+            assert(err == error.EnvironmentVariableNotFound);
         }
-        if (os.getEnv("NIX_LDFLAGS")) |nix_ldflags| {
+        if (os.getEnvVarOwned(self.allocator, "NIX_LDFLAGS")) |nix_ldflags| {
             var it = mem.split(nix_ldflags, " ");
             while (true) {
                 const word = it.next() ?? break;
@@ -342,6 +344,8 @@ pub const Builder = struct {
                     break;
                 }
             }
+        } else |err| {
+            assert(err == error.EnvironmentVariableNotFound);
         }
     }
 
@@ -1248,7 +1252,13 @@ pub const LibExeObjStep = struct {
     }
 
     fn makeC(self: &LibExeObjStep) -> %void {
-        const cc = os.getEnv("CC") ?? "cc";
+        const cc = os.getEnvVarOwned(self.builder.allocator, "CC") %% |err| {
+            if (err == error.EnvironmentVariableNotFound) {
+                ([]const u8)("cc")
+            } else {
+                return err
+            }
+        };
         const builder = self.builder;
 
         assert(!self.is_zig);

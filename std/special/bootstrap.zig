@@ -56,7 +56,7 @@ fn callMain(argc: usize, argv: &&u8, envp: &?&u8) -> %void {
 
     var env_count: usize = 0;
     while (envp[env_count] != null) : (env_count += 1) {}
-    std.os.environ_raw = @ptrCast(&&u8, envp)[0..env_count];
+    std.os.posix_environ_raw = @ptrCast(&&u8, envp)[0..env_count];
 
     std.debug.user_main_fn = root.main;
 
