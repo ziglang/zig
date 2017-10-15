@@ -964,13 +964,6 @@ void os_stderr_set_color(TermColor color) {
     if (stderr_handle == INVALID_HANDLE_VALUE)
         zig_panic("unable to get stderr handle");
     fflush(stderr);
-    DWORD ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004;
-    if (color != TermColorReset) {
-        DWORD mode_flags = 0;
-        GetConsoleMode(stderr_handle, &mode_flags);
-        mode_flags |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-        SetConsoleMode(stderr_handle, mode_flags);
-    }
 
     if (!got_orig_console_attrs) {
         got_orig_console_attrs = true;
@@ -984,32 +977,20 @@ void os_stderr_set_color(TermColor color) {
     switch (color) {
         case TermColorRed:
             SetConsoleTextAttribute(stderr_handle, FOREGROUND_RED|FOREGROUND_INTENSITY);
-            WriteConsole(stderr_handle, VT_RED, strlen(VT_RED), &chars_written, NULL);
             break;
         case TermColorGreen:
             SetConsoleTextAttribute(stderr_handle, FOREGROUND_GREEN|FOREGROUND_INTENSITY);
-            WriteConsole(stderr_handle, VT_GREEN, strlen(VT_GREEN), &chars_written, NULL);
             break;
         case TermColorCyan:
             SetConsoleTextAttribute(stderr_handle, FOREGROUND_GREEN|FOREGROUND_BLUE|FOREGROUND_INTENSITY);
-            WriteConsole(stderr_handle, VT_CYAN, strlen(VT_CYAN), &chars_written, NULL);
             break;
         case TermColorWhite:
             SetConsoleTextAttribute(stderr_handle,
                 FOREGROUND_RED|FOREGROUND_GREEN|FOREGROUND_BLUE|FOREGROUND_INTENSITY);
-            WriteConsole(stderr_handle, VT_WHITE, strlen(VT_WHITE), &chars_written, NULL);
             break;
         case TermColorReset:
-        {
             SetConsoleTextAttribute(stderr_handle, original_console_attributes);
-            WriteConsole(stderr_handle, VT_RESET, strlen(VT_RESET), &chars_written, NULL);
-
-            DWORD mode_flags = 0;
-            GetConsoleMode(stderr_handle, &mode_flags);
-            mode_flags &= ~ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-            SetConsoleMode(stderr_handle, mode_flags);
             break;
-        }
     }
 #else
     set_color_posix(color);
