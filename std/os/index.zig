@@ -51,7 +51,6 @@ const ArrayList = @import("../array_list.zig").ArrayList;
 const Buffer = @import("../buffer.zig").Buffer;
 const math = @import("../index.zig").math;
 
-error Unexpected;
 error SystemResources;
 error AccessDenied;
 error InvalidExe;
@@ -81,7 +80,7 @@ pub fn getRandomBytes(buf: []u8) -> %void {
                     posix.EINVAL => unreachable,
                     posix.EFAULT => unreachable,
                     posix.EINTR  => continue,
-                    else         => error.Unexpected,
+                    else         => unexpectedErrorPosix(err),
                 }
             }
             return;
@@ -96,12 +95,18 @@ pub fn getRandomBytes(buf: []u8) -> %void {
         Os.windows => {
             var hCryptProv: windows.HCRYPTPROV = undefined;
             if (windows.CryptAcquireContextA(&hCryptProv, null, null, windows.PROV_RSA_FULL, 0) == 0) {
-                return error.Unexpected;
+                const err = windows.GetLastError();
+                return switch (err) {
+                    else => unexpectedErrorWindows(err),
+                };
             }
             defer _ = windows.CryptReleaseContext(hCryptProv, 0);
 
             if (windows.CryptGenRandom(hCryptProv, windows.DWORD(buf.len), buf.ptr) == 0) {
-                return error.Unexpected;
+                const err = windows.GetLastError();
+                return switch (err) {
+                    else => unexpectedErrorWindows(err),
+                };
             }
         },
         else => @compileError("Unsupported OS"),
@@ -187,8 +192,8 @@ pub fn posixRead(fd: i32, buf: []u8) -> %void {
                 posix.EIO => error.InputOutput,
                 posix.EISDIR => error.IsDir,
                 posix.ENOBUFS, posix.ENOMEM => error.SystemResources,
-                else => return error.Unexpected,
-            }
+                else => unexpectedErrorPosix(err),
+            };
         }
         index += amt_written;
     }
@@ -202,7 +207,6 @@ error FileTooBig;
 error InputOutput;
 error NoSpaceLeft;
 error BrokenPipe;
-error Unexpected;
 
 /// Calls POSIX write, and keeps trying if it gets interrupted.
 pub fn posixWrite(fd: i32, bytes: []const u8) -> %void {
@@ -222,8 +226,8 @@ pub fn posixWrite(fd: i32, bytes: []const u8) -> %void {
                 posix.ENOSPC => error.NoSpaceLeft,
                 posix.EPERM  => error.AccessDenied,
                 posix.EPIPE  => error.BrokenPipe,
-                else         => error.Unexpected,
-            }
+                else         => unexpectedErrorPosix(write_err),
+            };
         }
         return;
     }
@@ -277,7 +281,7 @@ pub fn posixOpen(file_path: []const u8, flags: u32, perm: usize, allocator: ?&Al
                 posix.ENOTDIR => error.NotDir,
                 posix.EPERM => error.AccessDenied,
                 posix.EEXIST => error.PathAlreadyExists,
-                else => error.Unexpected,
+                else => unexpectedErrorPosix(err),
             }
         }
         return i32(result);
@@ -292,7 +296,7 @@ pub fn posixDup2(old_fd: i32, new_fd: i32) -> %void {
                 posix.EBUSY, posix.EINTR => continue,
                 posix.EMFILE => error.ProcessFdQuotaExceeded,
                 posix.EINVAL => unreachable,
-                else => error.Unexpected,
+                else => unexpectedErrorPosix(err),
             };
         }
         return;
@@ -404,7 +408,7 @@ fn posixExecveErrnoToErr(err: usize) -> error {
         posix.ENOENT => error.FileNotFound,
         posix.ENOTDIR => error.NotDir,
         posix.ETXTBSY => error.FileBusy,
-        else => error.Unexpected,
+        else => unexpectedErrorPosix(err),
     };
 }
 
@@ -491,7 +495,7 @@ pub fn getEnvVarOwned(allocator: &mem.Allocator, key: []const u8) -> %[]u8 {
                 const err = windows.GetLastError();
                 return switch (err) {
                     windows.ERROR.ENVVAR_NOT_FOUND => error.EnvironmentVariableNotFound,
-                    else => error.Unexpected,
+                    else => unexpectedErrorWindows(err),
                 };
             }
 
@@ -519,7 +523,10 @@ pub fn getCwd(allocator: &Allocator) -> %[]u8 {
                 const result = windows.GetCurrentDirectoryA(windows.WORD(buf.len), buf.ptr);
 
                 if (result == 0) {
-                    return error.Unexpected;
+                    const err = windows.GetLastError();
+                    return switch (err) {
+                        else => unexpectedErrorWindows(err),
+                    };
                 }
 
                 if (result > buf.len) {
@@ -539,7 +546,7 @@ pub fn getCwd(allocator: &Allocator) -> %[]u8 {
                     buf = %return allocator.realloc(u8, buf, buf.len * 2);
                     continue;
                 } else if (err > 0) {
-                    return error.Unexpected;
+                    return unexpectedErrorPosix(err);
                 }
 
                 return allocator.shrink(u8, buf, cstr.len(buf.ptr));
@@ -570,7 +577,7 @@ pub fn symLinkWindows(allocator: &Allocator, existing_path: []const u8, new_path
     if (windows.CreateSymbolicLinkA(existing_with_null.ptr, new_with_null.ptr, 0) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
-            else => error.Unexpected,
+            else => unexpectedErrorWindows(err),
         };
     }
 }
@@ -602,7 +609,7 @@ pub fn symLinkPosix(allocator: &Allocator, existing_path: []const u8, new_path: 
             posix.ENOMEM => error.SystemResources,
             posix.ENOSPC => error.NoSpaceLeft,
             posix.EROFS => error.ReadOnlyFileSystem,
-            else => error.Unexpected,
+            else => unexpectedErrorPosix(err),
         };
     }
 }
@@ -663,7 +670,7 @@ pub fn deleteFileWindows(allocator: &Allocator, file_path: []const u8) -> %void 
             windows.ERROR.FILE_NOT_FOUND => error.FileNotFound,
             windows.ERROR.ACCESS_DENIED => error.AccessDenied,
             windows.ERROR.FILENAME_EXCED_RANGE, windows.ERROR.INVALID_PARAMETER => error.NameTooLong,
-            else => error.Unexpected,
+            else => unexpectedErrorWindows(err),
         }
     }
 }
@@ -689,7 +696,7 @@ pub fn deleteFilePosix(allocator: &Allocator, file_path: []const u8) -> %void {
             posix.ENOTDIR => error.NotDir,
             posix.ENOMEM => error.SystemResources,
             posix.EROFS => error.ReadOnlyFileSystem,
-            else => error.Unexpected,
+            else => unexpectedErrorPosix(err),
         };
     }
 }
@@ -743,7 +750,7 @@ pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8)
         if (windows.MoveFileExA(old_buf.ptr, new_buf.ptr, flags) == 0) {
             const err = windows.GetLastError();
             return switch (err) {
-                else => return error.Unexpected,
+                else => unexpectedErrorWindows(err),
             };
         }
     } else {
@@ -765,7 +772,7 @@ pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8)
                 posix.EEXIST, posix.ENOTEMPTY => error.PathAlreadyExists,
                 posix.EROFS => error.ReadOnlyFileSystem,
                 posix.EXDEV => error.RenameAcrossMountPoints,
-                else => error.Unexpected,
+                else => unexpectedErrorPosix(err),
             };
         }
     }
@@ -788,7 +795,7 @@ pub fn makeDirWindows(allocator: &Allocator, dir_path: []const u8) -> %void {
         return switch (err) {
             windows.ERROR.ALREADY_EXISTS => error.PathAlreadyExists,
             windows.ERROR.PATH_NOT_FOUND => error.FileNotFound,
-            else => error.Unexpected,
+            else => unexpectedErrorWindows(err),
         };
     }
 }
@@ -812,7 +819,7 @@ pub fn makeDirPosix(allocator: &Allocator, dir_path: []const u8) -> %void {
             posix.ENOSPC => error.NoSpaceLeft,
             posix.ENOTDIR => error.NotDir,
             posix.EROFS => error.ReadOnlyFileSystem,
-            else => error.Unexpected,
+            else => unexpectedErrorPosix(err),
         };
     }
 }
@@ -877,7 +884,7 @@ pub fn deleteDir(allocator: &Allocator, dir_path: []const u8) -> %void {
             posix.ENOTDIR => error.NotDir,
             posix.EEXIST, posix.ENOTEMPTY => error.DirNotEmpty,
             posix.EROFS => error.ReadOnlyFileSystem,
-            else => error.Unexpected,
+            else => unexpectedErrorPosix(err),
         };
     }
 }
@@ -988,7 +995,7 @@ pub const Dir = struct {
                             self.buf = %return self.allocator.realloc(u8, self.buf, self.buf.len * 2);
                             continue;
                         },
-                        else => return error.Unexpected,
+                        else => return unexpectedErrorPosix(err),
                     };
                 }
                 if (result == 0)
@@ -1045,7 +1052,7 @@ pub fn changeCurDir(allocator: &Allocator, dir_path: []const u8) -> %void {
             posix.ENOENT => error.FileNotFound,
             posix.ENOMEM => error.SystemResources,
             posix.ENOTDIR => error.NotDir,
-            else => error.Unexpected,
+            else => unexpectedErrorPosix(err),
         };
     }
 }
@@ -1073,7 +1080,7 @@ pub fn readLink(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
                 posix.ENOENT => error.FileNotFound,
                 posix.ENOMEM => error.SystemResources,
                 posix.ENOTDIR => error.NotDir,
-                else => error.Unexpected,
+                else => unexpectedErrorPosix(err),
             };
         }
         if (ret_val == result_buf.len) {
@@ -1132,7 +1139,6 @@ test "os.sleep" {
 error ResourceLimitReached;
 error InvalidUserId;
 error PermissionDenied;
-error Unexpected;
 
 pub fn posix_setuid(uid: u32) -> %void {
     const err = posix.getErrno(posix.setuid(uid));
@@ -1141,7 +1147,7 @@ pub fn posix_setuid(uid: u32) -> %void {
         posix.EAGAIN => error.ResourceLimitReached,
         posix.EINVAL => error.InvalidUserId,
         posix.EPERM => error.PermissionDenied,
-        else => error.Unexpected,
+        else => unexpectedErrorPosix(err),
     };
 }
 
@@ -1152,7 +1158,7 @@ pub fn posix_setreuid(ruid: u32, euid: u32) -> %void {
         posix.EAGAIN => error.ResourceLimitReached,
         posix.EINVAL => error.InvalidUserId,
         posix.EPERM => error.PermissionDenied,
-        else => error.Unexpected,
+        else => unexpectedErrorPosix(err),
     };
 }
 
@@ -1163,7 +1169,7 @@ pub fn posix_setgid(gid: u32) -> %void {
         posix.EAGAIN => error.ResourceLimitReached,
         posix.EINVAL => error.InvalidUserId,
         posix.EPERM => error.PermissionDenied,
-        else => error.Unexpected,
+        else => unexpectedErrorPosix(err),
     };
 }
 
@@ -1174,7 +1180,7 @@ pub fn posix_setregid(rgid: u32, egid: u32) -> %void {
         posix.EAGAIN => error.ResourceLimitReached,
         posix.EINVAL => error.InvalidUserId,
         posix.EPERM => error.PermissionDenied,
-        else => error.Unexpected,
+        else => unexpectedErrorPosix(err),
     };
 }
 
@@ -1416,4 +1422,30 @@ test "std.os" {
     _ = @import("linux.zig");
     _ = @import("path.zig");
     _ = @import("windows/index.zig");
+}
+
+
+error Unexpected;
+
+// TODO make this a build variable that you can set
+const unexpected_error_tracing = false;
+
+/// Call this when you made a syscall or something that sets errno
+/// and you get an unexpected error.
+pub fn unexpectedErrorPosix(errno: c_int) -> error {
+    if (unexpected_error_tracing) {
+        io.stderr.printf("unexpected errno: {}\n", errno) %% return;
+        debug.printStackTrace() %% return;
+    }
+    return error.Unexpected;
+}
+
+/// Call this when you made a windows DLL call or something that does SetLastError
+/// and you get an unexpected error.
+pub fn unexpectedErrorWindows(err: windows.DWORD) -> error {
+    if (unexpected_error_tracing) {
+        io.stderr.printf("unexpected GetLastError(): {}\n", err) %% return;
+        debug.printStackTrace() %% return;
+    }
+    return error.Unexpected;
 }

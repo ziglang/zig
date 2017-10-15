@@ -3,7 +3,6 @@ const assert = @import("debug.zig").assert;
 const endian = @import("endian.zig");
 
 error SigInterrupt;
-error Unexpected;
 error Io;
 error TimedOut;
 error ConnectionReset;

@@ -915,7 +915,6 @@ error NotDir;
 error NameTooLong;
 error SymLinkLoop;
 error InputOutput;
-error Unexpected;
 /// Return the canonicalized absolute pathname.
 /// Expands all symbolic links and resolves references to `.`, `..`, and
 /// extra `/` characters in ::pathname.
@@ -938,7 +937,7 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
                     windows.ERROR.FILE_NOT_FOUND => error.FileNotFound,
                     windows.ERROR.ACCESS_DENIED => error.AccessDenied,
                     windows.ERROR.FILENAME_EXCED_RANGE => error.NameTooLong,
-                    else => error.Unexpected,
+                    else => os.unexpectedErrorWindows(err),
                 };
             }
             defer os.windowsClose(h_file);
@@ -954,7 +953,7 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
                         windows.ERROR.PATH_NOT_FOUND => error.FileNotFound,
                         windows.ERROR.NOT_ENOUGH_MEMORY => error.OutOfMemory,
                         windows.ERROR.INVALID_PARAMETER => unreachable,
-                        else => error.Unexpected,
+                        else => os.unexpectedErrorWindows(err),
                     };
                 }
 
@@ -1003,7 +1002,7 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
                     posix.ENAMETOOLONG => error.NameTooLong,
                     posix.ELOOP => error.SymLinkLoop,
                     posix.EIO => error.InputOutput,
-                    else => error.Unexpected,
+                    else => os.unexpectedErrorPosix(err),
                 };
             }
             return allocator.shrink(u8, result_buf, cstr.len(result_buf.ptr));

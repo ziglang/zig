@@ -45,17 +45,12 @@ pub var stderr = OutStream {
 /// bug in the program that called the function.
 error Invalid;
 
-/// When an Unexpected error occurs, code that emitted the error likely needs
-/// a patch to recognize the unexpected case so that it can handle it and emit
-/// a more specific error.
-error Unexpected;
-
 error DiskQuota;
 error FileTooBig;
 error Io;
 error NoSpaceLeft;
 error BadPerm;
-error PipeFail;
+error BrokenPipe;
 error BadFd;
 error IsDir;
 error NotDir;
@@ -207,7 +202,10 @@ pub const OutStream = struct {
         if (self.handle) |handle| return handle;
         if (system.GetStdHandle(self.handle_id)) |handle| {
             if (handle == system.INVALID_HANDLE_VALUE) {
-                return error.Unexpected;
+                const err = system.GetLastError();
+                return switch (err) {
+                    else => os.unexpectedErrorWindows(err),
+                };
             }
             self.handle = handle;
             return handle;
@@ -292,7 +290,7 @@ pub const InStream = struct {
                         system.EFAULT => unreachable,
                         system.EBADF  => return error.BadFd,
                         system.EIO    => return error.Io,
-                        else          => return error.Unexpected,
+                        else          => return os.unexpectedErrorPosix(read_err),
                     }
                 }
                 if (amt_read == 0) return index;
@@ -309,12 +307,12 @@ pub const InStream = struct {
                     const err = system.GetLastError();
                     return switch (err) {
                         system.ERROR.OPERATION_ABORTED => continue,
-                        system.ERROR.BROKEN_PIPE => error.PipeFail,
-                        else => error.Unexpected,
+                        system.ERROR.BROKEN_PIPE => return index,
+                        else => os.unexpectedErrorWindows(err),
                     };
                 }
+                if (amt_read == 0) return index;
                 index += amt_read;
-                if (amt_read < want_read_count) return index;
             }
             return index;
         } else {
@@ -374,7 +372,7 @@ pub const InStream = struct {
                         system.EOVERFLOW => error.Unseekable,
                         system.ESPIPE => error.Unseekable,
                         system.ENXIO => error.Unseekable,
-                        else => error.Unexpected,
+                        else => os.unexpectedErrorPosix(err),
                     };
                 }
             },
@@ -394,7 +392,7 @@ pub const InStream = struct {
                         system.EOVERFLOW => error.Unseekable,
                         system.ESPIPE => error.Unseekable,
                         system.ENXIO => error.Unseekable,
-                        else => error.Unexpected,
+                        else => os.unexpectedErrorPosix(err),
                     };
                 }
             },
@@ -414,7 +412,7 @@ pub const InStream = struct {
                         system.EOVERFLOW => error.Unseekable,
                         system.ESPIPE => error.Unseekable,
                         system.ENXIO => error.Unseekable,
-                        else => error.Unexpected,
+                        else => os.unexpectedErrorPosix(err),
                     };
                 }
                 return result;
@@ -430,7 +428,7 @@ pub const InStream = struct {
             return switch (err) {
                 system.EBADF => error.BadFd,
                 system.ENOMEM => error.OutOfMemory,
-                else => error.Unexpected,
+                else => os.unexpectedErrorPosix(err),
             }
         }
 
@@ -485,7 +483,10 @@ pub const InStream = struct {
         if (self.handle) |handle| return handle;
         if (system.GetStdHandle(self.handle_id)) |handle| {
             if (handle == system.INVALID_HANDLE_VALUE) {
-                return error.Unexpected;
+                const err = system.GetLastError();
+                return switch (err) {
+                    else => os.unexpectedErrorWindows(err),
+                };
             }
             self.handle = handle;
             return handle;

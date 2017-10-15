@@ -7,6 +7,7 @@ const BufMap = std.BufMap;
 
 error WaitAbandoned;
 error WaitTimeOut;
+error Unexpected;
 
 pub fn windowsWaitSingle(handle: windows.HANDLE, milliseconds: windows.DWORD) -> %void {
     const result = windows.WaitForSingleObject(handle, milliseconds);
@@ -14,8 +15,11 @@ pub fn windowsWaitSingle(handle: windows.HANDLE, milliseconds: windows.DWORD) ->
         windows.WAIT_ABANDONED => error.WaitAbandoned,
         windows.WAIT_OBJECT_0 => {},
         windows.WAIT_TIMEOUT => error.WaitTimeOut,
-        windows.WAIT_FAILED => switch (windows.GetLastError()) {
-            else => error.Unexpected,
+        windows.WAIT_FAILED => {
+            const err = windows.GetLastError();
+            switch (err) {
+                else => os.unexpectedErrorWindows(err),
+            }
         },
         else => error.Unexpected,
     };
@@ -32,14 +36,15 @@ error BrokenPipe;
 
 pub fn windowsWrite(handle: windows.HANDLE, bytes: []const u8) -> %void {
     if (windows.WriteFile(handle, @ptrCast(&const c_void, bytes.ptr), u32(bytes.len), null, null) == 0) {
-        return switch (windows.GetLastError()) {
+        const err = windows.GetLastError();
+        return switch (err) {
             windows.ERROR.INVALID_USER_BUFFER => error.SystemResources,
             windows.ERROR.NOT_ENOUGH_MEMORY => error.SystemResources,
             windows.ERROR.OPERATION_ABORTED => error.OperationAborted,
             windows.ERROR.NOT_ENOUGH_QUOTA => error.SystemResources,
             windows.ERROR.IO_PENDING => error.IoPending,
             windows.ERROR.BROKEN_PIPE => error.BrokenPipe,
-            else => error.Unexpected,
+            else => os.unexpectedErrorWindows(err),
         };
     }
 }
@@ -106,7 +111,7 @@ pub fn windowsOpen(file_path: []const u8, desired_access: windows.DWORD, share_m
             windows.ERROR.FILE_NOT_FOUND => error.FileNotFound,
             windows.ERROR.ACCESS_DENIED => error.AccessDenied,
             windows.ERROR.PIPE_BUSY => error.PipeBusy,
-            else => error.Unexpected,
+            else => os.unexpectedErrorWindows(err),
         };
     }
 
