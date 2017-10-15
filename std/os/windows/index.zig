@@ -1,11 +1,11 @@
 pub const ERROR = @import("error.zig");
 
 pub extern "advapi32" stdcallcc fn CryptAcquireContextA(phProv: &HCRYPTPROV, pszContainer: ?LPCSTR,
-    pszProvider: ?LPCSTR, dwProvType: DWORD, dwFlags: DWORD) -> bool;
+    pszProvider: ?LPCSTR, dwProvType: DWORD, dwFlags: DWORD) -> BOOL;
 
-pub extern "advapi32" stdcallcc fn CryptReleaseContext(hProv: HCRYPTPROV, dwFlags: DWORD) -> bool;
+pub extern "advapi32" stdcallcc fn CryptReleaseContext(hProv: HCRYPTPROV, dwFlags: DWORD) -> BOOL;
 
-pub extern "advapi32" stdcallcc fn CryptGenRandom(hProv: HCRYPTPROV, dwLen: DWORD, pbBuffer: &BYTE) -> bool;
+pub extern "advapi32" stdcallcc fn CryptGenRandom(hProv: HCRYPTPROV, dwLen: DWORD, pbBuffer: &BYTE) -> BOOL;
 
 
 pub extern "kernel32" stdcallcc fn CloseHandle(hObject: HANDLE) -> BOOL;
@@ -28,7 +28,7 @@ pub extern "kernel32" stdcallcc fn CreateProcessA(lpApplicationName: ?LPCSTR, lp
 pub extern "kernel32" stdcallcc fn CreateSymbolicLinkA(lpSymlinkFileName: LPCSTR, lpTargetFileName: LPCSTR,
     dwFlags: DWORD) -> BOOLEAN;
 
-pub extern "kernel32" stdcallcc fn DeleteFileA(lpFileName: LPCSTR) -> bool;
+pub extern "kernel32" stdcallcc fn DeleteFileA(lpFileName: LPCSTR) -> BOOL;
 
 pub extern "kernel32" stdcallcc fn ExitProcess(exit_code: UINT) -> noreturn;
 
@@ -36,7 +36,7 @@ pub extern "kernel32" stdcallcc fn FreeEnvironmentStringsA(penv: LPCH) -> BOOL;
 
 pub extern "kernel32" stdcallcc fn GetCommandLineA() -> LPSTR;
 
-pub extern "kernel32" stdcallcc fn GetConsoleMode(in_hConsoleHandle: HANDLE, out_lpMode: &DWORD) -> bool;
+pub extern "kernel32" stdcallcc fn GetConsoleMode(in_hConsoleHandle: HANDLE, out_lpMode: &DWORD) -> BOOL;
 
 pub extern "kernel32" stdcallcc fn GetCurrentDirectoryA(nBufferLength: WORD, lpBuffer: ?LPSTR) -> DWORD;
 
@@ -50,7 +50,7 @@ pub extern "kernel32" stdcallcc fn GetLastError() -> DWORD;
 
 pub extern "kernel32" stdcallcc fn GetFileInformationByHandleEx(in_hFile: HANDLE,
     in_FileInformationClass: FILE_INFO_BY_HANDLE_CLASS, out_lpFileInformation: &c_void,
-    in_dwBufferSize: DWORD) -> bool;
+    in_dwBufferSize: DWORD) -> BOOL;
 
 pub extern "kernel32" stdcallcc fn GetFinalPathNameByHandleA(hFile: HANDLE, lpszFilePath: LPSTR,
   cchFilePath: DWORD, dwFlags: DWORD) -> DWORD;
@@ -86,7 +86,7 @@ pub extern "user32" stdcallcc fn MessageBoxA(hWnd: ?HANDLE, lpText: ?LPCTSTR, lp
 
 pub const PROV_RSA_FULL = 1;
 
-pub const BOOL = bool;
+pub const BOOL = c_int;
 pub const BOOLEAN = BYTE;
 pub const BYTE = u8;
 pub const CHAR = u8;
@@ -115,6 +115,9 @@ pub const ULONG_PTR = usize;
 pub const UNICODE = false;
 pub const WCHAR = u16;
 pub const WORD = u16;
+
+pub const TRUE = 1;
+pub const FALSE = 0;
 
 /// The standard input device. Initially, this is the console input buffer, CONIN$.
 pub const STD_INPUT_HANDLE = @maxValue(DWORD) - 10 + 1;

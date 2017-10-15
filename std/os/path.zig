@@ -941,7 +941,7 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
                     else => error.Unexpected,
                 };
             }
-            defer assert(windows.CloseHandle(h_file));
+            defer os.windowsClose(h_file);
             var buf = %return allocator.alloc(u8, 256);
             %defer allocator.free(buf);
             while (true) {

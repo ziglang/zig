@@ -22,7 +22,7 @@ pub fn windowsWaitSingle(handle: windows.HANDLE, milliseconds: windows.DWORD) ->
 }
 
 pub fn windowsClose(handle: windows.HANDLE) {
-    assert(windows.CloseHandle(handle));
+    assert(windows.CloseHandle(handle) != 0);
 }
 
 error SystemResources;
@@ -31,7 +31,7 @@ error IoPending;
 error BrokenPipe;
 
 pub fn windowsWrite(handle: windows.HANDLE, bytes: []const u8) -> %void {
-    if (!windows.WriteFile(handle, @ptrCast(&const c_void, bytes.ptr), u32(bytes.len), null, null)) {
+    if (windows.WriteFile(handle, @ptrCast(&const c_void, bytes.ptr), u32(bytes.len), null, null) == 0) {
         return switch (windows.GetLastError()) {
             windows.ERROR.INVALID_USER_BUFFER => error.SystemResources,
             windows.ERROR.NOT_ENOUGH_MEMORY => error.SystemResources,
@@ -49,15 +49,15 @@ pub fn windowsIsTty(handle: windows.HANDLE) -> bool {
         return true;
 
     var out: windows.DWORD = undefined;
-    return windows.GetConsoleMode(handle, &out);
+    return windows.GetConsoleMode(handle, &out) != 0;
 }
 
 pub fn windowsIsCygwinPty(handle: windows.HANDLE) -> bool {
     const size = @sizeOf(windows.FILE_NAME_INFO);
     var name_info_bytes align(@alignOf(windows.FILE_NAME_INFO)) = []u8{0} ** (size + windows.MAX_PATH);
 
-    if (!windows.GetFileInformationByHandleEx(handle, windows.FileNameInfo,
-        @ptrCast(&c_void, &name_info_bytes[0]), u32(name_info_bytes.len)))
+    if (windows.GetFileInformationByHandleEx(handle, windows.FileNameInfo,
+        @ptrCast(&c_void, &name_info_bytes[0]), u32(name_info_bytes.len)) == 0)
     {
         return true;
     }

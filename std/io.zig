@@ -305,7 +305,7 @@ pub const InStream = struct {
             while (index < buf.len) {
                 const want_read_count = system.DWORD(math.min(system.DWORD(@maxValue(system.DWORD)), buf.len - index));
                 var amt_read: system.DWORD = undefined;
-                if (!system.ReadFile(handle, @ptrCast(&c_void, &buf[index]), want_read_count, &amt_read, null)) {
+                if (system.ReadFile(handle, @ptrCast(&c_void, &buf[index]), want_read_count, &amt_read, null) == 0) {
                     const err = system.GetLastError();
                     return switch (err) {
                         system.ERROR.OPERATION_ABORTED => continue,

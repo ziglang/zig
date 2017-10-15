@@ -24,6 +24,7 @@ const is_windows = builtin.os == Os.windows;
 pub const ChildProcess = struct {
     pub pid: if (is_windows) void else i32,
     pub handle: if (is_windows) windows.HANDLE else void,
+    pub thread_handle: if (is_windows) windows.HANDLE else void,
 
     pub allocator: &mem.Allocator,
 
@@ -82,6 +83,7 @@ pub const ChildProcess = struct {
             .argv = argv,
             .pid = undefined,
             .handle = undefined,
+            .thread_handle = undefined,
             .err_pipe = undefined,
             .llnode = undefined,
             .term = null,
@@ -210,7 +212,7 @@ pub const ChildProcess = struct {
 
         self.term = (%Term)({
             var exit_code: windows.DWORD = undefined;
-            if (!windows.GetExitCodeProcess(self.handle, &exit_code)) {
+            if (windows.GetExitCodeProcess(self.handle, &exit_code) == 0) {
                 Term.Unknown{0}
             } else {
                 Term.Exited {@bitCast(i32, exit_code)}
@@ -218,6 +220,7 @@ pub const ChildProcess = struct {
         });
 
         os.windowsClose(self.handle);
+        os.windowsClose(self.thread_handle);
         self.cleanupStreams();
         return result;
     }
@@ -430,10 +433,11 @@ pub const ChildProcess = struct {
     }
 
     fn spawnWindows(self: &ChildProcess) -> %void {
-        var saAttr: windows.SECURITY_ATTRIBUTES = undefined;
-        saAttr.nLength = @sizeOf(windows.SECURITY_ATTRIBUTES);
-        saAttr.bInheritHandle = true;
-        saAttr.lpSecurityDescriptor = null;
+        var saAttr = windows.SECURITY_ATTRIBUTES {
+            .nLength = @sizeOf(windows.SECURITY_ATTRIBUTES),
+            .bInheritHandle = windows.TRUE,
+            .lpSecurityDescriptor = null,
+        };
 
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or
             self.stdout_behavior == StdIo.Ignore or
@@ -571,9 +575,9 @@ pub const ChildProcess = struct {
         defer if (maybe_envp_buf) |envp_buf| self.allocator.free(envp_buf);
         const envp_ptr = if (maybe_envp_buf) |envp_buf| envp_buf.ptr else null;
 
-        if (!windows.CreateProcessA(app_name.ptr, cmd_line.ptr, null, null, true, 0,
+        if (windows.CreateProcessA(app_name.ptr, cmd_line.ptr, null, null, windows.TRUE, 0,
             @ptrCast(?&c_void, envp_ptr),
-            cwd_ptr, &siStartInfo, &piProcInfo))
+            cwd_ptr, &siStartInfo, &piProcInfo) == windows.FALSE)
         {
             const err = windows.GetLastError();
             return switch (err) {
@@ -582,7 +586,6 @@ pub const ChildProcess = struct {
                 else => error.Unexpected,
             };
         }
-        os.windowsClose(piProcInfo.hThread);
 
         if (stdin_ptr) |outstream| {
             *outstream = io.OutStream {
@@ -609,6 +612,7 @@ pub const ChildProcess = struct {
         }
 
         self.handle = piProcInfo.hProcess;
+        self.thread_handle = piProcInfo.hThread;
         self.term = null;
         self.stdin = stdin_ptr;
         self.stdout = stdout_ptr;
@@ -672,7 +676,7 @@ fn windowsDestroyPipe(rd: ?windows.HANDLE, wr: ?windows.HANDLE) {
 }
 
 fn windowsMakePipe(rd: &windows.HANDLE, wr: &windows.HANDLE, sattr: &windows.SECURITY_ATTRIBUTES) -> %void {
-    if (!windows.CreatePipe(rd, wr, sattr, 0)) {
+    if (windows.CreatePipe(rd, wr, sattr, 0) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
             else => error.Unexpected,
@@ -681,7 +685,7 @@ fn windowsMakePipe(rd: &windows.HANDLE, wr: &windows.HANDLE, sattr: &windows.SEC
 }
 
 fn windowsSetHandleInfo(h: windows.HANDLE, mask: windows.DWORD, flags: windows.DWORD) -> %void {
-    if (!windows.SetHandleInformation(h, mask, flags)) {
+    if (windows.SetHandleInformation(h, mask, flags) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
             else => error.Unexpected,

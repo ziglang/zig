@@ -95,12 +95,12 @@ pub fn getRandomBytes(buf: []u8) -> %void {
         },
         Os.windows => {
             var hCryptProv: windows.HCRYPTPROV = undefined;
-            if (!windows.CryptAcquireContextA(&hCryptProv, null, null, windows.PROV_RSA_FULL, 0)) {
+            if (windows.CryptAcquireContextA(&hCryptProv, null, null, windows.PROV_RSA_FULL, 0) == 0) {
                 return error.Unexpected;
             }
             defer _ = windows.CryptReleaseContext(hCryptProv, 0);
 
-            if (!windows.CryptGenRandom(hCryptProv, windows.DWORD(buf.len), buf.ptr)) {
+            if (windows.CryptGenRandom(hCryptProv, windows.DWORD(buf.len), buf.ptr) == 0) {
                 return error.Unexpected;
             }
         },
@@ -417,7 +417,7 @@ pub fn getEnvMap(allocator: &Allocator) -> %BufMap {
 
     if (is_windows) {
         const ptr = windows.GetEnvironmentStringsA() ?? return error.OutOfMemory;
-        defer assert(windows.FreeEnvironmentStringsA(ptr));
+        defer assert(windows.FreeEnvironmentStringsA(ptr) != 0);
 
         var i: usize = 0;
         while (true) {
@@ -657,7 +657,7 @@ pub fn deleteFileWindows(allocator: &Allocator, file_path: []const u8) -> %void 
     mem.copy(u8, buf, file_path);
     buf[file_path.len] = 0;
 
-    if (!windows.DeleteFileA(buf.ptr)) {
+    if (windows.DeleteFileA(buf.ptr) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
             windows.ERROR.FILE_NOT_FOUND => error.FileNotFound,
@@ -740,7 +740,7 @@ pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8)
 
     if (is_windows) {
         const flags = windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH;
-        if (!windows.MoveFileExA(old_buf.ptr, new_buf.ptr, flags)) {
+        if (windows.MoveFileExA(old_buf.ptr, new_buf.ptr, flags) == 0) {
             const err = windows.GetLastError();
             return switch (err) {
                 else => return error.Unexpected,
@@ -783,7 +783,7 @@ pub fn makeDirWindows(allocator: &Allocator, dir_path: []const u8) -> %void {
     const path_buf = %return cstr.addNullByte(allocator, dir_path);
     defer allocator.free(path_buf);
 
-    if (!windows.CreateDirectoryA(path_buf.ptr, null)) {
+    if (windows.CreateDirectoryA(path_buf.ptr, null) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
             windows.ERROR.ALREADY_EXISTS => error.PathAlreadyExists,
