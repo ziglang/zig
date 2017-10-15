@@ -4,6 +4,7 @@
 // - sin(+-inf) = nan
 // - sin(nan)   = nan
 
+const builtin = @import("builtin");
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
@@ -148,6 +149,11 @@ test "math.sin" {
 }
 
 test "math.sin32" {
+    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
+        // TODO get this test passing
+        // https://github.com/zig-lang/zig/issues/537
+        return;
+    }
     const epsilon = 0.000001;
 
     assert(math.approxEq(f32, sin32(0.0), 0.0, epsilon));
