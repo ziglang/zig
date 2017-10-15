@@ -973,7 +973,6 @@ void os_stderr_set_color(TermColor color) {
         }
     }
 
-    DWORD chars_written;
     switch (color) {
         case TermColorRed:
             SetConsoleTextAttribute(stderr_handle, FOREGROUND_RED|FOREGROUND_INTENSITY);
