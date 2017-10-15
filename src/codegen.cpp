@@ -2272,7 +2272,9 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
 
     for (size_t param_i = 0; param_i < fn_type_id->param_count; param_i += 1) {
         FnGenParamInfo *gen_info = &fn_type->data.fn.gen_param_info[param_i];
-        if (gen_info->is_byval) {
+        // Note: byval is disabled on windows due to an LLVM bug:
+        // https://github.com/zig-lang/zig/issues/536
+        if (gen_info->is_byval && g->zig_target.os != ZigLLVM_Win32) {
             addLLVMCallsiteAttr(result, (unsigned)gen_info->gen_index, "byval");
         }
     }
@@ -4023,6 +4025,7 @@ static void generate_enum_name_tables(CodeGen *g) {
     TypeTableEntry *u8_ptr_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
     TypeTableEntry *str_type = get_slice_type(g, u8_ptr_type);
 
+
     for (size_t enum_i = 0; enum_i < g->name_table_enums.length; enum_i += 1) {
         TypeTableEntry *enum_tag_type = g->name_table_enums.at(enum_i);
         assert(enum_tag_type->id == TypeTableEntryIdEnumTag);
@@ -4257,7 +4260,9 @@ static void do_code_gen(CodeGen *g) {
             if (param_type->id == TypeTableEntryIdPointer) {
                 addLLVMArgAttr(fn_val, (unsigned)gen_index, "nonnull");
             }
-            if (is_byval) {
+            // Note: byval is disabled on windows due to an LLVM bug:
+            // https://github.com/zig-lang/zig/issues/536
+            if (is_byval && g->zig_target.os != ZigLLVM_Win32) {
                 addLLVMArgAttr(fn_val, (unsigned)gen_index, "byval");
             }
         }
