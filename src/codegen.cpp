@@ -5213,7 +5213,8 @@ static void gen_root_source(CodeGen *g) {
     assert(g->root_out_name);
     assert(g->out_type != OutTypeUnknown);
 
-    if (!g->is_test_build && g->zig_target.os != ZigLLVM_UnknownOS && !g->have_c_main && !g->have_winmain &&
+    if (!g->is_test_build && g->zig_target.os != ZigLLVM_UnknownOS &&
+        !g->have_c_main && !g->have_winmain && !g->have_winmain_crt_startup &&
         ((g->have_pub_main && g->out_type == OutTypeObj) || g->out_type == OutTypeExe))
     {
         g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g, g->root_package), "bootstrap.zig");

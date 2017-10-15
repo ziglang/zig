@@ -1455,6 +1455,7 @@ struct CodeGen {
     bool have_pub_main;
     bool have_c_main;
     bool have_winmain;
+    bool have_winmain_crt_startup;
     bool have_pub_panic;
     Buf *libc_lib_dir;
     Buf *libc_static_lib_dir;
