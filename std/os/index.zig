@@ -1432,7 +1432,7 @@ const unexpected_error_tracing = false;
 
 /// Call this when you made a syscall or something that sets errno
 /// and you get an unexpected error.
-pub fn unexpectedErrorPosix(errno: c_int) -> error {
+pub fn unexpectedErrorPosix(errno: usize) -> error {
     if (unexpected_error_tracing) {
         io.stderr.printf("unexpected errno: {}\n", errno) %% return;
         debug.printStackTrace() %% return;
