@@ -170,7 +170,8 @@ pub const OutStream = struct {
         if (self.index == 0)
             return;
 
-        return self.unbufferedWrite(self.buffer[0..self.index]);
+        %return self.unbufferedWrite(self.buffer[0..self.index]);
+        self.index = 0;
     }
 
     pub fn close(self: &OutStream) {
@@ -216,12 +217,10 @@ pub const OutStream = struct {
 
     fn unbufferedWrite(self: &OutStream, bytes: []const u8) -> %void {
         if (is_posix) {
-            %return os.posixWrite(self.fd, self.buffer[0..self.index]);
-            self.index = 0;
+            %return os.posixWrite(self.fd, bytes);
         } else if (is_windows) {
             const handle = %return self.getHandle();
-            %return os.windowsWrite(handle, self.buffer[0..self.index]);
-            self.index = 0;
+            %return os.windowsWrite(handle, bytes);
         } else {
             @compileError("Unsupported OS");
         }
