@@ -504,7 +504,7 @@ pub fn getEnvVarOwned(allocator: &mem.Allocator, key: []const u8) -> %[]u8 {
         }
     } else {
         const result = getEnvPosix(key) ?? return error.EnvironmentVariableNotFound;
-        return mem.dupe(u8, allocator, result);
+        return mem.dupe(allocator, u8, result);
     }
 }
 
