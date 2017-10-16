@@ -889,7 +889,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\const resource = @embedFile("bogus.txt");
         \\
         \\export fn entry() -> usize { @sizeOf(@typeOf(resource)) }
-    , ".tmp_source.zig:1:29: error: unable to find '", "/bogus.txt'");
+    , ".tmp_source.zig:1:29: error: unable to find '", "bogus.txt'");
 
     cases.add("non-const expression in struct literal outside function",
         \\const Foo = struct {

@@ -97,12 +97,14 @@ int os_self_exe_path(Buf *out_path);
 #define ZIG_PRI_llu "I64u"
 #define ZIG_PRI_x64 "I64x"
 #define OS_SEP "\\"
+#define ZIG_OS_SEP_CHAR '\\'
 #else
 #define ZIG_PRI_usize "zu"
 #define ZIG_PRI_u64 PRIu64
 #define ZIG_PRI_llu "llu"
 #define ZIG_PRI_x64 PRIx64
 #define OS_SEP "/"
+#define ZIG_OS_SEP_CHAR '/'
 #endif
 
 #endif

@@ -1220,7 +1220,6 @@ pub const ArgIteratorPosix = struct {
 pub const ArgIteratorWindows = struct {
     index: usize,
     cmd_line: &const u8,
-    backslash_count: usize,
     in_quote: bool,
     quote_count: usize,
     seen_quote_count: usize,
@@ -1233,7 +1232,6 @@ pub const ArgIteratorWindows = struct {
         return ArgIteratorWindows {
             .index = 0,
             .cmd_line = cmd_line,
-            .backslash_count = 0,
             .in_quote = false,
             .quote_count = countQuotes(cmd_line),
             .seen_quote_count = 0,
@@ -1266,25 +1264,30 @@ pub const ArgIteratorWindows = struct {
             }
         }
 
+        var backslash_count: usize = 0;
         while (true) : (self.index += 1) {
             const byte = self.cmd_line[self.index];
             switch (byte) {
                 0 => return true,
                 '"' => {
-                    const quote_is_real = self.backslash_count % 2 == 0;
+                    const quote_is_real = backslash_count % 2 == 0;
                     if (quote_is_real) {
                         self.seen_quote_count += 1;
                     }
                 },
                 '\\' => {
-                    self.backslash_count += 1;
+                    backslash_count += 1;
                 },
                 ' ', '\t' => {
                     if (self.seen_quote_count % 2 == 0 or self.seen_quote_count == self.quote_count) {
                         return true;
                     }
+                    backslash_count = 0;
                 },
-                else => continue,
+                else => {
+                    backslash_count = 0;
+                    continue;
+                },
             }
         }
     }
@@ -1293,13 +1296,15 @@ pub const ArgIteratorWindows = struct {
         var buf = %return Buffer.initSize(allocator, 0);
         defer buf.deinit();
 
+        var backslash_count: usize = 0;
         while (true) : (self.index += 1) {
             const byte = self.cmd_line[self.index];
             switch (byte) {
                 0 => return buf.toOwnedSlice(),
                 '"' => {
-                    const quote_is_real = self.backslash_count % 2 == 0;
-                    %return self.emitBackslashes(&buf, self.backslash_count / 2);
+                    const quote_is_real = backslash_count % 2 == 0;
+                    %return self.emitBackslashes(&buf, backslash_count / 2);
+                    backslash_count = 0;
 
                     if (quote_is_real) {
                         self.seen_quote_count += 1;
@@ -1311,10 +1316,11 @@ pub const ArgIteratorWindows = struct {
                     }
                 },
                 '\\' => {
-                    self.backslash_count += 1;
+                    backslash_count += 1;
                 },
                 ' ', '\t' => {
-                    %return self.emitBackslashes(&buf, self.backslash_count);
+                    %return self.emitBackslashes(&buf, backslash_count);
+                    backslash_count = 0;
                     if (self.seen_quote_count % 2 == 1 and self.seen_quote_count != self.quote_count) {
                         %return buf.appendByte(byte);
                     } else {
@@ -1322,7 +1328,8 @@ pub const ArgIteratorWindows = struct {
                     }
                 },
                 else => {
-                    %return self.emitBackslashes(&buf, self.backslash_count);
+                    %return self.emitBackslashes(&buf, backslash_count);
+                    backslash_count = 0;
                     %return buf.appendByte(byte);
                 },
             }
@@ -1330,7 +1337,6 @@ pub const ArgIteratorWindows = struct {
     }
 
     fn emitBackslashes(self: &ArgIteratorWindows, buf: &Buffer, emit_count: usize) -> %void {
-        self.backslash_count = 0;
         var i: usize = 0;
         while (i < emit_count) : (i += 1) {
             %return buf.appendByte('\\');
@@ -1400,6 +1406,9 @@ test "windows arg parsing" {
     testWindowsCmdLine(c"a\\\\\\\"b c d", [][]const u8{"a\\\"b", "c", "d"});
     testWindowsCmdLine(c"a\\\\\\\\\"b c\" d e", [][]const u8{"a\\\\b c", "d", "e"});
     testWindowsCmdLine(c"a   b\tc \"d f", [][]const u8{"a", "b", "c", "\"d", "f"});
+
+    testWindowsCmdLine(c"\".\\..\\zig-cache\\build\" \"bin\\zig.exe\" \".\\..\" \".\\..\\zig-cache\" \"--help\"",
+        [][]const u8{".\\..\\zig-cache\\build", "bin\\zig.exe", ".\\..", ".\\..\\zig-cache", "--help"});
 }
 
 fn testWindowsCmdLine(input_cmd_line: &const u8, expected_args: []const []const u8) {

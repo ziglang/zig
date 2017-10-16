@@ -230,7 +230,7 @@ void os_path_join(Buf *dirname, Buf *basename, Buf *out_full_path) {
     buf_init_from_buf(out_full_path, dirname);
     uint8_t c = *(buf_ptr(out_full_path) + buf_len(out_full_path) - 1);
     if (!os_is_sep(c))
-        buf_append_char(out_full_path, '/');
+        buf_append_char(out_full_path, ZIG_OS_SEP_CHAR);
     buf_append_buf(out_full_path, basename);
 }
 
@@ -838,7 +838,7 @@ int os_make_path(Buf *path) {
                 // march end_index backward until next path component
                 while (true) {
                     end_index -= 1;
-                    if (buf_ptr(resolved_path)[end_index] == '/')
+                    if (os_is_sep(buf_ptr(resolved_path)[end_index]))
                         break;
                 }
                 continue;
@@ -851,7 +851,7 @@ int os_make_path(Buf *path) {
         // march end_index forward until next path component
         while (true) {
             end_index += 1;
-            if (end_index == buf_len(resolved_path) || buf_ptr(resolved_path)[end_index] == '/')
+            if (end_index == buf_len(resolved_path) || os_is_sep(buf_ptr(resolved_path)[end_index]))
                 break;
         }
     }
