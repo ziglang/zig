@@ -59,6 +59,8 @@ static int usage(const char *arg0) {
         "  --each-lib-rpath             add rpath for each used dynamic library\n"
         "  --libc-lib-dir [path]        directory where libc crt1.o resides\n"
         "  --libc-static-lib-dir [path] directory where libc crtbegin.o resides\n"
+        "  --msvc-lib-dir [path]        (windows) directory where vcruntime.lib resides\n"
+        "  --kernel32-lib-dir [path]    (windows) directory where kernel32.lib resides\n"
         "  --library [lib]              link against lib\n"
         "  --library-path [dir]         add a directory to the library search path\n"
         "  --linker-script [path]       use a custom linker script\n"
@@ -279,6 +281,8 @@ int main(int argc, char **argv) {
     const char *libc_lib_dir = nullptr;
     const char *libc_static_lib_dir = nullptr;
     const char *libc_include_dir = nullptr;
+    const char *msvc_lib_dir = nullptr;
+    const char *kernel32_lib_dir = nullptr;
     const char *zig_install_prefix = nullptr;
     const char *dynamic_linker = nullptr;
     ZigList<const char *> clang_argv = {0};
@@ -518,6 +522,10 @@ int main(int argc, char **argv) {
                     libc_static_lib_dir = argv[i];
                 } else if (strcmp(arg, "--libc-include-dir") == 0) {
                     libc_include_dir = argv[i];
+                } else if (strcmp(arg, "--msvc-lib-dir") == 0) {
+                    msvc_lib_dir = argv[i];
+                } else if (strcmp(arg, "--kernel32-lib-dir") == 0) {
+                    kernel32_lib_dir = argv[i];
                 } else if (strcmp(arg, "--zig-install-prefix") == 0) {
                     zig_install_prefix = argv[i];
                 } else if (strcmp(arg, "--dynamic-linker") == 0) {
@@ -728,6 +736,10 @@ int main(int argc, char **argv) {
                 codegen_set_libc_static_lib_dir(g, buf_create_from_str(libc_static_lib_dir));
             if (libc_include_dir)
                 codegen_set_libc_include_dir(g, buf_create_from_str(libc_include_dir));
+            if (msvc_lib_dir)
+                codegen_set_msvc_lib_dir(g, buf_create_from_str(msvc_lib_dir));
+            if (kernel32_lib_dir)
+                codegen_set_kernel32_lib_dir(g, buf_create_from_str(kernel32_lib_dir));
             if (dynamic_linker)
                 codegen_set_dynamic_linker(g, buf_create_from_str(dynamic_linker));
             codegen_set_verbose(g, verbose);
