@@ -587,6 +587,7 @@ install(FILES "${CMAKE_SOURCE_DIR}/std/os/windows/util.zig" DESTINATION "${ZIG_S
 install(FILES "${CMAKE_SOURCE_DIR}/std/rand.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/sort.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/bootstrap.zig" DESTINATION "${ZIG_STD_DEST}/special")
+install(FILES "${CMAKE_SOURCE_DIR}/std/special/bootstrap_lib.zig" DESTINATION "${ZIG_STD_DEST}/special")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/build_file_template.zig" DESTINATION "${ZIG_STD_DEST}/special")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/build_runner.zig" DESTINATION "${ZIG_STD_DEST}/special")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/builtin.zig" DESTINATION "${ZIG_STD_DEST}/special")

@@ -636,6 +636,20 @@ pub const Builder = struct {
     pub fn fmt(self: &Builder, comptime format: []const u8, args: ...) -> []u8 {
         return %%fmt_lib.allocPrint(self.allocator, format, args);
     }
+
+    fn getCCExe(self: &Builder) -> []const u8 {
+        if (builtin.environ == builtin.Environ.msvc) {
+            return "cl.exe";
+        } else {
+            return os.getEnvVarOwned(self.builder.allocator, "CC") %% |err| {
+                if (err == error.EnvironmentVariableNotFound) {
+                    ([]const u8)("cc")
+                } else {
+                    return err
+                }
+            };
+        }
+    }
 };
 
 const Version = struct {
@@ -684,6 +698,17 @@ const Target = enum {
             builtin.Os.darwin, builtin.Os.ios, builtin.Os.macosx => true,
             else => false,
         };
+    }
+
+    pub fn isWindows(self: &const Target) -> bool {
+        return switch (self.getOs()) {
+            builtin.Os.windows => true,
+            else => false,
+        };
+    }
+
+    pub fn wantSharedLibSymLinks(self: &const Target) -> bool {
+        return !self.isWindows();
     }
 };
 
@@ -885,7 +910,7 @@ pub const LibExeObjStep = struct {
                             self.name_only_filename = self.builder.fmt("lib{}.dylib", self.name);
                         },
                         builtin.Os.windows => {
-                            self.out_filename = self.builder.fmt("lib{}.dll", self.name);
+                            self.out_filename = self.builder.fmt("{}.dll", self.name);
                         },
                         else => {
                             self.out_filename = self.builder.fmt("lib{}.so.{d}.{d}.{d}",
@@ -1200,7 +1225,7 @@ pub const LibExeObjStep = struct {
 
         %return builder.spawnChild(zig_args.toSliceConst());
 
-        if (self.kind == Kind.Lib and !self.static) {
+        if (self.kind == Kind.Lib and !self.static and self.target.wantSharedLibSymLinks()) {
             %return doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename,
                 self.name_only_filename);
         }
@@ -1252,14 +1277,9 @@ pub const LibExeObjStep = struct {
     }
 
     fn makeC(self: &LibExeObjStep) -> %void {
-        const cc = os.getEnvVarOwned(self.builder.allocator, "CC") %% |err| {
-            if (err == error.EnvironmentVariableNotFound) {
-                ([]const u8)("cc")
-            } else {
-                return err
-            }
-        };
         const builder = self.builder;
+
+        const cc = builder.getCCExe();
 
         assert(!self.is_zig);
 
@@ -1390,8 +1410,10 @@ pub const LibExeObjStep = struct {
 
                     %return builder.spawnChild(cc_args.toSliceConst());
 
-                    %return doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename,
-                        self.name_only_filename);
+                    if (self.target.wantSharedLibSymLinks()) {
+                        %return doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename,
+                            self.name_only_filename);
+                    }
                 }
             },
             Kind.Exe => {

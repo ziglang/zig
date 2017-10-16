@@ -372,6 +372,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
     // how to handle --target-environ gnu
     // These comments are a clue
 
+    bool is_library = g->out_type == OutTypeLib;
     //bool dll = g->out_type == OutTypeLib;
     //bool shared = !g->is_static && dll;
     //if (g->is_static) {
@@ -422,11 +423,17 @@ static void construct_linker_job_coff(LinkJob *lj) {
         //lj->args.append(get_libc_static_file(g, "crtbegin.o"));
     } else {
         lj->args.append("-NODEFAULTLIB");
-        if (g->have_winmain) {
-            lj->args.append("-ENTRY:WinMain");
-        } else {
-            lj->args.append("-ENTRY:WinMainCRTStartup");
+        if (!is_library) {
+            if (g->have_winmain) {
+                lj->args.append("-ENTRY:WinMain");
+            } else {
+                lj->args.append("-ENTRY:WinMainCRTStartup");
+            }
         }
+    }
+
+    if (is_library && !g->is_static) {
+        lj->args.append("-DLL");
     }
 
     for (size_t i = 0; i < g->lib_dirs.length; i += 1) {

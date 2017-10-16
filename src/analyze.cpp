@@ -3200,6 +3200,10 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *a
                 buf_eql_str(proto_name, "WinMainCRTStartup") && g->zig_target.os == ZigLLVM_Win32)
             {
                 g->have_winmain_crt_startup = true;
+            } else if (proto_node->data.fn_proto.visib_mod == VisibModExport &&
+                buf_eql_str(proto_name, "DllMainCRTStartup") && g->zig_target.os == ZigLLVM_Win32)
+            {
+                g->have_dllmain_crt_startup = true;
             }
 
         }
