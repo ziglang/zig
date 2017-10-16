@@ -3,3 +3,7 @@ platform:
   - x64
 build_script:
   - '%APPVEYOR_BUILD_FOLDER%\ci\appveyor\build_script.bat'
+after_build:
+  - '%APPVEYOR_BUILD_FOLDER%\ci\appveyor\after_build.bat'
+cache:
+  - 'llvm+clang-5.0.0-win64-msvc-release.tar.xz'

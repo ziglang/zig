@@ -149,7 +149,7 @@ else()
     add_library(embedded_lld_elf ${EMBEDDED_LLD_ELF_SOURCES})
     add_library(embedded_lld_coff ${EMBEDDED_LLD_COFF_SOURCES})
     if(MSVC)
-        set(ZIG_LLD_COMPILE_FLAGS "-std=c++11 -D_CRT_SECURE_NO_WARNINGS")
+        set(ZIG_LLD_COMPILE_FLAGS "-std=c++11 -D_CRT_SECURE_NO_WARNINGS /w")
     else()
         set(ZIG_LLD_COMPILE_FLAGS "-std=c++11 -fno-exceptions -fno-rtti -Wno-comment")
     endif()
@@ -303,7 +303,7 @@ set(EMBEDDED_SOFTFLOAT_SOURCES
 add_library(embedded_softfloat ${EMBEDDED_SOFTFLOAT_SOURCES})
 if(MSVC)
     set_target_properties(embedded_softfloat PROPERTIES
-        COMPILE_FLAGS "-std=c99"
+        COMPILE_FLAGS "-std=c99 /w"
     )
 else()
     set_target_properties(embedded_softfloat PROPERTIES
@@ -359,7 +359,7 @@ include_directories(
 )
 
 if(MSVC)
-  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
+  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /w")
 elseif(MINGW)
   set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Werror -Wno-error=format= -Wno-error=format -Wno-error=format-extra-args")
 else()
