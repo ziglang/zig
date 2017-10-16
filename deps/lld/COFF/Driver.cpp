@@ -61,6 +61,7 @@ bool link(ArrayRef<const char *> Args, raw_ostream &Diag) {
       (ErrorOS == &llvm::errs() && Process::StandardErrHasColors());
   Driver = make<LinkerDriver>();
   Driver->link(Args);
+  freeArena();
   return !ErrorCount;
 }
 
