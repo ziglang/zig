@@ -65,6 +65,8 @@ static Buf *build_o_raw(CodeGen *parent_gen, const char *oname, Buf *full_path) 
     os_path_join(parent_gen->cache_dir, o_out_name, output_path);
     codegen_link(child_gen, buf_ptr(output_path));
 
+    codegen_destroy(child_gen);
+
     return output_path;
 }
 

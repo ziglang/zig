@@ -421,6 +421,7 @@ int main(int argc, char **argv) {
         g->root_package->package_table.put(buf_create_from_str("@build"), build_pkg);
         codegen_build(g);
         codegen_link(g, buf_ptr(path_to_build_exe));
+        codegen_destroy(g);
 
         Termination term;
         os_spawn_process(buf_ptr(path_to_build_exe), args, &term);

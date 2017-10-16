@@ -165,7 +165,8 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
 
     MPM.run(*module);
 
-    dest.flush();
+    dest.close();
+
     return false;
 }
 

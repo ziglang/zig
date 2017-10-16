@@ -152,6 +152,10 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
     return g;
 }
 
+void codegen_destroy(CodeGen *codegen) {
+    LLVMDisposeTargetMachine(codegen->target_machine);
+}
+
 void codegen_set_output_h_path(CodeGen *g, Buf *h_path) {
     g->out_h_path = h_path;
 }
