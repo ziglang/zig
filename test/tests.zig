@@ -324,23 +324,23 @@ pub const CompareOutputContext = struct {
                 debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
             };
 
-            const debug_trap_signal: i32 = 5;
+            const expected_exit_code: i32 = 126;
             switch (term) {
                 Term.Exited => |code| {
-                    %%io.stderr.printf("\nProgram expected to hit debug trap (signal {}) " ++
-                        "but exited with return code {}\n", debug_trap_signal, code);
-                    return error.TestFailed;
-                },
-                Term.Signal => |sig| {
-                    if (sig != debug_trap_signal) {
-                        %%io.stderr.printf("\nProgram expected to hit debug trap (signal {}) " ++
-                            "but instead signaled {}\n", debug_trap_signal, sig);
+                    if (code != expected_exit_code) {
+                        %%io.stderr.printf("\nProgram expected to exit with code {} " ++
+                            "but exited with code {}\n", expected_exit_code, code);
                         return error.TestFailed;
                     }
                 },
+                Term.Signal => |sig| {
+                    %%io.stderr.printf("\nProgram expected to exit with code {} " ++
+                        "but instead signaled {}\n", expected_exit_code, sig);
+                    return error.TestFailed;
+                },
                 else => {
-                    %%io.stderr.printf("\nProgram expected to hit debug trap (signal {}) " ++
-                        " but exited in an unexpected way\n", debug_trap_signal);
+                    %%io.stderr.printf("\nProgram expected to exit with code {}" ++
+                        " but exited in an unexpected way\n", expected_exit_code);
                     return error.TestFailed;
                 },
             }
