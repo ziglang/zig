@@ -641,11 +641,11 @@ pub const Builder = struct {
         if (builtin.environ == builtin.Environ.msvc) {
             return "cl.exe";
         } else {
-            return os.getEnvVarOwned(self.builder.allocator, "CC") %% |err| {
+            return os.getEnvVarOwned(self.allocator, "CC") %% |err| {
                 if (err == error.EnvironmentVariableNotFound) {
                     ([]const u8)("cc")
                 } else {
-                    return err
+                    debug.panic("Unable to get environment variable: {}", err);
                 }
             };
         }
