@@ -1443,8 +1443,8 @@ const unexpected_error_tracing = false;
 /// and you get an unexpected error.
 pub fn unexpectedErrorPosix(errno: usize) -> error {
     if (unexpected_error_tracing) {
-        io.stderr.printf("unexpected errno: {}\n", errno) %% return;
-        debug.printStackTrace() %% return;
+        io.stderr.printf("unexpected errno: {}\n", errno) %% return error.Unexpected;
+        debug.printStackTrace() %% return error.Unexpected;
     }
     return error.Unexpected;
 }
@@ -1453,8 +1453,8 @@ pub fn unexpectedErrorPosix(errno: usize) -> error {
 /// and you get an unexpected error.
 pub fn unexpectedErrorWindows(err: windows.DWORD) -> error {
     if (unexpected_error_tracing) {
-        io.stderr.printf("unexpected GetLastError(): {}\n", err) %% return;
-        debug.printStackTrace() %% return;
+        io.stderr.printf("unexpected GetLastError(): {}\n", err) %% return error.Unexpected;
+        debug.printStackTrace() %% return error.Unexpected;
     }
     return error.Unexpected;
 }

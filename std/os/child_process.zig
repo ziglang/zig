@@ -142,7 +142,7 @@ pub const ChildProcess = struct {
         if (!windows.TerminateProcess(self.handle, exit_code)) {
             const err = windows.GetLastError();
             return switch (err) {
-                else => error.Unexpected,
+                else => os.unexpectedErrorWindows(err),
             };
         }
         self.waitUnwrappedWindows();
@@ -164,7 +164,7 @@ pub const ChildProcess = struct {
                 posix.EINVAL => unreachable,
                 posix.EPERM => error.PermissionDenied,
                 posix.ESRCH => error.ProcessNotFound,
-                else => error.Unexpected,
+                else => os.unexpectedErrorPosix(err),
             };
         }
         self.waitUnwrapped();
@@ -357,7 +357,7 @@ pub const ChildProcess = struct {
             restore_SIGCHLD();
             return switch (pid_err) {
                 posix.EAGAIN, posix.ENOMEM, posix.ENOSYS => error.SystemResources,
-                else => error.Unexpected,
+                else => os.unexpectedErrorPosix(pid_err),
             };
         }
         if (pid_result == 0) {
@@ -556,9 +556,6 @@ pub const ChildProcess = struct {
         };
         var piProcInfo: windows.PROCESS_INFORMATION = undefined;
 
-        const app_name = %return cstr.addNullByte(self.allocator, self.argv[0]);
-        defer self.allocator.free(app_name);
-
         const cwd_slice = if (self.cwd) |cwd| {
             %return cstr.addNullByte(self.allocator, cwd)
         } else {
@@ -575,17 +572,42 @@ pub const ChildProcess = struct {
         defer if (maybe_envp_buf) |envp_buf| self.allocator.free(envp_buf);
         const envp_ptr = if (maybe_envp_buf) |envp_buf| envp_buf.ptr else null;
 
-        if (windows.CreateProcessA(app_name.ptr, cmd_line.ptr, null, null, windows.TRUE, 0,
-            @ptrCast(?&c_void, envp_ptr),
-            cwd_ptr, &siStartInfo, &piProcInfo) == windows.FALSE)
+        // the cwd set in ChildProcess is in effect when choosing the executable path
+        // to match posix semantics
+        const app_name = if (self.cwd) |cwd| {
+            const resolved = %return os.path.resolve(self.allocator, cwd, self.argv[0]);
+            defer self.allocator.free(resolved);
+            %return cstr.addNullByte(self.allocator, resolved)
+        } else {
+            %return cstr.addNullByte(self.allocator, self.argv[0])
+        };
+        defer self.allocator.free(app_name);
+
+        windowsCreateProcess(app_name.ptr, cmd_line.ptr, envp_ptr, cwd_ptr,
+            &siStartInfo, &piProcInfo) %% |no_path_err|
         {
-            const err = windows.GetLastError();
-            return switch (err) {
-                windows.ERROR.FILE_NOT_FOUND => error.FileNotFound,
-                windows.ERROR.INVALID_PARAMETER => unreachable,
-                else => error.Unexpected,
-            };
-        }
+            if (no_path_err != error.FileNotFound)
+                return no_path_err;
+
+            const PATH = %return os.getEnvVarOwned(self.allocator, "PATH");
+            defer self.allocator.free(PATH);
+
+            var it = mem.split(PATH, ";");
+            while (it.next()) |search_path| {
+                const joined_path = %return os.path.join(self.allocator, search_path, app_name);
+                defer self.allocator.free(joined_path);
+
+                if (windowsCreateProcess(joined_path.ptr, cmd_line.ptr, envp_ptr, cwd_ptr,
+                    &siStartInfo, &piProcInfo)) |_|
+                {
+                    break;
+                } else |err| if (err == error.FileNotFound) {
+                    continue;
+                } else {
+                    return err;
+                }
+            }
+        };
 
         if (stdin_ptr) |outstream| {
             *outstream = io.OutStream {
@@ -632,6 +654,24 @@ pub const ChildProcess = struct {
         }
     }
 };
+
+fn windowsCreateProcess(app_name: &u8, cmd_line: &u8, envp_ptr: ?&u8, cwd_ptr: ?&u8,
+    lpStartupInfo: &windows.STARTUPINFOA, lpProcessInformation: &windows.PROCESS_INFORMATION) -> %void
+{
+    if (windows.CreateProcessA(app_name, cmd_line, null, null, windows.TRUE, 0,
+        @ptrCast(?&c_void, envp_ptr), cwd_ptr, lpStartupInfo, lpProcessInformation) == 0)
+    {
+        const err = windows.GetLastError();
+        return switch (err) {
+            windows.ERROR.FILE_NOT_FOUND, windows.ERROR.PATH_NOT_FOUND => error.FileNotFound,
+            windows.ERROR.INVALID_PARAMETER => unreachable,
+            else => os.unexpectedErrorWindows(err),
+        };
+    }
+}
+
+
+
 
 /// Caller must dealloc.
 /// Guarantees a null byte at result[result.len].
@@ -684,7 +724,7 @@ fn windowsMakePipe(rd: &windows.HANDLE, wr: &windows.HANDLE, sattr: &const SECUR
     if (windows.CreatePipe(rd, wr, sattr, 0) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
-            else => error.Unexpected,
+            else => os.unexpectedErrorWindows(err),
         };
     }
 }
@@ -693,7 +733,7 @@ fn windowsSetHandleInfo(h: windows.HANDLE, mask: windows.DWORD, flags: windows.D
     if (windows.SetHandleInformation(h, mask, flags) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
-            else => error.Unexpected,
+            else => os.unexpectedErrorWindows(err),
         };
     }
 }
@@ -724,7 +764,7 @@ fn makePipe() -> %[2]i32 {
     if (err > 0) {
         return switch (err) {
             posix.EMFILE, posix.ENFILE => error.SystemResources,
-            else => error.Unexpected,
+            else => os.unexpectedErrorPosix(err),
         }
     }
     return fds;
