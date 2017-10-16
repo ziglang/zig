@@ -4041,6 +4041,12 @@ static void generate_enum_name_tables(CodeGen *g) {
     TypeTableEntry *u8_ptr_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
     TypeTableEntry *str_type = get_slice_type(g, u8_ptr_type);
 
+    TypeTableEntry *usize = g->builtin_types.entry_usize;
+    LLVMValueRef array_ptr_indices[] = {
+        LLVMConstNull(usize->type_ref),
+        LLVMConstNull(usize->type_ref),
+    };
+
 
     for (size_t enum_i = 0; enum_i < g->name_table_enums.length; enum_i += 1) {
         TypeTableEntry *enum_tag_type = g->name_table_enums.at(enum_i);
@@ -4061,7 +4067,7 @@ static void generate_enum_name_tables(CodeGen *g) {
             LLVMSetAlignment(str_global, LLVMABIAlignmentOfType(g->target_data_ref, LLVMTypeOf(str_init)));
 
             LLVMValueRef fields[] = {
-                LLVMConstBitCast(str_global, u8_ptr_type->type_ref),
+                LLVMConstGEP(str_global, array_ptr_indices, 2),
                 LLVMConstInt(g->builtin_types.entry_usize->type_ref, buf_len(name), false),
             };
             values[field_i] = LLVMConstNamedStruct(str_type->type_ref, fields, 2);
