@@ -388,6 +388,12 @@ static LLVMCallConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
     zig_unreachable();
 }
 
+static void add_uwtable_attr(CodeGen *g, LLVMValueRef fn_val) {
+    if (g->zig_target.os == ZigLLVM_Win32) {
+        addLLVMFnAttr(fn_val, "uwtable");
+    }
+}
+
 static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     if (fn_table_entry->llvm_value)
         return fn_table_entry->llvm_value;
@@ -476,6 +482,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     }
 
     addLLVMFnAttr(fn_table_entry->llvm_value, "nounwind");
+    add_uwtable_attr(g, fn_table_entry->llvm_value);
     addLLVMFnAttr(fn_table_entry->llvm_value, "nobuiltin");
     if (g->build_mode == BuildModeDebug && fn_table_entry->fn_inline != FnInlineAlways) {
         ZigLLVMAddFunctionAttr(fn_table_entry->llvm_value, "no-frame-pointer-elim", "true");
@@ -885,6 +892,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
     LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
+    add_uwtable_attr(g, fn_val);
     if (g->build_mode == BuildModeDebug) {
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
