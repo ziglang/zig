@@ -5,7 +5,7 @@ clarity.
 
 [ziglang.org](http://ziglang.org)
 
-[Documentation](http://ziglang.org/documentation/)
+[Documentation](http://ziglang.org/documentation/master/)
 
 ## Feature Highlights
 
