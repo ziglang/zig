@@ -43,3 +43,7 @@ pub extern "c" fn sigaction(sig: c_int, noalias act: &const Sigaction, noalias o
 pub extern "c" fn nanosleep(rqtp: &const timespec, rmtp: ?&timespec) -> c_int;
 pub extern "c" fn setreuid(ruid: c_uint, euid: c_uint) -> c_int;
 pub extern "c" fn setregid(rgid: c_uint, egid: c_uint) -> c_int;
+
+pub extern "c" fn malloc(usize) -> ?&c_void;
+pub extern "c" fn realloc(&c_void, usize) -> ?&c_void;
+pub extern "c" fn free(&c_void);

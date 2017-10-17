@@ -5,6 +5,7 @@ const os = @import("os/index.zig");
 const io = @import("io.zig");
 const builtin = @import("builtin");
 const Os = builtin.Os;
+const c = @import("c/index.zig");
 
 pub const Cmp = math.Cmp;
 
@@ -83,6 +84,38 @@ pub const Allocator = struct {
         self.freeFn(self, non_const_ptr[0..bytes.len]);
     }
 };
+
+pub var c_allocator = Allocator {
+    .allocFn = cAlloc,
+    .reallocFn = cRealloc,
+    .freeFn = cFree,
+};
+
+fn cAlloc(self: &Allocator, n: usize, alignment: usize) -> %[]u8 {
+    if (c.malloc(usize(n))) |mem| {
+        @ptrCast(&u8, mem)[0..n]
+    } else {
+        error.OutOfMemory
+    }
+}
+
+fn cRealloc(self: &Allocator, old_mem: []u8, new_size: usize, alignment: usize) -> %[]u8 {
+    if (new_size <= old_mem.len) {
+        old_mem[0..new_size]
+    } else {
+        const old_ptr = @ptrCast(&c_void, old_mem.ptr);
+        if (c.realloc(old_ptr, usize(new_size))) |mem| {
+            @ptrCast(&u8, mem)[0..new_size]
+        } else {
+            error.OutOfMemory
+        }
+    }
+}
+
+fn cFree(self: &Allocator, old_mem: []u8) {
+    const old_ptr = @ptrCast(&c_void, old_mem.ptr);
+    c.free(old_ptr);
+}
 
 pub const IncrementingAllocator = struct {
     allocator: Allocator,
