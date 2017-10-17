@@ -20,7 +20,7 @@ if(GIT_EXE)
         COMMAND ${GIT_EXE} name-rev HEAD --tags --name-only --no-undefined --always
         OUTPUT_VARIABLE ZIG_GIT_REV
         OUTPUT_STRIP_TRAILING_WHITESPACE)
-    if(ZIG_GIT_REV MATCHES "\\\\^0$")
+    if(ZIG_GIT_REV MATCHES "\\^0$")
         if(NOT("${ZIG_GIT_REV}" STREQUAL "${ZIG_VERSION}^0"))
             message("WARNING: Tag does not match configured Zig version")
         endif()
