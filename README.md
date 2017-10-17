@@ -58,31 +58,17 @@ that counts as "freestanding" for the purposes of this table.
 |x86_64       | OK           | OK      | OK      | OK      | planned |
 |arm          | OK           | planned | planned | N/A     | planned |
 |aarch64      | OK           | planned | planned | planned | planned |
-|avr          | OK           | planned | planned | N/A     | planned |
 |bpf          | OK           | planned | planned | N/A     | planned |
 |hexagon      | OK           | planned | planned | N/A     | planned |
 |mips         | OK           | planned | planned | N/A     | planned |
-|msp430       | OK           | planned | planned | N/A     | planned |
-|nios2        | OK           | planned | planned | N/A     | planned |
 |powerpc      | OK           | planned | planned | N/A     | planned |
 |r600         | OK           | planned | planned | N/A     | planned |
 |amdgcn       | OK           | planned | planned | N/A     | planned |
-|riscv        | OK           | planned | planned | N/A     | planned |
 |sparc        | OK           | planned | planned | N/A     | planned |
 |s390x        | OK           | planned | planned | N/A     | planned |
-|tce          | OK           | planned | planned | N/A     | planned |
 |thumb        | OK           | planned | planned | N/A     | planned |
-|xcore        | OK           | planned | planned | N/A     | planned |
-|nvptx        | OK           | planned | planned | N/A     | planned |
-|le           | OK           | planned | planned | N/A     | planned |
-|amdil        | OK           | planned | planned | N/A     | planned |
-|hsail        | OK           | planned | planned | N/A     | planned |
 |spir         | OK           | planned | planned | N/A     | planned |
-|kalimba      | OK           | planned | planned | N/A     | planned |
-|shave        | OK           | planned | planned | N/A     | planned |
 |lanai        | OK           | planned | planned | N/A     | planned |
-|wasm         | OK           | N/A     | N/A     | N/A     | N/A     |
-|renderscript | OK           | N/A     | N/A     | N/A     | N/A     |
 
 ## Community
 
