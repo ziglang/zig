@@ -24,10 +24,12 @@ test "std.os" {
 pub const windows = @import("windows/index.zig");
 pub const darwin = @import("darwin.zig");
 pub const linux = @import("linux/index.zig");
+pub const freebsd = @import("freebsd.zig");
 pub const zen = @import("zen.zig");
 pub const posix = switch (builtin.os) {
     Os.linux => linux,
     Os.macosx, Os.ios => darwin,
+    Os.freebsd => freebsd,
     Os.zen => zen,
     else => @compileError("Unsupported OS"),
 };
@@ -174,7 +176,7 @@ pub fn abort() noreturn {
         c.abort();
     }
     switch (builtin.os) {
-        Os.linux, Os.macosx, Os.ios => {
+        Os.linux, Os.macosx, Os.ios, Os.freebsd => {
             _ = posix.raise(posix.SIGABRT);
             _ = posix.raise(posix.SIGKILL);
             while (true) {}
@@ -196,7 +198,7 @@ pub fn exit(status: u8) noreturn {
         c.exit(status);
     }
     switch (builtin.os) {
-        Os.linux, Os.macosx, Os.ios => {
+        Os.linux, Os.macosx, Os.ios, Os.freebsd => {
             posix.exit(status);
         },
         Os.windows => {
