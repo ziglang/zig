@@ -5,9 +5,11 @@ const is_windows = builtin.os == Os.windows;
 pub const windows = @import("windows/index.zig");
 pub const darwin = @import("darwin.zig");
 pub const linux = @import("linux.zig");
+pub const openbsd = @import("openbsd.zig");
 pub const posix = switch(builtin.os) {
     Os.linux => linux,
     Os.darwin, Os.macosx, Os.ios => darwin,
+    Os.openbsd => openbsd,
     else => @compileError("Unsupported OS"),
 };
 
@@ -109,6 +111,17 @@ pub fn getRandomBytes(buf: []u8) -> %void {
                 };
             }
         },
+        Os.openbsd => while (true) {
+            const err = posix.getErrno(posix.getentropy(buf.ptr, buf.len));
+            if (err > 0) {
+                return switch (err) {
+                    posix.EFAULT => unreachable,
+                    posix.EIO    => unreachable,
+                    else         => unexpectedErrorPosix(err),
+                }
+            }
+            return;
+        },
         else => @compileError("Unsupported OS"),
     }
 }
@@ -126,7 +139,7 @@ pub coldcc fn abort() -> noreturn {
         c.abort();
     }
     switch (builtin.os) {
-        Os.linux, Os.darwin, Os.macosx, Os.ios => {
+        Os.linux, Os.darwin, Os.macosx, Os.ios, Os.openbsd => {
             _ = posix.raise(posix.SIGABRT);
             _ = posix.raise(posix.SIGKILL);
             while (true) {}
@@ -147,7 +160,7 @@ pub coldcc fn exit(status: i32) -> noreturn {
         c.exit(status);
     }
     switch (builtin.os) {
-        Os.linux, Os.darwin, Os.macosx, Os.ios => {
+        Os.linux, Os.darwin, Os.macosx, Os.ios, Os.openbsd => {
             posix.exit(status)
         },
         Os.windows => {
@@ -1093,7 +1106,7 @@ pub fn readLink(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
 
 pub fn sleep(seconds: usize, nanoseconds: usize) {
     switch(builtin.os) {
-        Os.linux, Os.darwin, Os.macosx, Os.ios => {
+        Os.linux, Os.darwin, Os.macosx, Os.ios, Os.openbsd => {
             posixSleep(u63(seconds), u63(nanoseconds));
         },
         Os.windows => {
@@ -1429,6 +1442,9 @@ test "std.os" {
     //_ = @import("linux_i386.zig");
     _ = @import("linux_x86_64.zig");
     _ = @import("linux.zig");
+    //_ = @import("openbsd_i386.zig");
+    _ = @import("openbsd_x86_64.zig");
+    _ = @import("openbsd.zig");
     _ = @import("path.zig");
     _ = @import("windows/index.zig");
 }

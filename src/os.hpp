@@ -81,6 +81,8 @@ int os_self_exe_path(Buf *out_path);
 #define ZIG_OS_WINDOWS
 #elif defined(__linux__)
 #define ZIG_OS_LINUX
+#elif defined(__OpenBSD__)
+#define ZIG_OS_OPENBSD
 #else
 #define ZIG_OS_UNKNOWN
 #endif

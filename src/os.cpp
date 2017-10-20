@@ -922,6 +922,8 @@ int os_self_exe_path(Buf *out_path) {
     return ErrorFileNotFound;
 #elif defined(ZIG_OS_LINUX)
     return ErrorFileNotFound;
+#elif defined(ZIG_OS_OPENBSD)
+    return ErrorFileNotFound;
 #endif
     return ErrorFileNotFound;
 }
