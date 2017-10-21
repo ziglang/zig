@@ -10369,7 +10369,11 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
                     arg_tuple_i < arg->value.data.x_arg_tuple.end_index; arg_tuple_i += 1)
                 {
                     VariableTableEntry *arg_var = get_fn_var_by_index(parent_fn_entry, arg_tuple_i);
-                    assert(arg_var != nullptr);
+                    if (arg_var == nullptr) {
+                        ir_add_error(ira, arg,
+                            buf_sprintf("compiler bug: var args can't handle void. https://github.com/zig-lang/zig/issues/557"));
+                        return ira->codegen->builtin_types.entry_invalid;
+                    }
                     IrInstruction *arg_var_ptr_inst = ir_get_var_ptr(ira, arg, arg_var, true, false);
                     if (type_is_invalid(arg_var_ptr_inst->value.type))
                         return ira->codegen->builtin_types.entry_invalid;
