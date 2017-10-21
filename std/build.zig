@@ -1400,6 +1400,13 @@ pub const LibExeObjStep = struct {
                         %%cc_args.append(builder.pathFromRoot(full_path_lib));
                     }
 
+                    {
+                        var it = self.link_libs.iterator();
+                        while (it.next()) |entry| {
+                            %%cc_args.append(builder.fmt("-l{}", entry.key));
+                        }
+                    }
+
                     if (is_darwin and !self.static) {
                         var it = self.frameworks.iterator();
                         while (it.next()) |entry| {
@@ -1463,6 +1470,13 @@ pub const LibExeObjStep = struct {
                 %%cc_args.append(rpath_arg);
 
                 %%cc_args.append("-rdynamic");
+
+                {
+                    var it = self.link_libs.iterator();
+                    while (it.next()) |entry| {
+                        %%cc_args.append(builder.fmt("-l{}", entry.key));
+                    }
+                }
 
                 if (is_darwin) {
                     if (self.need_flat_namespace_hack) {
