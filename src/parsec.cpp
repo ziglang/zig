@@ -41,6 +41,7 @@ struct Context {
     AstNode *root;
     HashMap<const void *, AstNode *, ptr_hash, ptr_eq> decl_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> macro_table;
+    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> global_table;
     SourceManager *source_manager;
     ZigList<Alias> aliases;
     ZigList<MacroSymbol> macro_symbols;
@@ -296,20 +297,10 @@ static AstNode *trans_create_node_unwrap_null(Context *c, AstNode *child) {
 }
 
 static AstNode *get_global(Context *c, Buf *name) {
-    for (size_t i = 0; i < c->root->data.root.top_level_decls.length; i += 1) {
-        AstNode *decl_node = c->root->data.root.top_level_decls.items[i];
-        if (decl_node->type == NodeTypeVariableDeclaration) {
-            if (buf_eql_buf(decl_node->data.variable_declaration.symbol, name)) {
-                return decl_node;
-            }
-        } else if (decl_node->type == NodeTypeFnDef) {
-            if (buf_eql_buf(decl_node->data.fn_def.fn_proto->data.fn_proto.name, name)) {
-                return decl_node;
-            }
-        } else if (decl_node->type == NodeTypeFnProto) {
-            if (buf_eql_buf(decl_node->data.fn_proto.name, name)) {
-                return decl_node;
-            }
+    {
+        auto entry = c->global_table.maybe_get(name);
+        if (entry) {
+            return entry->value;
         }
     }
     {
@@ -320,11 +311,16 @@ static AstNode *get_global(Context *c, Buf *name) {
     return nullptr;
 }
 
+static void add_top_level_decl(Context *c, Buf *name, AstNode *node) {
+    c->global_table.put(name, node);
+    c->root->data.root.top_level_decls.append(node);
+}
+
 static AstNode *add_global_var(Context *c, Buf *var_name, AstNode *value_node) {
     bool is_const = true;
     AstNode *type_node = nullptr;
     AstNode *node = trans_create_node_var_decl_global(c, is_const, var_name, type_node, value_node);
-    c->root->data.root.top_level_decls.append(node);
+    add_top_level_decl(c, var_name, node);
     return node;
 }
 
@@ -2519,7 +2515,7 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
 
     if (!fn_decl->hasBody()) {
         // just a prototype
-        c->root->data.root.top_level_decls.append(proto_node);
+        add_top_level_decl(c, proto_node->data.fn_proto.name, proto_node);
         return;
     }
 
@@ -2563,7 +2559,7 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     fn_def_node->data.fn_def.body = body_node_with_param_inits;
 
     proto_node->data.fn_proto.fn_def_node = fn_def_node;
-    c->root->data.root.top_level_decls.append(fn_def_node);
+    add_top_level_decl(c, fn_def_node->data.fn_def.fn_proto->data.fn_proto.name, fn_def_node);
 }
 
 static AstNode *resolve_typdef_as_builtin(Context *c, const TypedefNameDecl *typedef_decl, const char *primitive_name) {
@@ -2911,14 +2907,14 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
         }
 
         AstNode *var_node = trans_create_node_var_decl_global(c, is_const, name, var_type, init_node);
-        c->root->data.root.top_level_decls.append(var_node);
+        add_top_level_decl(c, name, var_node);
         return;
     }
 
     if (is_extern) {
         AstNode *var_node = trans_create_node_var_decl_global(c, is_const, name, var_type, nullptr);
         var_node->data.variable_declaration.is_extern = true;
-        c->root->data.root.top_level_decls.append(var_node);
+        add_top_level_decl(c, name, var_node);
         return;
     }
 
@@ -2976,7 +2972,7 @@ static void render_macros(Context *c) {
 
         AstNode *value_node = entry->value;
         if (value_node->type == NodeTypeFnDef) {
-            c->root->data.root.top_level_decls.append(value_node);
+            add_top_level_decl(c, value_node->data.fn_def.fn_proto->data.fn_proto.name, value_node);
         } else {
             add_global_var(c, entry->key, value_node);
         }
@@ -3183,6 +3179,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     }
     c->decl_table.init(8);
     c->macro_table.init(8);
+    c->global_table.init(8);
     c->ptr_params.init(8);
     c->codegen = codegen;
     c->source_node = source_node;
