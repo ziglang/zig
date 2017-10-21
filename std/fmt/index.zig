@@ -312,7 +312,7 @@ fn formatIntUnsigned(value: var, base: u8, uppercase: bool, width: usize,
     // max_int_digits accounts for the minus sign. when printing an unsigned
     // number we don't need to do that.
     var buf: [max_int_digits - 1]u8 = undefined;
-    var a = value;
+    var a = if (@sizeOf(@typeOf(value)) == 1) u8(value) else value;
     var index: usize = buf.len;
 
     while (true) {
@@ -507,6 +507,12 @@ test "fmt.format" {
         const value: %i32 = error.InvalidChar;
         const result = bufPrint(buf1[0..], "error union: {}\n", value);
         assert(mem.eql(u8, result, "error union: error.InvalidChar\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value: u3 = 0b101;
+        const result = bufPrint(buf1[0..], "u3: {}\n", value);
+        assert(mem.eql(u8, result, "u3: 5\n"));
     }
 }
 
