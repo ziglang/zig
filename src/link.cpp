@@ -150,6 +150,10 @@ static const char *getLDMOption(const ZigTarget *t) {
             if (t->env_type == ZigLLVM_GNUX32) {
                 return "elf32_x86_64";
             }
+            // Any target elf will use the freebsd osabi if suffixed with "_fbsd".
+            if (t->os == OsFreeBSD) {
+                return "elf_x86_64_fbsd";
+            }
             return "elf_x86_64";
         default:
             zig_unreachable();
