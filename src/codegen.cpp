@@ -4554,6 +4554,7 @@ static void define_builtin_types(CodeGen *g) {
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdUndefLit);
         buf_init_from_str(&entry->name, "(undefined)");
+        entry->zero_bits = true;
         g->builtin_types.entry_undef = entry;
     }
     {

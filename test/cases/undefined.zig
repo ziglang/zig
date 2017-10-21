@@ -1,4 +1,5 @@
 const assert = @import("std").debug.assert;
+const mem = @import("std").mem;
 
 fn initStaticArray() -> [10]i32 {
     var array: [10]i32 = undefined;
@@ -59,4 +60,9 @@ test "assign undefined to struct with method" {
         foo.setFooXMethod();
         assert(foo.x == 3);
     }
+}
+
+test "type name of undefined" {
+  const x  = undefined;
+  assert(mem.eql(u8, @typeName(@typeOf(x)), "(undefined)"));
 }
