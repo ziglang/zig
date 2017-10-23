@@ -38,7 +38,7 @@ fn errol3u(val: f64, buffer: []u8) -> FloatDecimal {
         return errolFixed(val, buffer);
     }
 
-    
+
     // normalize the midpoint
 
     const e = math.frexp(val).exponent;
@@ -138,7 +138,7 @@ fn tableLowerBound(k: u64) -> usize {
 
     while (j < enum3.len) {
         if (enum3[j] < k) {
-            j = 2 * k + 2;
+            j = 2 * j + 2;
         } else {
             i = j;
             j = 2 * j + 1;
@@ -217,7 +217,7 @@ fn hpMul10(hp: &HP) {
 
     hp.val *= 10.0;
     hp.off *= 10.0;
-    
+
     var off = hp.val;
     off -= val * 8.0;
     off -= val * 2.0;
@@ -241,7 +241,7 @@ fn errolInt(val: f64, buffer: []u8) -> FloatDecimal {
     var low: u128 = mid - fpeint((fpnext(val) - val) / 2.0);
     var high: u128 = mid + fpeint((val - fpprev(val)) / 2.0);
 
-    if (@bitCast(u64, val) & 0x1 != 0) { 
+    if (@bitCast(u64, val) & 0x1 != 0) {
         high -= 1;
     } else {
         low -= 1;
@@ -347,11 +347,11 @@ fn errolFixed(val: f64, buffer: []u8) -> FloatDecimal {
 }
 
 fn fpnext(val: f64) -> f64 {
-    return @bitCast(f64, @bitCast(u64, val) + 1);
+    return @bitCast(f64, @bitCast(u64, val) +% 1);
 }
 
 fn fpprev(val: f64) -> f64 {
-    return @bitCast(f64, @bitCast(u64, val) - 1);
+    return @bitCast(f64, @bitCast(u64, val) -% 1);
 }
 
 pub const c_digits_lut = []u8 {
