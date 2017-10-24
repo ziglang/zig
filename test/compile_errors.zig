@@ -2187,6 +2187,13 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         ".tmp_source.zig:3:5: error: alignstack set twice",
         ".tmp_source.zig:2:5: note: first set here");
 
+    cases.add("@setAlignStack too big",
+        \\export fn entry() {
+        \\    @setAlignStack(511 + 1);
+        \\}
+    ,
+        ".tmp_source.zig:2:5: error: attempt to @setAlignStack(512); maximum is 256");
+
     cases.add("storing runtime value in compile time variable then using it",
         \\const Mode = @import("builtin").Mode;
         \\

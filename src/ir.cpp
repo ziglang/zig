@@ -15312,6 +15312,11 @@ static TypeTableEntry *ir_analyze_instruction_set_align_stack(IrAnalyze *ira, Ir
     if (!ir_resolve_align(ira, align_bytes_inst, &align_bytes))
         return ira->codegen->builtin_types.entry_invalid;
 
+    if (align_bytes > 256) {
+        ir_add_error(ira, &instruction->base, buf_sprintf("attempt to @setAlignStack(%" PRIu32 "); maximum is 256", align_bytes));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
     FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
     if (fn_entry == nullptr) {
         ir_add_error(ira, &instruction->base, buf_sprintf("@setAlignStack outside function"));
