@@ -20,7 +20,6 @@
 #define ZIG_DYNAMIC_LINKER "@ZIG_DYNAMIC_LINKER@"
 
 #cmakedefine ZIG_EACH_LIB_RPATH
-#cmakedefine ZIG_LLVM_OLD_CXX_ABI
 
 // Only used for running tests before installing.
 #define ZIG_TEST_DIR "@CMAKE_SOURCE_DIR@/test"

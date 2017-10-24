@@ -5,15 +5,6 @@
  * See http://opensource.org/licenses/MIT
  */
 
-// This must go before all includes.
-#include "config.h"
-#if defined(ZIG_LLVM_OLD_CXX_ABI)
-#define _GLIBCXX_USE_CXX11_ABI 0
-#endif
-
-
-#include "zig_llvm.hpp"
-
 
 /*
  * The point of this file is to contain all the LLVM C++ API interaction so that:
@@ -21,6 +12,8 @@
  * 2. Provide a C interface to the LLVM functions we need for self-hosting purposes.
  * 3. Prevent C++ from infecting the rest of the project.
  */
+
+#include "zig_llvm.hpp"
 
 #include <llvm/Analysis/TargetLibraryInfo.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
