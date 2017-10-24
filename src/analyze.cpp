@@ -1363,6 +1363,8 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
     // unset temporary flag
     enum_type->data.enumeration.embedded_in_current = false;
     enum_type->data.enumeration.complete = true;
+    enum_type->data.enumeration.union_size_bytes = biggest_size_in_bits / 8;
+    enum_type->data.enumeration.most_aligned_union_member = most_aligned_union_member;
 
     if (!enum_type->data.enumeration.is_invalid) {
         TypeTableEntry *tag_int_type = get_smallest_unsigned_int_type(g, field_count);
@@ -1384,10 +1386,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
                 };
                 union_type_ref = LLVMStructType(union_element_types, 2, false);
             } else {
-                LLVMTypeRef union_element_types[] = {
-                    most_aligned_union_member->type_ref,
-                };
-                union_type_ref = LLVMStructType(union_element_types, 1, false);
+                union_type_ref = most_aligned_union_member->type_ref;
             }
             enum_type->data.enumeration.union_type_ref = union_type_ref;
 
