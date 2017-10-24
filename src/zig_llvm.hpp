@@ -339,8 +339,9 @@ enum ZigLLVM_EnvironmentType {
     ZigLLVM_AMDOpenCL,
     ZigLLVM_CoreCLR,
     ZigLLVM_OpenCL,
+    ZigLLVM_Simulator,  // Simulator variants of other systems, e.g., Apple's iOS
 
-    ZigLLVM_LastEnvironmentType = ZigLLVM_OpenCL
+    ZigLLVM_LastEnvironmentType = ZigLLVM_Simulator
 };
 
 enum ZigLLVM_ObjectFormatType {

@@ -183,6 +183,7 @@ static const ZigLLVM_EnvironmentType environ_list[] = {
     ZigLLVM_AMDOpenCL,
     ZigLLVM_CoreCLR,
     ZigLLVM_OpenCL,
+    ZigLLVM_Simulator,
 };
 
 static const ZigLLVM_ObjectFormatType oformat_list[] = {
