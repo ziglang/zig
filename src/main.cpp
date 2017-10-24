@@ -70,7 +70,6 @@ static int usage(const char *arg0) {
         "  -rpath [path]                add directory to the runtime library search path\n"
         "  -mconsole                    (windows) --subsystem console to the linker\n"
         "  -mwindows                    (windows) --subsystem windows to the linker\n"
-        "  -municode                    (windows) link with unicode\n"
         "  -framework [name]            (darwin) link against framework\n"
         "  -mios-version-min [ver]      (darwin) set iOS deployment target\n"
         "  -mmacosx-version-min [ver]   (darwin) set Mac OS X deployment target\n"
@@ -296,7 +295,6 @@ int main(int argc, char **argv) {
     const char *target_environ = nullptr;
     bool mwindows = false;
     bool mconsole = false;
-    bool municode = false;
     bool rdynamic = false;
     const char *mmacosx_version_min = nullptr;
     const char *mios_version_min = nullptr;
@@ -462,8 +460,6 @@ int main(int argc, char **argv) {
                 mwindows = true;
             } else if (strcmp(arg, "-mconsole") == 0) {
                 mconsole = true;
-            } else if (strcmp(arg, "-municode") == 0) {
-                municode = true;
             } else if (strcmp(arg, "-rdynamic") == 0) {
                 rdynamic = true;
             } else if (strcmp(arg, "--each-lib-rpath") == 0) {
@@ -762,7 +758,6 @@ int main(int argc, char **argv) {
             }
 
             codegen_set_windows_subsystem(g, mwindows, mconsole);
-            codegen_set_windows_unicode(g, municode);
             codegen_set_rdynamic(g, rdynamic);
             if (mmacosx_version_min && mios_version_min) {
                 fprintf(stderr, "-mmacosx-version-min and -mios-version-min options not allowed together\n");

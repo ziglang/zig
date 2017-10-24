@@ -265,10 +265,6 @@ void codegen_set_windows_subsystem(CodeGen *g, bool mwindows, bool mconsole) {
     g->windows_subsystem_console = mconsole;
 }
 
-void codegen_set_windows_unicode(CodeGen *g, bool municode) {
-    g->windows_linker_unicode = municode;
-}
-
 void codegen_set_mmacosx_version_min(CodeGen *g, Buf *mmacosx_version_min) {
     g->mmacosx_version_min = mmacosx_version_min;
 }
