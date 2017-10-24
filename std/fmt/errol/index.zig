@@ -32,7 +32,7 @@ pub fn errol3(value: f64, buffer: []u8) -> FloatDecimal {
 fn errol3u(val: f64, buffer: []u8) -> FloatDecimal {
     // check if in integer or fixed range
 
-    if (val >= 9.007199254740992e15 and val < 3.40282366920938e+38) {
+    if (val > 9.007199254740992e15 and val < 3.40282366920938e+38) {
         return errolInt(val, buffer);
     } else if (val >= 16.0 and val < 9.007199254740992e15) {
         return errolFixed(val, buffer);
@@ -235,7 +235,7 @@ fn hpMul10(hp: &HP) {
 fn errolInt(val: f64, buffer: []u8) -> FloatDecimal {
     const pow19 = u128(1e19);
 
-    assert((val >= 9.007199254740992e15) and val < (3.40282366920938e38));
+    assert((val > 9.007199254740992e15) and val < (3.40282366920938e38));
 
     var mid = u128(val);
     var low: u128 = mid - fpeint((fpnext(val) - val) / 2.0);
@@ -510,10 +510,6 @@ fn u64toa(value_param: u64, buffer: []u8) -> usize {
         buf_index += 1;
         buffer[buf_index] = c_digits_lut[d8];
         buf_index += 1;
-        buffer[buf_index] = c_digits_lut[d8];
-        buf_index += 1;
-        buffer[buf_index] = c_digits_lut[d8];
-        buf_index += 1;
         buffer[buf_index] = c_digits_lut[d8 + 1];
         buf_index += 1;
     } else {
@@ -613,7 +609,7 @@ fn fpeint(from: f64) -> u128 {
     const bits = @bitCast(u64, from);
     assert((bits & ((1 << 52) - 1)) == 0);
 
-    return u64(1) << u6(((bits >> 52) - 1023));
+    return u128(1) << @truncate(u7, (bits >> 52) -% 1023);
 }
 
 

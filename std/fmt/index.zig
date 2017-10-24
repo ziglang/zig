@@ -250,19 +250,16 @@ pub fn formatFloat(value: var, context: var, output: fn(@typeOf(context), []cons
     if (math.isNan(x)) {
         return output(context, "NaN");
     }
-    if (math.isPositiveInf(x)) {
-        return output(context, "Infinity");
-    }
-    if (math.isNegativeInf(x)) {
-        return output(context, "-Infinity");
-    }
-    if (x == 0.0) {
-        return output(context, "0.0");
-    }
-    if (x < 0.0) {
+    if (math.signbit(x)) {
         if (!output(context, "-"))
             return false;
         x = -x;
+    }
+    if (math.isPositiveInf(x)) {
+        return output(context, "Infinity");
+    }
+    if (x == 0.0) {
+        return output(context, "0.0");
     }
 
     var buffer: [32]u8 = undefined;
@@ -272,8 +269,12 @@ pub fn formatFloat(value: var, context: var, output: fn(@typeOf(context), []cons
     if (!output(context, "."))
         return false;
     if (float_decimal.digits.len > 1) {
-        const num_digits = if (@typeOf(value) == f32) { usize(8) } else { usize(17) };
-        if (!output(context, float_decimal.digits[1 .. math.min(num_digits, float_decimal.digits.len)]))
+        const num_digits = if (@typeOf(value) == f32) {
+            math.min(usize(9), float_decimal.digits.len)
+        } else {
+            float_decimal.digits.len
+        };
+        if (!output(context, float_decimal.digits[1 .. num_digits]))
             return false;
     } else {
         if (!output(context, "0"))
