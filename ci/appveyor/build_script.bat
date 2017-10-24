@@ -7,13 +7,13 @@ SET "PATH=C:\msys64\mingw64\bin;C:\msys64\usr\bin;%PATH%"
 SET "MSYSTEM=MINGW64"
 SET "APPVEYOR_CACHE_ENTRY_ZIP_ARGS=-m0=Copy"
 
-bash -lc "cd ${APPVEYOR_BUILD_FOLDER} && if [ -s ""llvm+clang-5.0.0-win64-msvc-release.tar.xz"" ]; then echo 'skipping LLVM download'; else wget 'https://s3.amazonaws.com/superjoe/temp/llvm%%2bclang-5.0.0-win64-msvc-release.tar.xz'; fi && tar xf llvm+clang-5.0.0-win64-msvc-release.tar.xz" || exit /b
+bash -lc "cd ${APPVEYOR_BUILD_FOLDER} && if [ -s ""llvm+clang-6.0.0-win64-msvc-release.tar.xz"" ]; then echo 'skipping LLVM download'; else wget 'https://s3.amazonaws.com/superjoe/temp/llvm%%2bclang-6.0.0-win64-msvc-release.tar.xz'; fi && tar xf llvm+clang-6.0.0-win64-msvc-release.tar.xz" || exit /b
 
 
 SET "PATH=%PREVPATH%"
 SET "MSYSTEM=%PREVMSYSTEM%"
 SET "ZIGBUILDDIR=%APPVEYOR_BUILD_FOLDER%\build-msvc-release"
-SET "ZIGPREFIXPATH=%APPVEYOR_BUILD_FOLDER%\llvm+clang-5.0.0-win64-msvc-release"
+SET "ZIGPREFIXPATH=%APPVEYOR_BUILD_FOLDER%\llvm+clang-6.0.0-win64-msvc-release"
 
 mkdir %ZIGBUILDDIR%
 cd %ZIGBUILDDIR%

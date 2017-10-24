@@ -58,6 +58,10 @@
 #include <clflushoptintrin.h>
 #endif
 
+#if !defined(_MSC_VER) || __has_feature(modules) || defined(__CLWB__)
+#include <clwbintrin.h>
+#endif
+
 #if !defined(_MSC_VER) || __has_feature(modules) || defined(__AVX__)
 #include <avxintrin.h>
 #endif

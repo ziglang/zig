@@ -570,6 +570,8 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                         return trans_create_node_symbol_str(c, "f64");
                     case BuiltinType::Float128:
                         return trans_create_node_symbol_str(c, "f128");
+                    case BuiltinType::Float16:
+                        return trans_create_node_symbol_str(c, "f16");
                     case BuiltinType::LongDouble:
                         return trans_create_node_symbol_str(c, "c_longdouble");
                     case BuiltinType::WChar_U:
@@ -856,6 +858,7 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
         case Type::Pipe:
         case Type::ObjCTypeParam:
         case Type::DeducedTemplateSpecialization:
+        case Type::DependentAddressSpace:
             emit_warning(c, source_loc, "unsupported type: '%s'", ty->getTypeClassName());
             return nullptr;
     }

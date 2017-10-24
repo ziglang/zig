@@ -1,4 +1,4 @@
-/*===---- clflushoptintrin.h - CLFLUSHOPT intrinsic ------------------------------------===
+/*===---- arm64intr.h - ARM64 Windows intrinsics -------------------------------===
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -21,21 +21,29 @@
  *===-----------------------------------------------------------------------===
  */
 
-#ifndef __IMMINTRIN_H
-#error "Never use <clflushoptintrin.h> directly; include <immintrin.h> instead."
-#endif
+/* Only include this if we're compiling for the windows platform. */
+#ifndef _MSC_VER
+#include_next <arm64intr.h>
+#else
 
-#ifndef __CLFLUSHOPTINTRIN_H
-#define __CLFLUSHOPTINTRIN_H
+#ifndef __ARM64INTR_H
+#define __ARM64INTR_H
 
-/* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__,  __target__("clflushopt")))
+typedef enum
+{
+  _ARM64_BARRIER_SY    = 0xF,
+  _ARM64_BARRIER_ST    = 0xE,
+  _ARM64_BARRIER_LD    = 0xD,
+  _ARM64_BARRIER_ISH   = 0xB,
+  _ARM64_BARRIER_ISHST = 0xA,
+  _ARM64_BARRIER_ISHLD = 0x9,
+  _ARM64_BARRIER_NSH   = 0x7,
+  _ARM64_BARRIER_NSHST = 0x6,
+  _ARM64_BARRIER_NSHLD = 0x5,
+  _ARM64_BARRIER_OSH   = 0x3,
+  _ARM64_BARRIER_OSHST = 0x2,
+  _ARM64_BARRIER_OSHLD = 0x1
+} _ARM64INTR_BARRIER_TYPE;
 
-static __inline__ void __DEFAULT_FN_ATTRS
-_mm_clflushopt(void const * __m) {
-  __builtin_ia32_clflushopt(__m);
-}
-
-#undef __DEFAULT_FN_ATTRS
-
-#endif
+#endif /* __ARM64INTR_H */
+#endif /* _MSC_VER */

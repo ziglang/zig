@@ -141,7 +141,7 @@ These libraries must be installed on your system, with the development files
 available. The Zig compiler links against them. You have to use the same
 compiler for these libraries as you do to compile Zig.
 
- * LLVM, Clang, and LLD libraries == 5.x
+ * LLVM, Clang, and LLD libraries == 6.x
 
 ### Debug / Development Build
 
@@ -163,11 +163,11 @@ make install
 `ZIG_LIBC_LIB_DIR` and `ZIG_LIBC_STATIC_LIB_DIR` are unused.
 
 ```
-brew install llvm@5
-brew outdated llvm@5 || brew upgrade llvm@5
+brew install llvm@6
+brew outdated llvm@6 || brew upgrade llvm@6
 mkdir build
 cd build
-cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@5/ -DCMAKE_INSTALL_PREFIX=$(pwd)
+cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@6/ -DCMAKE_INSTALL_PREFIX=$(pwd)
 make install
 ./zig build --build-file ../build.zig test
 ```

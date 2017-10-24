@@ -177,6 +177,7 @@ enum ZigLLVM_ArchType {
     ZigLLVM_armeb,          // ARM (big endian): armeb
     ZigLLVM_aarch64,        // AArch64 (little endian): aarch64
     ZigLLVM_aarch64_be,     // AArch64 (big endian): aarch64_be
+    ZigLLVM_arc,            // ARC: Synopsys ARC
     ZigLLVM_avr,            // AVR: Atmel AVR microcontroller
     ZigLLVM_bpfel,          // eBPF or extended BPF or 64-bit BPF (little endian)
     ZigLLVM_bpfeb,          // eBPF or extended BPF or 64-bit BPF (big endian)
@@ -229,6 +230,7 @@ enum ZigLLVM_ArchType {
 enum ZigLLVM_SubArchType {
     ZigLLVM_NoSubArch,
 
+    ZigLLVM_ARMSubArch_v8_3a,
     ZigLLVM_ARMSubArch_v8_2a,
     ZigLLVM_ARMSubArch_v8_1a,
     ZigLLVM_ARMSubArch_v8,
@@ -318,6 +320,7 @@ enum ZigLLVM_EnvironmentType {
     ZigLLVM_UnknownEnvironment,
 
     ZigLLVM_GNU,
+    ZigLLVM_GNUABIN32,
     ZigLLVM_GNUABI64,
     ZigLLVM_GNUEABI,
     ZigLLVM_GNUEABIHF,

@@ -38,6 +38,10 @@
 #include <armintr.h>
 #endif
 
+#if defined(_M_ARM64)
+#include <arm64intr.h>
+#endif
+
 /* For the definition of jmp_buf. */
 #if __STDC_HOSTED__
 #include <setjmp.h>
@@ -828,7 +832,7 @@ _InterlockedCompareExchange_nf(long volatile *_Destination,
                             __ATOMIC_SEQ_CST, __ATOMIC_RELAXED);
   return _Comparand;
 }
-static __inline__ short __DEFAULT_FN_ATTRS
+static __inline__ long __DEFAULT_FN_ATTRS
 _InterlockedCompareExchange_rel(long volatile *_Destination,
                               long _Exchange, long _Comparand) {
   __atomic_compare_exchange(_Destination, &_Comparand, &_Exchange, 0,

@@ -2258,7 +2258,11 @@ _mm_adds_epu16(__m128i __a, __m128i __b)
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_avg_epu8(__m128i __a, __m128i __b)
 {
-  return (__m128i)__builtin_ia32_pavgb128((__v16qi)__a, (__v16qi)__b);
+  typedef unsigned short __v16hu __attribute__ ((__vector_size__ (32)));
+  return (__m128i)__builtin_convertvector(
+               ((__builtin_convertvector((__v16qu)__a, __v16hu) +
+                 __builtin_convertvector((__v16qu)__b, __v16hu)) + 1)
+                 >> 1, __v16qu);
 }
 
 /// \brief Computes the rounded avarages of corresponding elements of two
@@ -2278,7 +2282,11 @@ _mm_avg_epu8(__m128i __a, __m128i __b)
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_avg_epu16(__m128i __a, __m128i __b)
 {
-  return (__m128i)__builtin_ia32_pavgw128((__v8hi)__a, (__v8hi)__b);
+  typedef unsigned int __v8su __attribute__ ((__vector_size__ (32)));
+  return (__m128i)__builtin_convertvector(
+               ((__builtin_convertvector((__v8hu)__a, __v8su) +
+                 __builtin_convertvector((__v8hu)__b, __v8su)) + 1)
+                 >> 1, __v8hu);
 }
 
 /// \brief Multiplies the corresponding elements of two 128-bit signed [8 x i16]

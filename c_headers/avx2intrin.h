@@ -145,13 +145,21 @@ _mm256_andnot_si256(__m256i __a, __m256i __b)
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_avg_epu8(__m256i __a, __m256i __b)
 {
-  return (__m256i)__builtin_ia32_pavgb256((__v32qi)__a, (__v32qi)__b);
+  typedef unsigned short __v32hu __attribute__((__vector_size__(64)));
+  return (__m256i)__builtin_convertvector(
+               ((__builtin_convertvector((__v32qu)__a, __v32hu) +
+                 __builtin_convertvector((__v32qu)__b, __v32hu)) + 1)
+                 >> 1, __v32qu);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_avg_epu16(__m256i __a, __m256i __b)
 {
-  return (__m256i)__builtin_ia32_pavgw256((__v16hi)__a, (__v16hi)__b);
+  typedef unsigned int __v16su __attribute__((__vector_size__(64)));
+  return (__m256i)__builtin_convertvector(
+               ((__builtin_convertvector((__v16hu)__a, __v16su) +
+                 __builtin_convertvector((__v16hu)__b, __v16su)) + 1)
+                 >> 1, __v16hu);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS

@@ -13,6 +13,7 @@
 #include <stdio.h>
 
 static const ArchType arch_list[] = {
+    {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8_3a},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8_2a},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8_1a},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v8},
@@ -33,9 +34,30 @@ static const ArchType arch_list[] = {
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v5te},
     {ZigLLVM_arm, ZigLLVM_ARMSubArch_v4t},
 
-    {ZigLLVM_armeb, ZigLLVM_NoSubArch},
+    {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v8_3a},
+    {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v8_2a},
+    {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v8_1a},
+    {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v8},
+    {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v8r},
+    {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v8m_baseline},
+    {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v8m_mainline},
+    {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v7},
+    {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v7em},
+    {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v7m},
+    {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v7s},
+    {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v7k},
+    {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v7ve},
+    {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v6},
+    {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v6m},
+    {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v6k},
+    {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v6t2},
+    {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v5},
+    {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v5te},
+    {ZigLLVM_armeb, ZigLLVM_ARMSubArch_v4t},
+
     {ZigLLVM_aarch64, ZigLLVM_NoSubArch},
     {ZigLLVM_aarch64_be, ZigLLVM_NoSubArch},
+    {ZigLLVM_arc, ZigLLVM_NoSubArch},
     {ZigLLVM_avr, ZigLLVM_NoSubArch},
     {ZigLLVM_bpfel, ZigLLVM_NoSubArch},
     {ZigLLVM_bpfeb, ZigLLVM_NoSubArch},
@@ -345,6 +367,7 @@ void resolve_target_object_format(ZigTarget *target) {
         case ZigLLVM_amdil:
         case ZigLLVM_amdil64:
         case ZigLLVM_armeb:
+        case ZigLLVM_arc:
         case ZigLLVM_avr:
         case ZigLLVM_bpfeb:
         case ZigLLVM_bpfel:
@@ -407,6 +430,7 @@ static int get_arch_pointer_bit_width(ZigLLVM_ArchType arch) {
         case ZigLLVM_msp430:
             return 16;
 
+        case ZigLLVM_arc:
         case ZigLLVM_arm:
         case ZigLLVM_armeb:
         case ZigLLVM_hexagon:

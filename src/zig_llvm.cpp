@@ -37,7 +37,7 @@
 #include <llvm/Transforms/IPO/AlwaysInliner.h>
 #include <llvm/Transforms/Scalar.h>
 
-#include <lld/Driver/Driver.h>
+#include <lld/Common/Driver.h>
 
 using namespace llvm;
 
@@ -605,11 +605,13 @@ static_assert((Triple::ArchType)ZigLLVM_LastArchType == Triple::LastArchType, ""
 static_assert((Triple::VendorType)ZigLLVM_LastVendorType == Triple::LastVendorType, "");
 static_assert((Triple::OSType)ZigLLVM_LastOSType == Triple::LastOSType, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_LastEnvironmentType == Triple::LastEnvironmentType, "");
+static_assert((Triple::SubArchType)ZigLLVM_KalimbaSubArch_v5 == Triple::KalimbaSubArch_v5, "");
 
 static_assert((Triple::ObjectFormatType)ZigLLVM_UnknownObjectFormat == Triple::UnknownObjectFormat, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_COFF == Triple::COFF, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_ELF == Triple::ELF, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_MachO == Triple::MachO, "");
+static_assert((Triple::ObjectFormatType)ZigLLVM_Wasm == Triple::Wasm, "");
 
 const char *ZigLLVMGetArchTypeName(ZigLLVM_ArchType arch) {
     return (const char*)Triple::getArchTypeName((Triple::ArchType)arch).bytes_begin();
@@ -648,6 +650,8 @@ const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
     switch (sub_arch) {
         case ZigLLVM_NoSubArch:
             return "(none)";
+        case ZigLLVM_ARMSubArch_v8_3a:
+            return "v8_3a";
         case ZigLLVM_ARMSubArch_v8_2a:
             return "v8_2a";
         case ZigLLVM_ARMSubArch_v8_1a:
@@ -775,7 +779,7 @@ bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_
             zig_unreachable();
 
         case ZigLLVM_COFF:
-            return lld::coff::link(array_ref_args);
+            return lld::coff::link(array_ref_args, false);
 
         case ZigLLVM_ELF:
             return lld::elf::link(array_ref_args, false, diag);

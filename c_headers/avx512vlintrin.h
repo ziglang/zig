@@ -5723,59 +5723,72 @@ _mm256_maskz_movedup_pd (__mmask8 __U, __m256d __A)
                                               (__v4df)_mm256_setzero_pd());
 }
 
+static __inline__ __m128i __DEFAULT_FN_ATTRS
+_mm_mask_set1_epi32(__m128i __O, __mmask8 __M, int __A)
+{
+   return (__m128i)__builtin_ia32_selectd_128(__M,
+                                              (__v4si) _mm_set1_epi32(__A),
+                                              (__v4si)__O);
+}
 
-#define _mm_mask_set1_epi32(O, M, A) __extension__ ({ \
-  (__m128i)__builtin_ia32_pbroadcastd128_gpr_mask((int)(A), \
-                                                  (__v4si)(__m128i)(O), \
-                                                  (__mmask8)(M)); })
+static __inline__ __m128i __DEFAULT_FN_ATTRS
+_mm_maskz_set1_epi32( __mmask8 __M, int __A)
+{
+   return (__m128i)__builtin_ia32_selectd_128(__M,
+                                              (__v4si) _mm_set1_epi32(__A),
+                                              (__v4si)_mm_setzero_si128());
+}
 
-#define _mm_maskz_set1_epi32(M, A) __extension__ ({ \
-  (__m128i)__builtin_ia32_pbroadcastd128_gpr_mask((int)(A), \
-                                                  (__v4si)_mm_setzero_si128(), \
-                                                  (__mmask8)(M)); })
+static __inline__ __m256i __DEFAULT_FN_ATTRS
+_mm256_mask_set1_epi32(__m256i __O, __mmask8 __M, int __A)
+{
+   return (__m256i)__builtin_ia32_selectd_256(__M,
+                                              (__v8si) _mm256_set1_epi32(__A),
+                                              (__v8si)__O);
+}
 
-#define _mm256_mask_set1_epi32(O, M, A) __extension__ ({ \
-  (__m256i)__builtin_ia32_pbroadcastd256_gpr_mask((int)(A), \
-                                                  (__v8si)(__m256i)(O), \
-                                                  (__mmask8)(M)); })
+static __inline__ __m256i __DEFAULT_FN_ATTRS
+_mm256_maskz_set1_epi32( __mmask8 __M, int __A)
+{
+   return (__m256i)__builtin_ia32_selectd_256(__M,
+                                              (__v8si) _mm256_set1_epi32(__A),
+                                              (__v8si)_mm256_setzero_si256());
+}
 
-#define _mm256_maskz_set1_epi32(M, A) __extension__ ({ \
-  (__m256i)__builtin_ia32_pbroadcastd256_gpr_mask((int)(A), \
-                                                  (__v8si)_mm256_setzero_si256(), \
-                                                  (__mmask8)(M)); })
 
 #ifdef __x86_64__
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_mask_set1_epi64 (__m128i __O, __mmask8 __M, long long __A)
 {
-  return (__m128i) __builtin_ia32_pbroadcastq128_gpr_mask (__A, (__v2di) __O,
-                 __M);
+  return (__m128i) __builtin_ia32_selectq_128(__M,
+                                              (__v2di) _mm_set1_epi64x(__A),
+                                              (__v2di) __O);
 }
 
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_maskz_set1_epi64 (__mmask8 __M, long long __A)
 {
-  return (__m128i) __builtin_ia32_pbroadcastq128_gpr_mask (__A,
-                 (__v2di)
-                 _mm_setzero_si128 (),
-                 __M);
+  return (__m128i) __builtin_ia32_selectq_128(__M,
+                                              (__v2di) _mm_set1_epi64x(__A),
+                                              (__v2di) _mm_setzero_si128());
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_mask_set1_epi64 (__m256i __O, __mmask8 __M, long long __A)
 {
-  return (__m256i) __builtin_ia32_pbroadcastq256_gpr_mask (__A, (__v4di) __O,
-                 __M);
+  return (__m256i) __builtin_ia32_selectq_256(__M,
+                                              (__v4di) _mm256_set1_epi64x(__A),
+                                              (__v4di) __O) ;
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_maskz_set1_epi64 (__mmask8 __M, long long __A)
 {
-  return (__m256i) __builtin_ia32_pbroadcastq256_gpr_mask (__A,
-                 (__v4di)
-                 _mm256_setzero_si256 (),
-                 __M);
+   return (__m256i) __builtin_ia32_selectq_256(__M,
+                                               (__v4di) _mm256_set1_epi64x(__A),
+                                               (__v4di) _mm256_setzero_si256());
 }
+  
 #endif
 
 #define _mm_fixupimm_pd(A, B, C, imm) __extension__ ({ \

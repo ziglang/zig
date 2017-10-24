@@ -258,30 +258,6 @@ _mm512_maskz_broadcastq_epi64 (__mmask8 __M, __m128i __A)
                                              (__v8di) _mm512_setzero_si512());
 }
 
-static __inline __m512i __DEFAULT_FN_ATTRS
-_mm512_maskz_set1_epi32(__mmask16 __M, int __A)
-{
-  return (__m512i) __builtin_ia32_pbroadcastd512_gpr_mask (__A,
-                 (__v16si)
-                 _mm512_setzero_si512 (),
-                 __M);
-}
-
-static __inline __m512i __DEFAULT_FN_ATTRS
-_mm512_maskz_set1_epi64(__mmask8 __M, long long __A)
-{
-#ifdef __x86_64__
-  return (__m512i) __builtin_ia32_pbroadcastq512_gpr_mask (__A,
-                 (__v8di)
-                 _mm512_setzero_si512 (),
-                 __M);
-#else
-  return (__m512i) __builtin_ia32_pbroadcastq512_mem_mask (__A,
-                 (__v8di)
-                 _mm512_setzero_si512 (),
-                 __M);
-#endif
-}
 
 static __inline __m512 __DEFAULT_FN_ATTRS
 _mm512_setzero_ps(void)
@@ -341,10 +317,28 @@ _mm512_set1_epi32(int __s)
 }
 
 static __inline __m512i __DEFAULT_FN_ATTRS
+_mm512_maskz_set1_epi32(__mmask16 __M, int __A) 
+{
+  return (__m512i)__builtin_ia32_selectd_512(__M, 
+                                             (__v16si)_mm512_set1_epi32(__A),
+                                             (__v16si)_mm512_setzero_si512());
+}
+
+static __inline __m512i __DEFAULT_FN_ATTRS
 _mm512_set1_epi64(long long __d)
 {
   return (__m512i)(__v8di){ __d, __d, __d, __d, __d, __d, __d, __d };
 }
+
+#ifdef __x86_64__
+static __inline __m512i __DEFAULT_FN_ATTRS
+_mm512_maskz_set1_epi64(__mmask8 __M, long long __A)
+{
+  return (__m512i)__builtin_ia32_selectq_512(__M,
+                                             (__v8di)_mm512_set1_epi64(__A),
+                                             (__v8di)_mm512_setzero_si512());
+}
+#endif
 
 static __inline__ __m512 __DEFAULT_FN_ATTRS
 _mm512_broadcastss_ps(__m128 __A)
@@ -9040,7 +9034,7 @@ _mm512_stream_si512 (__m512i * __P, __m512i __A)
 }
 
 static __inline__ __m512i __DEFAULT_FN_ATTRS
-_mm512_stream_load_si512 (void *__P)
+_mm512_stream_load_si512 (void const *__P)
 {
   typedef __v8di __v8di_aligned __attribute__((aligned(64)));
   return (__m512i) __builtin_nontemporal_load((const __v8di_aligned *)__P);
@@ -9742,16 +9736,18 @@ _mm_cvtu64_ss (__m128 __A, unsigned long long __B)
 static __inline__ __m512i __DEFAULT_FN_ATTRS
 _mm512_mask_set1_epi32 (__m512i __O, __mmask16 __M, int __A)
 {
-  return (__m512i) __builtin_ia32_pbroadcastd512_gpr_mask (__A, (__v16si) __O,
-                 __M);
+  return (__m512i) __builtin_ia32_selectd_512(__M,
+                                              (__v16si) _mm512_set1_epi32(__A),
+                                              (__v16si) __O);
 }
 
 #ifdef __x86_64__
 static __inline__ __m512i __DEFAULT_FN_ATTRS
 _mm512_mask_set1_epi64 (__m512i __O, __mmask8 __M, long long __A)
 {
-  return (__m512i) __builtin_ia32_pbroadcastq512_gpr_mask (__A, (__v8di) __O,
-                 __M);
+  return (__m512i) __builtin_ia32_selectq_512(__M,
+                                              (__v8di) _mm512_set1_epi64(__A),
+                                              (__v8di) __O);
 }
 #endif
 

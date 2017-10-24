@@ -1,4 +1,4 @@
-/*===---- clflushoptintrin.h - CLFLUSHOPT intrinsic ------------------------------------===
+/*===---- clwbintrin.h - CLWB intrinsic ------------------------------------===
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,18 +22,29 @@
  */
 
 #ifndef __IMMINTRIN_H
-#error "Never use <clflushoptintrin.h> directly; include <immintrin.h> instead."
+#error "Never use <clwbintrin.h> directly; include <immintrin.h> instead."
 #endif
 
-#ifndef __CLFLUSHOPTINTRIN_H
-#define __CLFLUSHOPTINTRIN_H
+#ifndef __CLWBINTRIN_H
+#define __CLWBINTRIN_H
 
 /* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__,  __target__("clflushopt")))
+#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__,  __target__("clwb")))
 
+/// \brief Writes back to memory the cache line (if modified) that contains the
+/// linear address specified in \a __p from any level of the cache hierarchy in
+/// the cache coherence domain
+///
+/// \headerfile <immintrin.h>
+///
+/// This intrinsic corresponds to the <c> CLWB </c> instruction.
+///
+/// \param __p
+///    A pointer to the memory location used to identify the cache line to be
+///    written back.
 static __inline__ void __DEFAULT_FN_ATTRS
-_mm_clflushopt(void const * __m) {
-  __builtin_ia32_clflushopt(__m);
+_mm_clwb(void const *__p) {
+  __builtin_ia32_clwb(__p);
 }
 
 #undef __DEFAULT_FN_ATTRS
