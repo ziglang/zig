@@ -977,7 +977,7 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
                 return allocator.shrink(u8, buf, final_len);
             }
         },
-        Os.darwin, Os.macosx, Os.ios => {
+        Os.darwin, Os.macosx, Os.ios, Os.openbsd => {
             // TODO instead of calling the libc function here, port the implementation
             // to Zig, and then remove the NameTooLong error possibility.
             const pathname_buf = %return allocator.alloc(u8, pathname.len + 1);

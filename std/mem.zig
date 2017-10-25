@@ -125,7 +125,7 @@ pub const IncrementingAllocator = struct {
 
     fn init(capacity: usize) -> %IncrementingAllocator {
         switch (builtin.os) {
-            Os.linux, Os.darwin, Os.macosx, Os.ios => {
+            Os.linux, Os.darwin, Os.macosx, Os.ios, Os.openbsd => {
                 const p = os.posix;
                 const addr = p.mmap(null, capacity, p.PROT_READ|p.PROT_WRITE,
                     p.MAP_PRIVATE|p.MAP_ANONYMOUS|p.MAP_NORESERVE, -1, 0);
@@ -163,7 +163,7 @@ pub const IncrementingAllocator = struct {
 
     fn deinit(self: &IncrementingAllocator) {
         switch (builtin.os) {
-            Os.linux, Os.darwin, Os.macosx, Os.ios => {
+            Os.linux, Os.darwin, Os.macosx, Os.ios, Os.openbsd => {
                 _ = os.posix.munmap(self.bytes.ptr, self.bytes.len);
             },
             Os.windows => {
