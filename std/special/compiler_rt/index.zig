@@ -26,7 +26,7 @@ const win32 = builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.
 const win64 = builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.x86_64;
 const win32_nocrt = win32 and !builtin.link_libc;
 const win64_nocrt = win64 and !builtin.link_libc;
-const linkage = if (builtin.is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.LinkOnce;
+pub const linkage = if (builtin.is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.Weak;
 const strong_linkage = if (builtin.is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.Strong;
 
 const __udivmoddi4 = @import("udivmoddi4.zig").__udivmoddi4;
@@ -152,10 +152,6 @@ export nakedcc fn _chkstk() align(4) {
     @setGlobalLinkage(_chkstk, builtin.GlobalLinkage.Internal);
 }
 
-// TODO The implementation from compiler-rt causes crashes and
-// the implementation from disassembled ntdll seems to depend on
-// thread local storage. So we have given up this safety check
-// and simply have `ret`.
 export nakedcc fn __chkstk() align(4) {
     @setDebugSafety(this, false);
 

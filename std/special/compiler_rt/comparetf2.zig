@@ -20,7 +20,7 @@ const infRep = exponentMask;
 
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
-const linkage = if (builtin.is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.LinkOnce;
+const linkage = @import("index.zig").linkage;
 
 export fn __letf2(a: f128, b: f128) -> c_int {
     @setDebugSafety(this, is_test);

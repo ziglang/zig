@@ -1,6 +1,6 @@
 const fixuint = @import("fixuint.zig").fixuint;
 const builtin = @import("builtin");
-const linkage = if (builtin.is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.LinkOnce;
+const linkage = @import("index.zig").linkage;
 
 export fn __fixunstfdi(a: f128) -> u64 {
     @setDebugSafety(this, builtin.is_test);

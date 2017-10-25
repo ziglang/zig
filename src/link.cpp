@@ -38,6 +38,7 @@ static Buf *build_o_raw(CodeGen *parent_gen, const char *oname, Buf *full_path) 
 
     child_gen->want_h_file = false;
     child_gen->verbose_link = parent_gen->verbose_link;
+    child_gen->verbose_ir = parent_gen->verbose_ir;
 
     codegen_set_cache_dir(child_gen, parent_gen->cache_dir);
 

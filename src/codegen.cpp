@@ -456,10 +456,10 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
             LLVMSetLinkage(fn_table_entry->llvm_value, LLVMExternalLinkage);
             break;
         case GlobalLinkageIdWeak:
-            LLVMSetLinkage(fn_table_entry->llvm_value, LLVMWeakAnyLinkage);
+            LLVMSetLinkage(fn_table_entry->llvm_value, LLVMWeakODRLinkage);
             break;
         case GlobalLinkageIdLinkOnce:
-            LLVMSetLinkage(fn_table_entry->llvm_value, LLVMLinkOnceAnyLinkage);
+            LLVMSetLinkage(fn_table_entry->llvm_value, LLVMLinkOnceODRLinkage);
             break;
     }
 
