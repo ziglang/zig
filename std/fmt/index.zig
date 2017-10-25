@@ -244,30 +244,47 @@ pub fn formatBuf(buf: []const u8, width: usize,
 }
 
 pub fn formatFloat(value: var, context: var, output: fn(@typeOf(context), []const u8)->bool) -> bool {
-    var buffer: [20]u8 = undefined;
-    const float_decimal = errol3(f64(value), buffer[0..]);
-    if (float_decimal.exp != 0) {
-        if (!output(context, float_decimal.digits[0..1]))
-            return false;
-    } else {
-        if (!output(context, "0"))
-            return false;
+    var x = f64(value);
+
+    // Errol doesn't handle these special cases.
+    if (math.isNan(x)) {
+        return output(context, "NaN");
     }
+    if (math.signbit(x)) {
+        if (!output(context, "-"))
+            return false;
+        x = -x;
+    }
+    if (math.isPositiveInf(x)) {
+        return output(context, "Infinity");
+    }
+    if (x == 0.0) {
+        return output(context, "0.0");
+    }
+
+    var buffer: [32]u8 = undefined;
+    const float_decimal = errol3(x, buffer[0..]);
+    if (!output(context, float_decimal.digits[0..1]))
+        return false;
     if (!output(context, "."))
         return false;
     if (float_decimal.digits.len > 1) {
-        const start = if (float_decimal.exp == 0) usize(0) else usize(1);
-        if (!output(context, float_decimal.digits[start .. math.min(usize(7), float_decimal.digits.len)]))
+        const num_digits = if (@typeOf(value) == f32) {
+            math.min(usize(9), float_decimal.digits.len)
+        } else {
+            float_decimal.digits.len
+        };
+        if (!output(context, float_decimal.digits[1 .. num_digits]))
             return false;
     } else {
         if (!output(context, "0"))
             return false;
     }
 
-    if (float_decimal.exp != 1 and float_decimal.exp != 0) {
+    if (float_decimal.exp != 1) {
         if (!output(context, "e"))
             return false;
-        if (!formatInt(float_decimal.exp, 10, false, 0, context, output))
+        if (!formatInt(float_decimal.exp - 1, 10, false, 0, context, output))
             return false;
     }
     return true;
@@ -513,6 +530,38 @@ test "fmt.format" {
         const value: u3 = 0b101;
         const result = bufPrint(buf1[0..], "u3: {}\n", value);
         assert(mem.eql(u8, result, "u3: 5\n"));
+    }
+
+    // TODO get these tests passing in release modes
+    // https://github.com/zig-lang/zig/issues/564
+    if (builtin.mode == builtin.Mode.Debug) {
+        {
+            var buf1: [32]u8 = undefined;
+            const value: f32 = 12.34;
+            const result = bufPrint(buf1[0..], "f32: {}\n", value);
+            assert(mem.eql(u8, result, "f32: 1.23400001e1\n"));
+        }
+        {
+            var buf1: [32]u8 = undefined;
+            const value: f64 = -12.34e10;
+            const result = bufPrint(buf1[0..], "f64: {}\n", value);
+            assert(mem.eql(u8, result, "f64: -1.234e11\n"));
+        }
+        {
+            var buf1: [32]u8 = undefined;
+            const result = bufPrint(buf1[0..], "f64: {}\n", math.nan_f64);
+            assert(mem.eql(u8, result, "f64: NaN\n"));
+        }
+        {
+            var buf1: [32]u8 = undefined;
+            const result = bufPrint(buf1[0..], "f64: {}\n", math.inf_f64);
+            assert(mem.eql(u8, result, "f64: Infinity\n"));
+        }
+        {
+            var buf1: [32]u8 = undefined;
+            const result = bufPrint(buf1[0..], "f64: {}\n", -math.inf_f64);
+            assert(mem.eql(u8, result, "f64: -Infinity\n"));
+        }
     }
 }
 
