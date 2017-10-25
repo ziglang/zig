@@ -32,13 +32,13 @@ pub fn errol3(value: f64, buffer: []u8) -> FloatDecimal {
 fn errol3u(val: f64, buffer: []u8) -> FloatDecimal {
     // check if in integer or fixed range
 
-    if (val >= 9.007199254740992e15 and val < 3.40282366920938e+38) {
+    if (val > 9.007199254740992e15 and val < 3.40282366920938e+38) {
         return errolInt(val, buffer);
     } else if (val >= 16.0 and val < 9.007199254740992e15) {
         return errolFixed(val, buffer);
     }
 
-    
+
     // normalize the midpoint
 
     const e = math.frexp(val).exponent;
@@ -138,7 +138,7 @@ fn tableLowerBound(k: u64) -> usize {
 
     while (j < enum3.len) {
         if (enum3[j] < k) {
-            j = 2 * k + 2;
+            j = 2 * j + 2;
         } else {
             i = j;
             j = 2 * j + 1;
@@ -217,7 +217,7 @@ fn hpMul10(hp: &HP) {
 
     hp.val *= 10.0;
     hp.off *= 10.0;
-    
+
     var off = hp.val;
     off -= val * 8.0;
     off -= val * 2.0;
@@ -235,13 +235,13 @@ fn hpMul10(hp: &HP) {
 fn errolInt(val: f64, buffer: []u8) -> FloatDecimal {
     const pow19 = u128(1e19);
 
-    assert((val >= 9.007199254740992e15) and val < (3.40282366920938e38));
+    assert((val > 9.007199254740992e15) and val < (3.40282366920938e38));
 
     var mid = u128(val);
     var low: u128 = mid - fpeint((fpnext(val) - val) / 2.0);
     var high: u128 = mid + fpeint((val - fpprev(val)) / 2.0);
 
-    if (@bitCast(u64, val) & 0x1 != 0) { 
+    if (@bitCast(u64, val) & 0x1 != 0) {
         high -= 1;
     } else {
         low -= 1;
@@ -347,11 +347,11 @@ fn errolFixed(val: f64, buffer: []u8) -> FloatDecimal {
 }
 
 fn fpnext(val: f64) -> f64 {
-    return @bitCast(f64, @bitCast(u64, val) + 1);
+    return @bitCast(f64, @bitCast(u64, val) +% 1);
 }
 
 fn fpprev(val: f64) -> f64 {
-    return @bitCast(f64, @bitCast(u64, val) - 1);
+    return @bitCast(f64, @bitCast(u64, val) -% 1);
 }
 
 pub const c_digits_lut = []u8 {
@@ -510,10 +510,6 @@ fn u64toa(value_param: u64, buffer: []u8) -> usize {
         buf_index += 1;
         buffer[buf_index] = c_digits_lut[d8];
         buf_index += 1;
-        buffer[buf_index] = c_digits_lut[d8];
-        buf_index += 1;
-        buffer[buf_index] = c_digits_lut[d8];
-        buf_index += 1;
         buffer[buf_index] = c_digits_lut[d8 + 1];
         buf_index += 1;
     } else {
@@ -613,7 +609,7 @@ fn fpeint(from: f64) -> u128 {
     const bits = @bitCast(u64, from);
     assert((bits & ((1 << 52) - 1)) == 0);
 
-    return u64(1) << u6(((bits >> 52) - 1023));
+    return u128(1) << @truncate(u7, (bits >> 52) -% 1023);
 }
 
 
