@@ -531,6 +531,38 @@ test "fmt.format" {
         const result = bufPrint(buf1[0..], "u3: {}\n", value);
         assert(mem.eql(u8, result, "u3: 5\n"));
     }
+
+    // TODO get these tests passing in release modes
+    // https://github.com/zig-lang/zig/issues/564
+    if (builtin.mode == builtin.Mode.Debug) {
+        {
+            var buf1: [32]u8 = undefined;
+            const value: f32 = 12.34;
+            const result = bufPrint(buf1[0..], "f32: {}\n", value);
+            assert(mem.eql(u8, result, "f32: 1.23400001e1\n"));
+        }
+        {
+            var buf1: [32]u8 = undefined;
+            const value: f64 = -12.34e10;
+            const result = bufPrint(buf1[0..], "f64: {}\n", value);
+            assert(mem.eql(u8, result, "f64: -1.234e11\n"));
+        }
+        {
+            var buf1: [32]u8 = undefined;
+            const result = bufPrint(buf1[0..], "f64: {}\n", math.nan_f64);
+            assert(mem.eql(u8, result, "f64: NaN\n"));
+        }
+        {
+            var buf1: [32]u8 = undefined;
+            const result = bufPrint(buf1[0..], "f64: {}\n", math.inf_f64);
+            assert(mem.eql(u8, result, "f64: Infinity\n"));
+        }
+        {
+            var buf1: [32]u8 = undefined;
+            const result = bufPrint(buf1[0..], "f64: {}\n", -math.inf_f64);
+            assert(mem.eql(u8, result, "f64: -Infinity\n"));
+        }
+    }
 }
 
 pub fn trim(buf: []const u8) -> []const u8 {
