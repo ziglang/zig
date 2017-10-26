@@ -27,9 +27,17 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type);
 static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type);
 
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
-    // if this assert fails, then parsec generated code that
-    // failed semantic analysis, which isn't supposed to happen
-    assert(!node->owner->c_import_node);
+    if (node->owner->c_import_node != nullptr) {
+        // if this happens, then parsec generated code that
+        // failed semantic analysis, which isn't supposed to happen
+        ErrorMsg *err = add_node_error(g, node->owner->c_import_node,
+            buf_sprintf("compiler bug: @cImport generated invalid zig code"));
+            
+        add_error_note(g, err, node, msg);
+
+        g->errors.append(err);
+        return err;
+    }
 
     ErrorMsg *err = err_msg_create_with_line(node->owner->path, node->line, node->column,
             node->owner->source_code, node->owner->line_offsets, msg);
@@ -39,9 +47,20 @@ ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
 }
 
 ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, AstNode *node, Buf *msg) {
-    // if this assert fails, then parsec generated code that
-    // failed semantic analysis, which isn't supposed to happen
-    assert(!node->owner->c_import_node);
+    if (node->owner->c_import_node != nullptr) {
+        // if this happens, then parsec generated code that
+        // failed semantic analysis, which isn't supposed to happen
+
+        Buf *note_path = buf_create_from_str("?.c");
+        Buf *note_source = buf_create_from_str("TODO: remember C source location to display here ");
+        ZigList<size_t> note_line_offsets = {0};
+        note_line_offsets.append(0);
+        ErrorMsg *note = err_msg_create_with_line(note_path, 0, 0,
+                note_source, &note_line_offsets, msg);
+
+        err_msg_add_note(parent_msg, note);
+        return note;
+    }
 
     ErrorMsg *err = err_msg_create_with_line(node->owner->path, node->line, node->column,
             node->owner->source_code, node->owner->line_offsets, msg);
