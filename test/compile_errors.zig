@@ -2252,4 +2252,27 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:9:13: error: type '&MyType' does not support field access");
+
+    cases.add("carriage return special case",
+        "fn test() -> bool {\r\n" ++
+        "   true\r\n" ++
+        "}\r\n"
+    ,
+        ".tmp_source.zig:1:20: error: invalid carriage return, only '\\n' line endings are supported");
+
+    cases.add("non-printable invalid character",
+        "\xff\xfe" ++
+        \\fn test() -> bool {\r
+        \\    true\r
+        \\}
+    ,
+        ".tmp_source.zig:1:1: error: invalid character: '\\xff'");
+
+    cases.add("non-printable invalid character with escape alternative",
+        "fn test() -> bool {\n" ++
+        "\ttrue\n" ++
+        "}\n"
+    ,
+        ".tmp_source.zig:2:1: error: invalid character: '\\t'");
+
 }
