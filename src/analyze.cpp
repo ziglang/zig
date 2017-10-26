@@ -2804,7 +2804,6 @@ static bool is_container(TypeTableEntry *type_entry) {
     switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdVar:
-        case TypeTableEntryIdOpaque:
             zig_unreachable();
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdEnum:
@@ -2831,6 +2830,7 @@ static bool is_container(TypeTableEntry *type_entry) {
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdEnumTag:
         case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdOpaque:
             return false;
     }
     zig_unreachable();

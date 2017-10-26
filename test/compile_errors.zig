@@ -2238,4 +2238,18 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:37:16: error: cannot store runtime value in compile time variable");
+
+    cases.add("field access of opaque type",
+        \\const MyType = @OpaqueType();
+        \\
+        \\export fn entry() -> bool {
+        \\    var x: i32 = 1;
+        \\    return bar(@ptrCast(&MyType, &x));
+        \\}
+        \\
+        \\fn bar(x: &MyType) -> bool {
+        \\    return x.blah;
+        \\}
+    ,
+        ".tmp_source.zig:9:13: error: type '&MyType' does not support field access");
 }
