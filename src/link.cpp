@@ -37,8 +37,12 @@ static Buf *build_o_raw(CodeGen *parent_gen, const char *oname, Buf *full_path) 
         parent_gen->zig_lib_dir);
 
     child_gen->want_h_file = false;
+    child_gen->verbose_tokenize = parent_gen->verbose_tokenize;
+    child_gen->verbose_ast = parent_gen->verbose_ast;
     child_gen->verbose_link = parent_gen->verbose_link;
     child_gen->verbose_ir = parent_gen->verbose_ir;
+    child_gen->verbose_llvm_ir = parent_gen->verbose_llvm_ir;
+    child_gen->verbose_cimport = parent_gen->verbose_cimport;
 
     codegen_set_cache_dir(child_gen, parent_gen->cache_dir);
 
@@ -47,7 +51,6 @@ static Buf *build_o_raw(CodeGen *parent_gen, const char *oname, Buf *full_path) 
 
     codegen_set_out_name(child_gen, buf_create_from_str(oname));
 
-    codegen_set_verbose(child_gen, parent_gen->verbose);
     codegen_set_errmsg_color(child_gen, parent_gen->err_color);
 
     codegen_set_mmacosx_version_min(child_gen, parent_gen->mmacosx_version_min);
@@ -859,14 +862,11 @@ void codegen_link(CodeGen *g, const char *out_file) {
         buf_resize(&lj.out_file, 0);
     }
 
-    if (g->verbose || g->verbose_ir) {
+    if (g->verbose_llvm_ir) {
         fprintf(stderr, "\nOptimization:\n");
         fprintf(stderr, "---------------\n");
+        fflush(stderr);
         LLVMDumpModule(g->module);
-    }
-    if (g->verbose || g->verbose_link) {
-        fprintf(stderr, "\nLink:\n");
-        fprintf(stderr, "-------\n");
     }
 
     bool override_out_file = (buf_len(&lj.out_file) != 0);
@@ -888,9 +888,6 @@ void codegen_link(CodeGen *g, const char *out_file) {
                 zig_panic("unable to rename object file into final output: %s", err_str(err));
             }
         }
-        if (g->verbose || g->verbose_link) {
-            fprintf(stderr, "OK\n");
-        }
         return;
     }
 
@@ -908,7 +905,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
     construct_linker_job(&lj);
 
 
-    if (g->verbose || g->verbose_link) {
+    if (g->verbose_link) {
         for (size_t i = 0; i < lj.args.length; i += 1) {
             const char *space = (i != 0) ? " " : "";
             fprintf(stderr, "%s%s", space, lj.args.at(i));
@@ -925,8 +922,4 @@ void codegen_link(CodeGen *g, const char *out_file) {
     }
 
     codegen_add_time_event(g, "Done");
-
-    if (g->verbose || g->verbose_link) {
-        fprintf(stderr, "OK\n");
-    }
 }

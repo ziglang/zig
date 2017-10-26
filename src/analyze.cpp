@@ -2982,7 +2982,7 @@ void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_typ
         return;
     }
 
-    if (g->verbose) {
+    if (g->verbose_ir) {
         fprintf(stderr, "{ // (analyzed)\n");
         ir_print(g, stderr, &fn_table_entry->analyzed_executable, 4);
         fprintf(stderr, "}\n");
@@ -3015,7 +3015,7 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
         fn_table_entry->anal_state = FnAnalStateInvalid;
         return;
     }
-    if (g->verbose) {
+    if (g->verbose_ir) {
         fprintf(stderr, "\n");
         ast_render(g, stderr, fn_table_entry->body_node, 4);
         fprintf(stderr, "\n{ // (IR)\n");
@@ -3115,7 +3115,7 @@ void preview_use_decl(CodeGen *g, AstNode *node) {
 }
 
 ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *abs_full_path, Buf *source_code) {
-    if (g->verbose) {
+    if (g->verbose_tokenize) {
         fprintf(stderr, "\nOriginal Source (%s):\n", buf_ptr(abs_full_path));
         fprintf(stderr, "----------------\n");
         fprintf(stderr, "%s\n", buf_ptr(source_code));
@@ -3135,7 +3135,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *a
         exit(1);
     }
 
-    if (g->verbose) {
+    if (g->verbose_tokenize) {
         print_tokens(source_code, tokenization.tokens);
 
         fprintf(stderr, "\nAST:\n");
@@ -3150,7 +3150,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *a
 
     import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color);
     assert(import_entry->root);
-    if (g->verbose) {
+    if (g->verbose_ast) {
         ast_print(stderr, import_entry->root, 0);
     }
 

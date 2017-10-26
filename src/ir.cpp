@@ -7849,7 +7849,7 @@ IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node
     if (ir_executable.invalid)
         return codegen->invalid_instruction;
 
-    if (codegen->verbose) {
+    if (codegen->verbose_ir) {
         fprintf(stderr, "\nSource: ");
         ast_render(codegen, stderr, node, 4);
         fprintf(stderr, "\n{ // (IR)\n");
@@ -7870,7 +7870,7 @@ IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node
     if (type_is_invalid(result_type))
         return codegen->invalid_instruction;
 
-    if (codegen->verbose) {
+    if (codegen->verbose_ir) {
         fprintf(stderr, "{ // (analyzed)\n");
         ir_print(codegen, stderr, &analyzed_executable, 4);
         fprintf(stderr, "}\n");
@@ -13514,7 +13514,7 @@ static TypeTableEntry *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruc
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    if (ira->codegen->verbose) {
+    if (ira->codegen->verbose_cimport) {
         fprintf(stderr, "\nC imports:\n");
         fprintf(stderr, "-----------\n");
         ast_render(ira->codegen, stderr, child_import->root, 4);

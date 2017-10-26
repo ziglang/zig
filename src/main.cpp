@@ -20,67 +20,70 @@ static int usage(const char *arg0) {
     fprintf(stderr, "Usage: %s [command] [options]\n"
         "Commands:\n"
         "  build                        build project from build.zig\n"
-        "  build-exe [source]           create executable from source or object files\n"
-        "  build-lib [source]           create library from source or object files\n"
-        "  build-obj [source]           create object from source or assembly\n"
-        "  parsec [source]              convert c code to zig code\n"
+        "  build-exe $source            create executable from source or object files\n"
+        "  build-lib $source            create library from source or object files\n"
+        "  build-obj $source            create object from source or assembly\n"
+        "  parsec $source               convert c code to zig code\n"
         "  targets                      list available compilation targets\n"
-        "  test [source]                create and run a test build\n"
+        "  test $source                 create and run a test build\n"
         "  version                      print version number and exit\n"
         "  zen                          print zen of zig and exit\n"
         "Compile Options:\n"
-        "  --assembly [source]          add assembly file to build\n"
-        "  --cache-dir [path]           override the cache directory\n"
-        "  --color [auto|off|on]        enable or disable colored error messages\n"
+        "  --assembly $source           add assembly file to build\n"
+        "  --cache-dir $path            override the cache directory\n"
+        "  --color $auto|off|on         enable or disable colored error messages\n"
         "  --enable-timing-info         print timing diagnostics\n"
-        "  --libc-include-dir [path]    directory where libc stdlib.h resides\n"
-        "  --name [name]                override output name\n"
-        "  --output [file]              override destination path\n"
-        "  --output-h [file]            override generated header file path\n"
-        "  --pkg-begin [name] [path]    make package available to import and push current pkg\n"
+        "  --libc-include-dir $path     directory where libc stdlib.h resides\n"
+        "  --name $name                 override output name\n"
+        "  --output $file               override destination path\n"
+        "  --output-h $file             override generated header file path\n"
+        "  --pkg-begin $name  $path     make package available to import and push current pkg\n"
         "  --pkg-end                    pop current pkg\n"
         "  --release-fast               build with optimizations on and safety off\n"
         "  --release-safe               build with optimizations on and safety on\n"
         "  --static                     output will be statically linked\n"
         "  --strip                      exclude debug symbols\n"
-        "  --target-arch [name]         specify target architecture\n"
-        "  --target-environ [name]      specify target environment\n"
-        "  --target-os [name]           specify target operating system\n"
-        "  --verbose                    turn on compiler debug output\n"
-        "  --verbose-link               turn on compiler debug output for linking only\n"
-        "  --verbose-ir                 turn on compiler debug output for IR only\n"
-        "  --zig-install-prefix [path]  override directory where zig thinks it is installed\n"
-        "  -dirafter [dir]              same as -isystem but do it last\n"
-        "  -isystem [dir]               add additional search path for other .h files\n"
-        "  -mllvm [arg]                 additional arguments to forward to LLVM's option processing\n"
+        "  --target-arch $name          specify target architecture\n"
+        "  --target-environ $name       specify target environment\n"
+        "  --target-os $name            specify target operating system\n"
+        "  --verbose-tokenize           turn on compiler debug output for tokenization\n"
+        "  --verbose-ast                turn on compiler debug output for parsing into an AST\n"
+        "  --verbose-link               turn on compiler debug output for linking\n"
+        "  --verbose-ir                 turn on compiler debug output for Zig IR\n"
+        "  --verbose-llvm-ir            turn on compiler debug output for LLVM IR\n"
+        "  --verbose-cimport            turn on compiler debug output for C imports\n"
+        "  --zig-install-prefix $path   override directory where zig thinks it is installed\n"
+        "  -dirafter $dir               same as -isystem but do it last\n"
+        "  -isystem $dir                add additional search path for other .h files\n"
+        "  -mllvm $arg                  additional arguments to forward to LLVM's option processing\n"
         "Link Options:\n"
-        "  --ar-path [path]             set the path to ar\n"
-        "  --dynamic-linker [path]      set the path to ld.so\n"
+        "  --ar-path $path              set the path to ar\n"
+        "  --dynamic-linker $path       set the path to ld.so\n"
         "  --each-lib-rpath             add rpath for each used dynamic library\n"
-        "  --libc-lib-dir [path]        directory where libc crt1.o resides\n"
-        "  --libc-static-lib-dir [path] directory where libc crtbegin.o resides\n"
-        "  --msvc-lib-dir [path]        (windows) directory where vcruntime.lib resides\n"
-        "  --kernel32-lib-dir [path]    (windows) directory where kernel32.lib resides\n"
-        "  --library [lib]              link against lib\n"
-        "  --library-path [dir]         add a directory to the library search path\n"
-        "  --linker-script [path]       use a custom linker script\n"
-        "  --object [obj]               add object file to build\n"
-        "  -L[dir]                      alias for --library-path\n"
+        "  --libc-lib-dir $path         directory where libc crt1.o resides\n"
+        "  --libc-static-lib-dir $path  directory where libc crtbegin.o resides\n"
+        "  --msvc-lib-dir $path         (windows) directory where vcruntime.lib resides\n"
+        "  --kernel32-lib-dir $path     (windows) directory where kernel32.lib resides\n"
+        "  --library $lib               link against lib\n"
+        "  --library-path $dir          add a directory to the library search path\n"
+        "  --linker-script $path        use a custom linker script\n"
+        "  --object $obj                add object file to build\n"
+        "  -L$dir                       alias for --library-path\n"
         "  -rdynamic                    add all symbols to the dynamic symbol table\n"
-        "  -rpath [path]                add directory to the runtime library search path\n"
+        "  -rpath $path                 add directory to the runtime library search path\n"
         "  -mconsole                    (windows) --subsystem console to the linker\n"
         "  -mwindows                    (windows) --subsystem windows to the linker\n"
         "  -municode                    (windows) link with unicode\n"
-        "  -framework [name]            (darwin) link against framework\n"
-        "  -mios-version-min [ver]      (darwin) set iOS deployment target\n"
-        "  -mmacosx-version-min [ver]   (darwin) set Mac OS X deployment target\n"
-        "  --ver-major [ver]            dynamic library semver major version\n"
-        "  --ver-minor [ver]            dynamic library semver minor version\n"
-        "  --ver-patch [ver]            dynamic library semver patch version\n"
+        "  -framework $name             (darwin) link against framework\n"
+        "  -mios-version-min $ver       (darwin) set iOS deployment target\n"
+        "  -mmacosx-version-min $ver    (darwin) set Mac OS X deployment target\n"
+        "  --ver-major $ver             dynamic library semver major version\n"
+        "  --ver-minor $ver             dynamic library semver minor version\n"
+        "  --ver-patch $ver             dynamic library semver patch version\n"
         "Test Options:\n"
-        "  --test-filter [text]         skip tests that do not match filter\n"
-        "  --test-name-prefix [text]    add prefix to all tests\n"
-        "  --test-cmd [arg]             specify test execution command one arg at a time\n"
+        "  --test-filter $text          skip tests that do not match filter\n"
+        "  --test-name-prefix $text     add prefix to all tests\n"
+        "  --test-cmd $arg              specify test execution command one arg at a time\n"
         "  --test-cmd-bin               appends test binary path to test cmd args\n"
     , arg0);
     return EXIT_FAILURE;
@@ -274,9 +277,12 @@ int main(int argc, char **argv) {
     bool is_static = false;
     OutType out_type = OutTypeUnknown;
     const char *out_name = nullptr;
-    bool verbose = false;
+    bool verbose_tokenize = false;
+    bool verbose_ast = false;
     bool verbose_link = false;
     bool verbose_ir = false;
+    bool verbose_llvm_ir = false;
+    bool verbose_cimport = false;
     ErrColor color = ErrColorAuto;
     const char *libc_lib_dir = nullptr;
     const char *libc_static_lib_dir = nullptr;
@@ -328,9 +334,7 @@ int main(int argc, char **argv) {
         args.append(NULL); // placeholder
         args.append(NULL); // placeholder
         for (int i = 2; i < argc; i += 1) {
-            if (strcmp(argv[i], "--debug-build-verbose") == 0) {
-                verbose = true;
-            } else if (strcmp(argv[i], "--help") == 0) {
+            if (strcmp(argv[i], "--help") == 0) {
                 asked_for_help = true;
                 args.append(argv[i]);
             } else if (i + 1 < argc && strcmp(argv[i], "--build-file") == 0) {
@@ -363,7 +367,6 @@ int main(int argc, char **argv) {
 
         CodeGen *g = codegen_create(build_runner_path, nullptr, OutTypeExe, BuildModeDebug, zig_lib_dir_buf);
         codegen_set_out_name(g, buf_create_from_str("build"));
-        codegen_set_verbose(g, verbose);
 
         Buf build_file_abs = BUF_INIT;
         os_path_resolve(buf_create_from_str("."), buf_create_from_str(build_file), &build_file_abs);
@@ -398,14 +401,30 @@ int main(int argc, char **argv) {
                         "\n"
                         "General Options:\n"
                         "  --help                 Print this help and exit\n"
-                        "  --build-file [file]    Override path to build.zig\n"
-                        "  --cache-dir [path]     Override path to cache directory\n"
+                        "  --build-file $file     Override path to build.zig\n"
+                        "  --cache-dir $path      Override path to cache directory\n"
                         "  --verbose              Print commands before executing them\n"
-                        "  --debug-build-verbose  Print verbose debugging information for the build system itself\n"
-                        "  --prefix [prefix]      Override default install prefix\n"
+                        "  --verbose-tokenize     Enable compiler debug output for tokenization\n"
+                        "  --verbose-ast          Enable compiler debug output for parsing into an AST\n"
+                        "  --verbose-link         Enable compiler debug output for linking\n"
+                        "  --verbose-ir           Enable compiler debug output for Zig IR\n"
+                        "  --verbose-llvm-ir      Enable compiler debug output for LLVM IR\n"
+                        "  --verbose-cimport      Enable compiler debug output for C imports\n"
+                        "  --prefix $path         Override default install prefix\n"
                         "\n"
-                        "More options become available when the build file is found.\n"
+                        "Project-specific options become available when the build file is found.\n"
                         "Run this command with no options to generate a build.zig template.\n"
+                        "\n"
+                        "Advanced Options:\n"
+                        "  --build-file $file     Override path to build.zig\n"
+                        "  --cache-dir $path      Override path to cache directory\n"
+                        "  --verbose-tokenize     Enable compiler debug output for tokenization\n"
+                        "  --verbose-ast          Enable compiler debug output for parsing into an AST\n"
+                        "  --verbose-link         Enable compiler debug output for linking\n"
+                        "  --verbose-ir           Enable compiler debug output for Zig IR\n"
+                        "  --verbose-llvm-ir      Enable compiler debug output for LLVM IR\n"
+                        "  --verbose-cimport      Enable compiler debug output for C imports\n"
+                        "\n"
                 , zig_exe_path);
                 return 0;
             }
@@ -452,12 +471,18 @@ int main(int argc, char **argv) {
                 strip = true;
             } else if (strcmp(arg, "--static") == 0) {
                 is_static = true;
-            } else if (strcmp(arg, "--verbose") == 0) {
-                verbose = true;
+            } else if (strcmp(arg, "--verbose-tokenize") == 0) {
+                verbose_tokenize = true;
+            } else if (strcmp(arg, "--verbose-ast") == 0) {
+                verbose_ast = true;
             } else if (strcmp(arg, "--verbose-link") == 0) {
                 verbose_link = true;
             } else if (strcmp(arg, "--verbose-ir") == 0) {
                 verbose_ir = true;
+            } else if (strcmp(arg, "--verbose-llvm-ir") == 0) {
+                verbose_llvm_ir = true;
+            } else if (strcmp(arg, "--verbose-cimport") == 0) {
+                verbose_cimport = true;
             } else if (strcmp(arg, "-mwindows") == 0) {
                 mwindows = true;
             } else if (strcmp(arg, "-mconsole") == 0) {
@@ -742,9 +767,12 @@ int main(int argc, char **argv) {
                 codegen_set_kernel32_lib_dir(g, buf_create_from_str(kernel32_lib_dir));
             if (dynamic_linker)
                 codegen_set_dynamic_linker(g, buf_create_from_str(dynamic_linker));
-            codegen_set_verbose(g, verbose);
+            g->verbose_tokenize = verbose_tokenize;
+            g->verbose_ast = verbose_ast;
             g->verbose_link = verbose_link;
             g->verbose_ir = verbose_ir;
+            g->verbose_llvm_ir = verbose_llvm_ir;
+            g->verbose_cimport = verbose_cimport;
             codegen_set_errmsg_color(g, color);
 
             for (size_t i = 0; i < lib_dirs.length; i += 1) {

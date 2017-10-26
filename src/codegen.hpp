@@ -25,7 +25,6 @@ void codegen_set_each_lib_rpath(CodeGen *codegen, bool each_lib_rpath);
 
 void codegen_set_is_static(CodeGen *codegen, bool is_static);
 void codegen_set_strip(CodeGen *codegen, bool strip);
-void codegen_set_verbose(CodeGen *codegen, bool verbose);
 void codegen_set_errmsg_color(CodeGen *codegen, ErrColor err_color);
 void codegen_set_out_name(CodeGen *codegen, Buf *out_name);
 void codegen_set_libc_lib_dir(CodeGen *codegen, Buf *libc_lib_dir);

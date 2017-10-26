@@ -196,10 +196,6 @@ void codegen_set_is_static(CodeGen *g, bool is_static) {
     g->is_static = is_static;
 }
 
-void codegen_set_verbose(CodeGen *g, bool verbose) {
-    g->verbose = verbose;
-}
-
 void codegen_set_each_lib_rpath(CodeGen *g, bool each_lib_rpath) {
     g->each_lib_rpath = each_lib_rpath;
 }
@@ -4163,10 +4159,6 @@ static void validate_inline_fns(CodeGen *g) {
 }
 
 static void do_code_gen(CodeGen *g) {
-    if (g->verbose) {
-        fprintf(stderr, "\nCode Generation:\n");
-        fprintf(stderr, "------------------\n");
-    }
     assert(!g->errors.length);
 
     codegen_add_time_event(g, "Code Generation");
@@ -4443,7 +4435,8 @@ static void do_code_gen(CodeGen *g) {
 
     ZigLLVMDIBuilderFinalize(g->dbuilder);
 
-    if (g->verbose || g->verbose_ir) {
+    if (g->verbose_llvm_ir) {
+        fflush(stderr);
         LLVMDumpModule(g->module);
     }
 
@@ -5273,10 +5266,6 @@ static void gen_root_source(CodeGen *g) {
         resolve_top_level_decl(g, panic_tld, false, nullptr);
     }
 
-    if (g->verbose) {
-        fprintf(stderr, "\nIR Generation and Semantic Analysis:\n");
-        fprintf(stderr, "--------------------------------------\n");
-    }
     if (!g->error_during_imports) {
         semantic_analyze(g);
     }
@@ -5290,9 +5279,6 @@ static void gen_root_source(CodeGen *g) {
     }
 
     report_errors_and_maybe_exit(g);
-    if (g->verbose) {
-        fprintf(stderr, "OK\n");
-    }
 
 }
 

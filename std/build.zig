@@ -33,6 +33,12 @@ pub const Builder = struct {
     available_options_map: AvailableOptionsMap,
     available_options_list: ArrayList(AvailableOption),
     verbose: bool,
+    verbose_tokenize: bool,
+    verbose_ast: bool,
+    verbose_link: bool,
+    verbose_ir: bool,
+    verbose_llvm_ir: bool,
+    verbose_cimport: bool,
     invalid_user_input: bool,
     zig_exe: []const u8,
     default_step: &Step,
@@ -88,6 +94,12 @@ pub const Builder = struct {
             .build_root = build_root,
             .cache_root = %%os.path.relative(allocator, build_root, cache_root),
             .verbose = false,
+            .verbose_tokenize = false,
+            .verbose_ast = false,
+            .verbose_link = false,
+            .verbose_ir = false,
+            .verbose_llvm_ir = false,
+            .verbose_cimport = false,
             .invalid_user_input = false,
             .allocator = allocator,
             .lib_paths = ArrayList([]const u8).init(allocator),
@@ -536,15 +548,19 @@ pub const Builder = struct {
         return self.spawnChildEnvMap(null, &self.env_map, argv);
     }
 
+    fn printCmd(cwd: ?[]const u8, argv: []const []const u8) {
+        if (cwd) |yes_cwd| %%io.stderr.print("cd {} && ", yes_cwd);
+        for (argv) |arg| {
+            %%io.stderr.print("{} ", arg);
+        }
+        %%io.stderr.printf("\n");
+    }
+
     fn spawnChildEnvMap(self: &Builder, cwd: ?[]const u8, env_map: &const BufMap,
         argv: []const []const u8) -> %void
     {
         if (self.verbose) {
-            if (cwd) |yes_cwd| %%io.stderr.print("cd {}; ", yes_cwd);
-            for (argv) |arg| {
-                %%io.stderr.print("{} ", arg);
-            }
-            %%io.stderr.printf("\n");
+            printCmd(cwd, argv);
         }
 
         const child = %%os.ChildProcess.init(argv, self.allocator);
@@ -561,12 +577,15 @@ pub const Builder = struct {
         switch (term) {
             Term.Exited => |code| {
                 if (code != 0) {
-                    %%io.stderr.printf("Process {} exited with error code {}\n", argv[0], code);
+                    %%io.stderr.printf("The following command exited with error code {}:\n", code);
+                    printCmd(cwd, argv);
                     return error.UncleanExit;
                 }
             },
             else => {
-                %%io.stderr.printf("Process {} terminated unexpectedly\n", argv[0]);
+                %%io.stderr.printf("The following command terminated unexpectedly:\n");
+                printCmd(cwd, argv);
+
                 return error.UncleanExit;
             },
         };
@@ -1117,6 +1136,12 @@ pub const LibExeObjStep = struct {
         if (self.verbose) {
             %%zig_args.append("--verbose");
         }
+        if (builder.verbose_tokenize) %%zig_args.append("--verbose-tokenize");
+        if (builder.verbose_ast) %%zig_args.append("--verbose-ast");
+        if (builder.verbose_cimport) %%zig_args.append("--verbose-cimport");
+        if (builder.verbose_ir) %%zig_args.append("--verbose-ir");
+        if (builder.verbose_llvm_ir) %%zig_args.append("--verbose-llvm-ir");
+        if (builder.verbose_link) %%zig_args.append("--verbose-link");
 
         if (self.strip) {
             %%zig_args.append("--strip");

@@ -69,6 +69,18 @@ pub fn main() -> %void {
                     %%io.stderr.printf("Expected argument after --prefix\n\n");
                     return usage(&builder, false, &io.stderr);
                 });
+            } else if (mem.eql(u8, arg, "--verbose-tokenize")) {
+                builder.verbose_tokenize = true;
+            } else if (mem.eql(u8, arg, "--verbose-ast")) {
+                builder.verbose_ast = true;
+            } else if (mem.eql(u8, arg, "--verbose-link")) {
+                builder.verbose_link = true;
+            } else if (mem.eql(u8, arg, "--verbose-ir")) {
+                builder.verbose_ir = true;
+            } else if (mem.eql(u8, arg, "--verbose-llvm-ir")) {
+                builder.verbose_llvm_ir = true;
+            } else if (mem.eql(u8, arg, "--verbose-cimport")) {
+                builder.verbose_cimport = true;
             } else {
                 %%io.stderr.printf("Unrecognized argument: {}\n\n", arg);
                 return usage(&builder, false, &io.stderr);
@@ -116,26 +128,39 @@ fn usage(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) 
         \\
         \\General Options:
         \\  --help                 Print this help and exit
-        \\  --build-file [file]    Override path to build.zig
-        \\  --cache-dir [path]     Override path to cache directory
         \\  --verbose              Print commands before executing them
-        \\  --debug-build-verbose  Print verbose debugging information for the build system itself
-        \\  --prefix [prefix]      Override default install prefix
+        \\  --prefix $path         Override default install prefix
         \\
         \\Project-Specific Options:
         \\
     );
 
     if (builder.available_options_list.len == 0) {
-        %%out_stream.printf("  (none)\n");
+        %%out_stream.print("  (none)\n");
     } else {
         for (builder.available_options_list.toSliceConst()) |option| {
             const name = %%fmt.allocPrint(allocator,
-                "  -D{}=({})", option.name, Builder.typeIdName(option.type_id));
+                "  -D{}=${}", option.name, Builder.typeIdName(option.type_id));
             defer allocator.free(name);
-            %%out_stream.printf("{s24} {}\n", name, option.description);
+            %%out_stream.print("{s24} {}\n", name, option.description);
         }
     }
+
+    %%out_stream.write(
+        \\
+        \\Advanced Options:
+        \\  --build-file $file     Override path to build.zig
+        \\  --cache-dir $path      Override path to zig cache directory
+        \\  --verbose-tokenize     Enable compiler debug output for tokenization
+        \\  --verbose-ast          Enable compiler debug output for parsing into an AST
+        \\  --verbose-link         Enable compiler debug output for linking
+        \\  --verbose-ir           Enable compiler debug output for Zig IR
+        \\  --verbose-llvm-ir      Enable compiler debug output for LLVM IR
+        \\  --verbose-cimport      Enable compiler debug output for C imports
+        \\
+    );
+
+    %%out_stream.flush();
 
     if (out_stream == &io.stderr)
         return error.InvalidArgs;
