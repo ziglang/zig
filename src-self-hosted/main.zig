@@ -5,6 +5,7 @@ const heap = @import("std").mem;
 
 // TODO: OutSteam and InStream interface
 // TODO: move allocator to heap namespace
+// TODO: sync up CLI with c++ code
 
 error InvalidArgument;
 error MissingArg0;

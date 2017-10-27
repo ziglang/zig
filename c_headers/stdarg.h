@@ -26,9 +26,13 @@
 #ifndef __STDARG_H
 #define __STDARG_H
 
+/* zig: added because macos _va_list.h was duplicately defining va_list
+ */
 #ifndef _VA_LIST
+#ifndef _VA_LIST_T
 typedef __builtin_va_list va_list;
 #define _VA_LIST
+#endif
 #endif
 #define va_start(ap, param) __builtin_va_start(ap, param)
 #define va_end(ap)          __builtin_va_end(ap)

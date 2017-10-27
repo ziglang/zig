@@ -27,9 +27,17 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type);
 static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type);
 
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
-    // if this assert fails, then parsec generated code that
-    // failed semantic analysis, which isn't supposed to happen
-    assert(!node->owner->c_import_node);
+    if (node->owner->c_import_node != nullptr) {
+        // if this happens, then parsec generated code that
+        // failed semantic analysis, which isn't supposed to happen
+        ErrorMsg *err = add_node_error(g, node->owner->c_import_node,
+            buf_sprintf("compiler bug: @cImport generated invalid zig code"));
+            
+        add_error_note(g, err, node, msg);
+
+        g->errors.append(err);
+        return err;
+    }
 
     ErrorMsg *err = err_msg_create_with_line(node->owner->path, node->line, node->column,
             node->owner->source_code, node->owner->line_offsets, msg);
@@ -39,9 +47,20 @@ ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
 }
 
 ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, AstNode *node, Buf *msg) {
-    // if this assert fails, then parsec generated code that
-    // failed semantic analysis, which isn't supposed to happen
-    assert(!node->owner->c_import_node);
+    if (node->owner->c_import_node != nullptr) {
+        // if this happens, then parsec generated code that
+        // failed semantic analysis, which isn't supposed to happen
+
+        Buf *note_path = buf_create_from_str("?.c");
+        Buf *note_source = buf_create_from_str("TODO: remember C source location to display here ");
+        ZigList<size_t> note_line_offsets = {0};
+        note_line_offsets.append(0);
+        ErrorMsg *note = err_msg_create_with_line(note_path, 0, 0,
+                note_source, &note_line_offsets, msg);
+
+        err_msg_add_note(parent_msg, note);
+        return note;
+    }
 
     ErrorMsg *err = err_msg_create_with_line(node->owner->path, node->line, node->column,
             node->owner->source_code, node->owner->line_offsets, msg);
@@ -1344,6 +1363,8 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
     // unset temporary flag
     enum_type->data.enumeration.embedded_in_current = false;
     enum_type->data.enumeration.complete = true;
+    enum_type->data.enumeration.union_size_bytes = biggest_size_in_bits / 8;
+    enum_type->data.enumeration.most_aligned_union_member = most_aligned_union_member;
 
     if (!enum_type->data.enumeration.is_invalid) {
         TypeTableEntry *tag_int_type = get_smallest_unsigned_int_type(g, field_count);
@@ -1365,10 +1386,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
                 };
                 union_type_ref = LLVMStructType(union_element_types, 2, false);
             } else {
-                LLVMTypeRef union_element_types[] = {
-                    most_aligned_union_member->type_ref,
-                };
-                union_type_ref = LLVMStructType(union_element_types, 1, false);
+                union_type_ref = most_aligned_union_member->type_ref;
             }
             enum_type->data.enumeration.union_type_ref = union_type_ref;
 
@@ -2804,7 +2822,6 @@ static bool is_container(TypeTableEntry *type_entry) {
     switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdVar:
-        case TypeTableEntryIdOpaque:
             zig_unreachable();
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdEnum:
@@ -2831,6 +2848,7 @@ static bool is_container(TypeTableEntry *type_entry) {
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdEnumTag:
         case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdOpaque:
             return false;
     }
     zig_unreachable();
@@ -2982,7 +3000,7 @@ void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_typ
         return;
     }
 
-    if (g->verbose) {
+    if (g->verbose_ir) {
         fprintf(stderr, "{ // (analyzed)\n");
         ir_print(g, stderr, &fn_table_entry->analyzed_executable, 4);
         fprintf(stderr, "}\n");
@@ -3015,7 +3033,7 @@ static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
         fn_table_entry->anal_state = FnAnalStateInvalid;
         return;
     }
-    if (g->verbose) {
+    if (g->verbose_ir) {
         fprintf(stderr, "\n");
         ast_render(g, stderr, fn_table_entry->body_node, 4);
         fprintf(stderr, "\n{ // (IR)\n");
@@ -3115,7 +3133,7 @@ void preview_use_decl(CodeGen *g, AstNode *node) {
 }
 
 ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *abs_full_path, Buf *source_code) {
-    if (g->verbose) {
+    if (g->verbose_tokenize) {
         fprintf(stderr, "\nOriginal Source (%s):\n", buf_ptr(abs_full_path));
         fprintf(stderr, "----------------\n");
         fprintf(stderr, "%s\n", buf_ptr(source_code));
@@ -3135,7 +3153,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *a
         exit(1);
     }
 
-    if (g->verbose) {
+    if (g->verbose_tokenize) {
         print_tokens(source_code, tokenization.tokens);
 
         fprintf(stderr, "\nAST:\n");
@@ -3150,7 +3168,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *a
 
     import_entry->root = ast_parse(source_code, tokenization.tokens, import_entry, g->err_color);
     assert(import_entry->root);
-    if (g->verbose) {
+    if (g->verbose_ast) {
         ast_print(stderr, import_entry->root, 0);
     }
 

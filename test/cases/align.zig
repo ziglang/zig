@@ -188,6 +188,6 @@ test "alignstack" {
 }
 
 fn fnWithAlignedStack() -> i32 {
-    @setAlignStack(1024);
+    @setAlignStack(256);
     return 1234;
 }

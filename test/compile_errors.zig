@@ -2187,6 +2187,13 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         ".tmp_source.zig:3:5: error: alignstack set twice",
         ".tmp_source.zig:2:5: note: first set here");
 
+    cases.add("@setAlignStack too big",
+        \\export fn entry() {
+        \\    @setAlignStack(511 + 1);
+        \\}
+    ,
+        ".tmp_source.zig:2:5: error: attempt to @setAlignStack(512); maximum is 256");
+
     cases.add("storing runtime value in compile time variable then using it",
         \\const Mode = @import("builtin").Mode;
         \\
@@ -2231,4 +2238,41 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:37:16: error: cannot store runtime value in compile time variable");
+
+    cases.add("field access of opaque type",
+        \\const MyType = @OpaqueType();
+        \\
+        \\export fn entry() -> bool {
+        \\    var x: i32 = 1;
+        \\    return bar(@ptrCast(&MyType, &x));
+        \\}
+        \\
+        \\fn bar(x: &MyType) -> bool {
+        \\    return x.blah;
+        \\}
+    ,
+        ".tmp_source.zig:9:13: error: type '&MyType' does not support field access");
+
+    cases.add("carriage return special case",
+        "fn test() -> bool {\r\n" ++
+        "   true\r\n" ++
+        "}\r\n"
+    ,
+        ".tmp_source.zig:1:20: error: invalid carriage return, only '\\n' line endings are supported");
+
+    cases.add("non-printable invalid character",
+        "\xff\xfe" ++
+        \\fn test() -> bool {\r
+        \\    true\r
+        \\}
+    ,
+        ".tmp_source.zig:1:1: error: invalid character: '\\xff'");
+
+    cases.add("non-printable invalid character with escape alternative",
+        "fn test() -> bool {\n" ++
+        "\ttrue\n" ++
+        "}\n"
+    ,
+        ".tmp_source.zig:2:1: error: invalid character: '\\t'");
+
 }

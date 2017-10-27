@@ -196,10 +196,6 @@ void codegen_set_is_static(CodeGen *g, bool is_static) {
     g->is_static = is_static;
 }
 
-void codegen_set_verbose(CodeGen *g, bool verbose) {
-    g->verbose = verbose;
-}
-
 void codegen_set_each_lib_rpath(CodeGen *g, bool each_lib_rpath) {
     g->each_lib_rpath = each_lib_rpath;
 }
@@ -452,10 +448,10 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
             LLVMSetLinkage(fn_table_entry->llvm_value, LLVMExternalLinkage);
             break;
         case GlobalLinkageIdWeak:
-            LLVMSetLinkage(fn_table_entry->llvm_value, LLVMWeakAnyLinkage);
+            LLVMSetLinkage(fn_table_entry->llvm_value, LLVMWeakODRLinkage);
             break;
         case GlobalLinkageIdLinkOnce:
-            LLVMSetLinkage(fn_table_entry->llvm_value, LLVMLinkOnceAnyLinkage);
+            LLVMSetLinkage(fn_table_entry->llvm_value, LLVMLinkOnceODRLinkage);
             break;
     }
 
@@ -3665,6 +3661,12 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Con
     zig_unreachable();
 }
 
+// We have this because union constants can't be represented by the official union type,
+// and this property bubbles up in whatever aggregate type contains a union constant
+static bool is_llvm_value_unnamed_type(TypeTableEntry *type_entry, LLVMValueRef val) {
+    return LLVMTypeOf(val) != type_entry->type_ref;
+}
+
 static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
     TypeTableEntry *type_entry = const_val->type;
     assert(!type_entry->zero_bits);
@@ -3726,24 +3728,34 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                 } else {
                     LLVMValueRef child_val;
                     LLVMValueRef maybe_val;
+                    bool make_unnamed_struct;
                     if (const_val->data.x_maybe) {
                         child_val = gen_const_val(g, const_val->data.x_maybe);
                         maybe_val = LLVMConstAllOnes(LLVMInt1Type());
+
+                        make_unnamed_struct = is_llvm_value_unnamed_type(const_val->type, child_val);
                     } else {
-                        child_val = LLVMConstNull(child_type->type_ref);
+                        child_val = LLVMGetUndef(child_type->type_ref);
                         maybe_val = LLVMConstNull(LLVMInt1Type());
+
+                        make_unnamed_struct = false;
                     }
                     LLVMValueRef fields[] = {
                         child_val,
                         maybe_val,
                     };
-                    return LLVMConstStruct(fields, 2, false);
+                    if (make_unnamed_struct) {
+                        return LLVMConstStruct(fields, 2, false);
+                    } else {
+                        return LLVMConstNamedStruct(type_entry->type_ref, fields, 2);
+                    }
                 }
             }
         case TypeTableEntryIdStruct:
             {
                 LLVMValueRef *fields = allocate<LLVMValueRef>(type_entry->data.structure.gen_field_count);
                 size_t src_field_count = type_entry->data.structure.src_field_count;
+                bool make_unnamed_struct = false;
                 if (type_entry->data.structure.layout == ContainerLayoutPacked) {
                     size_t src_field_index = 0;
                     while (src_field_index < src_field_count) {
@@ -3761,8 +3773,10 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                         }
 
                         if (src_field_index + 1 == src_field_index_end) {
-                            fields[type_struct_field->gen_index] =
-                                gen_const_val(g, &const_val->data.x_struct.fields[src_field_index]);
+                            ConstExprValue *field_val = &const_val->data.x_struct.fields[src_field_index];
+                            LLVMValueRef val = gen_const_val(g, field_val);
+                            fields[type_struct_field->gen_index] = val;
+                            make_unnamed_struct = make_unnamed_struct || is_llvm_value_unnamed_type(field_val->type, val);
                         } else {
                             LLVMTypeRef big_int_type_ref = LLVMStructGetTypeAtIndex(type_entry->type_ref,
                                     (unsigned)type_struct_field->gen_index);
@@ -3790,11 +3804,18 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                         if (type_struct_field->gen_index == SIZE_MAX) {
                             continue;
                         }
-                        fields[type_struct_field->gen_index] = gen_const_val(g, &const_val->data.x_struct.fields[i]);
+                        ConstExprValue *field_val = &const_val->data.x_struct.fields[i];
+                        LLVMValueRef val = gen_const_val(g, field_val);
+                        fields[type_struct_field->gen_index] = val;
+                        make_unnamed_struct = make_unnamed_struct || is_llvm_value_unnamed_type(field_val->type, val);
                     }
                 }
-                return LLVMConstStruct(fields, type_entry->data.structure.gen_field_count,
-                    type_entry->data.structure.layout == ContainerLayoutPacked);
+                if (make_unnamed_struct) {
+                    return LLVMConstStruct(fields, type_entry->data.structure.gen_field_count,
+                        type_entry->data.structure.layout == ContainerLayoutPacked);
+                } else {
+                    return LLVMConstNamedStruct(type_entry->type_ref, fields, type_entry->data.structure.gen_field_count);
+                }
             }
         case TypeTableEntryIdUnion:
             {
@@ -3808,11 +3829,19 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                 }
 
                 LLVMValueRef *values = allocate<LLVMValueRef>(len);
+                LLVMTypeRef element_type_ref = type_entry->data.array.child_type->type_ref;
+                bool make_unnamed_struct = false;
                 for (uint64_t i = 0; i < len; i += 1) {
                     ConstExprValue *elem_value = &const_val->data.x_array.s_none.elements[i];
-                    values[i] = gen_const_val(g, elem_value);
+                    LLVMValueRef val = gen_const_val(g, elem_value);
+                    values[i] = val;
+                    make_unnamed_struct = make_unnamed_struct || is_llvm_value_unnamed_type(elem_value->type, val);
                 }
-                return LLVMConstArray(LLVMTypeOf(values[0]), values, (unsigned)len);
+                if (make_unnamed_struct) {
+                    return LLVMConstStruct(values, len, true);
+                } else {
+                    return LLVMConstArray(element_type_ref, values, (unsigned)len);
+                }
             }
         case TypeTableEntryIdEnum:
             {
@@ -3825,14 +3854,20 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                     TypeEnumField *enum_field = &type_entry->data.enumeration.fields[const_val->data.x_enum.tag];
                     assert(enum_field->value == const_val->data.x_enum.tag);
                     LLVMValueRef union_value;
+
+                    bool make_unnamed_struct;
+
                     if (type_has_bits(enum_field->type_entry)) {
-                        uint64_t union_type_bytes = LLVMStoreSizeOfType(g->target_data_ref,
-                                union_type_ref);
                         uint64_t field_type_bytes = LLVMStoreSizeOfType(g->target_data_ref,
                                 enum_field->type_entry->type_ref);
-                        uint64_t pad_bytes = union_type_bytes - field_type_bytes;
+                        uint64_t pad_bytes = type_entry->data.enumeration.union_size_bytes - field_type_bytes;
 
-                        LLVMValueRef correctly_typed_value = gen_const_val(g, const_val->data.x_enum.payload);
+                        ConstExprValue *payload_value = const_val->data.x_enum.payload;
+                        LLVMValueRef correctly_typed_value = gen_const_val(g, payload_value);
+
+                        make_unnamed_struct = is_llvm_value_unnamed_type(payload_value->type, correctly_typed_value) ||
+                            payload_value->type != type_entry->data.enumeration.most_aligned_union_member;
+
                         if (pad_bytes == 0) {
                             union_value = correctly_typed_value;
                         } else {
@@ -3843,12 +3878,18 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                             union_value = LLVMConstStruct(fields, 2, false);
                         }
                     } else {
+                        make_unnamed_struct = false;
                         union_value = LLVMGetUndef(union_type_ref);
                     }
                     LLVMValueRef fields[2];
                     fields[type_entry->data.enumeration.gen_tag_index] = tag_value;
                     fields[type_entry->data.enumeration.gen_union_index] = union_value;
-                    return LLVMConstStruct(fields, 2, false);
+
+                    if (make_unnamed_struct) {
+                        return LLVMConstStruct(fields, 2, false);
+                    } else {
+                        return LLVMConstNamedStruct(type_entry->type_ref, fields, 2);
+                    }
                 }
             }
         case TypeTableEntryIdFn:
@@ -3932,18 +3973,26 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                 } else {
                     LLVMValueRef err_tag_value;
                     LLVMValueRef err_payload_value;
+                    bool make_unnamed_struct;
                     if (const_val->data.x_err_union.err) {
                         err_tag_value = LLVMConstInt(g->err_tag_type->type_ref, const_val->data.x_err_union.err->value, false);
                         err_payload_value = LLVMConstNull(child_type->type_ref);
+                        make_unnamed_struct = false;
                     } else {
                         err_tag_value = LLVMConstNull(g->err_tag_type->type_ref);
-                        err_payload_value = gen_const_val(g, const_val->data.x_err_union.payload);
+                        ConstExprValue *payload_val = const_val->data.x_err_union.payload;
+                        err_payload_value = gen_const_val(g, payload_val);
+                        make_unnamed_struct = is_llvm_value_unnamed_type(payload_val->type, err_payload_value);
                     }
                     LLVMValueRef fields[] = {
                         err_tag_value,
                         err_payload_value,
                     };
-                    return LLVMConstStruct(fields, 2, false);
+                    if (make_unnamed_struct) {
+                        return LLVMConstStruct(fields, 2, false);
+                    } else {
+                        return LLVMConstNamedStruct(type_entry->type_ref, fields, 2);
+                    }
                 }
             }
         case TypeTableEntryIdVoid:
@@ -4159,10 +4208,6 @@ static void validate_inline_fns(CodeGen *g) {
 }
 
 static void do_code_gen(CodeGen *g) {
-    if (g->verbose) {
-        fprintf(stderr, "\nCode Generation:\n");
-        fprintf(stderr, "------------------\n");
-    }
     assert(!g->errors.length);
 
     codegen_add_time_event(g, "Code Generation");
@@ -4439,7 +4484,8 @@ static void do_code_gen(CodeGen *g) {
 
     ZigLLVMDIBuilderFinalize(g->dbuilder);
 
-    if (g->verbose || g->verbose_ir) {
+    if (g->verbose_llvm_ir) {
+        fflush(stderr);
         LLVMDumpModule(g->module);
     }
 
@@ -5269,10 +5315,6 @@ static void gen_root_source(CodeGen *g) {
         resolve_top_level_decl(g, panic_tld, false, nullptr);
     }
 
-    if (g->verbose) {
-        fprintf(stderr, "\nIR Generation and Semantic Analysis:\n");
-        fprintf(stderr, "--------------------------------------\n");
-    }
     if (!g->error_during_imports) {
         semantic_analyze(g);
     }
@@ -5286,9 +5328,6 @@ static void gen_root_source(CodeGen *g) {
     }
 
     report_errors_and_maybe_exit(g);
-    if (g->verbose) {
-        fprintf(stderr, "OK\n");
-    }
 
 }
 

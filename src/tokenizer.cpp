@@ -416,6 +416,44 @@ static void handle_string_escape(Tokenize *t, uint8_t c) {
     }
 }
 
+static const char* get_escape_shorthand(uint8_t c) {
+    switch (c) {
+        case '\0':
+            return "\\0";
+        case '\a':
+            return "\\a";
+        case '\b':
+            return "\\b";
+        case '\t':
+            return "\\t";
+        case '\n':
+            return "\\n";
+        case '\v':
+            return "\\v";
+        case '\f':
+            return "\\f";
+        case '\r':
+            return "\\r";
+        default:
+            return nullptr;
+    }
+}
+
+static void invalid_char_error(Tokenize *t, uint8_t c) {
+    if (c == '\r') {
+        tokenize_error(t, "invalid carriage return, only '\\n' line endings are supported");
+    } else if (isprint(c)) {
+        tokenize_error(t, "invalid character: '%c'", c);
+    } else {
+        const char *sh = get_escape_shorthand(c);
+        if (sh) {
+            tokenize_error(t, "invalid character: '%s'", sh);
+        } else {
+            tokenize_error(t, "invalid character: '\\x%x'", c);
+        }
+    }
+}
+
 void tokenize(Buf *buf, Tokenization *out) {
     Tokenize t = {0};
     t.out = out;
@@ -580,7 +618,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                         t.state = TokenizeStateSawQuestionMark;
                         break;
                     default:
-                        tokenize_error(&t, "invalid character: '%c'", c);
+                        invalid_char_error(&t, c);
                 }
                 break;
             case TokenizeStateSawQuestionMark:
@@ -890,7 +928,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                         t.state = TokenizeStateLineString;
                         break;
                     default:
-                        tokenize_error(&t, "invalid character: '%c'", c);
+                        invalid_char_error(&t, c);
                         break;
                 }
                 break;
@@ -919,7 +957,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                         break;
                     case '\\':
                         if (t.cur_tok->data.str_lit.is_c_str) {
-                            tokenize_error(&t, "invalid character: '%c'", c);
+                            invalid_char_error(&t, c);
                         }
                         t.state = TokenizeStateLineStringContinue;
                         break;
@@ -949,7 +987,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                         buf_append_char(&t.cur_tok->data.str_lit.str, '\n');
                         break;
                     default:
-                        tokenize_error(&t, "invalid character: '%c'", c);
+                        invalid_char_error(&t, c);
                         break;
                 }
                 break;
@@ -1073,7 +1111,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                         handle_string_escape(&t, '\"');
                         break;
                     default:
-                        tokenize_error(&t, "invalid character: '%c'", c);
+                        invalid_char_error(&t, c);
                 }
                 break;
             case TokenizeStateCharCode:
@@ -1147,7 +1185,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                         t.state = TokenizeStateStart;
                         break;
                     default:
-                        tokenize_error(&t, "invalid character: '%c'", c);
+                        invalid_char_error(&t, c);
                 }
                 break;
             case TokenizeStateZero:
@@ -1189,7 +1227,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                     uint32_t digit_value = get_digit_value(c);
                     if (digit_value >= t.radix) {
                         if (is_symbol_char(c)) {
-                            tokenize_error(&t, "invalid character: '%c'", c);
+                            invalid_char_error(&t, c);
                         }
                         // not my char
                         t.pos -= 1;
@@ -1233,7 +1271,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                     uint32_t digit_value = get_digit_value(c);
                     if (digit_value >= t.radix) {
                         if (is_symbol_char(c)) {
-                            tokenize_error(&t, "invalid character: '%c'", c);
+                            invalid_char_error(&t, c);
                         }
                         // not my char
                         t.pos -= 1;
@@ -1282,7 +1320,7 @@ void tokenize(Buf *buf, Tokenization *out) {
                     uint32_t digit_value = get_digit_value(c);
                     if (digit_value >= t.radix) {
                         if (is_symbol_char(c)) {
-                            tokenize_error(&t, "invalid character: '%c'", c);
+                            invalid_char_error(&t, c);
                         }
                         // not my char
                         t.pos -= 1;

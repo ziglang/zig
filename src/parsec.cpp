@@ -3167,7 +3167,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
 {
     Context context = {0};
     Context *c = &context;
-    c->warnings_on = codegen->verbose;
+    c->warnings_on = codegen->verbose_cimport;
     c->import = import;
     c->errors = errors;
     if (buf_ends_with_str(buf_create_from_str(target_file), ".h")) {

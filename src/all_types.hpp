@@ -1008,6 +1008,9 @@ struct TypeTableEntryEnum {
 
     size_t gen_union_index;
     size_t gen_tag_index;
+
+    uint32_t union_size_bytes;
+    TypeTableEntry *most_aligned_union_member;
 };
 
 struct TypeTableEntryEnumTag {
@@ -1514,9 +1517,12 @@ struct CodeGen {
     size_t version_major;
     size_t version_minor;
     size_t version_patch;
-    bool verbose;
+    bool verbose_tokenize;
+    bool verbose_ast;
     bool verbose_link;
     bool verbose_ir;
+    bool verbose_llvm_ir;
+    bool verbose_cimport;
     ErrColor err_color;
     ImportTableEntry *root_import;
     ImportTableEntry *bootstrap_import;
