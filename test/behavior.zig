@@ -40,6 +40,7 @@ comptime {
     _ = @import("cases/this.zig");
     _ = @import("cases/try.zig");
     _ = @import("cases/undefined.zig");
+    _ = @import("cases/union.zig");
     _ = @import("cases/var_args.zig");
     _ = @import("cases/void.zig");
     _ = @import("cases/while.zig");
