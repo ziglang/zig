@@ -428,6 +428,10 @@ static void construct_linker_job_coff(LinkJob *lj) {
         Buf *crt_lib_name = buf_sprintf("%sucrt%s.lib", lib_str, d_str);
         lj->args.append(buf_ptr(crt_lib_name));
 
+        //Visual C++ 2015 Conformance Changes
+        //https://msdn.microsoft.com/en-us/library/bb531344.aspx
+        lj->args.append("legacy_stdio_definitions.lib");
+
         //if (shared || dll) {
         //    lj->args.append(get_libc_file(g, "dllcrt2.o"));
         //} else {
