@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2015 Andrew Kelley
  *
  * This file is part of zig, which is MIT licensed.
@@ -3371,73 +3371,49 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
 }
 
 void find_libc_include_path(CodeGen *g) {
-    if (!g->libc_include_dir || buf_len(g->libc_include_dir) == 0) {
-        zig_panic("Unable to determine libc include path.");
+    if (g->zig_target.os == ZigLLVM_Win32) {
+	    if (os_get_win32_ucrt_include_path(g->libc_include_dir)) {
+		    zig_panic("Unable to determine libc include path.");
+	    }
+    } else {
+	    if (!g->libc_include_dir || buf_len(g->libc_include_dir) == 0) {
+		    zig_panic("Unable to determine libc include path.");
+	    }
     }
 }
 
 void find_libc_lib_path(CodeGen *g) {
-#ifdef ZIG_OS_WINDOWS
-    if (!g->msvc_lib_dir && g->zig_target.os == ZigLLVM_Win32) {
-        Buf *msvc_lib_dir;
-        if (g->zig_target.arch.arch == ZigLLVM_arm) {
-            msvc_lib_dir = buf_create_from_str("C:\\Program Files (x86)\\Microsoft Visual Studio 14.0\\VC\\lib\\arm");
-        } else if (g->zig_target.arch.arch == ZigLLVM_x86_64) {
-            msvc_lib_dir = buf_create_from_str("C:\\Program Files (x86)\\Microsoft Visual Studio 14.0\\VC\\lib\\amd64");
-        } else if (g->zig_target.arch.arch == ZigLLVM_x86) {
-            msvc_lib_dir = buf_create_from_str("C:\\Program Files (x86)\\Microsoft Visual Studio 14.0\\VC\\lib");
-        } else {
-            zig_panic("unable to determine msvc lib path");
-        }
-        Buf *test_path = buf_alloc();
-        os_path_join(msvc_lib_dir, buf_create_from_str("vcruntime.lib"), test_path);
-        bool result;
-        int err;
-        if ((err = os_file_exists(test_path, &result))) {
-            result = false;
-        }
-        if (result) {
-            g->msvc_lib_dir = msvc_lib_dir;
-        } else {
-            zig_panic("Unable to determine msvc lib path.");
-        }
-    }
+    if (g->zig_target.os == ZigLLVM_Win32) {
+	    Buf* vc_lib_dir = buf_alloc();
+	    if (os_get_win32_vcruntime_path(vc_lib_dir, g->zig_target.arch.arch)) {
+		    zig_panic("Unable to determine vcruntime path.");
+	    }
 
-    if (!g->kernel32_lib_dir && g->zig_target.os == ZigLLVM_Win32) {
-        Buf *kernel32_lib_dir;
-        if (g->zig_target.arch.arch == ZigLLVM_arm) {
-            kernel32_lib_dir = buf_create_from_str(
-                "C:\\Program Files (x86)\\Windows Kits\\8.1\\Lib\\winv6.3\\um\\arm");
-        } else if (g->zig_target.arch.arch == ZigLLVM_x86_64) {
-            kernel32_lib_dir = buf_create_from_str(
-                "C:\\Program Files (x86)\\Windows Kits\\8.1\\Lib\\winv6.3\\um\\x64");
-        } else if (g->zig_target.arch.arch == ZigLLVM_x86) {
-            kernel32_lib_dir = buf_create_from_str(
-                "C:\\Program Files (x86)\\Windows Kits\\8.1\\Lib\\winv6.3\\um\\x86");
-        } else {
-            zig_panic("unable to determine kernel32 lib path");
-        }
-        Buf *test_path = buf_alloc();
-        os_path_join(kernel32_lib_dir, buf_create_from_str("kernel32.lib"), test_path);
-        bool result;
-        int err;
-        if ((err = os_file_exists(test_path, &result))) {
-            result = false;
-        }
-        if (result) {
-            g->kernel32_lib_dir = kernel32_lib_dir;
-        } else {
-            zig_panic("Unable to determine kernel32 lib path.");
-        }
-    }
-#endif
+	    Buf* ucrt_lib_path = buf_alloc();
+	    if (os_get_win32_ucrt_lib_path(ucrt_lib_path, g->zig_target.arch.arch)) {
+		    zig_panic("Unable to determine ucrt path.");
+	    }
 
-    // later we can handle this better by reporting an error via the normal mechanism
-    if (!g->libc_lib_dir || buf_len(g->libc_lib_dir) == 0) {
-        zig_panic("Unable to determine libc lib path.");
+	    Buf* kern_lib_path = buf_alloc();
+	    if (os_get_win32_kern32_path(kern_lib_path, g->zig_target.arch.arch)) {
+		    zig_panic("Unable to determine kernel32 path.");
+	    }
+
+	    g->link_libs_dirs_list.append(vc_lib_dir);
+	    g->link_libs_dirs_list.append(ucrt_lib_path);
+	    g->link_libs_dirs_list.append(kern_lib_path);
     }
-    if (!g->libc_static_lib_dir || buf_len(g->libc_static_lib_dir) == 0) {
-        zig_panic("Unable to determine libc static lib path.");
+    else {
+	    /*
+	    //ToDo(Dimenus): make this more robust on other platforms
+	    // later we can handle this better by reporting an error via the normal mechanism
+	    if (!g->libc_lib_dir || buf_len(g->libc_lib_dir) == 0) {
+		    zig_panic("Unable to determine libc lib path.");
+	    }
+	    if (!g->libc_static_lib_dir || buf_len(g->libc_static_lib_dir) == 0) {
+		    zig_panic("Unable to determine libc static lib path.");
+	    }
+	    */
     }
 }
 

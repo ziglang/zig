@@ -11,6 +11,7 @@
 #include "list.hpp"
 #include "buffer.hpp"
 #include "error.hpp"
+#include "zig_llvm.hpp"
 
 #include <stdio.h>
 #include <inttypes.h>
@@ -74,6 +75,10 @@ double os_get_time(void);
 bool os_is_sep(uint8_t c);
 
 int os_self_exe_path(Buf *out_path);
+int os_get_win32_vcruntime_path(Buf* output_buf, ZigLLVM_ArchType platform_type);
+int os_get_win32_ucrt_include_path(Buf* output_buf);
+int os_get_win32_ucrt_lib_path(Buf* output_buf, ZigLLVM_ArchType platform_type);
+int os_get_win32_kern32_path(Buf* output_buf, ZigLLVM_ArchType platform_type);
 
 #if defined(__APPLE__)
 #define ZIG_OS_DARWIN

@@ -68,6 +68,7 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
     os_path_join(zig_lib_dir, buf_create_from_str("std"), g->zig_std_dir);
 
     g->zig_c_headers_dir = buf_alloc();
+
     os_path_join(zig_lib_dir, buf_create_from_str("include"), g->zig_c_headers_dir);
 
     g->build_mode = build_mode;
@@ -106,7 +107,6 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
     g->zig_std_special_dir = buf_alloc();
     os_path_join(g->zig_std_dir, buf_sprintf("special"), g->zig_std_special_dir);
 
-
     if (target) {
         // cross compiling, so we can't rely on all the configured stuff since
         // that's for native compilation
@@ -117,20 +117,15 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
         g->libc_lib_dir = buf_create_from_str("");
         g->libc_static_lib_dir = buf_create_from_str("");
         g->libc_include_dir = buf_create_from_str("");
-        g->msvc_lib_dir = nullptr;
-        g->kernel32_lib_dir = nullptr;
         g->each_lib_rpath = false;
     } else {
         // native compilation, we can rely on the configuration stuff
         g->is_native_target = true;
         get_native_target(&g->zig_target);
-
         g->dynamic_linker = buf_create_from_str(ZIG_DYNAMIC_LINKER);
         g->libc_lib_dir = buf_create_from_str(ZIG_LIBC_LIB_DIR);
         g->libc_static_lib_dir = buf_create_from_str(ZIG_LIBC_STATIC_LIB_DIR);
         g->libc_include_dir = buf_create_from_str(ZIG_LIBC_INCLUDE_DIR);
-        g->msvc_lib_dir = nullptr; // find it at runtime
-        g->kernel32_lib_dir = nullptr; // find it at runtime
 #ifdef ZIG_EACH_LIB_RPATH
         g->each_lib_rpath = true;
 #endif
@@ -226,14 +221,6 @@ void codegen_set_libc_static_lib_dir(CodeGen *g, Buf *libc_static_lib_dir) {
 
 void codegen_set_libc_include_dir(CodeGen *g, Buf *libc_include_dir) {
     g->libc_include_dir = libc_include_dir;
-}
-
-void codegen_set_msvc_lib_dir(CodeGen *g, Buf *msvc_lib_dir) {
-    g->msvc_lib_dir = msvc_lib_dir;
-}
-
-void codegen_set_kernel32_lib_dir(CodeGen *g, Buf *kernel32_lib_dir) {
-    g->kernel32_lib_dir = kernel32_lib_dir;
 }
 
 void codegen_set_dynamic_linker(CodeGen *g, Buf *dynamic_linker) {
