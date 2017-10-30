@@ -1461,7 +1461,7 @@ struct CodeGen {
     bool have_winmain_crt_startup;
     bool have_dllmain_crt_startup;
     bool have_pub_panic;
-	ZigList<Buf*> link_libs_dirs_list;
+    ZigList<Buf*> libc_lib_dirs_list;
     Buf *libc_lib_dir;
     Buf *libc_static_lib_dir;
     Buf *libc_include_dir;

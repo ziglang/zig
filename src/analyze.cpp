@@ -3371,14 +3371,16 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
 }
 
 void find_libc_include_path(CodeGen *g) {
-    if (g->zig_target.os == ZigLLVM_Win32) {
-	    if (os_get_win32_ucrt_include_path(g->libc_include_dir)) {
-		    zig_panic("Unable to determine libc include path.");
-	    }
-    } else {
-	    if (!g->libc_include_dir || buf_len(g->libc_include_dir) == 0) {
-		    zig_panic("Unable to determine libc include path.");
-	    }
+    if (!g->libc_include_dir || buf_len(g->libc_include_dir) == 0) {
+        if (g->zig_target.os == ZigLLVM_Win32) {
+            if (os_get_win32_ucrt_include_path(g->libc_include_dir)) {
+                zig_panic("Unable to determine libc include path.");
+            }
+        }
+        //ToDo(Dimenus): Other OS'es
+        else {
+            zig_panic("Unable to determine libc include path.");
+        }
     }
 }
 
@@ -3399,13 +3401,11 @@ void find_libc_lib_path(CodeGen *g) {
 		    zig_panic("Unable to determine kernel32 path.");
 	    }
 
-	    g->link_libs_dirs_list.append(vc_lib_dir);
-	    g->link_libs_dirs_list.append(ucrt_lib_path);
-	    g->link_libs_dirs_list.append(kern_lib_path);
+	    g->libc_lib_dirs_list.append(vc_lib_dir);
+	    g->libc_lib_dirs_list.append(ucrt_lib_path);
+	    g->libc_lib_dirs_list.append(kern_lib_path);
     }
     else {
-	    /*
-	    //ToDo(Dimenus): make this more robust on other platforms
 	    // later we can handle this better by reporting an error via the normal mechanism
 	    if (!g->libc_lib_dir || buf_len(g->libc_lib_dir) == 0) {
 		    zig_panic("Unable to determine libc lib path.");
@@ -3413,7 +3413,6 @@ void find_libc_lib_path(CodeGen *g) {
 	    if (!g->libc_static_lib_dir || buf_len(g->libc_static_lib_dir) == 0) {
 		    zig_panic("Unable to determine libc static lib path.");
 	    }
-	    */
     }
 }
 

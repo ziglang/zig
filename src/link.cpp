@@ -403,8 +403,8 @@ static void construct_linker_job_coff(LinkJob *lj) {
 
     if (g->libc_link_lib != nullptr) {
 	    if (g->libc_link_lib != nullptr) {
-		    for (uint32_t i = 0; i < g->link_libs_dirs_list.length; ++i) {
-			    lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->link_libs_dirs_list.items[i]))));
+		    for (uint32_t i = 0; i < g->libc_lib_dirs_list.length; ++i) {
+			    lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->libc_lib_dirs_list.items[i]))));
 		    }
 	    }
     }
