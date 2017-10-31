@@ -402,11 +402,11 @@ static void construct_linker_job_coff(LinkJob *lj) {
     lj->args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(&lj->out_file))));
 
     if (g->libc_link_lib != nullptr) {
-	    if (g->libc_link_lib != nullptr) {
-		    for (uint32_t i = 0; i < g->libc_lib_dirs_list.length; ++i) {
-			    lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->libc_lib_dirs_list.items[i]))));
-		    }
-	    }
+        if (g->libc_link_lib != nullptr) {
+            for (uint32_t i = 0; i < g->libc_lib_dirs_list.length; ++i) {
+                lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->libc_lib_dirs_list.items[i]))));
+            }
+        }
     }
 
     if (lj->link_in_crt) {
@@ -414,12 +414,12 @@ static void construct_linker_job_coff(LinkJob *lj) {
         const char *d_str = (g->build_mode == BuildModeDebug) ? "d" : "";
 
         if (g->is_static) {
-	        Buf *cmt_lib_name = buf_sprintf("libcmt%s.lib", d_str);
-	        lj->args.append(buf_ptr(cmt_lib_name));
+            Buf *cmt_lib_name = buf_sprintf("libcmt%s.lib", d_str);
+            lj->args.append(buf_ptr(cmt_lib_name));
         }
         else {
-	        Buf *msvcrt_lib_name = buf_sprintf("msvcrt%s.lib", d_str);
-	        lj->args.append(buf_ptr(msvcrt_lib_name));
+            Buf *msvcrt_lib_name = buf_sprintf("msvcrt%s.lib", d_str);
+            lj->args.append(buf_ptr(msvcrt_lib_name));
         }
 
         Buf *vcruntime_lib_name = buf_sprintf("%svcruntime%s.lib", lib_str, d_str);

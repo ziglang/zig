@@ -8,7 +8,6 @@
 #ifndef ZIG_OS_HPP
 #define ZIG_OS_HPP
 
-#include "all_types.hpp"
 #include "list.hpp"
 #include "buffer.hpp"
 #include "error.hpp"
@@ -35,11 +34,6 @@ enum TerminationId {
 struct Termination {
     TerminationId how;
     int code;
-};
-
-struct Win32SDK {
-    Buf* path;
-    Buf* version_string;
 };
 
 int os_init(void);
@@ -82,12 +76,6 @@ bool os_is_sep(uint8_t c);
 
 int os_self_exe_path(Buf *out_path);
 
-int os_find_windows_sdk(Buf* out_sdk_path, Buf* out_sdk_version);
-int os_get_win32_vcruntime_path(Buf *output_buf, ZigLLVM_ArchType platform_type);
-int os_get_win32_ucrt_include_path(Buf *sdk_path, Buf *sdk_version, Buf *output_buf);
-int os_get_win32_ucrt_lib_path(Buf *sdk_path, Buf *sdk_version, Buf *output_buf, ZigLLVM_ArchType platform_type);
-int os_get_win32_kern32_path(Buf *sdk_path, Buf *sdk_version, Buf *output_buf, ZigLLVM_ArchType platform_type);
-
 #if defined(__APPLE__)
 #define ZIG_OS_DARWIN
 #elif defined(_WIN32)
@@ -96,6 +84,18 @@ int os_get_win32_kern32_path(Buf *sdk_path, Buf *sdk_version, Buf *output_buf, Z
 #define ZIG_OS_LINUX
 #else
 #define ZIG_OS_UNKNOWN
+#endif
+
+struct ZigWindowsSDK {
+    Buf path;
+    Buf version;
+};
+#if defined(ZIG_OS_WINDOWS)
+int os_find_windows_sdk(ZigWindowsSDK **out_sdk);
+int os_get_win32_vcruntime_path(Buf *output_buf, ZigLLVM_ArchType platform_type);
+int os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf *output_buf);
+int os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);
+int os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);
 #endif
 
 #if defined(__x86_64__)

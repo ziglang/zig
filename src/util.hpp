@@ -48,17 +48,17 @@ static inline void zig_unreachable(void) {
 
 #if defined(_MSC_VER)
 static inline int clzll(unsigned long long mask) {
-	unsigned long lz;
+    unsigned long lz;
 #if defined(_WIN64)
-	if (_BitScanReverse64(&lz, mask))
-		return static_cast<int>(63 - lz);
-	zig_unreachable();
+    if (_BitScanReverse64(&lz, mask))
+        return static_cast<int>(63 - lz);
+    zig_unreachable();
 #else
-	if (_BitScanReverse(&lz, mask >> 32))
-		lz += 32;
-	else
-		_BitScanReverse(&lz, mask & 0xffffffff);
-	return 63 - lz;
+    if (_BitScanReverse(&lz, mask >> 32))
+        lz += 32;
+    else
+        _BitScanReverse(&lz, mask & 0xffffffff);
+    return 63 - lz;
 #endif
 }
 #else
