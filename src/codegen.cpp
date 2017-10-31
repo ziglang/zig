@@ -70,6 +70,9 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
     g->zig_c_headers_dir = buf_alloc();
     os_path_join(zig_lib_dir, buf_create_from_str("include"), g->zig_c_headers_dir);
 
+    g->win32_sdk_path = buf_alloc();
+    g->win32_sdk_version = buf_alloc();
+
     g->build_mode = build_mode;
     g->out_type = out_type;
     g->import_table.init(32);
@@ -85,7 +88,6 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
     g->external_prototypes.init(8);
     g->is_test_build = false;
     g->want_h_file = (out_type == OutTypeObj || out_type == OutTypeLib);
-
     buf_resize(&g->global_asm, 0);
 
     // reserve index 0 to indicate no error

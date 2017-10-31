@@ -1001,9 +1001,11 @@ void os_stderr_set_color(TermColor color) {
 #endif
 }
 
-int os_find_windows_sdk(Win32SDK *out_sdk)
+int os_find_windows_sdk(Buf *out_sdk_path, Buf *out_sdk_version)
 {
-    assert(out_sdk);
+    assert(out_sdk_path);
+    assert(out_sdk_version);
+
     HKEY key;
     HRESULT rc;
     rc = RegOpenKeyEx(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots", 0, KEY_QUERY_VALUE | KEY_WOW64_32KEY | KEY_ENUMERATE_SUB_KEYS, &key);
@@ -1019,13 +1021,11 @@ int os_find_windows_sdk(Win32SDK *out_sdk)
 	    return 1;
     }
     tmp_buf->list.length = buf_len;
-    out_sdk->path = buf_alloc();
-    buf_append_buf(out_sdk->path, tmp_buf);
+    buf_append_buf(out_sdk_path, tmp_buf);
 
     int i = 0;
     buf_len = MAX_PATH;
-    out_sdk->version_string = buf_alloc();
-    out_sdk->version_string->list.ensure_capacity(buf_len);
+    out_sdk_version->list.ensure_capacity(buf_len);
     tmp_buf->list.ensure_capacity(buf_len);
     int v0 = 0, v1 = 0, v2 = 0, v3 = 0;
     while ((rc = RegEnumKeyEx(key, i, buf_ptr(tmp_buf), &buf_len, NULL, NULL, NULL, NULL)) == ERROR_SUCCESS) {
@@ -1035,7 +1035,7 @@ int os_find_windows_sdk(Win32SDK *out_sdk)
 	    sscanf(buf_ptr(tmp_buf), "%d.%d.%d.%d", &c0, &c1, &c2, &c3);
 	    if ((c0 > v0) || (c1 > v1) || (c2 > v2) || (c3 > v3)) {
 		    v0 = c0, v1 = c1, v2 = c2, v3 = c3;
-		    buf_init_from_buf(out_sdk->version_string, tmp_buf);
+		    buf_init_from_buf(out_sdk_version, tmp_buf);
 	    }
 	    ++i;
 	    buf_len = MAX_PATH;
@@ -1173,10 +1173,10 @@ com_done:;
     }
 }
 
-int os_get_win32_ucrt_lib_path(const Win32SDK &sdk, Buf* output_buf, ZigLLVM_ArchType platform_type)
+int os_get_win32_ucrt_lib_path(Buf *sdk_path, Buf *sdk_version, Buf* output_buf, ZigLLVM_ArchType platform_type)
 {
     buf_resize(output_buf, 0);
-    buf_appendf(output_buf, "%s\\Lib\\%s\\ucrt\\", buf_ptr(sdk.path), buf_ptr(sdk.version_string));
+    buf_appendf(output_buf, "%s\\Lib\\%s\\ucrt\\", buf_ptr(sdk_path), buf_ptr(sdk_version));
     switch (platform_type) {
     case ZigLLVM_x86:
 	    buf_append_str(output_buf, "x86\\");
@@ -1202,10 +1202,10 @@ int os_get_win32_ucrt_lib_path(const Win32SDK &sdk, Buf* output_buf, ZigLLVM_Arc
     }
 }
 
-int os_get_win32_ucrt_include_path(const Win32SDK &sdk, Buf* output_buf) 
+int os_get_win32_ucrt_include_path(Buf *sdk_path, Buf *sdk_version, Buf* output_buf)
 {
     buf_resize(output_buf, 0);
-    buf_appendf(output_buf, "%s\\Include\\%s\\ucrt", buf_ptr(sdk.path), buf_ptr(sdk.version_string));
+    buf_appendf(output_buf, "%s\\Include\\%s\\ucrt", buf_ptr(sdk_path), buf_ptr(sdk_version));
     if (GetFileAttributesA(buf_ptr(output_buf)) != INVALID_FILE_ATTRIBUTES) {
 	    return 0;
     }
@@ -1215,10 +1215,10 @@ int os_get_win32_ucrt_include_path(const Win32SDK &sdk, Buf* output_buf)
     }
 }
 
-int os_get_win32_kern32_path(const Win32SDK &sdk, Buf* output_buf, ZigLLVM_ArchType platform_type)
+int os_get_win32_kern32_path(Buf *sdk_path, Buf *sdk_version, Buf* output_buf, ZigLLVM_ArchType platform_type)
 {
     buf_resize(output_buf, 0);
-    buf_appendf(output_buf, "%s\\Lib\\%s\\um\\", buf_ptr(sdk.path), buf_ptr(sdk.version_string));
+    buf_appendf(output_buf, "%s\\Lib\\%s\\um\\", buf_ptr(sdk_path), buf_ptr(sdk_version));
     switch (platform_type) {
     case ZigLLVM_x86:
 	    buf_append_str(output_buf, "x86\\");
