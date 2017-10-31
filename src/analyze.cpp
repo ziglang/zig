@@ -3371,49 +3371,64 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
 }
 
 void find_libc_include_path(CodeGen *g) {
+#ifdef ZIG_OS_WINDOWS
     if (!g->libc_include_dir || buf_len(g->libc_include_dir) == 0) {
+        Win32SDK win_sdk;
+        if (os_find_windows_sdk(&win_sdk)) {
+            zig_panic("Unable to determine Windows SDK path.");
+        }
+
         if (g->zig_target.os == ZigLLVM_Win32) {
-            if (os_get_win32_ucrt_include_path(g->libc_include_dir)) {
+            if (os_get_win32_ucrt_include_path(win_sdk, g->libc_include_dir)) {
                 zig_panic("Unable to determine libc include path.");
             }
         }
-        //ToDo(Dimenus): Other OS'es
-        else {
-            zig_panic("Unable to determine libc include path.");
-        }
+    }
+    return;
+#endif
+    //ToDo(Dimenus): Other OS'es
+    if(!g->libc_include_dir || buf_len(g->libc_include_dir) == 0) {
+        zig_panic("Unable to determine libc include path.");
     }
 }
 
 void find_libc_lib_path(CodeGen *g) {
+#ifdef ZIG_OS_WINDOWS
     if (g->zig_target.os == ZigLLVM_Win32) {
-	    Buf* vc_lib_dir = buf_alloc();
-	    if (os_get_win32_vcruntime_path(vc_lib_dir, g->zig_target.arch.arch)) {
-		    zig_panic("Unable to determine vcruntime path.");
-	    }
+        Win32SDK win_sdk;
+        if (os_find_windows_sdk(& win_sdk)) {
+            zig_panic("Unable to determine Windows SDK path.");
+        }
 
-	    Buf* ucrt_lib_path = buf_alloc();
-	    if (os_get_win32_ucrt_lib_path(ucrt_lib_path, g->zig_target.arch.arch)) {
-		    zig_panic("Unable to determine ucrt path.");
-	    }
+        Buf* vc_lib_dir = buf_alloc();
+        if (os_get_win32_vcruntime_path(vc_lib_dir, g->zig_target.arch.arch)) {
+            zig_panic("Unable to determine vcruntime path.");
+        }
 
-	    Buf* kern_lib_path = buf_alloc();
-	    if (os_get_win32_kern32_path(kern_lib_path, g->zig_target.arch.arch)) {
-		    zig_panic("Unable to determine kernel32 path.");
-	    }
+        Buf* ucrt_lib_path = buf_alloc();
+        if (os_get_win32_ucrt_lib_path(win_sdk, ucrt_lib_path, g->zig_target.arch.arch)) {
+            zig_panic("Unable to determine ucrt path.");
+        }
 
-	    g->libc_lib_dirs_list.append(vc_lib_dir);
-	    g->libc_lib_dirs_list.append(ucrt_lib_path);
-	    g->libc_lib_dirs_list.append(kern_lib_path);
+        Buf* kern_lib_path = buf_alloc();
+        if (os_get_win32_kern32_path(win_sdk, kern_lib_path, g->zig_target.arch.arch)) {
+            zig_panic("Unable to determine kernel32 path.");
+        }
+
+        g->libc_lib_dirs_list.append(vc_lib_dir);
+        g->libc_lib_dirs_list.append(ucrt_lib_path);
+        g->libc_lib_dirs_list.append(kern_lib_path);
     }
-    else {
-	    // later we can handle this better by reporting an error via the normal mechanism
-	    if (!g->libc_lib_dir || buf_len(g->libc_lib_dir) == 0) {
-		    zig_panic("Unable to determine libc lib path.");
-	    }
-	    if (!g->libc_static_lib_dir || buf_len(g->libc_static_lib_dir) == 0) {
-		    zig_panic("Unable to determine libc static lib path.");
-	    }
-    }
+    return;
+#endif
+
+	// later we can handle this better by reporting an error via the normal mechanism
+	if (!g->libc_lib_dir || buf_len(g->libc_lib_dir) == 0) {
+		zig_panic("Unable to determine libc lib path.");
+	}
+	if (!g->libc_static_lib_dir || buf_len(g->libc_static_lib_dir) == 0) {
+		zig_panic("Unable to determine libc static lib path.");
+	}
 }
 
 static uint32_t hash_ptr(void *ptr) {

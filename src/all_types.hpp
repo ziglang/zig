@@ -1471,6 +1471,8 @@ struct CodeGen {
     Buf *zig_std_special_dir;
     Buf *dynamic_linker;
     Buf *ar_path;
+    Buf* win32_sdk_path;
+    Buf* win32_sdk_version;
     Buf triple_str;
     BuildMode build_mode;
     bool is_test_build;
