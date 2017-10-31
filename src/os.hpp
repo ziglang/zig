@@ -37,11 +37,6 @@ struct Termination {
     int code;
 };
 
-struct Win32SDK {
-    Buf* path;
-    Buf* version_string;
-};
-
 int os_init(void);
 
 void os_spawn_process(const char *exe, ZigList<const char *> &args, Termination *term);
@@ -82,11 +77,11 @@ bool os_is_sep(uint8_t c);
 
 int os_self_exe_path(Buf *out_path);
 
-int os_find_windows_sdk(Buf* out_sdk_path, Buf* out_sdk_version);
+int os_find_windows_sdk(Win32SDK *out_sdk);
 int os_get_win32_vcruntime_path(Buf *output_buf, ZigLLVM_ArchType platform_type);
-int os_get_win32_ucrt_include_path(Buf *sdk_path, Buf *sdk_version, Buf *output_buf);
-int os_get_win32_ucrt_lib_path(Buf *sdk_path, Buf *sdk_version, Buf *output_buf, ZigLLVM_ArchType platform_type);
-int os_get_win32_kern32_path(Buf *sdk_path, Buf *sdk_version, Buf *output_buf, ZigLLVM_ArchType platform_type);
+int os_get_win32_ucrt_include_path(const Win32SDK &win32_sdk, Buf *output_buf);
+int os_get_win32_ucrt_lib_path(const Win32SDK &win32_sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);
+int os_get_win32_kern32_path(const Win32SDK &win32_sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);
 
 #if defined(__APPLE__)
 #define ZIG_OS_DARWIN

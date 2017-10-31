@@ -3373,14 +3373,14 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
 void find_libc_include_path(CodeGen *g) {
 #ifdef ZIG_OS_WINDOWS
     if (!g->libc_include_dir || buf_len(g->libc_include_dir) == 0) {
-        if ((buf_len(g->win32_sdk_path) == 0) || (buf_len(g->win32_sdk_version) == 0)) {
-            if (os_find_windows_sdk(g->win32_sdk_path, g->win32_sdk_version)) {
+        if ((buf_len(g->win32_sdk.path) == 0) || (buf_len(g->win32_sdk.version_string) == 0)) {
+            if (os_find_windows_sdk(&g->win32_sdk)) {
                 zig_panic("Unable to determine Windows SDK path.");
             }
         }
 
         if (g->zig_target.os == ZigLLVM_Win32) {
-            if (os_get_win32_ucrt_include_path(g->win32_sdk_path, g->win32_sdk_version, g->libc_include_dir)) {
+            if (os_get_win32_ucrt_include_path(g->win32_sdk, g->libc_include_dir)) {
                 zig_panic("Unable to determine libc include path.");
             }
         }
@@ -3396,8 +3396,8 @@ void find_libc_include_path(CodeGen *g) {
 void find_libc_lib_path(CodeGen *g) {
 #ifdef ZIG_OS_WINDOWS
     if (g->zig_target.os == ZigLLVM_Win32) {
-        if ((buf_len(g->win32_sdk_path) == 0) || (buf_len(g->win32_sdk_version) == 0)) {
-            if (os_find_windows_sdk(g->win32_sdk_path, g->win32_sdk_version)) {
+        if ((buf_len(g->win32_sdk.path) == 0) || (buf_len(g->win32_sdk.version_string) == 0)) {
+            if (os_find_windows_sdk(&g->win32_sdk)) {
                 zig_panic("Unable to determine Windows SDK path.");
             }
         }
@@ -3408,12 +3408,12 @@ void find_libc_lib_path(CodeGen *g) {
         }
 
         Buf* ucrt_lib_path = buf_alloc();
-        if (os_get_win32_ucrt_lib_path(g->win32_sdk_path, g->win32_sdk_version, ucrt_lib_path, g->zig_target.arch.arch)) {
+        if (os_get_win32_ucrt_lib_path(g->win32_sdk, ucrt_lib_path, g->zig_target.arch.arch)) {
             zig_panic("Unable to determine ucrt path.");
         }
 
         Buf* kern_lib_path = buf_alloc();
-        if (os_get_win32_kern32_path(g->win32_sdk_path, g->win32_sdk_version, kern_lib_path, g->zig_target.arch.arch)) {
+        if (os_get_win32_kern32_path(g->win32_sdk, kern_lib_path, g->zig_target.arch.arch)) {
             zig_panic("Unable to determine kernel32 path.");
         }
 

@@ -1372,6 +1372,11 @@ struct LinkLib {
     bool provided_explicitly;
 };
 
+struct Win32SDK {
+    Buf* path;
+    Buf* version_string;
+};
+
 struct CodeGen {
     LLVMModuleRef module;
     ZigList<ErrorMsg*> errors;
@@ -1469,10 +1474,9 @@ struct CodeGen {
     Buf *zig_std_dir;
     Buf *zig_c_headers_dir;
     Buf *zig_std_special_dir;
+    Win32SDK win32_sdk;
     Buf *dynamic_linker;
     Buf *ar_path;
-    Buf* win32_sdk_path;
-    Buf* win32_sdk_version;
     Buf triple_str;
     BuildMode build_mode;
     bool is_test_build;

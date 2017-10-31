@@ -70,8 +70,8 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
     g->zig_c_headers_dir = buf_alloc();
     os_path_join(zig_lib_dir, buf_create_from_str("include"), g->zig_c_headers_dir);
 
-    g->win32_sdk_path = buf_alloc();
-    g->win32_sdk_version = buf_alloc();
+    g->win32_sdk.path= buf_alloc();
+    g->win32_sdk.version_string = buf_alloc();
 
     g->build_mode = build_mode;
     g->out_type = out_type;
@@ -139,9 +139,6 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
         }
 
     }
-
-    g->win32_sdk_path = buf_alloc();
-    g->win32_sdk_version = buf_alloc();
 
     // On Darwin/MacOS/iOS, we always link libSystem which contains libc.
     if (g->zig_target.os == ZigLLVM_Darwin ||
