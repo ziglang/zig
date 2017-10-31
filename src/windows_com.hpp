@@ -171,6 +171,10 @@ typedef class SetupConfiguration SetupConfiguration;
 
 #endif
 
+#ifndef _MSC_VER
+#define _Deref_out_opt_
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -468,6 +472,11 @@ extern "C" {
 	EXTERN_C const IID IID_ISetupConfiguration;
 
 #if defined(__cplusplus) && !defined(CINTERFACE)
+
+#ifdef __GNUC__
+    __CRT_UUID_DECL(ISetupConfiguration, 0x42843719, 0xDB4C, 0x46C2, 0x8E, 0x7C, 0x64, 0xF1, 0x81, 0x6E, 0xFD, 0x5B);
+#endif
+
 	/// <summary>
 	/// Gets information about product instances installed on the machine.
 	/// </summary>
@@ -854,12 +863,16 @@ extern "C" {
 	EXTERN_C const CLSID CLSID_SetupConfiguration;
 
 #ifdef __cplusplus
+
+#ifdef __GNUC__
+    __CRT_UUID_DECL(SetupConfiguration, 0x177F0C4A, 0x1CD3, 0x4DE7, 0xA3, 0x2C, 0x71, 0xDB, 0xBB, 0x9F, 0xA3, 0x6D);
+#endif
+
 	/// <summary>
 	/// This class implements <see cref="ISetupConfiguration"/>, <see cref="ISetupConfiguration2"/>, and <see cref="ISetupHelper"/>.
 	/// </summary>
 	class DECLSPEC_UUID("177F0C4A-1CD3-4DE7-A32C-71DBBB9FA36D") SetupConfiguration;
 #endif
-
 	// Function declarations
 	//
 	/// <summary>

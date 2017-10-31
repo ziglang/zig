@@ -763,7 +763,7 @@ int main(int argc, char **argv) {
                 codegen_set_libc_include_dir(g, buf_create_from_str(libc_include_dir));
             if (msvc_lib_dir)
                 codegen_set_ucrt_lib_dir(g, buf_create_from_str(msvc_lib_dir));
-            if (kernel32_lib_dir) {
+            if (kernel32_lib_dir)
                 codegen_set_kernel32_lib_dir(g, buf_create_from_str(kernel32_lib_dir));
             if (dynamic_linker)
                 codegen_set_dynamic_linker(g, buf_create_from_str(dynamic_linker));
