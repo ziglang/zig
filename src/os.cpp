@@ -1001,6 +1001,7 @@ void os_stderr_set_color(TermColor color) {
 #endif
 }
 
+#if defined ZIG_OS_WINDOWS
 int os_find_windows_sdk(Buf *out_sdk_path, Buf *out_sdk_version)
 {
     assert(out_sdk_path);
@@ -1243,3 +1244,4 @@ int os_get_win32_kern32_path(Buf *sdk_path, Buf *sdk_version, Buf* output_buf, Z
 	    return 1;
     }
 }
+#endif
