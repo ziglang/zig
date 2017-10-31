@@ -70,7 +70,7 @@ pub fn ArrayList(comptime T: type) -> type{
             l.len = new_len;
         }
 
-        pub fn resizeDown(l: &Self, new_len: usize) {
+        pub fn shrink(l: &Self, new_len: usize) {
             assert(new_len <= l.len);
             l.len = new_len;
         }

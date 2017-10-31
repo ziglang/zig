@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const Os = builtin.Os;
 const is_windows = builtin.os == Os.windows;
+const os = this;
 
 pub const windows = @import("windows/index.zig");
 pub const darwin = @import("darwin.zig");
@@ -26,13 +27,13 @@ pub const UserInfo = @import("get_user_id.zig").UserInfo;
 pub const getUserInfo = @import("get_user_id.zig").getUserInfo;
 
 const windows_util = @import("windows/util.zig");
-pub const windowsClose = windows_util.windowsClose;
 pub const windowsWaitSingle = windows_util.windowsWaitSingle;
 pub const windowsWrite = windows_util.windowsWrite;
-pub const windowsIsTty = windows_util.windowsIsTty;
 pub const windowsIsCygwinPty = windows_util.windowsIsCygwinPty;
 pub const windowsOpen = windows_util.windowsOpen;
 pub const createWindowsEnvBlock = windows_util.createWindowsEnvBlock;
+
+pub const FileHandle = if (is_windows) windows.HANDLE else i32;
 
 const debug = @import("../debug.zig");
 const assert = debug.assert;
@@ -88,7 +89,7 @@ pub fn getRandomBytes(buf: []u8) -> %void {
         Os.darwin, Os.macosx, Os.ios => {
             const fd = %return posixOpen("/dev/urandom", posix.O_RDONLY|posix.O_CLOEXEC,
                 0, null);
-            defer posixClose(fd);
+            defer close(fd);
 
             %return posixRead(fd, buf);
         },
@@ -165,14 +166,18 @@ pub coldcc fn exit(status: i32) -> noreturn {
     }
 }
 
-/// Calls POSIX close, and keeps trying if it gets interrupted.
-pub fn posixClose(fd: i32) {
-    while (true) {
-        const err = posix.getErrno(posix.close(fd));
-        if (err == posix.EINTR) {
-            continue;
-        } else {
-            return;
+/// Closes the file handle. Keeps trying if it gets interrupted by a signal.
+pub fn close(handle: FileHandle) {
+    if (is_windows) {
+        windows_util.windowsClose(handle);
+    } else {
+        while (true) {
+            const err = posix.getErrno(posix.close(handle));
+            if (err == posix.EINTR) {
+                continue;
+            } else {
+                return;
+            }
         }
     }
 }
@@ -716,19 +721,18 @@ pub fn copyFileMode(allocator: &Allocator, source_path: []const u8, dest_path: [
     %return getRandomBytes(rand_buf[0..]);
     _ = base64.encodeWithAlphabet(tmp_path[dest_path.len..], rand_buf, b64_fs_alphabet);
 
-    var out_stream = %return io.OutStream.openMode(tmp_path, mode, allocator);
-    defer out_stream.close();
+    var out_file = %return io.File.openWriteMode(tmp_path, mode, allocator);
+    defer out_file.close();
     %defer _ = deleteFile(allocator, tmp_path);
 
-    var in_stream = %return io.InStream.open(source_path, allocator);
-    defer in_stream.close();
+    var in_file = %return io.File.openRead(source_path, allocator);
+    defer in_file.close();
 
-    const buf = out_stream.buffer[0..];
+    var buf: [page_size]u8 = undefined;
     while (true) {
-        const amt = %return in_stream.read(buf);
-        out_stream.index = amt;
-        %return out_stream.flush();
-        if (amt != out_stream.buffer.len)
+        const amt = %return in_file.in_stream.read(buf[0..]);
+        %return out_file.out_stream.write(buf[0..amt]);
+        if (amt != buf.len)
             return rename(allocator, tmp_path, dest_path);
     }
 }
@@ -973,7 +977,7 @@ pub const Dir = struct {
 
     pub fn close(self: &Dir) {
         self.allocator.free(self.buf);
-        posixClose(self.fd);
+        close(self.fd);
     }
 
     /// Memory such as file names referenced in this returned entry becomes invalid
@@ -1135,7 +1139,6 @@ test "os.sleep" {
     sleep(0, 1);
 }
 
-
 error ResourceLimitReached;
 error InvalidUserId;
 error PermissionDenied;
@@ -1182,6 +1185,21 @@ pub fn posix_setregid(rgid: u32, egid: u32) -> %void {
         posix.EPERM => error.PermissionDenied,
         else => unexpectedErrorPosix(err),
     };
+}
+
+error NoStdHandles;
+pub fn windowsGetStdHandle(handle_id: windows.DWORD) -> %windows.HANDLE {
+    if (windows.GetStdHandle(handle_id)) |handle| {
+        if (handle == windows.INVALID_HANDLE_VALUE) {
+            const err = windows.GetLastError();
+            return switch (err) {
+                else => os.unexpectedErrorWindows(err),
+            };
+        }
+        return handle;
+    } else {
+        return error.NoStdHandles;
+    }
 }
 
 pub const ArgIteratorPosix = struct {
@@ -1458,3 +1476,28 @@ pub fn unexpectedErrorWindows(err: windows.DWORD) -> error {
     }
     return error.Unexpected;
 }
+
+pub fn openSelfExe() -> %io.File {
+    switch (builtin.os) {
+        Os.linux => {
+            return io.File.openRead("/proc/self/exe", null);
+        },
+        Os.darwin => {
+            @panic("TODO: openSelfExe on Darwin");
+        },
+        else => @compileError("Unsupported OS"),
+    }
+}
+
+pub fn isTty(handle: FileHandle) -> bool {
+    if (is_windows) {
+        return windows_util.windowsIsTty(handle);
+    } else {
+        if (builtin.link_libc) {
+            return c.isatty(handle) != 0;
+        } else {
+            return posix.isatty(handle);
+        }
+    }
+}
+
