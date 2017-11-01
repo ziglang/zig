@@ -11,6 +11,7 @@
 #include "list.hpp"
 #include "buffer.hpp"
 #include "error.hpp"
+#include "zig_llvm.hpp"
 
 #include <stdio.h>
 #include <inttypes.h>
@@ -83,6 +84,20 @@ int os_self_exe_path(Buf *out_path);
 #define ZIG_OS_LINUX
 #else
 #define ZIG_OS_UNKNOWN
+#endif
+
+struct ZigWindowsSDK {
+    Buf path10;
+    Buf version10;
+    Buf path81;
+    Buf version81;
+};
+#if defined(ZIG_OS_WINDOWS)
+int os_find_windows_sdk(ZigWindowsSDK **out_sdk);
+int os_get_win32_vcruntime_path(Buf *output_buf, ZigLLVM_ArchType platform_type);
+int os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf *output_buf);
+int os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);
+int os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf *output_buf, ZigLLVM_ArchType platform_type);
 #endif
 
 #if defined(__x86_64__)

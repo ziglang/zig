@@ -26,6 +26,7 @@
 #include <windows.h>
 #include <io.h>
 #include <fcntl.h>
+#include "windows_com.hpp"
 
 typedef SSIZE_T ssize_t;
 #else
@@ -999,3 +1000,321 @@ void os_stderr_set_color(TermColor color) {
     set_color_posix(color);
 #endif
 }
+
+#if defined ZIG_OS_WINDOWS
+int os_find_windows_sdk(ZigWindowsSDK **out_sdk) {
+    ZigWindowsSDK *result_sdk = allocate<ZigWindowsSDK>(1);
+    buf_resize(&result_sdk->path10, 0);
+    buf_resize(&result_sdk->path81, 0);
+
+    HKEY key;
+    HRESULT rc;
+    rc = RegOpenKeyEx(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots", 0, KEY_QUERY_VALUE | KEY_WOW64_32KEY | KEY_ENUMERATE_SUB_KEYS, &key);
+    if (rc != ERROR_SUCCESS) {
+        return ErrorFileNotFound;
+    }
+
+    {
+        DWORD tmp_buf_len = MAX_PATH;
+        buf_resize(&result_sdk->path10, tmp_buf_len);
+        rc = RegQueryValueEx(key, "KitsRoot10", NULL, NULL, (LPBYTE)buf_ptr(&result_sdk->path10), &tmp_buf_len);
+        if (rc == ERROR_FILE_NOT_FOUND) {
+            buf_resize(&result_sdk->path10, 0);
+        } else {
+            buf_resize(&result_sdk->path10, tmp_buf_len);
+        }
+    }
+    {
+        DWORD tmp_buf_len = MAX_PATH;
+        buf_resize(&result_sdk->path81, tmp_buf_len);
+        rc = RegQueryValueEx(key, "KitsRoot81", NULL, NULL, (LPBYTE)buf_ptr(&result_sdk->path81), &tmp_buf_len);
+        if (rc == ERROR_FILE_NOT_FOUND) {
+            buf_resize(&result_sdk->path81, 0);
+        } else {
+            buf_resize(&result_sdk->path81, tmp_buf_len);
+        }
+    }
+
+    if (buf_len(&result_sdk->path10) != 0) {
+        Buf *sdk_lib_dir = buf_sprintf("%s\\Lib\\*", buf_ptr(&result_sdk->path10));
+
+        // enumerate files in sdk path looking for latest version
+        WIN32_FIND_DATA ffd;
+        HANDLE hFind = FindFirstFileA(buf_ptr(sdk_lib_dir), &ffd);
+        if (hFind == INVALID_HANDLE_VALUE) {
+            return ErrorFileNotFound;
+        }
+        int v0 = 0, v1 = 0, v2 = 0, v3 = 0;
+        bool found_version_dir = false;
+        for (;;) {
+            if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                int c0 = 0, c1 = 0, c2 = 0, c3 = 0;
+                sscanf(ffd.cFileName, "%d.%d.%d.%d", &c0, &c1, &c2, &c3);
+                if ((c0 > v0) || (c1 > v1) || (c2 > v2) || (c3 > v3)) {
+                    v0 = c0, v1 = c1, v2 = c2, v3 = c3;
+                    buf_init_from_str(&result_sdk->version10, ffd.cFileName);
+                    found_version_dir = true;
+                }
+            }
+            if (FindNextFile(hFind, &ffd) == 0) {
+                FindClose(hFind);
+                break;
+            }
+        }
+        if (!found_version_dir) {
+            buf_resize(&result_sdk->path10, 0);
+        }
+    }
+
+    if (buf_len(&result_sdk->path81) != 0) {
+        Buf *sdk_lib_dir = buf_sprintf("%s\\Lib\\winv*", buf_ptr(&result_sdk->path81));
+
+        // enumerate files in sdk path looking for latest version
+        WIN32_FIND_DATA ffd;
+        HANDLE hFind = FindFirstFileA(buf_ptr(sdk_lib_dir), &ffd);
+        if (hFind == INVALID_HANDLE_VALUE) {
+            return ErrorFileNotFound;
+        }
+        int v0 = 0, v1 = 0;
+        bool found_version_dir = false;
+        for (;;) {
+            if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                int c0 = 0, c1 = 0;
+                sscanf(ffd.cFileName, "winv%d.%d", &c0, &c1);
+                if ((c0 > v0) || (c1 > v1)) {
+                    v0 = c0, v1 = c1;
+                    buf_init_from_str(&result_sdk->version81, ffd.cFileName);
+                    found_version_dir = true;
+                }
+            }
+            if (FindNextFile(hFind, &ffd) == 0) {
+                FindClose(hFind);
+                break;
+            }
+        }
+        if (!found_version_dir) {
+            buf_resize(&result_sdk->path81, 0);
+        }
+    }
+
+    *out_sdk = result_sdk;
+    return 0;
+}
+
+int os_get_win32_vcruntime_path(Buf* output_buf, ZigLLVM_ArchType platform_type) {
+    buf_resize(output_buf, 0);
+    //COM Smart Pointerse requires explicit scope
+    {
+        HRESULT rc;
+        rc = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+        if (rc != S_OK) {
+            goto com_done;
+        }
+
+        //This COM class is installed when a VS2017
+        ISetupConfigurationPtr setup_config;
+        rc = setup_config.CreateInstance(__uuidof(SetupConfiguration));
+        if (rc != S_OK) {
+            goto com_done;
+        }
+
+        IEnumSetupInstancesPtr all_instances;
+        rc = setup_config->EnumInstances(&all_instances);
+        if (rc != S_OK) {
+            goto com_done;
+        }
+
+        ISetupInstance* curr_instance;
+        ULONG found_inst;
+        while ((rc = all_instances->Next(1, &curr_instance, &found_inst) == S_OK)) {
+            BSTR bstr_inst_path;
+            rc = curr_instance->GetInstallationPath(&bstr_inst_path);
+            if (rc != S_OK) {
+                goto com_done;
+            }
+            //BSTRs are UTF-16 encoded, so we need to convert the string & adjust the length
+            UINT bstr_path_len = *((UINT*)bstr_inst_path - 1);
+            ULONG tmp_path_len = bstr_path_len / 2 + 1;
+            char* conv_path = (char*)bstr_inst_path;
+            char *tmp_path = (char*)alloca(tmp_path_len);
+            memset(tmp_path, 0, tmp_path_len);
+            uint32_t c = 0;
+            for (uint32_t i = 0; i < bstr_path_len; i += 2) {
+                tmp_path[c] = conv_path[i];
+                ++c;
+                assert(c != tmp_path_len);
+            }
+
+            buf_append_str(output_buf, tmp_path);
+            buf_append_char(output_buf, '\\');
+
+            Buf* tmp_buf = buf_alloc();
+            buf_append_buf(tmp_buf, output_buf);
+            buf_append_str(tmp_buf, "VC\\Auxiliary\\Build\\Microsoft.VCToolsVersion.default.txt");
+            FILE* tools_file = fopen(buf_ptr(tmp_buf), "r");
+            if (!tools_file) {
+                goto com_done;
+            }
+            memset(tmp_path, 0, tmp_path_len);
+            fgets(tmp_path, tmp_path_len, tools_file);
+            strtok(tmp_path, " \r\n");
+            fclose(tools_file);
+            buf_appendf(output_buf, "VC\\Tools\\MSVC\\%s\\lib\\", tmp_path);
+            switch (platform_type) {
+            case ZigLLVM_x86:
+                buf_append_str(output_buf, "x86\\");
+                break;
+            case ZigLLVM_x86_64:
+                buf_append_str(output_buf, "x64\\");
+                break;
+            case ZigLLVM_arm:
+                buf_append_str(output_buf, "arm\\");
+                break;
+            default:
+                zig_panic("Attemped to use vcruntime for non-supported platform.");
+            }
+            buf_resize(tmp_buf, 0);
+            buf_append_buf(tmp_buf, output_buf);
+            buf_append_str(tmp_buf, "vcruntime.lib");
+
+            if (GetFileAttributesA(buf_ptr(tmp_buf)) != INVALID_FILE_ATTRIBUTES) {
+                return 0;
+            }
+        }
+    }
+
+com_done:;
+    HKEY key;
+    HRESULT rc;
+    rc = RegOpenKeyEx(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\VisualStudio\\SxS\\VS7", 0, KEY_QUERY_VALUE | KEY_WOW64_32KEY, &key);
+    if (rc != ERROR_SUCCESS) {
+        return ErrorFileNotFound;
+    }
+
+    DWORD dw_type = 0;
+    DWORD cb_data = 0;
+    rc = RegQueryValueEx(key, "14.0", NULL, &dw_type, NULL, &cb_data);
+    if ((rc == ERROR_FILE_NOT_FOUND) || (REG_SZ != dw_type)) {
+        return ErrorFileNotFound;
+    }
+
+    Buf* tmp_buf = buf_alloc_fixed(cb_data);
+    RegQueryValueExA(key, "14.0", NULL, NULL, (LPBYTE)buf_ptr(tmp_buf), &cb_data);
+    //RegQueryValueExA returns the length of the string INCLUDING the null terminator
+    buf_resize(tmp_buf, cb_data-1);
+    buf_append_str(tmp_buf, "VC\\Lib\\");
+    switch (platform_type) {
+    case ZigLLVM_x86:
+        //x86 is in the root of the Lib folder
+        break;
+    case ZigLLVM_x86_64:
+        buf_append_str(tmp_buf, "amd64\\");
+        break;
+    case ZigLLVM_arm:
+        buf_append_str(tmp_buf, "arm\\");
+        break;
+    default:
+        zig_panic("Attemped to use vcruntime for non-supported platform.");
+    }
+
+    buf_append_buf(output_buf, tmp_buf);
+    buf_append_str(tmp_buf, "vcruntime.lib");
+
+    if (GetFileAttributesA(buf_ptr(tmp_buf)) != INVALID_FILE_ATTRIBUTES) {
+        return 0;
+    } else {
+        buf_resize(output_buf, 0);
+        return ErrorFileNotFound;
+    }
+}
+
+int os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchType platform_type) {
+    buf_resize(output_buf, 0);
+    buf_appendf(output_buf, "%s\\Lib\\%s\\ucrt\\", buf_ptr(&sdk->path10), buf_ptr(&sdk->version10));
+    switch (platform_type) {
+    case ZigLLVM_x86:
+        buf_append_str(output_buf, "x86\\");
+        break;
+    case ZigLLVM_x86_64:
+        buf_append_str(output_buf, "x64\\");
+        break;
+    case ZigLLVM_arm:
+        buf_append_str(output_buf, "arm\\");
+        break;
+    default:
+        zig_panic("Attemped to use vcruntime for non-supported platform.");
+    }
+    Buf* tmp_buf = buf_alloc();
+    buf_init_from_buf(tmp_buf, output_buf);
+    buf_append_str(tmp_buf, "ucrt.lib");
+    if (GetFileAttributesA(buf_ptr(tmp_buf)) != INVALID_FILE_ATTRIBUTES) {
+        return 0;
+    }
+    else {
+        buf_resize(output_buf, 0);
+        return ErrorFileNotFound;
+    }
+}
+
+int os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf* output_buf) {
+    buf_resize(output_buf, 0);
+    buf_appendf(output_buf, "%s\\Include\\%s\\ucrt", buf_ptr(&sdk->path10), buf_ptr(&sdk->version10));
+    if (GetFileAttributesA(buf_ptr(output_buf)) != INVALID_FILE_ATTRIBUTES) {
+        return 0;
+    }
+    else {
+        buf_resize(output_buf, 0);
+        return ErrorFileNotFound;
+    }
+}
+
+int os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchType platform_type) {
+    {
+        buf_resize(output_buf, 0);
+        buf_appendf(output_buf, "%s\\Lib\\%s\\um\\", buf_ptr(&sdk->path10), buf_ptr(&sdk->version10));
+        switch (platform_type) {
+        case ZigLLVM_x86:
+            buf_append_str(output_buf, "x86\\");
+            break;
+        case ZigLLVM_x86_64:
+            buf_append_str(output_buf, "x64\\");
+            break;
+        case ZigLLVM_arm:
+            buf_append_str(output_buf, "arm\\");
+            break;
+        default:
+            zig_panic("Attemped to use vcruntime for non-supported platform.");
+        }
+        Buf* tmp_buf = buf_alloc();
+        buf_init_from_buf(tmp_buf, output_buf);
+        buf_append_str(tmp_buf, "kernel32.lib");
+        if (GetFileAttributesA(buf_ptr(tmp_buf)) != INVALID_FILE_ATTRIBUTES) {
+            return 0;
+        }
+    }
+    {
+        buf_resize(output_buf, 0);
+        buf_appendf(output_buf, "%s\\Lib\\%s\\um\\", buf_ptr(&sdk->path81), buf_ptr(&sdk->version81));
+        switch (platform_type) {
+        case ZigLLVM_x86:
+            buf_append_str(output_buf, "x86\\");
+            break;
+        case ZigLLVM_x86_64:
+            buf_append_str(output_buf, "x64\\");
+            break;
+        case ZigLLVM_arm:
+            buf_append_str(output_buf, "arm\\");
+            break;
+        default:
+            zig_panic("Attemped to use vcruntime for non-supported platform.");
+        }
+        Buf* tmp_buf = buf_alloc();
+        buf_init_from_buf(tmp_buf, output_buf);
+        buf_append_str(tmp_buf, "kernel32.lib");
+        if (GetFileAttributesA(buf_ptr(tmp_buf)) != INVALID_FILE_ATTRIBUTES) {
+            return 0;
+        }
+    }
+    return ErrorFileNotFound;
+}
+#endif

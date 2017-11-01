@@ -35,6 +35,7 @@ struct IrInstruction;
 struct IrInstructionCast;
 struct IrBasicBlock;
 struct ScopeDecls;
+struct ZigWindowsSDK;
 
 struct IrGotoItem {
     AstNode *source_node;
@@ -1461,17 +1462,17 @@ struct CodeGen {
     bool have_winmain_crt_startup;
     bool have_dllmain_crt_startup;
     bool have_pub_panic;
+    ZigList<Buf*> libc_lib_dirs_list;
     Buf *libc_lib_dir;
     Buf *libc_static_lib_dir;
     Buf *libc_include_dir;
-    Buf *msvc_lib_dir;
-    Buf *kernel32_lib_dir;
     Buf *zig_lib_dir;
     Buf *zig_std_dir;
     Buf *zig_c_headers_dir;
     Buf *zig_std_special_dir;
     Buf *dynamic_linker;
     Buf *ar_path;
+    ZigWindowsSDK *win_sdk;
     Buf triple_str;
     BuildMode build_mode;
     bool is_test_build;
