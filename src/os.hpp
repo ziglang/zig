@@ -87,8 +87,10 @@ int os_self_exe_path(Buf *out_path);
 #endif
 
 struct ZigWindowsSDK {
-    Buf path;
-    Buf version;
+    Buf path10;
+    Buf version10;
+    Buf path81;
+    Buf version81;
 };
 #if defined(ZIG_OS_WINDOWS)
 int os_find_windows_sdk(ZigWindowsSDK **out_sdk);
