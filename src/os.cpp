@@ -1200,7 +1200,8 @@ com_done:;
 
     Buf* tmp_buf = buf_alloc_fixed(cb_data);
     RegQueryValueExA(key, "14.0", NULL, NULL, (LPBYTE)buf_ptr(tmp_buf), &cb_data);
-    buf_resize(tmp_buf, cb_data);
+    //RegQueryValueExA returns the length of the string INCLUDING the null terminator
+    buf_resize(tmp_buf, cb_data-1);
     buf_append_str(tmp_buf, "VC\\Lib\\");
     switch (platform_type) {
     case ZigLLVM_x86:
