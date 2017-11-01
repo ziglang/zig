@@ -14,7 +14,7 @@ pub fn main() -> %void {
     var arg_it = os.args();
 
     // TODO use a more general purpose allocator here
-    var inc_allocator = %%std.heap.IncrementingAllocator.init(20 * 1024 * 1024);
+    var inc_allocator = %%std.heap.IncrementingAllocator.init(30 * 1024 * 1024);
     defer inc_allocator.deinit();
 
     const allocator = &inc_allocator.allocator;
