@@ -219,8 +219,8 @@ pub const ChildProcess = struct {
             }
         });
 
-        os.windowsClose(self.handle);
-        os.windowsClose(self.thread_handle);
+        os.close(self.handle);
+        os.close(self.thread_handle);
         self.cleanupStreams();
         return result;
     }
@@ -417,7 +417,7 @@ pub const ChildProcess = struct {
         } else {
             undefined
         };
-        defer { if (any_ignore) os.windowsClose(nul_handle); };
+        defer { if (any_ignore) os.close(nul_handle); };
         if (any_ignore) {
             %return windowsSetHandleInfo(nul_handle, windows.HANDLE_FLAG_INHERIT, 0);
         }
@@ -556,18 +556,18 @@ pub const ChildProcess = struct {
             }
         };
 
-        if (self.stdin_behavior == StdIo.Pipe) {
-            self.stdin = io.File.openHandle(g_hChildStd_IN_Wr);
+        if (g_hChildStd_IN_Wr) |h| {
+            self.stdin = io.File.openHandle(h);
         } else {
             self.stdin = null;
         }
-        if (self.stdout_behavior == StdIo.Pipe) {
-            self.stdout = io.File.openHandle(g_hChildStd_OUT_Rd);
+        if (g_hChildStd_OUT_Rd) |h| {
+            self.stdout = io.File.openHandle(h);
         } else {
             self.stdout = null;
         }
-        if (self.stderr_behavior == StdIo.Pipe) {
-            self.stderr = io.File.openHandle(g_hChildStd_ERR_Rd);
+        if (g_hChildStd_ERR_Rd) |h| {
+            self.stderr = io.File.openHandle(h);
         } else {
             self.stderr = null;
         }
@@ -576,9 +576,9 @@ pub const ChildProcess = struct {
         self.thread_handle = piProcInfo.hThread;
         self.term = null;
 
-        if (self.stdin_behavior == StdIo.Pipe) { os.windowsClose(??g_hChildStd_IN_Rd); }
-        if (self.stderr_behavior == StdIo.Pipe) { os.windowsClose(??g_hChildStd_ERR_Wr); }
-        if (self.stdout_behavior == StdIo.Pipe) { os.windowsClose(??g_hChildStd_OUT_Wr); }
+        if (self.stdin_behavior == StdIo.Pipe) { os.close(??g_hChildStd_IN_Rd); }
+        if (self.stderr_behavior == StdIo.Pipe) { os.close(??g_hChildStd_ERR_Wr); }
+        if (self.stdout_behavior == StdIo.Pipe) { os.close(??g_hChildStd_OUT_Wr); }
     }
 
     fn setUpChildIo(stdio: StdIo, pipe_fd: i32, std_fileno: i32, dev_null_fd: i32) -> %void {
@@ -647,8 +647,8 @@ fn windowsCreateCommandLine(allocator: &Allocator, argv: []const []const u8) -> 
 }
 
 fn windowsDestroyPipe(rd: ?windows.HANDLE, wr: ?windows.HANDLE) {
-    if (rd) |h| os.windowsClose(h);
-    if (wr) |h| os.windowsClose(h);
+    if (rd) |h| os.close(h);
+    if (wr) |h| os.close(h);
 }
 
 
