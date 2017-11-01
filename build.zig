@@ -2,6 +2,16 @@ const Builder = @import("std").build.Builder;
 const tests = @import("test/tests.zig");
 
 pub fn build(b: &Builder) {
+    const mode = b.standardReleaseOptions();
+
+    var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
+    exe.setBuildMode(mode);
+    exe.linkSystemLibrary("c");
+    b.default_step.dependOn(&exe.step);
+
+    b.installArtifact(exe);
+
+
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
     const with_lldb = b.option(bool, "with-lldb", "Run tests in LLDB to get a backtrace if one fails") ?? false;
     const test_step = b.step("test", "Run all the tests");

@@ -15,6 +15,7 @@ pub const elf = @import("elf.zig");
 pub const empty_import = @import("empty.zig");
 pub const endian = @import("endian.zig");
 pub const fmt = @import("fmt/index.zig");
+pub const heap = @import("heap.zig");
 pub const io = @import("io.zig");
 pub const math = @import("math/index.zig");
 pub const mem = @import("mem.zig");
@@ -45,6 +46,7 @@ test "std" {
     _ = @import("io.zig");
     _ = @import("math/index.zig");
     _ = @import("mem.zig");
+    _ = @import("heap.zig");
     _ = @import("net.zig");
     _ = @import("os/index.zig");
     _ = @import("rand.zig");

@@ -17,7 +17,8 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
             \\
             \\pub fn main() -> %void {
             \\    privateFunction();
-            \\    %%stdout.printf("OK 2\n");
+            \\    const stdout = &(%%getStdOut()).out_stream;
+            \\    %%stdout.print("OK 2\n");
             \\}
             \\
             \\fn privateFunction() {
@@ -31,7 +32,8 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
             \\// purposefully conflicting function with main.zig
             \\// but it's private so it should be OK
             \\fn privateFunction() {
-            \\    %%stdout.printf("OK 1\n");
+            \\    const stdout = &(%%getStdOut()).out_stream;
+            \\    %%stdout.print("OK 1\n");
             \\}
             \\
             \\pub fn printText() {
@@ -56,7 +58,8 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         tc.addSourceFile("foo.zig",
             \\use @import("std").io;
             \\pub fn foo_function() {
-            \\    %%stdout.printf("OK\n");
+            \\    const stdout = &(%%getStdOut()).out_stream;
+            \\    %%stdout.print("OK\n");
             \\}
         );
 
@@ -66,7 +69,8 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
             \\
             \\pub fn bar_function() {
             \\    if (foo_function()) {
-            \\        %%stdout.printf("OK\n");
+            \\        const stdout = &(%%getStdOut()).out_stream;
+            \\        %%stdout.print("OK\n");
             \\    }
             \\}
         );
@@ -97,7 +101,8 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
             \\pub const a_text = "OK\n";
             \\
             \\pub fn ok() {
-            \\    %%io.stdout.printf(b_text);
+            \\    const stdout = &(%%io.getStdOut()).out_stream;
+            \\    %%stdout.print(b_text);
             \\}
         );
 
@@ -114,7 +119,8 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\const io = @import("std").io;
         \\
         \\pub fn main() -> %void {
-        \\    %%io.stdout.printf("Hello, world!\n{d4} {x3} {c}\n", u32(12), u16(0x12), u8('a'));
+        \\    const stdout = &(%%io.getStdOut()).out_stream;
+        \\    %%stdout.print("Hello, world!\n{d4} {x3} {c}\n", u32(12), u16(0x12), u8('a'));
         \\}
     , "Hello, world!\n0012 012 a\n");
 
@@ -266,7 +272,8 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    var x_local : i32 = print_ok(x);
         \\}
         \\fn print_ok(val: @typeOf(x)) -> @typeOf(foo) {
-        \\    %%io.stdout.printf("OK\n");
+        \\    const stdout = &(%%io.getStdOut()).out_stream;
+        \\    %%stdout.print("OK\n");
         \\    return 0;
         \\}
         \\const foo : i32 = 0;
@@ -347,24 +354,26 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\pub fn main() -> %void {
         \\    const bar = Bar {.field2 = 13,};
         \\    const foo = Foo {.field1 = bar,};
+        \\    const stdout = &(%%io.getStdOut()).out_stream;
         \\    if (!foo.method()) {
-        \\        %%io.stdout.printf("BAD\n");
+        \\        %%stdout.print("BAD\n");
         \\    }
         \\    if (!bar.method()) {
-        \\        %%io.stdout.printf("BAD\n");
+        \\        %%stdout.print("BAD\n");
         \\    }
-        \\    %%io.stdout.printf("OK\n");
+        \\    %%stdout.print("OK\n");
         \\}
     , "OK\n");
 
     cases.add("defer with only fallthrough",
         \\const io = @import("std").io;
         \\pub fn main() -> %void {
-        \\    %%io.stdout.printf("before\n");
-        \\    defer %%io.stdout.printf("defer1\n");
-        \\    defer %%io.stdout.printf("defer2\n");
-        \\    defer %%io.stdout.printf("defer3\n");
-        \\    %%io.stdout.printf("after\n");
+        \\    const stdout = &(%%io.getStdOut()).out_stream;
+        \\    %%stdout.print("before\n");
+        \\    defer %%stdout.print("defer1\n");
+        \\    defer %%stdout.print("defer2\n");
+        \\    defer %%stdout.print("defer3\n");
+        \\    %%stdout.print("after\n");
         \\}
     , "before\nafter\ndefer3\ndefer2\ndefer1\n");
 
@@ -372,13 +381,14 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\const io = @import("std").io;
         \\const os = @import("std").os;
         \\pub fn main() -> %void {
-        \\    %%io.stdout.printf("before\n");
-        \\    defer %%io.stdout.printf("defer1\n");
-        \\    defer %%io.stdout.printf("defer2\n");
+        \\    const stdout = &(%%io.getStdOut()).out_stream;
+        \\    %%stdout.print("before\n");
+        \\    defer %%stdout.print("defer1\n");
+        \\    defer %%stdout.print("defer2\n");
         \\    var args_it = @import("std").os.args();
         \\    if (args_it.skip() and !args_it.skip()) return;
-        \\    defer %%io.stdout.printf("defer3\n");
-        \\    %%io.stdout.printf("after\n");
+        \\    defer %%stdout.print("defer3\n");
+        \\    %%stdout.print("after\n");
         \\}
     , "before\ndefer2\ndefer1\n");
 
@@ -388,12 +398,13 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    do_test() %% return;
         \\}
         \\fn do_test() -> %void {
-        \\    %%io.stdout.printf("before\n");
-        \\    defer %%io.stdout.printf("defer1\n");
-        \\    %defer %%io.stdout.printf("deferErr\n");
+        \\    const stdout = &(%%io.getStdOut()).out_stream;
+        \\    %%stdout.print("before\n");
+        \\    defer %%stdout.print("defer1\n");
+        \\    %defer %%stdout.print("deferErr\n");
         \\    %return its_gonna_fail();
-        \\    defer %%io.stdout.printf("defer3\n");
-        \\    %%io.stdout.printf("after\n");
+        \\    defer %%stdout.print("defer3\n");
+        \\    %%stdout.print("after\n");
         \\}
         \\error IToldYouItWouldFail;
         \\fn its_gonna_fail() -> %void {
@@ -407,12 +418,13 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    do_test() %% return;
         \\}
         \\fn do_test() -> %void {
-        \\    %%io.stdout.printf("before\n");
-        \\    defer %%io.stdout.printf("defer1\n");
-        \\    %defer %%io.stdout.printf("deferErr\n");
+        \\    const stdout = &(%%io.getStdOut()).out_stream;
+        \\    %%stdout.print("before\n");
+        \\    defer %%stdout.print("defer1\n");
+        \\    %defer %%stdout.print("deferErr\n");
         \\    %return its_gonna_pass();
-        \\    defer %%io.stdout.printf("defer3\n");
-        \\    %%io.stdout.printf("after\n");
+        \\    defer %%stdout.print("defer3\n");
+        \\    %%stdout.print("after\n");
         \\}
         \\fn its_gonna_pass() -> %void { }
     , "before\nafter\ndefer3\ndefer1\n");
@@ -423,7 +435,8 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
             \\const io = @import("std").io;
             \\
             \\pub fn main() -> %void {
-            \\    %%io.stdout.printf(foo_txt);
+            \\    const stdout = &(%%io.getStdOut()).out_stream;
+            \\    %%stdout.print(foo_txt);
             \\}
         , "1234\nabcd\n");
 

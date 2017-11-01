@@ -940,7 +940,7 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
                     else => os.unexpectedErrorWindows(err),
                 };
             }
-            defer os.windowsClose(h_file);
+            defer os.close(h_file);
             var buf = %return allocator.alloc(u8, 256);
             %defer allocator.free(buf);
             while (true) {
@@ -1009,7 +1009,7 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
         },
         Os.linux => {
             const fd = %return os.posixOpen(pathname, posix.O_PATH|posix.O_NONBLOCK|posix.O_CLOEXEC, 0, allocator);
-            defer os.posixClose(fd);
+            defer os.close(fd);
 
             var buf: ["/proc/self/fd/-2147483648".len]u8 = undefined;
             const proc_path = fmt.bufPrint(buf[0..], "/proc/self/fd/{}", fd);
