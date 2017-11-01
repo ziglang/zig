@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (c) 2015 Andrew Kelley
  *
  * This file is part of zig, which is MIT licensed.
@@ -1188,14 +1188,14 @@ com_done:;
     HRESULT rc;
     rc = RegOpenKeyEx(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\VisualStudio\\SxS\\VS7", 0, KEY_QUERY_VALUE | KEY_WOW64_32KEY, &key);
     if (rc != ERROR_SUCCESS) {
-        return 1;
+        return ErrorFileNotFound;
     }
 
     DWORD dw_type = 0;
     DWORD cb_data = 0;
     rc = RegQueryValueEx(key, "14.0", NULL, &dw_type, NULL, &cb_data);
     if ((rc == ERROR_FILE_NOT_FOUND) || (REG_SZ != dw_type)) {
-        return 1;
+        return ErrorFileNotFound;
     }
 
     Buf* tmp_buf = buf_alloc_fixed(cb_data);
@@ -1223,7 +1223,7 @@ com_done:;
         return 0;
     } else {
         buf_resize(output_buf, 0);
-        return 1;
+        return ErrorFileNotFound;
     }
 }
 
@@ -1251,7 +1251,7 @@ int os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_Arch
     }
     else {
         buf_resize(output_buf, 0);
-        return 1;
+        return ErrorFileNotFound;
     }
 }
 
@@ -1263,7 +1263,7 @@ int os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf* output_buf) {
     }
     else {
         buf_resize(output_buf, 0);
-        return 1;
+        return ErrorFileNotFound;
     }
 }
 
