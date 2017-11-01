@@ -73,6 +73,8 @@ void resolve_target_object_format(ZigTarget *target);
 uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id);
 
 const char *target_o_file_ext(ZigTarget *target);
+const char *target_asm_file_ext(ZigTarget *target);
+const char *target_llvm_ir_file_ext(ZigTarget *target);
 const char *target_exe_file_ext(ZigTarget *target);
 
 Buf *target_dynamic_linker(ZigTarget *target);
