@@ -1057,7 +1057,7 @@ int os_find_windows_sdk(ZigWindowsSDK **out_sdk) {
                 }
             }
             if (FindNextFile(hFind, &ffd) == 0) {
-                CloseHandle(hFind);
+                FindClose(hFind);
                 break;
             }
         }
@@ -1088,7 +1088,7 @@ int os_find_windows_sdk(ZigWindowsSDK **out_sdk) {
                 }
             }
             if (FindNextFile(hFind, &ffd) == 0) {
-                CloseHandle(hFind);
+                FindClose(hFind);
                 break;
             }
         }
