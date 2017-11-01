@@ -166,6 +166,7 @@ static const ZigLLVM_EnvironmentType environ_list[] = {
     ZigLLVM_UnknownEnvironment,
 
     ZigLLVM_GNU,
+    ZigLLVM_GNUABIN32,
     ZigLLVM_GNUABI64,
     ZigLLVM_GNUEABI,
     ZigLLVM_GNUEABIHF,
