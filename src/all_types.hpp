@@ -1496,7 +1496,6 @@ struct CodeGen {
     Buf *root_out_name;
     bool windows_subsystem_windows;
     bool windows_subsystem_console;
-    bool windows_linker_unicode;
     Buf *mmacosx_version_min;
     Buf *mios_version_min;
     bool linker_rdynamic;

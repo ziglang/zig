@@ -1,5 +1,6 @@
 const std = @import("std");
 const debug = std.debug;
+const warn = debug.warn;
 const build = std.build;
 const os = std.os;
 const StdIo = os.ChildProcess.StdIo;
@@ -49,6 +50,8 @@ const test_targets = []TestTarget {
 };
 
 error TestFailed;
+
+const max_stdout_size = 1 * 1024 * 1024; // 1 MB
 
 pub fn addCompareOutputTests(b: &build.Builder, test_filter: ?[]const u8) -> &build.Step {
     const cases = %%b.allocator.create(CompareOutputContext);
@@ -231,7 +234,7 @@ pub const CompareOutputContext = struct {
 
             const full_exe_path = b.pathFromRoot(self.exe_path);
 
-            %%io.stderr.printf("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
+            warn("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
 
             const child = %%os.ChildProcess.init([][]u8{full_exe_path}, b.allocator);
             defer child.deinit();
@@ -246,8 +249,8 @@ pub const CompareOutputContext = struct {
             var stdout = Buffer.initNull(b.allocator);
             var stderr = Buffer.initNull(b.allocator);
 
-            %%(??child.stdout).readAll(&stdout);
-            %%(??child.stderr).readAll(&stderr);
+            %%(??child.stdout).in_stream.readAllBuffer(&stdout, max_stdout_size);
+            %%(??child.stderr).in_stream.readAllBuffer(&stderr, max_stdout_size);
 
             const term = child.wait() %% |err| {
                 debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
@@ -255,19 +258,19 @@ pub const CompareOutputContext = struct {
             switch (term) {
                 Term.Exited => |code| {
                     if (code != 0) {
-                        %%io.stderr.printf("Process {} exited with error code {}\n", full_exe_path, code);
+                        warn("Process {} exited with error code {}\n", full_exe_path, code);
                         return error.TestFailed;
                     }
                 },
                 else => {
-                    %%io.stderr.printf("Process {} terminated unexpectedly\n", full_exe_path);
+                    warn("Process {} terminated unexpectedly\n", full_exe_path);
                     return error.TestFailed;
                 },
             };
 
 
             if (!mem.eql(u8, self.expected_output, stdout.toSliceConst())) {
-                %%io.stderr.printf(
+                warn(
                     \\
                     \\========= Expected this output: =========
                     \\{}
@@ -277,7 +280,7 @@ pub const CompareOutputContext = struct {
                 , self.expected_output, stdout.toSliceConst());
                 return error.TestFailed;
             }
-            %%io.stderr.printf("OK\n");
+            warn("OK\n");
         }
     };
 
@@ -310,7 +313,7 @@ pub const CompareOutputContext = struct {
 
             const full_exe_path = b.pathFromRoot(self.exe_path);
 
-            %%io.stderr.printf("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
+            warn("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
 
             const child = %%os.ChildProcess.init([][]u8{full_exe_path}, b.allocator);
             defer child.deinit();
@@ -328,24 +331,24 @@ pub const CompareOutputContext = struct {
             switch (term) {
                 Term.Exited => |code| {
                     if (code != expected_exit_code) {
-                        %%io.stderr.printf("\nProgram expected to exit with code {} " ++
+                        warn("\nProgram expected to exit with code {} " ++
                             "but exited with code {}\n", expected_exit_code, code);
                         return error.TestFailed;
                     }
                 },
                 Term.Signal => |sig| {
-                    %%io.stderr.printf("\nProgram expected to exit with code {} " ++
+                    warn("\nProgram expected to exit with code {} " ++
                         "but instead signaled {}\n", expected_exit_code, sig);
                     return error.TestFailed;
                 },
                 else => {
-                    %%io.stderr.printf("\nProgram expected to exit with code {}" ++
+                    warn("\nProgram expected to exit with code {}" ++
                         " but exited in an unexpected way\n", expected_exit_code);
                     return error.TestFailed;
                 },
             }
 
-            %%io.stderr.printf("OK\n");
+            warn("OK\n");
         }
     };
 
@@ -554,7 +557,7 @@ pub const CompileErrorContext = struct {
                 Mode.ReleaseFast => %%zig_args.append("--release-fast"),
             }
 
-            %%io.stderr.printf("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
+            warn("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
 
             if (b.verbose) {
                 printInvocation(zig_args.toSliceConst());
@@ -573,8 +576,8 @@ pub const CompileErrorContext = struct {
             var stdout_buf = Buffer.initNull(b.allocator);
             var stderr_buf = Buffer.initNull(b.allocator);
 
-            %%(??child.stdout).readAll(&stdout_buf);
-            %%(??child.stderr).readAll(&stderr_buf);
+            %%(??child.stdout).in_stream.readAllBuffer(&stdout_buf, max_stdout_size);
+            %%(??child.stderr).in_stream.readAllBuffer(&stderr_buf, max_stdout_size);
 
             const term = child.wait() %% |err| {
                 debug.panic("Unable to spawn {}: {}\n", zig_args.items[0], @errorName(err));
@@ -582,12 +585,12 @@ pub const CompileErrorContext = struct {
             switch (term) {
                 Term.Exited => |code| {
                     if (code == 0) {
-                        %%io.stderr.printf("Compilation incorrectly succeeded\n");
+                        warn("Compilation incorrectly succeeded\n");
                         return error.TestFailed;
                     }
                 },
                 else => {
-                    %%io.stderr.printf("Process {} terminated unexpectedly\n", b.zig_exe);
+                    warn("Process {} terminated unexpectedly\n", b.zig_exe);
                     return error.TestFailed;
                 },
             };
@@ -597,7 +600,7 @@ pub const CompileErrorContext = struct {
             const stderr = stderr_buf.toSliceConst();
 
             if (stdout.len != 0) {
-                %%io.stderr.printf(
+                warn(
                     \\
                     \\Expected empty stdout, instead found:
                     \\================================================
@@ -610,7 +613,7 @@ pub const CompileErrorContext = struct {
 
             for (self.case.expected_errors.toSliceConst()) |expected_error| {
                 if (mem.indexOf(u8, stderr, expected_error) == null) {
-                    %%io.stderr.printf(
+                    warn(
                         \\
                         \\========= Expected this compile error: =========
                         \\{}
@@ -621,15 +624,15 @@ pub const CompileErrorContext = struct {
                     return error.TestFailed;
                 }
             }
-            %%io.stderr.printf("OK\n");
+            warn("OK\n");
         }
     };
 
     fn printInvocation(args: []const []const u8) {
         for (args) |arg| {
-            %%io.stderr.printf("{} ", arg);
+            warn("{} ", arg);
         }
-        %%io.stderr.printf("\n");
+        warn("\n");
     }
 
     pub fn create(self: &CompileErrorContext, name: []const u8, source: []const u8,
@@ -822,7 +825,7 @@ pub const ParseCContext = struct {
             %%zig_args.append("parsec");
             %%zig_args.append(b.pathFromRoot(root_src));
 
-            %%io.stderr.printf("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
+            warn("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
 
             if (b.verbose) {
                 printInvocation(zig_args.toSliceConst());
@@ -841,8 +844,8 @@ pub const ParseCContext = struct {
             var stdout_buf = Buffer.initNull(b.allocator);
             var stderr_buf = Buffer.initNull(b.allocator);
 
-            %%(??child.stdout).readAll(&stdout_buf);
-            %%(??child.stderr).readAll(&stderr_buf);
+            %%(??child.stdout).in_stream.readAllBuffer(&stdout_buf, max_stdout_size);
+            %%(??child.stderr).in_stream.readAllBuffer(&stderr_buf, max_stdout_size);
 
             const term = child.wait() %% |err| {
                 debug.panic("Unable to spawn {}: {}\n", zig_args.toSliceConst()[0], @errorName(err));
@@ -850,16 +853,16 @@ pub const ParseCContext = struct {
             switch (term) {
                 Term.Exited => |code| {
                     if (code != 0) {
-                        %%io.stderr.printf("Compilation failed with exit code {}\n", code);
+                        warn("Compilation failed with exit code {}\n", code);
                         return error.TestFailed;
                     }
                 },
                 Term.Signal => |code| {
-                    %%io.stderr.printf("Compilation failed with signal {}\n", code);
+                    warn("Compilation failed with signal {}\n", code);
                     return error.TestFailed;
                 },
                 else => {
-                    %%io.stderr.printf("Compilation terminated unexpectedly\n");
+                    warn("Compilation terminated unexpectedly\n");
                     return error.TestFailed;
                 },
             };
@@ -868,7 +871,7 @@ pub const ParseCContext = struct {
             const stderr = stderr_buf.toSliceConst();
 
             if (stderr.len != 0 and !self.case.allow_warnings) {
-                %%io.stderr.printf(
+                warn(
                     \\====== parsec emitted warnings: ============
                     \\{}
                     \\============================================
@@ -879,7 +882,7 @@ pub const ParseCContext = struct {
 
             for (self.case.expected_lines.toSliceConst()) |expected_line| {
                 if (mem.indexOf(u8, stdout, expected_line) == null) {
-                    %%io.stderr.printf(
+                    warn(
                         \\
                         \\========= Expected this output: ================
                         \\{}
@@ -890,15 +893,15 @@ pub const ParseCContext = struct {
                     return error.TestFailed;
                 }
             }
-            %%io.stderr.printf("OK\n");
+            warn("OK\n");
         }
     };
 
     fn printInvocation(args: []const []const u8) {
         for (args) |arg| {
-            %%io.stderr.printf("{} ", arg);
+            warn("{} ", arg);
         }
-        %%io.stderr.printf("\n");
+        warn("\n");
     }
 
     pub fn create(self: &ParseCContext, allow_warnings: bool, filename: []const u8, name: []const u8,

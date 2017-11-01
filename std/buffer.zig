@@ -71,6 +71,12 @@ pub const Buffer = struct {
         return self.list.toSliceConst()[0..self.len()];
     }
 
+    pub fn shrink(self: &Buffer, new_len: usize) {
+        assert(new_len <= self.len());
+        self.list.shrink(new_len + 1);
+        self.list.items[self.len()] = 0;
+    }
+
     pub fn resize(self: &Buffer, new_len: usize) -> %void {
         %return self.list.resize(new_len + 1);
         self.list.items[self.len()] = 0;

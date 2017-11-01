@@ -1,7 +1,9 @@
-const io = @import("io.zig");
-const math = @import("math/index.zig");
-const mem = @import("mem.zig");
-const debug = @import("debug.zig");
+const std = @import("index.zig");
+const io = std.io;
+const math = std.math;
+const mem = std.mem;
+const debug = std.debug;
+const InStream = std.stream.InStream;
 
 error InvalidFormat;
 
@@ -62,7 +64,7 @@ pub const SectionHeader = struct {
 };
 
 pub const Elf = struct {
-    in_stream: &io.InStream,
+    in_file: &io.File,
     auto_close_stream: bool,
     is_64: bool,
     is_big_endian: bool,
@@ -75,44 +77,44 @@ pub const Elf = struct {
     string_section: &SectionHeader,
     section_headers: []SectionHeader,
     allocator: &mem.Allocator,
-    prealloc_stream: io.InStream,
+    prealloc_file: io.File,
 
     /// Call close when done.
-    pub fn openFile(elf: &Elf, allocator: &mem.Allocator, path: []const u8) -> %void {
-        %return elf.prealloc_stream.open(path);
-        %return elf.openStream(allocator, &elf.prealloc_stream);
+    pub fn openPath(elf: &Elf, allocator: &mem.Allocator, path: []const u8) -> %void {
+        %return elf.prealloc_file.open(path);
+        %return elf.openFile(allocator, &elf.prealloc_file);
         elf.auto_close_stream = true;
     }
 
     /// Call close when done.
-    pub fn openStream(elf: &Elf, allocator: &mem.Allocator, stream: &io.InStream) -> %void {
+    pub fn openFile(elf: &Elf, allocator: &mem.Allocator, file: &io.File) -> %void {
         elf.allocator = allocator;
-        elf.in_stream = stream;
+        elf.in_file = file;
         elf.auto_close_stream = false;
 
         var magic: [4]u8 = undefined;
-        %return elf.in_stream.readNoEof(magic[0..]);
+        %return elf.in_file.in_stream.readNoEof(magic[0..]);
         if (!mem.eql(u8, magic, "\x7fELF")) return error.InvalidFormat;
 
-        elf.is_64 = switch (%return elf.in_stream.readByte()) {
+        elf.is_64 = switch (%return elf.in_file.in_stream.readByte()) {
             1 => false,
             2 => true,
             else => return error.InvalidFormat,
         };
 
-        elf.is_big_endian = switch (%return elf.in_stream.readByte()) {
+        elf.is_big_endian = switch (%return elf.in_file.in_stream.readByte()) {
             1 => false,
             2 => true,
             else => return error.InvalidFormat,
         };
 
-        const version_byte = %return elf.in_stream.readByte();
+        const version_byte = %return elf.in_file.in_stream.readByte();
         if (version_byte != 1) return error.InvalidFormat;
 
         // skip over padding
-        %return elf.in_stream.seekForward(9);
+        %return elf.in_file.seekForward(9);
 
-        elf.file_type = switch (%return elf.in_stream.readInt(elf.is_big_endian, u16)) {
+        elf.file_type = switch (%return elf.in_file.in_stream.readInt(elf.is_big_endian, u16)) {
             1 => FileType.Relocatable,
             2 => FileType.Executable,
             3 => FileType.Shared,
@@ -120,7 +122,7 @@ pub const Elf = struct {
             else => return error.InvalidFormat,
         };
 
-        elf.arch = switch (%return elf.in_stream.readInt(elf.is_big_endian, u16)) {
+        elf.arch = switch (%return elf.in_file.in_stream.readInt(elf.is_big_endian, u16)) {
             0x02 => Arch.Sparc,
             0x03 => Arch.x86,
             0x08 => Arch.Mips,
@@ -133,34 +135,34 @@ pub const Elf = struct {
             else => return error.InvalidFormat,
         };
 
-        const elf_version = %return elf.in_stream.readInt(elf.is_big_endian, u32);
+        const elf_version = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u32);
         if (elf_version != 1) return error.InvalidFormat;
 
         if (elf.is_64) {
-            elf.entry_addr = %return elf.in_stream.readInt(elf.is_big_endian, u64);
-            elf.program_header_offset = %return elf.in_stream.readInt(elf.is_big_endian, u64);
-            elf.section_header_offset = %return elf.in_stream.readInt(elf.is_big_endian, u64);
+            elf.entry_addr = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u64);
+            elf.program_header_offset = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u64);
+            elf.section_header_offset = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u64);
         } else {
-            elf.entry_addr = u64(%return elf.in_stream.readInt(elf.is_big_endian, u32));
-            elf.program_header_offset = u64(%return elf.in_stream.readInt(elf.is_big_endian, u32));
-            elf.section_header_offset = u64(%return elf.in_stream.readInt(elf.is_big_endian, u32));
+            elf.entry_addr = u64(%return elf.in_file.in_stream.readInt(elf.is_big_endian, u32));
+            elf.program_header_offset = u64(%return elf.in_file.in_stream.readInt(elf.is_big_endian, u32));
+            elf.section_header_offset = u64(%return elf.in_file.in_stream.readInt(elf.is_big_endian, u32));
         }
 
         // skip over flags
-        %return elf.in_stream.seekForward(4);
+        %return elf.in_file.seekForward(4);
 
-        const header_size = %return elf.in_stream.readInt(elf.is_big_endian, u16);
+        const header_size = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u16);
         if ((elf.is_64 and header_size != 64) or
             (!elf.is_64 and header_size != 52))
         {
             return error.InvalidFormat;
         }
 
-        const ph_entry_size = %return elf.in_stream.readInt(elf.is_big_endian, u16);
-        const ph_entry_count = %return elf.in_stream.readInt(elf.is_big_endian, u16);
-        const sh_entry_size = %return elf.in_stream.readInt(elf.is_big_endian, u16);
-        const sh_entry_count = %return elf.in_stream.readInt(elf.is_big_endian, u16);
-        elf.string_section_index = u64(%return elf.in_stream.readInt(elf.is_big_endian, u16));
+        const ph_entry_size = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u16);
+        const ph_entry_count = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u16);
+        const sh_entry_size = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u16);
+        const sh_entry_count = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u16);
+        elf.string_section_index = u64(%return elf.in_file.in_stream.readInt(elf.is_big_endian, u16));
 
         if (elf.string_section_index >= sh_entry_count) return error.InvalidFormat;
 
@@ -169,12 +171,12 @@ pub const Elf = struct {
         const ph_byte_count = u64(ph_entry_size) * u64(ph_entry_count);
         const end_ph = %return math.add(u64, elf.program_header_offset, ph_byte_count);
 
-        const stream_end = %return elf.in_stream.getEndPos();
+        const stream_end = %return elf.in_file.getEndPos();
         if (stream_end < end_sh or stream_end < end_ph) {
             return error.InvalidFormat;
         }
 
-        %return elf.in_stream.seekTo(elf.section_header_offset);
+        %return elf.in_file.seekTo(elf.section_header_offset);
 
         elf.section_headers = %return elf.allocator.alloc(SectionHeader, sh_entry_count);
         %defer elf.allocator.free(elf.section_headers);
@@ -183,32 +185,32 @@ pub const Elf = struct {
             if (sh_entry_size != 64) return error.InvalidFormat;
 
             for (elf.section_headers) |*section| {
-                section.name         = %return elf.in_stream.readInt(elf.is_big_endian, u32);
-                section.sh_type      = %return elf.in_stream.readInt(elf.is_big_endian, u32);
-                section.flags        = %return elf.in_stream.readInt(elf.is_big_endian, u64);
-                section.addr         = %return elf.in_stream.readInt(elf.is_big_endian, u64);
-                section.offset       = %return elf.in_stream.readInt(elf.is_big_endian, u64);
-                section.size         = %return elf.in_stream.readInt(elf.is_big_endian, u64);
-                section.link         = %return elf.in_stream.readInt(elf.is_big_endian, u32);
-                section.info         = %return elf.in_stream.readInt(elf.is_big_endian, u32);
-                section.addr_align   = %return elf.in_stream.readInt(elf.is_big_endian, u64);
-                section.ent_size     = %return elf.in_stream.readInt(elf.is_big_endian, u64);
+                section.name         = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u32);
+                section.sh_type      = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u32);
+                section.flags        = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u64);
+                section.addr         = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u64);
+                section.offset       = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u64);
+                section.size         = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u64);
+                section.link         = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u32);
+                section.info         = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u32);
+                section.addr_align   = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u64);
+                section.ent_size     = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u64);
             }
         } else {
             if (sh_entry_size != 40) return error.InvalidFormat;
 
             for (elf.section_headers) |*section| {
                 // TODO (multiple occurences) allow implicit cast from %u32 -> %u64 ?
-                section.name = %return elf.in_stream.readInt(elf.is_big_endian, u32);
-                section.sh_type = %return elf.in_stream.readInt(elf.is_big_endian, u32);
-                section.flags = u64(%return elf.in_stream.readInt(elf.is_big_endian, u32));
-                section.addr = u64(%return elf.in_stream.readInt(elf.is_big_endian, u32));
-                section.offset = u64(%return elf.in_stream.readInt(elf.is_big_endian, u32));
-                section.size = u64(%return elf.in_stream.readInt(elf.is_big_endian, u32));
-                section.link = %return elf.in_stream.readInt(elf.is_big_endian, u32);
-                section.info = %return elf.in_stream.readInt(elf.is_big_endian, u32);
-                section.addr_align = u64(%return elf.in_stream.readInt(elf.is_big_endian, u32));
-                section.ent_size = u64(%return elf.in_stream.readInt(elf.is_big_endian, u32));
+                section.name = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u32);
+                section.sh_type = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u32);
+                section.flags = u64(%return elf.in_file.in_stream.readInt(elf.is_big_endian, u32));
+                section.addr = u64(%return elf.in_file.in_stream.readInt(elf.is_big_endian, u32));
+                section.offset = u64(%return elf.in_file.in_stream.readInt(elf.is_big_endian, u32));
+                section.size = u64(%return elf.in_file.in_stream.readInt(elf.is_big_endian, u32));
+                section.link = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u32);
+                section.info = %return elf.in_file.in_stream.readInt(elf.is_big_endian, u32);
+                section.addr_align = u64(%return elf.in_file.in_stream.readInt(elf.is_big_endian, u32));
+                section.ent_size = u64(%return elf.in_file.in_stream.readInt(elf.is_big_endian, u32));
             }
         }
 
@@ -230,7 +232,7 @@ pub const Elf = struct {
         elf.allocator.free(elf.section_headers);
 
         if (elf.auto_close_stream)
-            elf.in_stream.close();
+            elf.in_file.close();
     }
 
     pub fn findSection(elf: &Elf, name: []const u8) -> %?&SectionHeader {
@@ -238,15 +240,15 @@ pub const Elf = struct {
             if (section.sh_type == SHT_NULL) continue;
 
             const name_offset = elf.string_section.offset + section.name;
-            %return elf.in_stream.seekTo(name_offset);
+            %return elf.in_file.seekTo(name_offset);
 
             for (name) |expected_c| {
-                const target_c = %return elf.in_stream.readByte();
+                const target_c = %return elf.in_file.in_stream.readByte();
                 if (target_c == 0 or expected_c != target_c) goto next_section;
             }
 
             {
-                const null_byte = %return elf.in_stream.readByte();
+                const null_byte = %return elf.in_file.in_stream.readByte();
                 if (null_byte == 0) return section;
             }
 
@@ -257,6 +259,6 @@ pub const Elf = struct {
     }
 
     pub fn seekToSection(elf: &Elf, section: &SectionHeader) -> %void {
-        %return elf.in_stream.seekTo(section.offset);
+        %return elf.in_file.seekTo(section.offset);
     }
 };

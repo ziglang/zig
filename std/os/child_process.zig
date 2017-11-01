@@ -28,9 +28,9 @@ pub const ChildProcess = struct {
 
     pub allocator: &mem.Allocator,
 
-    pub stdin: ?&io.OutStream,
-    pub stdout: ?&io.InStream,
-    pub stderr: ?&io.InStream,
+    pub stdin: ?io.File,
+    pub stdout: ?io.File,
+    pub stderr: ?io.File,
 
     pub term: ?%Term,
 
@@ -219,8 +219,8 @@ pub const ChildProcess = struct {
             }
         });
 
-        os.windowsClose(self.handle);
-        os.windowsClose(self.thread_handle);
+        os.close(self.handle);
+        os.close(self.thread_handle);
         self.cleanupStreams();
         return result;
     }
@@ -250,17 +250,17 @@ pub const ChildProcess = struct {
     }
 
     fn cleanupStreams(self: &ChildProcess) {
-        if (self.stdin) |stdin| { stdin.close(); self.allocator.destroy(stdin); self.stdin = null; }
-        if (self.stdout) |stdout| { stdout.close(); self.allocator.destroy(stdout); self.stdout = null; }
-        if (self.stderr) |stderr| { stderr.close(); self.allocator.destroy(stderr); self.stderr = null; }
+        if (self.stdin) |*stdin| { stdin.close(); self.stdin = null; }
+        if (self.stdout) |*stdout| { stdout.close(); self.stdout = null; }
+        if (self.stderr) |*stderr| { stderr.close(); self.stderr = null; }
     }
 
     fn cleanupAfterWait(self: &ChildProcess, status: i32) -> %Term {
         children_nodes.remove(&self.llnode);
 
         defer {
-            os.posixClose(self.err_pipe[0]);
-            os.posixClose(self.err_pipe[1]);
+            os.close(self.err_pipe[0]);
+            os.close(self.err_pipe[1]);
         };
 
         // Write @maxValue(ErrInt) to the write end of the err_pipe. This is after
@@ -310,7 +310,7 @@ pub const ChildProcess = struct {
         } else {
             undefined
         };
-        defer { if (any_ignore) os.posixClose(dev_null_fd); };
+        defer { if (any_ignore) os.close(dev_null_fd); };
 
         var env_map_owned: BufMap = undefined;
         var we_own_env_map: bool = undefined;
@@ -328,27 +328,6 @@ pub const ChildProcess = struct {
         // and execve from the child process to the parent process.
         const err_pipe = %return makePipe();
         %defer destroyPipe(err_pipe);
-
-        const stdin_ptr = if (self.stdin_behavior == StdIo.Pipe) {
-            %return self.allocator.create(io.OutStream)
-        } else {
-            null
-        };
-        %defer if (stdin_ptr) |ptr| self.allocator.destroy(ptr);
-
-        const stdout_ptr = if (self.stdout_behavior == StdIo.Pipe) {
-            %return self.allocator.create(io.InStream)
-        } else {
-            null
-        };
-        %defer if (stdout_ptr) |ptr| self.allocator.destroy(ptr);
-
-        const stderr_ptr = if (self.stderr_behavior == StdIo.Pipe) {
-            %return self.allocator.create(io.InStream)
-        } else {
-            null
-        };
-        %defer if (stderr_ptr) |ptr| self.allocator.destroy(ptr);
 
         block_SIGCHLD();
         const pid_result = posix.fork();
@@ -390,46 +369,35 @@ pub const ChildProcess = struct {
 
         // we are the parent
         const pid = i32(pid_result);
-        if (stdin_ptr) |outstream| {
-            *outstream = io.OutStream {
-                .fd = stdin_pipe[1],
-                .handle = {},
-                .handle_id = {},
-                .buffer = undefined,
-                .index = 0,
-            };
+        if (self.stdin_behavior == StdIo.Pipe) {
+            self.stdin = io.File.openHandle(stdin_pipe[1]);
+        } else {
+            self.stdin = null;
         }
-        if (stdout_ptr) |instream| {
-            *instream = io.InStream {
-                .fd = stdout_pipe[0],
-                .handle = {},
-                .handle_id = {},
-            };
+        if (self.stdout_behavior == StdIo.Pipe) {
+            self.stdout = io.File.openHandle(stdout_pipe[0]);
+        } else {
+            self.stdout = null;
         }
-        if (stderr_ptr) |instream| {
-            *instream = io.InStream {
-                .fd = stderr_pipe[0],
-                .handle = {},
-                .handle_id = {},
-            };
+        if (self.stderr_behavior == StdIo.Pipe) {
+            self.stderr = io.File.openHandle(stderr_pipe[0]);
+        } else {
+            self.stderr = null;
         }
 
         self.pid = pid;
         self.err_pipe = err_pipe;
         self.llnode = LinkedList(&ChildProcess).Node.init(self);
         self.term = null;
-        self.stdin = stdin_ptr;
-        self.stdout = stdout_ptr;
-        self.stderr = stderr_ptr;
 
         // TODO make this atomic so it works even with threads
         children_nodes.prepend(&self.llnode);
 
         restore_SIGCHLD();
 
-        if (self.stdin_behavior == StdIo.Pipe) { os.posixClose(stdin_pipe[0]); }
-        if (self.stdout_behavior == StdIo.Pipe) { os.posixClose(stdout_pipe[1]); }
-        if (self.stderr_behavior == StdIo.Pipe) { os.posixClose(stderr_pipe[1]); }
+        if (self.stdin_behavior == StdIo.Pipe) { os.close(stdin_pipe[0]); }
+        if (self.stdout_behavior == StdIo.Pipe) { os.close(stdout_pipe[1]); }
+        if (self.stderr_behavior == StdIo.Pipe) { os.close(stderr_pipe[1]); }
     }
 
     fn spawnWindows(self: &ChildProcess) -> %void {
@@ -449,7 +417,7 @@ pub const ChildProcess = struct {
         } else {
             undefined
         };
-        defer { if (any_ignore) os.windowsClose(nul_handle); };
+        defer { if (any_ignore) os.close(nul_handle); };
         if (any_ignore) {
             %return windowsSetHandleInfo(nul_handle, windows.HANDLE_FLAG_INHERIT, 0);
         }
@@ -508,27 +476,6 @@ pub const ChildProcess = struct {
             },
         }
         %defer if (self.stdin_behavior == StdIo.Pipe) { windowsDestroyPipe(g_hChildStd_ERR_Rd, g_hChildStd_ERR_Wr); };
-
-        const stdin_ptr = if (self.stdin_behavior == StdIo.Pipe) {
-            %return self.allocator.create(io.OutStream)
-        } else {
-            null
-        };
-        %defer if (stdin_ptr) |ptr| self.allocator.destroy(ptr);
-
-        const stdout_ptr = if (self.stdout_behavior == StdIo.Pipe) {
-            %return self.allocator.create(io.InStream)
-        } else {
-            null
-        };
-        %defer if (stdout_ptr) |ptr| self.allocator.destroy(ptr);
-
-        const stderr_ptr = if (self.stderr_behavior == StdIo.Pipe) {
-            %return self.allocator.create(io.InStream)
-        } else {
-            null
-        };
-        %defer if (stderr_ptr) |ptr| self.allocator.destroy(ptr);
 
         const cmd_line = %return windowsCreateCommandLine(self.allocator, self.argv);
         defer self.allocator.free(cmd_line);
@@ -609,46 +556,35 @@ pub const ChildProcess = struct {
             }
         };
 
-        if (stdin_ptr) |outstream| {
-            *outstream = io.OutStream {
-                .fd = {},
-                .handle = g_hChildStd_IN_Wr,
-                .handle_id = undefined,
-                .buffer = undefined,
-                .index = 0,
-            };
+        if (g_hChildStd_IN_Wr) |h| {
+            self.stdin = io.File.openHandle(h);
+        } else {
+            self.stdin = null;
         }
-        if (stdout_ptr) |instream| {
-            *instream = io.InStream {
-                .fd = {},
-                .handle = g_hChildStd_OUT_Rd,
-                .handle_id = undefined,
-            };
+        if (g_hChildStd_OUT_Rd) |h| {
+            self.stdout = io.File.openHandle(h);
+        } else {
+            self.stdout = null;
         }
-        if (stderr_ptr) |instream| {
-            *instream = io.InStream {
-                .fd = {},
-                .handle = g_hChildStd_ERR_Rd,
-                .handle_id = undefined,
-            };
+        if (g_hChildStd_ERR_Rd) |h| {
+            self.stderr = io.File.openHandle(h);
+        } else {
+            self.stderr = null;
         }
 
         self.handle = piProcInfo.hProcess;
         self.thread_handle = piProcInfo.hThread;
         self.term = null;
-        self.stdin = stdin_ptr;
-        self.stdout = stdout_ptr;
-        self.stderr = stderr_ptr;
 
-        if (self.stdin_behavior == StdIo.Pipe) { os.windowsClose(??g_hChildStd_IN_Rd); }
-        if (self.stderr_behavior == StdIo.Pipe) { os.windowsClose(??g_hChildStd_ERR_Wr); }
-        if (self.stdout_behavior == StdIo.Pipe) { os.windowsClose(??g_hChildStd_OUT_Wr); }
+        if (self.stdin_behavior == StdIo.Pipe) { os.close(??g_hChildStd_IN_Rd); }
+        if (self.stderr_behavior == StdIo.Pipe) { os.close(??g_hChildStd_ERR_Wr); }
+        if (self.stdout_behavior == StdIo.Pipe) { os.close(??g_hChildStd_OUT_Wr); }
     }
 
     fn setUpChildIo(stdio: StdIo, pipe_fd: i32, std_fileno: i32, dev_null_fd: i32) -> %void {
         switch (stdio) {
             StdIo.Pipe => %return os.posixDup2(pipe_fd, std_fileno),
-            StdIo.Close => os.posixClose(std_fileno),
+            StdIo.Close => os.close(std_fileno),
             StdIo.Inherit => {},
             StdIo.Ignore => %return os.posixDup2(dev_null_fd, std_fileno),
         }
@@ -711,8 +647,8 @@ fn windowsCreateCommandLine(allocator: &Allocator, argv: []const []const u8) -> 
 }
 
 fn windowsDestroyPipe(rd: ?windows.HANDLE, wr: ?windows.HANDLE) {
-    if (rd) |h| os.windowsClose(h);
-    if (wr) |h| os.windowsClose(h);
+    if (rd) |h| os.close(h);
+    if (wr) |h| os.close(h);
 }
 
 
@@ -771,8 +707,8 @@ fn makePipe() -> %[2]i32 {
 }
 
 fn destroyPipe(pipe: &const [2]i32) {
-    os.posixClose((*pipe)[0]);
-    os.posixClose((*pipe)[1]);
+    os.close((*pipe)[0]);
+    os.close((*pipe)[1]);
 }
 
 // Child of fork calls this to report an error to the fork parent.

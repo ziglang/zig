@@ -1,17 +1,19 @@
+const std = @import("index.zig");
 const builtin = @import("builtin");
-const io = @import("io.zig");
-const mem = @import("mem.zig");
-const debug = @import("debug.zig");
+const io = std.io;
+const mem = std.mem;
+const debug = std.debug;
 const assert = debug.assert;
-const ArrayList = @import("array_list.zig").ArrayList;
-const HashMap = @import("hash_map.zig").HashMap;
-const Allocator = @import("mem.zig").Allocator;
-const os = @import("os/index.zig");
+const warn = std.debug.warn;
+const ArrayList = std.ArrayList;
+const HashMap = std.HashMap;
+const Allocator = mem.Allocator;
+const os = std.os;
 const StdIo = os.ChildProcess.StdIo;
 const Term = os.ChildProcess.Term;
-const BufSet = @import("buf_set.zig").BufSet;
-const BufMap = @import("buf_map.zig").BufMap;
-const fmt_lib = @import("fmt/index.zig");
+const BufSet = std.BufSet;
+const BufMap = std.BufMap;
+const fmt_lib = std.fmt;
 
 error ExtraArg;
 error UncleanExit;
@@ -280,7 +282,7 @@ pub const Builder = struct {
 
         for (self.installed_files.toSliceConst()) |installed_file| {
             if (self.verbose) {
-                %%io.stderr.printf("rm {}\n", installed_file);
+                warn("rm {}\n", installed_file);
             }
             _ = os.deleteFile(self.allocator, installed_file);
         }
@@ -290,7 +292,7 @@ pub const Builder = struct {
 
     fn makeOneStep(self: &Builder, s: &Step) -> %void {
         if (s.loop_flag) {
-            %%io.stderr.printf("Dependency loop detected:\n  {}\n", s.name);
+            warn("Dependency loop detected:\n  {}\n", s.name);
             return error.DependencyLoopDetected;
         }
         s.loop_flag = true;
@@ -298,7 +300,7 @@ pub const Builder = struct {
         for (s.dependencies.toSlice()) |dep| {
             self.makeOneStep(dep) %% |err| {
                 if (err == error.DependencyLoopDetected) {
-                    %%io.stderr.printf("  {}\n", s.name);
+                    warn("  {}\n", s.name);
                 }
                 return err;
             };
@@ -315,7 +317,7 @@ pub const Builder = struct {
                 return &top_level_step.step;
             }
         }
-        %%io.stderr.printf("Cannot run step '{}' because it does not exist\n", name);
+        warn("Cannot run step '{}' because it does not exist\n", name);
         return error.InvalidStepName;
     }
 
@@ -326,12 +328,12 @@ pub const Builder = struct {
                 const word = it.next() ?? break;
                 if (mem.eql(u8, word, "-isystem")) {
                     const include_path = it.next() ?? {
-                        %%io.stderr.printf("Expected argument after -isystem in NIX_CFLAGS_COMPILE\n");
+                        warn("Expected argument after -isystem in NIX_CFLAGS_COMPILE\n");
                         break;
                     };
                     self.addCIncludePath(include_path);
                 } else {
-                    %%io.stderr.printf("Unrecognized C flag from NIX_CFLAGS_COMPILE: {}\n", word);
+                    warn("Unrecognized C flag from NIX_CFLAGS_COMPILE: {}\n", word);
                     break;
                 }
             }
@@ -344,7 +346,7 @@ pub const Builder = struct {
                 const word = it.next() ?? break;
                 if (mem.eql(u8, word, "-rpath")) {
                     const rpath = it.next() ?? {
-                        %%io.stderr.printf("Expected argument after -rpath in NIX_LDFLAGS\n");
+                        warn("Expected argument after -rpath in NIX_LDFLAGS\n");
                         break;
                     };
                     self.addRPath(rpath);
@@ -352,7 +354,7 @@ pub const Builder = struct {
                     const lib_path = word[2..];
                     self.addLibPath(lib_path);
                 } else {
-                    %%io.stderr.printf("Unrecognized C flag from NIX_LDFLAGS: {}\n", word);
+                    warn("Unrecognized C flag from NIX_LDFLAGS: {}\n", word);
                     break;
                 }
             }
@@ -384,13 +386,13 @@ pub const Builder = struct {
                     } else if (mem.eql(u8, s, "false")) {
                         return false;
                     } else {
-                        %%io.stderr.printf("Expected -D{} to be a boolean, but received '{}'\n", name, s);
+                        warn("Expected -D{} to be a boolean, but received '{}'\n", name, s);
                         self.markInvalidUserInput();
                         return null;
                     }
                 },
                 UserValue.List => {
-                    %%io.stderr.printf("Expected -D{} to be a boolean, but received a list.\n", name);
+                    warn("Expected -D{} to be a boolean, but received a list.\n", name);
                     self.markInvalidUserInput();
                     return null;
                 },
@@ -399,12 +401,12 @@ pub const Builder = struct {
             TypeId.Float => debug.panic("TODO float options to build script"),
             TypeId.String => switch (entry.value.value) {
                 UserValue.Flag => {
-                    %%io.stderr.printf("Expected -D{} to be a string, but received a boolean.\n", name);
+                    warn("Expected -D{} to be a string, but received a boolean.\n", name);
                     self.markInvalidUserInput();
                     return null;
                 },
                 UserValue.List => {
-                    %%io.stderr.printf("Expected -D{} to be a string, but received a list.\n", name);
+                    warn("Expected -D{} to be a string, but received a list.\n", name);
                     self.markInvalidUserInput();
                     return null;
                 },
@@ -437,7 +439,7 @@ pub const Builder = struct {
         } else if (!release_fast and !release_safe) {
             builtin.Mode.Debug
         } else {
-            %%io.stderr.printf("Both -Drelease-safe and -Drelease-fast specified");
+            warn("Both -Drelease-safe and -Drelease-fast specified");
             self.markInvalidUserInput();
             builtin.Mode.Debug
         };
@@ -474,7 +476,7 @@ pub const Builder = struct {
                     });
                 },
                 UserValue.Flag => {
-                    %%io.stderr.printf("Option '-D{}={}' conflicts with flag '-D{}'.\n", name, value, name);
+                    warn("Option '-D{}={}' conflicts with flag '-D{}'.\n", name, value, name);
                     return true;
                 },
             }
@@ -490,11 +492,11 @@ pub const Builder = struct {
         })) |*prev_value| {
             switch (prev_value.value) {
                 UserValue.Scalar => |s| {
-                    %%io.stderr.printf("Flag '-D{}' conflicts with option '-D{}={}'.\n", name, name, s);
+                    warn("Flag '-D{}' conflicts with option '-D{}={}'.\n", name, name, s);
                     return true;
                 },
                 UserValue.List => {
-                    %%io.stderr.printf("Flag '-D{}' conflicts with multiple options of the same name.\n", name);
+                    warn("Flag '-D{}' conflicts with multiple options of the same name.\n", name);
                     return true;
                 },
                 UserValue.Flag => {},
@@ -536,7 +538,7 @@ pub const Builder = struct {
         while (true) {
             const entry = it.next() ?? break;
             if (!entry.value.used) {
-                %%io.stderr.printf("Invalid option: -D{}\n\n", entry.key);
+                warn("Invalid option: -D{}\n\n", entry.key);
                 self.markInvalidUserInput();
             }
         }
@@ -549,11 +551,11 @@ pub const Builder = struct {
     }
 
     fn printCmd(cwd: ?[]const u8, argv: []const []const u8) {
-        if (cwd) |yes_cwd| %%io.stderr.print("cd {} && ", yes_cwd);
+        if (cwd) |yes_cwd| warn("cd {} && ", yes_cwd);
         for (argv) |arg| {
-            %%io.stderr.print("{} ", arg);
+            warn("{} ", arg);
         }
-        %%io.stderr.printf("\n");
+        warn("\n");
     }
 
     fn spawnChildEnvMap(self: &Builder, cwd: ?[]const u8, env_map: &const BufMap,
@@ -570,20 +572,20 @@ pub const Builder = struct {
         child.env_map = env_map;
 
         const term = child.spawnAndWait() %% |err| {
-            %%io.stderr.printf("Unable to spawn {}: {}\n", argv[0], @errorName(err));
+            warn("Unable to spawn {}: {}\n", argv[0], @errorName(err));
             return err;
         };
 
         switch (term) {
             Term.Exited => |code| {
                 if (code != 0) {
-                    %%io.stderr.printf("The following command exited with error code {}:\n", code);
+                    warn("The following command exited with error code {}:\n", code);
                     printCmd(cwd, argv);
                     return error.UncleanExit;
                 }
             },
             else => {
-                %%io.stderr.printf("The following command terminated unexpectedly:\n");
+                warn("The following command terminated unexpectedly:\n");
                 printCmd(cwd, argv);
 
                 return error.UncleanExit;
@@ -594,7 +596,7 @@ pub const Builder = struct {
 
     pub fn makePath(self: &Builder, path: []const u8) -> %void {
         os.makePath(self.allocator, self.pathFromRoot(path)) %% |err| {
-            %%io.stderr.printf("Unable to create path {}: {}\n", path, @errorName(err));
+            warn("Unable to create path {}: {}\n", path, @errorName(err));
             return err;
         };
     }
@@ -633,17 +635,17 @@ pub const Builder = struct {
 
     fn copyFileMode(self: &Builder, source_path: []const u8, dest_path: []const u8, mode: usize) -> %void {
         if (self.verbose) {
-            %%io.stderr.printf("cp {} {}\n", source_path, dest_path);
+            warn("cp {} {}\n", source_path, dest_path);
         }
 
         const dirname = os.path.dirname(dest_path);
         const abs_source_path = self.pathFromRoot(source_path);
         os.makePath(self.allocator, dirname) %% |err| {
-            %%io.stderr.printf("Unable to create path {}: {}\n", dirname, @errorName(err));
+            warn("Unable to create path {}: {}\n", dirname, @errorName(err));
             return err;
         };
         os.copyFileMode(self.allocator, abs_source_path, dest_path, mode) %% |err| {
-            %%io.stderr.printf("Unable to copy {} to {}: {}\n", abs_source_path, dest_path, @errorName(err));
+            warn("Unable to copy {} to {}: {}\n", abs_source_path, dest_path, @errorName(err));
             return err;
         };
     }
@@ -1103,7 +1105,7 @@ pub const LibExeObjStep = struct {
         assert(self.is_zig);
 
         if (self.root_src == null and self.object_files.len == 0 and self.assembly_files.len == 0) {
-            %%io.stderr.printf("{}: linker needs 1 or more objects to link\n", self.step.name);
+            warn("{}: linker needs 1 or more objects to link\n", self.step.name);
             return error.NeedAnObject;
         }
 
@@ -1799,11 +1801,11 @@ pub const WriteFileStep = struct {
         const full_path = self.builder.pathFromRoot(self.file_path);
         const full_path_dir = os.path.dirname(full_path);
         os.makePath(self.builder.allocator, full_path_dir) %% |err| {
-            %%io.stderr.printf("unable to make path {}: {}\n", full_path_dir, @errorName(err));
+            warn("unable to make path {}: {}\n", full_path_dir, @errorName(err));
             return err;
         };
         io.writeFile(full_path, self.data, self.builder.allocator) %% |err| {
-            %%io.stderr.printf("unable to write {}: {}\n", full_path, @errorName(err));
+            warn("unable to write {}: {}\n", full_path, @errorName(err));
             return err;
         };
     }
@@ -1824,8 +1826,7 @@ pub const LogStep = struct {
 
     fn make(step: &Step) -> %void {
         const self = @fieldParentPtr(LogStep, "step", step);
-        %%io.stderr.write(self.data);
-        %%io.stderr.flush();
+        warn("{}", self.data);
     }
 };
 
@@ -1847,7 +1848,7 @@ pub const RemoveDirStep = struct {
 
         const full_path = self.builder.pathFromRoot(self.dir_path);
         os.deleteTree(self.builder.allocator, full_path) %% |err| {
-            %%io.stderr.printf("Unable to remove {}: {}\n", full_path, @errorName(err));
+            warn("Unable to remove {}: {}\n", full_path, @errorName(err));
             return err;
         };
     }
@@ -1896,13 +1897,13 @@ fn doAtomicSymLinks(allocator: &Allocator, output_path: []const u8, filename_maj
     // sym link for libfoo.so.1 to libfoo.so.1.2.3
     const major_only_path = %%os.path.join(allocator, out_dir, filename_major_only);
     os.atomicSymLink(allocator, out_basename, major_only_path) %% |err| {
-        %%io.stderr.printf("Unable to symlink {} -> {}\n", major_only_path, out_basename);
+        warn("Unable to symlink {} -> {}\n", major_only_path, out_basename);
         return err;
     };
     // sym link for libfoo.so to libfoo.so.1
     const name_only_path = %%os.path.join(allocator, out_dir, filename_name_only);
     os.atomicSymLink(allocator, filename_major_only, name_only_path) %% |err| {
-        %%io.stderr.printf("Unable to symlink {} -> {}\n", name_only_path, filename_major_only);
+        warn("Unable to symlink {} -> {}\n", name_only_path, filename_major_only);
         return err;
     };
 }
