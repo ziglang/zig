@@ -402,11 +402,11 @@ static void construct_linker_job_coff(LinkJob *lj) {
     lj->args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(&lj->out_file))));
 
     if (g->libc_link_lib != nullptr) {
-        if (g->libc_link_lib != nullptr) {
-            for (uint32_t i = 0; i < g->libc_lib_dirs_list.length; ++i) {
-                lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->libc_lib_dirs_list.items[i]))));
-            }
-        }
+        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->msvc_lib_dir))));
+        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->kernel32_lib_dir))));
+
+        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->libc_lib_dir))));
+        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->libc_static_lib_dir))));
     }
 
     if (lj->link_in_crt) {

@@ -1001,8 +1001,8 @@ void os_stderr_set_color(TermColor color) {
 #endif
 }
 
-#if defined ZIG_OS_WINDOWS
 int os_find_windows_sdk(ZigWindowsSDK **out_sdk) {
+#if defined(ZIG_OS_WINDOWS)
     ZigWindowsSDK *result_sdk = allocate<ZigWindowsSDK>(1);
     buf_resize(&result_sdk->path10, 0);
     buf_resize(&result_sdk->path81, 0);
@@ -1099,9 +1099,13 @@ int os_find_windows_sdk(ZigWindowsSDK **out_sdk) {
 
     *out_sdk = result_sdk;
     return 0;
+#else
+    return ErrorFileNotFound;
+#endif
 }
 
 int os_get_win32_vcruntime_path(Buf* output_buf, ZigLLVM_ArchType platform_type) {
+#if defined(ZIG_OS_WINDOWS)
     buf_resize(output_buf, 0);
     //COM Smart Pointerse requires explicit scope
     {
@@ -1226,9 +1230,13 @@ com_done:;
         buf_resize(output_buf, 0);
         return ErrorFileNotFound;
     }
+#else
+    return ErrorFileNotFound;
+#endif
 }
 
 int os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchType platform_type) {
+#if defined(ZIG_OS_WINDOWS)
     buf_resize(output_buf, 0);
     buf_appendf(output_buf, "%s\\Lib\\%s\\ucrt\\", buf_ptr(&sdk->path10), buf_ptr(&sdk->version10));
     switch (platform_type) {
@@ -1254,9 +1262,13 @@ int os_get_win32_ucrt_lib_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_Arch
         buf_resize(output_buf, 0);
         return ErrorFileNotFound;
     }
+#else
+    return ErrorFileNotFound;
+#endif
 }
 
 int os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf* output_buf) {
+#if defined(ZIG_OS_WINDOWS)
     buf_resize(output_buf, 0);
     buf_appendf(output_buf, "%s\\Include\\%s\\ucrt", buf_ptr(&sdk->path10), buf_ptr(&sdk->version10));
     if (GetFileAttributesA(buf_ptr(output_buf)) != INVALID_FILE_ATTRIBUTES) {
@@ -1266,9 +1278,13 @@ int os_get_win32_ucrt_include_path(ZigWindowsSDK *sdk, Buf* output_buf) {
         buf_resize(output_buf, 0);
         return ErrorFileNotFound;
     }
+#else
+    return ErrorFileNotFound;
+#endif
 }
 
 int os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchType platform_type) {
+#if defined(ZIG_OS_WINDOWS)
     {
         buf_resize(output_buf, 0);
         buf_appendf(output_buf, "%s\\Lib\\%s\\um\\", buf_ptr(&sdk->path10), buf_ptr(&sdk->version10));
@@ -1316,5 +1332,7 @@ int os_get_win32_kern32_path(ZigWindowsSDK *sdk, Buf* output_buf, ZigLLVM_ArchTy
         }
     }
     return ErrorFileNotFound;
-}
+#else
+    return ErrorFileNotFound;
 #endif
+}

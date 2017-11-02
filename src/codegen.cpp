@@ -114,6 +114,8 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
         g->libc_lib_dir = buf_create_from_str("");
         g->libc_static_lib_dir = buf_create_from_str("");
         g->libc_include_dir = buf_create_from_str("");
+        g->msvc_lib_dir = nullptr;
+        g->kernel32_lib_dir = nullptr;
         g->each_lib_rpath = false;
     } else {
         // native compilation, we can rely on the configuration stuff
@@ -123,6 +125,8 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
         g->libc_lib_dir = buf_create_from_str(ZIG_LIBC_LIB_DIR);
         g->libc_static_lib_dir = buf_create_from_str(ZIG_LIBC_STATIC_LIB_DIR);
         g->libc_include_dir = buf_create_from_str(ZIG_LIBC_INCLUDE_DIR);
+        g->msvc_lib_dir = nullptr; // find it at runtime
+        g->kernel32_lib_dir = nullptr; // find it at runtime
 
 #ifdef ZIG_EACH_LIB_RPATH
         g->each_lib_rpath = true;
@@ -221,20 +225,20 @@ void codegen_set_libc_include_dir(CodeGen *g, Buf *libc_include_dir) {
     g->libc_include_dir = libc_include_dir;
 }
 
+void codegen_set_msvc_lib_dir(CodeGen *g, Buf *msvc_lib_dir) {
+    g->msvc_lib_dir = msvc_lib_dir;
+}
+
+void codegen_set_kernel32_lib_dir(CodeGen *g, Buf *kernel32_lib_dir) {
+    g->kernel32_lib_dir = kernel32_lib_dir;
+}
+
 void codegen_set_dynamic_linker(CodeGen *g, Buf *dynamic_linker) {
     g->dynamic_linker = dynamic_linker;
 }
 
 void codegen_add_lib_dir(CodeGen *g, const char *dir) {
     g->lib_dirs.append(dir);
-}
-
-void codegen_set_ucrt_lib_dir(CodeGen *g, Buf *ucrt_lib_dir) {
-    g->libc_lib_dirs_list.append(ucrt_lib_dir);
-}
-
-void codegen_set_kernel32_lib_dir(CodeGen *g, Buf *kernel32_lib_dir) {
-    g->libc_lib_dirs_list.append(kernel32_lib_dir);
 }
 
 void codegen_add_rpath(CodeGen *g, const char *name) {

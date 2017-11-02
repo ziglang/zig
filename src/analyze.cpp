@@ -3370,23 +3370,27 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
     zig_unreachable();
 }
 
-void find_libc_include_path(CodeGen *g) {
-#ifdef ZIG_OS_WINDOWS
-    if (!g->libc_include_dir || buf_len(g->libc_include_dir) == 0) {
-        if (g->win_sdk == nullptr) {
-            if (os_find_windows_sdk(&g->win_sdk)) {
-                zig_panic("Unable to determine Windows SDK path.");
-            }
+static ZigWindowsSDK *get_windows_sdk(CodeGen *g) {
+    if (g->win_sdk == nullptr) {
+        if (os_find_windows_sdk(&g->win_sdk)) {
+            zig_panic("Unable to determine Windows SDK path.");
         }
+    }
+    assert(g->win_sdk != nullptr);
+    return g->win_sdk;
+}
+
+void find_libc_include_path(CodeGen *g) {
+    if (!g->libc_include_dir || buf_len(g->libc_include_dir) == 0) {
+        ZigWindowsSDK *sdk = get_windows_sdk(g);
 
         if (g->zig_target.os == ZigLLVM_Win32) {
-            if (os_get_win32_ucrt_include_path(g->win_sdk, g->libc_include_dir)) {
+            if (os_get_win32_ucrt_include_path(sdk, g->libc_include_dir)) {
                 zig_panic("Unable to determine libc include path.");
             }
         }
     }
-    return;
-#endif
+
     // TODO find libc at runtime for other operating systems
     if(!g->libc_include_dir || buf_len(g->libc_include_dir) == 0) {
         zig_panic("Unable to determine libc include path.");
@@ -3394,39 +3398,34 @@ void find_libc_include_path(CodeGen *g) {
 }
 
 void find_libc_lib_path(CodeGen *g) {
-#ifdef ZIG_OS_WINDOWS
-    if (g->zig_target.os == ZigLLVM_Win32) {
-        if (g->win_sdk == nullptr) {
-            if (os_find_windows_sdk(&g->win_sdk)) {
-                zig_panic("Unable to determine Windows SDK path.");
-            }
-        }
-
-        Buf* vc_lib_dir = buf_alloc();
-        if (os_get_win32_vcruntime_path(vc_lib_dir, g->zig_target.arch.arch)) {
-            zig_panic("Unable to determine vcruntime path.");
-        }
-
-        Buf* ucrt_lib_path = buf_alloc();
-        if (os_get_win32_ucrt_lib_path(g->win_sdk, ucrt_lib_path, g->zig_target.arch.arch)) {
-            zig_panic("Unable to determine ucrt path.");
-        }
-
-        Buf* kern_lib_path = buf_alloc();
-        if (os_get_win32_kern32_path(g->win_sdk, kern_lib_path, g->zig_target.arch.arch)) {
-            zig_panic("Unable to determine kernel32 path.");
-        }
-
-        g->libc_lib_dirs_list.append(vc_lib_dir);
-        g->libc_lib_dirs_list.append(ucrt_lib_path);
-        g->libc_lib_dirs_list.append(kern_lib_path);
-    }
-    return;
-#endif
-
     // later we can handle this better by reporting an error via the normal mechanism
-    if (!g->libc_lib_dir || buf_len(g->libc_lib_dir) == 0) {
-        zig_panic("Unable to determine libc lib path.");
+    if (!g->libc_lib_dir || buf_len(g->libc_lib_dir) == 0 ||
+        (g->zig_target.os == ZigLLVM_Win32 && (g->msvc_lib_dir == nullptr || g->kernel32_lib_dir == nullptr)))
+    {
+        if (g->zig_target.os == ZigLLVM_Win32) {
+            ZigWindowsSDK *sdk = get_windows_sdk(g);
+
+            Buf* vc_lib_dir = buf_alloc();
+            if (os_get_win32_vcruntime_path(vc_lib_dir, g->zig_target.arch.arch)) {
+                zig_panic("Unable to determine vcruntime path.");
+            }
+
+            Buf* ucrt_lib_path = buf_alloc();
+            if (os_get_win32_ucrt_lib_path(sdk, ucrt_lib_path, g->zig_target.arch.arch)) {
+                zig_panic("Unable to determine ucrt path.");
+            }
+
+            Buf* kern_lib_path = buf_alloc();
+            if (os_get_win32_kern32_path(sdk, kern_lib_path, g->zig_target.arch.arch)) {
+                zig_panic("Unable to determine kernel32 path.");
+            }
+
+            g->msvc_lib_dir = vc_lib_dir;
+            g->libc_lib_dir = ucrt_lib_path;
+            g->kernel32_lib_dir = kern_lib_path;
+        } else {
+            zig_panic("Unable to determine libc lib path.");
+        }
     }
     if (!g->libc_static_lib_dir || buf_len(g->libc_static_lib_dir) == 0) {
         zig_panic("Unable to determine libc static lib path.");
