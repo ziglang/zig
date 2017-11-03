@@ -11643,6 +11643,55 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
                         buf_ptr(&child_type->name), buf_ptr(field_name)));
                 return ira->codegen->builtin_types.entry_invalid;
             }
+        } else if (child_type->id == TypeTableEntryIdErrorUnion) {
+            if (buf_eql_str(field_name, "Child")) {
+                bool ptr_is_const = true;
+                bool ptr_is_volatile = false;
+                return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
+                    create_const_type(ira->codegen, child_type->data.error.child_type),
+                    ira->codegen->builtin_types.entry_type,
+                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile);
+            } else {
+                ir_add_error(ira, &field_ptr_instruction->base,
+                    buf_sprintf("type '%s' has no member called '%s'",
+                        buf_ptr(&child_type->name), buf_ptr(field_name)));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+        } else if (child_type->id == TypeTableEntryIdMaybe) {
+            if (buf_eql_str(field_name, "Child")) {
+                bool ptr_is_const = true;
+                bool ptr_is_volatile = false;
+                return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
+                    create_const_type(ira->codegen, child_type->data.maybe.child_type),
+                    ira->codegen->builtin_types.entry_type,
+                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile);
+            } else {
+                ir_add_error(ira, &field_ptr_instruction->base,
+                    buf_sprintf("type '%s' has no member called '%s'",
+                        buf_ptr(&child_type->name), buf_ptr(field_name)));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+        } else if (child_type->id == TypeTableEntryIdFn) {
+            if (buf_eql_str(field_name, "ReturnType")) {
+                bool ptr_is_const = true;
+                bool ptr_is_volatile = false;
+                return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
+                    create_const_type(ira->codegen, child_type->data.fn.fn_type_id.return_type),
+                    ira->codegen->builtin_types.entry_type,
+                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile);
+            } else if (buf_eql_str(field_name, "is_var_args")) {
+                bool ptr_is_const = true;
+                bool ptr_is_volatile = false;
+                return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
+                    create_const_bool(ira->codegen, child_type->data.fn.fn_type_id.is_var_args),
+                    ira->codegen->builtin_types.entry_bool,
+                    ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile);
+            } else {
+                ir_add_error(ira, &field_ptr_instruction->base,
+                    buf_sprintf("type '%s' has no member called '%s'",
+                        buf_ptr(&child_type->name), buf_ptr(field_name)));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
         } else {
             ir_add_error(ira, &field_ptr_instruction->base,
                 buf_sprintf("type '%s' does not support field access", buf_ptr(&child_type->name)));
