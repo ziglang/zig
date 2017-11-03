@@ -1366,6 +1366,12 @@ enum BuildMode {
     BuildModeSafeRelease,
 };
 
+enum EmitFileType {
+    EmitFileTypeBinary,
+    EmitFileTypeAssembly,
+    EmitFileTypeLLVMIr,
+};
+
 struct LinkLib {
     Buf *name;
     Buf *path;
@@ -1449,6 +1455,7 @@ struct CodeGen {
         TypeTableEntry *entry_arg_tuple;
     } builtin_types;
 
+    EmitFileType emit_file_type;
     ZigTarget zig_target;
     LLVMTargetDataRef target_data_ref;
     unsigned pointer_size_bytes;

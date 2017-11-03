@@ -189,6 +189,10 @@ void codegen_set_is_test(CodeGen *g, bool is_test_build) {
     g->is_test_build = is_test_build;
 }
 
+void codegen_set_emit_file_type(CodeGen *g, EmitFileType emit_file_type) {
+    g->emit_file_type = emit_file_type;
+}
+
 void codegen_set_is_static(CodeGen *g, bool is_static) {
     g->is_static = is_static;
 }
@@ -4493,24 +4497,70 @@ static void do_code_gen(CodeGen *g) {
     LLVMVerifyModule(g->module, LLVMAbortProcessAction, &error);
 #endif
 
-    codegen_add_time_event(g, "LLVM Emit Object");
+    codegen_add_time_event(g, "LLVM Emit Output");
 
     char *err_msg = nullptr;
     Buf *o_basename = buf_create_from_buf(g->root_out_name);
-    const char *o_ext = target_o_file_ext(&g->zig_target);
-    buf_append_str(o_basename, o_ext);
+
+    switch (g->emit_file_type) {
+        case EmitFileTypeBinary:
+        {
+            const char *o_ext = target_o_file_ext(&g->zig_target);
+            buf_append_str(o_basename, o_ext);
+            break;
+        }
+        case EmitFileTypeAssembly:
+        {
+            const char *asm_ext = target_asm_file_ext(&g->zig_target);
+            buf_append_str(o_basename, asm_ext);
+            break;
+        }
+        case EmitFileTypeLLVMIr:
+        {
+            const char *llvm_ir_ext = target_llvm_ir_file_ext(&g->zig_target);
+            buf_append_str(o_basename, llvm_ir_ext);
+            break;
+        }
+        default:
+            zig_unreachable();
+    }
+
     Buf *output_path = buf_alloc();
     os_path_join(g->cache_dir, o_basename, output_path);
     ensure_cache_dir(g);
-    if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
-                LLVMObjectFile, &err_msg, g->build_mode == BuildModeDebug))
-    {
-        zig_panic("unable to write object file %s: %s", buf_ptr(output_path), err_msg);
+
+    switch (g->emit_file_type) {
+        case EmitFileTypeBinary:
+            if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
+                        ZigLLVM_EmitBinary, &err_msg, g->build_mode == BuildModeDebug))
+            {
+                zig_panic("unable to write object file %s: %s", buf_ptr(output_path), err_msg);
+            }
+            validate_inline_fns(g);
+            g->link_objects.append(output_path);
+            break;
+
+        case EmitFileTypeAssembly:
+            if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
+                        ZigLLVM_EmitAssembly, &err_msg, g->build_mode == BuildModeDebug))
+            {
+                zig_panic("unable to write assembly file %s: %s", buf_ptr(output_path), err_msg);
+            }
+            validate_inline_fns(g);
+            break;
+
+        case EmitFileTypeLLVMIr:
+            if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
+                        ZigLLVM_EmitLLVMIr, &err_msg, g->build_mode == BuildModeDebug))
+            {
+                zig_panic("unable to write llvm-ir file %s: %s", buf_ptr(output_path), err_msg);
+            }
+            validate_inline_fns(g);
+            break;
+
+        default:
+            zig_unreachable();
     }
-
-    validate_inline_fns(g);
-
-    g->link_objects.append(output_path);
 }
 
 static const uint8_t int_sizes_in_bits[] = {

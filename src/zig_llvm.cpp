@@ -77,7 +77,7 @@ static const bool assertions_on = false;
 #endif
 
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
-        const char *filename, LLVMCodeGenFileType file_type, char **error_message, bool is_debug)
+        const char *filename, ZigLLVM_EmitOutputType output_type, char **error_message, bool is_debug)
 {
     std::error_code EC;
     raw_fd_ostream dest(filename, EC, sys::fs::F_None);
@@ -135,18 +135,24 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     MPM.add(createTargetTransformInfoWrapperPass(target_machine->getTargetIRAnalysis()));
     PMBuilder->populateModulePassManager(MPM);
 
+    // Set output pass.
     TargetMachine::CodeGenFileType ft;
-    switch (file_type) {
-        case LLVMAssemblyFile:
-            ft = TargetMachine::CGFT_AssemblyFile;
-            break;
-        default:
-            ft = TargetMachine::CGFT_ObjectFile;
-            break;
-    }
-    if (target_machine->addPassesToEmitFile(MPM, dest, ft)) {
-        *error_message = strdup("TargetMachine can't emit a file of this type");
-        return true;
+    if (output_type != ZigLLVM_EmitLLVMIr) {
+        switch (output_type) {
+            case ZigLLVM_EmitAssembly:
+                ft = TargetMachine::CGFT_AssemblyFile;
+                break;
+            case ZigLLVM_EmitBinary:
+                ft = TargetMachine::CGFT_ObjectFile;
+                break;
+            default:
+                abort();
+        }
+
+        if (target_machine->addPassesToEmitFile(MPM, dest, ft)) {
+            *error_message = strdup("TargetMachine can't emit a file of this type");
+            return true;
+        }
     }
 
     // run per function optimization passes
@@ -158,7 +164,11 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
 
     MPM.run(*module);
 
-    dest.close();
+    if (output_type == ZigLLVM_EmitLLVMIr) {
+        if (LLVMPrintModuleToFile(module_ref, filename, error_message)) {
+            return true;
+        }
+    }
 
     return false;
 }
