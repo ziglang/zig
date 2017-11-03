@@ -91,6 +91,9 @@
     IDENT_START: \
     case DIGIT
 
+#define LINE_ENDING \
+         '\r': \
+    case '\n'
 
 static void begin_token(CTokenize *ctok, CTokId id) {
     assert(ctok->cur_tok == nullptr);
@@ -191,7 +194,7 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                     case '\\':
                         ctok->state = CTokStateBackslash;
                         break;
-                    case '\n':
+                    case LINE_ENDING:
                         goto found_end_of_macro;
                     case IDENT_START:
                         ctok->state = CTokStateIdentifier;
