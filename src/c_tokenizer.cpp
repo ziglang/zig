@@ -12,6 +12,7 @@
          ' ': \
     case '\t': \
     case '\v': \
+    case '\r': \
     case '\f'
 
 #define DIGIT_NON_ZERO \

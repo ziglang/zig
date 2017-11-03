@@ -17,7 +17,8 @@
 
 #define WHITESPACE \
          ' ': \
-    case '\n'
+    case '\n': \
+    case '\r'
 
 #define DIGIT_NON_ZERO \
          '1': \
@@ -440,9 +441,7 @@ static const char* get_escape_shorthand(uint8_t c) {
 }
 
 static void invalid_char_error(Tokenize *t, uint8_t c) {
-    if (c == '\r') {
-        tokenize_error(t, "invalid carriage return, only '\\n' line endings are supported");
-    } else if (isprint(c)) {
+    if (isprint(c)) {
         tokenize_error(t, "invalid character: '%c'", c);
     } else {
         const char *sh = get_escape_shorthand(c);
