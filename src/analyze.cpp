@@ -1712,8 +1712,21 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
 
     if (struct_type->zero_bits) {
         struct_type->type_ref = LLVMVoidType();
-        ZigLLVMReplaceTemporary(g->dbuilder, struct_type->di_type, g->builtin_types.entry_void->di_type);
-        struct_type->di_type = g->builtin_types.entry_void->di_type;
+
+        ImportTableEntry *import = get_scope_import(scope);
+        uint64_t debug_size_in_bits = 0;
+        uint64_t debug_align_in_bits = 0;
+        ZigLLVMDIType **di_element_types = nullptr;
+        size_t debug_field_count = 0;
+        ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
+                ZigLLVMFileToScope(import->di_file),
+                buf_ptr(&struct_type->name),
+                import->di_file, (unsigned)(decl_node->line + 1),
+                debug_size_in_bits,
+                debug_align_in_bits,
+                0, nullptr, di_element_types, (int)debug_field_count, 0, nullptr, "");
+        ZigLLVMReplaceTemporary(g->dbuilder, struct_type->di_type, replacement_di_type);
+        struct_type->di_type = replacement_di_type;
         return;
     }
     assert(struct_type->di_type);
