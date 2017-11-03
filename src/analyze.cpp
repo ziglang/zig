@@ -3440,8 +3440,14 @@ void find_libc_lib_path(CodeGen *g) {
             zig_panic("Unable to determine libc lib path.");
         }
     }
+
     if (!g->libc_static_lib_dir || buf_len(g->libc_static_lib_dir) == 0) {
-        zig_panic("Unable to determine libc static lib path.");
+        if ((g->zig_target.os == ZigLLVM_Win32) && (g->msvc_lib_dir != NULL)) {
+            return;
+        }
+        else {
+            zig_panic("Unable to determine libc static lib path.");
+        }
     }
 }
 
