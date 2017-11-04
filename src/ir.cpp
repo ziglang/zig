@@ -15462,7 +15462,7 @@ static TypeTableEntry *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstruc
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
     if (arg_index >= fn_type_id->param_count) {
         ir_add_error(ira, arg_index_inst,
-                buf_sprintf("arg index %" ZIG_PRI_usize " out of bounds; '%s' has %" ZIG_PRI_usize " arguments",
+                buf_sprintf("arg index %" ZIG_PRI_u64 " out of bounds; '%s' has %" ZIG_PRI_usize " arguments",
                     arg_index, buf_ptr(&fn_type->name), fn_type_id->param_count));
         return ira->codegen->builtin_types.entry_invalid;
     }
