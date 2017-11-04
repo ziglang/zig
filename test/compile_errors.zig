@@ -2275,4 +2275,18 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     ,
         ".tmp_source.zig:2:1: error: invalid character: '\\t'");
 
+    cases.add("@ArgType given non function parameter",
+        \\comptime {
+        \\    _ = @ArgType(i32, 3);
+        \\}
+    ,
+        ".tmp_source.zig:2:18: error: expected function, found 'i32'");
+
+    cases.add("@ArgType arg index out of bounds",
+        \\comptime {
+        \\    _ = @ArgType(@typeOf(add), 2);
+        \\}
+        \\fn add(a: i32, b: i32) -> i32 { return a + b; }
+    ,
+        ".tmp_source.zig:2:32: error: arg index 2 out of bounds; 'fn(i32, i32) -> i32' has 2 arguments");
 }
