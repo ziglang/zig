@@ -17,8 +17,8 @@ pub var c_allocator = Allocator {
 };
 
 fn cAlloc(self: &Allocator, n: usize, alignment: usize) -> %[]u8 {
-    if (c.malloc(usize(n))) |mem| {
-        @ptrCast(&u8, mem)[0..n]
+    if (c.malloc(usize(n))) |buf| {
+        @ptrCast(&u8, buf)[0..n]
     } else {
         error.OutOfMemory
     }
@@ -29,8 +29,8 @@ fn cRealloc(self: &Allocator, old_mem: []u8, new_size: usize, alignment: usize) 
         old_mem[0..new_size]
     } else {
         const old_ptr = @ptrCast(&c_void, old_mem.ptr);
-        if (c.realloc(old_ptr, usize(new_size))) |mem| {
-            @ptrCast(&u8, mem)[0..new_size]
+        if (c.realloc(old_ptr, usize(new_size))) |buf| {
+            @ptrCast(&u8, buf)[0..new_size]
         } else {
             error.OutOfMemory
         }
