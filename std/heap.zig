@@ -136,6 +136,14 @@ pub const IncrementingAllocator = struct {
     }
 };
 
+test "c_allocator" {
+    if (builtin.link_libc) {
+        var slice = c_allocator.alloc(u8, 50) %% return;
+        defer c_allocator.free(slice);
+        slice = c_allocator.realloc(u8, slice, 100) %% return;
+    }
+}
+
 test "IncrementingAllocator" {
     const total_bytes = 100 * 1024 * 1024;
     var inc_allocator = %%IncrementingAllocator.init(total_bytes);
