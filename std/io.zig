@@ -308,7 +308,7 @@ pub const InStream = struct {
     readFn: fn(self: &InStream, buffer: []u8) -> %usize,
 
     /// Replaces `buffer` contents by reading from the stream until it is finished.
-    /// If `buffer.len()` woould exceed `max_size`, `error.StreamTooLong` is returned and
+    /// If `buffer.len()` would exceed `max_size`, `error.StreamTooLong` is returned and
     /// the contents read from the stream are lost.
     pub fn readAllBuffer(self: &InStream, buffer: &Buffer, max_size: usize) -> %void {
         %return buffer.resize(0);
@@ -339,7 +339,7 @@ pub const InStream = struct {
         var buf = Buffer.initNull(allocator);
         defer buf.deinit();
 
-        %return self.readAllBuffer(self, &buf, max_size);
+        %return self.readAllBuffer(&buf, max_size);
         return buf.toOwnedSlice();
     }
 
