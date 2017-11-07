@@ -5,7 +5,6 @@ const heap = @import("std").mem;
 
 // TODO: sync up CLI with c++ code
 // TODO: concurrency
-// TODO: ability to iterate over enums at compile time (for listing targets)
 
 error InvalidArgument;
 error MissingArg0;

@@ -2289,4 +2289,50 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\fn add(a: i32, b: i32) -> i32 { return a + b; }
     ,
         ".tmp_source.zig:2:32: error: arg index 2 out of bounds; 'fn(i32, i32) -> i32' has 2 arguments");
+
+    cases.add("@memberType on unsupported type",
+        \\comptime {
+        \\    _ = @memberType(i32, 0);
+        \\}
+    ,
+        ".tmp_source.zig:2:21: error: type 'i32' does not support @memberType");
+
+    cases.add("@memberType struct out of bounds",
+        \\comptime {
+        \\    _ = @memberType(Foo, 0);
+        \\}
+        \\const Foo = struct {};
+    ,
+        ".tmp_source.zig:2:26: error: member index 0 out of bounds; 'Foo' has 0 members");
+
+    cases.add("@memberType enum out of bounds",
+        \\comptime {
+        \\    _ = @memberType(Foo, 0);
+        \\}
+        \\const Foo = enum {};
+    ,
+        ".tmp_source.zig:2:26: error: member index 0 out of bounds; 'Foo' has 0 members");
+
+    cases.add("@memberName on unsupported type",
+        \\comptime {
+        \\    _ = @memberName(i32, 0);
+        \\}
+    ,
+        ".tmp_source.zig:2:21: error: type 'i32' does not support @memberName");
+
+    cases.add("@memberName struct out of bounds",
+        \\comptime {
+        \\    _ = @memberName(Foo, 0);
+        \\}
+        \\const Foo = struct {};
+    ,
+        ".tmp_source.zig:2:26: error: member index 0 out of bounds; 'Foo' has 0 members");
+
+    cases.add("@memberName enum out of bounds",
+        \\comptime {
+        \\    _ = @memberName(Foo, 0);
+        \\}
+        \\const Foo = enum {};
+    ,
+        ".tmp_source.zig:2:26: error: member index 0 out of bounds; 'Foo' has 0 members");
 }

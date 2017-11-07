@@ -3384,6 +3384,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdEmbedFile:
         case IrInstructionIdIntType:
         case IrInstructionIdMemberCount:
+        case IrInstructionIdMemberType:
+        case IrInstructionIdMemberName:
         case IrInstructionIdAlignOf:
         case IrInstructionIdFnProto:
         case IrInstructionIdTestComptime:
@@ -4867,6 +4869,8 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdMaxValue, "maxValue", 1);
     create_builtin_fn(g, BuiltinFnIdMinValue, "minValue", 1);
     create_builtin_fn(g, BuiltinFnIdMemberCount, "memberCount", 1);
+    create_builtin_fn(g, BuiltinFnIdMemberType, "memberType", 2);
+    create_builtin_fn(g, BuiltinFnIdMemberName, "memberName", 2);
     create_builtin_fn(g, BuiltinFnIdTypeof, "typeOf", 1); // TODO rename to TypeOf
     create_builtin_fn(g, BuiltinFnIdAddWithOverflow, "addWithOverflow", 4);
     create_builtin_fn(g, BuiltinFnIdSubWithOverflow, "subWithOverflow", 4);
