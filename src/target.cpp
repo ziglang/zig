@@ -581,6 +581,14 @@ const char *target_o_file_ext(ZigTarget *target) {
     }
 }
 
+const char *target_asm_file_ext(ZigTarget *target) {
+    return ".s";
+}
+
+const char *target_llvm_ir_file_ext(ZigTarget *target) {
+    return ".ll";
+}
+
 const char *target_exe_file_ext(ZigTarget *target) {
     if (target->os == ZigLLVM_Win32) {
         return ".exe";

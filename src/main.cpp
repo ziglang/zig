@@ -32,6 +32,7 @@ static int usage(const char *arg0) {
         "  --assembly $source           add assembly file to build\n"
         "  --cache-dir $path            override the cache directory\n"
         "  --color $auto|off|on         enable or disable colored error messages\n"
+        "  --emit $filetype             emit a specific file format as compilation output\n"
         "  --enable-timing-info         print timing diagnostics\n"
         "  --libc-include-dir $path     directory where libc stdlib.h resides\n"
         "  --name $name                 override output name\n"
@@ -269,6 +270,7 @@ int main(int argc, char **argv) {
 
     char *arg0 = argv[0];
     Cmd cmd = CmdInvalid;
+    EmitFileType emit_file_type = EmitFileTypeBinary;
     const char *in_file = nullptr;
     const char *out_file = nullptr;
     const char *out_file_h = nullptr;
@@ -533,6 +535,17 @@ int main(int argc, char **argv) {
                         color = ErrColorOff;
                     } else {
                         fprintf(stderr, "--color options are 'auto', 'on', or 'off'\n");
+                        return usage(arg0);
+                    }
+                } else if (strcmp(arg, "--emit") == 0) {
+                    if (strcmp(argv[i], "asm") == 0) {
+                        emit_file_type = EmitFileTypeAssembly;
+                    } else if (strcmp(argv[i], "bin") == 0) {
+                        emit_file_type = EmitFileTypeBinary;
+                    } else if (strcmp(argv[i], "llvm-ir") == 0) {
+                        emit_file_type = EmitFileTypeLLVMIr;
+                    } else {
+                        fprintf(stderr, "--emit options are 'asm', 'bin', or 'llvm-ir'\n");
                         return usage(arg0);
                     }
                 } else if (strcmp(arg, "--name") == 0) {
@@ -815,6 +828,8 @@ int main(int argc, char **argv) {
             add_package(g, cur_pkg, g->root_package);
 
             if (cmd == CmdBuild) {
+                codegen_set_emit_file_type(g, emit_file_type);
+
                 for (size_t i = 0; i < objects.length; i += 1) {
                     codegen_add_object(g, buf_create_from_str(objects.at(i)));
                 }

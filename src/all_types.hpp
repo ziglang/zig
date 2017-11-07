@@ -1211,6 +1211,8 @@ enum BuiltinFnId {
     BuiltinFnIdMaxValue,
     BuiltinFnIdMinValue,
     BuiltinFnIdMemberCount,
+    BuiltinFnIdMemberType,
+    BuiltinFnIdMemberName,
     BuiltinFnIdTypeof,
     BuiltinFnIdAddWithOverflow,
     BuiltinFnIdSubWithOverflow,
@@ -1261,6 +1263,7 @@ enum BuiltinFnId {
     BuiltinFnIdAlignCast,
     BuiltinFnIdOpaqueType,
     BuiltinFnIdSetAlignStack,
+    BuiltinFnIdArgType,
 };
 
 struct BuiltinFnEntry {
@@ -1366,6 +1369,12 @@ enum BuildMode {
     BuildModeSafeRelease,
 };
 
+enum EmitFileType {
+    EmitFileTypeBinary,
+    EmitFileTypeAssembly,
+    EmitFileTypeLLVMIr,
+};
+
 struct LinkLib {
     Buf *name;
     Buf *path;
@@ -1449,6 +1458,7 @@ struct CodeGen {
         TypeTableEntry *entry_arg_tuple;
     } builtin_types;
 
+    EmitFileType emit_file_type;
     ZigTarget zig_target;
     LLVMTargetDataRef target_data_ref;
     unsigned pointer_size_bytes;
@@ -1837,6 +1847,8 @@ enum IrInstructionId {
     IrInstructionIdMemcpy,
     IrInstructionIdSlice,
     IrInstructionIdMemberCount,
+    IrInstructionIdMemberType,
+    IrInstructionIdMemberName,
     IrInstructionIdBreakpoint,
     IrInstructionIdReturnAddress,
     IrInstructionIdFrameAddress,
@@ -1875,6 +1887,7 @@ enum IrInstructionId {
     IrInstructionIdAlignCast,
     IrInstructionIdOpaqueType,
     IrInstructionIdSetAlignStack,
+    IrInstructionIdArgType,
 };
 
 struct IrInstruction {
@@ -2399,6 +2412,20 @@ struct IrInstructionMemberCount {
     IrInstruction *container;
 };
 
+struct IrInstructionMemberType {
+    IrInstruction base;
+
+    IrInstruction *container_type;
+    IrInstruction *member_index;
+};
+
+struct IrInstructionMemberName {
+    IrInstruction base;
+
+    IrInstruction *container_type;
+    IrInstruction *member_index;
+};
+
 struct IrInstructionBreakpoint {
     IrInstruction base;
 };
@@ -2673,6 +2700,13 @@ struct IrInstructionSetAlignStack {
     IrInstruction base;
 
     IrInstruction *align_bytes;
+};
+
+struct IrInstructionArgType {
+    IrInstruction base;
+
+    IrInstruction *fn_type;
+    IrInstruction *arg_index;
 };
 
 static const size_t slice_ptr_index = 0;

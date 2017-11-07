@@ -894,7 +894,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
             Buf *o_file_path = g->link_objects.at(0);
             int err;
             if ((err = os_rename(o_file_path, &lj.out_file))) {
-                zig_panic("unable to rename object file into final output: %s", err_str(err));
+                zig_panic("unable to rename object file %s into final output %s: %s", buf_ptr(o_file_path), buf_ptr(&lj.out_file), err_str(err));
             }
         }
         return;

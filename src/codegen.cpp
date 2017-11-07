@@ -189,6 +189,10 @@ void codegen_set_is_test(CodeGen *g, bool is_test_build) {
     g->is_test_build = is_test_build;
 }
 
+void codegen_set_emit_file_type(CodeGen *g, EmitFileType emit_file_type) {
+    g->emit_file_type = emit_file_type;
+}
+
 void codegen_set_is_static(CodeGen *g, bool is_static) {
     g->is_static = is_static;
 }
@@ -3380,6 +3384,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdEmbedFile:
         case IrInstructionIdIntType:
         case IrInstructionIdMemberCount:
+        case IrInstructionIdMemberType:
+        case IrInstructionIdMemberName:
         case IrInstructionIdAlignOf:
         case IrInstructionIdFnProto:
         case IrInstructionIdTestComptime:
@@ -3397,6 +3403,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdPtrTypeOf:
         case IrInstructionIdOpaqueType:
         case IrInstructionIdSetAlignStack:
+        case IrInstructionIdArgType:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -4493,24 +4500,70 @@ static void do_code_gen(CodeGen *g) {
     LLVMVerifyModule(g->module, LLVMAbortProcessAction, &error);
 #endif
 
-    codegen_add_time_event(g, "LLVM Emit Object");
+    codegen_add_time_event(g, "LLVM Emit Output");
 
     char *err_msg = nullptr;
     Buf *o_basename = buf_create_from_buf(g->root_out_name);
-    const char *o_ext = target_o_file_ext(&g->zig_target);
-    buf_append_str(o_basename, o_ext);
+
+    switch (g->emit_file_type) {
+        case EmitFileTypeBinary:
+        {
+            const char *o_ext = target_o_file_ext(&g->zig_target);
+            buf_append_str(o_basename, o_ext);
+            break;
+        }
+        case EmitFileTypeAssembly:
+        {
+            const char *asm_ext = target_asm_file_ext(&g->zig_target);
+            buf_append_str(o_basename, asm_ext);
+            break;
+        }
+        case EmitFileTypeLLVMIr:
+        {
+            const char *llvm_ir_ext = target_llvm_ir_file_ext(&g->zig_target);
+            buf_append_str(o_basename, llvm_ir_ext);
+            break;
+        }
+        default:
+            zig_unreachable();
+    }
+
     Buf *output_path = buf_alloc();
     os_path_join(g->cache_dir, o_basename, output_path);
     ensure_cache_dir(g);
-    if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
-                LLVMObjectFile, &err_msg, g->build_mode == BuildModeDebug))
-    {
-        zig_panic("unable to write object file %s: %s", buf_ptr(output_path), err_msg);
+
+    switch (g->emit_file_type) {
+        case EmitFileTypeBinary:
+            if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
+                        ZigLLVM_EmitBinary, &err_msg, g->build_mode == BuildModeDebug))
+            {
+                zig_panic("unable to write object file %s: %s", buf_ptr(output_path), err_msg);
+            }
+            validate_inline_fns(g);
+            g->link_objects.append(output_path);
+            break;
+
+        case EmitFileTypeAssembly:
+            if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
+                        ZigLLVM_EmitAssembly, &err_msg, g->build_mode == BuildModeDebug))
+            {
+                zig_panic("unable to write assembly file %s: %s", buf_ptr(output_path), err_msg);
+            }
+            validate_inline_fns(g);
+            break;
+
+        case EmitFileTypeLLVMIr:
+            if (ZigLLVMTargetMachineEmitToFile(g->target_machine, g->module, buf_ptr(output_path),
+                        ZigLLVM_EmitLLVMIr, &err_msg, g->build_mode == BuildModeDebug))
+            {
+                zig_panic("unable to write llvm-ir file %s: %s", buf_ptr(output_path), err_msg);
+            }
+            validate_inline_fns(g);
+            break;
+
+        default:
+            zig_unreachable();
     }
-
-    validate_inline_fns(g);
-
-    g->link_objects.append(output_path);
 }
 
 static const uint8_t int_sizes_in_bits[] = {
@@ -4816,7 +4869,9 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdMaxValue, "maxValue", 1);
     create_builtin_fn(g, BuiltinFnIdMinValue, "minValue", 1);
     create_builtin_fn(g, BuiltinFnIdMemberCount, "memberCount", 1);
-    create_builtin_fn(g, BuiltinFnIdTypeof, "typeOf", 1);
+    create_builtin_fn(g, BuiltinFnIdMemberType, "memberType", 2);
+    create_builtin_fn(g, BuiltinFnIdMemberName, "memberName", 2);
+    create_builtin_fn(g, BuiltinFnIdTypeof, "typeOf", 1); // TODO rename to TypeOf
     create_builtin_fn(g, BuiltinFnIdAddWithOverflow, "addWithOverflow", 4);
     create_builtin_fn(g, BuiltinFnIdSubWithOverflow, "subWithOverflow", 4);
     create_builtin_fn(g, BuiltinFnIdMulWithOverflow, "mulWithOverflow", 4);
@@ -4863,6 +4918,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdAlignCast, "alignCast", 2);
     create_builtin_fn(g, BuiltinFnIdOpaqueType, "OpaqueType", 0);
     create_builtin_fn(g, BuiltinFnIdSetAlignStack, "setAlignStack", 1);
+    create_builtin_fn(g, BuiltinFnIdArgType, "ArgType", 2);
 }
 
 static const char *bool_to_str(bool b) {

@@ -3,24 +3,27 @@ const io = @import("std").io;
 const os = @import("std").os;
 const heap = @import("std").mem;
 
-// TODO: OutSteam and InStream interface
-// TODO: move allocator to heap namespace
 // TODO: sync up CLI with c++ code
+// TODO: concurrency
 
 error InvalidArgument;
 error MissingArg0;
 
 var arg0: []u8 = undefined;
 
+var stderr_file: io.File = undefined;
+const stderr = &stderr_file.out_stream;
+
 pub fn main() -> %void {
+    stderr_file = %return io.getStdErr();
     if (internal_main()) |_| {
         return;
     } else |err| {
         if (err == error.InvalidArgument) {
-            io.stderr.printf("\n") %% return err;
-            printUsage(&io.stderr) %% return err;
+            stderr.print("\n") %% return err;
+            printUsage(stderr) %% return err;
         } else {
-            io.stderr.printf("{}\n", err) %% return err;
+            stderr.print("{}\n", err) %% return err;
         }
         return err;
     }
@@ -266,7 +269,6 @@ fn printUsage(outstream: &io.OutStream) -> %void {
         \\  --test-cmd-bin               appends test binary path to test cmd args
         \\
     );
-    %return outstream.flush();
 }
 
 const ZIG_ZEN =
