@@ -39,7 +39,7 @@ pub fn internal_main() -> %void {
     defer incrementing_allocator.deinit();
 
     const allocator = &incrementing_allocator.allocator;
-    
+
     arg0 = %return (args_it.next(allocator) ?? error.MissingArg0);
     defer allocator.free(arg0);
 
