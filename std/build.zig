@@ -1706,7 +1706,7 @@ pub const CommandStep = struct {
     fn make(step: &Step) -> %void {
         const self = @fieldParentPtr(CommandStep, "step", step);
 
-        const cwd = if (self.cwd) |cwd| self.builder.pathFromRoot(cwd) else null;
+        const cwd = if (self.cwd) |cwd| self.builder.pathFromRoot(cwd) else self.builder.build_root;
         return self.builder.spawnChildEnvMap(cwd, self.env_map, self.argv);
     }
 };

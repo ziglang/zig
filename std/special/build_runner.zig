@@ -44,9 +44,22 @@ pub fn main() -> %void {
     var prefix: ?[]const u8 = null;
 
     var stderr_file = io.getStdErr();
-    var stderr_stream: %&io.OutStream = if (stderr_file) |*f| &f.out_stream else |err| err;
+    var stderr_file_stream: io.FileOutStream = undefined;
+    var stderr_stream: %&io.OutStream = if (stderr_file) |*f| {
+        stderr_file_stream = io.FileOutStream.init(f);
+        &stderr_file_stream.stream
+    } else |err| {
+        err
+    };
+
     var stdout_file = io.getStdOut();
-    var stdout_stream: %&io.OutStream = if (stdout_file) |*f| &f.out_stream else |err| err;
+    var stdout_file_stream: io.FileOutStream = undefined;
+    var stdout_stream: %&io.OutStream = if (stdout_file) |*f| {
+        stdout_file_stream = io.FileOutStream.init(f);
+        &stdout_file_stream.stream
+    } else |err| {
+        err
+    };
 
     while (arg_it.next(allocator)) |err_or_arg| {
         const arg = %return unwrapArg(err_or_arg);
@@ -135,7 +148,7 @@ fn usage(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) 
         \\General Options:
         \\  --help                 Print this help and exit
         \\  --verbose              Print commands before executing them
-        \\  --prefix $path         Override default install prefix
+        \\  --prefix [path]        Override default install prefix
         \\
         \\Project-Specific Options:
         \\
@@ -146,7 +159,7 @@ fn usage(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) 
     } else {
         for (builder.available_options_list.toSliceConst()) |option| {
             const name = %return fmt.allocPrint(allocator,
-                "  -D{}=${}", option.name, Builder.typeIdName(option.type_id));
+                "  -D{}=[{}]", option.name, Builder.typeIdName(option.type_id));
             defer allocator.free(name);
             %return out_stream.print("{s24} {}\n", name, option.description);
         }
@@ -155,8 +168,8 @@ fn usage(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) 
     %return out_stream.write(
         \\
         \\Advanced Options:
-        \\  --build-file $file     Override path to build.zig
-        \\  --cache-dir $path      Override path to zig cache directory
+        \\  --build-file [file]    Override path to build.zig
+        \\  --cache-dir [path]     Override path to zig cache directory
         \\  --verbose-tokenize     Enable compiler debug output for tokenization
         \\  --verbose-ast          Enable compiler debug output for parsing into an AST
         \\  --verbose-link         Enable compiler debug output for linking

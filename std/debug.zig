@@ -17,6 +17,7 @@ error UnsupportedDebugInfo;
 /// Does not append a newline.
 /// TODO atomic/multithread support
 var stderr_file: io.File = undefined;
+var stderr_file_out_stream: io.FileOutStream = undefined;
 var stderr_stream: ?&io.OutStream = null;
 pub fn warn(comptime fmt: []const u8, args: ...) {
     const stderr = getStderrStream() %% return;
@@ -27,7 +28,8 @@ fn getStderrStream() -> %&io.OutStream {
         return st;
     } else {
         stderr_file = %return io.getStdErr();
-        const st = &stderr_file.out_stream;
+        stderr_file_out_stream = io.FileOutStream.init(&stderr_file);
+        const st = &stderr_file_out_stream.stream;
         stderr_stream = st;
         return st;
     };
@@ -201,7 +203,7 @@ fn printLineFromFile(allocator: &mem.Allocator, out_stream: &io.OutStream, line_
     var column: usize = 1;
     var abs_index: usize = 0;
     while (true) {
-        const amt_read = %return f.in_stream.read(buf[0..]);
+        const amt_read = %return f.read(buf[0..]);
         const slice = buf[0..amt_read];
 
         for (slice) |byte| {
@@ -239,7 +241,9 @@ const ElfStackTrace = struct {
     }
 
     pub fn readString(self: &ElfStackTrace) -> %[]u8 {
-        return readStringRaw(self.allocator(), &self.self_exe_file.in_stream);
+        var in_file_stream = io.FileInStream.init(&self.self_exe_file);
+        const in_stream = &in_file_stream.stream;
+        return readStringRaw(self.allocator(), in_stream);
     }
 };
 
@@ -567,7 +571,9 @@ fn parseFormValue(allocator: &mem.Allocator, in_stream: &io.InStream, form_id: u
 }
 
 fn parseAbbrevTable(st: &ElfStackTrace) -> %AbbrevTable {
-    const in_stream = &st.self_exe_file.in_stream;
+    const in_file = &st.self_exe_file;
+    var in_file_stream = io.FileInStream.init(in_file);
+    const in_stream = &in_file_stream.stream;
     var result = AbbrevTable.init(st.allocator());
     while (true) {
         const abbrev_code = %return readULeb128(in_stream);
@@ -620,7 +626,9 @@ fn getAbbrevTableEntry(abbrev_table: &const AbbrevTable, abbrev_code: u64) -> ?&
 
 fn parseDie(st: &ElfStackTrace, abbrev_table: &const AbbrevTable, is_64: bool) -> %Die {
     const in_file = &st.self_exe_file;
-    const abbrev_code = %return readULeb128(&in_file.in_stream);
+    var in_file_stream = io.FileInStream.init(in_file);
+    const in_stream = &in_file_stream.stream;
+    const abbrev_code = %return readULeb128(in_stream);
     const table_entry = getAbbrevTableEntry(abbrev_table, abbrev_code) ?? return error.InvalidDebugInfo;
 
     var result = Die {
@@ -632,7 +640,7 @@ fn parseDie(st: &ElfStackTrace, abbrev_table: &const AbbrevTable, is_64: bool) -
     for (table_entry.attrs.toSliceConst()) |attr, i| {
         result.attrs.items[i] = Die.Attr {
             .id = attr.attr_id,
-            .value = %return parseFormValue(st.allocator(), &st.self_exe_file.in_stream, attr.form_id, is_64),
+            .value = %return parseFormValue(st.allocator(), in_stream, attr.form_id, is_64),
         };
     }
     return result;
@@ -646,11 +654,14 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
     var this_offset = st.debug_line.offset;
     var this_index: usize = 0;
 
+    var in_file_stream = io.FileInStream.init(in_file);
+    const in_stream = &in_file_stream.stream;
+
     while (this_offset < debug_line_end) : (this_index += 1) {
         %return in_file.seekTo(this_offset);
 
         var is_64: bool = undefined;
-        const unit_length = %return readInitialLength(&in_file.in_stream, &is_64);
+        const unit_length = %return readInitialLength(in_stream, &is_64);
         if (unit_length == 0)
             return error.MissingDebugInfo;
         const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
@@ -660,28 +671,28 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
             continue;
         }
 
-        const version = %return in_file.in_stream.readInt(st.elf.is_big_endian, u16);
+        const version = %return in_stream.readInt(st.elf.is_big_endian, u16);
         if (version != 2) return error.InvalidDebugInfo;
 
-        const prologue_length = %return in_file.in_stream.readInt(st.elf.is_big_endian, u32);
+        const prologue_length = %return in_stream.readInt(st.elf.is_big_endian, u32);
         const prog_start_offset = (%return in_file.getPos()) + prologue_length;
 
-        const minimum_instruction_length = %return in_file.in_stream.readByte();
+        const minimum_instruction_length = %return in_stream.readByte();
         if (minimum_instruction_length == 0) return error.InvalidDebugInfo;
 
-        const default_is_stmt = (%return in_file.in_stream.readByte()) != 0;
-        const line_base = %return in_file.in_stream.readByteSigned();
+        const default_is_stmt = (%return in_stream.readByte()) != 0;
+        const line_base = %return in_stream.readByteSigned();
 
-        const line_range = %return in_file.in_stream.readByte();
+        const line_range = %return in_stream.readByte();
         if (line_range == 0)
             return error.InvalidDebugInfo;
 
-        const opcode_base = %return in_file.in_stream.readByte();
+        const opcode_base = %return in_stream.readByte();
 
         const standard_opcode_lengths = %return st.allocator().alloc(u8, opcode_base - 1);
 
         {var i: usize = 0; while (i < opcode_base - 1) : (i += 1) {
-            standard_opcode_lengths[i] = %return in_file.in_stream.readByte();
+            standard_opcode_lengths[i] = %return in_stream.readByte();
         }}
 
         var include_directories = ArrayList([]u8).init(st.allocator());
@@ -701,9 +712,9 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
             const file_name = %return st.readString();
             if (file_name.len == 0)
                 break;
-            const dir_index = %return readULeb128(&in_file.in_stream);
-            const mtime = %return readULeb128(&in_file.in_stream);
-            const len_bytes = %return readULeb128(&in_file.in_stream);
+            const dir_index = %return readULeb128(in_stream);
+            const mtime = %return readULeb128(in_stream);
+            const len_bytes = %return readULeb128(in_stream);
             %return file_entries.append(FileEntry {
                 .file_name = file_name,
                 .dir_index = dir_index,
@@ -715,14 +726,14 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
         %return in_file.seekTo(prog_start_offset);
 
         while (true) {
-            const opcode = %return in_file.in_stream.readByte();
+            const opcode = %return in_stream.readByte();
 
             var sub_op: u8 = undefined; // TODO move this to the correct scope and fix the compiler crash
             if (opcode == DW.LNS_extended_op) {
-                const op_size = %return readULeb128(&in_file.in_stream);
+                const op_size = %return readULeb128(in_stream);
                 if (op_size < 1)
                     return error.InvalidDebugInfo;
-                sub_op = %return in_file.in_stream.readByte();
+                sub_op = %return in_stream.readByte();
                 switch (sub_op) {
                     DW.LNE_end_sequence => {
                         prog.end_sequence = true;
@@ -730,14 +741,14 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
                         return error.MissingDebugInfo;
                     },
                     DW.LNE_set_address => {
-                        const addr = %return in_file.in_stream.readInt(st.elf.is_big_endian, usize);
+                        const addr = %return in_stream.readInt(st.elf.is_big_endian, usize);
                         prog.address = addr;
                     },
                     DW.LNE_define_file => {
                         const file_name = %return st.readString();
-                        const dir_index = %return readULeb128(&in_file.in_stream);
-                        const mtime = %return readULeb128(&in_file.in_stream);
-                        const len_bytes = %return readULeb128(&in_file.in_stream);
+                        const dir_index = %return readULeb128(in_stream);
+                        const mtime = %return readULeb128(in_stream);
+                        const len_bytes = %return readULeb128(in_stream);
                         %return file_entries.append(FileEntry {
                             .file_name = file_name,
                             .dir_index = dir_index,
@@ -766,19 +777,19 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
                         prog.basic_block = false;
                     },
                     DW.LNS_advance_pc => {
-                        const arg = %return readULeb128(&in_file.in_stream);
+                        const arg = %return readULeb128(in_stream);
                         prog.address += arg * minimum_instruction_length;
                     },
                     DW.LNS_advance_line => {
-                        const arg = %return readILeb128(&in_file.in_stream);
+                        const arg = %return readILeb128(in_stream);
                         prog.line += arg;
                     },
                     DW.LNS_set_file => {
-                        const arg = %return readULeb128(&in_file.in_stream);
+                        const arg = %return readULeb128(in_stream);
                         prog.file = arg;
                     },
                     DW.LNS_set_column => {
-                        const arg = %return readULeb128(&in_file.in_stream);
+                        const arg = %return readULeb128(in_stream);
                         prog.column = arg;
                     },
                     DW.LNS_negate_stmt => {
@@ -792,7 +803,7 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
                         prog.address += inc_addr;
                     },
                     DW.LNS_fixed_advance_pc => {
-                        const arg = %return in_file.in_stream.readInt(st.elf.is_big_endian, u16);
+                        const arg = %return in_stream.readInt(st.elf.is_big_endian, u16);
                         prog.address += arg;
                     },
                     DW.LNS_set_prologue_end => {
@@ -817,25 +828,29 @@ fn scanAllCompileUnits(st: &ElfStackTrace) -> %void {
     const debug_info_end = st.debug_info.offset + st.debug_info.size;
     var this_unit_offset = st.debug_info.offset;
     var cu_index: usize = 0;
+
+    var in_file_stream = io.FileInStream.init(&st.self_exe_file);
+    const in_stream = &in_file_stream.stream;
+
     while (this_unit_offset < debug_info_end) {
         %return st.self_exe_file.seekTo(this_unit_offset);
 
         var is_64: bool = undefined;
-        const unit_length = %return readInitialLength(&st.self_exe_file.in_stream, &is_64);
+        const unit_length = %return readInitialLength(in_stream, &is_64);
         if (unit_length == 0)
             return;
         const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
 
-        const version = %return st.self_exe_file.in_stream.readInt(st.elf.is_big_endian, u16);
+        const version = %return in_stream.readInt(st.elf.is_big_endian, u16);
         if (version < 2 or version > 5) return error.InvalidDebugInfo;
 
         const debug_abbrev_offset = if (is_64) {
-            %return st.self_exe_file.in_stream.readInt(st.elf.is_big_endian, u64)
+            %return in_stream.readInt(st.elf.is_big_endian, u64)
         } else {
-            %return st.self_exe_file.in_stream.readInt(st.elf.is_big_endian, u32)
+            %return in_stream.readInt(st.elf.is_big_endian, u32)
         };
 
-        const address_size = %return st.self_exe_file.in_stream.readByte();
+        const address_size = %return in_stream.readByte();
         if (address_size != @sizeOf(usize)) return error.InvalidDebugInfo;
 
         const compile_unit_pos = %return st.self_exe_file.getPos();

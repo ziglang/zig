@@ -76,15 +76,49 @@ pub fn getStdIn() -> %File {
     return File.openHandle(handle);
 }
 
+/// Implementation of InStream trait for File
+pub const FileInStream = struct {
+    file: &File,
+    stream: InStream,
+
+    pub fn init(file: &File) -> FileInStream {
+        return FileInStream {
+            .file = file,
+            .stream = InStream {
+                .readFn = readFn,
+            },
+        };
+    }
+
+    fn readFn(in_stream: &InStream, buffer: []u8) -> %usize {
+        const self = @fieldParentPtr(FileInStream, "stream", in_stream);
+        return self.file.read(buffer);
+    }
+};
+
+/// Implementation of OutStream trait for File
+pub const FileOutStream = struct {
+    file: &File,
+    stream: OutStream,
+
+    pub fn init(file: &File) -> FileOutStream {
+        return FileOutStream {
+            .file = file,
+            .stream = OutStream {
+                .writeFn = writeFn,
+            },
+        };
+    }
+
+    fn writeFn(out_stream: &OutStream, bytes: []const u8) -> %void {
+        const self = @fieldParentPtr(FileOutStream, "stream", out_stream);
+        return self.file.write(bytes);
+    }
+};
+
 pub const File = struct {
     /// The OS-specific file descriptor or file handle.
     handle: os.FileHandle,
-
-    /// A file has the `InStream` trait
-    in_stream: InStream,
-
-    /// A file has the `OutStream` trait
-    out_stream: OutStream,
 
     /// `path` may need to be copied in memory to add a null terminating byte. In this case
     /// a fixed size buffer of size std.os.max_noalloc_path_len is an attempted solution. If the fixed
@@ -135,12 +169,6 @@ pub const File = struct {
     pub fn openHandle(handle: os.FileHandle) -> File {
         return File {
             .handle = handle,
-            .out_stream = OutStream {
-                .writeFn = writeFn,
-            },
-            .in_stream = InStream {
-                .readFn = readFn,
-            },
         };
     }
 
@@ -232,8 +260,7 @@ pub const File = struct {
         return usize(stat.size);
     }
 
-    fn readFn(in_stream: &InStream, buffer: []u8) -> %usize {
-        const self = @fieldParentPtr(File, "in_stream", in_stream);
+    pub fn read(self: &File, buffer: []u8) -> %usize {
         if (is_posix) {
             var index: usize = 0;
             while (index < buffer.len) {
@@ -275,8 +302,7 @@ pub const File = struct {
         }
     }
 
-    fn writeFn(out_stream: &OutStream, bytes: []const u8) -> %void {
-        const self = @fieldParentPtr(File, "out_stream", out_stream);
+    fn write(self: &File, bytes: []const u8) -> %void {
         if (is_posix) {
             %return os.posixWrite(self.handle, bytes);
         } else if (is_windows) {
@@ -285,18 +311,7 @@ pub const File = struct {
             @compileError("Unsupported OS");
         }
     }
-
 };
-
-/// `path` may need to be copied in memory to add a null terminating byte. In this case
-/// a fixed size buffer of size `std.os.max_noalloc_path_len` is an attempted solution. If the fixed
-/// size buffer is too small, and the provided allocator is null, `error.NameTooLong` is returned.
-/// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
-pub fn writeFile(path: []const u8, data: []const u8, allocator: ?&mem.Allocator) -> %void {
-    var file = %return File.openWrite(path, allocator);
-    defer file.close();
-    %return file.out_stream.write(data);
-}
 
 error StreamTooLong;
 error EndOfStream;
@@ -446,3 +461,140 @@ pub const OutStream = struct {
         return self.writeFn(self, slice);
     }
 };
+
+/// `path` may need to be copied in memory to add a null terminating byte. In this case
+/// a fixed size buffer of size `std.os.max_noalloc_path_len` is an attempted solution. If the fixed
+/// size buffer is too small, and the provided allocator is null, `error.NameTooLong` is returned.
+/// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
+pub fn writeFile(path: []const u8, data: []const u8, allocator: ?&mem.Allocator) -> %void {
+    var file = %return File.openWrite(path, allocator);
+    defer file.close();
+    %return file.write(data);
+}
+
+pub const BufferedInStream = BufferedInStreamCustom(os.page_size);
+
+pub fn BufferedInStreamCustom(comptime buffer_size: usize) -> type {
+    return struct {
+        const Self = this;
+
+        pub stream: InStream,
+
+        unbuffered_in_stream: &InStream,
+
+        buffer: [buffer_size]u8,
+        start_index: usize,
+        end_index: usize,
+
+        pub fn init(unbuffered_in_stream: &InStream) -> Self {
+            return Self {
+                .unbuffered_in_stream = unbuffered_in_stream,
+                .buffer = undefined,
+
+                // Initialize these two fields to buffer_size so that
+                // in `readFn` we treat the state as being able to read
+                // more from the unbuffered stream. If we set them to 0
+                // and 0, the code would think we already hit EOF.
+                .start_index = buffer_size,
+                .end_index = buffer_size,
+
+                .stream = InStream {
+                    .readFn = readFn,
+                },
+            };
+        }
+
+        fn readFn(in_stream: &InStream, dest: []u8) -> %usize {
+            const self = @fieldParentPtr(Self, "stream", in_stream);
+
+            var dest_index: usize = 0;
+            while (true) {
+                const dest_space = dest.len - dest_index;
+                if (dest_space == 0) {
+                    return dest_index;
+                }
+                const amt_buffered = self.end_index - self.start_index;
+                if (amt_buffered == 0) {
+                    assert(self.end_index <= buffer_size);
+                    if (self.end_index == buffer_size) {
+                        // we can read more data from the unbuffered stream
+                        if (dest_space < buffer_size) {
+                            self.start_index = 0;
+                            self.end_index = %return self.unbuffered_in_stream.read(self.buffer[0..]);
+                        } else {
+                            // asking for so much data that buffering is actually less efficient.
+                            // forward the request directly to the unbuffered stream
+                            const amt_read = %return self.unbuffered_in_stream.read(dest[dest_index..]);
+                            return dest_index + amt_read;
+                        }
+                    } else {
+                        // reading from the unbuffered stream returned less than we asked for
+                        // so we cannot read any more data.
+                        return dest_index;
+                    }
+                }
+                const copy_amount = math.min(dest_space, amt_buffered);
+                const copy_end_index = self.start_index + copy_amount;
+                mem.copy(u8, dest[dest_index..], self.buffer[self.start_index..copy_end_index]);
+                self.start_index = copy_end_index;
+                dest_index += copy_amount;
+            }
+        }
+    };
+}
+
+pub const BufferedOutStream = BufferedOutStreamCustom(os.page_size);
+
+pub fn BufferedOutStreamCustom(comptime buffer_size: usize) -> type {
+    return struct {
+        const Self = this;
+
+        pub stream: OutStream,
+
+        unbuffered_out_stream: &OutStream,
+
+        buffer: [buffer_size]u8,
+        index: usize,
+
+        pub fn init(unbuffered_out_stream: &OutStream) -> Self {
+            return Self {
+                .unbuffered_out_stream = unbuffered_out_stream,
+                .buffer = undefined,
+                .index = 0,
+                .stream = OutStream {
+                    .writeFn = writeFn,
+                },
+            };
+        }
+
+        pub fn flush(self: &Self) -> %void {
+            if (self.index == 0)
+                return;
+
+            %return self.unbuffered_out_stream.write(self.buffer[0..self.index]);
+            self.index = 0;
+        }
+
+        fn writeFn(out_stream: &OutStream, bytes: []const u8) -> %void {
+            const self = @fieldParentPtr(Self, "stream", out_stream);
+
+            if (bytes.len >= self.buffer.len) {
+                %return self.flush();
+                return self.unbuffered_out_stream.write(bytes);
+            }
+            var src_index: usize = 0;
+
+            while (src_index < bytes.len) {
+                const dest_space_left = self.buffer.len - self.index;
+                const copy_amt = math.min(dest_space_left, bytes.len - src_index);
+                mem.copy(u8, self.buffer[self.index..], bytes[src_index..src_index + copy_amt]);
+                self.index += copy_amt;
+                assert(self.index <= self.buffer.len);
+                if (self.index == self.buffer.len) {
+                    %return self.flush();
+                }
+                src_index += copy_amt;
+            }
+        }
+    };
+}

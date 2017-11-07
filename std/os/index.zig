@@ -730,8 +730,8 @@ pub fn copyFileMode(allocator: &Allocator, source_path: []const u8, dest_path: [
 
     var buf: [page_size]u8 = undefined;
     while (true) {
-        const amt = %return in_file.in_stream.read(buf[0..]);
-        %return out_file.out_stream.write(buf[0..amt]);
+        const amt = %return in_file.read(buf[0..]);
+        %return out_file.write(buf[0..amt]);
         if (amt != buf.len)
             return rename(allocator, tmp_path, dest_path);
     }

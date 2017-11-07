@@ -20,70 +20,70 @@ static int usage(const char *arg0) {
     fprintf(stderr, "Usage: %s [command] [options]\n"
         "Commands:\n"
         "  build                        build project from build.zig\n"
-        "  build-exe $source            create executable from source or object files\n"
-        "  build-lib $source            create library from source or object files\n"
-        "  build-obj $source            create object from source or assembly\n"
-        "  parsec $source               convert c code to zig code\n"
+        "  build-exe [source]           create executable from source or object files\n"
+        "  build-lib [source]           create library from source or object files\n"
+        "  build-obj [source]           create object from source or assembly\n"
+        "  parsec [source]              convert c code to zig code\n"
         "  targets                      list available compilation targets\n"
-        "  test $source                 create and run a test build\n"
+        "  test [source]                create and run a test build\n"
         "  version                      print version number and exit\n"
         "  zen                          print zen of zig and exit\n"
         "Compile Options:\n"
-        "  --assembly $source           add assembly file to build\n"
-        "  --cache-dir $path            override the cache directory\n"
-        "  --color $auto|off|on         enable or disable colored error messages\n"
-        "  --emit $filetype             emit a specific file format as compilation output\n"
+        "  --assembly [source]          add assembly file to build\n"
+        "  --cache-dir [path]           override the cache directory\n"
+        "  --color [auto|off|on]        enable or disable colored error messages\n"
+        "  --emit [filetype]            emit a specific file format as compilation output\n"
         "  --enable-timing-info         print timing diagnostics\n"
-        "  --libc-include-dir $path     directory where libc stdlib.h resides\n"
-        "  --name $name                 override output name\n"
-        "  --output $file               override destination path\n"
-        "  --output-h $file             override generated header file path\n"
-        "  --pkg-begin $name  $path     make package available to import and push current pkg\n"
+        "  --libc-include-dir [path]    directory where libc stdlib.h resides\n"
+        "  --name [name]                override output name\n"
+        "  --output [file]              override destination path\n"
+        "  --output-h [file]            override generated header file path\n"
+        "  --pkg-begin [name] [path]    make package available to import and push current pkg\n"
         "  --pkg-end                    pop current pkg\n"
         "  --release-fast               build with optimizations on and safety off\n"
         "  --release-safe               build with optimizations on and safety on\n"
         "  --static                     output will be statically linked\n"
         "  --strip                      exclude debug symbols\n"
-        "  --target-arch $name          specify target architecture\n"
-        "  --target-environ $name       specify target environment\n"
-        "  --target-os $name            specify target operating system\n"
+        "  --target-arch [name]         specify target architecture\n"
+        "  --target-environ [name]      specify target environment\n"
+        "  --target-os [name]           specify target operating system\n"
         "  --verbose-tokenize           turn on compiler debug output for tokenization\n"
         "  --verbose-ast                turn on compiler debug output for parsing into an AST\n"
         "  --verbose-link               turn on compiler debug output for linking\n"
         "  --verbose-ir                 turn on compiler debug output for Zig IR\n"
         "  --verbose-llvm-ir            turn on compiler debug output for LLVM IR\n"
         "  --verbose-cimport            turn on compiler debug output for C imports\n"
-        "  --zig-install-prefix $path   override directory where zig thinks it is installed\n"
-        "  -dirafter $dir               same as -isystem but do it last\n"
-        "  -isystem $dir                add additional search path for other .h files\n"
-        "  -mllvm $arg                  additional arguments to forward to LLVM's option processing\n"
+        "  --zig-install-prefix [path]  override directory where zig thinks it is installed\n"
+        "  -dirafter [dir]              same as -isystem but do it last\n"
+        "  -isystem [dir]               add additional search path for other .h files\n"
+        "  -mllvm [arg]                 additional arguments to forward to LLVM's option processing\n"
         "Link Options:\n"
-        "  --ar-path $path              set the path to ar\n"
-        "  --dynamic-linker $path       set the path to ld.so\n"
+        "  --ar-path [path]             set the path to ar\n"
+        "  --dynamic-linker [path]      set the path to ld.so\n"
         "  --each-lib-rpath             add rpath for each used dynamic library\n"
-        "  --libc-lib-dir $path         directory where libc crt1.o resides\n"
-        "  --libc-static-lib-dir $path  directory where libc crtbegin.o resides\n"
-        "  --msvc-lib-dir $path         (windows) directory where vcruntime.lib resides\n"
-        "  --kernel32-lib-dir $path     (windows) directory where kernel32.lib resides\n"
-        "  --library $lib               link against lib\n"
-        "  --library-path $dir          add a directory to the library search path\n"
-        "  --linker-script $path        use a custom linker script\n"
-        "  --object $obj                add object file to build\n"
-        "  -L$dir                       alias for --library-path\n"
+        "  --libc-lib-dir [path]        directory where libc crt1.o resides\n"
+        "  --libc-static-lib-dir [path] directory where libc crtbegin.o resides\n"
+        "  --msvc-lib-dir [path]        (windows) directory where vcruntime.lib resides\n"
+        "  --kernel32-lib-dir [path]    (windows) directory where kernel32.lib resides\n"
+        "  --library [lib]              link against lib\n"
+        "  --library-path [dir]         add a directory to the library search path\n"
+        "  --linker-script [path]       use a custom linker script\n"
+        "  --object [obj]               add object file to build\n"
+        "  -L[dir]                      alias for --library-path\n"
         "  -rdynamic                    add all symbols to the dynamic symbol table\n"
-        "  -rpath $path                 add directory to the runtime library search path\n"
+        "  -rpath [path]                add directory to the runtime library search path\n"
         "  -mconsole                    (windows) --subsystem console to the linker\n"
         "  -mwindows                    (windows) --subsystem windows to the linker\n"
-        "  -framework $name             (darwin) link against framework\n"
-        "  -mios-version-min $ver       (darwin) set iOS deployment target\n"
-        "  -mmacosx-version-min $ver    (darwin) set Mac OS X deployment target\n"
-        "  --ver-major $ver             dynamic library semver major version\n"
-        "  --ver-minor $ver             dynamic library semver minor version\n"
-        "  --ver-patch $ver             dynamic library semver patch version\n"
+        "  -framework [name]            (darwin) link against framework\n"
+        "  -mios-version-min [ver]      (darwin) set iOS deployment target\n"
+        "  -mmacosx-version-min [ver]   (darwin) set Mac OS X deployment target\n"
+        "  --ver-major [ver]            dynamic library semver major version\n"
+        "  --ver-minor [ver]            dynamic library semver minor version\n"
+        "  --ver-patch [ver]            dynamic library semver patch version\n"
         "Test Options:\n"
-        "  --test-filter $text          skip tests that do not match filter\n"
-        "  --test-name-prefix $text     add prefix to all tests\n"
-        "  --test-cmd $arg              specify test execution command one arg at a time\n"
+        "  --test-filter [text]         skip tests that do not match filter\n"
+        "  --test-name-prefix [text]    add prefix to all tests\n"
+        "  --test-cmd [arg]             specify test execution command one arg at a time\n"
         "  --test-cmd-bin               appends test binary path to test cmd args\n"
     , arg0);
     return EXIT_FAILURE;
@@ -401,8 +401,8 @@ int main(int argc, char **argv) {
                         "\n"
                         "General Options:\n"
                         "  --help                 Print this help and exit\n"
-                        "  --build-file $file     Override path to build.zig\n"
-                        "  --cache-dir $path      Override path to cache directory\n"
+                        "  --build-file [file]    Override path to build.zig\n"
+                        "  --cache-dir [path]     Override path to cache directory\n"
                         "  --verbose              Print commands before executing them\n"
                         "  --verbose-tokenize     Enable compiler debug output for tokenization\n"
                         "  --verbose-ast          Enable compiler debug output for parsing into an AST\n"
@@ -410,14 +410,14 @@ int main(int argc, char **argv) {
                         "  --verbose-ir           Enable compiler debug output for Zig IR\n"
                         "  --verbose-llvm-ir      Enable compiler debug output for LLVM IR\n"
                         "  --verbose-cimport      Enable compiler debug output for C imports\n"
-                        "  --prefix $path         Override default install prefix\n"
+                        "  --prefix [path]        Override default install prefix\n"
                         "\n"
                         "Project-specific options become available when the build file is found.\n"
                         "Run this command with no options to generate a build.zig template.\n"
                         "\n"
                         "Advanced Options:\n"
-                        "  --build-file $file     Override path to build.zig\n"
-                        "  --cache-dir $path      Override path to cache directory\n"
+                        "  --build-file [file]    Override path to build.zig\n"
+                        "  --cache-dir [path]     Override path to cache directory\n"
                         "  --verbose-tokenize     Enable compiler debug output for tokenization\n"
                         "  --verbose-ast          Enable compiler debug output for parsing into an AST\n"
                         "  --verbose-link         Enable compiler debug output for linking\n"
@@ -853,20 +853,22 @@ int main(int argc, char **argv) {
 
                 ZigTarget *non_null_target = target ? target : &native;
 
-                Buf *test_exe_name = buf_sprintf("." OS_SEP "test%s", target_exe_file_ext(non_null_target));
+                Buf *test_exe_name = buf_sprintf("test%s", target_exe_file_ext(non_null_target));
+                Buf *test_exe_path = buf_alloc();
+                os_path_join(full_cache_dir, test_exe_name, test_exe_path);
 
                 for (size_t i = 0; i < test_exec_args.length; i += 1) {
                     if (test_exec_args.items[i] == nullptr) {
-                        test_exec_args.items[i] = buf_ptr(test_exe_name);
+                        test_exec_args.items[i] = buf_ptr(test_exe_path);
                     }
                 }
 
                 codegen_build(g);
-                codegen_link(g, buf_ptr(test_exe_name));
+                codegen_link(g, buf_ptr(test_exe_path));
 
                 if (!target_can_exec(&native, target)) {
                     fprintf(stderr, "Created %s but skipping execution because it is non-native.\n",
-                            buf_ptr(test_exe_name));
+                            buf_ptr(test_exe_path));
                     return 0;
                 }
 
@@ -879,12 +881,12 @@ int main(int argc, char **argv) {
                     os_spawn_process(test_exec_args.items[0], rest_args, &term);
                 } else {
                     ZigList<const char *> no_args = {0};
-                    os_spawn_process(buf_ptr(test_exe_name), no_args, &term);
+                    os_spawn_process(buf_ptr(test_exe_path), no_args, &term);
                 }
 
                 if (term.how != TerminationIdClean || term.code != 0) {
                     fprintf(stderr, "\nTests failed. Use the following command to reproduce the failure:\n");
-                    fprintf(stderr, "%s\n", buf_ptr(test_exe_name));
+                    fprintf(stderr, "%s\n", buf_ptr(test_exe_path));
                 } else if (timing_info) {
                     codegen_print_timing_report(g, stdout);
                 }

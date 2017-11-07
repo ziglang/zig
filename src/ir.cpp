@@ -12823,6 +12823,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         case TypeTableEntryIdEnum:
             {
                 TypeTableEntry *tag_type = target_type->data.enumeration.tag_type;
+                assert(tag_type != nullptr);
                 if (pointee_val) {
                     ConstExprValue *out_val = ir_build_const_from(ira, &switch_target_instruction->base);
                     bigint_init_unsigned(&out_val->data.x_bigint, pointee_val->data.x_enum.tag);

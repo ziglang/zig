@@ -10,14 +10,13 @@ pub fn main() -> %void {
     const exe = %return unwrapArg(??args_it.next(allocator));
     var catted_anything = false;
     var stdout_file = %return io.getStdOut();
-    const stdout = &stdout_file.out_stream;
 
     while (args_it.next(allocator)) |arg_or_err| {
         const arg = %return unwrapArg(arg_or_err);
         if (mem.eql(u8, arg, "-")) {
             catted_anything = true;
             var stdin_file = %return io.getStdIn();
-            %return cat_stream(stdout, &stdin_file.in_stream);
+            %return cat_file(&stdout_file, &stdin_file);
         } else if (arg[0] == '-') {
             return usage(exe);
         } else {
@@ -28,12 +27,12 @@ pub fn main() -> %void {
             defer file.close();
 
             catted_anything = true;
-            %return cat_stream(stdout, &file.in_stream);
+            %return cat_file(&stdout_file, &file);
         }
     }
     if (!catted_anything) {
         var stdin_file = %return io.getStdIn();
-        %return cat_stream(stdout, &stdin_file.in_stream);
+        %return cat_file(&stdout_file, &stdin_file);
     }
 }
 
@@ -42,11 +41,11 @@ fn usage(exe: []const u8) -> %void {
     return error.Invalid;
 }
 
-fn cat_stream(stdout: &io.OutStream, is: &io.InStream) -> %void {
+fn cat_file(stdout: &io.File, file: &io.File) -> %void {
     var buf: [1024 * 4]u8 = undefined;
 
     while (true) {
-        const bytes_read = is.read(buf[0..]) %% |err| {
+        const bytes_read = file.read(buf[0..]) %% |err| {
             warn("Unable to read from stream: {}\n", @errorName(err));
             return err;
         };
