@@ -10311,8 +10311,17 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 {
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
     size_t first_arg_1_or_0 = first_arg_ptr ? 1 : 0;
-    size_t var_args_1_or_0 = fn_type_id->is_var_args ? 1 : 0;
+
+    // for extern functions, the var args argument is not counted.
+    // for zig functions, it is.
+    size_t var_args_1_or_0;
+    if (fn_type_id->cc == CallingConventionUnspecified) {
+        var_args_1_or_0 = fn_type_id->is_var_args ? 1 : 0;
+    } else {
+        var_args_1_or_0 = 0;
+    }
     size_t src_param_count = fn_type_id->param_count - var_args_1_or_0;
+
     size_t call_param_count = call_instruction->arg_count + first_arg_1_or_0;
     AstNode *source_node = call_instruction->base.source_node;
 
