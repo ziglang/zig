@@ -133,7 +133,7 @@ pub fn fstat(fd: i32, buf: &c.stat) -> usize {
 }
 
 pub fn lseek(fd: i32, offset: isize, whence: c_int) -> usize {
-    errnoWrap(c.lseek(fd, buf, whence))
+    errnoWrap(c.lseek(fd, offset, whence))
 }
 
 pub fn open(path: &const u8, flags: u32, mode: usize) -> usize {
