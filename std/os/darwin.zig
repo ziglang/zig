@@ -128,7 +128,7 @@ pub fn isatty(fd: i32) -> bool {
     c.isatty(fd) != 0
 }
 
-pub fn fstat(fd: i32, buf: &c.stat) -> usize {
+pub fn fstat(fd: i32, buf: &c.Stat) -> usize {
     errnoWrap(c.fstat(fd, buf))
 }
 
@@ -268,6 +268,7 @@ pub const sigset_t = c.sigset_t;
 pub const empty_sigset = sigset_t(0);
 
 pub const timespec = c.timespec;
+pub const Stat = c.Stat;
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = struct {
