@@ -2666,9 +2666,16 @@ static LLVMValueRef ir_render_enum_tag_name(CodeGen *g, IrExecutable *executable
     if (ir_want_debug_safety(g, &instruction->base)) {
         TypeTableEntry *enum_type = enum_tag_type->data.enum_tag.enum_type;
         size_t field_count = enum_type->data.enumeration.src_field_count;
-        LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(enum_tag_value));
-        LLVMValueRef end_val = LLVMConstInt(LLVMTypeOf(enum_tag_value), field_count, false);
-        add_bounds_check(g, enum_tag_value, LLVMIntUGE, zero, LLVMIntULT, end_val);
+
+        // if the field_count can't fit in the bits of the enum_tag_type, then it can't possibly
+        // be the wrong value
+        BigInt field_bi;
+        bigint_init_unsigned(&field_bi, field_count);
+        TypeTableEntry *tag_int_type = enum_tag_type->data.enum_tag.int_type;
+        if (bigint_fits_in_bits(&field_bi, tag_int_type->data.integral.bit_count, false)) {
+            LLVMValueRef end_val = LLVMConstInt(LLVMTypeOf(enum_tag_value), field_count, false);
+            add_bounds_check(g, enum_tag_value, LLVMIntEQ, nullptr, LLVMIntULT, end_val);
+        }
     }
 
     LLVMValueRef indices[] = {
