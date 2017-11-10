@@ -253,17 +253,30 @@ pub const File = struct {
     }
 
     pub fn getEndPos(self: &File) -> %usize {
-        var stat: system.Stat = undefined;
-        const err = system.getErrno(system.fstat(self.handle, &stat));
-        if (err > 0) {
-            return switch (err) {
-                system.EBADF => error.BadFd,
-                system.ENOMEM => error.OutOfMemory,
-                else => os.unexpectedErrorPosix(err),
+        if (is_posix) {
+            var stat: system.Stat = undefined;
+            const err = system.getErrno(system.fstat(self.handle, &stat));
+            if (err > 0) {
+                return switch (err) {
+                    system.EBADF => error.BadFd,
+                    system.ENOMEM => error.OutOfMemory,
+                    else => os.unexpectedErrorPosix(err),
+                }
             }
-        }
 
-        return usize(stat.size);
+            return usize(stat.size);
+        } else if (is_windows) {
+            var file_size: system.LARGE_INTEGER = undefined;
+            if (system.GetFileSizeEx(self.handle, &file_size) == 0) {
+                const err = system.GetLastError();
+                return switch (err) {
+                    else => os.unexpectedErrorWindows(err),
+                };
+            }
+            return @bitCast(usize, file_size);
+        } else {
+            unreachable;
+        }
     }
 
     pub fn read(self: &File, buffer: []u8) -> %usize {
