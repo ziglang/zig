@@ -101,7 +101,7 @@ pub fn ArrayList(comptime T: type) -> type{
 }
 
 test "basic ArrayList test" {
-    var list = ArrayList(i32).init(&debug.global_allocator);
+    var list = ArrayList(i32).init(debug.global_allocator);
     defer list.deinit();
 
     {var i: usize = 0; while (i < 10) : (i += 1) {

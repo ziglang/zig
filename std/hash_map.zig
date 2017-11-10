@@ -232,7 +232,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
 }
 
 test "basicHashMapTest" {
-    var map = HashMap(i32, i32, hash_i32, eql_i32).init(&debug.global_allocator);
+    var map = HashMap(i32, i32, hash_i32, eql_i32).init(debug.global_allocator);
     defer map.deinit();
 
     assert(%%map.put(1, 11) == null);

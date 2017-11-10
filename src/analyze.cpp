@@ -2121,8 +2121,6 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         }
 
         if (!fn_table_entry->type_entry->data.fn.is_generic) {
-            g->fn_protos.append(fn_table_entry);
-
             if (fn_def_node)
                 g->fn_defs.append(fn_table_entry);
 
@@ -2162,7 +2160,6 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
         fn_table_entry->body_node = source_node->data.test_decl.body;
         fn_table_entry->is_test = true;
 
-        g->fn_protos.append(fn_table_entry);
         g->fn_defs.append(fn_table_entry);
         g->test_fns.append(fn_table_entry);
 

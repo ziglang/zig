@@ -408,6 +408,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
         LLVMValueRef existing_llvm_fn = LLVMGetNamedFunction(g->module, buf_ptr(symbol_name));
         if (existing_llvm_fn) {
             fn_table_entry->llvm_value = LLVMConstBitCast(existing_llvm_fn, LLVMPointerType(fn_llvm_type, 0));
+            return fn_table_entry->llvm_value;
         } else {
             fn_table_entry->llvm_value = LLVMAddFunction(g->module, buf_ptr(symbol_name), fn_llvm_type);
         }
@@ -491,6 +492,49 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
         // "Cannot getTypeInfo() on a type that is unsized!" assertion failure when calling
         // any of the functions for getting alignment. Not specifying the alignment should
         // use the ABI alignment, which is fine.
+    }
+
+    if (!type_has_bits(fn_type->data.fn.fn_type_id.return_type)) {
+        // nothing to do
+    } else if (fn_type->data.fn.fn_type_id.return_type->id == TypeTableEntryIdPointer ||
+                fn_type->data.fn.fn_type_id.return_type->id == TypeTableEntryIdFn)
+    {
+        addLLVMAttr(fn_table_entry->llvm_value, 0, "nonnull");
+    } else if (handle_is_ptr(fn_type->data.fn.fn_type_id.return_type) &&
+            calling_convention_does_first_arg_return(fn_type->data.fn.fn_type_id.cc))
+    {
+        addLLVMArgAttr(fn_table_entry->llvm_value, 0, "sret");
+        addLLVMArgAttr(fn_table_entry->llvm_value, 0, "nonnull");
+    }
+
+
+    // set parameter attributes
+    for (size_t param_i = 0; param_i < fn_type->data.fn.fn_type_id.param_count; param_i += 1) {
+        FnGenParamInfo *gen_info = &fn_type->data.fn.gen_param_info[param_i];
+        size_t gen_index = gen_info->gen_index;
+        bool is_byval = gen_info->is_byval;
+
+        if (gen_index == SIZE_MAX) {
+            continue;
+        }
+
+        FnTypeParamInfo *param_info = &fn_type->data.fn.fn_type_id.param_info[param_i];
+
+        TypeTableEntry *param_type = gen_info->type;
+        if (param_info->is_noalias) {
+            addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)gen_index, "noalias");
+        }
+        if ((param_type->id == TypeTableEntryIdPointer && param_type->data.pointer.is_const) || is_byval) {
+            addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)gen_index, "readonly");
+        }
+        if (param_type->id == TypeTableEntryIdPointer) {
+            addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)gen_index, "nonnull");
+        }
+        // Note: byval is disabled on windows due to an LLVM bug:
+        // https://github.com/zig-lang/zig/issues/536
+        if (is_byval && g->zig_target.os != ZigLLVM_Win32) {
+            addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)gen_index, "byval");
+        }
     }
 
     return fn_table_entry->llvm_value;
@@ -4295,59 +4339,6 @@ static void do_code_gen(CodeGen *g) {
         LLVMSetGlobalConstant(global_value, var->gen_is_const);
 
         var->value_ref = global_value;
-    }
-
-    // Generate function prototypes
-    for (size_t fn_proto_i = 0; fn_proto_i < g->fn_protos.length; fn_proto_i += 1) {
-        FnTableEntry *fn_table_entry = g->fn_protos.at(fn_proto_i);
-
-        TypeTableEntry *fn_type = fn_table_entry->type_entry;
-        FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
-
-        LLVMValueRef fn_val = fn_llvm_value(g, fn_table_entry);
-
-        if (!type_has_bits(fn_type->data.fn.fn_type_id.return_type)) {
-            // nothing to do
-        } else if (fn_type->data.fn.fn_type_id.return_type->id == TypeTableEntryIdPointer ||
-                   fn_type->data.fn.fn_type_id.return_type->id == TypeTableEntryIdFn)
-        {
-            addLLVMAttr(fn_val, 0, "nonnull");
-        } else if (handle_is_ptr(fn_type->data.fn.fn_type_id.return_type) &&
-                calling_convention_does_first_arg_return(fn_type->data.fn.fn_type_id.cc))
-        {
-            addLLVMArgAttr(fn_val, 0, "sret");
-            addLLVMArgAttr(fn_val, 0, "nonnull");
-        }
-
-
-        // set parameter attributes
-        for (size_t param_i = 0; param_i < fn_type_id->param_count; param_i += 1) {
-            FnGenParamInfo *gen_info = &fn_type->data.fn.gen_param_info[param_i];
-            size_t gen_index = gen_info->gen_index;
-            bool is_byval = gen_info->is_byval;
-
-            if (gen_index == SIZE_MAX) {
-                continue;
-            }
-
-            FnTypeParamInfo *param_info = &fn_type_id->param_info[param_i];
-
-            TypeTableEntry *param_type = gen_info->type;
-            if (param_info->is_noalias) {
-                addLLVMArgAttr(fn_val, (unsigned)gen_index, "noalias");
-            }
-            if ((param_type->id == TypeTableEntryIdPointer && param_type->data.pointer.is_const) || is_byval) {
-                addLLVMArgAttr(fn_val, (unsigned)gen_index, "readonly");
-            }
-            if (param_type->id == TypeTableEntryIdPointer) {
-                addLLVMArgAttr(fn_val, (unsigned)gen_index, "nonnull");
-            }
-            // Note: byval is disabled on windows due to an LLVM bug:
-            // https://github.com/zig-lang/zig/issues/536
-            if (is_byval && g->zig_target.os != ZigLLVM_Win32) {
-                addLLVMArgAttr(fn_val, (unsigned)gen_index, "byval");
-            }
-        }
     }
 
     // Generate function definitions.

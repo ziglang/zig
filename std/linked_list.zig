@@ -195,7 +195,7 @@ pub fn LinkedList(comptime T: type) -> type {
 }
 
 test "basic linked list test" {
-    const allocator = &debug.global_allocator;
+    const allocator = debug.global_allocator;
     var list = LinkedList(u32).init();
 
     var one   = %%list.createNode(1, allocator);

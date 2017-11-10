@@ -331,8 +331,8 @@ pub fn join(allocator: &Allocator, sep: u8, strings: ...) -> %[]u8 {
 }
 
 test "mem.join" {
-    assert(eql(u8, %%join(&debug.global_allocator, ',', "a", "b", "c"), "a,b,c"));
-    assert(eql(u8, %%join(&debug.global_allocator, ',', "a"), "a"));
+    assert(eql(u8, %%join(debug.global_allocator, ',', "a", "b", "c"), "a,b,c"));
+    assert(eql(u8, %%join(debug.global_allocator, ',', "a"), "a"));
 }
 
 test "testStringEquality" {

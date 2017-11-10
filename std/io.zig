@@ -20,6 +20,12 @@ const fmt = std.fmt;
 const is_posix = builtin.os != builtin.Os.windows;
 const is_windows = builtin.os == builtin.Os.windows;
 
+test "import io tests" {
+    comptime {
+        _ = @import("io_test.zig");
+    }
+}
+
 /// The function received invalid input at runtime. An Invalid error means a
 /// bug in the program that called the function.
 error Invalid;
@@ -247,17 +253,32 @@ pub const File = struct {
     }
 
     pub fn getEndPos(self: &File) -> %usize {
-        var stat: system.Stat = undefined;
-        const err = system.getErrno(system.fstat(self.handle, &stat));
-        if (err > 0) {
-            return switch (err) {
-                system.EBADF => error.BadFd,
-                system.ENOMEM => error.OutOfMemory,
-                else => os.unexpectedErrorPosix(err),
+        if (is_posix) {
+            var stat: system.Stat = undefined;
+            const err = system.getErrno(system.fstat(self.handle, &stat));
+            if (err > 0) {
+                return switch (err) {
+                    system.EBADF => error.BadFd,
+                    system.ENOMEM => error.OutOfMemory,
+                    else => os.unexpectedErrorPosix(err),
+                }
             }
-        }
 
-        return usize(stat.size);
+            return usize(stat.size);
+        } else if (is_windows) {
+            var file_size: system.LARGE_INTEGER = undefined;
+            if (system.GetFileSizeEx(self.handle, &file_size) == 0) {
+                const err = system.GetLastError();
+                return switch (err) {
+                    else => os.unexpectedErrorWindows(err),
+                };
+            }
+            if (file_size < 0)
+                return error.Overflow;
+            return math.cast(usize, u64(file_size));
+        } else {
+            unreachable;
+        }
     }
 
     pub fn read(self: &File, buffer: []u8) -> %usize {
