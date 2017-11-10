@@ -811,5 +811,9 @@ pub fn timerfd_settime(fd: i32, flags: u32, new_value: &const itimerspec, old_va
 }
 
 test "import linux_test" {
-    _ = @import("linux_test.zig");
+    // TODO lazy analysis should prevent this test from being compiled on windows, but
+    // it is still compiled on windows
+    if (builtin.os == builtin.Os.linux) {
+        _ = @import("linux_test.zig");
+    }
 }
