@@ -129,7 +129,7 @@ pub fn isatty(fd: i32) -> bool {
 }
 
 pub fn fstat(fd: i32, buf: &c.Stat) -> usize {
-    errnoWrap(c.fstat(fd, buf))
+    errnoWrap(c.@"fstat$INODE64"(fd, buf))
 }
 
 pub fn lseek(fd: i32, offset: isize, whence: c_int) -> usize {

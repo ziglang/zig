@@ -6,26 +6,28 @@ pub const _errno = __error;
 
 /// Renamed to Stat to not conflict with the stat function.
 pub const Stat = extern struct {
-    dev: u32,
+    dev: i32,
     mode: u16,
     nlink: u16,
     ino: u64,
     uid: u32,
     gid: u32,
-    rdev: u64,
-
-    atim: timespec,
-    mtim: timespec,
-    ctim: timespec,
-
-    size: u64,
-    blocks: u64,
-    blksize: u32,
+    rdev: i32,
+    atime: usize,
+    atimensec: usize,
+    mtime: usize,
+    mtimensec: usize,
+    ctime: usize,
+    ctimensec: usize,
+    birthtime: usize,
+    birthtimensec: usize,
+    size: i64,
+    blocks: i64,
+    blksize: i32,
     flags: u32,
     gen: u32,
     lspare: i32,
-    qspare: [2]u64,
-
+    qspare: [2]i64,
 };
 
 pub const timespec = extern struct {

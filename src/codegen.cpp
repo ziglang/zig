@@ -408,6 +408,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
         LLVMValueRef existing_llvm_fn = LLVMGetNamedFunction(g->module, buf_ptr(symbol_name));
         if (existing_llvm_fn) {
             fn_table_entry->llvm_value = LLVMConstBitCast(existing_llvm_fn, LLVMPointerType(fn_llvm_type, 0));
+            return fn_table_entry->llvm_value;
         } else {
             fn_table_entry->llvm_value = LLVMAddFunction(g->module, buf_ptr(symbol_name), fn_llvm_type);
         }

@@ -46,6 +46,8 @@ pub extern "kernel32" stdcallcc fn GetEnvironmentVariableA(lpName: LPCSTR, lpBuf
 
 pub extern "kernel32" stdcallcc fn GetExitCodeProcess(hProcess: HANDLE, lpExitCode: &DWORD) -> BOOL;
 
+pub extern "kernel32" stdcallcc fn GetFileSizeEx(hFile: HANDLE, lpFileSize: &LARGE_INTEGER) -> BOOL;
+
 pub extern "kernel32" stdcallcc fn GetLastError() -> DWORD;
 
 pub extern "kernel32" stdcallcc fn GetFileInformationByHandleEx(in_hFile: HANDLE,
@@ -115,6 +117,7 @@ pub const ULONG_PTR = usize;
 pub const UNICODE = false;
 pub const WCHAR = u16;
 pub const WORD = u16;
+pub const LARGE_INTEGER = i64;
 
 pub const TRUE = 1;
 pub const FALSE = 0;
