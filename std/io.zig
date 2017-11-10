@@ -273,7 +273,9 @@ pub const File = struct {
                     else => os.unexpectedErrorWindows(err),
                 };
             }
-            return @bitCast(usize, file_size);
+            if (file_size < 0)
+                return error.Overflow;
+            return math.cast(usize, u64(file_size));
         } else {
             unreachable;
         }
