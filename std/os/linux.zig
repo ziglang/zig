@@ -810,6 +810,6 @@ pub fn timerfd_settime(fd: i32, flags: u32, new_value: &const itimerspec, old_va
     arch.syscall4(arch.SYS_timerfd_settime, usize(fd), usize(flags), @ptrToInt(new_value), @ptrToInt(old_value))
 }
 
-test "timer" {
+test "import linux_test" {
     _ = @import("linux_test.zig");
 }
