@@ -3,9 +3,9 @@ const io = std.io;
 const mem = std.mem;
 const os = std.os;
 const warn = std.debug.warn;
+const allocator = std.debug.global_allocator;
 
 pub fn main() -> %void {
-    const allocator = &std.debug.global_allocator;
     var args_it = os.args();
     const exe = %return unwrapArg(??args_it.next(allocator));
     var catted_anything = false;

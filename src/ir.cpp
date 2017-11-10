@@ -10584,7 +10584,6 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             impl_fn->analyzed_executable.source_node = call_instruction->base.source_node;
             impl_fn->analyzed_executable.parent_exec = ira->new_irb.exec;
 
-            ira->codegen->fn_protos.append(impl_fn);
             ira->codegen->fn_defs.append(impl_fn);
         }
 

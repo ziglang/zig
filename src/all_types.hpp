@@ -1508,13 +1508,9 @@ struct CodeGen {
     bool linker_rdynamic;
     const char *linker_script;
 
-    // The function definitions this module includes. There must be a corresponding
-    // fn_protos entry.
+    // The function definitions this module includes.
     ZigList<FnTableEntry *> fn_defs;
     size_t fn_defs_index;
-    // The function prototypes this module includes. In the case of external declarations,
-    // there will not be a corresponding fn_defs entry.
-    ZigList<FnTableEntry *> fn_protos;
     ZigList<TldVar *> global_vars;
 
     OutType out_type;
