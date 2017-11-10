@@ -328,6 +328,45 @@ pub const TIOCGPKT = 0x80045438;
 pub const TIOCGPTLCK = 0x80045439;
 pub const TIOCGEXCL = 0x80045440;
 
+pub const EPOLL_CTL_ADD = 1;
+pub const EPOLL_CTL_DEL = 2;
+pub const EPOLL_CTL_MOD = 3;
+
+pub const EPOLLIN = 0x001;
+pub const EPOLLPRI = 0x002;
+pub const EPOLLOUT = 0x004;
+pub const EPOLLRDNORM = 0x040;
+pub const EPOLLRDBAND = 0x080;
+pub const EPOLLWRNORM = 0x100;
+pub const EPOLLWRBAND = 0x200;
+pub const EPOLLMSG = 0x400;
+pub const EPOLLERR = 0x008;
+pub const EPOLLHUP = 0x010;
+pub const EPOLLRDHUP = 0x2000;
+pub const EPOLLEXCLUSIVE = (u32(1) << 28);
+pub const EPOLLWAKEUP = (u32(1) << 29);
+pub const EPOLLONESHOT = (u32(1) << 30);
+pub const EPOLLET = (u32(1) << 31);
+
+pub const CLOCK_REALTIME = 0;
+pub const CLOCK_MONOTONIC = 1;
+pub const CLOCK_PROCESS_CPUTIME_ID = 2;
+pub const CLOCK_THREAD_CPUTIME_ID = 3;
+pub const CLOCK_MONOTONIC_RAW = 4;
+pub const CLOCK_REALTIME_COARSE = 5;
+pub const CLOCK_MONOTONIC_COARSE = 6;
+pub const CLOCK_BOOTTIME = 7;
+pub const CLOCK_REALTIME_ALARM = 8;
+pub const CLOCK_BOOTTIME_ALARM = 9;
+pub const CLOCK_SGI_CYCLE = 10;
+pub const CLOCK_TAI = 11;
+
+pub const TFD_NONBLOCK = O_NONBLOCK;
+pub const TFD_CLOEXEC = O_CLOEXEC;
+
+pub const TFD_TIMER_ABSTIME = 1;
+pub const TFD_TIMER_CANCEL_ON_SET = (1 << 1);
+
 fn unsigned(s: i32) -> u32 { @bitCast(u32, s) }
 fn signed(s: u32) -> i32 { @bitCast(i32, s) }
 pub fn WEXITSTATUS(s: i32) -> i32 { signed((unsigned(s) & 0xff00) >> 8) }
@@ -733,4 +772,44 @@ pub const timespec = arch.timespec;
 
 pub fn fstat(fd: i32, stat_buf: &Stat) -> usize {
     arch.syscall2(arch.SYS_fstat, usize(fd), @ptrToInt(stat_buf))
+}
+
+pub const epoll_data = u64;
+
+pub const epoll_event = extern struct {
+    events: u32,
+    data: epoll_data
+};
+
+pub fn epoll_create() -> usize {
+    arch.syscall1(arch.SYS_epoll_create, usize(1))
+}
+
+pub fn epoll_ctl(epoll_fd: i32, op: i32, fd: i32, ev: &epoll_event) -> usize {
+    arch.syscall4(arch.SYS_epoll_ctl, usize(epoll_fd), usize(op), usize(fd), @ptrToInt(ev))
+}
+
+pub fn epoll_wait(epoll_fd: i32, events: &epoll_event, maxevents: i32, timeout: i32) -> usize {
+    arch.syscall4(arch.SYS_epoll_wait, usize(epoll_fd), @ptrToInt(events), usize(maxevents), usize(timeout))
+}
+
+pub fn timerfd_create(clockid: i32, flags: u32) -> usize {
+    arch.syscall2(arch.SYS_timerfd_create, usize(clockid), usize(flags))
+}
+
+pub const itimerspec = extern struct {
+    it_interval: timespec,
+    it_value: timespec
+};
+
+pub fn timerfd_gettime(fd: i32, curr_value: &itimerspec) -> usize {
+    arch.syscall2(arch.SYS_timerfd_gettime, usize(fd), @ptrToInt(curr_value))
+}
+
+pub fn timerfd_settime(fd: i32, flags: u32, new_value: &const itimerspec, old_value: ?&itimerspec) -> usize {
+    arch.syscall4(arch.SYS_timerfd_settime, usize(fd), usize(flags), @ptrToInt(new_value), @ptrToInt(old_value))
+}
+
+test "timer" {
+    _ = @import("linux_test.zig");
 }
