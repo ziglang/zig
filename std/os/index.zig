@@ -562,7 +562,7 @@ pub fn getCwd(allocator: &Allocator) -> %[]u8 {
 
 test "os.getCwd" {
     // at least call it so it gets compiled
-    _ = getCwd(&debug.global_allocator);
+    _ = getCwd(debug.global_allocator);
 }
 
 pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) -> %void {
@@ -1432,10 +1432,10 @@ test "windows arg parsing" {
 fn testWindowsCmdLine(input_cmd_line: &const u8, expected_args: []const []const u8) {
     var it = ArgIteratorWindows.initWithCmdLine(input_cmd_line);
     for (expected_args) |expected_arg| {
-        const arg = %%??it.next(&debug.global_allocator);
+        const arg = %%??it.next(debug.global_allocator);
         assert(mem.eql(u8, arg, expected_arg));
     }
-    assert(it.next(&debug.global_allocator) == null);
+    assert(it.next(debug.global_allocator) == null);
 }
 
 test "std.os" {
@@ -1500,4 +1500,3 @@ pub fn isTty(handle: FileHandle) -> bool {
         }
     }
 }
-

@@ -20,6 +20,12 @@ const fmt = std.fmt;
 const is_posix = builtin.os != builtin.Os.windows;
 const is_windows = builtin.os == builtin.Os.windows;
 
+test "import io tests" {
+    comptime {
+        _ = @import("io_test.zig");
+    }
+}
+
 /// The function received invalid input at runtime. An Invalid error means a
 /// bug in the program that called the function.
 error Invalid;

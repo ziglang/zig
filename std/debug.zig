@@ -38,7 +38,7 @@ fn getStderrStream() -> %&io.OutStream {
 /// Tries to print a stack trace to stderr, unbuffered, and ignores any error returned.
 pub fn dumpStackTrace() {
     const stderr = getStderrStream() %% return;
-    writeStackTrace(stderr, &global_allocator, stderr_file.isTty(), 1) %% return;
+    writeStackTrace(stderr, global_allocator, stderr_file.isTty(), 1) %% return;
 }
 
 /// This function invokes undefined behavior when `ok` is `false`.
@@ -86,7 +86,7 @@ pub fn panic(comptime format: []const u8, args: ...) -> noreturn {
 
     const stderr = getStderrStream() %% os.abort();
     stderr.print(format ++ "\n", args) %% os.abort();
-    writeStackTrace(stderr, &global_allocator, stderr_file.isTty(), 1) %% os.abort();
+    writeStackTrace(stderr, global_allocator, stderr_file.isTty(), 1) %% os.abort();
 
     os.abort();
 }
@@ -967,7 +967,8 @@ fn readILeb128(in_stream: &io.InStream) -> %i64 {
     }
 }
 
-pub var global_allocator = mem.Allocator {
+pub const global_allocator = &global_allocator_state;
+var global_allocator_state = mem.Allocator {
     .allocFn = globalAlloc,
     .reallocFn = globalRealloc,
     .freeFn = globalFree,

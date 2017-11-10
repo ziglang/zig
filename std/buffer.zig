@@ -135,7 +135,7 @@ pub const Buffer = struct {
 test "simple Buffer" {
     const cstr = @import("cstr.zig");
 
-    var buf = %%Buffer.init(&debug.global_allocator, "");
+    var buf = %%Buffer.init(debug.global_allocator, "");
     assert(buf.len() == 0);
     %%buf.append("hello");
     %%buf.appendByte(' ');

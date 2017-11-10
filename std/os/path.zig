@@ -41,23 +41,23 @@ pub fn joinPosix(allocator: &Allocator, paths: ...) -> %[]u8 {
 }
 
 test "os.path.join" {
-    assert(mem.eql(u8, %%joinWindows(&debug.global_allocator, "c:\\a\\b", "c"), "c:\\a\\b\\c"));
-    assert(mem.eql(u8, %%joinWindows(&debug.global_allocator, "c:\\a\\b\\", "c"), "c:\\a\\b\\c"));
+    assert(mem.eql(u8, %%joinWindows(debug.global_allocator, "c:\\a\\b", "c"), "c:\\a\\b\\c"));
+    assert(mem.eql(u8, %%joinWindows(debug.global_allocator, "c:\\a\\b\\", "c"), "c:\\a\\b\\c"));
 
-    assert(mem.eql(u8, %%joinWindows(&debug.global_allocator, "c:\\", "a", "b\\", "c"), "c:\\a\\b\\c"));
-    assert(mem.eql(u8, %%joinWindows(&debug.global_allocator, "c:\\a\\", "b\\", "c"), "c:\\a\\b\\c"));
+    assert(mem.eql(u8, %%joinWindows(debug.global_allocator, "c:\\", "a", "b\\", "c"), "c:\\a\\b\\c"));
+    assert(mem.eql(u8, %%joinWindows(debug.global_allocator, "c:\\a\\", "b\\", "c"), "c:\\a\\b\\c"));
 
-    assert(mem.eql(u8, %%joinWindows(&debug.global_allocator,
+    assert(mem.eql(u8, %%joinWindows(debug.global_allocator,
         "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std", "io.zig"),
         "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std\\io.zig"));
 
-    assert(mem.eql(u8, %%joinPosix(&debug.global_allocator, "/a/b", "c"), "/a/b/c"));
-    assert(mem.eql(u8, %%joinPosix(&debug.global_allocator, "/a/b/", "c"), "/a/b/c"));
+    assert(mem.eql(u8, %%joinPosix(debug.global_allocator, "/a/b", "c"), "/a/b/c"));
+    assert(mem.eql(u8, %%joinPosix(debug.global_allocator, "/a/b/", "c"), "/a/b/c"));
 
-    assert(mem.eql(u8, %%joinPosix(&debug.global_allocator, "/", "a", "b/", "c"), "/a/b/c"));
-    assert(mem.eql(u8, %%joinPosix(&debug.global_allocator, "/a/", "b/", "c"), "/a/b/c"));
+    assert(mem.eql(u8, %%joinPosix(debug.global_allocator, "/", "a", "b/", "c"), "/a/b/c"));
+    assert(mem.eql(u8, %%joinPosix(debug.global_allocator, "/a/", "b/", "c"), "/a/b/c"));
 
-    assert(mem.eql(u8, %%joinPosix(&debug.global_allocator, "/home/andy/dev/zig/build/lib/zig/std", "io.zig"),
+    assert(mem.eql(u8, %%joinPosix(debug.global_allocator, "/home/andy/dev/zig/build/lib/zig/std", "io.zig"),
         "/home/andy/dev/zig/build/lib/zig/std/io.zig"));
 }
 
@@ -453,7 +453,7 @@ pub fn resolvePosix(allocator: &Allocator, paths: []const []const u8) -> %[]u8 {
 }
 
 test "os.path.resolve" {
-    const cwd = %%os.getCwd(&debug.global_allocator);
+    const cwd = %%os.getCwd(debug.global_allocator);
     if (is_windows) {
         assert(mem.eql(u8, testResolveWindows([][]const u8{"."}), cwd));
     } else {
@@ -492,11 +492,11 @@ test "os.path.resolvePosix" {
 }
 
 fn testResolveWindows(paths: []const []const u8) -> []u8 {
-    return %%resolveWindows(&debug.global_allocator, paths);
+    return %%resolveWindows(debug.global_allocator, paths);
 }
 
 fn testResolvePosix(paths: []const []const u8) -> []u8 {
-    return %%resolvePosix(&debug.global_allocator, paths);
+    return %%resolvePosix(debug.global_allocator, paths);
 }
 
 pub fn dirname(path: []const u8) -> []const u8 {
@@ -899,12 +899,12 @@ test "os.path.relative" {
 }
 
 fn testRelativePosix(from: []const u8, to: []const u8, expected_output: []const u8) {
-    const result = %%relativePosix(&debug.global_allocator, from, to);
+    const result = %%relativePosix(debug.global_allocator, from, to);
     assert(mem.eql(u8, result, expected_output));
 }
 
 fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []const u8) {
-    const result = %%relativeWindows(&debug.global_allocator, from, to);
+    const result = %%relativeWindows(debug.global_allocator, from, to);
     assert(mem.eql(u8, result, expected_output));
 }
 
@@ -1022,5 +1022,5 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
 
 test "os.path.real" {
     // at least call it so it gets compiled
-    _ = real(&debug.global_allocator, "some_path");
+    _ = real(debug.global_allocator, "some_path");
 }
