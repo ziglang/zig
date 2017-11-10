@@ -14,16 +14,16 @@ make install
 ./zig build --build-file ../build.zig test
 
 ./zig test ../test/behavior.zig --target-os windows --target-arch i386 --target-environ msvc
-wine test.exe
+wine zig-cache/test.exe
 
 ./zig test ../test/behavior.zig --target-os windows --target-arch i386 --target-environ msvc --release-fast
-wine test.exe
+wine zig-cache/test.exe
 
 ./zig test ../test/behavior.zig --target-os windows --target-arch i386 --target-environ msvc --release-safe
-wine test.exe
+wine zig-cache/test.exe
 
 ./zig test ../test/behavior.zig --target-os windows --target-arch x86_64 --target-environ msvc
-wine64 test.exe
+wine64 zig-cache/test.exe
 
 #./zig test ../test/behavior.zig --target-os windows --target-arch x86_64 --target-environ msvc --release-fast
 #wine64 test.exe

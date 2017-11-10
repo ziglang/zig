@@ -13,7 +13,7 @@ pub extern "c" fn abort() -> noreturn;
 pub extern "c" fn exit(code: c_int) -> noreturn;
 pub extern "c" fn isatty(fd: c_int) -> c_int;
 pub extern "c" fn close(fd: c_int) -> c_int;
-pub extern "c" fn fstat(fd: c_int, buf: &stat) -> c_int;
+pub extern "c" fn fstat(fd: c_int, buf: &Stat) -> c_int;
 pub extern "c" fn lseek(fd: c_int, offset: isize, whence: c_int) -> isize;
 pub extern "c" fn open(path: &const u8, oflag: c_int, ...) -> c_int;
 pub extern "c" fn raise(sig: c_int) -> c_int;

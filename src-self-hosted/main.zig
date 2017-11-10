@@ -1,7 +1,7 @@
 const builtin = @import("builtin");
 const io = @import("std").io;
 const os = @import("std").os;
-const heap = @import("std").mem;
+const heap = @import("std").heap;
 
 // TODO: sync up CLI with c++ code
 // TODO: concurrency

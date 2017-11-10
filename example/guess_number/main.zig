@@ -6,10 +6,10 @@ const os = std.os;
 
 pub fn main() -> %void {
     var stdout_file = %return io.getStdOut();
-    const stdout = &stdout_file.out_stream;
+    var stdout_file_stream = io.FileOutStream.init(&stdout_file);
+    const stdout = &stdout_file_stream.stream;
 
     var stdin_file = %return io.getStdIn();
-    const stdin = &stdin_file.in_stream;
 
     %return stdout.print("Welcome to the Guess Number Game in Zig.\n");
 
@@ -24,7 +24,7 @@ pub fn main() -> %void {
         %return stdout.print("\nGuess a number between 1 and 100: ");
         var line_buf : [20]u8 = undefined;
 
-        const line_len = stdin.read(line_buf[0..]) %% |err| {
+        const line_len = stdin_file.read(line_buf[0..]) %% |err| {
             %return stdout.print("Unable to read from stdin: {}\n", @errorName(err));
             return err;
         };

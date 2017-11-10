@@ -1389,7 +1389,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
         return;
     }
 
-    TypeTableEntry *tag_int_type = get_smallest_unsigned_int_type(g, field_count);
+    TypeTableEntry *tag_int_type = get_smallest_unsigned_int_type(g, field_count - 1);
     TypeTableEntry *tag_type_entry = create_enum_tag_type(g, enum_type, tag_int_type);
     enum_type->data.enumeration.tag_type = tag_type_entry;
 

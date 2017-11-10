@@ -2335,4 +2335,12 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\const Foo = enum {};
     ,
         ".tmp_source.zig:2:26: error: member index 0 out of bounds; 'Foo' has 0 members");
+
+    cases.add("calling var args extern function, passing array instead of pointer",
+        \\export fn entry() {
+        \\    foo("hello");
+        \\}
+        \\pub extern fn foo(format: &const u8, ...);
+    ,
+        ".tmp_source.zig:2:9: error: expected type '&const u8', found '[5]u8'");
 }

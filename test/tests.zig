@@ -249,8 +249,11 @@ pub const CompareOutputContext = struct {
             var stdout = Buffer.initNull(b.allocator);
             var stderr = Buffer.initNull(b.allocator);
 
-            %%(??child.stdout).in_stream.readAllBuffer(&stdout, max_stdout_size);
-            %%(??child.stderr).in_stream.readAllBuffer(&stderr, max_stdout_size);
+            var stdout_file_in_stream = io.FileInStream.init(&??child.stdout);
+            var stderr_file_in_stream = io.FileInStream.init(&??child.stderr);
+
+            %%stdout_file_in_stream.stream.readAllBuffer(&stdout, max_stdout_size);
+            %%stderr_file_in_stream.stream.readAllBuffer(&stderr, max_stdout_size);
 
             const term = child.wait() %% |err| {
                 debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
@@ -576,8 +579,11 @@ pub const CompileErrorContext = struct {
             var stdout_buf = Buffer.initNull(b.allocator);
             var stderr_buf = Buffer.initNull(b.allocator);
 
-            %%(??child.stdout).in_stream.readAllBuffer(&stdout_buf, max_stdout_size);
-            %%(??child.stderr).in_stream.readAllBuffer(&stderr_buf, max_stdout_size);
+            var stdout_file_in_stream = io.FileInStream.init(&??child.stdout);
+            var stderr_file_in_stream = io.FileInStream.init(&??child.stderr);
+
+            %%stdout_file_in_stream.stream.readAllBuffer(&stdout_buf, max_stdout_size);
+            %%stderr_file_in_stream.stream.readAllBuffer(&stderr_buf, max_stdout_size);
 
             const term = child.wait() %% |err| {
                 debug.panic("Unable to spawn {}: {}\n", zig_args.items[0], @errorName(err));
@@ -718,7 +724,8 @@ pub const BuildExamplesContext = struct {
         }
 
         var zig_args = ArrayList([]const u8).init(b.allocator);
-        %%zig_args.append(b.zig_exe);
+        const rel_zig_exe = %%os.path.relative(b.allocator, b.build_root, b.zig_exe);
+        %%zig_args.append(rel_zig_exe);
         %%zig_args.append("build");
 
         %%zig_args.append("--build-file");
@@ -844,8 +851,11 @@ pub const ParseCContext = struct {
             var stdout_buf = Buffer.initNull(b.allocator);
             var stderr_buf = Buffer.initNull(b.allocator);
 
-            %%(??child.stdout).in_stream.readAllBuffer(&stdout_buf, max_stdout_size);
-            %%(??child.stderr).in_stream.readAllBuffer(&stderr_buf, max_stdout_size);
+            var stdout_file_in_stream = io.FileInStream.init(&??child.stdout);
+            var stderr_file_in_stream = io.FileInStream.init(&??child.stderr);
+
+            %%stdout_file_in_stream.stream.readAllBuffer(&stdout_buf, max_stdout_size);
+            %%stderr_file_in_stream.stream.readAllBuffer(&stderr_buf, max_stdout_size);
 
             const term = child.wait() %% |err| {
                 debug.panic("Unable to spawn {}: {}\n", zig_args.toSliceConst()[0], @errorName(err));
