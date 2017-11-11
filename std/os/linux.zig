@@ -776,7 +776,7 @@ pub fn fstat(fd: i32, stat_buf: &Stat) -> usize {
 
 pub const epoll_data = u64;
 
-pub const epoll_event = extern struct {
+pub const epoll_event = packed struct {
     events: u32,
     data: epoll_data
 };
@@ -785,7 +785,7 @@ pub fn epoll_create() -> usize {
     arch.syscall1(arch.SYS_epoll_create, usize(1))
 }
 
-pub fn epoll_ctl(epoll_fd: i32, op: i32, fd: i32, ev: &epoll_event) -> usize {
+pub fn epoll_ctl(epoll_fd: i32, op: i32, fd: i32, ev: ?&epoll_event) -> usize {
     arch.syscall4(arch.SYS_epoll_ctl, usize(epoll_fd), usize(op), usize(fd), @ptrToInt(ev))
 }
 

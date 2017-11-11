@@ -2,40 +2,58 @@ const builtin = @import("builtin");
 const std = @import("std");
 const linux = std.os.linux;
 
-fn event_t(comptime T: type) -> type {
-    struct {
-        fd: i32,
-        handler: fn(T) -> void,
-        closure: T
-    }
-}
+use @import("event_common.zig");
 
-fn mk_wrapper(comptime T: type) -> fn(u64, u64) -> void {
-    fn(handler_int: u64, closure_int: u64) -> void {
-        var handler = @intToPtr(&fn(T) -> void, handler_int);
-        var closure = @intToPtr(&T, closure_int);
-
-        handler(closure);
-    }
-}
-
-event_context = struct {
-    wrapper,
-    handler_as_int,
-    closure_as_int
+const event_os = switch (builtin.os) {
+    builtin.Os.linux => @import("event_linux.zig"),
+    else => @compileError("unsupported event os"),
 };
 
+error OsError;
 
-fn mk_timer(timeout: u64, closure: var, handler: fn(@typeOf(closure)) -> void) -> event_t(@typeOf(closure)) {
-    var fd = timerfd_create(stuff);
-    settimer
+pub const Event = struct {
+    os: event_os.Event,
+    context: EventContext
+};
 
-    event_t {
-        .fd = timerfd,
-        .context = event_context {
-            .wrapper = mk_wrapper(@typeOf(closure)),
-            .handler_as_int = handler,
-            .closure_as_int = closure
+pub const Loop = struct {
+    os: event_os.Loop,
+
+    const Self = this;
+
+    pub fn init() -> %Self {
+        Self {
+            .os = %return event_os.Loop.init()
         }
     }
-}
+
+    pub fn step(loop: &Loop) -> %void {
+        loop.os.step()
+    }
+
+    pub fn run(loop: &Loop) -> %void {
+        loop.os.run()
+    }
+};
+
+// timeouts represented in nanoseconds
+pub const Timer = struct {
+    os: event_os.Timer,
+
+    const Self = this;
+
+    pub fn init(timeout: u64, closure: var, handler: &const fn(@typeOf(closure)) -> void) -> %Self {
+        var os = %return event_os.Timer.init(timeout, @ptrToInt(closure), @ptrToInt(handler));
+        Self {
+            .os = os
+        }
+    }
+
+    pub fn start(timer: &Self, loop: &Loop) -> %void {
+        timer.os.start(&loop.os)
+    }
+
+    pub fn stop(timer: &Self, loop: &Loop) -> %void {
+        timer.os.stop(&loop.os)
+    }
+};
