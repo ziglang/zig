@@ -16,7 +16,7 @@ test "timer" {
         .value = 42
     };
 
-    comptime const one_second = 1000 * 1000 * 1000 + 1;
+    comptime const one_second = 1000 * 1000 * 1000;
 
     var loop = %%event.Loop.init();
     var timer = %%event.Timer.init(one_second, &closure, &timer_handler);
@@ -27,7 +27,9 @@ test "timer" {
     while (i < 5) {
         %%loop.step();
         i += 1;
-    }
 
-    %%timer.stop(&loop);
+        //if (i >= 3) {
+        //    %%timer.stop(&loop);
+        //}
+    }
 }
