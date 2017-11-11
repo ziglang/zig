@@ -2,7 +2,7 @@ const std = @import("std");
 const linux = std.os.linux;
 use @import("event_common.zig");
 
-pub const Event = struct {
+pub const EventMd = struct {
     fd: i32
 };
 
@@ -18,9 +18,13 @@ const EventData = enum {
     Managed
 };
 
+pub const Event = struct {
+    md: EventMd,
+    data: EventData
+};
+
 pub const Timer = struct {
     event: Event,
-    data: EventData,
 
     const Self = this;
 
@@ -62,13 +66,15 @@ pub const Timer = struct {
 
         Self {
             .event = Event {
-                .fd = i32(fd)
-            },
-            .data = EventData.Timer {
-                TimerData {
-                    .timeout = timeout,
-                    .closure = closure,
-                    .handler = handler
+                .md = EventMd {
+                    .fd = i32(fd)
+                },
+                .data = EventData.Timer {
+                    TimerData {
+                        .timeout = timeout,
+                        .closure = closure,
+                        .handler = handler
+                    }
                 }
             }
         }
@@ -79,7 +85,7 @@ pub const Timer = struct {
     }
 
     pub fn start(timer: &Self, loop: &Loop) -> %void {
-        loop.register(&timer.event, &timer.data)
+        loop.register(&timer.event)
     }
 
     pub fn stop(timer: &Self, loop: &Loop) -> %void {
@@ -104,14 +110,14 @@ pub const Loop = struct {
         }
     }
 
-    fn register(loop: &Self, event: &Event, data: &EventData) -> %void {
+    fn register(loop: &Self, event: &Event) -> %void {
         var ep_event = linux.epoll_event {
             // XXX: make flags configurable
             .events = linux.EPOLLIN | linux.EPOLLOUT | linux.EPOLLET,
-            .data = @ptrToInt(data)
+            .data = @ptrToInt(event)
         };
 
-        const res = linux.epoll_ctl(i32(loop.fd), linux.EPOLL_CTL_ADD, i32(event.fd), &ep_event);
+        const res = linux.epoll_ctl(i32(loop.fd), linux.EPOLL_CTL_ADD, i32(event.md.fd), &ep_event);
         const err = linux.getErrno(res);
 
         switch (err) {
@@ -123,7 +129,7 @@ pub const Loop = struct {
     }
 
     fn unregister(loop: &Self, event: &Event) -> %void {
-        const res = linux.epoll_ctl(i32(loop.fd), linux.EPOLL_CTL_DEL, i32(event.fd), null);
+        const res = linux.epoll_ctl(i32(loop.fd), linux.EPOLL_CTL_DEL, i32(event.md.fd), null);
         const err = linux.getErrno(res);
 
         switch (err) {
@@ -141,9 +147,21 @@ pub const Loop = struct {
     }
 
     fn handle_event(loop: &Self, data:u64) -> void {
-        var context = @intToPtr(&EventData, data);
-        switch (*context) {
-            EventData.Timer => |*timer| loop.handle_timer(timer),
+        var context = @intToPtr(&Event, data);
+        switch (context.data) {
+            EventData.Timer => |*timer| {
+                loop.handle_timer(timer);
+                var buf = []u8{0} ** 8;
+                var r = linux.read(i32(context.md.fd), &buf[0], 8);
+
+                // XXX: don't care about number of expirations for now
+                switch (linux.getErrno(r)) {
+                    0 => {},
+                    linux.EAGAIN => {},
+                    // XXX: what should we do in this case?
+                    else => @panic("timerfd read failed")
+                }
+            },
             else => @panic("unused event type")
         }
     }
