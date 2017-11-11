@@ -33,3 +33,18 @@ test "timer" {
         //}
     }
 }
+
+test "managed" {
+    var closure = TestContext {
+        .value = 42
+    };
+
+    var loop = %%event.Loop.init();
+    var managed = %%event.ManagedEvent.init(&closure, &timer_handler);
+
+    %%managed.register(&loop);
+
+    %%managed.trigger();
+
+    %%loop.step();
+}

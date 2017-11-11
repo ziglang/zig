@@ -367,6 +367,10 @@ pub const TFD_CLOEXEC = O_CLOEXEC;
 pub const TFD_TIMER_ABSTIME = 1;
 pub const TFD_TIMER_CANCEL_ON_SET = (1 << 1);
 
+pub const EFD_SEMAPHORE = 1;
+pub const EFD_CLOEXEC = O_CLOEXEC;
+pub const EFD_NONBLOCK = O_NONBLOCK;
+
 fn unsigned(s: i32) -> u32 { @bitCast(u32, s) }
 fn signed(s: u32) -> i32 { @bitCast(i32, s) }
 pub fn WEXITSTATUS(s: i32) -> i32 { signed((unsigned(s) & 0xff00) >> 8) }
@@ -808,6 +812,10 @@ pub fn timerfd_gettime(fd: i32, curr_value: &itimerspec) -> usize {
 
 pub fn timerfd_settime(fd: i32, flags: u32, new_value: &const itimerspec, old_value: ?&itimerspec) -> usize {
     arch.syscall4(arch.SYS_timerfd_settime, usize(fd), usize(flags), @ptrToInt(new_value), @ptrToInt(old_value))
+}
+
+pub fn eventfd(initval: u32, flags: u32) -> usize {
+    arch.syscall2(arch.SYS_eventfd, usize(initval), usize(flags))
 }
 
 test "import linux_test" {

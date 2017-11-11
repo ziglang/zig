@@ -43,9 +43,8 @@ pub const Timer = struct {
     const Self = this;
 
     pub fn init(timeout: u64, closure: var, handler: &const fn(@typeOf(closure)) -> void) -> %Self {
-        var os = %return event_os.Timer.init(timeout, @ptrToInt(closure), @ptrToInt(handler));
         Self {
-            .os = os
+            .os = %return event_os.Timer.init(timeout, @ptrToInt(closure), @ptrToInt(handler))
         }
     }
 
@@ -55,5 +54,29 @@ pub const Timer = struct {
 
     pub fn stop(timer: &Self, loop: &Loop) -> %void {
         timer.os.stop(&loop.os)
+    }
+};
+
+pub const ManagedEvent = struct {
+    os: event_os.ManagedEvent,
+
+    const Self = this;
+
+    pub fn init(closure: var, handler: &const fn(@typeOf(closure)) -> void) -> %Self {
+        Self {
+            .os = %return event_os.ManagedEvent.init(@ptrToInt(closure), @ptrToInt(handler))
+        }
+    }
+
+    pub fn register(event: &ManagedEvent, loop: &Loop) -> %void {
+        event.os.register(&loop.os)
+    }
+
+    pub fn unregister(event: &ManagedEvent, loop: &Loop) -> %void {
+        event.os.unregister(&loop.os)
+    }
+
+    pub fn trigger(event: &Self) -> %void {
+        event.os.trigger()
     }
 };

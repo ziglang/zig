@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const linux = std.os.linux;
 use @import("event_common.zig");
@@ -12,10 +13,15 @@ const TimerData = struct {
     handler: usize
 };
 
+const ManagedData = struct {
+    closure: usize,
+    handler: usize
+};
+
 const EventData = enum {
     Timer: TimerData,
     Socket,
-    Managed
+    Managed: ManagedData
 };
 
 pub const Event = struct {
@@ -93,6 +99,64 @@ pub const Timer = struct {
     }
 };
 
+pub const ManagedEvent = struct {
+    event: Event,
+
+    const Self = this;
+
+    pub fn init(closure: usize, handler: usize) -> %Self {
+        const fd = linux.eventfd(0, linux.EFD_NONBLOCK);
+        const err = linux.getErrno(fd);
+
+        if (err != 0) {
+            return switch(err) {
+                linux.ENOMEM => error.OutOfMemory,
+                linux.EMFILE, linux.ENFILE => error.SystemResources,
+                linux.ENODEV => error.NoDevice,
+                else => error.Unexpected
+            }
+        }
+
+        Self {
+            .event = Event {
+                .md = EventMd {
+                    .fd = i32(fd)
+                },
+                .data = EventData.Managed {
+                    ManagedData {
+                        .closure = closure,
+                        .handler = handler
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn register(event: &ManagedEvent, loop: &Loop) -> %void {
+        loop.register(&event.event)
+    }
+
+    pub fn unregister(event: &ManagedEvent, loop: &Loop) -> %void {
+        loop.unregister(&event.event)
+    }
+
+    pub fn trigger(event: &ManagedEvent) -> %void {
+        comptime const buf = if (builtin.is_big_endian) {
+            []u8{0, 0, 0, 0, 0, 0, 0, 1}
+        } else {
+            []u8{1, 0, 0, 0, 0, 0, 0, 0}
+        };
+
+        const res = linux.write(i32(event.event.md.fd), &buf[0], 8);
+        const err = linux.getErrno(res);
+
+        switch (err) {
+            0 => {},
+            else => error.Unexpected
+        }
+    }
+};
+
 pub const Loop = struct {
     fd: i32,
 
@@ -142,8 +206,11 @@ pub const Loop = struct {
     fn handle_timer(loop: &Self, timer: &TimerData) -> void {
         var handler = @intToPtr(&TimerHandler, timer.handler);
         (*handler)(timer.closure);
+    }
 
-        // XXX: need to call timerfd_settime again here?
+    fn handle_managed(loop: &Self, data: &ManagedData) -> void {
+        var handler = @intToPtr(&ManagedHandler, data.handler);
+        (*handler)(data.closure);
     }
 
     fn handle_event(loop: &Self, data:u64) -> void {
@@ -151,6 +218,7 @@ pub const Loop = struct {
         switch (context.data) {
             EventData.Timer => |*timer| {
                 loop.handle_timer(timer);
+
                 var buf = []u8{0} ** 8;
                 var r = linux.read(i32(context.md.fd), &buf[0], 8);
 
@@ -160,6 +228,22 @@ pub const Loop = struct {
                     linux.EAGAIN => {},
                     // XXX: what should we do in this case?
                     else => @panic("timerfd read failed")
+                }
+            },
+            EventData.Managed => |*managed| {
+                var buf = []u8{0} ** 8;
+                var r = linux.read(i32(context.md.fd), &buf[0], 8);
+
+                // XXX: don't care about number of expirations for now
+                const have_trigger = switch (linux.getErrno(r)) {
+                    0 => true,
+                    linux.EAGAIN => false,
+                    // XXX: what should we do in this case?
+                    else => @panic("eventfd read failed")
+                };
+
+                if (have_trigger) {
+                    loop.handle_managed(managed);
                 }
             },
             else => @panic("unused event type")
