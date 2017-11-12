@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const event = @import("event.zig");
 
 const TestContext = struct {
@@ -25,7 +26,7 @@ test "timer" {
 
     var i: u64 = 0;
     while (i < 5) {
-        %%loop.step();
+        %%loop.step(event.LoopStepBehavior.Blocking);
         i += 1;
 
         //if (i >= 3) {
@@ -44,7 +45,20 @@ test "managed" {
 
     %%managed.register(&loop);
 
+    %%loop.step(event.LoopStepBehavior.Nonblocking);
+
+    assert(closure.value == 42);
+
     %%managed.trigger();
 
-    %%loop.step();
+    %%loop.step(event.LoopStepBehavior.Nonblocking);
+
+    assert(closure.value == 43);
+
+    %%managed.trigger();
+    %%managed.trigger();
+
+    %%loop.step(event.LoopStepBehavior.Nonblocking);
+
+    assert(closure.value == 44);
 }

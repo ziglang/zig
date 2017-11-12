@@ -117,6 +117,12 @@ pub const ManagedEvent = struct {
             }
         }
 
+        const res = linux.fcntl_arg(i32(fd), linux.F_SETFL, linux.O_NONBLOCK);
+        switch (linux.getErrno(res)) {
+            0 => {},
+            else => return error.Unexpected
+        }
+
         Self {
             .event = Event {
                 .md = EventMd {
@@ -250,7 +256,7 @@ pub const Loop = struct {
         }
     }
 
-    pub fn step(loop: &Self) -> %void {
+    pub fn step(loop: &Self, blocking: LoopStepBehavior) -> %void {
         comptime const events_count = 1024;
         const events_one: linux.epoll_event = undefined;
 
@@ -260,7 +266,11 @@ pub const Loop = struct {
         var ready: usize = 0;
 
         while (true) {
-            ready = linux.epoll_wait(i32(loop.fd), &events[0], events_count, -1);
+            const timeout = switch (blocking) {
+                LoopStepBehavior.Blocking => i32(-1),
+                LoopStepBehavior.Nonblocking => i32(0),
+            };
+            ready = linux.epoll_wait(i32(loop.fd), &events[0], events_count, timeout);
             switch (linux.getErrno(ready)) {
                 0 => break,
                 linux.EINTR => continue,
@@ -276,7 +286,7 @@ pub const Loop = struct {
 
     pub fn run(loop: &Self) -> %void {
         while (true) {
-            %return loop.step();
+            %return loop.step(LoopStepBehavior.Blocking);
         }
     }
 

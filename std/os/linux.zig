@@ -113,6 +113,26 @@ pub const O_PATH = arch.O_PATH;
 pub const O_TMPFILE = arch.O_TMPFILE;
 pub const O_NDELAY = arch.O_NDELAY;
 
+pub const F_DUPFD = arch.F_DUPFD;
+pub const F_GETFD = arch.F_GETFD;
+pub const F_SETFD = arch.F_SETFD;
+pub const F_GETFL = arch.F_GETFL;
+pub const F_SETFL = arch.F_SETFL;
+
+pub const F_SETOWN = arch.F_SETOWN;
+pub const F_GETOWN = arch.F_GETOWN;
+pub const F_SETSIG = arch.F_SETSIG;
+pub const F_GETSIG = arch.F_GETSIG;
+
+pub const F_GETLK = arch.F_GETLK;
+pub const F_SETLK = arch.F_SETLK;
+pub const F_SETLKW = arch.F_SETLKW;
+
+pub const F_SETOWN_EX = arch.F_SETOWN_EX;
+pub const F_GETOWN_EX = arch.F_GETOWN_EX;
+
+pub const F_GETOWNER_UIDS = arch.F_GETOWNER_UIDS;
+
 pub const SEEK_SET = 0;
 pub const SEEK_CUR = 1;
 pub const SEEK_END = 2;
@@ -816,6 +836,14 @@ pub fn timerfd_settime(fd: i32, flags: u32, new_value: &const itimerspec, old_va
 
 pub fn eventfd(initval: u32, flags: u32) -> usize {
     arch.syscall2(arch.SYS_eventfd, usize(initval), usize(flags))
+}
+
+pub fn fcntl_no_arg(fd: i32, cmd: i32) -> usize {
+    arch.syscall2(arch.SYS_fcntl, usize(fd), usize(cmd))
+}
+
+pub fn fcntl_arg(fd: i32, cmd: i32, arg: usize) -> usize {
+    arch.syscall3(arch.SYS_fcntl, usize(fd), usize(cmd), arg)
 }
 
 test "import linux_test" {

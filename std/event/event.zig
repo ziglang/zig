@@ -27,8 +27,8 @@ pub const Loop = struct {
         }
     }
 
-    pub fn step(loop: &Loop) -> %void {
-        loop.os.step()
+    pub fn step(loop: &Loop, blocking: LoopStepBehavior) -> %void {
+        loop.os.step(blocking)
     }
 
     pub fn run(loop: &Loop) -> %void {
