@@ -17,10 +17,10 @@ test "timer" {
         .value = 42
     };
 
-    comptime const one_second = 1000 * 1000 * 1000;
+    comptime const one_millisecond = 1000 * 1000;
 
     var loop = %%event.Loop.init();
-    var timer = %%event.Timer.init(one_second, &closure, &timer_handler);
+    var timer = %%event.Timer.init(one_millisecond * 10, &closure, &timer_handler);
 
     %%timer.start(&loop);
 
@@ -45,20 +45,18 @@ test "managed" {
 
     %%managed.register(&loop);
 
+    // make sure that event doesn't fire without being triggered
     %%loop.step(event.LoopStepBehavior.Nonblocking);
-
     assert(closure.value == 42);
 
+    // make sure that triggering an event makes its handler run
     %%managed.trigger();
-
     %%loop.step(event.LoopStepBehavior.Nonblocking);
-
     assert(closure.value == 43);
 
+    // make sure that duplicate triggers only cause a single handler invocation
     %%managed.trigger();
     %%managed.trigger();
-
     %%loop.step(event.LoopStepBehavior.Nonblocking);
-
     assert(closure.value == 44);
 }
