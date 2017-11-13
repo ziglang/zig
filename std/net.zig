@@ -10,6 +10,14 @@ error ConnectionRefused;
 error OutOfMemory;
 error NotSocket;
 error BadFd;
+error UnsupportedOption;
+error AddressInUse;
+error AccessDenied;
+
+const ControlProtocol = enum {
+    TCP,
+    UDP
+};
 
 const Connection = struct {
     socket_fd: i32,
@@ -87,14 +95,30 @@ pub fn lookup(hostname: []const u8, out_addrs: []Address) -> %[]Address {
     unreachable // TODO
 }
 
-pub fn connectAddr(addr: &Address, port: u16) -> %Connection {
-    const socket_ret = linux.socket(addr.family, linux.SOCK_STREAM, linux.PROTO_tcp);
+fn createSocket(protocol: ControlProtocol) -> %i32 {
+    const type_arg = switch (protocol) {
+        ControlProtocol.TCP => linux.SOCK_STREAM,
+        ControlProtocol.UDP => linux.SOCK_DGRAM,
+        else => error.Unexpected
+    };
+    const protocol_arg = switch (protocol) {
+        ControlProtocol.TCP => linux.PROTO_tcp,
+        ControlProtocol.UDP => linux.PROTO_udp,
+        else => error.Unexpected
+    };
+
+    const socket_ret = linux.socket(addr.family, type_arg, protocol_arg);
     const socket_err = linux.getErrno(socket_ret);
     if (socket_err > 0) {
         // TODO figure out possible errors from socket()
         return error.Unexpected;
     }
-    const socket_fd = i32(socket_ret);
+
+    i32(socket_ret)
+}
+
+pub fn connectAddr(addr: &Address, port: u16, protocol: ControlProtocol) -> %Connection {
+    const socket_fd = %return createSocket(protocol);
 
     const connect_ret = if (addr.family == linux.AF_INET) {
         var os_addr: linux.sockaddr_in = undefined;
@@ -112,7 +136,7 @@ pub fn connectAddr(addr: &Address, port: u16) -> %Connection {
         @memcpy(&os_addr.addr[0], &addr.addr[0], 16);
         linux.connect(socket_fd, (&linux.sockaddr)(&os_addr), @sizeOf(linux.sockaddr_in6))
     } else {
-        unreachable
+        return error.UnsupportedOption;
     };
     const connect_err = linux.getErrno(connect_ret);
     if (connect_err > 0) {
@@ -130,12 +154,49 @@ pub fn connectAddr(addr: &Address, port: u16) -> %Connection {
     };
 }
 
-pub fn connect(hostname: []const u8, port: u16) -> %Connection {
+pub fn connect(hostname: []const u8, port: u16, protocol: ControlProtocol) -> %Connection {
     var addrs_buf: [1]Address = undefined;
     const addrs_slice = %return lookup(hostname, addrs_buf[0..]);
     const main_addr = &addrs_slice[0];
 
-    return connectAddr(main_addr, port);
+    connectAddr(main_addr, port, protocol)
+}
+
+pub fn bindAddr(addr: &Address, port: u16, protocol: ControlProtocol) -> %Connection {
+    const socket_fd = %return createSocket(protocol);
+
+    const bind_ret = if (addr.family == linux.AF_INET) {
+        var os_addr: linux.sockaddr_in = undefined;
+        os_addr.family = addr.family;
+        os_addr.port = endian.swapIfLe(u16, port);
+        @memcpy((&u8)(&os_addr.addr), &addr.addr[0], 4);
+        @memset(&os_addr.zero[0], 0, @sizeOf(@typeOf(os_addr.zero)));
+        linux.bind(socket_fd, (&linux.sockaddr)(&os_addr), @sizeOf(linux.sockaddr_in))
+    } else {
+        return error.UnsupportedOption;
+    };
+
+    const bind_err = linux.getErrno(bind_ret);
+    if (bind_err != 0) {
+        return switch (bind_err) {
+            linux.EACCES => error.AccessDenied,
+            linux.EADDRINUSE => error.AddressInUse,
+            linux.EBADF => error.BadFd,
+            else => error.Unexpected
+        };
+    }
+
+    Connection {
+        .socket_fd = socket_fd
+    }
+}
+
+pub fn bind(hostname: []const u8, port: u16, protocol: ControlProtocol) -> %Connection {
+    var addrs_buf: [1]Address = undefined;
+    const addrs_slice = %return lookup(hostname, addrs_buf[0..]);
+    const main_addr = &addrs_slice[0];
+
+    bindAddr(main_addr, port, protocol)
 }
 
 error InvalidIpLiteral;

@@ -13,6 +13,11 @@ const TimerData = struct {
     handler: usize
 };
 
+const NetworkData = struct {
+    closure: usize,
+    read_handler: usize
+};
+
 const ManagedData = struct {
     closure: usize,
     handler: usize
@@ -20,7 +25,7 @@ const ManagedData = struct {
 
 const EventData = enum {
     Timer: TimerData,
-    Socket,
+    Network: NetworkData,
     Managed: ManagedData
 };
 
@@ -163,6 +168,102 @@ pub const ManagedEvent = struct {
     }
 };
 
+pub const NetworkEvent = struct {
+    event: Event,
+
+    const Self = this;
+
+    // these args are not os-agnostic so the api layer will need to make the
+    // appropriate calls
+    pub fn init(fd: i32, closure: EventClosure, read_handler: ReadHandler) -> %Self {
+        Self {
+            .event = Event {
+                .md = EventMd {
+                    .fd = fd
+                },
+                .data = EventData.NetworkData {
+                    .closure = closure,
+                    .read_handler = @intToPtr(read_handler)
+                }
+            }
+        }
+    }
+
+    pub fn register(event: &NetworkEvent, loop: &Loop) -> %void {
+        loop.register(&event.event)
+    }
+
+    pub fn unregister(event: &NetworkEvent, loop: &Loop) -> %void {
+        loop.unregister(&event.event)
+    }
+};
+
+pub const StreamListener = struct {
+    listen_event: NetworkEvent,
+
+    const Self = this;
+
+    fn handle_new_connection(buf: &const []u8, closure: EventClosure) -> void {
+        var listener = @intToPtr(&StreamListener, closure);
+
+        // TODO call accept more times non-blocking if more connections are available
+        const accept_ret = linux.accept(listener.listen_event.md.fd);
+        const err = linux.getErrno(accept_ret);
+
+        if (err != 0) {
+            // XXX
+            std.debug.warn("error accepting new connection on fd {}\n", listener.listen_event.md.fd);
+            return;
+        }
+
+        var conn_event = ...;
+
+        listener.listen_event.data.conn_handler(
+
+        std.debug.warn("got new connection!\n");
+    }
+
+    pub fn init_tcp(hostname: []const u8, port: u16, conn_handler: ConnectionHandler) -> %Self {
+        var conn = %return net.bind(hostname, port, net.ControlProtocol.TCP);
+
+        // TODO: set socket options here if wanted
+        // some of the ones that libuv uses and supports:
+        //  unconditionally:
+        //      - SO_REUSEADDR
+        //  only if configured:
+        //      - TCP_NODELAY
+        //      - TCP_KEEPALIVE
+
+        const backlog: i32 = 100;
+        const res = linux.listen(conn.fd, backlog);
+        const err = linux.getErrno(res);
+
+        if (err != 0) {
+            return switch (err) {
+                linux.EADDRINUSE => error.AddressInUse,
+                // XXX
+                else => error.Unexpected
+            };
+        }
+
+        var listen_event = NetworkEvent.init(i32(conn.fd), 
+    }
+};
+
+// returns an error or the number of bytes read into the buffer
+fn socketRead(fd: i32, buf: []u8) -> %usize {
+    const r = linux.read(fd, &buf[0], buf.len);
+    const err = linux.getErrno(r);
+
+    switch(linux.getErrno(r)) {
+        0 => r,
+        linux.EAGAIN => 0,
+        linux.EBADF => error.BadFd,
+        linux.IEO => error.Io,
+        else => error.Unexpected
+    }
+}
+
 pub const Loop = struct {
     fd: i32,
 
@@ -219,8 +320,26 @@ pub const Loop = struct {
         (*handler)(data.closure);
     }
 
-    fn handle_event(loop: &Self, data:u64) -> void {
-        var context = @intToPtr(&Event, data);
+    fn handle_socket_read(loop: &Self, fd: i32, data: &NetworkData) -> void {
+        const byte: u8 = undefined;
+        const buf_size: usize = 4 * 1024;
+        var buf = []u8{byte} ** buf_size;
+        var r = linux.read(i32(context.md.fd), &buf[0], buf.len);
+
+        switch (linux.getErrno(r)) {
+            0 => {
+                data.read_handler(&buf, data.closure);
+            },
+            linux.EAGAIN => {
+                std.debug.warn("tried to read from empty fd {}\n", context.md.fd);
+            },
+            // TODO: actually do something reasonable here
+            else => @panic("socket read failed")
+        }
+    }
+
+    fn handle_event(loop: &Self, event: &epoll_event) -> void {
+        var context = @intToPtr(&Event, event.data);
         switch (context.data) {
             EventData.Timer => |*timer| {
                 loop.handle_timer(timer);
@@ -252,7 +371,18 @@ pub const Loop = struct {
                     loop.handle_managed(managed);
                 }
             },
-            else => @panic("unused event type")
+            EventData.Network => |*network| {
+                const flags = event.events;
+
+                if (flags & linux.EPOLLIN) {
+                    loop.handle_socket_read(context.md.fd, network);
+                }
+
+                if (flags & linux.EPOLLOUT) {
+                    // TODO: apply any pending writes
+                }
+            },
+            else => unreachable
         }
     }
 
@@ -280,7 +410,7 @@ pub const Loop = struct {
         }
 
         for (events[0..ready]) |*e| {
-            loop.handle_event(e.data);
+            loop.handle_event(e);
         }
     }
 

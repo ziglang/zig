@@ -18,6 +18,9 @@ pub const EventClosure = usize;
 pub const TimerHandler = fn(EventClosure) -> void;
 pub const ManagedHandler = fn(EventClosure) -> void;
 
+pub const ReadHandler = fn(&const []u8, EventClosure) -> void;
+pub const ConnectionHandler = fn(&StreamEvent, EventClosure) -> void;
+
 pub const LoopStepBehavior = enum {
     Blocking,
     Nonblocking

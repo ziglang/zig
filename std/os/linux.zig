@@ -846,6 +846,10 @@ pub fn fcntl_arg(fd: i32, cmd: i32, arg: usize) -> usize {
     arch.syscall3(arch.SYS_fcntl, usize(fd), usize(cmd), arg)
 }
 
+pub fn bind(fd: i32, addr: &const sockaddr, len: socklen_t) -> usize {
+    arch.syscall3(arch.SYS_bind, usize(fd), @ptrToInt(addr), usize(len))
+}
+
 test "import linux_test" {
     // TODO lazy analysis should prevent this test from being compiled on windows, but
     // it is still compiled on windows
