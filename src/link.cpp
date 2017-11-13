@@ -485,8 +485,13 @@ static void construct_linker_job_coff(LinkJob *lj) {
             continue;
         }
         if (link_lib->provided_explicitly) {
-            Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
-            lj->args.append(buf_ptr(arg));
+            if (lj->codegen->zig_target.env_type == ZigLLVM_GNU) {
+                Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
+                lj->args.append(buf_ptr(arg));
+            }
+            else {
+                lj->args.append(buf_ptr(link_lib->name));
+            }
         } else {
             buf_resize(def_contents, 0);
             buf_appendf(def_contents, "LIBRARY %s\nEXPORTS\n", buf_ptr(link_lib->name));
