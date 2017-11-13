@@ -2569,11 +2569,10 @@ static AstNode *resolve_typdef_as_builtin(Context *c, const TypedefNameDecl *typ
 }
 
 static AstNode *resolve_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl) {
-    auto existing_entry = c->decl_table.maybe_get((void*)typedef_decl);
+    auto existing_entry = c->decl_table.maybe_get((void*)typedef_decl->getCanonicalDecl());
     if (existing_entry) {
         return existing_entry->value;
     }
-
     QualType child_qt = typedef_decl->getUnderlyingType();
     Buf *type_name = buf_create_from_str(decl_name(typedef_decl));
 
@@ -2616,7 +2615,7 @@ static AstNode *resolve_typedef_decl(Context *c, const TypedefNameDecl *typedef_
     add_global_var(c, type_name, type_node);
 
     AstNode *symbol_node = trans_create_node_symbol(c, type_name);
-    c->decl_table.put(typedef_decl, symbol_node);
+    c->decl_table.put(typedef_decl->getCanonicalDecl(), symbol_node);
     return symbol_node;
 }
 
@@ -2742,6 +2741,7 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
         AstNode *symbol_node = trans_create_node_symbol(c, full_type_name);
         add_global_weak_alias(c, bare_name, full_type_name);
         add_global_var(c, full_type_name, enum_node);
+        c->decl_table.put(enum_decl->getCanonicalDecl(), symbol_node);
         return symbol_node;
     }
 }
