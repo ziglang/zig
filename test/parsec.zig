@@ -630,6 +630,63 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
+    cases.addC("compound assignment operators",
+        \\void foo(void) {
+        \\    int a = 0;
+        \\    a += (a += 1);
+        \\    a -= (a -= 1);
+        \\    a *= (a *= 1);
+        \\    a &= (a &= 1);
+        \\    a |= (a |= 1);
+        \\    a ^= (a ^= 1);
+        \\    a >>= (a >>= 1);
+        \\    a <<= (a <<= 1);
+        \\}
+    ,
+        \\export fn foo() {
+        \\    var a: c_int = 0;
+        \\    a += {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) + 1);
+        \\        *_ref
+        \\    };
+        \\    a -= {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) - 1);
+        \\        *_ref
+        \\    };
+        \\    a *= {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) * 1);
+        \\        *_ref
+        \\    };
+        \\    a &= {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) & 1);
+        \\        *_ref
+        \\    };
+        \\    a |= {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) | 1);
+        \\        *_ref
+        \\    };
+        \\    a ^= {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) ^ 1);
+        \\        *_ref
+        \\    };
+        \\    a >>= @import("std").math.Log2Int(c_int)({
+        \\        const _ref = &a;
+        \\        (*_ref) = c_int(c_int(*_ref) >> @import("std").math.Log2Int(c_int)(1));
+        \\        *_ref
+        \\    });
+        \\    a <<= @import("std").math.Log2Int(c_int)({
+        \\        const _ref = &a;
+        \\        (*_ref) = c_int(c_int(*_ref) << @import("std").math.Log2Int(c_int)(1));
+        \\        *_ref
+        \\    });
+        \\}
+    );
     cases.addC("duplicate typedef",
         \\typedef long foo;
         \\typedef int bar;

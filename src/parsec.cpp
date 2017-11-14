@@ -1034,7 +1034,7 @@ static AstNode *trans_binary_operator(Context *c, bool result_used, AstNode *blo
                 // unsigned/float division uses the operator
                 return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeMod, stmt->getRHS());
             } else {
-                // signed integer division uses @divTrunc
+                // signed integer division uses @rem
                 AstNode *fn_call = trans_create_node_builtin_fn_call_str(c, "rem");
                 AstNode *lhs = trans_expr(c, true, block, stmt->getLHS(), TransLValue);
                 if (lhs == nullptr) return nullptr;
@@ -1081,36 +1081,6 @@ static AstNode *trans_binary_operator(Context *c, bool result_used, AstNode *blo
             return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeBoolOr, stmt->getRHS());
         case BO_Assign:
             return trans_create_assign(c, result_used, block, stmt->getLHS(), stmt->getRHS());
-        case BO_MulAssign:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_MulAssign");
-            return nullptr;
-        case BO_DivAssign:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_DivAssign");
-            return nullptr;
-        case BO_RemAssign:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_RemAssign");
-            return nullptr;
-        case BO_AddAssign:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_AddAssign");
-            return nullptr;
-        case BO_SubAssign:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_SubAssign");
-            return nullptr;
-        case BO_ShlAssign:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_ShlAssign");
-            return nullptr;
-        case BO_ShrAssign:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_ShrAssign");
-            return nullptr;
-        case BO_AndAssign:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_AndAssign");
-            return nullptr;
-        case BO_XorAssign:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_XorAssign");
-            return nullptr;
-        case BO_OrAssign:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_OrAssign");
-            return nullptr;
         case BO_Comma:
             {
                 block = trans_create_node(c, NodeTypeBlock);
@@ -1123,16 +1093,155 @@ static AstNode *trans_binary_operator(Context *c, bool result_used, AstNode *blo
                 block->data.block.last_statement_is_result_expression = true;
                 return block;
             }
+        case BO_MulAssign:
+        case BO_DivAssign:
+        case BO_RemAssign:
+        case BO_AddAssign:
+        case BO_SubAssign:
+        case BO_ShlAssign:
+        case BO_ShrAssign:
+        case BO_AndAssign:
+        case BO_XorAssign:
+        case BO_OrAssign:
+            zig_unreachable();
     }
 
     zig_unreachable();
 }
 
+static AstNode *trans_create_compound_assign_shift(Context *c, bool result_used, AstNode *block, CompoundAssignOperator *stmt, BinOpType assign_op, BinOpType bin_op) {
+    const SourceLocation &rhs_location = stmt->getRHS()->getLocStart();
+    AstNode *rhs_type = qual_type_to_log2_int_ref(c, stmt->getComputationLHSType(), rhs_location);
+
+    bool use_intermediate_casts = stmt->getComputationLHSType().getTypePtr() != stmt->getComputationResultType().getTypePtr();
+    if (!use_intermediate_casts && !result_used) {
+        // simple common case, where the C and Zig are identical:
+        // lhs >>= rhs
+        AstNode *lhs = trans_expr(c, true, block, stmt->getLHS(), TransLValue);
+        if (lhs == nullptr) return nullptr;
+
+        AstNode *rhs = trans_expr(c, true, block, stmt->getRHS(), TransRValue);
+        if (rhs == nullptr) return nullptr;
+        AstNode *coerced_rhs = trans_create_node_fn_call_1(c, rhs_type, rhs);
+
+        return trans_create_node_bin_op(c, lhs, assign_op, coerced_rhs);
+    } else {
+        // need more complexity. worst case, this looks like this:
+        // c:   lhs >>= rhs
+        // zig: {
+        // zig:     const _ref = &lhs;
+        // zig:     *_ref = result_type(operation_type(*_ref) >> u5(rhs));
+        // zig:     *_ref
+        // zig: }
+        // where u5 is the appropriate type
+
+        AstNode *child_block = trans_create_node(c, NodeTypeBlock);
+
+        // const _ref = &lhs;
+        AstNode *lhs = trans_expr(c, true, child_block, stmt->getLHS(), TransLValue);
+        if (lhs == nullptr) return nullptr;
+        AstNode *addr_of_lhs = trans_create_node_addr_of(c, false, false, lhs);
+        // TODO: avoid name collisions with generated variable names
+        Buf* tmp_var_name = buf_create_from_str("_ref");
+        AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr, addr_of_lhs);
+        child_block->data.block.statements.append(tmp_var_decl);
+
+        // *_ref = result_type(operation_type(*_ref) >> u5(rhs));
+
+        AstNode *rhs = trans_expr(c, true, child_block, stmt->getRHS(), TransRValue);
+        if (rhs == nullptr) return nullptr;
+        AstNode *coerced_rhs = trans_create_node_fn_call_1(c, rhs_type, rhs);
+
+        AstNode *assign_statement = trans_create_node_bin_op(c,
+            trans_create_node_prefix_op(c, PrefixOpDereference,
+                trans_create_node_symbol(c, tmp_var_name)),
+            BinOpTypeAssign,
+            trans_c_cast(c, rhs_location,
+                stmt->getComputationResultType(),
+                trans_create_node_bin_op(c,
+                    trans_c_cast(c, rhs_location,
+                        stmt->getComputationLHSType(),
+                        trans_create_node_prefix_op(c, PrefixOpDereference,
+                            trans_create_node_symbol(c, tmp_var_name))),
+                    bin_op,
+                    coerced_rhs)));
+        child_block->data.block.statements.append(assign_statement);
+
+        if (result_used) {
+            // *_ref
+            child_block->data.block.statements.append(
+                trans_create_node_prefix_op(c, PrefixOpDereference,
+                    trans_create_node_symbol(c, tmp_var_name)));
+            child_block->data.block.last_statement_is_result_expression = true;
+        }
+
+        return child_block;
+    }
+}
+
+static AstNode *trans_create_compound_assign(Context *c, bool result_used, AstNode *block, CompoundAssignOperator *stmt, BinOpType assign_op, BinOpType bin_op) {
+    if (!result_used) {
+        // simple common case, where the C and Zig are identical:
+        // lhs += rhs
+        AstNode *lhs = trans_expr(c, true, block, stmt->getLHS(), TransLValue);
+        if (lhs == nullptr) return nullptr;
+        AstNode *rhs = trans_expr(c, true, block, stmt->getRHS(), TransRValue);
+        if (rhs == nullptr) return nullptr;
+        return trans_create_node_bin_op(c, lhs, assign_op, rhs);
+    } else {
+        // need more complexity. worst case, this looks like this:
+        // c:   lhs += rhs
+        // zig: {
+        // zig:     const _ref = &lhs;
+        // zig:     *_ref = *_ref + rhs;
+        // zig:     *_ref
+        // zig: }
+
+        AstNode *child_block = trans_create_node(c, NodeTypeBlock);
+
+        // const _ref = &lhs;
+        AstNode *lhs = trans_expr(c, true, child_block, stmt->getLHS(), TransLValue);
+        if (lhs == nullptr) return nullptr;
+        AstNode *addr_of_lhs = trans_create_node_addr_of(c, false, false, lhs);
+        // TODO: avoid name collisions with generated variable names
+        Buf* tmp_var_name = buf_create_from_str("_ref");
+        AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr, addr_of_lhs);
+        child_block->data.block.statements.append(tmp_var_decl);
+
+        // *_ref = *_ref + rhs;
+
+        AstNode *rhs = trans_expr(c, true, child_block, stmt->getRHS(), TransRValue);
+        if (rhs == nullptr) return nullptr;
+
+        AstNode *assign_statement = trans_create_node_bin_op(c,
+            trans_create_node_prefix_op(c, PrefixOpDereference,
+                trans_create_node_symbol(c, tmp_var_name)),
+            BinOpTypeAssign,
+            trans_create_node_bin_op(c,
+                trans_create_node_prefix_op(c, PrefixOpDereference,
+                    trans_create_node_symbol(c, tmp_var_name)),
+                bin_op,
+                rhs));
+        child_block->data.block.statements.append(assign_statement);
+
+        // *_ref
+        child_block->data.block.statements.append(
+            trans_create_node_prefix_op(c, PrefixOpDereference,
+                trans_create_node_symbol(c, tmp_var_name)));
+        child_block->data.block.last_statement_is_result_expression = true;
+
+        return child_block;
+    }
+}
+
+
 static AstNode *trans_compound_assign_operator(Context *c, bool result_used, AstNode *block, CompoundAssignOperator *stmt) {
     switch (stmt->getOpcode()) {
         case BO_MulAssign:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_MulAssign");
-            return nullptr;
+            if (qual_type_has_wrapping_overflow(c, stmt->getType()))
+                return trans_create_compound_assign(c, result_used, block, stmt, BinOpTypeAssignTimesWrap, BinOpTypeMultWrap);
+            else
+                return trans_create_compound_assign(c, result_used, block, stmt, BinOpTypeAssignTimes, BinOpTypeMult);
         case BO_DivAssign:
             emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_DivAssign");
             return nullptr;
@@ -1140,95 +1249,25 @@ static AstNode *trans_compound_assign_operator(Context *c, bool result_used, Ast
             emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_RemAssign");
             return nullptr;
         case BO_AddAssign:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_AddAssign");
-            return nullptr;
+            if (qual_type_has_wrapping_overflow(c, stmt->getType()))
+                return trans_create_compound_assign(c, result_used, block, stmt, BinOpTypeAssignPlusWrap, BinOpTypeAddWrap);
+            else
+                return trans_create_compound_assign(c, result_used, block, stmt, BinOpTypeAssignPlus, BinOpTypeAdd);
         case BO_SubAssign:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_SubAssign");
-            return nullptr;
+            if (qual_type_has_wrapping_overflow(c, stmt->getType()))
+                return trans_create_compound_assign(c, result_used, block, stmt, BinOpTypeAssignMinusWrap, BinOpTypeSubWrap);
+            else
+                return trans_create_compound_assign(c, result_used, block, stmt, BinOpTypeAssignMinus, BinOpTypeSub);
         case BO_ShlAssign:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_ShlAssign");
-            return nullptr;
-        case BO_ShrAssign: {
-            BinOpType bin_op = BinOpTypeBitShiftRight;
-
-            const SourceLocation &rhs_location = stmt->getRHS()->getLocStart();
-            AstNode *rhs_type = qual_type_to_log2_int_ref(c, stmt->getComputationLHSType(), rhs_location);
-
-            bool use_intermediate_casts = stmt->getComputationLHSType().getTypePtr() != stmt->getComputationResultType().getTypePtr();
-            if (!use_intermediate_casts && !result_used) {
-                // simple common case, where the C and Zig are identical:
-                // lhs >>= rh* s
-                AstNode *lhs = trans_expr(c, true, block, stmt->getLHS(), TransLValue);
-                if (lhs == nullptr) return nullptr;
-
-                AstNode *rhs = trans_expr(c, true, block, stmt->getRHS(), TransRValue);
-                if (rhs == nullptr) return nullptr;
-                AstNode *coerced_rhs = trans_create_node_fn_call_1(c, rhs_type, rhs);
-
-                return trans_create_node_bin_op(c, lhs, BinOpTypeAssignBitShiftRight, coerced_rhs);
-            } else {
-                // need more complexity. worst case, this looks like this:
-                // c:   lhs >>= rhs
-                // zig: {
-                // zig:     const _ref = &lhs;
-                // zig:     *_ref = result_type(operation_type(*_ref) >> u5(rhs));
-                // zig:     *_ref
-                // zig: }
-                // where u5 is the appropriate type
-
-                // TODO: avoid mess when we don't need the assignment value for chained assignments or anything.
-                AstNode *child_block = trans_create_node(c, NodeTypeBlock);
-
-                // const _ref = &lhs;
-                AstNode *lhs = trans_expr(c, true, child_block, stmt->getLHS(), TransLValue);
-                if (lhs == nullptr) return nullptr;
-                AstNode *addr_of_lhs = trans_create_node_addr_of(c, false, false, lhs);
-                // TODO: avoid name collisions with generated variable names
-                Buf* tmp_var_name = buf_create_from_str("_ref");
-                AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr, addr_of_lhs);
-                child_block->data.block.statements.append(tmp_var_decl);
-
-                // *_ref = result_type(operation_type(*_ref) >> u5(rhs));
-
-                AstNode *rhs = trans_expr(c, true, child_block, stmt->getRHS(), TransRValue);
-                if (rhs == nullptr) return nullptr;
-                AstNode *coerced_rhs = trans_create_node_fn_call_1(c, rhs_type, rhs);
-
-                AstNode *assign_statement = trans_create_node_bin_op(c,
-                    trans_create_node_prefix_op(c, PrefixOpDereference,
-                        trans_create_node_symbol(c, tmp_var_name)),
-                    BinOpTypeAssign,
-                    trans_c_cast(c, rhs_location,
-                        stmt->getComputationResultType(),
-                        trans_create_node_bin_op(c,
-                            trans_c_cast(c, rhs_location,
-                                stmt->getComputationLHSType(),
-                                trans_create_node_prefix_op(c, PrefixOpDereference,
-                                    trans_create_node_symbol(c, tmp_var_name))),
-                            bin_op,
-                            coerced_rhs)));
-                child_block->data.block.statements.append(assign_statement);
-
-                if (result_used) {
-                    // *_ref
-                    child_block->data.block.statements.append(
-                        trans_create_node_prefix_op(c, PrefixOpDereference,
-                            trans_create_node_symbol(c, tmp_var_name)));
-                    child_block->data.block.last_statement_is_result_expression = true;
-                }
-
-                return child_block;
-            }
-        }
+            return trans_create_compound_assign_shift(c, result_used, block, stmt, BinOpTypeAssignBitShiftLeft, BinOpTypeBitShiftLeft);
+        case BO_ShrAssign:
+            return trans_create_compound_assign_shift(c, result_used, block, stmt, BinOpTypeAssignBitShiftRight, BinOpTypeBitShiftRight);
         case BO_AndAssign:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_AndAssign");
-            return nullptr;
+            return trans_create_compound_assign(c, result_used, block, stmt, BinOpTypeAssignBitAnd, BinOpTypeBinAnd);
         case BO_XorAssign:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_XorAssign");
-            return nullptr;
+            return trans_create_compound_assign(c, result_used, block, stmt, BinOpTypeAssignBitXor, BinOpTypeBinXor);
         case BO_OrAssign:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_OrAssign");
-            return nullptr;
+            return trans_create_compound_assign(c, result_used, block, stmt, BinOpTypeAssignBitOr, BinOpTypeBinOr);
         case BO_PtrMemD:
         case BO_PtrMemI:
         case BO_Assign:
@@ -1251,7 +1290,7 @@ static AstNode *trans_compound_assign_operator(Context *c, bool result_used, Ast
         case BO_LAnd:
         case BO_LOr:
         case BO_Comma:
-            zig_panic("compound assign expected to be handled by binary operator");
+            zig_unreachable();
     }
 
     zig_unreachable();
