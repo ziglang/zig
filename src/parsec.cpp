@@ -350,6 +350,21 @@ static AstNode* trans_c_cast(Context *c, const SourceLocation &source_location, 
     return trans_create_node_fn_call_1(c, trans_qual_type(c, qt, source_location), expr);
 }
 
+static bool qual_type_is_fn_ptr(Context *c, const QualType &qt) {
+    const Type *ty = qt.getTypePtr();
+    if (ty->getTypeClass() != Type::Pointer) {
+        return false;
+    }
+    const PointerType *pointer_ty = static_cast<const PointerType*>(ty);
+    QualType child_qt = pointer_ty->getPointeeType();
+    const Type *child_ty = child_qt.getTypePtr();
+    if (child_ty->getTypeClass() != Type::Paren) {
+        return false;
+    }
+    const ParenType *paren_ty = static_cast<const ParenType *>(child_ty);
+    return paren_ty->getInnerType().getTypePtr()->getTypeClass() == Type::FunctionProto;
+}
+
 static uint32_t qual_type_int_bit_width(Context *c, const QualType &qt, const SourceLocation &source_loc) {
     const Type *ty = qt.getTypePtr();
     switch (ty->getTypeClass()) {
@@ -1575,8 +1590,14 @@ static AstNode *trans_unary_operator(Context *c, bool result_used, AstNode *bloc
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_AddrOf");
             return nullptr;
         case UO_Deref:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_Deref");
-            return nullptr;
+            {
+                bool is_fn_ptr = qual_type_is_fn_ptr(c, stmt->getSubExpr()->getType());
+                AstNode *value_node = trans_expr(c, result_used, block, stmt->getSubExpr(), TransRValue);
+                if (is_fn_ptr)
+                    return value_node;
+                AstNode *unwrapped = trans_create_node_prefix_op(c, PrefixOpUnwrapMaybe, value_node);
+                return trans_create_node_prefix_op(c, PrefixOpDereference, unwrapped);
+            }
         case UO_Plus:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_Plus");
             return nullptr;
@@ -1919,9 +1940,19 @@ static AstNode *trans_if_statement(Context *c, AstNode *block, IfStmt *stmt) {
 
 static AstNode *trans_call_expr(Context *c, bool result_used, AstNode *block, CallExpr *stmt) {
     AstNode *node = trans_create_node(c, NodeTypeFnCallExpr);
-    node->data.fn_call_expr.fn_ref_expr = trans_expr(c, true, block, stmt->getCallee(), TransRValue);
-    if (node->data.fn_call_expr.fn_ref_expr == nullptr)
+
+    AstNode *callee_raw_node = trans_expr(c, true, block, stmt->getCallee(), TransRValue);
+    if (callee_raw_node == nullptr)
         return nullptr;
+
+    AstNode *callee_node;
+    if (qual_type_is_fn_ptr(c, stmt->getCallee()->getType())) {
+        callee_node = trans_create_node_prefix_op(c, PrefixOpUnwrapMaybe, callee_raw_node);
+    } else {
+        callee_node = callee_raw_node;
+    }
+
+    node->data.fn_call_expr.fn_ref_expr = callee_node;
 
     unsigned num_args = stmt->getNumArgs();
     Expr **args = stmt->getArgs();

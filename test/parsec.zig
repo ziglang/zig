@@ -203,13 +203,13 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\pub extern var fn_ptr: ?extern fn();
     ,
         \\pub inline fn foo() {
-        \\    ??fn_ptr()
+        \\    (??fn_ptr)()
         \\}
     ,
         \\pub extern var fn_ptr2: ?extern fn(c_int, f32) -> u8;
     ,
         \\pub inline fn bar(arg0: c_int, arg1: f32) -> u8 {
-        \\    ??fn_ptr2(arg0, arg1)
+        \\    (??fn_ptr2)(arg0, arg1)
         \\}
     );
 
@@ -829,6 +829,32 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\        b -= 1;
         \\        if (!(b != 0)) break;
         \\    };
+        \\}
+    );
+
+    cases.addC("deref function pointer",
+        \\void foo(void) {}
+        \\void bar(void) {
+        \\    void(*f)(void) = foo;
+        \\    f();
+        \\    (*(f))();
+        \\}
+    ,
+        \\export fn foo() {}
+        \\export fn bar() {
+        \\    var f: ?extern fn() = foo;
+        \\    (??f)();
+        \\    (??f)();
+        \\}
+    );
+
+    cases.addC("normal deref",
+        \\void foo(int *x) {
+        \\    *x = 1;
+        \\}
+    ,
+        \\export fn foo(x: ?&c_int) {
+        \\    (*(??x)) = 1;
         \\}
     );
 }
