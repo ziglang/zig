@@ -987,6 +987,21 @@ static AstNode *trans_create_assign(Context *c, bool result_used, AstNode *block
     }
 }
 
+static AstNode *trans_create_shift_op(Context *c, AstNode *block, QualType result_type, Expr *lhs_expr, BinOpType bin_op, Expr *rhs_expr) {
+    const SourceLocation &rhs_location = rhs_expr->getLocStart();
+    AstNode *rhs_type = qual_type_to_log2_int_ref(c, result_type, rhs_location);
+    // lhs >> u5(rh)
+
+    AstNode *lhs = trans_expr(c, true, block, lhs_expr, TransLValue);
+    if (lhs == nullptr) return nullptr;
+
+    AstNode *rhs = trans_expr(c, true, block, rhs_expr, TransRValue);
+    if (rhs == nullptr) return nullptr;
+    AstNode *coerced_rhs = trans_create_node_fn_call_1(c, rhs_type, rhs);
+
+    return trans_create_node_bin_op(c, lhs, bin_op, coerced_rhs);
+}
+
 static AstNode *trans_binary_operator(Context *c, bool result_used, AstNode *block, BinaryOperator *stmt) {
     switch (stmt->getOpcode()) {
         case BO_PtrMemD:
@@ -1038,11 +1053,9 @@ static AstNode *trans_binary_operator(Context *c, bool result_used, AstNode *blo
                 qual_type_has_wrapping_overflow(c, stmt->getType()) ? BinOpTypeSubWrap : BinOpTypeSub,
                 stmt->getRHS());
         case BO_Shl:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Shl");
-            return nullptr;
+            return trans_create_shift_op(c, block, stmt->getType(), stmt->getLHS(), BinOpTypeBitShiftLeft, stmt->getRHS());
         case BO_Shr:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Shr");
-            return nullptr;
+            return trans_create_shift_op(c, block, stmt->getType(), stmt->getLHS(), BinOpTypeBitShiftRight, stmt->getRHS());
         case BO_LT:
             return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeCmpLessThan, stmt->getRHS());
         case BO_GT:

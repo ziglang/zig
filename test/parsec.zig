@@ -620,6 +620,16 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
+    cases.addC("bitshift",
+        \\int foo(void) {
+        \\    return (1 << 2) >> 1;
+        \\}
+    ,
+        \\export fn foo() -> c_int {
+        \\    return (1 << @import("std").math.Log2Int(c_int)(2)) >> @import("std").math.Log2Int(c_int)(1);
+        \\}
+    );
+
     cases.addC("duplicate typedef",
         \\typedef long foo;
         \\typedef int bar;
