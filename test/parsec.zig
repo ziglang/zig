@@ -606,8 +606,20 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\    return null;
         \\}
     );
-}
 
+    cases.addC("comma operator",
+        \\int foo(void) {
+        \\    return 1, 2;
+        \\}
+    ,
+        \\export fn foo() -> c_int {
+        \\    return {
+        \\        _ = 1;
+        \\        2
+        \\    };
+        \\}
+    );
+}
 
 
 

@@ -1099,8 +1099,17 @@ static AstNode *trans_binary_operator(Context *c, bool result_used, AstNode *blo
             emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_OrAssign");
             return nullptr;
         case BO_Comma:
-            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Comma");
-            return nullptr;
+            {
+                block = trans_create_node(c, NodeTypeBlock);
+                AstNode *lhs = trans_expr(c, false, block, stmt->getLHS(), TransRValue);
+                if (lhs == nullptr) return nullptr;
+                block->data.block.statements.append(maybe_suppress_result(c, false, lhs));
+                AstNode *rhs = trans_expr(c, result_used, block, stmt->getRHS(), TransRValue);
+                if (rhs == nullptr) return nullptr;
+                block->data.block.statements.append(maybe_suppress_result(c, result_used, rhs));
+                block->data.block.last_statement_is_result_expression = true;
+                return block;
+            }
     }
 
     zig_unreachable();
