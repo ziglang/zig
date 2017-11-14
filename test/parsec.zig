@@ -203,13 +203,13 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\pub extern var fn_ptr: ?extern fn();
     ,
         \\pub inline fn foo() {
-        \\    ??fn_ptr()
+        \\    (??fn_ptr)()
         \\}
     ,
         \\pub extern var fn_ptr2: ?extern fn(c_int, f32) -> u8;
     ,
         \\pub inline fn bar(arg0: c_int, arg1: f32) -> u8 {
-        \\    ??fn_ptr2(arg0, arg1)
+        \\    (??fn_ptr2)(arg0, arg1)
         \\}
     );
 
@@ -596,8 +596,268 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\    return @sizeOf(c_int);
         \\}
     );
-}
 
+    cases.addC("null pointer implicit cast",
+        \\int* foo(void) {
+        \\    return 0;
+        \\}
+    ,
+        \\export fn foo() -> ?&c_int {
+        \\    return null;
+        \\}
+    );
+
+    cases.addC("comma operator",
+        \\int foo(void) {
+        \\    return 1, 2;
+        \\}
+    ,
+        \\export fn foo() -> c_int {
+        \\    return {
+        \\        _ = 1;
+        \\        2
+        \\    };
+        \\}
+    );
+
+    cases.addC("bitshift",
+        \\int foo(void) {
+        \\    return (1 << 2) >> 1;
+        \\}
+    ,
+        \\export fn foo() -> c_int {
+        \\    return (1 << @import("std").math.Log2Int(c_int)(2)) >> @import("std").math.Log2Int(c_int)(1);
+        \\}
+    );
+
+    cases.addC("compound assignment operators",
+        \\void foo(void) {
+        \\    int a = 0;
+        \\    a += (a += 1);
+        \\    a -= (a -= 1);
+        \\    a *= (a *= 1);
+        \\    a &= (a &= 1);
+        \\    a |= (a |= 1);
+        \\    a ^= (a ^= 1);
+        \\    a >>= (a >>= 1);
+        \\    a <<= (a <<= 1);
+        \\}
+    ,
+        \\export fn foo() {
+        \\    var a: c_int = 0;
+        \\    a += {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) + 1);
+        \\        *_ref
+        \\    };
+        \\    a -= {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) - 1);
+        \\        *_ref
+        \\    };
+        \\    a *= {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) * 1);
+        \\        *_ref
+        \\    };
+        \\    a &= {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) & 1);
+        \\        *_ref
+        \\    };
+        \\    a |= {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) | 1);
+        \\        *_ref
+        \\    };
+        \\    a ^= {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) ^ 1);
+        \\        *_ref
+        \\    };
+        \\    a >>= @import("std").math.Log2Int(c_int)({
+        \\        const _ref = &a;
+        \\        (*_ref) = c_int(c_int(*_ref) >> @import("std").math.Log2Int(c_int)(1));
+        \\        *_ref
+        \\    });
+        \\    a <<= @import("std").math.Log2Int(c_int)({
+        \\        const _ref = &a;
+        \\        (*_ref) = c_int(c_int(*_ref) << @import("std").math.Log2Int(c_int)(1));
+        \\        *_ref
+        \\    });
+        \\}
+    );
+
+    cases.addC("compound assignment operators unsigned",
+        \\void foo(void) {
+        \\    unsigned a = 0;
+        \\    a += (a += 1);
+        \\    a -= (a -= 1);
+        \\    a *= (a *= 1);
+        \\    a &= (a &= 1);
+        \\    a |= (a |= 1);
+        \\    a ^= (a ^= 1);
+        \\    a >>= (a >>= 1);
+        \\    a <<= (a <<= 1);
+        \\}
+    ,
+        \\export fn foo() {
+        \\    var a: c_uint = c_uint(0);
+        \\    a +%= {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) +% c_uint(1));
+        \\        *_ref
+        \\    };
+        \\    a -%= {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) -% c_uint(1));
+        \\        *_ref
+        \\    };
+        \\    a *%= {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) *% c_uint(1));
+        \\        *_ref
+        \\    };
+        \\    a &= {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) & c_uint(1));
+        \\        *_ref
+        \\    };
+        \\    a |= {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) | c_uint(1));
+        \\        *_ref
+        \\    };
+        \\    a ^= {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) ^ c_uint(1));
+        \\        *_ref
+        \\    };
+        \\    a >>= @import("std").math.Log2Int(c_uint)({
+        \\        const _ref = &a;
+        \\        (*_ref) = c_uint(c_uint(*_ref) >> @import("std").math.Log2Int(c_uint)(1));
+        \\        *_ref
+        \\    });
+        \\    a <<= @import("std").math.Log2Int(c_uint)({
+        \\        const _ref = &a;
+        \\        (*_ref) = c_uint(c_uint(*_ref) << @import("std").math.Log2Int(c_uint)(1));
+        \\        *_ref
+        \\    });
+        \\}
+    );
+
+    cases.addC("duplicate typedef",
+        \\typedef long foo;
+        \\typedef int bar;
+        \\typedef long foo;
+        \\typedef int baz;
+    ,
+        \\pub const foo = c_long;
+        \\pub const bar = c_int;
+        \\pub const baz = c_int;
+    );
+
+    cases.addC("post increment/decrement",
+        \\void foo(void) {
+        \\    int i = 0;
+        \\    unsigned u = 0;
+        \\    i++;
+        \\    i--;
+        \\    u++;
+        \\    u--;
+        \\    i = i++;
+        \\    i = i--;
+        \\    u = u++;
+        \\    u = u--;
+        \\}
+    ,
+        \\export fn foo() {
+        \\    var i: c_int = 0;
+        \\    var u: c_uint = c_uint(0);
+        \\    i += 1;
+        \\    i -= 1;
+        \\    u +%= 1;
+        \\    u -%= 1;
+        \\    i = {
+        \\        const _ref = &i;
+        \\        const _tmp = *_ref;
+        \\        (*_ref) += 1;
+        \\        _tmp
+        \\    };
+        \\    i = {
+        \\        const _ref = &i;
+        \\        const _tmp = *_ref;
+        \\        (*_ref) -= 1;
+        \\        _tmp
+        \\    };
+        \\    u = {
+        \\        const _ref = &u;
+        \\        const _tmp = *_ref;
+        \\        (*_ref) +%= 1;
+        \\        _tmp
+        \\    };
+        \\    u = {
+        \\        const _ref = &u;
+        \\        const _tmp = *_ref;
+        \\        (*_ref) -%= 1;
+        \\        _tmp
+        \\    };
+        \\}
+    );
+
+    cases.addC("do loop",
+        \\void foo(void) {
+        \\    int a = 2;
+        \\    do {
+        \\        a--;
+        \\    } while (a != 0);
+        \\
+        \\    int b = 2;
+        \\    do
+        \\        b--;
+        \\    while (b != 0);
+        \\}
+    ,
+        \\export fn foo() {
+        \\    var a: c_int = 2;
+        \\    while (true) {
+        \\        a -= 1;
+        \\        if (!(a != 0)) break;
+        \\    };
+        \\    var b: c_int = 2;
+        \\    while (true) {
+        \\        b -= 1;
+        \\        if (!(b != 0)) break;
+        \\    };
+        \\}
+    );
+
+    cases.addC("deref function pointer",
+        \\void foo(void) {}
+        \\void bar(void) {
+        \\    void(*f)(void) = foo;
+        \\    f();
+        \\    (*(f))();
+        \\}
+    ,
+        \\export fn foo() {}
+        \\export fn bar() {
+        \\    var f: ?extern fn() = foo;
+        \\    (??f)();
+        \\    (??f)();
+        \\}
+    );
+
+    cases.addC("normal deref",
+        \\void foo(int *x) {
+        \\    *x = 1;
+        \\}
+    ,
+        \\export fn foo(x: ?&c_int) {
+        \\    (*(??x)) = 1;
+        \\}
+    );
+}
 
 
 

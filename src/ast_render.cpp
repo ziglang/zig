@@ -625,7 +625,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     fprintf(ar->f, "@");
                 }
                 AstNode *fn_ref_node = node->data.fn_call_expr.fn_ref_expr;
-                bool grouped = (fn_ref_node->type != NodeTypeBinOpExpr);
+                bool grouped = (fn_ref_node->type != NodeTypePrefixOpExpr);
                 render_node_extra(ar, fn_ref_node, grouped);
                 fprintf(ar->f, "(");
                 for (size_t i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
