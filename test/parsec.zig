@@ -804,6 +804,33 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\    };
         \\}
     );
+
+    cases.addC("do loop",
+        \\void foo(void) {
+        \\    int a = 2;
+        \\    do {
+        \\        a--;
+        \\    } while (a != 0);
+        \\
+        \\    int b = 2;
+        \\    do
+        \\        b--;
+        \\    while (b != 0);
+        \\}
+    ,
+        \\export fn foo() {
+        \\    var a: c_int = 2;
+        \\    while (true) {
+        \\        a -= 1;
+        \\        if (!(a != 0)) break;
+        \\    };
+        \\    var b: c_int = 2;
+        \\    while (true) {
+        \\        b -= 1;
+        \\        if (!(b != 0)) break;
+        \\    };
+        \\}
+    );
 }
 
 

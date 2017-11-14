@@ -1987,6 +1987,59 @@ static AstNode *trans_unary_expr_or_type_trait_expr(Context *c, AstNode *block, 
     return node;
 }
 
+static AstNode *trans_do_loop(Context *c, AstNode *block, DoStmt *stmt) {
+    stmt->getBody();
+    stmt->getCond();
+
+    AstNode *while_node = trans_create_node(c, NodeTypeWhileExpr);
+
+    AstNode *true_node = trans_create_node(c, NodeTypeBoolLiteral);
+    true_node->data.bool_literal.value = true;
+    while_node->data.while_expr.condition = true_node;
+
+    AstNode *body_node;
+    if (stmt->getBody()->getStmtClass() == Stmt::CompoundStmtClass) {
+        // there's already a block in C, so we'll append our condition to it.
+        // c: do {
+        // c:   a;
+        // c:   b;
+        // c: } while(c);
+        // zig: while (true) {
+        // zig:   a;
+        // zig:   b;
+        // zig:   if (!cond) break;
+        // zig: }
+        body_node = trans_stmt(c, false, block, stmt->getBody(), TransRValue);
+        if (body_node == nullptr) return nullptr;
+        assert(body_node->type == NodeTypeBlock);
+    } else {
+        // the C statement is without a block, so we need to create a block to contain it.
+        // c: do
+        // c:   a;
+        // c: while(c);
+        // zig: while (true) {
+        // zig:   a;
+        // zig:   if (!cond) break;
+        // zig: }
+        body_node = trans_create_node(c, NodeTypeBlock);
+        AstNode *child_statement = trans_stmt(c, false, body_node, stmt->getBody(), TransRValue);
+        if (child_statement == nullptr) return nullptr;
+        body_node->data.block.statements.append(child_statement);
+    }
+
+    // if (!cond) break;
+    AstNode *condition_node = trans_expr(c, true, body_node, stmt->getCond(), TransRValue);
+    if (condition_node == nullptr) return nullptr;
+    AstNode *terminator_node = trans_create_node(c, NodeTypeIfBoolExpr);
+    terminator_node->data.if_bool_expr.condition = trans_create_node_prefix_op(c, PrefixOpBoolNot, condition_node);
+    terminator_node->data.if_bool_expr.then_block = trans_create_node(c, NodeTypeBreak);
+    body_node->data.block.statements.append(terminator_node);
+
+    while_node->data.while_expr.body = body_node;
+
+    return while_node;
+}
+
 static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *stmt, TransLRValue lrvalue) {
     Stmt::StmtClass sc = stmt->getStmtClass();
     switch (sc) {
@@ -2026,6 +2079,8 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
             return trans_c_style_cast_expr(c, result_used, block, (CStyleCastExpr *)stmt, lrvalue);
         case Stmt::UnaryExprOrTypeTraitExprClass:
             return trans_unary_expr_or_type_trait_expr(c, block, (UnaryExprOrTypeTraitExpr *)stmt);
+        case Stmt::DoStmtClass:
+            return trans_do_loop(c, block, (DoStmt *)stmt);
         case Stmt::CaseStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CaseStmtClass");
             return nullptr;
@@ -2070,9 +2125,6 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
             return nullptr;
         case Stmt::CoroutineBodyStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CoroutineBodyStmtClass");
-            return nullptr;
-        case Stmt::DoStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C DoStmtClass");
             return nullptr;
         case Stmt::BinaryConditionalOperatorClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C BinaryConditionalOperatorClass");
