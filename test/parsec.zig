@@ -687,6 +687,65 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\    });
         \\}
     );
+
+    cases.addC("compound assignment operators unsigned",
+        \\void foo(void) {
+        \\    unsigned a = 0;
+        \\    a += (a += 1);
+        \\    a -= (a -= 1);
+        \\    a *= (a *= 1);
+        \\    a &= (a &= 1);
+        \\    a |= (a |= 1);
+        \\    a ^= (a ^= 1);
+        \\    a >>= (a >>= 1);
+        \\    a <<= (a <<= 1);
+        \\}
+    ,
+        \\export fn foo() {
+        \\    var a: c_uint = c_uint(0);
+        \\    a +%= {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) +% c_uint(1));
+        \\        *_ref
+        \\    };
+        \\    a -%= {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) -% c_uint(1));
+        \\        *_ref
+        \\    };
+        \\    a *%= {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) *% c_uint(1));
+        \\        *_ref
+        \\    };
+        \\    a &= {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) & c_uint(1));
+        \\        *_ref
+        \\    };
+        \\    a |= {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) | c_uint(1));
+        \\        *_ref
+        \\    };
+        \\    a ^= {
+        \\        const _ref = &a;
+        \\        (*_ref) = ((*_ref) ^ c_uint(1));
+        \\        *_ref
+        \\    };
+        \\    a >>= @import("std").math.Log2Int(c_uint)({
+        \\        const _ref = &a;
+        \\        (*_ref) = c_uint(c_uint(*_ref) >> @import("std").math.Log2Int(c_uint)(1));
+        \\        *_ref
+        \\    });
+        \\    a <<= @import("std").math.Log2Int(c_uint)({
+        \\        const _ref = &a;
+        \\        (*_ref) = c_uint(c_uint(*_ref) << @import("std").math.Log2Int(c_uint)(1));
+        \\        *_ref
+        \\    });
+        \\}
+    );
+
     cases.addC("duplicate typedef",
         \\typedef long foo;
         \\typedef int bar;
@@ -696,6 +755,54 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\pub const foo = c_long;
         \\pub const bar = c_int;
         \\pub const baz = c_int;
+    );
+
+    cases.addC("post increment/decrement",
+        \\void foo(void) {
+        \\    int i = 0;
+        \\    unsigned u = 0;
+        \\    i++;
+        \\    i--;
+        \\    u++;
+        \\    u--;
+        \\    i = i++;
+        \\    i = i--;
+        \\    u = u++;
+        \\    u = u--;
+        \\}
+    ,
+        \\export fn foo() {
+        \\    var i: c_int = 0;
+        \\    var u: c_uint = c_uint(0);
+        \\    i += 1;
+        \\    i -= 1;
+        \\    u +%= 1;
+        \\    u -%= 1;
+        \\    i = {
+        \\        const _ref = &i;
+        \\        const _tmp = *_ref;
+        \\        (*_ref) += 1;
+        \\        _tmp
+        \\    };
+        \\    i = {
+        \\        const _ref = &i;
+        \\        const _tmp = *_ref;
+        \\        (*_ref) -= 1;
+        \\        _tmp
+        \\    };
+        \\    u = {
+        \\        const _ref = &u;
+        \\        const _tmp = *_ref;
+        \\        (*_ref) +%= 1;
+        \\        _tmp
+        \\    };
+        \\    u = {
+        \\        const _ref = &u;
+        \\        const _tmp = *_ref;
+        \\        (*_ref) -%= 1;
+        \\        _tmp
+        \\    };
+        \\}
     );
 }
 
