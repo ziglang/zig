@@ -1267,6 +1267,8 @@ static AstNode *trans_implicit_cast_expr(Context *c, AstNode *block, ImplicitCas
                 node->data.fn_call_expr.params.append(target_node);
                 return node;
             }
+        case CK_NullToPointer:
+            return trans_create_node(c, NodeTypeNullLiteral);
         case CK_Dependent:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_Dependent");
             return nullptr;
@@ -1290,9 +1292,6 @@ static AstNode *trans_implicit_cast_expr(Context *c, AstNode *block, ImplicitCas
             return nullptr;
         case CK_ToUnion:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_ToUnion");
-            return nullptr;
-        case CK_NullToPointer:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_NullToPointer");
             return nullptr;
         case CK_NullToMemberPointer:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation cast CK_NullToMemberPointer");

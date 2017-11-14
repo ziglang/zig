@@ -596,6 +596,16 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\    return @sizeOf(c_int);
         \\}
     );
+
+    cases.addC("null pointer implicit cast",
+        \\int* foo(void) {
+        \\    return 0;
+        \\}
+    ,
+        \\export fn foo() -> ?&c_int {
+        \\    return null;
+        \\}
+    );
 }
 
 
