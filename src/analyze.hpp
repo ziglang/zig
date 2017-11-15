@@ -63,6 +63,7 @@ void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry);
 TypeStructField *find_struct_type_field(TypeTableEntry *type_entry, Buf *name);
 ScopeDecls *get_container_scope(TypeTableEntry *type_entry);
 TypeEnumField *find_enum_type_field(TypeTableEntry *enum_type, Buf *name);
+TypeUnionField *find_union_type_field(TypeTableEntry *type_entry, Buf *name);
 bool is_container_ref(TypeTableEntry *type_entry);
 void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node);
 void scan_import(CodeGen *g, ImportTableEntry *import);

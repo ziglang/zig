@@ -31,3 +31,16 @@ test "unions embedded in aggregate types" {
         else => unreachable,
     }
 }
+
+
+const Foo = union {
+    float: f64,
+    int: i32,
+};
+
+test "basic unions" {
+    var foo = Foo { .int = 1 };
+    assert(foo.int == 1);
+    foo.float = 12.34;
+    assert(foo.float == 12.34);
+}

@@ -2393,6 +2393,27 @@ static LLVMValueRef ir_render_enum_field_ptr(CodeGen *g, IrExecutable *executabl
     return bitcasted_union_field_ptr;
 }
 
+static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, IrExecutable *executable,
+    IrInstructionUnionFieldPtr *instruction)
+{
+    TypeTableEntry *union_ptr_type = instruction->union_ptr->value.type;
+    assert(union_ptr_type->id == TypeTableEntryIdPointer);
+    TypeTableEntry *union_type = union_ptr_type->data.pointer.child_type;
+    assert(union_type->id == TypeTableEntryIdUnion);
+
+    TypeUnionField *field = instruction->field;
+
+    if (!type_has_bits(field->type_entry))
+        return nullptr;
+
+    LLVMValueRef union_ptr = ir_llvm_value(g, instruction->union_ptr);
+    LLVMTypeRef field_type_ref = LLVMPointerType(field->type_entry->type_ref, 0);
+    LLVMValueRef union_field_ptr = LLVMBuildStructGEP(g->builder, union_ptr, 0, "");
+    LLVMValueRef bitcasted_union_field_ptr = LLVMBuildBitCast(g->builder, union_field_ptr, field_type_ref, "");
+
+    return bitcasted_union_field_ptr;
+}
+
 static size_t find_asm_index(CodeGen *g, AstNode *node, AsmToken *tok) {
     const char *ptr = buf_ptr(node->data.asm_expr.asm_template) + tok->start + 2;
     size_t len = tok->end - tok->start - 2;
@@ -3365,6 +3386,25 @@ static LLVMValueRef ir_render_struct_init(CodeGen *g, IrExecutable *executable, 
     return instruction->tmp_ptr;
 }
 
+static LLVMValueRef ir_render_union_init(CodeGen *g, IrExecutable *executable, IrInstructionUnionInit *instruction) {
+    TypeUnionField *type_union_field = instruction->field;
+
+    assert(type_has_bits(type_union_field->type_entry));
+
+    LLVMValueRef field_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, (unsigned)0, "");
+    LLVMValueRef value = ir_llvm_value(g, instruction->init_value);
+
+    uint32_t field_align_bytes = get_abi_alignment(g, type_union_field->type_entry);
+
+    TypeTableEntry *ptr_type = get_pointer_to_type_extra(g, type_union_field->type_entry,
+            false, false, field_align_bytes,
+            0, 0);
+
+    gen_assign_raw(g, field_ptr, ptr_type, value);
+
+    return instruction->tmp_ptr;
+}
+
 static LLVMValueRef ir_render_container_init_list(CodeGen *g, IrExecutable *executable,
         IrInstructionContainerInitList *instruction)
 {
@@ -3486,6 +3526,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_struct_field_ptr(g, executable, (IrInstructionStructFieldPtr *)instruction);
         case IrInstructionIdEnumFieldPtr:
             return ir_render_enum_field_ptr(g, executable, (IrInstructionEnumFieldPtr *)instruction);
+        case IrInstructionIdUnionFieldPtr:
+            return ir_render_union_field_ptr(g, executable, (IrInstructionUnionFieldPtr *)instruction);
         case IrInstructionIdAsm:
             return ir_render_asm(g, executable, (IrInstructionAsm *)instruction);
         case IrInstructionIdTestNonNull:
@@ -3544,6 +3586,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_init_enum(g, executable, (IrInstructionInitEnum *)instruction);
         case IrInstructionIdStructInit:
             return ir_render_struct_init(g, executable, (IrInstructionStructInit *)instruction);
+        case IrInstructionIdUnionInit:
+            return ir_render_union_init(g, executable, (IrInstructionUnionInit *)instruction);
         case IrInstructionIdPtrCast:
             return ir_render_ptr_cast(g, executable, (IrInstructionPtrCast *)instruction);
         case IrInstructionIdBitCast:
@@ -3595,6 +3639,7 @@ static void ir_render(CodeGen *g, FnTableEntry *fn_entry) {
 
 static LLVMValueRef gen_const_ptr_struct_recursive(CodeGen *g, ConstExprValue *struct_const_val, size_t field_index);
 static LLVMValueRef gen_const_ptr_array_recursive(CodeGen *g, ConstExprValue *array_const_val, size_t index);
+static LLVMValueRef gen_const_ptr_union_recursive(CodeGen *g, ConstExprValue *array_const_val);
 
 static LLVMValueRef gen_parent_ptr(CodeGen *g, ConstExprValue *val, ConstParent *parent) {
     switch (parent->id) {
@@ -3608,6 +3653,8 @@ static LLVMValueRef gen_parent_ptr(CodeGen *g, ConstExprValue *val, ConstParent 
         case ConstParentIdArray:
             return gen_const_ptr_array_recursive(g, parent->data.p_array.array_val,
                     parent->data.p_array.elem_index);
+        case ConstParentIdUnion:
+            return gen_const_ptr_union_recursive(g, parent->data.p_union.union_val);
     }
     zig_unreachable();
 }
@@ -3633,6 +3680,18 @@ static LLVMValueRef gen_const_ptr_struct_recursive(CodeGen *g, ConstExprValue *s
     LLVMValueRef indices[] = {
         LLVMConstNull(u32->type_ref),
         LLVMConstInt(u32->type_ref, field_index, false),
+    };
+    return LLVMConstInBoundsGEP(base_ptr, indices, 2);
+}
+
+static LLVMValueRef gen_const_ptr_union_recursive(CodeGen *g, ConstExprValue *union_const_val) {
+    ConstParent *parent = &union_const_val->data.x_union.parent;
+    LLVMValueRef base_ptr = gen_parent_ptr(g, union_const_val, parent);
+
+    TypeTableEntry *u32 = g->builtin_types.entry_u32;
+    LLVMValueRef indices[] = {
+        LLVMConstNull(u32->type_ref),
+        LLVMConstInt(u32->type_ref, 0, false),
     };
     return LLVMConstInBoundsGEP(base_ptr, indices, 2);
 }
@@ -3872,10 +3931,6 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                     return LLVMConstNamedStruct(type_entry->type_ref, fields, type_entry->data.structure.gen_field_count);
                 }
             }
-        case TypeTableEntryIdUnion:
-            {
-                zig_panic("TODO");
-            }
         case TypeTableEntryIdArray:
             {
                 uint64_t len = type_entry->data.array.len;
@@ -3896,6 +3951,41 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                     return LLVMConstStruct(values, len, true);
                 } else {
                     return LLVMConstArray(element_type_ref, values, (unsigned)len);
+                }
+            }
+        case TypeTableEntryIdUnion:
+            {
+                LLVMTypeRef union_type_ref = type_entry->type_ref;
+                ConstExprValue *payload_value = const_val->data.x_union.value;
+                assert(payload_value != nullptr);
+
+                if (!type_has_bits(payload_value->type)) {
+                    return LLVMGetUndef(union_type_ref);
+                }
+
+                uint64_t field_type_bytes = LLVMStoreSizeOfType(g->target_data_ref, payload_value->type->type_ref);
+                uint64_t pad_bytes = type_entry->data.unionation.size_bytes - field_type_bytes;
+
+                LLVMValueRef correctly_typed_value = gen_const_val(g, payload_value);
+
+                bool make_unnamed_struct = is_llvm_value_unnamed_type(payload_value->type, correctly_typed_value) ||
+                    payload_value->type != type_entry->data.unionation.most_aligned_union_member;
+
+                unsigned field_count;
+                LLVMValueRef fields[2];
+                fields[0] = correctly_typed_value;
+                if (pad_bytes == 0) {
+                    field_count = 1;
+                } else {
+                    fields[0] = correctly_typed_value;
+                    fields[1] = LLVMGetUndef(LLVMArrayType(LLVMInt8Type(), (unsigned)pad_bytes));
+                    field_count = 2;
+                }
+
+                if (make_unnamed_struct) {
+                    return LLVMConstStruct(fields, field_count, false);
+                } else {
+                    return LLVMConstNamedStruct(type_entry->type_ref, fields, field_count);
                 }
             }
         case TypeTableEntryIdEnum:
@@ -4376,6 +4466,9 @@ static void do_code_gen(CodeGen *g) {
             } else if (instruction->id == IrInstructionIdStructInit) {
                 IrInstructionStructInit *struct_init_instruction = (IrInstructionStructInit *)instruction;
                 slot = &struct_init_instruction->tmp_ptr;
+            } else if (instruction->id == IrInstructionIdUnionInit) {
+                IrInstructionUnionInit *union_init_instruction = (IrInstructionUnionInit *)instruction;
+                slot = &union_init_instruction->tmp_ptr;
             } else if (instruction->id == IrInstructionIdCall) {
                 IrInstructionCall *call_instruction = (IrInstructionCall *)instruction;
                 slot = &call_instruction->tmp_ptr;

@@ -992,18 +992,22 @@ TypeTableEntry *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKi
     TypeTableEntryId type_id = container_to_type(kind);
     TypeTableEntry *entry = new_container_type_entry(type_id, decl_node, scope);
 
+    unsigned dwarf_kind;
     switch (kind) {
         case ContainerKindStruct:
             entry->data.structure.decl_node = decl_node;
             entry->data.structure.layout = layout;
+            dwarf_kind = ZigLLVMTag_DW_structure_type();
             break;
         case ContainerKindEnum:
             entry->data.enumeration.decl_node = decl_node;
             entry->data.enumeration.layout = layout;
+            dwarf_kind = ZigLLVMTag_DW_structure_type();
             break;
         case ContainerKindUnion:
             entry->data.unionation.decl_node = decl_node;
             entry->data.unionation.layout = layout;
+            dwarf_kind = ZigLLVMTag_DW_union_type();
             break;
     }
 
@@ -1012,7 +1016,7 @@ TypeTableEntry *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKi
     ImportTableEntry *import = get_scope_import(scope);
     entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), name);
     entry->di_type = ZigLLVMCreateReplaceableCompositeType(g->dbuilder,
-        ZigLLVMTag_DW_structure_type(), name,
+        dwarf_kind, name,
         ZigLLVMFileToScope(import->di_file), import->di_file, (unsigned)(line + 1));
 
     buf_init_from_str(&entry->name, name);
@@ -1285,7 +1289,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
         return;
 
     resolve_enum_zero_bits(g, enum_type);
-    if (enum_type->data.enumeration.is_invalid)
+    if (type_is_invalid(enum_type))
         return;
 
     AstNode *decl_node = enum_type->data.enumeration.decl_node;
@@ -1834,7 +1838,140 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
 }
 
 static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
-    zig_panic("TODO");
+    assert(union_type->id == TypeTableEntryIdUnion);
+
+    if (union_type->data.unionation.complete)
+        return;
+
+    resolve_union_zero_bits(g, union_type);
+    if (type_is_invalid(union_type))
+        return;
+
+    AstNode *decl_node = union_type->data.unionation.decl_node;
+
+    if (union_type->data.unionation.embedded_in_current) {
+        if (!union_type->data.unionation.reported_infinite_err) {
+            union_type->data.unionation.reported_infinite_err = true;
+            add_node_error(g, decl_node, buf_sprintf("union '%s' contains itself", buf_ptr(&union_type->name)));
+        }
+        return;
+    }
+
+    assert(!union_type->data.unionation.zero_bits_loop_flag);
+    assert(decl_node->type == NodeTypeContainerDecl);
+    assert(union_type->di_type);
+
+    uint32_t field_count = union_type->data.unionation.src_field_count;
+
+    assert(union_type->data.unionation.fields);
+
+    uint32_t gen_field_count = union_type->data.unionation.gen_field_count;
+    ZigLLVMDIType **union_inner_di_types = allocate<ZigLLVMDIType*>(gen_field_count);
+
+    TypeTableEntry *most_aligned_union_member = nullptr;
+    uint64_t size_of_most_aligned_member_in_bits = 0;
+    uint64_t biggest_align_in_bits = 0;
+    uint64_t biggest_size_in_bits = 0;
+
+    Scope *scope = &union_type->data.unionation.decls_scope->base;
+    ImportTableEntry *import = get_scope_import(scope);
+
+    // set temporary flag
+    union_type->data.unionation.embedded_in_current = true;
+
+    for (uint32_t i = 0; i < field_count; i += 1) {
+        AstNode *field_node = decl_node->data.container_decl.fields.at(i);
+        TypeUnionField *type_union_field = &union_type->data.unionation.fields[i];
+        TypeTableEntry *field_type = type_union_field->type_entry;
+
+        ensure_complete_type(g, field_type);
+        if (type_is_invalid(field_type)) {
+            union_type->data.unionation.is_invalid = true;
+            continue;
+        }
+
+        if (!type_has_bits(field_type))
+            continue;
+
+        uint64_t store_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, field_type->type_ref);
+        uint64_t abi_align_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, field_type->type_ref);
+
+        assert(store_size_in_bits > 0);
+        assert(abi_align_in_bits > 0);
+
+        union_inner_di_types[type_union_field->gen_index] = ZigLLVMCreateDebugMemberType(g->dbuilder,
+                ZigLLVMTypeToScope(union_type->di_type), buf_ptr(type_union_field->name),
+                import->di_file, (unsigned)(field_node->line + 1),
+                store_size_in_bits,
+                abi_align_in_bits,
+                0,
+                0, field_type->di_type);
+
+        biggest_size_in_bits = max(biggest_size_in_bits, store_size_in_bits);
+
+        if (!most_aligned_union_member || abi_align_in_bits > biggest_align_in_bits) {
+            most_aligned_union_member = field_type;
+            biggest_align_in_bits = abi_align_in_bits;
+            size_of_most_aligned_member_in_bits = store_size_in_bits;
+        }
+    }
+
+    // unset temporary flag
+    union_type->data.unionation.embedded_in_current = false;
+    union_type->data.unionation.complete = true;
+    union_type->data.unionation.size_bytes = biggest_size_in_bits / 8;
+    union_type->data.unionation.most_aligned_union_member = most_aligned_union_member;
+
+    if (union_type->data.unionation.is_invalid)
+        return;
+
+    if (union_type->zero_bits) {
+        union_type->type_ref = LLVMVoidType();
+
+        uint64_t debug_size_in_bits = 0;
+        uint64_t debug_align_in_bits = 0;
+        ZigLLVMDIType **di_root_members = nullptr;
+        size_t debug_member_count = 0;
+        ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugUnionType(g->dbuilder,
+                ZigLLVMFileToScope(import->di_file),
+                buf_ptr(&union_type->name),
+                import->di_file, (unsigned)(decl_node->line + 1),
+                debug_size_in_bits,
+                debug_align_in_bits,
+                0, di_root_members, (int)debug_member_count, 0, "");
+
+        ZigLLVMReplaceTemporary(g->dbuilder, union_type->di_type, replacement_di_type);
+        union_type->di_type = replacement_di_type;
+        return;
+    }
+
+    assert(most_aligned_union_member != nullptr);
+
+    // create llvm type for union
+    uint64_t padding_in_bits = biggest_size_in_bits - size_of_most_aligned_member_in_bits;
+    if (padding_in_bits > 0) {
+        TypeTableEntry *u8_type = get_int_type(g, false, 8);
+        TypeTableEntry *padding_array = get_array_type(g, u8_type, padding_in_bits / 8);
+        LLVMTypeRef union_element_types[] = {
+            most_aligned_union_member->type_ref,
+            padding_array->type_ref,
+        };
+        LLVMStructSetBody(union_type->type_ref, union_element_types, 2, false);
+    } else {
+        LLVMStructSetBody(union_type->type_ref, &most_aligned_union_member->type_ref, 1, false);
+    }
+
+    assert(8*LLVMABIAlignmentOfType(g->target_data_ref, union_type->type_ref) >= biggest_align_in_bits);
+    assert(8*LLVMStoreSizeOfType(g->target_data_ref, union_type->type_ref) >= biggest_size_in_bits);
+
+    // create debug type for union
+    ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugUnionType(g->dbuilder,
+            ZigLLVMFileToScope(import->di_file), buf_ptr(&union_type->name),
+            import->di_file, (unsigned)(decl_node->line + 1),
+            biggest_size_in_bits, biggest_align_in_bits, 0, union_inner_di_types,
+            gen_field_count, 0, "");
+    ZigLLVMReplaceTemporary(g->dbuilder, union_type->di_type, replacement_di_type);
+    union_type->di_type = replacement_di_type;
 }
 
 static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
@@ -1873,7 +2010,7 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
         type_enum_field->value = i;
 
         type_ensure_zero_bits_known(g, field_type);
-        if (field_type->id == TypeTableEntryIdInvalid) {
+        if (type_is_invalid(field_type)) {
             enum_type->data.enumeration.is_invalid = true;
             continue;
         }
@@ -1980,7 +2117,66 @@ static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type) {
 }
 
 static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
-    zig_panic("TODO resolve_union_zero_bits");
+    assert(union_type->id == TypeTableEntryIdUnion);
+
+    if (union_type->data.unionation.zero_bits_known)
+        return;
+
+    if (union_type->data.unionation.zero_bits_loop_flag) {
+        union_type->data.unionation.zero_bits_known = true;
+        return;
+    }
+
+    union_type->data.unionation.zero_bits_loop_flag = true;
+
+    AstNode *decl_node = union_type->data.unionation.decl_node;
+    assert(decl_node->type == NodeTypeContainerDecl);
+    assert(union_type->di_type);
+
+    assert(!union_type->data.unionation.fields);
+    uint32_t field_count = (uint32_t)decl_node->data.container_decl.fields.length;
+    union_type->data.unionation.src_field_count = field_count;
+    union_type->data.unionation.fields = allocate<TypeUnionField>(field_count);
+
+    uint32_t biggest_align_bytes = 0;
+
+    Scope *scope = &union_type->data.unionation.decls_scope->base;
+
+    uint32_t gen_field_index = 0;
+    for (uint32_t i = 0; i < field_count; i += 1) {
+        AstNode *field_node = decl_node->data.container_decl.fields.at(i);
+        TypeUnionField *type_union_field = &union_type->data.unionation.fields[i];
+        type_union_field->name = field_node->data.struct_field.name;
+        TypeTableEntry *field_type = analyze_type_expr(g, scope, field_node->data.struct_field.type);
+        type_union_field->type_entry = field_type;
+
+        type_ensure_zero_bits_known(g, field_type);
+        if (type_is_invalid(field_type)) {
+            union_type->data.unionation.is_invalid = true;
+            continue;
+        }
+
+        if (!type_has_bits(field_type))
+            continue;
+
+        type_union_field->gen_index = gen_field_index;
+        gen_field_index += 1;
+
+        uint32_t field_align_bytes = get_abi_alignment(g, field_type);
+        if (field_align_bytes > biggest_align_bytes) {
+            biggest_align_bytes = field_align_bytes;
+        }
+    }
+
+    union_type->data.unionation.zero_bits_loop_flag = false;
+    union_type->data.unionation.gen_field_count = gen_field_index;
+    union_type->zero_bits = (gen_field_index == 0);
+    union_type->data.unionation.zero_bits_known = true;
+
+    // also compute abi_alignment
+    if (!union_type->zero_bits) {
+        union_type->data.unionation.abi_alignment = biggest_align_bytes;
+    }
 }
 
 static void get_fully_qualified_decl_name_internal(Buf *buf, Scope *scope, uint8_t sep) {
@@ -2844,6 +3040,18 @@ TypeStructField *find_struct_type_field(TypeTableEntry *type_entry, Buf *name) {
     assert(type_entry->data.structure.complete);
     for (uint32_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
         TypeStructField *field = &type_entry->data.structure.fields[i];
+        if (buf_eql_buf(field->name, name)) {
+            return field;
+        }
+    }
+    return nullptr;
+}
+
+TypeUnionField *find_union_type_field(TypeTableEntry *type_entry, Buf *name) {
+    assert(type_entry->id == TypeTableEntryIdUnion);
+    assert(type_entry->data.unionation.complete);
+    for (uint32_t i = 0; i < type_entry->data.unionation.src_field_count; i += 1) {
+        TypeUnionField *field = &type_entry->data.unionation.fields[i];
         if (buf_eql_buf(field->name, name)) {
             return field;
         }
@@ -4703,6 +4911,8 @@ ConstParent *get_const_val_parent(CodeGen *g, ConstExprValue *value) {
         return &value->data.x_array.s_none.parent;
     } else if (type_entry->id == TypeTableEntryIdStruct) {
         return &value->data.x_struct.parent;
+    } else if (type_entry->id == TypeTableEntryIdUnion) {
+        return &value->data.x_union.parent;
     }
     return nullptr;
 }
@@ -4914,7 +5124,8 @@ uint32_t get_abi_alignment(CodeGen *g, TypeTableEntry *type_entry) {
         assert(type_entry->data.enumeration.abi_alignment != 0);
         return type_entry->data.enumeration.abi_alignment;
     } else if (type_entry->id == TypeTableEntryIdUnion) {
-        zig_panic("TODO");
+        assert(type_entry->data.unionation.abi_alignment != 0);
+        return type_entry->data.unionation.abi_alignment;
     } else if (type_entry->id == TypeTableEntryIdOpaque) {
         return 1;
     } else {
