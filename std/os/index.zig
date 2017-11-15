@@ -31,6 +31,8 @@ pub const windowsWaitSingle = windows_util.windowsWaitSingle;
 pub const windowsWrite = windows_util.windowsWrite;
 pub const windowsIsCygwinPty = windows_util.windowsIsCygwinPty;
 pub const windowsOpen = windows_util.windowsOpen;
+pub const windowsLoadDll = windows_util.windowsLoadDll;
+pub const windowsUnloadDll = windows_util.windowsUnloadDll; 
 pub const createWindowsEnvBlock = windows_util.createWindowsEnvBlock;
 
 pub const FileHandle = if (is_windows) windows.HANDLE else i32;
