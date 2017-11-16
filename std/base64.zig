@@ -7,6 +7,7 @@ pub fn encode(dest: []u8, source: []const u8) -> []u8 {
     return encodeWithAlphabet(dest, source, standard_alphabet);
 }
 
+/// invalid characters in source are allowed, but they cause the value of dest to be undefined.
 pub fn decode(dest: []u8, source: []const u8) -> []u8 {
     return decodeWithAlphabet(dest, source, standard_alphabet);
 }
@@ -59,6 +60,7 @@ pub fn encodeWithAlphabet(dest: []u8, source: []const u8, alphabet: []const u8) 
     return dest[0..out_index];
 }
 
+/// invalid characters in source are allowed, but they cause the value of dest to be undefined.
 pub fn decodeWithAlphabet(dest: []u8, source: []const u8, alphabet: []const u8) -> []u8 {
     assert(alphabet.len == 65);
 
