@@ -444,4 +444,18 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
 
         tc
     });
+
+    cases.add("windowsLoadDll failure",
+        \\const std = @import("std");
+        \\const debug = std.debug;
+        \\const os = std.os;
+        \\const win = std.os.windows;
+        \\const allocator = std.debug.global_allocator;
+        \\pub fn main() -> %void {
+        \\    const handle = os.windowsLoadDll(allocator, "asdf.dll") %%  |err| {
+        \\        debug.warn("{}: {}", @errorName(err), OpenGLDLL);
+        \\        return;
+        \\    };
+        \\}
+    , "DllNotFound: asdf.dll\n");
 }

@@ -11,6 +11,11 @@
 #include "codegen.hpp"
 #include "analyze.hpp"
 
+#ifdef ZIG_OS_WINDOWS
+#define WIN32_LEAN_AND_MEAN
+    #include <Windows.h>
+#endif
+
 struct LinkJob {
     CodeGen *codegen;
     Buf out_file;
@@ -488,18 +493,28 @@ static void construct_linker_job_coff(LinkJob *lj) {
             if (lj->codegen->zig_target.env_type == ZigLLVM_GNU) {
                 Buf *arg = buf_sprintf("-l%s", buf_ptr(link_lib->name));
                 lj->args.append(buf_ptr(arg));
-            }
-            else {
+            } else {
                 lj->args.append(buf_ptr(link_lib->name));
             }
         } else {
             buf_resize(def_contents, 0);
             buf_appendf(def_contents, "LIBRARY %s\nEXPORTS\n", buf_ptr(link_lib->name));
+#ifdef ZIG_OS_WINDOWS
+            Buf* dll_name = buf_create_from_buf(link_lib->name);
+            buf_append_str(dll_name, ".dll");
+            HMODULE hmod = GetModuleHandle(buf_ptr(dll_name));
+            assert(hmod);
             for (size_t exp_i = 0; exp_i < link_lib->symbols.length; exp_i += 1) {
                 Buf *symbol_name = link_lib->symbols.at(exp_i);
+                FARPROC symbol_addr = GetProcAddress(hmod, buf_ptr(symbol_name));
+                if (symbol_addr == NULL) {
+                    fprintf(stderr, "error: extern symbol: %s does not exist in: %s.\n", buf_ptr(symbol_name), buf_ptr(dll_name));
+                    exit(1);
+                }
                 buf_appendf(def_contents, "%s\n", buf_ptr(symbol_name));
             }
             buf_appendf(def_contents, "\n");
+#endif
 
             Buf *def_path = buf_alloc();
             os_path_join(g->cache_dir, buf_sprintf("%s.def", buf_ptr(link_lib->name)), def_path);
