@@ -445,7 +445,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         tc
     });
 
-    cases.addCase("windowsLoadDll failure",
+    cases.add("windowsLoadDll failure",
         \\const std = @import("std");
         \\const debug = std.debug;
         \\const os = std.os;
