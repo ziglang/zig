@@ -1872,8 +1872,6 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
 
     bool auto_layout = (union_type->data.unionation.layout == ContainerLayoutAuto);
     ZigLLVMDIEnumerator **di_enumerators = allocate<ZigLLVMDIEnumerator*>(field_count);
-    auto distinct_types = &union_type->data.unionation.distinct_types;
-    distinct_types->init(4);
 
     Scope *scope = &union_type->data.unionation.decls_scope->base;
     ImportTableEntry *import = get_scope_import(scope);
@@ -1895,10 +1893,7 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
         if (!type_has_bits(field_type))
             continue;
 
-        size_t distinct_type_index = distinct_types->size();
-        if (distinct_types->put_unique(field_type, distinct_type_index) == nullptr) {
-            di_enumerators[i] = ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(&field_type->name), distinct_type_index);
-        }
+        di_enumerators[i] = ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(type_union_field->name), i);
 
         uint64_t store_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, field_type->type_ref);
         uint64_t abi_align_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, field_type->type_ref);
@@ -1954,7 +1949,7 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
 
     assert(most_aligned_union_member != nullptr);
 
-    bool want_safety = (distinct_types->size() > 1) && auto_layout;
+    bool want_safety = auto_layout && (field_count >= 2);
     uint64_t padding_in_bits = biggest_size_in_bits - size_of_most_aligned_member_in_bits;
 
 
@@ -2007,7 +2002,7 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
     assert(8*LLVMStoreSizeOfType(g->target_data_ref, union_type_ref) >= biggest_size_in_bits);
 
     // create llvm type for root struct
-    TypeTableEntry *tag_int_type = get_smallest_unsigned_int_type(g, distinct_types->size() - 1);
+    TypeTableEntry *tag_int_type = get_smallest_unsigned_int_type(g, field_count - 1);
     TypeTableEntry *tag_type_entry = tag_int_type;
     union_type->data.unionation.tag_type = tag_type_entry;
     uint64_t align_of_tag_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, tag_int_type->type_ref);
@@ -2034,7 +2029,7 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
     ZigLLVMDIType *tag_di_type = ZigLLVMCreateDebugEnumerationType(g->dbuilder,
             ZigLLVMTypeToScope(union_type->di_type), "AnonEnum",
             import->di_file, (unsigned)(decl_node->line + 1),
-            tag_debug_size_in_bits, tag_debug_align_in_bits, di_enumerators, distinct_types->size(),
+            tag_debug_size_in_bits, tag_debug_align_in_bits, di_enumerators, field_count,
             tag_type_entry->di_type, "");
 
     // create debug type for union
@@ -2257,6 +2252,7 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
         type_union_field->name = field_node->data.struct_field.name;
         TypeTableEntry *field_type = analyze_type_expr(g, scope, field_node->data.struct_field.type);
         type_union_field->type_entry = field_type;
+        type_union_field->value = i;
 
         type_ensure_zero_bits_known(g, field_type);
         if (type_is_invalid(field_type)) {
@@ -2276,9 +2272,11 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
         }
     }
 
+    bool auto_layout = (union_type->data.unionation.layout == ContainerLayoutAuto);
+
     union_type->data.unionation.zero_bits_loop_flag = false;
     union_type->data.unionation.gen_field_count = gen_field_index;
-    union_type->zero_bits = (gen_field_index == 0);
+    union_type->zero_bits = (gen_field_index == 0 && (field_count < 2 || !auto_layout));
     union_type->data.unionation.zero_bits_known = true;
 
     // also compute abi_alignment

@@ -13158,7 +13158,8 @@ static TypeTableEntry *ir_analyze_container_init_fields_union(IrAnalyze *ira, Ir
             return ira->codegen->builtin_types.entry_invalid;
 
         ConstExprValue *out_val = ir_build_const_from(ira, instruction);
-        out_val->data.x_union.value = field_val;
+        out_val->data.x_union.payload = field_val;
+        out_val->data.x_union.tag = type_field->value;
 
         ConstParent *parent = get_const_val_parent(ira->codegen, field_val);
         if (parent != nullptr) {

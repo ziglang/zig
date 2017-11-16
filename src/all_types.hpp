@@ -105,7 +105,8 @@ struct ConstStructValue {
 };
 
 struct ConstUnionValue {
-    ConstExprValue *value;
+    uint64_t tag;
+    ConstExprValue *payload;
     ConstParent parent;
 };
 
@@ -349,6 +350,7 @@ struct TypeEnumField {
 struct TypeUnionField {
     Buf *name;
     TypeTableEntry *type_entry;
+    uint32_t value;
     uint32_t gen_index;
 };
 
@@ -1067,8 +1069,6 @@ struct TypeTableEntryUnion {
 
     uint32_t union_size_bytes;
     TypeTableEntry *most_aligned_union_member;
-
-    HashMap<const TypeTableEntry *, uint32_t, type_ptr_hash, type_ptr_eql> distinct_types = {};
 };
 
 struct FnGenParamInfo {
