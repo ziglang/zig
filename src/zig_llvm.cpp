@@ -577,7 +577,7 @@ ZigLLVMDILocation *ZigLLVMGetDebugLoc(unsigned line, unsigned col, ZigLLVMDIScop
 void ZigLLVMSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state) {
     if (on_state) {
         FastMathFlags fmf;
-        fmf.setUnsafeAlgebra();
+        fmf.setFast();
         unwrap(builder_wrapped)->setFastMathFlags(fmf);
     } else {
         unwrap(builder_wrapped)->clearFastMathFlags();
