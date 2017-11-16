@@ -2408,9 +2408,15 @@ static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, IrExecutable *executab
 
     LLVMValueRef union_ptr = ir_llvm_value(g, instruction->union_ptr);
     LLVMTypeRef field_type_ref = LLVMPointerType(field->type_entry->type_ref, 0);
-    LLVMValueRef union_field_ptr = LLVMBuildStructGEP(g->builder, union_ptr, 0, "");
-    LLVMValueRef bitcasted_union_field_ptr = LLVMBuildBitCast(g->builder, union_field_ptr, field_type_ref, "");
 
+    if (union_type->data.unionation.gen_tag_index == SIZE_MAX) {
+        LLVMValueRef union_field_ptr = LLVMBuildStructGEP(g->builder, union_ptr, 0, "");
+        LLVMValueRef bitcasted_union_field_ptr = LLVMBuildBitCast(g->builder, union_field_ptr, field_type_ref, "");
+        return bitcasted_union_field_ptr;
+    }
+
+    LLVMValueRef union_field_ptr = LLVMBuildStructGEP(g->builder, union_ptr, union_type->data.unionation.gen_union_index, "");
+    LLVMValueRef bitcasted_union_field_ptr = LLVMBuildBitCast(g->builder, union_field_ptr, field_type_ref, "");
     return bitcasted_union_field_ptr;
 }
 
@@ -3955,7 +3961,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
             }
         case TypeTableEntryIdUnion:
             {
-                LLVMTypeRef union_type_ref = type_entry->type_ref;
+                LLVMTypeRef union_type_ref = type_entry->data.unionation.union_type_ref;
                 ConstExprValue *payload_value = const_val->data.x_union.value;
                 assert(payload_value != nullptr);
 
@@ -3964,29 +3970,48 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                 }
 
                 uint64_t field_type_bytes = LLVMStoreSizeOfType(g->target_data_ref, payload_value->type->type_ref);
-                uint64_t pad_bytes = type_entry->data.unionation.size_bytes - field_type_bytes;
-
+                uint64_t pad_bytes = type_entry->data.unionation.union_size_bytes - field_type_bytes;
                 LLVMValueRef correctly_typed_value = gen_const_val(g, payload_value);
-
                 bool make_unnamed_struct = is_llvm_value_unnamed_type(payload_value->type, correctly_typed_value) ||
                     payload_value->type != type_entry->data.unionation.most_aligned_union_member;
 
-                unsigned field_count;
-                LLVMValueRef fields[2];
-                fields[0] = correctly_typed_value;
-                if (pad_bytes == 0) {
-                    field_count = 1;
-                } else {
+                LLVMValueRef union_value_ref;
+                {
+                    unsigned field_count;
+                    LLVMValueRef fields[2];
                     fields[0] = correctly_typed_value;
-                    fields[1] = LLVMGetUndef(LLVMArrayType(LLVMInt8Type(), (unsigned)pad_bytes));
-                    field_count = 2;
+                    if (pad_bytes == 0) {
+                        field_count = 1;
+                    } else {
+                        fields[0] = correctly_typed_value;
+                        fields[1] = LLVMGetUndef(LLVMArrayType(LLVMInt8Type(), (unsigned)pad_bytes));
+                        field_count = 2;
+                    }
+
+                    if (make_unnamed_struct || type_entry->data.unionation.gen_tag_index != SIZE_MAX) {
+                        union_value_ref = LLVMConstStruct(fields, field_count, false);
+                    } else {
+                        union_value_ref = LLVMConstNamedStruct(union_type_ref, fields, field_count);
+                    }
                 }
 
-                if (make_unnamed_struct) {
-                    return LLVMConstStruct(fields, field_count, false);
-                } else {
-                    return LLVMConstNamedStruct(type_entry->type_ref, fields, field_count);
+                if (type_entry->data.unionation.gen_tag_index == SIZE_MAX) {
+                    return union_value_ref;
                 }
+
+                size_t distinct_type_index = type_entry->data.unionation.distinct_types.get(const_val->data.x_union.value->type);
+                LLVMValueRef tag_value = LLVMConstInt(type_entry->data.unionation.tag_type->type_ref, distinct_type_index, false);
+
+                LLVMValueRef fields[2];
+                fields[type_entry->data.unionation.gen_union_index] = union_value_ref;
+                fields[type_entry->data.unionation.gen_tag_index] = tag_value;
+
+                if (make_unnamed_struct) {
+                    return LLVMConstStruct(fields, 2, false);
+                } else {
+                    return LLVMConstNamedStruct(type_entry->type_ref, fields, 2);
+                }
+
             }
         case TypeTableEntryIdEnum:
             {

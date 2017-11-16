@@ -1037,6 +1037,9 @@ struct TypeTableEntryEnumTag {
     LLVMValueRef name_table;
 };
 
+uint32_t type_ptr_hash(const TypeTableEntry *ptr);
+bool type_ptr_eql(const TypeTableEntry *a, const TypeTableEntry *b);
+
 struct TypeTableEntryUnion {
     AstNode *decl_node;
     ContainerLayout layout;
@@ -1044,6 +1047,8 @@ struct TypeTableEntryUnion {
     uint32_t gen_field_count;
     TypeUnionField *fields;
     bool is_invalid; // true if any fields are invalid
+    TypeTableEntry *tag_type;
+    LLVMTypeRef union_type_ref;
 
     ScopeDecls *decls_scope;
 
@@ -1057,8 +1062,13 @@ struct TypeTableEntryUnion {
     bool zero_bits_known;
     uint32_t abi_alignment; // also figured out with zero_bits pass
 
-    uint32_t size_bytes;
+    size_t gen_union_index;
+    size_t gen_tag_index;
+
+    uint32_t union_size_bytes;
     TypeTableEntry *most_aligned_union_member;
+
+    HashMap<const TypeTableEntry *, uint32_t, type_ptr_hash, type_ptr_eql> distinct_types = {};
 };
 
 struct FnGenParamInfo {

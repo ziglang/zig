@@ -44,3 +44,16 @@ test "basic unions" {
     foo.float = 12.34;
     assert(foo.float == 12.34);
 }
+
+
+const FooExtern = extern union {
+    float: f64,
+    int: i32,
+};
+
+test "basic extern unions" {
+    var foo = FooExtern { .int = 1 };
+    assert(foo.int == 1);
+    foo.float = 12.34;
+    assert(foo.float == 12.34);
+}

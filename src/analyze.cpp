@@ -992,26 +992,23 @@ TypeTableEntry *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKi
     TypeTableEntryId type_id = container_to_type(kind);
     TypeTableEntry *entry = new_container_type_entry(type_id, decl_node, scope);
 
-    unsigned dwarf_kind;
     switch (kind) {
         case ContainerKindStruct:
             entry->data.structure.decl_node = decl_node;
             entry->data.structure.layout = layout;
-            dwarf_kind = ZigLLVMTag_DW_structure_type();
             break;
         case ContainerKindEnum:
             entry->data.enumeration.decl_node = decl_node;
             entry->data.enumeration.layout = layout;
-            dwarf_kind = ZigLLVMTag_DW_structure_type();
             break;
         case ContainerKindUnion:
             entry->data.unionation.decl_node = decl_node;
             entry->data.unionation.layout = layout;
-            dwarf_kind = ZigLLVMTag_DW_union_type();
             break;
     }
 
     size_t line = decl_node ? decl_node->line : 0;
+    unsigned dwarf_kind = ZigLLVMTag_DW_structure_type();
 
     ImportTableEntry *import = get_scope_import(scope);
     entry->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), name);
@@ -1873,6 +1870,11 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
     uint64_t biggest_align_in_bits = 0;
     uint64_t biggest_size_in_bits = 0;
 
+    bool auto_layout = (union_type->data.unionation.layout == ContainerLayoutAuto);
+    ZigLLVMDIEnumerator **di_enumerators = allocate<ZigLLVMDIEnumerator*>(field_count);
+    auto distinct_types = &union_type->data.unionation.distinct_types;
+    distinct_types->init(4);
+
     Scope *scope = &union_type->data.unionation.decls_scope->base;
     ImportTableEntry *import = get_scope_import(scope);
 
@@ -1892,6 +1894,11 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
 
         if (!type_has_bits(field_type))
             continue;
+
+        size_t distinct_type_index = distinct_types->size();
+        if (distinct_types->put_unique(field_type, distinct_type_index) == nullptr) {
+            di_enumerators[i] = ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(&field_type->name), distinct_type_index);
+        }
 
         uint64_t store_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, field_type->type_ref);
         uint64_t abi_align_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, field_type->type_ref);
@@ -1919,7 +1926,7 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
     // unset temporary flag
     union_type->data.unionation.embedded_in_current = false;
     union_type->data.unionation.complete = true;
-    union_type->data.unionation.size_bytes = biggest_size_in_bits / 8;
+    union_type->data.unionation.union_size_bytes = biggest_size_in_bits / 8;
     union_type->data.unionation.most_aligned_union_member = most_aligned_union_member;
 
     if (union_type->data.unionation.is_invalid)
@@ -1947,8 +1954,42 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
 
     assert(most_aligned_union_member != nullptr);
 
-    // create llvm type for union
+    bool want_safety = (distinct_types->size() > 1) && auto_layout;
     uint64_t padding_in_bits = biggest_size_in_bits - size_of_most_aligned_member_in_bits;
+
+
+    if (!want_safety) {
+        if (padding_in_bits > 0) {
+            TypeTableEntry *u8_type = get_int_type(g, false, 8);
+            TypeTableEntry *padding_array = get_array_type(g, u8_type, padding_in_bits / 8);
+            LLVMTypeRef union_element_types[] = {
+                most_aligned_union_member->type_ref,
+                padding_array->type_ref,
+            };
+            LLVMStructSetBody(union_type->type_ref, union_element_types, 2, false);
+        } else {
+            LLVMStructSetBody(union_type->type_ref, &most_aligned_union_member->type_ref, 1, false);
+        }
+        union_type->data.unionation.union_type_ref = union_type->type_ref;
+        union_type->data.unionation.gen_tag_index = SIZE_MAX;
+        union_type->data.unionation.gen_union_index = SIZE_MAX;
+
+        assert(8*LLVMABIAlignmentOfType(g->target_data_ref, union_type->type_ref) >= biggest_align_in_bits);
+        assert(8*LLVMStoreSizeOfType(g->target_data_ref, union_type->type_ref) >= biggest_size_in_bits);
+
+        // create debug type for union
+        ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugUnionType(g->dbuilder,
+            ZigLLVMFileToScope(import->di_file), buf_ptr(&union_type->name),
+            import->di_file, (unsigned)(decl_node->line + 1),
+            biggest_size_in_bits, biggest_align_in_bits, 0, union_inner_di_types,
+            gen_field_count, 0, "");
+
+        ZigLLVMReplaceTemporary(g->dbuilder, union_type->di_type, replacement_di_type);
+        union_type->di_type = replacement_di_type;
+        return;
+    }
+
+    LLVMTypeRef union_type_ref;
     if (padding_in_bits > 0) {
         TypeTableEntry *u8_type = get_int_type(g, false, 8);
         TypeTableEntry *padding_array = get_array_type(g, u8_type, padding_in_bits / 8);
@@ -1956,20 +1997,87 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
             most_aligned_union_member->type_ref,
             padding_array->type_ref,
         };
-        LLVMStructSetBody(union_type->type_ref, union_element_types, 2, false);
+        union_type_ref = LLVMStructType(union_element_types, 2, false);
     } else {
-        LLVMStructSetBody(union_type->type_ref, &most_aligned_union_member->type_ref, 1, false);
+        union_type_ref = most_aligned_union_member->type_ref;
+    }
+    union_type->data.unionation.union_type_ref = union_type_ref;
+
+    assert(8*LLVMABIAlignmentOfType(g->target_data_ref, union_type_ref) >= biggest_align_in_bits);
+    assert(8*LLVMStoreSizeOfType(g->target_data_ref, union_type_ref) >= biggest_size_in_bits);
+
+    // create llvm type for root struct
+    TypeTableEntry *tag_int_type = get_smallest_unsigned_int_type(g, distinct_types->size() - 1);
+    TypeTableEntry *tag_type_entry = tag_int_type;
+    union_type->data.unionation.tag_type = tag_type_entry;
+    uint64_t align_of_tag_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, tag_int_type->type_ref);
+
+    if (align_of_tag_in_bits >= biggest_align_in_bits) {
+        union_type->data.unionation.gen_tag_index = 0;
+        union_type->data.unionation.gen_union_index = 1;
+    } else {
+        union_type->data.unionation.gen_union_index = 0;
+        union_type->data.unionation.gen_tag_index = 1;
     }
 
-    assert(8*LLVMABIAlignmentOfType(g->target_data_ref, union_type->type_ref) >= biggest_align_in_bits);
-    assert(8*LLVMStoreSizeOfType(g->target_data_ref, union_type->type_ref) >= biggest_size_in_bits);
+    LLVMTypeRef root_struct_element_types[2];
+    root_struct_element_types[union_type->data.unionation.gen_tag_index] = tag_type_entry->type_ref;
+    root_struct_element_types[union_type->data.unionation.gen_union_index] = union_type_ref;
+    LLVMStructSetBody(union_type->type_ref, root_struct_element_types, 2, false);
+
+
+    // create debug type for root struct
+
+    // create debug type for tag
+    uint64_t tag_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, tag_type_entry->type_ref);
+    uint64_t tag_debug_align_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, tag_type_entry->type_ref);
+    ZigLLVMDIType *tag_di_type = ZigLLVMCreateDebugEnumerationType(g->dbuilder,
+            ZigLLVMTypeToScope(union_type->di_type), "AnonEnum",
+            import->di_file, (unsigned)(decl_node->line + 1),
+            tag_debug_size_in_bits, tag_debug_align_in_bits, di_enumerators, distinct_types->size(),
+            tag_type_entry->di_type, "");
 
     // create debug type for union
-    ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugUnionType(g->dbuilder,
-            ZigLLVMFileToScope(import->di_file), buf_ptr(&union_type->name),
+    ZigLLVMDIType *union_di_type = ZigLLVMCreateDebugUnionType(g->dbuilder,
+            ZigLLVMTypeToScope(union_type->di_type), "AnonUnion",
             import->di_file, (unsigned)(decl_node->line + 1),
             biggest_size_in_bits, biggest_align_in_bits, 0, union_inner_di_types,
             gen_field_count, 0, "");
+
+    uint64_t union_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, union_type->type_ref,
+            union_type->data.unionation.gen_union_index);
+    uint64_t tag_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, union_type->type_ref,
+            union_type->data.unionation.gen_tag_index);
+
+    ZigLLVMDIType *union_member_di_type = ZigLLVMCreateDebugMemberType(g->dbuilder,
+            ZigLLVMTypeToScope(union_type->di_type), "union_field",
+            import->di_file, (unsigned)(decl_node->line + 1),
+            biggest_size_in_bits,
+            biggest_align_in_bits,
+            union_offset_in_bits,
+            0, union_di_type);
+    ZigLLVMDIType *tag_member_di_type = ZigLLVMCreateDebugMemberType(g->dbuilder,
+            ZigLLVMTypeToScope(union_type->di_type), "tag_field",
+            import->di_file, (unsigned)(decl_node->line + 1),
+            tag_debug_size_in_bits,
+            tag_debug_align_in_bits,
+            tag_offset_in_bits,
+            0, tag_di_type);
+
+    ZigLLVMDIType *di_root_members[2];
+    di_root_members[union_type->data.unionation.gen_tag_index] = tag_member_di_type;
+    di_root_members[union_type->data.unionation.gen_union_index] = union_member_di_type;
+
+    uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, union_type->type_ref);
+    uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, union_type->type_ref);
+    ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
+            ZigLLVMFileToScope(import->di_file),
+            buf_ptr(&union_type->name),
+            import->di_file, (unsigned)(decl_node->line + 1),
+            debug_size_in_bits,
+            debug_align_in_bits,
+            0, nullptr, di_root_members, 2, 0, nullptr, "");
+
     ZigLLVMReplaceTemporary(g->dbuilder, union_type->di_type, replacement_di_type);
     union_type->di_type = replacement_di_type;
 }
@@ -5139,4 +5247,12 @@ TypeTableEntry *get_align_amt_type(CodeGen *g) {
         g->align_amt_type = get_int_type(g, false, 29);
     }
     return g->align_amt_type;
+}
+
+uint32_t type_ptr_hash(const TypeTableEntry *ptr) {
+    return hash_ptr((void*)ptr);
+}
+
+bool type_ptr_eql(const TypeTableEntry *a, const TypeTableEntry *b) {
+    return a == b;
 }
