@@ -41,7 +41,7 @@ const Foo = union {
 test "basic unions" {
     var foo = Foo { .int = 1 };
     assert(foo.int == 1);
-    foo.float = 12.34;
+    foo = Foo {.float = 12.34};
     assert(foo.float == 12.34);
 }
 

@@ -1317,6 +1317,7 @@ enum PanicMsgId {
     PanicMsgIdUnwrapMaybeFail,
     PanicMsgIdInvalidErrorCode,
     PanicMsgIdIncorrectAlignment,
+    PanicMsgIdBadUnionField,
 
     PanicMsgIdCount,
 };
