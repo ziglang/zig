@@ -1586,12 +1586,18 @@ static AstNode *trans_unary_operator(Context *c, bool result_used, AstNode *bloc
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_PreDec");
             return nullptr;
         case UO_AddrOf:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_AddrOf");
-            return nullptr;
+            {
+                AstNode *value_node = trans_expr(c, result_used, block, stmt->getSubExpr(), TransLValue);
+                if (value_node == nullptr)
+                    return value_node;
+                return trans_create_node_addr_of(c, false, false, value_node);
+            }
         case UO_Deref:
             {
-                bool is_fn_ptr = qual_type_is_fn_ptr(c, stmt->getSubExpr()->getType());
                 AstNode *value_node = trans_expr(c, result_used, block, stmt->getSubExpr(), TransRValue);
+                if (value_node == nullptr)
+                    return nullptr;
+                bool is_fn_ptr = qual_type_is_fn_ptr(c, stmt->getSubExpr()->getType());
                 if (is_fn_ptr)
                     return value_node;
                 AstNode *unwrapped = trans_create_node_prefix_op(c, PrefixOpUnwrapMaybe, value_node);

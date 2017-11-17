@@ -872,6 +872,19 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\pub const Foo = union_Foo;
     );
 
+    cases.add("address of operator",
+        \\int foo(void) {
+        \\    int x = 1234;
+        \\    int *ptr = &x;
+        \\    return *ptr;
+        \\}
+    ,
+        \\pub fn foo() -> c_int {
+        \\    var x: c_int = 1234;
+        \\    var ptr: ?&c_int = &x;
+        \\    return *(??ptr);
+        \\}
+    );
 }
 
 
