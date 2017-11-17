@@ -680,11 +680,10 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                 const ElaboratedType *elaborated_ty = static_cast<const ElaboratedType*>(ty);
                 switch (elaborated_ty->getKeyword()) {
                     case ETK_Struct:
-                        return trans_qual_type(c, elaborated_ty->getNamedType(), source_loc);
                     case ETK_Enum:
+                    case ETK_Union:
                         return trans_qual_type(c, elaborated_ty->getNamedType(), source_loc);
                     case ETK_Interface:
-                    case ETK_Union:
                     case ETK_Class:
                     case ETK_Typename:
                     case ETK_None:
@@ -2946,15 +2945,24 @@ static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
 
     const char *raw_name = decl_name(record_decl);
 
-    if (!record_decl->isStruct()) {
-        emit_warning(c, record_decl->getLocation(), "skipping record %s, not a struct", raw_name);
+    const char *container_kind_name;
+    ContainerKind container_kind;
+    if (record_decl->isUnion()) {
+        container_kind_name = "union";
+        container_kind = ContainerKindUnion;
+    } else if (record_decl->isStruct()) {
+        container_kind_name = "struct";
+        container_kind = ContainerKindStruct;
+    } else {
+        emit_warning(c, record_decl->getLocation(), "skipping record %s, not a struct or union", raw_name);
         c->decl_table.put(record_decl->getCanonicalDecl(), nullptr);
         return nullptr;
     }
 
     bool is_anonymous = record_decl->isAnonymousStructOrUnion() || raw_name[0] == 0;
     Buf *bare_name = is_anonymous ? nullptr : buf_create_from_str(raw_name);
-    Buf *full_type_name = (bare_name == nullptr) ? nullptr : buf_sprintf("struct_%s", buf_ptr(bare_name));
+    Buf *full_type_name = (bare_name == nullptr) ?
+        nullptr : buf_sprintf("%s_%s", container_kind_name, buf_ptr(bare_name));
 
     RecordDecl *record_def = record_decl->getDefinition();
     if (record_def == nullptr) {
@@ -2970,14 +2978,15 @@ static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
         const FieldDecl *field_decl = *it;
 
         if (field_decl->isBitField()) {
-            emit_warning(c, field_decl->getLocation(), "struct %s demoted to opaque type - has bitfield",
+            emit_warning(c, field_decl->getLocation(), "%s %s demoted to opaque type - has bitfield",
+                    container_kind_name,
                     is_anonymous ? "(anon)" : buf_ptr(bare_name));
             return demote_struct_to_opaque(c, record_decl, full_type_name, bare_name);
         }
     }
 
     AstNode *struct_node = trans_create_node(c, NodeTypeContainerDecl);
-    struct_node->data.container_decl.kind = ContainerKindStruct;
+    struct_node->data.container_decl.kind = container_kind;
     struct_node->data.container_decl.layout = ContainerLayoutExtern;
 
     // TODO handle attribute packed
@@ -3004,7 +3013,8 @@ static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
 
         if (field_node->data.struct_field.type == nullptr) {
             emit_warning(c, field_decl->getLocation(),
-                    "struct %s demoted to opaque type - unresolved type",
+                    "%s %s demoted to opaque type - unresolved type",
+                    container_kind_name,
                     is_anonymous ? "(anon)" : buf_ptr(bare_name));
 
             return demote_struct_to_opaque(c, record_decl, full_type_name, bare_name);

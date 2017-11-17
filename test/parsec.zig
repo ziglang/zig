@@ -857,6 +857,21 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\    (*(??x)) = 1;
         \\}
     );
+
+    cases.add("simple union",
+        \\union Foo {
+        \\    int x;
+        \\    double y;
+        \\};
+    ,
+        \\pub const union_Foo = extern union {
+        \\    x: c_int,
+        \\    y: f64,
+        \\};
+    ,
+        \\pub const Foo = union_Foo;
+    );
+
 }
 
 
