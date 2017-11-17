@@ -84,6 +84,11 @@ pub extern "kernel32" stdcallcc fn WriteFile(in_hFile: HANDLE, in_lpBuffer: &con
     in_nNumberOfBytesToWrite: DWORD, out_lpNumberOfBytesWritten: ?&DWORD,
     in_out_lpOverlapped: ?&OVERLAPPED) -> BOOL;
 
+//TODO: call unicode versions instead of relying on ANSI code page
+pub extern "kernel32" stdcallcc fn LoadLibraryA(lpLibFileName: LPCSTR) -> ?HMODULE;
+
+pub extern "kernel32" stdcallcc fn FreeLibrary(hModule: HMODULE) -> BOOL;   
+
 pub extern "user32" stdcallcc fn MessageBoxA(hWnd: ?HANDLE, lpText: ?LPCTSTR, lpCaption: ?LPCTSTR, uType: UINT) -> c_int;
 
 pub const PROV_RSA_FULL = 1;
@@ -97,6 +102,7 @@ pub const FLOAT = f32;
 pub const HANDLE = &c_void;
 pub const HCRYPTPROV = ULONG_PTR;
 pub const HINSTANCE = &@OpaqueType();
+pub const HMODULE = &@OpaqueType();
 pub const INT = c_int;
 pub const LPBYTE = &BYTE;
 pub const LPCH = &CHAR;
