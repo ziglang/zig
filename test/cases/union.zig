@@ -45,6 +45,23 @@ test "basic unions" {
     assert(foo.float == 12.34);
 }
 
+test "init union with runtime value" {
+    var foo: Foo = undefined;
+
+    setFloat(&foo, 12.34);
+    assert(foo.float == 12.34);
+
+    setInt(&foo, 42);
+    assert(foo.int == 42);
+}
+
+fn setFloat(foo: &Foo, x: f64) {
+    *foo = Foo { .float = x };
+}
+
+fn setInt(foo: &Foo, x: i32) {
+    *foo = Foo { .int = x };
+}
 
 const FooExtern = extern union {
     float: f64,
@@ -57,3 +74,4 @@ test "basic extern unions" {
     foo.float = 12.34;
     assert(foo.float == 12.34);
 }
+
