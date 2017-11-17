@@ -227,6 +227,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionEnumFieldPtr *) 
     return IrInstructionIdEnumFieldPtr;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionUnionFieldPtr *) {
+    return IrInstructionIdUnionFieldPtr;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionElemPtr *) {
     return IrInstructionIdElemPtr;
 }
@@ -349,6 +353,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionRef *) {
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionStructInit *) {
     return IrInstructionIdStructInit;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionUnionInit *) {
+    return IrInstructionIdUnionInit;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionMinValue *) {
@@ -922,6 +930,27 @@ static IrInstruction *ir_build_enum_field_ptr_from(IrBuilder *irb, IrInstruction
     return new_instruction;
 }
 
+static IrInstruction *ir_build_union_field_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node,
+    IrInstruction *union_ptr, TypeUnionField *field)
+{
+    IrInstructionUnionFieldPtr *instruction = ir_build_instruction<IrInstructionUnionFieldPtr>(irb, scope, source_node);
+    instruction->union_ptr = union_ptr;
+    instruction->field = field;
+
+    ir_ref_instruction(union_ptr, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_union_field_ptr_from(IrBuilder *irb, IrInstruction *old_instruction,
+    IrInstruction *union_ptr, TypeUnionField *type_union_field)
+{
+    IrInstruction *new_instruction = ir_build_union_field_ptr(irb, old_instruction->scope,
+            old_instruction->source_node, union_ptr, type_union_field);
+    ir_link_new_instruction(new_instruction, old_instruction);
+    return new_instruction;
+}
+
 static IrInstruction *ir_build_call(IrBuilder *irb, Scope *scope, AstNode *source_node,
         FnTableEntry *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
         bool is_comptime, bool is_inline)
@@ -1108,6 +1137,28 @@ static IrInstruction *ir_build_struct_init_from(IrBuilder *irb, IrInstruction *o
 {
     IrInstruction *new_instruction = ir_build_struct_init(irb, old_instruction->scope,
             old_instruction->source_node, struct_type, field_count, fields);
+    ir_link_new_instruction(new_instruction, old_instruction);
+    return new_instruction;
+}
+
+static IrInstruction *ir_build_union_init(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        TypeTableEntry *union_type, TypeUnionField *field, IrInstruction *init_value)
+{
+    IrInstructionUnionInit *union_init_instruction = ir_build_instruction<IrInstructionUnionInit>(irb, scope, source_node);
+    union_init_instruction->union_type = union_type;
+    union_init_instruction->field = field;
+    union_init_instruction->init_value = init_value;
+
+    ir_ref_instruction(init_value, irb->current_basic_block);
+
+    return &union_init_instruction->base;
+}
+
+static IrInstruction *ir_build_union_init_from(IrBuilder *irb, IrInstruction *old_instruction,
+        TypeTableEntry *union_type, TypeUnionField *field, IrInstruction *init_value)
+{
+    IrInstruction *new_instruction = ir_build_union_init(irb, old_instruction->scope,
+            old_instruction->source_node, union_type, field, init_value);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
 }
@@ -2422,6 +2473,13 @@ static IrInstruction *ir_instruction_enumfieldptr_get_dep(IrInstructionEnumField
     }
 }
 
+static IrInstruction *ir_instruction_unionfieldptr_get_dep(IrInstructionUnionFieldPtr *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->union_ptr;
+        default: return nullptr;
+    }
+}
+
 static IrInstruction *ir_instruction_elemptr_get_dep(IrInstructionElemPtr *instruction, size_t index) {
     switch (index) {
         case 0: return instruction->array_ptr;
@@ -2483,6 +2541,13 @@ static IrInstruction *ir_instruction_containerinitfields_get_dep(IrInstructionCo
 static IrInstruction *ir_instruction_structinit_get_dep(IrInstructionStructInit *instruction, size_t index) {
     if (index < instruction->field_count) return instruction->fields[index].value;
     return nullptr;
+}
+
+static IrInstruction *ir_instruction_unioninit_get_dep(IrInstructionUnionInit *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->init_value;
+        default: return nullptr;
+    }
 }
 
 static IrInstruction *ir_instruction_unreachable_get_dep(IrInstructionUnreachable *instruction, size_t index) {
@@ -3099,6 +3164,8 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_structfieldptr_get_dep((IrInstructionStructFieldPtr *) instruction, index);
         case IrInstructionIdEnumFieldPtr:
             return ir_instruction_enumfieldptr_get_dep((IrInstructionEnumFieldPtr *) instruction, index);
+        case IrInstructionIdUnionFieldPtr:
+            return ir_instruction_unionfieldptr_get_dep((IrInstructionUnionFieldPtr *) instruction, index);
         case IrInstructionIdElemPtr:
             return ir_instruction_elemptr_get_dep((IrInstructionElemPtr *) instruction, index);
         case IrInstructionIdVarPtr:
@@ -3117,6 +3184,8 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_containerinitfields_get_dep((IrInstructionContainerInitFields *) instruction, index);
         case IrInstructionIdStructInit:
             return ir_instruction_structinit_get_dep((IrInstructionStructInit *) instruction, index);
+        case IrInstructionIdUnionInit:
+            return ir_instruction_unioninit_get_dep((IrInstructionUnionInit *) instruction, index);
         case IrInstructionIdUnreachable:
             return ir_instruction_unreachable_get_dep((IrInstructionUnreachable *) instruction, index);
         case IrInstructionIdTypeOf:
@@ -11417,8 +11486,20 @@ static TypeTableEntry *ir_analyze_container_member_access_inner(IrAnalyze *ira,
             return ir_analyze_ref(ira, &field_ptr_instruction->base, bound_fn_value, true, false);
         }
     }
+    const char *prefix_name;
+    if (is_slice(bare_struct_type)) {
+        prefix_name = "";
+    } else if (bare_struct_type->id == TypeTableEntryIdStruct) {
+        prefix_name = "struct ";
+    } else if (bare_struct_type->id == TypeTableEntryIdEnum) {
+        prefix_name = "enum ";
+    } else if (bare_struct_type->id == TypeTableEntryIdUnion) {
+        prefix_name = "union ";
+    } else {
+        prefix_name = "";
+    }
     ir_add_error_node(ira, field_ptr_instruction->base.source_node,
-        buf_sprintf("no member named '%s' in '%s'", buf_ptr(field_name), buf_ptr(&bare_struct_type->name)));
+        buf_sprintf("no member named '%s' in %s'%s'", buf_ptr(field_name), prefix_name, buf_ptr(&bare_struct_type->name)));
     return ira->codegen->builtin_types.entry_invalid;
 }
 
@@ -11428,14 +11509,13 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
 {
     TypeTableEntry *bare_type = container_ref_type(container_type);
     ensure_complete_type(ira->codegen, bare_type);
+    if (type_is_invalid(bare_type))
+        return ira->codegen->builtin_types.entry_invalid;
 
     assert(container_ptr->value.type->id == TypeTableEntryIdPointer);
     bool is_const = container_ptr->value.type->data.pointer.is_const;
     bool is_volatile = container_ptr->value.type->data.pointer.is_volatile;
     if (bare_type->id == TypeTableEntryIdStruct) {
-        if (bare_type->data.structure.is_invalid)
-            return ira->codegen->builtin_types.entry_invalid;
-
         TypeStructField *field = find_struct_type_field(bare_type, field_name);
         if (field) {
             bool is_packed = (bare_type->data.structure.layout == ContainerLayoutPacked);
@@ -11476,9 +11556,6 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
                 field_ptr_instruction, container_ptr, container_type);
         }
     } else if (bare_type->id == TypeTableEntryIdEnum) {
-        if (bare_type->data.enumeration.is_invalid)
-            return ira->codegen->builtin_types.entry_invalid;
-
         TypeEnumField *field = find_enum_type_field(bare_type, field_name);
         if (field) {
             ir_build_enum_field_ptr_from(&ira->new_irb, &field_ptr_instruction->base, container_ptr, field);
@@ -11489,7 +11566,15 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
                 field_ptr_instruction, container_ptr, container_type);
         }
     } else if (bare_type->id == TypeTableEntryIdUnion) {
-        zig_panic("TODO");
+        TypeUnionField *field = find_union_type_field(bare_type, field_name);
+        if (field) {
+            ir_build_union_field_ptr_from(&ira->new_irb, &field_ptr_instruction->base, container_ptr, field);
+            return get_pointer_to_type_extra(ira->codegen, field->type_entry, is_const, is_volatile,
+                    get_abi_alignment(ira->codegen, field->type_entry), 0, 0);
+        } else {
+            return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
+                field_ptr_instruction, container_ptr, container_type);
+        }
     } else {
         zig_unreachable();
     }
@@ -13033,9 +13118,71 @@ static TypeTableEntry *ir_analyze_instruction_ref(IrAnalyze *ira, IrInstructionR
     return ir_analyze_ref(ira, &ref_instruction->base, value, ref_instruction->is_const, ref_instruction->is_volatile);
 }
 
+static TypeTableEntry *ir_analyze_container_init_fields_union(IrAnalyze *ira, IrInstruction *instruction,
+    TypeTableEntry *container_type, size_t instr_field_count, IrInstructionContainerInitFieldsField *fields)
+{
+    assert(container_type->id == TypeTableEntryIdUnion);
+
+    ensure_complete_type(ira->codegen, container_type);
+
+    if (instr_field_count != 1) {
+        ir_add_error(ira, instruction,
+            buf_sprintf("union initialization expects exactly one field"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    IrInstructionContainerInitFieldsField *field = &fields[0];
+    IrInstruction *field_value = field->value->other;
+    if (type_is_invalid(field_value->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    TypeUnionField *type_field = find_union_type_field(container_type, field->name);
+    if (!type_field) {
+        ir_add_error_node(ira, field->source_node,
+            buf_sprintf("no member named '%s' in union '%s'",
+                buf_ptr(field->name), buf_ptr(&container_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    if (type_is_invalid(type_field->type_entry))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *casted_field_value = ir_implicit_cast(ira, field_value, type_field->type_entry);
+    if (casted_field_value == ira->codegen->invalid_instruction)
+        return ira->codegen->builtin_types.entry_invalid;
+
+    bool is_comptime = ir_should_inline(ira->new_irb.exec, instruction->scope);
+    if (is_comptime || casted_field_value->value.special != ConstValSpecialRuntime) {
+        ConstExprValue *field_val = ir_resolve_const(ira, casted_field_value, UndefOk);
+        if (!field_val)
+            return ira->codegen->builtin_types.entry_invalid;
+
+        ConstExprValue *out_val = ir_build_const_from(ira, instruction);
+        out_val->data.x_union.payload = field_val;
+        out_val->data.x_union.tag = type_field->value;
+
+        ConstParent *parent = get_const_val_parent(ira->codegen, field_val);
+        if (parent != nullptr) {
+            parent->id = ConstParentIdUnion;
+            parent->data.p_union.union_val = out_val;
+        }
+
+        return container_type;
+    }
+
+    IrInstruction *new_instruction = ir_build_union_init_from(&ira->new_irb, instruction,
+        container_type, type_field, casted_field_value);
+
+    ir_add_alloca(ira, new_instruction, container_type);
+    return container_type;
+}
+
 static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstruction *instruction,
     TypeTableEntry *container_type, size_t instr_field_count, IrInstructionContainerInitFieldsField *fields)
 {
+    if (container_type->id == TypeTableEntryIdUnion) {
+        return ir_analyze_container_init_fields_union(ira, instruction, container_type, instr_field_count, fields);
+    }
     if (container_type->id != TypeTableEntryIdStruct || is_slice(container_type)) {
         ir_add_error(ira, instruction,
             buf_sprintf("type '%s' does not support struct initialization syntax",
@@ -13043,8 +13190,7 @@ static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstru
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    if (!type_is_complete(container_type))
-        resolve_container_type(ira->codegen, container_type);
+    ensure_complete_type(ira->codegen, container_type);
 
     size_t actual_field_count = container_type->data.structure.src_field_count;
 
@@ -13070,7 +13216,7 @@ static TypeTableEntry *ir_analyze_container_init_fields(IrAnalyze *ira, IrInstru
         TypeStructField *type_field = find_struct_type_field(container_type, field->name);
         if (!type_field) {
             ir_add_error_node(ira, field->source_node,
-                buf_sprintf("no member named '%s' in '%s'",
+                buf_sprintf("no member named '%s' in struct '%s'",
                     buf_ptr(field->name), buf_ptr(&container_type->name)));
             return ira->codegen->builtin_types.entry_invalid;
         }
@@ -15657,8 +15803,10 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
         case IrInstructionIdIntToErr:
         case IrInstructionIdErrToInt:
         case IrInstructionIdStructInit:
+        case IrInstructionIdUnionInit:
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdEnumFieldPtr:
+        case IrInstructionIdUnionFieldPtr:
         case IrInstructionIdInitEnum:
         case IrInstructionIdMaybeWrap:
         case IrInstructionIdErrWrapCode:
@@ -15968,6 +16116,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdContainerInitList:
         case IrInstructionIdContainerInitFields:
         case IrInstructionIdStructInit:
+        case IrInstructionIdUnionInit:
         case IrInstructionIdFieldPtr:
         case IrInstructionIdElemPtr:
         case IrInstructionIdVarPtr:
@@ -15977,6 +16126,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdArrayLen:
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdEnumFieldPtr:
+        case IrInstructionIdUnionFieldPtr:
         case IrInstructionIdArrayType:
         case IrInstructionIdSliceType:
         case IrInstructionIdSizeOf:

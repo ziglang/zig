@@ -389,8 +389,8 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    const y = a.bar;
         \\}
     ,
-            ".tmp_source.zig:4:6: error: no member named 'foo' in 'A'",
-            ".tmp_source.zig:5:16: error: no member named 'bar' in 'A'");
+            ".tmp_source.zig:4:6: error: no member named 'foo' in struct 'A'",
+            ".tmp_source.zig:5:16: error: no member named 'bar' in struct 'A'");
 
     cases.add("redefinition of struct",
         \\const A = struct { x : i32, };
@@ -454,7 +454,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\        .foo = 42,
         \\    };
         \\}
-    , ".tmp_source.zig:10:9: error: no member named 'foo' in 'A'");
+    , ".tmp_source.zig:10:9: error: no member named 'foo' in struct 'A'");
 
     cases.add("invalid break expression",
         \\export fn f() {

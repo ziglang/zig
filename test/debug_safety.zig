@@ -260,4 +260,24 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    return int_slice[0];
         \\}
     );
+
+    cases.addDebugSafety("bad union field access",
+        \\pub fn panic(message: []const u8) -> noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\
+        \\const Foo = union {
+        \\    float: f32,
+        \\    int: u32,
+        \\};
+        \\
+        \\pub fn main() -> %void {
+        \\    var f = Foo { .int = 42 };
+        \\    bar(&f);
+        \\}
+        \\
+        \\fn bar(f: &Foo) {
+        \\    f.float = 12.34;
+        \\}
+    );
 }
