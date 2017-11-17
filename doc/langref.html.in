@@ -75,6 +75,7 @@
         <li><a href="#slices">Slices</a></li>
         <li><a href="#struct">struct</a></li>
         <li><a href="#enum">enum</a></li>
+        <li><a href="#union">union</a></li>
         <li><a href="#switch">switch</a></li>
         <li><a href="#while">while</a></li>
         <li><a href="#for">for</a></li>
@@ -209,6 +210,7 @@
             <li><a href="#undef-invalid-error-code">Invalid Error Code</a></li>
             <li><a href="#undef-invalid-enum-cast">Invalid Enum Cast</a></li>
             <li><a href="#undef-incorrect-pointer-alignment">Incorrect Pointer Alignment</a></li>
+            <li><a href="#undef-bad-union-field">Wrong Union Field Access</a></li>
           </ul>
         </li>
         <li><a href="#memory">Memory</a></li>
@@ -2189,6 +2191,8 @@ Test 4/4 enum builtins...OK</code></pre>
         <li><a href="#builtin-enumTagName">@enumTagName</a></li>
         <li><a href="#builtin-memberCount">@memberCount</a></li>
       </ul>
+      <h2 id="union">union</h2>
+      <p>TODO union documentation</p>
       <h2 id="switch">switch</h2>
       <pre><code class="zig">const assert = @import("std").debug.assert;
 const builtin = @import("builtin");
@@ -5115,6 +5119,9 @@ comptime {
       <p>TODO</p>
 
       <h3 id="undef-incorrect-pointer-alignment">Incorrect Pointer Alignment</h3>
+      <p>TODO</p>
+
+      <h3 id="undef-bad-union-field">Wrong Union Field Access</h3>
       <p>TODO</p>
 
       <h2 id="memory">Memory</h2>
