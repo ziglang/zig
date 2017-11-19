@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const assert = std.debug.assert;
 const linux = std.os.linux;
 use @import("event_common.zig");
 
@@ -14,6 +15,7 @@ const TimerData = struct {
 };
 
 const NetworkData = struct {
+    auto_drain: bool,
     closure: usize,
     read_handler: usize
 };
@@ -171,9 +173,8 @@ pub const NetworkEvent = struct {
 
     const Self = this;
 
-    // these args are not os-agnostic so the api layer will need to make the
-    // appropriate calls
-    pub fn init(fd: i32, closure: EventClosure, read_handler: ReadHandler) -> %Self {
+    fn init_impl(fd: i32, closure: EventClosure, read_handler: ReadHandler,
+            auto_drain: bool) -> %Self {
         Self {
             .event = Event {
                 .md = EventMd {
@@ -181,12 +182,23 @@ pub const NetworkEvent = struct {
                 },
                 .data = EventData.Network {
                     NetworkData {
+                        .auto_drain = auto_drain,
                         .closure = closure,
                         .read_handler = @ptrToInt(read_handler)
                     }
                 }
             }
         }
+    }
+
+    // these args are not os-agnostic so the api layer will need to make the
+    // appropriate calls
+    pub fn init(fd: i32, closure: EventClosure, read_handler: ReadHandler) -> %Self {
+        init_impl(fd, closure, read_handler, true)
+    }
+
+    fn init_no_drain(fd: i32, closure: EventClosure, read_handler: ReadHandler) -> %Self {
+        init_impl(fd, closure, read_handler, false)
     }
 
     pub fn register(event: &NetworkEvent, loop: &Loop) -> %void {
@@ -203,7 +215,11 @@ pub const NetworkEvent = struct {
 };
 
 pub const StreamListener = struct {
-    listen_event: ?NetworkEvent,
+    listen_event: NetworkEvent,
+    // this is a hacky approximation of a nullable type,
+    // but the lower-level implementation of nullable types makes it difficult
+    // to use pointers to them 
+    listening: bool,
     listener_context: usize,
     conn_handler: usize,
     read_handler: usize,
@@ -213,9 +229,10 @@ pub const StreamListener = struct {
     fn handle_new_connection(buf: []const u8, closure: EventClosure) -> void {
         var listener = @intToPtr(&StreamListener, closure);
 
+        std.debug.warn("handling new connection\n");
+
         // TODO call accept more times non-blocking if more connections are available
-        var listen_event = listener.listen_event ?? return;
-        const listen_fd = listen_event.event.md.fd;
+        const listen_fd = listener.listen_event.event.md.fd;
 
         var client_addr: linux.sockaddr = undefined;
         var addr_size: u32 = @sizeOf(@typeOf(client_addr));
@@ -251,7 +268,8 @@ pub const StreamListener = struct {
 
     pub fn init(context: usize, conn_handler: usize, read_handler: usize) -> Self {
         Self {
-            .listen_event = null,
+            .listen_event = undefined,
+            .listening = false,
             .listener_context = context,
             .conn_handler = conn_handler,
             .read_handler = read_handler
@@ -282,8 +300,21 @@ pub const StreamListener = struct {
         }
 
         listener.listen_event =
-            %return NetworkEvent.init(i32(conn.socket_fd), @ptrToInt(listener),
+            %return NetworkEvent.init_no_drain(i32(conn.socket_fd), @ptrToInt(listener),
                 handle_new_connection);
+        listener.listening = true;
+    }
+
+    pub fn register(listener: &Self, loop: &Loop) -> %void {
+        assert(listener.listening);
+        std.debug.warn("registering listen event {}\n",
+            @ptrToInt(&listener.listen_event.event));
+        loop.register(&listener.listen_event.event)
+    }
+
+    pub fn unregister(listener: &Self, loop: &Loop) -> %void {
+        assert(listener.listening);
+        loop.unregister(&listener.listen_event.event)
     }
 };
 
@@ -361,23 +392,31 @@ pub const Loop = struct {
         const byte: u8 = 0;
         const buf_size: usize = 4 * 1024;
         var buf = []u8{byte} ** buf_size;
-        var r = linux.read(fd, &buf[0], buf.len);
 
-        switch (linux.getErrno(r)) {
-            0 => {
-                const read_handler = @intToPtr(&ReadHandler, data.read_handler);
-                (*read_handler)(buf, data.closure);
-            },
-            linux.EAGAIN => {
-                std.debug.warn("tried to read from empty fd {}\n", fd);
-            },
-            // TODO: actually do something reasonable here
-            else => @panic("socket read failed")
+        var read_handler = @intToPtr(&ReadHandler, data.read_handler);
+
+        if (data.auto_drain) {
+            const r = linux.read(fd, &buf[0], buf.len);
+            const err = linux.getErrno(r);
+            
+            switch (err) {
+                0 => {
+                    (*read_handler)(buf[0..r], data.closure);
+                },
+                linux.EAGAIN => {
+                    std.debug.warn("tried to read from empty fd {}\n", fd);
+                },
+                // TODO: actually do something reasonable here
+                else => @panic("socket read failed")
+            }
+        } else {
+            (*read_handler)(buf[0..0], data.closure);
         }
     }
 
     fn handle_event(loop: &Self, event: &linux.epoll_event) -> void {
         var context = @intToPtr(&Event, event.data);
+        std.debug.warn("triggered event {}\n", event.data);
         switch (context.data) {
             EventData.Timer => |*timer| {
                 loop.handle_timer(timer);
@@ -412,7 +451,10 @@ pub const Loop = struct {
             EventData.Network => |*network| {
                 const flags = event.events;
 
+                std.debug.warn("network event triggered\n");
+
                 if ((flags & u32(linux.EPOLLIN)) != 0) {
+                    std.debug.warn("network read triggered\n");
                     loop.handle_socket_read(context.md.fd, network);
                 }
 

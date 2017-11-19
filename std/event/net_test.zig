@@ -1,7 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const event = @import("event.zig");
-const net = @import("event_net.zig");
+//const net = @import("event_net.zig");
 
 const ListenerContext = struct {
     server_id: usize
@@ -28,9 +28,10 @@ test "listen" {
     };
 
     var loop = %%event.Loop.init();
-    var listener = net.StreamListener.init(&listener_context,
+    var listener = event.StreamListener.init(&listener_context,
         TestContext, &conn_handler, &read_handler);
     %%listener.listen_tcp("localhost", 12345);
+    %%listener.register(&loop);
 
     %%loop.run();
 }
