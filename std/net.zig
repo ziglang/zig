@@ -1,6 +1,9 @@
 const linux = @import("os/linux.zig");
+const cstr = @import("cstr.zig");
 const assert = @import("debug.zig").assert;
+const warn = @import("debug.zig").warn;
 const endian = @import("endian.zig");
+const mem = @import("mem.zig");
 
 error SigInterrupt;
 error Io;
@@ -14,7 +17,7 @@ error UnsupportedOption;
 error AddressInUse;
 error AccessDenied;
 
-const ControlProtocol = enum {
+pub const ControlProtocol = enum {
     TCP,
     UDP
 };
@@ -54,12 +57,14 @@ const Connection = struct {
     }
 
     pub fn close(c: Connection) -> %void {
-        switch (linux.getErrno(linux.close(c.socket_fd))) {
-            0 => return,
-            linux.EBADF => unreachable,
-            linux.EINTR => return error.SigInterrupt,
-            linux.EIO => return error.Io,
-            else => return error.Unexpected,
+        while (true) {
+            switch (linux.getErrno(linux.close(c.socket_fd))) {
+                0 => return,
+                linux.EBADF => unreachable,
+                linux.EINTR => continue,
+                linux.EIO => return error.Io,
+                else => return error.Unexpected,
+            }
         }
     }
 };
@@ -71,40 +76,37 @@ const Address = struct {
     sort_key: i32,
 };
 
-pub fn lookup(hostname: []const u8, out_addrs: []Address) -> %[]Address {
-    if (hostname.len == 0) {
-
-//
-//		if (family != AF_INET6)
-//			buf[cnt++] = (struct address){ .family = AF_INET, .addr = { 127,0,0,1 } };
-//		if (family != AF_INET)
-//			buf[cnt++] = (struct address){ .family = AF_INET6, .addr = { [15] = 1 } };
-//
-        unreachable // TODO
+pub fn lookup(hostname: []const u8) -> %Address {
+    // TODO: support other address names
+    // TODO: support ipv6
+    // TODO: support multiple output values
+    if (mem.cmp(u8, hostname, "localhost") != mem.Cmp.Equal) {
+        warn("cannot interpret hostname {}\n", hostname);
+        return error.UnsupportedOption;
     }
 
-    // TODO
-    //switch (parseIpLiteral(hostname)) {
-    //    Ok => |addr| {
-    //        out_addrs[0] = addr;
-    //        return out_addrs[0..1];
-    //    },
-    //    else => {},
-    //};
+    const addr_bytes = []u8{127, 0, 0, 1};
 
-    unreachable // TODO
+    var addr = Address {
+        .family = linux.AF_INET,
+        .scope_id = 0,
+        .addr = []u8{0} ** 16,
+        .sort_key = 0
+    };
+
+    @memcpy(@ptrCast(&u8, &addr.addr), &addr_bytes[0], 4);
+
+    addr
 }
 
-fn createSocket(protocol: ControlProtocol) -> %i32 {
+fn createSocket(addr: &const Address, protocol: ControlProtocol) -> %i32 {
     const type_arg = switch (protocol) {
-        ControlProtocol.TCP => linux.SOCK_STREAM,
-        ControlProtocol.UDP => linux.SOCK_DGRAM,
-        else => error.Unexpected
+        ControlProtocol.TCP => i32(linux.SOCK_STREAM),
+        ControlProtocol.UDP => i32(linux.SOCK_DGRAM),
     };
     const protocol_arg = switch (protocol) {
-        ControlProtocol.TCP => linux.PROTO_tcp,
-        ControlProtocol.UDP => linux.PROTO_udp,
-        else => error.Unexpected
+        ControlProtocol.TCP => i32(linux.PROTO_tcp),
+        ControlProtocol.UDP => i32(linux.PROTO_udp),
     };
 
     const socket_ret = linux.socket(addr.family, type_arg, protocol_arg);
@@ -117,8 +119,8 @@ fn createSocket(protocol: ControlProtocol) -> %i32 {
     i32(socket_ret)
 }
 
-pub fn connectAddr(addr: &Address, port: u16, protocol: ControlProtocol) -> %Connection {
-    const socket_fd = %return createSocket(protocol);
+pub fn connectAddr(addr: &const Address, port: u16, protocol: ControlProtocol) -> %Connection {
+    const socket_fd = %return createSocket(addr, protocol);
 
     const connect_ret = if (addr.family == linux.AF_INET) {
         var os_addr: linux.sockaddr_in = undefined;
@@ -155,23 +157,22 @@ pub fn connectAddr(addr: &Address, port: u16, protocol: ControlProtocol) -> %Con
 }
 
 pub fn connect(hostname: []const u8, port: u16, protocol: ControlProtocol) -> %Connection {
-    var addrs_buf: [1]Address = undefined;
-    const addrs_slice = %return lookup(hostname, addrs_buf[0..]);
-    const main_addr = &addrs_slice[0];
-
-    connectAddr(main_addr, port, protocol)
+    const addr = %return lookup(hostname);
+    connectAddr(&addr, port, protocol)
 }
 
-pub fn bindAddr(addr: &Address, port: u16, protocol: ControlProtocol) -> %Connection {
-    const socket_fd = %return createSocket(protocol);
+pub fn bindAddr(addr: &const Address, port: u16, protocol: ControlProtocol) -> %Connection {
+    const socket_fd = %return createSocket(addr, protocol);
 
     const bind_ret = if (addr.family == linux.AF_INET) {
         var os_addr: linux.sockaddr_in = undefined;
         os_addr.family = addr.family;
         os_addr.port = endian.swapIfLe(u16, port);
-        @memcpy((&u8)(&os_addr.addr), &addr.addr[0], 4);
+        //@memcpy((&u8)(&os_addr.addr), &addr.addr[0], 4);
+        @memcpy(@ptrCast(&u8, &os_addr.addr), &addr.addr[0], 4);
         @memset(&os_addr.zero[0], 0, @sizeOf(@typeOf(os_addr.zero)));
-        linux.bind(socket_fd, (&linux.sockaddr)(&os_addr), @sizeOf(linux.sockaddr_in))
+        //linux.bind(socket_fd, (&linux.sockaddr)(&os_addr), @sizeOf(linux.sockaddr_in))
+        linux.bind(socket_fd, @ptrCast(&linux.sockaddr, &os_addr), @sizeOf(linux.sockaddr_in))
     } else {
         return error.UnsupportedOption;
     };
@@ -192,11 +193,8 @@ pub fn bindAddr(addr: &Address, port: u16, protocol: ControlProtocol) -> %Connec
 }
 
 pub fn bind(hostname: []const u8, port: u16, protocol: ControlProtocol) -> %Connection {
-    var addrs_buf: [1]Address = undefined;
-    const addrs_slice = %return lookup(hostname, addrs_buf[0..]);
-    const main_addr = &addrs_slice[0];
-
-    bindAddr(main_addr, port, protocol)
+    const addr = %return lookup(hostname);
+    bindAddr(&addr, port, protocol)
 }
 
 error InvalidIpLiteral;

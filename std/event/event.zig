@@ -3,7 +3,6 @@ const std = @import("std");
 const linux = std.os.linux;
 
 use @import("event_common.zig");
-use @import("event_net.zig");
 
 const event_os = switch (builtin.os) {
     builtin.Os.linux => @import("event_linux.zig"),

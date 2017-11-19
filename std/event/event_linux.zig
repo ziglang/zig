@@ -52,10 +52,8 @@ pub const Timer = struct {
         }
 
         %defer {
-            switch (linux.getErrno(linux.close(i32(fd)))) {
-                0 => {},
-                else => {}
-            }
+            var conn = std.net.Connection{i32(fd)};
+            conn.close() %% {}
         }
 
         comptime const nsec_in_sec = 1000 * 1000 * 1000;
@@ -181,9 +179,11 @@ pub const NetworkEvent = struct {
                 .md = EventMd {
                     .fd = fd
                 },
-                .data = EventData.NetworkData {
-                    .closure = closure,
-                    .read_handler = @intToPtr(read_handler)
+                .data = EventData.Network {
+                    NetworkData {
+                        .closure = closure,
+                        .read_handler = @ptrToInt(read_handler)
+                    }
                 }
             }
         }
@@ -196,10 +196,17 @@ pub const NetworkEvent = struct {
     pub fn unregister(event: &NetworkEvent, loop: &Loop) -> %void {
         loop.unregister(&event.event)
     }
+
+    pub fn close(event: &NetworkEvent) -> void {
+        linux.close(self.event.md.fd) %% {}
+    }
 };
 
 pub const StreamListener = struct {
-    listen_event: NetworkEvent,
+    listen_event: ?NetworkEvent,
+    listener_context: usize,
+    conn_handler: usize,
+    read_handler: usize,
 
     const Self = this;
 
@@ -207,24 +214,52 @@ pub const StreamListener = struct {
         var listener = @intToPtr(&StreamListener, closure);
 
         // TODO call accept more times non-blocking if more connections are available
-        const accept_ret = linux.accept(listener.listen_event.md.fd);
+        var listen_event = listener.listen_event ?? return;
+        const listen_fd = listen_event.event.md.fd;
+
+        var client_addr: linux.sockaddr = undefined;
+        var addr_size: u32 = @sizeOf(@typeOf(client_addr));
+
+        const accept_ret = linux.accept(listen_fd, &client_addr, &addr_size);
         const err = linux.getErrno(accept_ret);
 
         if (err != 0) {
             // XXX
-            std.debug.warn("error accepting new connection on fd {}\n", listener.listen_event.md.fd);
+            std.debug.warn("error accepting new connection on fd {}: {}\n",
+                listen_fd, err);
             return;
         }
 
-        var conn_event = ...;
+        std.debug.warn("got new connection on fd {}\n", accept_ret);
 
-        listener.listen_event.data.conn_handler(
-
-        std.debug.warn("got new connection!\n");
+//        const conn_closure = listener.listen_event.data.conn_handler();
+//
+//        %defer {
+//            linux.close(i32(accept_ret)) %% {};
+//            // XXX: trigger user callback to clean up conn_closure
+//        }
+//
+//        var conn_event = %return NetworkEvent.init(i32(accept_ret),
+//            conn_closure, listener.listen_event.data.read_handler);
+//
+//        %defer {
+//
+//        }
+//
+        //%return conn_event.register(
     }
 
-    pub fn init_tcp(hostname: []const u8, port: u16, conn_handler: ConnectionHandler) -> %Self {
-        var conn = %return net.bind(hostname, port, net.ControlProtocol.TCP);
+    pub fn init(context: usize, conn_handler: usize, read_handler: usize) -> Self {
+        Self {
+            .listen_event = null,
+            .listener_context = context,
+            .conn_handler = conn_handler,
+            .read_handler = read_handler
+        }
+    }
+
+    pub fn listen_tcp(listener: &Self, hostname: []const u8, port: u16) -> %void {
+        var conn = %return std.net.bind(hostname, port, std.net.ControlProtocol.TCP);
 
         // TODO: set socket options here if wanted
         // some of the ones that libuv uses and supports:
@@ -235,7 +270,7 @@ pub const StreamListener = struct {
         //      - TCP_KEEPALIVE
 
         const backlog: i32 = 100;
-        const res = linux.listen(conn.fd, backlog);
+        const res = linux.listen(conn.socket_fd, backlog);
         const err = linux.getErrno(res);
 
         if (err != 0) {
@@ -246,7 +281,9 @@ pub const StreamListener = struct {
             };
         }
 
-        var listen_event = NetworkEvent.init(i32(conn.fd), 
+        listener.listen_event =
+            %return NetworkEvent.init(i32(conn.socket_fd), @ptrToInt(listener),
+                handle_new_connection);
     }
 };
 
