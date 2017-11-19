@@ -30,7 +30,7 @@ pub const ConnectionHandler = fn(EventClosure) -> EventClosure;
 // the first argument is the data read from the connection and the second
 // argument is the closure created by the connection handler when the connection
 // was first opened.
-pub const ReadHandler = fn(&const []u8, EventClosure) -> void;
+pub const ReadHandler = fn([]const u8, EventClosure) -> void;
 
 pub const LoopStepBehavior = enum {
     Blocking,

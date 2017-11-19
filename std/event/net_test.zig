@@ -32,7 +32,5 @@ test "listen" {
         TestContext, &conn_handler, &read_handler);
     %%listener.listen_tcp("localhost", 12345);
 
-    while (true) {
-
-    }
+    %%loop.run();
 }

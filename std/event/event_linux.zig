@@ -210,7 +210,7 @@ pub const StreamListener = struct {
 
     const Self = this;
 
-    fn handle_new_connection(buf: &const []u8, closure: EventClosure) -> void {
+    fn handle_new_connection(buf: []const u8, closure: EventClosure) -> void {
         var listener = @intToPtr(&StreamListener, closure);
 
         // TODO call accept more times non-blocking if more connections are available
@@ -358,24 +358,25 @@ pub const Loop = struct {
     }
 
     fn handle_socket_read(loop: &Self, fd: i32, data: &NetworkData) -> void {
-        const byte: u8 = undefined;
+        const byte: u8 = 0;
         const buf_size: usize = 4 * 1024;
         var buf = []u8{byte} ** buf_size;
-        var r = linux.read(i32(context.md.fd), &buf[0], buf.len);
+        var r = linux.read(fd, &buf[0], buf.len);
 
         switch (linux.getErrno(r)) {
             0 => {
-                data.read_handler(&buf, data.closure);
+                const read_handler = @intToPtr(&ReadHandler, data.read_handler);
+                (*read_handler)(buf, data.closure);
             },
             linux.EAGAIN => {
-                std.debug.warn("tried to read from empty fd {}\n", context.md.fd);
+                std.debug.warn("tried to read from empty fd {}\n", fd);
             },
             // TODO: actually do something reasonable here
             else => @panic("socket read failed")
         }
     }
 
-    fn handle_event(loop: &Self, event: &epoll_event) -> void {
+    fn handle_event(loop: &Self, event: &linux.epoll_event) -> void {
         var context = @intToPtr(&Event, event.data);
         switch (context.data) {
             EventData.Timer => |*timer| {
@@ -411,11 +412,11 @@ pub const Loop = struct {
             EventData.Network => |*network| {
                 const flags = event.events;
 
-                if (flags & linux.EPOLLIN) {
+                if ((flags & u32(linux.EPOLLIN)) != 0) {
                     loop.handle_socket_read(context.md.fd, network);
                 }
 
-                if (flags & linux.EPOLLOUT) {
+                if ((flags & u32(linux.EPOLLOUT)) != 0) {
                     // TODO: apply any pending writes
                 }
             },
