@@ -216,9 +216,8 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                         buf_append_char(&ctok->buf, '0');
                         break;
                     case '.':
-                        begin_token(ctok, CTokIdNumLitFloat);
-                        ctok->state = CTokStateFloat;
-                        buf_init_from_str(&ctok->buf, "0.");
+                        begin_token(ctok, CTokIdDot);
+                        end_token(ctok);
                         break;
                     case '(':
                         begin_token(ctok, CTokIdLParen);
@@ -238,6 +237,8 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                 break;
             case CTokStateFloat:
                 switch (*c) {
+                    case '.':
+                        break;
                     case 'e':
                     case 'E':
                         buf_append_char(&ctok->buf, 'e');
