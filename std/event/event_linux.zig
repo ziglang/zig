@@ -173,7 +173,7 @@ pub const NetworkEvent = struct {
 
     const Self = this;
 
-    fn init_impl(fd: i32, closure: EventClosure, read_handler: ReadHandler,
+    fn init_impl(fd: i32, closure: EventClosure, read_handler: usize,
             auto_drain: bool) -> %Self {
         Self {
             .event = Event {
@@ -184,7 +184,7 @@ pub const NetworkEvent = struct {
                     NetworkData {
                         .auto_drain = auto_drain,
                         .closure = closure,
-                        .read_handler = @ptrToInt(read_handler)
+                        .read_handler = read_handler
                     }
                 }
             }
@@ -193,11 +193,11 @@ pub const NetworkEvent = struct {
 
     // these args are not os-agnostic so the api layer will need to make the
     // appropriate calls
-    pub fn init(fd: i32, closure: EventClosure, read_handler: ReadHandler) -> %Self {
+    pub fn init(fd: i32, closure: EventClosure, read_handler: usize) -> %Self {
         init_impl(fd, closure, read_handler, true)
     }
 
-    fn init_no_drain(fd: i32, closure: EventClosure, read_handler: ReadHandler) -> %Self {
+    fn init_no_drain(fd: i32, closure: EventClosure, read_handler: usize) -> %Self {
         init_impl(fd, closure, read_handler, false)
     }
 
@@ -301,7 +301,7 @@ pub const StreamListener = struct {
 
         listener.listen_event =
             %return NetworkEvent.init_no_drain(i32(conn.socket_fd), @ptrToInt(listener),
-                handle_new_connection);
+                @ptrToInt(&handle_new_connection));
         listener.listening = true;
     }
 
