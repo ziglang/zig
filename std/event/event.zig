@@ -97,7 +97,7 @@ pub const StreamListener = struct {
     const Self = this;
 
     pub fn init(context: var, comptime read_context_type: type,
-            conn_handler: &const fn(@typeOf(context)) -> read_context_type,
+            conn_handler: &const fn(@typeOf(context)) -> %&read_context_type,
             read_handler: &const fn(&const []u8, &read_context_type) -> void) -> Self {
         Self {
             .os = event_os.StreamListener.init(

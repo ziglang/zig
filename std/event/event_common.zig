@@ -24,7 +24,7 @@ pub const ManagedHandler = fn(EventClosure) -> void;
 // the user is responsible for the memory management of this closure (i.e. its
 // lifetime must be such that it is available for future callbacks, and the user
 // must free it once the connection is closed)
-pub const ConnectionHandler = fn(EventClosure) -> EventClosure;
+pub const ConnectionHandler = fn(EventClosure) -> %EventClosure;
 
 // triggered when data is read from a network connection
 // the first argument is the data read from the connection and the second
