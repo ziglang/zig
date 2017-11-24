@@ -208,7 +208,7 @@ fn printUsage(outstream: &io.OutStream) -> %void {
         \\  build-exe [source]           create executable from source or object files
         \\  build-lib [source]           create library from source or object files
         \\  build-obj [source]           create object from source or assembly
-        \\  parsec [source]              convert c code to zig code
+        \\  translate-c [source]         convert c code to zig code
         \\  targets                      list available compilation targets
         \\  test [source]                create and run a test build
         \\  version                      print version number and exit

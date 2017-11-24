@@ -11,7 +11,7 @@
 #include "error.hpp"
 #include "ir.hpp"
 #include "os.hpp"
-#include "parsec.hpp"
+#include "translate_c.hpp"
 #include "parser.hpp"
 
 

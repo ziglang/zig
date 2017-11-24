@@ -28,7 +28,7 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type);
 
 ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
     if (node->owner->c_import_node != nullptr) {
-        // if this happens, then parsec generated code that
+        // if this happens, then translate_c generated code that
         // failed semantic analysis, which isn't supposed to happen
         ErrorMsg *err = add_node_error(g, node->owner->c_import_node,
             buf_sprintf("compiler bug: @cImport generated invalid zig code"));
@@ -48,7 +48,7 @@ ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
 
 ErrorMsg *add_error_note(CodeGen *g, ErrorMsg *parent_msg, AstNode *node, Buf *msg) {
     if (node->owner->c_import_node != nullptr) {
-        // if this happens, then parsec generated code that
+        // if this happens, then translate_c generated code that
         // failed semantic analysis, which isn't supposed to happen
 
         Buf *note_path = buf_create_from_str("?.c");

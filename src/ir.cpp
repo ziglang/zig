@@ -11,7 +11,7 @@
 #include "ir.hpp"
 #include "ir_print.hpp"
 #include "os.hpp"
-#include "parsec.hpp"
+#include "translate_c.hpp"
 #include "range_set.hpp"
 #include "softfloat.hpp"
 
