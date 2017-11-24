@@ -98,11 +98,12 @@ pub const NetworkEvent = struct {
 
     pub fn init(md: &const event_os.EventMd,
             closure: var,
-            read_handler: &const fn(&const []const u8, @typeOf(closure)) -> void)
+            read_handler: &const fn(&const []const u8, @typeOf(closure)) -> void,
+            disconn_handler: &const fn(@typeOf(closure)) -> void)
             -> %Self {
         NetworkEvent {
             .os = %return event_os.NetworkEvent.init(md, @ptrToInt(closure),
-                @ptrToInt(read_handler))
+                @ptrToInt(read_handler), @ptrToInt(disconn_handler))
         }
     }
 

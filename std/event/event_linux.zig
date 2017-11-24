@@ -4,17 +4,18 @@ const assert = std.debug.assert;
 const linux = std.os.linux;
 use @import("event_common.zig");
 
-pub const EventClosure = usize;
-pub const TimerHandler = fn(EventClosure) -> void;
-pub const ManagedHandler = fn(EventClosure) -> void;
+const EventClosure = usize;
+const TimerHandler = fn(EventClosure) -> void;
+const ManagedHandler = fn(EventClosure) -> void;
 
 // triggered when data is read from a network connection
 // the first argument is the data read from the connection and the second
 // argument is the closure created by the connection handler when the connection
 // was first opened.
-pub const ReadHandler = fn(&const []u8, EventClosure) -> void;
+const ReadHandler = fn(&const []u8, EventClosure) -> void;
+const DisconnectHandler = fn(EventClosure) -> void;
 
-pub const ConnectionHandler = fn(&const EventMd, EventClosure) -> %void;
+const ConnectionHandler = fn(&const EventMd, EventClosure) -> %void;
 
 const TimerData = struct {
     timeout: u64,
@@ -25,7 +26,8 @@ const TimerData = struct {
 const NetworkData = struct {
     auto_drain: bool,
     closure: usize,
-    read_handler: usize
+    read_handler: usize,
+    disconn_handler: usize
 };
 
 const ManagedData = struct {
@@ -182,7 +184,7 @@ pub const NetworkEvent = struct {
     const Self = this;
 
     fn init_impl(md: &const EventMd, closure: EventClosure, read_handler: usize,
-            auto_drain: bool) -> %Self {
+            disconn_handler: usize, auto_drain: bool) -> %Self {
         Self {
             .event = Event {
                 .md = *md,
@@ -190,7 +192,8 @@ pub const NetworkEvent = struct {
                     NetworkData {
                         .auto_drain = auto_drain,
                         .closure = closure,
-                        .read_handler = read_handler
+                        .read_handler = read_handler,
+                        .disconn_handler = disconn_handler
                     }
                 }
             }
@@ -199,12 +202,14 @@ pub const NetworkEvent = struct {
 
     // these args are not os-agnostic so the api layer will need to make the
     // appropriate calls
-    pub fn init(md: &const EventMd, closure: EventClosure, read_handler: usize) -> %Self {
-        init_impl(md, closure, read_handler, true)
+    pub fn init(md: &const EventMd, closure: EventClosure, read_handler: usize,
+            disconn_handler: usize) -> %Self {
+        init_impl(md, closure, read_handler, disconn_handler, true)
     }
 
-    fn init_no_drain(md: &const EventMd, closure: EventClosure, read_handler: usize) -> %Self {
-        init_impl(md, closure, read_handler, false)
+    fn init_no_drain(md: &const EventMd, closure: EventClosure,
+            read_handler: usize, disconn_handler: usize) -> %Self {
+        init_impl(md, closure, read_handler, disconn_handler, false)
     }
 
     pub fn register(event: &Self, loop: &Loop) -> %void {
@@ -300,6 +305,10 @@ pub const StreamListener = struct {
         (*conn_handler)(&conn_event, listener.listener_context)
     }
 
+    fn handle_disconnect(closure: EventClosure) -> void {
+        unreachable
+    }
+
     pub fn init(context: usize, conn_handler: usize)
             -> Self {
         Self {
@@ -346,7 +355,8 @@ pub const StreamListener = struct {
                     .fd = i32(conn.socket_fd)
                 },
                 @ptrToInt(listener),
-                @ptrToInt(&handle_new_connection));
+                @ptrToInt(&handle_new_connection),
+                @ptrToInt(&handle_disconnect));
         listener.listening = true;
     }
 
@@ -439,12 +449,24 @@ pub const Loop = struct {
         var read_handler = @intToPtr(&ReadHandler, data.read_handler);
 
         if (data.auto_drain) {
+            var first_read = true;
+
             while (true) {
                 const r = linux.read(fd, &buf[0], buf.len);
                 const err = linux.getErrno(r);
 
                 switch (err) {
                     0 => {
+                        // If EPOLLIN triggers with no bytes available, that
+                        // indicates that the client has closed the connection.
+                        if (r == 0 and first_read) {
+                            var disconn_handler = @intToPtr(&DisconnectHandler,
+                                data.disconn_handler);
+                            (*disconn_handler)(data.closure);
+                            return;
+                        }
+
+                        first_read = false;
                         (*read_handler)(buf[0..r], data.closure);
 
                         // if we filled up the buffer then there is potentially

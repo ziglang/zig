@@ -51,9 +51,14 @@ fn read_handler(bytes: &const []const u8, context: &TestContext) -> void {
     };
 }
 
+fn disconn_handler(context: &TestContext) -> void {
+    std.debug.warn("connection closed\n");
+}
+
 fn conn_handler(md: &const event.EventMd, context: &ListenerContext) -> %void {
     var event_closure = %return context.context_alloc.alloc();
-    event_closure.event = %return event.NetworkEvent.init(md, event_closure, &read_handler);
+    event_closure.event = %return event.NetworkEvent.init(md, event_closure,
+        &read_handler, &disconn_handler);
     event_closure.event.register(context.loop)
 }
 
