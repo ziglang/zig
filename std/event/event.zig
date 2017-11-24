@@ -114,9 +114,7 @@ pub const NetworkEvent = struct {
         event.os.unregister(&loop.os)
     }
 
-    pub fn set_closure(event: &Self, closure: var) -> void {
-        event.os.set_closure(@ptrToInt(closure))
-    }
+
 };
 
 pub const StreamListener = struct {

@@ -207,15 +207,6 @@ pub const NetworkEvent = struct {
         init_impl(md, closure, read_handler, false)
     }
 
-    fn set_closure(event: &NetworkEvent, closure: EventClosure) -> void {
-        switch (event.event.data) {
-            EventData.Network => |*network| {
-                network.closure = closure
-            },
-            else => unreachable
-        }
-    }
-
     pub fn register(event: &NetworkEvent, loop: &Loop) -> %void {
         loop.register(&event.event)
     }
