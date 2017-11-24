@@ -459,10 +459,14 @@ pub const Loop = struct {
                     0 => {
                         // If EPOLLIN triggers with no bytes available, that
                         // indicates that the client has closed the connection.
-                        if (r == 0 and first_read) {
-                            var disconn_handler = @intToPtr(&DisconnectHandler,
-                                data.disconn_handler);
-                            (*disconn_handler)(data.closure);
+                        if (r == 0) {
+                            if (first_read) {
+                                var disconn_handler =
+                                    @intToPtr(&DisconnectHandler,
+                                    data.disconn_handler);
+                                (*disconn_handler)(data.closure);
+                            }
+
                             return;
                         }
 
