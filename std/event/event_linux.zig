@@ -222,6 +222,10 @@ pub const NetworkEvent = struct {
     pub fn write(event: &Self, bytes: &const []const u8) -> %usize {
         var total: usize = 0;
 
+        if (bytes.len == 0) {
+            return 0;
+        }
+
         while (true) {
             const w = linux.write(event.event.md.fd, &(*bytes)[0], bytes.len);
             const err = linux.getErrno(w);
