@@ -22,7 +22,10 @@ const ContextAllocator = struct {
     }
 
     fn alloc(allocator: &Self) -> %&TestContext {
-        if (allocator.index >=allocator.contexts.len) {
+        std.debug.warn("index {} / length {}\n", allocator.index,
+            allocator.contexts.len);
+        if (allocator.index >= allocator.contexts.len) {
+            std.debug.warn("out of context memory\n");
             return error.OutOfMemory;
         }
 
@@ -34,26 +37,38 @@ const ContextAllocator = struct {
 
 const ListenerContext = struct {
     server_id: usize,
-    context_alloc: ContextAllocator
+    loop: &event.Loop,
+    context_alloc: &ContextAllocator
 };
 
 fn read_handler(bytes: &const []u8, context: &TestContext) -> void {
     std.debug.warn("reading {} bytes from context {}\n", bytes.len, context.value);
 }
 
-fn conn_handler(context: &ListenerContext) -> %&TestContext {
-    context.context_alloc.alloc()
+fn conn_handler(md: &const event.EventMd, context: &ListenerContext) -> %void {
+    std.debug.warn("registering event for new connection {}\n", md.fd);
+    std.debug.warn("using context {}\n", @ptrToInt(context));
+    var event_closure = %return context.context_alloc.alloc();
+    std.debug.warn("created context\n");
+    var ev = %return event.NetworkEvent.init(md, event_closure, &read_handler);
+    std.debug.warn("created event\n");
+    ev.register(context.loop)
 }
 
 test "listen" {
+    var loop = %%event.Loop.init();
+
+    var allocator = ContextAllocator.init();
+
     var listener_context = ListenerContext {
         .server_id = 1,
-        .context_alloc = ContextAllocator.init()
+        .loop = &loop,
+        .context_alloc = &allocator
     };
 
-    var loop = %%event.Loop.init();
-    var listener = event.StreamListener.init(&listener_context,
-        TestContext, &conn_handler, &read_handler);
+    std.debug.warn("created context at {}\n", @ptrToInt(&listener_context));
+
+    var listener = event.StreamListener.init(&listener_context, &conn_handler);
     %%listener.listen_tcp("localhost", 12345);
     %%listener.register(&loop);
 

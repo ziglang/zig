@@ -11,10 +11,20 @@ const event_os = switch (builtin.os) {
 
 error OsError;
 
-pub const Event = struct {
-    os: event_os.Event,
-    context: EventContext
-};
+// All structs in this file are thin wrappers around the OS-specific versions
+// of the equivalent structs.  In some cases the internal OS implementations
+// rely on the fact that these two data types are identical, so there should
+// not be extra data fields added to these wrapper structs.
+// The main benefit that this additional layer provides right now is that
+// it enforces type safety between client callbacks and client-provided closures.
+// However, once that is no longer necessary we should remove this intermediate
+// layer altogether and simply enforce that all platforms expose identical
+// interfaces.
+
+//pub const Event = struct {
+//    os: event_os.Event,
+//    context: EventContext
+//};
 
 pub const Loop = struct {
     os: event_os.Loop,
@@ -68,11 +78,11 @@ pub const ManagedEvent = struct {
         }
     }
 
-    pub fn register(event: &ManagedEvent, loop: &Loop) -> %void {
+    pub fn register(event: &Self, loop: &Loop) -> %void {
         event.os.register(&loop.os)
     }
 
-    pub fn unregister(event: &ManagedEvent, loop: &Loop) -> %void {
+    pub fn unregister(event: &Self, loop: &Loop) -> %void {
         event.os.unregister(&loop.os)
     }
 
@@ -86,8 +96,26 @@ pub const NetworkEvent = struct {
 
     const Self = this;
 
-    pub fn init() -> %Self {
+    pub fn init(md: &const event_os.EventMd,
+            closure: var,
+            read_handler: &const fn(&const []u8, @typeOf(closure)) -> void)
+            -> %Self {
+        NetworkEvent {
+            .os = %return event_os.NetworkEvent.init(md, @ptrToInt(closure),
+                @ptrToInt(read_handler))
+        }
+    }
 
+    pub fn register(event: &Self, loop: &Loop) -> %void {
+        event.os.register(&loop.os)
+    }
+
+    pub fn unregister(event: &Self, loop: &Loop) -> %void {
+        event.os.unregister(&loop.os)
+    }
+
+    pub fn set_closure(event: &Self, closure: var) -> void {
+        event.os.set_closure(@ptrToInt(closure))
     }
 };
 
@@ -96,14 +124,13 @@ pub const StreamListener = struct {
 
     const Self = this;
 
-    pub fn init(context: var, comptime read_context_type: type,
-            conn_handler: &const fn(@typeOf(context)) -> %&read_context_type,
-            read_handler: &const fn(&const []u8, &read_context_type) -> void) -> Self {
+    pub fn init(context: var,
+            conn_handler: &const fn(&const event_os.EventMd, @typeOf(context)) -> %void)
+            -> Self {
         Self {
             .os = event_os.StreamListener.init(
                 @ptrToInt(context),
-                @ptrToInt(conn_handler),
-                @ptrToInt(read_handler))
+                @ptrToInt(conn_handler))
         }
     }
 

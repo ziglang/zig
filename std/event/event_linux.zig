@@ -4,9 +4,17 @@ const assert = std.debug.assert;
 const linux = std.os.linux;
 use @import("event_common.zig");
 
-pub const EventMd = struct {
-    fd: i32
-};
+pub const EventClosure = usize;
+pub const TimerHandler = fn(EventClosure) -> void;
+pub const ManagedHandler = fn(EventClosure) -> void;
+
+// triggered when data is read from a network connection
+// the first argument is the data read from the connection and the second
+// argument is the closure created by the connection handler when the connection
+// was first opened.
+pub const ReadHandler = fn([]const u8, EventClosure) -> void;
+
+pub const ConnectionHandler = fn(&const EventMd, EventClosure) -> %void;
 
 const TimerData = struct {
     timeout: u64,
@@ -173,13 +181,11 @@ pub const NetworkEvent = struct {
 
     const Self = this;
 
-    fn init_impl(fd: i32, closure: EventClosure, read_handler: usize,
+    fn init_impl(md: &const EventMd, closure: EventClosure, read_handler: usize,
             auto_drain: bool) -> %Self {
         Self {
             .event = Event {
-                .md = EventMd {
-                    .fd = fd
-                },
+                .md = *md,
                 .data = EventData.Network {
                     NetworkData {
                         .auto_drain = auto_drain,
@@ -193,12 +199,21 @@ pub const NetworkEvent = struct {
 
     // these args are not os-agnostic so the api layer will need to make the
     // appropriate calls
-    pub fn init(fd: i32, closure: EventClosure, read_handler: usize) -> %Self {
-        init_impl(fd, closure, read_handler, true)
+    pub fn init(md: &const EventMd, closure: EventClosure, read_handler: usize) -> %Self {
+        init_impl(md, closure, read_handler, true)
     }
 
-    fn init_no_drain(fd: i32, closure: EventClosure, read_handler: usize) -> %Self {
-        init_impl(fd, closure, read_handler, false)
+    fn init_no_drain(md: &const EventMd, closure: EventClosure, read_handler: usize) -> %Self {
+        init_impl(md, closure, read_handler, false)
+    }
+
+    fn set_closure(event: &NetworkEvent, closure: EventClosure) -> void {
+        switch (event.event.data) {
+            EventData.Network => |*network| {
+                network.closure = closure
+            },
+            else => unreachable
+        }
     }
 
     pub fn register(event: &NetworkEvent, loop: &Loop) -> %void {
@@ -222,14 +237,15 @@ pub const StreamListener = struct {
     listening: bool,
     listener_context: usize,
     conn_handler: usize,
-    read_handler: usize,
 
     const Self = this;
 
-    fn handle_new_connection(buf: []const u8, closure: EventClosure) -> void {
+    fn handle_new_connection(buf: []const u8, closure: EventClosure) -> %void {
         var listener = @intToPtr(&StreamListener, closure);
 
         std.debug.warn("handling new connection\n");
+
+        std.debug.warn("listener closure is {}\n", listener.listener_context);
 
         // TODO call accept more times non-blocking if more connections are available
         const listen_fd = listener.listen_event.event.md.fd;
@@ -249,35 +265,39 @@ pub const StreamListener = struct {
 
         std.debug.warn("got new connection on fd {}\n", accept_ret);
 
-//        const conn_closure = listener.listen_event.data.conn_handler();
-//
-//        %defer {
-//            linux.close(i32(accept_ret)) %% {};
-//            // XXX: trigger user callback to clean up conn_closure
-//        }
-//
-//        var conn_event = %return NetworkEvent.init(i32(accept_ret),
-//            conn_closure, listener.listen_event.data.read_handler);
-//
-//        %defer {
-//
-//        }
-//
-        //%return conn_event.register(
+        %defer {
+            //linux.close(i32(accept_ret)) %% {};
+        }
+
+        var event_data = switch (listener.listen_event.event.data) {
+            EventData.Network => |*network| network,
+            else => unreachable
+        };
+
+        var conn_event = EventMd {
+            .fd = i32(accept_ret)
+        };
+
+        const conn_handler = @intToPtr(&ConnectionHandler, listener.conn_handler);
+
+        (*conn_handler)(&conn_event, listener.listener_context)
     }
 
-    pub fn init(context: usize, conn_handler: usize, read_handler: usize) -> Self {
+    pub fn init(context: usize, conn_handler: usize)
+            -> Self {
+        std.debug.warn("initializing listener closure to {}\n", context);
         Self {
             .listen_event = undefined,
             .listening = false,
             .listener_context = context,
-            .conn_handler = conn_handler,
-            .read_handler = read_handler
+            .conn_handler = conn_handler
         }
     }
 
-    pub fn listen_tcp(listener: &Self, hostname: []const u8, port: u16) -> %void {
-        var conn = %return std.net.bind(hostname, port, std.net.ControlProtocol.TCP);
+    pub fn listen_tcp(listener: &Self, hostname: []const u8, port: u16)
+            -> %void {
+        var conn = %return std.net.bind(hostname, port,
+            std.net.ControlProtocol.TCP);
 
         // TODO: set socket options here if wanted
         // some of the ones that libuv uses and supports:
@@ -299,8 +319,14 @@ pub const StreamListener = struct {
             };
         }
 
+        std.debug.warn("storing listener address {}\n", @ptrToInt(listener));
+
         listener.listen_event =
-            %return NetworkEvent.init_no_drain(i32(conn.socket_fd), @ptrToInt(listener),
+            %return NetworkEvent.init_no_drain(
+                EventMd {
+                    .fd = i32(conn.socket_fd)
+                },
+                @ptrToInt(listener),
                 @ptrToInt(&handle_new_connection));
         listener.listening = true;
     }
@@ -451,7 +477,8 @@ pub const Loop = struct {
             EventData.Network => |*network| {
                 const flags = event.events;
 
-                std.debug.warn("network event triggered\n");
+                std.debug.warn("fd {} triggered with flags {}\n",
+                    context.md.fd, flags);
 
                 if ((flags & u32(linux.EPOLLIN)) != 0) {
                     std.debug.warn("network read triggered\n");
