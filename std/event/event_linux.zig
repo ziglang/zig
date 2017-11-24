@@ -299,6 +299,11 @@ pub const StreamListener = struct {
         var conn = %return std.net.bind(hostname, port,
             std.net.ControlProtocol.TCP);
 
+        const enable: u32 = 1;
+        const so_res = linux.setsockopt(conn.socket_fd, linux.SOL_SOCKET, linux.SO_REUSEADDR, @ptrCast(&const u8, &enable), @sizeOf(@typeOf(enable)));
+
+        // XXX: check so_res
+
         // TODO: set socket options here if wanted
         // some of the ones that libuv uses and supports:
         //  unconditionally:
@@ -418,6 +423,8 @@ pub const Loop = struct {
         const byte: u8 = 0;
         const buf_size: usize = 4 * 1024;
         var buf = []u8{byte} ** buf_size;
+
+        std.debug.warn("handling read with context {}\n", data.closure);
 
         var read_handler = @intToPtr(&ReadHandler, data.read_handler);
 

@@ -133,6 +133,10 @@ pub const F_GETOWN_EX = arch.F_GETOWN_EX;
 
 pub const F_GETOWNER_UIDS = arch.F_GETOWNER_UIDS;
 
+pub const SOL_SOCKET = arch.SOL_SOCKET;
+
+pub const SO_REUSEADDR = arch.SO_REUSEADDR;
+
 pub const SEEK_SET = 0;
 pub const SEEK_CUR = 1;
 pub const SEEK_END = 2;
@@ -710,7 +714,7 @@ pub fn socket(domain: i32, socket_type: i32, protocol: i32) -> usize {
 }
 
 pub fn setsockopt(fd: i32, level: i32, optname: i32, optval: &const u8, optlen: socklen_t) -> usize {
-    arch.syscall5(arch.SYS_setsockopt, usize(fd), usize(level), usize(optname), usize(optval), @ptrToInt(optlen))
+    arch.syscall5(arch.SYS_setsockopt, usize(fd), usize(level), usize(optname), @ptrToInt(optval), usize(optlen))
 }
 
 pub fn getsockopt(fd: i32, level: i32, optname: i32, noalias optval: &u8, noalias optlen: &socklen_t) -> usize {

@@ -49,7 +49,7 @@ fn conn_handler(md: &const event.EventMd, context: &ListenerContext) -> %void {
     std.debug.warn("registering event for new connection {}\n", md.fd);
     std.debug.warn("using context {}\n", @ptrToInt(context));
     var event_closure = %return context.context_alloc.alloc();
-    std.debug.warn("created context\n");
+    std.debug.warn("created context {}\n", @ptrToInt(event_closure));
     var ev = %return event.NetworkEvent.init(md, event_closure, &read_handler);
     std.debug.warn("created event\n");
     ev.register(context.loop)

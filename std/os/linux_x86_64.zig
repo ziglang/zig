@@ -370,6 +370,16 @@ pub const F_GETOWN_EX = 16;
 
 pub const F_GETOWNER_UIDS = 17;
 
+pub const SOL_SOCKET = 1;
+pub const SOL_IP = 0;
+pub const SOL_IPV6 = 41;
+pub const SOL_ICMPV6 = 58;
+// XXX there are lots more of these
+
+pub const SO_DEBUG = 1;
+pub const SO_REUSEADDR = 2;
+// XXX there are lots more of these
+
 pub fn syscall0(number: usize) -> usize {
     asm volatile ("syscall"
         : [ret] "={rax}" (-> usize)
