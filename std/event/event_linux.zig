@@ -266,8 +266,6 @@ pub const StreamListener = struct {
     fn handle_new_connection(buf: &const []u8, closure: EventClosure) -> %void {
         var listener = @intToPtr(&StreamListener, closure);
 
-        std.debug.warn("handling new connection\n");
-
         // TODO call accept more times non-blocking if more connections are available
         const listen_fd = listener.listen_event.event.md.fd;
 
@@ -283,8 +281,6 @@ pub const StreamListener = struct {
                 listen_fd, err);
             return;
         }
-
-        std.debug.warn("got new connection on fd {}\n", accept_ret);
 
         %defer {
             //linux.close(i32(accept_ret)) %% {};
@@ -443,19 +439,27 @@ pub const Loop = struct {
         var read_handler = @intToPtr(&ReadHandler, data.read_handler);
 
         if (data.auto_drain) {
-            const r = linux.read(fd, &buf[0], buf.len);
-            const err = linux.getErrno(r);
+            while (true) {
+                const r = linux.read(fd, &buf[0], buf.len);
+                const err = linux.getErrno(r);
 
-            switch (err) {
-                0 => {
-                    std.debug.warn("read {} bytes\n", r);
-                    (*read_handler)(buf[0..r], data.closure);
-                },
-                linux.EAGAIN => {
-                    std.debug.warn("tried to read from empty fd {}\n", fd);
-                },
-                // TODO: actually do something reasonable here
-                else => @panic("socket read failed")
+                switch (err) {
+                    0 => {
+                        (*read_handler)(buf[0..r], data.closure);
+
+                        // if we filled up the buffer then there is potentially
+                        // more data ready to read
+                        if (r < buf.len) {
+                            return;
+                        }
+                    },
+                    linux.EAGAIN => {
+                        std.debug.warn("tried to read from empty fd {}\n", fd);
+                        return;
+                    },
+                    // TODO: actually do something reasonable here
+                    else => @panic("socket read failed")
+                }
             }
         } else {
             (*read_handler)(buf[0..0], data.closure);
@@ -498,11 +502,10 @@ pub const Loop = struct {
             EventData.Network => |*network| {
                 const flags = event.events;
 
-                std.debug.warn("fd {} triggered with flags {}\n",
-                    context.md.fd, flags);
+                //std.debug.warn("fd {} triggered with flags {}\n",
+                    //context.md.fd, flags);
 
                 if ((flags & u32(linux.EPOLLIN)) != 0) {
-                    std.debug.warn("network read triggered\n");
                     loop.handle_socket_read(context.md.fd, network);
                 }
 

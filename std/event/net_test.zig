@@ -43,15 +43,12 @@ const ListenerContext = struct {
 };
 
 fn read_handler(bytes: &const []const u8, context: &TestContext) -> void {
-    std.debug.warn("reading {} bytes from context {}\n", bytes.len, context.value);
-    std.debug.warn("client sent message \"{}\"\n", *bytes);
+    //std.debug.warn("reading {} bytes from context {}\n", bytes.len, context.value);
 
     const res = context.event.write(bytes) %% |err| {
         std.debug.warn("failed to write response: {}\n", err);
         return;
     };
-
-    std.debug.warn("wrote response of {} bytes\n", res);
 }
 
 fn conn_handler(md: &const event.EventMd, context: &ListenerContext) -> %void {
