@@ -245,8 +245,6 @@ pub const StreamListener = struct {
 
         std.debug.warn("handling new connection\n");
 
-        std.debug.warn("listener closure is {}\n", listener.listener_context);
-
         // TODO call accept more times non-blocking if more connections are available
         const listen_fd = listener.listen_event.event.md.fd;
 
@@ -285,7 +283,6 @@ pub const StreamListener = struct {
 
     pub fn init(context: usize, conn_handler: usize)
             -> Self {
-        std.debug.warn("initializing listener closure to {}\n", context);
         Self {
             .listen_event = undefined,
             .listening = false,
@@ -324,8 +321,6 @@ pub const StreamListener = struct {
             };
         }
 
-        std.debug.warn("storing listener address {}\n", @ptrToInt(listener));
-
         listener.listen_event =
             %return NetworkEvent.init_no_drain(
                 EventMd {
@@ -338,8 +333,6 @@ pub const StreamListener = struct {
 
     pub fn register(listener: &Self, loop: &Loop) -> %void {
         assert(listener.listening);
-        std.debug.warn("registering listen event {}\n",
-            @ptrToInt(&listener.listen_event.event));
         loop.register(&listener.listen_event.event)
     }
 
@@ -424,11 +417,7 @@ pub const Loop = struct {
         const buf_size: usize = 4 * 1024;
         var buf = []u8{byte} ** buf_size;
 
-        std.debug.warn("handling read with context {}\n", data.closure);
-
         var read_handler = @intToPtr(&ReadHandler, data.read_handler);
-
-        std.debug.warn("invoking read handler {}\n", data.read_handler);
 
         if (data.auto_drain) {
             const r = linux.read(fd, &buf[0], buf.len);
@@ -452,7 +441,6 @@ pub const Loop = struct {
 
     fn handle_event(loop: &Self, event: &linux.epoll_event) -> void {
         var context = @intToPtr(&Event, event.data);
-        std.debug.warn("triggered event {}\n", event.data);
         switch (context.data) {
             EventData.Timer => |*timer| {
                 loop.handle_timer(timer);

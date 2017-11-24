@@ -26,10 +26,7 @@ const ContextAllocator = struct {
     }
 
     fn alloc(allocator: &Self) -> %&TestContext {
-        std.debug.warn("index {} / length {}\n", allocator.index,
-            allocator.contexts.len);
         if (allocator.index >= allocator.contexts.len) {
-            std.debug.warn("out of context memory\n");
             return error.OutOfMemory;
         }
 
@@ -53,7 +50,6 @@ fn read_handler(bytes: &const []u8, context: &TestContext) -> void {
 fn conn_handler(md: &const event.EventMd, context: &ListenerContext) -> %void {
     var event_closure = %return context.context_alloc.alloc();
     event_closure.event = %return event.NetworkEvent.init(md, event_closure, &read_handler);
-    std.debug.warn("created event\n");
     event_closure.event.register(context.loop)
 }
 
@@ -67,8 +63,6 @@ test "listen" {
         .loop = &loop,
         .context_alloc = &allocator
     };
-
-    std.debug.warn("created context at {}\n", @ptrToInt(&listener_context));
 
     var listener = event.StreamListener.init(&listener_context, &conn_handler);
     %%listener.listen_tcp("localhost", 12345);
