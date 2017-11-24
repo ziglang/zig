@@ -2,39 +2,42 @@ const std = @import("std");
 const assert = std.debug.assert;
 const event = @import("event.zig");
 //const net = @import("event_net.zig");
+const mem_pool = @import("../mem_pool.zig");
 
 const TestContext = struct {
     value: usize,
     event: event.NetworkEvent
 };
 
-const ContextAllocator = struct {
-    contexts: [16]TestContext,
-    index: usize,
+const ContextAllocator = mem_pool.MemoryPool(TestContext);
 
-    const Self = this;
-
-    fn init() -> ContextAllocator {
-        const read_context = TestContext {
-            .value = 42,
-            .event = undefined
-        };
-        ContextAllocator {
-            .contexts = []TestContext { read_context } ** 16,
-            .index = 0
-        }
-    }
-
-    fn alloc(allocator: &Self) -> %&TestContext {
-        if (allocator.index >= allocator.contexts.len) {
-            return error.OutOfMemory;
-        }
-
-        const res = &allocator.contexts[allocator.index];
-        allocator.index += 1;
-        res
-    }
-};
+//const ContextAllocator = struct {
+//    contexts: [16]TestContext,
+//    index: usize,
+//
+//    const Self = this;
+//
+//    fn init() -> ContextAllocator {
+//        const read_context = TestContext {
+//            .value = 42,
+//            .event = undefined
+//        };
+//        ContextAllocator {
+//            .contexts = []TestContext { read_context } ** 16,
+//            .index = 0
+//        }
+//    }
+//
+//    fn alloc(allocator: &Self) -> %&TestContext {
+//        if (allocator.index >= allocator.contexts.len) {
+//            return error.OutOfMemory;
+//        }
+//
+//        const res = &allocator.contexts[allocator.index];
+//        allocator.index += 1;
+//        res
+//    }
+//};
 
 const ListenerContext = struct {
     server_id: usize,
@@ -65,7 +68,7 @@ fn conn_handler(md: &const event.EventMd, context: &ListenerContext) -> %void {
 test "listen" {
     var loop = %%event.Loop.init();
 
-    var allocator = ContextAllocator.init();
+    var allocator = %%ContextAllocator.init(16);
 
     var listener_context = ListenerContext {
         .server_id = 1,

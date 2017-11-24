@@ -4,6 +4,7 @@ pub const BufSet = @import("buf_set.zig").BufSet;
 pub const Buffer = @import("buffer.zig").Buffer;
 pub const HashMap = @import("hash_map.zig").HashMap;
 pub const LinkedList = @import("linked_list.zig").LinkedList;
+//pub const MemoryPool = @import("mem_pool.zig").MemoryPool;
 
 pub const base64 = @import("base64.zig");
 pub const build = @import("build.zig");
