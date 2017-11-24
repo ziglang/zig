@@ -207,16 +207,44 @@ pub const NetworkEvent = struct {
         init_impl(md, closure, read_handler, false)
     }
 
-    pub fn register(event: &NetworkEvent, loop: &Loop) -> %void {
+    pub fn register(event: &Self, loop: &Loop) -> %void {
         loop.register(&event.event)
     }
 
-    pub fn unregister(event: &NetworkEvent, loop: &Loop) -> %void {
+    pub fn unregister(event: &Self, loop: &Loop) -> %void {
         loop.unregister(&event.event)
     }
 
-    pub fn close(event: &NetworkEvent) -> void {
-        linux.close(self.event.md.fd) %% {}
+    pub fn close(event: &Self) -> void {
+        linux.close(event.event.md.fd) %% {}
+    }
+
+    pub fn write(event: &Self, bytes: &const []const u8) -> %usize {
+        var total: usize = 0;
+
+        while (true) {
+            const w = linux.write(event.event.md.fd, &(*bytes)[0], bytes.len);
+            const err = linux.getErrno(w);
+
+            switch (err) {
+                0 => {
+                    total += w;
+
+                    // keep trying to write more until we definitely can't
+                    if (total >= bytes.len) {
+                        return total;
+                    }
+                },
+
+                // treat wouldblock cases as non-error but only writing 0 bytes
+                linux.EAGAIN => {},
+                // XXX: handle EWOULDBLOCK here if it's != EAGAIN
+                linux.EINTR => continue,
+
+                // XXX
+                else => return error.Unexpected
+            }
+        }
     }
 };
 

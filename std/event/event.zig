@@ -98,7 +98,7 @@ pub const NetworkEvent = struct {
 
     pub fn init(md: &const event_os.EventMd,
             closure: var,
-            read_handler: &const fn(&const []u8, @typeOf(closure)) -> void)
+            read_handler: &const fn(&const []const u8, @typeOf(closure)) -> void)
             -> %Self {
         NetworkEvent {
             .os = %return event_os.NetworkEvent.init(md, @ptrToInt(closure),
@@ -114,7 +114,14 @@ pub const NetworkEvent = struct {
         event.os.unregister(&loop.os)
     }
 
+    // on success, returns the number of bytes written
+    pub fn write(event: &Self, bytes: &const []const u8) -> %usize {
+        event.os.write(bytes)
+    }
 
+    pub fn close(event: &Self) -> void {
+        event.os.close()
+    }
 };
 
 pub const StreamListener = struct {
