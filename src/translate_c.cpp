@@ -1524,47 +1524,93 @@ static AstNode *trans_create_post_crement(Context *c, bool result_used, AstNode 
             trans_expr(c, true, block, op_expr, TransLValue),
             assign_op,
             trans_create_node_unsigned(c, 1));
-    } else {
-        // worst case
-        // c: expr++
-        // zig: {
-        // zig:     const _ref = &expr;
-        // zig:     const _tmp = *_ref;
-        // zig:     *_ref += 1;
-        // zig:     _tmp
-        // zig: }
-        AstNode *child_block = trans_create_node(c, NodeTypeBlock);
+    }
+    // worst case
+    // c: expr++
+    // zig: {
+    // zig:     const _ref = &expr;
+    // zig:     const _tmp = *_ref;
+    // zig:     *_ref += 1;
+    // zig:     _tmp
+    // zig: }
+    AstNode *child_block = trans_create_node(c, NodeTypeBlock);
 
-        // const _ref = &expr;
-        AstNode *expr = trans_expr(c, true, child_block, op_expr, TransLValue);
-        if (expr == nullptr) return nullptr;
-        AstNode *addr_of_expr = trans_create_node_addr_of(c, false, false, expr);
-        // TODO: avoid name collisions with generated variable names
-        Buf* ref_var_name = buf_create_from_str("_ref");
-        AstNode *ref_var_decl = trans_create_node_var_decl_local(c, true, ref_var_name, nullptr, addr_of_expr);
-        child_block->data.block.statements.append(ref_var_decl);
+    // const _ref = &expr;
+    AstNode *expr = trans_expr(c, true, child_block, op_expr, TransLValue);
+    if (expr == nullptr) return nullptr;
+    AstNode *addr_of_expr = trans_create_node_addr_of(c, false, false, expr);
+    // TODO: avoid name collisions with generated variable names
+    Buf* ref_var_name = buf_create_from_str("_ref");
+    AstNode *ref_var_decl = trans_create_node_var_decl_local(c, true, ref_var_name, nullptr, addr_of_expr);
+    child_block->data.block.statements.append(ref_var_decl);
 
-        // const _tmp = *_ref;
-        Buf* tmp_var_name = buf_create_from_str("_tmp");
-        AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr,
-            trans_create_node_prefix_op(c, PrefixOpDereference,
-                trans_create_node_symbol(c, ref_var_name)));
-        child_block->data.block.statements.append(tmp_var_decl);
+    // const _tmp = *_ref;
+    Buf* tmp_var_name = buf_create_from_str("_tmp");
+    AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr,
+        trans_create_node_prefix_op(c, PrefixOpDereference,
+            trans_create_node_symbol(c, ref_var_name)));
+    child_block->data.block.statements.append(tmp_var_decl);
 
-        // *_ref += 1;
-        AstNode *assign_statement = trans_create_node_bin_op(c,
-            trans_create_node_prefix_op(c, PrefixOpDereference,
-                trans_create_node_symbol(c, ref_var_name)),
+    // *_ref += 1;
+    AstNode *assign_statement = trans_create_node_bin_op(c,
+        trans_create_node_prefix_op(c, PrefixOpDereference,
+            trans_create_node_symbol(c, ref_var_name)),
+        assign_op,
+        trans_create_node_unsigned(c, 1));
+    child_block->data.block.statements.append(assign_statement);
+
+    // _tmp
+    child_block->data.block.statements.append(trans_create_node_symbol(c, tmp_var_name));
+    child_block->data.block.last_statement_is_result_expression = true;
+
+    return child_block;
+}
+
+static AstNode *trans_create_pre_crement(Context *c, bool result_used, AstNode *block, UnaryOperator *stmt, BinOpType assign_op) {
+    Expr *op_expr = stmt->getSubExpr();
+
+    if (!result_used) {
+        // common case
+        // c: ++expr
+        // zig: expr += 1
+        return trans_create_node_bin_op(c,
+            trans_expr(c, true, block, op_expr, TransLValue),
             assign_op,
             trans_create_node_unsigned(c, 1));
-        child_block->data.block.statements.append(assign_statement);
-
-        // _tmp
-        child_block->data.block.statements.append(trans_create_node_symbol(c, tmp_var_name));
-        child_block->data.block.last_statement_is_result_expression = true;
-
-        return child_block;
     }
+    // worst case
+    // c: ++expr
+    // zig: {
+    // zig:     const _ref = &expr;
+    // zig:     *_ref += 1;
+    // zig:     *_ref
+    // zig: }
+    AstNode *child_block = trans_create_node(c, NodeTypeBlock);
+
+    // const _ref = &expr;
+    AstNode *expr = trans_expr(c, true, child_block, op_expr, TransLValue);
+    if (expr == nullptr) return nullptr;
+    AstNode *addr_of_expr = trans_create_node_addr_of(c, false, false, expr);
+    // TODO: avoid name collisions with generated variable names
+    Buf* ref_var_name = buf_create_from_str("_ref");
+    AstNode *ref_var_decl = trans_create_node_var_decl_local(c, true, ref_var_name, nullptr, addr_of_expr);
+    child_block->data.block.statements.append(ref_var_decl);
+
+    // *_ref += 1;
+    AstNode *assign_statement = trans_create_node_bin_op(c,
+        trans_create_node_prefix_op(c, PrefixOpDereference,
+            trans_create_node_symbol(c, ref_var_name)),
+        assign_op,
+        trans_create_node_unsigned(c, 1));
+    child_block->data.block.statements.append(assign_statement);
+
+    // *_ref
+    AstNode *deref_expr = trans_create_node_prefix_op(c, PrefixOpDereference,
+            trans_create_node_symbol(c, ref_var_name));
+    child_block->data.block.statements.append(deref_expr);
+    child_block->data.block.last_statement_is_result_expression = true;
+
+    return child_block;
 }
 
 static AstNode *trans_unary_operator(Context *c, bool result_used, AstNode *block, UnaryOperator *stmt) {
@@ -1580,11 +1626,15 @@ static AstNode *trans_unary_operator(Context *c, bool result_used, AstNode *bloc
             else
                 return trans_create_post_crement(c, result_used, block, stmt, BinOpTypeAssignMinus);
         case UO_PreInc:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_PreInc");
-            return nullptr;
+            if (qual_type_has_wrapping_overflow(c, stmt->getType()))
+                return trans_create_pre_crement(c, result_used, block, stmt, BinOpTypeAssignPlusWrap);
+            else
+                return trans_create_pre_crement(c, result_used, block, stmt, BinOpTypeAssignPlus);
         case UO_PreDec:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_PreDec");
-            return nullptr;
+            if (qual_type_has_wrapping_overflow(c, stmt->getType()))
+                return trans_create_pre_crement(c, result_used, block, stmt, BinOpTypeAssignMinusWrap);
+            else
+                return trans_create_pre_crement(c, result_used, block, stmt, BinOpTypeAssignMinus);
         case UO_AddrOf:
             {
                 AstNode *value_node = trans_expr(c, result_used, block, stmt->getSubExpr(), TransLValue);

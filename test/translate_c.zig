@@ -805,6 +805,50 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\}
     );
 
+    cases.addC("pre increment/decrement",
+        \\void foo(void) {
+        \\    int i = 0;
+        \\    unsigned u = 0;
+        \\    ++i;
+        \\    --i;
+        \\    ++u;
+        \\    --u;
+        \\    i = ++i;
+        \\    i = --i;
+        \\    u = ++u;
+        \\    u = --u;
+        \\}
+    ,
+        \\export fn foo() {
+        \\    var i: c_int = 0;
+        \\    var u: c_uint = c_uint(0);
+        \\    i += 1;
+        \\    i -= 1;
+        \\    u +%= 1;
+        \\    u -%= 1;
+        \\    i = {
+        \\        const _ref = &i;
+        \\        (*_ref) += 1;
+        \\        *_ref
+        \\    };
+        \\    i = {
+        \\        const _ref = &i;
+        \\        (*_ref) -= 1;
+        \\        *_ref
+        \\    };
+        \\    u = {
+        \\        const _ref = &u;
+        \\        (*_ref) +%= 1;
+        \\        *_ref
+        \\    };
+        \\    u = {
+        \\        const _ref = &u;
+        \\        (*_ref) -%= 1;
+        \\        *_ref
+        \\    };
+        \\}
+    );
+
     cases.addC("do loop",
         \\void foo(void) {
         \\    int a = 2;
