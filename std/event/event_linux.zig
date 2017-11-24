@@ -12,7 +12,7 @@ pub const ManagedHandler = fn(EventClosure) -> void;
 // the first argument is the data read from the connection and the second
 // argument is the closure created by the connection handler when the connection
 // was first opened.
-pub const ReadHandler = fn([]const u8, EventClosure) -> void;
+pub const ReadHandler = fn(&const []u8, EventClosure) -> void;
 
 pub const ConnectionHandler = fn(&const EventMd, EventClosure) -> %void;
 
@@ -240,7 +240,7 @@ pub const StreamListener = struct {
 
     const Self = this;
 
-    fn handle_new_connection(buf: []const u8, closure: EventClosure) -> %void {
+    fn handle_new_connection(buf: &const []u8, closure: EventClosure) -> %void {
         var listener = @intToPtr(&StreamListener, closure);
 
         std.debug.warn("handling new connection\n");
@@ -428,12 +428,15 @@ pub const Loop = struct {
 
         var read_handler = @intToPtr(&ReadHandler, data.read_handler);
 
+        std.debug.warn("invoking read handler {}\n", data.read_handler);
+
         if (data.auto_drain) {
             const r = linux.read(fd, &buf[0], buf.len);
             const err = linux.getErrno(r);
-            
+
             switch (err) {
                 0 => {
+                    std.debug.warn("read {} bytes\n", r);
                     (*read_handler)(buf[0..r], data.closure);
                 },
                 linux.EAGAIN => {

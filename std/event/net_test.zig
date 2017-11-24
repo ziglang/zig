@@ -4,7 +4,8 @@ const event = @import("event.zig");
 //const net = @import("event_net.zig");
 
 const TestContext = struct {
-    value: usize
+    value: usize,
+    event: event.NetworkEvent
 };
 
 const ContextAllocator = struct {
@@ -14,7 +15,10 @@ const ContextAllocator = struct {
     const Self = this;
 
     fn init() -> ContextAllocator {
-        const read_context = TestContext { .value = 42 };
+        const read_context = TestContext {
+            .value = 42,
+            .event = undefined
+        };
         ContextAllocator {
             .contexts = []TestContext { read_context } ** 16,
             .index = 0
@@ -43,16 +47,14 @@ const ListenerContext = struct {
 
 fn read_handler(bytes: &const []u8, context: &TestContext) -> void {
     std.debug.warn("reading {} bytes from context {}\n", bytes.len, context.value);
+    std.debug.warn("client sent message \"{}\"\n", *bytes);
 }
 
 fn conn_handler(md: &const event.EventMd, context: &ListenerContext) -> %void {
-    std.debug.warn("registering event for new connection {}\n", md.fd);
-    std.debug.warn("using context {}\n", @ptrToInt(context));
     var event_closure = %return context.context_alloc.alloc();
-    std.debug.warn("created context {}\n", @ptrToInt(event_closure));
-    var ev = %return event.NetworkEvent.init(md, event_closure, &read_handler);
+    event_closure.event = %return event.NetworkEvent.init(md, event_closure, &read_handler);
     std.debug.warn("created event\n");
-    ev.register(context.loop)
+    event_closure.event.register(context.loop)
 }
 
 test "listen" {
