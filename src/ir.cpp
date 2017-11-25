@@ -10351,30 +10351,40 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
 
     bool is_const = (var->value->type->id == TypeTableEntryIdMetaType) ? is_const_ptr : var->src_is_const;
     bool is_volatile = (var->value->type->id == TypeTableEntryIdMetaType) ? is_volatile_ptr : false;
-    if (mem_slot && mem_slot->special != ConstValSpecialRuntime) {
-        ConstPtrMut ptr_mut;
-        if (comptime_var_mem) {
-            ptr_mut = ConstPtrMutComptimeVar;
-        } else if (var->gen_is_const) {
-            ptr_mut = ConstPtrMutComptimeConst;
-        } else {
-            assert(!comptime_var_mem);
-            ptr_mut = ConstPtrMutRuntimeVar;
+    if (mem_slot != nullptr) {
+        switch (mem_slot->special) {
+            case ConstValSpecialRuntime:
+                goto no_mem_slot;
+            case ConstValSpecialStatic: // fallthrough
+            case ConstValSpecialUndef: {
+                ConstPtrMut ptr_mut;
+                if (comptime_var_mem) {
+                    ptr_mut = ConstPtrMutComptimeVar;
+                } else if (var->gen_is_const) {
+                    ptr_mut = ConstPtrMutComptimeConst;
+                } else {
+                    assert(!comptime_var_mem);
+                    ptr_mut = ConstPtrMutRuntimeVar;
+                }
+                return ir_get_const_ptr(ira, instruction, mem_slot, var->value->type,
+                        ptr_mut, is_const, is_volatile, var->align_bytes);
+            }
         }
-        return ir_get_const_ptr(ira, instruction, mem_slot, var->value->type,
-                ptr_mut, is_const, is_volatile, var->align_bytes);
-    } else {
-        IrInstruction *var_ptr_instruction = ir_build_var_ptr(&ira->new_irb,
-                instruction->scope, instruction->source_node, var, is_const, is_volatile);
-        var_ptr_instruction->value.type = get_pointer_to_type_extra(ira->codegen, var->value->type,
-                var->src_is_const, is_volatile, var->align_bytes, 0, 0);
-        type_ensure_zero_bits_known(ira->codegen, var->value->type);
-
-        bool in_fn_scope = (scope_fn_entry(var->parent_scope) != nullptr);
-        var_ptr_instruction->value.data.rh_ptr = in_fn_scope ? RuntimeHintPtrStack : RuntimeHintPtrNonStack;
-
-        return var_ptr_instruction;
+        zig_unreachable();
     }
+
+no_mem_slot:
+
+    IrInstruction *var_ptr_instruction = ir_build_var_ptr(&ira->new_irb,
+            instruction->scope, instruction->source_node, var, is_const, is_volatile);
+    var_ptr_instruction->value.type = get_pointer_to_type_extra(ira->codegen, var->value->type,
+            var->src_is_const, is_volatile, var->align_bytes, 0, 0);
+    type_ensure_zero_bits_known(ira->codegen, var->value->type);
+
+    bool in_fn_scope = (scope_fn_entry(var->parent_scope) != nullptr);
+    var_ptr_instruction->value.data.rh_ptr = in_fn_scope ? RuntimeHintPtrStack : RuntimeHintPtrNonStack;
+
+    return var_ptr_instruction;
 }
 
 static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call_instruction,
