@@ -7966,6 +7966,9 @@ static IrInstruction *ir_get_const_ptr(IrAnalyze *ira, IrInstruction *instructio
         ConstExprValue *const_val = &const_instr->value;
         const_val->type = pointee_type;
         type_ensure_zero_bits_known(ira->codegen, type_entry);
+        if (type_is_invalid(type_entry)) {
+            return ira->codegen->invalid_instruction;
+        }
         const_val->data.x_type = get_pointer_to_type_extra(ira->codegen, type_entry,
                 ptr_is_const, ptr_is_volatile, get_abi_alignment(ira->codegen, type_entry), 0, 0);
         return const_instr;

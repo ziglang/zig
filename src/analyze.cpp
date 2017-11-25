@@ -338,7 +338,7 @@ TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x) {
 TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type, bool is_const,
         bool is_volatile, uint32_t byte_alignment, uint32_t bit_offset, uint32_t unaligned_bit_count)
 {
-    assert(child_type->id != TypeTableEntryIdInvalid);
+    assert(!type_is_invalid(child_type));
 
     TypeId type_id = {};
     TypeTableEntry **parent_pointer = nullptr;
