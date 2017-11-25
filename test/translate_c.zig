@@ -929,6 +929,16 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\    return *(??ptr);
         \\}
     );
+
+    cases.add("string literal",
+        \\const char *foo(void) {
+        \\    return "bar";
+        \\}
+    ,
+        \\pub fn foo() -> ?&const u8 {
+        \\    return c"bar";
+        \\}
+    );
 }
 
 

@@ -324,6 +324,10 @@ static AstNode *add_global_var(Context *c, Buf *var_name, AstNode *value_node) {
     return node;
 }
 
+static Buf *string_ref_to_buf(StringRef string_ref) {
+    return buf_create_from_mem((const char *)string_ref.bytes_begin(), string_ref.size());
+}
+
 static const char *decl_name(const Decl *decl) {
     const NamedDecl *named_decl = static_cast<const NamedDecl *>(decl);
     return (const char *)named_decl->getName().bytes_begin();
@@ -338,6 +342,44 @@ static AstNode *trans_create_node_apint(Context *c, const llvm::APSInt &aps_int)
 }
 
 static AstNode *trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc);
+
+static QualType get_expr_qual_type(Context *c, const Expr *expr) {
+    // String literals in C are `char *` but they should really be `const char *`.
+    if (expr->getStmtClass() == Stmt::ImplicitCastExprClass) {
+        const ImplicitCastExpr *cast_expr = static_cast<const ImplicitCastExpr *>(expr);
+        if (cast_expr->getCastKind() == CK_ArrayToPointerDecay) {
+            const Expr *sub_expr = cast_expr->getSubExpr();
+            if (sub_expr->getStmtClass() == Stmt::StringLiteralClass) {
+                QualType array_qt = sub_expr->getType();
+                const ArrayType *array_type = static_cast<const ArrayType *>(array_qt.getTypePtr());
+                QualType pointee_qt = array_type->getElementType();
+                pointee_qt.addConst();
+                return c->ctx->getPointerType(pointee_qt);
+            }
+        }
+    }
+    return expr->getType();
+}
+
+static AstNode *get_expr_type(Context *c, const Expr *expr) {
+    return trans_qual_type(c, get_expr_qual_type(c, expr), expr->getLocStart());
+}
+
+static bool expr_types_equal(Context *c, const Expr *expr1, const Expr *expr2) {
+    QualType t1 = get_expr_qual_type(c, expr1);
+    QualType t2 = get_expr_qual_type(c, expr2);
+
+    if (t1.isConstQualified() != t2.isConstQualified()) {
+        return false;
+    }
+    if (t1.isVolatileQualified() != t2.isVolatileQualified()) {
+        return false;
+    }
+    if (t1.isRestrictQualified() != t2.isRestrictQualified()) {
+        return false;
+    }
+    return t1.getTypePtr() == t2.getTypePtr();
+}
 
 static bool is_c_void_type(AstNode *node) {
     return (node->type == NodeTypeSymbol && buf_eql_str(node->data.symbol_expr.symbol, "c_void"));
@@ -1335,7 +1377,11 @@ static AstNode *trans_implicit_cast_expr(Context *c, AstNode *block, ImplicitCas
                 if (target_node == nullptr)
                     return nullptr;
 
-                AstNode *dest_type_node = trans_qual_type(c, stmt->getType(), stmt->getLocStart());
+                if (expr_types_equal(c, stmt, stmt->getSubExpr())) {
+                    return target_node;
+                }
+
+                AstNode *dest_type_node = get_expr_type(c, stmt);
 
                 AstNode *node = trans_create_node_builtin_fn_call_str(c, "ptrCast");
                 node->data.fn_call_expr.params.append(dest_type_node);
@@ -2126,6 +2172,24 @@ static AstNode *trans_do_loop(Context *c, AstNode *block, DoStmt *stmt) {
     return while_node;
 }
 
+static AstNode *trans_string_literal(Context *c, AstNode *block, StringLiteral *stmt) {
+    switch (stmt->getKind()) {
+        case StringLiteral::Ascii:
+        case StringLiteral::UTF8:
+            return trans_create_node_str_lit_c(c, string_ref_to_buf(stmt->getString()));
+        case StringLiteral::UTF16:
+            emit_warning(c, stmt->getLocStart(), "TODO support UTF16 string literals");
+            return nullptr;
+        case StringLiteral::UTF32:
+            emit_warning(c, stmt->getLocStart(), "TODO support UTF32 string literals");
+            return nullptr;
+        case StringLiteral::Wide:
+            emit_warning(c, stmt->getLocStart(), "TODO support wide string literals");
+            return nullptr;
+    }
+    zig_unreachable();
+}
+
 static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *stmt, TransLRValue lrvalue) {
     Stmt::StmtClass sc = stmt->getStmtClass();
     switch (sc) {
@@ -2167,6 +2231,8 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
             return trans_unary_expr_or_type_trait_expr(c, block, (UnaryExprOrTypeTraitExpr *)stmt);
         case Stmt::DoStmtClass:
             return trans_do_loop(c, block, (DoStmt *)stmt);
+        case Stmt::StringLiteralClass:
+            return trans_string_literal(c, block, (StringLiteral *)stmt);
         case Stmt::CaseStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CaseStmtClass");
             return nullptr;
@@ -2487,9 +2553,6 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
             return nullptr;
         case Stmt::StmtExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C StmtExprClass");
-            return nullptr;
-        case Stmt::StringLiteralClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C StringLiteralClass");
             return nullptr;
         case Stmt::SubstNonTypeTemplateParmExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SubstNonTypeTemplateParmExprClass");
@@ -3530,7 +3593,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
                     break;
             }
             StringRef msg_str_ref = it->getMessage();
-            Buf *msg = buf_create_from_str((const char *)msg_str_ref.bytes_begin());
+            Buf *msg = string_ref_to_buf(msg_str_ref);
             FullSourceLoc fsl = it->getLocation();
             if (fsl.hasManager()) {
                 FileID file_id = fsl.getFileID();
@@ -3543,7 +3606,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
                 if (filename.empty()) {
                     path = buf_alloc();
                 } else {
-                    path = buf_create_from_mem((const char *)filename.bytes_begin(), filename.size());
+                    path = string_ref_to_buf(filename);
                 }
 
                 ErrorMsg *err_msg = err_msg_create_with_offset(path, line, column, offset, source, msg);
