@@ -43,7 +43,7 @@ const ContextAllocator = mem_pool.MemoryPool(TestContext);
 const ListenerContext = struct {
     server_id: usize,
     loop: &event.Loop,
-    context_alloc: &ContextAllocator
+    context_alloc: ContextAllocator
 };
 
 fn read_handler(bytes: &const []const u8, context: &TestContext) -> void {
@@ -57,14 +57,14 @@ fn read_handler(bytes: &const []const u8, context: &TestContext) -> void {
 
 fn disconn_handler(context: &TestContext) -> void {
     std.debug.warn("connection closed\n");
-    var listener_context = context.listener_context ?? unreachable;
+    var listener_context = context.server_context ?? unreachable;
 
     listener_context.context_alloc.free(context);
 }
 
 fn conn_handler(md: &const event.EventMd, context: &ListenerContext) -> %void {
     var event_closure = %return context.context_alloc.alloc();
-    event_closure.listener_context = context;
+    event_closure.server_context = context;
     event_closure.event = %return event.NetworkEvent.init(md, event_closure,
         &read_handler, &disconn_handler);
     event_closure.event.register(context.loop)
@@ -73,12 +73,10 @@ fn conn_handler(md: &const event.EventMd, context: &ListenerContext) -> %void {
 test "listen" {
     var loop = %%event.Loop.init();
 
-    var allocator = %%ContextAllocator.init(16);
-
     var listener_context = ListenerContext {
         .server_id = 1,
         .loop = &loop,
-        .context_alloc = &allocator
+        .context_alloc = %%ContextAllocator.init(2)
     };
 
     var listener = event.StreamListener.init(&listener_context, &conn_handler);
