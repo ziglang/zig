@@ -6332,6 +6332,9 @@ static IrInstruction *ir_gen_container_decl(IrBuilder *irb, Scope *parent_scope,
     }
     irb->codegen->resolve_queue.append(&tld_container->base);
 
+    // Add this to the list to mark as invalid if analyzing this exec fails.
+    irb->exec->tld_list.append(&tld_container->base);
+
     return ir_build_const_type(irb, parent_scope, node, container_type);
 }
 
@@ -6554,6 +6557,20 @@ static bool ir_goto_pass2(IrBuilder *irb) {
     return true;
 }
 
+static void invalidate_exec(IrExecutable *exec) {
+    if (exec->invalid)
+        return;
+
+    exec->invalid = true;
+
+    for (size_t i = 0; i < exec->tld_list.length; i += 1) {
+        exec->tld_list.items[i]->resolution = TldResolutionInvalid;
+    }
+
+    if (exec->source_exec != nullptr)
+        invalidate_exec(exec->source_exec);
+}
+
 bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_executable) {
     assert(node->owner);
 
@@ -6577,7 +6594,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
     }
 
     if (!ir_goto_pass2(irb)) {
-        irb->exec->invalid = true;
+        invalidate_exec(ir_executable);
         return false;
     }
 
@@ -6603,7 +6620,7 @@ static void add_call_stack_errors(CodeGen *codegen, IrExecutable *exec, ErrorMsg
 }
 
 static ErrorMsg *exec_add_error_node(CodeGen *codegen, IrExecutable *exec, AstNode *source_node, Buf *msg) {
-    exec->invalid = true;
+    invalidate_exec(exec);
     ErrorMsg *err_msg = add_node_error(codegen, source_node, msg);
     if (exec->parent_exec) {
         add_call_stack_errors(codegen, exec, err_msg, 10);
@@ -8056,6 +8073,7 @@ IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node
     IrExecutable analyzed_executable = {0};
     analyzed_executable.source_node = source_node;
     analyzed_executable.parent_exec = parent_exec;
+    analyzed_executable.source_exec = &ir_executable;
     analyzed_executable.name = exec_name;
     analyzed_executable.is_inline = true;
     analyzed_executable.fn_entry = fn_entry;
@@ -10490,10 +10508,11 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             result = ir_eval_const_value(ira->codegen, exec_scope, body_node, return_type,
                 ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, fn_entry,
                 nullptr, call_instruction->base.source_node, nullptr, ira->new_irb.exec);
-            if (type_is_invalid(result->value.type))
-                return ira->codegen->builtin_types.entry_invalid;
 
             ira->codegen->memoized_fn_eval_table.put(exec_scope, result);
+
+            if (type_is_invalid(result->value.type))
+                return ira->codegen->builtin_types.entry_invalid;
         }
 
         ConstExprValue *out_val = ir_build_const_from(ira, &call_instruction->base);

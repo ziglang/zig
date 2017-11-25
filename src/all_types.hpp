@@ -36,6 +36,7 @@ struct IrInstructionCast;
 struct IrBasicBlock;
 struct ScopeDecls;
 struct ZigWindowsSDK;
+struct Tld;
 
 struct IrGotoItem {
     AstNode *source_node;
@@ -59,7 +60,9 @@ struct IrExecutable {
     Buf *c_import_buf;
     AstNode *source_node;
     IrExecutable *parent_exec;
+    IrExecutable *source_exec;
     Scope *begin_scope;
+    ZigList<Tld *> tld_list;
 };
 
 enum OutType {
