@@ -962,6 +962,34 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\    };
         \\}
     );
+
+    cases.add("break statement",
+        \\void foo(void) {
+        \\    for (;;) {
+        \\        break;
+        \\    }
+        \\}
+    ,
+        \\pub fn foo() {
+        \\    while (true) {
+        \\        break;
+        \\    };
+        \\}
+    );
+
+    cases.add("continue statement",
+        \\void foo(void) {
+        \\    for (;;) {
+        \\        continue;
+        \\    }
+        \\}
+    ,
+        \\pub fn foo() {
+        \\    while (true) {
+        \\        continue;
+        \\    };
+        \\}
+    );
 }
 
 

@@ -2231,6 +2231,14 @@ static AstNode *trans_string_literal(Context *c, AstNode *block, StringLiteral *
     zig_unreachable();
 }
 
+static AstNode *trans_break_stmt(Context *c, AstNode *block, BreakStmt *stmt) {
+    return trans_create_node(c, NodeTypeBreak);
+}
+
+static AstNode *trans_continue_stmt(Context *c, AstNode *block, ContinueStmt *stmt) {
+    return trans_create_node(c, NodeTypeContinue);
+}
+
 static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *stmt, TransLRValue lrvalue) {
     Stmt::StmtClass sc = stmt->getStmtClass();
     switch (sc) {
@@ -2276,6 +2284,10 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
             return trans_for_loop(c, block, (ForStmt *)stmt);
         case Stmt::StringLiteralClass:
             return trans_string_literal(c, block, (StringLiteral *)stmt);
+        case Stmt::BreakStmtClass:
+            return trans_break_stmt(c, block, (BreakStmt *)stmt);
+        case Stmt::ContinueStmtClass:
+            return trans_continue_stmt(c, block, (ContinueStmt *)stmt);
         case Stmt::CaseStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CaseStmtClass");
             return nullptr;
@@ -2297,9 +2309,6 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
         case Stmt::AttributedStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C AttributedStmtClass");
             return nullptr;
-        case Stmt::BreakStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C BreakStmtClass");
-            return nullptr;
         case Stmt::CXXCatchStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXCatchStmtClass");
             return nullptr;
@@ -2311,9 +2320,6 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
             return nullptr;
         case Stmt::CapturedStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CapturedStmtClass");
-            return nullptr;
-        case Stmt::ContinueStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ContinueStmtClass");
             return nullptr;
         case Stmt::CoreturnStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CoreturnStmtClass");
