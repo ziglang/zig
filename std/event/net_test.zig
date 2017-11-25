@@ -1,7 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const event = @import("event.zig");
-const mem_pool = @import("../mem_pool.zig");
+//const mem_pool = @import("../mem_pool.zig");
 
 const TestContext = struct {
     server_context: ?&ListenerContext,
@@ -9,7 +9,7 @@ const TestContext = struct {
     event: event.NetworkEvent
 };
 
-const ContextAllocator = mem_pool.MemoryPool(TestContext);
+const ContextAllocator = std.MemoryPool(TestContext);
 
 const ListenerContext = struct {
     server_id: usize,
