@@ -1,7 +1,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const event = @import("event.zig");
-//const net = @import("event_net.zig");
 const mem_pool = @import("../mem_pool.zig");
 
 const TestContext = struct {
@@ -12,34 +11,6 @@ const TestContext = struct {
 
 const ContextAllocator = mem_pool.MemoryPool(TestContext);
 
-//const ContextAllocator = struct {
-//    contexts: [16]TestContext,
-//    index: usize,
-//
-//    const Self = this;
-//
-//    fn init() -> ContextAllocator {
-//        const read_context = TestContext {
-//            .value = 42,
-//            .event = undefined
-//        };
-//        ContextAllocator {
-//            .contexts = []TestContext { read_context } ** 16,
-//            .index = 0
-//        }
-//    }
-//
-//    fn alloc(allocator: &Self) -> %&TestContext {
-//        if (allocator.index >= allocator.contexts.len) {
-//            return error.OutOfMemory;
-//        }
-//
-//        const res = &allocator.contexts[allocator.index];
-//        allocator.index += 1;
-//        res
-//    }
-//};
-
 const ListenerContext = struct {
     server_id: usize,
     loop: &event.Loop,
@@ -47,8 +18,6 @@ const ListenerContext = struct {
 };
 
 fn read_handler(bytes: &const []const u8, context: &TestContext) -> void {
-    //std.debug.warn("reading {} bytes from context {}\n", bytes.len, context.value);
-
     const res = context.event.write(bytes) %% |err| {
         std.debug.warn("failed to write response: {}\n", err);
         return;
