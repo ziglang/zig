@@ -949,6 +949,19 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\    return;
         \\}
     );
+
+    cases.add("for loop",
+        \\void foo(void) {
+        \\    for (int i = 0; i < 10; i += 1) { }
+        \\}
+    ,
+        \\pub fn foo() {
+        \\    {
+        \\        var i: c_int = 0;
+        \\        while (i < 10) : (i += 1) {};
+        \\    };
+        \\}
+    );
 }
 
 

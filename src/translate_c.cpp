@@ -2119,9 +2119,6 @@ static AstNode *trans_unary_expr_or_type_trait_expr(Context *c, AstNode *block, 
 }
 
 static AstNode *trans_do_loop(Context *c, AstNode *block, DoStmt *stmt) {
-    stmt->getBody();
-    stmt->getCond();
-
     AstNode *while_node = trans_create_node(c, NodeTypeWhileExpr);
 
     AstNode *true_node = trans_create_node(c, NodeTypeBoolLiteral);
@@ -2169,6 +2166,51 @@ static AstNode *trans_do_loop(Context *c, AstNode *block, DoStmt *stmt) {
     while_node->data.while_expr.body = body_node;
 
     return while_node;
+}
+
+static AstNode *trans_for_loop(Context *c, AstNode *block, ForStmt *stmt) {
+    AstNode *loop_block_node;
+    AstNode *while_node = trans_create_node(c, NodeTypeWhileExpr);
+    Stmt *init_stmt = stmt->getInit();
+    if (init_stmt == nullptr) {
+        loop_block_node = while_node;
+    } else {
+        loop_block_node = trans_create_node(c, NodeTypeBlock);
+
+        AstNode *vars_node = trans_stmt(c, false, loop_block_node, init_stmt, TransRValue);
+        if (vars_node == nullptr)
+            return nullptr;
+        if (vars_node != skip_add_to_block_node)
+            loop_block_node->data.block.statements.append(vars_node);
+
+        loop_block_node->data.block.statements.append(while_node);
+    }
+
+    Stmt *cond_stmt = stmt->getCond();
+    if (cond_stmt == nullptr) {
+        AstNode *true_node = trans_create_node(c, NodeTypeBoolLiteral);
+        true_node->data.bool_literal.value = true;
+        while_node->data.while_expr.condition = true_node;
+    } else {
+        while_node->data.while_expr.condition = trans_stmt(c, false, loop_block_node, cond_stmt, TransRValue);
+        if (while_node->data.while_expr.condition == nullptr)
+            return nullptr;
+    }
+
+    Stmt *inc_stmt = stmt->getInc();
+    if (inc_stmt != nullptr) {
+        AstNode *inc_node = trans_stmt(c, false, loop_block_node, inc_stmt, TransRValue);
+        if (inc_node == nullptr)
+            return nullptr;
+        while_node->data.while_expr.continue_expr = inc_node;
+    }
+
+    AstNode *child_statement = trans_stmt(c, false, loop_block_node, stmt->getBody(), TransRValue);
+    if (child_statement == nullptr)
+        return nullptr;
+    while_node->data.while_expr.body = child_statement;
+
+    return loop_block_node;
 }
 
 static AstNode *trans_string_literal(Context *c, AstNode *block, StringLiteral *stmt) {
@@ -2230,6 +2272,8 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
             return trans_unary_expr_or_type_trait_expr(c, block, (UnaryExprOrTypeTraitExpr *)stmt);
         case Stmt::DoStmtClass:
             return trans_do_loop(c, block, (DoStmt *)stmt);
+        case Stmt::ForStmtClass:
+            return trans_for_loop(c, block, (ForStmt *)stmt);
         case Stmt::StringLiteralClass:
             return trans_string_literal(c, block, (StringLiteral *)stmt);
         case Stmt::CaseStmtClass:
@@ -2567,9 +2611,6 @@ static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *s
             return nullptr;
         case Stmt::VAArgExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C VAArgExprClass");
-            return nullptr;
-        case Stmt::ForStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C ForStmtClass");
             return nullptr;
         case Stmt::GotoStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C GotoStmtClass");
