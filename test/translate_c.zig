@@ -939,6 +939,16 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\    return c"bar";
         \\}
     );
+
+    cases.add("return void",
+        \\void foo(void) {
+        \\    return;
+        \\}
+    ,
+        \\pub fn foo() {
+        \\    return;
+        \\}
+    );
 }
 
 

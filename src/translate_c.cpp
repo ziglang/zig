@@ -937,8 +937,7 @@ static AstNode *trans_compound_stmt(Context *c, AstNode *parent, CompoundStmt *s
 static AstNode *trans_return_stmt(Context *c, AstNode *block, ReturnStmt *stmt) {
     Expr *value_expr = stmt->getRetValue();
     if (value_expr == nullptr) {
-        emit_warning(c, stmt->getLocStart(), "TODO handle C return void");
-        return nullptr;
+        return trans_create_node(c, NodeTypeReturnExpr);
     } else {
         AstNode *return_node = trans_create_node(c, NodeTypeReturnExpr);
         return_node->data.return_expr.expr = trans_expr(c, true, block, value_expr, TransRValue);
