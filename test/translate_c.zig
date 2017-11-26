@@ -963,6 +963,16 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\}
     );
 
+    cases.add("empty for loop",
+        \\void foo(void) {
+        \\    for (;;) { }
+        \\}
+    ,
+        \\pub fn foo() {
+        \\    while (true) {};
+        \\}
+    );
+
     cases.add("break statement",
         \\void foo(void) {
         \\    for (;;) {
@@ -990,6 +1000,47 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\    };
         \\}
     );
+
+    //cases.add("switch statement",
+    //    \\int foo(int x) {
+    //    \\    switch (x) {
+    //    \\        case 1:
+    //    \\            x += 1;
+    //    \\        case 2:
+    //    \\            break;
+    //    \\        case 3:
+    //    \\        case 4:
+    //    \\            return x + 1;
+    //    \\        default:
+    //    \\            return 10;
+    //    \\    }
+    //    \\    return x + 13;
+    //    \\}
+    //,
+    //    \\fn foo(_x: i32) -> i32 {
+    //    \\    var x = _x;
+    //    \\    switch (x) {
+    //    \\        1 => goto switch_case_1;
+    //    \\        2 => goto switch_case_2;
+    //    \\        3 => goto switch_case_3;
+    //    \\        4 => goto switch_case_4;
+    //    \\        else => goto switch_default;
+    //    \\    }
+    //    \\switch_case_1:
+    //    \\    x += 1;
+    //    \\    goto switch_case_2;
+    //    \\switch_case_2:
+    //    \\    goto switch_end;
+    //    \\switch_case_3:
+    //    \\    goto switch_case_4;
+    //    \\switch_case_4:
+    //    \\    return x += 1;
+    //    \\switch_default:
+    //    \\    return 10;
+    //    \\switch_end:
+    //    \\    return x + 13;
+    //    \\}
+    //);
 }
 
 
