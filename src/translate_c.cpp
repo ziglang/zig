@@ -157,6 +157,19 @@ static void add_global_weak_alias(Context *c, Buf *new_name, Buf *canon_name) {
     alias->canon_name = canon_name;
 }
 
+static Buf *trans_lookup_zig_symbol(Context *c, TransScope *scope, Buf *c_symbol_name) {
+    while (scope != nullptr) {
+        if (scope->id == TransScopeIdVar) {
+            TransScopeVar *var_scope = (TransScopeVar *)scope;
+            if (buf_eql_buf(var_scope->c_name, c_symbol_name)) {
+                return var_scope->zig_name;
+            }
+        }
+        scope = scope->parent;
+    }
+    return c_symbol_name;
+}
+
 static AstNode * trans_create_node(Context *c, NodeType id) {
     AstNode *node = allocate<AstNode>(1);
     node->type = id;
@@ -1650,13 +1663,14 @@ static AstNode *trans_implicit_cast_expr(Context *c, TransScope *scope, const Im
     zig_unreachable();
 }
 
-static AstNode *trans_decl_ref_expr(Context *c, const DeclRefExpr *stmt, TransLRValue lrval) {
+static AstNode *trans_decl_ref_expr(Context *c, TransScope *scope, const DeclRefExpr *stmt, TransLRValue lrval) {
     const ValueDecl *value_decl = stmt->getDecl();
-    Buf *symbol_name = buf_create_from_str(decl_name(value_decl));
+    Buf *c_symbol_name = buf_create_from_str(decl_name(value_decl));
+    Buf *zig_symbol_name = trans_lookup_zig_symbol(c, scope, c_symbol_name);
     if (lrval == TransLValue) {
-        c->ptr_params.put(symbol_name, true);
+        c->ptr_params.put(zig_symbol_name, true);
     }
-    return trans_create_node_symbol(c, symbol_name);
+    return trans_create_node_symbol(c, zig_symbol_name);
 }
 
 static AstNode *trans_create_post_crement(Context *c, ResultUsed result_used, TransScope *scope,
@@ -2562,7 +2576,7 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
                     trans_implicit_cast_expr(c, scope, (const ImplicitCastExpr *)stmt));
         case Stmt::DeclRefExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_decl_ref_expr(c, (const DeclRefExpr *)stmt, lrvalue));
+                    trans_decl_ref_expr(c, scope, (const DeclRefExpr *)stmt, lrvalue));
         case Stmt::UnaryOperatorClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_unary_operator(c, result_used, scope, (const UnaryOperator *)stmt));

@@ -1080,6 +1080,26 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\    return x + 13;
         \\}
     );
+
+    cases.add("variable name shadowing",
+        \\int foo(void) {
+        \\    int x = 1;
+        \\    {
+        \\        int x = 2;
+        \\        x += 1;
+        \\    }
+        \\    return x;
+        \\}
+    ,
+        \\pub fn foo() -> c_int {
+        \\    var x: c_int = 1;
+        \\    {
+        \\        var x_0: c_int = 2;
+        \\        x_0 += 1;
+        \\    };
+        \\    return x;
+        \\}
+    );
 }
 
 
