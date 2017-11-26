@@ -1001,46 +1001,46 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\}
     );
 
-    //cases.add("switch statement",
-    //    \\int foo(int x) {
-    //    \\    switch (x) {
-    //    \\        case 1:
-    //    \\            x += 1;
-    //    \\        case 2:
-    //    \\            break;
-    //    \\        case 3:
-    //    \\        case 4:
-    //    \\            return x + 1;
-    //    \\        default:
-    //    \\            return 10;
-    //    \\    }
-    //    \\    return x + 13;
-    //    \\}
-    //,
-    //    \\fn foo(_x: i32) -> i32 {
-    //    \\    var x = _x;
-    //    \\    switch (x) {
-    //    \\        1 => goto switch_case_1;
-    //    \\        2 => goto switch_case_2;
-    //    \\        3 => goto switch_case_3;
-    //    \\        4 => goto switch_case_4;
-    //    \\        else => goto switch_default;
-    //    \\    }
-    //    \\switch_case_1:
-    //    \\    x += 1;
-    //    \\    goto switch_case_2;
-    //    \\switch_case_2:
-    //    \\    goto switch_end;
-    //    \\switch_case_3:
-    //    \\    goto switch_case_4;
-    //    \\switch_case_4:
-    //    \\    return x += 1;
-    //    \\switch_default:
-    //    \\    return 10;
-    //    \\switch_end:
-    //    \\    return x + 13;
-    //    \\}
-    //);
+    cases.add("switch statement",
+        \\int foo(int x) {
+        \\    switch (x) {
+        \\        case 1:
+        \\            x += 1;
+        \\        case 2:
+        \\            break;
+        \\        case 3:
+        \\        case 4:
+        \\            return x + 1;
+        \\        default:
+        \\            return 10;
+        \\    }
+        \\    return x + 13;
+        \\}
+    ,
+        \\fn foo(_arg_x: c_int) -> c_int {
+        \\    var x = _arg_x;
+        \\    while (true) {
+        \\        switch (x) {
+        \\            1 => goto case_0,
+        \\            2 => goto case_1,
+        \\            3 => goto case_2,
+        \\            4 => goto case_3,
+        \\            else => goto default,
+        \\        };
+        \\    case_0:
+        \\        x += 1;
+        \\    case_1:
+        \\        break;
+        \\    case_2:
+        \\    case_3:
+        \\        return x + 1;
+        \\    default:
+        \\        return 10;
+        \\        break;
+        \\    };
+        \\    return x + 13;
+        \\}
+    );
 }
 
 
