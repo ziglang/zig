@@ -23,8 +23,6 @@
 
 using namespace clang;
 
-struct TransScope;
-
 struct MacroSymbol {
     Buf *name;
     Buf *value;
@@ -54,7 +52,6 @@ struct Context {
     ASTContext *ctx;
 
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> ptr_params;
-    TransScope *child_scope; // TODO refactor out
 };
 
 enum ResultUsed {
@@ -71,6 +68,7 @@ enum TransScopeId {
     TransScopeIdSwitch,
     TransScopeIdVar,
     TransScopeIdBlock,
+    TransScopeIdRoot,
 };
 
 struct TransScope {
@@ -94,17 +92,27 @@ struct TransScopeBlock {
     AstNode *node;
 };
 
-static AstNode *const skip_add_to_block_node = (AstNode *) 0x2;
+struct TransScopeRoot {
+    TransScope base;
+};
 
+static TransScopeRoot *trans_scope_root_create(Context *c);
 static TransScopeBlock *trans_scope_block_create(Context *c, TransScope *parent_scope);
 static TransScopeVar *trans_scope_var_create(Context *c, TransScope *parent_scope, Buf *wanted_name);
 //static TransScopeSwitch *trans_scope_switch_create(Context *c, TransScope *parent_scope);
+
+static TransScopeBlock *trans_scope_block_find(TransScope *scope);
 
 static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl);
 static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl);
 static AstNode *resolve_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl);
 
-static AstNode *trans_stmt(Context *c, ResultUsed result_used, TransScope *scope, const Stmt *stmt, TransLRValue lrval);
+static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
+        ResultUsed result_used, TransLRValue lrval,
+        AstNode **out_node, TransScope **out_child_scope,
+        TransScope **out_node_scope);
+static TransScope *trans_stmt(Context *c, TransScope *scope, const Stmt *stmt, AstNode **out_node);
+static AstNode *trans_expr(Context *c, ResultUsed result_used, TransScope *scope, const Expr *expr, TransLRValue lrval);
 static AstNode *trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc);
 
 
@@ -620,10 +628,6 @@ static bool qual_type_has_wrapping_overflow(Context *c, QualType qt) {
     }
 }
 
-static AstNode *trans_expr(Context *c, ResultUsed result_used, TransScope *scope, const Expr *expr, TransLRValue lrval) {
-    return trans_stmt(c, result_used, scope, expr, lrval);
-}
-
 static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &source_loc) {
     switch (ty->getTypeClass()) {
         case Type::Builtin:
@@ -961,16 +965,22 @@ static AstNode *trans_qual_type(Context *c, QualType qt, const SourceLocation &s
     return trans_type(c, qt.getTypePtr(), source_loc);
 }
 
-static AstNode *trans_compound_stmt(Context *c, TransScope *parent_scope, const CompoundStmt *stmt) {
-    TransScopeBlock *child_scope_block = trans_scope_block_create(c, parent_scope);
+static AstNode *trans_compound_stmt(Context *c, TransScope *scope, const CompoundStmt *stmt,
+        TransScope **out_node_scope)
+{
+    TransScopeBlock *child_scope_block = trans_scope_block_create(c, scope);
+    scope = &child_scope_block->base;
     for (CompoundStmt::const_body_iterator it = stmt->body_begin(), end_it = stmt->body_end(); it != end_it; ++it) {
-        AstNode *child_node = trans_stmt(c, ResultUsedNo, &child_scope_block->base, *it, TransRValue);
-        if (child_node == nullptr)
+        AstNode *child_node;
+        scope = trans_stmt(c, scope, *it, &child_node);
+        if (scope == nullptr)
             return nullptr;
-        if (child_node != skip_add_to_block_node)
+        if (child_node != nullptr)
             child_scope_block->node->data.block.statements.append(child_node);
     }
-    c->child_scope = &child_scope_block->base;
+    if (out_node_scope != nullptr) {
+        *out_node_scope = &child_scope_block->base;
+    }
     return child_scope_block->node;
 }
 
@@ -1809,7 +1819,15 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
     zig_unreachable();
 }
 
-static AstNode *trans_local_declaration(Context *c, TransScope *scope, const DeclStmt *stmt) {
+static int trans_local_declaration(Context *c, TransScope *scope, const DeclStmt *stmt,
+        AstNode **out_node, TransScope **out_scope)
+{
+    // declarations are added via the scope
+    *out_node = nullptr;
+
+    TransScopeBlock *scope_block = trans_scope_block_find(scope);
+    assert(scope_block != nullptr);
+
     for (auto iter = stmt->decl_begin(); iter != stmt->decl_end(); iter++) {
         Decl *decl = *iter;
         switch (decl->getKind()) {
@@ -1820,245 +1838,246 @@ static AstNode *trans_local_declaration(Context *c, TransScope *scope, const Dec
                 if (var_decl->hasInit()) {
                     init_node = trans_expr(c, ResultUsedYes, scope, var_decl->getInit(), TransRValue);
                     if (init_node == nullptr)
-                        return nullptr;
+                        return ErrorUnexpected;
 
                 }
                 AstNode *type_node = trans_qual_type(c, qual_type, stmt->getLocStart());
                 if (type_node == nullptr)
-                    return nullptr;
+                    return ErrorUnexpected;
 
-                Buf *symbol_name = buf_create_from_str(decl_name(var_decl));
+                Buf *c_symbol_name = buf_create_from_str(decl_name(var_decl));
+
+                TransScopeVar *var_scope = trans_scope_var_create(c, scope, c_symbol_name);
+                scope = &var_scope->base;
 
                 AstNode *node = trans_create_node_var_decl_local(c, qual_type.isConstQualified(),
-                        symbol_name, type_node, init_node);
+                        var_scope->zig_name, type_node, init_node);
 
-                assert(scope->id == TransScopeIdBlock);
-                TransScopeBlock *scope_block = (TransScopeBlock *)scope;
                 scope_block->node->data.block.statements.append(node);
                 continue;
             }
             case Decl::AccessSpec:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind AccessSpec");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Block:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Block");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Captured:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Captured");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ClassScopeFunctionSpecialization:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ClassScopeFunctionSpecialization");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Empty:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Empty");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Export:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Export");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ExternCContext:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ExternCContext");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::FileScopeAsm:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind FileScopeAsm");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Friend:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Friend");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::FriendTemplate:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind FriendTemplate");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Import:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Import");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::LinkageSpec:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind LinkageSpec");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Label:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Label");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Namespace:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Namespace");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::NamespaceAlias:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind NamespaceAlias");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCCompatibleAlias:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCCompatibleAlias");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCCategory:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCCategory");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCCategoryImpl:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCCategoryImpl");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCImplementation:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCImplementation");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCInterface:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCInterface");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCProtocol:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCProtocol");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCMethod:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCMethod");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCProperty:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCProperty");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::BuiltinTemplate:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind BuiltinTemplate");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ClassTemplate:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ClassTemplate");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::FunctionTemplate:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind FunctionTemplate");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::TypeAliasTemplate:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TypeAliasTemplate");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::VarTemplate:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind VarTemplate");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::TemplateTemplateParm:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TemplateTemplateParm");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Enum:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Enum");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Record:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Record");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::CXXRecord:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXRecord");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ClassTemplateSpecialization:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ClassTemplateSpecialization");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ClassTemplatePartialSpecialization:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ClassTemplatePartialSpecialization");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::TemplateTypeParm:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TemplateTypeParm");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCTypeParam:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCTypeParam");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::TypeAlias:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TypeAlias");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Typedef:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Typedef");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::UnresolvedUsingTypename:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UnresolvedUsingTypename");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Using:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Using");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::UsingDirective:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UsingDirective");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::UsingPack:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UsingPack");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::UsingShadow:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UsingShadow");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ConstructorUsingShadow:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ConstructorUsingShadow");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Binding:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Binding");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Field:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Field");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCAtDefsField:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCAtDefsField");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCIvar:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCIvar");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Function:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Function");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::CXXDeductionGuide:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXDeductionGuide");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::CXXMethod:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXMethod");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::CXXConstructor:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXConstructor");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::CXXConversion:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXConversion");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::CXXDestructor:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXDestructor");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::MSProperty:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind MSProperty");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::NonTypeTemplateParm:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind NonTypeTemplateParm");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Decomposition:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Decomposition");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ImplicitParam:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ImplicitParam");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::OMPCapturedExpr:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind OMPCapturedExpr");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ParmVar:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ParmVar");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::VarTemplateSpecialization:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind VarTemplateSpecialization");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::VarTemplatePartialSpecialization:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind VarTemplatePartialSpecialization");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::EnumConstant:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind EnumConstant");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::IndirectField:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind IndirectField");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::OMPDeclareReduction:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind OMPDeclareReduction");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::UnresolvedUsingValue:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UnresolvedUsingValue");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::OMPThreadPrivate:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind OMPThreadPrivate");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCPropertyImpl:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCPropertyImpl");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::PragmaComment:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind PragmaComment");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::PragmaDetectMismatch:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind PragmaDetectMismatch");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::StaticAssert:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind StaticAssert");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::TranslationUnit:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TranslationUnit");
-                return nullptr;
+                return ErrorUnexpected;
         }
         zig_unreachable();
     }
 
-    // declarations were already added
-    return skip_add_to_block_node;
+    *out_scope = scope;
+    return ErrorNone;
 }
 
 static AstNode *trans_while_loop(Context *c, TransScope *scope, const WhileStmt *stmt) {
@@ -2068,8 +2087,8 @@ static AstNode *trans_while_loop(Context *c, TransScope *scope, const WhileStmt 
     if (while_node->data.while_expr.condition == nullptr)
         return nullptr;
 
-    while_node->data.while_expr.body = trans_stmt(c, ResultUsedNo, scope, stmt->getBody(), TransRValue);
-    if (while_node->data.while_expr.body == nullptr)
+    TransScope *body_scope = trans_stmt(c, scope, stmt->getBody(), &while_node->data.while_expr.body);
+    if (body_scope == nullptr) 
         return nullptr;
 
     return while_node;
@@ -2086,13 +2105,13 @@ static AstNode *trans_if_statement(Context *c, TransScope *scope, const IfStmt *
         return nullptr;
     if_node->data.if_bool_expr.condition = condition_node;
 
-    if_node->data.if_bool_expr.then_block = trans_stmt(c, ResultUsedNo, scope, stmt->getThen(), TransRValue);
-    if (if_node->data.if_bool_expr.then_block == nullptr)
+    TransScope *then_scope = trans_stmt(c, scope, stmt->getThen(), &if_node->data.if_bool_expr.then_block);
+    if (then_scope == nullptr)
         return nullptr;
 
     if (stmt->getElse() != nullptr) {
-        if_node->data.if_bool_expr.else_node = trans_stmt(c, ResultUsedNo, scope, stmt->getElse(), TransRValue);
-        if (if_node->data.if_bool_expr.else_node == nullptr)
+        TransScope *else_scope = trans_stmt(c, scope, stmt->getElse(), &if_node->data.if_bool_expr.else_node);
+        if (else_scope == nullptr)
             return nullptr;
     }
 
@@ -2201,10 +2220,14 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const DoStmt
         // zig:   b;
         // zig:   if (!cond) break;
         // zig: }
-        body_node = trans_stmt(c, ResultUsedNo, parent_scope, stmt->getBody(), TransRValue);
-        if (body_node == nullptr) return nullptr;
+
+        // We call the low level function so that we can set child_scope to the scope of the generated block.
+        if (trans_stmt_extra(c, parent_scope, stmt->getBody(), ResultUsedNo, TransRValue, &body_node,
+            nullptr, &child_scope))
+        {
+            return nullptr;
+        }
         assert(body_node->type == NodeTypeBlock);
-        child_scope = c->child_scope;
     } else {
         // the C statement is without a block, so we need to create a block to contain it.
         // c: do
@@ -2216,10 +2239,10 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const DoStmt
         // zig: }
         TransScopeBlock *child_block_scope = trans_scope_block_create(c, parent_scope);
         body_node = child_block_scope->node;
-        child_scope = &child_block_scope->base;
-        AstNode *child_statement = trans_stmt(c, ResultUsedNo, child_scope, stmt->getBody(), TransRValue);
-        if (child_statement == nullptr) return nullptr;
-        child_block_scope->node->data.block.statements.append(child_statement);
+        AstNode *child_statement;
+        child_scope = trans_stmt(c, &child_block_scope->base, stmt->getBody(), &child_statement);
+        if (child_scope == nullptr) return nullptr;
+        body_node->data.block.statements.append(child_statement);
     }
 
     // if (!cond) break;
@@ -2229,10 +2252,7 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const DoStmt
     terminator_node->data.if_bool_expr.condition = trans_create_node_prefix_op(c, PrefixOpBoolNot, condition_node);
     terminator_node->data.if_bool_expr.then_block = trans_create_node(c, NodeTypeBreak);
 
-    assert(child_scope->id == TransScopeIdBlock);
-    TransScopeBlock *child_block_scope = (TransScopeBlock *)child_scope;
-
-    child_block_scope->node->data.block.statements.append(terminator_node);
+    body_node->data.block.statements.append(terminator_node);
 
     while_node->data.while_expr.body = body_node;
 
@@ -2244,10 +2264,10 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const DoStmt
 //    AstNode *switch_node = trans_create_node(c, NodeTypeSwitchExpr);
 //    const DeclStmt *var_decl_stmt = stmt->getConditionVariableDeclStmt();
 //    if (var_decl_stmt != nullptr) {
-//        AstNode *vars_node = trans_stmt(c, ResultUsedNo, switch_block_node, var_decl_stmt, TransRValue);
+//        AstNode *vars_node = trans_stmt(c, switch_block_node, var_decl_stmt);
 //        if (vars_node == nullptr)
 //            return nullptr;
-//        if (vars_node != skip_add_to_block_node)
+//        if (vars_node != nullptr)
 //            switch_block_node->data.block.statements.append(vars_node);
 //    }
 //    switch_block_node->data.block.statements.append(switch_node);
@@ -2260,10 +2280,10 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const DoStmt
 //        return nullptr;
 //    switch_node->data.switch_expr.expr = expr_node;
 //
-//    AstNode *body_node = trans_stmt(c, ResultUsedNo, switch_block_node, stmt->getBody(), TransRValue);
+//    AstNode *body_node = trans_stmt(c, switch_block_node, stmt->getBody());
 //    if (body_node == nullptr)
 //        return nullptr;
-//    if (body_node != skip_add_to_block_node)
+//    if (body_node != nullptr)
 //        switch_block_node->data.block.statements.append(body_node);
 //
 //    return switch_block_node;
@@ -2271,21 +2291,22 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const DoStmt
 
 static AstNode *trans_for_loop(Context *c, TransScope *parent_scope, const ForStmt *stmt) {
     AstNode *loop_block_node;
-    TransScope *condition_scope;
+    TransScope *inner_scope;
     AstNode *while_node = trans_create_node(c, NodeTypeWhileExpr);
     const Stmt *init_stmt = stmt->getInit();
     if (init_stmt == nullptr) {
         loop_block_node = while_node;
-        condition_scope = parent_scope;
+        inner_scope = parent_scope;
     } else {
         TransScopeBlock *child_scope = trans_scope_block_create(c, parent_scope);
         loop_block_node = child_scope->node;
-        condition_scope = &child_scope->base;
+        inner_scope = &child_scope->base;
 
-        AstNode *vars_node = trans_stmt(c, ResultUsedNo, &child_scope->base, init_stmt, TransRValue);
-        if (vars_node == nullptr)
+        AstNode *vars_node;
+        inner_scope = trans_stmt(c, &child_scope->base, init_stmt, &vars_node);
+        if (inner_scope == nullptr)
             return nullptr;
-        if (vars_node != skip_add_to_block_node)
+        if (vars_node != nullptr)
             child_scope->node->data.block.statements.append(vars_node);
 
         child_scope->node->data.block.statements.append(while_node);
@@ -2297,21 +2318,23 @@ static AstNode *trans_for_loop(Context *c, TransScope *parent_scope, const ForSt
         true_node->data.bool_literal.value = true;
         while_node->data.while_expr.condition = true_node;
     } else {
-        while_node->data.while_expr.condition = trans_stmt(c, ResultUsedNo, condition_scope, cond_stmt, TransRValue);
-        if (while_node->data.while_expr.condition == nullptr)
+        TransScope *cond_scope = trans_stmt(c, inner_scope, cond_stmt, &while_node->data.while_expr.condition);
+        if (cond_scope == nullptr)
             return nullptr;
     }
 
     const Stmt *inc_stmt = stmt->getInc();
     if (inc_stmt != nullptr) {
-        AstNode *inc_node = trans_stmt(c, ResultUsedNo, condition_scope, inc_stmt, TransRValue);
-        if (inc_node == nullptr)
+        AstNode *inc_node;
+        TransScope *inc_scope = trans_stmt(c, inner_scope, inc_stmt, &inc_node);
+        if (inc_scope == nullptr)
             return nullptr;
         while_node->data.while_expr.continue_expr = inc_node;
     }
 
-    AstNode *child_statement = trans_stmt(c, ResultUsedNo, condition_scope, stmt->getBody(), TransRValue);
-    if (child_statement == nullptr)
+    AstNode *child_statement;
+    TransScope *body_scope = trans_stmt(c, inner_scope, stmt->getBody(), &child_statement);
+    if (body_scope == nullptr)
         return nullptr;
     while_node->data.while_expr.body = child_statement;
 
@@ -2344,576 +2367,634 @@ static AstNode *trans_continue_stmt(Context *c, TransScope *scope, const Continu
     return trans_create_node(c, NodeTypeContinue);
 }
 
-static AstNode *trans_stmt(Context *c, ResultUsed result_used, TransScope *scope, const Stmt *stmt, TransLRValue lrvalue) {
-    c->child_scope = scope; // TODO refactor out
+static int wrap_stmt(AstNode **out_node, TransScope **out_scope, TransScope *in_scope, AstNode *result_node) {
+    if (result_node == nullptr)
+        return ErrorUnexpected;
+    *out_node = result_node;
+    if (out_scope != nullptr) {
+        *out_scope = in_scope;
+    }
+    return ErrorNone;
+}
+
+static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
+        ResultUsed result_used, TransLRValue lrvalue,
+        AstNode **out_node, TransScope **out_child_scope,
+        TransScope **out_node_scope)
+{
     Stmt::StmtClass sc = stmt->getStmtClass();
     switch (sc) {
         case Stmt::ReturnStmtClass:
-            return trans_return_stmt(c, scope, (const ReturnStmt *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_return_stmt(c, scope, (const ReturnStmt *)stmt));
         case Stmt::CompoundStmtClass:
-            return trans_compound_stmt(c, scope, (const CompoundStmt *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_compound_stmt(c, scope, (const CompoundStmt *)stmt, out_node_scope));
         case Stmt::IntegerLiteralClass:
-            return trans_integer_literal(c, (const IntegerLiteral *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_integer_literal(c, (const IntegerLiteral *)stmt));
         case Stmt::ConditionalOperatorClass:
-            return trans_conditional_operator(c, result_used, scope, (const ConditionalOperator *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_conditional_operator(c, result_used, scope, (const ConditionalOperator *)stmt));
         case Stmt::BinaryOperatorClass:
-            return trans_binary_operator(c, result_used, scope, (const BinaryOperator *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_binary_operator(c, result_used, scope, (const BinaryOperator *)stmt));
         case Stmt::CompoundAssignOperatorClass:
-            return trans_compound_assign_operator(c, result_used, scope, (const CompoundAssignOperator *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_compound_assign_operator(c, result_used, scope, (const CompoundAssignOperator *)stmt));
         case Stmt::ImplicitCastExprClass:
-            return trans_implicit_cast_expr(c, scope, (const ImplicitCastExpr *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_implicit_cast_expr(c, scope, (const ImplicitCastExpr *)stmt));
         case Stmt::DeclRefExprClass:
-            return trans_decl_ref_expr(c, (const DeclRefExpr *)stmt, lrvalue);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_decl_ref_expr(c, (const DeclRefExpr *)stmt, lrvalue));
         case Stmt::UnaryOperatorClass:
-            return trans_unary_operator(c, result_used, scope, (const UnaryOperator *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_unary_operator(c, result_used, scope, (const UnaryOperator *)stmt));
         case Stmt::DeclStmtClass:
-            return trans_local_declaration(c, scope, (const DeclStmt *)stmt);
+            return trans_local_declaration(c, scope, (const DeclStmt *)stmt, out_node, out_child_scope);
         case Stmt::WhileStmtClass:
-            return trans_while_loop(c, scope, (const WhileStmt *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_while_loop(c, scope, (const WhileStmt *)stmt));
         case Stmt::IfStmtClass:
-            return trans_if_statement(c, scope, (const IfStmt *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_if_statement(c, scope, (const IfStmt *)stmt));
         case Stmt::CallExprClass:
-            return trans_call_expr(c, result_used, scope, (const CallExpr *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_call_expr(c, result_used, scope, (const CallExpr *)stmt));
         case Stmt::NullStmtClass:
-            return skip_add_to_block_node;
+            *out_node = nullptr;
+            *out_child_scope = scope;
+            return ErrorNone;
         case Stmt::MemberExprClass:
-            return trans_member_expr(c, scope, (const MemberExpr *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_member_expr(c, scope, (const MemberExpr *)stmt));
         case Stmt::ArraySubscriptExprClass:
-            return trans_array_subscript_expr(c, scope, (const ArraySubscriptExpr *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_array_subscript_expr(c, scope, (const ArraySubscriptExpr *)stmt));
         case Stmt::CStyleCastExprClass:
-            return trans_c_style_cast_expr(c, result_used, scope, (const CStyleCastExpr *)stmt, lrvalue);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_c_style_cast_expr(c, result_used, scope, (const CStyleCastExpr *)stmt, lrvalue));
         case Stmt::UnaryExprOrTypeTraitExprClass:
-            return trans_unary_expr_or_type_trait_expr(c, scope, (const UnaryExprOrTypeTraitExpr *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_unary_expr_or_type_trait_expr(c, scope, (const UnaryExprOrTypeTraitExpr *)stmt));
         case Stmt::DoStmtClass:
-            return trans_do_loop(c, scope, (const DoStmt *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_do_loop(c, scope, (const DoStmt *)stmt));
         case Stmt::ForStmtClass:
-            return trans_for_loop(c, scope, (const ForStmt *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_for_loop(c, scope, (const ForStmt *)stmt));
         case Stmt::StringLiteralClass:
-            return trans_string_literal(c, scope, (const StringLiteral *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_string_literal(c, scope, (const StringLiteral *)stmt));
         case Stmt::BreakStmtClass:
-            return trans_break_stmt(c, scope, (const BreakStmt *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_break_stmt(c, scope, (const BreakStmt *)stmt));
         case Stmt::ContinueStmtClass:
-            return trans_continue_stmt(c, scope, (const ContinueStmt *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_continue_stmt(c, scope, (const ContinueStmt *)stmt));
+        case Stmt::ParenExprClass:
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_expr(c, result_used, scope, ((const ParenExpr*)stmt)->getSubExpr(), lrvalue));
 //        case Stmt::SwitchStmtClass:
-//            return trans_switch_stmt(c, scope, (const SwitchStmt *)stmt);
+//            return wrap_stmt(out_node, out_child_scope, scope,
+//            trans_switch_stmt(c, scope, (const SwitchStmt *)stmt));
         case Stmt::SwitchStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SwitchStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CaseStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CaseStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::DefaultStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C DefaultStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::NoStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C NoStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::GCCAsmStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C GCCAsmStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::MSAsmStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C MSAsmStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::AttributedStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C AttributedStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXCatchStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXCatchStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXForRangeStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXForRangeStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXTryStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXTryStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CapturedStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CapturedStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CoreturnStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CoreturnStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CoroutineBodyStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CoroutineBodyStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::BinaryConditionalOperatorClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C BinaryConditionalOperatorClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::AddrLabelExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C AddrLabelExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ArrayInitIndexExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ArrayInitIndexExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ArrayInitLoopExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ArrayInitLoopExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ArrayTypeTraitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ArrayTypeTraitExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::AsTypeExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C AsTypeExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::AtomicExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C AtomicExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::BlockExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C BlockExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXBindTemporaryExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXBindTemporaryExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXBoolLiteralExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXBoolLiteralExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXConstructExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXConstructExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXTemporaryObjectExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXTemporaryObjectExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXDefaultArgExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDefaultArgExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXDefaultInitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDefaultInitExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXDeleteExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDeleteExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXDependentScopeMemberExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDependentScopeMemberExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXFoldExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXFoldExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXInheritedCtorInitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXInheritedCtorInitExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXNewExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXNewExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXNoexceptExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXNoexceptExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXNullPtrLiteralExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXNullPtrLiteralExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXPseudoDestructorExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXPseudoDestructorExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXScalarValueInitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXScalarValueInitExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXStdInitializerListExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXStdInitializerListExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXThisExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXThisExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXThrowExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXThrowExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXTypeidExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXTypeidExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXUnresolvedConstructExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXUnresolvedConstructExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXUuidofExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXUuidofExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CUDAKernelCallExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CUDAKernelCallExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXMemberCallExprClass:
-            (void)result_used;
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXMemberCallExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXOperatorCallExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXOperatorCallExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::UserDefinedLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C UserDefinedLiteralClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXFunctionalCastExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXFunctionalCastExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXConstCastExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXConstCastExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXDynamicCastExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDynamicCastExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXReinterpretCastExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXReinterpretCastExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXStaticCastExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXStaticCastExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCBridgedCastExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCBridgedCastExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CharacterLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CharacterLiteralClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ChooseExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ChooseExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CompoundLiteralExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CompoundLiteralExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ConvertVectorExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ConvertVectorExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CoawaitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CoawaitExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CoyieldExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CoyieldExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::DependentCoawaitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C DependentCoawaitExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::DependentScopeDeclRefExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C DependentScopeDeclRefExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::DesignatedInitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C DesignatedInitExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::DesignatedInitUpdateExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C DesignatedInitUpdateExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ExprWithCleanupsClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ExprWithCleanupsClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ExpressionTraitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ExpressionTraitExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ExtVectorElementExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ExtVectorElementExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::FloatingLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C FloatingLiteralClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::FunctionParmPackExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C FunctionParmPackExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::GNUNullExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C GNUNullExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::GenericSelectionExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C GenericSelectionExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ImaginaryLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ImaginaryLiteralClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ImplicitValueInitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ImplicitValueInitExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::InitListExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C InitListExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::LambdaExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C LambdaExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::MSPropertyRefExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C MSPropertyRefExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::MSPropertySubscriptExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C MSPropertySubscriptExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::MaterializeTemporaryExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C MaterializeTemporaryExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::NoInitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C NoInitExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPArraySectionExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPArraySectionExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCArrayLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCArrayLiteralClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCAvailabilityCheckExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAvailabilityCheckExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCBoolLiteralExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCBoolLiteralExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCBoxedExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCBoxedExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCDictionaryLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCDictionaryLiteralClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCEncodeExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCEncodeExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCIndirectCopyRestoreExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCIndirectCopyRestoreExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCIsaExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCIsaExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCIvarRefExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCIvarRefExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCMessageExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCMessageExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCPropertyRefExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCPropertyRefExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCProtocolExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCProtocolExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCSelectorExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCSelectorExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCStringLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCStringLiteralClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCSubscriptRefExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCSubscriptRefExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OffsetOfExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OffsetOfExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OpaqueValueExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OpaqueValueExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::UnresolvedLookupExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C UnresolvedLookupExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::UnresolvedMemberExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C UnresolvedMemberExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::PackExpansionExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C PackExpansionExprClass");
-            return nullptr;
-        case Stmt::ParenExprClass:
-            return trans_expr(c, result_used, scope, ((const ParenExpr*)stmt)->getSubExpr(), lrvalue);
+            return ErrorUnexpected;
         case Stmt::ParenListExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ParenListExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::PredefinedExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C PredefinedExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::PseudoObjectExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C PseudoObjectExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ShuffleVectorExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ShuffleVectorExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::SizeOfPackExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SizeOfPackExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::StmtExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C StmtExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::SubstNonTypeTemplateParmExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SubstNonTypeTemplateParmExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::SubstNonTypeTemplateParmPackExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SubstNonTypeTemplateParmPackExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::TypeTraitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C TypeTraitExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::TypoExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C TypoExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::VAArgExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C VAArgExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::GotoStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C GotoStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::IndirectGotoStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C IndirectGotoStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::LabelStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C LabelStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::MSDependentExistsStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C MSDependentExistsStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPAtomicDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPAtomicDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPBarrierDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPBarrierDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPCancelDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPCancelDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPCancellationPointDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPCancellationPointDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPCriticalDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPCriticalDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPFlushDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPFlushDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPDistributeDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPDistributeDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPDistributeParallelForDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPDistributeParallelForDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPDistributeParallelForSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPDistributeParallelForSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPDistributeSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPDistributeSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPForDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPForDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPForSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPForSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPParallelForDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPParallelForDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPParallelForSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPParallelForSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetParallelForSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetParallelForSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetTeamsDistributeDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDistributeDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetTeamsDistributeParallelForDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDistributeParallelForDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetTeamsDistributeParallelForSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDistributeParallelForSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetTeamsDistributeSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDistributeSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTaskLoopDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskLoopDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTaskLoopSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskLoopSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTeamsDistributeDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDistributeDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTeamsDistributeParallelForDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDistributeParallelForDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTeamsDistributeParallelForSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDistributeParallelForSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTeamsDistributeSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDistributeSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPMasterDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPMasterDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPOrderedDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPOrderedDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPParallelDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPParallelDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPParallelSectionsDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPParallelSectionsDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPSectionDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPSectionDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPSectionsDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPSectionsDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPSingleDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPSingleDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetDataDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetDataDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetEnterDataDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetEnterDataDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetExitDataDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetExitDataDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetParallelDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetParallelDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetParallelForDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetParallelForDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetTeamsDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetUpdateDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetUpdateDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTaskDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTaskgroupDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskgroupDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTaskwaitDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskwaitDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTaskyieldDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskyieldDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTeamsDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCAtCatchStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtCatchStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCAtFinallyStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtFinallyStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCAtSynchronizedStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtSynchronizedStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCAtThrowStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtThrowStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCAtTryStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtTryStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCAutoreleasePoolStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAutoreleasePoolStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCForCollectionStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCForCollectionStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::SEHExceptStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SEHExceptStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::SEHFinallyStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SEHFinallyStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::SEHLeaveStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SEHLeaveStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::SEHTryStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SEHTryStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
     }
     zig_unreachable();
+}
+
+// Returns null if there was an error
+static AstNode *trans_expr(Context *c, ResultUsed result_used, TransScope *scope, const Expr *expr,
+        TransLRValue lrval)
+{
+    AstNode *result_node;
+    if (trans_stmt_extra(c, scope, expr, result_used, lrval, &result_node, nullptr, nullptr)) {
+        return nullptr;
+    }
+    return result_node;
+}
+
+// Statements have no result and no concept of L or R value.
+// Returns child scope, or null if there was an error
+static TransScope *trans_stmt(Context *c, TransScope *scope, const Stmt *stmt, AstNode **out_node) {
+    TransScope *child_scope;
+    if (trans_stmt_extra(c, scope, stmt, ResultUsedNo, TransRValue, out_node, &child_scope, nullptr)) {
+        return nullptr;
+    }
+    return child_scope;
 }
 
 static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
@@ -2946,7 +3027,8 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
         return;
     }
 
-    TransScope *scope = nullptr;
+    TransScopeRoot *root_scope = trans_scope_root_create(c);
+    TransScope *scope = &root_scope->base;
 
     for (size_t i = 0; i < proto_node->data.fn_proto.params.length; i += 1) {
         AstNode *param_node = proto_node->data.fn_proto.params.at(i);
@@ -2978,16 +3060,17 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     // actual function definition with body
     c->ptr_params.clear();
     Stmt *body = fn_decl->getBody();
-    AstNode *actual_body_node = trans_stmt(c, ResultUsedNo, scope, body, TransRValue);
-    assert(actual_body_node != skip_add_to_block_node);
-    if (actual_body_node == nullptr) {
+    AstNode *actual_body_node;
+    TransScope *result_scope = trans_stmt(c, scope, body, &actual_body_node);
+    if (result_scope == nullptr) {
         emit_warning(c, fn_decl->getLocation(), "unable to translate function");
         return;
     }
+    assert(actual_body_node != nullptr);
+    assert(actual_body_node->type == NodeTypeBlock);
 
     // it worked
 
-    assert(actual_body_node->type == NodeTypeBlock);
     AstNode *body_node_with_param_inits = trans_create_node(c, NodeTypeBlock);
 
     for (size_t i = 0; i < proto_node->data.fn_proto.params.length; i += 1) {
@@ -3447,6 +3530,12 @@ static Buf *get_unique_name(Context *c, Buf *name, TransScope *scope) {
     return proposed_name;
 }
 
+static TransScopeRoot *trans_scope_root_create(Context *c) {
+    TransScopeRoot *result = allocate<TransScopeRoot>(1);
+    result->base.id = TransScopeIdRoot;
+    return result;
+}
+
 static TransScopeBlock *trans_scope_block_create(Context *c, TransScope *parent_scope) {
     TransScopeBlock *result = allocate<TransScopeBlock>(1);
     result->base.id = TransScopeIdBlock;
@@ -3471,6 +3560,16 @@ static TransScopeVar *trans_scope_var_create(Context *c, TransScope *parent_scop
 //    result->switch_node = trans_create_node(c, NodeTypeSwitchExpr);
 //    return result;
 //}
+
+static TransScopeBlock *trans_scope_block_find(TransScope *scope) {
+    while (scope != nullptr) {
+        if (scope->id == TransScopeIdBlock) {
+            return (TransScopeBlock *)scope;
+        }
+        scope = scope->parent;
+    }
+    return nullptr;
+}
 
 static void render_aliases(Context *c) {
     for (size_t i = 0; i < c->aliases.length; i += 1) {
