@@ -1019,7 +1019,7 @@ pub fn addCases(cases: &tests.TranslateCContext) {
     ,
         \\fn foo(_arg_x: c_int) -> c_int {
         \\    var x = _arg_x;
-        \\    while (true) {
+        \\    {
         \\        switch (x) {
         \\            1 => goto case_0,
         \\            2 => goto case_1,
@@ -1030,13 +1030,14 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\    case_0:
         \\        x += 1;
         \\    case_1:
-        \\        break;
+        \\        goto end;
         \\    case_2:
         \\    case_3:
         \\        return x + 1;
         \\    default:
         \\        return 10;
-        \\        break;
+        \\        goto end;
+        \\    end:
         \\    };
         \\    return x + 13;
         \\}

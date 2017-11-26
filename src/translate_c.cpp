@@ -82,6 +82,7 @@ struct TransScopeSwitch {
     AstNode *switch_node;
     uint32_t case_index;
     bool found_default;
+    Buf *end_label_name;
 };
 
 struct TransScopeVar {
@@ -246,6 +247,18 @@ static AstNode *trans_create_node_addr_of(Context *c, bool is_const, bool is_vol
     node->data.addr_of_expr.is_volatile = is_volatile;
     node->data.addr_of_expr.op_expr = child_node;
     return node;
+}
+
+static AstNode *trans_create_node_goto(Context *c, Buf *label_name) {
+    AstNode *goto_node = trans_create_node(c, NodeTypeGoto);
+    goto_node->data.goto_expr.name = label_name;
+    return goto_node;
+}
+
+static AstNode *trans_create_node_label(Context *c, Buf *label_name) {
+    AstNode *label_node = trans_create_node(c, NodeTypeLabel);
+    label_node->data.label.name = label_name;
+    return label_node;
 }
 
 static AstNode *trans_create_node_bool(Context *c, bool value) {
@@ -2283,11 +2296,7 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const DoStmt
 }
 
 static AstNode *trans_switch_stmt(Context *c, TransScope *parent_scope, const SwitchStmt *stmt) {
-    TransScopeWhile *while_scope = trans_scope_while_create(c, parent_scope);
-    while_scope->node->data.while_expr.condition = trans_create_node_bool(c, true);
-
-    TransScopeBlock *block_scope = trans_scope_block_create(c, &while_scope->base);
-    while_scope->node->data.while_expr.body = block_scope->node;
+    TransScopeBlock *block_scope = trans_scope_block_create(c, parent_scope);
 
     TransScopeSwitch *switch_scope;
 
@@ -2304,6 +2313,10 @@ static AstNode *trans_switch_stmt(Context *c, TransScope *parent_scope, const Sw
         switch_scope = trans_scope_switch_create(c, var_scope);
     }
     block_scope->node->data.block.statements.append(switch_scope->switch_node);
+
+    // TODO avoid name collisions
+    Buf *end_label_name = buf_create_from_str("end");
+    switch_scope->end_label_name = end_label_name;
 
     const Expr *cond_expr = stmt->getCond();
     assert(cond_expr != nullptr);
@@ -2336,9 +2349,11 @@ static AstNode *trans_switch_stmt(Context *c, TransScope *parent_scope, const Sw
     }
 
     // This is necessary if the last switch case "falls through" the end of the switch block
-    block_scope->node->data.block.statements.append(trans_create_node(c, NodeTypeBreak));
+    block_scope->node->data.block.statements.append(trans_create_node_goto(c, end_label_name));
 
-    return while_scope->node;
+    block_scope->node->data.block.statements.append(trans_create_node_label(c, end_label_name));
+
+    return block_scope->node;
 }
 
 static int trans_switch_case(Context *c, TransScope *parent_scope, const CaseStmt *stmt, AstNode **out_node,
@@ -2365,18 +2380,13 @@ static int trans_switch_case(Context *c, TransScope *parent_scope, const CaseStm
             return ErrorUnexpected;
         prong_node->data.switch_prong.items.append(item_node);
 
-        AstNode *goto_node = trans_create_node(c, NodeTypeGoto);
-        goto_node->data.goto_expr.name = label_name;
-        prong_node->data.switch_prong.expr = goto_node;
+        prong_node->data.switch_prong.expr = trans_create_node_goto(c, label_name);
 
         switch_scope->switch_node->data.switch_expr.prongs.append(prong_node);
     }
 
-    AstNode *label_node = trans_create_node(c, NodeTypeLabel);
-    label_node->data.label.name = label_name;
-
     TransScopeBlock *scope_block = trans_scope_block_find(parent_scope);
-    scope_block->node->data.block.statements.append(label_node);
+    scope_block->node->data.block.statements.append(trans_create_node_label(c, label_name));
 
     AstNode *sub_stmt_node;
     TransScope *new_scope = trans_stmt(c, parent_scope, stmt->getSubStmt(), &sub_stmt_node);
@@ -2399,23 +2409,19 @@ static int trans_switch_default(Context *c, TransScope *parent_scope, const Defa
 
     Buf *label_name = buf_sprintf("default");
 
-    AstNode *label_node = trans_create_node(c, NodeTypeLabel);
-    label_node->data.label.name = label_name;
-
     {
         // Add the prong
         AstNode *prong_node = trans_create_node(c, NodeTypeSwitchProng);
 
-        AstNode *goto_node = trans_create_node(c, NodeTypeGoto);
-        goto_node->data.goto_expr.name = label_name;
-        prong_node->data.switch_prong.expr = goto_node;
+        prong_node->data.switch_prong.expr = trans_create_node_goto(c, label_name);
 
         switch_scope->switch_node->data.switch_expr.prongs.append(prong_node);
         switch_scope->found_default = true;
     }
 
     TransScopeBlock *scope_block = trans_scope_block_find(parent_scope);
-    scope_block->node->data.block.statements.append(label_node);
+    scope_block->node->data.block.statements.append(trans_create_node_label(c, label_name));
+
 
     AstNode *sub_stmt_node;
     TransScope *new_scope = trans_stmt(c, parent_scope, stmt->getSubStmt(), &sub_stmt_node);
@@ -2500,7 +2506,17 @@ static AstNode *trans_string_literal(Context *c, TransScope *scope, const String
 }
 
 static AstNode *trans_break_stmt(Context *c, TransScope *scope, const BreakStmt *stmt) {
-    return trans_create_node(c, NodeTypeBreak);
+    TransScope *cur_scope = scope;
+    while (cur_scope != nullptr) {
+        if (cur_scope->id == TransScopeIdWhile) {
+            return trans_create_node(c, NodeTypeBreak);
+        } else if (cur_scope->id == TransScopeIdSwitch) {
+            TransScopeSwitch *switch_scope = (TransScopeSwitch *)cur_scope;
+            return trans_create_node_goto(c, switch_scope->end_label_name);
+        }
+        cur_scope = cur_scope->parent;
+    }
+    zig_unreachable();
 }
 
 static AstNode *trans_continue_stmt(Context *c, TransScope *scope, const ContinueStmt *stmt) {
