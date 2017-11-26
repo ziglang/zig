@@ -2344,7 +2344,7 @@ static AstNode *trans_switch_stmt(Context *c, TransScope *parent_scope, const Sw
 
     if (!switch_scope->found_default && !stmt->isAllEnumCasesCovered()) {
         AstNode *prong_node = trans_create_node(c, NodeTypeSwitchProng);
-        prong_node->data.switch_prong.expr = trans_create_node(c, NodeTypeBreak);
+        prong_node->data.switch_prong.expr = trans_create_node_goto(c, end_label_name);
         switch_scope->switch_node->data.switch_expr.prongs.append(prong_node);
     }
 
