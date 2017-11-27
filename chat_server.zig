@@ -46,7 +46,7 @@ fn read_handler(bytes: &const []const u8, server: &ChatServer, closure: &ChatCon
 
         const w = ev.write(&msg) %% |err| {
             warn("failed to send message to session {}\n", conn.id);
-            return;
+            continue;
         };
     }
 }
