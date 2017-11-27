@@ -1,31 +1,34 @@
-const ev = @import("event.zig");
-const mp = @import("../memory_pool.zig");
+const ev = @import("event/event.zig");
+const mp = @import("mem_pool.zig");
 
 pub fn SimpleServer(comptime TServerClosure: type,
                 comptime TConnClosure: type) -> type {
-
-    const ConnClosure = struct {
-        event: ev.NetworkEvent,
-        server: &SimpleServer,
-        data: TConnClosure
-    };
-
-    const ConnHandler = &const fn(&TServerClosure, &TConnClosure) -> void;
-    const ReadHandler = &const fn(&const []const u8, &TServerClosure, &TConnClosure) -> void;
-    const DisconnHandler = &const fn(&TServerClosure, &TConnClosure) -> void;
-
     struct {
-        loop: &ev.Loop,
-        listener: ev.StreamListener,
-        closure_alloc: mp.MemoryPool(ConnClosure),
-        data: TServerClosure,
-        conn_handler: &ConnHandler,
-        read_handler: &ReadHandler,
-        disconn_handler: &DisconnHandler,
+        closure: ServerClosure,
 
         const Self = this;
 
-        fn disconn_handler(closure: &ConnClosure) -> void {
+        const ConnClosure = struct {
+            event: ev.NetworkEvent,
+            server: &ServerClosure,
+            data: TConnClosure
+        };
+
+        const ServerClosure = struct {
+            loop: &ev.Loop,
+            listener: ev.StreamListener,
+            closure_alloc: mp.MemoryPool(ConnClosure),
+            data: TServerClosure,
+            conn_handler: &const ConnHandler,
+            read_handler: &const ReadHandler,
+            disconn_handler: &const DisconnHandler
+        };
+
+        const ConnHandler = fn(&TServerClosure, &TConnClosure) -> void;
+        const ReadHandler = fn(&const []const u8, &TServerClosure, &TConnClosure) -> void;
+        const DisconnHandler = fn(&TServerClosure, &TConnClosure) -> void;
+
+        fn disconn_handler_wrapper(closure: &ConnClosure) -> void {
             (*closure.server.disconn_handler)(&closure.server.data,
                 &closure.data);
             closure.server.closure_alloc.free(closure);
@@ -37,38 +40,44 @@ pub fn SimpleServer(comptime TServerClosure: type,
                 &closure.data)
         }
 
-        fn conn_handler(md: &const ev.EventMd, server: &Self) -> %void {
-            var conn_closure = %return server.closure_alloc.alloc();
-            conn_closure.server = server;
+        fn conn_handler_wrapper(md: &const ev.EventMd, server: &Self) -> %void {
+            var conn_closure = %return server.closure.closure_alloc.alloc();
+            conn_closure.server = &server.closure;
             conn_closure.event = %return ev.NetworkEvent.init(md, conn_closure,
-                &read_handler_wrapper, &disconn_handler);
+                &read_handler_wrapper, &disconn_handler_wrapper);
 
-            (*server.conn_handler)(&server.data, &conn_closure.data);
+            (*server.closure.conn_handler)(&server.closure.data,
+                &conn_closure.data);
 
-            conn_closure.event.register(server.loop)
+            conn_closure.event.register(server.closure.loop)
         }
 
         pub fn init(loop: &ev.Loop,
                     server: &const TServerClosure,
                     max_conn: usize,
-                    conn_handler: &ConnHandler,
-                    read_handler: &ReadHandler,
-                    disconn_handler: &DisconnHandler) -> %Self {
-            Self {
-                .loop = loop,
-                .listener = ev.StreamListener.init(&res, &conn_handler),
-                .closure_alloc =
-                    %return mp.MemoryPool(ConnClosure).init(max_conn),
-                .data = *server,
-                .conn_handler = conn_handler,
-                .read_handler = read_handler,
-                .disconn_handler = disconn_handler
-            }
+                    conn_handler: &const ConnHandler,
+                    read_handler: &const ReadHandler,
+                    disconn_handler: &const DisconnHandler) -> %Self {
+            var res = Self {
+                .closure = ServerClosure {
+                    .loop = loop,
+                    .listener = undefined,
+                    .closure_alloc =
+                        %return mp.MemoryPool(ConnClosure).init(max_conn),
+                    .data = *server,
+                    .conn_handler = conn_handler,
+                    .read_handler = read_handler,
+                    .disconn_handler = disconn_handler
+                }
+            };
+            res.closure.listener =
+                ev.StreamListener.init(&res, &conn_handler_wrapper);
+            res
         }
 
         pub fn start(server: &Self, hostname: []const u8, port: u16) -> %void {
-            %return server.listener.listen_tcp(hostname, port);
-            server.listener.register(server.loop)
+            %return server.closure.listener.listen_tcp(hostname, port);
+            server.closure.listener.register(server.closure.loop)
         }
 
         pub fn get_event(closure: &TConnClosure) -> &ev.NetworkEvent {

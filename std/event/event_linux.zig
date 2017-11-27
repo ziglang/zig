@@ -1,7 +1,7 @@
 const builtin = @import("builtin");
-const std = @import("std");
-const assert = std.debug.assert;
-const linux = std.os.linux;
+const warn = @import("../debug.zig").warn;
+const linux = @import("../os/linux.zig");
+const net = @import("../net.zig");
 use @import("event_common.zig");
 
 const EventClosure = usize;
@@ -262,7 +262,6 @@ pub const StreamListener = struct {
     // this is a hacky approximation of a nullable type,
     // but the lower-level implementation of nullable types makes it difficult
     // to use pointers to them 
-    listening: bool,
     listener_context: usize,
     conn_handler: usize,
 
@@ -282,7 +281,7 @@ pub const StreamListener = struct {
 
         if (err != 0) {
             // XXX
-            std.debug.warn("error accepting new connection on fd {}: {}\n",
+            warn("error accepting new connection on fd {}: {}\n",
                 listen_fd, err);
             return;
         }
@@ -313,7 +312,6 @@ pub const StreamListener = struct {
             -> Self {
         Self {
             .listen_event = undefined,
-            .listening = false,
             .listener_context = context,
             .conn_handler = conn_handler
         }
@@ -321,8 +319,7 @@ pub const StreamListener = struct {
 
     pub fn listen_tcp(listener: &Self, hostname: []const u8, port: u16)
             -> %void {
-        var conn = %return std.net.bind(hostname, port,
-            std.net.ControlProtocol.TCP);
+        var conn = %return net.bind(hostname, port, net.ControlProtocol.TCP);
 
         const enable: u32 = 1;
         const so_res = linux.setsockopt(conn.socket_fd, linux.SOL_SOCKET, linux.SO_REUSEADDR, @ptrCast(&const u8, &enable), @sizeOf(@typeOf(enable)));
@@ -357,16 +354,13 @@ pub const StreamListener = struct {
                 @ptrToInt(listener),
                 @ptrToInt(&handle_new_connection),
                 @ptrToInt(&handle_disconnect));
-        listener.listening = true;
     }
 
     pub fn register(listener: &Self, loop: &Loop) -> %void {
-        assert(listener.listening);
         loop.register(&listener.listen_event.event)
     }
 
     pub fn unregister(listener: &Self, loop: &Loop) -> %void {
-        assert(listener.listening);
         loop.unregister(&listener.listen_event.event)
     }
 };
@@ -480,7 +474,7 @@ pub const Loop = struct {
                         }
                     },
                     linux.EAGAIN => {
-                        std.debug.warn("tried to read from empty fd {}\n", fd);
+                        warn("tried to read from empty fd {}\n", fd);
                         return;
                     },
                     // TODO: actually do something reasonable here
@@ -528,7 +522,7 @@ pub const Loop = struct {
             EventData.Network => |*network| {
                 const flags = event.events;
 
-                //std.debug.warn("fd {} triggered with flags {}\n",
+                //warn("fd {} triggered with flags {}\n",
                     //context.md.fd, flags);
 
                 if ((flags & u32(linux.EPOLLIN)) != 0) {
