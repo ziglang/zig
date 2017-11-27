@@ -20,15 +20,23 @@ fn conn_handler(server: &ChatServer, closure: &ChatConn) -> void {
     while (i < MAX_CONN) : (i += 1) {
         if (server.active_conns[i] == null) {
             server.active_conns[i] = closure;
+            return;
         }
     }
+
+    warn("no active connections left!\n");
 }
 
 fn read_handler(bytes: &const []const u8, server: &ChatServer, closure: &ChatConn) -> void {
-    warn("received message \"{}\"\n", bytes);
     for (server.active_conns) |*c| {
         var conn = *c ?? continue;
-        var ev = std.SimpleServer(ChatServer, ChatConn).get_event(closure);
+
+        // don't echo message back to user
+        if (conn.id == closure.id) {
+            continue;
+        }
+
+        var ev = std.SimpleServer(ChatServer, ChatConn).get_event(conn);
         // XXX: once snprintf or similar is available, prefix messages with
         // "user X said: "
 
@@ -54,7 +62,10 @@ pub fn main() -> %void {
         &loop, &closure, MAX_CONN, &conn_handler, &read_handler,
         &disconn_handler);
 
-    %return server.start("localhost", 12345);
+    server.start("localhost", 12345) %% |err| {
+        warn("failed to start server: {}\n", err);
+        return err;
+    };
 
     loop.run()
 }

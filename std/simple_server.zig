@@ -1,5 +1,6 @@
 const ev = @import("event/event.zig");
 const mp = @import("mem_pool.zig");
+const warn = @import("debug.zig").warn;
 
 pub fn SimpleServer(comptime TServerClosure: type,
                 comptime TConnClosure: type) -> type {
@@ -25,7 +26,8 @@ pub fn SimpleServer(comptime TServerClosure: type,
         };
 
         const ConnHandler = fn(&TServerClosure, &TConnClosure) -> void;
-        const ReadHandler = fn(&const []const u8, &TServerClosure, &TConnClosure) -> void;
+        const ReadHandler =
+            fn(&const []const u8, &TServerClosure, &TConnClosure) -> void;
         const DisconnHandler = fn(&TServerClosure, &TConnClosure) -> void;
 
         fn disconn_handler_wrapper(closure: &ConnClosure) -> void {
@@ -41,15 +43,25 @@ pub fn SimpleServer(comptime TServerClosure: type,
         }
 
         fn conn_handler_wrapper(md: &const ev.EventMd, server: &Self) -> %void {
-            var conn_closure = %return server.closure.closure_alloc.alloc();
+            var conn_closure = server.closure.closure_alloc.alloc() %% |err| {
+                warn("failed to create new connection closure\n");
+                return err;
+            };
             conn_closure.server = &server.closure;
-            conn_closure.event = %return ev.NetworkEvent.init(md, conn_closure,
-                &read_handler_wrapper, &disconn_handler_wrapper);
+            conn_closure.event = ev.NetworkEvent.init(md, conn_closure,
+                &read_handler_wrapper, &disconn_handler_wrapper) %% |err| {
+                warn("failed to create network event for connection {}\n",
+                    md.fd);
+                return err;
+            };
 
             (*server.closure.conn_handler)(&server.closure.data,
                 &conn_closure.data);
 
-            conn_closure.event.register(server.closure.loop)
+            conn_closure.event.register(server.closure.loop) %% |err| {
+                warn("failed to register new connection\n");
+                return err;
+            };
         }
 
         pub fn init(loop: &ev.Loop,
@@ -58,7 +70,7 @@ pub fn SimpleServer(comptime TServerClosure: type,
                     conn_handler: &const ConnHandler,
                     read_handler: &const ReadHandler,
                     disconn_handler: &const DisconnHandler) -> %Self {
-            var res = Self {
+            Self {
                 .closure = ServerClosure {
                     .loop = loop,
                     .listener = undefined,
@@ -69,13 +81,12 @@ pub fn SimpleServer(comptime TServerClosure: type,
                     .read_handler = read_handler,
                     .disconn_handler = disconn_handler
                 }
-            };
-            res.closure.listener =
-                ev.StreamListener.init(&res, &conn_handler_wrapper);
-            res
+            }
         }
 
         pub fn start(server: &Self, hostname: []const u8, port: u16) -> %void {
+            server.closure.listener =
+                ev.StreamListener.init(server, &conn_handler_wrapper);
             %return server.closure.listener.listen_tcp(hostname, port);
             server.closure.listener.register(server.closure.loop)
         }
