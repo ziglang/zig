@@ -1,5 +1,6 @@
 const std = @import("std");
 const warn = std.debug.warn;
+const bufPrint = std.fmt.bufPrint;
 
 const MAX_CONN: usize = 128;
 
@@ -28,6 +29,11 @@ fn conn_handler(server: &ChatServer, closure: &ChatConn) -> void {
 }
 
 fn read_handler(bytes: &const []const u8, server: &ChatServer, closure: &ChatConn) -> void {
+    const BUF_SIZE: usize = 4096;
+    const buf_one = []u8 { 0 };
+    var buf: [BUF_SIZE]u8 = buf_one ** BUF_SIZE;
+    const msg = bufPrint(buf[0..BUF_SIZE], "{} said: {}", closure.id, *bytes);
+
     for (server.active_conns) |*c| {
         var conn = *c ?? continue;
 
@@ -37,10 +43,8 @@ fn read_handler(bytes: &const []const u8, server: &ChatServer, closure: &ChatCon
         }
 
         var ev = std.SimpleServer(ChatServer, ChatConn).get_event(conn);
-        // XXX: once snprintf or similar is available, prefix messages with
-        // "user X said: "
 
-        const w = ev.write(bytes) %% |err| {
+        const w = ev.write(&msg) %% |err| {
             warn("failed to send message to session {}\n", conn.id);
             return;
         };
