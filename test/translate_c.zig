@@ -677,12 +677,12 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\    };
         \\    a >>= @import("std").math.Log2Int(c_int)({
         \\        const _ref = &a;
-        \\        (*_ref) = c_int(c_int(*_ref) >> @import("std").math.Log2Int(c_int)(1));
+        \\        (*_ref) = ((*_ref) >> @import("std").math.Log2Int(c_int)(1));
         \\        *_ref
         \\    });
         \\    a <<= @import("std").math.Log2Int(c_int)({
         \\        const _ref = &a;
-        \\        (*_ref) = c_int(c_int(*_ref) << @import("std").math.Log2Int(c_int)(1));
+        \\        (*_ref) = ((*_ref) << @import("std").math.Log2Int(c_int)(1));
         \\        *_ref
         \\    });
         \\}
@@ -735,12 +735,12 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\    };
         \\    a >>= @import("std").math.Log2Int(c_uint)({
         \\        const _ref = &a;
-        \\        (*_ref) = c_uint(c_uint(*_ref) >> @import("std").math.Log2Int(c_uint)(1));
+        \\        (*_ref) = ((*_ref) >> @import("std").math.Log2Int(c_uint)(1));
         \\        *_ref
         \\    });
         \\    a <<= @import("std").math.Log2Int(c_uint)({
         \\        const _ref = &a;
-        \\        (*_ref) = c_uint(c_uint(*_ref) << @import("std").math.Log2Int(c_uint)(1));
+        \\        (*_ref) = ((*_ref) << @import("std").math.Log2Int(c_uint)(1));
         \\        *_ref
         \\    });
         \\}
@@ -878,17 +878,21 @@ pub fn addCases(cases: &tests.TranslateCContext) {
 
     cases.addC("deref function pointer",
         \\void foo(void) {}
+        \\void baz(void) {}
         \\void bar(void) {
         \\    void(*f)(void) = foo;
         \\    f();
         \\    (*(f))();
+        \\    baz();
         \\}
     ,
         \\export fn foo() {}
+        \\export fn baz() {}
         \\export fn bar() {
         \\    var f: ?extern fn() = foo;
         \\    (??f)();
         \\    (??f)();
+        \\    baz();
         \\}
     );
 
@@ -1019,7 +1023,7 @@ pub fn addCases(cases: &tests.TranslateCContext) {
     ,
         \\fn foo(_arg_x: c_int) -> c_int {
         \\    var x = _arg_x;
-        \\    while (true) {
+        \\    {
         \\        switch (x) {
         \\            1 => goto case_0,
         \\            2 => goto case_1,
@@ -1030,18 +1034,19 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\    case_0:
         \\        x += 1;
         \\    case_1:
-        \\        break;
+        \\        goto end;
         \\    case_2:
         \\    case_3:
         \\        return x + 1;
         \\    default:
         \\        return 10;
-        \\        break;
+        \\        goto end;
+        \\    end:
         \\    };
         \\    return x + 13;
         \\}
     );
-
+    
     cases.add("macros with field targets",
         \\typedef unsigned int GLbitfield;
         \\typedef void (*PFNGLCLEARPROC) (GLbitfield mask);
@@ -1077,13 +1082,72 @@ pub fn addCases(cases: &tests.TranslateCContext) {
     ,
         \\pub const OpenGLProcs = union_OpenGLProcs;
     );
-}
 
-// TODO
-//float *ptrcast(int *a) {
-//    return (float *)a;
-//}
-// should translate to
-// fn ptrcast(a: ?&c_int) -> ?&f32 {
-//     return @ptrCast(?&f32, a);
-// }
+    cases.add("switch statement with no default",
+        \\int foo(int x) {
+        \\    switch (x) {
+        \\        case 1:
+        \\            x += 1;
+        \\        case 2:
+        \\            break;
+        \\        case 3:
+        \\        case 4:
+        \\            return x + 1;
+        \\    }
+        \\    return x + 13;
+        \\}
+    ,
+        \\fn foo(_arg_x: c_int) -> c_int {
+        \\    var x = _arg_x;
+        \\    {
+        \\        switch (x) {
+        \\            1 => goto case_0,
+        \\            2 => goto case_1,
+        \\            3 => goto case_2,
+        \\            4 => goto case_3,
+        \\            else => goto end,
+        \\        };
+        \\    case_0:
+        \\        x += 1;
+        \\    case_1:
+        \\        goto end;
+        \\    case_2:
+        \\    case_3:
+        \\        return x + 1;
+        \\        goto end;
+        \\    end:
+        \\    };
+        \\    return x + 13;
+        \\}
+    );
+
+    cases.add("variable name shadowing",
+        \\int foo(void) {
+        \\    int x = 1;
+        \\    {
+        \\        int x = 2;
+        \\        x += 1;
+        \\    }
+        \\    return x;
+        \\}
+    ,
+        \\pub fn foo() -> c_int {
+        \\    var x: c_int = 1;
+        \\    {
+        \\        var x_0: c_int = 2;
+        \\        x_0 += 1;
+        \\    };
+        \\    return x;
+        \\}
+    );
+
+    cases.add("pointer casting",
+        \\float *ptrcast(int *a) {
+        \\    return (float *)a;
+        \\}
+    ,
+        \\fn ptrcast(a: ?&c_int) -> ?&f32 {
+        \\    return @ptrCast(?&f32, a);
+        \\}
+    );
+}

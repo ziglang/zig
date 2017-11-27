@@ -82,6 +82,7 @@ struct TransScopeSwitch {
     AstNode *switch_node;
     uint32_t case_index;
     bool found_default;
+    Buf *end_label_name;
 };
 
 struct TransScopeVar {
@@ -154,6 +155,19 @@ static void add_global_weak_alias(Context *c, Buf *new_name, Buf *canon_name) {
     Alias *alias = c->aliases.add_one();
     alias->new_name = new_name;
     alias->canon_name = canon_name;
+}
+
+static Buf *trans_lookup_zig_symbol(Context *c, TransScope *scope, Buf *c_symbol_name) {
+    while (scope != nullptr) {
+        if (scope->id == TransScopeIdVar) {
+            TransScopeVar *var_scope = (TransScopeVar *)scope;
+            if (buf_eql_buf(var_scope->c_name, c_symbol_name)) {
+                return var_scope->zig_name;
+            }
+        }
+        scope = scope->parent;
+    }
+    return c_symbol_name;
 }
 
 static AstNode * trans_create_node(Context *c, NodeType id) {
@@ -246,6 +260,18 @@ static AstNode *trans_create_node_addr_of(Context *c, bool is_const, bool is_vol
     node->data.addr_of_expr.is_volatile = is_volatile;
     node->data.addr_of_expr.op_expr = child_node;
     return node;
+}
+
+static AstNode *trans_create_node_goto(Context *c, Buf *label_name) {
+    AstNode *goto_node = trans_create_node(c, NodeTypeGoto);
+    goto_node->data.goto_expr.name = label_name;
+    return goto_node;
+}
+
+static AstNode *trans_create_node_label(Context *c, Buf *label_name) {
+    AstNode *label_node = trans_create_node(c, NodeTypeLabel);
+    label_node->data.label.name = label_name;
+    return label_node;
 }
 
 static AstNode *trans_create_node_bool(Context *c, bool value) {
@@ -414,6 +440,10 @@ static AstNode *trans_create_node_apint(Context *c, const llvm::APSInt &aps_int)
 
 }
 
+static const Type *qual_type_canon(QualType qt) {
+    return qt.getCanonicalType().getTypePtr();
+}
+
 static QualType get_expr_qual_type(Context *c, const Expr *expr) {
     // String literals in C are `char *` but they should really be `const char *`.
     if (expr->getStmtClass() == Stmt::ImplicitCastExprClass) {
@@ -436,10 +466,7 @@ static AstNode *get_expr_type(Context *c, const Expr *expr) {
     return trans_qual_type(c, get_expr_qual_type(c, expr), expr->getLocStart());
 }
 
-static bool expr_types_equal(Context *c, const Expr *expr1, const Expr *expr2) {
-    QualType t1 = get_expr_qual_type(c, expr1);
-    QualType t2 = get_expr_qual_type(c, expr2);
-
+static bool qual_types_equal(QualType t1, QualType t2) {
     if (t1.isConstQualified() != t2.isConstQualified()) {
         return false;
     }
@@ -456,26 +483,27 @@ static bool is_c_void_type(AstNode *node) {
     return (node->type == NodeTypeSymbol && buf_eql_str(node->data.symbol_expr.symbol, "c_void"));
 }
 
-static AstNode* trans_c_cast(Context *c, const SourceLocation &source_location, const QualType &qt, AstNode *expr) {
-    // TODO: maybe widen to increase size
-    // TODO: maybe bitcast to change sign
-    // TODO: maybe truncate to reduce size
-    return trans_create_node_fn_call_1(c, trans_qual_type(c, qt, source_location), expr);
+static bool expr_types_equal(Context *c, const Expr *expr1, const Expr *expr2) {
+    QualType t1 = get_expr_qual_type(c, expr1);
+    QualType t2 = get_expr_qual_type(c, expr2);
+
+    return qual_types_equal(t1, t2);
 }
 
-static bool qual_type_is_fn_ptr(Context *c, const QualType &qt) {
-    const Type *ty = qt.getTypePtr();
+static bool qual_type_is_ptr(QualType qt) {
+    const Type *ty = qual_type_canon(qt);
+    return ty->getTypeClass() == Type::Pointer;
+}
+
+static bool qual_type_is_fn_ptr(Context *c, QualType qt) {
+    const Type *ty = qual_type_canon(qt);
     if (ty->getTypeClass() != Type::Pointer) {
         return false;
     }
     const PointerType *pointer_ty = static_cast<const PointerType*>(ty);
     QualType child_qt = pointer_ty->getPointeeType();
     const Type *child_ty = child_qt.getTypePtr();
-    if (child_ty->getTypeClass() != Type::Paren) {
-        return false;
-    }
-    const ParenType *paren_ty = static_cast<const ParenType *>(child_ty);
-    return paren_ty->getInnerType().getTypePtr()->getTypeClass() == Type::FunctionProto;
+    return child_ty->getTypeClass() == Type::FunctionProto;
 }
 
 static uint32_t qual_type_int_bit_width(Context *c, const QualType &qt, const SourceLocation &source_loc) {
@@ -568,17 +596,26 @@ static bool qual_type_child_is_fn_proto(const QualType &qt) {
     return false;
 }
 
-static QualType resolve_any_typedef(Context *c, QualType qt) {
-    const Type * ty = qt.getTypePtr();
-    if (ty->getTypeClass() != Type::Typedef)
-        return qt;
-    const TypedefType *typedef_ty = static_cast<const TypedefType*>(ty);
-    const TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
-    return typedef_decl->getUnderlyingType();
+static AstNode* trans_c_cast(Context *c, const SourceLocation &source_location, QualType dest_type,
+        QualType src_type, AstNode *expr)
+{
+    if (qual_types_equal(dest_type, src_type)) {
+        return expr;
+    }
+    if (qual_type_is_ptr(dest_type) && qual_type_is_ptr(src_type)) {
+        AstNode *ptr_cast_node = trans_create_node_builtin_fn_call_str(c, "ptrCast");
+        ptr_cast_node->data.fn_call_expr.params.append(trans_qual_type(c, dest_type, source_location));
+        ptr_cast_node->data.fn_call_expr.params.append(expr);
+        return ptr_cast_node;
+    }
+    // TODO: maybe widen to increase size
+    // TODO: maybe bitcast to change sign
+    // TODO: maybe truncate to reduce size
+    return trans_create_node_fn_call_1(c, trans_qual_type(c, dest_type, source_location), expr);
 }
 
 static bool c_is_signed_integer(Context *c, QualType qt) {
-    const Type *c_type = resolve_any_typedef(c, qt).getTypePtr();
+    const Type *c_type = qual_type_canon(qt);
     if (c_type->getTypeClass() != Type::Builtin)
         return false;
     const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(c_type);
@@ -597,7 +634,7 @@ static bool c_is_signed_integer(Context *c, QualType qt) {
 }
 
 static bool c_is_unsigned_integer(Context *c, QualType qt) {
-    const Type *c_type = resolve_any_typedef(c, qt).getTypePtr();
+    const Type *c_type = qual_type_canon(qt);
     if (c_type->getTypeClass() != Type::Builtin)
         return false;
     const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(c_type);
@@ -865,6 +902,11 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                         return nullptr;
                     }
                     // convert c_void to actual void (only for return type)
+                    // we do want to look at the AstNode instead of QualType, because
+                    // if they do something like:
+                    //     typedef Foo void;
+                    //     void foo(void) -> Foo;
+                    // we want to keep the return type AST node.
                     if (is_c_void_type(proto_node->data.fn_proto.return_type)) {
                         proto_node->data.fn_proto.return_type = nullptr;
                     }
@@ -1291,19 +1333,28 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
         if (rhs == nullptr) return nullptr;
         AstNode *coerced_rhs = trans_create_node_fn_call_1(c, rhs_type, rhs);
 
+        // operation_type(*_ref)
+        AstNode *operation_type_cast = trans_c_cast(c, rhs_location,
+            stmt->getComputationLHSType(),
+            stmt->getLHS()->getType(),
+            trans_create_node_prefix_op(c, PrefixOpDereference,
+                trans_create_node_symbol(c, tmp_var_name)));
+
+        // result_type(... >> u5(rhs))
+        AstNode *result_type_cast = trans_c_cast(c, rhs_location,
+            stmt->getComputationResultType(),
+            stmt->getComputationLHSType(),
+            trans_create_node_bin_op(c,
+                operation_type_cast,
+                bin_op,
+                coerced_rhs));
+
+        // *_ref = ...
         AstNode *assign_statement = trans_create_node_bin_op(c,
             trans_create_node_prefix_op(c, PrefixOpDereference,
                 trans_create_node_symbol(c, tmp_var_name)),
-            BinOpTypeAssign,
-            trans_c_cast(c, rhs_location,
-                stmt->getComputationResultType(),
-                trans_create_node_bin_op(c,
-                    trans_c_cast(c, rhs_location,
-                        stmt->getComputationLHSType(),
-                        trans_create_node_prefix_op(c, PrefixOpDereference,
-                            trans_create_node_symbol(c, tmp_var_name))),
-                    bin_op,
-                    coerced_rhs)));
+            BinOpTypeAssign, result_type_cast);
+
         child_scope->node->data.block.statements.append(assign_statement);
 
         if (result_used == ResultUsedYes) {
@@ -1448,7 +1499,8 @@ static AstNode *trans_implicit_cast_expr(Context *c, TransScope *scope, const Im
                 AstNode *target_node = trans_expr(c, ResultUsedYes, scope, stmt->getSubExpr(), TransRValue);
                 if (target_node == nullptr)
                     return nullptr;
-                return trans_c_cast(c, stmt->getExprLoc(), stmt->getType(), target_node);
+                return trans_c_cast(c, stmt->getExprLoc(), stmt->getType(),
+                        stmt->getSubExpr()->getType(), target_node);
             }
         case CK_FunctionToPointerDecay:
         case CK_ArrayToPointerDecay:
@@ -1637,13 +1689,14 @@ static AstNode *trans_implicit_cast_expr(Context *c, TransScope *scope, const Im
     zig_unreachable();
 }
 
-static AstNode *trans_decl_ref_expr(Context *c, const DeclRefExpr *stmt, TransLRValue lrval) {
+static AstNode *trans_decl_ref_expr(Context *c, TransScope *scope, const DeclRefExpr *stmt, TransLRValue lrval) {
     const ValueDecl *value_decl = stmt->getDecl();
-    Buf *symbol_name = buf_create_from_str(decl_name(value_decl));
+    Buf *c_symbol_name = buf_create_from_str(decl_name(value_decl));
+    Buf *zig_symbol_name = trans_lookup_zig_symbol(c, scope, c_symbol_name);
     if (lrval == TransLValue) {
-        c->ptr_params.put(symbol_name, true);
+        c->ptr_params.put(zig_symbol_name, true);
     }
-    return trans_create_node_symbol(c, symbol_name);
+    return trans_create_node_symbol(c, zig_symbol_name);
 }
 
 static AstNode *trans_create_post_crement(Context *c, ResultUsed result_used, TransScope *scope,
@@ -2150,9 +2203,23 @@ static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *
     if (callee_raw_node == nullptr)
         return nullptr;
 
-    AstNode *callee_node;
+    AstNode *callee_node = nullptr;
     if (qual_type_is_fn_ptr(c, stmt->getCallee()->getType())) {
-        callee_node = trans_create_node_prefix_op(c, PrefixOpUnwrapMaybe, callee_raw_node);
+        if (stmt->getCallee()->getStmtClass() == Stmt::ImplicitCastExprClass) {
+            const ImplicitCastExpr *implicit_cast = static_cast<const ImplicitCastExpr *>(stmt->getCallee());
+            if (implicit_cast->getCastKind() == CK_FunctionToPointerDecay) {
+                if (implicit_cast->getSubExpr()->getStmtClass() == Stmt::DeclRefExprClass) {
+                    const DeclRefExpr *decl_ref = static_cast<const DeclRefExpr *>(implicit_cast->getSubExpr());
+                    const Decl *decl = decl_ref->getFoundDecl();
+                    if (decl->getKind() == Decl::Function) {
+                        callee_node = callee_raw_node;
+                    }
+                }
+            }
+        }
+        if (callee_node == nullptr) {
+            callee_node = trans_create_node_prefix_op(c, PrefixOpUnwrapMaybe, callee_raw_node);
+        }
     } else {
         callee_node = callee_raw_node;
     }
@@ -2210,7 +2277,7 @@ static AstNode *trans_c_style_cast_expr(Context *c, ResultUsed result_used, Tran
     if (sub_expr_node == nullptr)
         return nullptr;
 
-    return trans_c_cast(c, stmt->getLocStart(), stmt->getType(), sub_expr_node);
+    return trans_c_cast(c, stmt->getLocStart(), stmt->getType(), stmt->getSubExpr()->getType(), sub_expr_node);
 }
 
 static AstNode *trans_unary_expr_or_type_trait_expr(Context *c, TransScope *scope,
@@ -2283,11 +2350,7 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const DoStmt
 }
 
 static AstNode *trans_switch_stmt(Context *c, TransScope *parent_scope, const SwitchStmt *stmt) {
-    TransScopeWhile *while_scope = trans_scope_while_create(c, parent_scope);
-    while_scope->node->data.while_expr.condition = trans_create_node_bool(c, true);
-
-    TransScopeBlock *block_scope = trans_scope_block_create(c, &while_scope->base);
-    while_scope->node->data.while_expr.body = block_scope->node;
+    TransScopeBlock *block_scope = trans_scope_block_create(c, parent_scope);
 
     TransScopeSwitch *switch_scope;
 
@@ -2304,6 +2367,10 @@ static AstNode *trans_switch_stmt(Context *c, TransScope *parent_scope, const Sw
         switch_scope = trans_scope_switch_create(c, var_scope);
     }
     block_scope->node->data.block.statements.append(switch_scope->switch_node);
+
+    // TODO avoid name collisions
+    Buf *end_label_name = buf_create_from_str("end");
+    switch_scope->end_label_name = end_label_name;
 
     const Expr *cond_expr = stmt->getCond();
     assert(cond_expr != nullptr);
@@ -2331,14 +2398,16 @@ static AstNode *trans_switch_stmt(Context *c, TransScope *parent_scope, const Sw
 
     if (!switch_scope->found_default && !stmt->isAllEnumCasesCovered()) {
         AstNode *prong_node = trans_create_node(c, NodeTypeSwitchProng);
-        prong_node->data.switch_prong.expr = trans_create_node(c, NodeTypeBreak);
+        prong_node->data.switch_prong.expr = trans_create_node_goto(c, end_label_name);
         switch_scope->switch_node->data.switch_expr.prongs.append(prong_node);
     }
 
     // This is necessary if the last switch case "falls through" the end of the switch block
-    block_scope->node->data.block.statements.append(trans_create_node(c, NodeTypeBreak));
+    block_scope->node->data.block.statements.append(trans_create_node_goto(c, end_label_name));
 
-    return while_scope->node;
+    block_scope->node->data.block.statements.append(trans_create_node_label(c, end_label_name));
+
+    return block_scope->node;
 }
 
 static int trans_switch_case(Context *c, TransScope *parent_scope, const CaseStmt *stmt, AstNode **out_node,
@@ -2365,18 +2434,13 @@ static int trans_switch_case(Context *c, TransScope *parent_scope, const CaseStm
             return ErrorUnexpected;
         prong_node->data.switch_prong.items.append(item_node);
 
-        AstNode *goto_node = trans_create_node(c, NodeTypeGoto);
-        goto_node->data.goto_expr.name = label_name;
-        prong_node->data.switch_prong.expr = goto_node;
+        prong_node->data.switch_prong.expr = trans_create_node_goto(c, label_name);
 
         switch_scope->switch_node->data.switch_expr.prongs.append(prong_node);
     }
 
-    AstNode *label_node = trans_create_node(c, NodeTypeLabel);
-    label_node->data.label.name = label_name;
-
     TransScopeBlock *scope_block = trans_scope_block_find(parent_scope);
-    scope_block->node->data.block.statements.append(label_node);
+    scope_block->node->data.block.statements.append(trans_create_node_label(c, label_name));
 
     AstNode *sub_stmt_node;
     TransScope *new_scope = trans_stmt(c, parent_scope, stmt->getSubStmt(), &sub_stmt_node);
@@ -2399,23 +2463,19 @@ static int trans_switch_default(Context *c, TransScope *parent_scope, const Defa
 
     Buf *label_name = buf_sprintf("default");
 
-    AstNode *label_node = trans_create_node(c, NodeTypeLabel);
-    label_node->data.label.name = label_name;
-
     {
         // Add the prong
         AstNode *prong_node = trans_create_node(c, NodeTypeSwitchProng);
 
-        AstNode *goto_node = trans_create_node(c, NodeTypeGoto);
-        goto_node->data.goto_expr.name = label_name;
-        prong_node->data.switch_prong.expr = goto_node;
+        prong_node->data.switch_prong.expr = trans_create_node_goto(c, label_name);
 
         switch_scope->switch_node->data.switch_expr.prongs.append(prong_node);
         switch_scope->found_default = true;
     }
 
     TransScopeBlock *scope_block = trans_scope_block_find(parent_scope);
-    scope_block->node->data.block.statements.append(label_node);
+    scope_block->node->data.block.statements.append(trans_create_node_label(c, label_name));
+
 
     AstNode *sub_stmt_node;
     TransScope *new_scope = trans_stmt(c, parent_scope, stmt->getSubStmt(), &sub_stmt_node);
@@ -2500,7 +2560,17 @@ static AstNode *trans_string_literal(Context *c, TransScope *scope, const String
 }
 
 static AstNode *trans_break_stmt(Context *c, TransScope *scope, const BreakStmt *stmt) {
-    return trans_create_node(c, NodeTypeBreak);
+    TransScope *cur_scope = scope;
+    while (cur_scope != nullptr) {
+        if (cur_scope->id == TransScopeIdWhile) {
+            return trans_create_node(c, NodeTypeBreak);
+        } else if (cur_scope->id == TransScopeIdSwitch) {
+            TransScopeSwitch *switch_scope = (TransScopeSwitch *)cur_scope;
+            return trans_create_node_goto(c, switch_scope->end_label_name);
+        }
+        cur_scope = cur_scope->parent;
+    }
+    zig_unreachable();
 }
 
 static AstNode *trans_continue_stmt(Context *c, TransScope *scope, const ContinueStmt *stmt) {
@@ -2546,7 +2616,7 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
                     trans_implicit_cast_expr(c, scope, (const ImplicitCastExpr *)stmt));
         case Stmt::DeclRefExprClass:
             return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_decl_ref_expr(c, (const DeclRefExpr *)stmt, lrvalue));
+                    trans_decl_ref_expr(c, scope, (const DeclRefExpr *)stmt, lrvalue));
         case Stmt::UnaryOperatorClass:
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_unary_operator(c, result_used, scope, (const UnaryOperator *)stmt));
