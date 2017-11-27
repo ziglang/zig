@@ -25,7 +25,7 @@ fn conn_handler(server: &ChatServer, closure: &ChatConn) -> void {
         }
     }
 
-    warn("no active connections left!\n");
+    unreachable
 }
 
 fn read_handler(bytes: &const []const u8, server: &ChatServer, closure: &ChatConn) -> void {
