@@ -677,12 +677,12 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\    };
         \\    a >>= @import("std").math.Log2Int(c_int)({
         \\        const _ref = &a;
-        \\        (*_ref) = c_int(c_int(*_ref) >> @import("std").math.Log2Int(c_int)(1));
+        \\        (*_ref) = ((*_ref) >> @import("std").math.Log2Int(c_int)(1));
         \\        *_ref
         \\    });
         \\    a <<= @import("std").math.Log2Int(c_int)({
         \\        const _ref = &a;
-        \\        (*_ref) = c_int(c_int(*_ref) << @import("std").math.Log2Int(c_int)(1));
+        \\        (*_ref) = ((*_ref) << @import("std").math.Log2Int(c_int)(1));
         \\        *_ref
         \\    });
         \\}
@@ -735,12 +735,12 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\    };
         \\    a >>= @import("std").math.Log2Int(c_uint)({
         \\        const _ref = &a;
-        \\        (*_ref) = c_uint(c_uint(*_ref) >> @import("std").math.Log2Int(c_uint)(1));
+        \\        (*_ref) = ((*_ref) >> @import("std").math.Log2Int(c_uint)(1));
         \\        *_ref
         \\    });
         \\    a <<= @import("std").math.Log2Int(c_uint)({
         \\        const _ref = &a;
-        \\        (*_ref) = c_uint(c_uint(*_ref) << @import("std").math.Log2Int(c_uint)(1));
+        \\        (*_ref) = ((*_ref) << @import("std").math.Log2Int(c_uint)(1));
         \\        *_ref
         \\    });
         \\}
@@ -878,17 +878,21 @@ pub fn addCases(cases: &tests.TranslateCContext) {
 
     cases.addC("deref function pointer",
         \\void foo(void) {}
+        \\void baz(void) {}
         \\void bar(void) {
         \\    void(*f)(void) = foo;
         \\    f();
         \\    (*(f))();
+        \\    baz();
         \\}
     ,
         \\export fn foo() {}
+        \\export fn baz() {}
         \\export fn bar() {
         \\    var f: ?extern fn() = foo;
         \\    (??f)();
         \\    (??f)();
+        \\    baz();
         \\}
     );
 
@@ -1100,15 +1104,14 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\    return x;
         \\}
     );
+
+    cases.add("pointer casting",
+        \\float *ptrcast(int *a) {
+        \\    return (float *)a;
+        \\}
+    ,
+        \\fn ptrcast(a: ?&c_int) -> ?&f32 {
+        \\    return @ptrCast(?&f32, a);
+        \\}
+    );
 }
-
-
-
-// TODO
-//float *ptrcast(int *a) {
-//    return (float *)a;
-//}
-// should translate to
-// fn ptrcast(a: ?&c_int) -> ?&f32 {
-//     return @ptrCast(?&f32, a);
-// }
