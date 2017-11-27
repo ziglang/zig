@@ -18,7 +18,7 @@ fn conn_handler(server: &ChatServer, closure: &ChatConn) -> void {
     server.id_counter += 1;
 
     var i: usize = 0;
-    while (i < MAX_CONN) : (i += 1) {
+    while (i < server.active_conns.len) : (i += 1) {
         if (server.active_conns[i] == null) {
             server.active_conns[i] = closure;
             return;
