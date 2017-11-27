@@ -48,7 +48,13 @@ fn read_handler(bytes: &const []const u8, server: &ChatServer, closure: &ChatCon
 }
 
 fn disconn_handler(server: &ChatServer, closure: &ChatConn) -> void {
-    // XXX: remove connection from active_conns
+    for (server.active_conns) |*c| {
+        var conn = *c ?? continue;
+        if (conn.id == closure.id) {
+            *c = null;
+            return;
+        }
+    }
 }
 
 pub fn main() -> %void {
