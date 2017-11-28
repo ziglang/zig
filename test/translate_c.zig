@@ -1114,4 +1114,14 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\    return @ptrCast(?&f32, a);
         \\}
     );
+
+    cases.add("bin not",
+        \\int foo(int x) {
+        \\    return ~x;
+        \\}
+    ,
+        \\pub fn foo(x: c_int) -> c_int {
+        \\    return ~x;
+        \\}
+    );
 }
