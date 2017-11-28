@@ -1875,8 +1875,13 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
                 }
             }
         case UO_Not:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_Not");
-            return nullptr;
+            {
+                Expr *op_expr = stmt->getSubExpr();
+                AstNode *sub_node = trans_expr(c, ResultUsedYes, scope, op_expr, TransRValue);
+                if (sub_node == nullptr)
+                    return nullptr;
+                return trans_create_node_prefix_op(c, PrefixOpBinNot, sub_node);
+            }
         case UO_LNot:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_LNot");
             return nullptr;
