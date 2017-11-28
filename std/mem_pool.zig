@@ -57,6 +57,10 @@ pub const RawMemoryPool = struct {
         pool
     }
 
+    pub fn deinit(pool: &Self) -> %void {
+        // XXX: unmap memory
+    }
+
     pub fn alloc(pool: &Self) -> %usize {
         var node = pool.free_list.pop() ?? return error.OutOfMemory;
         @ptrToInt(node) + @sizeOf(ll.LinkedList(void).Node)
