@@ -22,48 +22,74 @@ const raw_alloc = switch (builtin.os) {
     else => @compileError("memory pools not supported on this OS")
 };
 
+pub const RawMemoryPool = struct {
+    free_list: ll.LinkedList(void),
+    n: usize,
+    pool: usize,
+
+    const Self = this;
+
+    const MemNode = struct {
+        linkage: ll.LinkedList(void).Node
+    };
+
+    pub fn init(obj_size: usize, n: usize) -> %Self {
+        // XXX: best way to check for overflow here?
+        const node_size = obj_size + @sizeOf(MemNode);
+        const total_size = node_size * n;
+        const raw_mem = %return raw_alloc(total_size);
+
+        var pool = Self {
+            .free_list = ll.LinkedList(void).init(),
+            .n = n,
+            .pool = raw_mem
+        };
+
+        var i: usize = 0;
+        while (i < n) : (i += 1) {
+            var node = @intToPtr(&MemNode, pool.pool + i * node_size);
+
+            node.linkage = ll.LinkedList(void).Node.init({});
+
+            pool.free_list.append(&node.linkage);
+        }
+
+        pool
+    }
+
+    pub fn alloc(pool: &Self) -> %usize {
+        var node = pool.free_list.pop() ?? return error.OutOfMemory;
+        @ptrToInt(node) + @sizeOf(ll.LinkedList(void).Node)
+    }
+
+    pub fn free(pool: &Self, item: usize) -> void {
+        var node = @intToPtr(&ll.LinkedList(void).Node,
+            item - @sizeOf(ll.LinkedList(void).Node));
+        pool.free_list.append(node);
+    }
+};
+
 pub fn MemoryPool(comptime T: type) -> type {
     // XXX: replace below usages of LinkedList(T) with this
     //const free_list_t = ll.LinkedList(T);
 
     struct {
-        free_list: ll.LinkedList(T),
-        n: usize,
-        pool: usize,
+        raw_pool: RawMemoryPool,
 
         const Self = this;
 
         pub fn init(n: usize) -> %Self {
-            const raw_mem = %return raw_alloc(n * @sizeOf(ll.LinkedList(T).Node));
-
-            var pool = Self {
-                .free_list = ll.LinkedList(T).init(),
-                .n = n,
-                .pool = raw_mem
-            };
-
-            var i: usize = 0;
-            while (i < n) : (i += 1) {
-                var node = @intToPtr(&ll.LinkedList(T).Node,
-                    pool.pool + i * @sizeOf(ll.LinkedList(T).Node));
-
-                const val: T = undefined;
-                *node = ll.LinkedList(T).Node.init(&val);
-
-                pool.free_list.append(node);
+            Self {
+                .raw_pool = %return RawMemoryPool.init(@sizeOf(T), n)
             }
-
-            pool
         }
 
         pub fn alloc(pool: &Self) -> %&T {
-            var node = pool.free_list.pop() ?? return error.OutOfMemory;
-            &node.data
+            @intToPtr(&T, %return pool.raw_pool.alloc())
         }
 
         pub fn free(pool: &Self, item: &T) -> void {
-            var node = @fieldParentPtr(ll.LinkedList(T).Node, "data", item);
-            pool.free_list.append(node);
+            pool.raw_pool.free(@ptrToInt(item))
         }
     }
 }
