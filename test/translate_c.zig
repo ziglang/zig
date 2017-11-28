@@ -1046,6 +1046,44 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\    return x + 13;
         \\}
     );
+    
+    cases.add("macros with field targets",
+        \\typedef unsigned int GLbitfield;
+        \\typedef void (*PFNGLCLEARPROC) (GLbitfield mask);
+        \\typedef void(*OpenGLProc)(void);
+        \\union OpenGLProcs {
+        \\    OpenGLProc ptr[1];
+        \\    struct {
+        \\        PFNGLCLEARPROC Clear;
+        \\    } gl;
+        \\};
+        \\extern union OpenGLProcs glProcs;
+        \\#define glClearUnion glProcs.gl.Clear
+        \\#define glClearPFN PFNGLCLEARPROC
+    ,
+        \\pub const GLbitfield = c_uint;
+    ,
+        \\pub const PFNGLCLEARPROC = ?extern fn(GLbitfield);
+    ,
+        \\pub const OpenGLProc = ?extern fn();
+    ,
+        \\pub const union_OpenGLProcs = extern union {
+        \\    ptr: [1]OpenGLProc,
+        \\    gl: extern struct {
+        \\        Clear: PFNGLCLEARPROC,
+        \\    },
+        \\};
+    ,
+        \\pub extern var glProcs: union_OpenGLProcs;
+    ,
+        \\pub const glClearPFN = PFNGLCLEARPROC;
+    ,
+        \\pub inline fn glClearUnion(arg0: GLbitfield) {
+        \\    (??glProcs.gl.Clear)(arg0)
+        \\}
+    ,
+        \\pub const OpenGLProcs = union_OpenGLProcs;
+    );
 
     cases.add("switch statement with no default",
         \\int foo(int x) {
