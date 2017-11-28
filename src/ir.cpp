@@ -6302,8 +6302,9 @@ static Buf *get_anon_type_name(CodeGen *codegen, IrExecutable *exec, const char 
             buf_appendf(name, ")");
             return name;
         } else {
+            //Note: C-imports do not have valid location information
             return buf_sprintf("(anonymous %s at %s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ")", kind_name,
-                buf_ptr(source_node->owner->path), source_node->line + 1, source_node->column + 1);
+                (source_node->owner->path != nullptr) ? buf_ptr(source_node->owner->path) : "(null)", source_node->line + 1, source_node->column + 1);
         }
     }
 }

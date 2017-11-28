@@ -3517,7 +3517,6 @@ static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
     }
 
     const char *raw_name = decl_name(record_decl);
-
     const char *container_kind_name;
     ContainerKind container_kind;
     if (record_decl->isUnion()) {
@@ -3869,9 +3868,33 @@ static AstNode *parse_ctok(Context *c, CTokenize *ctok, size_t *tok_i) {
             return parse_ctok_num_lit(c, ctok, tok_i, false);
         case CTokIdSymbol:
             {
-                *tok_i += 1;
+                bool need_symbol = false;
+                CTokId curr_id = CTokIdSymbol;
                 Buf *symbol_name = buf_create_from_buf(&tok->data.symbol);
-                return trans_create_node_symbol(c, symbol_name);
+                AstNode *curr_node = trans_create_node_symbol(c, symbol_name);
+                AstNode *parent_node = curr_node;
+                do {
+                    *tok_i += 1;
+                    CTok* curr_tok = &ctok->tokens.at(*tok_i);
+                    if (need_symbol) {
+                        if (curr_tok->id == CTokIdSymbol) {
+                            symbol_name = buf_create_from_buf(&curr_tok->data.symbol);
+                            curr_node = trans_create_node_field_access(c, parent_node, buf_create_from_buf(symbol_name));
+                            parent_node = curr_node;
+                            need_symbol = false;
+                        } else {
+                            return nullptr;
+                        }
+                    } else {
+                        if (curr_tok->id == CTokIdDot) {
+                            need_symbol = true;
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
+                } while (curr_id != CTokIdEOF);
+                return curr_node;
             }
         case CTokIdLParen:
             {
@@ -3885,6 +3908,7 @@ static AstNode *parse_ctok(Context *c, CTokenize *ctok, size_t *tok_i) {
                 *tok_i += 1;
                 return inner_node;
             }
+        case CTokIdDot:
         case CTokIdEOF:
         case CTokIdRParen:
             // not able to make sense of this
