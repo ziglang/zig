@@ -400,6 +400,9 @@ static AstNode *get_global(Context *c, Buf *name) {
         if (entry)
             return entry->value;
     }
+    if (c->codegen->primitive_type_table.maybe_get(name) != nullptr) {
+        return trans_create_node_symbol(c, name);
+    }
     return nullptr;
 }
 

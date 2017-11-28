@@ -1162,4 +1162,14 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\    return ~x;
         \\}
     );
+
+    cases.add("primitive types included in defined symbols",
+        \\int foo(int u32) {
+        \\    return u32;
+        \\}
+    ,
+        \\pub fn foo(u32_0: c_int) -> c_int {
+        \\    return u32_0;
+        \\}
+    );
 }
