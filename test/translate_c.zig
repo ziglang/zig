@@ -1078,7 +1078,9 @@ pub fn addCases(cases: &tests.TranslateCContext) {
     ,
         \\pub const glClearPFN = PFNGLCLEARPROC;
     ,
-        \\pub const glClearUnion = glProcs.gl.Clear;
+        \\pub inline fn glClearUnion(arg0: GLbitfield) {
+        \\    (??glProcs.gl.Clear)(arg0)
+        \\}
     ,
         \\pub const OpenGLProcs = union_OpenGLProcs;
     );

@@ -120,6 +120,7 @@ static void begin_token(CTokenize *ctok, CTokId id) {
         case CTokIdLParen:
         case CTokIdRParen:
         case CTokIdEOF:
+        case CTokIdDot:
             break;
     }
 }

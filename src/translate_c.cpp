@@ -23,11 +23,6 @@
 
 using namespace clang;
 
-struct MacroSymbol {
-    Buf *name;
-    Buf *value;
-};
-
 struct Alias {
     Buf *new_name;
     Buf *canon_name;
@@ -44,7 +39,6 @@ struct Context {
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> global_table;
     SourceManager *source_manager;
     ZigList<Alias> aliases;
-    ZigList<MacroSymbol> macro_symbols;
     AstNode *source_node;
     bool warnings_on;
 
@@ -351,8 +345,7 @@ static AstNode *trans_create_node_var_decl_local(Context *c, bool is_const, Buf 
     return trans_create_node_var_decl(c, VisibModPrivate, is_const, var_name, type_node, init_node);
 }
 
-
-static AstNode *trans_create_node_inline_fn(Context *c, Buf *fn_name, Buf *var_name, AstNode *src_proto_node) {
+static AstNode *trans_create_node_inline_fn(Context *c, Buf *fn_name, AstNode *ref_node, AstNode *src_proto_node) {
     AstNode *fn_def = trans_create_node(c, NodeTypeFnDef);
     AstNode *fn_proto = trans_create_node(c, NodeTypeFnProto);
     fn_proto->data.fn_proto.visib_mod = c->visib_mod;
@@ -363,7 +356,7 @@ static AstNode *trans_create_node_inline_fn(Context *c, Buf *fn_name, Buf *var_n
     fn_def->data.fn_def.fn_proto = fn_proto;
     fn_proto->data.fn_proto.fn_def_node = fn_def;
 
-    AstNode *unwrap_node = trans_create_node_prefix_op(c, PrefixOpUnwrapMaybe, trans_create_node_symbol(c, var_name));
+    AstNode *unwrap_node = trans_create_node_prefix_op(c, PrefixOpUnwrapMaybe, ref_node);
     AstNode *fn_call_node = trans_create_node(c, NodeTypeFnCallExpr);
     fn_call_node->data.fn_call_expr.fn_ref_expr = unwrap_node;
 
@@ -3808,6 +3801,83 @@ static void render_aliases(Context *c) {
     }
 }
 
+static AstNode *trans_lookup_ast_container_typeof(Context *c, AstNode *ref_node);
+
+static AstNode *trans_lookup_ast_container(Context *c, AstNode *type_node) {
+    if (type_node == nullptr) {
+        return nullptr;
+    } else if (type_node->type == NodeTypeContainerDecl) {
+        return type_node;
+    } else if (type_node->type == NodeTypePrefixOpExpr) {
+        return type_node;
+    } else if (type_node->type == NodeTypeSymbol) {
+        AstNode *existing_node = get_global(c, type_node->data.symbol_expr.symbol);
+        if (existing_node == nullptr)
+            return nullptr;
+        if (existing_node->type != NodeTypeVariableDeclaration)
+            return nullptr;
+        return trans_lookup_ast_container(c, existing_node->data.variable_declaration.expr);
+    } else if (type_node->type == NodeTypeFieldAccessExpr) {
+        AstNode *container_node = trans_lookup_ast_container_typeof(c, type_node->data.field_access_expr.struct_expr);
+        if (container_node == nullptr)
+            return nullptr;
+        if (container_node->type != NodeTypeContainerDecl)
+            return container_node;
+
+        for (size_t i = 0; i < container_node->data.container_decl.fields.length; i += 1) {
+            AstNode *field_node = container_node->data.container_decl.fields.items[i];
+            if (buf_eql_buf(field_node->data.struct_field.name, type_node->data.field_access_expr.field_name)) {
+                return trans_lookup_ast_container(c, field_node->data.struct_field.type);
+            }
+        }
+        return nullptr;
+    } else {
+        return nullptr;
+    }
+}
+
+static AstNode *trans_lookup_ast_container_typeof(Context *c, AstNode *ref_node) {
+    if (ref_node->type == NodeTypeSymbol) {
+        AstNode *existing_node = get_global(c, ref_node->data.symbol_expr.symbol);
+        if (existing_node == nullptr)
+            return nullptr;
+        if (existing_node->type != NodeTypeVariableDeclaration)
+            return nullptr;
+        return trans_lookup_ast_container(c, existing_node->data.variable_declaration.type);
+    } else if (ref_node->type == NodeTypeFieldAccessExpr) {
+        AstNode *container_node = trans_lookup_ast_container_typeof(c, ref_node->data.field_access_expr.struct_expr);
+        if (container_node == nullptr)
+            return nullptr;
+        if (container_node->type != NodeTypeContainerDecl)
+            return container_node;
+        for (size_t i = 0; i < container_node->data.container_decl.fields.length; i += 1) {
+            AstNode *field_node = container_node->data.container_decl.fields.items[i];
+            if (buf_eql_buf(field_node->data.struct_field.name, ref_node->data.field_access_expr.field_name)) {
+                return trans_lookup_ast_container(c, field_node->data.struct_field.type);
+            }
+        }
+        return nullptr;
+    } else {
+        return nullptr;
+    }
+}
+
+static AstNode *trans_lookup_ast_maybe_fn(Context *c, AstNode *ref_node) {
+    AstNode *prefix_node = trans_lookup_ast_container_typeof(c, ref_node);
+    if (prefix_node == nullptr)
+        return nullptr;
+    if (prefix_node->type != NodeTypePrefixOpExpr)
+        return nullptr;
+    if (prefix_node->data.prefix_op_expr.prefix_op != PrefixOpMaybe)
+        return nullptr;
+
+    AstNode *fn_proto_node = prefix_node->data.prefix_op_expr.primary_expr;
+    if (fn_proto_node->type != NodeTypeFnProto)
+        return nullptr;
+
+    return fn_proto_node;
+}
+
 static void render_macros(Context *c) {
     auto it = c->macro_table.entry_iterator();
     for (;;) {
@@ -3815,9 +3885,16 @@ static void render_macros(Context *c) {
         if (!entry)
             break;
 
+        AstNode *proto_node;
         AstNode *value_node = entry->value;
         if (value_node->type == NodeTypeFnDef) {
             add_top_level_decl(c, value_node->data.fn_def.fn_proto->data.fn_proto.name, value_node);
+        } else if ((proto_node = trans_lookup_ast_maybe_fn(c, value_node))) {
+            // If a macro aliases a global variable which is a function pointer, we conclude that
+            // the macro is intended to represent a function that assumes the function pointer
+            // variable is non-null and calls it.
+            AstNode *inline_fn_node = trans_create_node_inline_fn(c, entry->key, value_node, proto_node);
+            add_top_level_decl(c, entry->key, inline_fn_node);
         } else {
             add_global_var(c, entry->key, value_node);
         }
@@ -3944,40 +4021,8 @@ static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *ch
         if (buf_eql_buf(name, symbol_name)) {
             return;
         }
-        c->macro_symbols.append({name, symbol_name});
-    } else {
-        c->macro_table.put(name, result_node);
     }
-}
-
-static void process_symbol_macros(Context *c) {
-    for (size_t i = 0; i < c->macro_symbols.length; i += 1) {
-        MacroSymbol ms = c->macro_symbols.at(i);
-
-        // Check if this macro aliases another top level declaration
-        AstNode *existing_node = get_global(c, ms.value);
-        if (!existing_node || name_exists_global(c, ms.name))
-            continue;
-
-        // If a macro aliases a global variable which is a function pointer, we conclude that
-        // the macro is intended to represent a function that assumes the function pointer
-        // variable is non-null and calls it.
-        if (existing_node->type == NodeTypeVariableDeclaration) {
-            AstNode *var_type = existing_node->data.variable_declaration.type;
-            if (var_type != nullptr && var_type->type == NodeTypePrefixOpExpr &&
-                var_type->data.prefix_op_expr.prefix_op == PrefixOpMaybe)
-            {
-                AstNode *fn_proto_node = var_type->data.prefix_op_expr.primary_expr;
-                if (fn_proto_node->type == NodeTypeFnProto) {
-                    AstNode *inline_fn_node = trans_create_node_inline_fn(c, ms.name, ms.value, fn_proto_node);
-                    c->macro_table.put(ms.name, inline_fn_node);
-                    continue;
-                }
-            }
-        }
-
-        add_global_var(c, ms.name, trans_create_node_symbol(c, ms.value));
-    }
+    c->macro_table.put(name, result_node);
 }
 
 static void process_preprocessor_entities(Context *c, ASTUnit &unit) {
@@ -4194,7 +4239,6 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
 
     process_preprocessor_entities(c, *ast_unit);
 
-    process_symbol_macros(c);
     render_macros(c);
     render_aliases(c);
 
