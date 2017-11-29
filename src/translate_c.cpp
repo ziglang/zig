@@ -28,36 +28,6 @@ struct Alias {
     Buf *canon_name;
 };
 
-struct Context {
-    ImportTableEntry *import;
-    ZigList<ErrorMsg *> *errors;
-    VisibMod visib_mod;
-    VisibMod export_visib_mod;
-    AstNode *root;
-    HashMap<const void *, AstNode *, ptr_hash, ptr_eq> decl_table;
-    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> macro_table;
-    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> global_table;
-    SourceManager *source_manager;
-    ZigList<Alias> aliases;
-    AstNode *source_node;
-    bool warnings_on;
-
-    CodeGen *codegen;
-    ASTContext *ctx;
-
-    HashMap<Buf *, bool, buf_hash, buf_eql_buf> ptr_params;
-};
-
-enum ResultUsed {
-    ResultUsedNo,
-    ResultUsedYes,
-};
-
-enum TransLRValue {
-    TransLValue,
-    TransRValue,
-};
-
 enum TransScopeId {
     TransScopeIdSwitch,
     TransScopeIdVar,
@@ -97,6 +67,37 @@ struct TransScopeRoot {
 struct TransScopeWhile {
     TransScope base;
     AstNode *node;
+};
+
+struct Context {
+    ImportTableEntry *import;
+    ZigList<ErrorMsg *> *errors;
+    VisibMod visib_mod;
+    VisibMod export_visib_mod;
+    AstNode *root;
+    HashMap<const void *, AstNode *, ptr_hash, ptr_eq> decl_table;
+    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> macro_table;
+    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> global_table;
+    SourceManager *source_manager;
+    ZigList<Alias> aliases;
+    AstNode *source_node;
+    bool warnings_on;
+
+    CodeGen *codegen;
+    ASTContext *ctx;
+
+    TransScopeRoot *global_scope;
+    HashMap<Buf *, bool, buf_hash, buf_eql_buf> ptr_params;
+};
+
+enum ResultUsed {
+    ResultUsedNo,
+    ResultUsedYes,
+};
+
+enum TransLRValue {
+    TransLValue,
+    TransRValue,
 };
 
 static TransScopeRoot *trans_scope_root_create(Context *c);
@@ -3233,8 +3234,7 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
         return;
     }
 
-    TransScopeRoot *root_scope = trans_scope_root_create(c);
-    TransScope *scope = &root_scope->base;
+    TransScope *scope = &c->global_scope->base;
 
     for (size_t i = 0; i < proto_node->data.fn_proto.params.length; i += 1) {
         AstNode *param_node = proto_node->data.fn_proto.params.at(i);
@@ -3600,6 +3600,93 @@ static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
     }
 }
 
+static AstNode *trans_ap_value(Context *c, APValue *ap_value, QualType qt, const SourceLocation &source_loc) {
+    switch (ap_value->getKind()) {
+        case APValue::Int:
+            return trans_create_node_apint(c, ap_value->getInt());
+        case APValue::Uninitialized:
+            return trans_create_node(c, NodeTypeUndefinedLiteral);
+        case APValue::Array: {
+            emit_warning(c, source_loc, "TODO add a test case for this code");
+
+            unsigned init_count = ap_value->getArrayInitializedElts();
+            unsigned all_count = ap_value->getArraySize();
+            unsigned leftover_count = all_count - init_count;
+            AstNode *init_node = trans_create_node(c, NodeTypeContainerInitExpr);
+            AstNode *arr_type_node = trans_qual_type(c, qt, source_loc);
+            init_node->data.container_init_expr.type = arr_type_node;
+            init_node->data.container_init_expr.kind = ContainerInitKindArray;
+
+            QualType child_qt = qt.getTypePtr()->getLocallyUnqualifiedSingleStepDesugaredType();
+
+            for (size_t i = 0; i < init_count; i += 1) {
+                APValue &elem_ap_val = ap_value->getArrayInitializedElt(i);
+                AstNode *elem_node = trans_ap_value(c, &elem_ap_val, child_qt, source_loc);
+                if (elem_node == nullptr)
+                    return nullptr;
+                init_node->data.container_init_expr.entries.append(elem_node);
+            }
+            if (leftover_count == 0) {
+                return init_node;
+            }
+
+            APValue &filler_ap_val = ap_value->getArrayFiller();
+            AstNode *filler_node = trans_ap_value(c, &filler_ap_val, child_qt, source_loc);
+            if (filler_node == nullptr)
+                return nullptr;
+
+            AstNode *filler_arr_1 = trans_create_node(c, NodeTypeContainerInitExpr);
+            init_node->data.container_init_expr.type = arr_type_node;
+            init_node->data.container_init_expr.kind = ContainerInitKindArray;
+            init_node->data.container_init_expr.entries.append(filler_node);
+
+            AstNode *rhs_node;
+            if (leftover_count == 1) {
+                rhs_node = filler_arr_1;
+            } else {
+                AstNode *amt_node = trans_create_node_unsigned(c, leftover_count);
+                rhs_node = trans_create_node_bin_op(c, filler_arr_1, BinOpTypeArrayMult, amt_node);
+            }
+
+            return trans_create_node_bin_op(c, init_node, BinOpTypeArrayCat, rhs_node);
+        }
+        case APValue::LValue: {
+            const APValue::LValueBase lval_base = ap_value->getLValueBase();
+            if (const Expr *expr = lval_base.dyn_cast<const Expr *>()) {
+                return trans_expr(c, ResultUsedYes, &c->global_scope->base, expr, TransRValue);
+            }
+            //const ValueDecl *value_decl = lval_base.get<const ValueDecl *>();
+            emit_warning(c, source_loc, "TODO handle initializer LValue ValueDecl");
+            return nullptr;
+        }
+        case APValue::Float:
+            emit_warning(c, source_loc, "unsupported initializer value kind: Float");
+            return nullptr;
+        case APValue::ComplexInt:
+            emit_warning(c, source_loc, "unsupported initializer value kind: ComplexInt");
+            return nullptr;
+        case APValue::ComplexFloat:
+            emit_warning(c, source_loc, "unsupported initializer value kind: ComplexFloat");
+            return nullptr;
+        case APValue::Vector:
+            emit_warning(c, source_loc, "unsupported initializer value kind: Vector");
+            return nullptr;
+        case APValue::Struct:
+            emit_warning(c, source_loc, "unsupported initializer value kind: Struct");
+            return nullptr;
+        case APValue::Union:
+            emit_warning(c, source_loc, "unsupported initializer value kind: Union");
+            return nullptr;
+        case APValue::MemberPointer:
+            emit_warning(c, source_loc, "unsupported initializer value kind: MemberPointer");
+            return nullptr;
+        case APValue::AddrLabelDiff:
+            emit_warning(c, source_loc, "unsupported initializer value kind: AddrLabelDiff");
+            return nullptr;
+    }
+    zig_unreachable();
+}
+
 static void visit_var_decl(Context *c, const VarDecl *var_decl) {
     Buf *name = buf_create_from_str(decl_name(var_decl));
 
@@ -3636,27 +3723,9 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
                         "ignoring variable '%s' - unable to evaluate initializer", buf_ptr(name));
                 return;
             }
-            switch (ap_value->getKind()) {
-                case APValue::Int:
-                    init_node = trans_create_node_apint(c, ap_value->getInt());
-                    break;
-                case APValue::Uninitialized:
-                    init_node = trans_create_node(c, NodeTypeUndefinedLiteral);
-                    break;
-                case APValue::Float:
-                case APValue::ComplexInt:
-                case APValue::ComplexFloat:
-                case APValue::LValue:
-                case APValue::Vector:
-                case APValue::Array:
-                case APValue::Struct:
-                case APValue::Union:
-                case APValue::MemberPointer:
-                case APValue::AddrLabelDiff:
-                    emit_warning(c, var_decl->getLocation(),
-                            "ignoring variable '%s' - unrecognized initializer value kind", buf_ptr(name));
-                    return;
-            }
+            init_node = trans_ap_value(c, ap_value, qt, var_decl->getLocation());
+            if (init_node == nullptr)
+                return;
         } else {
             init_node = trans_create_node(c, NodeTypeUndefinedLiteral);
         }
@@ -4101,6 +4170,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     c->ptr_params.init(8);
     c->codegen = codegen;
     c->source_node = source_node;
+    c->global_scope = trans_scope_root_create(c);
 
     ZigList<const char *> clang_argv = {0};
 

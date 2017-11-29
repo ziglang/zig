@@ -1172,4 +1172,10 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\    return u32_0;
         \\}
     );
+
+    cases.add("const ptr initializer",
+        \\static const char *v0 = "0.0.0";
+    ,
+        \\pub var v0: ?&const u8 = c"0.0.0";
+    );
 }
