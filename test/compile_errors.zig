@@ -389,8 +389,8 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    const y = a.bar;
         \\}
     ,
-            ".tmp_source.zig:4:6: error: no member named 'foo' in 'A'",
-            ".tmp_source.zig:5:16: error: no member named 'bar' in 'A'");
+            ".tmp_source.zig:4:6: error: no member named 'foo' in struct 'A'",
+            ".tmp_source.zig:5:16: error: no member named 'bar' in struct 'A'");
 
     cases.add("redefinition of struct",
         \\const A = struct { x : i32, };
@@ -454,7 +454,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\        .foo = 42,
         \\    };
         \\}
-    , ".tmp_source.zig:10:9: error: no member named 'foo' in 'A'");
+    , ".tmp_source.zig:10:9: error: no member named 'foo' in struct 'A'");
 
     cases.add("invalid break expression",
         \\export fn f() {
@@ -2343,4 +2343,23 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\pub extern fn foo(format: &const u8, ...);
     ,
         ".tmp_source.zig:2:9: error: expected type '&const u8', found '[5]u8'");
+
+    cases.add("constant inside comptime function has compile error",
+        \\const ContextAllocator = MemoryPool(usize);
+        \\
+        \\pub fn MemoryPool(comptime T: type) -> type {
+        \\    const free_list_t = @compileError("aoeu");
+        \\
+        \\    struct {
+        \\        free_list: free_list_t,
+        \\    }
+        \\}
+        \\
+        \\export fn entry() {
+        \\    var allocator: ContextAllocator = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:4:25: error: aoeu",
+        ".tmp_source.zig:1:36: note: called from here",
+        ".tmp_source.zig:12:20: note: referenced here");
 }

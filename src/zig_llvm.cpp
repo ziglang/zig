@@ -403,6 +403,10 @@ unsigned ZigLLVMTag_DW_structure_type(void) {
     return dwarf::DW_TAG_structure_type;
 }
 
+unsigned ZigLLVMTag_DW_union_type(void) {
+    return dwarf::DW_TAG_union_type;
+}
+
 ZigLLVMDIBuilder *ZigLLVMCreateDIBuilder(LLVMModuleRef module, bool allow_unresolved) {
     DIBuilder *di_builder = new DIBuilder(*unwrap(module), allow_unresolved);
     return reinterpret_cast<ZigLLVMDIBuilder *>(di_builder);

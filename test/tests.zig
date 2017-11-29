@@ -18,7 +18,7 @@ const build_examples = @import("build_examples.zig");
 const compile_errors = @import("compile_errors.zig");
 const assemble_and_link = @import("assemble_and_link.zig");
 const debug_safety = @import("debug_safety.zig");
-const parsec = @import("parsec.zig");
+const translate_c = @import("translate_c.zig");
 
 const TestTarget = struct {
     os: builtin.Os,
@@ -123,16 +123,16 @@ pub fn addAssembleAndLinkTests(b: &build.Builder, test_filter: ?[]const u8) -> &
     return cases.step;
 }
 
-pub fn addParseCTests(b: &build.Builder, test_filter: ?[]const u8) -> &build.Step {
-    const cases = %%b.allocator.create(ParseCContext);
-    *cases = ParseCContext {
+pub fn addTranslateCTests(b: &build.Builder, test_filter: ?[]const u8) -> &build.Step {
+    const cases = %%b.allocator.create(TranslateCContext);
+    *cases = TranslateCContext {
         .b = b,
-        .step = b.step("test-parsec", "Run the C header file parsing tests"),
+        .step = b.step("test-translate-c", "Run the C header file parsing tests"),
         .test_index = 0,
         .test_filter = test_filter,
     };
 
-    parsec.addCases(cases);
+    translate_c.addCases(cases);
 
     return cases.step;
 }
@@ -770,7 +770,7 @@ pub const BuildExamplesContext = struct {
     }
 };
 
-pub const ParseCContext = struct {
+pub const TranslateCContext = struct {
     b: &build.Builder,
     step: &build.Step,
     test_index: usize,
@@ -799,17 +799,17 @@ pub const ParseCContext = struct {
         }
     };
 
-    const ParseCCmpOutputStep = struct {
+    const TranslateCCmpOutputStep = struct {
         step: build.Step,
-        context: &ParseCContext,
+        context: &TranslateCContext,
         name: []const u8,
         test_index: usize,
         case: &const TestCase,
 
-        pub fn create(context: &ParseCContext, name: []const u8, case: &const TestCase) -> &ParseCCmpOutputStep {
+        pub fn create(context: &TranslateCContext, name: []const u8, case: &const TestCase) -> &TranslateCCmpOutputStep {
             const allocator = context.b.allocator;
-            const ptr = %%allocator.create(ParseCCmpOutputStep);
-            *ptr = ParseCCmpOutputStep {
+            const ptr = %%allocator.create(TranslateCCmpOutputStep);
+            *ptr = TranslateCCmpOutputStep {
                 .step = build.Step.init("ParseCCmpOutput", allocator, make),
                 .context = context,
                 .name = name,
@@ -821,7 +821,7 @@ pub const ParseCContext = struct {
         }
 
         fn make(step: &build.Step) -> %void {
-            const self = @fieldParentPtr(ParseCCmpOutputStep, "step", step);
+            const self = @fieldParentPtr(TranslateCCmpOutputStep, "step", step);
             const b = self.context.b;
 
             const root_src = %%os.path.join(b.allocator, b.cache_root, self.case.sources.items[0].filename);
@@ -829,7 +829,7 @@ pub const ParseCContext = struct {
             var zig_args = ArrayList([]const u8).init(b.allocator);
             %%zig_args.append(b.zig_exe);
 
-            %%zig_args.append("parsec");
+            %%zig_args.append("translate-c");
             %%zig_args.append(b.pathFromRoot(root_src));
 
             warn("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
@@ -882,7 +882,7 @@ pub const ParseCContext = struct {
 
             if (stderr.len != 0 and !self.case.allow_warnings) {
                 warn(
-                    \\====== parsec emitted warnings: ============
+                    \\====== translate-c emitted warnings: =======
                     \\{}
                     \\============================================
                     \\
@@ -914,7 +914,7 @@ pub const ParseCContext = struct {
         warn("\n");
     }
 
-    pub fn create(self: &ParseCContext, allow_warnings: bool, filename: []const u8, name: []const u8,
+    pub fn create(self: &TranslateCContext, allow_warnings: bool, filename: []const u8, name: []const u8,
         source: []const u8, expected_lines: ...) -> &TestCase
     {
         const tc = %%self.b.allocator.create(TestCase);
@@ -932,37 +932,37 @@ pub const ParseCContext = struct {
         return tc;
     }
 
-    pub fn add(self: &ParseCContext, name: []const u8, source: []const u8, expected_lines: ...) {
+    pub fn add(self: &TranslateCContext, name: []const u8, source: []const u8, expected_lines: ...) {
         const tc = self.create(false, "source.h", name, source, expected_lines);
         self.addCase(tc);
     }
 
-    pub fn addC(self: &ParseCContext, name: []const u8, source: []const u8, expected_lines: ...) {
+    pub fn addC(self: &TranslateCContext, name: []const u8, source: []const u8, expected_lines: ...) {
         const tc = self.create(false, "source.c", name, source, expected_lines);
         self.addCase(tc);
     }
 
-    pub fn addAllowWarnings(self: &ParseCContext, name: []const u8, source: []const u8, expected_lines: ...) {
+    pub fn addAllowWarnings(self: &TranslateCContext, name: []const u8, source: []const u8, expected_lines: ...) {
         const tc = self.create(true, "source.h", name, source, expected_lines);
         self.addCase(tc);
     }
 
-    pub fn addCase(self: &ParseCContext, case: &const TestCase) {
+    pub fn addCase(self: &TranslateCContext, case: &const TestCase) {
         const b = self.b;
 
-        const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "parsec {}", case.name);
+        const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "translate-c {}", case.name);
         if (self.test_filter) |filter| {
             if (mem.indexOf(u8, annotated_case_name, filter) == null)
                 return;
         }
 
-        const parsec_and_cmp = ParseCCmpOutputStep.create(self, annotated_case_name, case);
-        self.step.dependOn(&parsec_and_cmp.step);
+        const translate_c_and_cmp = TranslateCCmpOutputStep.create(self, annotated_case_name, case);
+        self.step.dependOn(&translate_c_and_cmp.step);
 
         for (case.sources.toSliceConst()) |src_file| {
             const expanded_src_path = %%os.path.join(b.allocator, b.cache_root, src_file.filename);
             const write_src = b.addWriteFile(expanded_src_path, src_file.source);
-            parsec_and_cmp.step.dependOn(&write_src.step);
+            translate_c_and_cmp.step.dependOn(&write_src.step);
         }
     }
 };

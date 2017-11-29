@@ -117,6 +117,7 @@ unsigned ZigLLVMEncoding_DW_ATE_signed_char(void);
 unsigned ZigLLVMLang_DW_LANG_C99(void);
 unsigned ZigLLVMTag_DW_variable(void);
 unsigned ZigLLVMTag_DW_structure_type(void);
+unsigned ZigLLVMTag_DW_union_type(void);
 
 ZigLLVMDIBuilder *ZigLLVMCreateDIBuilder(LLVMModuleRef module, bool allow_unresolved);
 void ZigLLVMAddModuleDebugInfoFlag(LLVMModuleRef module);

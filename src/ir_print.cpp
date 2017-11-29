@@ -290,6 +290,15 @@ static void ir_print_struct_init(IrPrint *irp, IrInstructionStructInit *instruct
     fprintf(irp->f, "} // struct init");
 }
 
+static void ir_print_union_init(IrPrint *irp, IrInstructionUnionInit *instruction) {
+    Buf *field_name = instruction->field->name;
+
+    fprintf(irp->f, "%s {", buf_ptr(&instruction->union_type->name));
+    fprintf(irp->f, ".%s = ", buf_ptr(field_name));
+    ir_print_other_instruction(irp, instruction->init_value);
+    fprintf(irp->f, "} // union init");
+}
+
 static void ir_print_unreachable(IrPrint *irp, IrInstructionUnreachable *instruction) {
     fprintf(irp->f, "unreachable");
 }
@@ -355,6 +364,13 @@ static void ir_print_struct_field_ptr(IrPrint *irp, IrInstructionStructFieldPtr 
 static void ir_print_enum_field_ptr(IrPrint *irp, IrInstructionEnumFieldPtr *instruction) {
     fprintf(irp->f, "@EnumFieldPtr(&");
     ir_print_other_instruction(irp, instruction->enum_ptr);
+    fprintf(irp->f, ".%s", buf_ptr(instruction->field->name));
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_union_field_ptr(IrPrint *irp, IrInstructionUnionFieldPtr *instruction) {
+    fprintf(irp->f, "@UnionFieldPtr(&");
+    ir_print_other_instruction(irp, instruction->union_ptr);
     fprintf(irp->f, ".%s", buf_ptr(instruction->field->name));
     fprintf(irp->f, ")");
 }
@@ -1023,6 +1039,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdStructInit:
             ir_print_struct_init(irp, (IrInstructionStructInit *)instruction);
             break;
+        case IrInstructionIdUnionInit:
+            ir_print_union_init(irp, (IrInstructionUnionInit *)instruction);
+            break;
         case IrInstructionIdUnreachable:
             ir_print_unreachable(irp, (IrInstructionUnreachable *)instruction);
             break;
@@ -1055,6 +1074,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdEnumFieldPtr:
             ir_print_enum_field_ptr(irp, (IrInstructionEnumFieldPtr *)instruction);
+            break;
+        case IrInstructionIdUnionFieldPtr:
+            ir_print_union_field_ptr(irp, (IrInstructionUnionFieldPtr *)instruction);
             break;
         case IrInstructionIdSetDebugSafety:
             ir_print_set_debug_safety(irp, (IrInstructionSetDebugSafety *)instruction);

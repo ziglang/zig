@@ -339,7 +339,7 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/target.cpp"
     "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
     "${CMAKE_SOURCE_DIR}/src/util.cpp"
-    "${CMAKE_SOURCE_DIR}/src/parsec.cpp"
+    "${CMAKE_SOURCE_DIR}/src/translate_c.cpp"
     "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
 )
 

@@ -70,10 +70,14 @@
       <li><a href="#mersenne">Mersenne Twister Random Number Generator</a></li>
     </ul>
     <h3 id="hello">Hello World</h3>
-    <pre><code class="zig">const io = @import("std").io;
+    <pre><code class="zig">const std = @import("std");
 
 pub fn main() -&gt; %void {
-    %return io.stdout.printf("Hello, world!\n");
+    // If this program is run without stdout attached, exit with an error.
+    var stdout_file = %return std.io.getStdOut();
+    // If this program encounters pipe failure when printing to stdout, exit
+    // with an error.
+    %return stdout_file.write("Hello, world!\n");
 }</code></pre>
     <p>Build this with:</p>
     <pre>zig build-exe hello.zig</pre>

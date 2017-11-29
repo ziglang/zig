@@ -1,6 +1,6 @@
 const tests = @import("tests.zig");
 
-pub fn addCases(cases: &tests.ParseCContext) {
+pub fn addCases(cases: &tests.TranslateCContext) {
     cases.addAllowWarnings("simple data types",
         \\#include <stdint.h>
         \\int foo(char a, unsigned char b, signed char c);
@@ -677,12 +677,12 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\    };
         \\    a >>= @import("std").math.Log2Int(c_int)({
         \\        const _ref = &a;
-        \\        (*_ref) = c_int(c_int(*_ref) >> @import("std").math.Log2Int(c_int)(1));
+        \\        (*_ref) = ((*_ref) >> @import("std").math.Log2Int(c_int)(1));
         \\        *_ref
         \\    });
         \\    a <<= @import("std").math.Log2Int(c_int)({
         \\        const _ref = &a;
-        \\        (*_ref) = c_int(c_int(*_ref) << @import("std").math.Log2Int(c_int)(1));
+        \\        (*_ref) = ((*_ref) << @import("std").math.Log2Int(c_int)(1));
         \\        *_ref
         \\    });
         \\}
@@ -735,12 +735,12 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\    };
         \\    a >>= @import("std").math.Log2Int(c_uint)({
         \\        const _ref = &a;
-        \\        (*_ref) = c_uint(c_uint(*_ref) >> @import("std").math.Log2Int(c_uint)(1));
+        \\        (*_ref) = ((*_ref) >> @import("std").math.Log2Int(c_uint)(1));
         \\        *_ref
         \\    });
         \\    a <<= @import("std").math.Log2Int(c_uint)({
         \\        const _ref = &a;
-        \\        (*_ref) = c_uint(c_uint(*_ref) << @import("std").math.Log2Int(c_uint)(1));
+        \\        (*_ref) = ((*_ref) << @import("std").math.Log2Int(c_uint)(1));
         \\        *_ref
         \\    });
         \\}
@@ -805,6 +805,50 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\}
     );
 
+    cases.addC("pre increment/decrement",
+        \\void foo(void) {
+        \\    int i = 0;
+        \\    unsigned u = 0;
+        \\    ++i;
+        \\    --i;
+        \\    ++u;
+        \\    --u;
+        \\    i = ++i;
+        \\    i = --i;
+        \\    u = ++u;
+        \\    u = --u;
+        \\}
+    ,
+        \\export fn foo() {
+        \\    var i: c_int = 0;
+        \\    var u: c_uint = c_uint(0);
+        \\    i += 1;
+        \\    i -= 1;
+        \\    u +%= 1;
+        \\    u -%= 1;
+        \\    i = {
+        \\        const _ref = &i;
+        \\        (*_ref) += 1;
+        \\        *_ref
+        \\    };
+        \\    i = {
+        \\        const _ref = &i;
+        \\        (*_ref) -= 1;
+        \\        *_ref
+        \\    };
+        \\    u = {
+        \\        const _ref = &u;
+        \\        (*_ref) +%= 1;
+        \\        *_ref
+        \\    };
+        \\    u = {
+        \\        const _ref = &u;
+        \\        (*_ref) -%= 1;
+        \\        *_ref
+        \\    };
+        \\}
+    );
+
     cases.addC("do loop",
         \\void foo(void) {
         \\    int a = 2;
@@ -834,17 +878,21 @@ pub fn addCases(cases: &tests.ParseCContext) {
 
     cases.addC("deref function pointer",
         \\void foo(void) {}
+        \\void baz(void) {}
         \\void bar(void) {
         \\    void(*f)(void) = foo;
         \\    f();
         \\    (*(f))();
+        \\    baz();
         \\}
     ,
         \\export fn foo() {}
+        \\export fn baz() {}
         \\export fn bar() {
         \\    var f: ?extern fn() = foo;
         \\    (??f)();
         \\    (??f)();
+        \\    baz();
         \\}
     );
 
@@ -857,15 +905,277 @@ pub fn addCases(cases: &tests.ParseCContext) {
         \\    (*(??x)) = 1;
         \\}
     );
+
+    cases.add("simple union",
+        \\union Foo {
+        \\    int x;
+        \\    double y;
+        \\};
+    ,
+        \\pub const union_Foo = extern union {
+        \\    x: c_int,
+        \\    y: f64,
+        \\};
+    ,
+        \\pub const Foo = union_Foo;
+    );
+
+    cases.add("address of operator",
+        \\int foo(void) {
+        \\    int x = 1234;
+        \\    int *ptr = &x;
+        \\    return *ptr;
+        \\}
+    ,
+        \\pub fn foo() -> c_int {
+        \\    var x: c_int = 1234;
+        \\    var ptr: ?&c_int = &x;
+        \\    return *(??ptr);
+        \\}
+    );
+
+    cases.add("string literal",
+        \\const char *foo(void) {
+        \\    return "bar";
+        \\}
+    ,
+        \\pub fn foo() -> ?&const u8 {
+        \\    return c"bar";
+        \\}
+    );
+
+    cases.add("return void",
+        \\void foo(void) {
+        \\    return;
+        \\}
+    ,
+        \\pub fn foo() {
+        \\    return;
+        \\}
+    );
+
+    cases.add("for loop",
+        \\void foo(void) {
+        \\    for (int i = 0; i < 10; i += 1) { }
+        \\}
+    ,
+        \\pub fn foo() {
+        \\    {
+        \\        var i: c_int = 0;
+        \\        while (i < 10) : (i += 1) {};
+        \\    };
+        \\}
+    );
+
+    cases.add("empty for loop",
+        \\void foo(void) {
+        \\    for (;;) { }
+        \\}
+    ,
+        \\pub fn foo() {
+        \\    while (true) {};
+        \\}
+    );
+
+    cases.add("break statement",
+        \\void foo(void) {
+        \\    for (;;) {
+        \\        break;
+        \\    }
+        \\}
+    ,
+        \\pub fn foo() {
+        \\    while (true) {
+        \\        break;
+        \\    };
+        \\}
+    );
+
+    cases.add("continue statement",
+        \\void foo(void) {
+        \\    for (;;) {
+        \\        continue;
+        \\    }
+        \\}
+    ,
+        \\pub fn foo() {
+        \\    while (true) {
+        \\        continue;
+        \\    };
+        \\}
+    );
+
+    cases.add("switch statement",
+        \\int foo(int x) {
+        \\    switch (x) {
+        \\        case 1:
+        \\            x += 1;
+        \\        case 2:
+        \\            break;
+        \\        case 3:
+        \\        case 4:
+        \\            return x + 1;
+        \\        default:
+        \\            return 10;
+        \\    }
+        \\    return x + 13;
+        \\}
+    ,
+        \\fn foo(_arg_x: c_int) -> c_int {
+        \\    var x = _arg_x;
+        \\    {
+        \\        switch (x) {
+        \\            1 => goto case_0,
+        \\            2 => goto case_1,
+        \\            3 => goto case_2,
+        \\            4 => goto case_3,
+        \\            else => goto default,
+        \\        };
+        \\    case_0:
+        \\        x += 1;
+        \\    case_1:
+        \\        goto end;
+        \\    case_2:
+        \\    case_3:
+        \\        return x + 1;
+        \\    default:
+        \\        return 10;
+        \\        goto end;
+        \\    end:
+        \\    };
+        \\    return x + 13;
+        \\}
+    );
+    
+    cases.add("macros with field targets",
+        \\typedef unsigned int GLbitfield;
+        \\typedef void (*PFNGLCLEARPROC) (GLbitfield mask);
+        \\typedef void(*OpenGLProc)(void);
+        \\union OpenGLProcs {
+        \\    OpenGLProc ptr[1];
+        \\    struct {
+        \\        PFNGLCLEARPROC Clear;
+        \\    } gl;
+        \\};
+        \\extern union OpenGLProcs glProcs;
+        \\#define glClearUnion glProcs.gl.Clear
+        \\#define glClearPFN PFNGLCLEARPROC
+    ,
+        \\pub const GLbitfield = c_uint;
+    ,
+        \\pub const PFNGLCLEARPROC = ?extern fn(GLbitfield);
+    ,
+        \\pub const OpenGLProc = ?extern fn();
+    ,
+        \\pub const union_OpenGLProcs = extern union {
+        \\    ptr: [1]OpenGLProc,
+        \\    gl: extern struct {
+        \\        Clear: PFNGLCLEARPROC,
+        \\    },
+        \\};
+    ,
+        \\pub extern var glProcs: union_OpenGLProcs;
+    ,
+        \\pub const glClearPFN = PFNGLCLEARPROC;
+    ,
+        \\pub inline fn glClearUnion(arg0: GLbitfield) {
+        \\    (??glProcs.gl.Clear)(arg0)
+        \\}
+    ,
+        \\pub const OpenGLProcs = union_OpenGLProcs;
+    );
+
+    cases.add("switch statement with no default",
+        \\int foo(int x) {
+        \\    switch (x) {
+        \\        case 1:
+        \\            x += 1;
+        \\        case 2:
+        \\            break;
+        \\        case 3:
+        \\        case 4:
+        \\            return x + 1;
+        \\    }
+        \\    return x + 13;
+        \\}
+    ,
+        \\fn foo(_arg_x: c_int) -> c_int {
+        \\    var x = _arg_x;
+        \\    {
+        \\        switch (x) {
+        \\            1 => goto case_0,
+        \\            2 => goto case_1,
+        \\            3 => goto case_2,
+        \\            4 => goto case_3,
+        \\            else => goto end,
+        \\        };
+        \\    case_0:
+        \\        x += 1;
+        \\    case_1:
+        \\        goto end;
+        \\    case_2:
+        \\    case_3:
+        \\        return x + 1;
+        \\        goto end;
+        \\    end:
+        \\    };
+        \\    return x + 13;
+        \\}
+    );
+
+    cases.add("variable name shadowing",
+        \\int foo(void) {
+        \\    int x = 1;
+        \\    {
+        \\        int x = 2;
+        \\        x += 1;
+        \\    }
+        \\    return x;
+        \\}
+    ,
+        \\pub fn foo() -> c_int {
+        \\    var x: c_int = 1;
+        \\    {
+        \\        var x_0: c_int = 2;
+        \\        x_0 += 1;
+        \\    };
+        \\    return x;
+        \\}
+    );
+
+    cases.add("pointer casting",
+        \\float *ptrcast(int *a) {
+        \\    return (float *)a;
+        \\}
+    ,
+        \\fn ptrcast(a: ?&c_int) -> ?&f32 {
+        \\    return @ptrCast(?&f32, a);
+        \\}
+    );
+
+    cases.add("bin not",
+        \\int foo(int x) {
+        \\    return ~x;
+        \\}
+    ,
+        \\pub fn foo(x: c_int) -> c_int {
+        \\    return ~x;
+        \\}
+    );
+
+    cases.add("primitive types included in defined symbols",
+        \\int foo(int u32) {
+        \\    return u32;
+        \\}
+    ,
+        \\pub fn foo(u32_0: c_int) -> c_int {
+        \\    return u32_0;
+        \\}
+    );
+
+    cases.add("const ptr initializer",
+        \\static const char *v0 = "0.0.0";
+    ,
+        \\pub var v0: ?&const u8 = c"0.0.0";
+    );
 }
-
-
-
-// TODO
-//float *ptrcast(int *a) {
-//    return (float *)a;
-//}
-// should translate to
-// fn ptrcast(a: ?&c_int) -> ?&f32 {
-//     return @ptrCast(?&f32, a);
-// }

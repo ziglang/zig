@@ -4,6 +4,7 @@ const windows = std.os.windows;
 const assert = std.debug.assert;
 const mem = std.mem;
 const BufMap = std.BufMap;
+const cstr = std.cstr;
 
 error WaitAbandoned;
 error WaitTimeOut;
@@ -149,3 +150,25 @@ pub fn createWindowsEnvBlock(allocator: &mem.Allocator, env_map: &const BufMap) 
     result[i] = 0;
     return result;
 }
+
+error DllNotFound;
+pub fn windowsLoadDll(allocator: &mem.Allocator, dll_path: []const u8) -> %windows.HMODULE {
+    const padded_buff = %return cstr.addNullByte(allocator, dll_path);
+    defer allocator.free(padded_buff);
+    return windows.LoadLibraryA(padded_buff.ptr) ?? error.DllNotFound;
+}
+
+pub fn windowsUnloadDll(hModule: windows.HMODULE) {
+    assert(windows.FreeLibrary(hModule)!= 0);
+}
+
+
+test "InvalidDll" {
+    const DllName = "asdf.dll";
+    const allocator = std.debug.global_allocator;
+    const handle = os.windowsLoadDll(allocator, DllName) %%  |err| {
+        assert(err == error.DllNotFound);
+        return;
+    };
+}
+

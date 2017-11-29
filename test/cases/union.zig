@@ -31,3 +31,47 @@ test "unions embedded in aggregate types" {
         else => unreachable,
     }
 }
+
+
+const Foo = union {
+    float: f64,
+    int: i32,
+};
+
+test "basic unions" {
+    var foo = Foo { .int = 1 };
+    assert(foo.int == 1);
+    foo = Foo {.float = 12.34};
+    assert(foo.float == 12.34);
+}
+
+test "init union with runtime value" {
+    var foo: Foo = undefined;
+
+    setFloat(&foo, 12.34);
+    assert(foo.float == 12.34);
+
+    setInt(&foo, 42);
+    assert(foo.int == 42);
+}
+
+fn setFloat(foo: &Foo, x: f64) {
+    *foo = Foo { .float = x };
+}
+
+fn setInt(foo: &Foo, x: i32) {
+    *foo = Foo { .int = x };
+}
+
+const FooExtern = extern union {
+    float: f64,
+    int: i32,
+};
+
+test "basic extern unions" {
+    var foo = FooExtern { .int = 1 };
+    assert(foo.int == 1);
+    foo.float = 12.34;
+    assert(foo.float == 12.34);
+}
+

@@ -22,4 +22,4 @@ make install
 ./zig build --build-file ../build.zig test-compile-errors --verbose
 ./zig build --build-file ../build.zig test-asm-link --verbose
 ./zig build --build-file ../build.zig test-debug-safety --verbose
-./zig build --build-file ../build.zig test-parsec --verbose
+./zig build --build-file ../build.zig test-translate-c --verbose
