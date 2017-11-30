@@ -259,7 +259,7 @@ pub const File = struct {
             if (err > 0) {
                 return switch (err) {
                     system.EBADF => error.BadFd,
-                    system.ENOMEM => error.OutOfMemory,
+                    system.ENOMEM => error.SystemResources,
                     else => os.unexpectedErrorPosix(err),
                 }
             }
