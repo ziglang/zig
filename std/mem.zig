@@ -180,6 +180,7 @@ test "mem.indexOf" {
 /// Reads an integer from memory with size equal to bytes.len.
 /// T specifies the return type, which must be large enough to store
 /// the result.
+/// See also ::readIntBE or ::readIntLE.
 pub fn readInt(bytes: []const u8, comptime T: type, big_endian: bool) -> T {
     if (T.bit_count == 8) {
         return bytes[0];
@@ -195,6 +196,34 @@ pub fn readInt(bytes: []const u8, comptime T: type, big_endian: bool) -> T {
             result = result | (T(b) << ShiftType(index * 8));
         }
     }
+    return result;
+}
+
+/// Reads a big-endian int of type T from bytes.
+/// bytes.len must be exactly @sizeOf(T).
+pub fn readIntBE(comptime T: type, bytes: []const u8) -> T {
+    if (T.is_signed) {
+        return @bitCast(T, readIntBE(@IntType(false, T.bit_count), bytes));
+    }
+    assert(bytes.len == @sizeOf(T));
+    var result: T = 0;
+    {comptime var i = 0; inline while (i < @sizeOf(T)) : (i += 1) {
+        result = (result << 8) | T(bytes[i]);
+    }}
+    return result;
+}
+
+/// Reads a little-endian int of type T from bytes.
+/// bytes.len must be exactly @sizeOf(T).
+pub fn readIntLE(comptime T: type, bytes: []const u8) -> T {
+    if (T.is_signed) {
+        return @bitCast(T, readIntLE(@IntType(false, T.bit_count), bytes));
+    }
+    assert(bytes.len == @sizeOf(T));
+    var result: T = 0;
+    {comptime var i = 0; inline while (i < @sizeOf(T)) : (i += 1) {
+        result |= T(bytes[i]) << i * 8;
+    }}
     return result;
 }
 
@@ -348,8 +377,12 @@ test "testReadInt" {
 fn testReadIntImpl() {
     {
         const bytes = []u8{ 0x12, 0x34, 0x56, 0x78 };
-        assert(readInt(bytes, u32, true) == 0x12345678);
+        assert(readInt(bytes, u32, true)  == 0x12345678);
+        assert(readIntBE(u32, bytes)      == 0x12345678);
+        assert(readIntBE(i32, bytes)      == 0x12345678);
         assert(readInt(bytes, u32, false) == 0x78563412);
+        assert(readIntLE(u32, bytes)      == 0x78563412);
+        assert(readIntLE(i32, bytes)      == 0x78563412);
     }
     {
         const buf = []u8{0x00, 0x00, 0x12, 0x34};
@@ -360,6 +393,13 @@ fn testReadIntImpl() {
         const buf = []u8{0x12, 0x34, 0x00, 0x00};
         const answer = readInt(buf, u64, false);
         assert(answer == 0x00003412);
+    }
+    {
+        const bytes = []u8{0xff, 0xfe};
+        assert(readIntBE(u16, bytes) ==  0xfffe);
+        assert(readIntBE(i16, bytes) == -0x0002);
+        assert(readIntLE(u16, bytes) ==  0xfeff);
+        assert(readIntLE(i16, bytes) == -0x0101);
     }
 }
 
