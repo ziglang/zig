@@ -4313,7 +4313,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
             }
         }
 
-        return ErrorUnexpected;
+        return ErrorCCompileErrors;
     }
 
     c->ctx = &ast_unit->getASTContext();

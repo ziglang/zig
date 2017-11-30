@@ -13870,7 +13870,10 @@ static TypeTableEntry *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruc
 
     int err;
     if ((err = parse_h_buf(child_import, &errors, &cimport_scope->buf, ira->codegen, node))) {
-        zig_panic("unable to parse C file: %s\n", err_str(err));
+        if (err != ErrorCCompileErrors) {
+            ir_add_error_node(ira, node, buf_sprintf("C import failed: %s", err_str(err)));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
     }
 
     if (errors.length > 0) {
