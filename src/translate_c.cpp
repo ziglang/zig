@@ -976,11 +976,23 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                 const AttributedType *attributed_ty = static_cast<const AttributedType *>(ty);
                 return trans_qual_type(c, attributed_ty->getEquivalentType(), source_loc);
             }
+        case Type::IncompleteArray:
+            {
+                const IncompleteArrayType *incomplete_array_ty = static_cast<const IncompleteArrayType *>(ty);
+                QualType child_qt = incomplete_array_ty->getElementType();
+                AstNode *child_type_node = trans_qual_type(c, child_qt, source_loc);
+                if (child_type_node == nullptr) {
+                    emit_warning(c, source_loc, "unresolved array element type");
+                    return nullptr;
+                }
+                AstNode *pointer_node = trans_create_node_addr_of(c, child_qt.isConstQualified(),
+                        child_qt.isVolatileQualified(), child_type_node);
+                return pointer_node;
+            }
         case Type::BlockPointer:
         case Type::LValueReference:
         case Type::RValueReference:
         case Type::MemberPointer:
-        case Type::IncompleteArray:
         case Type::VariableArray:
         case Type::DependentSizedArray:
         case Type::DependentSizedExtVector:
@@ -4301,7 +4313,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
             }
         }
 
-        return 0;
+        return ErrorUnexpected;
     }
 
     c->ctx = &ast_unit->getASTContext();
