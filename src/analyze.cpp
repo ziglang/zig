@@ -4664,7 +4664,7 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             buf_appendf(buf, "%s", buf_ptr(&const_val->data.x_type->name));
             return;
         case TypeTableEntryIdUnreachable:
-            buf_appendf(buf, "@unreachable()");
+            buf_appendf(buf, "unreachable");
             return;
         case TypeTableEntryIdBool:
             {

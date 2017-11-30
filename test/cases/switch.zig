@@ -224,3 +224,14 @@ fn switchWithUnreachable(x: i32) -> i32 {
     }
     return 10;
 }
+
+fn return_a_number() -> %i32 {
+    return 1;
+}
+
+test "capture value of switch with all unreachable prongs" {
+    const x = return_a_number() %% |err| switch (err) {
+        else => unreachable,
+    };
+    assert(x == 1);
+}

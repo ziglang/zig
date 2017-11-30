@@ -11154,8 +11154,8 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
     }
 
     if (new_incoming_blocks.length == 0) {
-        ir_build_const_from(ira, &phi_instruction->base);
-        return ira->codegen->builtin_types.entry_void;
+        ir_build_unreachable_from(&ira->new_irb, &phi_instruction->base);
+        return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
     }
 
     if (new_incoming_blocks.length == 1) {
