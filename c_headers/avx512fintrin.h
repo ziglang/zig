@@ -267,21 +267,16 @@ _mm512_maskz_set1_epi32(__mmask16 __M, int __A)
                  __M);
 }
 
+#ifdef __x86_64__
 static __inline __m512i __DEFAULT_FN_ATTRS
 _mm512_maskz_set1_epi64(__mmask8 __M, long long __A)
 {
-#ifdef __x86_64__
   return (__m512i) __builtin_ia32_pbroadcastq512_gpr_mask (__A,
                  (__v8di)
                  _mm512_setzero_si512 (),
                  __M);
-#else
-  return (__m512i) __builtin_ia32_pbroadcastq512_mem_mask (__A,
-                 (__v8di)
-                 _mm512_setzero_si512 (),
-                 __M);
-#endif
 }
+#endif
 
 static __inline __m512 __DEFAULT_FN_ATTRS
 _mm512_setzero_ps(void)
