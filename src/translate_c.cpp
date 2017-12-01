@@ -3434,7 +3434,12 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
         AstNode *enum_node = trans_create_node(c, NodeTypeContainerDecl);
         enum_node->data.container_decl.kind = ContainerKindEnum;
         enum_node->data.container_decl.layout = ContainerLayoutExtern;
-        if (!c_is_builtin_type(c, enum_decl->getIntegerType(), BuiltinType::UInt)) {
+        // TODO only emit this tag type if the enum tag type is not the default.
+        // I don't know what the default is, need to figure out how clang is deciding.
+        // it appears to at least be different across gcc/msvc
+        if (!c_is_builtin_type(c, enum_decl->getIntegerType(), BuiltinType::UInt) &&
+            !c_is_builtin_type(c, enum_decl->getIntegerType(), BuiltinType::Int))
+        {
             enum_node->data.container_decl.init_arg_expr = tag_int_type;
         }
 
