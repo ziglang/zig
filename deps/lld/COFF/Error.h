@@ -27,6 +27,8 @@ LLVM_ATTRIBUTE_NORETURN void fatal(const Twine &Msg);
 LLVM_ATTRIBUTE_NORETURN void fatal(std::error_code EC, const Twine &Prefix);
 LLVM_ATTRIBUTE_NORETURN void fatal(llvm::Error &Err, const Twine &Prefix);
 
+LLVM_ATTRIBUTE_NORETURN void exitLld(int Val);
+
 template <class T> T check(ErrorOr<T> V, const Twine &Prefix) {
   if (auto EC = V.getError())
     fatal(EC, Prefix);
