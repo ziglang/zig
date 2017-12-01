@@ -3762,7 +3762,6 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Con
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdPureError:
-        case TypeTableEntryIdEnum:
         case TypeTableEntryIdEnumTag:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
@@ -3773,6 +3772,13 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Con
             zig_unreachable();
         case TypeTableEntryIdBool:
             return LLVMConstInt(big_int_type_ref, const_val->data.x_bool ? 1 : 0, false);
+        case TypeTableEntryIdEnum:
+            {
+                assert(type_entry->data.enumeration.gen_field_count == 0);
+                assert(type_entry->data.enumeration.decl_node->data.container_decl.init_arg_expr != nullptr);
+                LLVMValueRef int_val = gen_const_val(g, const_val);
+                return LLVMConstZExt(int_val, big_int_type_ref);
+            }
         case TypeTableEntryIdInt:
             {
                 LLVMValueRef int_val = gen_const_val(g, const_val);
@@ -3814,6 +3820,7 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Con
                 }
                 return val;
             }
+
     }
     zig_unreachable();
 }

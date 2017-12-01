@@ -214,3 +214,73 @@ test "set enum tag type" {
         comptime assert(@EnumTagType(Small2) == u2);
     }
 }
+
+
+const A = enum (u3) {
+    One,
+    Two,
+    Three,
+    Four,
+    One2,
+    Two2,
+    Three2,
+    Four2,
+};
+
+const B = enum (u3) {
+    One3,
+    Two3,
+    Three3,
+    Four3,
+    One23,
+    Two23,
+    Three23,
+    Four23,
+};
+
+const C = enum (u2) {
+    One4,
+    Two4,
+    Three4,
+    Four4,
+};
+
+const BitFieldOfEnums = packed struct {
+    a: A,
+    b: B,
+    c: C,
+};
+
+const bit_field_1 = BitFieldOfEnums {
+    .a = A.Two,
+    .b = B.Three3,
+    .c = C.Four4,
+};
+
+test "bit field access with enum fields" {
+    var data = bit_field_1;
+    assert(getA(&data) == A.Two);
+    assert(getB(&data) == B.Three3);
+    assert(getC(&data) == C.Four4);
+    comptime assert(@sizeOf(BitFieldOfEnums) == 1);
+
+    data.b = B.Four3;
+    assert(data.b == B.Four3);
+
+    data.a = A.Three;
+    assert(data.a == A.Three);
+    assert(data.b == B.Four3);
+}
+
+fn getA(data: &const BitFieldOfEnums) -> A {
+    return data.a;
+}
+
+fn getB(data: &const BitFieldOfEnums) -> B {
+    return data.b;
+}
+
+fn getC(data: &const BitFieldOfEnums) -> C {
+    return data.c;
+}
+

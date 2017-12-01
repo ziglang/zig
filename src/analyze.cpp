@@ -1536,7 +1536,6 @@ static bool type_allowed_in_packed_struct(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdPureError:
-        case TypeTableEntryIdEnum:
         case TypeTableEntryIdEnumTag:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
@@ -1560,6 +1559,9 @@ static bool type_allowed_in_packed_struct(TypeTableEntry *type_entry) {
                 TypeTableEntry *child_type = type_entry->data.maybe.child_type;
                 return child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn;
             }
+        case TypeTableEntryIdEnum:
+            return type_entry->data.enumeration.gen_field_count == 0 &&
+                type_entry->data.enumeration.decl_node->data.container_decl.init_arg_expr != nullptr;
     }
     zig_unreachable();
 }
