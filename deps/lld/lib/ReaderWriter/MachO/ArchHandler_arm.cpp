@@ -67,10 +67,6 @@ public:
     return invalid;
   }
 
-  Reference::KindValue lazyImmediateLocationKind() override {
-    return lazyImmediateLocation;
-  }
-
   Reference::KindValue pointerKind() override {
     return invalid;
   }

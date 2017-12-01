@@ -103,7 +103,8 @@ private:
   std::vector<CieRecord *> Cies;
 
   // CIE records are uniquified by their contents and personality functions.
-  llvm::DenseMap<std::pair<ArrayRef<uint8_t>, SymbolBody *>, CieRecord> CieMap;
+  llvm::DenseMap<std::pair<ArrayRef<uint8_t>, SymbolBody *>, CieRecord *>
+      CieMap;
 };
 
 class GotSection : public SyntheticSection {

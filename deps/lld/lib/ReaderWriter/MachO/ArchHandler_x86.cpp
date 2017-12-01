@@ -70,10 +70,6 @@ public:
     return delta32;
   }
 
-  Reference::KindValue lazyImmediateLocationKind() override {
-    return lazyImmediateLocation;
-  }
-
   Reference::KindValue unwindRefToEhFrameKind() override {
     return invalid;
   }

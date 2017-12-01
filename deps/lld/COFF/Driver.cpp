@@ -61,7 +61,6 @@ bool link(ArrayRef<const char *> Args, raw_ostream &Diag) {
       (ErrorOS == &llvm::errs() && Process::StandardErrHasColors());
   Driver = make<LinkerDriver>();
   Driver->link(Args);
-  freeArena();
   return !ErrorCount;
 }
 
@@ -1031,7 +1030,7 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   if (!Args.hasArgNoClaim(OPT_INPUT)) {
     fixupExports();
     createImportLibrary(/*AsLib=*/true);
-    return;
+    exit(0);
   }
 
   // Handle /delayload
@@ -1173,6 +1172,9 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
 
   // Write the result.
   writeResult(&Symtab);
+
+  // Call exit to avoid calling destructors.
+  exit(0);
 }
 
 } // namespace coff

@@ -127,10 +127,6 @@ public:
     return pointer64;
   }
 
-  Reference::KindValue lazyImmediateLocationKind() override {
-    return lazyImmediateLocation;
-  }
-
   uint32_t dwarfCompactUnwindType() override {
     return 0x03000000;
   }
