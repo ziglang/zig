@@ -172,6 +172,8 @@ private:
                                    SymbolScope &symbolScope);
   void         appendSection(SectionInfo *si, NormalizedFile &file);
   uint32_t     sectionIndexForAtom(const Atom *atom);
+  void fixLazyReferenceImm(const DefinedAtom *atom, uint32_t offset,
+                           NormalizedFile &file);
 
   typedef llvm::DenseMap<const Atom*, uint32_t> AtomToIndex;
   struct AtomAndIndex { const Atom *atom; uint32_t index; SymbolScope scope; };
@@ -1423,6 +1425,8 @@ void Util::addRebaseAndBindingInfo(const lld::File &atomFile,
 
   uint8_t segmentIndex;
   uint64_t segmentStartAddr;
+  uint32_t offsetInBindInfo = 0;
+
   for (SectionInfo *sect : _sectionInfos) {
     segIndexForSection(sect, segmentIndex, segmentStartAddr);
     for (const AtomInfo &info : sect->atomsAndOffsets) {
@@ -1467,6 +1471,59 @@ void Util::addRebaseAndBindingInfo(const lld::File &atomFile,
           bind.symbolName = targ->name();
           bind.addend = ref->addend();
           nFile.lazyBindingInfo.push_back(bind);
+
+          // Now that we know the segmentOffset and the ordinal attribute,
+          // we can fix the helper's code
+
+          fixLazyReferenceImm(atom, offsetInBindInfo, nFile);
+
+          // 5 bytes for opcodes + variable sizes (target name + \0 and offset
+          // encode's size)
+          offsetInBindInfo +=
+              6 + targ->name().size() + llvm::getULEB128Size(bind.segOffset);
+          if (bind.ordinal > BIND_IMMEDIATE_MASK)
+            offsetInBindInfo += llvm::getULEB128Size(bind.ordinal);
+        }
+      }
+    }
+  }
+}
+
+void Util::fixLazyReferenceImm(const DefinedAtom *atom, uint32_t offset,
+                               NormalizedFile &file) {
+  for (const auto &ref : *atom) {
+    const DefinedAtom *da = dyn_cast<DefinedAtom>(ref->target());
+    if (da == nullptr)
+      return;
+
+    const Reference *helperRef = nullptr;
+    for (const Reference *hr : *da) {
+      if (hr->kindValue() == _archHandler.lazyImmediateLocationKind()) {
+        helperRef = hr;
+        break;
+      }
+    }
+    if (helperRef == nullptr)
+      continue;
+
+    // TODO: maybe get the fixed atom content from _archHandler ?
+    for (SectionInfo *sectInfo : _sectionInfos) {
+      for (const AtomInfo &atomInfo : sectInfo->atomsAndOffsets) {
+        if (atomInfo.atom == helperRef->target()) {
+          auto sectionContent =
+              file.sections[sectInfo->normalizedSectionIndex].content;
+          uint8_t *rawb =
+              file.ownedAllocations.Allocate<uint8_t>(sectionContent.size());
+          llvm::MutableArrayRef<uint8_t> newContent{rawb,
+                                                    sectionContent.size()};
+          std::copy(sectionContent.begin(), sectionContent.end(),
+                    newContent.begin());
+          llvm::support::ulittle32_t *loc =
+              reinterpret_cast<llvm::support::ulittle32_t *>(
+                  &newContent[atomInfo.offsetInSection +
+                              helperRef->offsetInAtom()]);
+          *loc = offset;
+          file.sections[sectInfo->normalizedSectionIndex].content = newContent;
         }
       }
     }
