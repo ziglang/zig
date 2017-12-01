@@ -47,15 +47,20 @@ option(ZIG_TEST_COVERAGE "Build Zig with test coverage instrumentation" OFF)
 option(ZIG_FORCE_EXTERNAL_LLD "If your system has the LLD patches use it instead of the embedded LLD" OFF)
 
 find_package(llvm)
-include_directories(${LLVM_INCLUDE_DIRS})
-
 find_package(clang)
-include_directories(${CLANG_INCLUDE_DIRS})
 
 if(ZIG_FORCE_EXTERNAL_LLD)
     find_package(lld)
+    include_directories(${LLVM_INCLUDE_DIRS})
     include_directories(${LLD_INCLUDE_DIRS})
+    include_directories(${CLANG_INCLUDE_DIRS})
 else()
+    # This goes first so that we find embedded LLD instead
+    # of system LLD.
+    include_directories("${CMAKE_SOURCE_DIR}/deps/lld/include")
+
+    include_directories(${LLVM_INCLUDE_DIRS})
+    include_directories(${CLANG_INCLUDE_DIRS})
     set(EMBEDDED_LLD_LIB_SOURCES
         "${CMAKE_SOURCE_DIR}/deps/lld/lib/Driver/DarwinLdDriver.cpp"
         "${CMAKE_SOURCE_DIR}/deps/lld/lib/Config/Version.cpp"
