@@ -994,6 +994,12 @@ static void ir_print_arg_type(IrPrint *irp, IrInstructionArgType *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_enum_tag_type(IrPrint *irp, IrInstructionEnumTagType *instruction) {
+    fprintf(irp->f, "@EnumTagType(");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
 
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
@@ -1311,6 +1317,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdArgType:
             ir_print_arg_type(irp, (IrInstructionArgType *)instruction);
+            break;
+        case IrInstructionIdEnumTagType:
+            ir_print_enum_tag_type(irp, (IrInstructionEnumTagType *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

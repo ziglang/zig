@@ -137,6 +137,7 @@
             <li><a href="#builtin-divTrunc">@divTrunc</a></li>
             <li><a href="#builtin-embedFile">@embedFile</a></li>
             <li><a href="#builtin-enumTagName">@enumTagName</a></li>
+            <li><a href="#builtin-EnumTagType">@EnumTagType</a></li>
             <li><a href="#builtin-errorName">@errorName</a></li>
             <li><a href="#builtin-fence">@fence</a></li>
             <li><a href="#builtin-fieldParentPtr">@fieldParentPtr</a></li>
@@ -4256,6 +4257,11 @@ test.zig:6:2: error: found compile log statement
       <p>
       Converts an enum tag name to a slice of bytes.
       </p>
+      <h3 id="builtin-EnumTagType">@EnumTagType</h3>
+      <pre><code class="zig">@EnumTagType(T: type) -&gt; type</code></pre>
+      <p>
+      Returns the integer type that is used to store the enumeration value.
+      </p>
       <h3 id="builtin-errorName">@errorName</h3>
       <pre><code class="zig">@errorName(err: error) -&gt; []u8</code></pre>
       <p>
@@ -5837,7 +5843,7 @@ GroupedExpression = "(" Expression ")"
 
 KeywordLiteral = "true" | "false" | "null" | "continue" | "undefined" | "error" | "this" | "unreachable"
 
-ContainerDecl = option("extern" | "packed") ("struct" | "enum" | "union") "{" many(ContainerMember) "}"</code></pre>
+ContainerDecl = option("extern" | "packed") ("struct" | "union" | ("enum" option(GroupedExpression))) "{" many(ContainerMember) "}"</code></pre>
       <h2 id="zen">Zen</h2>
       <ul>
         <li>Communicate intent precisely.</li>

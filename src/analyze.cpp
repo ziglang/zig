@@ -1267,7 +1267,7 @@ TypeTableEntry *create_enum_tag_type(CodeGen *g, TypeTableEntry *enum_type, Type
     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnumTag);
 
     buf_resize(&entry->name, 0);
-    buf_appendf(&entry->name, "@enumTagType(%s)", buf_ptr(&enum_type->name));
+    buf_appendf(&entry->name, "@EnumTagType(%s)", buf_ptr(&enum_type->name));
 
     entry->is_copyable = true;
     entry->data.enum_tag.enum_type = enum_type;
@@ -1391,6 +1391,25 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
     }
 
     TypeTableEntry *tag_int_type = get_smallest_unsigned_int_type(g, field_count - 1);
+    if (decl_node->data.container_decl.init_arg_expr != nullptr) {
+        TypeTableEntry *wanted_tag_int_type = analyze_type_expr(g, scope, decl_node->data.container_decl.init_arg_expr);
+        if (type_is_invalid(wanted_tag_int_type)) {
+            enum_type->data.enumeration.is_invalid = true;
+        } else if (wanted_tag_int_type->id != TypeTableEntryIdInt) {
+            enum_type->data.enumeration.is_invalid = true;
+            add_node_error(g, decl_node->data.container_decl.init_arg_expr,
+                buf_sprintf("expected integer, found '%s'", buf_ptr(&wanted_tag_int_type->name)));
+        } else if (wanted_tag_int_type->data.integral.bit_count < tag_int_type->data.integral.bit_count) {
+            enum_type->data.enumeration.is_invalid = true;
+            add_node_error(g, decl_node->data.container_decl.init_arg_expr,
+                buf_sprintf("'%s' too small to hold all bits; must be at least '%s'",
+                    buf_ptr(&wanted_tag_int_type->name), buf_ptr(&tag_int_type->name)));
+        } else {
+            tag_int_type = wanted_tag_int_type;
+        }
+    }
+
+
     TypeTableEntry *tag_type_entry = create_enum_tag_type(g, enum_type, tag_int_type);
     enum_type->data.enumeration.tag_type = tag_type_entry;
 

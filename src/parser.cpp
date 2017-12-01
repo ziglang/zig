@@ -2377,7 +2377,7 @@ static AstNode *ast_parse_use(ParseContext *pc, size_t *token_index, VisibMod vi
 }
 
 /*
-ContainerDecl = option("extern" | "packed") ("struct" | "enum" | "union") "{" many(ContainerMember) "}"
+ContainerDecl = option("extern" | "packed") ("struct" | "union" | ("enum" option(GroupedExpression))) "{" many(ContainerMember) "}"
 ContainerMember = (ContainerField | FnDef | GlobalVarDecl)
 ContainerField = Symbol option(":" Expression) ","
 */
@@ -2414,6 +2414,10 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, 
     AstNode *node = ast_create_node(pc, NodeTypeContainerDecl, first_token);
     node->data.container_decl.layout = layout;
     node->data.container_decl.kind = kind;
+
+    if (kind == ContainerKindEnum || kind == ContainerKindStruct) {
+        node->data.container_decl.init_arg_expr = ast_parse_grouped_expr(pc, token_index, false);
+    }
 
     ast_eat_token(pc, token_index, TokenIdLBrace);
 
@@ -2804,6 +2808,7 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
         case NodeTypeContainerDecl:
             visit_node_list(&node->data.container_decl.fields, visit, context);
             visit_node_list(&node->data.container_decl.decls, visit, context);
+            visit_field(&node->data.container_decl.init_arg_expr, visit, context);
             break;
         case NodeTypeStructField:
             visit_field(&node->data.struct_field.type, visit, context);

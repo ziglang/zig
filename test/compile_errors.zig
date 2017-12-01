@@ -2362,4 +2362,32 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         ".tmp_source.zig:4:25: error: aoeu",
         ".tmp_source.zig:1:36: note: called from here",
         ".tmp_source.zig:12:20: note: referenced here");
+
+    cases.add("specify enum tag type that is too small",
+        \\const Small = enum (u2) {
+        \\    One,
+        \\    Two,
+        \\    Three,
+        \\    Four,
+        \\    Five,
+        \\};
+        \\
+        \\export fn entry() {
+        \\    var x = Small.One;
+        \\}
+    ,
+        ".tmp_source.zig:1:20: error: 'u2' too small to hold all bits; must be at least 'u3'");
+
+    cases.add("specify non-integer enum tag type",
+        \\const Small = enum (f32) {
+        \\    One,
+        \\    Two,
+        \\    Three,
+        \\};
+        \\
+        \\export fn entry() {
+        \\    var x = Small.One;
+        \\}
+    ,
+        ".tmp_source.zig:1:20: error: expected integer, found 'f32'");
 }

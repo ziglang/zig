@@ -651,6 +651,14 @@ static bool c_is_unsigned_integer(Context *c, QualType qt) {
     }
 }
 
+static bool c_is_builtin_type(Context *c, QualType qt, BuiltinType::Kind kind) {
+    const Type *c_type = qual_type_canon(qt);
+    if (c_type->getTypeClass() != Type::Builtin)
+        return false;
+    const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(c_type);
+    return builtin_ty->getKind() == kind;
+}
+
 static bool c_is_float(Context *c, QualType qt) {
     const Type *c_type = qt.getTypePtr();
     if (c_type->getTypeClass() != Type::Builtin)
@@ -3426,7 +3434,9 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
         AstNode *enum_node = trans_create_node(c, NodeTypeContainerDecl);
         enum_node->data.container_decl.kind = ContainerKindEnum;
         enum_node->data.container_decl.layout = ContainerLayoutExtern;
-        enum_node->data.container_decl.init_arg_expr = tag_int_type;
+        if (!c_is_builtin_type(c, enum_decl->getIntegerType(), BuiltinType::UInt)) {
+            enum_node->data.container_decl.init_arg_expr = tag_int_type;
+        }
 
         enum_node->data.container_decl.fields.resize(field_count);
         uint32_t i = 0;

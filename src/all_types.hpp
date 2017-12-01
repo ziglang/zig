@@ -1286,6 +1286,7 @@ enum BuiltinFnId {
     BuiltinFnIdIntToPtr,
     BuiltinFnIdPtrToInt,
     BuiltinFnIdEnumTagName,
+    BuiltinFnIdEnumTagType,
     BuiltinFnIdFieldParentPtr,
     BuiltinFnIdOffsetOf,
     BuiltinFnIdInlineCall,
@@ -1911,6 +1912,7 @@ enum IrInstructionId {
     IrInstructionIdDeclRef,
     IrInstructionIdPanic,
     IrInstructionIdEnumTagName,
+    IrInstructionIdEnumTagType,
     IrInstructionIdFieldParentPtr,
     IrInstructionIdOffsetOf,
     IrInstructionIdTypeId,
@@ -2690,6 +2692,12 @@ struct IrInstructionPanic {
 };
 
 struct IrInstructionEnumTagName {
+    IrInstruction base;
+
+    IrInstruction *target;
+};
+
+struct IrInstructionEnumTagType {
     IrInstruction base;
 
     IrInstruction *target;

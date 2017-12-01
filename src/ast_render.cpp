@@ -660,7 +660,13 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             {
                 const char *layout_str = layout_string(node->data.container_decl.layout);
                 const char *container_str = container_string(node->data.container_decl.kind);
-                fprintf(ar->f, "%s%s {\n", layout_str, container_str);
+                fprintf(ar->f, "%s%s", layout_str, container_str);
+                if (node->data.container_decl.init_arg_expr != nullptr) {
+                    fprintf(ar->f, "(");
+                    render_node_grouped(ar, node->data.container_decl.init_arg_expr);
+                    fprintf(ar->f, ")");
+                }
+                fprintf(ar->f, " {\n");
                 ar->indent += ar->indent_size;
                 for (size_t field_i = 0; field_i < node->data.container_decl.fields.length; field_i += 1) {
                     AstNode *field_node = node->data.container_decl.fields.at(field_i);

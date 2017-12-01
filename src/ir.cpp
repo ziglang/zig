@@ -551,6 +551,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionEnumTagName *) {
     return IrInstructionIdEnumTagName;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionEnumTagType *) {
+    return IrInstructionIdEnumTagType;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionFieldParentPtr *) {
     return IrInstructionIdFieldParentPtr;
 }
@@ -2270,6 +2274,17 @@ static IrInstruction *ir_build_enum_tag_name(IrBuilder *irb, Scope *scope, AstNo
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_enum_tag_type(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *target)
+{
+    IrInstructionEnumTagType *instruction = ir_build_instruction<IrInstructionEnumTagType>(irb, scope, source_node);
+    instruction->target = target;
+
+    ir_ref_instruction(target, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_build_field_parent_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *type_value, IrInstruction *field_name, IrInstruction *field_ptr, TypeStructField *field)
 {
@@ -3066,6 +3081,13 @@ static IrInstruction *ir_instruction_enumtagname_get_dep(IrInstructionEnumTagNam
     }
 }
 
+static IrInstruction *ir_instruction_enumtagtype_get_dep(IrInstructionEnumTagType *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->target;
+        default: return nullptr;
+    }
+}
+
 static IrInstruction *ir_instruction_fieldparentptr_get_dep(IrInstructionFieldParentPtr *instruction, size_t index) {
     switch (index) {
         case 0: return instruction->type_value;
@@ -3326,6 +3348,8 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_panic_get_dep((IrInstructionPanic *) instruction, index);
         case IrInstructionIdEnumTagName:
             return ir_instruction_enumtagname_get_dep((IrInstructionEnumTagName *) instruction, index);
+        case IrInstructionIdEnumTagType:
+            return ir_instruction_enumtagtype_get_dep((IrInstructionEnumTagType *) instruction, index);
         case IrInstructionIdFieldParentPtr:
             return ir_instruction_fieldparentptr_get_dep((IrInstructionFieldParentPtr *) instruction, index);
         case IrInstructionIdOffsetOf:
@@ -4680,6 +4704,15 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 IrInstruction *actual_tag = ir_build_enum_tag(irb, scope, node, arg0_value);
                 return ir_build_enum_tag_name(irb, scope, node, actual_tag);
+            }
+        case BuiltinFnIdEnumTagType:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                return ir_build_enum_tag_type(irb, scope, node, arg0_value);
             }
         case BuiltinFnIdFieldParentPtr:
             {
@@ -15831,6 +15864,27 @@ static TypeTableEntry *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstruc
     return ira->codegen->builtin_types.entry_type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_enum_tag_type(IrAnalyze *ira, IrInstructionEnumTagType *instruction) {
+    IrInstruction *target_inst = instruction->target->other;
+    TypeTableEntry *enum_type = ir_resolve_type(ira, target_inst);
+    if (type_is_invalid(enum_type))
+        return ira->codegen->builtin_types.entry_invalid;
+    if (enum_type->id != TypeTableEntryIdEnum) {
+        ir_add_error(ira, target_inst, buf_sprintf("expected enum, found '%s'", buf_ptr(&enum_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+    ensure_complete_type(ira->codegen, enum_type);
+    if (type_is_invalid(enum_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    TypeTableEntry *non_int_tag_type = enum_type->data.enumeration.tag_type;
+    assert(non_int_tag_type->id == TypeTableEntryIdEnumTag);
+
+    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+    out_val->data.x_type = non_int_tag_type->data.enum_tag.int_type;
+    return ira->codegen->builtin_types.entry_type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -16029,6 +16083,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_set_align_stack(ira, (IrInstructionSetAlignStack *)instruction);
         case IrInstructionIdArgType:
             return ir_analyze_instruction_arg_type(ira, (IrInstructionArgType *)instruction);
+        case IrInstructionIdEnumTagType:
+            return ir_analyze_instruction_enum_tag_type(ira, (IrInstructionEnumTagType *)instruction);
     }
     zig_unreachable();
 }
@@ -16214,6 +16270,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdAlignCast:
         case IrInstructionIdOpaqueType:
         case IrInstructionIdArgType:
+        case IrInstructionIdEnumTagType:
             return false;
         case IrInstructionIdAsm:
             {

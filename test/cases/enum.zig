@@ -190,3 +190,27 @@ test "enum sizes" {
         assert(@sizeOf(ValueCount257) == 2);
     }
 }
+
+const Small2 = enum (u2) {
+    One,
+    Two,
+};
+const Small = enum (u2) {
+    One,
+    Two,
+    Three,
+    Four,
+};
+
+test "set enum tag type" {
+    {
+        var x = Small.One;
+        x = Small.Two;
+        comptime assert(@EnumTagType(Small) == u2);
+    }
+    {
+        var x = Small2.One;
+        x = Small2.Two;
+        comptime assert(@EnumTagType(Small2) == u2);
+    }
+}
