@@ -751,7 +751,7 @@ void LinkerScript::adjustSectionsAfterSorting() {
     if (auto *Cmd = dyn_cast<OutputSectionCommand>(Base)) {
       Cmd->MemRegion = findMemoryRegion(Cmd);
       // Handle align (e.g. ".foo : ALIGN(16) { ... }").
-      if (Cmd->AlignExpr)
+      if (Cmd->AlignExpr && Cmd->Sec)
         Cmd->Sec->updateAlignment(Cmd->AlignExpr().getValue());
     }
   }
