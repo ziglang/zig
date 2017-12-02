@@ -73,7 +73,8 @@ fn reverse(was: Cmp) -> Cmp {
 
 test "stable sort" {
     testStableSort();
-    comptime testStableSort();
+    // TODO: uncomment this after https://github.com/zig-lang/zig/issues/639
+    //comptime testStableSort();
 }
 fn testStableSort() {
     var expected = []IdAndValue {
