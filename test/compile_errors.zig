@@ -2390,4 +2390,61 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:1:20: error: expected integer, found 'f32'");
+
+    cases.add("implicitly casting enum to tag type",
+        \\const Small = enum(u2) {
+        \\    One,
+        \\    Two,
+        \\    Three,
+        \\    Four,
+        \\};
+        \\
+        \\export fn entry() {
+        \\    var x: u2 = Small.Two;
+        \\}
+    ,
+        ".tmp_source.zig:9:22: error: expected type 'u2', found 'Small'");
+
+    cases.add("explicitly casting enum to non tag type",
+        \\const Small = enum(u2) {
+        \\    One,
+        \\    Two,
+        \\    Three,
+        \\    Four,
+        \\};
+        \\
+        \\export fn entry() {
+        \\    var x = u3(Small.Two);
+        \\}
+    ,
+        ".tmp_source.zig:9:15: error: enum to integer cast to 'u3' instead of its tag type, 'u2'");
+
+    cases.add("explicitly casting non tag type to enum",
+        \\const Small = enum(u2) {
+        \\    One,
+        \\    Two,
+        \\    Three,
+        \\    Four,
+        \\};
+        \\
+        \\export fn entry() {
+        \\    var y = u3(3);
+        \\    var x = Small(y);
+        \\}
+    ,
+        ".tmp_source.zig:10:18: error: integer to enum cast from 'u3' instead of its tag type, 'u2'");
+
+    cases.add("non unsigned integer enum tag type",
+        \\const Small = enum(i2) {
+        \\    One,
+        \\    Two,
+        \\    Three,
+        \\    Four,
+        \\};
+        \\
+        \\export fn entry() {
+        \\    var y = Small.Two;
+        \\}
+    ,
+        ".tmp_source.zig:1:19: error: expected unsigned integer, found 'i2'");
 }

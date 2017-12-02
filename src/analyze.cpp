@@ -1399,6 +1399,10 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
             enum_type->data.enumeration.is_invalid = true;
             add_node_error(g, decl_node->data.container_decl.init_arg_expr,
                 buf_sprintf("expected integer, found '%s'", buf_ptr(&wanted_tag_int_type->name)));
+        } else if (wanted_tag_int_type->data.integral.is_signed) {
+            enum_type->data.enumeration.is_invalid = true;
+            add_node_error(g, decl_node->data.container_decl.init_arg_expr,
+                buf_sprintf("expected unsigned integer, found '%s'", buf_ptr(&wanted_tag_int_type->name)));
         } else if (wanted_tag_int_type->data.integral.bit_count < tag_int_type->data.integral.bit_count) {
             enum_type->data.enumeration.is_invalid = true;
             add_node_error(g, decl_node->data.container_decl.init_arg_expr,

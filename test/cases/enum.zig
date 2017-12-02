@@ -89,8 +89,8 @@ test "enum to int" {
     shouldEqual(Number.Four, 4);
 }
 
-fn shouldEqual(n: Number, expected: usize) {
-    assert(usize(n) == expected);
+fn shouldEqual(n: Number, expected: u3) {
+    assert(u3(n) == expected);
 }
 
 
@@ -98,7 +98,7 @@ test "int to enum" {
     testIntToEnumEval(3);
 }
 fn testIntToEnumEval(x: i32) {
-    assert(IntToEnumNumber(x) == IntToEnumNumber.Three);
+    assert(IntToEnumNumber(u3(x)) == IntToEnumNumber.Three);
 }
 const IntToEnumNumber = enum {
     Zero,
@@ -284,3 +284,11 @@ fn getC(data: &const BitFieldOfEnums) -> C {
     return data.c;
 }
 
+test "casting enum to its tag type" {
+    testCastEnumToTagType(Small2.Two);
+    comptime testCastEnumToTagType(Small2.Two);
+}
+
+fn testCastEnumToTagType(value: Small2) {
+    assert(u2(value) == 1);
+}

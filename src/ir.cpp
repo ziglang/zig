@@ -8911,7 +8911,17 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         wanted_type->id == TypeTableEntryIdEnum &&
         wanted_type->data.enumeration.gen_field_count == 0)
     {
-        return ir_analyze_int_to_enum(ira, source_instr, value, wanted_type);
+        ensure_complete_type(ira->codegen, wanted_type);
+        if (type_is_invalid(wanted_type))
+            return ira->codegen->invalid_instruction;
+        if (actual_type == wanted_type->data.enumeration.tag_type->data.enum_tag.int_type) {
+            return ir_analyze_int_to_enum(ira, source_instr, value, wanted_type);
+        }
+        ir_add_error(ira, source_instr,
+                buf_sprintf("integer to enum cast from '%s' instead of its tag type, '%s'",
+                    buf_ptr(&actual_type->name),
+                    buf_ptr(&wanted_type->data.enumeration.tag_type->data.enum_tag.int_type->name)));
+        return ira->codegen->invalid_instruction;
     }
 
     // explicit cast from enum type with no payload to integer
@@ -8919,7 +8929,17 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         actual_type->id == TypeTableEntryIdEnum &&
         actual_type->data.enumeration.gen_field_count == 0)
     {
-        return ir_analyze_enum_to_int(ira, source_instr, value, wanted_type);
+        ensure_complete_type(ira->codegen, actual_type);
+        if (type_is_invalid(actual_type))
+            return ira->codegen->invalid_instruction;
+        if (wanted_type == actual_type->data.enumeration.tag_type->data.enum_tag.int_type) {
+            return ir_analyze_enum_to_int(ira, source_instr, value, wanted_type);
+        }
+        ir_add_error(ira, source_instr,
+                buf_sprintf("enum to integer cast to '%s' instead of its tag type, '%s'",
+                    buf_ptr(&wanted_type->name),
+                    buf_ptr(&actual_type->data.enumeration.tag_type->data.enum_tag.int_type->name)));
+        return ira->codegen->invalid_instruction;
     }
 
     // explicit cast from undefined to anything
