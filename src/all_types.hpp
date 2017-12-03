@@ -98,7 +98,7 @@ struct ConstParent {
 };
 
 struct ConstEnumValue {
-    uint64_t tag;
+    BigInt tag;
     ConstExprValue *payload;
 };
 
@@ -108,7 +108,7 @@ struct ConstStructValue {
 };
 
 struct ConstUnionValue {
-    uint64_t tag;
+    BigInt tag;
     ConstExprValue *payload;
     ConstParent parent;
 };
@@ -346,14 +346,14 @@ struct TldCompTime {
 struct TypeEnumField {
     Buf *name;
     TypeTableEntry *type_entry;
-    uint32_t value;
+    BigInt value;
     uint32_t gen_index;
 };
 
 struct TypeUnionField {
     Buf *name;
     TypeTableEntry *type_entry;
-    uint32_t value;
+    BigInt value;
     uint32_t gen_index;
 };
 
@@ -780,6 +780,7 @@ struct AstNodeStructField {
     VisibMod visib_mod;
     Buf *name;
     AstNode *type;
+    AstNode *value;
 };
 
 struct AstNodeStringLiteral {
@@ -1014,6 +1015,7 @@ struct TypeTableEntryEnum {
     TypeEnumField *fields;
     bool is_invalid; // true if any fields are invalid
     TypeTableEntry *tag_type;
+    TypeTableEntry *tag_int_type;
     LLVMTypeRef union_type_ref;
 
     ScopeDecls *decls_scope;

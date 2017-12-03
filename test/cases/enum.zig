@@ -137,7 +137,6 @@ const AlignTestEnum = enum {
     B: u64,
 };
 
-const ValueCount0 = enum {};
 const ValueCount1 = enum { I0 };
 const ValueCount2 = enum { I0, I1 };
 const ValueCount256 = enum {
@@ -183,7 +182,6 @@ const ValueCount257 = enum {
 
 test "enum sizes" {
     comptime {
-        assert(@sizeOf(ValueCount0) == 0);
         assert(@sizeOf(ValueCount1) == 0);
         assert(@sizeOf(ValueCount2) == 1);
         assert(@sizeOf(ValueCount256) == 1);
@@ -291,4 +289,58 @@ test "casting enum to its tag type" {
 
 fn testCastEnumToTagType(value: Small2) {
     assert(u2(value) == 1);
+}
+
+const MultipleChoice = enum(u32) {
+    A = 20,
+    B = 40,
+    C = 60,
+    D = 1000,
+};
+
+test "enum with specified tag values" {
+    testEnumWithSpecifiedTagValues(MultipleChoice.C);
+    comptime testEnumWithSpecifiedTagValues(MultipleChoice.C);
+}
+
+fn testEnumWithSpecifiedTagValues(x: MultipleChoice) {
+    assert(u32(x) == 60);
+    assert(1234 == switch (x) {
+        MultipleChoice.A => 1,
+        MultipleChoice.B => 2,
+        MultipleChoice.C => u32(1234),
+        MultipleChoice.D => 4,
+    });
+}
+
+const MultipleChoice2 = enum(u32) {
+    Unspecified1,
+    A = 20,
+    Unspecified2,
+    B = 40,
+    Unspecified3,
+    C = 60,
+    Unspecified4,
+    D = 1000,
+    Unspecified5,
+};
+
+test "enum with specified and unspecified tag values" {
+    testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
+    comptime testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
+}
+
+fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) {
+    assert(u32(x) == 1000);
+    assert(1234 == switch (x) {
+        MultipleChoice2.A => 1,
+        MultipleChoice2.B => 2,
+        MultipleChoice2.C => 3,
+        MultipleChoice2.D => u32(1234),
+        MultipleChoice2.Unspecified1 => 5,
+        MultipleChoice2.Unspecified2 => 6,
+        MultipleChoice2.Unspecified3 => 7,
+        MultipleChoice2.Unspecified4 => 8,
+        MultipleChoice2.Unspecified5 => 9,
+    });
 }

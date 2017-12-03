@@ -2379,7 +2379,7 @@ static AstNode *ast_parse_use(ParseContext *pc, size_t *token_index, VisibMod vi
 /*
 ContainerDecl = option("extern" | "packed") ("struct" | "union" | ("enum" option(GroupedExpression))) "{" many(ContainerMember) "}"
 ContainerMember = (ContainerField | FnDef | GlobalVarDecl)
-ContainerField = Symbol option(":" Expression) ","
+ContainerField = Symbol option(":" PrefixOpExpression option("=" PrefixOpExpression ","
 */
 static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -2414,10 +2414,7 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, 
     AstNode *node = ast_create_node(pc, NodeTypeContainerDecl, first_token);
     node->data.container_decl.layout = layout;
     node->data.container_decl.kind = kind;
-
-    if (kind == ContainerKindEnum || kind == ContainerKindStruct) {
-        node->data.container_decl.init_arg_expr = ast_parse_grouped_expr(pc, token_index, false);
-    }
+    node->data.container_decl.init_arg_expr = ast_parse_grouped_expr(pc, token_index, false);
 
     ast_eat_token(pc, token_index, TokenIdLBrace);
 
@@ -2456,31 +2453,35 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, 
             AstNode *field_node = ast_create_node(pc, NodeTypeStructField, token);
             *token_index += 1;
 
+            node->data.container_decl.fields.append(field_node);
             field_node->data.struct_field.visib_mod = visib_mod;
             field_node->data.struct_field.name = token_buf(token);
 
-            Token *token = &pc->tokens->at(*token_index);
-            if (token->id == TokenIdComma || token->id == TokenIdRBrace) {
-                field_node->data.struct_field.type = ast_create_void_type_node(pc, token);
+            Token *colon_token = &pc->tokens->at(*token_index);
+            if (colon_token->id == TokenIdColon) {
                 *token_index += 1;
-                node->data.container_decl.fields.append(field_node);
-
-                if (token->id == TokenIdRBrace) {
-                    break;
-                }
+                field_node->data.struct_field.type = ast_parse_prefix_op_expr(pc, token_index, true);
             } else {
-                ast_eat_token(pc, token_index, TokenIdColon);
-                field_node->data.struct_field.type = ast_parse_expression(pc, token_index, true);
-                node->data.container_decl.fields.append(field_node);
-
-                Token *token = &pc->tokens->at(*token_index);
-                if (token->id == TokenIdRBrace) {
-                    *token_index += 1;
-                    break;
-                } else {
-                    ast_eat_token(pc, token_index, TokenIdComma);
-                }
+                field_node->data.struct_field.type = ast_create_void_type_node(pc, colon_token);
             }
+            Token *eq_token = &pc->tokens->at(*token_index);
+            if (eq_token->id == TokenIdEq) {
+                *token_index += 1;
+                field_node->data.struct_field.value = ast_parse_prefix_op_expr(pc, token_index, true);
+            }
+
+            Token *next_token = &pc->tokens->at(*token_index);
+            if (next_token->id == TokenIdComma) {
+                *token_index += 1;
+                continue;
+            }
+
+            if (next_token->id == TokenIdRBrace) {
+                *token_index += 1;
+                break;
+            }
+
+            ast_invalid_token_error(pc, next_token);
         } else {
             ast_invalid_token_error(pc, token);
         }
@@ -2812,6 +2813,7 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             break;
         case NodeTypeStructField:
             visit_field(&node->data.struct_field.type, visit, context);
+            visit_field(&node->data.struct_field.value, visit, context);
             break;
         case NodeTypeContainerInitExpr:
             visit_field(&node->data.container_init_expr.type, visit, context);

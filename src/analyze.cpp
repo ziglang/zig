@@ -1390,30 +1390,7 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
         return;
     }
 
-    TypeTableEntry *tag_int_type = get_smallest_unsigned_int_type(g, field_count - 1);
-    if (decl_node->data.container_decl.init_arg_expr != nullptr) {
-        TypeTableEntry *wanted_tag_int_type = analyze_type_expr(g, scope, decl_node->data.container_decl.init_arg_expr);
-        if (type_is_invalid(wanted_tag_int_type)) {
-            enum_type->data.enumeration.is_invalid = true;
-        } else if (wanted_tag_int_type->id != TypeTableEntryIdInt) {
-            enum_type->data.enumeration.is_invalid = true;
-            add_node_error(g, decl_node->data.container_decl.init_arg_expr,
-                buf_sprintf("expected integer, found '%s'", buf_ptr(&wanted_tag_int_type->name)));
-        } else if (wanted_tag_int_type->data.integral.is_signed) {
-            enum_type->data.enumeration.is_invalid = true;
-            add_node_error(g, decl_node->data.container_decl.init_arg_expr,
-                buf_sprintf("expected unsigned integer, found '%s'", buf_ptr(&wanted_tag_int_type->name)));
-        } else if (wanted_tag_int_type->data.integral.bit_count < tag_int_type->data.integral.bit_count) {
-            enum_type->data.enumeration.is_invalid = true;
-            add_node_error(g, decl_node->data.container_decl.init_arg_expr,
-                buf_sprintf("'%s' too small to hold all bits; must be at least '%s'",
-                    buf_ptr(&wanted_tag_int_type->name), buf_ptr(&tag_int_type->name)));
-        } else {
-            tag_int_type = wanted_tag_int_type;
-        }
-    }
-
-
+    TypeTableEntry *tag_int_type = enum_type->data.enumeration.tag_int_type;
     TypeTableEntry *tag_type_entry = create_enum_tag_type(g, enum_type, tag_int_type);
     enum_type->data.enumeration.tag_type = tag_type_entry;
 
@@ -1683,7 +1660,6 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
         TypeTableEntry *field_type = type_struct_field->type_entry;
 
         ensure_complete_type(g, field_type);
-
         if (type_is_invalid(field_type)) {
             struct_type->data.structure.is_invalid = true;
             break;
@@ -2121,6 +2097,18 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
 
     assert(!enum_type->data.enumeration.fields);
     uint32_t field_count = (uint32_t)decl_node->data.container_decl.fields.length;
+    if (field_count == 0) {
+        add_node_error(g, decl_node, buf_sprintf("enums must have 1 or more fields"));
+
+        enum_type->data.enumeration.src_field_count = field_count;
+        enum_type->data.enumeration.fields = nullptr;
+        enum_type->data.enumeration.is_invalid = true;
+        enum_type->data.enumeration.zero_bits_loop_flag = false;
+        enum_type->data.enumeration.gen_field_count = 0;
+        enum_type->data.enumeration.zero_bits_known = true;
+        return;
+    }
+
     enum_type->data.enumeration.src_field_count = field_count;
     enum_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
 
@@ -2128,14 +2116,69 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
 
     Scope *scope = &enum_type->data.enumeration.decls_scope->base;
 
+    HashMap<BigInt, AstNode *, bigint_hash, bigint_eql> occupied_tag_values = {};
+    occupied_tag_values.init(field_count);
+
+    TypeTableEntry *tag_int_type = get_smallest_unsigned_int_type(g, field_count - 1);
+
+    if (decl_node->data.container_decl.init_arg_expr != nullptr) {
+        TypeTableEntry *wanted_tag_int_type = analyze_type_expr(g, scope, decl_node->data.container_decl.init_arg_expr);
+        if (type_is_invalid(wanted_tag_int_type)) {
+            enum_type->data.enumeration.is_invalid = true;
+        } else if (wanted_tag_int_type->id != TypeTableEntryIdInt) {
+            enum_type->data.enumeration.is_invalid = true;
+            add_node_error(g, decl_node->data.container_decl.init_arg_expr,
+                buf_sprintf("expected integer, found '%s'", buf_ptr(&wanted_tag_int_type->name)));
+        } else if (wanted_tag_int_type->data.integral.is_signed) {
+            enum_type->data.enumeration.is_invalid = true;
+            add_node_error(g, decl_node->data.container_decl.init_arg_expr,
+                buf_sprintf("expected unsigned integer, found '%s'", buf_ptr(&wanted_tag_int_type->name)));
+        } else if (wanted_tag_int_type->data.integral.bit_count < tag_int_type->data.integral.bit_count) {
+            enum_type->data.enumeration.is_invalid = true;
+            add_node_error(g, decl_node->data.container_decl.init_arg_expr,
+                buf_sprintf("'%s' too small to hold all bits; must be at least '%s'",
+                    buf_ptr(&wanted_tag_int_type->name), buf_ptr(&tag_int_type->name)));
+        } else {
+            tag_int_type = wanted_tag_int_type;
+        }
+    }
+    enum_type->data.enumeration.tag_int_type = tag_int_type;
+
     uint32_t gen_field_index = 0;
-    for (uint32_t i = 0; i < field_count; i += 1) {
-        AstNode *field_node = decl_node->data.container_decl.fields.at(i);
-        TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
+    for (uint32_t field_i = 0; field_i < field_count; field_i += 1) {
+        AstNode *field_node = decl_node->data.container_decl.fields.at(field_i);
+        TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[field_i];
         type_enum_field->name = field_node->data.struct_field.name;
         TypeTableEntry *field_type = analyze_type_expr(g, scope, field_node->data.struct_field.type);
         type_enum_field->type_entry = field_type;
-        type_enum_field->value = i;
+
+        AstNode *tag_value = field_node->data.struct_field.value;
+
+        // In this first pass we resolve explicit tag values.
+        // In a second pass we will fill in the unspecified ones.
+        if (tag_value != nullptr) {
+            IrInstruction *result_inst = analyze_const_value(g, scope, tag_value, tag_int_type, nullptr);
+            if (result_inst->value.type->id == TypeTableEntryIdInvalid) {
+                enum_type->data.enumeration.is_invalid = true;
+                continue;
+            }
+            assert(result_inst->value.special != ConstValSpecialRuntime);
+            assert(result_inst->value.type->id == TypeTableEntryIdInt);
+            auto entry = occupied_tag_values.put_unique(result_inst->value.data.x_bigint, tag_value);
+            if (entry == nullptr) {
+                bigint_init_bigint(&type_enum_field->value, &result_inst->value.data.x_bigint);
+            } else {
+                Buf *val_buf = buf_alloc();
+                bigint_append_buf(val_buf, &result_inst->value.data.x_bigint, 10);
+
+                ErrorMsg *msg = add_node_error(g, tag_value,
+                        buf_sprintf("enum tag value %s already taken", buf_ptr(val_buf)));
+                add_error_note(g, msg, entry->value,
+                        buf_sprintf("other occurrence here"));
+                enum_type->data.enumeration.is_invalid = true;
+                continue;
+            }
+        }
 
         type_ensure_zero_bits_known(g, field_type);
         if (type_is_invalid(field_type)) {
@@ -2155,6 +2198,34 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
         }
     }
 
+    // Now iterate again and populate the unspecified tag values
+    uint32_t next_maybe_unoccupied_index = 0;
+
+    for (uint32_t field_i = 0; field_i < field_count; field_i += 1) {
+        AstNode *field_node = decl_node->data.container_decl.fields.at(field_i);
+        TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[field_i];
+        AstNode *tag_value = field_node->data.struct_field.value;
+
+        if (tag_value == nullptr) {
+            if (occupied_tag_values.size() == 0) {
+                bigint_init_unsigned(&type_enum_field->value, next_maybe_unoccupied_index);
+                next_maybe_unoccupied_index += 1;
+            } else {
+                BigInt proposed_value;
+                for (;;) {
+                    bigint_init_unsigned(&proposed_value, next_maybe_unoccupied_index);
+                    next_maybe_unoccupied_index += 1;
+                    auto entry = occupied_tag_values.put_unique(proposed_value, field_node);
+                    if (entry != nullptr) {
+                        continue;
+                    }
+                    break;
+                }
+                bigint_init_bigint(&type_enum_field->value, &proposed_value);
+            }
+        }
+    }
+
     enum_type->data.enumeration.zero_bits_loop_flag = false;
     enum_type->data.enumeration.gen_field_count = gen_field_index;
     enum_type->zero_bits = (gen_field_index == 0 && field_count < 2);
@@ -2162,7 +2233,6 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
 
     // also compute abi_alignment
     if (!enum_type->zero_bits) {
-        TypeTableEntry *tag_int_type = get_smallest_unsigned_int_type(g, field_count);
         uint32_t align_of_tag_in_bytes = LLVMABIAlignmentOfType(g->target_data_ref, tag_int_type->type_ref);
         enum_type->data.enumeration.abi_alignment = max(align_of_tag_in_bytes, biggest_align_bytes);
     }
@@ -2213,6 +2283,11 @@ static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type) {
         type_struct_field->type_entry = field_type;
         type_struct_field->src_index = i;
         type_struct_field->gen_index = SIZE_MAX;
+
+        if (field_node->data.struct_field.value != nullptr) {
+            add_node_error(g, field_node->data.struct_field.value,
+                    buf_sprintf("enums, not structs, support field assignment"));
+        }
 
         type_ensure_zero_bits_known(g, field_type);
         if (type_is_invalid(field_type)) {
@@ -2277,7 +2352,14 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
         type_union_field->name = field_node->data.struct_field.name;
         TypeTableEntry *field_type = analyze_type_expr(g, scope, field_node->data.struct_field.type);
         type_union_field->type_entry = field_type;
-        type_union_field->value = i;
+
+        // TODO look for enum arg to union
+        bigint_init_unsigned(&type_union_field->value, i);
+
+        if (field_node->data.struct_field.value != nullptr) {
+            add_node_error(g, field_node->data.struct_field.value,
+                    buf_sprintf("enums, not unions, support field assignment"));
+        }
 
         type_ensure_zero_bits_known(g, field_type);
         if (type_is_invalid(field_type)) {
@@ -3189,6 +3271,29 @@ TypeUnionField *find_union_type_field(TypeTableEntry *type_entry, Buf *name) {
     }
     return nullptr;
 }
+
+static TypeUnionField *find_union_field_by_tag(TypeTableEntry *type_entry, const BigInt *tag) {
+    assert(type_entry->id == TypeTableEntryIdUnion);
+    assert(type_entry->data.unionation.complete);
+    for (uint32_t i = 0; i < type_entry->data.unionation.src_field_count; i += 1) {
+        TypeUnionField *field = &type_entry->data.unionation.fields[i];
+        if (bigint_cmp(&field->value, tag) == CmpEQ) {
+            return field;
+        }
+    }
+    return nullptr;
+}
+
+TypeEnumField *find_enum_field_by_tag(TypeTableEntry *enum_type, const BigInt *tag) {
+    for (uint32_t i = 0; i < enum_type->data.enumeration.src_field_count; i += 1) {
+        TypeEnumField *field = &enum_type->data.enumeration.fields[i];
+        if (bigint_cmp(&field->value, tag) == CmpEQ) {
+            return field;
+        }
+    }
+    return nullptr;
+}
+
 
 static bool is_container(TypeTableEntry *type_entry) {
     switch (type_entry->id) {
@@ -4178,6 +4283,18 @@ ConstExprValue *create_const_c_str_lit(CodeGen *g, Buf *str) {
     return const_val;
 }
 
+void init_const_bigint(ConstExprValue *const_val, TypeTableEntry *type, const BigInt *bigint) {
+    const_val->special = ConstValSpecialStatic;
+    const_val->type = type;
+    bigint_init_bigint(&const_val->data.x_bigint, bigint);
+}
+
+ConstExprValue *create_const_bigint(TypeTableEntry *type, const BigInt *bigint) {
+    ConstExprValue *const_val = create_const_vals(1);
+    init_const_bigint(const_val, type, bigint);
+    return const_val;
+}
+
 void init_const_unsigned_negative(ConstExprValue *const_val, TypeTableEntry *type, uint64_t x, bool negative) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = type;
@@ -4241,13 +4358,13 @@ ConstExprValue *create_const_float(TypeTableEntry *type, double value) {
     return const_val;
 }
 
-void init_const_enum_tag(ConstExprValue *const_val, TypeTableEntry *type, uint64_t tag) {
+void init_const_enum_tag(ConstExprValue *const_val, TypeTableEntry *type, const BigInt *tag) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = type;
-    const_val->data.x_enum.tag = tag;
+    bigint_init_bigint(&const_val->data.x_enum.tag, tag);
 }
 
-ConstExprValue *create_const_enum_tag(TypeTableEntry *type, uint64_t tag) {
+ConstExprValue *create_const_enum_tag(TypeTableEntry *type, const BigInt *tag) {
     ConstExprValue *const_val = create_const_vals(1);
     init_const_enum_tag(const_val, type, tag);
     return const_val;
@@ -4450,20 +4567,35 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
     switch (a->type->id) {
         case TypeTableEntryIdOpaque:
             zig_unreachable();
-        case TypeTableEntryIdEnum:
-            {
-                ConstEnumValue *enum1 = &a->data.x_enum;
-                ConstEnumValue *enum2 = &b->data.x_enum;
-                if (enum1->tag == enum2->tag) {
-                    TypeEnumField *enum_field = &a->type->data.enumeration.fields[enum1->tag];
-                    if (type_has_bits(enum_field->type_entry)) {
-                        zig_panic("TODO const expr analyze enum special value for equality");
-                    } else {
-                        return true;
-                    }
+        case TypeTableEntryIdEnum: {
+            ConstEnumValue *enum1 = &a->data.x_enum;
+            ConstEnumValue *enum2 = &b->data.x_enum;
+            if (bigint_cmp(&enum1->tag, &enum2->tag) == CmpEQ) {
+                TypeEnumField *field = find_enum_field_by_tag(a->type, &enum1->tag);
+                assert(field != nullptr);
+                if (type_has_bits(field->type_entry)) {
+                    zig_panic("TODO const expr analyze enum field value for equality");
+                } else {
+                    return true;
                 }
-                return false;
             }
+            return false;
+        }
+        case TypeTableEntryIdUnion: {
+            ConstUnionValue *union1 = &a->data.x_union;
+            ConstUnionValue *union2 = &b->data.x_union;
+
+            if (bigint_cmp(&union1->tag, &union2->tag) == CmpEQ) {
+                TypeUnionField *field = find_union_field_by_tag(a->type, &union1->tag);
+                assert(field != nullptr);
+                if (type_has_bits(field->type_entry)) {
+                    zig_panic("TODO const expr analyze union field value for equality");
+                } else {
+                    return true;
+                }
+            }
+            return false;
+        }
         case TypeTableEntryIdMetaType:
             return a->data.x_type == b->data.x_type;
         case TypeTableEntryIdVoid:
@@ -4544,8 +4676,6 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
                     return false;
             }
             return true;
-        case TypeTableEntryIdUnion:
-            zig_panic("TODO");
         case TypeTableEntryIdUndefLit:
             zig_panic("TODO");
         case TypeTableEntryIdNullLit:
@@ -4855,11 +4985,10 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
 }
 
 TypeTableEntry *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits) {
-    assert(size_in_bits > 0);
-
     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
     entry->is_copyable = true;
-    entry->type_ref = LLVMIntType(size_in_bits);
+    entry->type_ref = (size_in_bits == 0) ? LLVMVoidType() : LLVMIntType(size_in_bits);
+    entry->zero_bits = (size_in_bits == 0);
 
     const char u_or_i = is_signed ? 'i' : 'u';
     buf_resize(&entry->name, 0);
@@ -4880,7 +5009,8 @@ TypeTableEntry *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits)
         }
     }
 
-    uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref);
+    uint64_t debug_size_in_bits = (size_in_bits == 0) ?
+        0 : (8*LLVMStoreSizeOfType(g->target_data_ref, entry->type_ref));
     entry->di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name), debug_size_in_bits, dwarf_tag);
     entry->data.integral.is_signed = is_signed;
     entry->data.integral.bit_count = size_in_bits;

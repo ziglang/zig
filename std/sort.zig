@@ -16,7 +16,7 @@ pub fn sort_stable(comptime T: type, array: []T, comptime cmp: fn(a: &const T, b
     }}
 }
 
-/// Unstable sort using O(n) stack space. Currentl implemented as quicksort.
+/// Unstable sort using O(n) stack space. Currently implemented as quicksort.
 pub fn sort(comptime T: type, array: []T, comptime cmp: fn(a: &const T, b: &const T)->Cmp) {
     if (array.len > 0) {
         quicksort(T, array, 0, array.len - 1, cmp);

@@ -2307,11 +2307,11 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("@memberType enum out of bounds",
         \\comptime {
-        \\    _ = @memberType(Foo, 0);
+        \\    _ = @memberType(Foo, 1);
         \\}
-        \\const Foo = enum {};
+        \\const Foo = enum {A,};
     ,
-        ".tmp_source.zig:2:26: error: member index 0 out of bounds; 'Foo' has 0 members");
+        ".tmp_source.zig:2:26: error: member index 1 out of bounds; 'Foo' has 1 members");
 
     cases.add("@memberName on unsupported type",
         \\comptime {
@@ -2330,11 +2330,11 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("@memberName enum out of bounds",
         \\comptime {
-        \\    _ = @memberName(Foo, 0);
+        \\    _ = @memberName(Foo, 1);
         \\}
-        \\const Foo = enum {};
+        \\const Foo = enum {A,};
     ,
-        ".tmp_source.zig:2:26: error: member index 0 out of bounds; 'Foo' has 0 members");
+        ".tmp_source.zig:2:26: error: member index 1 out of bounds; 'Foo' has 1 members");
 
     cases.add("calling var args extern function, passing array instead of pointer",
         \\export fn entry() {
@@ -2447,4 +2447,47 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:1:19: error: expected unsigned integer, found 'i2'");
+
+    cases.add("struct fields with value assignments",
+        \\const MultipleChoice = struct {
+        \\    A: i32 = 20,
+        \\};
+        \\export fn entry() {
+        \\        var x: MultipleChoice = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:2:14: error: enums, not structs, support field assignment");
+
+    cases.add("union fields with value assignments",
+        \\const MultipleChoice = union {
+        \\    A: i32 = 20,
+        \\};
+        \\export fn entry() {
+        \\        var x: MultipleChoice = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:2:14: error: enums, not unions, support field assignment");
+
+    cases.add("enum with 0 fields",
+        \\const Foo = enum {};
+        \\export fn entry() -> usize {
+        \\    return @sizeOf(Foo);
+        \\}
+    ,
+        ".tmp_source.zig:1:13: error: enums must have 1 or more fields");
+
+    cases.add("enum value already taken",
+        \\const MultipleChoice = enum(u32) {
+        \\    A = 20,
+        \\    B = 40,
+        \\    C = 60,
+        \\    D = 1000,
+        \\    E = 60,
+        \\};
+        \\export fn entry() {
+        \\    var x = MultipleChoice.C;
+        \\}
+    ,
+        ".tmp_source.zig:6:9: error: enum tag value 60 already taken",
+        ".tmp_source.zig:4:9: note: other occurrence here");
 }

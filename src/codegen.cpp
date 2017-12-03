@@ -1362,8 +1362,12 @@ static LLVMValueRef bigint_to_llvm_const(LLVMTypeRef type_ref, BigInt *bigint) {
     if (bigint->digit_count == 0) {
         return LLVMConstNull(type_ref);
     }
-    LLVMValueRef unsigned_val = LLVMConstIntOfArbitraryPrecision(type_ref,
-            bigint->digit_count, bigint_ptr(bigint));
+    LLVMValueRef unsigned_val;
+    if (bigint->digit_count == 1) {
+        unsigned_val = LLVMConstInt(type_ref, bigint_ptr(bigint)[0], false);
+    } else {
+        unsigned_val = LLVMConstIntOfArbitraryPrecision(type_ref, bigint->digit_count, bigint_ptr(bigint));
+    }
     if (bigint->is_negative) {
         return LLVMConstNeg(unsigned_val);
     } else {
@@ -2420,9 +2424,10 @@ static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, IrExecutable *executab
     if (ir_want_debug_safety(g, &instruction->base)) {
         LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, union_ptr, union_type->data.unionation.gen_tag_index, "");
         LLVMValueRef tag_value = gen_load_untyped(g, tag_field_ptr, 0, false, "");
-        LLVMValueRef expected_tag_value = LLVMConstInt(union_type->data.unionation.tag_type->type_ref,
-                field->value, false);
 
+
+        LLVMValueRef expected_tag_value = bigint_to_llvm_const(union_type->data.unionation.tag_type->type_ref,
+                &field->value);
         LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnionCheckOk");
         LLVMBasicBlockRef bad_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnionCheckFail");
         LLVMValueRef ok_val = LLVMBuildICmp(g->builder, LLVMIntEQ, tag_value, expected_tag_value, "");
@@ -3364,9 +3369,9 @@ static LLVMValueRef ir_render_enum_tag(CodeGen *g, IrExecutable *executable, IrI
 
 static LLVMValueRef ir_render_init_enum(CodeGen *g, IrExecutable *executable, IrInstructionInitEnum *instruction) {
     TypeTableEntry *enum_type = instruction->enum_type;
-    uint32_t value = instruction->field->value;
     LLVMTypeRef tag_type_ref = enum_type->data.enumeration.tag_type->type_ref;
-    LLVMValueRef tag_value = LLVMConstInt(tag_type_ref, value, false);
+
+    LLVMValueRef tag_value = bigint_to_llvm_const(tag_type_ref, &instruction->field->value);
 
     if (enum_type->data.enumeration.gen_field_count == 0)
         return tag_value;
@@ -3429,8 +3434,9 @@ static LLVMValueRef ir_render_union_init(CodeGen *g, IrExecutable *executable, I
     if (union_type->data.unionation.gen_tag_index != SIZE_MAX) {
         LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr,
                 union_type->data.unionation.gen_tag_index, "");
-        LLVMValueRef tag_value = LLVMConstInt(union_type->data.unionation.tag_type->type_ref,
-                type_union_field->value, false);
+
+        LLVMValueRef tag_value = bigint_to_llvm_const(union_type->data.unionation.tag_type->type_ref,
+                &type_union_field->value);
         gen_store_untyped(g, tag_value, tag_field_ptr, 0, false);
 
         uncasted_union_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr,
@@ -4039,7 +4045,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                     return union_value_ref;
                 }
 
-                LLVMValueRef tag_value = LLVMConstInt(type_entry->data.unionation.tag_type->type_ref, const_val->data.x_union.tag, false);
+                LLVMValueRef tag_value = bigint_to_llvm_const(type_entry->data.unionation.tag_type->type_ref,
+                        &const_val->data.x_union.tag);
 
                 LLVMValueRef fields[2];
                 fields[type_entry->data.unionation.gen_union_index] = union_value_ref;
@@ -4055,13 +4062,13 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
         case TypeTableEntryIdEnum:
             {
                 LLVMTypeRef tag_type_ref = type_entry->data.enumeration.tag_type->type_ref;
-                LLVMValueRef tag_value = LLVMConstInt(tag_type_ref, const_val->data.x_enum.tag, false);
+                LLVMValueRef tag_value = bigint_to_llvm_const(tag_type_ref, &const_val->data.x_enum.tag);
                 if (type_entry->data.enumeration.gen_field_count == 0) {
                     return tag_value;
                 } else {
                     LLVMTypeRef union_type_ref = type_entry->data.enumeration.union_type_ref;
-                    TypeEnumField *enum_field = &type_entry->data.enumeration.fields[const_val->data.x_enum.tag];
-                    assert(enum_field->value == const_val->data.x_enum.tag);
+                    TypeEnumField *enum_field = find_enum_field_by_tag(type_entry, &const_val->data.x_enum.tag);
+                    assert(bigint_cmp(&enum_field->value, &const_val->data.x_enum.tag) == CmpEQ);
                     LLVMValueRef union_value;
 
                     bool make_unnamed_struct;

@@ -1224,3 +1224,35 @@ Cmp bigint_cmp_zero(const BigInt *op) {
     }
     return op->is_negative ? CmpLT : CmpGT;
 }
+
+uint32_t bigint_hash(BigInt x) {
+    if (x.digit_count == 0) {
+        return 0;
+    } else {
+        return bigint_ptr(&x)[0];
+    }
+}
+
+bool bigint_eql(BigInt a, BigInt b) {
+    return bigint_cmp(&a, &b) == CmpEQ;
+}
+
+void bigint_incr(BigInt *x) {
+    if (x->digit_count == 0) {
+        bigint_init_unsigned(x, 1);
+        return;
+    }
+    
+    if (x->digit_count == 1 && x->data.digit != UINT64_MAX) {
+        x->data.digit += 1;
+        return;
+    }
+
+    BigInt copy;
+    bigint_init_bigint(&copy, x);
+
+    BigInt one;
+    bigint_init_unsigned(&one, 1);
+
+    bigint_add(x, &copy, &one);
+}

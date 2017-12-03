@@ -5709,7 +5709,7 @@ VariableDeclaration = option("comptime") ("var" | "const") Symbol option(":" Typ
 
 ContainerMember = (ContainerField | FnDef | GlobalVarDecl)
 
-ContainerField = Symbol option(":" Expression) ","
+ContainerField = Symbol option(":" PrefixOpExpression option("=" PrefixOpExpression ","
 
 UseDecl = "use" Expression ";"
 

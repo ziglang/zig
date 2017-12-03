@@ -64,6 +64,8 @@ TypeStructField *find_struct_type_field(TypeTableEntry *type_entry, Buf *name);
 ScopeDecls *get_container_scope(TypeTableEntry *type_entry);
 TypeEnumField *find_enum_type_field(TypeTableEntry *enum_type, Buf *name);
 TypeUnionField *find_union_type_field(TypeTableEntry *type_entry, Buf *name);
+TypeEnumField *find_enum_field_by_tag(TypeTableEntry *enum_type, const BigInt *tag);
+
 bool is_container_ref(TypeTableEntry *type_entry);
 void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node);
 void scan_import(CodeGen *g, ImportTableEntry *import);
@@ -109,6 +111,9 @@ ConstExprValue *create_const_str_lit(CodeGen *g, Buf *str);
 void init_const_c_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *c_str);
 ConstExprValue *create_const_c_str_lit(CodeGen *g, Buf *c_str);
 
+void init_const_bigint(ConstExprValue *const_val, TypeTableEntry *type, const BigInt *bigint);
+ConstExprValue *create_const_bigint(TypeTableEntry *type, const BigInt *bigint);
+
 void init_const_unsigned_negative(ConstExprValue *const_val, TypeTableEntry *type, uint64_t x, bool negative);
 ConstExprValue *create_const_unsigned_negative(TypeTableEntry *type, uint64_t x, bool negative);
 
@@ -121,8 +126,8 @@ ConstExprValue *create_const_usize(CodeGen *g, uint64_t x);
 void init_const_float(ConstExprValue *const_val, TypeTableEntry *type, double value);
 ConstExprValue *create_const_float(TypeTableEntry *type, double value);
 
-void init_const_enum_tag(ConstExprValue *const_val, TypeTableEntry *type, uint64_t tag);
-ConstExprValue *create_const_enum_tag(TypeTableEntry *type, uint64_t tag);
+void init_const_enum_tag(ConstExprValue *const_val, TypeTableEntry *type, const BigInt *tag);
+ConstExprValue *create_const_enum_tag(TypeTableEntry *type, const BigInt *tag);
 
 void init_const_bool(CodeGen *g, ConstExprValue *const_val, bool value);
 ConstExprValue *create_const_bool(CodeGen *g, bool value);

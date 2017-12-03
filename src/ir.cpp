@@ -8387,7 +8387,7 @@ static IrInstruction *ir_analyze_enum_to_int(IrAnalyze *ira, IrInstruction *sour
             return ira->codegen->invalid_instruction;
         IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
                 source_instr->source_node, wanted_type);
-        init_const_unsigned_negative(&result->value, wanted_type, val->data.x_enum.tag, false);
+        init_const_bigint(&result->value, wanted_type, &val->data.x_enum.tag);
         return result;
     }
 
@@ -8469,7 +8469,7 @@ static IrInstruction *ir_analyze_int_to_enum(IrAnalyze *ira, IrInstruction *sour
 
         IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
                 source_instr->source_node, wanted_type);
-        result->value.data.x_enum.tag = bigint_as_unsigned(&val->data.x_bigint);
+        bigint_init_bigint(&result->value.data.x_enum.tag, &val->data.x_bigint);
         return result;
     }
 
@@ -9148,7 +9148,7 @@ static bool ir_resolve_atomic_order(IrAnalyze *ira, IrInstruction *value, Atomic
     if (!const_val)
         return false;
 
-    *out = (AtomicOrder)const_val->data.x_enum.tag;
+    *out = (AtomicOrder)bigint_as_unsigned(&const_val->data.x_enum.tag);
     return true;
 }
 
@@ -9168,7 +9168,27 @@ static bool ir_resolve_global_linkage(IrAnalyze *ira, IrInstruction *value, Glob
     if (!const_val)
         return false;
 
-    *out = (GlobalLinkageId)const_val->data.x_enum.tag;
+    *out = (GlobalLinkageId)bigint_as_unsigned(&const_val->data.x_enum.tag);
+    return true;
+}
+
+static bool ir_resolve_float_mode(IrAnalyze *ira, IrInstruction *value, FloatMode *out) {
+    if (type_is_invalid(value->value.type))
+        return false;
+
+    ConstExprValue *float_mode_val = get_builtin_value(ira->codegen, "FloatMode");
+    assert(float_mode_val->type->id == TypeTableEntryIdMetaType);
+    TypeTableEntry *float_mode_type = float_mode_val->data.x_type;
+
+    IrInstruction *casted_value = ir_implicit_cast(ira, value, float_mode_type);
+    if (type_is_invalid(casted_value->value.type))
+        return false;
+
+    ConstExprValue *const_val = ir_resolve_const(ira, casted_value, UndefBad);
+    if (!const_val)
+        return false;
+
+    *out = (FloatMode)bigint_as_unsigned(&const_val->data.x_enum.tag);
     return true;
 }
 
@@ -11825,13 +11845,13 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
                         bool ptr_is_const = true;
                         bool ptr_is_volatile = false;
                         return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
-                                create_const_enum_tag(child_type, field->value), child_type,
+                                create_const_enum_tag(child_type, &field->value), child_type,
                                 ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile);
                     } else {
                         bool ptr_is_const = true;
                         bool ptr_is_volatile = false;
                         return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
-                            create_const_unsigned_negative(child_type->data.enumeration.tag_type, field->value, false),
+                            create_const_bigint(child_type->data.enumeration.tag_type, &field->value),
                             child_type->data.enumeration.tag_type,
                             ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile);
                     }
@@ -12420,21 +12440,11 @@ static TypeTableEntry *ir_analyze_instruction_set_float_mode(IrAnalyze *ira,
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    ConstExprValue *float_mode_val = get_builtin_value(ira->codegen, "FloatMode");
-    assert(float_mode_val->type->id == TypeTableEntryIdMetaType);
-    TypeTableEntry *float_mode_enum_type = float_mode_val->data.x_type;
-
     IrInstruction *float_mode_value = instruction->mode_value->other;
-    if (type_is_invalid(float_mode_value->value.type))
-        return ira->codegen->builtin_types.entry_invalid;
-    IrInstruction *casted_value = ir_implicit_cast(ira, float_mode_value, float_mode_enum_type);
-    if (type_is_invalid(casted_value->value.type))
-        return ira->codegen->builtin_types.entry_invalid;
-    ConstExprValue *mode_val = ir_resolve_const(ira, casted_value, UndefBad);
-    if (!mode_val)
-        return ira->codegen->builtin_types.entry_invalid;
 
-    bool want_fast_math = (mode_val->data.x_enum.tag == FloatModeOptimized);
+    FloatMode float_mode_scalar;
+    if (!ir_resolve_float_mode(ira, float_mode_value, &float_mode_scalar))
+        return ira->codegen->builtin_types.entry_invalid;
 
     AstNode *source_node = instruction->base.source_node;
     if (*fast_math_set_node_ptr) {
@@ -12444,7 +12454,7 @@ static TypeTableEntry *ir_analyze_instruction_set_float_mode(IrAnalyze *ira,
         return ira->codegen->builtin_types.entry_invalid;
     }
     *fast_math_set_node_ptr = source_node;
-    *fast_math_off_ptr = !want_fast_math;
+    *fast_math_off_ptr = (float_mode_scalar == FloatModeStrict);
 
     ir_build_const_from(ira, &instruction->base);
     return ira->codegen->builtin_types.entry_void;
@@ -12835,7 +12845,7 @@ static IrInstruction *ir_analyze_enum_tag(IrAnalyze *ira, IrInstruction *source_
                 source_instr->scope, source_instr->source_node);
         const_instruction->base.value.type = tag_type;
         const_instruction->base.value.special = ConstValSpecialStatic;
-        bigint_init_unsigned(&const_instruction->base.value.data.x_bigint, val->data.x_enum.tag);
+        bigint_init_bigint(&const_instruction->base.value.data.x_bigint, &val->data.x_enum.tag);
         return &const_instruction->base;
     }
 
@@ -13005,7 +13015,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
                 assert(tag_type != nullptr);
                 if (pointee_val) {
                     ConstExprValue *out_val = ir_build_const_from(ira, &switch_target_instruction->base);
-                    bigint_init_unsigned(&out_val->data.x_bigint, pointee_val->data.x_enum.tag);
+                    bigint_init_bigint(&out_val->data.x_bigint, &pointee_val->data.x_enum.tag);
                     return tag_type;
                 }
 
@@ -13056,9 +13066,9 @@ static TypeTableEntry *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstr
 
         TypeEnumField *field;
         if (prong_value->value.type->id == TypeTableEntryIdEnumTag) {
-            field = &target_type->data.enumeration.fields[bigint_as_unsigned(&prong_val->data.x_bigint)];
+            field = find_enum_field_by_tag(target_type, &prong_val->data.x_bigint);
         } else if (prong_value->value.type->id == TypeTableEntryIdEnum) {
-            field = &target_type->data.enumeration.fields[prong_val->data.x_enum.tag];
+            field = find_enum_field_by_tag(target_type, &prong_val->data.x_enum.tag);
         } else {
             zig_unreachable();
         }
@@ -13503,8 +13513,8 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
 
         TypeTableEntry *enum_type = container_type_value->value.type->data.enum_tag.enum_type;
 
-        uint64_t tag_uint = bigint_as_unsigned(&tag_value->data.x_bigint);
-        TypeEnumField *field = &enum_type->data.enumeration.fields[tag_uint];
+        TypeEnumField *field = find_enum_field_by_tag(enum_type, &tag_value->data.x_bigint);
+        assert(field != nullptr);
         TypeTableEntry *this_field_type = field->type_entry;
 
         IrInstruction *init_value = instruction->items[0]->other;
@@ -13520,7 +13530,7 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
             if (!init_val)
                 return ira->codegen->builtin_types.entry_invalid;
             ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-            out_val->data.x_enum.tag = tag_uint;
+            bigint_init_bigint(&out_val->data.x_enum.tag, &tag_value->data.x_bigint);
             out_val->data.x_enum.payload = init_val;
             return enum_type;
         }
@@ -13859,7 +13869,7 @@ static TypeTableEntry *ir_analyze_instruction_type_id(IrAnalyze *ira,
     TypeTableEntry *result_type = var_value->data.x_type;
 
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-    out_val->data.x_enum.tag = type_id_index(type_entry->id);
+    bigint_init_unsigned(&out_val->data.x_enum.tag, type_id_index(type_entry->id));
     return result_type;
 }
 
@@ -15117,7 +15127,9 @@ static TypeTableEntry *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira
 
     if (switch_type->id == TypeTableEntryIdEnumTag) {
         TypeTableEntry *enum_type = switch_type->data.enum_tag.enum_type;
-        AstNode **field_prev_uses = allocate<AstNode *>(enum_type->data.enumeration.src_field_count);
+        HashMap<BigInt, AstNode *, bigint_hash, bigint_eql> field_prev_uses = {};
+        field_prev_uses.init(enum_type->data.enumeration.src_field_count);
+
         for (size_t range_i = 0; range_i < instruction->range_count; range_i += 1) {
             IrInstructionCheckSwitchProngsRange *range = &instruction->ranges[range_i];
 
@@ -15129,41 +15141,52 @@ static TypeTableEntry *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira
             if (type_is_invalid(end_value->value.type))
                 return ira->codegen->builtin_types.entry_invalid;
 
-            size_t start_index;
-            size_t end_index;
+            BigInt start_index;
+            BigInt end_index;
             if (start_value->value.type->id == TypeTableEntryIdEnumTag) {
-                start_index = bigint_as_unsigned(&start_value->value.data.x_bigint);
+                bigint_init_bigint(&start_index, &start_value->value.data.x_bigint);
             } else if (start_value->value.type->id == TypeTableEntryIdEnum) {
-                start_index = start_value->value.data.x_enum.tag;
+                bigint_init_bigint(&start_index, &start_value->value.data.x_enum.tag);
             } else {
                 zig_unreachable();
             }
             if (end_value->value.type->id == TypeTableEntryIdEnumTag) {
-                end_index = bigint_as_unsigned(&end_value->value.data.x_bigint);
+                bigint_init_bigint(&end_index, &end_value->value.data.x_bigint);
             } else if (end_value->value.type->id == TypeTableEntryIdEnum) {
-                end_index = end_value->value.data.x_enum.tag;
+                bigint_init_bigint(&end_index, &end_value->value.data.x_enum.tag);
             } else {
                 zig_unreachable();
             }
 
-            for (size_t field_index = start_index; field_index <= end_index; field_index += 1) {
-                AstNode *prev_node = field_prev_uses[field_index];
-                if (prev_node != nullptr) {
-                    TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[field_index];
+            BigInt field_index;
+            bigint_init_bigint(&field_index, &start_index);
+            for (;;) {
+                Cmp cmp = bigint_cmp(&field_index, &end_index);
+                if (cmp == CmpGT) {
+                    break;
+                }
+                auto entry = field_prev_uses.put_unique(field_index, start_value->source_node);
+                if (entry) {
+                    AstNode *prev_node = entry->value;
+                    TypeEnumField *enum_field = find_enum_field_by_tag(enum_type, &field_index);
+                    assert(enum_field != nullptr);
                     ErrorMsg *msg = ir_add_error(ira, start_value,
                         buf_sprintf("duplicate switch value: '%s.%s'", buf_ptr(&enum_type->name),
-                            buf_ptr(type_enum_field->name)));
+                            buf_ptr(enum_field->name)));
                     add_error_note(ira->codegen, msg, prev_node, buf_sprintf("other value is here"));
                 }
-                field_prev_uses[field_index] = start_value->source_node;
+                bigint_incr(&field_index);
             }
         }
         if (!instruction->have_else_prong) {
             for (uint32_t i = 0; i < enum_type->data.enumeration.src_field_count; i += 1) {
-                if (field_prev_uses[i] == nullptr) {
+                TypeEnumField *enum_field = &enum_type->data.enumeration.fields[i];
+
+                auto entry = field_prev_uses.maybe_get(enum_field->value);
+                if (!entry) {
                     ir_add_error(ira, &instruction->base,
                         buf_sprintf("enumeration value '%s.%s' not handled in switch", buf_ptr(&enum_type->name),
-                            buf_ptr(enum_type->data.enumeration.fields[i].name)));
+                            buf_ptr(enum_field->name)));
                 }
             }
         }

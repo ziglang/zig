@@ -677,6 +677,10 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                         fprintf(ar->f, ": ");
                         render_node_grouped(ar, field_node->data.struct_field.type);
                     }
+                    if (field_node->data.struct_field.value != nullptr) {
+                        fprintf(ar->f, "= ");
+                        render_node_grouped(ar, field_node->data.struct_field.value);
+                    }
                     fprintf(ar->f, ",\n");
                 }
 
