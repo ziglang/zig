@@ -931,6 +931,7 @@ int os_self_exe_path(Buf *out_path) {
 #define VT_GREEN "\x1b[32;1m"
 #define VT_CYAN "\x1b[36;1m"
 #define VT_WHITE "\x1b[37;1m"
+#define VT_BOLD "\x1b[0;1m"
 #define VT_RESET "\x1b[0m"
 
 static void set_color_posix(TermColor color) {
@@ -946,6 +947,9 @@ static void set_color_posix(TermColor color) {
             break;
         case TermColorWhite:
             fprintf(stderr, VT_WHITE);
+            break;
+        case TermColorBold:
+            fprintf(stderr, VT_BOLD);
             break;
         case TermColorReset:
             fprintf(stderr, VT_RESET);
@@ -989,6 +993,7 @@ void os_stderr_set_color(TermColor color) {
             SetConsoleTextAttribute(stderr_handle, FOREGROUND_GREEN|FOREGROUND_BLUE|FOREGROUND_INTENSITY);
             break;
         case TermColorWhite:
+        case TermColorBold:
             SetConsoleTextAttribute(stderr_handle,
                 FOREGROUND_RED|FOREGROUND_GREEN|FOREGROUND_BLUE|FOREGROUND_INTENSITY);
             break;
