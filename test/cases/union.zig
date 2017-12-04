@@ -166,3 +166,10 @@ const PackedPtrOrInt = packed union {
 test "extern union size" {
     comptime assert(@sizeOf(PackedPtrOrInt) == 8);
 }
+
+const ZeroBits = union {
+    OnlyField: void,
+};
+test "union with only 1 field which is void should be zero bits" {
+    comptime assert(@sizeOf(ZeroBits) == 0);
+}
