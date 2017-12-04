@@ -939,6 +939,7 @@ start_over:
 }
 
 pub const Dir = struct {
+    // See man getdents
     fd: i32,
     allocator: &Allocator,
     buf: []u8,
@@ -981,7 +982,7 @@ pub const Dir = struct {
 
     pub fn close(self: &Dir) {
         self.allocator.free(self.buf);
-        close(self.fd);
+        os.close(self.fd);
     }
 
     /// Memory such as file names referenced in this returned entry becomes invalid
@@ -1013,7 +1014,7 @@ pub const Dir = struct {
                 break;
             }
         }
-        const linux_entry = @ptrCast(&LinuxEntry, &self.buf[self.index]);
+        const linux_entry = @ptrCast(& align(1) LinuxEntry, &self.buf[self.index]);
         const next_index = self.index + linux_entry.d_reclen;
         self.index = next_index;
 

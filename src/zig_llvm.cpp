@@ -793,7 +793,7 @@ bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_
             zig_unreachable();
 
         case ZigLLVM_COFF:
-            return lld::coff::link(array_ref_args, false);
+            return lld::coff::link(array_ref_args, false, diag);
 
         case ZigLLVM_ELF:
             return lld::elf::link(array_ref_args, false, diag);

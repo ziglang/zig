@@ -4,6 +4,19 @@ const math = @import("math/index.zig");
 
 pub const Cmp = math.Cmp;
 
+/// Stable sort using O(1) space. Currently implemented as insertion sort.
+pub fn sort_stable(comptime T: type, array: []T, comptime cmp: fn(a: &const T, b: &const T)->Cmp) {
+    {var i: usize = 1; while (i < array.len) : (i += 1) {
+        const x = array[i];
+        var j: usize = i;
+        while (j > 0 and cmp(array[j - 1], x) == Cmp.Greater) : (j -= 1) {
+            array[j] = array[j - 1];
+        }
+        array[j] = x;
+    }}
+}
+
+/// Unstable sort using O(n) stack space. Currently implemented as quicksort.
 pub fn sort(comptime T: type, array: []T, comptime cmp: fn(a: &const T, b: &const T)->Cmp) {
     if (array.len > 0) {
         quicksort(T, array, 0, array.len - 1, cmp);
@@ -57,6 +70,63 @@ fn reverse(was: Cmp) -> Cmp {
 
 // ---------------------------------------
 // tests
+
+test "stable sort" {
+    testStableSort();
+    // TODO: uncomment this after https://github.com/zig-lang/zig/issues/639
+    //comptime testStableSort();
+}
+fn testStableSort() {
+    var expected = []IdAndValue {
+        IdAndValue{.id = 0, .value = 0},
+        IdAndValue{.id = 1, .value = 0},
+        IdAndValue{.id = 2, .value = 0},
+        IdAndValue{.id = 0, .value = 1},
+        IdAndValue{.id = 1, .value = 1},
+        IdAndValue{.id = 2, .value = 1},
+        IdAndValue{.id = 0, .value = 2},
+        IdAndValue{.id = 1, .value = 2},
+        IdAndValue{.id = 2, .value = 2},
+    };
+    var cases = [][9]IdAndValue {
+        []IdAndValue {
+            IdAndValue{.id = 0, .value = 0},
+            IdAndValue{.id = 0, .value = 1},
+            IdAndValue{.id = 0, .value = 2},
+            IdAndValue{.id = 1, .value = 0},
+            IdAndValue{.id = 1, .value = 1},
+            IdAndValue{.id = 1, .value = 2},
+            IdAndValue{.id = 2, .value = 0},
+            IdAndValue{.id = 2, .value = 1},
+            IdAndValue{.id = 2, .value = 2},
+        },
+        []IdAndValue {
+            IdAndValue{.id = 0, .value = 2},
+            IdAndValue{.id = 0, .value = 1},
+            IdAndValue{.id = 0, .value = 0},
+            IdAndValue{.id = 1, .value = 2},
+            IdAndValue{.id = 1, .value = 1},
+            IdAndValue{.id = 1, .value = 0},
+            IdAndValue{.id = 2, .value = 2},
+            IdAndValue{.id = 2, .value = 1},
+            IdAndValue{.id = 2, .value = 0},
+        },
+    };
+    for (cases) |*case| {
+        sort_stable(IdAndValue, (*case)[0..], cmpByValue);
+        for (*case) |item, i| {
+            assert(item.id == expected[i].id);
+            assert(item.value == expected[i].value);
+        }
+    }
+}
+const IdAndValue = struct {
+    id: i32,
+    value: i32,
+};
+fn cmpByValue(a: &const IdAndValue, b: &const IdAndValue) -> Cmp {
+    return i32asc(a.value, b.value);
+}
 
 test "testSort" {
     const u8cases = [][]const []const u8 {

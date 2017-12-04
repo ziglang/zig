@@ -52,15 +52,21 @@ BumpPtrAllocator BAlloc;
 StringSaver Saver{BAlloc};
 std::vector<SpecificAllocBase *> SpecificAllocBase::Instances;
 
-bool link(ArrayRef<const char *> Args, raw_ostream &Diag) {
+bool link(ArrayRef<const char *> Args, bool CanExitEarly, raw_ostream &Diag) {
   ErrorCount = 0;
   ErrorOS = &Diag;
   Config = make<Configuration>();
   Config->Argv = {Args.begin(), Args.end()};
   Config->ColorDiagnostics =
       (ErrorOS == &llvm::errs() && Process::StandardErrHasColors());
+  Config->CanExitEarly = CanExitEarly;
   Driver = make<LinkerDriver>();
   Driver->link(Args);
+
+  // Call exit() if we can to avoid calling destructors.
+  if (CanExitEarly)
+      exitLld(ErrorCount ? 1 : 0);
+
   freeArena();
   return !ErrorCount;
 }
@@ -1123,7 +1129,7 @@ void LinkerDriver::link(ArrayRef<const char *> ArgsArr) {
   // This is useful because MSVC link.exe can generate complete PDBs.
   if (Args.hasArg(OPT_msvclto)) {
     invokeMSVC(Args);
-    exit(0);
+    return;
   }
 
   // Do LTO by compiling bitcode input files to a set of native COFF files then

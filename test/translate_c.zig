@@ -1178,4 +1178,14 @@ pub fn addCases(cases: &tests.TranslateCContext) {
     ,
         \\pub var v0: ?&const u8 = c"0.0.0";
     );
+
+    cases.add("static incomplete array inside function",
+        \\void foo(void) {
+        \\    static const char v2[] = "2.2.2";
+        \\}
+    ,
+        \\pub fn foo() {
+        \\    const v2: &const u8 = c"2.2.2";
+        \\}
+    );
 }

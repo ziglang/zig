@@ -69,8 +69,8 @@ pub const Builder = struct {
         used: bool,
     };
 
-    const UserValue = enum {
-        Flag,
+    const UserValue = union(enum) {
+        Flag: void,
         Scalar: []const u8,
         List: ArrayList([]const u8),
     };
@@ -450,7 +450,7 @@ pub const Builder = struct {
     pub fn addUserInputOption(self: &Builder, name: []const u8, value: []const u8) -> bool {
         if (%%self.user_input_options.put(name, UserInputOption {
             .name = name,
-            .value = UserValue.Scalar { value },
+            .value = UserValue { .Scalar = value },
             .used = false,
         })) |*prev_value| {
             // option already exists
@@ -462,7 +462,7 @@ pub const Builder = struct {
                     %%list.append(value);
                     _ = %%self.user_input_options.put(name, UserInputOption {
                         .name = name,
-                        .value = UserValue.List { list },
+                        .value = UserValue { .List = list },
                         .used = false,
                     });
                 },
@@ -471,7 +471,7 @@ pub const Builder = struct {
                     %%list.append(value);
                     _ = %%self.user_input_options.put(name, UserInputOption {
                         .name = name,
-                        .value = UserValue.List { *list },
+                        .value = UserValue { .List = *list },
                         .used = false,
                     });
                 },
@@ -487,7 +487,7 @@ pub const Builder = struct {
     pub fn addUserInputFlag(self: &Builder, name: []const u8) -> bool {
         if (%%self.user_input_options.put(name, UserInputOption {
             .name = name,
-            .value = UserValue.Flag,
+            .value = UserValue {.Flag = {} },
             .used = false,
         })) |*prev_value| {
             switch (prev_value.value) {
@@ -685,8 +685,8 @@ const CrossTarget = struct {
     environ: builtin.Environ,
 };
 
-const Target = enum {
-    Native,
+const Target = union(enum) {
+    Native: void,
     Cross: CrossTarget,
 
     pub fn oFileExt(self: &const Target) -> []const u8 {
@@ -844,7 +844,7 @@ pub const LibExeObjStep = struct {
             .kind = kind,
             .root_src = root_src,
             .name = name,
-            .target = Target.Native,
+            .target = Target { .Native = {} },
             .linker_script = null,
             .link_libs = BufSet.init(builder.allocator),
             .frameworks = BufSet.init(builder.allocator),
@@ -879,7 +879,7 @@ pub const LibExeObjStep = struct {
             .kind = kind,
             .version = *version,
             .static = static,
-            .target = Target.Native,
+            .target = Target { .Native = {} },
             .cflags = ArrayList([]const u8).init(builder.allocator),
             .source_files = ArrayList([]const u8).init(builder.allocator),
             .object_files = ArrayList([]const u8).init(builder.allocator),
@@ -948,8 +948,8 @@ pub const LibExeObjStep = struct {
     pub fn setTarget(self: &LibExeObjStep, target_arch: builtin.Arch, target_os: builtin.Os,
         target_environ: builtin.Environ)
     {
-        self.target = Target.Cross {
-            CrossTarget {
+        self.target = Target {
+            .Cross = CrossTarget {
                 .arch = target_arch,
                 .os = target_os,
                 .environ = target_environ,
@@ -1186,13 +1186,13 @@ pub const LibExeObjStep = struct {
             Target.Native => {},
             Target.Cross => |cross_target| {
                 %%zig_args.append("--target-arch");
-                %%zig_args.append(@enumTagName(cross_target.arch));
+                %%zig_args.append(@tagName(cross_target.arch));
 
                 %%zig_args.append("--target-os");
-                %%zig_args.append(@enumTagName(cross_target.os));
+                %%zig_args.append(@tagName(cross_target.os));
 
                 %%zig_args.append("--target-environ");
-                %%zig_args.append(@enumTagName(cross_target.environ));
+                %%zig_args.append(@tagName(cross_target.environ));
             },
         }
 
@@ -1553,7 +1553,7 @@ pub const TestStep = struct {
             .name_prefix = "",
             .filter = null,
             .link_libs = BufSet.init(builder.allocator),
-            .target = Target.Native,
+            .target = Target { .Native = {} },
             .exec_cmd_args = null,
         }
     }
@@ -1581,8 +1581,8 @@ pub const TestStep = struct {
     pub fn setTarget(self: &TestStep, target_arch: builtin.Arch, target_os: builtin.Os,
         target_environ: builtin.Environ)
     {
-        self.target = Target.Cross {
-            CrossTarget {
+        self.target = Target {
+            .Cross = CrossTarget {
                 .arch = target_arch,
                 .os = target_os,
                 .environ = target_environ,
@@ -1620,13 +1620,13 @@ pub const TestStep = struct {
             Target.Native => {},
             Target.Cross => |cross_target| {
                 %%zig_args.append("--target-arch");
-                %%zig_args.append(@enumTagName(cross_target.arch));
+                %%zig_args.append(@tagName(cross_target.arch));
 
                 %%zig_args.append("--target-os");
-                %%zig_args.append(@enumTagName(cross_target.os));
+                %%zig_args.append(@tagName(cross_target.os));
 
                 %%zig_args.append("--target-environ");
-                %%zig_args.append(@enumTagName(cross_target.environ));
+                %%zig_args.append(@tagName(cross_target.environ));
             },
         }
 

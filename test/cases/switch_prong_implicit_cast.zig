@@ -1,7 +1,7 @@
 const assert = @import("std").debug.assert;
 
-const FormValue = enum {
-    One,
+const FormValue = union(enum) {
+    One: void,
     Two: bool,
 };
 
@@ -9,8 +9,8 @@ error Whatever;
 
 fn foo(id: u64) -> %FormValue {
     switch (id) {
-        2 => FormValue.Two { true },
-        1 => FormValue.One,
+        2 => FormValue { .Two = true },
+        1 => FormValue { .One = {} },
         else => return error.Whatever,
     }
 }

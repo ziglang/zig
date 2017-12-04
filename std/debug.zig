@@ -280,7 +280,7 @@ const AbbrevAttr = struct {
     form_id: u64,
 };
 
-const FormValue = enum {
+const FormValue = union(enum) {
     Address: u64,
     Block: []u8,
     Const: Constant,
@@ -303,7 +303,7 @@ const Constant = struct {
             return error.InvalidDebugInfo;
         if (self.signed)
             return error.InvalidDebugInfo;
-        return mem.readInt(self.payload, u64, false);
+        return mem.readInt(self.payload, u64, builtin.Endian.Little);
     }
 };
 
@@ -475,16 +475,16 @@ fn readAllocBytes(allocator: &mem.Allocator, in_stream: &io.InStream, size: usiz
 
 fn parseFormValueBlockLen(allocator: &mem.Allocator, in_stream: &io.InStream, size: usize) -> %FormValue {
     const buf = %return readAllocBytes(allocator, in_stream, size);
-    return FormValue.Block { buf };
+    return FormValue { .Block = buf };
 }
 
 fn parseFormValueBlock(allocator: &mem.Allocator, in_stream: &io.InStream, size: usize) -> %FormValue {
-    const block_len = %return in_stream.readVarInt(false, usize, size);
+    const block_len = %return in_stream.readVarInt(builtin.Endian.Little, usize, size);
     return parseFormValueBlockLen(allocator, in_stream, block_len);
 }
 
 fn parseFormValueConstant(allocator: &mem.Allocator, in_stream: &io.InStream, signed: bool, size: usize) -> %FormValue {
-    FormValue.Const { Constant {
+    FormValue { .Const = Constant {
         .signed = signed,
         .payload = %return readAllocBytes(allocator, in_stream, size),
     }}
@@ -510,7 +510,7 @@ fn parseFormValueTargetAddrSize(in_stream: &io.InStream) -> %u64 {
 
 fn parseFormValueRefLen(allocator: &mem.Allocator, in_stream: &io.InStream, size: usize) -> %FormValue {
     const buf = %return readAllocBytes(allocator, in_stream, size);
-    return FormValue.Ref { buf };
+    return FormValue { .Ref = buf };
 }
 
 fn parseFormValueRef(allocator: &mem.Allocator, in_stream: &io.InStream, comptime T: type) -> %FormValue {
@@ -520,7 +520,7 @@ fn parseFormValueRef(allocator: &mem.Allocator, in_stream: &io.InStream, comptim
 
 fn parseFormValue(allocator: &mem.Allocator, in_stream: &io.InStream, form_id: u64, is_64: bool) -> %FormValue {
     return switch (form_id) {
-        DW.FORM_addr => FormValue.Address { %return parseFormValueTargetAddrSize(in_stream) },
+        DW.FORM_addr => FormValue { .Address = %return parseFormValueTargetAddrSize(in_stream) },
         DW.FORM_block1 => parseFormValueBlock(allocator, in_stream, 1),
         DW.FORM_block2 => parseFormValueBlock(allocator, in_stream, 2),
         DW.FORM_block4 => parseFormValueBlock(allocator, in_stream, 4),
@@ -540,13 +540,11 @@ fn parseFormValue(allocator: &mem.Allocator, in_stream: &io.InStream, form_id: u
         DW.FORM_exprloc => {
             const size = %return readULeb128(in_stream);
             const buf = %return readAllocBytes(allocator, in_stream, size);
-            return FormValue.ExprLoc { buf };
+            return FormValue { .ExprLoc = buf };
         },
-        DW.FORM_flag => FormValue.Flag { (%return in_stream.readByte()) != 0 },
-        DW.FORM_flag_present => FormValue.Flag { true },
-        DW.FORM_sec_offset => FormValue.SecOffset {
-            %return parseFormValueDwarfOffsetSize(in_stream, is_64)
-        },
+        DW.FORM_flag => FormValue { .Flag = (%return in_stream.readByte()) != 0 },
+        DW.FORM_flag_present => FormValue { .Flag = true },
+        DW.FORM_sec_offset => FormValue { .SecOffset = %return parseFormValueDwarfOffsetSize(in_stream, is_64) },
 
         DW.FORM_ref1 => parseFormValueRef(allocator, in_stream, u8),
         DW.FORM_ref2 => parseFormValueRef(allocator, in_stream, u16),
@@ -557,11 +555,11 @@ fn parseFormValue(allocator: &mem.Allocator, in_stream: &io.InStream, form_id: u
             parseFormValueRefLen(allocator, in_stream, ref_len)
         },
 
-        DW.FORM_ref_addr => FormValue.RefAddr { %return parseFormValueDwarfOffsetSize(in_stream, is_64) },
-        DW.FORM_ref_sig8 => FormValue.RefSig8 { %return in_stream.readIntLe(u64) },
+        DW.FORM_ref_addr => FormValue { .RefAddr = %return parseFormValueDwarfOffsetSize(in_stream, is_64) },
+        DW.FORM_ref_sig8 => FormValue { .RefSig8 = %return in_stream.readIntLe(u64) },
 
-        DW.FORM_string => FormValue.String { %return readStringRaw(allocator, in_stream) },
-        DW.FORM_strp => FormValue.StrPtr { %return parseFormValueDwarfOffsetSize(in_stream, is_64) },
+        DW.FORM_string => FormValue { .String = %return readStringRaw(allocator, in_stream) },
+        DW.FORM_strp => FormValue { .StrPtr = %return parseFormValueDwarfOffsetSize(in_stream, is_64) },
         DW.FORM_indirect => {
             const child_form_id = %return readULeb128(in_stream);
             parseFormValue(allocator, in_stream, child_form_id, is_64)
@@ -671,10 +669,10 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
             continue;
         }
 
-        const version = %return in_stream.readInt(st.elf.is_big_endian, u16);
+        const version = %return in_stream.readInt(st.elf.endian, u16);
         if (version != 2) return error.InvalidDebugInfo;
 
-        const prologue_length = %return in_stream.readInt(st.elf.is_big_endian, u32);
+        const prologue_length = %return in_stream.readInt(st.elf.endian, u32);
         const prog_start_offset = (%return in_file.getPos()) + prologue_length;
 
         const minimum_instruction_length = %return in_stream.readByte();
@@ -741,7 +739,7 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
                         return error.MissingDebugInfo;
                     },
                     DW.LNE_set_address => {
-                        const addr = %return in_stream.readInt(st.elf.is_big_endian, usize);
+                        const addr = %return in_stream.readInt(st.elf.endian, usize);
                         prog.address = addr;
                     },
                     DW.LNE_define_file => {
@@ -803,7 +801,7 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
                         prog.address += inc_addr;
                     },
                     DW.LNS_fixed_advance_pc => {
-                        const arg = %return in_stream.readInt(st.elf.is_big_endian, u16);
+                        const arg = %return in_stream.readInt(st.elf.endian, u16);
                         prog.address += arg;
                     },
                     DW.LNS_set_prologue_end => {
@@ -841,13 +839,13 @@ fn scanAllCompileUnits(st: &ElfStackTrace) -> %void {
             return;
         const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
 
-        const version = %return in_stream.readInt(st.elf.is_big_endian, u16);
+        const version = %return in_stream.readInt(st.elf.endian, u16);
         if (version < 2 or version > 5) return error.InvalidDebugInfo;
 
         const debug_abbrev_offset = if (is_64) {
-            %return in_stream.readInt(st.elf.is_big_endian, u64)
+            %return in_stream.readInt(st.elf.endian, u64)
         } else {
-            %return in_stream.readInt(st.elf.is_big_endian, u32)
+            %return in_stream.readInt(st.elf.endian, u32)
         };
 
         const address_size = %return in_stream.readByte();

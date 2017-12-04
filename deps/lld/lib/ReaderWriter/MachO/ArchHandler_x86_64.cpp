@@ -621,7 +621,6 @@ void ArchHandler_x86_64::applyFixupFinal(
     // Fall into llvm_unreachable().
     break;
   }
-  return;
 }
 
 void ArchHandler_x86_64::applyFixupRelocatable(const Reference &ref,

@@ -291,7 +291,7 @@ static void ir_print_struct_init(IrPrint *irp, IrInstructionStructInit *instruct
 }
 
 static void ir_print_union_init(IrPrint *irp, IrInstructionUnionInit *instruction) {
-    Buf *field_name = instruction->field->name;
+    Buf *field_name = instruction->field->enum_field->name;
 
     fprintf(irp->f, "%s {", buf_ptr(&instruction->union_type->name));
     fprintf(irp->f, ".%s = ", buf_ptr(field_name));
@@ -361,17 +361,10 @@ static void ir_print_struct_field_ptr(IrPrint *irp, IrInstructionStructFieldPtr 
     fprintf(irp->f, ")");
 }
 
-static void ir_print_enum_field_ptr(IrPrint *irp, IrInstructionEnumFieldPtr *instruction) {
-    fprintf(irp->f, "@EnumFieldPtr(&");
-    ir_print_other_instruction(irp, instruction->enum_ptr);
-    fprintf(irp->f, ".%s", buf_ptr(instruction->field->name));
-    fprintf(irp->f, ")");
-}
-
 static void ir_print_union_field_ptr(IrPrint *irp, IrInstructionUnionFieldPtr *instruction) {
     fprintf(irp->f, "@UnionFieldPtr(&");
     ir_print_other_instruction(irp, instruction->union_ptr);
-    fprintf(irp->f, ".%s", buf_ptr(instruction->field->name));
+    fprintf(irp->f, ".%s", buf_ptr(instruction->field->enum_field->name));
     fprintf(irp->f, ")");
 }
 
@@ -509,8 +502,8 @@ static void ir_print_switch_target(IrPrint *irp, IrInstructionSwitchTarget *inst
     ir_print_other_instruction(irp, instruction->target_value_ptr);
 }
 
-static void ir_print_enum_tag(IrPrint *irp, IrInstructionEnumTag *instruction) {
-    fprintf(irp->f, "enumtag ");
+static void ir_print_union_tag(IrPrint *irp, IrInstructionUnionTag *instruction) {
+    fprintf(irp->f, "uniontag ");
     ir_print_other_instruction(irp, instruction->value);
 }
 
@@ -799,12 +792,6 @@ static void ir_print_test_comptime(IrPrint *irp, IrInstructionTestComptime *inst
     fprintf(irp->f, ")");
 }
 
-static void ir_print_init_enum(IrPrint *irp, IrInstructionInitEnum *instruction) {
-    fprintf(irp->f, "%s.%s {", buf_ptr(&instruction->enum_type->name), buf_ptr(instruction->field->name));
-    ir_print_other_instruction(irp, instruction->init_value);
-    fprintf(irp->f, "}");
-}
-
 static void ir_print_ptr_cast(IrPrint *irp, IrInstructionPtrCast *instruction) {
     fprintf(irp->f, "@ptrCast(");
     if (instruction->dest_type) {
@@ -885,8 +872,8 @@ static void ir_print_type_name(IrPrint *irp, IrInstructionTypeName *instruction)
     ir_print_other_instruction(irp, instruction->type_value);
 }
 
-static void ir_print_enum_tag_name(IrPrint *irp, IrInstructionEnumTagName *instruction) {
-    fprintf(irp->f, "enumtagname ");
+static void ir_print_tag_name(IrPrint *irp, IrInstructionTagName *instruction) {
+    fprintf(irp->f, "tagname ");
     ir_print_other_instruction(irp, instruction->target);
 }
 
@@ -994,6 +981,12 @@ static void ir_print_arg_type(IrPrint *irp, IrInstructionArgType *instruction) {
     fprintf(irp->f, ")");
 }
 
+static void ir_print_enum_tag_type(IrPrint *irp, IrInstructionTagType *instruction) {
+    fprintf(irp->f, "@TagType(");
+    ir_print_other_instruction(irp, instruction->target);
+    fprintf(irp->f, ")");
+}
+
 
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
@@ -1072,9 +1065,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdStructFieldPtr:
             ir_print_struct_field_ptr(irp, (IrInstructionStructFieldPtr *)instruction);
             break;
-        case IrInstructionIdEnumFieldPtr:
-            ir_print_enum_field_ptr(irp, (IrInstructionEnumFieldPtr *)instruction);
-            break;
         case IrInstructionIdUnionFieldPtr:
             ir_print_union_field_ptr(irp, (IrInstructionUnionFieldPtr *)instruction);
             break;
@@ -1117,8 +1107,8 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdSwitchTarget:
             ir_print_switch_target(irp, (IrInstructionSwitchTarget *)instruction);
             break;
-        case IrInstructionIdEnumTag:
-            ir_print_enum_tag(irp, (IrInstructionEnumTag *)instruction);
+        case IrInstructionIdUnionTag:
+            ir_print_union_tag(irp, (IrInstructionUnionTag *)instruction);
             break;
         case IrInstructionIdImport:
             ir_print_import(irp, (IrInstructionImport *)instruction);
@@ -1231,9 +1221,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdTestComptime:
             ir_print_test_comptime(irp, (IrInstructionTestComptime *)instruction);
             break;
-        case IrInstructionIdInitEnum:
-            ir_print_init_enum(irp, (IrInstructionInitEnum *)instruction);
-            break;
         case IrInstructionIdPtrCast:
             ir_print_ptr_cast(irp, (IrInstructionPtrCast *)instruction);
             break;
@@ -1267,8 +1254,8 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdTypeName:
             ir_print_type_name(irp, (IrInstructionTypeName *)instruction);
             break;
-        case IrInstructionIdEnumTagName:
-            ir_print_enum_tag_name(irp, (IrInstructionEnumTagName *)instruction);
+        case IrInstructionIdTagName:
+            ir_print_tag_name(irp, (IrInstructionTagName *)instruction);
             break;
         case IrInstructionIdCanImplicitCast:
             ir_print_can_implicit_cast(irp, (IrInstructionCanImplicitCast *)instruction);
@@ -1311,6 +1298,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdArgType:
             ir_print_arg_type(irp, (IrInstructionArgType *)instruction);
+            break;
+        case IrInstructionIdTagType:
+            ir_print_enum_tag_type(irp, (IrInstructionTagType *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

@@ -259,7 +259,7 @@ pub const File = struct {
             if (err > 0) {
                 return switch (err) {
                     system.EBADF => error.BadFd,
-                    system.ENOMEM => error.OutOfMemory,
+                    system.ENOMEM => error.SystemResources,
                     else => os.unexpectedErrorPosix(err),
                 }
             }
@@ -441,26 +441,26 @@ pub const InStream = struct {
     }
 
     pub fn readIntLe(self: &InStream, comptime T: type) -> %T {
-        return self.readInt(false, T);
+        return self.readInt(builtin.Endian.Little, T);
     }
 
     pub fn readIntBe(self: &InStream, comptime T: type) -> %T {
-        return self.readInt(true, T);
+        return self.readInt(builtin.Endian.Big, T);
     }
 
-    pub fn readInt(self: &InStream, is_be: bool, comptime T: type) -> %T {
+    pub fn readInt(self: &InStream, endian: builtin.Endian, comptime T: type) -> %T {
         var bytes: [@sizeOf(T)]u8 = undefined;
         %return self.readNoEof(bytes[0..]);
-        return mem.readInt(bytes, T, is_be);
+        return mem.readInt(bytes, T, endian);
     }
 
-    pub fn readVarInt(self: &InStream, is_be: bool, comptime T: type, size: usize) -> %T {
+    pub fn readVarInt(self: &InStream, endian: builtin.Endian, comptime T: type, size: usize) -> %T {
         assert(size <= @sizeOf(T));
         assert(size <= 8);
         var input_buf: [8]u8 = undefined;
         const input_slice = input_buf[0..size];
         %return self.readNoEof(input_slice);
-        return mem.readInt(input_slice, T, is_be);
+        return mem.readInt(input_slice, T, endian);
     }
 
 

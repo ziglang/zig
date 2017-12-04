@@ -136,7 +136,8 @@
             <li><a href="#builtin-divFloor">@divFloor</a></li>
             <li><a href="#builtin-divTrunc">@divTrunc</a></li>
             <li><a href="#builtin-embedFile">@embedFile</a></li>
-            <li><a href="#builtin-enumTagName">@enumTagName</a></li>
+            <li><a href="#builtin-tagName">@tagName</a></li>
+            <li><a href="#builtin-EnumTagType">@EnumTagType</a></li>
             <li><a href="#builtin-errorName">@errorName</a></li>
             <li><a href="#builtin-fence">@fence</a></li>
             <li><a href="#builtin-fieldParentPtr">@fieldParentPtr</a></li>
@@ -2095,30 +2096,38 @@ const Type = enum {
     NotOk,
 };
 
-// Enums are sum types, and can hold more complex data of different types.
-const ComplexType = enum {
-    Ok: u8,
-    NotOk: void,
-};
-
 // Declare a specific instance of the enum variant.
-const c = ComplexType.Ok { 0 };
+const c = Type.Ok;
 
-// The ordinal value of a simple enum with no data members can be
-// retrieved by a simple cast.
-// The value starts from 0, counting up for each member.
-const Value = enum {
+// If you want access to the ordinal value of an enum, you
+// can specify the tag type.
+const Value = enum(u2) {
     Zero,
     One,
     Two,
 };
+
+// Now you can cast between u2 and Value.
+// The ordinal value starts from 0, counting up for each member.
 test "enum ordinal value" {
-    assert(usize(Value.Zero) == 0);
-    assert(usize(Value.One) == 1);
-    assert(usize(Value.Two) == 2);
+    assert(u2(Value.Zero) == 0);
+    assert(u2(Value.One) == 1);
+    assert(u2(Value.Two) == 2);
 }
 
-// Enums can have methods, the same as structs.
+// You can override the ordinal value for an enum.
+const Value2 = enum(u32) {
+    Hundred = 100,
+    Thousand = 1000,
+    Million = 1000000,
+};
+test "set enum ordinal value" {
+    assert(u32(Value2.Hundred) == 100);
+    assert(u32(Value2.Thousand) == 1000);
+    assert(u32(Value2.Million) == 1000000);
+}
+
+// Enums can have methods, the same as structs and unions.
 // Enum methods are not special, they are only namespaced
 // functions that you can call with dot syntax.
 const Suit = enum {
@@ -2127,26 +2136,120 @@ const Suit = enum {
     Diamonds,
     Hearts,
 
-    pub fn ordinal(self: &amp;const Suit) -&gt; u8 {
-        u8(*self)
+    pub fn isClubs(self: Suit) -&gt; bool {
+        return self == Suit.Clubs;
     }
 };
 test "enum method" {
     const p = Suit.Spades;
-    assert(p.ordinal() == 1);
+    assert(!p.isClubs());
 }
 
 // An enum variant of different types can be switched upon.
-// The associated data can be retrieved using `|...|` syntax.
-//
-// A void type is not required on a tag-only member.
 const Foo = enum {
-    String: []const u8,
-    Number: u64,
+    String,
+    Number,
     None,
 };
 test "enum variant switch" {
-    const p = Foo.Number { 54 };
+    const p = Foo.Number;
+    const what_is_it = switch (p) {
+        Foo.String =&gt; "this is a string",
+        Foo.Number =&gt; "this is a number",
+        Foo.None =&gt; "this is a none",
+    };
+    assert(mem.eql(u8, what_is_it, "this is a number"));
+}
+
+// @TagType can be used to access the integer tag type of an enum.
+const Small = enum {
+    One,
+    Two,
+    Three,
+    Four,
+};
+test "@TagType" {
+    assert(@TagType(Small) == u2);
+}
+
+// @memberCount tells how many fields an enum has:
+test "@memberCount" {
+    assert(@memberCount(Small) == 4);
+}
+
+// @memberName tells the name of a field in an enum:
+test "@memberName" {
+    assert(mem.eql(u8, @memberName(Small, 1), "Two"));
+}
+
+// @tagName gives a []const u8 representation of an enum value:
+test "@tagName" {
+    assert(mem.eql(u8, @tagName(Small.Three), "Three"));
+}</code></pre>
+      <p>TODO extern enum</p>
+      <p>TODO packed enum</p>
+      <pre><code class="sh">$ zig test enum.zig
+Test 1/8 enum ordinal value...OK
+Test 2/8 set enum ordinal value...OK
+Test 3/8 enum method...OK
+Test 4/8 enum variant switch...OK
+Test 5/8 @TagType...OK
+Test 6/8 @memberCount...OK
+Test 7/8 @memberName...OK
+Test 8/8 @tagName...OK</code></pre>
+      <p>See also:</p>
+      <ul>
+        <li><a href="#builtin-memberName">@memberName</a></li>
+        <li><a href="#builtin-memberCount">@memberCount</a></li>
+        <li><a href="#builtin-tagName">@tagName</a></li>
+      </ul>
+      <h2 id="union">union</h2>
+      <pre><code class="zig">const assert = @import("std").debug.assert;
+const mem = @import("std").mem;
+
+// A union has only 1 active field at a time.
+const Payload = union {
+    Int: i64,
+    Float: f64,
+    Bool: bool,
+};
+test "simple union" {
+    var payload = Payload {.Int = 1234};
+    // payload.Float = 12.34; // ERROR! field not active
+    assert(payload.Int == 1234);
+    // You can activate another field by assigning the entire union.
+    payload = Payload {.Float = 12.34};
+    assert(payload.Float == 12.34);
+}
+
+// Unions can be given an enum tag type:
+const ComplexTypeTag = enum { Ok, NotOk }; 
+const ComplexType = union(ComplexTypeTag) {
+    Ok: u8,
+    NotOk: void,
+};
+
+// Declare a specific instance of the union variant.
+test "declare union value" {
+    const c = ComplexType { .Ok = 0 };
+    assert(ComplexTypeTag(c) == ComplexTypeTag.Ok);
+}
+
+// @TagType can be used to access the enum tag type of a union.
+test "@TagType" {
+    assert(@TagType(ComplexType) == ComplexTypeTag);
+}
+
+// Unions can be made to infer the enum tag type.
+const Foo = union(enum) {
+    String: []const u8,
+    Number: u64,
+
+    // void can be omitted when inferring enum tag type.
+    None,
+};
+test "union variant switch" {
+    const p = Foo { .Number = 54 };
     const what_is_it = switch (p) {
         // Capture by reference
         Foo.String =&gt; |*x| {
@@ -2155,6 +2258,7 @@ test "enum variant switch" {
 
         // Capture by value
         Foo.Number =&gt; |x| {
+            assert(x == 54);
             "this is a number"
         },
 
@@ -2162,37 +2266,50 @@ test "enum variant switch" {
             "this is a none"
         }
     };
+    assert(mem.eql(u8, what_is_it, "this is a number"));
 }
 
-// The @enumTagName and @memberCount builtin functions can be used to
-// the string representation and number of members respectively.
-const BuiltinType = enum {
-    A: f32,
-    B: u32,
-    C,
+// TODO union methods
+
+
+const Small = union {
+    A: i32,
+    B: bool,
+    C: u8,
 };
 
-test "enum builtins" {
-    assert(mem.eql(u8, @enumTagName(BuiltinType.A { 0 }), "A"));
-    assert(mem.eql(u8, @enumTagName(BuiltinType.C), "C"));
-    assert(@memberCount(BuiltinType) == 3);
+// @memberCount tells how many fields a union has:
+test "@memberCount" {
+    assert(@memberCount(Small) == 3);
+}
+
+// @memberName tells the name of a field in an enum:
+test "@memberName" {
+    assert(mem.eql(u8, @memberName(Small, 1), "B"));
+}
+
+// @tagName gives a []const u8 representation of an enum value,
+// but only if the union has an enum tag type.
+const Small2 = union(enum) {
+    A: i32,
+    B: bool,
+    C: u8,
+};
+test "@tagName" {
+    assert(mem.eql(u8, @tagName(Small2.C), "C"));
 }</code></pre>
-      <pre><code class="sh">$ zig test enum.zig
-Test 1/4 enum ordinal value...OK
-Test 2/4 enum method...OK
-Test 3/4 enum variant switch...OK
-Test 4/4 enum builtins...OK</code></pre>
+      <pre><code class="sh">$ zig test union.zig
+Test 1/7 simple union...OK
+Test 2/7 declare union value...OK
+Test 3/7 @TagType...OK
+Test 4/7 union variant switch...OK
+Test 5/7 @memberCount...OK
+Test 6/7 @memberName...OK
+Test 7/7 @tagName...OK</code></pre>
       <p>
-      Enums are generated as a struct with a tag field and union field. Zig
+      Unions with an enum tag are generated as a struct with a tag field and union field. Zig
       sorts the order of the tag and union field by the largest alignment.
       </p>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#builtin-enumTagName">@enumTagName</a></li>
-        <li><a href="#builtin-memberCount">@memberCount</a></li>
-      </ul>
-      <h2 id="union">union</h2>
-      <p>TODO union documentation</p>
       <h2 id="switch">switch</h2>
       <pre><code class="zig">const assert = @import("std").debug.assert;
 const builtin = @import("builtin");
@@ -4251,10 +4368,15 @@ test.zig:6:2: error: found compile log statement
       <ul>
         <li><a href="#builtin-import">@import</a></li>
       </ul>
-      <h3 id="builtin-enumTagName">@enumTagName</h3>
-      <pre><code class="zig">@enumTagName(value: var) -&gt; []const u8</code></pre>
+      <h3 id="builtin-tagName">@tagName</h3>
+      <pre><code class="zig">@tagName(value: var) -&gt; []const u8</code></pre>
       <p>
-      Converts an enum tag name to a slice of bytes.
+      Converts an enum value or union value to a slice of bytes representing the name.
+      </p>
+      <h3 id="builtin-EnumTagType">@EnumTagType</h3>
+      <pre><code class="zig">@EnumTagType(T: type) -&gt; type</code></pre>
+      <p>
+      Returns the integer type that is used to store the enumeration value.
       </p>
       <h3 id="builtin-errorName">@errorName</h3>
       <pre><code class="zig">@errorName(err: error) -&gt; []u8</code></pre>
@@ -5703,7 +5825,7 @@ VariableDeclaration = option("comptime") ("var" | "const") Symbol option(":" Typ
 
 ContainerMember = (ContainerField | FnDef | GlobalVarDecl)
 
-ContainerField = Symbol option(":" Expression) ","
+ContainerField = Symbol option(":" PrefixOpExpression option("=" PrefixOpExpression ","
 
 UseDecl = "use" Expression ";"
 
@@ -5837,7 +5959,9 @@ GroupedExpression = "(" Expression ")"
 
 KeywordLiteral = "true" | "false" | "null" | "continue" | "undefined" | "error" | "this" | "unreachable"
 
-ContainerDecl = option("extern" | "packed") ("struct" | "enum" | "union") "{" many(ContainerMember) "}"</code></pre>
+ContainerDecl = option("extern" | "packed")
+  ("struct" option(GroupedExpression) | "union" option("enum" option(GroupedExpression) | GroupedExpression) | ("enum" option(GroupedExpression)))
+  "{" many(ContainerMember) "}"</code></pre>
       <h2 id="zen">Zen</h2>
       <ul>
         <li>Communicate intent precisely.</li>

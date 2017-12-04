@@ -223,10 +223,6 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionStructFieldPtr *
     return IrInstructionIdStructFieldPtr;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionEnumFieldPtr *) {
-    return IrInstructionIdEnumFieldPtr;
-}
-
 static constexpr IrInstructionId ir_instruction_id(IrInstructionUnionFieldPtr *) {
     return IrInstructionIdUnionFieldPtr;
 }
@@ -319,8 +315,8 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionCtz *) {
     return IrInstructionIdCtz;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionEnumTag *) {
-    return IrInstructionIdEnumTag;
+static constexpr IrInstructionId ir_instruction_id(IrInstructionUnionTag *) {
+    return IrInstructionIdUnionTag;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionImport *) {
@@ -479,10 +475,6 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionTestComptime *) 
     return IrInstructionIdTestComptime;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionInitEnum *) {
-    return IrInstructionIdInitEnum;
-}
-
 static constexpr IrInstructionId ir_instruction_id(IrInstructionPtrCast *) {
     return IrInstructionIdPtrCast;
 }
@@ -547,8 +539,12 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionPanic *) {
     return IrInstructionIdPanic;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionEnumTagName *) {
-    return IrInstructionIdEnumTagName;
+static constexpr IrInstructionId ir_instruction_id(IrInstructionTagName *) {
+    return IrInstructionIdTagName;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionTagType *) {
+    return IrInstructionIdTagType;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionFieldParentPtr *) {
@@ -905,27 +901,6 @@ static IrInstruction *ir_build_struct_field_ptr_from(IrBuilder *irb, IrInstructi
 {
     IrInstruction *new_instruction = ir_build_struct_field_ptr(irb, old_instruction->scope,
             old_instruction->source_node, struct_ptr, type_struct_field);
-    ir_link_new_instruction(new_instruction, old_instruction);
-    return new_instruction;
-}
-
-static IrInstruction *ir_build_enum_field_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node,
-    IrInstruction *enum_ptr, TypeEnumField *field)
-{
-    IrInstructionEnumFieldPtr *instruction = ir_build_instruction<IrInstructionEnumFieldPtr>(irb, scope, source_node);
-    instruction->enum_ptr = enum_ptr;
-    instruction->field = field;
-
-    ir_ref_instruction(enum_ptr, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
-static IrInstruction *ir_build_enum_field_ptr_from(IrBuilder *irb, IrInstruction *old_instruction,
-    IrInstruction *enum_ptr, TypeEnumField *type_enum_field)
-{
-    IrInstruction *new_instruction = ir_build_enum_field_ptr(irb, old_instruction->scope,
-            old_instruction->source_node, enum_ptr, type_enum_field);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
 }
@@ -1524,20 +1499,13 @@ static IrInstruction *ir_build_switch_var(IrBuilder *irb, Scope *scope, AstNode 
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_enum_tag(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
-    IrInstructionEnumTag *instruction = ir_build_instruction<IrInstructionEnumTag>(irb, scope, source_node);
+static IrInstruction *ir_build_union_tag(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *value) {
+    IrInstructionUnionTag *instruction = ir_build_instruction<IrInstructionUnionTag>(irb, scope, source_node);
     instruction->value = value;
 
     ir_ref_instruction(value, irb->current_basic_block);
 
     return &instruction->base;
-}
-
-static IrInstruction *ir_build_enum_tag_from(IrBuilder *irb, IrInstruction *old_instruction, IrInstruction *value) {
-    IrInstruction *new_instruction = ir_build_enum_tag(irb, old_instruction->scope,
-            old_instruction->source_node, value);
-    ir_link_new_instruction(new_instruction, old_instruction);
-    return new_instruction;
 }
 
 static IrInstruction *ir_build_import(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *name) {
@@ -2029,28 +1997,6 @@ static IrInstruction *ir_build_test_comptime(IrBuilder *irb, Scope *scope, AstNo
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_init_enum(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        TypeTableEntry *enum_type, TypeEnumField *field, IrInstruction *init_value)
-{
-    IrInstructionInitEnum *instruction = ir_build_instruction<IrInstructionInitEnum>(irb, scope, source_node);
-    instruction->enum_type = enum_type;
-    instruction->field = field;
-    instruction->init_value = init_value;
-
-    ir_ref_instruction(init_value, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
-static IrInstruction *ir_build_init_enum_from(IrBuilder *irb, IrInstruction *old_instruction,
-    TypeTableEntry *enum_type, TypeEnumField *field, IrInstruction *init_value)
-{
-    IrInstruction *new_instruction = ir_build_init_enum(irb, old_instruction->scope, old_instruction->source_node,
-            enum_type, field, init_value);
-    ir_link_new_instruction(new_instruction, old_instruction);
-    return new_instruction;
-}
-
 static IrInstruction *ir_build_ptr_cast(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *dest_type, IrInstruction *ptr)
 {
@@ -2259,10 +2205,21 @@ static IrInstruction *ir_build_panic(IrBuilder *irb, Scope *scope, AstNode *sour
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_enum_tag_name(IrBuilder *irb, Scope *scope, AstNode *source_node,
+static IrInstruction *ir_build_tag_name(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *target)
 {
-    IrInstructionEnumTagName *instruction = ir_build_instruction<IrInstructionEnumTagName>(irb, scope, source_node);
+    IrInstructionTagName *instruction = ir_build_instruction<IrInstructionTagName>(irb, scope, source_node);
+    instruction->target = target;
+
+    ir_ref_instruction(target, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_tag_type(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *target)
+{
+    IrInstructionTagType *instruction = ir_build_instruction<IrInstructionTagType>(irb, scope, source_node);
     instruction->target = target;
 
     ir_ref_instruction(target, irb->current_basic_block);
@@ -2466,13 +2423,6 @@ static IrInstruction *ir_instruction_structfieldptr_get_dep(IrInstructionStructF
     }
 }
 
-static IrInstruction *ir_instruction_enumfieldptr_get_dep(IrInstructionEnumFieldPtr *instruction, size_t index) {
-    switch (index) {
-        case 0: return instruction->enum_ptr;
-        default: return nullptr;
-    }
-}
-
 static IrInstruction *ir_instruction_unionfieldptr_get_dep(IrInstructionUnionFieldPtr *instruction, size_t index) {
     switch (index) {
         case 0: return instruction->union_ptr;
@@ -2642,7 +2592,7 @@ static IrInstruction *ir_instruction_maybewrap_get_dep(IrInstructionMaybeWrap *i
     }
 }
 
-static IrInstruction *ir_instruction_enumtag_get_dep(IrInstructionEnumTag *instruction, size_t index) {
+static IrInstruction *ir_instruction_uniontag_get_dep(IrInstructionUnionTag *instruction, size_t index) {
     switch (index) {
         case 0: return instruction->value;
         default: return nullptr;
@@ -2928,13 +2878,6 @@ static IrInstruction *ir_instruction_testcomptime_get_dep(IrInstructionTestCompt
     }
 }
 
-static IrInstruction *ir_instruction_initenum_get_dep(IrInstructionInitEnum *instruction, size_t index) {
-    switch (index) {
-        case 0: return instruction->init_value;
-        default: return nullptr;
-    }
-}
-
 static IrInstruction *ir_instruction_ptrcast_get_dep(IrInstructionPtrCast *instruction,
         size_t index)
 {
@@ -3059,7 +3002,14 @@ static IrInstruction *ir_instruction_panic_get_dep(IrInstructionPanic *instructi
     }
 }
 
-static IrInstruction *ir_instruction_enumtagname_get_dep(IrInstructionEnumTagName *instruction, size_t index) {
+static IrInstruction *ir_instruction_enumtagname_get_dep(IrInstructionTagName *instruction, size_t index) {
+    switch (index) {
+        case 0: return instruction->target;
+        default: return nullptr;
+    }
+}
+
+static IrInstruction *ir_instruction_enumtagtype_get_dep(IrInstructionTagType *instruction, size_t index) {
     switch (index) {
         case 0: return instruction->target;
         default: return nullptr;
@@ -3162,8 +3112,6 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_fieldptr_get_dep((IrInstructionFieldPtr *) instruction, index);
         case IrInstructionIdStructFieldPtr:
             return ir_instruction_structfieldptr_get_dep((IrInstructionStructFieldPtr *) instruction, index);
-        case IrInstructionIdEnumFieldPtr:
-            return ir_instruction_enumfieldptr_get_dep((IrInstructionEnumFieldPtr *) instruction, index);
         case IrInstructionIdUnionFieldPtr:
             return ir_instruction_unionfieldptr_get_dep((IrInstructionUnionFieldPtr *) instruction, index);
         case IrInstructionIdElemPtr:
@@ -3212,8 +3160,8 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_unwrapmaybe_get_dep((IrInstructionUnwrapMaybe *) instruction, index);
         case IrInstructionIdMaybeWrap:
             return ir_instruction_maybewrap_get_dep((IrInstructionMaybeWrap *) instruction, index);
-        case IrInstructionIdEnumTag:
-            return ir_instruction_enumtag_get_dep((IrInstructionEnumTag *) instruction, index);
+        case IrInstructionIdUnionTag:
+            return ir_instruction_uniontag_get_dep((IrInstructionUnionTag *) instruction, index);
         case IrInstructionIdClz:
             return ir_instruction_clz_get_dep((IrInstructionClz *) instruction, index);
         case IrInstructionIdCtz:
@@ -3290,8 +3238,6 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_fnproto_get_dep((IrInstructionFnProto *) instruction, index);
         case IrInstructionIdTestComptime:
             return ir_instruction_testcomptime_get_dep((IrInstructionTestComptime *) instruction, index);
-        case IrInstructionIdInitEnum:
-            return ir_instruction_initenum_get_dep((IrInstructionInitEnum *) instruction, index);
         case IrInstructionIdPtrCast:
             return ir_instruction_ptrcast_get_dep((IrInstructionPtrCast *) instruction, index);
         case IrInstructionIdBitCast:
@@ -3324,8 +3270,10 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_declref_get_dep((IrInstructionDeclRef *) instruction, index);
         case IrInstructionIdPanic:
             return ir_instruction_panic_get_dep((IrInstructionPanic *) instruction, index);
-        case IrInstructionIdEnumTagName:
-            return ir_instruction_enumtagname_get_dep((IrInstructionEnumTagName *) instruction, index);
+        case IrInstructionIdTagName:
+            return ir_instruction_enumtagname_get_dep((IrInstructionTagName *) instruction, index);
+        case IrInstructionIdTagType:
+            return ir_instruction_enumtagtype_get_dep((IrInstructionTagType *) instruction, index);
         case IrInstructionIdFieldParentPtr:
             return ir_instruction_fieldparentptr_get_dep((IrInstructionFieldParentPtr *) instruction, index);
         case IrInstructionIdOffsetOf:
@@ -4671,15 +4619,24 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 return ir_build_ptr_to_int(irb, scope, node, arg0_value);
             }
-        case BuiltinFnIdEnumTagName:
+        case BuiltinFnIdTagName:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
                 IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
                 if (arg0_value == irb->codegen->invalid_instruction)
                     return arg0_value;
 
-                IrInstruction *actual_tag = ir_build_enum_tag(irb, scope, node, arg0_value);
-                return ir_build_enum_tag_name(irb, scope, node, actual_tag);
+                IrInstruction *actual_tag = ir_build_union_tag(irb, scope, node, arg0_value);
+                return ir_build_tag_name(irb, scope, node, actual_tag);
+            }
+        case BuiltinFnIdTagType:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                return ir_build_tag_type(irb, scope, node, arg0_value);
             }
         case BuiltinFnIdFieldParentPtr:
             {
@@ -8348,17 +8305,57 @@ static IrInstruction *ir_analyze_enum_to_int(IrAnalyze *ira, IrInstruction *sour
 {
     assert(wanted_type->id == TypeTableEntryIdInt);
 
+    TypeTableEntry *actual_type = target->value.type;
+    ensure_complete_type(ira->codegen, actual_type);
+    if (type_is_invalid(actual_type))
+        return ira->codegen->invalid_instruction;
+
+    if (wanted_type != actual_type->data.enumeration.tag_int_type) {
+        ir_add_error(ira, source_instr,
+                buf_sprintf("enum to integer cast to '%s' instead of its tag type, '%s'",
+                    buf_ptr(&wanted_type->name),
+                    buf_ptr(&actual_type->data.enumeration.tag_int_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    assert(actual_type->id == TypeTableEntryIdEnum);
+
     if (instr_is_comptime(target)) {
         ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
         if (!val)
             return ira->codegen->invalid_instruction;
         IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
                 source_instr->source_node, wanted_type);
-        init_const_unsigned_negative(&result->value, wanted_type, val->data.x_enum.tag, false);
+        init_const_bigint(&result->value, wanted_type, &val->data.x_enum_tag);
         return result;
     }
 
     IrInstruction *result = ir_build_widen_or_shorten(&ira->new_irb, source_instr->scope,
+            source_instr->source_node, target);
+    result->value.type = wanted_type;
+    return result;
+}
+
+static IrInstruction *ir_analyze_union_to_tag(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *target, TypeTableEntry *wanted_type)
+{
+    assert(target->value.type->id == TypeTableEntryIdUnion);
+    assert(wanted_type->id == TypeTableEntryIdEnum);
+    assert(wanted_type == target->value.type->data.unionation.tag_type);
+
+    if (instr_is_comptime(target)) {
+        ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
+        if (!val)
+            return ira->codegen->invalid_instruction;
+        IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
+                source_instr->source_node, wanted_type);
+        result->value.special = ConstValSpecialStatic;
+        result->value.type = wanted_type;
+        bigint_init_bigint(&result->value.data.x_enum_tag, &val->data.x_union.tag);
+        return result;
+    }
+
+    IrInstruction *result = ir_build_union_tag(&ira->new_irb, source_instr->scope,
             source_instr->source_node, target);
     result->value.type = wanted_type;
     return result;
@@ -8419,6 +8416,22 @@ static IrInstruction *ir_analyze_int_to_enum(IrAnalyze *ira, IrInstruction *sour
 {
     assert(wanted_type->id == TypeTableEntryIdEnum);
 
+    TypeTableEntry *actual_type = target->value.type;
+
+    ensure_complete_type(ira->codegen, wanted_type);
+    if (type_is_invalid(wanted_type))
+        return ira->codegen->invalid_instruction;
+
+    if (actual_type != wanted_type->data.enumeration.tag_int_type) {
+        ir_add_error(ira, source_instr,
+                buf_sprintf("integer to enum cast from '%s' instead of its tag type, '%s'",
+                    buf_ptr(&actual_type->name),
+                    buf_ptr(&wanted_type->data.enumeration.tag_int_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    assert(actual_type->id == TypeTableEntryIdInt);
+
     if (instr_is_comptime(target)) {
         ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
         if (!val)
@@ -8436,7 +8449,7 @@ static IrInstruction *ir_analyze_int_to_enum(IrAnalyze *ira, IrInstruction *sour
 
         IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
                 source_instr->source_node, wanted_type);
-        result->value.data.x_enum.tag = bigint_as_unsigned(&val->data.x_bigint);
+        bigint_init_bigint(&result->value.data.x_enum_tag, &val->data.x_bigint);
         return result;
     }
 
@@ -8874,19 +8887,24 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     }
 
     // explicit cast from integer to enum type with no payload
-    if (actual_type->id == TypeTableEntryIdInt &&
-        wanted_type->id == TypeTableEntryIdEnum &&
-        wanted_type->data.enumeration.gen_field_count == 0)
-    {
+    if (actual_type->id == TypeTableEntryIdInt && wanted_type->id == TypeTableEntryIdEnum) {
         return ir_analyze_int_to_enum(ira, source_instr, value, wanted_type);
     }
 
     // explicit cast from enum type with no payload to integer
-    if (wanted_type->id == TypeTableEntryIdInt &&
-        actual_type->id == TypeTableEntryIdEnum &&
-        actual_type->data.enumeration.gen_field_count == 0)
-    {
+    if (wanted_type->id == TypeTableEntryIdInt && actual_type->id == TypeTableEntryIdEnum) {
         return ir_analyze_enum_to_int(ira, source_instr, value, wanted_type);
+    }
+
+    // explicit cast from union to the enum type of the union
+    if (actual_type->id == TypeTableEntryIdUnion && wanted_type->id == TypeTableEntryIdEnum) {
+        type_ensure_zero_bits_known(ira->codegen, actual_type);
+        if (type_is_invalid(actual_type))
+            return ira->codegen->invalid_instruction;
+
+        if (actual_type->data.unionation.tag_type == wanted_type) {
+            return ir_analyze_union_to_tag(ira, source_instr, value, wanted_type);
+        }
     }
 
     // explicit cast from undefined to anything
@@ -9095,7 +9113,7 @@ static bool ir_resolve_atomic_order(IrAnalyze *ira, IrInstruction *value, Atomic
     if (!const_val)
         return false;
 
-    *out = (AtomicOrder)const_val->data.x_enum.tag;
+    *out = (AtomicOrder)bigint_as_unsigned(&const_val->data.x_enum_tag);
     return true;
 }
 
@@ -9115,7 +9133,27 @@ static bool ir_resolve_global_linkage(IrAnalyze *ira, IrInstruction *value, Glob
     if (!const_val)
         return false;
 
-    *out = (GlobalLinkageId)const_val->data.x_enum.tag;
+    *out = (GlobalLinkageId)bigint_as_unsigned(&const_val->data.x_enum_tag);
+    return true;
+}
+
+static bool ir_resolve_float_mode(IrAnalyze *ira, IrInstruction *value, FloatMode *out) {
+    if (type_is_invalid(value->value.type))
+        return false;
+
+    ConstExprValue *float_mode_val = get_builtin_value(ira->codegen, "FloatMode");
+    assert(float_mode_val->type->id == TypeTableEntryIdMetaType);
+    TypeTableEntry *float_mode_type = float_mode_val->data.x_type;
+
+    IrInstruction *casted_value = ir_implicit_cast(ira, value, float_mode_type);
+    if (type_is_invalid(casted_value->value.type))
+        return false;
+
+    ConstExprValue *const_val = ir_resolve_const(ira, casted_value, UndefBad);
+    if (!const_val)
+        return false;
+
+    *out = (FloatMode)bigint_as_unsigned(&const_val->data.x_enum_tag);
     return true;
 }
 
@@ -9327,7 +9365,7 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
             break;
 
         case TypeTableEntryIdEnum:
-            if (!is_equality_cmp || resolved_type->data.enumeration.gen_field_count != 0) {
+            if (!is_equality_cmp) {
                 ir_add_error_node(ira, source_node,
                     buf_sprintf("operator not allowed for type '%s'", buf_ptr(&resolved_type->name)));
                 return ira->codegen->builtin_types.entry_invalid;
@@ -9345,9 +9383,6 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
             ir_add_error_node(ira, source_node,
                 buf_sprintf("operator not allowed for type '%s'", buf_ptr(&resolved_type->name)));
             return ira->codegen->builtin_types.entry_invalid;
-
-        case TypeTableEntryIdEnumTag:
-            zig_panic("TODO implement comparison for enum tag type");
 
         case TypeTableEntryIdVar:
             zig_unreachable();
@@ -10097,7 +10132,6 @@ static VarClassRequired get_var_class_required(TypeTableEntry *type_entry) {
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdPureError:
         case TypeTableEntryIdFn:
-        case TypeTableEntryIdEnumTag:
             return VarClassRequiredAny;
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
@@ -10840,7 +10874,6 @@ static TypeTableEntry *ir_analyze_unary_prefix_op_err(IrAnalyze *ira, IrInstruct
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdBoundFn:
-        case TypeTableEntryIdEnumTag:
             {
                 ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base);
                 TypeTableEntry *result_type = get_error_type(ira->codegen, meta_type);
@@ -10928,7 +10961,6 @@ static TypeTableEntry *ir_analyze_maybe(IrAnalyze *ira, IrInstructionUnOp *un_op
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
-        case TypeTableEntryIdEnumTag:
         case TypeTableEntryIdArgTuple:
             {
                 ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base);
@@ -11154,8 +11186,8 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
     }
 
     if (new_incoming_blocks.length == 0) {
-        ir_build_const_from(ira, &phi_instruction->base);
-        return ira->codegen->builtin_types.entry_void;
+        ir_build_unreachable_from(&ira->new_irb, &phi_instruction->base);
+        return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
     }
 
     if (new_incoming_blocks.length == 1) {
@@ -11589,15 +11621,8 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
                 field_ptr_instruction, container_ptr, container_type);
         }
     } else if (bare_type->id == TypeTableEntryIdEnum) {
-        TypeEnumField *field = find_enum_type_field(bare_type, field_name);
-        if (field) {
-            ir_build_enum_field_ptr_from(&ira->new_irb, &field_ptr_instruction->base, container_ptr, field);
-            return get_pointer_to_type_extra(ira->codegen, field->type_entry, is_const, is_volatile,
-                    get_abi_alignment(ira->codegen, field->type_entry), 0, 0);
-        } else {
-            return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
-                field_ptr_instruction, container_ptr, container_type);
-        }
+        return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
+            field_ptr_instruction, container_ptr, container_type);
     } else if (bare_type->id == TypeTableEntryIdUnion) {
         TypeUnionField *field = find_union_type_field(bare_type, field_name);
         if (field) {
@@ -11768,20 +11793,27 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
 
                 TypeEnumField *field = find_enum_type_field(child_type, field_name);
                 if (field) {
-                    if (field->type_entry->id == TypeTableEntryIdVoid) {
-                        bool ptr_is_const = true;
-                        bool ptr_is_volatile = false;
-                        return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
-                                create_const_enum_tag(child_type, field->value), child_type,
-                                ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile);
-                    } else {
-                        bool ptr_is_const = true;
-                        bool ptr_is_volatile = false;
-                        return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
-                            create_const_unsigned_negative(child_type->data.enumeration.tag_type, field->value, false),
-                            child_type->data.enumeration.tag_type,
+                    bool ptr_is_const = true;
+                    bool ptr_is_volatile = false;
+                    return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
+                            create_const_enum(child_type, &field->value), child_type,
                             ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile);
-                    }
+                }
+            } else if (child_type->id == TypeTableEntryIdUnion &&
+                    (child_type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr ||
+                    child_type->data.unionation.decl_node->data.container_decl.auto_enum))
+            {
+                ensure_complete_type(ira->codegen, child_type);
+                if (type_is_invalid(child_type))
+                    return ira->codegen->builtin_types.entry_invalid;
+                TypeUnionField *field = find_union_type_field(child_type, field_name);
+                if (field) {
+                    TypeTableEntry *enum_type = child_type->data.unionation.tag_type;
+                    bool ptr_is_const = true;
+                    bool ptr_is_volatile = false;
+                    return ir_analyze_const_ptr(ira, &field_ptr_instruction->base,
+                            create_const_enum(enum_type, &field->enum_field->value), enum_type,
+                            ConstPtrMutComptimeConst, ptr_is_const, ptr_is_volatile);
                 }
             }
             ScopeDecls *container_scope = get_container_scope(child_type);
@@ -12090,7 +12122,6 @@ static TypeTableEntry *ir_analyze_instruction_typeof(IrAnalyze *ira, IrInstructi
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
-        case TypeTableEntryIdEnumTag:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
             {
@@ -12367,21 +12398,11 @@ static TypeTableEntry *ir_analyze_instruction_set_float_mode(IrAnalyze *ira,
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    ConstExprValue *float_mode_val = get_builtin_value(ira->codegen, "FloatMode");
-    assert(float_mode_val->type->id == TypeTableEntryIdMetaType);
-    TypeTableEntry *float_mode_enum_type = float_mode_val->data.x_type;
-
     IrInstruction *float_mode_value = instruction->mode_value->other;
-    if (type_is_invalid(float_mode_value->value.type))
-        return ira->codegen->builtin_types.entry_invalid;
-    IrInstruction *casted_value = ir_implicit_cast(ira, float_mode_value, float_mode_enum_type);
-    if (type_is_invalid(casted_value->value.type))
-        return ira->codegen->builtin_types.entry_invalid;
-    ConstExprValue *mode_val = ir_resolve_const(ira, casted_value, UndefBad);
-    if (!mode_val)
-        return ira->codegen->builtin_types.entry_invalid;
 
-    bool want_fast_math = (mode_val->data.x_enum.tag == FloatModeOptimized);
+    FloatMode float_mode_scalar;
+    if (!ir_resolve_float_mode(ira, float_mode_value, &float_mode_scalar))
+        return ira->codegen->builtin_types.entry_invalid;
 
     AstNode *source_node = instruction->base.source_node;
     if (*fast_math_set_node_ptr) {
@@ -12391,7 +12412,7 @@ static TypeTableEntry *ir_analyze_instruction_set_float_mode(IrAnalyze *ira,
         return ira->codegen->builtin_types.entry_invalid;
     }
     *fast_math_set_node_ptr = source_node;
-    *fast_math_off_ptr = !want_fast_math;
+    *fast_math_off_ptr = (float_mode_scalar == FloatModeStrict);
 
     ir_build_const_from(ira, &instruction->base);
     return ira->codegen->builtin_types.entry_void;
@@ -12448,7 +12469,6 @@ static TypeTableEntry *ir_analyze_instruction_slice_type(IrAnalyze *ira,
         case TypeTableEntryIdFn:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBoundFn:
-        case TypeTableEntryIdEnumTag:
             {
                 type_ensure_zero_bits_known(ira->codegen, child_type);
                 TypeTableEntry *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, child_type,
@@ -12557,7 +12577,6 @@ static TypeTableEntry *ir_analyze_instruction_array_type(IrAnalyze *ira,
         case TypeTableEntryIdFn:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBoundFn:
-        case TypeTableEntryIdEnumTag:
             {
                 TypeTableEntry *result_type = get_array_type(ira->codegen, child_type, size);
                 ConstExprValue *out_val = ir_build_const_from(ira, &array_type_instruction->base);
@@ -12608,7 +12627,6 @@ static TypeTableEntry *ir_analyze_instruction_size_of(IrAnalyze *ira,
         case TypeTableEntryIdPureError:
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
-        case TypeTableEntryIdEnumTag:
         case TypeTableEntryIdFn:
             {
                 uint64_t size_in_bytes = type_size(ira->codegen, type_entry);
@@ -12761,17 +12779,22 @@ static TypeTableEntry *ir_analyze_instruction_clz(IrAnalyze *ira, IrInstructionC
     }
 }
 
-static IrInstruction *ir_analyze_enum_tag(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value) {
+static IrInstruction *ir_analyze_union_tag(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value) {
     if (type_is_invalid(value->value.type))
         return ira->codegen->invalid_instruction;
 
-    if (value->value.type->id != TypeTableEntryIdEnum) {
+    if (value->value.type->id == TypeTableEntryIdEnum) {
+        return value;
+    }
+
+    if (value->value.type->id != TypeTableEntryIdUnion) {
         ir_add_error(ira, source_instr,
-            buf_sprintf("expected enum type, found '%s'", buf_ptr(&value->value.type->name)));
+            buf_sprintf("expected enum or union type, found '%s'", buf_ptr(&value->value.type->name)));
         return ira->codegen->invalid_instruction;
     }
 
-    TypeTableEntry *tag_type = value->value.type->data.enumeration.tag_type;
+    TypeTableEntry *tag_type = value->value.type->data.unionation.tag_type;
+    assert(tag_type->id == TypeTableEntryIdEnum);
 
     if (instr_is_comptime(value)) {
         ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
@@ -12782,11 +12805,11 @@ static IrInstruction *ir_analyze_enum_tag(IrAnalyze *ira, IrInstruction *source_
                 source_instr->scope, source_instr->source_node);
         const_instruction->base.value.type = tag_type;
         const_instruction->base.value.special = ConstValSpecialStatic;
-        bigint_init_unsigned(&const_instruction->base.value.data.x_bigint, val->data.x_enum.tag);
+        bigint_init_bigint(&const_instruction->base.value.data.x_enum_tag, &val->data.x_union.tag);
         return &const_instruction->base;
     }
 
-    IrInstruction *result = ir_build_enum_tag(&ira->new_irb, source_instr->scope, source_instr->source_node, value);
+    IrInstruction *result = ir_build_union_tag(&ira->new_irb, source_instr->scope, source_instr->source_node, value);
     result->value.type = tag_type;
     return result;
 }
@@ -12817,7 +12840,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
                 return ir_unreach_error(ira);
 
             if (case_value->value.type->id == TypeTableEntryIdEnum) {
-                case_value = ir_analyze_enum_tag(ira, &switch_br_instruction->base, case_value);
+                case_value = ir_analyze_union_tag(ira, &switch_br_instruction->base, case_value);
                 if (type_is_invalid(case_value->value.type))
                     return ir_unreach_error(ira);
             }
@@ -12864,7 +12887,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_br(IrAnalyze *ira,
             continue;
 
         if (new_value->value.type->id == TypeTableEntryIdEnum) {
-            new_value = ir_analyze_enum_tag(ira, &switch_br_instruction->base, new_value);
+            new_value = ir_analyze_union_tag(ira, &switch_br_instruction->base, new_value);
             if (type_is_invalid(new_value->value.type))
                 continue;
         }
@@ -12946,34 +12969,57 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
 
             ir_build_load_ptr_from(&ira->new_irb, &switch_target_instruction->base, target_value_ptr);
             return target_type;
-        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdUnion: {
+            AstNode *decl_node = target_type->data.unionation.decl_node;
+            if (!decl_node->data.container_decl.auto_enum &&
+                decl_node->data.container_decl.init_arg_expr == nullptr)
             {
-                TypeTableEntry *tag_type = target_type->data.enumeration.tag_type;
-                assert(tag_type != nullptr);
-                if (pointee_val) {
-                    ConstExprValue *out_val = ir_build_const_from(ira, &switch_target_instruction->base);
-                    bigint_init_unsigned(&out_val->data.x_bigint, pointee_val->data.x_enum.tag);
-                    return tag_type;
-                }
-
-                IrInstruction *enum_value = ir_build_load_ptr(&ira->new_irb, switch_target_instruction->base.scope,
-                    switch_target_instruction->base.source_node, target_value_ptr);
-                enum_value->value.type = target_type;
-                ir_build_enum_tag_from(&ira->new_irb, &switch_target_instruction->base, enum_value);
+                ErrorMsg *msg = ir_add_error(ira, target_value_ptr,
+                    buf_sprintf("switch on union which has no attached enum"));
+                add_error_note(ira->codegen, msg, decl_node,
+                        buf_sprintf("consider 'union(enum)' here"));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+            TypeTableEntry *tag_type = target_type->data.unionation.tag_type;
+            assert(tag_type != nullptr);
+            if (pointee_val) {
+                ConstExprValue *out_val = ir_build_const_from(ira, &switch_target_instruction->base);
+                bigint_init_bigint(&out_val->data.x_enum_tag, &pointee_val->data.x_union.tag);
                 return tag_type;
             }
+
+            IrInstruction *union_value = ir_build_load_ptr(&ira->new_irb, switch_target_instruction->base.scope,
+                switch_target_instruction->base.source_node, target_value_ptr);
+            union_value->value.type = target_type;
+
+            IrInstruction *union_tag_inst = ir_build_union_tag(&ira->new_irb, switch_target_instruction->base.scope,
+                    switch_target_instruction->base.source_node, union_value);
+            union_tag_inst->value.type = tag_type;
+            ir_link_new_instruction(union_tag_inst, &switch_target_instruction->base);
+            return tag_type;
+        }
+        case TypeTableEntryIdEnum: {
+            if (pointee_val) {
+                ConstExprValue *out_val = ir_build_const_from(ira, &switch_target_instruction->base);
+                bigint_init_bigint(&out_val->data.x_enum_tag, &pointee_val->data.x_enum_tag);
+                return target_type;
+            }
+
+            IrInstruction *enum_value = ir_build_load_ptr(&ira->new_irb, switch_target_instruction->base.scope,
+                switch_target_instruction->base.source_node, target_value_ptr);
+            enum_value->value.type = target_type;
+            ir_link_new_instruction(enum_value, &switch_target_instruction->base);
+            return target_type;
+        }
         case TypeTableEntryIdErrorUnion:
-            // see https://github.com/andrewrk/zig/issues/83
+            // see https://github.com/andrewrk/zig/issues/632
             zig_panic("TODO switch on error union");
-        case TypeTableEntryIdEnumTag:
-            zig_panic("TODO switch on enum tag type");
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdMaybe:
-        case TypeTableEntryIdUnion:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
@@ -12996,19 +13042,13 @@ static TypeTableEntry *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstr
 
     assert(target_value_ptr->value.type->id == TypeTableEntryIdPointer);
     TypeTableEntry *target_type = target_value_ptr->value.type->data.pointer.child_type;
-    if (target_type->id == TypeTableEntryIdEnum) {
+    if (target_type->id == TypeTableEntryIdUnion) {
         ConstExprValue *prong_val = ir_resolve_const(ira, prong_value, UndefBad);
         if (!prong_val)
             return ira->codegen->builtin_types.entry_invalid;
 
-        TypeEnumField *field;
-        if (prong_value->value.type->id == TypeTableEntryIdEnumTag) {
-            field = &target_type->data.enumeration.fields[bigint_as_unsigned(&prong_val->data.x_bigint)];
-        } else if (prong_value->value.type->id == TypeTableEntryIdEnum) {
-            field = &target_type->data.enumeration.fields[prong_val->data.x_enum.tag];
-        } else {
-            zig_unreachable();
-        }
+        assert(prong_value->value.type->id == TypeTableEntryIdEnum);
+        TypeUnionField *field = find_union_field_by_tag(target_type, &prong_val->data.x_enum_tag);
 
         if (instr_is_comptime(target_value_ptr)) {
             ConstExprValue *target_val_ptr = ir_resolve_const(ira, target_value_ptr, UndefBad);
@@ -13019,11 +13059,11 @@ static TypeTableEntry *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstr
             ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
             out_val->data.x_ptr.special = ConstPtrSpecialRef;
             out_val->data.x_ptr.mut = target_val_ptr->data.x_ptr.mut;
-            out_val->data.x_ptr.data.ref.pointee = pointee_val->data.x_enum.payload;
+            out_val->data.x_ptr.data.ref.pointee = pointee_val->data.x_union.payload;
             return get_pointer_to_type(ira->codegen, field->type_entry, target_val_ptr->type->data.pointer.is_const);
         }
 
-        ir_build_enum_field_ptr_from(&ira->new_irb, &instruction->base, target_value_ptr, field);
+        ir_build_union_field_ptr_from(&ira->new_irb, &instruction->base, target_value_ptr, field);
         return get_pointer_to_type(ira->codegen, field->type_entry,
                 target_value_ptr->value.type->data.pointer.is_const);
     } else {
@@ -13033,10 +13073,10 @@ static TypeTableEntry *ir_analyze_instruction_switch_var(IrAnalyze *ira, IrInstr
     }
 }
 
-static TypeTableEntry *ir_analyze_instruction_enum_tag(IrAnalyze *ira, IrInstructionEnumTag *enum_tag_instruction) {
-    IrInstruction *value = enum_tag_instruction->value->other;
-    IrInstruction *new_instruction = ir_analyze_enum_tag(ira, &enum_tag_instruction->base, value);
-    ir_link_new_instruction(new_instruction, &enum_tag_instruction->base);
+static TypeTableEntry *ir_analyze_instruction_union_tag(IrAnalyze *ira, IrInstructionUnionTag *instruction) {
+    IrInstruction *value = instruction->value->other;
+    IrInstruction *new_instruction = ir_analyze_union_tag(ira, &instruction->base, value);
+    ir_link_new_instruction(new_instruction, &instruction->base);
     return new_instruction->value.type;
 }
 
@@ -13192,7 +13232,7 @@ static TypeTableEntry *ir_analyze_container_init_fields_union(IrAnalyze *ira, Ir
 
         ConstExprValue *out_val = ir_build_const_from(ira, instruction);
         out_val->data.x_union.payload = field_val;
-        out_val->data.x_union.tag = type_field->value;
+        out_val->data.x_union.tag = type_field->enum_field->value;
 
         ConstParent *parent = get_const_val_parent(ira->codegen, field_val);
         if (parent != nullptr) {
@@ -13439,46 +13479,9 @@ static TypeTableEntry *ir_analyze_instruction_container_init_list(IrAnalyze *ira
                     buf_ptr(&container_type->name)));
             return ira->codegen->builtin_types.entry_invalid;
         }
-    } else if (container_type_value->value.type->id == TypeTableEntryIdEnumTag) {
-        if (elem_count != 1) {
-            ir_add_error(ira, &instruction->base, buf_sprintf("enum initialization requires exactly one element"));
-            return ira->codegen->builtin_types.entry_invalid;
-        }
-        ConstExprValue *tag_value = ir_resolve_const(ira, container_type_value, UndefBad);
-        if (!tag_value)
-            return ira->codegen->builtin_types.entry_invalid;
-
-        TypeTableEntry *enum_type = container_type_value->value.type->data.enum_tag.enum_type;
-
-        uint64_t tag_uint = bigint_as_unsigned(&tag_value->data.x_bigint);
-        TypeEnumField *field = &enum_type->data.enumeration.fields[tag_uint];
-        TypeTableEntry *this_field_type = field->type_entry;
-
-        IrInstruction *init_value = instruction->items[0]->other;
-        if (type_is_invalid(init_value->value.type))
-            return ira->codegen->builtin_types.entry_invalid;
-
-        IrInstruction *casted_init_value = ir_implicit_cast(ira, init_value, this_field_type);
-        if (casted_init_value == ira->codegen->invalid_instruction)
-            return ira->codegen->builtin_types.entry_invalid;
-
-        if (instr_is_comptime(casted_init_value)) {
-            ConstExprValue *init_val = ir_resolve_const(ira, casted_init_value, UndefOk);
-            if (!init_val)
-                return ira->codegen->builtin_types.entry_invalid;
-            ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-            out_val->data.x_enum.tag = tag_uint;
-            out_val->data.x_enum.payload = init_val;
-            return enum_type;
-        }
-
-        IrInstruction *new_instruction = ir_build_init_enum_from(&ira->new_irb, &instruction->base,
-                enum_type, field, casted_init_value);
-        ir_add_alloca(ira, new_instruction, enum_type);
-        return enum_type;
     } else {
         ir_add_error(ira, container_type_value,
-            buf_sprintf("expected type, found '%s'", buf_ptr(&container_type_value->value.type->name)));
+            buf_sprintf("expected type, found '%s' value", buf_ptr(&container_type_value->value.type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
 }
@@ -13521,8 +13524,8 @@ static TypeTableEntry *ir_analyze_min_max(IrAnalyze *ira, IrInstruction *source_
                 eval_min_max_value(ira->codegen, target_type, out_val, is_max);
                 return target_type;
             }
-        case TypeTableEntryIdEnumTag:
-            zig_panic("TODO min/max value for enum tag type");
+        case TypeTableEntryIdEnum:
+            zig_panic("TODO min/max value for enum type");
         case TypeTableEntryIdVar:
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdUnreachable:
@@ -13536,7 +13539,6 @@ static TypeTableEntry *ir_analyze_min_max(IrAnalyze *ira, IrInstruction *source_
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdPureError:
-        case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdNamespace:
@@ -13639,29 +13641,27 @@ static TypeTableEntry *ir_analyze_instruction_err_name(IrAnalyze *ira, IrInstruc
     return str_type;
 }
 
-static TypeTableEntry *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrInstructionEnumTagName *instruction) {
+static TypeTableEntry *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrInstructionTagName *instruction) {
     IrInstruction *target = instruction->target->other;
     if (type_is_invalid(target->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    assert(target->value.type->id == TypeTableEntryIdEnumTag);
+    assert(target->value.type->id == TypeTableEntryIdEnum);
 
     if (instr_is_comptime(target)) {
-        TypeTableEntry *enum_type = target->value.type->data.enum_tag.enum_type;
-        uint64_t tag_value = bigint_as_unsigned(&target->value.data.x_bigint);
-        TypeEnumField *field = &enum_type->data.enumeration.fields[tag_value];
+        TypeEnumField *field = find_enum_field_by_tag(target->value.type, &target->value.data.x_bigint);
         ConstExprValue *array_val = create_const_str_lit(ira->codegen, field->name);
         ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
         init_const_slice(ira->codegen, out_val, array_val, 0, buf_len(field->name), true);
         return out_val->type;
     }
 
-    if (!target->value.type->data.enum_tag.generate_name_table) {
-        target->value.type->data.enum_tag.generate_name_table = true;
+    if (!target->value.type->data.enumeration.generate_name_table) {
+        target->value.type->data.enumeration.generate_name_table = true;
         ira->codegen->name_table_enums.append(target->value.type);
     }
 
-    IrInstruction *result = ir_build_enum_tag_name(&ira->new_irb, instruction->base.scope,
+    IrInstruction *result = ir_build_tag_name(&ira->new_irb, instruction->base.scope,
             instruction->base.source_node, target);
     ir_link_new_instruction(result, &instruction->base);
     TypeTableEntry *u8_ptr_type = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_u8, true);
@@ -13806,7 +13806,7 @@ static TypeTableEntry *ir_analyze_instruction_type_id(IrAnalyze *ira,
     TypeTableEntry *result_type = var_value->data.x_type;
 
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-    out_val->data.x_enum.tag = type_id_index(type_entry->id);
+    bigint_init_unsigned(&out_val->data.x_enum_tag, type_id_index(type_entry->id));
     return result_type;
 }
 
@@ -13870,7 +13870,10 @@ static TypeTableEntry *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruc
 
     int err;
     if ((err = parse_h_buf(child_import, &errors, &cimport_scope->buf, ira->codegen, node))) {
-        zig_panic("unable to parse C file: %s\n", err_str(err));
+        if (err != ErrorCCompileErrors) {
+            ir_add_error_node(ira, node, buf_sprintf("C import failed: %s", err_str(err)));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
     }
 
     if (errors.length > 0) {
@@ -14632,14 +14635,14 @@ static TypeTableEntry *ir_analyze_instruction_member_type(IrAnalyze *ira, IrInst
         ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
         out_val->data.x_type = field->type_entry;
         return ira->codegen->builtin_types.entry_type;
-    } else if (container_type->id == TypeTableEntryIdEnum) {
-        if (member_index >= container_type->data.enumeration.src_field_count) {
+    } else if (container_type->id == TypeTableEntryIdUnion) {
+        if (member_index >= container_type->data.unionation.src_field_count) {
             ir_add_error(ira, index_value,
                 buf_sprintf("member index %" ZIG_PRI_u64 " out of bounds; '%s' has %" PRIu32 " members",
-                    member_index, buf_ptr(&container_type->name), container_type->data.enumeration.src_field_count));
+                    member_index, buf_ptr(&container_type->name), container_type->data.unionation.src_field_count));
             return ira->codegen->builtin_types.entry_invalid;
         }
-        TypeEnumField *field = &container_type->data.enumeration.fields[member_index];
+        TypeUnionField *field = &container_type->data.unionation.fields[member_index];
 
         ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
         out_val->data.x_type = field->type_entry;
@@ -14682,6 +14685,18 @@ static TypeTableEntry *ir_analyze_instruction_member_name(IrAnalyze *ira, IrInst
             return ira->codegen->builtin_types.entry_invalid;
         }
         TypeEnumField *field = &container_type->data.enumeration.fields[member_index];
+
+        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+        init_const_str_lit(ira->codegen, out_val, field->name);
+        return out_val->type;
+    } else if (container_type->id == TypeTableEntryIdUnion) {
+        if (member_index >= container_type->data.unionation.src_field_count) {
+            ir_add_error(ira, index_value,
+                buf_sprintf("member index %" ZIG_PRI_u64 " out of bounds; '%s' has %" PRIu32 " members",
+                    member_index, buf_ptr(&container_type->name), container_type->data.unionation.src_field_count));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        TypeUnionField *field = &container_type->data.unionation.fields[member_index];
 
         ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
         init_const_str_lit(ira->codegen, out_val, field->name);
@@ -14753,7 +14768,6 @@ static TypeTableEntry *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstruc
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdPureError:
         case TypeTableEntryIdEnum:
-        case TypeTableEntryIdEnumTag:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
             {
@@ -15059,9 +15073,10 @@ static TypeTableEntry *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira
     if (type_is_invalid(switch_type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (switch_type->id == TypeTableEntryIdEnumTag) {
-        TypeTableEntry *enum_type = switch_type->data.enum_tag.enum_type;
-        AstNode **field_prev_uses = allocate<AstNode *>(enum_type->data.enumeration.src_field_count);
+    if (switch_type->id == TypeTableEntryIdEnum) {
+        HashMap<BigInt, AstNode *, bigint_hash, bigint_eql> field_prev_uses = {};
+        field_prev_uses.init(switch_type->data.enumeration.src_field_count);
+
         for (size_t range_i = 0; range_i < instruction->range_count; range_i += 1) {
             IrInstructionCheckSwitchProngsRange *range = &instruction->ranges[range_i];
 
@@ -15073,41 +15088,43 @@ static TypeTableEntry *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira
             if (type_is_invalid(end_value->value.type))
                 return ira->codegen->builtin_types.entry_invalid;
 
-            size_t start_index;
-            size_t end_index;
-            if (start_value->value.type->id == TypeTableEntryIdEnumTag) {
-                start_index = bigint_as_unsigned(&start_value->value.data.x_bigint);
-            } else if (start_value->value.type->id == TypeTableEntryIdEnum) {
-                start_index = start_value->value.data.x_enum.tag;
-            } else {
-                zig_unreachable();
-            }
-            if (end_value->value.type->id == TypeTableEntryIdEnumTag) {
-                end_index = bigint_as_unsigned(&end_value->value.data.x_bigint);
-            } else if (end_value->value.type->id == TypeTableEntryIdEnum) {
-                end_index = end_value->value.data.x_enum.tag;
-            } else {
-                zig_unreachable();
-            }
+            assert(start_value->value.type->id == TypeTableEntryIdEnum);
+            BigInt start_index;
+            bigint_init_bigint(&start_index, &start_value->value.data.x_enum_tag);
 
-            for (size_t field_index = start_index; field_index <= end_index; field_index += 1) {
-                AstNode *prev_node = field_prev_uses[field_index];
-                if (prev_node != nullptr) {
-                    TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[field_index];
+            assert(end_value->value.type->id == TypeTableEntryIdEnum);
+            BigInt end_index;
+            bigint_init_bigint(&end_index, &end_value->value.data.x_enum_tag);
+
+            BigInt field_index;
+            bigint_init_bigint(&field_index, &start_index);
+            for (;;) {
+                Cmp cmp = bigint_cmp(&field_index, &end_index);
+                if (cmp == CmpGT) {
+                    break;
+                }
+                auto entry = field_prev_uses.put_unique(field_index, start_value->source_node);
+                if (entry) {
+                    AstNode *prev_node = entry->value;
+                    TypeEnumField *enum_field = find_enum_field_by_tag(switch_type, &field_index);
+                    assert(enum_field != nullptr);
                     ErrorMsg *msg = ir_add_error(ira, start_value,
-                        buf_sprintf("duplicate switch value: '%s.%s'", buf_ptr(&enum_type->name),
-                            buf_ptr(type_enum_field->name)));
+                        buf_sprintf("duplicate switch value: '%s.%s'", buf_ptr(&switch_type->name),
+                            buf_ptr(enum_field->name)));
                     add_error_note(ira->codegen, msg, prev_node, buf_sprintf("other value is here"));
                 }
-                field_prev_uses[field_index] = start_value->source_node;
+                bigint_incr(&field_index);
             }
         }
         if (!instruction->have_else_prong) {
-            for (uint32_t i = 0; i < enum_type->data.enumeration.src_field_count; i += 1) {
-                if (field_prev_uses[i] == nullptr) {
+            for (uint32_t i = 0; i < switch_type->data.enumeration.src_field_count; i += 1) {
+                TypeEnumField *enum_field = &switch_type->data.enumeration.fields[i];
+
+                auto entry = field_prev_uses.maybe_get(enum_field->value);
+                if (!entry) {
                     ir_add_error(ira, &instruction->base,
-                        buf_sprintf("enumeration value '%s.%s' not handled in switch", buf_ptr(&enum_type->name),
-                            buf_ptr(enum_type->data.enumeration.fields[i].name)));
+                        buf_sprintf("enumeration value '%s.%s' not handled in switch", buf_ptr(&switch_type->name),
+                            buf_ptr(enum_field->name)));
                 }
             }
         }
@@ -15402,8 +15419,6 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
             zig_panic("TODO buf_write_value_bytes pure error type");
         case TypeTableEntryIdEnum:
             zig_panic("TODO buf_write_value_bytes enum type");
-        case TypeTableEntryIdEnumTag:
-            zig_panic("TODO buf_write_value_bytes enum tag type");
         case TypeTableEntryIdFn:
             zig_panic("TODO buf_write_value_bytes fn type");
         case TypeTableEntryIdUnion:
@@ -15462,8 +15477,6 @@ static void buf_read_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue 
             zig_panic("TODO buf_read_value_bytes pure error type");
         case TypeTableEntryIdEnum:
             zig_panic("TODO buf_read_value_bytes enum type");
-        case TypeTableEntryIdEnumTag:
-            zig_panic("TODO buf_read_value_bytes enum tag type");
         case TypeTableEntryIdFn:
             zig_panic("TODO buf_read_value_bytes fn type");
         case TypeTableEntryIdUnion:
@@ -15828,6 +15841,45 @@ static TypeTableEntry *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstruc
     return ira->codegen->builtin_types.entry_type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_tag_type(IrAnalyze *ira, IrInstructionTagType *instruction) {
+    IrInstruction *target_inst = instruction->target->other;
+    TypeTableEntry *enum_type = ir_resolve_type(ira, target_inst);
+    if (type_is_invalid(enum_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (enum_type->id == TypeTableEntryIdEnum) {
+        ensure_complete_type(ira->codegen, enum_type);
+        if (type_is_invalid(enum_type))
+            return ira->codegen->builtin_types.entry_invalid;
+
+        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+        out_val->data.x_type = enum_type->data.enumeration.tag_int_type;
+        return ira->codegen->builtin_types.entry_type;
+    } else if (enum_type->id == TypeTableEntryIdUnion) {
+        ensure_complete_type(ira->codegen, enum_type);
+        if (type_is_invalid(enum_type))
+            return ira->codegen->builtin_types.entry_invalid;
+
+        AstNode *decl_node = enum_type->data.unionation.decl_node;
+        if (decl_node->data.container_decl.auto_enum || decl_node->data.container_decl.init_arg_expr != nullptr) {
+            assert(enum_type->data.unionation.tag_type != nullptr);
+
+            ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+            out_val->data.x_type = enum_type->data.unionation.tag_type;
+            return ira->codegen->builtin_types.entry_type;
+        } else {
+            ErrorMsg *msg = ir_add_error(ira, target_inst, buf_sprintf("union '%s' has no tag",
+                buf_ptr(&enum_type->name)));
+            add_error_note(ira->codegen, msg, decl_node, buf_sprintf("consider 'union(enum)' here"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+    } else {
+        ir_add_error(ira, target_inst, buf_sprintf("expected enum or union, found '%s'",
+            buf_ptr(&enum_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -15838,9 +15890,7 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
         case IrInstructionIdStructInit:
         case IrInstructionIdUnionInit:
         case IrInstructionIdStructFieldPtr:
-        case IrInstructionIdEnumFieldPtr:
         case IrInstructionIdUnionFieldPtr:
-        case IrInstructionIdInitEnum:
         case IrInstructionIdMaybeWrap:
         case IrInstructionIdErrWrapCode:
         case IrInstructionIdErrWrapPayload:
@@ -15912,8 +15962,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_switch_target(ira, (IrInstructionSwitchTarget *)instruction);
         case IrInstructionIdSwitchVar:
             return ir_analyze_instruction_switch_var(ira, (IrInstructionSwitchVar *)instruction);
-        case IrInstructionIdEnumTag:
-            return ir_analyze_instruction_enum_tag(ira, (IrInstructionEnumTag *)instruction);
+        case IrInstructionIdUnionTag:
+            return ir_analyze_instruction_union_tag(ira, (IrInstructionUnionTag *)instruction);
         case IrInstructionIdImport:
             return ir_analyze_instruction_import(ira, (IrInstructionImport *)instruction);
         case IrInstructionIdArrayLen:
@@ -16006,8 +16056,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_int_to_ptr(ira, (IrInstructionIntToPtr *)instruction);
         case IrInstructionIdPtrToInt:
             return ir_analyze_instruction_ptr_to_int(ira, (IrInstructionPtrToInt *)instruction);
-        case IrInstructionIdEnumTagName:
-            return ir_analyze_instruction_enum_tag_name(ira, (IrInstructionEnumTagName *)instruction);
+        case IrInstructionIdTagName:
+            return ir_analyze_instruction_enum_tag_name(ira, (IrInstructionTagName *)instruction);
         case IrInstructionIdFieldParentPtr:
             return ir_analyze_instruction_field_parent_ptr(ira, (IrInstructionFieldParentPtr *)instruction);
         case IrInstructionIdOffsetOf:
@@ -16026,6 +16076,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_set_align_stack(ira, (IrInstructionSetAlignStack *)instruction);
         case IrInstructionIdArgType:
             return ir_analyze_instruction_arg_type(ira, (IrInstructionArgType *)instruction);
+        case IrInstructionIdTagType:
+            return ir_analyze_instruction_tag_type(ira, (IrInstructionTagType *)instruction);
     }
     zig_unreachable();
 }
@@ -16158,7 +16210,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdPtrTypeChild:
         case IrInstructionIdArrayLen:
         case IrInstructionIdStructFieldPtr:
-        case IrInstructionIdEnumFieldPtr:
         case IrInstructionIdUnionFieldPtr:
         case IrInstructionIdArrayType:
         case IrInstructionIdSliceType:
@@ -16169,7 +16220,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCtz:
         case IrInstructionIdSwitchVar:
         case IrInstructionIdSwitchTarget:
-        case IrInstructionIdEnumTag:
+        case IrInstructionIdUnionTag:
         case IrInstructionIdRef:
         case IrInstructionIdMinValue:
         case IrInstructionIdMaxValue:
@@ -16191,7 +16242,6 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdErrWrapPayload:
         case IrInstructionIdFnProto:
         case IrInstructionIdTestComptime:
-        case IrInstructionIdInitEnum:
         case IrInstructionIdPtrCast:
         case IrInstructionIdBitCast:
         case IrInstructionIdWidenOrShorten:
@@ -16204,13 +16254,14 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdDeclRef:
         case IrInstructionIdErrName:
         case IrInstructionIdTypeName:
-        case IrInstructionIdEnumTagName:
+        case IrInstructionIdTagName:
         case IrInstructionIdFieldParentPtr:
         case IrInstructionIdOffsetOf:
         case IrInstructionIdTypeId:
         case IrInstructionIdAlignCast:
         case IrInstructionIdOpaqueType:
         case IrInstructionIdArgType:
+        case IrInstructionIdTagType:
             return false;
         case IrInstructionIdAsm:
             {

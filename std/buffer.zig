@@ -4,6 +4,8 @@ const Allocator = mem.Allocator;
 const assert = debug.assert;
 const ArrayList = @import("array_list.zig").ArrayList;
 
+const fmt = @import("fmt/index.zig");
+
 /// A buffer that allocates memory and maintains a null byte at the end.
 pub const Buffer = struct {
     list: ArrayList(u8),
@@ -94,6 +96,10 @@ pub const Buffer = struct {
         const old_len = self.len();
         %return self.resize(old_len + m.len);
         mem.copy(u8, self.list.toSlice()[old_len..], m);
+    }
+
+    pub fn appendFormat(self: &Buffer, comptime format: []const u8, args: ...) -> %void {
+        return fmt.format(self, append, format, args);
     }
 
     pub fn appendByte(self: &Buffer, byte: u8) -> %void {

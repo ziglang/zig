@@ -97,18 +97,13 @@ struct ConstParent {
     } data;
 };
 
-struct ConstEnumValue {
-    uint64_t tag;
-    ConstExprValue *payload;
-};
-
 struct ConstStructValue {
     ConstExprValue *fields;
     ConstParent parent;
 };
 
 struct ConstUnionValue {
-    uint64_t tag;
+    BigInt tag;
     ConstExprValue *payload;
     ConstParent parent;
 };
@@ -249,7 +244,7 @@ struct ConstExprValue {
         ConstExprValue *x_maybe;
         ConstErrValue x_err_union;
         ErrorTableEntry *x_pure_err;
-        ConstEnumValue x_enum;
+        BigInt x_enum_tag;
         ConstStructValue x_struct;
         ConstUnionValue x_union;
         ConstArrayValue x_array;
@@ -345,15 +340,14 @@ struct TldCompTime {
 
 struct TypeEnumField {
     Buf *name;
-    TypeTableEntry *type_entry;
-    uint32_t value;
-    uint32_t gen_index;
+    BigInt value;
+    uint32_t decl_index;
 };
 
 struct TypeUnionField {
     Buf *name;
+    TypeEnumField *enum_field;
     TypeTableEntry *type_entry;
-    uint32_t value;
     uint32_t gen_index;
 };
 
@@ -773,13 +767,15 @@ struct AstNodeContainerDecl {
     ZigList<AstNode *> fields;
     ZigList<AstNode *> decls;
     ContainerLayout layout;
-    AstNode *init_arg_expr; // enum(T) or struct(endianness)
+    AstNode *init_arg_expr; // enum(T), struct(endianness), or union(T), or union(enum(T))
+    bool auto_enum; // union(enum)
 };
 
 struct AstNodeStructField {
     VisibMod visib_mod;
     Buf *name;
     AstNode *type;
+    AstNode *value;
 };
 
 struct AstNodeStringLiteral {
@@ -1009,12 +1005,9 @@ struct TypeTableEntryEnum {
     AstNode *decl_node;
     ContainerLayout layout;
     uint32_t src_field_count;
-    // number of fields in the union. 0 if enum with no payload
-    uint32_t gen_field_count;
     TypeEnumField *fields;
     bool is_invalid; // true if any fields are invalid
-    TypeTableEntry *tag_type;
-    LLVMTypeRef union_type_ref;
+    TypeTableEntry *tag_int_type;
 
     ScopeDecls *decls_scope;
 
@@ -1026,18 +1019,7 @@ struct TypeTableEntryEnum {
 
     bool zero_bits_loop_flag;
     bool zero_bits_known;
-    uint32_t abi_alignment; // also figured out with zero_bits pass
 
-    size_t gen_union_index;
-    size_t gen_tag_index;
-
-    uint32_t union_size_bytes;
-    TypeTableEntry *most_aligned_union_member;
-};
-
-struct TypeTableEntryEnumTag {
-    TypeTableEntry *enum_type;
-    TypeTableEntry *int_type;
     bool generate_name_table;
     LLVMValueRef name_table;
 };
@@ -1052,7 +1034,7 @@ struct TypeTableEntryUnion {
     uint32_t gen_field_count;
     TypeUnionField *fields;
     bool is_invalid; // true if any fields are invalid
-    TypeTableEntry *tag_type;
+    TypeTableEntry *tag_type; // always an enum or null
     LLVMTypeRef union_type_ref;
 
     ScopeDecls *decls_scope;
@@ -1117,7 +1099,6 @@ enum TypeTableEntryId {
     TypeTableEntryIdErrorUnion,
     TypeTableEntryIdPureError,
     TypeTableEntryIdEnum,
-    TypeTableEntryIdEnumTag,
     TypeTableEntryIdUnion,
     TypeTableEntryIdFn,
     TypeTableEntryIdNamespace,
@@ -1146,7 +1127,6 @@ struct TypeTableEntry {
         TypeTableEntryMaybe maybe;
         TypeTableEntryError error;
         TypeTableEntryEnum enumeration;
-        TypeTableEntryEnumTag enum_tag;
         TypeTableEntryUnion unionation;
         TypeTableEntryFn fn;
         TypeTableEntryBoundFn bound_fn;
@@ -1285,7 +1265,8 @@ enum BuiltinFnId {
     BuiltinFnIdBitCast,
     BuiltinFnIdIntToPtr,
     BuiltinFnIdPtrToInt,
-    BuiltinFnIdEnumTagName,
+    BuiltinFnIdTagName,
+    BuiltinFnIdTagType,
     BuiltinFnIdFieldParentPtr,
     BuiltinFnIdOffsetOf,
     BuiltinFnIdInlineCall,
@@ -1829,7 +1810,6 @@ enum IrInstructionId {
     IrInstructionIdStorePtr,
     IrInstructionIdFieldPtr,
     IrInstructionIdStructFieldPtr,
-    IrInstructionIdEnumFieldPtr,
     IrInstructionIdUnionFieldPtr,
     IrInstructionIdElemPtr,
     IrInstructionIdVarPtr,
@@ -1854,7 +1834,7 @@ enum IrInstructionId {
     IrInstructionIdTestNonNull,
     IrInstructionIdUnwrapMaybe,
     IrInstructionIdMaybeWrap,
-    IrInstructionIdEnumTag,
+    IrInstructionIdUnionTag,
     IrInstructionIdClz,
     IrInstructionIdCtz,
     IrInstructionIdImport,
@@ -1893,7 +1873,6 @@ enum IrInstructionId {
     IrInstructionIdErrWrapPayload,
     IrInstructionIdFnProto,
     IrInstructionIdTestComptime,
-    IrInstructionIdInitEnum,
     IrInstructionIdPtrCast,
     IrInstructionIdBitCast,
     IrInstructionIdWidenOrShorten,
@@ -1910,7 +1889,8 @@ enum IrInstructionId {
     IrInstructionIdSetGlobalLinkage,
     IrInstructionIdDeclRef,
     IrInstructionIdPanic,
-    IrInstructionIdEnumTagName,
+    IrInstructionIdTagName,
+    IrInstructionIdTagType,
     IrInstructionIdFieldParentPtr,
     IrInstructionIdOffsetOf,
     IrInstructionIdTypeId,
@@ -2085,14 +2065,6 @@ struct IrInstructionStructFieldPtr {
 
     IrInstruction *struct_ptr;
     TypeStructField *field;
-    bool is_const;
-};
-
-struct IrInstructionEnumFieldPtr {
-    IrInstruction base;
-
-    IrInstruction *enum_ptr;
-    TypeEnumField *field;
     bool is_const;
 };
 
@@ -2299,7 +2271,7 @@ struct IrInstructionClz {
     IrInstruction *value;
 };
 
-struct IrInstructionEnumTag {
+struct IrInstructionUnionTag {
     IrInstruction base;
 
     IrInstruction *value;
@@ -2569,15 +2541,6 @@ struct IrInstructionTestComptime {
     IrInstruction *value;
 };
 
-struct IrInstructionInitEnum {
-    IrInstruction base;
-
-    TypeTableEntry *enum_type;
-    TypeEnumField *field;
-    IrInstruction *init_value;
-    LLVMValueRef tmp_ptr;
-};
-
 struct IrInstructionPtrCast {
     IrInstruction base;
 
@@ -2689,7 +2652,13 @@ struct IrInstructionPanic {
     IrInstruction *msg;
 };
 
-struct IrInstructionEnumTagName {
+struct IrInstructionTagName {
+    IrInstruction base;
+
+    IrInstruction *target;
+};
+
+struct IrInstructionTagType {
     IrInstruction base;
 
     IrInstruction *target;

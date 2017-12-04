@@ -930,8 +930,8 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\fn bad_eql_1(a: []u8, b: []u8) -> bool {
         \\    a == b
         \\}
-        \\const EnumWithData = enum {
-        \\    One,
+        \\const EnumWithData = union(enum) {
+        \\    One: void,
         \\    Two: i32,
         \\};
         \\fn bad_eql_2(a: &const EnumWithData, b: &const EnumWithData) -> bool {
@@ -1145,19 +1145,19 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\const JasonHM = u8;
         \\const JasonList = &JsonNode;
         \\
-        \\const JsonOA = enum {
+        \\const JsonOA = union(enum) {
         \\    JSONArray: JsonList,
         \\    JSONObject: JasonHM,
         \\};
         \\
-        \\const JsonType = enum {
+        \\const JsonType = union(enum) {
         \\    JSONNull: void,
         \\    JSONInteger: isize,
         \\    JSONDouble: f64,
         \\    JSONBool: bool,
         \\    JSONString: []u8,
-        \\    JSONArray,
-        \\    JSONObject,
+        \\    JSONArray: void,
+        \\    JSONObject: void,
         \\};
         \\
         \\pub const JsonNode = struct {
@@ -2138,7 +2138,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\
         \\const MdText = ArrayList(u8);
         \\
-        \\const MdNode = enum {
+        \\const MdNode = union(enum) {
         \\    Header: struct {
         \\        text: MdText,
         \\        weight: HeaderValue,
@@ -2297,6 +2297,14 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     ,
         ".tmp_source.zig:2:21: error: type 'i32' does not support @memberType");
 
+    cases.add("@memberType on enum",
+        \\comptime {
+        \\    _ = @memberType(Foo, 0);
+        \\}
+        \\const Foo = enum {A,};
+    ,
+        ".tmp_source.zig:2:21: error: type 'Foo' does not support @memberType");
+
     cases.add("@memberType struct out of bounds",
         \\comptime {
         \\    _ = @memberType(Foo, 0);
@@ -2305,13 +2313,13 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     ,
         ".tmp_source.zig:2:26: error: member index 0 out of bounds; 'Foo' has 0 members");
 
-    cases.add("@memberType enum out of bounds",
+    cases.add("@memberType union out of bounds",
         \\comptime {
-        \\    _ = @memberType(Foo, 0);
+        \\    _ = @memberType(Foo, 1);
         \\}
-        \\const Foo = enum {};
+        \\const Foo = union {A: void,};
     ,
-        ".tmp_source.zig:2:26: error: member index 0 out of bounds; 'Foo' has 0 members");
+        ".tmp_source.zig:2:26: error: member index 1 out of bounds; 'Foo' has 1 members");
 
     cases.add("@memberName on unsupported type",
         \\comptime {
@@ -2330,11 +2338,19 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("@memberName enum out of bounds",
         \\comptime {
-        \\    _ = @memberName(Foo, 0);
+        \\    _ = @memberName(Foo, 1);
         \\}
-        \\const Foo = enum {};
+        \\const Foo = enum {A,};
     ,
-        ".tmp_source.zig:2:26: error: member index 0 out of bounds; 'Foo' has 0 members");
+        ".tmp_source.zig:2:26: error: member index 1 out of bounds; 'Foo' has 1 members");
+
+    cases.add("@memberName union out of bounds",
+        \\comptime {
+        \\    _ = @memberName(Foo, 1);
+        \\}
+        \\const Foo = union {A:i32,};
+    ,
+        ".tmp_source.zig:2:26: error: member index 1 out of bounds; 'Foo' has 1 members");
 
     cases.add("calling var args extern function, passing array instead of pointer",
         \\export fn entry() {
@@ -2362,4 +2378,310 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         ".tmp_source.zig:4:25: error: aoeu",
         ".tmp_source.zig:1:36: note: called from here",
         ".tmp_source.zig:12:20: note: referenced here");
+
+    cases.add("specify enum tag type that is too small",
+        \\const Small = enum (u2) {
+        \\    One,
+        \\    Two,
+        \\    Three,
+        \\    Four,
+        \\    Five,
+        \\};
+        \\
+        \\export fn entry() {
+        \\    var x = Small.One;
+        \\}
+    ,
+        ".tmp_source.zig:1:20: error: 'u2' too small to hold all bits; must be at least 'u3'");
+
+    cases.add("specify non-integer enum tag type",
+        \\const Small = enum (f32) {
+        \\    One,
+        \\    Two,
+        \\    Three,
+        \\};
+        \\
+        \\export fn entry() {
+        \\    var x = Small.One;
+        \\}
+    ,
+        ".tmp_source.zig:1:20: error: expected integer, found 'f32'");
+
+    cases.add("implicitly casting enum to tag type",
+        \\const Small = enum(u2) {
+        \\    One,
+        \\    Two,
+        \\    Three,
+        \\    Four,
+        \\};
+        \\
+        \\export fn entry() {
+        \\    var x: u2 = Small.Two;
+        \\}
+    ,
+        ".tmp_source.zig:9:22: error: expected type 'u2', found 'Small'");
+
+    cases.add("explicitly casting enum to non tag type",
+        \\const Small = enum(u2) {
+        \\    One,
+        \\    Two,
+        \\    Three,
+        \\    Four,
+        \\};
+        \\
+        \\export fn entry() {
+        \\    var x = u3(Small.Two);
+        \\}
+    ,
+        ".tmp_source.zig:9:15: error: enum to integer cast to 'u3' instead of its tag type, 'u2'");
+
+    cases.add("explicitly casting non tag type to enum",
+        \\const Small = enum(u2) {
+        \\    One,
+        \\    Two,
+        \\    Three,
+        \\    Four,
+        \\};
+        \\
+        \\export fn entry() {
+        \\    var y = u3(3);
+        \\    var x = Small(y);
+        \\}
+    ,
+        ".tmp_source.zig:10:18: error: integer to enum cast from 'u3' instead of its tag type, 'u2'");
+
+    cases.add("non unsigned integer enum tag type",
+        \\const Small = enum(i2) {
+        \\    One,
+        \\    Two,
+        \\    Three,
+        \\    Four,
+        \\};
+        \\
+        \\export fn entry() {
+        \\    var y = Small.Two;
+        \\}
+    ,
+        ".tmp_source.zig:1:19: error: expected unsigned integer, found 'i2'");
+
+    cases.add("struct fields with value assignments",
+        \\const MultipleChoice = struct {
+        \\    A: i32 = 20,
+        \\};
+        \\export fn entry() {
+        \\        var x: MultipleChoice = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:2:14: error: enums, not structs, support field assignment");
+
+    cases.add("union fields with value assignments",
+        \\const MultipleChoice = union {
+        \\    A: i32 = 20,
+        \\};
+        \\export fn entry() {
+        \\    var x: MultipleChoice = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:2:14: error: non-enum union field assignment",
+        ".tmp_source.zig:1:24: note: consider 'union(enum)' here");
+
+    cases.add("enum with 0 fields",
+        \\const Foo = enum {};
+        \\export fn entry() -> usize {
+        \\    return @sizeOf(Foo);
+        \\}
+    ,
+        ".tmp_source.zig:1:13: error: enums must have 1 or more fields");
+
+    cases.add("union with 0 fields",
+        \\const Foo = union {};
+        \\export fn entry() -> usize {
+        \\    return @sizeOf(Foo);
+        \\}
+    ,
+        ".tmp_source.zig:1:13: error: unions must have 1 or more fields");
+
+    cases.add("enum value already taken",
+        \\const MultipleChoice = enum(u32) {
+        \\    A = 20,
+        \\    B = 40,
+        \\    C = 60,
+        \\    D = 1000,
+        \\    E = 60,
+        \\};
+        \\export fn entry() {
+        \\    var x = MultipleChoice.C;
+        \\}
+    ,
+        ".tmp_source.zig:6:9: error: enum tag value 60 already taken",
+        ".tmp_source.zig:4:9: note: other occurrence here");
+
+    cases.add("union with specified enum omits field",
+        \\const Letter = enum {
+        \\    A,
+        \\    B,
+        \\    C,
+        \\};
+        \\const Payload = union(Letter) {
+        \\    A: i32,
+        \\    B: f64,
+        \\};
+        \\export fn entry() -> usize {
+        \\    return @sizeOf(Payload);
+        \\}
+    ,
+        ".tmp_source.zig:6:17: error: enum field missing: 'C'",
+        ".tmp_source.zig:4:5: note: declared here");
+
+    cases.add("@TagType when union has no attached enum",
+        \\const Foo = union {
+        \\    A: i32,
+        \\};
+        \\export fn entry() {
+        \\    const x = @TagType(Foo);
+        \\}
+    ,
+        ".tmp_source.zig:5:24: error: union 'Foo' has no tag",
+        ".tmp_source.zig:1:13: note: consider 'union(enum)' here");
+
+    cases.add("non-integer tag type to automatic union enum",
+        \\const Foo = union(enum(f32)) {
+        \\    A: i32,
+        \\};
+        \\export fn entry() {
+        \\    const x = @TagType(Foo);
+        \\}
+    ,
+        ".tmp_source.zig:1:23: error: expected integer tag type, found 'f32'");
+
+    cases.add("non-enum tag type passed to union",
+        \\const Foo = union(u32) {
+        \\    A: i32,
+        \\};
+        \\export fn entry() {
+        \\    const x = @TagType(Foo);
+        \\}
+    ,
+        ".tmp_source.zig:1:18: error: expected enum tag type, found 'u32'");
+
+    cases.add("union auto-enum value already taken",
+        \\const MultipleChoice = union(enum(u32)) {
+        \\    A = 20,
+        \\    B = 40,
+        \\    C = 60,
+        \\    D = 1000,
+        \\    E = 60,
+        \\};
+        \\export fn entry() {
+        \\    var x = MultipleChoice { .C = {} };
+        \\}
+    ,
+        ".tmp_source.zig:6:9: error: enum tag value 60 already taken",
+        ".tmp_source.zig:4:9: note: other occurrence here");
+
+    cases.add("union enum field does not match enum",
+        \\const Letter = enum {
+        \\    A,
+        \\    B,
+        \\    C,
+        \\};
+        \\const Payload = union(Letter) {
+        \\    A: i32,
+        \\    B: f64,
+        \\    C: bool,
+        \\    D: bool,
+        \\};
+        \\export fn entry() {
+        \\    var a = Payload {.A = 1234};
+        \\}
+    ,
+        ".tmp_source.zig:10:5: error: enum field not found: 'D'",
+        ".tmp_source.zig:1:16: note: enum declared here");
+
+    cases.add("field type supplied in an enum",
+        \\const Letter = enum {
+        \\    A: void,
+        \\    B,
+        \\    C,
+        \\};
+        \\export fn entry() {
+        \\    var b = Letter.B;
+        \\}
+    ,
+        ".tmp_source.zig:2:8: error: structs and unions, not enums, support field types",
+        ".tmp_source.zig:1:16: note: consider 'union(enum)' here");
+
+    cases.add("struct field missing type",
+        \\const Letter = struct {
+        \\    A,
+        \\};
+        \\export fn entry() {
+        \\    var a = Letter { .A = {} };
+        \\}
+    ,
+        ".tmp_source.zig:2:5: error: struct field missing type");
+
+    cases.add("extern union field missing type",
+        \\const Letter = extern union {
+        \\    A,
+        \\};
+        \\export fn entry() {
+        \\    var a = Letter { .A = {} };
+        \\}
+    ,
+        ".tmp_source.zig:2:5: error: union field missing type");
+
+    cases.add("extern union given enum tag type",
+        \\const Letter = enum {
+        \\    A,
+        \\    B,
+        \\    C,
+        \\};
+        \\const Payload = extern union(Letter) {
+        \\    A: i32,
+        \\    B: f64,
+        \\    C: bool,
+        \\};
+        \\export fn entry() {
+        \\    var a = Payload { .A = { 1234 } };
+        \\}
+    ,
+        ".tmp_source.zig:6:29: error: extern union does not support enum tag type");
+
+    cases.add("packed union given enum tag type",
+        \\const Letter = enum {
+        \\    A,
+        \\    B,
+        \\    C,
+        \\};
+        \\const Payload = packed union(Letter) {
+        \\    A: i32,
+        \\    B: f64,
+        \\    C: bool,
+        \\};
+        \\export fn entry() {
+        \\    var a = Payload { .A = { 1234 } };
+        \\}
+    ,
+        ".tmp_source.zig:6:29: error: packed union does not support enum tag type");
+
+    cases.add("switch on union with no attached enum",
+        \\const Payload = union {
+        \\    A: i32,
+        \\    B: f64,
+        \\    C: bool,
+        \\};
+        \\export fn entry() {
+        \\    const a = Payload { .A = { 1234 } };
+        \\    foo(a);
+        \\}
+        \\fn foo(a: &const Payload) {
+        \\    switch (*a) {
+        \\        Payload.A => {},
+        \\        else => unreachable,
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:11:13: error: switch on union which has no attached enum",
+        ".tmp_source.zig:1:17: note: consider 'union(enum)' here");
 }

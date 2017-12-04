@@ -651,6 +651,14 @@ static bool c_is_unsigned_integer(Context *c, QualType qt) {
     }
 }
 
+static bool c_is_builtin_type(Context *c, QualType qt, BuiltinType::Kind kind) {
+    const Type *c_type = qual_type_canon(qt);
+    if (c_type->getTypeClass() != Type::Builtin)
+        return false;
+    const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(c_type);
+    return builtin_ty->getKind() == kind;
+}
+
 static bool c_is_float(Context *c, QualType qt) {
     const Type *c_type = qt.getTypePtr();
     if (c_type->getTypeClass() != Type::Builtin)
@@ -978,11 +986,23 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                 const AttributedType *attributed_ty = static_cast<const AttributedType *>(ty);
                 return trans_qual_type(c, attributed_ty->getEquivalentType(), source_loc);
             }
+        case Type::IncompleteArray:
+            {
+                const IncompleteArrayType *incomplete_array_ty = static_cast<const IncompleteArrayType *>(ty);
+                QualType child_qt = incomplete_array_ty->getElementType();
+                AstNode *child_type_node = trans_qual_type(c, child_qt, source_loc);
+                if (child_type_node == nullptr) {
+                    emit_warning(c, source_loc, "unresolved array element type");
+                    return nullptr;
+                }
+                AstNode *pointer_node = trans_create_node_addr_of(c, child_qt.isConstQualified(),
+                        child_qt.isVolatileQualified(), child_type_node);
+                return pointer_node;
+            }
         case Type::BlockPointer:
         case Type::LValueReference:
         case Type::RValueReference:
         case Type::MemberPointer:
-        case Type::IncompleteArray:
         case Type::VariableArray:
         case Type::DependentSizedArray:
         case Type::DependentSizedExtVector:
@@ -3417,7 +3437,14 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
         AstNode *enum_node = trans_create_node(c, NodeTypeContainerDecl);
         enum_node->data.container_decl.kind = ContainerKindEnum;
         enum_node->data.container_decl.layout = ContainerLayoutExtern;
-        enum_node->data.container_decl.init_arg_expr = tag_int_type;
+        // TODO only emit this tag type if the enum tag type is not the default.
+        // I don't know what the default is, need to figure out how clang is deciding.
+        // it appears to at least be different across gcc/msvc
+        if (!c_is_builtin_type(c, enum_decl->getIntegerType(), BuiltinType::UInt) &&
+            !c_is_builtin_type(c, enum_decl->getIntegerType(), BuiltinType::Int))
+        {
+            enum_node->data.container_decl.init_arg_expr = tag_int_type;
+        }
 
         enum_node->data.container_decl.fields.resize(field_count);
         uint32_t i = 0;
@@ -4304,7 +4331,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
             }
         }
 
-        return 0;
+        return ErrorCCompileErrors;
     }
 
     c->ctx = &ast_unit->getASTContext();

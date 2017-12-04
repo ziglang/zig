@@ -58,7 +58,7 @@ pub const ChildProcess = struct {
     err_pipe: if (is_windows) void else [2]i32,
     llnode: if (is_windows) void else LinkedList(&ChildProcess).Node,
 
-    pub const Term = enum {
+    pub const Term = union(enum) {
         Exited: i32,
         Signal: i32,
         Stopped: i32,
@@ -213,9 +213,9 @@ pub const ChildProcess = struct {
         self.term = (%Term)({
             var exit_code: windows.DWORD = undefined;
             if (windows.GetExitCodeProcess(self.handle, &exit_code) == 0) {
-                Term.Unknown{0}
+                Term { .Unknown = 0 }
             } else {
-                Term.Exited {@bitCast(i32, exit_code)}
+                Term { .Exited = @bitCast(i32, exit_code)}
             }
         });
 
@@ -281,13 +281,13 @@ pub const ChildProcess = struct {
 
     fn statusToTerm(status: i32) -> Term {
         return if (posix.WIFEXITED(status)) {
-            Term.Exited { posix.WEXITSTATUS(status) }
+            Term { .Exited = posix.WEXITSTATUS(status) }
         } else if (posix.WIFSIGNALED(status)) {
-            Term.Signal { posix.WTERMSIG(status) }
+            Term { .Signal = posix.WTERMSIG(status) }
         } else if (posix.WIFSTOPPED(status)) {
-            Term.Stopped { posix.WSTOPSIG(status) }
+            Term { .Stopped = posix.WSTOPSIG(status) }
         } else {
-            Term.Unknown { status }
+            Term { .Unknown = status }
         };
     }
 
@@ -722,14 +722,14 @@ const ErrInt = @IntType(false, @sizeOf(error) * 8);
 
 fn writeIntFd(fd: i32, value: ErrInt) -> %void {
     var bytes: [@sizeOf(ErrInt)]u8 = undefined;
-    mem.writeInt(bytes[0..], value, true);
+    mem.writeInt(bytes[0..], value, builtin.endian);
     os.posixWrite(fd, bytes[0..]) %% return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) -> %ErrInt {
     var bytes: [@sizeOf(ErrInt)]u8 = undefined;
     os.posixRead(fd, bytes[0..]) %% return error.SystemResources;
-    return mem.readInt(bytes[0..], ErrInt, true);
+    return mem.readInt(bytes[0..], ErrInt, builtin.endian);
 }
 
 extern fn sigchld_handler(_: i32) {
