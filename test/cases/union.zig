@@ -173,3 +173,20 @@ const ZeroBits = union {
 test "union with only 1 field which is void should be zero bits" {
     comptime assert(@sizeOf(ZeroBits) == 0);
 }
+
+const TheTag = enum {A, B, C};
+const TheUnion = union(TheTag) { A: i32, B: i32, C: i32 };
+test "union field access gives the enum values" {
+    assert(TheUnion.A == TheTag.A);
+    assert(TheUnion.B == TheTag.B);
+    assert(TheUnion.C == TheTag.C);
+}
+
+test "cast union to tag type of union" {
+    testCastUnionToTagType(TheUnion {.B = 1234});
+    comptime testCastUnionToTagType(TheUnion {.B = 1234});
+}
+
+fn testCastUnionToTagType(x: &const TheUnion) {
+    assert(TheTag(*x) == TheTag.B);
+}
