@@ -3964,7 +3964,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                     if (type_entry->data.unionation.gen_tag_index == SIZE_MAX)
                         return LLVMGetUndef(type_entry->type_ref);
 
-                    union_value_ref = LLVMGetUndef(type_entry->data.unionation.most_aligned_union_member->type_ref);
+                    union_value_ref = LLVMGetUndef(union_type_ref);
                     make_unnamed_struct = false;
                 } else {
                     uint64_t field_type_bytes = LLVMStoreSizeOfType(g->target_data_ref, payload_value->type->type_ref);
