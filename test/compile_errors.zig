@@ -2524,4 +2524,51 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     ,
         ".tmp_source.zig:6:17: error: enum field missing: 'C'",
         ".tmp_source.zig:4:5: note: declared here");
+
+    cases.add("@TagType when union has no attached enum",
+        \\const Foo = union {
+        \\    A: i32,
+        \\};
+        \\export fn entry() {
+        \\    const x = @TagType(Foo);
+        \\}
+    ,
+        ".tmp_source.zig:5:24: error: union 'Foo' has no tag",
+        ".tmp_source.zig:1:13: note: consider 'union(enum)' here");
+
+    cases.add("non-integer tag type to automatic union enum",
+        \\const Foo = union(enum(f32)) {
+        \\    A: i32,
+        \\};
+        \\export fn entry() {
+        \\    const x = @TagType(Foo);
+        \\}
+    ,
+        ".tmp_source.zig:1:23: error: expected integer tag type, found 'f32'");
+
+    cases.add("non-enum tag type passed to union",
+        \\const Foo = union(u32) {
+        \\    A: i32,
+        \\};
+        \\export fn entry() {
+        \\    const x = @TagType(Foo);
+        \\}
+    ,
+        ".tmp_source.zig:1:18: error: expected enum tag type, found 'u32'");
+
+    cases.add("union auto-enum value already taken",
+        \\const MultipleChoice = union(enum(u32)) {
+        \\    A = 20,
+        \\    B = 40,
+        \\    C = 60,
+        \\    D = 1000,
+        \\    E = 60,
+        \\};
+        \\export fn entry() {
+        \\    var x = MultipleChoice { .C = {} };
+        \\}
+    ,
+        ".tmp_source.zig:6:9: error: enum tag value 60 already taken",
+        ".tmp_source.zig:4:9: note: other occurrence here");
+
 }

@@ -12970,10 +12970,13 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
             ir_build_load_ptr_from(&ira->new_irb, &switch_target_instruction->base, target_value_ptr);
             return target_type;
         case TypeTableEntryIdUnion: {
-            if (target_type->data.unionation.gen_tag_index == SIZE_MAX) {
+            AstNode *decl_node = target_type->data.unionation.decl_node;
+            if (!decl_node->data.container_decl.auto_enum &&
+                decl_node->data.container_decl.init_arg_expr == nullptr)
+            {
                 ErrorMsg *msg = ir_add_error(ira, target_value_ptr,
                     buf_sprintf("switch on union which has no attached enum"));
-                add_error_note(ira->codegen, msg, target_type->data.unionation.decl_node,
+                add_error_note(ira->codegen, msg, decl_node,
                         buf_sprintf("union declared here"));
                 return ira->codegen->builtin_types.entry_invalid;
             }

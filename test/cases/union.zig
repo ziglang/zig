@@ -105,6 +105,18 @@ fn bar(value: &const Payload) -> i32 {
     };
 }
 
+const MultipleChoice = union(enum(u32)) {
+    A = 20,
+    B = 40,
+    C = 60,
+    D = 1000,
+};
+test "simple union(enum(u32))" {
+    var x = MultipleChoice.C;
+    assert(x == MultipleChoice.C);
+    assert(u32(@TagType(MultipleChoice)(x)) == 60);
+}
+
 const MultipleChoice2 = union(enum(u32)) {
     Unspecified1: i32,
     A: f32 = 20,
@@ -137,3 +149,4 @@ fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: &const MultipleChoice2) {
         MultipleChoice2.Unspecified5 => 9,
     });
 }
+
