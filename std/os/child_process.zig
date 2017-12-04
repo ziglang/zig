@@ -213,9 +213,9 @@ pub const ChildProcess = struct {
         self.term = (%Term)({
             var exit_code: windows.DWORD = undefined;
             if (windows.GetExitCodeProcess(self.handle, &exit_code) == 0) {
-                Term.Unknown{0}
+                Term { .Unknown = 0 }
             } else {
-                Term.Exited {@bitCast(i32, exit_code)}
+                Term { .Exited = @bitCast(i32, exit_code)}
             }
         });
 
