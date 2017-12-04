@@ -1,6 +1,7 @@
 const debug = @import("debug.zig");
 const assert = debug.assert;
 const math = @import("math/index.zig");
+const builtin = @import("builtin");
 
 pub const Cmp = math.Cmp;
 
@@ -181,20 +182,23 @@ test "mem.indexOf" {
 /// T specifies the return type, which must be large enough to store
 /// the result.
 /// See also ::readIntBE or ::readIntLE.
-pub fn readInt(bytes: []const u8, comptime T: type, big_endian: bool) -> T {
+pub fn readInt(bytes: []const u8, comptime T: type, endian: builtin.Endian) -> T {
     if (T.bit_count == 8) {
         return bytes[0];
     }
     var result: T = 0;
-    if (big_endian) {
-        for (bytes) |b| {
-            result = (result << 8) | b;
-        }
-    } else {
-        const ShiftType = math.Log2Int(T);
-        for (bytes) |b, index| {
-            result = result | (T(b) << ShiftType(index * 8));
-        }
+    switch (endian) {
+        builtin.Endian.Big => {
+            for (bytes) |b| {
+                result = (result << 8) | b;
+            }
+        },
+        builtin.Endian.Little => {
+            const ShiftType = math.Log2Int(T);
+            for (bytes) |b, index| {
+                result = result | (T(b) << ShiftType(index * 8));
+            }
+        },
     }
     return result;
 }
@@ -230,22 +234,25 @@ pub fn readIntLE(comptime T: type, bytes: []const u8) -> T {
 /// Writes an integer to memory with size equal to bytes.len. Pads with zeroes
 /// to fill the entire buffer provided.
 /// value must be an integer.
-pub fn writeInt(buf: []u8, value: var, big_endian: bool) {
+pub fn writeInt(buf: []u8, value: var, endian: builtin.Endian) {
     const uint = @IntType(false, @typeOf(value).bit_count);
     var bits = @truncate(uint, value);
-    if (big_endian) {
-        var index: usize = buf.len;
-        while (index != 0) {
-            index -= 1;
+    switch (endian) {
+        builtin.Endian.Big => {
+            var index: usize = buf.len;
+            while (index != 0) {
+                index -= 1;
 
-            buf[index] = @truncate(u8, bits);
-            bits >>= 8;
-        }
-    } else {
-        for (buf) |*b| {
-            *b = @truncate(u8, bits);
-            bits >>= 8;
-        }
+                buf[index] = @truncate(u8, bits);
+                bits >>= 8;
+            }
+        },
+        builtin.Endian.Little => {
+            for (buf) |*b| {
+                *b = @truncate(u8, bits);
+                bits >>= 8;
+            }
+        },
     }
     assert(bits == 0);
 }
@@ -377,21 +384,21 @@ test "testReadInt" {
 fn testReadIntImpl() {
     {
         const bytes = []u8{ 0x12, 0x34, 0x56, 0x78 };
-        assert(readInt(bytes, u32, true)  == 0x12345678);
+        assert(readInt(bytes, u32, builtin.Endian.Big)  == 0x12345678);
         assert(readIntBE(u32, bytes)      == 0x12345678);
         assert(readIntBE(i32, bytes)      == 0x12345678);
-        assert(readInt(bytes, u32, false) == 0x78563412);
+        assert(readInt(bytes, u32, builtin.Endian.Little) == 0x78563412);
         assert(readIntLE(u32, bytes)      == 0x78563412);
         assert(readIntLE(i32, bytes)      == 0x78563412);
     }
     {
         const buf = []u8{0x00, 0x00, 0x12, 0x34};
-        const answer = readInt(buf, u64, true);
+        const answer = readInt(buf, u64, builtin.Endian.Big);
         assert(answer == 0x00001234);
     }
     {
         const buf = []u8{0x12, 0x34, 0x00, 0x00};
-        const answer = readInt(buf, u64, false);
+        const answer = readInt(buf, u64, builtin.Endian.Little);
         assert(answer == 0x00003412);
     }
     {
@@ -410,16 +417,16 @@ test "testWriteInt" {
 fn testWriteIntImpl() {
     var bytes: [4]u8 = undefined;
 
-    writeInt(bytes[0..], u32(0x12345678), true);
+    writeInt(bytes[0..], u32(0x12345678), builtin.Endian.Big);
     assert(eql(u8, bytes, []u8{ 0x12, 0x34, 0x56, 0x78 }));
 
-    writeInt(bytes[0..], u32(0x78563412), false);
+    writeInt(bytes[0..], u32(0x78563412), builtin.Endian.Little);
     assert(eql(u8, bytes, []u8{ 0x12, 0x34, 0x56, 0x78 }));
 
-    writeInt(bytes[0..], u16(0x1234), true);
+    writeInt(bytes[0..], u16(0x1234), builtin.Endian.Big);
     assert(eql(u8, bytes, []u8{ 0x00, 0x00, 0x12, 0x34 }));
 
-    writeInt(bytes[0..], u16(0x1234), false);
+    writeInt(bytes[0..], u16(0x1234), builtin.Endian.Little);
     assert(eql(u8, bytes, []u8{ 0x34, 0x12, 0x00, 0x00 }));
 }
 

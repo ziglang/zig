@@ -9,8 +9,8 @@ pub fn swapIfBe(comptime T: type, x: T) -> T {
     swapIf(true, T, x)
 }
 
-pub fn swapIf(is_be: bool, comptime T: type, x: T) -> T {
-    if (builtin.is_big_endian == is_be) swap(T, x) else x
+pub fn swapIf(endian: builtin.Endian, comptime T: type, x: T) -> T {
+    if (builtin.endian == endian) swap(T, x) else x
 }
 
 pub fn swap(comptime T: type, x: T) -> T {

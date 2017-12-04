@@ -5129,7 +5129,19 @@ static void define_builtin_compile_vars(CodeGen *g) {
         assert(FloatModeOptimized == 0);
         assert(FloatModeStrict == 1);
     }
-    buf_appendf(contents, "pub const is_big_endian = %s;\n", bool_to_str(g->is_big_endian));
+    {
+        buf_appendf(contents,
+            "pub const Endian = enum {\n"
+            "    Big,\n"
+            "    Little,\n"
+            "};\n\n");
+        assert(FloatModeOptimized == 0);
+        assert(FloatModeStrict == 1);
+    }
+    {
+        const char *endian_str = g->is_big_endian ? "Endian.Big" : "Endian.Little";
+        buf_appendf(contents, "pub const endian = %s;\n", endian_str);
+    }
     buf_appendf(contents, "pub const is_test = %s;\n", bool_to_str(g->is_test_build));
     buf_appendf(contents, "pub const os = Os.%s;\n", cur_os);
     buf_appendf(contents, "pub const arch = Arch.%s;\n", cur_arch);

@@ -722,14 +722,14 @@ const ErrInt = @IntType(false, @sizeOf(error) * 8);
 
 fn writeIntFd(fd: i32, value: ErrInt) -> %void {
     var bytes: [@sizeOf(ErrInt)]u8 = undefined;
-    mem.writeInt(bytes[0..], value, true);
+    mem.writeInt(bytes[0..], value, builtin.endian);
     os.posixWrite(fd, bytes[0..]) %% return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) -> %ErrInt {
     var bytes: [@sizeOf(ErrInt)]u8 = undefined;
     os.posixRead(fd, bytes[0..]) %% return error.SystemResources;
-    return mem.readInt(bytes[0..], ErrInt, true);
+    return mem.readInt(bytes[0..], ErrInt, builtin.endian);
 }
 
 extern fn sigchld_handler(_: i32) {

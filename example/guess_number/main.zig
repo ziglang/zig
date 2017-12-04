@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const io = std.io;
 const fmt = std.fmt;
@@ -15,7 +16,7 @@ pub fn main() -> %void {
 
     var seed_bytes: [@sizeOf(usize)]u8 = undefined;
     %%os.getRandomBytes(seed_bytes[0..]);
-    const seed = std.mem.readInt(seed_bytes, usize, true);
+    const seed = std.mem.readInt(seed_bytes, usize, builtin.Endian.Big);
     var rand = Rand.init(seed);
 
     const answer = rand.range(u8, 0, 100) + 1;

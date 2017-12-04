@@ -303,7 +303,7 @@ const Constant = struct {
             return error.InvalidDebugInfo;
         if (self.signed)
             return error.InvalidDebugInfo;
-        return mem.readInt(self.payload, u64, false);
+        return mem.readInt(self.payload, u64, builtin.Endian.Little);
     }
 };
 
@@ -479,7 +479,7 @@ fn parseFormValueBlockLen(allocator: &mem.Allocator, in_stream: &io.InStream, si
 }
 
 fn parseFormValueBlock(allocator: &mem.Allocator, in_stream: &io.InStream, size: usize) -> %FormValue {
-    const block_len = %return in_stream.readVarInt(false, usize, size);
+    const block_len = %return in_stream.readVarInt(builtin.Endian.Little, usize, size);
     return parseFormValueBlockLen(allocator, in_stream, block_len);
 }
 
@@ -669,10 +669,10 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
             continue;
         }
 
-        const version = %return in_stream.readInt(st.elf.is_big_endian, u16);
+        const version = %return in_stream.readInt(st.elf.endian, u16);
         if (version != 2) return error.InvalidDebugInfo;
 
-        const prologue_length = %return in_stream.readInt(st.elf.is_big_endian, u32);
+        const prologue_length = %return in_stream.readInt(st.elf.endian, u32);
         const prog_start_offset = (%return in_file.getPos()) + prologue_length;
 
         const minimum_instruction_length = %return in_stream.readByte();
@@ -739,7 +739,7 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
                         return error.MissingDebugInfo;
                     },
                     DW.LNE_set_address => {
-                        const addr = %return in_stream.readInt(st.elf.is_big_endian, usize);
+                        const addr = %return in_stream.readInt(st.elf.endian, usize);
                         prog.address = addr;
                     },
                     DW.LNE_define_file => {
@@ -801,7 +801,7 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
                         prog.address += inc_addr;
                     },
                     DW.LNS_fixed_advance_pc => {
-                        const arg = %return in_stream.readInt(st.elf.is_big_endian, u16);
+                        const arg = %return in_stream.readInt(st.elf.endian, u16);
                         prog.address += arg;
                     },
                     DW.LNS_set_prologue_end => {
@@ -839,13 +839,13 @@ fn scanAllCompileUnits(st: &ElfStackTrace) -> %void {
             return;
         const next_offset = unit_length + (if (is_64) usize(12) else usize(4));
 
-        const version = %return in_stream.readInt(st.elf.is_big_endian, u16);
+        const version = %return in_stream.readInt(st.elf.endian, u16);
         if (version < 2 or version > 5) return error.InvalidDebugInfo;
 
         const debug_abbrev_offset = if (is_64) {
-            %return in_stream.readInt(st.elf.is_big_endian, u64)
+            %return in_stream.readInt(st.elf.endian, u64)
         } else {
-            %return in_stream.readInt(st.elf.is_big_endian, u32)
+            %return in_stream.readInt(st.elf.endian, u32)
         };
 
         const address_size = %return in_stream.readByte();
