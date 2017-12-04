@@ -1,6 +1,6 @@
 const assert = @import("std").debug.assert;
 
-const Value = enum {
+const Value = union(enum) {
     Int: u64,
     Array: [9]u8,
 };
@@ -10,8 +10,8 @@ const Agg = struct {
     val2: Value,
 };
 
-const v1 = Value.Int { 1234 };
-const v2 = Value.Array { []u8{3} ** 9 };
+const v1 = Value { .Int = 1234 };
+const v2 = Value { .Array = []u8{3} ** 9 };
 
 const err = (%Agg)(Agg {
     .val1 = v1,
@@ -75,3 +75,32 @@ test "basic extern unions" {
     assert(foo.float == 12.34);
 }
 
+
+const Letter = enum {
+    A,
+    B,
+    C,
+};
+const Payload = union(Letter) {
+    A: i32,
+    B: f64,
+    C: bool,
+};
+
+test "union with specified enum tag" {
+    doTest();
+    comptime doTest();
+}
+
+fn doTest() {
+    assert(bar(Payload {.A = 1234}) == -10);
+}
+
+fn bar(value: &const Payload) -> i32 {
+    assert(Letter(*value) == Letter.A);
+    return switch (*value) {
+        Payload.A => |x| return x - 1244,
+        Payload.B => |x| if (x == 12.34) i32(20) else 21,
+        Payload.C => |x| if (x) i32(30) else 31,
+    };
+}

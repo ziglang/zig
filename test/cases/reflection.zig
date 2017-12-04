@@ -62,8 +62,8 @@ const Foo = struct {
     three: void,
 };
 
-const Bar = enum {
-    One,
+const Bar = union(enum) {
+    One: void,
     Two: i32,
     Three: bool,
     Four: f64,

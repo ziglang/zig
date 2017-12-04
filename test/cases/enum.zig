@@ -2,8 +2,8 @@ const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
 test "enum type" {
-    const foo1 = Foo.One {13};
-    const foo2 = Foo.Two { Point { .x = 1234, .y = 5678, }};
+    const foo1 = Foo{ .One = 13};
+    const foo2 = Foo{. Two = Point { .x = 1234, .y = 5678, }};
     const bar = Bar.B;
 
     assert(bar == Bar.B);
@@ -24,12 +24,12 @@ const Point = struct {
     x: u64,
     y: u64,
 };
-const Foo = enum {
+const Foo = union(enum) {
     One: i32,
     Two: Point,
     Three: void,
 };
-const FooNoVoid = enum {
+const FooNoVoid = union(enum) {
     One: i32,
     Two: Point,
 };
@@ -41,13 +41,13 @@ const Bar = enum {
 };
 
 fn returnAnInt(x: i32) -> Foo {
-    Foo.One { x }
+    Foo { .One = x }
 }
 
 
 test "constant enum with payload" {
-    var empty = AnEnumWithPayload.Empty;
-    var full = AnEnumWithPayload.Full {13};
+    var empty = AnEnumWithPayload {.Empty = {}};
+    var full = AnEnumWithPayload {.Full = 13};
     shouldBeEmpty(empty);
     shouldBeNotEmpty(full);
 }
@@ -66,8 +66,8 @@ fn shouldBeNotEmpty(x: &const AnEnumWithPayload) {
     }
 }
 
-const AnEnumWithPayload = enum {
-    Empty,
+const AnEnumWithPayload = union(enum) {
+    Empty: void,
     Full: i32,
 };
 
@@ -109,13 +109,13 @@ const IntToEnumNumber = enum {
 };
 
 
-test "@enumTagName" {
+test "@tagName" {
     assert(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
     comptime assert(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
 }
 
 fn testEnumTagNameBare(n: BareNumber) -> []const u8 {
-    return @enumTagName(n);
+    return @tagName(n);
 }
 
 const BareNumber = enum {
@@ -132,7 +132,7 @@ test "enum alignment" {
     }
 }
 
-const AlignTestEnum = enum {
+const AlignTestEnum = union(enum) {
     A: [9]u8,
     B: u64,
 };

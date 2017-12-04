@@ -150,8 +150,8 @@ pub fn addPkgTests(b: &build.Builder, test_filter: ?[]const u8, root_src: []cons
                     continue;
                 }
                 const these_tests = b.addTest(root_src);
-                these_tests.setNamePrefix(b.fmt("{}-{}-{}-{}-{} ", name, @enumTagName(test_target.os),
-                    @enumTagName(test_target.arch), @enumTagName(mode), if (link_libc) "c" else "bare"));
+                these_tests.setNamePrefix(b.fmt("{}-{}-{}-{}-{} ", name, @tagName(test_target.os),
+                    @tagName(test_target.arch), @tagName(mode), if (link_libc) "c" else "bare"));
                 these_tests.setFilter(test_filter);
                 these_tests.setBuildMode(mode);
                 if (!is_native) {
@@ -428,7 +428,7 @@ pub const CompareOutputContext = struct {
             Special.None => {
                 for ([]Mode{Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast}) |mode| {
                     const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "{} {} ({})",
-                        "compare-output", case.name, @enumTagName(mode));
+                        "compare-output", case.name, @tagName(mode));
                     if (self.test_filter) |filter| {
                         if (mem.indexOf(u8, annotated_case_name, filter) == null)
                             continue;
@@ -682,7 +682,7 @@ pub const CompileErrorContext = struct {
 
         for ([]Mode{Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast}) |mode| {
             const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "compile-error {} ({})",
-                case.name, @enumTagName(mode));
+                case.name, @tagName(mode));
             if (self.test_filter) |filter| {
                 if (mem.indexOf(u8, annotated_case_name, filter) == null)
                     continue;
@@ -750,7 +750,7 @@ pub const BuildExamplesContext = struct {
 
         for ([]Mode{Mode.Debug, Mode.ReleaseSafe, Mode.ReleaseFast}) |mode| {
             const annotated_case_name = %%fmt.allocPrint(self.b.allocator, "build {} ({})",
-                root_src, @enumTagName(mode));
+                root_src, @tagName(mode));
             if (self.test_filter) |filter| {
                 if (mem.indexOf(u8, annotated_case_name, filter) == null)
                     continue;

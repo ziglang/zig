@@ -223,7 +223,6 @@ bool type_is_complete(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
-        case TypeTableEntryIdEnumTag:
         case TypeTableEntryIdArgTuple:
             return true;
     }
@@ -260,7 +259,6 @@ bool type_has_zero_bits_known(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
-        case TypeTableEntryIdEnumTag:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
             return true;
@@ -1175,7 +1173,6 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             case TypeTableEntryIdEnum:
             case TypeTableEntryIdUnion:
             case TypeTableEntryIdFn:
-            case TypeTableEntryIdEnumTag:
                 ensure_complete_type(g, type_entry);
                 if (fn_type_id.cc == CallingConventionUnspecified && !type_is_copyable(g, type_entry)) {
                     add_node_error(g, param_node->data.param_decl.type,
@@ -1239,7 +1236,6 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
-        case TypeTableEntryIdEnumTag:
             break;
     }
 
@@ -1262,22 +1258,6 @@ bool type_is_invalid(TypeTableEntry *type_entry) {
     zig_unreachable();
 }
 
-
-TypeTableEntry *create_enum_tag_type(CodeGen *g, TypeTableEntry *enum_type, TypeTableEntry *int_type) {
-    TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdEnumTag);
-
-    buf_resize(&entry->name, 0);
-    buf_appendf(&entry->name, "@EnumTagType(%s)", buf_ptr(&enum_type->name));
-
-    entry->is_copyable = true;
-    entry->data.enum_tag.enum_type = enum_type;
-    entry->data.enum_tag.int_type = int_type;
-    entry->type_ref = int_type->type_ref;
-    entry->di_type = int_type->di_type;
-    entry->zero_bits = int_type->zero_bits;
-
-    return entry;
-}
 
 static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
     assert(enum_type->id == TypeTableEntryIdEnum);
@@ -1308,14 +1288,6 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
     assert(enum_type->data.enumeration.fields);
     ZigLLVMDIEnumerator **di_enumerators = allocate<ZigLLVMDIEnumerator*>(field_count);
 
-    uint32_t gen_field_count = enum_type->data.enumeration.gen_field_count;
-    ZigLLVMDIType **union_inner_di_types = allocate<ZigLLVMDIType*>(gen_field_count);
-
-    TypeTableEntry *most_aligned_union_member = nullptr;
-    uint64_t size_of_most_aligned_member_in_bits = 0;
-    uint64_t biggest_align_in_bits = 0;
-    uint64_t biggest_size_in_bits = 0;
-
     Scope *scope = &enum_type->data.enumeration.decls_scope->base;
     ImportTableEntry *import = get_scope_import(scope);
 
@@ -1323,49 +1295,17 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
     enum_type->data.enumeration.embedded_in_current = true;
 
     for (uint32_t i = 0; i < field_count; i += 1) {
-        AstNode *field_node = decl_node->data.container_decl.fields.at(i);
-        TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
-        TypeTableEntry *field_type = type_enum_field->type_entry;
+        TypeEnumField *enum_field = &enum_type->data.enumeration.fields[i];
 
-        di_enumerators[i] = ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(type_enum_field->name), i);
-
-        ensure_complete_type(g, field_type);
-        if (type_is_invalid(field_type)) {
-            enum_type->data.enumeration.is_invalid = true;
-            continue;
-        }
-
-        if (!type_has_bits(field_type))
-            continue;
-
-        uint64_t store_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, field_type->type_ref);
-        uint64_t abi_align_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, field_type->type_ref);
-
-        assert(store_size_in_bits > 0);
-        assert(abi_align_in_bits > 0);
-
-        union_inner_di_types[type_enum_field->gen_index] = ZigLLVMCreateDebugMemberType(g->dbuilder,
-                ZigLLVMTypeToScope(enum_type->di_type), buf_ptr(type_enum_field->name),
-                import->di_file, (unsigned)(field_node->line + 1),
-                store_size_in_bits,
-                abi_align_in_bits,
-                0,
-                0, field_type->di_type);
-
-        biggest_size_in_bits = max(biggest_size_in_bits, store_size_in_bits);
-
-        if (!most_aligned_union_member || abi_align_in_bits > biggest_align_in_bits) {
-            most_aligned_union_member = field_type;
-            biggest_align_in_bits = abi_align_in_bits;
-            size_of_most_aligned_member_in_bits = store_size_in_bits;
-        }
+        // TODO send patch to LLVM to support APInt in createEnumerator instead of int64_t
+        // http://lists.llvm.org/pipermail/llvm-dev/2017-December/119456.html
+        di_enumerators[i] = ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(enum_field->name),
+                bigint_as_signed(&enum_field->value));
     }
 
     // unset temporary flag
     enum_type->data.enumeration.embedded_in_current = false;
     enum_type->data.enumeration.complete = true;
-    enum_type->data.enumeration.union_size_bytes = biggest_size_in_bits / 8;
-    enum_type->data.enumeration.most_aligned_union_member = most_aligned_union_member;
 
     if (enum_type->data.enumeration.is_invalid)
         return;
@@ -1391,117 +1331,20 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
     }
 
     TypeTableEntry *tag_int_type = enum_type->data.enumeration.tag_int_type;
-    TypeTableEntry *tag_type_entry = create_enum_tag_type(g, enum_type, tag_int_type);
-    enum_type->data.enumeration.tag_type = tag_type_entry;
 
-    uint64_t align_of_tag_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, tag_int_type->type_ref);
+    // create debug type for tag
+    uint64_t tag_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, tag_int_type->type_ref);
+    uint64_t tag_debug_align_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, tag_int_type->type_ref);
+    ZigLLVMDIType *tag_di_type = ZigLLVMCreateDebugEnumerationType(g->dbuilder,
+            ZigLLVMFileToScope(import->di_file), buf_ptr(&enum_type->name),
+            import->di_file, (unsigned)(decl_node->line + 1),
+            tag_debug_size_in_bits,
+            tag_debug_align_in_bits,
+            di_enumerators, field_count,
+            tag_int_type->di_type, "");
 
-    if (most_aligned_union_member) {
-        // create llvm type for union
-        uint64_t padding_in_bits = biggest_size_in_bits - size_of_most_aligned_member_in_bits;
-        LLVMTypeRef union_type_ref;
-        if (padding_in_bits > 0) {
-            TypeTableEntry *u8_type = get_int_type(g, false, 8);
-            TypeTableEntry *padding_array = get_array_type(g, u8_type, padding_in_bits / 8);
-            LLVMTypeRef union_element_types[] = {
-                most_aligned_union_member->type_ref,
-                padding_array->type_ref,
-            };
-            union_type_ref = LLVMStructType(union_element_types, 2, false);
-        } else {
-            union_type_ref = most_aligned_union_member->type_ref;
-        }
-        enum_type->data.enumeration.union_type_ref = union_type_ref;
-
-        assert(8*LLVMABIAlignmentOfType(g->target_data_ref, union_type_ref) >= biggest_align_in_bits);
-        assert(8*LLVMStoreSizeOfType(g->target_data_ref, union_type_ref) >= biggest_size_in_bits);
-
-        if (align_of_tag_in_bits >= biggest_align_in_bits) {
-            enum_type->data.enumeration.gen_tag_index = 0;
-            enum_type->data.enumeration.gen_union_index = 1;
-        } else {
-            enum_type->data.enumeration.gen_union_index = 0;
-            enum_type->data.enumeration.gen_tag_index = 1;
-        }
-
-        // create llvm type for root struct
-        LLVMTypeRef root_struct_element_types[2];
-        root_struct_element_types[enum_type->data.enumeration.gen_tag_index] = tag_type_entry->type_ref;
-        root_struct_element_types[enum_type->data.enumeration.gen_union_index] = union_type_ref;
-        LLVMStructSetBody(enum_type->type_ref, root_struct_element_types, 2, false);
-
-        // create debug type for tag
-        uint64_t tag_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, tag_type_entry->type_ref);
-        uint64_t tag_debug_align_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, tag_type_entry->type_ref);
-        ZigLLVMDIType *tag_di_type = ZigLLVMCreateDebugEnumerationType(g->dbuilder,
-                ZigLLVMTypeToScope(enum_type->di_type), "AnonEnum",
-                import->di_file, (unsigned)(decl_node->line + 1),
-                tag_debug_size_in_bits, tag_debug_align_in_bits, di_enumerators, field_count,
-                tag_type_entry->di_type, "");
-
-        // create debug type for union
-        ZigLLVMDIType *union_di_type = ZigLLVMCreateDebugUnionType(g->dbuilder,
-                ZigLLVMTypeToScope(enum_type->di_type), "AnonUnion",
-                import->di_file, (unsigned)(decl_node->line + 1),
-                biggest_size_in_bits, biggest_align_in_bits, 0, union_inner_di_types,
-                gen_field_count, 0, "");
-
-        // create debug types for members of root struct
-        uint64_t tag_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, enum_type->type_ref,
-                enum_type->data.enumeration.gen_tag_index);
-        ZigLLVMDIType *tag_member_di_type = ZigLLVMCreateDebugMemberType(g->dbuilder,
-                ZigLLVMTypeToScope(enum_type->di_type), "tag_field",
-                import->di_file, (unsigned)(decl_node->line + 1),
-                tag_debug_size_in_bits,
-                tag_debug_align_in_bits,
-                tag_offset_in_bits,
-                0, tag_di_type);
-
-        uint64_t union_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, enum_type->type_ref,
-                enum_type->data.enumeration.gen_union_index);
-        ZigLLVMDIType *union_member_di_type = ZigLLVMCreateDebugMemberType(g->dbuilder,
-                ZigLLVMTypeToScope(enum_type->di_type), "union_field",
-                import->di_file, (unsigned)(decl_node->line + 1),
-                biggest_size_in_bits,
-                biggest_align_in_bits,
-                union_offset_in_bits,
-                0, union_di_type);
-
-        // create debug type for root struct
-        ZigLLVMDIType *di_root_members[2];
-        di_root_members[enum_type->data.enumeration.gen_tag_index] = tag_member_di_type;
-        di_root_members[enum_type->data.enumeration.gen_union_index] = union_member_di_type;
-
-        uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, enum_type->type_ref);
-        uint64_t debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, enum_type->type_ref);
-        ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
-                ZigLLVMFileToScope(import->di_file),
-                buf_ptr(&enum_type->name),
-                import->di_file, (unsigned)(decl_node->line + 1),
-                debug_size_in_bits,
-                debug_align_in_bits,
-                0, nullptr, di_root_members, 2, 0, nullptr, "");
-
-        ZigLLVMReplaceTemporary(g->dbuilder, enum_type->di_type, replacement_di_type);
-        enum_type->di_type = replacement_di_type;
-    } else {
-        // create llvm type for root struct
-        enum_type->type_ref = tag_type_entry->type_ref;
-
-        // create debug type for tag
-        uint64_t tag_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, tag_type_entry->type_ref);
-        uint64_t tag_debug_align_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, tag_type_entry->type_ref);
-        ZigLLVMDIType *tag_di_type = ZigLLVMCreateDebugEnumerationType(g->dbuilder,
-                ZigLLVMFileToScope(import->di_file), buf_ptr(&enum_type->name),
-                import->di_file, (unsigned)(decl_node->line + 1),
-                tag_debug_size_in_bits,
-                tag_debug_align_in_bits,
-                di_enumerators, field_count,
-                tag_type_entry->di_type, "");
-
-        ZigLLVMReplaceTemporary(g->dbuilder, enum_type->di_type, tag_di_type);
-        enum_type->di_type = tag_di_type;
-    }
+    ZigLLVMReplaceTemporary(g->dbuilder, enum_type->di_type, tag_di_type);
+    enum_type->di_type = tag_di_type;
 }
 
 static bool type_allowed_in_packed_struct(TypeTableEntry *type_entry) {
@@ -1517,7 +1360,6 @@ static bool type_allowed_in_packed_struct(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdPureError:
-        case TypeTableEntryIdEnumTag:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
@@ -1541,8 +1383,7 @@ static bool type_allowed_in_packed_struct(TypeTableEntry *type_entry) {
                 return child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn;
             }
         case TypeTableEntryIdEnum:
-            return type_entry->data.enumeration.gen_field_count == 0 &&
-                type_entry->data.enumeration.decl_node->data.container_decl.init_arg_expr != nullptr;
+            return type_entry->data.enumeration.decl_node->data.container_decl.init_arg_expr != nullptr;
     }
     zig_unreachable();
 }
@@ -1850,6 +1691,7 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
     if (union_type->data.unionation.embedded_in_current) {
         if (!union_type->data.unionation.reported_infinite_err) {
             union_type->data.unionation.reported_infinite_err = true;
+            union_type->data.unionation.is_invalid = true;
             add_node_error(g, decl_node, buf_sprintf("union '%s' contains itself", buf_ptr(&union_type->name)));
         }
         return;
@@ -1871,8 +1713,7 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
     uint64_t biggest_align_in_bits = 0;
     uint64_t biggest_size_in_bits = 0;
 
-    bool auto_layout = (union_type->data.unionation.layout == ContainerLayoutAuto);
-    ZigLLVMDIEnumerator **di_enumerators = allocate<ZigLLVMDIEnumerator*>(field_count);
+    ZigLLVMDIEnumerator **di_enumerators;
 
     Scope *scope = &union_type->data.unionation.decls_scope->base;
     ImportTableEntry *import = get_scope_import(scope);
@@ -1880,10 +1721,77 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
     // set temporary flag
     union_type->data.unionation.embedded_in_current = true;
 
+    HashMap<BigInt, AstNode *, bigint_hash, bigint_eql> occupied_tag_values = {};
+
+    AstNode *enum_type_node = decl_node->data.container_decl.init_arg_expr;
+    bool auto_layout = (union_type->data.unionation.layout == ContainerLayoutAuto);
+    bool want_safety = (field_count >= 2) && (auto_layout || enum_type_node != nullptr);
+    TypeTableEntry *tag_type;
+    bool create_enum_type = decl_node->data.container_decl.auto_enum || (enum_type_node == nullptr && want_safety);
+    bool *covered_enum_fields;
+    if (create_enum_type) {
+        occupied_tag_values.init(field_count);
+
+        di_enumerators = allocate<ZigLLVMDIEnumerator*>(field_count);
+
+        TypeTableEntry *tag_int_type;
+        if (enum_type_node != nullptr) {
+            tag_int_type = analyze_type_expr(g, scope, enum_type_node);
+            if (type_is_invalid(tag_int_type)) {
+                union_type->data.unionation.is_invalid = true;
+                return;
+            }
+            if (tag_int_type->id != TypeTableEntryIdInt) {
+                add_node_error(g, enum_type_node,
+                    buf_sprintf("expected integer tag type, found '%s'", buf_ptr(&tag_int_type->name)));
+                union_type->data.unionation.is_invalid = true;
+                return;
+            }
+        } else {
+            tag_int_type = get_smallest_unsigned_int_type(g, field_count - 1);
+        }
+
+        tag_type = new_type_table_entry(TypeTableEntryIdEnum);
+        buf_resize(&tag_type->name, 0);
+        buf_appendf(&tag_type->name, "@EnumTagType(%s)", buf_ptr(&union_type->name));
+        tag_type->is_copyable = true;
+        tag_type->type_ref = tag_int_type->type_ref;
+        tag_type->zero_bits = tag_int_type->zero_bits;
+
+        tag_type->data.enumeration.tag_int_type = tag_int_type;
+        tag_type->data.enumeration.zero_bits_known = true;
+        tag_type->data.enumeration.decl_node = decl_node;
+        tag_type->data.enumeration.layout = ContainerLayoutAuto;
+        tag_type->data.enumeration.src_field_count = field_count;
+        tag_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
+        tag_type->data.enumeration.decls_scope = union_type->data.unionation.decls_scope;
+        tag_type->data.enumeration.complete = true;
+    } else if (enum_type_node != nullptr) {
+        TypeTableEntry *enum_type = analyze_type_expr(g, scope, enum_type_node);
+        if (type_is_invalid(enum_type)) {
+            union_type->data.unionation.is_invalid = true;
+            union_type->data.unionation.embedded_in_current = false;
+            return;
+        }
+        if (enum_type->id != TypeTableEntryIdEnum) {
+            union_type->data.unionation.is_invalid = true;
+            union_type->data.unionation.embedded_in_current = false;
+            add_node_error(g, enum_type_node,
+                buf_sprintf("expected enum tag type, found '%s'", buf_ptr(&enum_type->name)));
+            return;
+        }
+        tag_type = enum_type;
+        covered_enum_fields = allocate<bool>(enum_type->data.enumeration.src_field_count);
+    } else {
+        tag_type = nullptr;
+    }
+    union_type->data.unionation.tag_type = tag_type;
+
     for (uint32_t i = 0; i < field_count; i += 1) {
         AstNode *field_node = decl_node->data.container_decl.fields.at(i);
-        TypeUnionField *type_union_field = &union_type->data.unionation.fields[i];
-        TypeTableEntry *field_type = type_union_field->type_entry;
+        TypeUnionField *union_field = &union_type->data.unionation.fields[i];
+        Buf *field_name = field_node->data.struct_field.name;
+        TypeTableEntry *field_type = union_field->type_entry;
 
         ensure_complete_type(g, field_type);
         if (type_is_invalid(field_type)) {
@@ -1891,10 +1799,59 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
             continue;
         }
 
+        if (create_enum_type) {
+            di_enumerators[i] = ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(field_name), i);
+            union_field->enum_field = &tag_type->data.enumeration.fields[i];
+            union_field->enum_field->name = field_name;
+            union_field->enum_field->decl_index = i;
+
+            AstNode *tag_value = field_node->data.struct_field.value;
+            // In this first pass we resolve explicit tag values.
+            // In a second pass we will fill in the unspecified ones.
+            if (tag_value != nullptr) {
+                TypeTableEntry *tag_int_type = tag_type->data.enumeration.tag_int_type;
+                IrInstruction *result_inst = analyze_const_value(g, scope, tag_value, tag_int_type, nullptr);
+                if (result_inst->value.type->id == TypeTableEntryIdInvalid) {
+                    union_type->data.unionation.is_invalid = true;
+                    continue;
+                }
+                assert(result_inst->value.special != ConstValSpecialRuntime);
+                assert(result_inst->value.type->id == TypeTableEntryIdInt);
+                auto entry = occupied_tag_values.put_unique(result_inst->value.data.x_bigint, tag_value);
+                if (entry == nullptr) {
+                    bigint_init_bigint(&union_field->enum_field->value, &result_inst->value.data.x_bigint);
+                } else {
+                    Buf *val_buf = buf_alloc();
+                    bigint_append_buf(val_buf, &result_inst->value.data.x_bigint, 10);
+
+                    ErrorMsg *msg = add_node_error(g, tag_value,
+                            buf_sprintf("enum tag value %s already taken", buf_ptr(val_buf)));
+                    add_error_note(g, msg, entry->value,
+                            buf_sprintf("other occurrence here"));
+                    union_type->data.unionation.is_invalid = true;
+                    continue;
+                }
+            }
+        } else if (enum_type_node != nullptr) {
+            union_field->enum_field = find_enum_type_field(tag_type, field_name);
+            if (union_field->enum_field == nullptr) {
+                ErrorMsg *msg = add_node_error(g, field_node,
+                    buf_sprintf("enum field not found: '%s'", buf_ptr(field_name)));
+                add_error_note(g, msg, tag_type->data.enumeration.decl_node,
+                        buf_sprintf("enum declared here"));
+                union_type->data.unionation.is_invalid = true;
+                continue;
+            }
+            covered_enum_fields[union_field->enum_field->decl_index] = true;
+        } else {
+            union_field->enum_field = allocate<TypeEnumField>(1);
+            union_field->enum_field->name = field_name;
+            union_field->enum_field->decl_index = i;
+            bigint_init_unsigned(&union_field->enum_field->value, i);
+        }
+
         if (!type_has_bits(field_type))
             continue;
-
-        di_enumerators[i] = ZigLLVMCreateDebugEnumerator(g->dbuilder, buf_ptr(type_union_field->name), i);
 
         uint64_t store_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, field_type->type_ref);
         uint64_t abi_align_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, field_type->type_ref);
@@ -1902,8 +1859,8 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
         assert(store_size_in_bits > 0);
         assert(abi_align_in_bits > 0);
 
-        union_inner_di_types[type_union_field->gen_index] = ZigLLVMCreateDebugMemberType(g->dbuilder,
-                ZigLLVMTypeToScope(union_type->di_type), buf_ptr(type_union_field->name),
+        union_inner_di_types[union_field->gen_index] = ZigLLVMCreateDebugMemberType(g->dbuilder,
+                ZigLLVMTypeToScope(union_type->di_type), buf_ptr(union_field->enum_field->name),
                 import->di_file, (unsigned)(field_node->line + 1),
                 store_size_in_bits,
                 abi_align_in_bits,
@@ -1916,6 +1873,49 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
             most_aligned_union_member = field_type;
             biggest_align_in_bits = abi_align_in_bits;
             size_of_most_aligned_member_in_bits = store_size_in_bits;
+        }
+    }
+
+    if (create_enum_type) {
+        // Now iterate again and populate the unspecified tag values
+        uint32_t next_maybe_unoccupied_index = 0;
+
+        for (uint32_t field_i = 0; field_i < field_count; field_i += 1) {
+            AstNode *field_node = decl_node->data.container_decl.fields.at(field_i);
+            TypeUnionField *union_field = &union_type->data.unionation.fields[field_i];
+            AstNode *tag_value = field_node->data.struct_field.value;
+
+            if (tag_value == nullptr) {
+                if (occupied_tag_values.size() == 0) {
+                    bigint_init_unsigned(&union_field->enum_field->value, next_maybe_unoccupied_index);
+                    next_maybe_unoccupied_index += 1;
+                } else {
+                    BigInt proposed_value;
+                    for (;;) {
+                        bigint_init_unsigned(&proposed_value, next_maybe_unoccupied_index);
+                        next_maybe_unoccupied_index += 1;
+                        auto entry = occupied_tag_values.put_unique(proposed_value, field_node);
+                        if (entry != nullptr) {
+                            continue;
+                        }
+                        break;
+                    }
+                    bigint_init_bigint(&union_field->enum_field->value, &proposed_value);
+                }
+            }
+        }
+    } else if (enum_type_node != nullptr) {
+        for (uint32_t i = 0; i < tag_type->data.enumeration.src_field_count; i += 1) {
+            TypeEnumField *enum_field = &tag_type->data.enumeration.fields[i];
+            if (!covered_enum_fields[i]) {
+                AstNode *enum_decl_node = tag_type->data.enumeration.decl_node;
+                AstNode *field_node = enum_decl_node->data.container_decl.fields.at(i);
+                ErrorMsg *msg = add_node_error(g, decl_node,
+                    buf_sprintf("enum field missing: '%s'", buf_ptr(enum_field->name)));
+                add_error_note(g, msg, field_node,
+                        buf_sprintf("declared here"));
+                union_type->data.unionation.is_invalid = true;
+            }
         }
     }
 
@@ -1950,11 +1950,9 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
 
     assert(most_aligned_union_member != nullptr);
 
-    bool want_safety = auto_layout && (field_count >= 2);
     uint64_t padding_in_bits = biggest_size_in_bits - size_of_most_aligned_member_in_bits;
 
-
-    if (!want_safety) {
+    if (tag_type == nullptr) {
         if (padding_in_bits > 0) {
             TypeTableEntry *u8_type = get_int_type(g, false, 8);
             TypeTableEntry *padding_array = get_array_type(g, u8_type, padding_in_bits / 8);
@@ -1994,6 +1992,8 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
             padding_array->type_ref,
         };
         union_type_ref = LLVMStructType(union_element_types, 2, false);
+    } else if (most_aligned_union_member == nullptr) {
+        zig_panic("TODO zero bit payload");
     } else {
         union_type_ref = most_aligned_union_member->type_ref;
     }
@@ -2003,9 +2003,7 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
     assert(8*LLVMStoreSizeOfType(g->target_data_ref, union_type_ref) >= biggest_size_in_bits);
 
     // create llvm type for root struct
-    TypeTableEntry *tag_int_type = get_smallest_unsigned_int_type(g, field_count - 1);
-    TypeTableEntry *tag_type_entry = tag_int_type;
-    union_type->data.unionation.tag_type = tag_type_entry;
+    TypeTableEntry *tag_int_type = tag_type->data.enumeration.tag_int_type;
     uint64_t align_of_tag_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, tag_int_type->type_ref);
 
     if (align_of_tag_in_bits >= biggest_align_in_bits) {
@@ -2017,21 +2015,24 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
     }
 
     LLVMTypeRef root_struct_element_types[2];
-    root_struct_element_types[union_type->data.unionation.gen_tag_index] = tag_type_entry->type_ref;
+    root_struct_element_types[union_type->data.unionation.gen_tag_index] = tag_type->type_ref;
     root_struct_element_types[union_type->data.unionation.gen_union_index] = union_type_ref;
     LLVMStructSetBody(union_type->type_ref, root_struct_element_types, 2, false);
 
 
     // create debug type for root struct
 
-    // create debug type for tag
-    uint64_t tag_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, tag_type_entry->type_ref);
-    uint64_t tag_debug_align_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, tag_type_entry->type_ref);
-    ZigLLVMDIType *tag_di_type = ZigLLVMCreateDebugEnumerationType(g->dbuilder,
-            ZigLLVMTypeToScope(union_type->di_type), "AnonEnum",
-            import->di_file, (unsigned)(decl_node->line + 1),
-            tag_debug_size_in_bits, tag_debug_align_in_bits, di_enumerators, field_count,
-            tag_type_entry->di_type, "");
+    uint64_t tag_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, tag_type->type_ref);
+    uint64_t tag_debug_align_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, tag_type->type_ref);
+    if (create_enum_type) {
+        // create debug type for tag
+        ZigLLVMDIType *tag_di_type = ZigLLVMCreateDebugEnumerationType(g->dbuilder,
+                ZigLLVMTypeToScope(union_type->di_type), "AnonEnum",
+                import->di_file, (unsigned)(decl_node->line + 1),
+                tag_debug_size_in_bits, tag_debug_align_in_bits, di_enumerators, field_count,
+                tag_type->di_type, "");
+        tag_type->di_type = tag_di_type;
+    }
 
     // create debug type for union
     ZigLLVMDIType *union_di_type = ZigLLVMCreateDebugUnionType(g->dbuilder,
@@ -2046,19 +2047,19 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
             union_type->data.unionation.gen_tag_index);
 
     ZigLLVMDIType *union_member_di_type = ZigLLVMCreateDebugMemberType(g->dbuilder,
-            ZigLLVMTypeToScope(union_type->di_type), "union_field",
+            ZigLLVMTypeToScope(union_type->di_type), "payload",
             import->di_file, (unsigned)(decl_node->line + 1),
             biggest_size_in_bits,
             biggest_align_in_bits,
             union_offset_in_bits,
             0, union_di_type);
     ZigLLVMDIType *tag_member_di_type = ZigLLVMCreateDebugMemberType(g->dbuilder,
-            ZigLLVMTypeToScope(union_type->di_type), "tag_field",
+            ZigLLVMTypeToScope(union_type->di_type), "tag",
             import->di_file, (unsigned)(decl_node->line + 1),
             tag_debug_size_in_bits,
             tag_debug_align_in_bits,
             tag_offset_in_bits,
-            0, tag_di_type);
+            0, tag_type->di_type);
 
     ZigLLVMDIType *di_root_members[2];
     di_root_members[union_type->data.unionation.gen_tag_index] = tag_member_di_type;
@@ -2104,15 +2105,12 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
         enum_type->data.enumeration.fields = nullptr;
         enum_type->data.enumeration.is_invalid = true;
         enum_type->data.enumeration.zero_bits_loop_flag = false;
-        enum_type->data.enumeration.gen_field_count = 0;
         enum_type->data.enumeration.zero_bits_known = true;
         return;
     }
 
     enum_type->data.enumeration.src_field_count = field_count;
     enum_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
-
-    uint32_t biggest_align_bytes = 0;
 
     Scope *scope = &enum_type->data.enumeration.decls_scope->base;
 
@@ -2143,14 +2141,20 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
         }
     }
     enum_type->data.enumeration.tag_int_type = tag_int_type;
+    enum_type->type_ref = tag_int_type->type_ref;
 
-    uint32_t gen_field_index = 0;
     for (uint32_t field_i = 0; field_i < field_count; field_i += 1) {
         AstNode *field_node = decl_node->data.container_decl.fields.at(field_i);
         TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[field_i];
         type_enum_field->name = field_node->data.struct_field.name;
-        TypeTableEntry *field_type = analyze_type_expr(g, scope, field_node->data.struct_field.type);
-        type_enum_field->type_entry = field_type;
+        type_enum_field->decl_index = field_i;
+
+        if (field_node->data.struct_field.type != nullptr) {
+            ErrorMsg *msg = add_node_error(g, field_node->data.struct_field.type,
+                buf_sprintf("structs and unions, not enums, support field types"));
+            add_error_note(g, msg, decl_node,
+                    buf_sprintf("consider 'union(enum)' here"));
+        }
 
         AstNode *tag_value = field_node->data.struct_field.value;
 
@@ -2178,23 +2182,6 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
                 enum_type->data.enumeration.is_invalid = true;
                 continue;
             }
-        }
-
-        type_ensure_zero_bits_known(g, field_type);
-        if (type_is_invalid(field_type)) {
-            enum_type->data.enumeration.is_invalid = true;
-            continue;
-        }
-
-        if (!type_has_bits(field_type))
-            continue;
-
-        type_enum_field->gen_index = gen_field_index;
-        gen_field_index += 1;
-
-        uint32_t field_align_bytes = get_abi_alignment(g, field_type);
-        if (field_align_bytes > biggest_align_bytes) {
-            biggest_align_bytes = field_align_bytes;
         }
     }
 
@@ -2227,15 +2214,8 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
     }
 
     enum_type->data.enumeration.zero_bits_loop_flag = false;
-    enum_type->data.enumeration.gen_field_count = gen_field_index;
-    enum_type->zero_bits = (gen_field_index == 0 && field_count < 2);
+    enum_type->zero_bits = (field_count < 2);
     enum_type->data.enumeration.zero_bits_known = true;
-
-    // also compute abi_alignment
-    if (!enum_type->zero_bits) {
-        uint32_t align_of_tag_in_bytes = LLVMABIAlignmentOfType(g->target_data_ref, tag_int_type->type_ref);
-        enum_type->data.enumeration.abi_alignment = max(align_of_tag_in_bytes, biggest_align_bytes);
-    }
 }
 
 static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type) {
@@ -2279,6 +2259,13 @@ static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type) {
         AstNode *field_node = decl_node->data.container_decl.fields.at(i);
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
         type_struct_field->name = field_node->data.struct_field.name;
+
+        if (field_node->data.struct_field.type == nullptr) {
+            add_node_error(g, field_node, buf_sprintf("struct field missing type"));
+            struct_type->data.structure.is_invalid = true;
+            continue;
+        }
+
         TypeTableEntry *field_type = analyze_type_expr(g, scope, field_node->data.struct_field.type);
         type_struct_field->type_entry = field_type;
         type_struct_field->src_index = i;
@@ -2338,6 +2325,16 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
 
     assert(!union_type->data.unionation.fields);
     uint32_t field_count = (uint32_t)decl_node->data.container_decl.fields.length;
+    if (field_count == 0) {
+        add_node_error(g, decl_node, buf_sprintf("unions must have 1 or more fields"));
+
+        union_type->data.unionation.src_field_count = field_count;
+        union_type->data.unionation.fields = nullptr;
+        union_type->data.unionation.is_invalid = true;
+        union_type->data.unionation.zero_bits_loop_flag = false;
+        union_type->data.unionation.zero_bits_known = true;
+        return;
+    }
     union_type->data.unionation.src_field_count = field_count;
     union_type->data.unionation.fields = allocate<TypeUnionField>(field_count);
 
@@ -2348,17 +2345,23 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
     uint32_t gen_field_index = 0;
     for (uint32_t i = 0; i < field_count; i += 1) {
         AstNode *field_node = decl_node->data.container_decl.fields.at(i);
-        TypeUnionField *type_union_field = &union_type->data.unionation.fields[i];
-        type_union_field->name = field_node->data.struct_field.name;
+        TypeUnionField *union_field = &union_type->data.unionation.fields[i];
+        union_field->name = field_node->data.struct_field.name;
+
+        if (field_node->data.struct_field.type == nullptr) {
+            add_node_error(g, field_node, buf_sprintf("union field missing type"));
+            union_type->data.unionation.is_invalid = true;
+            continue;
+        }
+
         TypeTableEntry *field_type = analyze_type_expr(g, scope, field_node->data.struct_field.type);
-        type_union_field->type_entry = field_type;
+        union_field->type_entry = field_type;
 
-        // TODO look for enum arg to union
-        bigint_init_unsigned(&type_union_field->value, i);
-
-        if (field_node->data.struct_field.value != nullptr) {
-            add_node_error(g, field_node->data.struct_field.value,
-                    buf_sprintf("enums, not unions, support field assignment"));
+        if (field_node->data.struct_field.value != nullptr && !decl_node->data.container_decl.auto_enum) {
+            ErrorMsg *msg = add_node_error(g, field_node->data.struct_field.value,
+                    buf_sprintf("non-enum union field assignment"));
+            add_error_note(g, msg, decl_node,
+                    buf_sprintf("consider 'union(enum)' here"));
         }
 
         type_ensure_zero_bits_known(g, field_type);
@@ -2370,7 +2373,7 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
         if (!type_has_bits(field_type))
             continue;
 
-        type_union_field->gen_index = gen_field_index;
+        union_field->gen_index = gen_field_index;
         gen_field_index += 1;
 
         uint32_t field_align_bytes = get_abi_alignment(g, field_type);
@@ -2379,11 +2382,32 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
         }
     }
 
-    bool auto_layout = (union_type->data.unionation.layout == ContainerLayoutAuto);
+    bool src_have_tag = decl_node->data.container_decl.auto_enum ||
+        decl_node->data.container_decl.init_arg_expr != nullptr;
+
+    if (src_have_tag && union_type->data.unionation.layout != ContainerLayoutAuto) {
+        const char *qual_str;
+        switch (union_type->data.unionation.layout) {
+            case ContainerLayoutAuto:
+                zig_unreachable();
+            case ContainerLayoutPacked:
+                qual_str = "packed";
+                break;
+            case ContainerLayoutExtern:
+                qual_str = "extern";
+                break;
+        }
+        AstNode *source_node = (decl_node->data.container_decl.init_arg_expr != nullptr) ? 
+            decl_node->data.container_decl.init_arg_expr : decl_node;
+        add_node_error(g, source_node,
+            buf_sprintf("%s union does not support enum tag type", qual_str));
+        union_type->data.unionation.is_invalid = true;
+        return;
+    }
 
     union_type->data.unionation.zero_bits_loop_flag = false;
     union_type->data.unionation.gen_field_count = gen_field_index;
-    union_type->zero_bits = (gen_field_index == 0 && (field_count < 2 || !auto_layout));
+    union_type->zero_bits = (gen_field_index == 0 && (field_count < 2 || !src_have_tag));
     union_type->data.unionation.zero_bits_known = true;
 
     // also compute abi_alignment
@@ -2848,7 +2872,6 @@ TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEnt
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdBoundFn:
-        case TypeTableEntryIdEnumTag:
             return type_entry;
     }
     zig_unreachable();
@@ -3265,19 +3288,20 @@ TypeUnionField *find_union_type_field(TypeTableEntry *type_entry, Buf *name) {
     assert(type_entry->data.unionation.complete);
     for (uint32_t i = 0; i < type_entry->data.unionation.src_field_count; i += 1) {
         TypeUnionField *field = &type_entry->data.unionation.fields[i];
-        if (buf_eql_buf(field->name, name)) {
+        if (buf_eql_buf(field->enum_field->name, name)) {
             return field;
         }
     }
     return nullptr;
 }
 
-static TypeUnionField *find_union_field_by_tag(TypeTableEntry *type_entry, const BigInt *tag) {
+TypeUnionField *find_union_field_by_tag(TypeTableEntry *type_entry, const BigInt *tag) {
     assert(type_entry->id == TypeTableEntryIdUnion);
     assert(type_entry->data.unionation.complete);
+    assert(type_entry->data.unionation.gen_tag_index != SIZE_MAX);
     for (uint32_t i = 0; i < type_entry->data.unionation.src_field_count; i += 1) {
         TypeUnionField *field = &type_entry->data.unionation.fields[i];
-        if (bigint_cmp(&field->value, tag) == CmpEQ) {
+        if (bigint_cmp(&field->enum_field->value, tag) == CmpEQ) {
             return field;
         }
     }
@@ -3323,7 +3347,6 @@ static bool is_container(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
-        case TypeTableEntryIdEnumTag:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
             return false;
@@ -3374,7 +3397,6 @@ void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdVar:
-        case TypeTableEntryIdEnumTag:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
             zig_unreachable();
@@ -3828,7 +3850,7 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
         case TypeTableEntryIdPointer:
         case TypeTableEntryIdPureError:
         case TypeTableEntryIdFn:
-        case TypeTableEntryIdEnumTag:
+        case TypeTableEntryIdEnum:
              return false;
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
@@ -3836,9 +3858,6 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
              return type_has_bits(type_entry);
         case TypeTableEntryIdErrorUnion:
              return type_has_bits(type_entry->data.error.child_type);
-        case TypeTableEntryIdEnum:
-             assert(type_entry->data.enumeration.complete);
-             return type_entry->data.enumeration.gen_field_count != 0;
         case TypeTableEntryIdMaybe:
              return type_has_bits(type_entry->data.maybe.child_type) &&
                     type_entry->data.maybe.child_type->id != TypeTableEntryIdPointer &&
@@ -3980,11 +3999,19 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
             return (uint32_t)4149439618;
         case TypeTableEntryIdInt:
         case TypeTableEntryIdNumLitInt:
-        case TypeTableEntryIdEnumTag:
             {
                 uint32_t result = 1331471175;
                 for (size_t i = 0; i < const_val->data.x_bigint.digit_count; i += 1) {
                     uint64_t digit = bigint_ptr(&const_val->data.x_bigint)[i];
+                    result ^= ((uint32_t)(digit >> 32)) ^ (uint32_t)(result);
+                }
+                return result;
+            }
+        case TypeTableEntryIdEnum:
+            {
+                uint32_t result = 31643936;
+                for (size_t i = 0; i < const_val->data.x_enum_tag.digit_count; i += 1) {
+                    uint64_t digit = bigint_ptr(&const_val->data.x_enum_tag)[i];
                     result ^= ((uint32_t)(digit >> 32)) ^ (uint32_t)(result);
                 }
                 return result;
@@ -4089,9 +4116,6 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
         case TypeTableEntryIdPureError:
             // TODO better hashing algorithm
             return 2630160122;
-        case TypeTableEntryIdEnum:
-            // TODO better hashing algorithm
-            return 31643936;
         case TypeTableEntryIdFn:
             return 4133894920 ^ hash_ptr(const_val->data.x_fn.fn_entry);
         case TypeTableEntryIdNamespace:
@@ -4224,7 +4248,6 @@ bool type_requires_comptime(TypeTableEntry *type_entry) {
         case TypeTableEntryIdInt:
         case TypeTableEntryIdFloat:
         case TypeTableEntryIdPointer:
-        case TypeTableEntryIdEnumTag:
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdUnreachable:
             return false;
@@ -4295,6 +4318,7 @@ ConstExprValue *create_const_bigint(TypeTableEntry *type, const BigInt *bigint) 
     return const_val;
 }
 
+
 void init_const_unsigned_negative(ConstExprValue *const_val, TypeTableEntry *type, uint64_t x, bool negative) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = type;
@@ -4358,17 +4382,18 @@ ConstExprValue *create_const_float(TypeTableEntry *type, double value) {
     return const_val;
 }
 
-void init_const_enum_tag(ConstExprValue *const_val, TypeTableEntry *type, const BigInt *tag) {
+void init_const_enum(ConstExprValue *const_val, TypeTableEntry *type, const BigInt *tag) {
     const_val->special = ConstValSpecialStatic;
     const_val->type = type;
-    bigint_init_bigint(&const_val->data.x_enum.tag, tag);
+    bigint_init_bigint(&const_val->data.x_enum_tag, tag);
 }
 
-ConstExprValue *create_const_enum_tag(TypeTableEntry *type, const BigInt *tag) {
+ConstExprValue *create_const_enum(TypeTableEntry *type, const BigInt *tag) {
     ConstExprValue *const_val = create_const_vals(1);
-    init_const_enum_tag(const_val, type, tag);
+    init_const_enum(const_val, type, tag);
     return const_val;
 }
+
 
 void init_const_bool(CodeGen *g, ConstExprValue *const_val, bool value) {
     const_val->special = ConstValSpecialStatic;
@@ -4567,20 +4592,8 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
     switch (a->type->id) {
         case TypeTableEntryIdOpaque:
             zig_unreachable();
-        case TypeTableEntryIdEnum: {
-            ConstEnumValue *enum1 = &a->data.x_enum;
-            ConstEnumValue *enum2 = &b->data.x_enum;
-            if (bigint_cmp(&enum1->tag, &enum2->tag) == CmpEQ) {
-                TypeEnumField *field = find_enum_field_by_tag(a->type, &enum1->tag);
-                assert(field != nullptr);
-                if (type_has_bits(field->type_entry)) {
-                    zig_panic("TODO const expr analyze enum field value for equality");
-                } else {
-                    return true;
-                }
-            }
-            return false;
-        }
+        case TypeTableEntryIdEnum:
+            return bigint_cmp(&a->data.x_enum_tag, &b->data.x_enum_tag) == CmpEQ;
         case TypeTableEntryIdUnion: {
             ConstUnionValue *union1 = &a->data.x_union;
             ConstUnionValue *union2 = &b->data.x_union;
@@ -4622,7 +4635,6 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
             return bigfloat_cmp(&a->data.x_bigfloat, &b->data.x_bigfloat) == CmpEQ;
         case TypeTableEntryIdInt:
         case TypeTableEntryIdNumLitInt:
-        case TypeTableEntryIdEnumTag:
             return bigint_cmp(&a->data.x_bigint, &b->data.x_bigint) == CmpEQ;
         case TypeTableEntryIdPointer:
             if (a->data.x_ptr.special != b->data.x_ptr.special)
@@ -4949,7 +4961,8 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             }
         case TypeTableEntryIdEnum:
             {
-                buf_appendf(buf, "(enum %s constant)", buf_ptr(&type_entry->name));
+                TypeEnumField *field = find_enum_field_by_tag(type_entry, &const_val->data.x_enum_tag);
+                buf_appendf(buf, "%s.%s", buf_ptr(&type_entry->name), buf_ptr(field->name));
                 return;
             }
         case TypeTableEntryIdErrorUnion:
@@ -4965,14 +4978,6 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
         case TypeTableEntryIdPureError:
             {
                 buf_appendf(buf, "(pure error constant)");
-                return;
-            }
-        case TypeTableEntryIdEnumTag:
-            {
-                TypeTableEntry *enum_type = type_entry->data.enum_tag.enum_type;
-                size_t field_index = bigint_as_unsigned(&const_val->data.x_bigint);
-                TypeEnumField *field = &enum_type->data.enumeration.fields[field_index];
-                buf_appendf(buf, "%s.%s", buf_ptr(&enum_type->name), buf_ptr(field->name));
                 return;
             }
         case TypeTableEntryIdArgTuple:
@@ -5036,7 +5041,6 @@ uint32_t type_id_hash(TypeId x) {
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdPureError:
         case TypeTableEntryIdEnum:
-        case TypeTableEntryIdEnumTag:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdNamespace:
@@ -5081,7 +5085,6 @@ bool type_id_eql(TypeId a, TypeId b) {
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdPureError:
         case TypeTableEntryIdEnum:
-        case TypeTableEntryIdEnumTag:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdNamespace:
@@ -5196,7 +5199,6 @@ static const TypeTableEntryId all_type_ids[] = {
     TypeTableEntryIdErrorUnion,
     TypeTableEntryIdPureError,
     TypeTableEntryIdEnum,
-    TypeTableEntryIdEnumTag,
     TypeTableEntryIdUnion,
     TypeTableEntryIdFn,
     TypeTableEntryIdNamespace,
@@ -5254,22 +5256,20 @@ size_t type_id_index(TypeTableEntryId id) {
             return 15;
         case TypeTableEntryIdEnum:
             return 16;
-        case TypeTableEntryIdEnumTag:
-            return 17;
         case TypeTableEntryIdUnion:
-            return 18;
+            return 17;
         case TypeTableEntryIdFn:
-            return 19;
+            return 18;
         case TypeTableEntryIdNamespace:
-            return 20;
+            return 19;
         case TypeTableEntryIdBlock:
-            return 21;
+            return 20;
         case TypeTableEntryIdBoundFn:
-            return 22;
+            return 21;
         case TypeTableEntryIdArgTuple:
-            return 23;
+            return 22;
         case TypeTableEntryIdOpaque:
-            return 24;
+            return 23;
     }
     zig_unreachable();
 }
@@ -5313,8 +5313,6 @@ const char *type_id_name(TypeTableEntryId id) {
             return "Error";
         case TypeTableEntryIdEnum:
             return "Enum";
-        case TypeTableEntryIdEnumTag:
-            return "EnumTag";
         case TypeTableEntryIdUnion:
             return "Union";
         case TypeTableEntryIdFn:
@@ -5381,9 +5379,6 @@ uint32_t get_abi_alignment(CodeGen *g, TypeTableEntry *type_entry) {
     if (type_entry->id == TypeTableEntryIdStruct) {
         assert(type_entry->data.structure.abi_alignment != 0);
         return type_entry->data.structure.abi_alignment;
-    } else if (type_entry->id == TypeTableEntryIdEnum) {
-        assert(type_entry->data.enumeration.abi_alignment != 0);
-        return type_entry->data.enumeration.abi_alignment;
     } else if (type_entry->id == TypeTableEntryIdUnion) {
         assert(type_entry->data.unionation.abi_alignment != 0);
         return type_entry->data.unionation.abi_alignment;

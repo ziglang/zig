@@ -324,8 +324,8 @@ test "constant enum initialization with differing sizes" {
     test3_1(test3_foo);
     test3_2(test3_bar);
 }
-const Test3Foo = enum {
-    One,
+const Test3Foo = union(enum) {
+    One: void,
     Two: f32,
     Three: Test3Point,
 };
@@ -333,8 +333,8 @@ const Test3Point = struct {
     x: i32,
     y: i32,
 };
-const test3_foo = Test3Foo.Three{Test3Point {.x = 3, .y = 4}};
-const test3_bar = Test3Foo.Two{13};
+const test3_foo = Test3Foo { .Three = Test3Point {.x = 3, .y = 4}};
+const test3_bar = Test3Foo { .Two = 13};
 fn test3_1(f: &const Test3Foo) {
     switch (*f) {
         Test3Foo.Three => |pt| {
@@ -449,7 +449,8 @@ fn testArray2DConstDoublePtr(ptr: &const f32) {
 const Tid = builtin.TypeId;
 const AStruct = struct { x: i32, };
 const AnEnum = enum { One, Two, };
-const AnEnumWithPayload = enum { One: i32, Two, };
+const AUnionEnum = union(enum) { One: i32, Two: void, };
+const AUnion = union { One: void, Two: void };
 
 test "@typeId" {
     comptime {
@@ -474,8 +475,9 @@ test "@typeId" {
         assert(@typeId(%i32) == Tid.ErrorUnion);
         assert(@typeId(error) == Tid.Error);
         assert(@typeId(AnEnum) == Tid.Enum);
-        assert(@typeId(@typeOf(AnEnumWithPayload.One)) == Tid.EnumTag);
-        // TODO  union
+        assert(@typeId(@typeOf(AUnionEnum.One)) == Tid.Enum);
+        assert(@typeId(AUnionEnum) == Tid.Union);
+        assert(@typeId(AUnion) == Tid.Union);
         assert(@typeId(fn()) == Tid.Fn);
         assert(@typeId(@typeOf(builtin)) == Tid.Namespace);
         assert(@typeId(@typeOf({this})) == Tid.Block);

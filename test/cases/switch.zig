@@ -83,14 +83,14 @@ const SwitchStatmentFoo = enum {
 
 
 test "switch prong with variable" {
-    switchProngWithVarFn(SwitchProngWithVarEnum.One {13});
-    switchProngWithVarFn(SwitchProngWithVarEnum.Two {13.0});
-    switchProngWithVarFn(SwitchProngWithVarEnum.Meh);
+    switchProngWithVarFn(SwitchProngWithVarEnum { .One = 13});
+    switchProngWithVarFn(SwitchProngWithVarEnum { .Two = 13.0});
+    switchProngWithVarFn(SwitchProngWithVarEnum { .Meh = {}});
 }
-const SwitchProngWithVarEnum = enum {
+const SwitchProngWithVarEnum = union(enum) {
     One: i32,
     Two: f32,
-    Meh,
+    Meh: void,
 };
 fn switchProngWithVarFn(a: &const SwitchProngWithVarEnum) {
     switch(*a) {
@@ -112,7 +112,7 @@ test "switch on enum using pointer capture" {
 }
 
 fn testSwitchEnumPtrCapture() {
-    var value = SwitchProngWithVarEnum.One { 1234 };
+    var value = SwitchProngWithVarEnum { .One = 1234 };
     switch (value) {
         SwitchProngWithVarEnum.One => |*x| *x += 1,
         else => unreachable,
@@ -136,13 +136,13 @@ fn returnsFive() -> i32 {
 }
 
 
-const Number = enum {
+const Number = union(enum) {
     One: u64,
     Two: u8,
     Three: f32,
 };
 
-const number = Number.Three { 1.23 };
+const number = Number { .Three = 1.23 };
 
 fn returnsFalse() -> bool {
     switch (number) {

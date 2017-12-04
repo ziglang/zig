@@ -136,7 +136,7 @@
             <li><a href="#builtin-divFloor">@divFloor</a></li>
             <li><a href="#builtin-divTrunc">@divTrunc</a></li>
             <li><a href="#builtin-embedFile">@embedFile</a></li>
-            <li><a href="#builtin-enumTagName">@enumTagName</a></li>
+            <li><a href="#builtin-tagName">@tagName</a></li>
             <li><a href="#builtin-EnumTagType">@EnumTagType</a></li>
             <li><a href="#builtin-errorName">@errorName</a></li>
             <li><a href="#builtin-fence">@fence</a></li>
@@ -2165,7 +2165,7 @@ test "enum variant switch" {
     };
 }
 
-// The @enumTagName and @memberCount builtin functions can be used to
+// The @memberName and @memberCount builtin functions can be used to
 // the string representation and number of members respectively.
 const BuiltinType = enum {
     A: f32,
@@ -2174,8 +2174,8 @@ const BuiltinType = enum {
 };
 
 test "enum builtins" {
-    assert(mem.eql(u8, @enumTagName(BuiltinType.A { 0 }), "A"));
-    assert(mem.eql(u8, @enumTagName(BuiltinType.C), "C"));
+    assert(mem.eql(u8, @memberName(BuiltinType.A { 0 }), "A"));
+    assert(mem.eql(u8, @memberName(BuiltinType.C), "C"));
     assert(@memberCount(BuiltinType) == 3);
 }</code></pre>
       <pre><code class="sh">$ zig test enum.zig
@@ -2189,8 +2189,9 @@ Test 4/4 enum builtins...OK</code></pre>
       </p>
       <p>See also:</p>
       <ul>
-        <li><a href="#builtin-enumTagName">@enumTagName</a></li>
+        <li><a href="#builtin-memberName">@memberName</a></li>
         <li><a href="#builtin-memberCount">@memberCount</a></li>
+        <li><a href="#builtin-tagName">@tagName</a></li>
       </ul>
       <h2 id="union">union</h2>
       <p>TODO union documentation</p>
@@ -4252,10 +4253,10 @@ test.zig:6:2: error: found compile log statement
       <ul>
         <li><a href="#builtin-import">@import</a></li>
       </ul>
-      <h3 id="builtin-enumTagName">@enumTagName</h3>
-      <pre><code class="zig">@enumTagName(value: var) -&gt; []const u8</code></pre>
+      <h3 id="builtin-tagName">@tagName</h3>
+      <pre><code class="zig">@tagName(value: var) -&gt; []const u8</code></pre>
       <p>
-      Converts an enum tag name to a slice of bytes.
+      Converts an enum value or union value to a slice of bytes representing the name.
       </p>
       <h3 id="builtin-EnumTagType">@EnumTagType</h3>
       <pre><code class="zig">@EnumTagType(T: type) -&gt; type</code></pre>
@@ -5843,7 +5844,9 @@ GroupedExpression = "(" Expression ")"
 
 KeywordLiteral = "true" | "false" | "null" | "continue" | "undefined" | "error" | "this" | "unreachable"
 
-ContainerDecl = option("extern" | "packed") ("struct" | "union" | ("enum" option(GroupedExpression))) "{" many(ContainerMember) "}"</code></pre>
+ContainerDecl = option("extern" | "packed")
+  ("struct" option(GroupedExpression) | "union" option("enum" option(GroupedExpression) | GroupedExpression) | ("enum" option(GroupedExpression)))
+  "{" many(ContainerMember) "}"</code></pre>
       <h2 id="zen">Zen</h2>
       <ul>
         <li>Communicate intent precisely.</li>

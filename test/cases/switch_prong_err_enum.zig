@@ -9,14 +9,14 @@ fn readOnce() -> %u64 {
 
 error InvalidDebugInfo;
 
-const FormValue = enum {
+const FormValue = union(enum) {
     Address: u64,
     Other: bool,
 };
 
 fn doThing(form_id: u64) -> %FormValue {
     return switch (form_id) {
-        17 => FormValue.Address { %return readOnce() },
+        17 => FormValue { .Address = %return readOnce() },
         else => error.InvalidDebugInfo,
     }
 }

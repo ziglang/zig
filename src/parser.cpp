@@ -2377,7 +2377,9 @@ static AstNode *ast_parse_use(ParseContext *pc, size_t *token_index, VisibMod vi
 }
 
 /*
-ContainerDecl = option("extern" | "packed") ("struct" | "union" | ("enum" option(GroupedExpression))) "{" many(ContainerMember) "}"
+ContainerDecl = option("extern" | "packed")
+  ("struct" option(GroupedExpression) | "union" option("enum" option(GroupedExpression) | GroupedExpression) | ("enum" option(GroupedExpression)))
+  "{" many(ContainerMember) "}"
 ContainerMember = (ContainerField | FnDef | GlobalVarDecl)
 ContainerField = Symbol option(":" PrefixOpExpression option("=" PrefixOpExpression ","
 */
@@ -2414,7 +2416,28 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, 
     AstNode *node = ast_create_node(pc, NodeTypeContainerDecl, first_token);
     node->data.container_decl.layout = layout;
     node->data.container_decl.kind = kind;
-    node->data.container_decl.init_arg_expr = ast_parse_grouped_expr(pc, token_index, false);
+
+    if (kind == ContainerKindUnion) {
+        Token *lparen_token = &pc->tokens->at(*token_index);
+        if (lparen_token->id == TokenIdLParen) {
+            Token *enum_token = &pc->tokens->at(*token_index + 1);
+            if (enum_token->id == TokenIdKeywordEnum) {
+                Token *paren_token = &pc->tokens->at(*token_index + 2);
+                if (paren_token->id == TokenIdLParen) {
+                    node->data.container_decl.auto_enum = true;
+                    *token_index += 2;
+                    node->data.container_decl.init_arg_expr = ast_parse_grouped_expr(pc, token_index, true);
+                    ast_eat_token(pc, token_index, TokenIdRParen);
+                } else if (paren_token->id == TokenIdRParen) {
+                    node->data.container_decl.auto_enum = true;
+                    *token_index += 3;
+                }
+            }
+        }
+    }
+    if (!node->data.container_decl.auto_enum) {
+        node->data.container_decl.init_arg_expr = ast_parse_grouped_expr(pc, token_index, false);
+    }
 
     ast_eat_token(pc, token_index, TokenIdLBrace);
 
@@ -2461,8 +2484,6 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, 
             if (colon_token->id == TokenIdColon) {
                 *token_index += 1;
                 field_node->data.struct_field.type = ast_parse_prefix_op_expr(pc, token_index, true);
-            } else {
-                field_node->data.struct_field.type = ast_create_void_type_node(pc, colon_token);
             }
             Token *eq_token = &pc->tokens->at(*token_index);
             if (eq_token->id == TokenIdEq) {

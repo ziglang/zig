@@ -280,7 +280,7 @@ const AbbrevAttr = struct {
     form_id: u64,
 };
 
-const FormValue = enum {
+const FormValue = union(enum) {
     Address: u64,
     Block: []u8,
     Const: Constant,
@@ -475,7 +475,7 @@ fn readAllocBytes(allocator: &mem.Allocator, in_stream: &io.InStream, size: usiz
 
 fn parseFormValueBlockLen(allocator: &mem.Allocator, in_stream: &io.InStream, size: usize) -> %FormValue {
     const buf = %return readAllocBytes(allocator, in_stream, size);
-    return FormValue.Block { buf };
+    return FormValue { .Block = buf };
 }
 
 fn parseFormValueBlock(allocator: &mem.Allocator, in_stream: &io.InStream, size: usize) -> %FormValue {
@@ -484,7 +484,7 @@ fn parseFormValueBlock(allocator: &mem.Allocator, in_stream: &io.InStream, size:
 }
 
 fn parseFormValueConstant(allocator: &mem.Allocator, in_stream: &io.InStream, signed: bool, size: usize) -> %FormValue {
-    FormValue.Const { Constant {
+    FormValue { .Const = Constant {
         .signed = signed,
         .payload = %return readAllocBytes(allocator, in_stream, size),
     }}
@@ -510,7 +510,7 @@ fn parseFormValueTargetAddrSize(in_stream: &io.InStream) -> %u64 {
 
 fn parseFormValueRefLen(allocator: &mem.Allocator, in_stream: &io.InStream, size: usize) -> %FormValue {
     const buf = %return readAllocBytes(allocator, in_stream, size);
-    return FormValue.Ref { buf };
+    return FormValue { .Ref = buf };
 }
 
 fn parseFormValueRef(allocator: &mem.Allocator, in_stream: &io.InStream, comptime T: type) -> %FormValue {
@@ -520,7 +520,7 @@ fn parseFormValueRef(allocator: &mem.Allocator, in_stream: &io.InStream, comptim
 
 fn parseFormValue(allocator: &mem.Allocator, in_stream: &io.InStream, form_id: u64, is_64: bool) -> %FormValue {
     return switch (form_id) {
-        DW.FORM_addr => FormValue.Address { %return parseFormValueTargetAddrSize(in_stream) },
+        DW.FORM_addr => FormValue { .Address = %return parseFormValueTargetAddrSize(in_stream) },
         DW.FORM_block1 => parseFormValueBlock(allocator, in_stream, 1),
         DW.FORM_block2 => parseFormValueBlock(allocator, in_stream, 2),
         DW.FORM_block4 => parseFormValueBlock(allocator, in_stream, 4),
@@ -540,13 +540,11 @@ fn parseFormValue(allocator: &mem.Allocator, in_stream: &io.InStream, form_id: u
         DW.FORM_exprloc => {
             const size = %return readULeb128(in_stream);
             const buf = %return readAllocBytes(allocator, in_stream, size);
-            return FormValue.ExprLoc { buf };
+            return FormValue { .ExprLoc = buf };
         },
-        DW.FORM_flag => FormValue.Flag { (%return in_stream.readByte()) != 0 },
-        DW.FORM_flag_present => FormValue.Flag { true },
-        DW.FORM_sec_offset => FormValue.SecOffset {
-            %return parseFormValueDwarfOffsetSize(in_stream, is_64)
-        },
+        DW.FORM_flag => FormValue { .Flag = (%return in_stream.readByte()) != 0 },
+        DW.FORM_flag_present => FormValue { .Flag = true },
+        DW.FORM_sec_offset => FormValue { .SecOffset = %return parseFormValueDwarfOffsetSize(in_stream, is_64) },
 
         DW.FORM_ref1 => parseFormValueRef(allocator, in_stream, u8),
         DW.FORM_ref2 => parseFormValueRef(allocator, in_stream, u16),
@@ -557,11 +555,11 @@ fn parseFormValue(allocator: &mem.Allocator, in_stream: &io.InStream, form_id: u
             parseFormValueRefLen(allocator, in_stream, ref_len)
         },
 
-        DW.FORM_ref_addr => FormValue.RefAddr { %return parseFormValueDwarfOffsetSize(in_stream, is_64) },
-        DW.FORM_ref_sig8 => FormValue.RefSig8 { %return in_stream.readIntLe(u64) },
+        DW.FORM_ref_addr => FormValue { .RefAddr = %return parseFormValueDwarfOffsetSize(in_stream, is_64) },
+        DW.FORM_ref_sig8 => FormValue { .RefSig8 = %return in_stream.readIntLe(u64) },
 
-        DW.FORM_string => FormValue.String { %return readStringRaw(allocator, in_stream) },
-        DW.FORM_strp => FormValue.StrPtr { %return parseFormValueDwarfOffsetSize(in_stream, is_64) },
+        DW.FORM_string => FormValue { .String = %return readStringRaw(allocator, in_stream) },
+        DW.FORM_strp => FormValue { .StrPtr = %return parseFormValueDwarfOffsetSize(in_stream, is_64) },
         DW.FORM_indirect => {
             const child_form_id = %return readULeb128(in_stream);
             parseFormValue(allocator, in_stream, child_form_id, is_64)

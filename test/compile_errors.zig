@@ -930,8 +930,8 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\fn bad_eql_1(a: []u8, b: []u8) -> bool {
         \\    a == b
         \\}
-        \\const EnumWithData = enum {
-        \\    One,
+        \\const EnumWithData = union(enum) {
+        \\    One: void,
         \\    Two: i32,
         \\};
         \\fn bad_eql_2(a: &const EnumWithData, b: &const EnumWithData) -> bool {
@@ -1145,19 +1145,19 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\const JasonHM = u8;
         \\const JasonList = &JsonNode;
         \\
-        \\const JsonOA = enum {
+        \\const JsonOA = union(enum) {
         \\    JSONArray: JsonList,
         \\    JSONObject: JasonHM,
         \\};
         \\
-        \\const JsonType = enum {
+        \\const JsonType = union(enum) {
         \\    JSONNull: void,
         \\    JSONInteger: isize,
         \\    JSONDouble: f64,
         \\    JSONBool: bool,
         \\    JSONString: []u8,
-        \\    JSONArray,
-        \\    JSONObject,
+        \\    JSONArray: void,
+        \\    JSONObject: void,
         \\};
         \\
         \\pub const JsonNode = struct {
@@ -2138,7 +2138,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\
         \\const MdText = ArrayList(u8);
         \\
-        \\const MdNode = enum {
+        \\const MdNode = union(enum) {
         \\    Header: struct {
         \\        text: MdText,
         \\        weight: HeaderValue,
@@ -2297,6 +2297,14 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     ,
         ".tmp_source.zig:2:21: error: type 'i32' does not support @memberType");
 
+    cases.add("@memberType on enum",
+        \\comptime {
+        \\    _ = @memberType(Foo, 0);
+        \\}
+        \\const Foo = enum {A,};
+    ,
+        ".tmp_source.zig:2:21: error: type 'Foo' does not support @memberType");
+
     cases.add("@memberType struct out of bounds",
         \\comptime {
         \\    _ = @memberType(Foo, 0);
@@ -2305,11 +2313,11 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     ,
         ".tmp_source.zig:2:26: error: member index 0 out of bounds; 'Foo' has 0 members");
 
-    cases.add("@memberType enum out of bounds",
+    cases.add("@memberType union out of bounds",
         \\comptime {
         \\    _ = @memberType(Foo, 1);
         \\}
-        \\const Foo = enum {A,};
+        \\const Foo = union {A: void,};
     ,
         ".tmp_source.zig:2:26: error: member index 1 out of bounds; 'Foo' has 1 members");
 
@@ -2333,6 +2341,14 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    _ = @memberName(Foo, 1);
         \\}
         \\const Foo = enum {A,};
+    ,
+        ".tmp_source.zig:2:26: error: member index 1 out of bounds; 'Foo' has 1 members");
+
+    cases.add("@memberName union out of bounds",
+        \\comptime {
+        \\    _ = @memberName(Foo, 1);
+        \\}
+        \\const Foo = union {A:i32,};
     ,
         ".tmp_source.zig:2:26: error: member index 1 out of bounds; 'Foo' has 1 members");
 
@@ -2466,7 +2482,8 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\        var x: MultipleChoice = undefined;
         \\}
     ,
-        ".tmp_source.zig:2:14: error: enums, not unions, support field assignment");
+        ".tmp_source.zig:2:14: error: non-enum union field assignment",
+        ".tmp_source.zig:1:24: note: consider 'union(enum)' here");
 
     cases.add("enum with 0 fields",
         \\const Foo = enum {};
@@ -2490,4 +2507,21 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     ,
         ".tmp_source.zig:6:9: error: enum tag value 60 already taken",
         ".tmp_source.zig:4:9: note: other occurrence here");
+
+    cases.add("union with specified enum omits field",
+        \\const Letter = enum {
+        \\    A,
+        \\    B,
+        \\    C,
+        \\};
+        \\const Payload = union(Letter) {
+        \\    A: i32,
+        \\    B: f64,
+        \\};
+        \\export fn entry() -> usize {
+        \\    return @sizeOf(Payload);
+        \\}
+    ,
+        ".tmp_source.zig:6:17: error: enum field missing: 'C'",
+        ".tmp_source.zig:4:5: note: declared here");
 }

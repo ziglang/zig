@@ -1016,7 +1016,7 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
 
             return os.readLink(allocator, proc_path);
         },
-        else => @compileError("TODO implement os.path.real for " ++ @enumTagName(builtin.os)),
+        else => @compileError("TODO implement os.path.real for " ++ @tagName(builtin.os)),
     }
 }
 
