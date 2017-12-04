@@ -24,20 +24,20 @@ static void print_err_msg_type(ErrorMsg *err, ErrColor color, ErrType err_type) 
     bool is_tty = os_stderr_tty();
     if (color == ErrColorOn || (color == ErrColorAuto && is_tty)) {
         if (err_type == ErrTypeError) {
-            os_stderr_set_color(TermColorWhite);
+            os_stderr_set_color(TermColorBold);
             fprintf(stderr, "%s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ": ", path, line, col);
             os_stderr_set_color(TermColorRed);
             fprintf(stderr, "error:");
-            os_stderr_set_color(TermColorWhite);
+            os_stderr_set_color(TermColorBold);
             fprintf(stderr, " %s", text);
             os_stderr_set_color(TermColorReset);
             fprintf(stderr, "\n");
         } else if (err_type == ErrTypeNote) {
-            os_stderr_set_color(TermColorWhite);
+            os_stderr_set_color(TermColorBold);
             fprintf(stderr, "%s:%" ZIG_PRI_usize ":%" ZIG_PRI_usize ": ", path, line, col);
             os_stderr_set_color(TermColorCyan);
             fprintf(stderr, "note:");
-            os_stderr_set_color(TermColorWhite);
+            os_stderr_set_color(TermColorBold);
             fprintf(stderr, " %s", text);
             os_stderr_set_color(TermColorReset);
             fprintf(stderr, "\n");

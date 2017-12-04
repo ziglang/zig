@@ -21,6 +21,7 @@ enum TermColor {
     TermColorGreen,
     TermColorCyan,
     TermColorWhite,
+    TermColorBold,
     TermColorReset,
 };
 
