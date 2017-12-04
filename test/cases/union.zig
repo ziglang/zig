@@ -104,3 +104,36 @@ fn bar(value: &const Payload) -> i32 {
         Payload.C => |x| if (x) i32(30) else 31,
     };
 }
+
+const MultipleChoice2 = union(enum(u32)) {
+    Unspecified1: i32,
+    A: f32 = 20,
+    Unspecified2: void,
+    B: bool = 40,
+    Unspecified3: i32,
+    C: i8 = 60,
+    Unspecified4: void,
+    D: void = 1000,
+    Unspecified5: i32,
+};
+
+test "union(enum(u32)) with specified and unspecified tag values" {
+    comptime assert(@TagType(@TagType(MultipleChoice2)) == u32);
+    testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2 {.C = 123});
+    comptime testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2 { .C = 123} );
+}
+
+fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: &const MultipleChoice2) {
+    assert(u32(@TagType(MultipleChoice2)(*x)) == 60);
+    assert(1123 == switch (*x) {
+        MultipleChoice2.A => 1,
+        MultipleChoice2.B => 2,
+        MultipleChoice2.C => |v| i32(1000) + v,
+        MultipleChoice2.D => 4,
+        MultipleChoice2.Unspecified1 => 5,
+        MultipleChoice2.Unspecified2 => 6,
+        MultipleChoice2.Unspecified3 => 7,
+        MultipleChoice2.Unspecified4 => 8,
+        MultipleChoice2.Unspecified5 => 9,
+    });
+}

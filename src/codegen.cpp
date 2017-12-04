@@ -2717,7 +2717,7 @@ static LLVMValueRef ir_render_err_name(CodeGen *g, IrExecutable *executable, IrI
 }
 
 static LLVMValueRef ir_render_enum_tag_name(CodeGen *g, IrExecutable *executable,
-        IrInstructionEnumTagName *instruction)
+        IrInstructionTagName *instruction)
 {
     TypeTableEntry *enum_type = instruction->target->value.type;
     assert(enum_type->id == TypeTableEntryIdEnum);
@@ -3484,7 +3484,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdOpaqueType:
         case IrInstructionIdSetAlignStack:
         case IrInstructionIdArgType:
-        case IrInstructionIdEnumTagType:
+        case IrInstructionIdTagType:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -3594,8 +3594,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_container_init_list(g, executable, (IrInstructionContainerInitList *)instruction);
         case IrInstructionIdPanic:
             return ir_render_panic(g, executable, (IrInstructionPanic *)instruction);
-        case IrInstructionIdEnumTagName:
-            return ir_render_enum_tag_name(g, executable, (IrInstructionEnumTagName *)instruction);
+        case IrInstructionIdTagName:
+            return ir_render_enum_tag_name(g, executable, (IrInstructionTagName *)instruction);
         case IrInstructionIdFieldParentPtr:
             return ir_render_field_parent_ptr(g, executable, (IrInstructionFieldParentPtr *)instruction);
         case IrInstructionIdAlignCast:
@@ -4963,7 +4963,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdIntToPtr, "intToPtr", 2);
     create_builtin_fn(g, BuiltinFnIdPtrToInt, "ptrToInt", 1);
     create_builtin_fn(g, BuiltinFnIdTagName, "tagName", 1);
-    create_builtin_fn(g, BuiltinFnIdEnumTagType, "EnumTagType", 1);
+    create_builtin_fn(g, BuiltinFnIdTagType, "TagType", 1);
     create_builtin_fn(g, BuiltinFnIdFieldParentPtr, "fieldParentPtr", 3);
     create_builtin_fn(g, BuiltinFnIdOffsetOf, "offsetOf", 2);
     create_builtin_fn(g, BuiltinFnIdDivExact, "divExact", 2);

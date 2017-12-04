@@ -204,12 +204,12 @@ test "set enum tag type" {
     {
         var x = Small.One;
         x = Small.Two;
-        comptime assert(@EnumTagType(Small) == u2);
+        comptime assert(@TagType(Small) == u2);
     }
     {
         var x = Small2.One;
         x = Small2.Two;
-        comptime assert(@EnumTagType(Small2) == u2);
+        comptime assert(@TagType(Small2) == u2);
     }
 }
 

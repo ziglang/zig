@@ -872,8 +872,8 @@ static void ir_print_type_name(IrPrint *irp, IrInstructionTypeName *instruction)
     ir_print_other_instruction(irp, instruction->type_value);
 }
 
-static void ir_print_enum_tag_name(IrPrint *irp, IrInstructionEnumTagName *instruction) {
-    fprintf(irp->f, "enumtagname ");
+static void ir_print_tag_name(IrPrint *irp, IrInstructionTagName *instruction) {
+    fprintf(irp->f, "tagname ");
     ir_print_other_instruction(irp, instruction->target);
 }
 
@@ -981,8 +981,8 @@ static void ir_print_arg_type(IrPrint *irp, IrInstructionArgType *instruction) {
     fprintf(irp->f, ")");
 }
 
-static void ir_print_enum_tag_type(IrPrint *irp, IrInstructionEnumTagType *instruction) {
-    fprintf(irp->f, "@EnumTagType(");
+static void ir_print_enum_tag_type(IrPrint *irp, IrInstructionTagType *instruction) {
+    fprintf(irp->f, "@TagType(");
     ir_print_other_instruction(irp, instruction->target);
     fprintf(irp->f, ")");
 }
@@ -1254,8 +1254,8 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdTypeName:
             ir_print_type_name(irp, (IrInstructionTypeName *)instruction);
             break;
-        case IrInstructionIdEnumTagName:
-            ir_print_enum_tag_name(irp, (IrInstructionEnumTagName *)instruction);
+        case IrInstructionIdTagName:
+            ir_print_tag_name(irp, (IrInstructionTagName *)instruction);
             break;
         case IrInstructionIdCanImplicitCast:
             ir_print_can_implicit_cast(irp, (IrInstructionCanImplicitCast *)instruction);
@@ -1299,8 +1299,8 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdArgType:
             ir_print_arg_type(irp, (IrInstructionArgType *)instruction);
             break;
-        case IrInstructionIdEnumTagType:
-            ir_print_enum_tag_type(irp, (IrInstructionEnumTagType *)instruction);
+        case IrInstructionIdTagType:
+            ir_print_enum_tag_type(irp, (IrInstructionTagType *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

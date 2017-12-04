@@ -539,12 +539,12 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionPanic *) {
     return IrInstructionIdPanic;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionEnumTagName *) {
-    return IrInstructionIdEnumTagName;
+static constexpr IrInstructionId ir_instruction_id(IrInstructionTagName *) {
+    return IrInstructionIdTagName;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionEnumTagType *) {
-    return IrInstructionIdEnumTagType;
+static constexpr IrInstructionId ir_instruction_id(IrInstructionTagType *) {
+    return IrInstructionIdTagType;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionFieldParentPtr *) {
@@ -2205,10 +2205,10 @@ static IrInstruction *ir_build_panic(IrBuilder *irb, Scope *scope, AstNode *sour
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_enum_tag_name(IrBuilder *irb, Scope *scope, AstNode *source_node,
+static IrInstruction *ir_build_tag_name(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *target)
 {
-    IrInstructionEnumTagName *instruction = ir_build_instruction<IrInstructionEnumTagName>(irb, scope, source_node);
+    IrInstructionTagName *instruction = ir_build_instruction<IrInstructionTagName>(irb, scope, source_node);
     instruction->target = target;
 
     ir_ref_instruction(target, irb->current_basic_block);
@@ -2216,10 +2216,10 @@ static IrInstruction *ir_build_enum_tag_name(IrBuilder *irb, Scope *scope, AstNo
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_enum_tag_type(IrBuilder *irb, Scope *scope, AstNode *source_node,
+static IrInstruction *ir_build_tag_type(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *target)
 {
-    IrInstructionEnumTagType *instruction = ir_build_instruction<IrInstructionEnumTagType>(irb, scope, source_node);
+    IrInstructionTagType *instruction = ir_build_instruction<IrInstructionTagType>(irb, scope, source_node);
     instruction->target = target;
 
     ir_ref_instruction(target, irb->current_basic_block);
@@ -3002,14 +3002,14 @@ static IrInstruction *ir_instruction_panic_get_dep(IrInstructionPanic *instructi
     }
 }
 
-static IrInstruction *ir_instruction_enumtagname_get_dep(IrInstructionEnumTagName *instruction, size_t index) {
+static IrInstruction *ir_instruction_enumtagname_get_dep(IrInstructionTagName *instruction, size_t index) {
     switch (index) {
         case 0: return instruction->target;
         default: return nullptr;
     }
 }
 
-static IrInstruction *ir_instruction_enumtagtype_get_dep(IrInstructionEnumTagType *instruction, size_t index) {
+static IrInstruction *ir_instruction_enumtagtype_get_dep(IrInstructionTagType *instruction, size_t index) {
     switch (index) {
         case 0: return instruction->target;
         default: return nullptr;
@@ -3270,10 +3270,10 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_declref_get_dep((IrInstructionDeclRef *) instruction, index);
         case IrInstructionIdPanic:
             return ir_instruction_panic_get_dep((IrInstructionPanic *) instruction, index);
-        case IrInstructionIdEnumTagName:
-            return ir_instruction_enumtagname_get_dep((IrInstructionEnumTagName *) instruction, index);
-        case IrInstructionIdEnumTagType:
-            return ir_instruction_enumtagtype_get_dep((IrInstructionEnumTagType *) instruction, index);
+        case IrInstructionIdTagName:
+            return ir_instruction_enumtagname_get_dep((IrInstructionTagName *) instruction, index);
+        case IrInstructionIdTagType:
+            return ir_instruction_enumtagtype_get_dep((IrInstructionTagType *) instruction, index);
         case IrInstructionIdFieldParentPtr:
             return ir_instruction_fieldparentptr_get_dep((IrInstructionFieldParentPtr *) instruction, index);
         case IrInstructionIdOffsetOf:
@@ -4627,16 +4627,16 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg0_value;
 
                 IrInstruction *actual_tag = ir_build_union_tag(irb, scope, node, arg0_value);
-                return ir_build_enum_tag_name(irb, scope, node, actual_tag);
+                return ir_build_tag_name(irb, scope, node, actual_tag);
             }
-        case BuiltinFnIdEnumTagType:
+        case BuiltinFnIdTagType:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
                 IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
                 if (arg0_value == irb->codegen->invalid_instruction)
                     return arg0_value;
 
-                return ir_build_enum_tag_type(irb, scope, node, arg0_value);
+                return ir_build_tag_type(irb, scope, node, arg0_value);
             }
         case BuiltinFnIdFieldParentPtr:
             {
@@ -13638,7 +13638,7 @@ static TypeTableEntry *ir_analyze_instruction_err_name(IrAnalyze *ira, IrInstruc
     return str_type;
 }
 
-static TypeTableEntry *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrInstructionEnumTagName *instruction) {
+static TypeTableEntry *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrInstructionTagName *instruction) {
     IrInstruction *target = instruction->target->other;
     if (type_is_invalid(target->value.type))
         return ira->codegen->builtin_types.entry_invalid;
@@ -13658,7 +13658,7 @@ static TypeTableEntry *ir_analyze_instruction_enum_tag_name(IrAnalyze *ira, IrIn
         ira->codegen->name_table_enums.append(target->value.type);
     }
 
-    IrInstruction *result = ir_build_enum_tag_name(&ira->new_irb, instruction->base.scope,
+    IrInstruction *result = ir_build_tag_name(&ira->new_irb, instruction->base.scope,
             instruction->base.source_node, target);
     ir_link_new_instruction(result, &instruction->base);
     TypeTableEntry *u8_ptr_type = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_u8, true);
@@ -15838,22 +15838,43 @@ static TypeTableEntry *ir_analyze_instruction_arg_type(IrAnalyze *ira, IrInstruc
     return ira->codegen->builtin_types.entry_type;
 }
 
-static TypeTableEntry *ir_analyze_instruction_enum_tag_type(IrAnalyze *ira, IrInstructionEnumTagType *instruction) {
+static TypeTableEntry *ir_analyze_instruction_tag_type(IrAnalyze *ira, IrInstructionTagType *instruction) {
     IrInstruction *target_inst = instruction->target->other;
     TypeTableEntry *enum_type = ir_resolve_type(ira, target_inst);
     if (type_is_invalid(enum_type))
         return ira->codegen->builtin_types.entry_invalid;
-    if (enum_type->id != TypeTableEntryIdEnum) {
-        ir_add_error(ira, target_inst, buf_sprintf("expected enum, found '%s'", buf_ptr(&enum_type->name)));
+
+    if (enum_type->id == TypeTableEntryIdEnum) {
+        ensure_complete_type(ira->codegen, enum_type);
+        if (type_is_invalid(enum_type))
+            return ira->codegen->builtin_types.entry_invalid;
+
+        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+        out_val->data.x_type = enum_type->data.enumeration.tag_int_type;
+        return ira->codegen->builtin_types.entry_type;
+    } else if (enum_type->id == TypeTableEntryIdUnion) {
+        ensure_complete_type(ira->codegen, enum_type);
+        if (type_is_invalid(enum_type))
+            return ira->codegen->builtin_types.entry_invalid;
+
+        AstNode *decl_node = enum_type->data.unionation.decl_node;
+        if (decl_node->data.container_decl.auto_enum || decl_node->data.container_decl.init_arg_expr != nullptr) {
+            assert(enum_type->data.unionation.tag_type != nullptr);
+
+            ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+            out_val->data.x_type = enum_type->data.unionation.tag_type;
+            return ira->codegen->builtin_types.entry_type;
+        } else {
+            ErrorMsg *msg = ir_add_error(ira, target_inst, buf_sprintf("union '%s' has no tag",
+                buf_ptr(&enum_type->name)));
+            add_error_note(ira->codegen, msg, decl_node, buf_sprintf("consider 'union(enum)' here"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+    } else {
+        ir_add_error(ira, target_inst, buf_sprintf("expected enum or union, found '%s'",
+            buf_ptr(&enum_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
-    ensure_complete_type(ira->codegen, enum_type);
-    if (type_is_invalid(enum_type))
-        return ira->codegen->builtin_types.entry_invalid;
-
-    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-    out_val->data.x_type = enum_type->data.enumeration.tag_int_type;
-    return ira->codegen->builtin_types.entry_type;
 }
 
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
@@ -16032,8 +16053,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_int_to_ptr(ira, (IrInstructionIntToPtr *)instruction);
         case IrInstructionIdPtrToInt:
             return ir_analyze_instruction_ptr_to_int(ira, (IrInstructionPtrToInt *)instruction);
-        case IrInstructionIdEnumTagName:
-            return ir_analyze_instruction_enum_tag_name(ira, (IrInstructionEnumTagName *)instruction);
+        case IrInstructionIdTagName:
+            return ir_analyze_instruction_enum_tag_name(ira, (IrInstructionTagName *)instruction);
         case IrInstructionIdFieldParentPtr:
             return ir_analyze_instruction_field_parent_ptr(ira, (IrInstructionFieldParentPtr *)instruction);
         case IrInstructionIdOffsetOf:
@@ -16052,8 +16073,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_set_align_stack(ira, (IrInstructionSetAlignStack *)instruction);
         case IrInstructionIdArgType:
             return ir_analyze_instruction_arg_type(ira, (IrInstructionArgType *)instruction);
-        case IrInstructionIdEnumTagType:
-            return ir_analyze_instruction_enum_tag_type(ira, (IrInstructionEnumTagType *)instruction);
+        case IrInstructionIdTagType:
+            return ir_analyze_instruction_tag_type(ira, (IrInstructionTagType *)instruction);
     }
     zig_unreachable();
 }
@@ -16230,14 +16251,14 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdDeclRef:
         case IrInstructionIdErrName:
         case IrInstructionIdTypeName:
-        case IrInstructionIdEnumTagName:
+        case IrInstructionIdTagName:
         case IrInstructionIdFieldParentPtr:
         case IrInstructionIdOffsetOf:
         case IrInstructionIdTypeId:
         case IrInstructionIdAlignCast:
         case IrInstructionIdOpaqueType:
         case IrInstructionIdArgType:
-        case IrInstructionIdEnumTagType:
+        case IrInstructionIdTagType:
             return false;
         case IrInstructionIdAsm:
             {
