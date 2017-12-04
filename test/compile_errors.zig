@@ -2479,7 +2479,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    A: i32 = 20,
         \\};
         \\export fn entry() {
-        \\        var x: MultipleChoice = undefined;
+        \\    var x: MultipleChoice = undefined;
         \\}
     ,
         ".tmp_source.zig:2:14: error: non-enum union field assignment",
@@ -2492,6 +2492,14 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:1:13: error: enums must have 1 or more fields");
+
+    cases.add("union with 0 fields",
+        \\const Foo = union {};
+        \\export fn entry() -> usize {
+        \\    return @sizeOf(Foo);
+        \\}
+    ,
+        ".tmp_source.zig:1:13: error: unions must have 1 or more fields");
 
     cases.add("enum value already taken",
         \\const MultipleChoice = enum(u32) {
@@ -2571,4 +2579,109 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         ".tmp_source.zig:6:9: error: enum tag value 60 already taken",
         ".tmp_source.zig:4:9: note: other occurrence here");
 
+    cases.add("union enum field does not match enum",
+        \\const Letter = enum {
+        \\    A,
+        \\    B,
+        \\    C,
+        \\};
+        \\const Payload = union(Letter) {
+        \\    A: i32,
+        \\    B: f64,
+        \\    C: bool,
+        \\    D: bool,
+        \\};
+        \\export fn entry() {
+        \\    var a = Payload {.A = 1234};
+        \\}
+    ,
+        ".tmp_source.zig:10:5: error: enum field not found: 'D'",
+        ".tmp_source.zig:1:16: note: enum declared here");
+
+    cases.add("field type supplied in an enum",
+        \\const Letter = enum {
+        \\    A: void,
+        \\    B,
+        \\    C,
+        \\};
+        \\export fn entry() {
+        \\    var b = Letter.B;
+        \\}
+    ,
+        ".tmp_source.zig:2:8: error: structs and unions, not enums, support field types",
+        ".tmp_source.zig:1:16: note: consider 'union(enum)' here");
+
+    cases.add("struct field missing type",
+        \\const Letter = struct {
+        \\    A,
+        \\};
+        \\export fn entry() {
+        \\    var a = Letter { .A = {} };
+        \\}
+    ,
+        ".tmp_source.zig:2:5: error: struct field missing type");
+
+    cases.add("extern union field missing type",
+        \\const Letter = extern union {
+        \\    A,
+        \\};
+        \\export fn entry() {
+        \\    var a = Letter { .A = {} };
+        \\}
+    ,
+        ".tmp_source.zig:2:5: error: union field missing type");
+
+    cases.add("extern union given enum tag type",
+        \\const Letter = enum {
+        \\    A,
+        \\    B,
+        \\    C,
+        \\};
+        \\const Payload = extern union(Letter) {
+        \\    A: i32,
+        \\    B: f64,
+        \\    C: bool,
+        \\};
+        \\export fn entry() {
+        \\    var a = Payload { .A = { 1234 } };
+        \\}
+    ,
+        ".tmp_source.zig:6:29: error: extern union does not support enum tag type");
+
+    cases.add("packed union given enum tag type",
+        \\const Letter = enum {
+        \\    A,
+        \\    B,
+        \\    C,
+        \\};
+        \\const Payload = packed union(Letter) {
+        \\    A: i32,
+        \\    B: f64,
+        \\    C: bool,
+        \\};
+        \\export fn entry() {
+        \\    var a = Payload { .A = { 1234 } };
+        \\}
+    ,
+        ".tmp_source.zig:6:29: error: packed union does not support enum tag type");
+
+    cases.add("switch on union with no attached enum",
+        \\const Payload = union {
+        \\    A: i32,
+        \\    B: f64,
+        \\    C: bool,
+        \\};
+        \\export fn entry() {
+        \\    const a = Payload { .A = { 1234 } };
+        \\    foo(a);
+        \\}
+        \\fn foo(a: &const Payload) {
+        \\    switch (*a) {
+        \\        Payload.A => {},
+        \\        else => unreachable,
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:11:13: error: switch on union which has no attached enum",
+        ".tmp_source.zig:1:17: note: consider 'union(enum)' here");
 }

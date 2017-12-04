@@ -12977,7 +12977,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
                 ErrorMsg *msg = ir_add_error(ira, target_value_ptr,
                     buf_sprintf("switch on union which has no attached enum"));
                 add_error_note(ira->codegen, msg, decl_node,
-                        buf_sprintf("union declared here"));
+                        buf_sprintf("consider 'union(enum)' here"));
                 return ira->codegen->builtin_types.entry_invalid;
             }
             TypeTableEntry *tag_type = target_type->data.unionation.tag_type;
