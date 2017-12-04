@@ -150,3 +150,19 @@ fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: &const MultipleChoice2) {
     });
 }
 
+
+const ExternPtrOrInt = extern union {
+    ptr: &u8,
+    int: u64
+};
+test "extern union size" {
+    comptime assert(@sizeOf(ExternPtrOrInt) == 8);
+}
+
+const PackedPtrOrInt = packed union {
+    ptr: &u8,
+    int: u64
+};
+test "extern union size" {
+    comptime assert(@sizeOf(PackedPtrOrInt) == 8);
+}
