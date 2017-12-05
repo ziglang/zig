@@ -77,6 +77,12 @@ const Token = struct {
         LParen,
         RParen,
         Semicolon,
+        Percent,
+        LBrace,
+        RBrace,
+        Period,
+        Minus,
+        Arrow,
     };
 };
 
@@ -102,6 +108,7 @@ const Tokenizer = struct {
         C,
         StringLiteral,
         StringLiteralBackslash,
+        Minus,
     };
 
     pub fn next(self: &Tokenizer) -> Token {
@@ -154,6 +161,29 @@ const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
+                    '%' => {
+                        result.id = Token.Id { .Percent = {} };
+                        self.index += 1;
+                        break;
+                    },
+                    '{' => {
+                        result.id = Token.Id { .LBrace = {} };
+                        self.index += 1;
+                        break;
+                    },
+                    '}' => {
+                        result.id = Token.Id { .RBrace = {} };
+                        self.index += 1;
+                        break;
+                    },
+                    '.' => {
+                        result.id = Token.Id { .Period = {} };
+                        self.index += 1;
+                        break;
+                    },
+                    '-' => {
+                        state = State.Minus;
+                    },
                     else => {
                         result.id = Token.Id { .Invalid = {} };
                         self.index += 1;
@@ -195,9 +225,24 @@ const Tokenizer = struct {
                     '\n' => break, // Look for this error later.
                     else => {},
                 },
+
                 State.StringLiteralBackslash => switch (c) {
                     '\n' => break, // Look for this error later.
-                    else => {},
+                    else => {
+                        state = State.StringLiteral;
+                    },
+                },
+
+                State.Minus => switch (c) {
+                    '>' => {
+                        result.id = Token.Id { .Arrow = {} };
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.id = Token.Id { .Minus = {} };
+                        break;
+                    },
                 },
             }
         }
