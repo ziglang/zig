@@ -3,18 +3,134 @@ const io = @import("std").io;
 const os = @import("std").os;
 const heap = @import("std").heap;
 const warn = @import("std").debug.warn;
-
+const assert = @import("std").debug.assert;
+const mem = @import("std").mem;
 
 const Token = struct {
+    id: Id,
+    start: usize,
+    end: usize,
 
+    const Keyword = enum {
+        @"align",
+        @"and",
+        @"asm",
+        @"break",
+        @"coldcc",
+        @"comptime",
+        @"const",
+        @"continue",
+        @"defer",
+        @"else",
+        @"enum",
+        @"error",
+        @"export",
+        @"extern",
+        @"false",
+        @"fn",
+        @"for",
+        @"goto",
+        @"if",
+        @"inline",
+        @"nakedcc",
+        @"noalias",
+        @"null",
+        @"or",
+        @"packed",
+        @"pub",
+        @"return",
+        @"stdcallcc",
+        @"struct",
+        @"switch",
+        @"test",
+        @"this",
+        @"true",
+        @"undefined",
+        @"union",
+        @"unreachable",
+        @"use",
+        @"var",
+        @"volatile",
+        @"while",
+    };
+
+    fn getKeyword(bytes: []const u8) -> ?Keyword {
+        comptime var i = 0;
+        inline while (i < @memberCount(Keyword)) : (i += 1) {
+            if (mem.eql(u8, @memberName(Keyword, i), bytes)) {
+                return Keyword(i);
+            }
+        }
+        return null;
+    }
+
+
+    const Id = union(enum) {
+        Invalid,
+        Identifier,
+        Keyword: Keyword,
+        Eof,
+    };
 };
 
 const Tokenizer = struct {
+    buffer: []const u8,
+    index: usize,
 
-    pub fn next() -> Token {
-
+    pub fn dump(self: &Tokenizer, token: &const Token) {
+        warn("{} \"{}\"\n", @tagName(token.id), self.buffer[token.start..token.end]);
     }
 
+    pub fn init(buffer: []const u8) -> Tokenizer {
+        return Tokenizer {
+            .buffer = buffer,
+            .index = 0,
+        };
+    }
+
+    const State = enum {
+        Start,
+        Identifier,
+    };
+
+    pub fn next(self: &Tokenizer) -> Token {
+        var state = State.Start;
+        var result = Token {
+            .id = Token.Id { .Eof = {} },
+            .start = self.index,
+            .end = undefined,
+        };
+        while (self.index < self.buffer.len) : (self.index += 1) {
+            const c = self.buffer[self.index];
+            switch (state) {
+                State.Start => switch (c) {
+                    ' ', '\n' => {
+                        result.start = self.index + 1;
+                    },
+                    'a'...'z', 'A'...'Z', '_' => {
+                        state = State.Identifier;
+                        result.id = Token.Id { .Identifier = {} };
+                    },
+                    else => {
+                        result.id = Token.Id { .Invalid = {} };
+                        self.index += 1;
+                        break;
+                    },
+                },
+                State.Identifier => switch (c) {
+                    'a'...'z', 'A'...'Z', '_', '0'...'9' => {},
+                    else => {
+                        if (Token.getKeyword(self.buffer[result.start..self.index])) |keyword_id| {
+                            result.id = Token.Id { .Keyword = keyword_id };
+                        }
+                        break;
+                    },
+                },
+            }
+        }
+        result.end = self.index;
+        return result;
+    }
 };
 
 
@@ -36,4 +152,13 @@ pub fn main2() -> %void {
     const target_file_buf = %return io.readFileAlloc(target_file, allocator);
 
     warn("{}", target_file_buf);
+
+    var tokenizer = Tokenizer.init(target_file_buf);
+    while (true) {
+        const token = tokenizer.next();
+        tokenizer.dump(token);
+        if (@TagType(Token.Id)(token.id) == Token.Id.Eof) {
+            break;
+        }
+    }
 }
