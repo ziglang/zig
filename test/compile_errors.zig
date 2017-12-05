@@ -2684,4 +2684,16 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     ,
         ".tmp_source.zig:11:13: error: switch on union which has no attached enum",
         ".tmp_source.zig:1:17: note: consider 'union(enum)' here");
+
+    cases.add("enum in field count range but not matching tag",
+        \\const Foo = enum(u32) {
+        \\    A = 10,
+        \\    B = 11,
+        \\};
+        \\export fn entry() {
+        \\    var x = Foo(0);
+        \\}
+    ,
+        ".tmp_source.zig:6:16: error: enum 'Foo' has no tag matching integer value 0",
+        ".tmp_source.zig:1:13: note: 'Foo' declared here");
 }

@@ -8436,14 +8436,16 @@ static IrInstruction *ir_analyze_int_to_enum(IrAnalyze *ira, IrInstruction *sour
         ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
         if (!val)
             return ira->codegen->invalid_instruction;
-        BigInt enum_member_count;
-        bigint_init_unsigned(&enum_member_count, wanted_type->data.enumeration.src_field_count);
-        if (bigint_cmp(&val->data.x_bigint, &enum_member_count) != CmpLT) {
+
+        TypeEnumField *field = find_enum_field_by_tag(wanted_type, &val->data.x_bigint);
+        if (field == nullptr) {
             Buf *val_buf = buf_alloc();
             bigint_append_buf(val_buf, &val->data.x_bigint, 10);
-            ir_add_error(ira, source_instr,
-                buf_sprintf("integer value %s too big for enum '%s' which has %" PRIu32 " fields",
-                    buf_ptr(val_buf), buf_ptr(&wanted_type->name), wanted_type->data.enumeration.src_field_count));
+            ErrorMsg *msg = ir_add_error(ira, source_instr,
+                buf_sprintf("enum '%s' has no tag matching integer value %s",
+                    buf_ptr(&wanted_type->name), buf_ptr(val_buf)));
+            add_error_note(ira->codegen, msg, wanted_type->data.enumeration.decl_node,
+                    buf_sprintf("'%s' declared here", buf_ptr(&wanted_type->name)));
             return ira->codegen->invalid_instruction;
         }
 
@@ -8827,7 +8829,17 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     if (actual_type->id == TypeTableEntryIdNumLitFloat ||
         actual_type->id == TypeTableEntryIdNumLitInt)
     {
-        if (wanted_type->id == TypeTableEntryIdPointer &&
+        if (wanted_type->id == TypeTableEntryIdEnum) {
+            IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.enumeration.tag_int_type, value);
+            if (type_is_invalid(cast1->value.type))
+                return ira->codegen->invalid_instruction;
+
+            IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
+            if (type_is_invalid(cast2->value.type))
+                return ira->codegen->invalid_instruction;
+
+            return cast2;
+        } else if (wanted_type->id == TypeTableEntryIdPointer &&
             wanted_type->data.pointer.is_const)
         {
             IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.pointer.child_type, value);
