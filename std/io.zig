@@ -493,6 +493,20 @@ pub fn writeFile(path: []const u8, data: []const u8, allocator: ?&mem.Allocator)
     %return file.write(data);
 }
 
+/// On success, caller owns returned buffer.
+pub fn readFileAlloc(path: []const u8, allocator: &mem.Allocator) -> %[]u8 {
+    var file = %return File.openRead(path, allocator);
+    defer file.close();
+
+    const size = %return file.getEndPos();
+    const buf = %return allocator.alloc(u8, size);
+    %defer allocator.free(buf);
+
+    var adapter = FileInStream.init(&file);
+    %return adapter.stream.readNoEof(buf);
+    return buf;
+}
+
 pub const BufferedInStream = BufferedInStreamCustom(os.page_size);
 
 pub fn BufferedInStreamCustom(comptime buffer_size: usize) -> type {
