@@ -64,12 +64,15 @@ const Token = struct {
         return null;
     }
 
+    const StrLitKind = enum {Normal, C};
 
     const Id = union(enum) {
         Invalid,
         Identifier,
         Keyword: Keyword,
+        StringLiteral: StrLitKind,
         Eof,
+        Builtin,
     };
 };
 
@@ -91,6 +94,10 @@ const Tokenizer = struct {
     const State = enum {
         Start,
         Identifier,
+        Builtin,
+        C,
+        StringLiteral,
+        StringLiteralBackslash,
     };
 
     pub fn next(self: &Tokenizer) -> Token {
@@ -107,9 +114,21 @@ const Tokenizer = struct {
                     ' ', '\n' => {
                         result.start = self.index + 1;
                     },
-                    'a'...'z', 'A'...'Z', '_' => {
+                    'c' => {
+                        state = State.C;
+                        result.id = Token.Id { .Identifier = {} };
+                    },
+                    '"' => {
+                        state = State.StringLiteral;
+                        result.id = Token.Id { .StringLiteral = Token.StrLitKind.Normal };
+                    },
+                    'a'...'b', 'd'...'z', 'A'...'Z', '_' => {
                         state = State.Identifier;
                         result.id = Token.Id { .Identifier = {} };
+                    },
+                    '@' => {
+                        state = State.Builtin;
+                        result.id = Token.Id { .Builtin = {} };
                     },
                     else => {
                         result.id = Token.Id { .Invalid = {} };
@@ -125,6 +144,36 @@ const Tokenizer = struct {
                         }
                         break;
                     },
+                },
+                State.Builtin => switch (c) {
+                    'a'...'z', 'A'...'Z', '_', '0'...'9' => {},
+                    else => break,
+                },
+                State.C => switch (c) {
+                    '\\' => @panic("TODO"),
+                    '"' => {
+                        state = State.StringLiteral;
+                        result.id = Token.Id { .StringLiteral = Token.StrLitKind.C };
+                    },
+                    'a'...'z', 'A'...'Z', '_', '0'...'9' => {
+                        state = State.Identifier;
+                    },
+                    else => break,
+                },
+                State.StringLiteral => switch (c) {
+                    '\\' => {
+                        state = State.StringLiteralBackslash;
+                    },
+                    '"' => {
+                        self.index += 1;
+                        break;
+                    },
+                    '\n' => break, // Look for this error later.
+                    else => {},
+                },
+                State.StringLiteralBackslash => switch (c) {
+                    '\n' => break, // Look for this error later.
+                    else => {},
                 },
             }
         }
