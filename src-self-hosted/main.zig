@@ -73,6 +73,10 @@ const Token = struct {
         StringLiteral: StrLitKind,
         Eof,
         Builtin,
+        Equal,
+        LParen,
+        RParen,
+        Semicolon,
     };
 };
 
@@ -129,6 +133,26 @@ const Tokenizer = struct {
                     '@' => {
                         state = State.Builtin;
                         result.id = Token.Id { .Builtin = {} };
+                    },
+                    '=' => {
+                        result.id = Token.Id { .Equal = {} };
+                        self.index += 1;
+                        break;
+                    },
+                    '(' => {
+                        result.id = Token.Id { .LParen = {} };
+                        self.index += 1;
+                        break;
+                    },
+                    ')' => {
+                        result.id = Token.Id { .RParen = {} };
+                        self.index += 1;
+                        break;
+                    },
+                    ';' => {
+                        result.id = Token.Id { .Semicolon = {} };
+                        self.index += 1;
+                        break;
                     },
                     else => {
                         result.id = Token.Id { .Invalid = {} };
