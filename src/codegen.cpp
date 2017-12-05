@@ -5298,16 +5298,17 @@ void codegen_translate_c(CodeGen *g, Buf *full_path) {
 
     ZigList<ErrorMsg *> errors = {0};
     int err = parse_h_file(import, &errors, buf_ptr(full_path), g, nullptr);
-    if (err) {
-        fprintf(stderr, "unable to parse C file: %s\n", err_str(err));
-        exit(1);
-    }
 
-    if (errors.length > 0) {
+    if (err == ErrorCCompileErrors && errors.length > 0) {
         for (size_t i = 0; i < errors.length; i += 1) {
             ErrorMsg *err_msg = errors.at(i);
             print_err_msg(err_msg, g->err_color);
         }
+        exit(1);
+    }
+
+    if (err) {
+        fprintf(stderr, "unable to parse C file: %s\n", err_str(err));
         exit(1);
     }
 }
