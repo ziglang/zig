@@ -7526,6 +7526,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
 
         if (prev_type->id == TypeTableEntryIdUnreachable) {
             prev_inst = cur_inst;
+            continue;
         }
 
         if (cur_type->id == TypeTableEntryIdUnreachable) {
@@ -7574,12 +7575,11 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             continue;
         }
 
-        if (prev_type->id == TypeTableEntryIdFloat &&
-                   cur_type->id == TypeTableEntryIdFloat)
-        {
+        if (prev_type->id == TypeTableEntryIdFloat && cur_type->id == TypeTableEntryIdFloat) {
             if (cur_type->data.floating.bit_count > prev_type->data.floating.bit_count) {
                 prev_inst = cur_inst;
             }
+            continue;
         }
 
         if (prev_type->id == TypeTableEntryIdErrorUnion &&
