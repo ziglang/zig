@@ -7468,6 +7468,17 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
         }
     }
 
+    // implicit union to its enum tag type
+    if (expected_type->id == TypeTableEntryIdEnum && actual_type->id == TypeTableEntryIdUnion &&
+        (actual_type->data.unionation.decl_node->data.container_decl.auto_enum ||
+        actual_type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr))
+    {
+        type_ensure_zero_bits_known(ira->codegen, actual_type);
+        if (actual_type->data.unionation.tag_type == expected_type) {
+            return ImplicitCastMatchResultYes;
+        }
+    }
+
     // implicit enum to union which has the enum as the tag type
     if (expected_type->id == TypeTableEntryIdUnion && actual_type->id == TypeTableEntryIdEnum &&
         (expected_type->data.unionation.decl_node->data.container_decl.auto_enum ||

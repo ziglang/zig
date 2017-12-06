@@ -197,3 +197,11 @@ test "cast tag type of union to union" {
 }
 const Letter2 = enum { A, B, C };
 const Value2 = union(Letter2) { A: i32, B, C, };
+
+test "implicit cast union to its tag type" {
+    var x: Value2 = Letter2.B;
+    giveMeLetterB(x);
+}
+fn giveMeLetterB(x: Letter2) {
+    assert(x == Value2.B);
+}
