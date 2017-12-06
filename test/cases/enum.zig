@@ -349,3 +349,20 @@ test "cast integer literal to enum" {
     assert(MultipleChoice2(0) == MultipleChoice2.Unspecified1);
     assert(MultipleChoice2(40) == MultipleChoice2.B);
 }
+
+const EnumWithOneMember = enum {
+    Eof,
+};
+
+fn doALoopThing(id: EnumWithOneMember) {
+    while (true) {
+        if (id == EnumWithOneMember.Eof) {
+            break;
+        }
+        @compileError("above if condition should be comptime");
+    }
+}
+
+test "comparison operator on enum with one member is comptime known" {
+    doALoopThing(EnumWithOneMember.Eof);
+}

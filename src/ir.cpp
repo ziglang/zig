@@ -9504,6 +9504,10 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
     TypeTableEntry *resolved_type = ir_resolve_peer_types(ira, bin_op_instruction->base.source_node, instructions, 2);
     if (type_is_invalid(resolved_type))
         return resolved_type;
+    type_ensure_zero_bits_known(ira->codegen, resolved_type);
+    if (type_is_invalid(resolved_type))
+        return resolved_type;
+
 
     AstNode *source_node = bin_op_instruction->base.source_node;
     switch (resolved_type->id) {
@@ -9568,7 +9572,8 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
 
     ConstExprValue *op1_val = &casted_op1->value;
     ConstExprValue *op2_val = &casted_op2->value;
-    if ((value_is_comptime(op1_val) && value_is_comptime(op2_val)) || resolved_type->id == TypeTableEntryIdVoid) {
+    bool one_possible_value = !type_requires_comptime(resolved_type) && !type_has_bits(resolved_type);
+    if (one_possible_value || (value_is_comptime(op1_val) && value_is_comptime(op2_val))) {
         bool answer;
         if (resolved_type->id == TypeTableEntryIdNumLitFloat || resolved_type->id == TypeTableEntryIdFloat) {
             Cmp cmp_result = float_cmp(op1_val, op2_val);
@@ -9577,7 +9582,7 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
             Cmp cmp_result = bigint_cmp(&op1_val->data.x_bigint, &op2_val->data.x_bigint);
             answer = resolve_cmp_op_id(op_id, cmp_result);
         } else {
-            bool are_equal = resolved_type->id == TypeTableEntryIdVoid || const_values_equal(op1_val, op2_val);
+            bool are_equal = one_possible_value || const_values_equal(op1_val, op2_val);
             if (op_id == IrBinOpCmpEq) {
                 answer = are_equal;
             } else if (op_id == IrBinOpCmpNotEq) {
