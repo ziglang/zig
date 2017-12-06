@@ -3946,8 +3946,6 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
         case TypeTableEntryIdUnion:
             {
                 LLVMTypeRef union_type_ref = type_entry->data.unionation.union_type_ref;
-                ConstExprValue *payload_value = const_val->data.x_union.payload;
-                assert(payload_value != nullptr);
 
                 if (type_entry->data.unionation.gen_field_count == 0) {
                     if (type_entry->data.unionation.gen_tag_index == SIZE_MAX) {
@@ -3960,7 +3958,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
 
                 LLVMValueRef union_value_ref;
                 bool make_unnamed_struct;
-                if (!type_has_bits(payload_value->type)) {
+                ConstExprValue *payload_value = const_val->data.x_union.payload;
+                if (payload_value == nullptr || !type_has_bits(payload_value->type)) {
                     if (type_entry->data.unionation.gen_tag_index == SIZE_MAX)
                         return LLVMGetUndef(type_entry->type_ref);
 
@@ -5298,16 +5297,17 @@ void codegen_translate_c(CodeGen *g, Buf *full_path) {
 
     ZigList<ErrorMsg *> errors = {0};
     int err = parse_h_file(import, &errors, buf_ptr(full_path), g, nullptr);
-    if (err) {
-        fprintf(stderr, "unable to parse C file: %s\n", err_str(err));
-        exit(1);
-    }
 
-    if (errors.length > 0) {
+    if (err == ErrorCCompileErrors && errors.length > 0) {
         for (size_t i = 0; i < errors.length; i += 1) {
             ErrorMsg *err_msg = errors.at(i);
             print_err_msg(err_msg, g->err_color);
         }
+        exit(1);
+    }
+
+    if (err) {
+        fprintf(stderr, "unable to parse C file: %s\n", err_str(err));
         exit(1);
     }
 }

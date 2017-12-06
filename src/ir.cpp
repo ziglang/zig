@@ -7468,6 +7468,17 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
         }
     }
 
+    // implicit enum to union which has the enum as the tag type
+    if (expected_type->id == TypeTableEntryIdUnion && actual_type->id == TypeTableEntryIdEnum &&
+        (expected_type->data.unionation.decl_node->data.container_decl.auto_enum ||
+        expected_type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr))
+    {
+        type_ensure_zero_bits_known(ira->codegen, expected_type);
+        if (expected_type->data.unionation.tag_type == actual_type) {
+            return ImplicitCastMatchResultYes;
+        }
+    }
+
     // implicit undefined literal to anything
     if (actual_type->id == TypeTableEntryIdUndefLit) {
         return ImplicitCastMatchResultYes;
@@ -8370,6 +8381,63 @@ static IrInstruction *ir_analyze_undefined_to_anything(IrAnalyze *ira, IrInstruc
     return result;
 }
 
+static IrInstruction *ir_analyze_enum_to_union(IrAnalyze *ira, IrInstruction *source_instr,
+        IrInstruction *target, TypeTableEntry *wanted_type)
+{
+    assert(wanted_type->id == TypeTableEntryIdUnion);
+    assert(target->value.type->id == TypeTableEntryIdEnum);
+
+    if (instr_is_comptime(target)) {
+        ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
+        if (!val)
+            return ira->codegen->invalid_instruction;
+        TypeUnionField *union_field = find_union_field_by_tag(wanted_type, &val->data.x_enum_tag);
+        assert(union_field != nullptr);
+        type_ensure_zero_bits_known(ira->codegen, union_field->type_entry);
+        if (!union_field->type_entry->zero_bits) {
+            AstNode *field_node = wanted_type->data.unionation.decl_node->data.container_decl.fields.at(
+                    union_field->enum_field->decl_index);
+            ErrorMsg *msg = ir_add_error(ira, source_instr,
+                    buf_sprintf("cast to union '%s' must initialize '%s' field '%s'",
+                        buf_ptr(&wanted_type->name),
+                        buf_ptr(&union_field->type_entry->name),
+                        buf_ptr(union_field->name)));
+            add_error_note(ira->codegen, msg, field_node,
+                    buf_sprintf("field '%s' declared here", buf_ptr(union_field->name)));
+            return ira->codegen->invalid_instruction;
+        }
+        IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
+                source_instr->source_node, wanted_type);
+        result->value.special = ConstValSpecialStatic;
+        result->value.type = wanted_type;
+        bigint_init_bigint(&result->value.data.x_union.tag, &val->data.x_enum_tag);
+        return result;
+    }
+
+    // if the union has all fields 0 bits, we can do it
+    // and in fact it's a noop cast because the union value is just the enum value
+    if (wanted_type->data.unionation.gen_field_count == 0) {
+        IrInstruction *result = ir_build_cast(&ira->new_irb, target->scope, target->source_node, wanted_type, target, CastOpNoop);
+        result->value.type = wanted_type;
+        return result;
+    }
+
+    ErrorMsg *msg = ir_add_error(ira, source_instr,
+            buf_sprintf("runtime cast to union '%s' which has non-void fields",
+                buf_ptr(&wanted_type->name)));
+    for (uint32_t i = 0; i < wanted_type->data.unionation.src_field_count; i += 1) {
+        TypeUnionField *union_field = &wanted_type->data.unionation.fields[i];
+        if (type_has_bits(union_field->type_entry)) {
+            AstNode *field_node = wanted_type->data.unionation.decl_node->data.container_decl.fields.at(i);
+            add_error_note(ira->codegen, msg, field_node,
+                    buf_sprintf("field '%s' has type '%s'",
+                        buf_ptr(union_field->name),
+                        buf_ptr(&union_field->type_entry->name)));
+        }
+    }
+    return ira->codegen->invalid_instruction;
+}
+
 static IrInstruction *ir_analyze_widen_or_shorten(IrAnalyze *ira, IrInstruction *source_instr,
         IrInstruction *target, TypeTableEntry *wanted_type)
 {
@@ -8426,14 +8494,16 @@ static IrInstruction *ir_analyze_int_to_enum(IrAnalyze *ira, IrInstruction *sour
         ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
         if (!val)
             return ira->codegen->invalid_instruction;
-        BigInt enum_member_count;
-        bigint_init_unsigned(&enum_member_count, wanted_type->data.enumeration.src_field_count);
-        if (bigint_cmp(&val->data.x_bigint, &enum_member_count) != CmpLT) {
+
+        TypeEnumField *field = find_enum_field_by_tag(wanted_type, &val->data.x_bigint);
+        if (field == nullptr) {
             Buf *val_buf = buf_alloc();
             bigint_append_buf(val_buf, &val->data.x_bigint, 10);
-            ir_add_error(ira, source_instr,
-                buf_sprintf("integer value %s too big for enum '%s' which has %" PRIu32 " fields",
-                    buf_ptr(val_buf), buf_ptr(&wanted_type->name), wanted_type->data.enumeration.src_field_count));
+            ErrorMsg *msg = ir_add_error(ira, source_instr,
+                buf_sprintf("enum '%s' has no tag matching integer value %s",
+                    buf_ptr(&wanted_type->name), buf_ptr(val_buf)));
+            add_error_note(ira->codegen, msg, wanted_type->data.enumeration.decl_node,
+                    buf_sprintf("'%s' declared here", buf_ptr(&wanted_type->name)));
             return ira->codegen->invalid_instruction;
         }
 
@@ -8842,7 +8912,17 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
     if (actual_type->id == TypeTableEntryIdNumLitFloat ||
         actual_type->id == TypeTableEntryIdNumLitInt)
     {
-        if (wanted_type->id == TypeTableEntryIdPointer &&
+        if (wanted_type->id == TypeTableEntryIdEnum) {
+            IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.enumeration.tag_int_type, value);
+            if (type_is_invalid(cast1->value.type))
+                return ira->codegen->invalid_instruction;
+
+            IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
+            if (type_is_invalid(cast2->value.type))
+                return ira->codegen->invalid_instruction;
+
+            return cast2;
+        } else if (wanted_type->id == TypeTableEntryIdPointer &&
             wanted_type->data.pointer.is_const)
         {
             IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_type->data.pointer.child_type, value);
@@ -8909,6 +8989,17 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
 
         if (actual_type->data.unionation.tag_type == wanted_type) {
             return ir_analyze_union_to_tag(ira, source_instr, value, wanted_type);
+        }
+    }
+
+    // explicit enum to union which has the enum as the tag type
+    if (wanted_type->id == TypeTableEntryIdUnion && actual_type->id == TypeTableEntryIdEnum &&
+        (wanted_type->data.unionation.decl_node->data.container_decl.auto_enum ||
+        wanted_type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr))
+    {
+        type_ensure_zero_bits_known(ira->codegen, wanted_type);
+        if (wanted_type->data.unionation.tag_type == actual_type) {
+            return ir_analyze_enum_to_union(ira, source_instr, value, wanted_type);
         }
     }
 

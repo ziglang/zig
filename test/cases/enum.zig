@@ -344,3 +344,8 @@ fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) {
         MultipleChoice2.Unspecified5 => 9,
     });
 }
+
+test "cast integer literal to enum" {
+    assert(MultipleChoice2(0) == MultipleChoice2.Unspecified1);
+    assert(MultipleChoice2(40) == MultipleChoice2.B);
+}
