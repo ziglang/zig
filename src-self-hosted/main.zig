@@ -377,7 +377,10 @@ pub fn main2() -> %void {
 
     const allocator = &incrementing_allocator.allocator;
 
-    const target_file = "input.zig"; // TODO
+    const args = %return os.argsAlloc(allocator);
+    defer os.argsFree(allocator, args);
+
+    const target_file = args[1];
 
     const target_file_buf = %return io.readFileAlloc(target_file, allocator);
 
