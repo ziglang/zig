@@ -444,4 +444,86 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
 
         tc
     });
+
+    cases.addCase({
+        var tc = cases.create("parsing args",
+            \\const std = @import("std");
+            \\const io = std.io;
+            \\const os = std.os;
+            \\const allocator = std.debug.global_allocator;
+            \\
+            \\pub fn main() -> %void {
+            \\    var args_it = os.args();
+            \\    var stdout_file = %return io.getStdOut();
+            \\    var stdout_adapter = io.FileOutStream.init(&stdout_file);
+            \\    const stdout = &stdout_adapter.stream;
+            \\    var index: usize = 0;
+            \\    _ = args_it.skip();
+            \\    while (args_it.next(allocator)) |arg_or_err| : (index += 1) {
+            \\        const arg = %return arg_or_err;
+            \\        %return stdout.print("{}: {}\n", index, arg);
+            \\    }
+            \\}
+        ,
+            \\0: first arg
+            \\1: 'a' 'b' \
+            \\2: bare
+            \\3: ba""re
+            \\4: "
+            \\5: last arg
+            \\
+        );
+
+        tc.setCommandLineArgs([][]const u8 {
+            "first arg",
+            "'a' 'b' \\",
+            "bare",
+            "ba\"\"re",
+            "\"",
+            "last arg",
+        });
+
+        tc
+    });
+
+    cases.addCase({
+        var tc = cases.create("parsing args new API",
+            \\const std = @import("std");
+            \\const io = std.io;
+            \\const os = std.os;
+            \\const allocator = std.debug.global_allocator;
+            \\
+            \\pub fn main() -> %void {
+            \\    var args_it = os.args();
+            \\    var stdout_file = %return io.getStdOut();
+            \\    var stdout_adapter = io.FileOutStream.init(&stdout_file);
+            \\    const stdout = &stdout_adapter.stream;
+            \\    var index: usize = 0;
+            \\    _ = args_it.skip();
+            \\    while (args_it.next(allocator)) |arg_or_err| : (index += 1) {
+            \\        const arg = %return arg_or_err;
+            \\        %return stdout.print("{}: {}\n", index, arg);
+            \\    }
+            \\}
+        ,
+            \\0: first arg
+            \\1: 'a' 'b' \
+            \\2: bare
+            \\3: ba""re
+            \\4: "
+            \\5: last arg
+            \\
+        );
+
+        tc.setCommandLineArgs([][]const u8 {
+            "first arg",
+            "'a' 'b' \\",
+            "bare",
+            "ba\"\"re",
+            "\"",
+            "last arg",
+        });
+
+        tc
+    });
 }

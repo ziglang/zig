@@ -928,13 +928,13 @@ static IrInstruction *ir_build_union_field_ptr_from(IrBuilder *irb, IrInstructio
 
 static IrInstruction *ir_build_call(IrBuilder *irb, Scope *scope, AstNode *source_node,
         FnTableEntry *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
-        bool is_comptime, bool is_inline)
+        bool is_comptime, FnInline fn_inline)
 {
     IrInstructionCall *call_instruction = ir_build_instruction<IrInstructionCall>(irb, scope, source_node);
     call_instruction->fn_entry = fn_entry;
     call_instruction->fn_ref = fn_ref;
     call_instruction->is_comptime = is_comptime;
-    call_instruction->is_inline = is_inline;
+    call_instruction->fn_inline = fn_inline;
     call_instruction->args = args;
     call_instruction->arg_count = arg_count;
 
@@ -948,10 +948,10 @@ static IrInstruction *ir_build_call(IrBuilder *irb, Scope *scope, AstNode *sourc
 
 static IrInstruction *ir_build_call_from(IrBuilder *irb, IrInstruction *old_instruction,
         FnTableEntry *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
-        bool is_comptime, bool is_inline)
+        bool is_comptime, FnInline fn_inline)
 {
     IrInstruction *new_instruction = ir_build_call(irb, old_instruction->scope,
-            old_instruction->source_node, fn_entry, fn_ref, arg_count, args, is_comptime, is_inline);
+            old_instruction->source_node, fn_entry, fn_ref, arg_count, args, is_comptime, fn_inline);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
 }
@@ -4672,6 +4672,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 return ir_build_offset_of(irb, scope, node, arg0_value, arg1_value);
             }
         case BuiltinFnIdInlineCall:
+        case BuiltinFnIdNoInlineCall:
             {
                 if (node->data.fn_call_expr.params.length == 0) {
                     add_node_error(irb->codegen, node, buf_sprintf("expected at least 1 argument, found 0"));
@@ -4692,8 +4693,9 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     if (args[i] == irb->codegen->invalid_instruction)
                         return args[i];
                 }
+                FnInline fn_inline = (builtin_fn->id == BuiltinFnIdInlineCall) ? FnInlineAlways : FnInlineNever;
 
-                return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, true);
+                return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, fn_inline);
             }
         case BuiltinFnIdTypeId:
             {
@@ -4804,7 +4806,7 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
             return args[i];
     }
 
-    return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, false);
+    return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, FnInlineAuto);
 }
 
 static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
@@ -10617,7 +10619,7 @@ no_mem_slot:
 
 static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *call_instruction,
     FnTableEntry *fn_entry, TypeTableEntry *fn_type, IrInstruction *fn_ref,
-    IrInstruction *first_arg_ptr, bool comptime_fn_call, bool inline_fn_call)
+    IrInstruction *first_arg_ptr, bool comptime_fn_call, FnInline fn_inline)
 {
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
     size_t first_arg_1_or_0 = first_arg_ptr ? 1 : 0;
@@ -10876,7 +10878,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
             if (type_requires_comptime(return_type)) {
                 // Throw out our work and call the function as if it were comptime.
-                return ir_analyze_fn_call(ira, call_instruction, fn_entry, fn_type, fn_ref, first_arg_ptr, true, false);
+                return ir_analyze_fn_call(ira, call_instruction, fn_entry, fn_type, fn_ref, first_arg_ptr, true, FnInlineAuto);
             }
         }
 
@@ -10900,7 +10902,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
         size_t impl_param_count = impl_fn->type_entry->data.fn.fn_type_id.param_count;
         IrInstruction *new_call_instruction = ir_build_call_from(&ira->new_irb, &call_instruction->base,
-                impl_fn, nullptr, impl_param_count, casted_args, false, inline_fn_call);
+                impl_fn, nullptr, impl_param_count, casted_args, false, fn_inline);
 
         TypeTableEntry *return_type = impl_fn->type_entry->data.fn.fn_type_id.return_type;
         ir_add_alloca(ira, new_call_instruction, return_type);
@@ -10959,7 +10961,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *new_call_instruction = ir_build_call_from(&ira->new_irb, &call_instruction->base,
-            fn_entry, fn_ref, call_param_count, casted_args, false, inline_fn_call);
+            fn_entry, fn_ref, call_param_count, casted_args, false, fn_inline);
 
     ir_add_alloca(ira, new_call_instruction, return_type);
     return ir_finish_anal(ira, return_type);
@@ -10998,13 +11000,13 @@ static TypeTableEntry *ir_analyze_instruction_call(IrAnalyze *ira, IrInstruction
         } else if (fn_ref->value.type->id == TypeTableEntryIdFn) {
             FnTableEntry *fn_table_entry = ir_resolve_fn(ira, fn_ref);
             return ir_analyze_fn_call(ira, call_instruction, fn_table_entry, fn_table_entry->type_entry,
-                fn_ref, nullptr, is_comptime, call_instruction->is_inline);
+                fn_ref, nullptr, is_comptime, call_instruction->fn_inline);
         } else if (fn_ref->value.type->id == TypeTableEntryIdBoundFn) {
             assert(fn_ref->value.special == ConstValSpecialStatic);
             FnTableEntry *fn_table_entry = fn_ref->value.data.x_bound_fn.fn;
             IrInstruction *first_arg_ptr = fn_ref->value.data.x_bound_fn.first_arg;
             return ir_analyze_fn_call(ira, call_instruction, fn_table_entry, fn_table_entry->type_entry,
-                nullptr, first_arg_ptr, is_comptime, call_instruction->is_inline);
+                nullptr, first_arg_ptr, is_comptime, call_instruction->fn_inline);
         } else {
             ir_add_error_node(ira, fn_ref->source_node,
                 buf_sprintf("type '%s' not a function", buf_ptr(&fn_ref->value.type->name)));
@@ -11014,7 +11016,7 @@ static TypeTableEntry *ir_analyze_instruction_call(IrAnalyze *ira, IrInstruction
 
     if (fn_ref->value.type->id == TypeTableEntryIdFn) {
         return ir_analyze_fn_call(ira, call_instruction, nullptr, fn_ref->value.type,
-            fn_ref, nullptr, false, false);
+            fn_ref, nullptr, false, FnInlineAuto);
     } else {
         ir_add_error_node(ira, fn_ref->source_node,
             buf_sprintf("type '%s' not a function", buf_ptr(&fn_ref->value.type->name)));

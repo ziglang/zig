@@ -1422,6 +1422,54 @@ pub fn args() -> ArgIterator {
     return ArgIterator.init();
 }
 
+/// Caller must call freeArgs on result.
+pub fn argsAlloc(allocator: &mem.Allocator) -> %[]const []u8 {
+    // TODO refactor to only make 1 allocation.
+    var it = args();
+    var contents = %return Buffer.initSize(allocator, 0);
+    defer contents.deinit();
+
+    var slice_list = ArrayList(usize).init(allocator);
+    defer slice_list.deinit();
+
+    while (it.next(allocator)) |arg_or_err| {
+        const arg = %return arg_or_err;
+        defer allocator.free(arg);
+        %return contents.append(arg);
+        %return slice_list.append(arg.len);
+    }
+
+    const contents_slice = contents.toSliceConst();
+    const slice_sizes = slice_list.toSliceConst();
+    const slice_list_bytes = %return math.mul(usize, @sizeOf([]u8), slice_sizes.len);
+    const total_bytes = %return math.add(usize, slice_list_bytes, contents_slice.len);
+    const buf = %return allocator.alignedAlloc(u8, @alignOf([]u8), total_bytes);
+    %defer allocator.free(buf);
+
+    const result_slice_list = ([][]u8)(buf[0..slice_list_bytes]);
+    const result_contents = buf[slice_list_bytes..];
+    mem.copy(u8, result_contents, contents_slice);
+
+    var contents_index: usize = 0;
+    for (slice_sizes) |len, i| {
+        const new_index = contents_index + len;
+        result_slice_list[i] = result_contents[contents_index..new_index];
+        contents_index = new_index;
+    }
+
+    return result_slice_list;
+}
+
+pub fn argsFree(allocator: &mem.Allocator, args_alloc: []const []u8) {
+    var total_bytes: usize = 0;
+    for (args_alloc) |arg| {
+        total_bytes += @sizeOf([]u8) + arg.len;
+    }
+    const unaligned_allocated_buf = @ptrCast(&u8, args_alloc.ptr)[0..total_bytes];
+    const aligned_allocated_buf = @alignCast(@alignOf([]u8), unaligned_allocated_buf);
+    return allocator.free(aligned_allocated_buf);
+}
+
 test "windows arg parsing" {
     testWindowsCmdLine(c"a   b\tc d", [][]const u8{"a", "b", "c", "d"});
     testWindowsCmdLine(c"\"abc\" d e", [][]const u8{"abc", "d", "e"});
