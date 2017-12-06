@@ -13174,6 +13174,16 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
             return tag_type;
         }
         case TypeTableEntryIdEnum: {
+            type_ensure_zero_bits_known(ira->codegen, target_type);
+            if (type_is_invalid(target_type))
+                return ira->codegen->builtin_types.entry_invalid;
+            if (target_type->data.enumeration.src_field_count < 2) {
+                TypeEnumField *only_field = &target_type->data.enumeration.fields[0];
+                ConstExprValue *out_val = ir_build_const_from(ira, &switch_target_instruction->base);
+                bigint_init_bigint(&out_val->data.x_enum_tag, &only_field->value);
+                return target_type;
+            }
+
             if (pointee_val) {
                 ConstExprValue *out_val = ir_build_const_from(ira, &switch_target_instruction->base);
                 bigint_init_bigint(&out_val->data.x_enum_tag, &pointee_val->data.x_enum_tag);
