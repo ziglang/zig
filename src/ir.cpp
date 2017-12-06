@@ -8490,6 +8490,16 @@ static IrInstruction *ir_analyze_int_to_enum(IrAnalyze *ira, IrInstruction *sour
     if (type_is_invalid(wanted_type))
         return ira->codegen->invalid_instruction;
 
+    if (actual_type != wanted_type->data.enumeration.tag_int_type) {
+        ir_add_error(ira, source_instr,
+                buf_sprintf("integer to enum cast from '%s' instead of its tag type, '%s'",
+                    buf_ptr(&actual_type->name),
+                    buf_ptr(&wanted_type->data.enumeration.tag_int_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    assert(actual_type->id == TypeTableEntryIdInt);
+
     if (instr_is_comptime(target)) {
         ConstExprValue *val = ir_resolve_const(ira, target, UndefBad);
         if (!val)
@@ -8512,17 +8522,6 @@ static IrInstruction *ir_analyze_int_to_enum(IrAnalyze *ira, IrInstruction *sour
         bigint_init_bigint(&result->value.data.x_enum_tag, &val->data.x_bigint);
         return result;
     }
-
-    if (actual_type != wanted_type->data.enumeration.tag_int_type) {
-        ir_add_error(ira, source_instr,
-                buf_sprintf("integer to enum cast from '%s' instead of its tag type, '%s'",
-                    buf_ptr(&actual_type->name),
-                    buf_ptr(&wanted_type->data.enumeration.tag_int_type->name)));
-        return ira->codegen->invalid_instruction;
-    }
-
-    assert(actual_type->id == TypeTableEntryIdInt);
-
 
     IrInstruction *result = ir_build_int_to_enum(&ira->new_irb, source_instr->scope,
             source_instr->source_node, target);
@@ -8893,20 +8892,6 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         }
     }
 
-    // explicit cast from integer to enum type with no payload
-    if ((actual_type->id == TypeTableEntryIdInt || actual_type->id == TypeTableEntryIdNumLitInt) &&
-            wanted_type->id == TypeTableEntryIdEnum)
-    {
-        return ir_analyze_int_to_enum(ira, source_instr, value, wanted_type);
-    }
-
-    // explicit cast from enum type with no payload to integer
-    if ((wanted_type->id == TypeTableEntryIdInt || wanted_type->id == TypeTableEntryIdNumLitInt) &&
-            actual_type->id == TypeTableEntryIdEnum)
-    {
-        return ir_analyze_enum_to_int(ira, source_instr, value, wanted_type);
-    }
-
     // explicit cast from number literal to another type
     // explicit cast from number literal to &const integer
     if (actual_type->id == TypeTableEntryIdNumLitFloat ||
@@ -8979,6 +8964,16 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         !actual_type->data.integral.is_signed)
     {
         return ir_analyze_int_to_err(ira, source_instr, value);
+    }
+
+    // explicit cast from integer to enum type with no payload
+    if (actual_type->id == TypeTableEntryIdInt && wanted_type->id == TypeTableEntryIdEnum) {
+        return ir_analyze_int_to_enum(ira, source_instr, value, wanted_type);
+    }
+
+    // explicit cast from enum type with no payload to integer
+    if (wanted_type->id == TypeTableEntryIdInt && actual_type->id == TypeTableEntryIdEnum) {
+        return ir_analyze_enum_to_int(ira, source_instr, value, wanted_type);
     }
 
     // explicit cast from union to the enum type of the union
