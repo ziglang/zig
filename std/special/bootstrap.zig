@@ -28,7 +28,9 @@ export nakedcc fn _start() -> noreturn {
         },
         else => @compileError("unsupported arch"),
     }
-    posixCallMainAndExit()
+    // If LLVM inlines stack variables into _start, they will overwrite
+    // the command line argument data.
+    @noInlineCall(posixCallMainAndExit);
 }
 
 export fn WinMainCRTStartup() -> noreturn {

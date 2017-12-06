@@ -839,7 +839,7 @@ static void gen_panic(CodeGen *g, LLVMValueRef msg_arg) {
     assert(g->panic_fn != nullptr);
     LLVMValueRef fn_val = fn_llvm_value(g, g->panic_fn);
     LLVMCallConv llvm_cc = get_llvm_cc(g, g->panic_fn->type_entry->data.fn.fn_type_id.cc);
-    ZigLLVMBuildCall(g->builder, fn_val, &msg_arg, 1, llvm_cc, false, "");
+    ZigLLVMBuildCall(g->builder, fn_val, &msg_arg, 1, llvm_cc, ZigLLVM_FnInlineAuto, "");
     LLVMBuildUnreachable(g->builder);
 }
 
@@ -988,7 +988,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
 static void gen_debug_safety_crash_for_err(CodeGen *g, LLVMValueRef err_val) {
     LLVMValueRef safety_crash_err_fn = get_safety_crash_err_fn(g);
     ZigLLVMBuildCall(g->builder, safety_crash_err_fn, &err_val, 1, get_llvm_cc(g, CallingConventionUnspecified),
-        false, "");
+        ZigLLVM_FnInlineAuto, "");
     LLVMBuildUnreachable(g->builder);
 }
 
@@ -2316,12 +2316,22 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         }
     }
 
-    bool want_always_inline = (instruction->fn_entry != nullptr &&
-            instruction->fn_entry->fn_inline == FnInlineAlways) || instruction->is_inline;
+    ZigLLVM_FnInline fn_inline;
+    switch (instruction->fn_inline) {
+        case FnInlineAuto:
+            fn_inline = ZigLLVM_FnInlineAuto;
+            break;
+        case FnInlineAlways:
+            fn_inline = (instruction->fn_entry == nullptr) ? ZigLLVM_FnInlineAuto : ZigLLVM_FnInlineAlways;
+            break;
+        case FnInlineNever:
+            fn_inline = ZigLLVM_FnInlineNever;
+            break;
+    }
 
     LLVMCallConv llvm_cc = get_llvm_cc(g, fn_type->data.fn.fn_type_id.cc);
     LLVMValueRef result = ZigLLVMBuildCall(g->builder, fn_val,
-            gen_param_values, (unsigned)gen_param_index, llvm_cc, want_always_inline, "");
+            gen_param_values, (unsigned)gen_param_index, llvm_cc, fn_inline, "");
 
     for (size_t param_i = 0; param_i < fn_type_id->param_count; param_i += 1) {
         FnGenParamInfo *gen_info = &fn_type->data.fn.gen_param_info[param_i];
@@ -4634,6 +4644,7 @@ static const uint8_t int_sizes_in_bits[] = {
     7,
     8,
     16,
+    29,
     32,
     64,
     128,
@@ -4971,6 +4982,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdRem, "rem", 2);
     create_builtin_fn(g, BuiltinFnIdMod, "mod", 2);
     create_builtin_fn(g, BuiltinFnIdInlineCall, "inlineCall", SIZE_MAX);
+    create_builtin_fn(g, BuiltinFnIdNoInlineCall, "noInlineCall", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdTypeId, "typeId", 1);
     create_builtin_fn(g, BuiltinFnIdShlExact, "shlExact", 2);
     create_builtin_fn(g, BuiltinFnIdShrExact, "shrExact", 2);

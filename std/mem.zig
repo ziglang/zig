@@ -7,22 +7,24 @@ pub const Cmp = math.Cmp;
 
 pub const Allocator = struct {
     /// Allocate byte_count bytes and return them in a slice, with the
-    /// slicer's pointer aligned at least to alignment bytes.
-    allocFn: fn (self: &Allocator, byte_count: usize, alignment: usize) -> %[]u8,
+    /// slice's pointer aligned at least to alignment bytes.
+    allocFn: fn (self: &Allocator, byte_count: usize, alignment: u29) -> %[]u8,
 
-    /// Guaranteed: `old_mem.len` is the same as what was returned from allocFn or reallocFn.
-    /// Guaranteed: alignment >= alignment of old_mem.ptr
+    /// If `new_byte_count > old_mem.len`:
+    /// * `old_mem.len` is the same as what was returned from allocFn or reallocFn.
+    /// * alignment >= alignment of old_mem.ptr
     ///
-    /// If `new_byte_count` is less than or equal to `old_mem.len` this function must
-    /// return successfully.
-    reallocFn: fn (self: &Allocator, old_mem: []u8, new_byte_count: usize, alignment: usize) -> %[]u8,
+    /// If `new_byte_count <= old_mem.len`:
+    /// * this function must return successfully. 
+    /// * alignment <= alignment of old_mem.ptr
+    reallocFn: fn (self: &Allocator, old_mem: []u8, new_byte_count: usize, alignment: u29) -> %[]u8,
 
     /// Guaranteed: `old_mem.len` is the same as what was returned from `allocFn` or `reallocFn`
     freeFn: fn (self: &Allocator, old_mem: []u8),
 
     fn create(self: &Allocator, comptime T: type) -> %&T {
         const slice = %return self.alloc(T, 1);
-        &slice[0]
+        return &slice[0];
     }
 
     fn destroy(self: &Allocator, ptr: var) {
@@ -30,28 +32,43 @@ pub const Allocator = struct {
     }
 
     fn alloc(self: &Allocator, comptime T: type, n: usize) -> %[]T {
+        return self.alignedAlloc(T, @alignOf(T), n);
+    }
+
+    fn alignedAlloc(self: &Allocator, comptime T: type, comptime alignment: u29,
+        n: usize) -> %[]align(alignment) T
+    {
         const byte_count = %return math.mul(usize, @sizeOf(T), n);
-        const byte_slice = %return self.allocFn(self, byte_count, @alignOf(T));
-        ([]T)(@alignCast(@alignOf(T), byte_slice))
+        const byte_slice = %return self.allocFn(self, byte_count, alignment);
+        return ([]align(alignment) T)(@alignCast(alignment, byte_slice));
     }
 
     fn realloc(self: &Allocator, comptime T: type, old_mem: []T, n: usize) -> %[]T {
+        return self.alignedRealloc(T, @alignOf(T), @alignCast(@alignOf(T), old_mem), n);
+    }
+
+    fn alignedRealloc(self: &Allocator, comptime T: type, comptime alignment: u29,
+        old_mem: []align(alignment) T, n: usize) -> %[]align(alignment) T
+    {
         if (old_mem.len == 0) {
             return self.alloc(T, n);
         }
 
-        // Assert that old_mem.ptr is properly aligned.
-        const aligned_old_mem = @alignCast(@alignOf(T), old_mem);
-
         const byte_count = %return math.mul(usize, @sizeOf(T), n);
-        const byte_slice = %return self.reallocFn(self, ([]u8)(aligned_old_mem), byte_count, @alignOf(T));
-        return ([]T)(@alignCast(@alignOf(T), byte_slice));
+        const byte_slice = %return self.reallocFn(self, ([]u8)(old_mem), byte_count, alignment);
+        return ([]T)(@alignCast(alignment, byte_slice));
     }
 
     /// Reallocate, but `n` must be less than or equal to `old_mem.len`.
     /// Unlike `realloc`, this function cannot fail.
     /// Shrinking to 0 is the same as calling `free`.
     fn shrink(self: &Allocator, comptime T: type, old_mem: []T, n: usize) -> []T {
+        return self.alignedShrink(T, @alignOf(T), @alignCast(@alignOf(T), old_mem), n);
+    }
+
+    fn alignedShrink(self: &Allocator, comptime T: type, comptime alignment: u29,
+        old_mem: []align(alignment) T, n: usize) -> []align(alignment) T
+    {
         if (n == 0) {
             self.free(old_mem);
             return old_mem[0..0];
@@ -59,15 +76,12 @@ pub const Allocator = struct {
 
         assert(n <= old_mem.len);
 
-        // Assert that old_mem.ptr is properly aligned.
-        const aligned_old_mem = @alignCast(@alignOf(T), old_mem);
-
         // Here we skip the overflow checking on the multiplication because
         // n <= old_mem.len and the multiplication didn't overflow for that operation.
         const byte_count = @sizeOf(T) * n;
 
-        const byte_slice = %%self.reallocFn(self, ([]u8)(aligned_old_mem), byte_count, @alignOf(T));
-        return ([]T)(@alignCast(@alignOf(T), byte_slice));
+        const byte_slice = %%self.reallocFn(self, ([]u8)(old_mem), byte_count, alignment);
+        return ([]T)(@alignCast(alignment, byte_slice));
     }
 
     fn free(self: &Allocator, memory: var) {

@@ -16,7 +16,7 @@ pub var c_allocator = Allocator {
     .freeFn = cFree,
 };
 
-fn cAlloc(self: &Allocator, n: usize, alignment: usize) -> %[]u8 {
+fn cAlloc(self: &Allocator, n: usize, alignment: u29) -> %[]u8 {
     if (c.malloc(usize(n))) |buf| {
         @ptrCast(&u8, buf)[0..n]
     } else {
@@ -24,7 +24,7 @@ fn cAlloc(self: &Allocator, n: usize, alignment: usize) -> %[]u8 {
     }
 }
 
-fn cRealloc(self: &Allocator, old_mem: []u8, new_size: usize, alignment: usize) -> %[]u8 {
+fn cRealloc(self: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) -> %[]u8 {
     if (new_size <= old_mem.len) {
         old_mem[0..new_size]
     } else {
@@ -106,7 +106,7 @@ pub const IncrementingAllocator = struct {
         return self.bytes.len - self.end_index;
     }
 
-    fn alloc(allocator: &Allocator, n: usize, alignment: usize) -> %[]u8 {
+    fn alloc(allocator: &Allocator, n: usize, alignment: u29) -> %[]u8 {
         const self = @fieldParentPtr(IncrementingAllocator, "allocator", allocator);
         const addr = @ptrToInt(&self.bytes[self.end_index]);
         const rem = @rem(addr, alignment);
@@ -121,7 +121,7 @@ pub const IncrementingAllocator = struct {
         return result;
     }
 
-    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: usize) -> %[]u8 {
+    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) -> %[]u8 {
         if (new_size <= old_mem.len) {
             return old_mem[0..new_size];
         } else {

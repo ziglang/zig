@@ -3818,12 +3818,14 @@ TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, uint32_t size_in_b
         index = 6;
     } else if (size_in_bits == 16) {
         index = 7;
-    } else if (size_in_bits == 32) {
+    } else if (size_in_bits == 29) {
         index = 8;
-    } else if (size_in_bits == 64) {
+    } else if (size_in_bits == 32) {
         index = 9;
-    } else if (size_in_bits == 128) {
+    } else if (size_in_bits == 64) {
         index = 10;
+    } else if (size_in_bits == 128) {
+        index = 11;
     } else {
         return nullptr;
     }

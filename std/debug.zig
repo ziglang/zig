@@ -977,7 +977,7 @@ var some_mem_index: usize = 0;
 
 error OutOfMemory;
 
-fn globalAlloc(self: &mem.Allocator, n: usize, alignment: usize) -> %[]u8 {
+fn globalAlloc(self: &mem.Allocator, n: usize, alignment: u29) -> %[]u8 {
     const addr = @ptrToInt(&some_mem[some_mem_index]);
     const rem = @rem(addr, alignment);
     const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
@@ -991,7 +991,7 @@ fn globalAlloc(self: &mem.Allocator, n: usize, alignment: usize) -> %[]u8 {
     return result;
 }
 
-fn globalRealloc(self: &mem.Allocator, old_mem: []u8, new_size: usize, alignment: usize) -> %[]u8 {
+fn globalRealloc(self: &mem.Allocator, old_mem: []u8, new_size: usize, alignment: u29) -> %[]u8 {
     if (new_size <= old_mem.len) {
         return old_mem[0..new_size];
     } else {
