@@ -200,6 +200,7 @@ const Value2 = union(Letter2) { A: i32, B, C, };
 
 test "implicit cast union to its tag type" {
     var x: Value2 = Letter2.B;
+    assert(x == Letter2.B);
     giveMeLetterB(x);
 }
 fn giveMeLetterB(x: Letter2) {
