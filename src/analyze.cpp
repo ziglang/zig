@@ -2244,12 +2244,10 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
         TypeTableEntry *enum_type = analyze_type_expr(g, scope, enum_type_node);
         if (type_is_invalid(enum_type)) {
             union_type->data.unionation.is_invalid = true;
-            union_type->data.unionation.embedded_in_current = false;
             return;
         }
         if (enum_type->id != TypeTableEntryIdEnum) {
             union_type->data.unionation.is_invalid = true;
-            union_type->data.unionation.embedded_in_current = false;
             add_node_error(g, enum_type_node,
                 buf_sprintf("expected enum tag type, found '%s'", buf_ptr(&enum_type->name)));
             return;
@@ -3319,7 +3317,7 @@ TypeStructField *find_struct_type_field(TypeTableEntry *type_entry, Buf *name) {
 
 TypeUnionField *find_union_type_field(TypeTableEntry *type_entry, Buf *name) {
     assert(type_entry->id == TypeTableEntryIdUnion);
-    assert(type_entry->data.unionation.complete);
+    assert(type_entry->data.unionation.zero_bits_known);
     for (uint32_t i = 0; i < type_entry->data.unionation.src_field_count; i += 1) {
         TypeUnionField *field = &type_entry->data.unionation.fields[i];
         if (buf_eql_buf(field->enum_field->name, name)) {
@@ -3331,7 +3329,7 @@ TypeUnionField *find_union_type_field(TypeTableEntry *type_entry, Buf *name) {
 
 TypeUnionField *find_union_field_by_tag(TypeTableEntry *type_entry, const BigInt *tag) {
     assert(type_entry->id == TypeTableEntryIdUnion);
-    assert(type_entry->data.unionation.complete);
+    assert(type_entry->data.unionation.zero_bits_known);
     assert(type_entry->data.unionation.gen_tag_index != SIZE_MAX);
     for (uint32_t i = 0; i < type_entry->data.unionation.src_field_count; i += 1) {
         TypeUnionField *field = &type_entry->data.unionation.fields[i];
@@ -3888,7 +3886,6 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
              return false;
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
-        case TypeTableEntryIdUnion:
              return type_has_bits(type_entry);
         case TypeTableEntryIdErrorUnion:
              return type_has_bits(type_entry->data.error.child_type);
@@ -3896,6 +3893,14 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
              return type_has_bits(type_entry->data.maybe.child_type) &&
                     type_entry->data.maybe.child_type->id != TypeTableEntryIdPointer &&
                     type_entry->data.maybe.child_type->id != TypeTableEntryIdFn;
+        case TypeTableEntryIdUnion:
+             assert(type_entry->data.unionation.complete);
+             if (type_entry->data.unionation.gen_field_count == 0)
+                 return false;
+             if (!type_has_bits(type_entry))
+                 return false;
+             return true;
+
     }
     zig_unreachable();
 }

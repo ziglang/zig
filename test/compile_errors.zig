@@ -2696,4 +2696,35 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     ,
         ".tmp_source.zig:6:16: error: enum 'Foo' has no tag matching integer value 0",
         ".tmp_source.zig:1:13: note: 'Foo' declared here");
+
+    cases.add("comptime cast enum to union but field has payload",
+        \\const Letter = enum { A, B, C };
+        \\const Value = union(Letter) {
+        \\    A: i32,
+        \\    B,
+        \\    C,
+        \\};
+        \\export fn entry() {
+        \\    var x: Value = Letter.A;
+        \\}
+    ,
+        ".tmp_source.zig:8:26: error: cast to union 'Value' must initialize 'i32' field 'A'",
+        ".tmp_source.zig:3:5: note: field 'A' declared here");
+
+    cases.add("runtime cast to union which has non-void fields",
+        \\const Letter = enum { A, B, C };
+        \\const Value = union(Letter) {
+        \\    A: i32,
+        \\    B,
+        \\    C,
+        \\};
+        \\export fn entry() {
+        \\    foo(Letter.A);
+        \\}
+        \\fn foo(l: Letter) {
+        \\    var x: Value = l;
+        \\}
+    ,
+        ".tmp_source.zig:11:20: error: runtime cast to union 'Value' which has non-void fields",
+        ".tmp_source.zig:3:5: note: field 'A' has type 'i32'");
 }

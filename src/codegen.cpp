@@ -3946,8 +3946,6 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
         case TypeTableEntryIdUnion:
             {
                 LLVMTypeRef union_type_ref = type_entry->data.unionation.union_type_ref;
-                ConstExprValue *payload_value = const_val->data.x_union.payload;
-                assert(payload_value != nullptr);
 
                 if (type_entry->data.unionation.gen_field_count == 0) {
                     if (type_entry->data.unionation.gen_tag_index == SIZE_MAX) {
@@ -3960,7 +3958,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
 
                 LLVMValueRef union_value_ref;
                 bool make_unnamed_struct;
-                if (!type_has_bits(payload_value->type)) {
+                ConstExprValue *payload_value = const_val->data.x_union.payload;
+                if (payload_value == nullptr || !type_has_bits(payload_value->type)) {
                     if (type_entry->data.unionation.gen_tag_index == SIZE_MAX)
                         return LLVMGetUndef(type_entry->type_ref);
 
