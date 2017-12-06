@@ -7468,6 +7468,17 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
         }
     }
 
+    // implicit union to its enum tag type
+    if (expected_type->id == TypeTableEntryIdEnum && actual_type->id == TypeTableEntryIdUnion &&
+        (actual_type->data.unionation.decl_node->data.container_decl.auto_enum ||
+        actual_type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr))
+    {
+        type_ensure_zero_bits_known(ira->codegen, actual_type);
+        if (actual_type->data.unionation.tag_type == expected_type) {
+            return ImplicitCastMatchResultYes;
+        }
+    }
+
     // implicit enum to union which has the enum as the tag type
     if (expected_type->id == TypeTableEntryIdUnion && actual_type->id == TypeTableEntryIdEnum &&
         (expected_type->data.unionation.decl_node->data.container_decl.auto_enum ||
@@ -7508,33 +7519,53 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         IrInstruction *cur_inst = instructions[i];
         TypeTableEntry *cur_type = cur_inst->value.type;
         TypeTableEntry *prev_type = prev_inst->value.type;
+
         if (type_is_invalid(cur_type)) {
             return cur_type;
-        } else if (prev_type->id == TypeTableEntryIdUnreachable) {
-            prev_inst = cur_inst;
-        } else if (cur_type->id == TypeTableEntryIdUnreachable) {
-            continue;
-        } else if (prev_type->id == TypeTableEntryIdPureError) {
+        }
+
+        if (prev_type->id == TypeTableEntryIdUnreachable) {
             prev_inst = cur_inst;
             continue;
-        } else if (prev_type->id == TypeTableEntryIdNullLit) {
+        }
+
+        if (cur_type->id == TypeTableEntryIdUnreachable) {
+            continue;
+        }
+
+        if (prev_type->id == TypeTableEntryIdPureError) {
             prev_inst = cur_inst;
             continue;
-        } else if (cur_type->id == TypeTableEntryIdPureError) {
+        }
+
+        if (prev_type->id == TypeTableEntryIdNullLit) {
+            prev_inst = cur_inst;
+            continue;
+        }
+
+        if (cur_type->id == TypeTableEntryIdPureError) {
             if (prev_type->id == TypeTableEntryIdArray) {
                 convert_to_const_slice = true;
             }
             any_are_pure_error = true;
             continue;
-        } else if (cur_type->id == TypeTableEntryIdNullLit) {
+        }
+
+        if (cur_type->id == TypeTableEntryIdNullLit) {
             any_are_null = true;
             continue;
-        } else if (types_match_const_cast_only(prev_type, cur_type)) {
+        }
+
+        if (types_match_const_cast_only(prev_type, cur_type)) {
             continue;
-        } else if (types_match_const_cast_only(cur_type, prev_type)) {
+        }
+
+        if (types_match_const_cast_only(cur_type, prev_type)) {
             prev_inst = cur_inst;
             continue;
-        } else if (prev_type->id == TypeTableEntryIdInt &&
+        }
+
+        if (prev_type->id == TypeTableEntryIdInt &&
                    cur_type->id == TypeTableEntryIdInt &&
                    prev_type->data.integral.is_signed == cur_type->data.integral.is_signed)
         {
@@ -7542,36 +7573,51 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                 prev_inst = cur_inst;
             }
             continue;
-        } else if (prev_type->id == TypeTableEntryIdFloat &&
-                   cur_type->id == TypeTableEntryIdFloat)
-        {
+        }
+
+        if (prev_type->id == TypeTableEntryIdFloat && cur_type->id == TypeTableEntryIdFloat) {
             if (cur_type->data.floating.bit_count > prev_type->data.floating.bit_count) {
                 prev_inst = cur_inst;
             }
-        } else if (prev_type->id == TypeTableEntryIdErrorUnion &&
+            continue;
+        }
+
+        if (prev_type->id == TypeTableEntryIdErrorUnion &&
                    types_match_const_cast_only(prev_type->data.error.child_type, cur_type))
         {
             continue;
-        } else if (cur_type->id == TypeTableEntryIdErrorUnion &&
+        }
+
+        if (cur_type->id == TypeTableEntryIdErrorUnion &&
                    types_match_const_cast_only(cur_type->data.error.child_type, prev_type))
         {
             prev_inst = cur_inst;
             continue;
-        } else if (prev_type->id == TypeTableEntryIdMaybe &&
+        }
+
+        if (prev_type->id == TypeTableEntryIdMaybe &&
                    types_match_const_cast_only(prev_type->data.maybe.child_type, cur_type))
         {
             continue;
-        } else if (cur_type->id == TypeTableEntryIdMaybe &&
+        }
+
+        if (cur_type->id == TypeTableEntryIdMaybe &&
                    types_match_const_cast_only(cur_type->data.maybe.child_type, prev_type))
         {
             prev_inst = cur_inst;
             continue;
-        } else if (cur_type->id == TypeTableEntryIdUndefLit) {
+        }
+
+        if (cur_type->id == TypeTableEntryIdUndefLit) {
             continue;
-        } else if (prev_type->id == TypeTableEntryIdUndefLit) {
+        }
+
+        if (prev_type->id == TypeTableEntryIdUndefLit) {
             prev_inst = cur_inst;
             continue;
-        } else if (prev_type->id == TypeTableEntryIdNumLitInt ||
+        }
+
+        if (prev_type->id == TypeTableEntryIdNumLitInt ||
                     prev_type->id == TypeTableEntryIdNumLitFloat)
         {
             if (ir_num_lit_fits_in_other_type(ira, prev_inst, cur_type, false)) {
@@ -7580,7 +7626,9 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             } else {
                 return ira->codegen->builtin_types.entry_invalid;
             }
-        } else if (cur_type->id == TypeTableEntryIdNumLitInt ||
+        }
+
+        if (cur_type->id == TypeTableEntryIdNumLitInt ||
                    cur_type->id == TypeTableEntryIdNumLitFloat)
         {
             if (ir_num_lit_fits_in_other_type(ira, cur_inst, prev_type, false)) {
@@ -7588,20 +7636,26 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             } else {
                 return ira->codegen->builtin_types.entry_invalid;
             }
-        } else if (cur_type->id == TypeTableEntryIdArray && prev_type->id == TypeTableEntryIdArray &&
+        }
+
+        if (cur_type->id == TypeTableEntryIdArray && prev_type->id == TypeTableEntryIdArray &&
                 cur_type->data.array.len != prev_type->data.array.len &&
                 types_match_const_cast_only(cur_type->data.array.child_type, prev_type->data.array.child_type))
         {
             convert_to_const_slice = true;
             prev_inst = cur_inst;
             continue;
-        } else if (cur_type->id == TypeTableEntryIdArray && prev_type->id == TypeTableEntryIdArray &&
+        }
+
+        if (cur_type->id == TypeTableEntryIdArray && prev_type->id == TypeTableEntryIdArray &&
                 cur_type->data.array.len != prev_type->data.array.len &&
                 types_match_const_cast_only(prev_type->data.array.child_type, cur_type->data.array.child_type))
         {
             convert_to_const_slice = true;
             continue;
-        } else if (cur_type->id == TypeTableEntryIdArray && is_slice(prev_type) &&
+        }
+
+        if (cur_type->id == TypeTableEntryIdArray && is_slice(prev_type) &&
             (prev_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const ||
             cur_type->data.array.len == 0) &&
             types_match_const_cast_only(prev_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type,
@@ -7609,7 +7663,9 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         {
             convert_to_const_slice = false;
             continue;
-        } else if (prev_type->id == TypeTableEntryIdArray && is_slice(cur_type) &&
+        }
+
+        if (prev_type->id == TypeTableEntryIdArray && is_slice(cur_type) &&
             (cur_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.is_const ||
             prev_type->data.array.len == 0) &&
             types_match_const_cast_only(cur_type->data.structure.fields[slice_ptr_index].type_entry->data.pointer.child_type,
@@ -7618,17 +7674,40 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             prev_inst = cur_inst;
             convert_to_const_slice = false;
             continue;
-        } else {
-            ErrorMsg *msg = ir_add_error_node(ira, source_node,
-                buf_sprintf("incompatible types: '%s' and '%s'",
-                    buf_ptr(&prev_type->name), buf_ptr(&cur_type->name)));
-            add_error_note(ira->codegen, msg, prev_inst->source_node,
-                buf_sprintf("type '%s' here", buf_ptr(&prev_type->name)));
-            add_error_note(ira->codegen, msg, cur_inst->source_node,
-                buf_sprintf("type '%s' here", buf_ptr(&cur_type->name)));
-
-            return ira->codegen->builtin_types.entry_invalid;
         }
+
+        if (prev_type->id == TypeTableEntryIdEnum && cur_type->id == TypeTableEntryIdUnion &&
+            (cur_type->data.unionation.decl_node->data.container_decl.auto_enum || cur_type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr))
+        {
+            type_ensure_zero_bits_known(ira->codegen, cur_type);
+            if (type_is_invalid(cur_type))
+                return ira->codegen->builtin_types.entry_invalid;
+            if (cur_type->data.unionation.tag_type == prev_type) {
+                continue;
+            }
+        }
+
+        if (cur_type->id == TypeTableEntryIdEnum && prev_type->id == TypeTableEntryIdUnion &&
+            (prev_type->data.unionation.decl_node->data.container_decl.auto_enum || prev_type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr))
+        {
+            type_ensure_zero_bits_known(ira->codegen, prev_type);
+            if (type_is_invalid(prev_type))
+                return ira->codegen->builtin_types.entry_invalid;
+            if (prev_type->data.unionation.tag_type == cur_type) {
+                prev_inst = cur_inst;
+                continue;
+            }
+        }
+
+        ErrorMsg *msg = ir_add_error_node(ira, source_node,
+            buf_sprintf("incompatible types: '%s' and '%s'",
+                buf_ptr(&prev_type->name), buf_ptr(&cur_type->name)));
+        add_error_note(ira->codegen, msg, prev_inst->source_node,
+            buf_sprintf("type '%s' here", buf_ptr(&prev_type->name)));
+        add_error_note(ira->codegen, msg, cur_inst->source_node,
+            buf_sprintf("type '%s' here", buf_ptr(&cur_type->name)));
+
+        return ira->codegen->builtin_types.entry_invalid;
     }
     if (convert_to_const_slice) {
         assert(prev_inst->value.type->id == TypeTableEntryIdArray);
@@ -9425,6 +9504,10 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
     TypeTableEntry *resolved_type = ir_resolve_peer_types(ira, bin_op_instruction->base.source_node, instructions, 2);
     if (type_is_invalid(resolved_type))
         return resolved_type;
+    type_ensure_zero_bits_known(ira->codegen, resolved_type);
+    if (type_is_invalid(resolved_type))
+        return resolved_type;
+
 
     AstNode *source_node = bin_op_instruction->base.source_node;
     switch (resolved_type->id) {
@@ -9489,7 +9572,8 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
 
     ConstExprValue *op1_val = &casted_op1->value;
     ConstExprValue *op2_val = &casted_op2->value;
-    if ((value_is_comptime(op1_val) && value_is_comptime(op2_val)) || resolved_type->id == TypeTableEntryIdVoid) {
+    bool one_possible_value = !type_requires_comptime(resolved_type) && !type_has_bits(resolved_type);
+    if (one_possible_value || (value_is_comptime(op1_val) && value_is_comptime(op2_val))) {
         bool answer;
         if (resolved_type->id == TypeTableEntryIdNumLitFloat || resolved_type->id == TypeTableEntryIdFloat) {
             Cmp cmp_result = float_cmp(op1_val, op2_val);
@@ -9498,7 +9582,7 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
             Cmp cmp_result = bigint_cmp(&op1_val->data.x_bigint, &op2_val->data.x_bigint);
             answer = resolve_cmp_op_id(op_id, cmp_result);
         } else {
-            bool are_equal = resolved_type->id == TypeTableEntryIdVoid || const_values_equal(op1_val, op2_val);
+            bool are_equal = one_possible_value || const_values_equal(op1_val, op2_val);
             if (op_id == IrBinOpCmpEq) {
                 answer = are_equal;
             } else if (op_id == IrBinOpCmpNotEq) {
@@ -13090,6 +13174,16 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
             return tag_type;
         }
         case TypeTableEntryIdEnum: {
+            type_ensure_zero_bits_known(ira->codegen, target_type);
+            if (type_is_invalid(target_type))
+                return ira->codegen->builtin_types.entry_invalid;
+            if (target_type->data.enumeration.src_field_count < 2) {
+                TypeEnumField *only_field = &target_type->data.enumeration.fields[0];
+                ConstExprValue *out_val = ir_build_const_from(ira, &switch_target_instruction->base);
+                bigint_init_bigint(&out_val->data.x_enum_tag, &only_field->value);
+                return target_type;
+            }
+
             if (pointee_val) {
                 ConstExprValue *out_val = ir_build_const_from(ira, &switch_target_instruction->base);
                 bigint_init_bigint(&out_val->data.x_enum_tag, &pointee_val->data.x_enum_tag);
