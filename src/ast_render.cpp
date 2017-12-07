@@ -584,12 +584,15 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 PrefixOp op = node->data.prefix_op_expr.prefix_op;
                 fprintf(ar->f, "%s", prefix_op_str(op));
 
-                render_node_ungrouped(ar, node->data.prefix_op_expr.primary_expr);
+                AstNode *child_node = node->data.prefix_op_expr.primary_expr;
+                bool new_grouped = child_node->type == NodeTypePrefixOpExpr || child_node->type == NodeTypeAddrOfExpr;
+                render_node_extra(ar, child_node, new_grouped);
                 if (!grouped) fprintf(ar->f, ")");
                 break;
             }
         case NodeTypeAddrOfExpr:
             {
+                if (!grouped) fprintf(ar->f, "(");
                 fprintf(ar->f, "&");
                 if (node->data.addr_of_expr.align_expr != nullptr) {
                     fprintf(ar->f, "align(");
@@ -617,6 +620,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 }
 
                 render_node_ungrouped(ar, node->data.addr_of_expr.op_expr);
+                if (!grouped) fprintf(ar->f, ")");
                 break;
             }
         case NodeTypeFnCallExpr:
@@ -625,7 +629,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     fprintf(ar->f, "@");
                 }
                 AstNode *fn_ref_node = node->data.fn_call_expr.fn_ref_expr;
-                bool grouped = (fn_ref_node->type != NodeTypePrefixOpExpr);
+                bool grouped = (fn_ref_node->type != NodeTypePrefixOpExpr && fn_ref_node->type != NodeTypeAddrOfExpr);
                 render_node_extra(ar, fn_ref_node, grouped);
                 fprintf(ar->f, "(");
                 for (size_t i = 0; i < node->data.fn_call_expr.params.length; i += 1) {

@@ -902,7 +902,7 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\}
     ,
         \\export fn foo(x: ?&c_int) {
-        \\    (*(??x)) = 1;
+        \\    (*??x) = 1;
         \\}
     );
 
@@ -930,7 +930,7 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\pub fn foo() -> c_int {
         \\    var x: c_int = 1234;
         \\    var ptr: ?&c_int = &x;
-        \\    return *(??ptr);
+        \\    return *??ptr;
         \\}
     );
 
@@ -1187,5 +1187,11 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\pub fn foo() {
         \\    const v2: &const u8 = c"2.2.2";
         \\}
+    );
+
+    cases.add("macro pointer cast",
+        \\#define NRF_GPIO ((NRF_GPIO_Type *) NRF_GPIO_BASE) 
+    ,
+        \\pub const NRF_GPIO = @ptrCast(&NRF_GPIO_Type, NRF_GPIO_BASE);
     );
 }

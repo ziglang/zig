@@ -4061,11 +4061,30 @@ static AstNode *parse_ctok_primary_expr(Context *c, CTokenize *ctok, size_t *tok
                 }
 
                 CTok *next_tok = &ctok->tokens.at(*tok_i);
-                if (next_tok->id != CTokIdRParen) {
+                if (next_tok->id == CTokIdRParen) {
+                    *tok_i += 1;
+                    return inner_node;
+                }
+
+                AstNode *node_to_cast = parse_ctok_expr(c, ctok, tok_i);
+                if (node_to_cast == nullptr) {
+                    return nullptr;
+                }
+
+                CTok *next_tok2 = &ctok->tokens.at(*tok_i);
+                if (next_tok2->id != CTokIdRParen) {
                     return nullptr;
                 }
                 *tok_i += 1;
-                return inner_node;
+
+                if (inner_node->type == NodeTypeAddrOfExpr) {
+                    AstNode *call_node = trans_create_node_builtin_fn_call_str(c, "ptrCast");
+                    call_node->data.fn_call_expr.params.append(inner_node);
+                    call_node->data.fn_call_expr.params.append(node_to_cast);
+                    return call_node;
+                } else {
+                    return trans_create_node_cast(c, inner_node, node_to_cast);
+                }
             }
         case CTokIdDot:
         case CTokIdEOF:
