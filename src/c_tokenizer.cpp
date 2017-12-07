@@ -121,6 +121,9 @@ static void begin_token(CTokenize *ctok, CTokId id) {
         case CTokIdRParen:
         case CTokIdEOF:
         case CTokIdDot:
+        case CTokIdAsterisk:
+        case CTokIdBang:
+        case CTokIdTilde:
             break;
     }
 }
@@ -228,8 +231,20 @@ void tokenize_c_macro(CTokenize *ctok, const uint8_t *c) {
                         begin_token(ctok, CTokIdRParen);
                         end_token(ctok);
                         break;
+                    case '*':
+                        begin_token(ctok, CTokIdAsterisk);
+                        end_token(ctok);
+                        break;
                     case '-':
                         begin_token(ctok, CTokIdMinus);
+                        end_token(ctok);
+                        break;
+                    case '!':
+                        begin_token(ctok, CTokIdBang);
+                        end_token(ctok);
+                        break;
+                    case '~':
+                        begin_token(ctok, CTokIdTilde);
                         end_token(ctok);
                         break;
                     default:
