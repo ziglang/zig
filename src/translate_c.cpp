@@ -4000,6 +4000,10 @@ static void render_macros(Context *c) {
     }
 }
 
+static AstNode *parse_ctok_primary_expr(Context *c, CTokenize *ctok, size_t *tok_i);
+static AstNode *parse_ctok_expr(Context *c, CTokenize *ctok, size_t *tok_i);
+static AstNode *parse_ctok_prefix_op_expr(Context *c, CTokenize *ctok, size_t *tok_i);
+
 static AstNode *parse_ctok_num_lit(Context *c, CTokenize *ctok, size_t *tok_i, bool negate) {
     CTok *tok = &ctok->tokens.at(*tok_i);
     if (tok->id == CTokIdNumLitInt) {
@@ -4027,7 +4031,7 @@ static AstNode *parse_ctok_num_lit(Context *c, CTokenize *ctok, size_t *tok_i, b
     return nullptr;
 }
 
-static AstNode *parse_ctok(Context *c, CTokenize *ctok, size_t *tok_i) {
+static AstNode *parse_ctok_primary_expr(Context *c, CTokenize *ctok, size_t *tok_i) {
     CTok *tok = &ctok->tokens.at(*tok_i);
     switch (tok->id) {
         case CTokIdCharLit:
@@ -4044,53 +4048,108 @@ static AstNode *parse_ctok(Context *c, CTokenize *ctok, size_t *tok_i) {
             return parse_ctok_num_lit(c, ctok, tok_i, false);
         case CTokIdSymbol:
             {
-                bool need_symbol = false;
-                CTokId curr_id = CTokIdSymbol;
+                *tok_i += 1;
                 Buf *symbol_name = buf_create_from_buf(&tok->data.symbol);
-                AstNode *curr_node = trans_create_node_symbol(c, symbol_name);
-                AstNode *parent_node = curr_node;
-                do {
-                    *tok_i += 1;
-                    CTok* curr_tok = &ctok->tokens.at(*tok_i);
-                    if (need_symbol) {
-                        if (curr_tok->id == CTokIdSymbol) {
-                            symbol_name = buf_create_from_buf(&curr_tok->data.symbol);
-                            curr_node = trans_create_node_field_access(c, parent_node, buf_create_from_buf(symbol_name));
-                            parent_node = curr_node;
-                            need_symbol = false;
-                        } else {
-                            return nullptr;
-                        }
-                    } else {
-                        if (curr_tok->id == CTokIdDot) {
-                            need_symbol = true;
-                            continue;
-                        } else {
-                            break;
-                        }
-                    }
-                } while (curr_id != CTokIdEOF);
-                return curr_node;
+                return trans_create_node_symbol(c, symbol_name);
             }
         case CTokIdLParen:
             {
                 *tok_i += 1;
-                AstNode *inner_node = parse_ctok(c, ctok, tok_i);
+                AstNode *inner_node = parse_ctok_expr(c, ctok, tok_i);
+                if (inner_node == nullptr) {
+                    return nullptr;
+                }
 
                 CTok *next_tok = &ctok->tokens.at(*tok_i);
-                if (next_tok->id != CTokIdRParen) {
+                if (next_tok->id == CTokIdRParen) {
+                    *tok_i += 1;
+                    return inner_node;
+                }
+
+                AstNode *node_to_cast = parse_ctok_expr(c, ctok, tok_i);
+                if (node_to_cast == nullptr) {
+                    return nullptr;
+                }
+
+                CTok *next_tok2 = &ctok->tokens.at(*tok_i);
+                if (next_tok2->id != CTokIdRParen) {
                     return nullptr;
                 }
                 *tok_i += 1;
-                return inner_node;
+
+                if (inner_node->type == NodeTypeAddrOfExpr) {
+                    AstNode *call_node = trans_create_node_builtin_fn_call_str(c, "ptrCast");
+                    call_node->data.fn_call_expr.params.append(inner_node);
+                    call_node->data.fn_call_expr.params.append(node_to_cast);
+                    return call_node;
+                } else {
+                    return trans_create_node_cast(c, inner_node, node_to_cast);
+                }
             }
         case CTokIdDot:
         case CTokIdEOF:
         case CTokIdRParen:
+        case CTokIdAsterisk:
+        case CTokIdBang:
+        case CTokIdTilde:
             // not able to make sense of this
             return nullptr;
     }
     zig_unreachable();
+}
+
+static AstNode *parse_ctok_expr(Context *c, CTokenize *ctok, size_t *tok_i) {
+    return parse_ctok_prefix_op_expr(c, ctok, tok_i);
+}
+
+static AstNode *parse_ctok_suffix_op_expr(Context *c, CTokenize *ctok, size_t *tok_i) {
+    AstNode *node = parse_ctok_primary_expr(c, ctok, tok_i);
+    if (node == nullptr)
+        return nullptr;
+
+    while (true) {
+        CTok *first_tok = &ctok->tokens.at(*tok_i);
+        if (first_tok->id == CTokIdDot) {
+            *tok_i += 1;
+
+            CTok *name_tok = &ctok->tokens.at(*tok_i);
+            if (name_tok->id != CTokIdSymbol) {
+                return nullptr;
+            }
+            *tok_i += 1;
+
+            node = trans_create_node_field_access(c, node, buf_create_from_buf(&name_tok->data.symbol));
+        } else if (first_tok->id == CTokIdAsterisk) {
+            *tok_i += 1;
+
+            node = trans_create_node_addr_of(c, false, false, node);
+        } else {
+            return node;
+        }
+    }
+}
+
+static PrefixOp ctok_to_prefix_op(CTok *token) {
+    switch (token->id) {
+        case CTokIdBang: return PrefixOpBoolNot;
+        case CTokIdMinus: return PrefixOpNegation;
+        case CTokIdTilde: return PrefixOpBinNot;
+        case CTokIdAsterisk: return PrefixOpDereference;
+        default: return PrefixOpInvalid;
+    }
+}
+static AstNode *parse_ctok_prefix_op_expr(Context *c, CTokenize *ctok, size_t *tok_i) {
+    CTok *op_tok = &ctok->tokens.at(*tok_i);
+    PrefixOp prefix_op = ctok_to_prefix_op(op_tok);
+    if (prefix_op == PrefixOpInvalid) {
+        return parse_ctok_suffix_op_expr(c, ctok, tok_i);
+    }
+    *tok_i += 1;
+
+    AstNode *prefix_op_expr = parse_ctok_prefix_op_expr(c, ctok, tok_i);
+    if (prefix_op_expr == nullptr)
+        return nullptr;
+    return trans_create_node_prefix_op(c, prefix_op, prefix_op_expr);
 }
 
 static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *char_ptr) {
@@ -4105,7 +4164,7 @@ static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *ch
     assert(name_tok->id == CTokIdSymbol && buf_eql_buf(&name_tok->data.symbol, name));
     tok_i += 1;
 
-    AstNode *result_node = parse_ctok(c, ctok, &tok_i);
+    AstNode *result_node = parse_ctok_suffix_op_expr(c, ctok, &tok_i);
     if (result_node == nullptr) {
         return;
     }

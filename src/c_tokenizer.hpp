@@ -22,6 +22,9 @@ enum CTokId {
     CTokIdRParen,
     CTokIdEOF,
     CTokIdDot,
+    CTokIdAsterisk,
+    CTokIdBang,
+    CTokIdTilde,
 };
 
 enum CNumLitSuffix {
