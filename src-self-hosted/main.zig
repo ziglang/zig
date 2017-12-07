@@ -19,46 +19,46 @@ const Token = struct {
     };
 
     const keywords = []KeywordId {
-        KeywordId{.bytes="align", .id = Id {.Keyword_align = {}}},
-        KeywordId{.bytes="and", .id = Id {.Keyword_and = {}}},
-        KeywordId{.bytes="asm", .id = Id {.Keyword_asm = {}}},
-        KeywordId{.bytes="break", .id = Id {.Keyword_break = {}}},
-        KeywordId{.bytes="coldcc", .id = Id {.Keyword_coldcc = {}}},
-        KeywordId{.bytes="comptime", .id = Id {.Keyword_comptime = {}}},
-        KeywordId{.bytes="const", .id = Id {.Keyword_const = {}}},
-        KeywordId{.bytes="continue", .id = Id {.Keyword_continue = {}}},
-        KeywordId{.bytes="defer", .id = Id {.Keyword_defer = {}}},
-        KeywordId{.bytes="else", .id = Id {.Keyword_else = {}}},
-        KeywordId{.bytes="enum", .id = Id {.Keyword_enum = {}}},
-        KeywordId{.bytes="error", .id = Id {.Keyword_error = {}}},
-        KeywordId{.bytes="export", .id = Id {.Keyword_export = {}}},
-        KeywordId{.bytes="extern", .id = Id {.Keyword_extern = {}}},
-        KeywordId{.bytes="false", .id = Id {.Keyword_false = {}}},
-        KeywordId{.bytes="fn", .id = Id {.Keyword_fn = {}}},
-        KeywordId{.bytes="for", .id = Id {.Keyword_for = {}}},
-        KeywordId{.bytes="goto", .id = Id {.Keyword_goto = {}}},
-        KeywordId{.bytes="if", .id = Id {.Keyword_if = {}}},
-        KeywordId{.bytes="inline", .id = Id {.Keyword_inline = {}}},
-        KeywordId{.bytes="nakedcc", .id = Id {.Keyword_nakedcc = {}}},
-        KeywordId{.bytes="noalias", .id = Id {.Keyword_noalias = {}}},
-        KeywordId{.bytes="null", .id = Id {.Keyword_null = {}}},
-        KeywordId{.bytes="or", .id = Id {.Keyword_or = {}}},
-        KeywordId{.bytes="packed", .id = Id {.Keyword_packed = {}}},
-        KeywordId{.bytes="pub", .id = Id {.Keyword_pub = {}}},
-        KeywordId{.bytes="return", .id = Id {.Keyword_return = {}}},
-        KeywordId{.bytes="stdcallcc", .id = Id {.Keyword_stdcallcc = {}}},
-        KeywordId{.bytes="struct", .id = Id {.Keyword_struct = {}}},
-        KeywordId{.bytes="switch", .id = Id {.Keyword_switch = {}}},
-        KeywordId{.bytes="test", .id = Id {.Keyword_test = {}}},
-        KeywordId{.bytes="this", .id = Id {.Keyword_this = {}}},
-        KeywordId{.bytes="true", .id = Id {.Keyword_true = {}}},
-        KeywordId{.bytes="undefined", .id = Id {.Keyword_undefined = {}}},
-        KeywordId{.bytes="union", .id = Id {.Keyword_union = {}}},
-        KeywordId{.bytes="unreachable", .id = Id {.Keyword_unreachable = {}}},
-        KeywordId{.bytes="use", .id = Id {.Keyword_use = {}}},
-        KeywordId{.bytes="var", .id = Id {.Keyword_var = {}}},
-        KeywordId{.bytes="volatile", .id = Id {.Keyword_volatile = {}}},
-        KeywordId{.bytes="while", .id = Id {.Keyword_while = {}}},
+        KeywordId{.bytes="align", .id = Id.Keyword_align},
+        KeywordId{.bytes="and", .id = Id.Keyword_and},
+        KeywordId{.bytes="asm", .id = Id.Keyword_asm},
+        KeywordId{.bytes="break", .id = Id.Keyword_break},
+        KeywordId{.bytes="coldcc", .id = Id.Keyword_coldcc},
+        KeywordId{.bytes="comptime", .id = Id.Keyword_comptime},
+        KeywordId{.bytes="const", .id = Id.Keyword_const},
+        KeywordId{.bytes="continue", .id = Id.Keyword_continue},
+        KeywordId{.bytes="defer", .id = Id.Keyword_defer},
+        KeywordId{.bytes="else", .id = Id.Keyword_else},
+        KeywordId{.bytes="enum", .id = Id.Keyword_enum},
+        KeywordId{.bytes="error", .id = Id.Keyword_error},
+        KeywordId{.bytes="export", .id = Id.Keyword_export},
+        KeywordId{.bytes="extern", .id = Id.Keyword_extern},
+        KeywordId{.bytes="false", .id = Id.Keyword_false},
+        KeywordId{.bytes="fn", .id = Id.Keyword_fn},
+        KeywordId{.bytes="for", .id = Id.Keyword_for},
+        KeywordId{.bytes="goto", .id = Id.Keyword_goto},
+        KeywordId{.bytes="if", .id = Id.Keyword_if},
+        KeywordId{.bytes="inline", .id = Id.Keyword_inline},
+        KeywordId{.bytes="nakedcc", .id = Id.Keyword_nakedcc},
+        KeywordId{.bytes="noalias", .id = Id.Keyword_noalias},
+        KeywordId{.bytes="null", .id = Id.Keyword_null},
+        KeywordId{.bytes="or", .id = Id.Keyword_or},
+        KeywordId{.bytes="packed", .id = Id.Keyword_packed},
+        KeywordId{.bytes="pub", .id = Id.Keyword_pub},
+        KeywordId{.bytes="return", .id = Id.Keyword_return},
+        KeywordId{.bytes="stdcallcc", .id = Id.Keyword_stdcallcc},
+        KeywordId{.bytes="struct", .id = Id.Keyword_struct},
+        KeywordId{.bytes="switch", .id = Id.Keyword_switch},
+        KeywordId{.bytes="test", .id = Id.Keyword_test},
+        KeywordId{.bytes="this", .id = Id.Keyword_this},
+        KeywordId{.bytes="true", .id = Id.Keyword_true},
+        KeywordId{.bytes="undefined", .id = Id.Keyword_undefined},
+        KeywordId{.bytes="union", .id = Id.Keyword_union},
+        KeywordId{.bytes="unreachable", .id = Id.Keyword_unreachable},
+        KeywordId{.bytes="use", .id = Id.Keyword_use},
+        KeywordId{.bytes="var", .id = Id.Keyword_var},
+        KeywordId{.bytes="volatile", .id = Id.Keyword_volatile},
+        KeywordId{.bytes="while", .id = Id.Keyword_while},
     };
 
     fn getKeyword(bytes: []const u8) -> ?Id {
@@ -159,7 +159,7 @@ const Tokenizer = struct {
     pub fn next(self: &Tokenizer) -> Token {
         var state = State.Start;
         var result = Token {
-            .id = Token.Id { .Eof = {} },
+            .id = Token.Id.Eof,
             .start = self.index,
             .end = undefined,
         };
@@ -172,7 +172,7 @@ const Tokenizer = struct {
                     },
                     'c' => {
                         state = State.C;
-                        result.id = Token.Id { .Identifier = {} };
+                        result.id = Token.Id.Identifier;
                     },
                     '"' => {
                         state = State.StringLiteral;
@@ -180,49 +180,49 @@ const Tokenizer = struct {
                     },
                     'a'...'b', 'd'...'z', 'A'...'Z', '_' => {
                         state = State.Identifier;
-                        result.id = Token.Id { .Identifier = {} };
+                        result.id = Token.Id.Identifier;
                     },
                     '@' => {
                         state = State.Builtin;
-                        result.id = Token.Id { .Builtin = {} };
+                        result.id = Token.Id.Builtin;
                     },
                     '=' => {
-                        result.id = Token.Id { .Equal = {} };
+                        result.id = Token.Id.Equal;
                         self.index += 1;
                         break;
                     },
                     '(' => {
-                        result.id = Token.Id { .LParen = {} };
+                        result.id = Token.Id.LParen;
                         self.index += 1;
                         break;
                     },
                     ')' => {
-                        result.id = Token.Id { .RParen = {} };
+                        result.id = Token.Id.RParen;
                         self.index += 1;
                         break;
                     },
                     ';' => {
-                        result.id = Token.Id { .Semicolon = {} };
+                        result.id = Token.Id.Semicolon;
                         self.index += 1;
                         break;
                     },
                     '%' => {
-                        result.id = Token.Id { .Percent = {} };
+                        result.id = Token.Id.Percent;
                         self.index += 1;
                         break;
                     },
                     '{' => {
-                        result.id = Token.Id { .LBrace = {} };
+                        result.id = Token.Id.LBrace;
                         self.index += 1;
                         break;
                     },
                     '}' => {
-                        result.id = Token.Id { .RBrace = {} };
+                        result.id = Token.Id.RBrace;
                         self.index += 1;
                         break;
                     },
                     '.' => {
-                        result.id = Token.Id { .Period = {} };
+                        result.id = Token.Id.Period;
                         self.index += 1;
                         break;
                     },
@@ -230,7 +230,7 @@ const Tokenizer = struct {
                         state = State.Minus;
                     },
                     else => {
-                        result.id = Token.Id { .Invalid = {} };
+                        result.id = Token.Id.Invalid;
                         self.index += 1;
                         break;
                     },
@@ -280,12 +280,12 @@ const Tokenizer = struct {
 
                 State.Minus => switch (c) {
                     '>' => {
-                        result.id = Token.Id { .Arrow = {} };
+                        result.id = Token.Id.Arrow;
                         self.index += 1;
                         break;
                     },
                     else => {
-                        result.id = Token.Id { .Minus = {} };
+                        result.id = Token.Id.Minus;
                         break;
                     },
                 },
@@ -334,12 +334,12 @@ const Parser = struct {
                         switch (next_token.id) {
                             Token.Id.Keyword_fn => {
                                 const fn_name = self.tokenizer.next();
-                                if (@TagType(Token.Id)(fn_name.id) != Token.Id.Identifier) {
+                                if (fn_name.id != Token.Id.Identifier) {
                                     @panic("parse error");
                                 }
 
                                 const lparen = self.tokenizer.next();
-                                if (@TagType(Token.Id)(lparen.id) != Token.Id.LParen) {
+                                if (lparen.id != Token.Id.LParen) {
                                     @panic("parse error");
                                 }
                             },
@@ -391,7 +391,7 @@ pub fn main2() -> %void {
         while (true) {
             const token = tokenizer.next();
             tokenizer.dump(token);
-            if (@TagType(Token.Id)(token.id) == Token.Id.Eof) {
+            if (token.id == Token.Id.Eof) {
                 break;
             }
         }
