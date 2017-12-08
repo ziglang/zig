@@ -206,3 +206,17 @@ test "implicit cast union to its tag type" {
 fn giveMeLetterB(x: Letter2) {
     assert(x == Value2.B);
 }
+
+test "implicit cast from @EnumTagType(TheUnion) to &const TheUnion" {
+    assertIsTheUnion2Item1(TheUnion2.Item1);
+}
+
+const TheUnion2 = union(enum) {
+    Item1,
+    Item2: i32,
+};
+
+fn assertIsTheUnion2Item1(value: &const TheUnion2) {
+    assert(*value == TheUnion2.Item1);
+}
+
