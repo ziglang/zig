@@ -14052,6 +14052,9 @@ static TypeTableEntry *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruc
     ImportTableEntry *child_import = allocate<ImportTableEntry>(1);
     child_import->decls_scope = create_decls_scope(node, nullptr, nullptr, child_import);
     child_import->c_import_node = node;
+    child_import->package = new_anonymous_package();
+    child_import->package->package_table.put(buf_create_from_str("builtin"), ira->codegen->compile_var_package);
+    child_import->package->package_table.put(buf_create_from_str("std"), ira->codegen->std_package);
 
     ZigList<ErrorMsg *> errors = {0};
 
