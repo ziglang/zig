@@ -173,6 +173,14 @@ static AstNode * trans_create_node(Context *c, NodeType id) {
     return node;
 }
 
+static AstNode *trans_create_node_if(Context *c, AstNode *cond_node, AstNode *then_node, AstNode *else_node) {
+    AstNode *node = trans_create_node(c, NodeTypeIfBoolExpr);
+    node->data.if_bool_expr.condition = cond_node;
+    node->data.if_bool_expr.then_block = then_node;
+    node->data.if_bool_expr.else_node = else_node;
+    return node;
+}
+
 static AstNode *trans_create_node_float_lit(Context *c, double value) {
     AstNode *node = trans_create_node(c, NodeTypeFloatLiteral);
     node->data.float_literal.bigfloat = allocate<BigFloat>(1);
@@ -4077,14 +4085,35 @@ static AstNode *parse_ctok_primary_expr(Context *c, CTokenize *ctok, size_t *tok
                 }
                 *tok_i += 1;
 
-                if (inner_node->type == NodeTypeAddrOfExpr) {
-                    AstNode *call_node = trans_create_node_builtin_fn_call_str(c, "ptrCast");
-                    call_node->data.fn_call_expr.params.append(inner_node);
-                    call_node->data.fn_call_expr.params.append(node_to_cast);
-                    return call_node;
-                } else {
-                    return trans_create_node_cast(c, inner_node, node_to_cast);
-                }
+
+                //if (@typeId(@typeOf(x)) == @import("builtin").TypeId.Pointer)
+                //    @ptrCast(dest, x)
+                //else if (@typeId(@typeOf(x)) == @import("builtin").TypeId.Integer)
+                //    @intToPtr(dest, x)
+                //else
+                //    (dest)(x)
+
+                AstNode *import_builtin = trans_create_node_builtin_fn_call_str(c, "import");
+                import_builtin->data.fn_call_expr.params.append(trans_create_node_str_lit_non_c(c, buf_create_from_str("builtin")));
+                AstNode *typeid_type = trans_create_node_field_access_str(c, import_builtin, "TypeId");
+                AstNode *typeid_pointer = trans_create_node_field_access_str(c, typeid_type, "Pointer");
+                AstNode *typeid_integer = trans_create_node_field_access_str(c, typeid_type, "Int");
+                AstNode *typeof_x = trans_create_node_builtin_fn_call_str(c, "typeOf");
+                typeof_x->data.fn_call_expr.params.append(node_to_cast);
+                AstNode *typeid_value = trans_create_node_builtin_fn_call_str(c, "typeId");
+                typeid_value->data.fn_call_expr.params.append(typeof_x);
+
+                AstNode *outer_if_cond = trans_create_node_bin_op(c, typeid_value, BinOpTypeCmpEq, typeid_pointer);
+                AstNode *inner_if_cond = trans_create_node_bin_op(c, typeid_value, BinOpTypeCmpEq, typeid_integer);
+                AstNode *inner_if_then = trans_create_node_builtin_fn_call_str(c, "intToPtr");
+                inner_if_then->data.fn_call_expr.params.append(inner_node);
+                inner_if_then->data.fn_call_expr.params.append(node_to_cast);
+                AstNode *inner_if_else = trans_create_node_cast(c, inner_node, node_to_cast);
+                AstNode *inner_if = trans_create_node_if(c, inner_if_cond, inner_if_then, inner_if_else);
+                AstNode *outer_if_then = trans_create_node_builtin_fn_call_str(c, "ptrCast");
+                outer_if_then->data.fn_call_expr.params.append(inner_node);
+                outer_if_then->data.fn_call_expr.params.append(node_to_cast);
+                return trans_create_node_if(c, outer_if_cond, outer_if_then, inner_if);
             }
         case CTokIdDot:
         case CTokIdEOF:

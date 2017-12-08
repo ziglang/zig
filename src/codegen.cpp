@@ -55,6 +55,10 @@ static PackageTableEntry *new_package(const char *root_src_dir, const char *root
     return entry;
 }
 
+PackageTableEntry *new_anonymous_package(void) {
+    return new_package("", "");
+}
+
 CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out_type, BuildMode build_mode,
     Buf *zig_lib_dir)
 {
