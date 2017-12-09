@@ -7492,6 +7492,19 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
         }
     }
 
+    // implicit enum to &const union which has the enum as the tag type
+    if (actual_type->id == TypeTableEntryIdEnum && expected_type->id == TypeTableEntryIdPointer) {
+        TypeTableEntry *union_type = expected_type->data.pointer.child_type;
+        if (union_type->data.unionation.decl_node->data.container_decl.auto_enum ||
+            union_type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr)
+        {
+            type_ensure_zero_bits_known(ira->codegen, union_type);
+            if (union_type->data.unionation.tag_type == actual_type) {
+                return ImplicitCastMatchResultYes;
+            }
+        }
+    }
+
     // implicit undefined literal to anything
     if (actual_type->id == TypeTableEntryIdUndefLit) {
         return ImplicitCastMatchResultYes;
@@ -9076,6 +9089,27 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
         type_ensure_zero_bits_known(ira->codegen, wanted_type);
         if (wanted_type->data.unionation.tag_type == actual_type) {
             return ir_analyze_enum_to_union(ira, source_instr, value, wanted_type);
+        }
+    }
+
+    // explicit enum to &const union which has the enum as the tag type
+    if (actual_type->id == TypeTableEntryIdEnum && wanted_type->id == TypeTableEntryIdPointer) {
+        TypeTableEntry *union_type = wanted_type->data.pointer.child_type;
+        if (union_type->data.unionation.decl_node->data.container_decl.auto_enum ||
+            union_type->data.unionation.decl_node->data.container_decl.init_arg_expr != nullptr)
+        {
+            type_ensure_zero_bits_known(ira->codegen, union_type);
+            if (union_type->data.unionation.tag_type == actual_type) {
+                IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, union_type, value);
+                if (type_is_invalid(cast1->value.type))
+                    return ira->codegen->invalid_instruction;
+
+                IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
+                if (type_is_invalid(cast2->value.type))
+                    return ira->codegen->invalid_instruction;
+
+                return cast2;
+            }
         }
     }
 
