@@ -90,6 +90,10 @@ const Token = struct {
         Arrow,
         Colon,
         Slash,
+        Comma,
+        Ampersand,
+        AmpersandEqual,
+        NumberLiteral,
         Keyword_align,
         Keyword_and,
         Keyword_asm,
@@ -189,6 +193,13 @@ const Tokenizer = struct {
         Minus,
         Slash,
         LineComment,
+        Zero,
+        NumberLiteral,
+        NumberDot,
+        FloatFraction,
+        FloatExponentUnsigned,
+        FloatExponentNumber,
+        Ampersand,
     };
 
     pub fn next(self: &Tokenizer) -> Token {
@@ -241,6 +252,11 @@ const Tokenizer = struct {
                         self.index += 1;
                         break;
                     },
+                    ',' => {
+                        result.id = Token.Id.Comma;
+                        self.index += 1;
+                        break;
+                    },
                     ':' => {
                         result.id = Token.Id.Colon;
                         self.index += 1;
@@ -272,9 +288,31 @@ const Tokenizer = struct {
                     '/' => {
                         state = State.Slash;
                     },
+                    '&' => {
+                        state = State.Ampersand;
+                    },
+                    '0' => {
+                        state = State.Zero;
+                        result.id = Token.Id.NumberLiteral;
+                    },
+                    '1'...'9' => {
+                        state = State.NumberLiteral;
+                        result.id = Token.Id.NumberLiteral;
+                    },
                     else => {
                         result.id = Token.Id.Invalid;
                         self.index += 1;
+                        break;
+                    },
+                },
+                State.Ampersand => switch (c) {
+                    '=' => {
+                        result.id = Token.Id.AmpersandEqual;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.id = Token.Id.Ampersand;
                         break;
                     },
                 },
@@ -352,6 +390,58 @@ const Tokenizer = struct {
                         };
                     },
                     else => {},
+                },
+                State.Zero => switch (c) {
+                    'b', 'o', 'x' => {
+                        state = State.NumberLiteral;
+                    },
+                    else => {
+                        // reinterpret as a normal number
+                        self.index -= 1;
+                        state = State.NumberLiteral;
+                    },
+                },
+                State.NumberLiteral => switch (c) {
+                    '.' => {
+                        state = State.NumberDot;
+                    },
+                    'p', 'P', 'e', 'E' => {
+                        state = State.FloatExponentUnsigned;
+                    },
+                    '0'...'9', 'a'...'f', 'A'...'F' => {},
+                    else => break,
+                },
+                State.NumberDot => switch (c) {
+                    '.' => {
+                        self.index -= 1;
+                        state = State.Start;
+                        break;
+                    },
+                    else => {
+                        self.index -= 1;
+                        state = State.FloatFraction;
+                    },
+                },
+                State.FloatFraction => switch (c) {
+                    'p', 'P', 'e', 'E' => {
+                        state = State.FloatExponentUnsigned;
+                    },
+                    '0'...'9', 'a'...'f', 'A'...'F' => {},
+                    else => break,
+                },
+                State.FloatExponentUnsigned => switch (c) {
+                    '+', '-' => {
+                        state = State.FloatExponentNumber;
+                    },
+                    else => {
+                        // reinterpret as a normal exponent number
+                        self.index -= 1;
+                        state = State.FloatExponentNumber;
+                    }
+                },
+                State.FloatExponentNumber => switch (c) {
+                    '0'...'9', 'a'...'f', 'A'...'F' => {},
+                    else => break,
                 },
             }
         }
