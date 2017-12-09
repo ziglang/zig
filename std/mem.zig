@@ -8,6 +8,7 @@ pub const Cmp = math.Cmp;
 pub const Allocator = struct {
     /// Allocate byte_count bytes and return them in a slice, with the
     /// slice's pointer aligned at least to alignment bytes.
+    /// The returned newly allocated memory is undefined.
     allocFn: fn (self: &Allocator, byte_count: usize, alignment: u29) -> %[]u8,
 
     /// If `new_byte_count > old_mem.len`:
@@ -17,6 +18,8 @@ pub const Allocator = struct {
     /// If `new_byte_count <= old_mem.len`:
     /// * this function must return successfully. 
     /// * alignment <= alignment of old_mem.ptr
+    ///
+    /// The returned newly allocated memory is undefined.
     reallocFn: fn (self: &Allocator, old_mem: []u8, new_byte_count: usize, alignment: u29) -> %[]u8,
 
     /// Guaranteed: `old_mem.len` is the same as what was returned from `allocFn` or `reallocFn`
@@ -40,6 +43,10 @@ pub const Allocator = struct {
     {
         const byte_count = %return math.mul(usize, @sizeOf(T), n);
         const byte_slice = %return self.allocFn(self, byte_count, alignment);
+        // This loop should get optimized out in ReleaseFast mode
+        for (byte_slice) |*byte| {
+            *byte = undefined;
+        }
         return ([]align(alignment) T)(@alignCast(alignment, byte_slice));
     }
 
@@ -56,6 +63,10 @@ pub const Allocator = struct {
 
         const byte_count = %return math.mul(usize, @sizeOf(T), n);
         const byte_slice = %return self.reallocFn(self, ([]u8)(old_mem), byte_count, alignment);
+        // This loop should get optimized out in ReleaseFast mode
+        for (byte_slice[old_mem.len..]) |*byte| {
+            *byte = undefined;
+        }
         return ([]T)(@alignCast(alignment, byte_slice));
     }
 
