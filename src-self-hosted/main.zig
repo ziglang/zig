@@ -481,6 +481,7 @@ const NoAlias = enum { No, Yes };
 const Extern = enum { No, Yes };
 const VarArgs = enum { No, Yes };
 const Mutability = enum { Const, Var };
+const Volatile = enum { No, Yes };
 
 const Inline = enum {
     Auto,
@@ -511,6 +512,7 @@ const AstNode = struct {
         Identifier,
         FnProto,
         ParamDecl,
+        AddrOfExpr,
     };
 
     fn iterate(base: &AstNode, index: usize) -> ?&AstNode {
@@ -520,6 +522,7 @@ const AstNode = struct {
             Id.Identifier => @fieldParentPtr(AstNodeIdentifier, "base", base).iterate(index),
             Id.FnProto => @fieldParentPtr(AstNodeFnProto, "base", base).iterate(index),
             Id.ParamDecl => @fieldParentPtr(AstNodeParamDecl, "base", base).iterate(index),
+            Id.AddrOfExpr => @fieldParentPtr(AstNodeAddrOfExpr, "base", base).iterate(index),
         };
     }
 };
@@ -637,6 +640,31 @@ const AstNodeParamDecl = struct {
         var i = index;
 
         if (i < 1) return self.type_node;
+        i -= 1;
+
+        return null;
+    }
+};
+
+const AstNodeAddrOfExpr = struct {
+    base: AstNode,
+    align_expr: ?&AstNode,
+    op_token: Token,
+    bit_offset_start_token: ?Token,
+    bit_offset_end_token: ?Token,
+    const_token: ?Token,
+    volatile_token: ?Token,
+    op_expr: &AstNode,
+
+    fn iterate(self: &AstNodeAddrOfExpr, index: usize) -> ?&AstNode {
+        var i = index;
+
+        if (self.align_expr) |align_expr| {
+            if (i < 1) return align_expr;
+            i -= 1;
+        }
+
+        if (i < 1) return self.op_expr;
         i -= 1;
 
         return null;
@@ -796,6 +824,7 @@ const Parser = struct {
                         },
                         Token.Id.Keyword_fn => {
                             stack.append(State.TopLevel) %% unreachable;
+                            %return stack.append(State { .ExpectToken = Token.Id.Semicolon });
                             const fn_proto_node = %return self.createAttachFnProto(&root_node.decls, token,
                                 Extern.Yes, CallingConvention.Auto, visib, Inline.Auto);
                             %return stack.append(State { .FnProto = fn_proto_node });
@@ -806,6 +835,7 @@ const Parser = struct {
                         },
                         Token.Id.Keyword_coldcc, Token.Id.Keyword_nakedcc, Token.Id.Keyword_stdcallcc => {
                             stack.append(State.TopLevel) %% unreachable;
+                            %return stack.append(State { .ExpectToken = Token.Id.Semicolon });
                             const cc = switch (token.id) {
                                 Token.Id.Keyword_coldcc => CallingConvention.Cold,
                                 Token.Id.Keyword_nakedcc => CallingConvention.Naked,
@@ -904,7 +934,7 @@ const Parser = struct {
                 },
 
                 State.AdditionExpression => |result_ptr| {
-                    stack.append(State {.AdditionExpression = result_ptr}) %% unreachable;
+                    stack.append(State {.MultiplyExpression = result_ptr}) %% unreachable;
                     continue;
                 },
 
@@ -919,6 +949,27 @@ const Parser = struct {
                 },
 
                 State.PrefixOpExpression => |result_ptr| {
+                    const first_token = self.getNextToken();
+                    if (first_token.id == Token.Id.Ampersand) {
+                        const addr_of_expr = %return self.createAttachAddrOfExpr(result_ptr, first_token);
+                        var token = self.getNextToken();
+                        if (token.id == Token.Id.Keyword_align) {
+                            @panic("TODO align");
+                        }
+                        if (token.id == Token.Id.Keyword_const) {
+                            addr_of_expr.const_token = token;
+                            token = self.getNextToken();
+                        }
+                        if (token.id == Token.Id.Keyword_volatile) {
+                            addr_of_expr.volatile_token = token;
+                            token = self.getNextToken();
+                        }
+                        self.putBackToken(token);
+                        stack.append(State { .PrefixOpExpression = &addr_of_expr.op_expr }) %% unreachable;
+                        continue;
+                    }
+
+                    self.putBackToken(first_token);
                     stack.append(State { .SuffixOpExpression = result_ptr }) %% unreachable;
                     continue;
                 },
@@ -966,8 +1017,17 @@ const Parser = struct {
                 },
 
                 State.FnProtoAlign => |fn_proto| {
-                    @panic("TODO fn proto align");
-                    //continue;
+                    const token = self.getNextToken();
+                    if (token.id == Token.Id.Keyword_align) {
+                        @panic("TODO fn proto align");
+                    }
+                    if (token.id == Token.Id.Arrow) {
+                        stack.append(State { .TypeExpr = removeNullCast(&fn_proto.return_type) }) %% unreachable;
+                        continue;
+                    } else {
+                        self.putBackToken(token);
+                        continue;
+                    }
                 },
 
                 State.ParamDecl => |fn_proto| {
@@ -1104,6 +1164,30 @@ const Parser = struct {
             .type_node = undefined,
             .var_args_token = null,
         };
+        return node;
+    }
+
+    fn createAddrOfExpr(self: &Parser, op_token: &const Token) -> %&AstNodeAddrOfExpr {
+        const node = %return self.allocator.create(AstNodeAddrOfExpr);
+        %defer self.allocator.destroy(node);
+
+        *node = AstNodeAddrOfExpr {
+            .base = AstNode {.id = AstNode.Id.AddrOfExpr},
+            .align_expr = null,
+            .op_token = *op_token,
+            .bit_offset_start_token = null,
+            .bit_offset_end_token = null,
+            .const_token = null,
+            .volatile_token = null,
+            .op_expr = undefined,
+        };
+        return node;
+    }
+
+    fn createAttachAddrOfExpr(self: &Parser, result_ptr: &&AstNode, op_token: &const Token) -> %&AstNodeAddrOfExpr {
+        const node = %return self.createAddrOfExpr(op_token);
+        %defer self.allocator.destroy(node);
+        *result_ptr = &node.base;
         return node;
     }
 
