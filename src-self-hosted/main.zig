@@ -86,6 +86,8 @@ const Token = struct {
         LBrace,
         RBrace,
         Period,
+        Ellipsis2,
+        Ellipsis3,
         Minus,
         Arrow,
         Colon,
@@ -200,6 +202,8 @@ const Tokenizer = struct {
         FloatExponentUnsigned,
         FloatExponentNumber,
         Ampersand,
+        Period,
+        Period2,
     };
 
     pub fn next(self: &Tokenizer) -> Token {
@@ -278,9 +282,7 @@ const Tokenizer = struct {
                         break;
                     },
                     '.' => {
-                        result.id = Token.Id.Period;
-                        self.index += 1;
-                        break;
+                        state = State.Period;
                     },
                     '-' => {
                         state = State.Minus;
@@ -370,6 +372,29 @@ const Tokenizer = struct {
                         break;
                     },
                 },
+
+                State.Period => switch (c) {
+                    '.' => {
+                        state = State.Period2;
+                    },
+                    else => {
+                        result.id = Token.Id.Period;
+                        break;
+                    },
+                },
+
+                State.Period2 => switch (c) {
+                    '.' => {
+                        result.id = Token.Id.Ellipsis3;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.id = Token.Id.Ellipsis2;
+                        break;
+                    },
+                },
+
                 State.Slash => switch (c) {
                     '/' => {
                         result.id = undefined;
@@ -451,15 +476,30 @@ const Tokenizer = struct {
     }
 };
 
+const Comptime = enum { No, Yes };
+const NoAlias = enum { No, Yes };
+const Extern = enum { No, Yes };
+const VarArgs = enum { No, Yes };
+const Mutability = enum { Const, Var };
+
+const Inline = enum {
+    Auto,
+    Always,
+    Never,
+};
+
 const Visibility = enum {
     Private,
     Pub,
     Export,
 };
 
-const Mutability = enum {
-    Const,
-    Var,
+const CallingConvention = enum {
+    Auto,
+    C,
+    Cold,
+    Naked,
+    Stdcall,
 };
 
 const AstNode = struct {
@@ -469,6 +509,8 @@ const AstNode = struct {
         Root,
         VarDecl,
         Identifier,
+        FnProto,
+        ParamDecl,
     };
 
     fn iterate(base: &AstNode, index: usize) -> ?&AstNode {
@@ -476,6 +518,8 @@ const AstNode = struct {
             Id.Root => @fieldParentPtr(AstNodeRoot, "base", base).iterate(index),
             Id.VarDecl => @fieldParentPtr(AstNodeVarDecl, "base", base).iterate(index),
             Id.Identifier => @fieldParentPtr(AstNodeIdentifier, "base", base).iterate(index),
+            Id.FnProto => @fieldParentPtr(AstNodeFnProto, "base", base).iterate(index),
+            Id.ParamDecl => @fieldParentPtr(AstNodeParamDecl, "base", base).iterate(index),
         };
     }
 };
@@ -498,7 +542,9 @@ const AstNodeVarDecl = struct {
     name_token: Token,
     eq_token: Token,
     mut: Mutability,
-    is_comptime: bool,
+    is_comptime: Comptime,
+    is_extern: Extern,
+    lib_name: ?&AstNode,
     type_node: ?&AstNode,
     align_node: ?&AstNode,
     init_node: ?&AstNode,
@@ -534,12 +580,75 @@ const AstNodeIdentifier = struct {
     }
 };
 
+const AstNodeFnProto = struct {
+    base: AstNode,
+    visib: Visibility,
+    fn_token: Token,
+    name_token: ?Token,
+    params: ArrayList(&AstNode),
+    return_type: ?&AstNode,
+    var_args: VarArgs,
+    is_extern: Extern,
+    is_inline: Inline,
+    cc: CallingConvention,
+    fn_def_node: ?&AstNode,
+    lib_name: ?&AstNode, // populated if this is an extern declaration
+    align_expr: ?&AstNode, // populated if align(A) is present
+
+    fn iterate(self: &AstNodeFnProto, index: usize) -> ?&AstNode {
+        var i = index;
+
+        if (i < self.params.len) return self.params.items[i];
+        i -= self.params.len;
+
+        if (self.return_type) |return_type| {
+            if (i < 1) return return_type;
+            i -= 1;
+        }
+
+        if (self.fn_def_node) |fn_def_node| {
+            if (i < 1) return fn_def_node;
+            i -= 1;
+        }
+
+        if (self.lib_name) |lib_name| {
+            if (i < 1) return lib_name;
+            i -= 1;
+        }
+
+        if (self.align_expr) |align_expr| {
+            if (i < 1) return align_expr;
+            i -= 1;
+        }
+
+        return null;
+    }
+};
+
+const AstNodeParamDecl = struct {
+    base: AstNode,
+    comptime_token: ?Token,
+    noalias_token: ?Token,
+    name_token: ?Token,
+    type_node: &AstNode,
+    var_args_token: ?Token,
+
+    fn iterate(self: &AstNodeParamDecl, index: usize) -> ?&AstNode {
+        var i = index;
+
+        if (i < 1) return self.type_node;
+        i -= 1;
+
+        return null;
+    }
+};
+
 error ParseError;
 
 const Parser = struct {
     tokenizer: &Tokenizer,
     allocator: &mem.Allocator,
-    put_back_tokens: [1]Token,
+    put_back_tokens: [2]Token,
     put_back_count: usize,
     source_file_name: []const u8,
 
@@ -556,14 +665,32 @@ const Parser = struct {
     const State = union(enum) {
         TopLevel, 
         TopLevelModifier: Visibility, 
-        Expression: &?&AstNode,
-        GroupedExpression: &?&AstNode,
-        PrimaryExpression: &?&AstNode,
-        TypeExpr: &?&AstNode,
+        TopLevelExtern: Visibility, 
+        Expression: &&AstNode,
+        GroupedExpression: &&AstNode,
+        UnwrapExpression: &&AstNode,
+        BoolOrExpression: &&AstNode,
+        BoolAndExpression: &&AstNode,
+        ComparisonExpression: &&AstNode,
+        BinaryOrExpression: &&AstNode,
+        BinaryXorExpression: &&AstNode,
+        BinaryAndExpression: &&AstNode,
+        BitShiftExpression: &&AstNode,
+        AdditionExpression: &&AstNode,
+        MultiplyExpression: &&AstNode,
+        BraceSuffixExpression: &&AstNode,
+        PrefixOpExpression: &&AstNode,
+        SuffixOpExpression: &&AstNode,
+        PrimaryExpression: &&AstNode,
+        TypeExpr: &&AstNode,
         VarDecl: &AstNodeVarDecl,
         VarDeclAlign: &AstNodeVarDecl,
         VarDeclEq: &AstNodeVarDecl,
-        ExpectSemicolon,
+        ExpectToken: @TagType(Token.Id),
+        FnProto: &AstNodeFnProto,
+        FnProtoAlign: &AstNodeFnProto,
+        ParamDecl: &AstNodeFnProto,
+        ParamDeclComma,
     };
 
     pub fn parse(self: &Parser) -> %&AstNode {
@@ -593,19 +720,31 @@ const Parser = struct {
                         },
                         Token.Id.Keyword_const => {
                             stack.append(State.TopLevel) %% unreachable;
-                            const var_decl_node = %return self.createVarDecl(Visibility.Private, Mutability.Const, false);
-                            %return root_node.decls.append(&var_decl_node.base);
+                            const var_decl_node = {
+                                const var_decl_node = %return self.createVarDecl(Visibility.Private, Mutability.Const, Comptime.No, Extern.No);
+                                %defer self.allocator.destroy(var_decl_node);
+                                %return root_node.decls.append(&var_decl_node.base);
+                                var_decl_node
+                            };
                             %return stack.append(State { .VarDecl = var_decl_node });
                             continue;
                         },
                         Token.Id.Keyword_var => {
                             stack.append(State.TopLevel) %% unreachable;
-                            const var_decl_node = %return self.createVarDecl(Visibility.Private, Mutability.Var, false);
-                            %return root_node.decls.append(&var_decl_node.base);
+                            const var_decl_node = {
+                                const var_decl_node = %return self.createVarDecl(Visibility.Private, Mutability.Var, Comptime.No, Extern.No);
+                                %defer self.allocator.destroy(var_decl_node);
+                                %return root_node.decls.append(&var_decl_node.base);
+                                var_decl_node
+                            };
                             %return stack.append(State { .VarDecl = var_decl_node });
                             continue;
                         },
                         Token.Id.Eof => return &root_node.base,
+                        Token.Id.Keyword_extern => {
+                            stack.append(State { .TopLevelExtern = Visibility.Private }) %% unreachable;
+                            continue;
+                        },
                         else => return self.parseError(token, "expected top level declaration, found {}", @tagName(token.id)),
                     }
                 },
@@ -614,19 +753,72 @@ const Parser = struct {
                     switch (token.id) {
                         Token.Id.Keyword_const => {
                             stack.append(State.TopLevel) %% unreachable;
-                            const var_decl_node = %return self.createVarDecl(visib, Mutability.Const, false);
-                            %return root_node.decls.append(&var_decl_node.base);
+                            const var_decl_node = {
+                                const var_decl_node = %return self.createVarDecl(visib, Mutability.Const, Comptime.No, Extern.No);
+                                %defer self.allocator.destroy(var_decl_node);
+                                %return root_node.decls.append(&var_decl_node.base);
+                                var_decl_node
+                            };
                             %return stack.append(State { .VarDecl = var_decl_node });
                             continue;
                         },
                         Token.Id.Keyword_var => {
                             stack.append(State.TopLevel) %% unreachable;
-                            const var_decl_node = %return self.createVarDecl(visib, Mutability.Var, false);
-                            %return root_node.decls.append(&var_decl_node.base);
+                            const var_decl_node = {
+                                const var_decl_node = %return self.createVarDecl(visib, Mutability.Var, Comptime.No, Extern.No);
+                                %defer self.allocator.destroy(var_decl_node);
+                                %return root_node.decls.append(&var_decl_node.base);
+                                var_decl_node
+                            };
                             %return stack.append(State { .VarDecl = var_decl_node });
                             continue;
                         },
+                        Token.Id.Keyword_extern => {
+                            stack.append(State { .TopLevelExtern = visib }) %% unreachable;
+                            continue;
+                        },
                         else => return self.parseError(token, "expected top level declaration, found {}", @tagName(token.id)),
+                    }
+                },
+                State.TopLevelExtern => |visib| {
+                    const token = self.getNextToken();
+                    switch (token.id) {
+                        Token.Id.Keyword_var => {
+                            stack.append(State.TopLevel) %% unreachable;
+                            const var_decl_node = {
+                                const var_decl_node = %return self.createVarDecl(visib, Mutability.Var, Comptime.No, Extern.Yes);
+                                %defer self.allocator.destroy(var_decl_node);
+                                %return root_node.decls.append(&var_decl_node.base);
+                                var_decl_node
+                            };
+                            %return stack.append(State { .VarDecl = var_decl_node });
+                            continue;
+                        },
+                        Token.Id.Keyword_fn => {
+                            stack.append(State.TopLevel) %% unreachable;
+                            const fn_proto_node = %return self.createAttachFnProto(&root_node.decls, token,
+                                Extern.Yes, CallingConvention.Auto, visib, Inline.Auto);
+                            %return stack.append(State { .FnProto = fn_proto_node });
+                            continue;
+                        },
+                        Token.Id.StringLiteral => {
+                            @panic("TODO extern with string literal");
+                        },
+                        Token.Id.Keyword_coldcc, Token.Id.Keyword_nakedcc, Token.Id.Keyword_stdcallcc => {
+                            stack.append(State.TopLevel) %% unreachable;
+                            const cc = switch (token.id) {
+                                Token.Id.Keyword_coldcc => CallingConvention.Cold,
+                                Token.Id.Keyword_nakedcc => CallingConvention.Naked,
+                                Token.Id.Keyword_stdcallcc => CallingConvention.Stdcall,
+                                else => unreachable,
+                            };
+                            const fn_token = %return self.eatToken(Token.Id.Keyword_fn);
+                            const fn_proto_node = %return self.createAttachFnProto(&root_node.decls, fn_token,
+                                Extern.Yes, cc, visib, Inline.Auto);
+                            %return stack.append(State { .FnProto = fn_proto_node });
+                            continue;
+                        },
+                        else => return self.parseError(token, "expected variable declaration or function, found {}", @tagName(token.id)),
                     }
                 },
                 State.VarDecl => |var_decl| {
@@ -635,7 +827,7 @@ const Parser = struct {
 
                     const next_token = self.getNextToken();
                     if (next_token.id == Token.Id.Colon) {
-                        %return stack.append(State { .TypeExpr = &var_decl.type_node });
+                        %return stack.append(State { .TypeExpr = removeNullCast(&var_decl.type_node) });
                         continue;
                     }
 
@@ -647,7 +839,7 @@ const Parser = struct {
 
                     const next_token = self.getNextToken();
                     if (next_token.id == Token.Id.Keyword_align) {
-                        %return stack.append(State { .GroupedExpression = &var_decl.align_node });
+                        %return stack.append(State { .GroupedExpression = removeNullCast(&var_decl.align_node) });
                         continue;
                     }
 
@@ -656,21 +848,86 @@ const Parser = struct {
                 },
                 State.VarDeclEq => |var_decl| {
                     var_decl.eq_token = %return self.eatToken(Token.Id.Equal);
-                    stack.append(State.ExpectSemicolon) %% unreachable;
+                    stack.append(State { .ExpectToken = Token.Id.Semicolon }) %% unreachable;
                     %return stack.append(State {
-                        .Expression = &var_decl.init_node,
+                        .Expression = removeNullCast(&var_decl.init_node),
                     });
                     continue;
                 },
-                State.ExpectSemicolon => {
-                    _ = %return self.eatToken(Token.Id.Semicolon);
+                State.ExpectToken => |token_id| {
+                    _ = %return self.eatToken(token_id);
                     continue;
                 },
                 State.Expression => |result_ptr| {
-                    // TODO this should not jump straight to primary expression
-                    stack.append(State {.PrimaryExpression = result_ptr}) %% unreachable;
+                    stack.append(State {.UnwrapExpression = result_ptr}) %% unreachable;
                     continue;
                 },
+
+                State.UnwrapExpression => |result_ptr| {
+                    stack.append(State {.BoolOrExpression = result_ptr}) %% unreachable;
+                    continue;
+                },
+
+                State.BoolOrExpression => |result_ptr| {
+                    stack.append(State {.BoolAndExpression = result_ptr}) %% unreachable;
+                    continue;
+                },
+
+                State.BoolAndExpression => |result_ptr| {
+                    stack.append(State {.ComparisonExpression = result_ptr}) %% unreachable;
+                    continue;
+                },
+
+                State.ComparisonExpression => |result_ptr| {
+                    stack.append(State {.BinaryOrExpression = result_ptr}) %% unreachable;
+                    continue;
+                },
+
+                State.BinaryOrExpression => |result_ptr| {
+                    stack.append(State {.BinaryXorExpression = result_ptr}) %% unreachable;
+                    continue;
+                },
+
+                State.BinaryXorExpression => |result_ptr| {
+                    stack.append(State {.BinaryAndExpression = result_ptr}) %% unreachable;
+                    continue;
+                },
+
+                State.BinaryAndExpression => |result_ptr| {
+                    stack.append(State {.BitShiftExpression = result_ptr}) %% unreachable;
+                    continue;
+                },
+
+                State.BitShiftExpression => |result_ptr| {
+                    stack.append(State {.AdditionExpression = result_ptr}) %% unreachable;
+                    continue;
+                },
+
+                State.AdditionExpression => |result_ptr| {
+                    stack.append(State {.AdditionExpression = result_ptr}) %% unreachable;
+                    continue;
+                },
+
+                State.MultiplyExpression => |result_ptr| {
+                    stack.append(State {.BraceSuffixExpression = result_ptr}) %% unreachable;
+                    continue;
+                },
+
+                State.BraceSuffixExpression => |result_ptr| {
+                    stack.append(State {.PrefixOpExpression = result_ptr}) %% unreachable;
+                    continue;
+                },
+
+                State.PrefixOpExpression => |result_ptr| {
+                    stack.append(State { .SuffixOpExpression = result_ptr }) %% unreachable;
+                    continue;
+                },
+
+                State.SuffixOpExpression => |result_ptr| {
+                    stack.append(State { .PrimaryExpression = result_ptr }) %% unreachable;
+                    continue;
+                },
+
                 State.PrimaryExpression => |result_ptr| {
                     const token = self.getNextToken();
                     switch (token.id) {
@@ -682,7 +939,84 @@ const Parser = struct {
                         else => return self.parseError(token, "expected primary expression, found {}", @tagName(token.id)),
                     }
                 },
-                State.TypeExpr => @panic("TODO"),
+
+                State.TypeExpr => |result_ptr| {
+                    const token = self.getNextToken();
+                    if (token.id == Token.Id.Keyword_var) {
+                        @panic("TODO param with type var");
+                    }
+                    self.putBackToken(token);
+
+                    stack.append(State { .PrefixOpExpression = result_ptr }) %% unreachable;
+                    continue;
+                },
+
+                State.FnProto => |fn_proto| {
+                    stack.append(State { .FnProtoAlign = fn_proto }) %% unreachable;
+                    %return stack.append(State { .ParamDecl = fn_proto });
+                    %return stack.append(State { .ExpectToken = Token.Id.LParen });
+
+                    const next_token = self.getNextToken();
+                    if (next_token.id == Token.Id.Identifier) {
+                        fn_proto.name_token = next_token;
+                        continue;
+                    }
+                    self.putBackToken(next_token);
+                    continue;
+                },
+
+                State.FnProtoAlign => |fn_proto| {
+                    @panic("TODO fn proto align");
+                    //continue;
+                },
+
+                State.ParamDecl => |fn_proto| {
+                    var token = self.getNextToken();
+                    if (token.id == Token.Id.RParen) {
+                        continue;
+                    }
+                    const param_decl = %return self.createAttachParamDecl(&fn_proto.params);
+                    if (token.id == Token.Id.Keyword_comptime) {
+                        param_decl.comptime_token = token;
+                        token = self.getNextToken();
+                    } else if (token.id == Token.Id.Keyword_noalias) {
+                        param_decl.noalias_token = token;
+                        token = self.getNextToken();
+                    };
+                    if (token.id == Token.Id.Identifier) {
+                        const next_token = self.getNextToken();
+                        if (next_token.id == Token.Id.Colon) {
+                            param_decl.name_token = token;
+                            token = self.getNextToken();
+                        } else {
+                            self.putBackToken(next_token);
+                        }
+                    }
+                    if (token.id == Token.Id.Ellipsis3) {
+                        param_decl.var_args_token = token;
+                    } else {
+                        self.putBackToken(token);
+                    }
+
+                    stack.append(State { .ParamDecl = fn_proto }) %% unreachable;
+                    %return stack.append(State.ParamDeclComma);
+                    %return stack.append(State { .TypeExpr = &param_decl.type_node });
+                    continue;
+                },
+
+                State.ParamDeclComma => {
+                    const token = self.getNextToken();
+                    switch (token.id) {
+                        Token.Id.RParen => {
+                            _ = stack.pop(); // pop off the ParamDecl
+                            continue;
+                        },
+                        Token.Id.Comma => continue,
+                        else => return self.parseError(token, "expected ',' or ')', found {}", @tagName(token.id)),
+                    }
+                },
+
+
                 State.GroupedExpression => @panic("TODO"),
             }
             unreachable;
@@ -700,7 +1034,9 @@ const Parser = struct {
         return node;
     }
 
-    fn createVarDecl(self: &Parser, visib: Visibility, mut: Mutability, is_comptime: bool) -> %&AstNodeVarDecl {
+    fn createVarDecl(self: &Parser, visib: Visibility, mut: Mutability, is_comptime: Comptime,
+        is_extern: Extern) -> %&AstNodeVarDecl
+    {
         const node = %return self.allocator.create(AstNodeVarDecl);
         %defer self.allocator.destroy(node);
 
@@ -709,9 +1045,11 @@ const Parser = struct {
             .visib = visib,
             .mut = mut,
             .is_comptime = is_comptime,
+            .is_extern = is_extern,
             .type_node = null,
             .align_node = null,
             .init_node = null,
+            .lib_name = null,
             // initialized later
             .name_token = undefined,
             .eq_token = undefined,
@@ -727,6 +1065,61 @@ const Parser = struct {
             .base = AstNode {.id = AstNode.Id.Identifier},
             .name_token = *name_token,
         };
+        return node;
+    }
+
+    fn createFnProto(self: &Parser, fn_token: &const Token, is_extern: Extern,
+        cc: CallingConvention, visib: Visibility, is_inline: Inline) -> %&AstNodeFnProto
+    {
+        const node = %return self.allocator.create(AstNodeFnProto);
+        %defer self.allocator.destroy(node);
+
+        *node = AstNodeFnProto {
+            .base = AstNode {.id = AstNode.Id.FnProto},
+            .visib = visib,
+            .name_token = null,
+            .fn_token = *fn_token,
+            .params = ArrayList(&AstNode).init(self.allocator),
+            .return_type = null,
+            .var_args = VarArgs.No,
+            .is_extern = is_extern,
+            .is_inline = is_inline,
+            .cc = cc,
+            .fn_def_node = null,
+            .lib_name = null,
+            .align_expr = null,
+        };
+        return node;
+    }
+
+    fn createParamDecl(self: &Parser) -> %&AstNodeParamDecl {
+        const node = %return self.allocator.create(AstNodeParamDecl);
+        %defer self.allocator.destroy(node);
+
+        *node = AstNodeParamDecl {
+            .base = AstNode {.id = AstNode.Id.ParamDecl},
+            .comptime_token = null,
+            .noalias_token = null,
+            .name_token = null,
+            .type_node = undefined,
+            .var_args_token = null,
+        };
+        return node;
+    }
+
+    fn createAttachParamDecl(self: &Parser, list: &ArrayList(&AstNode)) -> %&AstNodeParamDecl {
+        const node = %return self.createParamDecl();
+        %defer self.allocator.destroy(node);
+        %return list.append(&node.base);
+        return node;
+    }
+
+    fn createAttachFnProto(self: &Parser, list: &ArrayList(&AstNode), fn_token: &const Token,
+        is_extern: Extern, cc: CallingConvention, visib: Visibility, is_inline: Inline) -> %&AstNodeFnProto
+    {
+        const node = %return self.createFnProto(fn_token, is_extern, cc, visib, is_inline);
+        %defer self.allocator.destroy(node);
+        %return list.append(&node.base);
         return node;
     }
 
@@ -778,7 +1171,6 @@ const Parser = struct {
             self.tokenizer.next()
         };
     }
-
 };
 
 
@@ -840,4 +1232,12 @@ fn render(node: &AstNode, indent: usize) {
     while (node.iterate(i)) |child| : (i += 1) {
         render(child, indent + 2);
     }
+}
+
+fn removeNullCast(x: var) -> {const InnerPtr = @typeOf(x).Child.Child; &InnerPtr} {
+    comptime assert(@typeId(@typeOf(x)) == builtin.TypeId.Pointer);
+    comptime assert(@typeId(@typeOf(x).Child) == builtin.TypeId.Nullable);
+    comptime assert(@typeId(@typeOf(x).Child.Child) == builtin.TypeId.Pointer);
+    const InnerPtr = @typeOf(x).Child.Child;
+    return @ptrCast(&InnerPtr, x);
 }

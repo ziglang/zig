@@ -2227,7 +2227,7 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
 
         tag_type = new_type_table_entry(TypeTableEntryIdEnum);
         buf_resize(&tag_type->name, 0);
-        buf_appendf(&tag_type->name, "@EnumTagType(%s)", buf_ptr(&union_type->name));
+        buf_appendf(&tag_type->name, "@TagType(%s)", buf_ptr(&union_type->name));
         tag_type->is_copyable = true;
         tag_type->type_ref = tag_int_type->type_ref;
         tag_type->zero_bits = tag_int_type->zero_bits;
