@@ -66,9 +66,11 @@ pub fn main2() -> %void {
 }
 
 
+var fixed_buffer_mem: [100 * 1024]u8 = undefined;
+
 fn testCanonical(source: []const u8) {
-    const allocator = std.debug.global_allocator;
-    std.debug.global_allocator_index = 0;
+    var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+    const allocator = &fixed_allocator.allocator;
 
     var tokenizer = Tokenizer.init(source);
     var parser = Parser.init(&tokenizer, allocator, "(memory buffer)");
