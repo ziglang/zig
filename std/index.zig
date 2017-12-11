@@ -1,4 +1,5 @@
 pub const ArrayList = @import("array_list.zig").ArrayList;
+pub const AlignedArrayList = @import("array_list.zig").AlignedArrayList;
 pub const BufMap = @import("buf_map.zig").BufMap;
 pub const BufSet = @import("buf_set.zig").BufSet;
 pub const Buffer = @import("buffer.zig").Buffer;
@@ -26,12 +27,12 @@ pub const sort = @import("sort.zig");
 
 test "std" {
     // run tests from these
-    _ = @import("array_list.zig").ArrayList;
-    _ = @import("buf_map.zig").BufMap;
-    _ = @import("buf_set.zig").BufSet;
-    _ = @import("buffer.zig").Buffer;
-    _ = @import("hash_map.zig").HashMap;
-    _ = @import("linked_list.zig").LinkedList;
+    _ = @import("array_list.zig");
+    _ = @import("buf_map.zig");
+    _ = @import("buf_set.zig");
+    _ = @import("buffer.zig");
+    _ = @import("hash_map.zig");
+    _ = @import("linked_list.zig");
 
     _ = @import("base64.zig");
     _ = @import("build.zig");
