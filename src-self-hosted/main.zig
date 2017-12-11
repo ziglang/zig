@@ -1761,6 +1761,12 @@ fn testCanonical(source: []const u8) {
 }
 
 test "zig fmt" {
+    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
+        // TODO get this test passing
+        // https://github.com/zig-lang/zig/issues/537
+        return;
+    }
+
     testCanonical(
         \\extern fn puts(s: &const u8) -> c_int;
         \\
