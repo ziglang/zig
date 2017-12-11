@@ -966,28 +966,29 @@ fn readILeb128(in_stream: &io.InStream) -> %i64 {
 }
 
 pub const global_allocator = &global_allocator_state;
+
 var global_allocator_state = mem.Allocator {
     .allocFn = globalAlloc,
     .reallocFn = globalRealloc,
     .freeFn = globalFree,
 };
 
-var some_mem: [100 * 1024]u8 = undefined;
-var some_mem_index: usize = 0;
+pub var global_allocator_mem: [100 * 1024]u8 = undefined;
+pub var global_allocator_index: usize = 0;
 
 error OutOfMemory;
 
 fn globalAlloc(self: &mem.Allocator, n: usize, alignment: u29) -> %[]u8 {
-    const addr = @ptrToInt(&some_mem[some_mem_index]);
+    const addr = @ptrToInt(&global_allocator_mem[global_allocator_index]);
     const rem = @rem(addr, alignment);
     const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
-    const adjusted_index = some_mem_index + march_forward_bytes;
+    const adjusted_index = global_allocator_index + march_forward_bytes;
     const end_index = adjusted_index + n;
-    if (end_index > some_mem.len) {
+    if (end_index > global_allocator_mem.len) {
         return error.OutOfMemory;
     }
-    const result = some_mem[adjusted_index .. end_index];
-    some_mem_index = end_index;
+    const result = global_allocator_mem[adjusted_index .. end_index];
+    global_allocator_index = end_index;
     return result;
 }
 

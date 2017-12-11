@@ -98,14 +98,17 @@ pub const Buffer = struct {
         mem.copy(u8, self.list.toSlice()[old_len..], m);
     }
 
+    // TODO: remove, use OutStream for this
     pub fn appendFormat(self: &Buffer, comptime format: []const u8, args: ...) -> %void {
         return fmt.format(self, append, format, args);
     }
 
+    // TODO: remove, use OutStream for this
     pub fn appendByte(self: &Buffer, byte: u8) -> %void {
         return self.appendByteNTimes(byte, 1);
     }
 
+    // TODO: remove, use OutStream for this
     pub fn appendByteNTimes(self: &Buffer, byte: u8, count: usize) -> %void {
         var prev_size: usize = self.len();
         %return self.resize(prev_size + count);

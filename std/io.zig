@@ -633,3 +633,24 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize) -> type {
         }
     };
 }
+
+/// Implementation of OutStream trait for Buffer
+pub const BufferOutStream = struct {
+    buffer: &Buffer,
+    stream: OutStream,
+
+    pub fn init(buffer: &Buffer) -> BufferOutStream {
+        return BufferOutStream {
+            .buffer = buffer,
+            .stream = OutStream {
+                .writeFn = writeFn,
+            },
+        };
+    }
+
+    fn writeFn(out_stream: &OutStream, bytes: []const u8) -> %void {
+        const self = @fieldParentPtr(BufferOutStream, "stream", out_stream);
+        return self.buffer.append(bytes);
+    }
+};
+

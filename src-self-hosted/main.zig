@@ -1387,6 +1387,7 @@ const Parser = struct {
 
                             %return stream.print("(");
 
+                            %return stack.append(RenderState { .Text = "\n" });
                             if (fn_proto.fn_def_node == null) {
                                 %return stack.append(RenderState { .Text = ";" });
                             }
@@ -1535,4 +1536,38 @@ fn removeNullCast(x: var) -> {const InnerPtr = @typeOf(x).Child.Child; &InnerPtr
     comptime assert(@typeId(@typeOf(x).Child.Child) == builtin.TypeId.Pointer);
     const InnerPtr = @typeOf(x).Child.Child;
     return @ptrCast(&InnerPtr, x);
+}
+
+
+
+fn testCanonical(source: []const u8) {
+    const allocator = std.debug.global_allocator;
+    std.debug.global_allocator_index = 0;
+
+    var tokenizer = Tokenizer.init(source);
+    var parser = Parser.init(&tokenizer, allocator, "(memory buffer)");
+    defer parser.deinit();
+
+    const root_node = parser.parse() %% unreachable;
+    defer parser.freeAst(root_node);
+
+    var buffer = std.Buffer.initSize(allocator, 0) %% unreachable;
+    var buffer_out_stream = io.BufferOutStream.init(&buffer);
+    parser.renderSource(&buffer_out_stream.stream, root_node) %% unreachable;
+
+    if (!mem.eql(u8, buffer.toSliceConst(), source)) {
+        warn("\n====== expected this output: =========\n");
+        warn("{}", source);
+        warn("\n======== instead found this: =========\n");
+        warn("{}", buffer.toSliceConst());
+        warn("\n======================================\n");
+        @panic("test failed");
+    }
+}
+
+test "zig fmt" {
+    testCanonical(
+        \\extern fn puts(s: &const u8) -> c_int;
+        \\
+    );
 }

@@ -53,6 +53,10 @@ pub fn build(b: &Builder) {
         "std/special/compiler_rt/index.zig", "compiler-rt", "Run the compiler_rt tests",
         with_lldb));
 
+    test_step.dependOn(tests.addPkgTests(b, test_filter,
+        "src-self-hosted/main.zig", "fmt", "Run the fmt tests",
+        with_lldb));
+
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter));
     test_step.dependOn(tests.addBuildExampleTests(b, test_filter));
     test_step.dependOn(tests.addCompileErrorTests(b, test_filter));

@@ -3,6 +3,7 @@ pub const AlignedArrayList = @import("array_list.zig").AlignedArrayList;
 pub const BufMap = @import("buf_map.zig").BufMap;
 pub const BufSet = @import("buf_set.zig").BufSet;
 pub const Buffer = @import("buffer.zig").Buffer;
+pub const BufferOutStream = @import("buffer.zig").BufferOutStream;
 pub const HashMap = @import("hash_map.zig").HashMap;
 pub const LinkedList = @import("linked_list.zig").LinkedList;
 
