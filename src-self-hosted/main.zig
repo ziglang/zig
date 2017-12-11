@@ -729,15 +729,15 @@ const Parser = struct {
         self.allocator.free(self.utility_bytes);
     }
 
-    const TopLevelExternCtx = struct {
+    const TopLevelDeclCtx = struct {
         visib_token: ?Token,
-        extern_token: Token,
+        extern_token: ?Token,
     };
 
     const State = union(enum) {
         TopLevel,
-        TopLevelModifier: ?Token,
-        TopLevelExtern: TopLevelExternCtx,
+        TopLevelExtern: ?Token,
+        TopLevelDecl: TopLevelDeclCtx,
         Expression: &&AstNode,
         GroupedExpression: &&AstNode,
         UnwrapExpression: &&AstNode,
@@ -805,61 +805,46 @@ const Parser = struct {
                     const token = self.getNextToken();
                     switch (token.id) {
                         Token.Id.Keyword_pub, Token.Id.Keyword_export => {
-                            stack.append(State { .TopLevelModifier = token }) %% unreachable;
-                            continue;
-                        },
-                        Token.Id.Keyword_const, Token.Id.Keyword_var => {
-                            stack.append(State.TopLevel) %% unreachable;
-                            // TODO shouldn't need this cast
-                            const var_decl_node = %return self.createAttachVarDecl(&root_node.decls, (?Token)(null),
-                                token, (?Token)(null), (?Token)(null));
-                            %return stack.append(State { .VarDecl = var_decl_node });
+                            stack.append(State { .TopLevelExtern = token }) %% unreachable;
                             continue;
                         },
                         Token.Id.Eof => return root_node,
-                        Token.Id.Keyword_extern => {
-                            stack.append(State {
-                                .TopLevelExtern = TopLevelExternCtx {
-                                    .visib_token = null,
-                                    .extern_token = token,
-                                }
-                            }) %% unreachable;
+                        else => {
+                            self.putBackToken(token);
+                            // TODO shouldn't need this cast
+                            stack.append(State { .TopLevelExtern = null }) %% unreachable;
                             continue;
                         },
-                        else => return self.parseError(token, "expected top level declaration, found {}", @tagName(token.id)),
                     }
                 },
-                State.TopLevelModifier => |visib_token| {
+                State.TopLevelExtern => |visib_token| {
                     const token = self.getNextToken();
-                    switch (token.id) {
-                        Token.Id.Keyword_const, Token.Id.Keyword_var => {
-                            stack.append(State.TopLevel) %% unreachable;
-                            // TODO shouldn't need the casts here
-                            const var_decl_node = %return self.createAttachVarDecl(&root_node.decls, visib_token,
-                                token, (?Token)(null), (?Token)(null));
-                            %return stack.append(State { .VarDecl = var_decl_node });
-                            continue;
-                        },
-                        Token.Id.Keyword_extern => {
-                            stack.append(State {
-                                .TopLevelExtern = TopLevelExternCtx {
-                                    .visib_token = visib_token,
-                                    .extern_token = token,
-                                },
-                            }) %% unreachable;
-                            continue;
-                        },
-                        else => return self.parseError(token, "expected top level declaration, found {}", @tagName(token.id)),
+                    if (token.id == Token.Id.Keyword_extern) {
+                        stack.append(State {
+                            .TopLevelDecl = TopLevelDeclCtx {
+                                .visib_token = visib_token,
+                                .extern_token = token,
+                            },
+                        }) %% unreachable;
+                        continue;
                     }
+                    self.putBackToken(token);
+                    stack.append(State {
+                        .TopLevelDecl = TopLevelDeclCtx {
+                            .visib_token = visib_token,
+                            .extern_token = null,
+                        },
+                    }) %% unreachable;
+                    continue;
                 },
-                State.TopLevelExtern => |ctx| {
+                State.TopLevelDecl => |ctx| {
                     const token = self.getNextToken();
                     switch (token.id) {
                         Token.Id.Keyword_var, Token.Id.Keyword_const => {
                             stack.append(State.TopLevel) %% unreachable;
                             // TODO shouldn't need these casts
                             const var_decl_node = %return self.createAttachVarDecl(&root_node.decls, ctx.visib_token,
-                                token, (?Token)(null), (?Token)(ctx.extern_token));
+                                token, (?Token)(null), ctx.extern_token);
                             %return stack.append(State { .VarDecl = var_decl_node });
                             continue;
                         },
@@ -868,7 +853,7 @@ const Parser = struct {
                             %return stack.append(State { .ExpectToken = Token.Id.Semicolon });
                             // TODO shouldn't need these casts
                             const fn_proto_node = %return self.createAttachFnProto(&root_node.decls, token,
-                                (?Token)(ctx.extern_token), (?Token)(null), (?Token)(null), (?Token)(null));
+                                ctx.extern_token, (?Token)(null), (?Token)(null), (?Token)(null));
                             %return stack.append(State { .FnProto = fn_proto_node });
                             continue;
                         },
@@ -881,7 +866,7 @@ const Parser = struct {
                             const fn_token = %return self.eatToken(Token.Id.Keyword_fn);
                             // TODO shouldn't need this cast
                             const fn_proto_node = %return self.createAttachFnProto(&root_node.decls, fn_token,
-                                (?Token)(ctx.extern_token), (?Token)(token), (?Token)(null), (?Token)(null));
+                                ctx.extern_token, (?Token)(token), (?Token)(null), (?Token)(null));
                             %return stack.append(State { .FnProto = fn_proto_node });
                             continue;
                         },
