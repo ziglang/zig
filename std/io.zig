@@ -481,6 +481,14 @@ pub const OutStream = struct {
         const slice = (&byte)[0..1];
         return self.writeFn(self, slice);
     }
+
+    pub fn writeByteNTimes(self: &OutStream, byte: u8, n: usize) -> %void {
+        const slice = (&byte)[0..1];
+        var i: usize = 0;
+        while (i < n) : (i += 1) {
+            %return self.writeFn(self, slice);
+        }
+    }
 };
 
 /// `path` may need to be copied in memory to add a null terminating byte. In this case
