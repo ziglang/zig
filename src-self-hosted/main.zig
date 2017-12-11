@@ -914,12 +914,19 @@ const Parser = struct {
                     continue;
                 },
                 State.VarDeclEq => |var_decl| {
-                    var_decl.eq_token = %return self.eatToken(Token.Id.Equal);
-                    stack.append(State { .ExpectToken = Token.Id.Semicolon }) %% unreachable;
-                    %return stack.append(State {
-                        .Expression = removeNullCast(&var_decl.init_node),
-                    });
-                    continue;
+                    const token = self.getNextToken();
+                    if (token.id == Token.Id.Equal) {
+                        var_decl.eq_token = token;
+                        stack.append(State { .ExpectToken = Token.Id.Semicolon }) %% unreachable;
+                        %return stack.append(State {
+                            .Expression = removeNullCast(&var_decl.init_node),
+                        });
+                        continue;
+                    }
+                    if (token.id == Token.Id.Semicolon) {
+                        continue;
+                    }
+                    return self.parseError(token, "expected '=' or ';', found {}", @tagName(token.id));
                 },
                 State.ExpectToken => |token_id| {
                     _ = %return self.eatToken(token_id);
@@ -1345,6 +1352,7 @@ const Parser = struct {
         Text: []const u8,
         Expression: &AstNode,
         AddrOfExprBit: &AstNodeAddrOfExpr,
+        VarDeclAlign: &AstNodeVarDecl,
     };
 
     pub fn renderSource(self: &Parser, stream: &std.io.OutStream, root_node: &AstNodeRoot) -> %void {
@@ -1417,16 +1425,27 @@ const Parser = struct {
                             %return stream.print("{} ", self.tokenizer.getTokenSlice(var_decl.mut_token));
                             %return stream.print("{}", self.tokenizer.getTokenSlice(var_decl.name_token));
 
-                            %return stream.print(" = ");
-
-                            %return stack.append(RenderState { .Text = ";\n" });
-                            if (var_decl.init_node) |init_node| {
-                                %return stack.append(RenderState { .Expression = init_node });
+                            %return stack.append(RenderState { .VarDeclAlign = var_decl });
+                            if (var_decl.type_node) |type_node| {
+                                %return stream.print(": ");
+                                %return stack.append(RenderState { .Expression = type_node });
                             }
                         },
                         else => unreachable,
                     }
                 },
+
+                RenderState.VarDeclAlign => |var_decl| {
+                    if (var_decl.align_node != null) {
+                        @panic("TODO");
+                    }
+                    %return stack.append(RenderState { .Text = ";\n" });
+                    if (var_decl.init_node) |init_node| {
+                        %return stream.print(" = ");
+                        %return stack.append(RenderState { .Expression = init_node });
+                    }
+                },
+
                 RenderState.ParamDecl => |base| {
                     const param_decl = @fieldParentPtr(AstNodeParamDecl, "base", base);
                     if (param_decl.comptime_token) |comptime_token| {
@@ -1597,6 +1616,15 @@ test "zig fmt" {
         \\pub const a = b;
         \\var a = b;
         \\pub var a = b;
+        \\const a: i32 = b;
+        \\pub const a: i32 = b;
+        \\var a: i32 = b;
+        \\pub var a: i32 = b;
+        \\
+    );
+
+    testCanonical(
+        \\extern var foo: c_int;
         \\
     );
 }
