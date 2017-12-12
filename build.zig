@@ -92,81 +92,21 @@ const LibraryDep = struct {
 };
 
 fn findLLVM(b: &Builder) -> LibraryDep {
-    const libs_output = {
-        const args1 = [][]const u8{"llvm-config-5.0", "--libs", "--system-libs"};
-        const args2 = [][]const u8{"llvm-config", "--libs", "--system-libs"};
-        const max_output_size = 10 * 1024;
-        const good_result = os.ChildProcess.exec(b.allocator, args1, null, null, max_output_size) %% |err| {
-            if (err == error.FileNotFound) {
-                os.ChildProcess.exec(b.allocator, args2, null, null, max_output_size) %% |err2| {
-                    std.debug.panic("unable to spawn {}: {}\n", args2[0], err2);
-                }
-            } else {
-                std.debug.panic("unable to spawn {}: {}\n", args1[0], err);
-            }
-        };
-        switch (good_result.term) {
-            os.ChildProcess.Term.Exited => |code| {
-                if (code != 0) {
-                    std.debug.panic("llvm-config exited with {}:\n{}\n", code, good_result.stderr);
-                }
-            },
-            else => {
-                std.debug.panic("llvm-config failed:\n{}\n", good_result.stderr);
-            },
-        }
-        good_result.stdout
+    const llvm_config_exe = b.findProgram(
+        [][]const u8{"llvm-config-5.0", "llvm-config"},
+        [][]const u8{
+            "/usr/local/opt/llvm@5/",
+            "/mingw64/bin",
+            "/c/msys64/mingw64/bin",
+            "c:/msys64/mingw64/bin",
+            "C:/Libraries/llvm-5.0.0/bin",
+        }) %% |err|
+    {
+        std.debug.panic("unable to find llvm-config: {}\n", err);
     };
-    const includes_output = {
-        const args1 = [][]const u8{"llvm-config-5.0", "--includedir"};
-        const args2 = [][]const u8{"llvm-config", "--includedir"};
-        const max_output_size = 10 * 1024;
-        const good_result = os.ChildProcess.exec(b.allocator, args1, null, null, max_output_size) %% |err| {
-            if (err == error.FileNotFound) {
-                os.ChildProcess.exec(b.allocator, args2, null, null, max_output_size) %% |err2| {
-                    std.debug.panic("unable to spawn {}: {}\n", args2[0], err2);
-                }
-            } else {
-                std.debug.panic("unable to spawn {}: {}\n", args1[0], err);
-            }
-        };
-        switch (good_result.term) {
-            os.ChildProcess.Term.Exited => |code| {
-                if (code != 0) {
-                    std.debug.panic("llvm-config --includedir exited with {}:\n{}\n", code, good_result.stderr);
-                }
-            },
-            else => {
-                std.debug.panic("llvm-config failed:\n{}\n", good_result.stderr);
-            },
-        }
-        good_result.stdout
-    };
-    const libdir_output = {
-        const args1 = [][]const u8{"llvm-config-5.0", "--libdir"};
-        const args2 = [][]const u8{"llvm-config", "--libdir"};
-        const max_output_size = 10 * 1024;
-        const good_result = os.ChildProcess.exec(b.allocator, args1, null, null, max_output_size) %% |err| {
-            if (err == error.FileNotFound) {
-                os.ChildProcess.exec(b.allocator, args2, null, null, max_output_size) %% |err2| {
-                    std.debug.panic("unable to spawn {}: {}\n", args2[0], err2);
-                }
-            } else {
-                std.debug.panic("unable to spawn {}: {}\n", args1[0], err);
-            }
-        };
-        switch (good_result.term) {
-            os.ChildProcess.Term.Exited => |code| {
-                if (code != 0) {
-                    std.debug.panic("llvm-config --libdir exited with {}:\n{}\n", code, good_result.stderr);
-                }
-            },
-            else => {
-                std.debug.panic("llvm-config failed:\n{}\n", good_result.stderr);
-            },
-        }
-        good_result.stdout
-    };
+    const libs_output = b.exec([][]const u8{llvm_config_exe, "--libs", "--system-libs"});
+    const includes_output = b.exec([][]const u8{llvm_config_exe, "--includedir"});
+    const libdir_output = b.exec([][]const u8{llvm_config_exe, "--libdir"});
 
     var result = LibraryDep {
         .libs = ArrayList([]const u8).init(b.allocator),

@@ -671,6 +671,63 @@ pub const Builder = struct {
             };
         }
     }
+
+    pub fn findProgram(self: &Builder, names: []const []const u8, paths: []const []const u8) -> %[]const u8 {
+        if (self.env_map.get("PATH")) |PATH| {
+            for (names) |name| {
+                if (os.path.isAbsolute(name)) {
+                    return name;
+                }
+                var it = mem.split(PATH, []u8{os.path.delimiter});
+                while (it.next()) |path| {
+                    const full_path = %return os.path.join(self.allocator, path, name);
+                    if (os.path.real(self.allocator, full_path)) |real_path| {
+                        return real_path;
+                    } else |_| {
+                        continue;
+                    }
+                }
+            }
+        }
+        for (names) |name| {
+            if (os.path.isAbsolute(name)) {
+                return name;
+            }
+            for (paths) |path| {
+                const full_path = %return os.path.join(self.allocator, path, name);
+                if (os.path.real(self.allocator, full_path)) |real_path| {
+                    return real_path;
+                } else |_| {
+                    continue;
+                }
+            }
+        }
+        return error.FileNotFound;
+    }
+
+    pub fn exec(self: &Builder, argv: []const []const u8) -> []u8 {
+        const max_output_size = 100 * 1024;
+        const result = os.ChildProcess.exec(self.allocator, argv, null, null, max_output_size) %% |err| {
+            std.debug.panic("Unable to spawn {}: {}", argv[0], @errorName(err));
+        };
+        switch (result.term) {
+            os.ChildProcess.Term.Exited => |code| {
+                if (code != 0) {
+                    warn("The following command exited with error code {}:\n", code);
+                    printCmd(null, argv);
+                    warn("stderr:{}\n", result.stderr);
+                    std.debug.panic("command failed");
+                }
+                return result.stdout;
+            },
+            else => {
+                warn("The following command terminated unexpectedly:\n");
+                printCmd(null, argv);
+                warn("stderr:{}\n", result.stderr);
+                std.debug.panic("command failed");
+            },
+        }
+    }
 };
 
 const Version = struct {

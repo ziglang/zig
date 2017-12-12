@@ -42,6 +42,11 @@ pub const BufMap = struct {
         }
     }
 
+    pub fn get(self: &BufMap, key: []const u8) -> ?[]const u8 {
+        const entry = self.hash_map.get(key) ?? return null;
+        return entry.value;
+    }
+
     pub fn delete(self: &BufMap, key: []const u8) {
         const entry = self.hash_map.remove(key) ?? return;
         self.free(entry.key);
