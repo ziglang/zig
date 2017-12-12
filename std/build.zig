@@ -755,6 +755,7 @@ pub const LibExeObjStep = struct {
     is_zig: bool,
     cflags: ArrayList([]const u8),
     include_dirs: ArrayList([]const u8),
+    lib_paths: ArrayList([]const u8),
     disable_libc: bool,
     frameworks: BufSet,
 
@@ -865,6 +866,7 @@ pub const LibExeObjStep = struct {
             .cflags = ArrayList([]const u8).init(builder.allocator),
             .source_files = undefined,
             .include_dirs = ArrayList([]const u8).init(builder.allocator),
+            .lib_paths = ArrayList([]const u8).init(builder.allocator),
             .object_src = undefined,
             .disable_libc = true,
         };
@@ -888,6 +890,7 @@ pub const LibExeObjStep = struct {
             .frameworks = BufSet.init(builder.allocator),
             .full_path_libs = ArrayList([]const u8).init(builder.allocator),
             .include_dirs = ArrayList([]const u8).init(builder.allocator),
+            .lib_paths = ArrayList([]const u8).init(builder.allocator),
             .output_path = null,
             .out_filename = undefined,
             .major_only_filename = undefined,
@@ -1069,9 +1072,12 @@ pub const LibExeObjStep = struct {
         %%self.include_dirs.append(self.builder.cache_root);
     }
 
-    // TODO put include_dirs in zig command line
     pub fn addIncludeDir(self: &LibExeObjStep, path: []const u8) {
         %%self.include_dirs.append(path);
+    }
+
+    pub fn addLibPath(self: &LibExeObjStep, path: []const u8) {
+        %%self.lib_paths.append(path);
     }
 
     pub fn addPackagePath(self: &LibExeObjStep, name: []const u8, pkg_index_path: []const u8) {
@@ -1222,6 +1228,11 @@ pub const LibExeObjStep = struct {
             %%zig_args.append("--pkg-end");
         }
 
+        for (self.include_dirs.toSliceConst()) |include_path| {
+            %%zig_args.append("-isystem");
+            %%zig_args.append(self.builder.pathFromRoot(include_path));
+        }
+
         for (builder.include_paths.toSliceConst()) |include_path| {
             %%zig_args.append("-isystem");
             %%zig_args.append(builder.pathFromRoot(include_path));
@@ -1230,6 +1241,11 @@ pub const LibExeObjStep = struct {
         for (builder.rpaths.toSliceConst()) |rpath| {
             %%zig_args.append("-rpath");
             %%zig_args.append(rpath);
+        }
+
+        for (self.lib_paths.toSliceConst()) |lib_path| {
+            %%zig_args.append("--library-path");
+            %%zig_args.append(lib_path);
         }
 
         for (builder.lib_paths.toSliceConst()) |lib_path| {
