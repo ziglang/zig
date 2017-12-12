@@ -95,7 +95,7 @@ fn findLLVM(b: &Builder) -> LibraryDep {
     const llvm_config_exe = b.findProgram(
         [][]const u8{"llvm-config-5.0", "llvm-config"},
         [][]const u8{
-            "/usr/local/opt/llvm@5/",
+            "/usr/local/opt/llvm@5/bin",
             "/mingw64/bin",
             "/c/msys64/mingw64/bin",
             "c:/msys64/mingw64/bin",
