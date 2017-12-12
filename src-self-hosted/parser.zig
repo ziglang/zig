@@ -18,6 +18,7 @@ pub const Parser = struct {
     put_back_tokens: [2]Token,
     put_back_count: usize,
     source_file_name: []const u8,
+    cleanup_root_node: ?&ast.NodeRoot,
 
     // This memory contents are used only during a function call. It's used to repurpose memory;
     // specifically so that freeAst can be guaranteed to succeed.
@@ -32,10 +33,12 @@ pub const Parser = struct {
             .put_back_count = 0,
             .source_file_name = source_file_name,
             .utility_bytes = []align(utility_bytes_align) u8{},
+            .cleanup_root_node = null,
         };
     }
 
     pub fn deinit(self: &Parser) {
+        assert(self.cleanup_root_node == null);
         self.allocator.free(self.utility_bytes);
     }
 
@@ -115,13 +118,29 @@ pub const Parser = struct {
     }
 
     pub fn parse(self: &Parser) -> %&ast.NodeRoot {
+        const result = self.parseInner() %% |err| {
+            if (self.cleanup_root_node) |root_node| {
+                self.freeAst(root_node);
+            }
+            err
+        };
+        self.cleanup_root_node = null;
+        return result;
+    }
+
+    pub fn parseInner(self: &Parser) -> %&ast.NodeRoot {
         var stack = self.initUtilityArrayList(State);
         defer self.deinitUtilityArrayList(stack);
 
-        const root_node = %return self.createRoot();
-        %defer self.allocator.destroy(root_node);
-        %return stack.append(State.TopLevel);
-        %defer self.freeAst(root_node);
+        const root_node = {
+            const root_node = %return self.createRoot();
+            %defer self.allocator.destroy(root_node);
+            // This stack append has to succeed for freeAst to work
+            %return stack.append(State.TopLevel);
+            root_node
+        };
+        assert(self.cleanup_root_node == null);
+        self.cleanup_root_node = root_node;
 
         while (true) {
             //{
@@ -1063,11 +1082,15 @@ pub const Parser = struct {
         const new_byte_count = self.utility_bytes.len - self.utility_bytes.len % @sizeOf(T);
         self.utility_bytes = self.allocator.alignedShrink(u8, utility_bytes_align, self.utility_bytes, new_byte_count);
         const typed_slice = ([]T)(self.utility_bytes);
-        return ArrayList(T).fromOwnedSlice(self.allocator, typed_slice);
+        return ArrayList(T) {
+            .allocator = self.allocator,
+            .items = typed_slice,
+            .len = 0,
+        };
     }
 
     fn deinitUtilityArrayList(self: &Parser, list: var) {
-        self.utility_bytes = ([]align(utility_bytes_align) u8)(list.toOwnedSlice());
+        self.utility_bytes = ([]align(utility_bytes_align) u8)(list.items);
     }
 
 };

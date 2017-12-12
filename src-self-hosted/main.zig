@@ -8,6 +8,7 @@ const warn = std.debug.warn;
 const Tokenizer = @import("tokenizer.zig").Tokenizer;
 const Token = @import("tokenizer.zig").Token;
 const Parser = @import("parser.zig").Parser;
+const assert = std.debug.assert;
 
 pub fn main() -> %void {
     main2() %% |err| {
@@ -68,28 +69,48 @@ pub fn main2() -> %void {
 
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
-fn testCanonical(source: []const u8) {
-    var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-    const allocator = &fixed_allocator.allocator;
-
+fn testParse(source: []const u8, allocator: &mem.Allocator) -> %[]u8 {
     var tokenizer = Tokenizer.init(source);
     var parser = Parser.init(&tokenizer, allocator, "(memory buffer)");
     defer parser.deinit();
 
-    const root_node = parser.parse() %% unreachable;
+    const root_node = %return parser.parse();
     defer parser.freeAst(root_node);
 
-    var buffer = std.Buffer.initSize(allocator, 0) %% unreachable;
+    var buffer = %return std.Buffer.initSize(allocator, 0);
     var buffer_out_stream = io.BufferOutStream.init(&buffer);
-    parser.renderSource(&buffer_out_stream.stream, root_node) %% unreachable;
+    %return parser.renderSource(&buffer_out_stream.stream, root_node);
+    return buffer.toOwnedSlice();
+}
 
-    if (!mem.eql(u8, buffer.toSliceConst(), source)) {
-        warn("\n====== expected this output: =========\n");
-        warn("{}", source);
-        warn("\n======== instead found this: =========\n");
-        warn("{}", buffer.toSliceConst());
-        warn("\n======================================\n");
-        @panic("test failed");
+fn testCanonical(source: []const u8) {
+    const needed_alloc_count = {
+        // Try it once with unlimited memory, make sure it works
+        var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+        var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, @maxValue(usize));
+        const result_source = testParse(source, &failing_allocator.allocator) %% @panic("test failed");
+        if (!mem.eql(u8, result_source, source)) {
+            warn("\n====== expected this output: =========\n");
+            warn("{}", source);
+            warn("\n======== instead found this: =========\n");
+            warn("{}", result_source);
+            warn("\n======================================\n");
+            @panic("test failed");
+        }
+        failing_allocator.allocator.free(result_source);
+        failing_allocator.index
+    };
+
+    var fail_index = needed_alloc_count;
+    while (fail_index != 0) {
+        fail_index -= 1;
+        var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+        var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, fail_index);
+        if (testParse(source, &failing_allocator.allocator)) |_| {
+            @panic("non-deterministic memory usage");
+        } else |err| {
+            assert(err == error.OutOfMemory);
+        }
     }
 }
 
