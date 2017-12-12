@@ -96,9 +96,9 @@ fn findLLVM(b: &Builder) -> LibraryDep {
         const args1 = [][]const u8{"llvm-config-5.0", "--libs", "--system-libs"};
         const args2 = [][]const u8{"llvm-config", "--libs", "--system-libs"};
         const max_output_size = 10 * 1024;
-        const good_result = exec(b.allocator, args1, null, null, max_output_size) %% |err| {
+        const good_result = os.ChildProcess.exec(b.allocator, args1, null, null, max_output_size) %% |err| {
             if (err == error.FileNotFound) {
-                exec(b.allocator, args2, null, null, max_output_size) %% |err2| {
+                os.ChildProcess.exec(b.allocator, args2, null, null, max_output_size) %% |err2| {
                     std.debug.panic("unable to spawn {}: {}\n", args2[0], err2);
                 }
             } else {
@@ -121,9 +121,9 @@ fn findLLVM(b: &Builder) -> LibraryDep {
         const args1 = [][]const u8{"llvm-config-5.0", "--includedir"};
         const args2 = [][]const u8{"llvm-config", "--includedir"};
         const max_output_size = 10 * 1024;
-        const good_result = exec(b.allocator, args1, null, null, max_output_size) %% |err| {
+        const good_result = os.ChildProcess.exec(b.allocator, args1, null, null, max_output_size) %% |err| {
             if (err == error.FileNotFound) {
-                exec(b.allocator, args2, null, null, max_output_size) %% |err2| {
+                os.ChildProcess.exec(b.allocator, args2, null, null, max_output_size) %% |err2| {
                     std.debug.panic("unable to spawn {}: {}\n", args2[0], err2);
                 }
             } else {
@@ -146,9 +146,9 @@ fn findLLVM(b: &Builder) -> LibraryDep {
         const args1 = [][]const u8{"llvm-config-5.0", "--libdir"};
         const args2 = [][]const u8{"llvm-config", "--libdir"};
         const max_output_size = 10 * 1024;
-        const good_result = exec(b.allocator, args1, null, null, max_output_size) %% |err| {
+        const good_result = os.ChildProcess.exec(b.allocator, args1, null, null, max_output_size) %% |err| {
             if (err == error.FileNotFound) {
-                exec(b.allocator, args2, null, null, max_output_size) %% |err2| {
+                os.ChildProcess.exec(b.allocator, args2, null, null, max_output_size) %% |err2| {
                     std.debug.panic("unable to spawn {}: {}\n", args2[0], err2);
                 }
             } else {
@@ -202,42 +202,4 @@ fn findLLVM(b: &Builder) -> LibraryDep {
         }
     }
     return result;
-}
-
-
-// TODO move to std lib
-const ExecResult = struct {
-    term: os.ChildProcess.Term,
-    stdout: []u8,
-    stderr: []u8,
-};
-
-fn exec(allocator: &std.mem.Allocator, argv: []const []const u8, cwd: ?[]const u8, env_map: ?&const BufMap, max_output_size: usize) -> %ExecResult {
-    const child = %%os.ChildProcess.init(argv, allocator);
-    defer child.deinit();
-
-    child.stdin_behavior = os.ChildProcess.StdIo.Ignore;
-    child.stdout_behavior = os.ChildProcess.StdIo.Pipe;
-    child.stderr_behavior = os.ChildProcess.StdIo.Pipe;
-    child.cwd = cwd;
-    child.env_map = env_map;
-
-    %return child.spawn();
-
-    var stdout = Buffer.initNull(allocator);
-    var stderr = Buffer.initNull(allocator);
-    defer Buffer.deinit(&stdout);
-    defer Buffer.deinit(&stderr);
-
-    var stdout_file_in_stream = io.FileInStream.init(&??child.stdout);
-    var stderr_file_in_stream = io.FileInStream.init(&??child.stderr);
-
-    %return stdout_file_in_stream.stream.readAllBuffer(&stdout, max_output_size);
-    %return stderr_file_in_stream.stream.readAllBuffer(&stderr, max_output_size);
-
-    return ExecResult {
-        .term = %return child.wait(),
-        .stdout = stdout.toOwnedSlice(),
-        .stderr = stderr.toOwnedSlice(),
-    };
 }

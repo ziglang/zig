@@ -5,7 +5,6 @@ const os = std.os;
 const posix = os.posix;
 const windows = os.windows;
 const mem = std.mem;
-const Allocator = mem.Allocator;
 const debug = std.debug;
 const assert = debug.assert;
 const BufMap = std.BufMap;
@@ -74,7 +73,7 @@ pub const ChildProcess = struct {
 
     /// First argument in argv is the executable.
     /// On success must call deinit.
-    pub fn init(argv: []const []const u8, allocator: &Allocator) -> %&ChildProcess {
+    pub fn init(argv: []const []const u8, allocator: &mem.Allocator) -> %&ChildProcess {
         const child = %return allocator.create(ChildProcess);
         %defer allocator.destroy(child);
 
@@ -178,6 +177,46 @@ pub const ChildProcess = struct {
         } else {
             return self.waitPosix();
         }
+    }
+
+    pub const ExecResult = struct {
+        term: os.ChildProcess.Term,
+        stdout: []u8,
+        stderr: []u8,
+    };
+
+    /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
+    /// If it succeeds, the caller owns result.stdout and result.stderr memory.
+    pub fn exec(allocator: &mem.Allocator, argv: []const []const u8, cwd: ?[]const u8,
+        env_map: ?&const BufMap, max_output_size: usize) -> %ExecResult
+    {
+        const child = %%ChildProcess.init(argv, allocator);
+        defer child.deinit();
+
+        child.stdin_behavior = ChildProcess.StdIo.Ignore;
+        child.stdout_behavior = ChildProcess.StdIo.Pipe;
+        child.stderr_behavior = ChildProcess.StdIo.Pipe;
+        child.cwd = cwd;
+        child.env_map = env_map;
+
+        %return child.spawn();
+
+        var stdout = Buffer.initNull(allocator);
+        var stderr = Buffer.initNull(allocator);
+        defer Buffer.deinit(&stdout);
+        defer Buffer.deinit(&stderr);
+
+        var stdout_file_in_stream = io.FileInStream.init(&??child.stdout);
+        var stderr_file_in_stream = io.FileInStream.init(&??child.stderr);
+
+        %return stdout_file_in_stream.stream.readAllBuffer(&stdout, max_output_size);
+        %return stderr_file_in_stream.stream.readAllBuffer(&stderr, max_output_size);
+
+        return ExecResult {
+            .term = %return child.wait(),
+            .stdout = stdout.toOwnedSlice(),
+            .stderr = stderr.toOwnedSlice(),
+        };
     }
 
     fn waitWindows(self: &ChildProcess) -> %Term {
@@ -589,6 +628,7 @@ pub const ChildProcess = struct {
             StdIo.Ignore => %return os.posixDup2(dev_null_fd, std_fileno),
         }
     }
+
 };
 
 fn windowsCreateProcess(app_name: &u8, cmd_line: &u8, envp_ptr: ?&u8, cwd_ptr: ?&u8,
@@ -611,7 +651,7 @@ fn windowsCreateProcess(app_name: &u8, cmd_line: &u8, envp_ptr: ?&u8, cwd_ptr: ?
 
 /// Caller must dealloc.
 /// Guarantees a null byte at result[result.len].
-fn windowsCreateCommandLine(allocator: &Allocator, argv: []const []const u8) -> %[]u8 {
+fn windowsCreateCommandLine(allocator: &mem.Allocator, argv: []const []const u8) -> %[]u8 {
     var buf = %return Buffer.initSize(allocator, 0);
     defer buf.deinit();
 
