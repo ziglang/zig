@@ -673,6 +673,7 @@ pub const Builder = struct {
     }
 
     pub fn findProgram(self: &Builder, names: []const []const u8, paths: []const []const u8) -> %[]const u8 {
+        const exe_extension = (Target { .Native = {}}).exeFileExt();
         if (self.env_map.get("PATH")) |PATH| {
             for (names) |name| {
                 if (os.path.isAbsolute(name)) {
@@ -680,7 +681,7 @@ pub const Builder = struct {
                 }
                 var it = mem.split(PATH, []u8{os.path.delimiter});
                 while (it.next()) |path| {
-                    const full_path = %return os.path.join(self.allocator, path, name);
+                    const full_path = %return os.path.join(self.allocator, path, self.fmt("{}{}", name, exe_extension));
                     if (os.path.real(self.allocator, full_path)) |real_path| {
                         return real_path;
                     } else |_| {
@@ -694,7 +695,7 @@ pub const Builder = struct {
                 return name;
             }
             for (paths) |path| {
-                const full_path = %return os.path.join(self.allocator, path, name);
+                const full_path = %return os.path.join(self.allocator, path, self.fmt("{}{}", name, exe_extension));
                 if (os.path.real(self.allocator, full_path)) |real_path| {
                     return real_path;
                 } else |_| {
@@ -902,7 +903,7 @@ pub const LibExeObjStep = struct {
             .kind = kind,
             .root_src = root_src,
             .name = name,
-            .target = Target { .Native = {} },
+            .target = Target.Native,
             .linker_script = null,
             .link_libs = BufSet.init(builder.allocator),
             .frameworks = BufSet.init(builder.allocator),
@@ -938,7 +939,7 @@ pub const LibExeObjStep = struct {
             .kind = kind,
             .version = *version,
             .static = static,
-            .target = Target { .Native = {} },
+            .target = Target.Native,
             .cflags = ArrayList([]const u8).init(builder.allocator),
             .source_files = ArrayList([]const u8).init(builder.allocator),
             .object_files = ArrayList([]const u8).init(builder.allocator),
