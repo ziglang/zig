@@ -113,6 +113,7 @@ pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty
                 .debug_abbrev = undefined,
                 .debug_str = undefined,
                 .debug_line = undefined,
+                .debug_ranges = null,
                 .abbrev_table_list = ArrayList(AbbrevTableHeader).init(allocator),
                 .compile_unit_list = ArrayList(CompileUnit).init(allocator),
             };
@@ -127,6 +128,7 @@ pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty
             st.debug_abbrev = (%return st.elf.findSection(".debug_abbrev")) ?? return error.MissingDebugInfo;
             st.debug_str = (%return st.elf.findSection(".debug_str")) ?? return error.MissingDebugInfo;
             st.debug_line = (%return st.elf.findSection(".debug_line")) ?? return error.MissingDebugInfo;
+            st.debug_ranges = (%return st.elf.findSection(".debug_ranges"));
             %return scanAllCompileUnits(st);
 
             var ignored_count: usize = 0;
@@ -144,7 +146,7 @@ pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty
                 // at compile time. I'll call it issue #313
                 const ptr_hex = if (@sizeOf(usize) == 4) "0x{x8}" else "0x{x16}";
 
-                const compile_unit = findCompileUnit(st, return_address) ?? {
+                const compile_unit = findCompileUnit(st, return_address) %% {
                     %return out_stream.print("???:?:?: " ++ DIM ++ ptr_hex ++ " in ??? (???)" ++ RESET ++ "\n    ???\n\n",
                         return_address);
                     continue;
@@ -233,6 +235,7 @@ const ElfStackTrace = struct {
     debug_abbrev: &elf.SectionHeader,
     debug_str: &elf.SectionHeader,
     debug_line: &elf.SectionHeader,
+    debug_ranges: ?&elf.SectionHeader,
     abbrev_table_list: ArrayList(AbbrevTableHeader),
     compile_unit_list: ArrayList(CompileUnit),
 
@@ -329,6 +332,15 @@ const Die = struct {
         const form_value = self.getAttr(id) ?? return error.MissingDebugInfo;
         return switch (*form_value) {
             FormValue.Address => |value| value,
+            else => error.InvalidDebugInfo,
+        };
+    }
+
+    fn getAttrSecOffset(self: &const Die, id: u64) -> %u64 {
+        const form_value = self.getAttr(id) ?? return error.MissingDebugInfo;
+        return switch (*form_value) {
+            FormValue.Const => |value| value.asUnsignedLe(),
+            FormValue.SecOffset => |value| value,
             else => error.InvalidDebugInfo,
         };
     }
@@ -900,14 +912,40 @@ fn scanAllCompileUnits(st: &ElfStackTrace) -> %void {
     }
 }
 
-fn findCompileUnit(st: &ElfStackTrace, target_address: u64) -> ?&const CompileUnit {
+fn findCompileUnit(st: &ElfStackTrace, target_address: u64) -> %&const CompileUnit {
+    var in_file_stream = io.FileInStream.init(&st.self_exe_file);
+    const in_stream = &in_file_stream.stream;
     for (st.compile_unit_list.toSlice()) |*compile_unit| {
         if (compile_unit.pc_range) |range| {
             if (target_address >= range.start and target_address < range.end)
                 return compile_unit;
         }
+        if (compile_unit.die.getAttrSecOffset(DW.AT_ranges)) |ranges_offset| {
+            var base_address: usize = 0;
+            if (st.debug_ranges) |debug_ranges| {
+                %return st.self_exe_file.seekTo(debug_ranges.offset + ranges_offset);
+                while (true) {
+                    const begin_addr = %return in_stream.readIntLe(usize);
+                    const end_addr = %return in_stream.readIntLe(usize);
+                    if (begin_addr == 0 and end_addr == 0) {
+                        break;
+                    }
+                    if (begin_addr == @maxValue(usize)) {
+                        base_address = begin_addr;
+                        continue;
+                    }
+                    if (target_address >= begin_addr and target_address < end_addr) {
+                        return compile_unit;
+                    }
+                }
+            }
+        } else |err| {
+            if (err != error.MissingDebugInfo)
+                return err;
+            continue;
+        }
     }
-    return null;
+    return error.MissingDebugInfo;
 }
 
 fn readInitialLength(in_stream: &io.InStream, is_64: &bool) -> %u64 {
