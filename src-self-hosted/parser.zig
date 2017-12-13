@@ -81,6 +81,7 @@ pub const Parser = struct {
         MultiplyExpression: DestPtr,
         BraceSuffixExpression: DestPtr,
         PrefixOpExpression: DestPtr,
+        AddrOfModifiers: &ast.NodeAddrOfExpr,
         SuffixOpExpression: DestPtr,
         PrimaryExpression: DestPtr,
         TypeExpr: DestPtr,
@@ -350,30 +351,51 @@ pub const Parser = struct {
 
                 State.PrefixOpExpression => |dest_ptr| {
                     const first_token = self.getNextToken();
-                    if (first_token.id == Token.Id.Ampersand) {
-                        const addr_of_expr = %return self.createAttachAddrOfExpr(dest_ptr, first_token);
-                        var token = self.getNextToken();
-                        if (token.id == Token.Id.Keyword_align) {
-                            @panic("TODO align");
-                        }
-                        if (token.id == Token.Id.Keyword_const) {
-                            addr_of_expr.const_token = token;
-                            token = self.getNextToken();
-                        }
-                        if (token.id == Token.Id.Keyword_volatile) {
-                            addr_of_expr.volatile_token = token;
-                            token = self.getNextToken();
-                        }
-                        self.putBackToken(token);
-                        stack.append(State {
-                            .PrefixOpExpression = DestPtr { .Field = &addr_of_expr.op_expr},
-                        }) %% unreachable;
-                        continue;
+                    switch (first_token.id) {
+                        Token.Id.Ampersand => {
+                            const addr_of_expr = %return self.createAttachAddrOfExpr(dest_ptr, first_token);
+                            stack.append(State { .AddrOfModifiers = addr_of_expr }) %% unreachable;
+                            continue;
+                        },
+                        else => {
+                            self.putBackToken(first_token);
+                            stack.append(State { .SuffixOpExpression = dest_ptr }) %% unreachable;
+                            continue;
+                        },
                     }
+                },
 
-                    self.putBackToken(first_token);
-                    stack.append(State { .SuffixOpExpression = dest_ptr }) %% unreachable;
-                    continue;
+                State.AddrOfModifiers => |addr_of_expr| {
+                    var token = self.getNextToken();
+                    switch (token.id) {
+                        Token.Id.Keyword_align => {
+                            stack.append(State { .AddrOfModifiers = addr_of_expr }) %% unreachable;
+                            if (addr_of_expr.align_expr != null) return self.parseError(token, "multiple align qualifiers");
+                            _ = %return self.eatToken(Token.Id.LParen);
+                            %return stack.append(State { .ExpectToken = Token.Id.RParen });
+                            %return stack.append(State { .Expression = DestPtr{.NullableField = &addr_of_expr.align_expr} });
+                            continue;
+                        },
+                        Token.Id.Keyword_const => {
+                            if (addr_of_expr.const_token != null) return self.parseError(token, "duplicate qualifier: const");
+                            addr_of_expr.const_token = token;
+                            stack.append(State { .AddrOfModifiers = addr_of_expr }) %% unreachable;
+                            continue;
+                        },
+                        Token.Id.Keyword_volatile => {
+                            if (addr_of_expr.volatile_token != null) return self.parseError(token, "duplicate qualifier: volatile");
+                            addr_of_expr.volatile_token = token;
+                            stack.append(State { .AddrOfModifiers = addr_of_expr }) %% unreachable;
+                            continue;
+                        },
+                        else => {
+                            self.putBackToken(token);
+                            stack.append(State {
+                                .PrefixOpExpression = DestPtr { .Field = &addr_of_expr.op_expr},
+                            }) %% unreachable;
+                            continue;
+                        },
+                    }
                 },
 
                 State.SuffixOpExpression => |dest_ptr| {
@@ -997,7 +1019,7 @@ pub const Parser = struct {
 
                         if (addr_of_expr.align_expr) |align_expr| {
                             %return stream.print("align(");
-                            %return stack.append(RenderState { .Text = ")"});
+                            %return stack.append(RenderState { .Text = ") "});
                             %return stack.append(RenderState { .Expression = align_expr});
                         }
                     },
@@ -1187,6 +1209,18 @@ test "zig fmt" {
         \\fn foo(argc: c_int, argv: &&u8) -> c_int {
         \\    return 0;
         \\}
+        \\
+    );
+
+    testCanonical(
+        \\extern fn f1(s: &align(&u8) u8) -> c_int;
+        \\
+    );
+
+    testCanonical(
+        \\extern fn f1(s: &&align(1) &const &volatile u8) -> c_int;
+        \\extern fn f2(s: &align(1) const &align(1) volatile &const volatile u8) -> c_int;
+        \\extern fn f3(s: &align(1) const volatile u8) -> c_int;
         \\
     );
 }
