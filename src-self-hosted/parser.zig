@@ -68,7 +68,12 @@ pub const Parser = struct {
         TopLevelExtern: ?Token,
         TopLevelDecl: TopLevelDeclCtx,
         Expression: DestPtr,
-        AddrOfModifiers: &ast.NodeAddrOfExpr,
+        ExpectOperand,
+        Operand: &ast.Node,
+        AfterOperand,
+        InfixOp: &ast.NodeInfixOp,
+        PrefixOp: &ast.NodePrefixOp,
+        AddrOfModifiers: &ast.NodePrefixOp.AddrOfInfo,
         TypeExpr: DestPtr,
         VarDecl: &ast.NodeVarDecl,
         VarDeclAlign: &ast.NodeVarDecl,
@@ -265,63 +270,140 @@ pub const Parser = struct {
                     _ = %return self.eatToken(token_id);
                     continue;
                 },
+
                 State.Expression => |dest_ptr| {
+                    // save the dest_ptr for later
+                    stack.append(state) %% unreachable;
+                    %return stack.append(State.ExpectOperand);
+                    continue;
+                },
+                State.ExpectOperand => {
+                    // we'll either get an operand (like 1 or x),
+                    // or a prefix operator (like ~ or return).
                     const token = self.getNextToken();
                     switch (token.id) {
                         Token.Id.Keyword_return => {
-                            const return_node = %return self.createAttachReturn(dest_ptr, token);
-                            stack.append(State {.Expression = DestPtr {.Field = &return_node.expr} }) %% unreachable;
-                            continue;
-                        },
-                        Token.Id.Identifier => {
-                            _ = %return self.createAttachIdentifier(dest_ptr, token);
-                            continue;
-                        },
-                        Token.Id.IntegerLiteral => {
-                            _ = %return self.createAttachIntegerLiteral(dest_ptr, token);
-                            continue;
-                        },
-                        Token.Id.FloatLiteral => {
-                            _ = %return self.createAttachFloatLiteral(dest_ptr, token);
+                            %return stack.append(State { .PrefixOp = %return self.createPrefixOp(token,
+                                ast.NodePrefixOp.PrefixOp.Return) });
+                            %return stack.append(State.ExpectOperand);
                             continue;
                         },
                         Token.Id.Ampersand => {
-                            const addr_of_expr = %return self.createAttachAddrOfExpr(dest_ptr, token);
-                            stack.append(State { .AddrOfModifiers = addr_of_expr }) %% unreachable;
+                            const prefix_op = %return self.createPrefixOp(token, ast.NodePrefixOp.PrefixOp{
+                                .AddrOf = ast.NodePrefixOp.AddrOfInfo {
+                                    .align_expr = null,
+                                    .bit_offset_start_token = null,
+                                    .bit_offset_end_token = null,
+                                    .const_token = null,
+                                    .volatile_token = null,
+                                }
+                            });
+                            %return stack.append(State { .PrefixOp = prefix_op });
+                            %return stack.append(State.ExpectOperand);
+                            %return stack.append(State { .AddrOfModifiers = &prefix_op.op.AddrOf });
+                            continue;
+                        },
+                        Token.Id.Identifier => {
+                            %return stack.append(State {
+                                .Operand = &(%return self.createIdentifier(token)).base
+                            });
+                            %return stack.append(State.AfterOperand);
+                            continue;
+                        },
+                        Token.Id.IntegerLiteral => {
+                            %return stack.append(State {
+                                .Operand = &(%return self.createIntegerLiteral(token)).base
+                            });
+                            %return stack.append(State.AfterOperand);
+                            continue;
+                        },
+                        Token.Id.FloatLiteral => {
+                            %return stack.append(State {
+                                .Operand = &(%return self.createFloatLiteral(token)).base
+                            });
+                            %return stack.append(State.AfterOperand);
                             continue;
                         },
                         else => return self.parseError(token, "expected primary expression, found {}", @tagName(token.id)),
                     }
                 },
 
-                State.AddrOfModifiers => |addr_of_expr| {
+                State.AfterOperand => {
+                    // we'll either get an infix operator (like != or ^),
+                    // or a postfix operator (like () or {}),
+                    // otherwise this expression is done (like on a ; or else).
+                    var token = self.getNextToken();
+                    switch (token.id) {
+                        Token.Id.EqualEqual => {
+                            %return stack.append(State {
+                                .InfixOp = %return self.createInfixOp(token, ast.NodeInfixOp.InfixOp.EqualEqual)
+                            });
+                            %return stack.append(State.ExpectOperand);
+                            continue;
+                        },
+                        Token.Id.BangEqual => {
+                            %return stack.append(State {
+                                .InfixOp = %return self.createInfixOp(token, ast.NodeInfixOp.InfixOp.BangEqual)
+                            });
+                            %return stack.append(State.ExpectOperand);
+                            continue;
+                        },
+                        else => {
+                            // no postfix/infix operator after this operand.
+                            self.putBackToken(token);
+                            // reduce the stack
+                            var expression: &ast.Node = stack.pop().Operand;
+                            while (true) {
+                                switch (stack.pop()) {
+                                    State.Expression => |dest_ptr| {
+                                        // we're done
+                                        %return dest_ptr.store(expression);
+                                        break;
+                                    },
+                                    State.InfixOp => |infix_op| {
+                                        infix_op.rhs = expression;
+                                        infix_op.lhs = stack.pop().Operand;
+                                        expression = &infix_op.base;
+                                        continue;
+                                    },
+                                    State.PrefixOp => |prefix_op| {
+                                        prefix_op.rhs = expression;
+                                        expression = &prefix_op.base;
+                                        continue;
+                                    },
+                                    else => unreachable,
+                                }
+                            }
+                            continue;
+                        },
+                    }
+                },
+
+                State.AddrOfModifiers => |addr_of_info| {
                     var token = self.getNextToken();
                     switch (token.id) {
                         Token.Id.Keyword_align => {
-                            stack.append(State { .AddrOfModifiers = addr_of_expr }) %% unreachable;
-                            if (addr_of_expr.align_expr != null) return self.parseError(token, "multiple align qualifiers");
+                            stack.append(state) %% unreachable;
+                            if (addr_of_info.align_expr != null) return self.parseError(token, "multiple align qualifiers");
                             _ = %return self.eatToken(Token.Id.LParen);
                             %return stack.append(State { .ExpectToken = Token.Id.RParen });
-                            %return stack.append(State { .Expression = DestPtr{.NullableField = &addr_of_expr.align_expr} });
+                            %return stack.append(State { .Expression = DestPtr{.NullableField = &addr_of_info.align_expr} });
                             continue;
                         },
                         Token.Id.Keyword_const => {
-                            if (addr_of_expr.const_token != null) return self.parseError(token, "duplicate qualifier: const");
-                            addr_of_expr.const_token = token;
-                            stack.append(State { .AddrOfModifiers = addr_of_expr }) %% unreachable;
+                            stack.append(state) %% unreachable;
+                            if (addr_of_info.const_token != null) return self.parseError(token, "duplicate qualifier: const");
+                            addr_of_info.const_token = token;
                             continue;
                         },
                         Token.Id.Keyword_volatile => {
-                            if (addr_of_expr.volatile_token != null) return self.parseError(token, "duplicate qualifier: volatile");
-                            addr_of_expr.volatile_token = token;
-                            stack.append(State { .AddrOfModifiers = addr_of_expr }) %% unreachable;
+                            stack.append(state) %% unreachable;
+                            if (addr_of_info.volatile_token != null) return self.parseError(token, "duplicate qualifier: volatile");
+                            addr_of_info.volatile_token = token;
                             continue;
                         },
                         else => {
                             self.putBackToken(token);
-                            stack.append(State {
-                                .Expression = DestPtr { .Field = &addr_of_expr.op_expr},
-                            }) %% unreachable;
                             continue;
                         },
                     }
@@ -482,8 +564,14 @@ pub const Parser = struct {
                     %return stack.append(State { .Expression = DestPtr{.List = &block.statements} });
                     continue;
                 },
+
+                // These are data, not control flow.
+                State.InfixOp => unreachable,
+                State.PrefixOp => unreachable,
+                State.Operand => unreachable,
             }
-            unreachable;
+            @import("std").debug.panic("{}", @tagName(state));
+            //unreachable;
         }
     }
 
@@ -560,23 +648,6 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createAddrOfExpr(self: &Parser, op_token: &const Token) -> %&ast.NodeAddrOfExpr {
-        const node = %return self.allocator.create(ast.NodeAddrOfExpr);
-        %defer self.allocator.destroy(node);
-
-        *node = ast.NodeAddrOfExpr {
-            .base = ast.Node {.id = ast.Node.Id.AddrOfExpr},
-            .align_expr = null,
-            .op_token = *op_token,
-            .bit_offset_start_token = null,
-            .bit_offset_end_token = null,
-            .const_token = null,
-            .volatile_token = null,
-            .op_expr = undefined,
-        };
-        return node;
-    }
-
     fn createBlock(self: &Parser, begin_token: &const Token) -> %&ast.NodeBlock {
         const node = %return self.allocator.create(ast.NodeBlock);
         %defer self.allocator.destroy(node);
@@ -590,14 +661,29 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createReturn(self: &Parser, return_token: &const Token) -> %&ast.NodeReturn {
-        const node = %return self.allocator.create(ast.NodeReturn);
+    fn createInfixOp(self: &Parser, op_token: &const Token, op: &const ast.NodeInfixOp.InfixOp) -> %&ast.NodeInfixOp {
+        const node = %return self.allocator.create(ast.NodeInfixOp);
         %defer self.allocator.destroy(node);
 
-        *node = ast.NodeReturn {
-            .base = ast.Node {.id = ast.Node.Id.Return},
-            .return_token = *return_token,
-            .expr = undefined,
+        *node = ast.NodeInfixOp {
+            .base = ast.Node {.id = ast.Node.Id.InfixOp},
+            .op_token = *op_token,
+            .lhs = undefined,
+            .op = *op,
+            .rhs = undefined,
+        };
+        return node;
+    }
+
+    fn createPrefixOp(self: &Parser, op_token: &const Token, op: &const ast.NodePrefixOp.PrefixOp) -> %&ast.NodePrefixOp {
+        const node = %return self.allocator.create(ast.NodePrefixOp);
+        %defer self.allocator.destroy(node);
+
+        *node = ast.NodePrefixOp {
+            .base = ast.Node {.id = ast.Node.Id.PrefixOp},
+            .op_token = *op_token,
+            .op = *op,
+            .rhs = undefined,
         };
         return node;
     }
@@ -635,36 +721,8 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createAttachFloatLiteral(self: &Parser, dest_ptr: &const DestPtr, token: &const Token) -> %&ast.NodeFloatLiteral {
-        const node = %return self.createFloatLiteral(token);
-        %defer self.allocator.destroy(node);
-        %return dest_ptr.store(&node.base);
-        return node;
-    }
-
-    fn createAttachIntegerLiteral(self: &Parser, dest_ptr: &const DestPtr, token: &const Token) -> %&ast.NodeIntegerLiteral {
-        const node = %return self.createIntegerLiteral(token);
-        %defer self.allocator.destroy(node);
-        %return dest_ptr.store(&node.base);
-        return node;
-    }
-
     fn createAttachIdentifier(self: &Parser, dest_ptr: &const DestPtr, name_token: &const Token) -> %&ast.NodeIdentifier {
         const node = %return self.createIdentifier(name_token);
-        %defer self.allocator.destroy(node);
-        %return dest_ptr.store(&node.base);
-        return node;
-    }
-
-    fn createAttachReturn(self: &Parser, dest_ptr: &const DestPtr, return_token: &const Token) -> %&ast.NodeReturn {
-        const node = %return self.createReturn(return_token);
-        %defer self.allocator.destroy(node);
-        %return dest_ptr.store(&node.base);
-        return node;
-    }
-
-    fn createAttachAddrOfExpr(self: &Parser, dest_ptr: &const DestPtr, op_token: &const Token) -> %&ast.NodeAddrOfExpr {
-        const node = %return self.createAddrOfExpr(op_token);
         %defer self.allocator.destroy(node);
         %return dest_ptr.store(&node.base);
         return node;
@@ -783,7 +841,6 @@ pub const Parser = struct {
         ParamDecl: &ast.Node,
         Text: []const u8,
         Expression: &ast.Node,
-        AddrOfExprBit: &ast.NodeAddrOfExpr,
         VarDecl: &ast.NodeVarDecl,
         Statement: &ast.Node,
         PrintIndent,
@@ -912,17 +969,6 @@ pub const Parser = struct {
                         const identifier = @fieldParentPtr(ast.NodeIdentifier, "base", base);
                         %return stream.print("{}", self.tokenizer.getTokenSlice(identifier.name_token));
                     },
-                    ast.Node.Id.AddrOfExpr => {
-                        const addr_of_expr = @fieldParentPtr(ast.NodeAddrOfExpr, "base", base);
-                        %return stream.print("{}", self.tokenizer.getTokenSlice(addr_of_expr.op_token));
-                        %return stack.append(RenderState { .AddrOfExprBit = addr_of_expr});
-
-                        if (addr_of_expr.align_expr) |align_expr| {
-                            %return stream.print("align(");
-                            %return stack.append(RenderState { .Text = ") "});
-                            %return stack.append(RenderState { .Expression = align_expr});
-                        }
-                    },
                     ast.Node.Id.Block => {
                         const block = @fieldParentPtr(ast.NodeBlock, "base", base);
                         %return stream.write("{");
@@ -940,10 +986,43 @@ pub const Parser = struct {
                             %return stack.append(RenderState { .Text = "\n" });
                         }
                     },
-                    ast.Node.Id.Return => {
-                        const return_node = @fieldParentPtr(ast.NodeReturn, "base", base);
-                        %return stream.write("return ");
-                        %return stack.append(RenderState { .Expression = return_node.expr });
+                    ast.Node.Id.InfixOp => {
+                        const prefix_op_node = @fieldParentPtr(ast.NodeInfixOp, "base", base);
+                        %return stack.append(RenderState { .Expression = prefix_op_node.rhs });
+                        switch (prefix_op_node.op) {
+                            ast.NodeInfixOp.InfixOp.EqualEqual => {
+                                %return stack.append(RenderState { .Text = " == "});
+                            },
+                            ast.NodeInfixOp.InfixOp.BangEqual => {
+                                %return stack.append(RenderState { .Text = " != "});
+                            },
+                            else => unreachable,
+                        }
+                        %return stack.append(RenderState { .Expression = prefix_op_node.lhs });
+                    },
+                    ast.Node.Id.PrefixOp => {
+                        const prefix_op_node = @fieldParentPtr(ast.NodePrefixOp, "base", base);
+                        %return stack.append(RenderState { .Expression = prefix_op_node.rhs });
+                        switch (prefix_op_node.op) {
+                            ast.NodePrefixOp.PrefixOp.Return => {
+                                %return stream.write("return ");
+                            },
+                            ast.NodePrefixOp.PrefixOp.AddrOf => |addr_of_info| {
+                                %return stream.write("&");
+                                if (addr_of_info.volatile_token != null) {
+                                    %return stack.append(RenderState { .Text = "volatile "});
+                                }
+                                if (addr_of_info.const_token != null) {
+                                    %return stack.append(RenderState { .Text = "const "});
+                                }
+                                if (addr_of_info.align_expr) |align_expr| {
+                                    %return stream.print("align(");
+                                    %return stack.append(RenderState { .Text = ") "});
+                                    %return stack.append(RenderState { .Expression = align_expr});
+                                }
+                            },
+                            else => unreachable,
+                        }
                     },
                     ast.Node.Id.IntegerLiteral => {
                         const integer_literal = @fieldParentPtr(ast.NodeIntegerLiteral, "base", base);
@@ -954,21 +1033,6 @@ pub const Parser = struct {
                         %return stream.print("{}", self.tokenizer.getTokenSlice(float_literal.token));
                     },
                     else => unreachable,
-                },
-                RenderState.AddrOfExprBit => |addr_of_expr| {
-                    if (addr_of_expr.bit_offset_start_token) |bit_offset_start_token| {
-                        %return stream.print("{} ", self.tokenizer.getTokenSlice(bit_offset_start_token));
-                    }
-                    if (addr_of_expr.bit_offset_end_token) |bit_offset_end_token| {
-                        %return stream.print("{} ", self.tokenizer.getTokenSlice(bit_offset_end_token));
-                    }
-                    if (addr_of_expr.const_token) |const_token| {
-                        %return stream.print("{} ", self.tokenizer.getTokenSlice(const_token));
-                    }
-                    if (addr_of_expr.volatile_token) |volatile_token| {
-                        %return stream.print("{} ", self.tokenizer.getTokenSlice(volatile_token));
-                    }
-                    %return stack.append(RenderState { .Expression = addr_of_expr.op_expr});
                 },
                 RenderState.FnProtoRParen => |fn_proto| {
                     %return stream.print(")");
@@ -1126,6 +1190,14 @@ test "zig fmt" {
         \\extern fn f1(s: &&align(1) &const &volatile u8) -> c_int;
         \\extern fn f2(s: &align(1) const &align(1) volatile &const volatile u8) -> c_int;
         \\extern fn f3(s: &align(1) const volatile u8) -> c_int;
+        \\
+    );
+
+    testCanonical(
+        \\fn f1(a: bool, b: bool) -> bool {
+        \\    a != b;
+        \\    return a == b;
+        \\}
         \\
     );
 }

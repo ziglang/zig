@@ -71,7 +71,10 @@ pub const Token = struct {
         StringLiteral: StrLitKind,
         Eof,
         Builtin,
+        Bang,
         Equal,
+        EqualEqual,
+        BangEqual,
         LParen,
         RParen,
         Semicolon,
@@ -187,6 +190,8 @@ pub const Tokenizer = struct {
         C,
         StringLiteral,
         StringLiteralBackslash,
+        Equal,
+        Bang,
         Minus,
         Slash,
         LineComment,
@@ -232,9 +237,10 @@ pub const Tokenizer = struct {
                         result.id = Token.Id.Builtin;
                     },
                     '=' => {
-                        result.id = Token.Id.Equal;
-                        self.index += 1;
-                        break;
+                        state = State.Equal;
+                    },
+                    '!' => {
+                        state = State.Bang;
                     },
                     '(' => {
                         result.id = Token.Id.LParen;
@@ -353,6 +359,30 @@ pub const Tokenizer = struct {
                     '\n' => break, // Look for this error later.
                     else => {
                         state = State.StringLiteral;
+                    },
+                },
+
+                State.Bang => switch (c) {
+                    '=' => {
+                        result.id = Token.Id.BangEqual;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.id = Token.Id.Bang;
+                        break;
+                    },
+                },
+
+                State.Equal => switch (c) {
+                    '=' => {
+                        result.id = Token.Id.EqualEqual;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.id = Token.Id.Equal;
+                        break;
                     },
                 },
 

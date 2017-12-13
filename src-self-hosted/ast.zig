@@ -13,9 +13,9 @@ pub const Node = struct {
         Identifier,
         FnProto,
         ParamDecl,
-        AddrOfExpr,
         Block,
-        Return,
+        InfixOp,
+        PrefixOp,
         IntegerLiteral,
         FloatLiteral,
     };
@@ -27,9 +27,9 @@ pub const Node = struct {
             Id.Identifier => @fieldParentPtr(NodeIdentifier, "base", base).iterate(index),
             Id.FnProto => @fieldParentPtr(NodeFnProto, "base", base).iterate(index),
             Id.ParamDecl => @fieldParentPtr(NodeParamDecl, "base", base).iterate(index),
-            Id.AddrOfExpr => @fieldParentPtr(NodeAddrOfExpr, "base", base).iterate(index),
             Id.Block => @fieldParentPtr(NodeBlock, "base", base).iterate(index),
-            Id.Return => @fieldParentPtr(NodeReturn, "base", base).iterate(index),
+            Id.InfixOp => @fieldParentPtr(NodeInfixOp, "base", base).iterate(index),
+            Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).iterate(index),
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).iterate(index),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).iterate(index),
         };
@@ -42,9 +42,9 @@ pub const Node = struct {
             Id.Identifier => allocator.destroy(@fieldParentPtr(NodeIdentifier, "base", base)),
             Id.FnProto => allocator.destroy(@fieldParentPtr(NodeFnProto, "base", base)),
             Id.ParamDecl => allocator.destroy(@fieldParentPtr(NodeParamDecl, "base", base)),
-            Id.AddrOfExpr => allocator.destroy(@fieldParentPtr(NodeAddrOfExpr, "base", base)),
             Id.Block => allocator.destroy(@fieldParentPtr(NodeBlock, "base", base)),
-            Id.Return => allocator.destroy(@fieldParentPtr(NodeReturn, "base", base)),
+            Id.InfixOp => allocator.destroy(@fieldParentPtr(NodeInfixOp, "base", base)),
+            Id.PrefixOp => allocator.destroy(@fieldParentPtr(NodePrefixOp, "base", base)),
             Id.IntegerLiteral => allocator.destroy(@fieldParentPtr(NodeIntegerLiteral, "base", base)),
             Id.FloatLiteral => allocator.destroy(@fieldParentPtr(NodeFloatLiteral, "base", base)),
         };
@@ -170,31 +170,6 @@ pub const NodeParamDecl = struct {
     }
 };
 
-pub const NodeAddrOfExpr = struct {
-    base: Node,
-    op_token: Token,
-    align_expr: ?&Node,
-    bit_offset_start_token: ?Token,
-    bit_offset_end_token: ?Token,
-    const_token: ?Token,
-    volatile_token: ?Token,
-    op_expr: &Node,
-
-    pub fn iterate(self: &NodeAddrOfExpr, index: usize) -> ?&Node {
-        var i = index;
-
-        if (self.align_expr) |align_expr| {
-            if (i < 1) return align_expr;
-            i -= 1;
-        }
-
-        if (i < 1) return self.op_expr;
-        i -= 1;
-
-        return null;
-    }
-};
-
 pub const NodeBlock = struct {
     base: Node,
     begin_token: Token,
@@ -211,15 +186,68 @@ pub const NodeBlock = struct {
     }
 };
 
-pub const NodeReturn = struct {
+pub const NodeInfixOp = struct {
     base: Node,
-    return_token: Token,
-    expr: &Node,
+    op_token: Token,
+    lhs: &Node,
+    op: InfixOp,
+    rhs: &Node,
 
-    pub fn iterate(self: &NodeReturn, index: usize) -> ?&Node {
+    const InfixOp = enum {
+        EqualEqual,
+        BangEqual,
+    };
+
+    pub fn iterate(self: &NodeInfixOp, index: usize) -> ?&Node {
         var i = index;
 
-        if (i < 1) return self.expr;
+        if (i < 1) return self.lhs;
+        i -= 1;
+
+        switch (self.op) {
+            InfixOp.EqualEqual => {},
+            InfixOp.BangEqual => {},
+        }
+
+        if (i < 1) return self.rhs;
+        i -= 1;
+
+        return null;
+    }
+};
+
+pub const NodePrefixOp = struct {
+    base: Node,
+    op_token: Token,
+    op: PrefixOp,
+    rhs: &Node,
+
+    const PrefixOp = union(enum) {
+        Return,
+        AddrOf: AddrOfInfo,
+    };
+    const AddrOfInfo = struct {
+        align_expr: ?&Node,
+        bit_offset_start_token: ?Token,
+        bit_offset_end_token: ?Token,
+        const_token: ?Token,
+        volatile_token: ?Token,
+    };
+
+    pub fn iterate(self: &NodePrefixOp, index: usize) -> ?&Node {
+        var i = index;
+
+        switch (self.op) {
+            PrefixOp.Return => {},
+            PrefixOp.AddrOf => |addr_of_info| {
+                if (addr_of_info.align_expr) |align_expr| {
+                    if (i < 1) return align_expr;
+                    i -= 1;
+                }
+            },
+        }
+
+        if (i < 1) return self.rhs;
         i -= 1;
 
         return null;
