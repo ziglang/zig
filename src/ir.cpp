@@ -1191,6 +1191,8 @@ static IrInstruction *ir_build_var_decl(IrBuilder *irb, Scope *scope, AstNode *s
     if (align_value) ir_ref_instruction(align_value, irb->current_basic_block);
     ir_ref_instruction(init_value, irb->current_basic_block);
 
+    var->decl_instruction = &decl_var_instruction->base;
+
     return &decl_var_instruction->base;
 }
 
@@ -5108,9 +5110,7 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
     if (init_value == irb->codegen->invalid_instruction)
         return init_value;
 
-    IrInstruction *result = ir_build_var_decl(irb, scope, node, var, type_instruction, align_value, init_value);
-    var->decl_instruction = result;
-    return result;
+    return ir_build_var_decl(irb, scope, node, var, type_instruction, align_value, init_value);
 }
 
 static IrInstruction *ir_gen_while_expr(IrBuilder *irb, Scope *scope, AstNode *node) {

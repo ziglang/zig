@@ -8,6 +8,7 @@ comptime {
     _ = @import("cases/bool.zig");
     _ = @import("cases/bugs/394.zig");
     _ = @import("cases/bugs/655.zig");
+    _ = @import("cases/bugs/656.zig");
     _ = @import("cases/cast.zig");
     _ = @import("cases/const_slice_child.zig");
     _ = @import("cases/defer.zig");
