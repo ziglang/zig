@@ -42,7 +42,7 @@ const State = enum {
 
 // TODO look for code segments
 
-fn gen(in: &io.InStream, out: &const io.OutStream) {
+fn gen(in: &io.InStream, out: &io.OutStream) {
     var state = State.Start;
     while (true) {
         const byte = in.readByte() %% |err| {

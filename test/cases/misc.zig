@@ -504,7 +504,7 @@ test "@typeName" {
 
 test "volatile load and store" {
     var number: i32 = 1234;
-    const ptr = &volatile number;
+    const ptr = (&volatile i32)(&number);
     *ptr += 1;
     assert(*ptr == 1235);
 }

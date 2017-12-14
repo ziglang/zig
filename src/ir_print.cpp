@@ -886,8 +886,12 @@ static void ir_print_can_implicit_cast(IrPrint *irp, IrInstructionCanImplicitCas
 }
 
 static void ir_print_ptr_type_of(IrPrint *irp, IrInstructionPtrTypeOf *instruction) {
-    fprintf(irp->f, "&align ");
-    ir_print_other_instruction(irp, instruction->align_value);
+    fprintf(irp->f, "&");
+    if (instruction->align_value != nullptr) {
+        fprintf(irp->f, "align(");
+        ir_print_other_instruction(irp, instruction->align_value);
+        fprintf(irp->f, ")");
+    }
     const char *const_str = instruction->is_const ? "const " : "";
     const char *volatile_str = instruction->is_volatile ? "volatile " : "";
     fprintf(irp->f, ":%" PRIu32 ":%" PRIu32 " %s%s", instruction->bit_offset_start, instruction->bit_offset_end,

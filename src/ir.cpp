@@ -1025,7 +1025,7 @@ static IrInstruction *ir_build_ptr_type_of(IrBuilder *irb, Scope *scope, AstNode
     ptr_type_of_instruction->bit_offset_start = bit_offset_start;
     ptr_type_of_instruction->bit_offset_end = bit_offset_end;
 
-    ir_ref_instruction(align_value, irb->current_basic_block);
+    if (align_value) ir_ref_instruction(align_value, irb->current_basic_block);
     ir_ref_instruction(child_type, irb->current_basic_block);
 
     return &ptr_type_of_instruction->base;
@@ -4897,13 +4897,18 @@ static IrInstruction *ir_gen_address_of(IrBuilder *irb, Scope *scope, AstNode *n
     AstNode *expr_node = node->data.addr_of_expr.op_expr;
     AstNode *align_expr = node->data.addr_of_expr.align_expr;
 
-    if (align_expr == nullptr) {
+    if (align_expr == nullptr && !is_const && !is_volatile) {
         return ir_gen_node_extra(irb, expr_node, scope, make_lval_addr(is_const, is_volatile));
     }
 
-    IrInstruction *align_value = ir_gen_node(irb, align_expr, scope);
-    if (align_value == irb->codegen->invalid_instruction)
-        return align_value;
+    IrInstruction *align_value;
+    if (align_expr != nullptr) {
+        align_value = ir_gen_node(irb, align_expr, scope);
+        if (align_value == irb->codegen->invalid_instruction)
+            return align_value;
+    } else {
+        align_value = nullptr;
+    }
 
     IrInstruction *child_type = ir_gen_node(irb, expr_node, scope);
     if (child_type == irb->codegen->invalid_instruction)
@@ -15959,8 +15964,12 @@ static TypeTableEntry *ir_analyze_instruction_ptr_type_of(IrAnalyze *ira, IrInst
         return ira->codegen->builtin_types.entry_invalid;
 
     uint32_t align_bytes;
-    if (!ir_resolve_align(ira, instruction->align_value->other, &align_bytes))
-        return ira->codegen->builtin_types.entry_invalid;
+    if (instruction->align_value != nullptr) {
+        if (!ir_resolve_align(ira, instruction->align_value->other, &align_bytes))
+            return ira->codegen->builtin_types.entry_invalid;
+    } else {
+        align_bytes = get_abi_alignment(ira->codegen, child_type);
+    }
 
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
     out_val->data.x_type = get_pointer_to_type_extra(ira->codegen, child_type,
