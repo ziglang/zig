@@ -511,9 +511,8 @@ fn testWriteIntImpl() {
 
 pub fn min(comptime T: type, slice: []const T) -> T {
     var best = slice[0];
-    var i: usize = 1;
-    while (i < slice.len) : (i += 1) {
-        best = math.min(best, slice[i]);
+    for (slice[1..]) |item| {
+        best = math.min(best, item);
     }
     return best;
 }
@@ -524,9 +523,8 @@ test "mem.min" {
 
 pub fn max(comptime T: type, slice: []const T) -> T {
     var best = slice[0];
-    var i: usize = 1;
-    while (i < slice.len) : (i += 1) {
-        best = math.max(best, slice[i]);
+    for (slice[1..]) |item| {
+        best = math.max(best, item);
     }
     return best;
 }

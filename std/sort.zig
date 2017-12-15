@@ -1132,3 +1132,25 @@ fn fuzzTest(rng: &std.rand.Rand) {
         }
     }
 }
+
+pub fn min(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &const T)->bool) -> T {
+    var i: usize = 0;
+    var smallest = items[0];
+    for (items[1..]) |item| {
+        if (lessThan(item, smallest)) {
+            smallest = item;
+        }
+    }
+    return smallest;
+}
+
+pub fn max(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &const T)->bool) -> T {
+    var i: usize = 0;
+    var biggest = items[0];
+    for (items[1..]) |item| {
+        if (lessThan(biggest, item)) {
+            biggest = item;
+        }
+    }
+    return biggest;
+}
