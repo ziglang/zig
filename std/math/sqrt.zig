@@ -7,12 +7,34 @@
 
 const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
+const builtin = @import("builtin");
+const TypeId = builtin.TypeId;
 
-pub fn sqrt(x: var) -> @typeOf(x) {
+pub fn sqrt(x: var) -> (if (@typeId(@typeOf(x)) == TypeId.Int) @IntType(false, @typeOf(x).bit_count / 2) else @typeOf(x)) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(sqrt32, x),
-        f64 => @inlineCall(sqrt64, x),
+    switch (@typeId(T)) {
+        TypeId.FloatLiteral => {
+            return T(sqrt64(x))
+        },
+        TypeId.Float => {
+            return switch (T) {
+                f32 => sqrt32(x),
+                f64 => sqrt64(x),
+                else => @compileError("sqrt not implemented for " ++ @typeName(T)),
+            };
+        },
+        TypeId.IntLiteral => comptime {
+            if (x > @maxValue(u128)) {
+                @compileError("sqrt not implemented for comptime_int greater than 128 bits");
+            }
+            if (x < 0) {
+                @compileError("sqrt on negative number");
+            }
+            return T(sqrt_int(u128, x));
+        },
+        TypeId.Int => {
+            return sqrt_int(T, x);
+        },
         else => @compileError("sqrt not implemented for " ++ @typeName(T)),
     }
 }
@@ -273,4 +295,36 @@ test "math.sqrt64.special" {
     assert(sqrt64(-0.0) == -0.0);
     assert(math.isNan(sqrt64(-1.0)));
     assert(math.isNan(sqrt64(math.nan(f64))));
+}
+
+fn sqrt_int(comptime T: type, value: T) -> @IntType(false, T.bit_count / 2) {
+    var op = value;
+    var res: T = 0;
+    var one: T = 1 << (T.bit_count - 2);
+
+    // "one" starts at the highest power of four <= than the argument.
+    while (one > op) {
+        one >>= 2;
+    }
+
+    while (one != 0) {
+        if (op >= res + one) {
+            op -= res + one;
+            res += 2 * one;
+        }
+        res >>= 1;
+        one >>= 2;
+    }
+
+    const ResultType = @IntType(false, T.bit_count / 2);
+    return ResultType(res);
+}
+
+test "math.sqrt_int" {
+    assert(sqrt_int(u32, 3) == 1);
+    assert(sqrt_int(u32, 4) == 2);
+    assert(sqrt_int(u32, 5) == 2);
+    assert(sqrt_int(u32, 8) == 2);
+    assert(sqrt_int(u32, 9) == 3);
+    assert(sqrt_int(u32, 10) == 3);
 }

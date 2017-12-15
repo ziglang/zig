@@ -174,12 +174,6 @@ test "math" {
 }
 
 
-pub const Cmp = enum {
-    Less,
-    Equal,
-    Greater,
-};
-
 pub fn min(x: var, y: var) -> @typeOf(x + y) {
     if (x < y) x else y
 }
@@ -521,4 +515,29 @@ pub fn cast(comptime T: type, x: var) -> %T {
     } else {
         return T(x);
     }
+}
+
+pub fn floorPowerOfTwo(comptime T: type, value: T) -> T {
+    var x = value;
+
+    comptime var i = 1;
+    inline while(T.bit_count > i) : (i *= 2) {
+        x |= (x >> i);
+    }
+
+    return x - (x >> 1);
+}
+
+test "math.floorPowerOfTwo" {
+    testFloorPowerOfTwo();
+    comptime testFloorPowerOfTwo();
+}
+
+fn testFloorPowerOfTwo() {
+    assert(floorPowerOfTwo(u32, 63) == 32);
+    assert(floorPowerOfTwo(u32, 64) == 64);
+    assert(floorPowerOfTwo(u32, 65) == 64);
+    assert(floorPowerOfTwo(u4, 7) == 4);
+    assert(floorPowerOfTwo(u4, 8) == 8);
+    assert(floorPowerOfTwo(u4, 9) == 8);
 }

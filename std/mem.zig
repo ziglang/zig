@@ -527,3 +527,40 @@ pub fn max(comptime T: type, slice: []const T) -> T {
 test "mem.max" {
     assert(max(u8, "abcdefg") == 'g');
 }
+
+pub fn swap(comptime T: type, a: &T, b: &T) {
+    const tmp = *a;
+    *a = *b;
+    *b = tmp;
+}
+
+/// In-place order reversal of a slice
+pub fn reverse(comptime T: type, items: []T) {
+    var i: usize = 0;
+    const end = items.len / 2;
+    while (i < end) : (i += 1) {
+        swap(T, &items[i], &items[items.len - i - 1]);
+    }
+}
+
+test "std.mem.reverse" {
+    var arr = []i32{ 5, 3, 1, 2, 4 };
+    reverse(i32, arr[0..]);
+
+    assert(eql(i32, arr, []i32{ 4, 2, 1, 3, 5 }))
+}
+
+/// In-place rotation of the values in an array ([0 1 2 3] becomes [1 2 3 0] if we rotate by 1)
+/// Assumes 0 <= amount <= items.len
+pub fn rotate(comptime T: type, items: []T, amount: usize) {
+    reverse(T, items[0..amount]);
+    reverse(T, items[amount..]);
+    reverse(T, items);
+}
+
+test "std.mem.rotate" {
+    var arr = []i32{ 5, 3, 1, 2, 4 };
+    rotate(i32, arr[0..], 2);
+
+    assert(eql(i32, arr, []i32{ 1, 2, 4, 5, 3 }))
+}
