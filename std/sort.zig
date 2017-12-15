@@ -2,6 +2,7 @@ const std = @import("index.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
 const math = std.math;
+const builtin = @import("builtin");
 
 /// Stable in-place sort. O(n) best case, O(pow(n, 2)) worst case. O(1) memory (no allocator required).
 pub fn insertionSort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &const T)->bool) {
