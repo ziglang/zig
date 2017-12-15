@@ -3,8 +3,6 @@ const assert = debug.assert;
 const math = @import("math/index.zig");
 const builtin = @import("builtin");
 
-pub const Cmp = math.Cmp;
-
 pub const Allocator = struct {
     /// Allocate byte_count bytes and return them in a slice, with the
     /// slice's pointer aligned at least to alignment bytes.
@@ -166,17 +164,24 @@ pub fn set(comptime T: type, dest: []T, value: T) {
     for (dest) |*d| *d = value;
 }
 
-/// Return < 0, == 0, or > 0 if memory a is less than, equal to, or greater than,
-/// memory b, respectively.
-pub fn cmp(comptime T: type, a: []const T, b: []const T) -> Cmp {
-    const n = math.min(a.len, b.len);
+/// Returns true if lhs < rhs, false otherwise
+pub fn lessThan(comptime T: type, lhs: []const T, rhs: []const T) -> bool {
+    const n = math.min(lhs.len, rhs.len);
     var i: usize = 0;
     while (i < n) : (i += 1) {
-        if (a[i] == b[i]) continue;
-        return if (a[i] > b[i]) Cmp.Greater else if (a[i] < b[i]) Cmp.Less else Cmp.Equal;
+        if (lhs[i] == rhs[i]) continue;
+        return lhs[i] < rhs[i];
     }
 
-    return if (a.len > b.len) Cmp.Greater else if (a.len < b.len) Cmp.Less else Cmp.Equal;
+    return lhs.len < rhs.len;
+}
+
+test "mem.lessThan" {
+    assert(lessThan(u8, "abcd", "bee"));
+    assert(!lessThan(u8, "abc", "abc"));
+    assert(lessThan(u8, "abc", "abc0"));
+    assert(!lessThan(u8, "", ""));
+    assert(lessThan(u8, "", "a"));
 }
 
 /// Compares two slices and returns whether they are equal.
