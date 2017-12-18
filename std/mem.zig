@@ -3,6 +3,8 @@ const assert = debug.assert;
 const math = @import("math/index.zig");
 const builtin = @import("builtin");
 
+error OutOfMemory;
+
 pub const Allocator = struct {
     /// Allocate byte_count bytes and return them in a slice, with the
     /// slice's pointer aligned at least to alignment bytes.
