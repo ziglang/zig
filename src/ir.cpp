@@ -207,6 +207,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionDeclVar *) {
     return IrInstructionIdDeclVar;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionExport *) {
+    return IrInstructionIdExport;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionLoadPtr *) {
     return IrInstructionIdLoadPtr;
 }
@@ -521,14 +525,6 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionTypeName *) {
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionCanImplicitCast *) {
     return IrInstructionIdCanImplicitCast;
-}
-
-static constexpr IrInstructionId ir_instruction_id(IrInstructionSetGlobalSection *) {
-    return IrInstructionIdSetGlobalSection;
-}
-
-static constexpr IrInstructionId ir_instruction_id(IrInstructionSetGlobalLinkage *) {
-    return IrInstructionIdSetGlobalLinkage;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionDeclRef *) {
@@ -1203,6 +1199,24 @@ static IrInstruction *ir_build_var_decl_from(IrBuilder *irb, IrInstruction *old_
             old_instruction->source_node, var, var_type, align_value, init_value);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
+}
+
+static IrInstruction *ir_build_export(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *name, IrInstruction *target, IrInstruction *linkage)
+{
+    IrInstructionExport *export_instruction = ir_build_instruction<IrInstructionExport>(
+            irb, scope, source_node);
+    export_instruction->base.value.special = ConstValSpecialStatic;
+    export_instruction->base.value.type = irb->codegen->builtin_types.entry_void;
+    export_instruction->name = name;
+    export_instruction->target = target;
+    export_instruction->linkage = linkage;
+
+    ir_ref_instruction(name, irb->current_basic_block);
+    ir_ref_instruction(target, irb->current_basic_block);
+    if (linkage) ir_ref_instruction(linkage, irb->current_basic_block);
+
+    return &export_instruction->base;
 }
 
 static IrInstruction *ir_build_load_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *ptr) {
@@ -2159,32 +2173,6 @@ static IrInstruction *ir_build_can_implicit_cast(IrBuilder *irb, Scope *scope, A
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_set_global_section(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        Tld *tld, IrInstruction *value)
-{
-    IrInstructionSetGlobalSection *instruction = ir_build_instruction<IrInstructionSetGlobalSection>(
-            irb, scope, source_node);
-    instruction->tld = tld;
-    instruction->value = value;
-
-    ir_ref_instruction(value, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
-static IrInstruction *ir_build_set_global_linkage(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        Tld *tld, IrInstruction *value)
-{
-    IrInstructionSetGlobalLinkage *instruction = ir_build_instruction<IrInstructionSetGlobalLinkage>(
-            irb, scope, source_node);
-    instruction->tld = tld;
-    instruction->value = value;
-
-    ir_ref_instruction(value, irb->current_basic_block);
-
-    return &instruction->base;
-}
-
 static IrInstruction *ir_build_decl_ref(IrBuilder *irb, Scope *scope, AstNode *source_node,
         Tld *tld, LVal lval)
 {
@@ -2390,6 +2378,21 @@ static IrInstruction *ir_instruction_declvar_get_dep(IrInstructionDeclVar *instr
 
     if (instruction->var_type != nullptr) {
         if (index == 0) return instruction->var_type;
+        index -= 1;
+    }
+
+    return nullptr;
+}
+
+static IrInstruction *ir_instruction_export_get_dep(IrInstructionExport *instruction, size_t index) {
+    if (index < 1) return instruction->name;
+    index -= 1;
+
+    if (index < 1) return instruction->target;
+    index -= 1;
+
+    if (instruction->linkage != nullptr) {
+        if (index < 1) return instruction->linkage;
         index -= 1;
     }
 
@@ -2979,20 +2982,6 @@ static IrInstruction *ir_instruction_canimplicitcast_get_dep(IrInstructionCanImp
     }
 }
 
-static IrInstruction *ir_instruction_setglobalsection_get_dep(IrInstructionSetGlobalSection *instruction, size_t index) {
-    switch (index) {
-        case 0: return instruction->value;
-        default: return nullptr;
-    }
-}
-
-static IrInstruction *ir_instruction_setgloballinkage_get_dep(IrInstructionSetGlobalLinkage *instruction, size_t index) {
-    switch (index) {
-        case 0: return instruction->value;
-        default: return nullptr;
-    }
-}
-
 static IrInstruction *ir_instruction_declref_get_dep(IrInstructionDeclRef *instruction, size_t index) {
     return nullptr;
 }
@@ -3106,6 +3095,8 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_binop_get_dep((IrInstructionBinOp *) instruction, index);
         case IrInstructionIdDeclVar:
             return ir_instruction_declvar_get_dep((IrInstructionDeclVar *) instruction, index);
+        case IrInstructionIdExport:
+            return ir_instruction_export_get_dep((IrInstructionExport *) instruction, index);
         case IrInstructionIdLoadPtr:
             return ir_instruction_loadptr_get_dep((IrInstructionLoadPtr *) instruction, index);
         case IrInstructionIdStorePtr:
@@ -3264,10 +3255,6 @@ static IrInstruction *ir_instruction_get_dep(IrInstruction *instruction, size_t 
             return ir_instruction_typename_get_dep((IrInstructionTypeName *) instruction, index);
         case IrInstructionIdCanImplicitCast:
             return ir_instruction_canimplicitcast_get_dep((IrInstructionCanImplicitCast *) instruction, index);
-        case IrInstructionIdSetGlobalSection:
-            return ir_instruction_setglobalsection_get_dep((IrInstructionSetGlobalSection *) instruction, index);
-        case IrInstructionIdSetGlobalLinkage:
-            return ir_instruction_setgloballinkage_get_dep((IrInstructionSetGlobalLinkage *) instruction, index);
         case IrInstructionIdDeclRef:
             return ir_instruction_declref_get_dep((IrInstructionDeclRef *) instruction, index);
         case IrInstructionIdPanic:
@@ -4528,39 +4515,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 return ir_build_can_implicit_cast(irb, scope, node, arg0_value, arg1_value);
             }
-        case BuiltinFnIdSetGlobalSection:
-        case BuiltinFnIdSetGlobalLinkage:
-            {
-                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
-                if (arg0_node->type != NodeTypeSymbol) {
-                    add_node_error(irb->codegen, arg0_node, buf_sprintf("expected identifier"));
-                    return irb->codegen->invalid_instruction;
-                }
-                Buf *variable_name = arg0_node->data.symbol_expr.symbol;
-                Tld *tld = find_decl(irb->codegen, scope, variable_name);
-                if (!tld) {
-                    add_node_error(irb->codegen, node, buf_sprintf("use of undeclared identifier '%s'",
-                                buf_ptr(variable_name)));
-                    return irb->codegen->invalid_instruction;
-                }
-                if (tld->id != TldIdVar && tld->id != TldIdFn) {
-                    add_node_error(irb->codegen, node, buf_sprintf("'%s' must be global variable or function",
-                                buf_ptr(variable_name)));
-                    return irb->codegen->invalid_instruction;
-                }
-                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
-                if (arg1_value == irb->codegen->invalid_instruction)
-                    return arg1_value;
-
-                if (builtin_fn->id == BuiltinFnIdSetGlobalSection) {
-                    return ir_build_set_global_section(irb, scope, node, tld, arg1_value);
-                } else if (builtin_fn->id == BuiltinFnIdSetGlobalLinkage) {
-                    return ir_build_set_global_linkage(irb, scope, node, tld, arg1_value);
-                } else {
-                    zig_unreachable();
-                }
-            }
         case BuiltinFnIdPanic:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
@@ -4783,6 +4737,31 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg1_value;
 
                 return ir_build_arg_type(irb, scope, node, arg0_value, arg1_value);
+            }
+        case BuiltinFnIdExport:
+        case BuiltinFnIdExportWithLinkage:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                IrInstruction *arg2_value;
+                if (builtin_fn->id == BuiltinFnIdExportWithLinkage) {
+                    AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
+                    arg2_value = ir_gen_node(irb, arg2_node, scope);
+                    if (arg2_value == irb->codegen->invalid_instruction)
+                        return arg2_value;
+                } else {
+                    arg2_value = nullptr;
+                }
+
+                return ir_build_export(irb, scope, node, arg0_value, arg1_value, arg2_value);
             }
     }
     zig_unreachable();
@@ -5104,6 +5083,11 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
         align_value = ir_gen_node(irb, variable_declaration->align_expr, scope);
         if (align_value == irb->codegen->invalid_instruction)
             return align_value;
+    }
+
+    if (variable_declaration->section_expr != nullptr) {
+        add_node_error(irb->codegen, variable_declaration->section_expr,
+            buf_sprintf("cannot set section of local variable '%s'", buf_ptr(variable_declaration->symbol)));
     }
 
     IrInstruction *init_value = ir_gen_node(irb, variable_declaration->expr, scope);
@@ -6355,6 +6339,10 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeSwitchRange:
         case NodeTypeStructField:
         case NodeTypeLabel:
+        case NodeTypeFnDef:
+        case NodeTypeFnDecl:
+        case NodeTypeErrorValueDecl:
+        case NodeTypeTestDecl:
             zig_unreachable();
         case NodeTypeBlock:
             return ir_lval_wrap(irb, scope, ir_gen_block(irb, scope, node), lval);
@@ -6436,14 +6424,6 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_container_decl(irb, scope, node), lval);
         case NodeTypeFnProto:
             return ir_lval_wrap(irb, scope, ir_gen_fn_proto(irb, scope, node), lval);
-        case NodeTypeFnDef:
-            zig_panic("TODO IR gen NodeTypeFnDef");
-        case NodeTypeFnDecl:
-            zig_panic("TODO IR gen NodeTypeFnDecl");
-        case NodeTypeErrorValueDecl:
-            zig_panic("TODO IR gen NodeTypeErrorValueDecl");
-        case NodeTypeTestDecl:
-            zig_panic("TODO IR gen NodeTypeTestDecl");
     }
     zig_unreachable();
 }
@@ -10481,6 +10461,194 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
     return ira->codegen->builtin_types.entry_void;
 }
 
+static TypeTableEntry *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructionExport *instruction) {
+    IrInstruction *name = instruction->name->other;
+    Buf *symbol_name = ir_resolve_str(ira, name);
+    if (symbol_name == nullptr) {
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    IrInstruction *target = instruction->target->other;
+    if (type_is_invalid(target->value.type)) {
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    GlobalLinkageId global_linkage_id = GlobalLinkageIdStrong;
+    if (instruction->linkage != nullptr) {
+        IrInstruction *linkage_value = instruction->linkage->other;
+        if (!ir_resolve_global_linkage(ira, linkage_value, &global_linkage_id)) {
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+    }
+
+    auto entry = ira->codegen->exported_symbol_names.put_unique(symbol_name, instruction->base.source_node);
+    if (entry) {
+        AstNode *other_export_node = entry->value;
+        ErrorMsg *msg = ir_add_error(ira, &instruction->base,
+                buf_sprintf("exported symbol collision: '%s'", buf_ptr(symbol_name)));
+        add_error_note(ira->codegen, msg, other_export_node, buf_sprintf("other symbol is here"));
+    }
+
+    switch (target->value.type->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+        case TypeTableEntryIdUnreachable:
+            zig_unreachable();
+        case TypeTableEntryIdFn: {
+            FnTableEntry *fn_entry = target->value.data.x_fn.fn_entry;
+            CallingConvention cc = fn_entry->type_entry->data.fn.fn_type_id.cc;
+            switch (cc) {
+                case CallingConventionUnspecified: {
+                    ErrorMsg *msg = ir_add_error(ira, target,
+                        buf_sprintf("exported function must specify calling convention"));
+                    add_error_note(ira->codegen, msg, fn_entry->proto_node, buf_sprintf("declared here"));
+                } break;
+                case CallingConventionC:
+                    if (buf_eql_str(symbol_name, "main") && ira->codegen->libc_link_lib != nullptr) {
+                        ira->codegen->have_c_main = true;
+                        ira->codegen->windows_subsystem_windows = false;
+                        ira->codegen->windows_subsystem_console = true;
+                    } else if (buf_eql_str(symbol_name, "WinMain") &&
+                        ira->codegen->zig_target.os == ZigLLVM_Win32)
+                    {
+                        ira->codegen->have_winmain = true;
+                        ira->codegen->windows_subsystem_windows = true;
+                        ira->codegen->windows_subsystem_console = false;
+                    } else if (buf_eql_str(symbol_name, "WinMainCRTStartup") &&
+                        ira->codegen->zig_target.os == ZigLLVM_Win32)
+                    {
+                        ira->codegen->have_winmain_crt_startup = true;
+                    } else if (buf_eql_str(symbol_name, "DllMainCRTStartup") &&
+                        ira->codegen->zig_target.os == ZigLLVM_Win32)
+                    {
+                        ira->codegen->have_dllmain_crt_startup = true;
+                    }
+                    // fallthrough
+                case CallingConventionNaked:
+                case CallingConventionCold:
+                case CallingConventionStdcall: {
+                    FnExport *fn_export = fn_entry->export_list.add_one();
+                    memset(fn_export, 0, sizeof(FnExport));
+                    buf_init_from_buf(&fn_export->name, symbol_name);
+                    fn_export->linkage = global_linkage_id;
+                    fn_export->source_node = instruction->base.source_node;
+                } break;
+            }
+        } break;
+        case TypeTableEntryIdStruct:
+            if (is_slice(target->value.type)) {
+                ir_add_error(ira, target,
+                    buf_sprintf("unable to export value of type '%s'", buf_ptr(&target->value.type->name)));
+            } else if (target->value.type->data.structure.layout != ContainerLayoutExtern) {
+                ErrorMsg *msg = ir_add_error(ira, target,
+                    buf_sprintf("exported struct value must be declared extern"));
+                add_error_note(ira->codegen, msg, target->value.type->data.structure.decl_node, buf_sprintf("declared here"));
+            }
+            break;
+        case TypeTableEntryIdUnion:
+            if (target->value.type->data.unionation.layout != ContainerLayoutExtern) {
+                ErrorMsg *msg = ir_add_error(ira, target,
+                    buf_sprintf("exported union value must be declared extern"));
+                add_error_note(ira->codegen, msg, target->value.type->data.unionation.decl_node, buf_sprintf("declared here"));
+            }
+            break;
+        case TypeTableEntryIdEnum:
+            if (target->value.type->data.enumeration.layout != ContainerLayoutExtern) {
+                ErrorMsg *msg = ir_add_error(ira, target,
+                    buf_sprintf("exported enum value must be declared extern"));
+                add_error_note(ira->codegen, msg, target->value.type->data.enumeration.decl_node, buf_sprintf("declared here"));
+            }
+            break;
+        case TypeTableEntryIdMetaType: {
+            TypeTableEntry *type_value = target->value.data.x_type;
+            switch (type_value->id) {
+                case TypeTableEntryIdInvalid:
+                case TypeTableEntryIdVar:
+                    zig_unreachable();
+                case TypeTableEntryIdStruct:
+                    if (is_slice(type_value)) {
+                        ir_add_error(ira, target,
+                            buf_sprintf("unable to export type '%s'", buf_ptr(&type_value->name)));
+                    } else if (type_value->data.structure.layout != ContainerLayoutExtern) {
+                        ErrorMsg *msg = ir_add_error(ira, target,
+                            buf_sprintf("exported struct must be declared extern"));
+                        add_error_note(ira->codegen, msg, type_value->data.structure.decl_node, buf_sprintf("declared here"));
+                    }
+                    break;
+                case TypeTableEntryIdUnion:
+                    if (type_value->data.unionation.layout != ContainerLayoutExtern) {
+                        ErrorMsg *msg = ir_add_error(ira, target,
+                            buf_sprintf("exported union must be declared extern"));
+                        add_error_note(ira->codegen, msg, type_value->data.unionation.decl_node, buf_sprintf("declared here"));
+                    }
+                    break;
+                case TypeTableEntryIdEnum:
+                    if (type_value->data.enumeration.layout != ContainerLayoutExtern) {
+                        ErrorMsg *msg = ir_add_error(ira, target,
+                            buf_sprintf("exported enum must be declared extern"));
+                        add_error_note(ira->codegen, msg, type_value->data.enumeration.decl_node, buf_sprintf("declared here"));
+                    }
+                    break;
+                case TypeTableEntryIdFn: {
+                    if (type_value->data.fn.fn_type_id.cc == CallingConventionUnspecified) {
+                        ir_add_error(ira, target,
+                            buf_sprintf("exported function type must specify calling convention"));
+                    }
+                } break;
+                case TypeTableEntryIdInt:
+                case TypeTableEntryIdFloat:
+                case TypeTableEntryIdPointer:
+                case TypeTableEntryIdArray:
+                case TypeTableEntryIdBool:
+                    break;
+                case TypeTableEntryIdMetaType:
+                case TypeTableEntryIdVoid:
+                case TypeTableEntryIdUnreachable:
+                case TypeTableEntryIdNumLitFloat:
+                case TypeTableEntryIdNumLitInt:
+                case TypeTableEntryIdUndefLit:
+                case TypeTableEntryIdNullLit:
+                case TypeTableEntryIdMaybe:
+                case TypeTableEntryIdErrorUnion:
+                case TypeTableEntryIdPureError:
+                case TypeTableEntryIdNamespace:
+                case TypeTableEntryIdBlock:
+                case TypeTableEntryIdBoundFn:
+                case TypeTableEntryIdArgTuple:
+                case TypeTableEntryIdOpaque:
+                    ir_add_error(ira, target,
+                        buf_sprintf("invalid export target '%s'", buf_ptr(&type_value->name)));
+                    break;
+            }
+        } break;
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+            zig_panic("TODO export const value of type %s", buf_ptr(&target->value.type->name));
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdOpaque:
+            ir_add_error(ira, target,
+                    buf_sprintf("invalid export target type '%s'", buf_ptr(&target->value.type->name)));
+            break;
+    }
+
+    ir_build_const_from(ira, &instruction->base);
+    return ira->codegen->builtin_types.entry_void;
+}
+
 static bool ir_analyze_fn_call_inline_arg(IrAnalyze *ira, AstNode *fn_proto_node,
     IrInstruction *arg, Scope **exec_scope, size_t *next_proto_i)
 {
@@ -12397,102 +12565,6 @@ static TypeTableEntry *ir_analyze_instruction_ptr_type_child(IrAnalyze *ira,
     ConstExprValue *out_val = ir_build_const_from(ira, &ptr_type_child_instruction->base);
     out_val->data.x_type = type_entry->data.pointer.child_type;
     return ira->codegen->builtin_types.entry_type;
-}
-
-static TypeTableEntry *ir_analyze_instruction_set_global_section(IrAnalyze *ira,
-        IrInstructionSetGlobalSection *instruction)
-{
-    Tld *tld = instruction->tld;
-    IrInstruction *section_value = instruction->value->other;
-
-    resolve_top_level_decl(ira->codegen, tld, true, instruction->base.source_node);
-    if (tld->resolution == TldResolutionInvalid)
-        return ira->codegen->builtin_types.entry_invalid;
-
-    Buf *section_name = ir_resolve_str(ira, section_value);
-    if (!section_name)
-        return ira->codegen->builtin_types.entry_invalid;
-
-    AstNode **set_global_section_node;
-    Buf **section_name_ptr;
-    if (tld->id == TldIdVar) {
-        TldVar *tld_var = (TldVar *)tld;
-        set_global_section_node = &tld_var->set_global_section_node;
-        section_name_ptr = &tld_var->section_name;
-
-        if (tld_var->var->linkage == VarLinkageExternal) {
-            ErrorMsg *msg = ir_add_error(ira, &instruction->base,
-                    buf_sprintf("cannot set section of external variable '%s'", buf_ptr(&tld_var->var->name)));
-            add_error_note(ira->codegen, msg, tld->source_node, buf_sprintf("declared here"));
-            return ira->codegen->builtin_types.entry_invalid;
-        }
-    } else if (tld->id == TldIdFn) {
-        TldFn *tld_fn = (TldFn *)tld;
-        FnTableEntry *fn_entry = tld_fn->fn_entry;
-        set_global_section_node = &fn_entry->set_global_section_node;
-        section_name_ptr = &fn_entry->section_name;
-
-        if (fn_entry->def_scope == nullptr) {
-            ErrorMsg *msg = ir_add_error(ira, &instruction->base,
-                    buf_sprintf("cannot set section of external function '%s'", buf_ptr(&fn_entry->symbol_name)));
-            add_error_note(ira->codegen, msg, tld->source_node, buf_sprintf("declared here"));
-            return ira->codegen->builtin_types.entry_invalid;
-        }
-    } else {
-        // error is caught in pass1 IR gen
-        zig_unreachable();
-    }
-
-    AstNode *source_node = instruction->base.source_node;
-    if (*set_global_section_node) {
-        ErrorMsg *msg = ir_add_error_node(ira, source_node, buf_sprintf("section set twice"));
-        add_error_note(ira->codegen, msg, *set_global_section_node, buf_sprintf("first set here"));
-        return ira->codegen->builtin_types.entry_invalid;
-    }
-    *set_global_section_node = source_node;
-    *section_name_ptr = section_name;
-
-    ir_build_const_from(ira, &instruction->base);
-    return ira->codegen->builtin_types.entry_void;
-}
-
-static TypeTableEntry *ir_analyze_instruction_set_global_linkage(IrAnalyze *ira,
-        IrInstructionSetGlobalLinkage *instruction)
-{
-    Tld *tld = instruction->tld;
-    IrInstruction *linkage_value = instruction->value->other;
-
-    GlobalLinkageId linkage_scalar;
-    if (!ir_resolve_global_linkage(ira, linkage_value, &linkage_scalar))
-        return ira->codegen->builtin_types.entry_invalid;
-
-    AstNode **set_global_linkage_node;
-    GlobalLinkageId *dest_linkage_ptr;
-    if (tld->id == TldIdVar) {
-        TldVar *tld_var = (TldVar *)tld;
-        set_global_linkage_node = &tld_var->set_global_linkage_node;
-        dest_linkage_ptr = &tld_var->linkage;
-    } else if (tld->id == TldIdFn) {
-        TldFn *tld_fn = (TldFn *)tld;
-        FnTableEntry *fn_entry = tld_fn->fn_entry;
-        set_global_linkage_node = &fn_entry->set_global_linkage_node;
-        dest_linkage_ptr = &fn_entry->linkage;
-    } else {
-        // error is caught in pass1 IR gen
-        zig_unreachable();
-    }
-
-    AstNode *source_node = instruction->base.source_node;
-    if (*set_global_linkage_node) {
-        ErrorMsg *msg = ir_add_error_node(ira, source_node, buf_sprintf("linkage set twice"));
-        add_error_note(ira->codegen, msg, *set_global_linkage_node, buf_sprintf("first set here"));
-        return ira->codegen->builtin_types.entry_invalid;
-    }
-    *set_global_linkage_node = source_node;
-    *dest_linkage_ptr = linkage_scalar;
-
-    ir_build_const_from(ira, &instruction->base);
-    return ira->codegen->builtin_types.entry_void;
 }
 
 static TypeTableEntry *ir_analyze_instruction_set_debug_safety(IrAnalyze *ira,
@@ -16165,10 +16237,6 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_to_ptr_type(ira, (IrInstructionToPtrType *)instruction);
         case IrInstructionIdPtrTypeChild:
             return ir_analyze_instruction_ptr_type_child(ira, (IrInstructionPtrTypeChild *)instruction);
-        case IrInstructionIdSetGlobalSection:
-            return ir_analyze_instruction_set_global_section(ira, (IrInstructionSetGlobalSection *)instruction);
-        case IrInstructionIdSetGlobalLinkage:
-            return ir_analyze_instruction_set_global_linkage(ira, (IrInstructionSetGlobalLinkage *)instruction);
         case IrInstructionIdSetDebugSafety:
             return ir_analyze_instruction_set_debug_safety(ira, (IrInstructionSetDebugSafety *)instruction);
         case IrInstructionIdSetFloatMode:
@@ -16311,6 +16379,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_arg_type(ira, (IrInstructionArgType *)instruction);
         case IrInstructionIdTagType:
             return ir_analyze_instruction_tag_type(ira, (IrInstructionTagType *)instruction);
+        case IrInstructionIdExport:
+            return ir_analyze_instruction_export(ira, (IrInstructionExport *)instruction);
     }
     zig_unreachable();
 }
@@ -16418,12 +16488,11 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdOverflowOp: // TODO when we support multiple returns this can be side effect free
         case IrInstructionIdCheckSwitchProngs:
         case IrInstructionIdCheckStatementIsVoid:
-        case IrInstructionIdSetGlobalSection:
-        case IrInstructionIdSetGlobalLinkage:
         case IrInstructionIdPanic:
         case IrInstructionIdSetEvalBranchQuota:
         case IrInstructionIdPtrTypeOf:
         case IrInstructionIdSetAlignStack:
+        case IrInstructionIdExport:
             return true;
         case IrInstructionIdPhi:
         case IrInstructionIdUnOp:

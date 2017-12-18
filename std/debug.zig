@@ -96,8 +96,6 @@ const WHITE = "\x1b[37;1m";
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
-pub var user_main_fn: ?fn() -> %void = null;
-
 error PathNotFound;
 error InvalidDebugInfo;
 

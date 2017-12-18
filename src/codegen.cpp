@@ -391,24 +391,51 @@ static void add_uwtable_attr(CodeGen *g, LLVMValueRef fn_val) {
     }
 }
 
+static LLVMLinkage to_llvm_linkage(GlobalLinkageId id) {
+    switch (id) {
+        case GlobalLinkageIdInternal:
+            return LLVMInternalLinkage;
+        case GlobalLinkageIdStrong:
+            return LLVMExternalLinkage;
+        case GlobalLinkageIdWeak:
+            return LLVMWeakODRLinkage;
+        case GlobalLinkageIdLinkOnce:
+            return LLVMLinkOnceODRLinkage;
+    }
+    zig_unreachable();
+}
+
 static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     if (fn_table_entry->llvm_value)
         return fn_table_entry->llvm_value;
 
-    bool external_linkage = (fn_table_entry->linkage != GlobalLinkageIdInternal);
-    Buf *symbol_name = get_mangled_name(g, &fn_table_entry->symbol_name, external_linkage);
+    Buf *unmangled_name = &fn_table_entry->symbol_name;
+    Buf *symbol_name;
+    GlobalLinkageId linkage;
+    if (fn_table_entry->body_node == nullptr) {
+        symbol_name = unmangled_name;
+        linkage = GlobalLinkageIdStrong;
+    } else if (fn_table_entry->export_list.length == 0) {
+        symbol_name = get_mangled_name(g, unmangled_name, false);
+        linkage = GlobalLinkageIdInternal;
+    } else {
+        FnExport *fn_export = &fn_table_entry->export_list.items[0];
+        symbol_name = &fn_export->name;
+        linkage = fn_export->linkage;
+    }
 
+    bool external_linkage = linkage != GlobalLinkageIdInternal;
     if (fn_table_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionStdcall && external_linkage &&
         g->zig_target.arch.arch == ZigLLVM_x86)
     {
-        // prevent name mangling
+        // prevent llvm name mangling
         symbol_name = buf_sprintf("\x01_%s", buf_ptr(symbol_name));
     }
 
 
     TypeTableEntry *fn_type = fn_table_entry->type_entry;
     LLVMTypeRef fn_llvm_type = fn_type->data.fn.raw_type_ref;
-    if (external_linkage && fn_table_entry->body_node == nullptr) {
+    if (fn_table_entry->body_node == nullptr) {
         LLVMValueRef existing_llvm_fn = LLVMGetNamedFunction(g->module, buf_ptr(symbol_name));
         if (existing_llvm_fn) {
             fn_table_entry->llvm_value = LLVMConstBitCast(existing_llvm_fn, LLVMPointerType(fn_llvm_type, 0));
@@ -418,6 +445,12 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
         }
     } else {
         fn_table_entry->llvm_value = LLVMAddFunction(g->module, buf_ptr(symbol_name), fn_llvm_type);
+
+        for (size_t i = 1; i < fn_table_entry->export_list.length; i += 1) {
+            FnExport *fn_export = &fn_table_entry->export_list.items[i];
+            LLVMAddAlias(g->module, LLVMTypeOf(fn_table_entry->llvm_value),
+                    fn_table_entry->llvm_value, buf_ptr(&fn_export->name));
+        }
     }
     fn_table_entry->llvm_name = LLVMGetValueName(fn_table_entry->llvm_value);
 
@@ -445,20 +478,10 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
         }
     }
 
-    switch (fn_table_entry->linkage) {
-        case GlobalLinkageIdInternal:
-            LLVMSetLinkage(fn_table_entry->llvm_value, LLVMInternalLinkage);
-            LLVMSetUnnamedAddr(fn_table_entry->llvm_value, true);
-            break;
-        case GlobalLinkageIdStrong:
-            LLVMSetLinkage(fn_table_entry->llvm_value, LLVMExternalLinkage);
-            break;
-        case GlobalLinkageIdWeak:
-            LLVMSetLinkage(fn_table_entry->llvm_value, LLVMWeakODRLinkage);
-            break;
-        case GlobalLinkageIdLinkOnce:
-            LLVMSetLinkage(fn_table_entry->llvm_value, LLVMLinkOnceODRLinkage);
-            break;
+    LLVMSetLinkage(fn_table_entry->llvm_value, to_llvm_linkage(linkage));
+
+    if (linkage == GlobalLinkageIdInternal) {
+        LLVMSetUnnamedAddr(fn_table_entry->llvm_value, true);
     }
 
     if (fn_type->data.fn.fn_type_id.return_type->id == TypeTableEntryIdUnreachable) {
@@ -565,7 +588,8 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
             bool is_definition = fn_table_entry->body_node != nullptr;
             unsigned flags = 0;
             bool is_optimized = g->build_mode != BuildModeDebug;
-            bool is_internal_linkage = (fn_table_entry->linkage == GlobalLinkageIdInternal);
+            bool is_internal_linkage = (fn_table_entry->body_node != nullptr &&
+                    fn_table_entry->export_list.length == 0);
             ZigLLVMDISubprogram *subprogram = ZigLLVMCreateFunction(g->dbuilder,
                 get_di_scope(g, scope->parent), buf_ptr(&fn_table_entry->symbol_name), "",
                 import->di_file, line_number,
@@ -3487,8 +3511,6 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdCheckStatementIsVoid:
         case IrInstructionIdTypeName:
         case IrInstructionIdCanImplicitCast:
-        case IrInstructionIdSetGlobalSection:
-        case IrInstructionIdSetGlobalLinkage:
         case IrInstructionIdDeclRef:
         case IrInstructionIdSwitchVar:
         case IrInstructionIdOffsetOf:
@@ -3499,6 +3521,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdSetAlignStack:
         case IrInstructionIdArgType:
         case IrInstructionIdTagType:
+        case IrInstructionIdExport:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
@@ -4969,8 +4992,6 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdIntType, "IntType", 2); // TODO rename to Int
     create_builtin_fn(g, BuiltinFnIdSetDebugSafety, "setDebugSafety", 2);
     create_builtin_fn(g, BuiltinFnIdSetFloatMode, "setFloatMode", 2);
-    create_builtin_fn(g, BuiltinFnIdSetGlobalSection, "setGlobalSection", 2);
-    create_builtin_fn(g, BuiltinFnIdSetGlobalLinkage, "setGlobalLinkage", 2);
     create_builtin_fn(g, BuiltinFnIdPanic, "panic", 1);
     create_builtin_fn(g, BuiltinFnIdPtrCast, "ptrCast", 2);
     create_builtin_fn(g, BuiltinFnIdBitCast, "bitCast", 2);
@@ -4995,6 +5016,8 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdOpaqueType, "OpaqueType", 0);
     create_builtin_fn(g, BuiltinFnIdSetAlignStack, "setAlignStack", 1);
     create_builtin_fn(g, BuiltinFnIdArgType, "ArgType", 2);
+    create_builtin_fn(g, BuiltinFnIdExport, "export", 2);
+    create_builtin_fn(g, BuiltinFnIdExportWithLinkage, "exportWithLinkage", 3);
 }
 
 static const char *bool_to_str(bool b) {
@@ -5433,6 +5456,27 @@ static void gen_root_source(CodeGen *g) {
     assert(g->root_out_name);
     assert(g->out_type != OutTypeUnknown);
 
+    {
+        // Zig has lazy top level definitions. Here we semantically analyze the panic function.
+        ImportTableEntry *import_with_panic;
+        if (g->have_pub_panic) {
+            import_with_panic = g->root_import;
+        } else {
+            g->panic_package = create_panic_pkg(g);
+            import_with_panic = add_special_code(g, g->panic_package, "panic.zig");
+        }
+        scan_import(g, import_with_panic);
+        Tld *panic_tld = find_decl(g, &import_with_panic->decls_scope->base, buf_create_from_str("panic"));
+        assert(panic_tld != nullptr);
+        resolve_top_level_decl(g, panic_tld, false, nullptr);
+    }
+
+
+    if (!g->error_during_imports) {
+        semantic_analyze(g);
+    }
+    report_errors_and_maybe_exit(g);
+
     if (!g->is_test_build && g->zig_target.os != ZigLLVM_UnknownOS &&
         !g->have_c_main && !g->have_winmain && !g->have_winmain_crt_startup &&
         ((g->have_pub_main && g->out_type == OutTypeObj) || g->out_type == OutTypeExe))
@@ -5441,20 +5485,6 @@ static void gen_root_source(CodeGen *g) {
     }
     if (g->zig_target.os == ZigLLVM_Win32 && !g->have_dllmain_crt_startup && g->out_type == OutTypeLib) {
         g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g, g->root_package), "bootstrap_lib.zig");
-    }
-    ImportTableEntry *import_with_panic;
-    if (g->have_pub_panic) {
-        import_with_panic = g->root_import;
-    } else {
-        g->panic_package = create_panic_pkg(g);
-        import_with_panic = add_special_code(g, g->panic_package, "panic.zig");
-    }
-    // Zig has lazy top level definitions. Here we semantically analyze the panic function.
-    {
-        scan_import(g, import_with_panic);
-        Tld *panic_tld = find_decl(g, &import_with_panic->decls_scope->base, buf_create_from_str("panic"));
-        assert(panic_tld != nullptr);
-        resolve_top_level_decl(g, panic_tld, false, nullptr);
     }
 
     if (!g->error_during_imports) {
@@ -5682,7 +5712,7 @@ static void gen_h_file(CodeGen *g) {
     for (size_t fn_def_i = 0; fn_def_i < g->fn_defs.length; fn_def_i += 1) {
         FnTableEntry *fn_table_entry = g->fn_defs.at(fn_def_i);
 
-        if (fn_table_entry->linkage == GlobalLinkageIdInternal)
+        if (fn_table_entry->export_list.length == 0)
             continue;
 
         FnTypeId *fn_type_id = &fn_table_entry->type_entry->data.fn.fn_type_id;

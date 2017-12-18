@@ -119,7 +119,6 @@ static const struct ZigKeyword zig_keywords[] = {
     {"else", TokenIdKeywordElse},
     {"enum", TokenIdKeywordEnum},
     {"error", TokenIdKeywordError},
-    {"export", TokenIdKeywordExport},
     {"extern", TokenIdKeywordExtern},
     {"false", TokenIdKeywordFalse},
     {"fn", TokenIdKeywordFn},
@@ -134,6 +133,7 @@ static const struct ZigKeyword zig_keywords[] = {
     {"packed", TokenIdKeywordPacked},
     {"pub", TokenIdKeywordPub},
     {"return", TokenIdKeywordReturn},
+    {"section", TokenIdKeywordSection},
     {"stdcallcc", TokenIdKeywordStdcallCC},
     {"struct", TokenIdKeywordStruct},
     {"switch", TokenIdKeywordSwitch},
@@ -1518,7 +1518,6 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordElse: return "else";
         case TokenIdKeywordEnum: return "enum";
         case TokenIdKeywordError: return "error";
-        case TokenIdKeywordExport: return "export";
         case TokenIdKeywordExtern: return "extern";
         case TokenIdKeywordFalse: return "false";
         case TokenIdKeywordFn: return "fn";
@@ -1533,6 +1532,7 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordPacked: return "packed";
         case TokenIdKeywordPub: return "pub";
         case TokenIdKeywordReturn: return "return";
+        case TokenIdKeywordSection: return "section";
         case TokenIdKeywordStdcallCC: return "stdcallcc";
         case TokenIdKeywordStruct: return "struct";
         case TokenIdKeywordSwitch: return "switch";

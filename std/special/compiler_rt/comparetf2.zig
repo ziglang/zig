@@ -20,11 +20,9 @@ const infRep = exponentMask;
 
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
-const linkage = @import("index.zig").linkage;
 
-export fn __letf2(a: f128, b: f128) -> c_int {
+pub extern fn __letf2(a: f128, b: f128) -> c_int {
     @setDebugSafety(this, is_test);
-    @setGlobalLinkage(__letf2, linkage);
 
     const aInt = @bitCast(rep_t, a);
     const bInt = @bitCast(rep_t, b);
@@ -63,14 +61,6 @@ export fn __letf2(a: f128, b: f128) -> c_int {
     };
 }
 
-// Alias for libgcc compatibility
-// TODO https://github.com/zig-lang/zig/issues/420
-export fn __cmptf2(a: f128, b: f128) -> c_int {
-    @setGlobalLinkage(__cmptf2, linkage);
-    @setDebugSafety(this, is_test);
-    return __letf2(a, b);
-}
-
 // TODO https://github.com/zig-lang/zig/issues/305
 // and then make the return types of some of these functions the enum instead of c_int
 const GE_LESS = c_int(-1);
@@ -78,8 +68,7 @@ const GE_EQUAL = c_int(0);
 const GE_GREATER = c_int(1);
 const GE_UNORDERED = c_int(-1); // Note: different from LE_UNORDERED
 
-export fn __getf2(a: f128, b: f128) -> c_int {
-    @setGlobalLinkage(__getf2, linkage);
+pub extern fn __getf2(a: f128, b: f128) -> c_int {
     @setDebugSafety(this, is_test);
 
     const aInt = @bitCast(srep_t, a);
@@ -108,38 +97,10 @@ export fn __getf2(a: f128, b: f128) -> c_int {
     };
 }
 
-export fn __unordtf2(a: f128, b: f128) -> c_int {
-    @setGlobalLinkage(__unordtf2, linkage);
+pub extern fn __unordtf2(a: f128, b: f128) -> c_int {
     @setDebugSafety(this, is_test);
 
     const aAbs = @bitCast(rep_t, a) & absMask;
     const bAbs = @bitCast(rep_t, b) & absMask;
     return c_int(aAbs > infRep or bAbs > infRep);
-}
-
-// The following are alternative names for the preceding routines.
-// TODO use aliases https://github.com/zig-lang/zig/issues/462
-
-export fn __eqtf2(a: f128, b: f128) -> c_int {
-    @setGlobalLinkage(__eqtf2, linkage);
-    @setDebugSafety(this, is_test);
-    return __letf2(a, b);
-}
-
-export fn __lttf2(a: f128, b: f128) -> c_int {
-    @setGlobalLinkage(__lttf2, linkage);
-    @setDebugSafety(this, is_test);
-    return __letf2(a, b);
-}
-
-export fn __netf2(a: f128, b: f128) -> c_int {
-    @setGlobalLinkage(__netf2, linkage);
-    @setDebugSafety(this, is_test);
-    return __letf2(a, b);
-}
-
-export fn __gttf2(a: f128, b: f128) -> c_int {
-    @setGlobalLinkage(__gttf2, linkage);
-    @setDebugSafety(this, is_test);
-    return __getf2(a, b);
 }

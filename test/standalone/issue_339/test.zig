@@ -2,6 +2,9 @@ pub fn panic(msg: []const u8) -> noreturn { @breakpoint(); while (true) {} }
 
 fn bar() -> %void {}
 
-export fn foo() {
+comptime {
+    @export("foo", foo);
+}
+extern fn foo() {
     %%bar();
 }

@@ -651,28 +651,6 @@ pub const iovec = extern struct {
     iov_len: usize,
 };
 
-//
-//const IF_NAMESIZE = 16;
-//
-//export struct ifreq {
-//    ifrn_name: [IF_NAMESIZE]u8,
-//    union {
-//        ifru_addr: sockaddr,
-//        ifru_dstaddr: sockaddr,
-//        ifru_broadaddr: sockaddr,
-//        ifru_netmask: sockaddr,
-//        ifru_hwaddr: sockaddr,
-//        ifru_flags: i16,
-//        ifru_ivalue: i32,
-//        ifru_mtu: i32,
-//        ifru_map: ifmap,
-//        ifru_slave: [IF_NAMESIZE]u8,
-//        ifru_newname: [IF_NAMESIZE]u8,
-//        ifru_data: &u8,
-//    } ifr_ifru;
-//}
-//
-
 pub fn getsockname(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t) -> usize {
     arch.syscall3(arch.SYS_getsockname, usize(fd), @ptrToInt(addr), @ptrToInt(len))
 }

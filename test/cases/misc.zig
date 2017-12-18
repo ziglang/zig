@@ -12,8 +12,10 @@ test "empty function with comments" {
     emptyFunctionWithComments();
 }
 
-export fn disabledExternFn() {
-    @setGlobalLinkage(disabledExternFn, builtin.GlobalLinkage.Internal);
+comptime {
+    @exportWithLinkage("disabledExternFn", disabledExternFn, builtin.GlobalLinkage.Internal) 
+}
+extern fn disabledExternFn() {
 }
 
 test "call disabled extern fn" {
@@ -533,7 +535,10 @@ var global_ptr = &gdt[0];
 // can't really run this test but we can make sure it has no compile error
 // and generates code
 const vram = @intToPtr(&volatile u8, 0x20000000)[0..0x8000];
-export fn writeToVRam() {
+comptime {
+    @export("writeToVRam", writeToVRam);
+}
+extern fn writeToVRam() {
     vram[0] = 'X';
 }
 
@@ -556,4 +561,16 @@ test "variable is allowed to be a pointer to an opaque type" {
 fn hereIsAnOpaqueType(ptr: &OpaqueA) -> &OpaqueA {
     var a = ptr;
     return a;
+}
+
+test "function and variable in weird section" {
+    if (builtin.os == builtin.Os.linux or builtin.os == builtin.Os.windows) {
+        // macos can't handle this
+        assert(fnInWeirdSection() == 1234);
+    }
+}
+
+var varInWeirdSection: i32 section(".data2") = 1234;
+fn fnInWeirdSection() section(".text2") -> i32 {
+    return varInWeirdSection;
 }

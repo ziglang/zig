@@ -182,4 +182,6 @@ uint32_t get_abi_alignment(CodeGen *g, TypeTableEntry *type_entry);
 TypeTableEntry *get_align_amt_type(CodeGen *g);
 PackageTableEntry *new_anonymous_package(void);
 
+Buf *const_value_to_buffer(ConstExprValue *const_val);
+
 #endif

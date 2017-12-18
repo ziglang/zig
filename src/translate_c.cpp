@@ -73,7 +73,6 @@ struct Context {
     ImportTableEntry *import;
     ZigList<ErrorMsg *> *errors;
     VisibMod visib_mod;
-    VisibMod export_visib_mod;
     AstNode *root;
     HashMap<const void *, AstNode *, ptr_hash, ptr_eq> decl_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> macro_table;
@@ -3251,7 +3250,8 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
 
     StorageClass sc = fn_decl->getStorageClass();
     if (sc == SC_None) {
-        proto_node->data.fn_proto.visib_mod = fn_decl->hasBody() ? c->export_visib_mod : c->visib_mod;
+        // TODO add export decl
+        proto_node->data.fn_proto.visib_mod = c->visib_mod;
     } else if (sc == SC_Extern || sc == SC_Static) {
         proto_node->data.fn_proto.visib_mod = c->visib_mod;
     } else if (sc == SC_PrivateExtern) {
@@ -4274,10 +4274,8 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     c->errors = errors;
     if (buf_ends_with_str(buf_create_from_str(target_file), ".h")) {
         c->visib_mod = VisibModPub;
-        c->export_visib_mod = VisibModPub;
     } else {
         c->visib_mod = VisibModPub;
-        c->export_visib_mod = VisibModExport;
     }
     c->decl_table.init(8);
     c->macro_table.init(8);

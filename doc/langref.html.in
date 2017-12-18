@@ -5815,13 +5815,13 @@ TopLevelItem = ErrorValueDecl | CompTimeExpression(Block) | TopLevelDecl | TestD
 
 TestDecl = "test" String Block
 
-TopLevelDecl = option(VisibleMod) (FnDef | ExternDecl | GlobalVarDecl | UseDecl)
+TopLevelDecl = option("pub") (FnDef | ExternDecl | GlobalVarDecl | UseDecl)
 
 ErrorValueDecl = "error" Symbol ";"
 
 GlobalVarDecl = VariableDeclaration ";"
 
-VariableDeclaration = option("comptime") ("var" | "const") Symbol option(":" TypeExpr) option("align" "(" Expression ")") "=" Expression
+VariableDeclaration = option("comptime") ("var" | "const") Symbol option(":" TypeExpr) option("align" "(" Expression ")") option("section" "(" Expression ")") "=" Expression
 
 ContainerMember = (ContainerField | FnDef | GlobalVarDecl)
 
@@ -5831,9 +5831,7 @@ UseDecl = "use" Expression ";"
 
 ExternDecl = "extern" option(String) (FnProto | VariableDeclaration) ";"
 
-FnProto = option("coldcc" | "nakedcc" | "stdcallcc") "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("-&gt;" TypeExpr)
-
-VisibleMod = "pub" | "export"
+FnProto = option("coldcc" | "nakedcc" | "stdcallcc") "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") option("-&gt;" TypeExpr)
 
 FnDef = option("inline" | "extern") FnProto Block
 

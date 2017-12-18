@@ -1600,6 +1600,14 @@ static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, size_t *to
         next_token = &pc->tokens->at(*token_index);
     }
 
+    if (next_token->id == TokenIdKeywordSection) {
+        *token_index += 1;
+        ast_eat_token(pc, token_index, TokenIdLParen);
+        node->data.variable_declaration.section_expr = ast_parse_expression(pc, token_index, true);
+        ast_eat_token(pc, token_index, TokenIdRParen);
+        next_token = &pc->tokens->at(*token_index);
+    }
+
     if (next_token->id == TokenIdEq) {
         *token_index += 1;
         node->data.variable_declaration.expr = ast_parse_expression(pc, token_index, true);
@@ -2144,7 +2152,7 @@ static bool statement_terminates_without_semicolon(AstNode *node) {
 
 /*
 Block = "{" many(Statement) option(Expression) "}"
-Statement = Label | VariableDeclaration ";" | Defer(Block) | Defer(Expression) ";" | BlockExpression(Block) | Expression ";" | ";"
+Statement = Label | VariableDeclaration ";" | Defer(Block) | Defer(Expression) ";" | BlockExpression(Block) | Expression ";" | ";" | ExportDecl
 */
 static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *last_token = &pc->tokens->at(*token_index);
@@ -2205,7 +2213,7 @@ static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mand
 }
 
 /*
-FnProto = option("coldcc" | "nakedcc" | "stdcallcc") "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("->" TypeExpr)
+FnProto = option("coldcc" | "nakedcc" | "stdcallcc") "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") option("-&gt;" TypeExpr)
 */
 static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool mandatory, VisibMod visib_mod) {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -2256,6 +2264,14 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool m
         ast_eat_token(pc, token_index, TokenIdLParen);
 
         node->data.fn_proto.align_expr = ast_parse_expression(pc, token_index, true);
+        ast_eat_token(pc, token_index, TokenIdRParen);
+        next_token = &pc->tokens->at(*token_index);
+    }
+    if (next_token->id == TokenIdKeywordSection) {
+        *token_index += 1;
+        ast_eat_token(pc, token_index, TokenIdLParen);
+
+        node->data.fn_proto.section_expr = ast_parse_expression(pc, token_index, true);
         ast_eat_token(pc, token_index, TokenIdRParen);
         next_token = &pc->tokens->at(*token_index);
     }
@@ -2447,9 +2463,6 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, 
         if (visib_tok->id == TokenIdKeywordPub) {
             *token_index += 1;
             visib_mod = VisibModPub;
-        } else if (visib_tok->id == TokenIdKeywordExport) {
-            *token_index += 1;
-            visib_mod = VisibModExport;
         } else {
             visib_mod = VisibModPrivate;
         }
@@ -2580,9 +2593,6 @@ static void ast_parse_top_level_decls(ParseContext *pc, size_t *token_index, Zig
         if (visib_tok->id == TokenIdKeywordPub) {
             *token_index += 1;
             visib_mod = VisibModPub;
-        } else if (visib_tok->id == TokenIdKeywordExport) {
-            *token_index += 1;
-            visib_mod = VisibModExport;
         } else {
             visib_mod = VisibModPrivate;
         }
@@ -2669,6 +2679,7 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_field(&node->data.fn_proto.return_type, visit, context);
             visit_node_list(&node->data.fn_proto.params, visit, context);
             visit_field(&node->data.fn_proto.align_expr, visit, context);
+            visit_field(&node->data.fn_proto.section_expr, visit, context);
             break;
         case NodeTypeFnDef:
             visit_field(&node->data.fn_def.fn_proto, visit, context);
@@ -2696,6 +2707,7 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_field(&node->data.variable_declaration.type, visit, context);
             visit_field(&node->data.variable_declaration.expr, visit, context);
             visit_field(&node->data.variable_declaration.align_expr, visit, context);
+            visit_field(&node->data.variable_declaration.section_expr, visit, context);
             break;
         case NodeTypeErrorValueDecl:
             // none

@@ -502,13 +502,3 @@ pub nakedcc fn restore_rt() {
         : [number] "{eax}" (usize(SYS_rt_sigreturn))
         : "rcx", "r11")
 }
-
-export struct msghdr {
-    msg_name: &u8,
-    msg_namelen: socklen_t,
-    msg_iov: &iovec,
-    msg_iovlen: i32,
-    msg_control: &u8,
-    msg_controllen: socklen_t,
-    msg_flags: i32,
-}

@@ -4,6 +4,7 @@ const math = @import("math/index.zig");
 const builtin = @import("builtin");
 
 pub const Cmp = math.Cmp;
+error OutOfMemory;
 
 pub const Allocator = struct {
     /// Allocate byte_count bytes and return them in a slice, with the
