@@ -1,10 +1,8 @@
 const fixuint = @import("fixuint.zig").fixuint;
 const builtin = @import("builtin");
-const linkage = @import("index.zig").linkage;
 
-export fn __fixunssfsi(a: f32) -> u32 {
+pub extern fn __fixunssfsi(a: f32) -> u32 {
     @setDebugSafety(this, builtin.is_test);
-    @setGlobalLinkage(__fixunssfsi, linkage);
     return fixuint(f32, u32, a);
 }
 

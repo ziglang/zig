@@ -5,20 +5,20 @@ const root = @import("@root");
 const std = @import("std");
 const builtin = @import("builtin");
 
-const is_windows = builtin.os == builtin.Os.windows;
-const want_main_symbol = builtin.link_libc;
-const want_start_symbol = !want_main_symbol and !is_windows;
-const want_WinMainCRTStartup = is_windows and !builtin.link_libc;
-
 var argc_ptr: &usize = undefined;
 
-
-export nakedcc fn _start() -> noreturn {
-    if (!want_start_symbol) {
-        @setGlobalLinkage(_start, builtin.GlobalLinkage.Internal);
-        unreachable;
+comptime {
+    const strong_linkage = builtin.GlobalLinkage.Strong;
+    if (builtin.link_libc) {
+        @export("main", main, strong_linkage);
+    } else if (builtin.os == builtin.Os.windows) {
+        @export("WinMainCRTStartup", WinMainCRTStartup, strong_linkage);
+    } else {
+        @export("_start", _start, strong_linkage);
     }
+}
 
+nakedcc fn _start() -> noreturn {
     switch (builtin.arch) {
         builtin.Arch.x86_64 => {
             argc_ptr = asm("lea (%%rsp), %[argc]": [argc] "=r" (-> &usize));
@@ -33,14 +33,9 @@ export nakedcc fn _start() -> noreturn {
     @noInlineCall(posixCallMainAndExit);
 }
 
-export fn WinMainCRTStartup() -> noreturn {
-    if (!want_WinMainCRTStartup) {
-        @setGlobalLinkage(WinMainCRTStartup, builtin.GlobalLinkage.Internal);
-        unreachable;
-    }
+extern fn WinMainCRTStartup() -> noreturn {
     @setAlignStack(16);
 
-    std.debug.user_main_fn = root.main;
     root.main() %% std.os.windows.ExitProcess(1);
     std.os.windows.ExitProcess(0);
 }
@@ -60,17 +55,10 @@ fn callMain(argc: usize, argv: &&u8, envp: &?&u8) -> %void {
     while (envp[env_count] != null) : (env_count += 1) {}
     std.os.posix_environ_raw = @ptrCast(&&u8, envp)[0..env_count];
 
-    std.debug.user_main_fn = root.main;
-
     return root.main();
 }
 
-export fn main(c_argc: i32, c_argv: &&u8, c_envp: &?&u8) -> i32 {
-    if (!want_main_symbol) {
-        @setGlobalLinkage(main, builtin.GlobalLinkage.Internal);
-        unreachable;
-    }
-
+extern fn main(c_argc: i32, c_argv: &&u8, c_envp: &?&u8) -> i32 {
     callMain(usize(c_argc), c_argv, c_envp) %% return 1;
     return 0;
 }

@@ -47,6 +47,7 @@ enum TokenId {
     TokenIdFloatLiteral,
     TokenIdIntLiteral,
     TokenIdKeywordAlign,
+    TokenIdKeywordSection,
     TokenIdKeywordAnd,
     TokenIdKeywordAsm,
     TokenIdKeywordBreak,

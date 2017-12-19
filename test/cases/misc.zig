@@ -12,8 +12,11 @@ test "empty function with comments" {
     emptyFunctionWithComments();
 }
 
-export fn disabledExternFn() {
-    @setGlobalLinkage(disabledExternFn, builtin.GlobalLinkage.Internal);
+comptime {
+    @export("disabledExternFn", disabledExternFn, builtin.GlobalLinkage.Internal);
+}
+
+extern fn disabledExternFn() {
 }
 
 test "call disabled extern fn" {

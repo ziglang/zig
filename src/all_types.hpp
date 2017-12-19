@@ -37,6 +37,7 @@ struct IrBasicBlock;
 struct ScopeDecls;
 struct ZigWindowsSDK;
 struct Tld;
+struct TldExport;
 
 struct IrGotoItem {
     AstNode *source_node;
@@ -272,7 +273,6 @@ enum ReturnKnowledge {
 enum VisibMod {
     VisibModPrivate,
     VisibModPub,
-    VisibModExport,
 };
 
 enum GlobalLinkageId {
@@ -313,11 +313,8 @@ struct TldVar {
     Tld base;
 
     VariableTableEntry *var;
-    AstNode *set_global_section_node;
-    Buf *section_name;
-    AstNode *set_global_linkage_node;
-    GlobalLinkageId linkage;
     Buf *extern_lib_name;
+    Buf *section_name;
 };
 
 struct TldFn {
@@ -425,6 +422,7 @@ struct AstNodeFnProto {
     AstNode *return_type;
     bool is_var_args;
     bool is_extern;
+    bool is_export;
     bool is_inline;
     CallingConvention cc;
     AstNode *fn_def_node;
@@ -432,6 +430,8 @@ struct AstNodeFnProto {
     Buf *lib_name;
     // populated if the "align A" is present
     AstNode *align_expr;
+    // populated if the "section(S)" is present
+    AstNode *section_expr;
 };
 
 struct AstNodeFnDef {
@@ -480,15 +480,18 @@ struct AstNodeVariableDeclaration {
     VisibMod visib_mod;
     Buf *symbol;
     bool is_const;
-    bool is_inline;
+    bool is_comptime;
+    bool is_export;
     bool is_extern;
     // one or both of type and expr will be non null
     AstNode *type;
     AstNode *expr;
     // populated if this is an extern declaration
     Buf *lib_name;
-    // populated if the "align A" is present
+    // populated if the "align(A)" is present
     AstNode *align_expr;
+    // populated if the "section(S)" is present
+    AstNode *section_expr;
 };
 
 struct AstNodeErrorValueDecl {
@@ -1177,6 +1180,11 @@ enum FnInline {
     FnInlineNever,
 };
 
+struct FnExport {
+    Buf name;
+    GlobalLinkageId linkage;
+};
+
 struct FnTableEntry {
     LLVMValueRef llvm_value;
     const char *llvm_name;
@@ -1204,12 +1212,11 @@ struct FnTableEntry {
     ZigList<IrInstruction *> alloca_list;
     ZigList<VariableTableEntry *> variable_list;
 
-    AstNode *set_global_section_node;
     Buf *section_name;
-    AstNode *set_global_linkage_node;
-    GlobalLinkageId linkage;
     AstNode *set_alignstack_node;
     uint32_t alignstack_value;
+
+    ZigList<FnExport> export_list;
 };
 
 uint32_t fn_table_entry_hash(FnTableEntry*);
@@ -1258,8 +1265,6 @@ enum BuiltinFnId {
     BuiltinFnIdSetFloatMode,
     BuiltinFnIdTypeName,
     BuiltinFnIdCanImplicitCast,
-    BuiltinFnIdSetGlobalSection,
-    BuiltinFnIdSetGlobalLinkage,
     BuiltinFnIdPanic,
     BuiltinFnIdPtrCast,
     BuiltinFnIdBitCast,
@@ -1279,6 +1284,7 @@ enum BuiltinFnId {
     BuiltinFnIdOpaqueType,
     BuiltinFnIdSetAlignStack,
     BuiltinFnIdArgType,
+    BuiltinFnIdExport,
 };
 
 struct BuiltinFnEntry {
@@ -1425,7 +1431,7 @@ struct CodeGen {
     HashMap<GenericFnTypeId *, FnTableEntry *, generic_fn_type_id_hash, generic_fn_type_id_eql> generic_table;
     HashMap<Scope *, IrInstruction *, fn_eval_hash, fn_eval_eql> memoized_fn_eval_table;
     HashMap<ZigLLVMFnKey, LLVMValueRef, zig_llvm_fn_key_hash, zig_llvm_fn_key_eql> llvm_fn_table;
-    HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> exported_symbol_names;
+    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> exported_symbol_names;
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_prototypes;
 
 
@@ -1886,8 +1892,6 @@ enum IrInstructionId {
     IrInstructionIdCheckStatementIsVoid,
     IrInstructionIdTypeName,
     IrInstructionIdCanImplicitCast,
-    IrInstructionIdSetGlobalSection,
-    IrInstructionIdSetGlobalLinkage,
     IrInstructionIdDeclRef,
     IrInstructionIdPanic,
     IrInstructionIdTagName,
@@ -1901,6 +1905,7 @@ enum IrInstructionId {
     IrInstructionIdOpaqueType,
     IrInstructionIdSetAlignStack,
     IrInstructionIdArgType,
+    IrInstructionIdExport,
 };
 
 struct IrInstruction {
@@ -2626,20 +2631,6 @@ struct IrInstructionCanImplicitCast {
     IrInstruction *target_value;
 };
 
-struct IrInstructionSetGlobalSection {
-    IrInstruction base;
-
-    Tld *tld;
-    IrInstruction *value;
-};
-
-struct IrInstructionSetGlobalLinkage {
-    IrInstruction base;
-
-    Tld *tld;
-    IrInstruction *value;
-};
-
 struct IrInstructionDeclRef {
     IrInstruction base;
 
@@ -2726,6 +2717,14 @@ struct IrInstructionArgType {
 
     IrInstruction *fn_type;
     IrInstruction *arg_index;
+};
+
+struct IrInstructionExport {
+    IrInstruction base;
+
+    IrInstruction *name;
+    IrInstruction *linkage;
+    IrInstruction *target;
 };
 
 static const size_t slice_ptr_index = 0;

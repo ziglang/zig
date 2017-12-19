@@ -78,7 +78,6 @@ static const char *visib_mod_string(VisibMod mod) {
     switch (mod) {
         case VisibModPub: return "pub ";
         case VisibModPrivate: return "";
-        case VisibModExport: return "export ";
     }
     zig_unreachable();
 }
@@ -110,6 +109,10 @@ static const char *layout_string(ContainerLayout layout) {
 
 static const char *extern_string(bool is_extern) {
     return is_extern ? "extern " : "";
+}
+
+static const char *export_string(bool is_export) {
+    return is_export ? "export " : "";
 }
 
 //static const char *calling_convention_string(CallingConvention cc) {
@@ -411,8 +414,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             {
                 const char *pub_str = visib_mod_string(node->data.fn_proto.visib_mod);
                 const char *extern_str = extern_string(node->data.fn_proto.is_extern);
+                const char *export_str = export_string(node->data.fn_proto.is_export);
                 const char *inline_str = inline_string(node->data.fn_proto.is_inline);
-                fprintf(ar->f, "%s%s%sfn", pub_str, inline_str, extern_str);
+                fprintf(ar->f, "%s%s%s%sfn", pub_str, inline_str, export_str, extern_str);
                 if (node->data.fn_proto.name != nullptr) {
                     fprintf(ar->f, " ");
                     print_symbol(ar, node->data.fn_proto.name);
@@ -440,6 +444,16 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     }
                 }
                 fprintf(ar->f, ")");
+                if (node->data.fn_proto.align_expr) {
+                    fprintf(ar->f, " align(");
+                    render_node_grouped(ar, node->data.fn_proto.align_expr);
+                    fprintf(ar->f, ")");
+                }
+                if (node->data.fn_proto.section_expr) {
+                    fprintf(ar->f, " section(");
+                    render_node_grouped(ar, node->data.fn_proto.section_expr);
+                    fprintf(ar->f, ")");
+                }
 
                 AstNode *return_type_node = node->data.fn_proto.return_type;
                 if (return_type_node != nullptr) {
@@ -525,6 +539,16 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 if (node->data.variable_declaration.type) {
                     fprintf(ar->f, ": ");
                     render_node_grouped(ar, node->data.variable_declaration.type);
+                }
+                if (node->data.variable_declaration.align_expr) {
+                    fprintf(ar->f, "align(");
+                    render_node_grouped(ar, node->data.variable_declaration.align_expr);
+                    fprintf(ar->f, ") ");
+                }
+                if (node->data.variable_declaration.section_expr) {
+                    fprintf(ar->f, "section(");
+                    render_node_grouped(ar, node->data.variable_declaration.section_expr);
+                    fprintf(ar->f, ") ");
                 }
                 if (node->data.variable_declaration.expr) {
                     fprintf(ar->f, " = ");

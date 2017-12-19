@@ -136,6 +136,7 @@
             <li><a href="#builtin-divFloor">@divFloor</a></li>
             <li><a href="#builtin-divTrunc">@divTrunc</a></li>
             <li><a href="#builtin-embedFile">@embedFile</a></li>
+            <li><a href="#builtin-export">@export</a></li>
             <li><a href="#builtin-tagName">@tagName</a></li>
             <li><a href="#builtin-EnumTagType">@EnumTagType</a></li>
             <li><a href="#builtin-errorName">@errorName</a></li>
@@ -4368,6 +4369,11 @@ test.zig:6:2: error: found compile log statement
       <ul>
         <li><a href="#builtin-import">@import</a></li>
       </ul>
+      <h3 id="builtin-export">@export</h3>
+      <pre><code class="zig">@export(comptime name: []const u8, target: var, linkage: builtin.GlobalLinkage) -&gt; []const u8</code></pre>
+      <p>
+      Creates a symbol in the output object file.
+      </p>
       <h3 id="builtin-tagName">@tagName</h3>
       <pre><code class="zig">@tagName(value: var) -&gt; []const u8</code></pre>
       <p>
@@ -5815,13 +5821,15 @@ TopLevelItem = ErrorValueDecl | CompTimeExpression(Block) | TopLevelDecl | TestD
 
 TestDecl = "test" String Block
 
-TopLevelDecl = option(VisibleMod) (FnDef | ExternDecl | GlobalVarDecl | UseDecl)
+TopLevelDecl = option("pub") (FnDef | ExternDecl | GlobalVarDecl | UseDecl)
 
 ErrorValueDecl = "error" Symbol ";"
 
-GlobalVarDecl = VariableDeclaration ";"
+GlobalVarDecl = option("export") VariableDeclaration ";"
 
-VariableDeclaration = option("comptime") ("var" | "const") Symbol option(":" TypeExpr) option("align" "(" Expression ")") "=" Expression
+LocalVarDecl = option("comptime") VariableDeclaration
+
+VariableDeclaration = ("var" | "const") Symbol option(":" TypeExpr) option("align" "(" Expression ")") option("section" "(" Expression ")") "=" Expression
 
 ContainerMember = (ContainerField | FnDef | GlobalVarDecl)
 
@@ -5831,11 +5839,9 @@ UseDecl = "use" Expression ";"
 
 ExternDecl = "extern" option(String) (FnProto | VariableDeclaration) ";"
 
-FnProto = option("coldcc" | "nakedcc" | "stdcallcc") "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("-&gt;" TypeExpr)
+FnProto = option("coldcc" | "nakedcc" | "stdcallcc" | "extern") "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") option("-&gt;" TypeExpr)
 
-VisibleMod = "pub" | "export"
-
-FnDef = option("inline" | "extern") FnProto Block
+FnDef = option("inline" | "export") FnProto Block
 
 ParamDeclList = "(" list(ParamDecl, ",") ")"
 
@@ -5843,7 +5849,7 @@ ParamDecl = option("noalias" | "comptime") option(Symbol ":") (TypeExpr | "...")
 
 Block = "{" many(Statement) option(Expression) "}"
 
-Statement = Label | VariableDeclaration ";" | Defer(Block) | Defer(Expression) ";" | BlockExpression(Block) | Expression ";" | ";"
+Statement = Label | LocalVarDecl ";" | Defer(Block) | Defer(Expression) ";" | BlockExpression(Block) | Expression ";" | ";"
 
 Label = Symbol ":"
 
@@ -5949,7 +5955,7 @@ StructLiteralField = "." Symbol "=" Expression
 
 PrefixOp = "!" | "-" | "~" | "*" | ("&amp;" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "%" | "%%" | "??" | "-%"
 
-PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
+PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ("error" "." Symbol) | ContainerDecl
 
 ArrayType : "[" option(Expression) "]" option("align" "(" Expression option(":" Integer ":" Integer) ")")) option("const") option("volatile") TypeExpr
 

@@ -1468,7 +1468,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
             \\}
         ,
             "foo.zig:1:8: error: exported symbol collision: 'bar'",
-            ".tmp_source.zig:3:8: note: other symbol is here");
+            ".tmp_source.zig:3:8: note: other symbol here");
 
         tc.addSourceFile("foo.zig",
             \\export fn bar() {}
@@ -1611,23 +1611,29 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         "error: 'main' is private",
         ".tmp_source.zig:1:1: note: declared here");
 
-    cases.add("@setGlobalSection extern variable",
-        \\extern var foo: i32;
-        \\comptime {
-        \\    @setGlobalSection(foo, ".text2");
+    cases.add("setting a section on an extern variable",
+        \\extern var foo: i32 section(".text2");
+        \\export fn entry() -> i32 {
+        \\    return foo;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: cannot set section of external variable 'foo'",
-        ".tmp_source.zig:1:8: note: declared here");
+        ".tmp_source.zig:1:29: error: cannot set section of external variable 'foo'");
 
-    cases.add("@setGlobalSection extern fn",
-        \\extern fn foo();
-        \\comptime {
-        \\    @setGlobalSection(foo, ".text2");
+    cases.add("setting a section on a local variable",
+        \\export fn entry() -> i32 {
+        \\    var foo: i32 section(".text2") = 1234;
+        \\    return foo;
         \\}
     ,
-        ".tmp_source.zig:3:5: error: cannot set section of external function 'foo'",
-        ".tmp_source.zig:1:8: note: declared here");
+        ".tmp_source.zig:2:26: error: cannot set section of local variable 'foo'");
+
+    cases.add("setting a section on an extern fn",
+        \\extern fn foo() section(".text2");
+        \\export fn entry() {
+        \\    foo();
+        \\}
+    ,
+        ".tmp_source.zig:1:25: error: cannot set section of external function 'foo'");
 
     cases.add("returning address of local variable - simple",
         \\export fn foo() -> &i32 {
@@ -2120,12 +2126,13 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     ,
         ".tmp_source.zig:3:41: error: expected type 'AtomicOrder', found 'u32'");
 
-    cases.add("wrong types given to setGlobalLinkage",
-        \\export fn entry() {
-        \\    @setGlobalLinkage(entry, u32(1234));
+    cases.add("wrong types given to @export",
+        \\extern fn entry() { }
+        \\comptime {
+        \\    @export("entry", entry, u32(1234));
         \\}
     ,
-        ".tmp_source.zig:2:33: error: expected type 'GlobalLinkage', found 'u32'");
+        ".tmp_source.zig:3:32: error: expected type 'GlobalLinkage', found 'u32'");
 
     cases.add("struct with invalid field",
         \\const std = @import("std");
