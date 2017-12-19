@@ -59,6 +59,7 @@ enum TokenId {
     TokenIdKeywordElse,
     TokenIdKeywordEnum,
     TokenIdKeywordError,
+    TokenIdKeywordExport,
     TokenIdKeywordExtern,
     TokenIdKeywordFalse,
     TokenIdKeywordFn,

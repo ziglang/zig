@@ -5066,7 +5066,7 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
     bool is_const = variable_declaration->is_const;
     bool is_extern = variable_declaration->is_extern;
     IrInstruction *is_comptime = ir_build_const_bool(irb, scope, node,
-        ir_should_inline(irb->exec, scope) || variable_declaration->is_inline);
+        ir_should_inline(irb->exec, scope) || variable_declaration->is_comptime);
     VariableTableEntry *var = ir_create_var(irb, node, scope, variable_declaration->symbol,
         is_const, is_const, is_shadowable, is_comptime);
     // we detect IrInstructionIdDeclVar in gen_block to make sure the next node

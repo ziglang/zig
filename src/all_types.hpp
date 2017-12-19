@@ -315,12 +315,6 @@ struct TldVar {
     VariableTableEntry *var;
     Buf *extern_lib_name;
     Buf *section_name;
-
-    size_t export_count;
-    union {
-        TldExport *tld; // if export_count == 1
-        TldExport **tld_list; // if export_count > 1
-    } export_data;
 };
 
 struct TldFn {
@@ -428,6 +422,7 @@ struct AstNodeFnProto {
     AstNode *return_type;
     bool is_var_args;
     bool is_extern;
+    bool is_export;
     bool is_inline;
     CallingConvention cc;
     AstNode *fn_def_node;
@@ -485,7 +480,8 @@ struct AstNodeVariableDeclaration {
     VisibMod visib_mod;
     Buf *symbol;
     bool is_const;
-    bool is_inline;
+    bool is_comptime;
+    bool is_export;
     bool is_extern;
     // one or both of type and expr will be non null
     AstNode *type;

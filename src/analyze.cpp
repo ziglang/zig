@@ -1062,7 +1062,7 @@ void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_cou
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
     if (fn_proto->cc == CallingConventionUnspecified) {
-        bool extern_abi = fn_proto->is_extern;
+        bool extern_abi = fn_proto->is_extern || fn_proto->is_export;
         fn_type_id->cc = extern_abi ? CallingConventionC : CallingConventionUnspecified;
     } else {
         fn_type_id->cc = fn_proto->cc;
@@ -2675,6 +2675,26 @@ static void resolve_decl_comptime(CodeGen *g, TldCompTime *tld_comptime) {
 }
 
 static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
+    bool is_export = false;
+    if (tld->id == TldIdVar) {
+        assert(tld->source_node->type == NodeTypeVariableDeclaration);
+        is_export = tld->source_node->data.variable_declaration.is_export;
+    } else if (tld->id == TldIdFn) {
+        assert(tld->source_node->type == NodeTypeFnProto);
+        is_export = tld->source_node->data.fn_proto.is_export;
+    }
+    if (is_export) {
+        g->resolve_queue.append(tld);
+
+        auto entry = g->exported_symbol_names.put_unique(tld->name, tld->source_node);
+        if (entry) {
+            AstNode *other_source_node = entry->value;
+            ErrorMsg *msg = add_node_error(g, tld->source_node,
+                    buf_sprintf("exported symbol collision: '%s'", buf_ptr(tld->name)));
+            add_error_note(g, msg, other_source_node, buf_sprintf("other symbol here"));
+        }
+    }
+
     {
         auto entry = decls_scope->decl_table.put_unique(tld->name, tld);
         if (entry) {
@@ -3006,6 +3026,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
 
     bool is_const = var_decl->is_const;
     bool is_extern = var_decl->is_extern;
+    bool is_export = var_decl->is_export;
 
     TypeTableEntry *explicit_type = nullptr;
     if (var_decl->type) {
@@ -3013,8 +3034,12 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
         explicit_type = validate_var_type(g, var_decl->type, proposed_type);
     }
 
+    assert(!is_export || !is_extern);
+
     VarLinkage linkage;
-    if (is_extern) {
+    if (is_export) {
+        linkage = VarLinkageExport;
+    } else if (is_extern) {
         linkage = VarLinkageExternal;
     } else {
         linkage = VarLinkageInternal;
