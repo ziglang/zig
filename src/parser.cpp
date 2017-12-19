@@ -740,9 +740,21 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bo
         return node;
     } else if (token->id == TokenIdAtSign) {
         *token_index += 1;
-        Token *name_tok = ast_eat_token(pc, token_index, TokenIdSymbol);
+        Token *name_tok = &pc->tokens->at(*token_index);
+        Buf *name_buf;
+        if (name_tok->id == TokenIdKeywordExport) {
+            name_buf = buf_create_from_str("export");
+            *token_index += 1;
+        } else if (name_tok->id == TokenIdSymbol) {
+            name_buf = token_buf(name_tok);
+            *token_index += 1;
+        } else {
+            ast_expect_token(pc, name_tok, TokenIdSymbol);
+            zig_unreachable();
+        }
+
         AstNode *name_node = ast_create_node(pc, NodeTypeSymbol, name_tok);
-        name_node->data.symbol_expr.symbol = token_buf(name_tok);
+        name_node->data.symbol_expr.symbol = name_buf;
 
         AstNode *node = ast_create_node(pc, NodeTypeFnCallExpr, token);
         node->data.fn_call_expr.fn_ref_expr = name_node;
@@ -2254,12 +2266,22 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool m
         fn_token = ast_eat_token(pc, token_index, TokenIdKeywordFn);
         cc = CallingConventionStdcall;
     } else if (first_token->id == TokenIdKeywordExtern) {
+        is_extern = true;
         *token_index += 1;
-        fn_token = ast_eat_token(pc, token_index, TokenIdKeywordFn);
+        Token *next_token = &pc->tokens->at(*token_index);
+        if (next_token->id == TokenIdKeywordFn) {
+            fn_token = next_token;
+            *token_index += 1;
+        } else if (mandatory) {
+            ast_expect_token(pc, next_token, TokenIdKeywordFn);
+            zig_unreachable();
+        } else {
+            *token_index -= 1;
+            return nullptr;
+        }
         cc = CallingConventionC;
     } else if (first_token->id == TokenIdKeywordFn) {
         fn_token = first_token;
-        is_extern = true;
         *token_index += 1;
         cc = CallingConventionUnspecified;
     } else if (mandatory) {

@@ -4,8 +4,7 @@ const tests = @import("tests.zig");
 pub fn addCases(cases: &tests.CompareOutputContext) {
     cases.addC("hello world with libc",
         \\const c = @cImport(@cInclude("stdio.h"));
-        \\comptime { @export("main", main); }
-        \\extern fn main(argc: c_int, argv: &&u8) -> c_int {
+        \\export fn main(argc: c_int, argv: &&u8) -> c_int {
         \\    _ = c.puts(c"Hello, world!");
         \\    return 0;
         \\}
@@ -138,8 +137,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    @cInclude("stdio.h");
         \\});
         \\
-        \\comptime { @export("main", main); }
-        \\extern fn main(argc: c_int, argv: &&u8) -> c_int {
+        \\export fn main(argc: c_int, argv: &&u8) -> c_int {
         \\    if (is_windows) {
         \\        // we want actual \n, not \r\n
         \\        _ = c._setmode(1, c._O_BINARY);
@@ -284,10 +282,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
     cases.addC("expose function pointer to C land",
         \\const c = @cImport(@cInclude("stdlib.h"));
         \\
-        \\comptime {
-        \\    @export("main", main);
-        \\}
-        \\extern fn compare_fn(a: ?&const c_void, b: ?&const c_void) -> c_int {
+        \\export fn compare_fn(a: ?&const c_void, b: ?&const c_void) -> c_int {
         \\    const a_int = @ptrCast(&align(1) i32, a ?? unreachable);
         \\    const b_int = @ptrCast(&align(1) i32, b ?? unreachable);
         \\    if (*a_int < *b_int) {
@@ -299,7 +294,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    }
         \\}
         \\
-        \\extern fn main() -> c_int {
+        \\export fn main() -> c_int {
         \\    var array = []u32 { 1, 7, 3, 2, 0, 9, 4, 8, 6, 5 };
         \\
         \\    c.qsort(@ptrCast(&c_void, &array[0]), c_ulong(array.len), @sizeOf(i32), compare_fn);
@@ -327,8 +322,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    @cInclude("stdio.h");
         \\});
         \\
-        \\comptime { @export("main", main); }
-        \\extern fn main(argc: c_int, argv: &&u8) -> c_int {
+        \\export fn main(argc: c_int, argv: &&u8) -> c_int {
         \\    if (is_windows) {
         \\        // we want actual \n, not \r\n
         \\        _ = c._setmode(1, c._O_BINARY);

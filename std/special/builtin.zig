@@ -13,24 +13,10 @@ pub coldcc fn panic(msg: []const u8) -> noreturn {
     }
 }
 
-comptime {
-    @export("memset", memset);
-    @export("memcpy", memcpy);
-    @export("fmodf", fmodf);
-    @export("fmod", fmod);
-    @export("floorf", floorf);
-    @export("ceilf", ceilf);
-    @export("floor", floor);
-    @export("ceil", ceil);
-    if (builtin.mode != builtin.Mode.ReleaseFast and builtin.os != builtin.Os.windows) {
-        @export("__stack_chk_fail", __stack_chk_fail);
-    }
-}
-
 // Note that memset does not return `dest`, like the libc API.
 // The semantics of memset is dictated by the corresponding
 // LLVM intrinsics, not by the libc API.
-extern fn memset(dest: ?&u8, c: u8, n: usize) {
+export fn memset(dest: ?&u8, c: u8, n: usize) {
     @setDebugSafety(this, false);
 
     var index: usize = 0;
@@ -41,7 +27,7 @@ extern fn memset(dest: ?&u8, c: u8, n: usize) {
 // Note that memcpy does not return `dest`, like the libc API.
 // The semantics of memcpy is dictated by the corresponding
 // LLVM intrinsics, not by the libc API.
-extern fn memcpy(noalias dest: ?&u8, noalias src: ?&const u8, n: usize) {
+export fn memcpy(noalias dest: ?&u8, noalias src: ?&const u8, n: usize) {
     @setDebugSafety(this, false);
 
     var index: usize = 0;
@@ -49,21 +35,26 @@ extern fn memcpy(noalias dest: ?&u8, noalias src: ?&const u8, n: usize) {
         (??dest)[index] = (??src)[index];
 }
 
+comptime {
+    if (builtin.mode != builtin.Mode.ReleaseFast and builtin.os != builtin.Os.windows) {
+        @export("__stack_chk_fail", __stack_chk_fail, builtin.GlobalLinkage.Strong);
+    }
+}
 extern fn __stack_chk_fail() -> noreturn {
     @panic("stack smashing detected");
 }
 
 const math = @import("../math/index.zig");
 
-extern fn fmodf(x: f32, y: f32) -> f32 { generic_fmod(f32, x, y) }
-extern fn fmod(x: f64, y: f64) -> f64 { generic_fmod(f64, x, y) }
+export fn fmodf(x: f32, y: f32) -> f32 { generic_fmod(f32, x, y) }
+export fn fmod(x: f64, y: f64) -> f64 { generic_fmod(f64, x, y) }
 
 // TODO add intrinsics for these (and probably the double version too)
 // and have the math stuff use the intrinsic. same as @mod and @rem
-extern fn floorf(x: f32) -> f32 { math.floor(x) }
-extern fn ceilf(x: f32) -> f32 { math.ceil(x) }
-extern fn floor(x: f64) -> f64 { math.floor(x) }
-extern fn ceil(x: f64) -> f64 { math.ceil(x) }
+export fn floorf(x: f32) -> f32 { math.floor(x) }
+export fn ceilf(x: f32) -> f32 { math.ceil(x) }
+export fn floor(x: f64) -> f64 { math.floor(x) }
+export fn ceil(x: f64) -> f64 { math.ceil(x) }
 
 fn generic_fmod(comptime T: type, x: T, y: T) -> T {
     @setDebugSafety(this, false);

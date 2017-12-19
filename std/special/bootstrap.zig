@@ -8,12 +8,13 @@ const builtin = @import("builtin");
 var argc_ptr: &usize = undefined;
 
 comptime {
+    const strong_linkage = builtin.GlobalLinkage.Strong;
     if (builtin.link_libc) {
-        @export("main", main);
+        @export("main", main, strong_linkage);
     } else if (builtin.os == builtin.Os.windows) {
-        @export("WinMainCRTStartup", WinMainCRTStartup);
+        @export("WinMainCRTStartup", WinMainCRTStartup, strong_linkage);
     } else {
-        @export("_start", _start);
+        @export("_start", _start, strong_linkage);
     }
 }
 

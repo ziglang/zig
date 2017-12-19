@@ -1285,7 +1285,6 @@ enum BuiltinFnId {
     BuiltinFnIdSetAlignStack,
     BuiltinFnIdArgType,
     BuiltinFnIdExport,
-    BuiltinFnIdExportWithLinkage,
 };
 
 struct BuiltinFnEntry {

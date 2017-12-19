@@ -111,6 +111,10 @@ static const char *extern_string(bool is_extern) {
     return is_extern ? "extern " : "";
 }
 
+static const char *export_string(bool is_export) {
+    return is_export ? "export " : "";
+}
+
 //static const char *calling_convention_string(CallingConvention cc) {
 //    switch (cc) {
 //        case CallingConventionUnspecified: return "";
@@ -410,8 +414,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             {
                 const char *pub_str = visib_mod_string(node->data.fn_proto.visib_mod);
                 const char *extern_str = extern_string(node->data.fn_proto.is_extern);
+                const char *export_str = export_string(node->data.fn_proto.is_export);
                 const char *inline_str = inline_string(node->data.fn_proto.is_inline);
-                fprintf(ar->f, "%s%s%sfn", pub_str, inline_str, extern_str);
+                fprintf(ar->f, "%s%s%s%sfn", pub_str, inline_str, export_str, extern_str);
                 if (node->data.fn_proto.name != nullptr) {
                     fprintf(ar->f, " ");
                     print_symbol(ar, node->data.fn_proto.name);

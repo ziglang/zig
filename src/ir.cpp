@@ -4739,7 +4739,6 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 return ir_build_arg_type(irb, scope, node, arg0_value, arg1_value);
             }
         case BuiltinFnIdExport:
-        case BuiltinFnIdExportWithLinkage:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
                 IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
@@ -4751,15 +4750,10 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg1_value == irb->codegen->invalid_instruction)
                     return arg1_value;
 
-                IrInstruction *arg2_value;
-                if (builtin_fn->id == BuiltinFnIdExportWithLinkage) {
-                    AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
-                    arg2_value = ir_gen_node(irb, arg2_node, scope);
-                    if (arg2_value == irb->codegen->invalid_instruction)
-                        return arg2_value;
-                } else {
-                    arg2_value = nullptr;
-                }
+                AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
+                IrInstruction *arg2_value = ir_gen_node(irb, arg2_node, scope);
+                if (arg2_value == irb->codegen->invalid_instruction)
+                    return arg2_value;
 
                 return ir_build_export(irb, scope, node, arg0_value, arg1_value, arg2_value);
             }

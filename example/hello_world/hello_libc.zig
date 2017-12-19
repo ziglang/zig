@@ -5,13 +5,9 @@ const c = @cImport({
     @cInclude("string.h");
 });
 
-comptime {
-    @export("main", main);
-}
+const msg = c"Hello, world!\n";
 
-extern fn main(argc: c_int, argv: &&u8) -> c_int {
-    const msg = c"Hello, world!\n";
-
+export fn main(argc: c_int, argv: &&u8) -> c_int {
     if (c.printf(msg) != c_int(c.strlen(msg)))
         return -1;
 

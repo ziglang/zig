@@ -5016,8 +5016,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdOpaqueType, "OpaqueType", 0);
     create_builtin_fn(g, BuiltinFnIdSetAlignStack, "setAlignStack", 1);
     create_builtin_fn(g, BuiltinFnIdArgType, "ArgType", 2);
-    create_builtin_fn(g, BuiltinFnIdExport, "export", 2);
-    create_builtin_fn(g, BuiltinFnIdExportWithLinkage, "exportWithLinkage", 3);
+    create_builtin_fn(g, BuiltinFnIdExport, "export", 3);
 }
 
 static const char *bool_to_str(bool b) {
