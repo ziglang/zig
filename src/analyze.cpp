@@ -429,7 +429,7 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
         ensure_complete_type(g, child_type);
 
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdMaybe);
-        assert(child_type->type_ref);
+        assert(child_type->type_ref || child_type->zero_bits);
         assert(child_type->di_type);
         entry->is_copyable = type_is_copyable(g, child_type);
 
@@ -1162,6 +1162,15 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         }
 
         TypeTableEntry *type_entry = analyze_type_expr(g, child_scope, param_node->data.param_decl.type);
+        if (fn_type_id.cc != CallingConventionUnspecified) {
+            type_ensure_zero_bits_known(g, type_entry);
+            if (!type_has_bits(type_entry)) {
+                add_node_error(g, param_node->data.param_decl.type,
+                    buf_sprintf("parameter of type '%s' has 0 bits; not allowed in function with calling convention '%s'",
+                        buf_ptr(&type_entry->name), calling_convention_name(fn_type_id.cc)));
+                return g->builtin_types.entry_invalid;
+            }
+        }
 
         switch (type_entry->id) {
             case TypeTableEntryIdInvalid:

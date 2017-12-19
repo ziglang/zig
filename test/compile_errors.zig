@@ -1,6 +1,16 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) {
+    cases.add("attempt to use 0 bit type in extern fn",
+        \\extern fn foo(ptr: extern fn(&void));
+        \\
+        \\export fn entry() {
+        \\    foo(bar);
+        \\}
+        \\
+        \\extern fn bar(x: &void) { }
+    , ".tmp_source.zig:7:18: error: parameter of type '&void' has 0 bits; not allowed in function with calling convention 'ccc'");
+
     cases.add("implicit semicolon - block statement",
         \\export fn entry() {
         \\    {}
