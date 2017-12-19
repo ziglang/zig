@@ -1183,7 +1183,6 @@ enum FnInline {
 struct FnExport {
     Buf name;
     GlobalLinkageId linkage;
-    AstNode *source_node;
 };
 
 struct FnTableEntry {

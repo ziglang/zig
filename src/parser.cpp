@@ -1553,6 +1553,7 @@ static AstNode *ast_parse_variable_declaration_expr(ParseContext *pc, size_t *to
     AstNode *node = ast_create_node(pc, NodeTypeVariableDeclaration, var_token);
 
     node->data.variable_declaration.is_comptime = is_comptime;
+    node->data.variable_declaration.is_export = is_export;
     node->data.variable_declaration.is_const = is_const;
     node->data.variable_declaration.visib_mod = visib_mod;
 

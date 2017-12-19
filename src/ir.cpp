@@ -10504,35 +10504,11 @@ static TypeTableEntry *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructi
                     add_error_note(ira->codegen, msg, fn_entry->proto_node, buf_sprintf("declared here"));
                 } break;
                 case CallingConventionC:
-                    if (buf_eql_str(symbol_name, "main") && ira->codegen->libc_link_lib != nullptr) {
-                        ira->codegen->have_c_main = true;
-                        ira->codegen->windows_subsystem_windows = false;
-                        ira->codegen->windows_subsystem_console = true;
-                    } else if (buf_eql_str(symbol_name, "WinMain") &&
-                        ira->codegen->zig_target.os == ZigLLVM_Win32)
-                    {
-                        ira->codegen->have_winmain = true;
-                        ira->codegen->windows_subsystem_windows = true;
-                        ira->codegen->windows_subsystem_console = false;
-                    } else if (buf_eql_str(symbol_name, "WinMainCRTStartup") &&
-                        ira->codegen->zig_target.os == ZigLLVM_Win32)
-                    {
-                        ira->codegen->have_winmain_crt_startup = true;
-                    } else if (buf_eql_str(symbol_name, "DllMainCRTStartup") &&
-                        ira->codegen->zig_target.os == ZigLLVM_Win32)
-                    {
-                        ira->codegen->have_dllmain_crt_startup = true;
-                    }
-                    // fallthrough
                 case CallingConventionNaked:
                 case CallingConventionCold:
-                case CallingConventionStdcall: {
-                    FnExport *fn_export = fn_entry->export_list.add_one();
-                    memset(fn_export, 0, sizeof(FnExport));
-                    buf_init_from_buf(&fn_export->name, symbol_name);
-                    fn_export->linkage = global_linkage_id;
-                    fn_export->source_node = instruction->base.source_node;
-                } break;
+                case CallingConventionStdcall:
+                    add_fn_export(ira->codegen, fn_entry, symbol_name, global_linkage_id, cc == CallingConventionC);
+                    break;
             }
         } break;
         case TypeTableEntryIdStruct:

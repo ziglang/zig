@@ -2577,6 +2577,34 @@ TypeTableEntry *get_test_fn_type(CodeGen *g) {
     return g->test_fn_type;
 }
 
+void add_fn_export(CodeGen *g, FnTableEntry *fn_table_entry, Buf *symbol_name, GlobalLinkageId linkage, bool ccc) {
+    if (ccc) {
+        if (buf_eql_str(symbol_name, "main") && g->libc_link_lib != nullptr) {
+            g->have_c_main = true;
+            g->windows_subsystem_windows = false;
+            g->windows_subsystem_console = true;
+        } else if (buf_eql_str(symbol_name, "WinMain") &&
+            g->zig_target.os == ZigLLVM_Win32)
+        {
+            g->have_winmain = true;
+            g->windows_subsystem_windows = true;
+            g->windows_subsystem_console = false;
+        } else if (buf_eql_str(symbol_name, "WinMainCRTStartup") &&
+            g->zig_target.os == ZigLLVM_Win32)
+        {
+            g->have_winmain_crt_startup = true;
+        } else if (buf_eql_str(symbol_name, "DllMainCRTStartup") &&
+            g->zig_target.os == ZigLLVM_Win32)
+        {
+            g->have_dllmain_crt_startup = true;
+        }
+    }
+    FnExport *fn_export = fn_table_entry->export_list.add_one();
+    memset(fn_export, 0, sizeof(FnExport));
+    buf_init_from_buf(&fn_export->name, symbol_name);
+    fn_export->linkage = linkage;
+}
+
 static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
     ImportTableEntry *import = tld_fn->base.import;
     AstNode *source_node = tld_fn->base.source_node;
@@ -2587,6 +2615,11 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
 
         FnTableEntry *fn_table_entry = create_fn(source_node);
         get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base, '_');
+
+        if (fn_proto->is_export) {
+            bool ccc = (fn_proto->cc == CallingConventionUnspecified || fn_proto->cc == CallingConventionC);
+            add_fn_export(g, fn_table_entry, &fn_table_entry->symbol_name, GlobalLinkageIdStrong, ccc);
+        }
 
         tld_fn->fn_entry = fn_table_entry;
 
