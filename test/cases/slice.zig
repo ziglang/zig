@@ -25,3 +25,12 @@ test "debug safety lets us slice from len..len" {
 fn sliceFromLenToLen(a_slice: []u8, start: usize, end: usize) -> []u8 {
     return a_slice[start..end];
 }
+
+test "implicitly cast array of size 0 to slice" {
+    var msg = []u8 {};
+    assertLenIsZero(msg);
+}
+
+fn assertLenIsZero(msg: []const u8) {
+    assert(msg.len == 0);
+}

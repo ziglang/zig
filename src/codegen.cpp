@@ -2722,6 +2722,9 @@ static LLVMValueRef ir_render_phi(CodeGen *g, IrExecutable *executable, IrInstru
 }
 
 static LLVMValueRef ir_render_ref(CodeGen *g, IrExecutable *executable, IrInstructionRef *instruction) {
+    if (!type_has_bits(instruction->base.value.type)) {
+        return nullptr;
+    }
     LLVMValueRef value = ir_llvm_value(g, instruction->value);
     if (handle_is_ptr(instruction->value->value.type)) {
         return value;
@@ -3013,6 +3016,15 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutable *executable, IrInst
                 add_bounds_check(g, end_val, LLVMIntEQ, nullptr, LLVMIntULE, array_end);
             }
         }
+        if (!type_has_bits(array_type)) {
+            LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, slice_len_index, "");
+
+            // TODO if debug safety is on, store 0xaaaaaaa in ptr field
+            LLVMValueRef len_value = LLVMBuildNSWSub(g->builder, end_val, start_val, "");
+            gen_store_untyped(g, len_value, len_field_ptr, 0, false);
+            return tmp_struct_ptr;
+        }
+
 
         LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, slice_ptr_index, "");
         LLVMValueRef indices[] = {

@@ -7748,8 +7748,9 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
 static void ir_add_alloca(IrAnalyze *ira, IrInstruction *instruction, TypeTableEntry *type_entry) {
     if (type_has_bits(type_entry) && handle_is_ptr(type_entry)) {
         FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
-        assert(fn_entry);
-        fn_entry->alloca_list.append(instruction);
+        if (fn_entry != nullptr) {
+            fn_entry->alloca_list.append(instruction);
+        }
     }
 }
 
@@ -7851,9 +7852,7 @@ static IrInstruction *ir_resolve_cast(IrAnalyze *ira, IrInstruction *source_inst
         IrInstruction *result = ir_build_cast(&ira->new_irb, source_instr->scope, source_instr->source_node, wanted_type, value, cast_op);
         result->value.type = wanted_type;
         if (need_alloca) {
-            FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
-            if (fn_entry)
-                fn_entry->alloca_list.append(result);
+            ir_add_alloca(ira, result, wanted_type);
         }
         return result;
     }
@@ -8287,6 +8286,7 @@ static IrInstruction *ir_analyze_cast_ref(IrAnalyze *ira, IrInstruction *source_
             assert(fn_entry);
             fn_entry->alloca_list.append(new_instruction);
         }
+        ir_add_alloca(ira, new_instruction, child_type);
         return new_instruction;
     }
 }
@@ -8330,13 +8330,15 @@ static IrInstruction *ir_get_ref(IrAnalyze *ira, IrInstruction *source_instructi
 
     TypeTableEntry *ptr_type = get_pointer_to_type_extra(ira->codegen, value->value.type,
             is_const, is_volatile, get_abi_alignment(ira->codegen, value->value.type), 0, 0);
-    FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
-    assert(fn_entry);
     IrInstruction *new_instruction = ir_build_ref(&ira->new_irb, source_instruction->scope,
             source_instruction->source_node, value, is_const, is_volatile);
     new_instruction->value.type = ptr_type;
     new_instruction->value.data.rh_ptr = RuntimeHintPtrStack;
-    fn_entry->alloca_list.append(new_instruction);
+    if (type_has_bits(ptr_type)) {
+        FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
+        assert(fn_entry);
+        fn_entry->alloca_list.append(new_instruction);
+    }
     return new_instruction;
 }
 
