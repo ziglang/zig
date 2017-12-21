@@ -215,10 +215,6 @@ static const char *node_type_str(NodeType node_type) {
             return "SwitchProng";
         case NodeTypeSwitchRange:
             return "SwitchRange";
-        case NodeTypeLabel:
-            return "Label";
-        case NodeTypeGoto:
-            return "Goto";
         case NodeTypeCompTime:
             return "CompTime";
         case NodeTypeBreak:
@@ -391,7 +387,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
     switch (node->type) {
         case NodeTypeSwitchProng:
         case NodeTypeSwitchRange:
-        case NodeTypeLabel:
         case NodeTypeStructValueField:
             zig_unreachable();
         case NodeTypeRoot:
@@ -470,6 +465,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 break;
             }
         case NodeTypeBlock:
+            if (node->data.block.name != nullptr) {
+                fprintf(ar->f, "%s: ", buf_ptr(node->data.block.name));
+            }
             if (node->data.block.statements.length == 0) {
                 fprintf(ar->f, "{}");
                 break;
@@ -478,13 +476,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             ar->indent += ar->indent_size;
             for (size_t i = 0; i < node->data.block.statements.length; i += 1) {
                 AstNode *statement = node->data.block.statements.at(i);
-                if (statement->type == NodeTypeLabel) {
-                    ar->indent -= ar->indent_size;
-                    print_indent(ar);
-                    fprintf(ar->f, "%s:\n", buf_ptr(statement->data.label.name));
-                    ar->indent += ar->indent_size;
-                    continue;
-                }
                 print_indent(ar);
                 render_node_grouped(ar, statement);
                 if (!(i == node->data.block.statements.length - 1 &&
@@ -515,6 +506,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeBreak:
             {
                 fprintf(ar->f, "break");
+                if (node->data.break_expr.name != nullptr) {
+                    fprintf(ar->f, " :%s", buf_ptr(node->data.break_expr.name));
+                }
                 if (node->data.break_expr.expr) {
                     fprintf(ar->f, " ");
                     render_node_grouped(ar, node->data.break_expr.expr);
@@ -828,6 +822,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             }
         case NodeTypeWhileExpr:
             {
+                if (node->data.while_expr.name != nullptr) {
+                    fprintf(ar->f, "%s: ", buf_ptr(node->data.while_expr.name));
+                }
                 const char *inline_str = node->data.while_expr.is_inline ? "inline " : "";
                 fprintf(ar->f, "%swhile (", inline_str);
                 render_node_grouped(ar, node->data.while_expr.condition);
@@ -957,11 +954,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 fprintf(ar->f, "}");
                 break;
             }
-        case NodeTypeGoto:
-            {
-                fprintf(ar->f, "goto %s", buf_ptr(node->data.goto_expr.name));
-                break;
-            }
         case NodeTypeCompTime:
             {
                 fprintf(ar->f, "comptime ");
@@ -970,6 +962,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             }
         case NodeTypeForExpr:
             {
+                if (node->data.for_expr.name != nullptr) {
+                    fprintf(ar->f, "%s: ", buf_ptr(node->data.for_expr.name));
+                }
                 const char *inline_str = node->data.for_expr.is_inline ? "inline " : "";
                 fprintf(ar->f, "%sfor (", inline_str);
                 render_node_grouped(ar, node->data.for_expr.array_expr);
@@ -995,6 +990,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeContinue:
             {
                 fprintf(ar->f, "continue");
+                if (node->data.continue_expr.name != nullptr) {
+                    fprintf(ar->f, " :%s", buf_ptr(node->data.continue_expr.name));
+                }
                 break;
             }
         case NodeTypeUnreachable:

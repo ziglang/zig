@@ -1005,48 +1005,6 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\}
     );
 
-    cases.add("switch statement",
-        \\int foo(int x) {
-        \\    switch (x) {
-        \\        case 1:
-        \\            x += 1;
-        \\        case 2:
-        \\            break;
-        \\        case 3:
-        \\        case 4:
-        \\            return x + 1;
-        \\        default:
-        \\            return 10;
-        \\    }
-        \\    return x + 13;
-        \\}
-    ,
-        \\fn foo(_arg_x: c_int) -> c_int {
-        \\    var x = _arg_x;
-        \\    {
-        \\        switch (x) {
-        \\            1 => goto case_0,
-        \\            2 => goto case_1,
-        \\            3 => goto case_2,
-        \\            4 => goto case_3,
-        \\            else => goto default,
-        \\        };
-        \\    case_0:
-        \\        x += 1;
-        \\    case_1:
-        \\        goto end;
-        \\    case_2:
-        \\    case_3:
-        \\        return x + 1;
-        \\    default:
-        \\        return 10;
-        \\        goto end;
-        \\    end:
-        \\    };
-        \\    return x + 13;
-        \\}
-    );
-    
     cases.add("macros with field targets",
         \\typedef unsigned int GLbitfield;
         \\typedef void (*PFNGLCLEARPROC) (GLbitfield mask);
@@ -1083,44 +1041,6 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\}
     ,
         \\pub const OpenGLProcs = union_OpenGLProcs;
-    );
-
-    cases.add("switch statement with no default",
-        \\int foo(int x) {
-        \\    switch (x) {
-        \\        case 1:
-        \\            x += 1;
-        \\        case 2:
-        \\            break;
-        \\        case 3:
-        \\        case 4:
-        \\            return x + 1;
-        \\    }
-        \\    return x + 13;
-        \\}
-    ,
-        \\fn foo(_arg_x: c_int) -> c_int {
-        \\    var x = _arg_x;
-        \\    {
-        \\        switch (x) {
-        \\            1 => goto case_0,
-        \\            2 => goto case_1,
-        \\            3 => goto case_2,
-        \\            4 => goto case_3,
-        \\            else => goto end,
-        \\        };
-        \\    case_0:
-        \\        x += 1;
-        \\    case_1:
-        \\        goto end;
-        \\    case_2:
-        \\    case_3:
-        \\        return x + 1;
-        \\        goto end;
-        \\    end:
-        \\    };
-        \\    return x + 13;
-        \\}
     );
 
     cases.add("variable name shadowing",

@@ -188,6 +188,33 @@ test "while on bool with else result follow break prong" {
     assert(result == 10);
 }
 
+test "break from outer while loop" {
+    testBreakOuter();
+    comptime testBreakOuter();
+}
+
+fn testBreakOuter() {
+    outer: while (true) {
+        while (true) {
+            break :outer;
+        }
+    }
+}
+
+test "continue outer while loop" {
+    testContinueOuter();
+    comptime testContinueOuter();
+}
+
+fn testContinueOuter() {
+    var i: usize = 0;
+    outer: while (i < 10) : (i += 1) {
+        while (true) {
+            continue :outer;
+        }
+    }
+}
+
 fn returnNull() -> ?i32 { null }
 fn returnMaybe(x: i32) -> ?i32 { x }
 error YouWantedAnError;

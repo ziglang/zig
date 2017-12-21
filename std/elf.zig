@@ -243,7 +243,7 @@ pub const Elf = struct {
         var file_stream = io.FileInStream.init(elf.in_file);
         const in = &file_stream.stream;
 
-        for (elf.section_headers) |*elf_section| {
+        section_loop: for (elf.section_headers) |*elf_section| {
             if (elf_section.sh_type == SHT_NULL) continue;
 
             const name_offset = elf.string_section.offset + elf_section.name;
@@ -251,15 +251,13 @@ pub const Elf = struct {
 
             for (name) |expected_c| {
                 const target_c = %return in.readByte();
-                if (target_c == 0 or expected_c != target_c) goto next_section;
+                if (target_c == 0 or expected_c != target_c) continue :section_loop;
             }
 
             {
                 const null_byte = %return in.readByte();
                 if (null_byte == 0) return elf_section;
             }
-
-            next_section:
         }
 
         return null;

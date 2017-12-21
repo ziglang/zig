@@ -902,40 +902,41 @@ pub fn deleteDir(allocator: &Allocator, dir_path: []const u8) -> %void {
 /// this function recursively removes its entries and then tries again.
 // TODO non-recursive implementation
 pub fn deleteTree(allocator: &Allocator, full_path: []const u8) -> %void {
-start_over:
-    // First, try deleting the item as a file. This way we don't follow sym links.
-    if (deleteFile(allocator, full_path)) {
-        return;
-    } else |err| {
-        if (err == error.FileNotFound)
+    start_over: while (true) {
+        // First, try deleting the item as a file. This way we don't follow sym links.
+        if (deleteFile(allocator, full_path)) {
             return;
-        if (err != error.IsDir)
-            return err;
-    }
-    {
-        var dir = Dir.open(allocator, full_path) %% |err| {
+        } else |err| {
             if (err == error.FileNotFound)
                 return;
-            if (err == error.NotDir)
-                goto start_over;
-            return err;
-        };
-        defer dir.close();
-
-        var full_entry_buf = ArrayList(u8).init(allocator);
-        defer full_entry_buf.deinit();
-
-        while (%return dir.next()) |entry| {
-            %return full_entry_buf.resize(full_path.len + entry.name.len + 1);
-            const full_entry_path = full_entry_buf.toSlice();
-            mem.copy(u8, full_entry_path, full_path);
-            full_entry_path[full_path.len] = '/';
-            mem.copy(u8, full_entry_path[full_path.len + 1..], entry.name);
-
-            %return deleteTree(allocator, full_entry_path);
+            if (err != error.IsDir)
+                return err;
         }
+        {
+            var dir = Dir.open(allocator, full_path) %% |err| {
+                if (err == error.FileNotFound)
+                    return;
+                if (err == error.NotDir)
+                    continue :start_over;
+                return err;
+            };
+            defer dir.close();
+
+            var full_entry_buf = ArrayList(u8).init(allocator);
+            defer full_entry_buf.deinit();
+
+            while (%return dir.next()) |entry| {
+                %return full_entry_buf.resize(full_path.len + entry.name.len + 1);
+                const full_entry_path = full_entry_buf.toSlice();
+                mem.copy(u8, full_entry_path, full_path);
+                full_entry_path[full_path.len] = '/';
+                mem.copy(u8, full_entry_path[full_path.len + 1..], entry.name);
+
+                %return deleteTree(allocator, full_entry_path);
+            }
+        }
+        return deleteDir(allocator, full_path);
     }
-    return deleteDir(allocator, full_path);
 }
 
 pub const Dir = struct {
@@ -988,58 +989,59 @@ pub const Dir = struct {
     /// Memory such as file names referenced in this returned entry becomes invalid
     /// with subsequent calls to next, as well as when this ::Dir is deinitialized.
     pub fn next(self: &Dir) -> %?Entry {
-    start_over:
-        if (self.index >= self.end_index) {
-            if (self.buf.len == 0) {
-                self.buf = %return self.allocator.alloc(u8, page_size);
-            }
-
-            while (true) {
-                const result = posix.getdents(self.fd, self.buf.ptr, self.buf.len);
-                const err = linux.getErrno(result);
-                if (err > 0) {
-                    switch (err) {
-                        posix.EBADF, posix.EFAULT, posix.ENOTDIR => unreachable,
-                        posix.EINVAL => {
-                            self.buf = %return self.allocator.realloc(u8, self.buf, self.buf.len * 2);
-                            continue;
-                        },
-                        else => return unexpectedErrorPosix(err),
-                    };
+        start_over: while (true) {
+            if (self.index >= self.end_index) {
+                if (self.buf.len == 0) {
+                    self.buf = %return self.allocator.alloc(u8, page_size);
                 }
-                if (result == 0)
-                    return null;
-                self.index = 0;
-                self.end_index = result;
-                break;
+
+                while (true) {
+                    const result = posix.getdents(self.fd, self.buf.ptr, self.buf.len);
+                    const err = linux.getErrno(result);
+                    if (err > 0) {
+                        switch (err) {
+                            posix.EBADF, posix.EFAULT, posix.ENOTDIR => unreachable,
+                            posix.EINVAL => {
+                                self.buf = %return self.allocator.realloc(u8, self.buf, self.buf.len * 2);
+                                continue;
+                            },
+                            else => return unexpectedErrorPosix(err),
+                        };
+                    }
+                    if (result == 0)
+                        return null;
+                    self.index = 0;
+                    self.end_index = result;
+                    break;
+                }
             }
+            const linux_entry = @ptrCast(& align(1) LinuxEntry, &self.buf[self.index]);
+            const next_index = self.index + linux_entry.d_reclen;
+            self.index = next_index;
+
+            const name = cstr.toSlice(&linux_entry.d_name);
+
+            // skip . and .. entries
+            if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
+                continue :start_over;
+            }
+
+            const type_char = self.buf[next_index - 1];
+            const entry_kind = switch (type_char) {
+                posix.DT_BLK => Entry.Kind.BlockDevice,
+                posix.DT_CHR => Entry.Kind.CharacterDevice,
+                posix.DT_DIR => Entry.Kind.Directory,
+                posix.DT_FIFO => Entry.Kind.NamedPipe,
+                posix.DT_LNK => Entry.Kind.SymLink,
+                posix.DT_REG => Entry.Kind.File,
+                posix.DT_SOCK => Entry.Kind.UnixDomainSocket,
+                else => Entry.Kind.Unknown,
+            };
+            return Entry {
+                .name = name,
+                .kind = entry_kind,
+            };
         }
-        const linux_entry = @ptrCast(& align(1) LinuxEntry, &self.buf[self.index]);
-        const next_index = self.index + linux_entry.d_reclen;
-        self.index = next_index;
-
-        const name = cstr.toSlice(&linux_entry.d_name);
-
-        // skip . and .. entries
-        if (mem.eql(u8, name, ".") or mem.eql(u8, name, "..")) {
-            goto start_over;
-        }
-
-        const type_char = self.buf[next_index - 1];
-        const entry_kind = switch (type_char) {
-            posix.DT_BLK => Entry.Kind.BlockDevice,
-            posix.DT_CHR => Entry.Kind.CharacterDevice,
-            posix.DT_DIR => Entry.Kind.Directory,
-            posix.DT_FIFO => Entry.Kind.NamedPipe,
-            posix.DT_LNK => Entry.Kind.SymLink,
-            posix.DT_REG => Entry.Kind.File,
-            posix.DT_SOCK => Entry.Kind.UnixDomainSocket,
-            else => Entry.Kind.Unknown,
-        };
-        return Entry {
-            .name = name,
-            .kind = entry_kind,
-        };
     }
 };
 

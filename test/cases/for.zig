@@ -55,3 +55,37 @@ test "basic for loop" {
 
     assert(mem.eql(u8, buffer[0..buf_index], expected_result));
 }
+
+test "break from outer for loop" {
+    testBreakOuter();
+    comptime testBreakOuter();
+}
+
+fn testBreakOuter() {
+    var array = "aoeu";
+    var count: usize = 0;
+    outer: for (array) |_| {
+        for (array) |_2| { // TODO shouldn't get error for redeclaring "_"
+            count += 1;
+            break :outer;
+        }
+    }
+    assert(count == 1);
+}
+
+test "continue outer for loop" {
+    testContinueOuter();
+    comptime testContinueOuter();
+}
+
+fn testContinueOuter() {
+    var array = "aoeu";
+    var counter: usize = 0;
+    outer: for (array) |_| {
+        for (array) |_2| { // TODO shouldn't get error for redeclaring "_"
+            counter += 1;
+            continue :outer;
+        }
+    }
+    assert(counter == array.len);
+}

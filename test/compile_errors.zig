@@ -1,6 +1,27 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) {
+    cases.add("labeled break not found",
+        \\export fn entry() {
+        \\    blah: while (true) {
+        \\        while (true) {
+        \\            break :outer;
+        \\        }
+        \\    }
+        \\}
+    , ".tmp_source.zig:4:13: error: labeled loop not found: 'outer'");
+
+    cases.add("labeled continue not found",
+        \\export fn entry() {
+        \\    var i: usize = 0;
+        \\    blah: while (i < 10) : (i += 1) {
+        \\        while (true) {
+        \\            continue :outer;
+        \\        }
+        \\    }
+        \\}
+    , ".tmp_source.zig:5:13: error: labeled loop not found: 'outer'");
+
     cases.add("attempt to use 0 bit type in extern fn",
         \\extern fn foo(ptr: extern fn(&void));
         \\
@@ -832,26 +853,6 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\
         \\export fn entry() -> usize { @sizeOf(@typeOf(test1)) }
     , ".tmp_source.zig:3:16: error: unable to evaluate constant expression");
-
-    cases.add("goto jumping into block",
-        \\export fn f() {
-        \\    {
-        \\a_label:
-        \\    }
-        \\    goto a_label;
-        \\}
-    , ".tmp_source.zig:5:5: error: no label in scope named 'a_label'");
-
-    cases.add("goto jumping past a defer",
-        \\fn f(b: bool) {
-        \\    if (b) goto label;
-        \\    defer derp();
-        \\label:
-        \\}
-        \\fn derp(){}
-        \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(f)) }
-    , ".tmp_source.zig:2:12: error: no label in scope named 'label'");
 
     cases.add("assign null to non-nullable pointer",
         \\const a: &u8 = null;
@@ -1853,16 +1854,6 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     ,
         ".tmp_source.zig:4:13: error: cannot continue out of defer expression");
-
-    cases.add("cannot goto out of defer expression",
-        \\export fn foo() {
-        \\    defer {
-        \\        goto label;
-        \\    };
-        \\label:
-        \\}
-    ,
-        ".tmp_source.zig:3:9: error: cannot goto out of defer expression");
 
     cases.add("calling a var args function only known at runtime",
         \\var foos = []fn(...) { foo1, foo2 };

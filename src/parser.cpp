@@ -633,27 +633,6 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc, size_t *token_index, bool m
 }
 
 /*
-GotoExpression = "goto" Symbol
-*/
-static AstNode *ast_parse_goto_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
-    Token *goto_token = &pc->tokens->at(*token_index);
-    if (goto_token->id == TokenIdKeywordGoto) {
-        *token_index += 1;
-    } else if (mandatory) {
-        ast_expect_token(pc, goto_token, TokenIdKeywordGoto);
-        zig_unreachable();
-    } else {
-        return nullptr;
-    }
-
-    AstNode *node = ast_create_node(pc, NodeTypeGoto, goto_token);
-
-    Token *dest_symbol = ast_eat_token(pc, token_index, TokenIdSymbol);
-    node->data.goto_expr.name = token_buf(dest_symbol);
-    return node;
-}
-
-/*
 CompTimeExpression(body) = "comptime" body
 */
 static AstNode *ast_parse_comptime_expr(ParseContext *pc, size_t *token_index, bool require_block_body, bool mandatory) {
@@ -676,8 +655,8 @@ static AstNode *ast_parse_comptime_expr(ParseContext *pc, size_t *token_index, b
 }
 
 /*
-PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ("error" "." Symbol) | ContainerDecl
-KeywordLiteral = "true" | "false" | "null" | "continue" | "undefined" | "error" | "this" | "unreachable"
+PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ("error" "." Symbol) | ContainerDecl | ("continue" option(":" Symbol))
+KeywordLiteral = "true" | "false" | "null" | "undefined" | "error" | "this" | "unreachable"
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -721,6 +700,12 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bo
     } else if (token->id == TokenIdKeywordContinue) {
         AstNode *node = ast_create_node(pc, NodeTypeContinue, token);
         *token_index += 1;
+        Token *maybe_colon_token = &pc->tokens->at(*token_index);
+        if (maybe_colon_token->id == TokenIdColon) {
+            *token_index += 1;
+            Token *name = ast_eat_token(pc, token_index, TokenIdSymbol);
+            node->data.continue_expr.name = token_buf(name);
+        }
         return node;
     } else if (token->id == TokenIdKeywordUndefined) {
         AstNode *node = ast_create_node(pc, NodeTypeUndefinedLiteral, token);
@@ -769,10 +754,6 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bo
         node->data.symbol_expr.symbol = token_buf(token);
         return node;
     }
-
-    AstNode *goto_node = ast_parse_goto_expr(pc, token_index, false);
-    if (goto_node)
-        return goto_node;
 
     AstNode *grouped_expr_node = ast_parse_grouped_expr(pc, token_index, false);
     if (grouped_expr_node) {
@@ -1488,7 +1469,7 @@ static AstNode *ast_parse_return_expr(ParseContext *pc, size_t *token_index) {
 }
 
 /*
-BreakExpression : "break" option(Expression)
+BreakExpression = "break" option(":" Symbol) option(Expression)
 */
 static AstNode *ast_parse_break_expr(ParseContext *pc, size_t *token_index) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1498,8 +1479,15 @@ static AstNode *ast_parse_break_expr(ParseContext *pc, size_t *token_index) {
     } else {
         return nullptr;
     }
-
     AstNode *node = ast_create_node(pc, NodeTypeBreak, token);
+
+    Token *maybe_colon_token = &pc->tokens->at(*token_index);
+    if (maybe_colon_token->id == TokenIdColon) {
+        *token_index += 1;
+        Token *name = ast_eat_token(pc, token_index, TokenIdSymbol);
+        node->data.break_expr.name = token_buf(name);
+    }
+
     node->data.break_expr.expr = ast_parse_expression(pc, token_index, false);
 
     return node;
@@ -1678,35 +1666,53 @@ static AstNode *ast_parse_bool_or_expr(ParseContext *pc, size_t *token_index, bo
 }
 
 /*
-WhileExpression(body) = option("inline") "while" "(" Expression ")" option("|" option("*") Symbol "|") option(":" "(" Expression ")") body option("else" option("|" Symbol "|") BlockExpression(body))
+WhileExpression(body) = option(Symbol ":") option("inline") "while" "(" Expression ")" option("|" option("*") Symbol "|") option(":" "(" Expression ")") body option("else" option("|" Symbol "|") BlockExpression(body))
 */
 static AstNode *ast_parse_while_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
-    Token *first_token = &pc->tokens->at(*token_index);
-    Token *while_token;
+    size_t orig_token_index = *token_index;
 
-    bool is_inline;
-    if (first_token->id == TokenIdKeywordInline) {
-        while_token = &pc->tokens->at(*token_index + 1);
-        if (while_token->id == TokenIdKeywordWhile) {
-            is_inline = true;
-            *token_index += 2;
+    Token *name_token = nullptr;
+    Token *token = &pc->tokens->at(*token_index);
+
+    if (token->id == TokenIdSymbol) {
+        *token_index += 1;
+        Token *colon_token = &pc->tokens->at(*token_index);
+        if (colon_token->id == TokenIdColon) {
+            *token_index += 1;
+            name_token = token;
+            token = &pc->tokens->at(*token_index);
         } else if (mandatory) {
-            ast_expect_token(pc, while_token, TokenIdKeywordWhile);
+            ast_expect_token(pc, colon_token, TokenIdColon);
             zig_unreachable();
         } else {
+            *token_index = orig_token_index;
             return nullptr;
         }
-    } else if (first_token->id == TokenIdKeywordWhile) {
-        while_token = first_token;
-        is_inline = false;
+    }
+
+    bool is_inline = false;
+    if (token->id == TokenIdKeywordInline) {
+        is_inline = true;
+        *token_index += 1;
+        token = &pc->tokens->at(*token_index);
+    }
+
+    Token *while_token;
+    if (token->id == TokenIdKeywordWhile) {
+        while_token = token;
         *token_index += 1;
     } else if (mandatory) {
-        ast_expect_token(pc, first_token, TokenIdKeywordWhile);
+        ast_expect_token(pc, token, TokenIdKeywordWhile);
         zig_unreachable();
     } else {
+        *token_index = orig_token_index;
         return nullptr;
     }
+
     AstNode *node = ast_create_node(pc, NodeTypeWhileExpr, while_token);
+    if (name_token != nullptr) {
+        node->data.while_expr.name = token_buf(name_token);
+    }
     node->data.while_expr.is_inline = is_inline;
 
     ast_eat_token(pc, token_index, TokenIdLParen);
@@ -1766,36 +1772,53 @@ static AstNode *ast_parse_symbol(ParseContext *pc, size_t *token_index) {
 }
 
 /*
-ForExpression(body) = option("inline") "for" "(" Expression ")" option("|" option("*") Symbol option("," Symbol) "|") body option("else" BlockExpression(body))
+ForExpression(body) = option(Symbol ":") option("inline") "for" "(" Expression ")" option("|" option("*") Symbol option("," Symbol) "|") body option("else" BlockExpression(body))
 */
 static AstNode *ast_parse_for_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
-    Token *first_token = &pc->tokens->at(*token_index);
-    Token *for_token;
+    size_t orig_token_index = *token_index;
 
-    bool is_inline;
-    if (first_token->id == TokenIdKeywordInline) {
-        is_inline = true;
-        for_token = &pc->tokens->at(*token_index + 1);
-        if (for_token->id == TokenIdKeywordFor) {
-            *token_index += 2;
+    Token *name_token = nullptr;
+    Token *token = &pc->tokens->at(*token_index);
+
+    if (token->id == TokenIdSymbol) {
+        *token_index += 1;
+        Token *colon_token = &pc->tokens->at(*token_index);
+        if (colon_token->id == TokenIdColon) {
+            *token_index += 1;
+            name_token = token;
+            token = &pc->tokens->at(*token_index);
         } else if (mandatory) {
-            ast_expect_token(pc, first_token, TokenIdKeywordFor);
+            ast_expect_token(pc, colon_token, TokenIdColon);
             zig_unreachable();
         } else {
+            *token_index = orig_token_index;
             return nullptr;
         }
-    } else if (first_token->id == TokenIdKeywordFor) {
-        for_token = first_token;
-        is_inline = false;
+    }
+
+    bool is_inline = false;
+    if (token->id == TokenIdKeywordInline) {
+        is_inline = true;
+        *token_index += 1;
+        token = &pc->tokens->at(*token_index);
+    }
+
+    Token *for_token;
+    if (token->id == TokenIdKeywordFor) {
+        for_token = token;
         *token_index += 1;
     } else if (mandatory) {
-        ast_expect_token(pc, first_token, TokenIdKeywordFor);
+        ast_expect_token(pc, token, TokenIdKeywordFor);
         zig_unreachable();
     } else {
+        *token_index = orig_token_index;
         return nullptr;
     }
 
     AstNode *node = ast_create_node(pc, NodeTypeForExpr, for_token);
+    if (name_token != nullptr) {
+        node->data.for_expr.name = token_buf(name_token);
+    }
     node->data.for_expr.is_inline = is_inline;
 
     ast_eat_token(pc, token_index, TokenIdLParen);
@@ -2125,32 +2148,6 @@ static AstNode *ast_parse_expression(ParseContext *pc, size_t *token_index, bool
 /*
 Label: token(Symbol) token(Colon)
 */
-static AstNode *ast_parse_label(ParseContext *pc, size_t *token_index, bool mandatory) {
-    Token *symbol_token = &pc->tokens->at(*token_index);
-    if (symbol_token->id != TokenIdSymbol) {
-        if (mandatory) {
-            ast_expect_token(pc, symbol_token, TokenIdSymbol);
-        } else {
-            return nullptr;
-        }
-    }
-
-    Token *colon_token = &pc->tokens->at(*token_index + 1);
-    if (colon_token->id != TokenIdColon) {
-        if (mandatory) {
-            ast_expect_token(pc, colon_token, TokenIdColon);
-        } else {
-            return nullptr;
-        }
-    }
-
-    *token_index += 2;
-
-    AstNode *node = ast_create_node(pc, NodeTypeLabel, symbol_token);
-    node->data.label.name = token_buf(symbol_token);
-    return node;
-}
-
 static bool statement_terminates_without_semicolon(AstNode *node) {
     switch (node->type) {
         case NodeTypeIfBoolExpr:
@@ -2175,7 +2172,6 @@ static bool statement_terminates_without_semicolon(AstNode *node) {
             return node->data.defer.expr->type == NodeTypeBlock;
         case NodeTypeSwitchExpr:
         case NodeTypeBlock:
-        case NodeTypeLabel:
             return true;
         default:
             return false;
@@ -2183,27 +2179,48 @@ static bool statement_terminates_without_semicolon(AstNode *node) {
 }
 
 /*
-Block = "{" many(Statement) option(Expression) "}"
+Block = option(Symbol ":") "{" many(Statement) option(Expression) "}"
 Statement = Label | VariableDeclaration ";" | Defer(Block) | Defer(Expression) ";" | BlockExpression(Block) | Expression ";" | ";" | ExportDecl
 */
 static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mandatory) {
+    size_t orig_token_index = *token_index;
+
+    Token *name_token = nullptr;
     Token *last_token = &pc->tokens->at(*token_index);
+
+    if (last_token->id == TokenIdSymbol) {
+        *token_index += 1;
+        Token *colon_token = &pc->tokens->at(*token_index);
+        if (colon_token->id == TokenIdColon) {
+            *token_index += 1;
+            name_token = last_token;
+            last_token = &pc->tokens->at(*token_index);
+        } else if (mandatory) {
+            ast_expect_token(pc, colon_token, TokenIdColon);
+            zig_unreachable();
+        } else {
+            *token_index = orig_token_index;
+            return nullptr;
+        }
+    }
 
     if (last_token->id != TokenIdLBrace) {
         if (mandatory) {
             ast_expect_token(pc, last_token, TokenIdLBrace);
         } else {
+            *token_index = orig_token_index;
             return nullptr;
         }
     }
     *token_index += 1;
 
     AstNode *node = ast_create_node(pc, NodeTypeBlock, last_token);
+    if (name_token != nullptr) {
+        node->data.block.name = token_buf(name_token);
+    }
 
     for (;;) {
-        AstNode *statement_node = ast_parse_label(pc, token_index, false);
-        if (!statement_node)
-            statement_node = ast_parse_local_var_decl(pc, token_index);
+        AstNode *statement_node = ast_parse_local_var_decl(pc, token_index);
         if (!statement_node)
             statement_node = ast_parse_defer_expr(pc, token_index);
         if (!statement_node)
@@ -2225,9 +2242,7 @@ static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mand
             }
         }
 
-        node->data.block.last_statement_is_result_expression = statement_node && !(
-            statement_node->type == NodeTypeLabel ||
-            statement_node->type == NodeTypeDefer);
+        node->data.block.last_statement_is_result_expression = statement_node && statement_node->type != NodeTypeDefer;
 
         last_token = &pc->tokens->at(*token_index);
         if (last_token->id == TokenIdRBrace) {
@@ -2859,12 +2874,6 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
         case NodeTypeSwitchRange:
             visit_field(&node->data.switch_range.start, visit, context);
             visit_field(&node->data.switch_range.end, visit, context);
-            break;
-        case NodeTypeLabel:
-            // none
-            break;
-        case NodeTypeGoto:
-            // none
             break;
         case NodeTypeCompTime:
             visit_field(&node->data.comptime_expr.expr, visit, context);

@@ -3511,29 +3511,6 @@ static VariableTableEntry *ir_create_var(IrBuilder *irb, AstNode *node, Scope *s
     return var;
 }
 
-static LabelTableEntry *find_label(IrExecutable *exec, Scope *scope, Buf *name) {
-    while (scope) {
-        if (scope->id == ScopeIdBlock) {
-            ScopeBlock *block_scope = (ScopeBlock *)scope;
-            auto entry = block_scope->label_table.maybe_get(name);
-            if (entry)
-                return entry->value;
-        }
-        scope = scope->parent;
-    }
-
-    return nullptr;
-}
-
-static ScopeBlock *find_block_scope(IrExecutable *exec, Scope *scope) {
-    while (scope) {
-        if (scope->id == ScopeIdBlock)
-            return (ScopeBlock *)scope;
-        scope = scope->parent;
-    }
-    return nullptr;
-}
-
 static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode *block_node) {
     assert(block_node->type == NodeTypeBlock);
 
@@ -3556,38 +3533,6 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
     IrInstruction *return_value = nullptr;
     for (size_t i = 0; i < block_node->data.block.statements.length; i += 1) {
         AstNode *statement_node = block_node->data.block.statements.at(i);
-
-        if (statement_node->type == NodeTypeLabel) {
-            Buf *label_name = statement_node->data.label.name;
-            IrBasicBlock *label_block = ir_build_basic_block(irb, child_scope, buf_ptr(label_name));
-            LabelTableEntry *label = allocate<LabelTableEntry>(1);
-            label->decl_node = statement_node;
-            label->bb = label_block;
-            irb->exec->all_labels.append(label);
-
-            LabelTableEntry *existing_label = find_label(irb->exec, child_scope, label_name);
-            if (existing_label) {
-                ErrorMsg *msg = add_node_error(irb->codegen, statement_node,
-                    buf_sprintf("duplicate label name '%s'", buf_ptr(label_name)));
-                add_error_note(irb->codegen, msg, existing_label->decl_node, buf_sprintf("other label here"));
-                return irb->codegen->invalid_instruction;
-            } else {
-                ScopeBlock *scope_block = find_block_scope(irb->exec, child_scope);
-                scope_block->label_table.put(label_name, label);
-            }
-
-            if (!is_continuation_unreachable) {
-                // fall through into new labeled basic block
-                IrInstruction *is_comptime = ir_mark_gen(ir_build_const_bool(irb, child_scope, statement_node,
-                        ir_should_inline(irb->exec, child_scope)));
-                ir_mark_gen(ir_build_br(irb, child_scope, statement_node, label_block, is_comptime));
-            }
-            ir_set_cursor_at_end(irb, label_block);
-
-            // a label is an entry point
-            is_continuation_unreachable = false;
-            continue;
-        }
 
         IrInstruction *statement_value = ir_gen_node(irb, statement_node, child_scope);
         is_continuation_unreachable = instr_is_unreachable(statement_value);
@@ -6000,22 +5945,6 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
     return ir_build_phi(irb, scope, node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
 }
 
-static IrInstruction *ir_gen_goto(IrBuilder *irb, Scope *scope, AstNode *node) {
-    assert(node->type == NodeTypeGoto);
-
-    // make a placeholder unreachable statement and a note to come back and
-    // replace the instruction with a branch instruction
-    IrGotoItem *goto_item = irb->exec->goto_list.add_one();
-    goto_item->bb = irb->current_basic_block;
-    goto_item->instruction_index = irb->current_basic_block->instruction_list.length;
-    goto_item->source_node = node;
-    goto_item->scope = scope;
-
-    // we don't know if we need to generate defer expressions yet
-    // we do that later when we find out which label we're jumping to.
-    return ir_build_unreachable(irb, scope, node);
-}
-
 static IrInstruction *ir_gen_comptime(IrBuilder *irb, Scope *parent_scope, AstNode *node, LVal lval) {
     assert(node->type == NodeTypeCompTime);
 
@@ -6033,16 +5962,28 @@ static IrInstruction *ir_gen_break(IrBuilder *irb, Scope *break_scope, AstNode *
 
     Scope *search_scope = break_scope;
     ScopeLoop *loop_scope;
+    bool saw_any_loop_scope = false;
     for (;;) {
         if (search_scope == nullptr || search_scope->id == ScopeIdFnDef) {
-            add_node_error(irb->codegen, node, buf_sprintf("break expression outside loop"));
-            return irb->codegen->invalid_instruction;
+            if (saw_any_loop_scope) {
+                add_node_error(irb->codegen, node, buf_sprintf("labeled loop not found: '%s'", buf_ptr(node->data.break_expr.name)));
+                return irb->codegen->invalid_instruction;
+            } else {
+                add_node_error(irb->codegen, node, buf_sprintf("break expression outside loop"));
+                return irb->codegen->invalid_instruction;
+            }
         } else if (search_scope->id == ScopeIdDeferExpr) {
             add_node_error(irb->codegen, node, buf_sprintf("cannot break out of defer expression"));
             return irb->codegen->invalid_instruction;
         } else if (search_scope->id == ScopeIdLoop) {
-            loop_scope = (ScopeLoop *)search_scope;
-            break;
+            ScopeLoop *this_loop_scope = (ScopeLoop *)search_scope;
+            saw_any_loop_scope = true;
+            if (node->data.break_expr.name == nullptr ||
+                (this_loop_scope->name != nullptr && buf_eql_buf(node->data.break_expr.name, this_loop_scope->name)))
+            {
+                loop_scope = this_loop_scope;
+                break;
+            }
         }
         search_scope = search_scope->parent;
     }
@@ -6081,16 +6022,28 @@ static IrInstruction *ir_gen_continue(IrBuilder *irb, Scope *continue_scope, Ast
 
     Scope *search_scope = continue_scope;
     ScopeLoop *loop_scope;
+    bool saw_any_loop_scope = false;
     for (;;) {
         if (search_scope == nullptr || search_scope->id == ScopeIdFnDef) {
-            add_node_error(irb->codegen, node, buf_sprintf("continue expression outside loop"));
-            return irb->codegen->invalid_instruction;
+            if (saw_any_loop_scope) {
+                add_node_error(irb->codegen, node, buf_sprintf("labeled loop not found: '%s'", buf_ptr(node->data.continue_expr.name)));
+                return irb->codegen->invalid_instruction;
+            } else {
+                add_node_error(irb->codegen, node, buf_sprintf("continue expression outside loop"));
+                return irb->codegen->invalid_instruction;
+            }
         } else if (search_scope->id == ScopeIdDeferExpr) {
             add_node_error(irb->codegen, node, buf_sprintf("cannot continue out of defer expression"));
             return irb->codegen->invalid_instruction;
         } else if (search_scope->id == ScopeIdLoop) {
-            loop_scope = (ScopeLoop *)search_scope;
-            break;
+            ScopeLoop *this_loop_scope = (ScopeLoop *)search_scope;
+            saw_any_loop_scope = true;
+            if (node->data.continue_expr.name == nullptr ||
+                (this_loop_scope->name != nullptr && buf_eql_buf(node->data.continue_expr.name, this_loop_scope->name)))
+            {
+                loop_scope = this_loop_scope;
+                break;
+            }
         }
         search_scope = search_scope->parent;
     }
@@ -6332,7 +6285,6 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
         case NodeTypeSwitchProng:
         case NodeTypeSwitchRange:
         case NodeTypeStructField:
-        case NodeTypeLabel:
         case NodeTypeFnDef:
         case NodeTypeFnDecl:
         case NodeTypeErrorValueDecl:
@@ -6396,8 +6348,6 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_test_expr(irb, scope, node), lval);
         case NodeTypeSwitchExpr:
             return ir_lval_wrap(irb, scope, ir_gen_switch_expr(irb, scope, node), lval);
-        case NodeTypeGoto:
-            return ir_lval_wrap(irb, scope, ir_gen_goto(irb, scope, node), lval);
         case NodeTypeCompTime:
             return ir_gen_comptime(irb, scope, node, lval);
         case NodeTypeErrorType:
@@ -6430,70 +6380,6 @@ static IrInstruction *ir_gen_node_extra(IrBuilder *irb, AstNode *node, Scope *sc
 
 static IrInstruction *ir_gen_node(IrBuilder *irb, AstNode *node, Scope *scope) {
     return ir_gen_node_extra(irb, node, scope, LVAL_NONE);
-}
-
-static bool ir_goto_pass2(IrBuilder *irb) {
-    for (size_t i = 0; i < irb->exec->goto_list.length; i += 1) {
-        IrGotoItem *goto_item = &irb->exec->goto_list.at(i);
-        AstNode *source_node = goto_item->source_node;
-
-        // Since a goto will always end a basic block, we move the "current instruction"
-        // index back to over the placeholder unreachable instruction and begin overwriting
-        irb->current_basic_block = goto_item->bb;
-        irb->current_basic_block->instruction_list.resize(goto_item->instruction_index);
-
-        Buf *label_name = source_node->data.goto_expr.name;
-
-        // Search up the scope until we find one of these things:
-        // * A block scope with the label in it => OK
-        // * A defer expression scope => error, error, cannot leave defer expression
-        // * Top level scope => error, didn't find label
-
-        LabelTableEntry *label;
-        Scope *search_scope = goto_item->scope;
-        for (;;) {
-            if (search_scope == nullptr) {
-                add_node_error(irb->codegen, source_node,
-                    buf_sprintf("no label in scope named '%s'", buf_ptr(label_name)));
-                return false;
-            } else if (search_scope->id == ScopeIdBlock) {
-                ScopeBlock *block_scope = (ScopeBlock *)search_scope;
-                auto entry = block_scope->label_table.maybe_get(label_name);
-                if (entry) {
-                    label = entry->value;
-                    break;
-                }
-            } else if (search_scope->id == ScopeIdDeferExpr) {
-                add_node_error(irb->codegen, source_node,
-                    buf_sprintf("cannot goto out of defer expression"));
-                return false;
-            }
-            search_scope = search_scope->parent;
-        }
-
-        label->used = true;
-
-        IrInstruction *is_comptime = ir_build_const_bool(irb, goto_item->scope, source_node,
-            ir_should_inline(irb->exec, goto_item->scope) || source_node->data.goto_expr.is_inline);
-        if (!ir_gen_defers_for_block(irb, goto_item->scope, label->bb->scope, false)) {
-            add_node_error(irb->codegen, source_node,
-                buf_sprintf("no label in scope named '%s'", buf_ptr(label_name)));
-            return false;
-        }
-        ir_build_br(irb, goto_item->scope, source_node, label->bb, is_comptime);
-    }
-
-    for (size_t i = 0; i < irb->exec->all_labels.length; i += 1) {
-        LabelTableEntry *label = irb->exec->all_labels.at(i);
-        if (!label->used) {
-            add_node_error(irb->codegen, label->decl_node,
-                    buf_sprintf("label '%s' defined but not used",
-                        buf_ptr(label->decl_node->data.label.name)));
-            return false;
-        }
-    }
-
-    return true;
 }
 
 static void invalidate_exec(IrExecutable *exec) {
@@ -6530,11 +6416,6 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
 
     if (!instr_is_unreachable(result)) {
         ir_mark_gen(ir_build_return(irb, scope, result->source_node, result));
-    }
-
-    if (!ir_goto_pass2(irb)) {
-        invalidate_exec(ir_executable);
-        return false;
     }
 
     return true;

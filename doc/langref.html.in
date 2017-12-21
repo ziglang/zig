@@ -5847,11 +5847,9 @@ ParamDeclList = "(" list(ParamDecl, ",") ")"
 
 ParamDecl = option("noalias" | "comptime") option(Symbol ":") (TypeExpr | "...")
 
-Block = "{" many(Statement) option(Expression) "}"
+Block = option(Symbol ":") "{" many(Statement) option(Expression) "}"
 
-Statement = Label | LocalVarDecl ";" | Defer(Block) | Defer(Expression) ";" | BlockExpression(Block) | Expression ";" | ";"
-
-Label = Symbol ":"
+Statement = LocalVarDecl ";" | Defer(Block) | Defer(Expression) ";" | BlockExpression(Block) | Expression ";" | ";"
 
 TypeExpr = PrefixOpExpression | "var"
 
@@ -5891,13 +5889,13 @@ SwitchProng = (list(SwitchItem, ",") | "else") "=&gt;" option("|" option("*") Sy
 
 SwitchItem = Expression | (Expression "..." Expression)
 
-ForExpression(body) = option("inline") "for" "(" Expression ")" option("|" option("*") Symbol option("," Symbol) "|") body option("else" BlockExpression(body))
+ForExpression(body) = option(Symbol ":") option("inline") "for" "(" Expression ")" option("|" option("*") Symbol option("," Symbol) "|") body option("else" BlockExpression(body))
 
 BoolOrExpression = BoolAndExpression "or" BoolOrExpression | BoolAndExpression
 
 ReturnExpression = option("%") "return" option(Expression)
 
-BreakExpression = "break" option(Expression)
+BreakExpression = "break" option(":" Symbol) option(Expression)
 
 Defer(body) = option("%") "defer" body
 
@@ -5907,7 +5905,7 @@ TryExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|")
 
 TestExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|") body option("else" BlockExpression(body))
 
-WhileExpression(body) = option("inline") "while" "(" Expression ")" option("|" option("*") Symbol "|") option(":" "(" Expression ")") body option("else" option("|" Symbol "|") BlockExpression(body))
+WhileExpression(body) = option(Symbol ":") option("inline") "while" "(" Expression ")" option("|" option("*") Symbol "|") option(":" "(" Expression ")") body option("else" option("|" Symbol "|") BlockExpression(body))
 
 BoolAndExpression = ComparisonExpression "and" BoolAndExpression | ComparisonExpression
 
@@ -5955,15 +5953,13 @@ StructLiteralField = "." Symbol "=" Expression
 
 PrefixOp = "!" | "-" | "~" | "*" | ("&amp;" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "%" | "%%" | "??" | "-%"
 
-PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ("error" "." Symbol) | ContainerDecl
+PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ("error" "." Symbol) | ContainerDecl | ("continue" option(":" Symbol))
 
 ArrayType : "[" option(Expression) "]" option("align" "(" Expression option(":" Integer ":" Integer) ")")) option("const") option("volatile") TypeExpr
 
-GotoExpression = "goto" Symbol
-
 GroupedExpression = "(" Expression ")"
 
-KeywordLiteral = "true" | "false" | "null" | "continue" | "undefined" | "error" | "this" | "unreachable"
+KeywordLiteral = "true" | "false" | "null" | "undefined" | "error" | "this" | "unreachable"
 
 ContainerDecl = option("extern" | "packed")
   ("struct" option(GroupedExpression) | "union" option("enum" option(GroupedExpression) | GroupedExpression) | ("enum" option(GroupedExpression)))

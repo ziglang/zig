@@ -144,9 +144,15 @@ ScopeCImport *create_cimport_scope(AstNode *node, Scope *parent) {
 }
 
 ScopeLoop *create_loop_scope(AstNode *node, Scope *parent) {
-    assert(node->type == NodeTypeWhileExpr || node->type == NodeTypeForExpr);
     ScopeLoop *scope = allocate<ScopeLoop>(1);
     init_scope(&scope->base, ScopeIdLoop, node, parent);
+    if (node->type == NodeTypeWhileExpr) {
+        scope->name = node->data.while_expr.name;
+    } else if (node->type == NodeTypeForExpr) {
+        scope->name = node->data.for_expr.name;
+    } else {
+        zig_unreachable();
+    }
     return scope;
 }
 
@@ -2916,8 +2922,6 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeSwitchExpr:
         case NodeTypeSwitchProng:
         case NodeTypeSwitchRange:
-        case NodeTypeLabel:
-        case NodeTypeGoto:
         case NodeTypeBreak:
         case NodeTypeContinue:
         case NodeTypeUnreachable:

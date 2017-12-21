@@ -386,8 +386,6 @@ enum NodeType {
     NodeTypeSwitchExpr,
     NodeTypeSwitchProng,
     NodeTypeSwitchRange,
-    NodeTypeLabel,
-    NodeTypeGoto,
     NodeTypeCompTime,
     NodeTypeBreak,
     NodeTypeContinue,
@@ -452,6 +450,7 @@ struct AstNodeParamDecl {
 };
 
 struct AstNodeBlock {
+    Buf *name;
     ZigList<AstNode *> statements;
     bool last_statement_is_result_expression;
 };
@@ -662,6 +661,7 @@ struct AstNodeTestExpr {
 };
 
 struct AstNodeWhileExpr {
+    Buf *name;
     AstNode *condition;
     Buf *var_symbol;
     bool var_is_ptr;
@@ -673,6 +673,7 @@ struct AstNodeWhileExpr {
 };
 
 struct AstNodeForExpr {
+    Buf *name;
     AstNode *array_expr;
     AstNode *elem_node; // always a symbol
     AstNode *index_node; // always a symbol, might be null
@@ -702,11 +703,6 @@ struct AstNodeSwitchRange {
 
 struct AstNodeLabel {
     Buf *name;
-};
-
-struct AstNodeGoto {
-    Buf *name;
-    bool is_inline;
 };
 
 struct AstNodeCompTime {
@@ -836,11 +832,14 @@ struct AstNodeBoolLiteral {
 };
 
 struct AstNodeBreakExpr {
+    Buf *name;
     AstNode *expr; // may be null
 };
 
 struct AstNodeContinueExpr {
+    Buf *name;
 };
+
 struct AstNodeUnreachableExpr {
 };
 
@@ -886,7 +885,6 @@ struct AstNode {
         AstNodeSwitchProng switch_prong;
         AstNodeSwitchRange switch_range;
         AstNodeLabel label;
-        AstNodeGoto goto_expr;
         AstNodeCompTime comptime_expr;
         AstNodeAsmExpr asm_expr;
         AstNodeFieldAccessExpr field_access_expr;
@@ -1741,6 +1739,7 @@ struct ScopeCImport {
 struct ScopeLoop {
     Scope base;
 
+    Buf *name;
     IrBasicBlock *break_block;
     IrBasicBlock *continue_block;
     IrInstruction *is_comptime;
