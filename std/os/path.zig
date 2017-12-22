@@ -1012,7 +1012,7 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
             defer os.close(fd);
 
             var buf: ["/proc/self/fd/-2147483648".len]u8 = undefined;
-            const proc_path = fmt.bufPrint(buf[0..], "/proc/self/fd/{}", fd);
+            const proc_path = %%fmt.bufPrint(buf[0..], "/proc/self/fd/{}", fd);
 
             return os.readLink(allocator, proc_path);
         },

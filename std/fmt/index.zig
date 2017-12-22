@@ -371,6 +371,10 @@ test "fmt.parseInt" {
     assert(%%parseInt(i32, "-10", 10) == -10);
     assert(%%parseInt(i32, "+10", 10) == 10);
     assert(if (parseInt(i32, " 10", 10)) |_| false else |err| err == error.InvalidChar);
+    assert(if (parseInt(i32, "10 ", 10)) |_| false else |err| err == error.InvalidChar);
+    assert(if (parseInt(u32, "-10", 10)) |_| false else |err| err == error.InvalidChar);
+    assert(%%parseInt(u8, "255", 10) == 255);
+    assert(if (parseInt(u8, "256", 10)) |_| false else |err| err == error.Overflow);
 }
 
 pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) -> %T {
@@ -412,14 +416,16 @@ const BufPrintContext = struct {
     remaining: []u8,
 };
 
+error BufferTooSmall;
 fn bufPrintWrite(context: &BufPrintContext, bytes: []const u8) -> %void {
+    if (context.remaining.len < bytes.len) return error.BufferTooSmall;
     mem.copy(u8, context.remaining, bytes);
     context.remaining = context.remaining[bytes.len..];
 }
 
-pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: ...) -> []u8 {
+pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: ...) -> %[]u8 {
     var context = BufPrintContext { .remaining = buf, };
-    %%format(&context, bufPrintWrite, fmt, args);
+    %return format(&context, bufPrintWrite, fmt, args);
     return buf[0..buf.len - context.remaining.len];
 }
 
@@ -475,31 +481,31 @@ test "fmt.format" {
     {
         var buf1: [32]u8 = undefined;
         const value: ?i32 = 1234;
-        const result = bufPrint(buf1[0..], "nullable: {}\n", value);
+        const result = %%bufPrint(buf1[0..], "nullable: {}\n", value);
         assert(mem.eql(u8, result, "nullable: 1234\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: ?i32 = null;
-        const result = bufPrint(buf1[0..], "nullable: {}\n", value);
+        const result = %%bufPrint(buf1[0..], "nullable: {}\n", value);
         assert(mem.eql(u8, result, "nullable: null\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: %i32 = 1234;
-        const result = bufPrint(buf1[0..], "error union: {}\n", value);
+        const result = %%bufPrint(buf1[0..], "error union: {}\n", value);
         assert(mem.eql(u8, result, "error union: 1234\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: %i32 = error.InvalidChar;
-        const result = bufPrint(buf1[0..], "error union: {}\n", value);
+        const result = %%bufPrint(buf1[0..], "error union: {}\n", value);
         assert(mem.eql(u8, result, "error union: error.InvalidChar\n"));
     }
     {
         var buf1: [32]u8 = undefined;
         const value: u3 = 0b101;
-        const result = bufPrint(buf1[0..], "u3: {}\n", value);
+        const result = %%bufPrint(buf1[0..], "u3: {}\n", value);
         assert(mem.eql(u8, result, "u3: 5\n"));
     }
 
@@ -509,28 +515,28 @@ test "fmt.format" {
         {
             var buf1: [32]u8 = undefined;
             const value: f32 = 12.34;
-            const result = bufPrint(buf1[0..], "f32: {}\n", value);
+            const result = %%bufPrint(buf1[0..], "f32: {}\n", value);
             assert(mem.eql(u8, result, "f32: 1.23400001e1\n"));
         }
         {
             var buf1: [32]u8 = undefined;
             const value: f64 = -12.34e10;
-            const result = bufPrint(buf1[0..], "f64: {}\n", value);
+            const result = %%bufPrint(buf1[0..], "f64: {}\n", value);
             assert(mem.eql(u8, result, "f64: -1.234e11\n"));
         }
         {
             var buf1: [32]u8 = undefined;
-            const result = bufPrint(buf1[0..], "f64: {}\n", math.nan_f64);
+            const result = %%bufPrint(buf1[0..], "f64: {}\n", math.nan_f64);
             assert(mem.eql(u8, result, "f64: NaN\n"));
         }
         {
             var buf1: [32]u8 = undefined;
-            const result = bufPrint(buf1[0..], "f64: {}\n", math.inf_f64);
+            const result = %%bufPrint(buf1[0..], "f64: {}\n", math.inf_f64);
             assert(mem.eql(u8, result, "f64: Infinity\n"));
         }
         {
             var buf1: [32]u8 = undefined;
-            const result = bufPrint(buf1[0..], "f64: {}\n", -math.inf_f64);
+            const result = %%bufPrint(buf1[0..], "f64: {}\n", -math.inf_f64);
             assert(mem.eql(u8, result, "f64: -Infinity\n"));
         }
     }
