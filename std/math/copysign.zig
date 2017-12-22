@@ -3,8 +3,8 @@ const assert = @import("../debug.zig").assert;
 
 pub fn copysign(comptime T: type, x: T, y: T) -> T {
     return switch (T) {
-        f32 => @inlineCall(copysign32, x, y),
-        f64 => @inlineCall(copysign64, x, y),
+        f32 => copysign32(x, y),
+        f64 => copysign64(x, y),
         else => @compileError("copysign not implemented for " ++ @typeName(T)),
     };
 }

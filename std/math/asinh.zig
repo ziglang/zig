@@ -10,8 +10,8 @@ const assert = @import("../debug.zig").assert;
 pub fn asinh(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
-        f32 => @inlineCall(asinh32, x),
-        f64 => @inlineCall(asinh64, x),
+        f32 => asinh32(x),
+        f64 => asinh64(x),
         else => @compileError("asinh not implemented for " ++ @typeName(T)),
     };
 }

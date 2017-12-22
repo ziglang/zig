@@ -12,8 +12,8 @@ const assert = @import("../debug.zig").assert;
 pub fn cosh(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
-        f32 => @inlineCall(cosh32, x),
-        f64 => @inlineCall(cosh64, x),
+        f32 => cosh32(x),
+        f64 => cosh64(x),
         else => @compileError("cosh not implemented for " ++ @typeName(T)),
     };
 }

@@ -9,8 +9,8 @@ const assert = @import("../debug.zig").assert;
 pub fn fabs(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
-        f32 => @inlineCall(fabs32, x),
-        f64 => @inlineCall(fabs64, x),
+        f32 => fabs32(x),
+        f64 => fabs64(x),
         else => @compileError("fabs not implemented for " ++ @typeName(T)),
     };
 }

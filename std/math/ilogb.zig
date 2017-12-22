@@ -10,8 +10,8 @@ const assert = @import("../debug.zig").assert;
 pub fn ilogb(x: var) -> i32 {
     const T = @typeOf(x);
     return switch (T) {
-        f32 => @inlineCall(ilogb32, x),
-        f64 => @inlineCall(ilogb64, x),
+        f32 => ilogb32(x),
+        f64 => ilogb64(x),
         else => @compileError("ilogb not implemented for " ++ @typeName(T)),
     };
 }

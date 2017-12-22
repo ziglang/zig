@@ -10,8 +10,8 @@ const assert = @import("../debug.zig").assert;
 pub fn cbrt(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
-        f32 => @inlineCall(cbrt32, x),
-        f64 => @inlineCall(cbrt64, x),
+        f32 => cbrt32(x),
+        f64 => cbrt64(x),
         else => @compileError("cbrt not implemented for " ++ @typeName(T)),
     };
 }

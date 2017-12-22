@@ -19,8 +19,8 @@ pub const frexp64_result = frexp_result(f64);
 pub fn frexp(x: var) -> frexp_result(@typeOf(x)) {
     const T = @typeOf(x);
     return switch (T) {
-        f32 => @inlineCall(frexp32, x),
-        f64 => @inlineCall(frexp64, x),
+        f32 => frexp32(x),
+        f64 => frexp64(x),
         else => @compileError("frexp not implemented for " ++ @typeName(T)),
     };
 }

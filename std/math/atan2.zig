@@ -23,8 +23,8 @@ const assert = @import("../debug.zig").assert;
 
 fn atan2(comptime T: type, x: T, y: T) -> T {
     return switch (T) {
-        f32 => @inlineCall(atan2_32, x, y),
-        f64 => @inlineCall(atan2_64, x, y),
+        f32 => atan2_32(x, y),
+        f64 => atan2_64(x, y),
         else => @compileError("atan2 not implemented for " ++ @typeName(T)),
     };
 }

@@ -9,8 +9,8 @@ const assert = @import("../debug.zig").assert;
 pub fn exp2(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
-        f32 => @inlineCall(exp2_32, x),
-        f64 => @inlineCall(exp2_64, x),
+        f32 => exp2_32(x),
+        f64 => exp2_64(x),
         else => @compileError("exp2 not implemented for " ++ @typeName(T)),
     };
 }

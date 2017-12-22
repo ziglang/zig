@@ -18,8 +18,8 @@ pub const modf64_result = modf_result(f64);
 pub fn modf(x: var) -> modf_result(@typeOf(x)) {
     const T = @typeOf(x);
     return switch (T) {
-        f32 => @inlineCall(modf32, x),
-        f64 => @inlineCall(modf64, x),
+        f32 => modf32(x),
+        f64 => modf64(x),
         else => @compileError("modf not implemented for " ++ @typeName(T)),
     };
 }

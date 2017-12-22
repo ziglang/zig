@@ -10,8 +10,8 @@ const assert = @import("../debug.zig").assert;
 pub fn atanh(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
-        f32 => @inlineCall(atanh_32, x),
-        f64 => @inlineCall(atanh_64, x),
+        f32 => atanh_32(x),
+        f64 => atanh_64(x),
         else => @compileError("atanh not implemented for " ++ @typeName(T)),
     };
 }

@@ -10,8 +10,8 @@ const assert = @import("../debug.zig").assert;
 pub fn acosh(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
-        f32 => @inlineCall(acosh32, x),
-        f64 => @inlineCall(acosh64, x),
+        f32 => acosh32(x),
+        f64 => acosh64(x),
         else => @compileError("acosh not implemented for " ++ @typeName(T)),
     };
 }

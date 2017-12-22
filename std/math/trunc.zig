@@ -10,8 +10,8 @@ const assert = @import("../debug.zig").assert;
 pub fn trunc(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
-        f32 => @inlineCall(trunc32, x),
-        f64 => @inlineCall(trunc64, x),
+        f32 => trunc32(x),
+        f64 => trunc64(x),
         else => @compileError("trunc not implemented for " ++ @typeName(T)),
     };
 }

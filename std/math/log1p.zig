@@ -12,8 +12,8 @@ const assert = @import("../debug.zig").assert;
 pub fn log1p(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
-        f32 => @inlineCall(log1p_32, x),
-        f64 => @inlineCall(log1p_64, x),
+        f32 => log1p_32(x),
+        f64 => log1p_64(x),
         else => @compileError("log1p not implemented for " ++ @typeName(T)),
     };
 }

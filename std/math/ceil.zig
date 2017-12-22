@@ -11,8 +11,8 @@ const assert = @import("../debug.zig").assert;
 pub fn ceil(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
-        f32 => @inlineCall(ceil32, x),
-        f64 => @inlineCall(ceil64, x),
+        f32 => ceil32(x),
+        f64 => ceil64(x),
         else => @compileError("ceil not implemented for " ++ @typeName(T)),
     };
 }

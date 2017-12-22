@@ -3,8 +3,8 @@ const assert = @import("../debug.zig").assert;
 
 pub fn fma(comptime T: type, x: T, y: T, z: T) -> T {
     return switch (T) {
-        f32 => @inlineCall(fma32, x, y, z),
-        f64 => @inlineCall(fma64, x, y ,z),
+        f32 => fma32(x, y, z),
+        f64 => fma64(x, y ,z),
         else => @compileError("fma not implemented for " ++ @typeName(T)),
     };
 }
