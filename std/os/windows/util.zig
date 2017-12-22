@@ -16,11 +16,11 @@ pub fn windowsWaitSingle(handle: windows.HANDLE, milliseconds: windows.DWORD) ->
         windows.WAIT_ABANDONED => error.WaitAbandoned,
         windows.WAIT_OBJECT_0 => {},
         windows.WAIT_TIMEOUT => error.WaitTimeOut,
-        windows.WAIT_FAILED => {
+        windows.WAIT_FAILED => x: {
             const err = windows.GetLastError();
-            switch (err) {
+            break :x switch (err) {
                 else => os.unexpectedErrorWindows(err),
-            }
+            };
         },
         else => error.Unexpected,
     };

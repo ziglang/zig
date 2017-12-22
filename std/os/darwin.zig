@@ -117,11 +117,11 @@ pub fn close(fd: i32) -> usize {
 }
 
 pub fn abort() -> noreturn {
-    return c.abort();
+    c.abort();
 }
 
 pub fn exit(code: i32) -> noreturn {
-    return c.exit(code);
+    c.exit(code);
 }
 
 pub fn isatty(fd: i32) -> bool {

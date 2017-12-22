@@ -560,12 +560,14 @@ pub const ChildProcess = struct {
 
         // the cwd set in ChildProcess is in effect when choosing the executable path
         // to match posix semantics
-        const app_name = if (self.cwd) |cwd| x: {
-            const resolved = %return os.path.resolve(self.allocator, cwd, self.argv[0]);
-            defer self.allocator.free(resolved);
-            break :x %return cstr.addNullByte(self.allocator, resolved);
-        } else x: {
-            break :x %return cstr.addNullByte(self.allocator, self.argv[0]);
+        const app_name = x: {
+            if (self.cwd) |cwd| {
+                const resolved = %return os.path.resolve(self.allocator, cwd, self.argv[0]);
+                defer self.allocator.free(resolved);
+                break :x %return cstr.addNullByte(self.allocator, resolved);
+            } else {
+                break :x %return cstr.addNullByte(self.allocator, self.argv[0]);
+            }
         };
         defer self.allocator.free(app_name);
 
