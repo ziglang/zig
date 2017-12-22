@@ -379,3 +379,28 @@ const Nibbles = packed struct {
     x: u4,
     y: u4,
 };
+
+const Bitfields = packed struct {
+    f1: u16,
+    f2: u16,
+    f3: u8,
+    f4: u8,
+    f5: u4,
+    f6: u4,
+    f7: u8,
+};
+
+test "native bit field understands endianness" {
+    var all: u64 = 0x7765443322221111;
+    var bytes: [8]u8 = undefined;
+    @memcpy(&bytes[0], @ptrCast(&u8, &all), 8);
+    var bitfields = *@ptrCast(&Bitfields, &bytes[0]);
+
+    assert(bitfields.f1 == 0x1111);
+    assert(bitfields.f2 == 0x2222);
+    assert(bitfields.f3 == 0x33);
+    assert(bitfields.f4 == 0x44);
+    assert(bitfields.f5 == 0x5);
+    assert(bitfields.f6 == 0x6);
+    assert(bitfields.f7 == 0x77);
+}

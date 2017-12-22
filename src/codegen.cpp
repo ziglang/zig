@@ -1238,11 +1238,13 @@ static LLVMValueRef gen_assign_raw(CodeGen *g, LLVMValueRef ptr, TypeTableEntry 
         return nullptr;
     }
 
+    bool big_endian = g->is_big_endian;
+
     LLVMValueRef containing_int = gen_load(g, ptr, ptr_type, "");
 
     uint32_t bit_offset = ptr_type->data.pointer.bit_offset;
     uint32_t host_bit_count = LLVMGetIntTypeWidth(LLVMTypeOf(containing_int));
-    uint32_t shift_amt = host_bit_count - bit_offset - unaligned_bit_count;
+    uint32_t shift_amt = big_endian ? host_bit_count - bit_offset - unaligned_bit_count : bit_offset;
     LLVMValueRef shift_amt_val = LLVMConstInt(LLVMTypeOf(containing_int), shift_amt, false);
 
     LLVMValueRef mask_val = LLVMConstAllOnes(child_type->type_ref);
@@ -2198,12 +2200,14 @@ static LLVMValueRef ir_render_load_ptr(CodeGen *g, IrExecutable *executable, IrI
     if (unaligned_bit_count == 0)
         return get_handle_value(g, ptr, child_type, ptr_type);
 
+    bool big_endian = g->is_big_endian;
+
     assert(!handle_is_ptr(child_type));
     LLVMValueRef containing_int = gen_load(g, ptr, ptr_type, "");
 
     uint32_t bit_offset = ptr_type->data.pointer.bit_offset;
     uint32_t host_bit_count = LLVMGetIntTypeWidth(LLVMTypeOf(containing_int));
-    uint32_t shift_amt = host_bit_count - bit_offset - unaligned_bit_count;
+    uint32_t shift_amt = big_endian ? host_bit_count - bit_offset - unaligned_bit_count : bit_offset;
 
     LLVMValueRef shift_amt_val = LLVMConstInt(LLVMTypeOf(containing_int), shift_amt, false);
     LLVMValueRef shifted_value = LLVMBuildLShr(g->builder, containing_int, shift_amt_val, "");
@@ -3796,17 +3800,26 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Con
         case TypeTableEntryIdStruct:
             {
                 assert(type_entry->data.structure.layout == ContainerLayoutPacked);
+                bool is_big_endian = g->is_big_endian; // TODO get endianness from struct type
 
                 LLVMValueRef val = LLVMConstInt(big_int_type_ref, 0, false);
+                size_t used_bits = 0;
                 for (size_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
                     TypeStructField *field = &type_entry->data.structure.fields[i];
                     if (field->gen_index == SIZE_MAX) {
                         continue;
                     }
                     LLVMValueRef child_val = pack_const_int(g, big_int_type_ref, &const_val->data.x_struct.fields[i]);
-                    LLVMValueRef shift_amt = LLVMConstInt(big_int_type_ref, field->packed_bits_size, false);
-                    val = LLVMConstShl(val, shift_amt);
-                    val = LLVMConstOr(val, child_val);
+                    if (is_big_endian) {
+                        LLVMValueRef shift_amt = LLVMConstInt(big_int_type_ref, field->packed_bits_size, false);
+                        val = LLVMConstShl(val, shift_amt);
+                        val = LLVMConstOr(val, child_val);
+                    } else {
+                        LLVMValueRef shift_amt = LLVMConstInt(big_int_type_ref, used_bits, false);
+                        LLVMValueRef child_val_shifted = LLVMConstShl(child_val, shift_amt);
+                        val = LLVMConstOr(val, child_val_shifted);
+                        used_bits += field->packed_bits_size;
+                    }
                 }
                 return val;
             }
@@ -3931,9 +3944,11 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                             fields[type_struct_field->gen_index] = val;
                             make_unnamed_struct = make_unnamed_struct || is_llvm_value_unnamed_type(field_val->type, val);
                         } else {
+                            bool is_big_endian = g->is_big_endian; // TODO get endianness from struct type
                             LLVMTypeRef big_int_type_ref = LLVMStructGetTypeAtIndex(type_entry->type_ref,
                                     (unsigned)type_struct_field->gen_index);
                             LLVMValueRef val = LLVMConstInt(big_int_type_ref, 0, false);
+                            size_t used_bits = 0;
                             for (size_t i = src_field_index; i < src_field_index_end; i += 1) {
                                 TypeStructField *it_field = &type_entry->data.structure.fields[i];
                                 if (it_field->gen_index == SIZE_MAX) {
@@ -3941,10 +3956,17 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                                 }
                                 LLVMValueRef child_val = pack_const_int(g, big_int_type_ref,
                                         &const_val->data.x_struct.fields[i]);
-                                LLVMValueRef shift_amt = LLVMConstInt(big_int_type_ref,
-                                        it_field->packed_bits_size, false);
-                                val = LLVMConstShl(val, shift_amt);
-                                val = LLVMConstOr(val, child_val);
+                                if (is_big_endian) {
+                                    LLVMValueRef shift_amt = LLVMConstInt(big_int_type_ref,
+                                            it_field->packed_bits_size, false);
+                                    val = LLVMConstShl(val, shift_amt);
+                                    val = LLVMConstOr(val, child_val);
+                                } else {
+                                    LLVMValueRef shift_amt = LLVMConstInt(big_int_type_ref, used_bits, false);
+                                    LLVMValueRef child_val_shifted = LLVMConstShl(child_val, shift_amt);
+                                    val = LLVMConstOr(val, child_val_shifted);
+                                    used_bits += it_field->packed_bits_size;
+                                }
                             }
                             fields[type_struct_field->gen_index] = val;
                         }
