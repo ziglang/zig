@@ -3021,14 +3021,13 @@ const assert = @import("std").debug.assert;</code></pre>
       <pre><code class="zig">const assert = @import("std").debug.assert;
 
 // Functions are declared like this
-// The last expression in the function can be used as the return value.
 fn add(a: i8, b: i8) -&gt; i8 {
     if (a == 0) {
         // You can still return manually if needed.
         return b;
     }
 
-    a + b
+    return a + b;
 }
 
 // The export specifier makes a function externally visible in the generated
@@ -5847,7 +5846,7 @@ ParamDeclList = "(" list(ParamDecl, ",") ")"
 
 ParamDecl = option("noalias" | "comptime") option(Symbol ":") (TypeExpr | "...")
 
-Block = option(Symbol ":") "{" many(Statement) option(Expression) "}"
+Block = option(Symbol ":") "{" many(Statement) "}"
 
 Statement = LocalVarDecl ";" | Defer(Block) | Defer(Expression) ";" | BlockExpression(Block) | Expression ";" | ";"
 

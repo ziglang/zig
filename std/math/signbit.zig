@@ -3,21 +3,21 @@ const assert = @import("../debug.zig").assert;
 
 pub fn signbit(x: var) -> bool {
     const T = @typeOf(x);
-    switch (T) {
+    return switch (T) {
         f32 => @inlineCall(signbit32, x),
         f64 => @inlineCall(signbit64, x),
         else => @compileError("signbit not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 fn signbit32(x: f32) -> bool {
     const bits = @bitCast(u32, x);
-    bits >> 31 != 0
+    return bits >> 31 != 0;
 }
 
 fn signbit64(x: f64) -> bool {
     const bits = @bitCast(u64, x);
-    bits >> 63 != 0
+    return bits >> 63 != 0;
 }
 
 test "math.signbit" {

@@ -354,11 +354,11 @@ pub fn eql_slice_u8(a: []const u8, b: []const u8) -> bool {
 /// split("   abc def    ghi  ", " ")
 /// Will return slices for "abc", "def", "ghi", null, in that order.
 pub fn split(buffer: []const u8, split_bytes: []const u8) -> SplitIterator {
-    SplitIterator {
+    return SplitIterator {
         .index = 0,
         .buffer = buffer,
         .split_bytes = split_bytes,
-    }
+    };
 }
 
 test "mem.split" {
@@ -552,7 +552,7 @@ test "std.mem.reverse" {
     var arr = []i32{ 5, 3, 1, 2, 4 };
     reverse(i32, arr[0..]);
 
-    assert(eql(i32, arr, []i32{ 4, 2, 1, 3, 5 }))
+    assert(eql(i32, arr, []i32{ 4, 2, 1, 3, 5 }));
 }
 
 /// In-place rotation of the values in an array ([0 1 2 3] becomes [1 2 3 0] if we rotate by 1)
@@ -567,5 +567,5 @@ test "std.mem.rotate" {
     var arr = []i32{ 5, 3, 1, 2, 4 };
     rotate(i32, arr[0..], 2);
 
-    assert(eql(i32, arr, []i32{ 1, 2, 4, 5, 3 }))
+    assert(eql(i32, arr, []i32{ 1, 2, 4, 5, 3 }));
 }

@@ -72,7 +72,7 @@ pub fn lookup(hostname: []const u8, out_addrs: []Address) -> %[]Address {
 //		if (family != AF_INET)
 //			buf[cnt++] = (struct address){ .family = AF_INET6, .addr = { [15] = 1 } };
 //
-        unreachable // TODO
+        unreachable; // TODO
     }
 
     // TODO
@@ -84,7 +84,7 @@ pub fn lookup(hostname: []const u8, out_addrs: []Address) -> %[]Address {
     //    else => {},
     //};
 
-    unreachable // TODO
+    unreachable; // TODO
 }
 
 pub fn connectAddr(addr: &Address, port: u16) -> %Connection {
@@ -96,23 +96,23 @@ pub fn connectAddr(addr: &Address, port: u16) -> %Connection {
     }
     const socket_fd = i32(socket_ret);
 
-    const connect_ret = if (addr.family == linux.AF_INET) {
+    const connect_ret = if (addr.family == linux.AF_INET) x: {
         var os_addr: linux.sockaddr_in = undefined;
         os_addr.family = addr.family;
         os_addr.port = endian.swapIfLe(u16, port);
         @memcpy((&u8)(&os_addr.addr), &addr.addr[0], 4);
         @memset(&os_addr.zero[0], 0, @sizeOf(@typeOf(os_addr.zero)));
-        linux.connect(socket_fd, (&linux.sockaddr)(&os_addr), @sizeOf(linux.sockaddr_in))
-    } else if (addr.family == linux.AF_INET6) {
+        break :x linux.connect(socket_fd, (&linux.sockaddr)(&os_addr), @sizeOf(linux.sockaddr_in));
+    } else if (addr.family == linux.AF_INET6) x: {
         var os_addr: linux.sockaddr_in6 = undefined;
         os_addr.family = addr.family;
         os_addr.port = endian.swapIfLe(u16, port);
         os_addr.flowinfo = 0;
         os_addr.scope_id = addr.scope_id;
         @memcpy(&os_addr.addr[0], &addr.addr[0], 16);
-        linux.connect(socket_fd, (&linux.sockaddr)(&os_addr), @sizeOf(linux.sockaddr_in6))
+        break :x linux.connect(socket_fd, (&linux.sockaddr)(&os_addr), @sizeOf(linux.sockaddr_in6));
     } else {
-        unreachable
+        unreachable;
     };
     const connect_err = linux.getErrno(connect_ret);
     if (connect_err > 0) {
@@ -165,13 +165,13 @@ pub fn parseIpLiteral(buf: []const u8) -> %Address {
 fn hexDigit(c: u8) -> u8 {
     // TODO use switch with range
     if ('0' <= c and c <= '9') {
-        c - '0'
+        return c - '0';
     } else if ('A' <= c and c <= 'Z') {
-        c - 'A' + 10
+        return c - 'A' + 10;
     } else if ('a' <= c and c <= 'z') {
-        c - 'a' + 10
+        return c - 'a' + 10;
     } else {
-        @maxValue(u8)
+        return @maxValue(u8);
     }
 }
 

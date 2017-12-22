@@ -17,22 +17,21 @@ pub var c_allocator = Allocator {
 };
 
 fn cAlloc(self: &Allocator, n: usize, alignment: u29) -> %[]u8 {
-    if (c.malloc(usize(n))) |buf| {
+    return if (c.malloc(usize(n))) |buf|
         @ptrCast(&u8, buf)[0..n]
-    } else {
-        error.OutOfMemory
-    }
+    else
+        error.OutOfMemory;
 }
 
 fn cRealloc(self: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) -> %[]u8 {
     if (new_size <= old_mem.len) {
-        old_mem[0..new_size]
+        return old_mem[0..new_size];
     } else {
         const old_ptr = @ptrCast(&c_void, old_mem.ptr);
         if (c.realloc(old_ptr, usize(new_size))) |buf| {
-            @ptrCast(&u8, buf)[0..new_size]
+            return @ptrCast(&u8, buf)[0..new_size];
         } else {
-            error.OutOfMemory
+            return error.OutOfMemory;
         }
     }
 }

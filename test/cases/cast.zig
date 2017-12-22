@@ -50,7 +50,7 @@ test "peer resolve arrays of different size to const slice" {
     comptime assert(mem.eql(u8, boolToStr(false), "false"));
 }
 fn boolToStr(b: bool) -> []const u8 {
-    if (b) "true" else "false"
+    return if (b) "true" else "false";
 }
 
 
@@ -239,17 +239,17 @@ test "peer type resolution: error and [N]T" {
 
 error BadValue;
 fn testPeerErrorAndArray(x: u8) -> %[]const u8 {
-    switch (x) {
+    return switch (x) {
         0x00 => "OK",
         else => error.BadValue,
-    }
+    };
 }
 fn testPeerErrorAndArray2(x: u8) -> %[]const u8 {
-    switch (x) {
+    return switch (x) {
         0x00 => "OK",
         0x01 => "OKK",
         else => error.BadValue,
-    }
+    };
 }
 
 test "explicit cast float number literal to integer if no fraction component" {
@@ -269,11 +269,11 @@ fn testCast128() {
 }
 
 fn cast128Int(x: f128) -> u128 {
-    @bitCast(u128, x)
+    return @bitCast(u128, x);
 }
 
 fn cast128Float(x: u128) -> f128 {
-    @bitCast(f128, x)
+    return @bitCast(f128, x);
 }
 
 test "const slice widen cast" {

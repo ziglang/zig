@@ -11,7 +11,7 @@ fn max(comptime T: type, a: T, b: T) -> T {
 }
 
 fn add(comptime a: i32, b: i32) -> i32 {
-    return (comptime {a}) + b;
+    return (comptime a) + b;
 }
 
 const the_max = max(u32, 1234, 5678);
@@ -20,15 +20,15 @@ test "compile time generic eval" {
 }
 
 fn gimmeTheBigOne(a: u32, b: u32) -> u32 {
-    max(u32, a, b)
+    return max(u32, a, b);
 }
 
 fn shouldCallSameInstance(a: u32, b: u32) -> u32 {
-    max(u32, a, b)
+    return max(u32, a, b);
 }
 
 fn sameButWithFloats(a: f64, b: f64) -> f64 {
-    max(f64, a, b)
+    return max(f64, a, b);
 }
 
 test "fn with comptime args" {
@@ -49,28 +49,28 @@ comptime {
 }
 
 fn max_var(a: var, b: var) -> @typeOf(a + b) {
-    if (a > b) a else b
+    return if (a > b) a else b;
 }
 
 fn max_i32(a: i32, b: i32) -> i32 {
-    max_var(a, b)
+    return max_var(a, b);
 }
 
 fn max_f64(a: f64, b: f64) -> f64 {
-    max_var(a, b)
+    return max_var(a, b);
 }
 
 
 pub fn List(comptime T: type) -> type {
-    SmallList(T, 8)
+    return SmallList(T, 8);
 }
 
 pub fn SmallList(comptime T: type, comptime STATIC_SIZE: usize) -> type {
-    struct {
+    return struct {
         items: []T,
         length: usize,
         prealloc_items: [STATIC_SIZE]T,
-    }
+    };
 }
 
 test "function with return type type" {
@@ -91,20 +91,20 @@ test "generic struct" {
     assert(b1.getVal());
 }
 fn GenNode(comptime T: type) -> type {
-    struct {
+    return struct {
         value: T,
         next: ?&GenNode(T),
-        fn getVal(n: &const GenNode(T)) -> T { n.value }
-    }
+        fn getVal(n: &const GenNode(T)) -> T { return n.value; }
+    };
 }
 
 test "const decls in struct" {
     assert(GenericDataThing(3).count_plus_one == 4);
 }
 fn GenericDataThing(comptime count: isize) -> type {
-    struct {
+    return struct {
         const count_plus_one = count + 1;
-    }
+    };
 }
 
 
@@ -120,16 +120,16 @@ test "generic fn with implicit cast" {
     assert(getFirstByte(u8, []u8 {13}) == 13);
     assert(getFirstByte(u16, []u16 {0, 13}) == 0);
 }
-fn getByte(ptr: ?&const u8) -> u8 {*??ptr}
+fn getByte(ptr: ?&const u8) -> u8 {return *??ptr;}
 fn getFirstByte(comptime T: type, mem: []const T) -> u8 {
-    getByte(@ptrCast(&const u8, &mem[0]))
+    return getByte(@ptrCast(&const u8, &mem[0]));
 }
 
 
 const foos = []fn(var) -> bool { foo1, foo2 };
 
-fn foo1(arg: var) -> bool { arg }
-fn foo2(arg: var) -> bool { !arg }
+fn foo1(arg: var) -> bool { return arg; }
+fn foo2(arg: var) -> bool { return !arg; }
 
 test "array of generic fns" {
     assert(foos[0](true));

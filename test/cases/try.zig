@@ -7,9 +7,9 @@ test "try on error union" {
 }
 
 fn tryOnErrorUnionImpl() {
-    const x = if (returnsTen()) |val| {
+    const x = if (returnsTen()) |val|
         val + 1
-    } else |err| switch (err) {
+    else |err| switch (err) {
         error.ItBroke, error.NoMem => 1,
         error.CrappedOut => i32(2),
         else => unreachable,
@@ -21,22 +21,14 @@ error ItBroke;
 error NoMem;
 error CrappedOut;
 fn returnsTen() -> %i32 {
-    10
+    return 10;
 }
 
 test "try without vars" {
-    const result1 = if (failIfTrue(true)) {
-        1
-    } else |_| {
-        i32(2)
-    };
+    const result1 = if (failIfTrue(true)) 1 else |_| i32(2);
     assert(result1 == 2);
 
-    const result2 = if (failIfTrue(false)) {
-        1
-    } else |_| {
-        i32(2)
-    };
+    const result2 = if (failIfTrue(false)) 1 else |_| i32(2);
     assert(result2 == 1);
 }
 

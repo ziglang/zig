@@ -110,7 +110,7 @@ ScopeBlock *create_block_scope(AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeBlock);
     ScopeBlock *scope = allocate<ScopeBlock>(1);
     init_scope(&scope->base, ScopeIdBlock, node, parent);
-    scope->label_table.init(1);
+    scope->name = node->data.block.name;
     return scope;
 }
 

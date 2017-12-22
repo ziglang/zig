@@ -9,11 +9,11 @@ const assert = @import("../debug.zig").assert;
 
 pub fn asinh(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
+    return switch (T) {
         f32 => @inlineCall(asinh32, x),
         f64 => @inlineCall(asinh64, x),
         else => @compileError("asinh not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 // asinh(x) = sign(x) * log(|x| + sqrt(x * x + 1)) ~= x - x^3/6 + o(x^5)
@@ -46,7 +46,7 @@ fn asinh32(x: f32) -> f32 {
         math.forceEval(x + 0x1.0p120);
     }
 
-    if (s != 0) -rx else rx
+    return if (s != 0) -rx else rx;
 }
 
 fn asinh64(x: f64) -> f64 {
@@ -77,7 +77,7 @@ fn asinh64(x: f64) -> f64 {
         math.forceEval(x + 0x1.0p120);
     }
 
-    if (s != 0) -rx else rx
+    return if (s != 0) -rx else rx;
 }
 
 test "math.asinh" {

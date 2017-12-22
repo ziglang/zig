@@ -12,7 +12,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
     comptime hash: fn(key: K)->u32,
     comptime eql: fn(a: K, b: K)->bool) -> type
 {
-    struct {
+    return struct {
         entries: []Entry,
         size: usize,
         max_distance_from_start_index: usize,
@@ -51,19 +51,19 @@ pub fn HashMap(comptime K: type, comptime V: type,
                         return entry;
                     }
                 }
-                unreachable // no next item
+                unreachable; // no next item
             }
         };
 
         pub fn init(allocator: &Allocator) -> Self {
-            Self {
+            return Self {
                 .entries = []Entry{},
                 .allocator = allocator,
                 .size = 0,
                 .max_distance_from_start_index = 0,
                 // it doesn't actually matter what we set this to since we use wrapping integer arithmetic
                 .modification_count = undefined,
-            }
+            };
         }
 
         pub fn deinit(hm: &Self) {
@@ -133,7 +133,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
                     entry.distance_from_start_index -= 1;
                     entry = next_entry;
                 }
-                unreachable // shifting everything in the table
+                unreachable; // shifting everything in the table
             }}
             return null;
         }
@@ -169,7 +169,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
             const start_index = hm.keyToIndex(key);
             var roll_over: usize = 0;
             var distance_from_start_index: usize = 0;
-            while (roll_over < hm.entries.len) : ({roll_over += 1; distance_from_start_index += 1}) {
+            while (roll_over < hm.entries.len) : ({roll_over += 1; distance_from_start_index += 1;}) {
                 const index = (start_index + roll_over) % hm.entries.len;
                 const entry = &hm.entries[index];
 
@@ -210,7 +210,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
                 };
                 return result;
             }
-            unreachable // put into a full map
+            unreachable; // put into a full map
         }
 
         fn internalGet(hm: &Self, key: K) -> ?&Entry {
@@ -228,7 +228,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
         fn keyToIndex(hm: &Self, key: K) -> usize {
             return usize(hash(key)) % hm.entries.len;
         }
-    }
+    };
 }
 
 test "basicHashMapTest" {
@@ -251,9 +251,9 @@ test "basicHashMapTest" {
 }
 
 fn hash_i32(x: i32) -> u32 {
-    @bitCast(u32, x)
+    return @bitCast(u32, x);
 }
 
 fn eql_i32(a: i32, b: i32) -> bool {
-    a == b
+    return a == b;
 }

@@ -355,7 +355,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                 // these values will be pulled out to the start of A
                 last = A.start;
                 count = 1;
-                while (count < find) : ({last = index; count += 1}) {
+                while (count < find) : ({last = index; count += 1;}) {
                     index = findLastForward(T, items, items[last], Range.init(last + 1, A.end), lessThan, find - count);
                     if (index == A.end) break;
                 }
@@ -410,7 +410,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                 // these values will be pulled out to the end of B
                 last = B.end - 1;
                 count = 1;
-                while (count < find) : ({last = index - 1; count += 1}) {
+                while (count < find) : ({last = index - 1; count += 1;}) {
                     index = findFirstBackward(T, items, items[last], Range.init(B.start, last), lessThan, find - count);
                     if (index == B.start) break;
                 }
@@ -547,7 +547,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                     // swap the first value of each A block with the value in buffer1
                     var indexA = buffer1.start;
                     index = firstA.end;
-                    while (index < blockA.end) : ({indexA += 1; index += block_size}) {
+                    while (index < blockA.end) : ({indexA += 1; index += block_size;}) {
                         mem.swap(T, &items[indexA], &items[index]);
                     }
                     
@@ -1093,7 +1093,7 @@ test "another sort case" {
     var arr = []i32{ 5, 3, 1, 2, 4 };
     sort(i32, arr[0..], i32asc);
 
-    assert(mem.eql(i32, arr, []i32{ 1, 2, 3, 4, 5 }))
+    assert(mem.eql(i32, arr, []i32{ 1, 2, 3, 4, 5 }));
 }
 
 test "sort fuzz testing" {

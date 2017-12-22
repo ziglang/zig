@@ -3514,7 +3514,11 @@ static VariableTableEntry *ir_create_var(IrBuilder *irb, AstNode *node, Scope *s
 static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode *block_node) {
     assert(block_node->type == NodeTypeBlock);
 
+    ZigList<IrInstruction *> incoming_values = {0};
+    ZigList<IrBasicBlock *> incoming_blocks = {0};
+
     ScopeBlock *scope_block = create_block_scope(block_node, parent_scope);
+
     Scope *outer_block_scope = &scope_block->base;
     Scope *child_scope = outer_block_scope;
 
@@ -3528,9 +3532,15 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
         return ir_mark_gen(ir_build_const_void(irb, child_scope, block_node));
     }
 
+    if (block_node->data.block.name != nullptr) {
+        scope_block->incoming_blocks = &incoming_blocks;
+        scope_block->incoming_values = &incoming_values;
+        scope_block->end_block = ir_build_basic_block(irb, parent_scope, "BlockEnd");
+        scope_block->is_comptime = ir_build_const_bool(irb, parent_scope, block_node, ir_should_inline(irb->exec, parent_scope));
+    }
+
     bool is_continuation_unreachable = false;
     IrInstruction *noreturn_return_value = nullptr;
-    IrInstruction *return_value = nullptr;
     for (size_t i = 0; i < block_node->data.block.statements.length; i += 1) {
         AstNode *statement_node = block_node->data.block.statements.at(i);
 
@@ -3548,39 +3558,31 @@ static IrInstruction *ir_gen_block(IrBuilder *irb, Scope *parent_scope, AstNode 
             // variable declarations start a new scope
             IrInstructionDeclVar *decl_var_instruction = (IrInstructionDeclVar *)statement_value;
             child_scope = decl_var_instruction->var->child_scope;
-        } else {
-            // label, defer, variable declaration will never be the result expression
-            if (block_node->data.block.last_statement_is_result_expression &&
-                i == block_node->data.block.statements.length - 1) {
-                // this is the result value statement
-                return_value = statement_value;
-            } else {
-                // there are more statements ahead of this one. this statement's value must be void
-                if (statement_value != irb->codegen->invalid_instruction) {
-                    ir_mark_gen(ir_build_check_statement_is_void(irb, child_scope, statement_node, statement_value));
-                }
-            }
+        } else if (statement_value != irb->codegen->invalid_instruction) {
+            // this statement's value must be void
+            ir_mark_gen(ir_build_check_statement_is_void(irb, child_scope, statement_node, statement_value));
         }
     }
 
     if (is_continuation_unreachable) {
         assert(noreturn_return_value != nullptr);
-        return noreturn_return_value;
-    }
-    // control flow falls out of block
-
-    if (block_node->data.block.last_statement_is_result_expression) {
-        // return value was determined by the last statement
-        assert(return_value != nullptr);
+        if (block_node->data.block.name == nullptr || incoming_blocks.length == 0) {
+            return noreturn_return_value;
+        }
     } else {
-        // return value is implicitly void
-        assert(return_value == nullptr);
-        return_value = ir_mark_gen(ir_build_const_void(irb, child_scope, block_node));
+        incoming_blocks.append(irb->current_basic_block);
+        incoming_values.append(ir_mark_gen(ir_build_const_void(irb, parent_scope, block_node)));
     }
 
-    ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
-
-    return return_value;
+    if (block_node->data.block.name != nullptr) {
+        ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
+        ir_mark_gen(ir_build_br(irb, parent_scope, block_node, scope_block->end_block, scope_block->is_comptime));
+        ir_set_cursor_at_end(irb, scope_block->end_block);
+        return ir_build_phi(irb, parent_scope, block_node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
+    } else {
+        ir_gen_defers_for_block(irb, child_scope, outer_block_scope, false);
+        return ir_mark_gen(ir_mark_gen(ir_build_const_void(irb, child_scope, block_node)));
+    }
 }
 
 static IrInstruction *ir_gen_bin_op_id(IrBuilder *irb, Scope *scope, AstNode *node, IrBinOp op_id) {
@@ -5952,6 +5954,31 @@ static IrInstruction *ir_gen_comptime(IrBuilder *irb, Scope *parent_scope, AstNo
     return ir_gen_node_extra(irb, node->data.comptime_expr.expr, child_scope, lval);
 }
 
+static IrInstruction *ir_gen_return_from_block(IrBuilder *irb, Scope *break_scope, AstNode *node, ScopeBlock *block_scope) {
+    IrInstruction *is_comptime;
+    if (ir_should_inline(irb->exec, break_scope)) {
+        is_comptime = ir_build_const_bool(irb, break_scope, node, true);
+    } else {
+        is_comptime = block_scope->is_comptime;
+    }
+
+    IrInstruction *result_value;
+    if (node->data.break_expr.expr) {
+        result_value = ir_gen_node(irb, node->data.break_expr.expr, break_scope);
+        if (result_value == irb->codegen->invalid_instruction)
+            return irb->codegen->invalid_instruction;
+    } else {
+        result_value = ir_build_const_void(irb, break_scope, node);
+    }
+
+    IrBasicBlock *dest_block = block_scope->end_block;
+    ir_gen_defers_for_block(irb, break_scope, dest_block->scope, false);
+
+    block_scope->incoming_blocks->append(irb->current_basic_block);
+    block_scope->incoming_values->append(result_value);
+    return ir_build_br(irb, break_scope, node, dest_block, is_comptime);
+}
+
 static IrInstruction *ir_gen_break(IrBuilder *irb, Scope *break_scope, AstNode *node) {
     assert(node->type == NodeTypeBreak);
 
@@ -5959,14 +5986,14 @@ static IrInstruction *ir_gen_break(IrBuilder *irb, Scope *break_scope, AstNode *
     // * function definition scope or global scope => error, break outside loop
     // * defer expression scope => error, cannot break out of defer expression
     // * loop scope => OK
+    // * (if it's a labeled break) labeled block => OK
 
     Scope *search_scope = break_scope;
     ScopeLoop *loop_scope;
-    bool saw_any_loop_scope = false;
     for (;;) {
         if (search_scope == nullptr || search_scope->id == ScopeIdFnDef) {
-            if (saw_any_loop_scope) {
-                add_node_error(irb->codegen, node, buf_sprintf("labeled loop not found: '%s'", buf_ptr(node->data.break_expr.name)));
+            if (node->data.break_expr.name != nullptr) {
+                add_node_error(irb->codegen, node, buf_sprintf("label not found: '%s'", buf_ptr(node->data.break_expr.name)));
                 return irb->codegen->invalid_instruction;
             } else {
                 add_node_error(irb->codegen, node, buf_sprintf("break expression outside loop"));
@@ -5977,12 +6004,19 @@ static IrInstruction *ir_gen_break(IrBuilder *irb, Scope *break_scope, AstNode *
             return irb->codegen->invalid_instruction;
         } else if (search_scope->id == ScopeIdLoop) {
             ScopeLoop *this_loop_scope = (ScopeLoop *)search_scope;
-            saw_any_loop_scope = true;
             if (node->data.break_expr.name == nullptr ||
                 (this_loop_scope->name != nullptr && buf_eql_buf(node->data.break_expr.name, this_loop_scope->name)))
             {
                 loop_scope = this_loop_scope;
                 break;
+            }
+        } else if (search_scope->id == ScopeIdBlock) {
+            ScopeBlock *this_block_scope = (ScopeBlock *)search_scope;
+            if (node->data.break_expr.name != nullptr &&
+                (this_block_scope->name != nullptr && buf_eql_buf(node->data.break_expr.name, this_block_scope->name)))
+            {
+                assert(this_block_scope->end_block != nullptr);
+                return ir_gen_return_from_block(irb, break_scope, node, this_block_scope);
             }
         }
         search_scope = search_scope->parent;
@@ -6022,10 +6056,9 @@ static IrInstruction *ir_gen_continue(IrBuilder *irb, Scope *continue_scope, Ast
 
     Scope *search_scope = continue_scope;
     ScopeLoop *loop_scope;
-    bool saw_any_loop_scope = false;
     for (;;) {
         if (search_scope == nullptr || search_scope->id == ScopeIdFnDef) {
-            if (saw_any_loop_scope) {
+            if (node->data.continue_expr.name != nullptr) {
                 add_node_error(irb->codegen, node, buf_sprintf("labeled loop not found: '%s'", buf_ptr(node->data.continue_expr.name)));
                 return irb->codegen->invalid_instruction;
             } else {
@@ -6037,7 +6070,6 @@ static IrInstruction *ir_gen_continue(IrBuilder *irb, Scope *continue_scope, Ast
             return irb->codegen->invalid_instruction;
         } else if (search_scope->id == ScopeIdLoop) {
             ScopeLoop *this_loop_scope = (ScopeLoop *)search_scope;
-            saw_any_loop_scope = true;
             if (node->data.continue_expr.name == nullptr ||
                 (this_loop_scope->name != nullptr && buf_eql_buf(node->data.continue_expr.name, this_loop_scope->name)))
             {

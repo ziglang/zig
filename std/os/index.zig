@@ -84,7 +84,7 @@ pub fn getRandomBytes(buf: []u8) -> %void {
                     posix.EFAULT => unreachable,
                     posix.EINTR  => continue,
                     else         => unexpectedErrorPosix(err),
-                }
+                };
             }
             return;
         },
@@ -151,18 +151,17 @@ pub coldcc fn exit(status: i32) -> noreturn {
     }
     switch (builtin.os) {
         Os.linux, Os.darwin, Os.macosx, Os.ios => {
-            posix.exit(status)
+            posix.exit(status);
         },
         Os.windows => {
             // Map a possibly negative status code to a non-negative status for the systems default
             // integer width.
-            const p_status = if (@sizeOf(c_uint) < @sizeOf(u32)) {
+            const p_status = if (@sizeOf(c_uint) < @sizeOf(u32))
                 @truncate(c_uint, @bitCast(u32, status))
-            } else {
-                c_uint(@bitCast(u32, status))
-            };
+            else
+                c_uint(@bitCast(u32, status));
 
-            windows.ExitProcess(p_status)
+            windows.ExitProcess(p_status);
         },
         else => @compileError("Unsupported OS"),
     }
@@ -289,7 +288,7 @@ pub fn posixOpen(file_path: []const u8, flags: u32, perm: usize, allocator: ?&Al
                 posix.EPERM => error.AccessDenied,
                 posix.EEXIST => error.PathAlreadyExists,
                 else => unexpectedErrorPosix(err),
-            }
+            };
         }
         return i32(result);
     }
@@ -680,7 +679,7 @@ pub fn deleteFileWindows(allocator: &Allocator, file_path: []const u8) -> %void 
             windows.ERROR.ACCESS_DENIED => error.AccessDenied,
             windows.ERROR.FILENAME_EXCED_RANGE, windows.ERROR.INVALID_PARAMETER => error.NameTooLong,
             else => unexpectedErrorWindows(err),
-        }
+        };
     }
 }
 
@@ -1006,7 +1005,7 @@ pub const Dir = struct {
                                 continue;
                             },
                             else => return unexpectedErrorPosix(err),
-                        };
+                        }
                     }
                     if (result == 0)
                         return null;

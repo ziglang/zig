@@ -9,11 +9,11 @@ const assert = @import("../debug.zig").assert;
 
 pub fn atanh(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
+    return switch (T) {
         f32 => @inlineCall(atanh_32, x),
         f64 => @inlineCall(atanh_64, x),
         else => @compileError("atanh not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 // atanh(x) = log((1 + x) / (1 - x)) / 2 = log1p(2x / (1 - x)) / 2 ~= x + x^3 / 3 + o(x^5)
@@ -32,7 +32,7 @@ fn atanh_32(x: f32) -> f32 {
         if (u < 0x3F800000 - (32 << 23)) {
             // underflow
             if (u < (1 << 23)) {
-                math.forceEval(y * y)
+                math.forceEval(y * y);
             }
         }
         // |x| < 0.5
@@ -43,7 +43,7 @@ fn atanh_32(x: f32) -> f32 {
         y = 0.5 * math.log1p(2 * (y / (1 - y)));
     }
 
-    if (s != 0) -y else y
+    return if (s != 0) -y else y;
 }
 
 fn atanh_64(x: f64) -> f64 {
@@ -72,7 +72,7 @@ fn atanh_64(x: f64) -> f64 {
         y = 0.5 * math.log1p(2 * (y / (1 - y)));
     }
 
-    if (s != 0) -y else y
+    return if (s != 0) -y else y;
 }
 
 test "math.atanh" {

@@ -9,11 +9,11 @@ const assert = @import("../debug.zig").assert;
 
 pub fn ilogb(x: var) -> i32 {
     const T = @typeOf(x);
-    switch (T) {
+    return switch (T) {
         f32 => @inlineCall(ilogb32, x),
         f64 => @inlineCall(ilogb64, x),
         else => @compileError("ilogb not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 // NOTE: Should these be exposed publically?
@@ -53,7 +53,7 @@ fn ilogb32(x: f32) -> i32 {
         }
     }
 
-    e - 0x7F
+    return e - 0x7F;
 }
 
 fn ilogb64(x: f64) -> i32 {
@@ -88,7 +88,7 @@ fn ilogb64(x: f64) -> i32 {
         }
     }
 
-    e - 0x3FF
+    return e - 0x3FF;
 }
 
 test "math.ilogb" {

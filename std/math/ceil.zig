@@ -10,11 +10,11 @@ const assert = @import("../debug.zig").assert;
 
 pub fn ceil(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
+    return switch (T) {
         f32 => @inlineCall(ceil32, x),
         f64 => @inlineCall(ceil64, x),
         else => @compileError("ceil not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 fn ceil32(x: f32) -> f32 {
@@ -39,13 +39,13 @@ fn ceil32(x: f32) -> f32 {
             u += m;
         }
         u &= ~m;
-        @bitCast(f32, u)
+        return @bitCast(f32, u);
     } else {
         math.forceEval(x + 0x1.0p120);
         if (u >> 31 != 0) {
             return -0.0;
         } else {
-            1.0
+            return 1.0;
         }
     }
 }
@@ -70,14 +70,14 @@ fn ceil64(x: f64) -> f64 {
     if (e <= 0x3FF-1) {
         math.forceEval(y);
         if (u >> 63 != 0) {
-            return -0.0;    // Compiler requires return.
+            return -0.0;
         } else {
-            1.0
+            return 1.0;
         }
     } else if (y < 0) {
-        x + y + 1
+        return x + y + 1;
     } else {
-        x + y
+        return x + y;
     }
 }
 

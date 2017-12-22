@@ -97,63 +97,63 @@ pub const SIGINFO   = 29; /// information request
 pub const SIGUSR1   = 30; /// user defined signal 1
 pub const SIGUSR2   = 31; /// user defined signal 2
 
-fn wstatus(x: i32) -> i32 { x & 0o177 }
+fn wstatus(x: i32) -> i32 { return x & 0o177; }
 const wstopped = 0o177;
-pub fn WEXITSTATUS(x: i32) -> i32 { x >> 8 }
-pub fn WTERMSIG(x: i32) -> i32 { wstatus(x) }
-pub fn WSTOPSIG(x: i32) -> i32 { x >> 8 }
-pub fn WIFEXITED(x: i32) -> bool { wstatus(x) == 0 }
-pub fn WIFSTOPPED(x: i32) -> bool { wstatus(x) == wstopped and WSTOPSIG(x) != 0x13 }
-pub fn WIFSIGNALED(x: i32) -> bool { wstatus(x) != wstopped and wstatus(x) != 0 }
+pub fn WEXITSTATUS(x: i32) -> i32 { return x >> 8; }
+pub fn WTERMSIG(x: i32) -> i32 { return wstatus(x); }
+pub fn WSTOPSIG(x: i32) -> i32 { return x >> 8; }
+pub fn WIFEXITED(x: i32) -> bool { return wstatus(x) == 0; }
+pub fn WIFSTOPPED(x: i32) -> bool { return wstatus(x) == wstopped and WSTOPSIG(x) != 0x13; }
+pub fn WIFSIGNALED(x: i32) -> bool { return wstatus(x) != wstopped and wstatus(x) != 0; }
 
 /// Get the errno from a syscall return value, or 0 for no error.
 pub fn getErrno(r: usize) -> usize {
     const signed_r = @bitCast(isize, r);
-    if (signed_r > -4096 and signed_r < 0) usize(-signed_r) else 0
+    return if (signed_r > -4096 and signed_r < 0) usize(-signed_r) else 0;
 }
 
 pub fn close(fd: i32) -> usize {
-    errnoWrap(c.close(fd))
+    return errnoWrap(c.close(fd));
 }
 
 pub fn abort() -> noreturn {
-    c.abort()
+    return c.abort();
 }
 
 pub fn exit(code: i32) -> noreturn {
-    c.exit(code)
+    return c.exit(code);
 }
 
 pub fn isatty(fd: i32) -> bool {
-    c.isatty(fd) != 0
+    return c.isatty(fd) != 0;
 }
 
 pub fn fstat(fd: i32, buf: &c.Stat) -> usize {
-    errnoWrap(c.@"fstat$INODE64"(fd, buf))
+    return errnoWrap(c.@"fstat$INODE64"(fd, buf));
 }
 
 pub fn lseek(fd: i32, offset: isize, whence: c_int) -> usize {
-    errnoWrap(c.lseek(fd, offset, whence))
+    return errnoWrap(c.lseek(fd, offset, whence));
 }
 
 pub fn open(path: &const u8, flags: u32, mode: usize) -> usize {
-    errnoWrap(c.open(path, @bitCast(c_int, flags), mode))
+    return errnoWrap(c.open(path, @bitCast(c_int, flags), mode));
 }
 
 pub fn raise(sig: i32) -> usize {
-    errnoWrap(c.raise(sig))
+    return errnoWrap(c.raise(sig));
 }
 
 pub fn read(fd: i32, buf: &u8, nbyte: usize) -> usize {
-    errnoWrap(c.read(fd, @ptrCast(&c_void, buf), nbyte))
+    return errnoWrap(c.read(fd, @ptrCast(&c_void, buf), nbyte));
 }
 
 pub fn stat(noalias path: &const u8, noalias buf: &stat) -> usize {
-    errnoWrap(c.stat(path, buf))
+    return errnoWrap(c.stat(path, buf));
 }
 
 pub fn write(fd: i32, buf: &const u8, nbyte: usize) -> usize {
-    errnoWrap(c.write(fd, @ptrCast(&const c_void, buf), nbyte))
+    return errnoWrap(c.write(fd, @ptrCast(&const c_void, buf), nbyte));
 }
 
 pub fn mmap(address: ?&u8, length: usize, prot: usize, flags: usize, fd: i32,
@@ -166,79 +166,79 @@ pub fn mmap(address: ?&u8, length: usize, prot: usize, flags: usize, fd: i32,
 }
 
 pub fn munmap(address: &u8, length: usize) -> usize {
-    errnoWrap(c.munmap(@ptrCast(&c_void, address), length))
+    return errnoWrap(c.munmap(@ptrCast(&c_void, address), length));
 }
 
 pub fn unlink(path: &const u8) -> usize {
-    errnoWrap(c.unlink(path))
+    return errnoWrap(c.unlink(path));
 }
 
 pub fn getcwd(buf: &u8, size: usize) -> usize {
-    if (c.getcwd(buf, size) == null) @bitCast(usize, -isize(*c._errno())) else 0
+    return if (c.getcwd(buf, size) == null) @bitCast(usize, -isize(*c._errno())) else 0;
 }
 
 pub fn waitpid(pid: i32, status: &i32, options: u32) -> usize {
     comptime assert(i32.bit_count == c_int.bit_count);
-    errnoWrap(c.waitpid(pid, @ptrCast(&c_int, status), @bitCast(c_int, options)))
+    return errnoWrap(c.waitpid(pid, @ptrCast(&c_int, status), @bitCast(c_int, options)));
 }
 
 pub fn fork() -> usize {
-    errnoWrap(c.fork())
+    return errnoWrap(c.fork());
 }
 
 pub fn pipe(fds: &[2]i32) -> usize {
     comptime assert(i32.bit_count == c_int.bit_count);
-    errnoWrap(c.pipe(@ptrCast(&c_int, fds)))
+    return errnoWrap(c.pipe(@ptrCast(&c_int, fds)));
 }
 
 pub fn mkdir(path: &const u8, mode: u32) -> usize {
-    errnoWrap(c.mkdir(path, mode))
+    return errnoWrap(c.mkdir(path, mode));
 }
 
 pub fn symlink(existing: &const u8, new: &const u8) -> usize {
-    errnoWrap(c.symlink(existing, new))
+    return errnoWrap(c.symlink(existing, new));
 }
 
 pub fn rename(old: &const u8, new: &const u8) -> usize {
-    errnoWrap(c.rename(old, new))
+    return errnoWrap(c.rename(old, new));
 }
 
 pub fn chdir(path: &const u8) -> usize {
-    errnoWrap(c.chdir(path))
+    return errnoWrap(c.chdir(path));
 }
 
 pub fn execve(path: &const u8, argv: &const ?&const u8, envp: &const ?&const u8)
     -> usize
 {
-    errnoWrap(c.execve(path, argv, envp))
+    return errnoWrap(c.execve(path, argv, envp));
 }
 
 pub fn dup2(old: i32, new: i32) -> usize {
-    errnoWrap(c.dup2(old, new))
+    return errnoWrap(c.dup2(old, new));
 }
 
 pub fn readlink(noalias path: &const u8, noalias buf_ptr: &u8, buf_len: usize) -> usize {
-    errnoWrap(c.readlink(path, buf_ptr, buf_len))
+    return errnoWrap(c.readlink(path, buf_ptr, buf_len));
 }
 
 pub fn nanosleep(req: &const timespec, rem: ?&timespec) -> usize {
-    errnoWrap(c.nanosleep(req, rem))
+    return errnoWrap(c.nanosleep(req, rem));
 }
 
 pub fn realpath(noalias filename: &const u8, noalias resolved_name: &u8) -> usize {
-    if (c.realpath(filename, resolved_name) == null) @bitCast(usize, -isize(*c._errno())) else 0
+    return if (c.realpath(filename, resolved_name) == null) @bitCast(usize, -isize(*c._errno())) else 0;
 }
 
 pub fn setreuid(ruid: u32, euid: u32) -> usize {
-    errnoWrap(c.setreuid(ruid, euid))
+    return errnoWrap(c.setreuid(ruid, euid));
 }
 
 pub fn setregid(rgid: u32, egid: u32) -> usize {
-    errnoWrap(c.setregid(rgid, egid))
+    return errnoWrap(c.setregid(rgid, egid));
 }
 
 pub fn sigprocmask(flags: u32, noalias set: &const sigset_t, noalias oldset: ?&sigset_t) -> usize {
-    errnoWrap(c.sigprocmask(@bitCast(c_int, flags), set, oldset))
+    return errnoWrap(c.sigprocmask(@bitCast(c_int, flags), set, oldset));
 }
 
 pub fn sigaction(sig: u5, noalias act: &const Sigaction, noalias oact: ?&Sigaction) -> usize {
@@ -285,9 +285,5 @@ pub fn sigaddset(set: &sigset_t, signo: u5) {
 /// that the kernel represents it to libc. Errno was a mistake, let's make
 /// it go away forever.
 fn errnoWrap(value: isize) -> usize {
-    @bitCast(usize, if (value == -1) {
-        -isize(*c._errno())
-    } else {
-        value
-    })
+    return @bitCast(usize, if (value == -1) -isize(*c._errno()) else value);
 }

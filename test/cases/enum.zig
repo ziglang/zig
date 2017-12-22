@@ -41,7 +41,7 @@ const Bar = enum {
 };
 
 fn returnAnInt(x: i32) -> Foo {
-    Foo { .One = x }
+    return Foo { .One = x };
 }
 
 

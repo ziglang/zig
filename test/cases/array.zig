@@ -22,7 +22,7 @@ test "arrays" {
     assert(getArrayLen(array) == 5);
 }
 fn getArrayLen(a: []const u32) -> usize {
-    a.len
+    return a.len;
 }
 
 test "void arrays" {
@@ -41,7 +41,7 @@ test "array literal" {
 }
 
 test "array dot len const expr" {
-    assert(comptime {some_array.len == 4});
+    assert(comptime x: {break :x some_array.len == 4;});
 }
 
 const ArrayDotLenConstExpr = struct {

@@ -2,11 +2,11 @@ const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
 pub fn copysign(comptime T: type, x: T, y: T) -> T {
-    switch (T) {
+    return switch (T) {
         f32 => @inlineCall(copysign32, x, y),
         f64 => @inlineCall(copysign64, x, y),
         else => @compileError("copysign not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 fn copysign32(x: f32, y: f32) -> f32 {
@@ -15,7 +15,7 @@ fn copysign32(x: f32, y: f32) -> f32 {
 
     const h1 = ux & (@maxValue(u32) / 2);
     const h2 = uy & (u32(1) << 31);
-    @bitCast(f32, h1 | h2)
+    return @bitCast(f32, h1 | h2);
 }
 
 fn copysign64(x: f64, y: f64) -> f64 {
@@ -24,7 +24,7 @@ fn copysign64(x: f64, y: f64) -> f64 {
 
     const h1 = ux & (@maxValue(u64) / 2);
     const h2 = uy & (u64(1) << 63);
-    @bitCast(f64, h1 | h2)
+    return @bitCast(f64, h1 | h2);
 }
 
 test "math.copysign" {

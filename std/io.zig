@@ -50,35 +50,32 @@ error Unseekable;
 error EndOfFile;
 
 pub fn getStdErr() -> %File {
-    const handle = if (is_windows) {
+    const handle = if (is_windows)
         %return os.windowsGetStdHandle(system.STD_ERROR_HANDLE)
-    } else if (is_posix) {
+    else if (is_posix)
         system.STDERR_FILENO
-    } else {
-        unreachable
-    };
+    else
+        unreachable;
     return File.openHandle(handle);
 }
 
 pub fn getStdOut() -> %File {
-    const handle = if (is_windows) {
+    const handle = if (is_windows)
         %return os.windowsGetStdHandle(system.STD_OUTPUT_HANDLE)
-    } else if (is_posix) {
+    else if (is_posix)
         system.STDOUT_FILENO
-    } else {
-        unreachable
-    };
+    else
+        unreachable;
     return File.openHandle(handle);
 }
 
 pub fn getStdIn() -> %File {
-    const handle = if (is_windows) {
+    const handle = if (is_windows)
         %return os.windowsGetStdHandle(system.STD_INPUT_HANDLE)
-    } else if (is_posix) {
+    else if (is_posix)
         system.STDIN_FILENO
-    } else {
-        unreachable
-    };
+    else
+        unreachable;
     return File.openHandle(handle);
 }
 
@@ -261,7 +258,7 @@ pub const File = struct {
                     system.EBADF => error.BadFd,
                     system.ENOMEM => error.SystemResources,
                     else => os.unexpectedErrorPosix(err),
-                }
+                };
             }
 
             return usize(stat.size);

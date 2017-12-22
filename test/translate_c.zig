@@ -203,13 +203,13 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\pub extern var fn_ptr: ?extern fn();
     ,
         \\pub inline fn foo() {
-        \\    (??fn_ptr)()
+        \\    return (??fn_ptr)();
         \\}
     ,
         \\pub extern var fn_ptr2: ?extern fn(c_int, f32) -> u8;
     ,
         \\pub inline fn bar(arg0: c_int, arg1: f32) -> u8 {
-        \\    (??fn_ptr2)(arg0, arg1)
+        \\    return (??fn_ptr2)(arg0, arg1);
         \\}
     );
 
@@ -475,10 +475,10 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\pub export fn max(a: c_int) {
         \\    var b: c_int;
         \\    var c: c_int;
-        \\    c = {
+        \\    c = x: {
         \\        const _tmp = a;
         \\        b = _tmp;
-        \\        _tmp
+        \\        break :x _tmp;
         \\    };
         \\}
     );
@@ -613,9 +613,9 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\}
     ,
         \\pub export fn foo() -> c_int {
-        \\    return {
+        \\    return x: {
         \\        _ = 1;
-        \\        2
+        \\        break :x 2;
         \\    };
         \\}
     );
@@ -645,45 +645,45 @@ pub fn addCases(cases: &tests.TranslateCContext) {
     ,
         \\pub export fn foo() {
         \\    var a: c_int = 0;
-        \\    a += {
+        \\    a += x: {
         \\        const _ref = &a;
         \\        (*_ref) = ((*_ref) + 1);
-        \\        *_ref
+        \\        break :x *_ref;
         \\    };
-        \\    a -= {
+        \\    a -= x: {
         \\        const _ref = &a;
         \\        (*_ref) = ((*_ref) - 1);
-        \\        *_ref
+        \\        break :x *_ref;
         \\    };
-        \\    a *= {
+        \\    a *= x: {
         \\        const _ref = &a;
         \\        (*_ref) = ((*_ref) * 1);
-        \\        *_ref
+        \\        break :x *_ref;
         \\    };
-        \\    a &= {
+        \\    a &= x: {
         \\        const _ref = &a;
         \\        (*_ref) = ((*_ref) & 1);
-        \\        *_ref
+        \\        break :x *_ref;
         \\    };
-        \\    a |= {
+        \\    a |= x: {
         \\        const _ref = &a;
         \\        (*_ref) = ((*_ref) | 1);
-        \\        *_ref
+        \\        break :x *_ref;
         \\    };
-        \\    a ^= {
+        \\    a ^= x: {
         \\        const _ref = &a;
         \\        (*_ref) = ((*_ref) ^ 1);
-        \\        *_ref
+        \\        break :x *_ref;
         \\    };
-        \\    a >>= @import("std").math.Log2Int(c_int)({
+        \\    a >>= @import("std").math.Log2Int(c_int)(x: {
         \\        const _ref = &a;
         \\        (*_ref) = ((*_ref) >> @import("std").math.Log2Int(c_int)(1));
-        \\        *_ref
+        \\        break :x *_ref;
         \\    });
-        \\    a <<= @import("std").math.Log2Int(c_int)({
+        \\    a <<= @import("std").math.Log2Int(c_int)(x: {
         \\        const _ref = &a;
         \\        (*_ref) = ((*_ref) << @import("std").math.Log2Int(c_int)(1));
-        \\        *_ref
+        \\        break :x *_ref;
         \\    });
         \\}
     );
@@ -703,45 +703,45 @@ pub fn addCases(cases: &tests.TranslateCContext) {
     ,
         \\pub export fn foo() {
         \\    var a: c_uint = c_uint(0);
-        \\    a +%= {
+        \\    a +%= x: {
         \\        const _ref = &a;
         \\        (*_ref) = ((*_ref) +% c_uint(1));
-        \\        *_ref
+        \\        break :x *_ref;
         \\    };
-        \\    a -%= {
+        \\    a -%= x: {
         \\        const _ref = &a;
         \\        (*_ref) = ((*_ref) -% c_uint(1));
-        \\        *_ref
+        \\        break :x *_ref;
         \\    };
-        \\    a *%= {
+        \\    a *%= x: {
         \\        const _ref = &a;
         \\        (*_ref) = ((*_ref) *% c_uint(1));
-        \\        *_ref
+        \\        break :x *_ref;
         \\    };
-        \\    a &= {
+        \\    a &= x: {
         \\        const _ref = &a;
         \\        (*_ref) = ((*_ref) & c_uint(1));
-        \\        *_ref
+        \\        break :x *_ref;
         \\    };
-        \\    a |= {
+        \\    a |= x: {
         \\        const _ref = &a;
         \\        (*_ref) = ((*_ref) | c_uint(1));
-        \\        *_ref
+        \\        break :x *_ref;
         \\    };
-        \\    a ^= {
+        \\    a ^= x: {
         \\        const _ref = &a;
         \\        (*_ref) = ((*_ref) ^ c_uint(1));
-        \\        *_ref
+        \\        break :x *_ref;
         \\    };
-        \\    a >>= @import("std").math.Log2Int(c_uint)({
+        \\    a >>= @import("std").math.Log2Int(c_uint)(x: {
         \\        const _ref = &a;
         \\        (*_ref) = ((*_ref) >> @import("std").math.Log2Int(c_uint)(1));
-        \\        *_ref
+        \\        break :x *_ref;
         \\    });
-        \\    a <<= @import("std").math.Log2Int(c_uint)({
+        \\    a <<= @import("std").math.Log2Int(c_uint)(x: {
         \\        const _ref = &a;
         \\        (*_ref) = ((*_ref) << @import("std").math.Log2Int(c_uint)(1));
-        \\        *_ref
+        \\        break :x *_ref;
         \\    });
         \\}
     );
@@ -778,29 +778,29 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\    i -= 1;
         \\    u +%= 1;
         \\    u -%= 1;
-        \\    i = {
+        \\    i = x: {
         \\        const _ref = &i;
         \\        const _tmp = *_ref;
         \\        (*_ref) += 1;
-        \\        _tmp
+        \\        break :x _tmp;
         \\    };
-        \\    i = {
+        \\    i = x: {
         \\        const _ref = &i;
         \\        const _tmp = *_ref;
         \\        (*_ref) -= 1;
-        \\        _tmp
+        \\        break :x _tmp;
         \\    };
-        \\    u = {
+        \\    u = x: {
         \\        const _ref = &u;
         \\        const _tmp = *_ref;
         \\        (*_ref) +%= 1;
-        \\        _tmp
+        \\        break :x _tmp;
         \\    };
-        \\    u = {
+        \\    u = x: {
         \\        const _ref = &u;
         \\        const _tmp = *_ref;
         \\        (*_ref) -%= 1;
-        \\        _tmp
+        \\        break :x _tmp;
         \\    };
         \\}
     );
@@ -826,25 +826,25 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\    i -= 1;
         \\    u +%= 1;
         \\    u -%= 1;
-        \\    i = {
+        \\    i = x: {
         \\        const _ref = &i;
         \\        (*_ref) += 1;
-        \\        *_ref
+        \\        break :x *_ref;
         \\    };
-        \\    i = {
+        \\    i = x: {
         \\        const _ref = &i;
         \\        (*_ref) -= 1;
-        \\        *_ref
+        \\        break :x *_ref;
         \\    };
-        \\    u = {
+        \\    u = x: {
         \\        const _ref = &u;
         \\        (*_ref) +%= 1;
-        \\        *_ref
+        \\        break :x *_ref;
         \\    };
-        \\    u = {
+        \\    u = x: {
         \\        const _ref = &u;
         \\        (*_ref) -%= 1;
-        \\        *_ref
+        \\        break :x *_ref;
         \\    };
         \\}
     );
@@ -1037,7 +1037,7 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\pub const glClearPFN = PFNGLCLEARPROC;
     ,
         \\pub inline fn glClearUnion(arg0: GLbitfield) {
-        \\    (??glProcs.gl.Clear)(arg0)
+        \\    return (??glProcs.gl.Clear)(arg0);
         \\}
     ,
         \\pub const OpenGLProcs = union_OpenGLProcs;

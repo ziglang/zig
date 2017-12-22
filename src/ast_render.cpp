@@ -478,10 +478,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 AstNode *statement = node->data.block.statements.at(i);
                 print_indent(ar);
                 render_node_grouped(ar, statement);
-                if (!(i == node->data.block.statements.length - 1 &&
-                      node->data.block.last_statement_is_result_expression)) {
-                    fprintf(ar->f, ";");
-                }
+                fprintf(ar->f, ";");
                 fprintf(ar->f, "\n");
             }
             ar->indent -= ar->indent_size;

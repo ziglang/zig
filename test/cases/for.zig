@@ -12,7 +12,7 @@ test "continue in for loop" {
         }
         break;
     }
-    if (sum != 6) unreachable
+    if (sum != 6) unreachable;
 }
 
 test "for loop with pointer elem var" {

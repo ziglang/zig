@@ -11,11 +11,11 @@ const expo2 = @import("expo2.zig").expo2;
 
 pub fn sinh(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
+    return switch (T) {
         f32 => @inlineCall(sinh32, x),
         f64 => @inlineCall(sinh64, x),
         else => @compileError("sinh not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 // sinh(x) = (exp(x) - 1 / exp(x)) / 2
@@ -49,7 +49,7 @@ fn sinh32(x: f32) -> f32 {
     }
 
     // |x| > log(FLT_MAX) or nan
-    2 * h * expo2(ax)
+    return 2 * h * expo2(ax);
 }
 
 fn sinh64(x: f64) -> f64 {
@@ -83,7 +83,7 @@ fn sinh64(x: f64) -> f64 {
     }
 
     // |x| > log(DBL_MAX) or nan
-    2 * h * expo2(ax)
+    return 2 * h * expo2(ax);
 }
 
 test "math.sinh" {

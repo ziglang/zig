@@ -7,21 +7,21 @@ const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
 fn modf_result(comptime T: type) -> type {
-    struct {
+    return struct {
         fpart: T,
         ipart: T,
-    }
+    };
 }
 pub const modf32_result = modf_result(f32);
 pub const modf64_result = modf_result(f64);
 
 pub fn modf(x: var) -> modf_result(@typeOf(x)) {
     const T = @typeOf(x);
-    switch (T) {
+    return switch (T) {
         f32 => @inlineCall(modf32, x),
         f64 => @inlineCall(modf64, x),
         else => @compileError("modf not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 fn modf32(x: f32) -> modf32_result {
@@ -66,7 +66,7 @@ fn modf32(x: f32) -> modf32_result {
     const uf = @bitCast(f32, u & ~mask);
     result.ipart = uf;
     result.fpart = x - uf;
-    result
+    return result;
 }
 
 fn modf64(x: f64) -> modf64_result {
@@ -110,7 +110,7 @@ fn modf64(x: f64) -> modf64_result {
     const uf = @bitCast(f64, u & ~mask);
     result.ipart = uf;
     result.fpart = x - uf;
-    result
+    return result;
 }
 
 test "math.modf" {

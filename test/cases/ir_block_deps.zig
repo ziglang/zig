@@ -8,10 +8,10 @@ fn foo(id: u64) -> %i32 {
             return %return getErrInt();
         },
         else => error.ItBroke,
-    }
+    };
 }
 
-fn getErrInt() -> %i32 { 0 }
+fn getErrInt() -> %i32 { return 0; }
 
 error ItBroke;
 

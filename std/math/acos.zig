@@ -7,11 +7,11 @@ const assert = @import("../debug.zig").assert;
 
 pub fn acos(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
+    return switch (T) {
         f32 => @inlineCall(acos32, x),
         f64 => @inlineCall(acos64, x),
         else => @compileError("acos not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 fn r32(z: f32) -> f32 {
@@ -22,7 +22,7 @@ fn r32(z: f32) -> f32 {
 
     const p = z * (pS0 + z * (pS1 + z * pS2));
     const q = 1.0 + z * qS1;
-    p / q
+    return p / q;
 }
 
 fn acos32(x: f32) -> f32 {
@@ -69,7 +69,7 @@ fn acos32(x: f32) -> f32 {
     const df = @bitCast(f32, jx & 0xFFFFF000);
     const c = (z - df * df) / (s + df);
     const w = r32(z) * s + c;
-    2 * (df + w)
+    return 2 * (df + w);
 }
 
 fn r64(z: f64) -> f64 {
@@ -86,7 +86,7 @@ fn r64(z: f64) -> f64 {
 
     const p = z * (pS0 + z * (pS1 + z * (pS2 + z * (pS3 + z * (pS4 + z * pS5)))));
     const q = 1.0 + z * (qS1 + z * (qS2 + z * (qS3 + z * qS4)));
-    p / q
+    return p / q;
 }
 
 fn acos64(x: f64) -> f64 {
@@ -138,7 +138,7 @@ fn acos64(x: f64) -> f64 {
     const df = @bitCast(f64, jx & 0xFFFFFFFF00000000);
     const c = (z - df * df) / (s + df);
     const w = r64(z) * s + c;
-    2 * (df + w)
+    return 2 * (df + w);
 }
 
 test "math.acos" {

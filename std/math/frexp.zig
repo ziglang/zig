@@ -8,21 +8,21 @@ const math = @import("index.zig");
 const assert = @import("../debug.zig").assert;
 
 fn frexp_result(comptime T: type) -> type {
-    struct {
+    return struct {
         significand: T,
         exponent: i32,
-    }
+    };
 }
 pub const frexp32_result = frexp_result(f32);
 pub const frexp64_result = frexp_result(f64);
 
 pub fn frexp(x: var) -> frexp_result(@typeOf(x)) {
     const T = @typeOf(x);
-    switch (T) {
+    return switch (T) {
         f32 => @inlineCall(frexp32, x),
         f64 => @inlineCall(frexp64, x),
         else => @compileError("frexp not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 fn frexp32(x: f32) -> frexp32_result {
@@ -59,7 +59,7 @@ fn frexp32(x: f32) -> frexp32_result {
     y &= 0x807FFFFF;
     y |= 0x3F000000;
     result.significand = @bitCast(f32, y);
-    result
+    return result;
 }
 
 fn frexp64(x: f64) -> frexp64_result {
@@ -96,7 +96,7 @@ fn frexp64(x: f64) -> frexp64_result {
     y &= 0x800FFFFFFFFFFFFF;
     y |= 0x3FE0000000000000;
     result.significand = @bitCast(f64, y);
-    result
+    return result;
 }
 
 test "math.frexp" {

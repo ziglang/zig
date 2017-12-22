@@ -10,7 +10,7 @@ test "global variable alignment" {
     assert(@typeOf(slice) == []align(4) u8);
 }
 
-fn derp() align(@sizeOf(usize) * 2) -> i32 { 1234 }
+fn derp() align(@sizeOf(usize) * 2) -> i32 { return 1234; }
 fn noop1() align(1) {}
 fn noop4() align(4) {}
 
@@ -53,14 +53,14 @@ test "implicitly decreasing pointer alignment" {
     assert(addUnaligned(&a, &b) == 7);
 }
 
-fn addUnaligned(a: &align(1) const u32, b: &align(1) const u32) -> u32 { *a + *b }
+fn addUnaligned(a: &align(1) const u32, b: &align(1) const u32) -> u32 { return *a + *b; }
 
 test "implicitly decreasing slice alignment" {
     const a: u32 align(4) = 3;
     const b: u32 align(8) = 4;
     assert(addUnalignedSlice((&a)[0..1], (&b)[0..1]) == 7);
 }
-fn addUnalignedSlice(a: []align(1) const u32, b: []align(1) const u32) -> u32 { a[0] + b[0] }
+fn addUnalignedSlice(a: []align(1) const u32, b: []align(1) const u32) -> u32 { return a[0] + b[0]; }
 
 test "specifying alignment allows pointer cast" {
     testBytesAlign(0x33);
@@ -115,20 +115,20 @@ fn testImplicitlyDecreaseFnAlign(ptr: fn () align(1) -> i32, answer: i32) {
     assert(ptr() == answer);
 }
 
-fn alignedSmall() align(8) -> i32 { 1234 }
-fn alignedBig() align(16) -> i32 { 5678 }
+fn alignedSmall() align(8) -> i32 { return 1234; }
+fn alignedBig() align(16) -> i32 { return 5678; }
 
 
 test "@alignCast functions" {
     assert(fnExpectsOnly1(simple4) == 0x19);
 }
 fn fnExpectsOnly1(ptr: fn()align(1) -> i32) -> i32 {
-    fnExpects4(@alignCast(4, ptr))
+    return fnExpects4(@alignCast(4, ptr));
 }
 fn fnExpects4(ptr: fn()align(4) -> i32) -> i32 {
-    ptr()
+    return ptr();
 }
-fn simple4() align(4) -> i32 { 0x19 }
+fn simple4() align(4) -> i32 { return 0x19; }
 
 
 test "generic function with align param" {
@@ -137,7 +137,7 @@ test "generic function with align param" {
     assert(whyWouldYouEverDoThis(8) == 0x1);
 }
 
-fn whyWouldYouEverDoThis(comptime align_bytes: u8) align(align_bytes) -> u8 { 0x1 }
+fn whyWouldYouEverDoThis(comptime align_bytes: u8) align(align_bytes) -> u8 { return 0x1; }
 
 
 test "@ptrCast preserves alignment of bigger source" {

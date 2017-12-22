@@ -26,7 +26,6 @@ struct ScopeFnDef;
 struct TypeTableEntry;
 struct VariableTableEntry;
 struct ErrorTableEntry;
-struct LabelTableEntry;
 struct BuiltinFnEntry;
 struct TypeStructField;
 struct CodeGen;
@@ -54,7 +53,6 @@ struct IrExecutable {
     size_t *backward_branch_count;
     size_t backward_branch_quota;
     bool invalid;
-    ZigList<LabelTableEntry *> all_labels;
     ZigList<IrGotoItem> goto_list;
     bool is_inline;
     FnTableEntry *fn_entry;
@@ -452,7 +450,6 @@ struct AstNodeParamDecl {
 struct AstNodeBlock {
     Buf *name;
     ZigList<AstNode *> statements;
-    bool last_statement_is_result_expression;
 };
 
 enum ReturnKind {
@@ -1644,12 +1641,6 @@ struct ErrorTableEntry {
     ConstExprValue *cached_error_name_val;
 };
 
-struct LabelTableEntry {
-    AstNode *decl_node;
-    IrBasicBlock *bb;
-    bool used;
-};
-
 enum ScopeId {
     ScopeIdDecls,
     ScopeIdBlock,
@@ -1693,7 +1684,12 @@ struct ScopeDecls {
 struct ScopeBlock {
     Scope base;
 
-    HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table;
+    Buf *name;
+    IrBasicBlock *end_block;
+    IrInstruction *is_comptime;
+    ZigList<IrInstruction *> *incoming_values;
+    ZigList<IrBasicBlock *> *incoming_blocks;
+
     bool safety_off;
     AstNode *safety_set_node;
     bool fast_math_off;

@@ -9,11 +9,11 @@ const assert = @import("../debug.zig").assert;
 
 pub fn trunc(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
+    return switch (T) {
         f32 => @inlineCall(trunc32, x),
         f64 => @inlineCall(trunc64, x),
         else => @compileError("trunc not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 fn trunc32(x: f32) -> f32 {
@@ -30,10 +30,10 @@ fn trunc32(x: f32) -> f32 {
 
     m = u32(@maxValue(u32)) >> u5(e);
     if (u & m == 0) {
-        x
+        return x;
     } else {
         math.forceEval(x + 0x1p120);
-        @bitCast(f32, u & ~m)
+        return @bitCast(f32, u & ~m);
     }
 }
 
@@ -51,10 +51,10 @@ fn trunc64(x: f64) -> f64 {
 
     m = u64(@maxValue(u64)) >> u6(e);
     if (u & m == 0) {
-        x
+        return x;
     } else {
         math.forceEval(x + 0x1p120);
-        @bitCast(f64, u & ~m)
+        return @bitCast(f64, u & ~m);
     }
 }
 

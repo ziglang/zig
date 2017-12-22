@@ -748,7 +748,14 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bo
         node->data.fn_call_expr.is_builtin = true;
 
         return node;
-    } else if (token->id == TokenIdSymbol) {
+    }
+
+    AstNode *block_expr_node = ast_parse_block_expr(pc, token_index, false);
+    if (block_expr_node) {
+        return block_expr_node;
+    }
+
+    if (token->id == TokenIdSymbol) {
         *token_index += 1;
         AstNode *node = ast_create_node(pc, NodeTypeSymbol, token);
         node->data.symbol_expr.symbol = token_buf(token);
@@ -758,11 +765,6 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bo
     AstNode *grouped_expr_node = ast_parse_grouped_expr(pc, token_index, false);
     if (grouped_expr_node) {
         return grouped_expr_node;
-    }
-
-    AstNode *block_expr_node = ast_parse_block_expr(pc, token_index, false);
-    if (block_expr_node) {
-        return block_expr_node;
     }
 
     AstNode *array_type_node = ast_parse_array_type_expr(pc, token_index, false);
@@ -2145,9 +2147,6 @@ static AstNode *ast_parse_expression(ParseContext *pc, size_t *token_index, bool
     return nullptr;
 }
 
-/*
-Label: token(Symbol) token(Colon)
-*/
 static bool statement_terminates_without_semicolon(AstNode *node) {
     switch (node->type) {
         case NodeTypeIfBoolExpr:
@@ -2179,7 +2178,7 @@ static bool statement_terminates_without_semicolon(AstNode *node) {
 }
 
 /*
-Block = option(Symbol ":") "{" many(Statement) option(Expression) "}"
+Block = option(Symbol ":") "{" many(Statement) "}"
 Statement = Label | VariableDeclaration ";" | Defer(Block) | Defer(Expression) ";" | BlockExpression(Block) | Expression ";" | ";" | ExportDecl
 */
 static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mandatory) {
@@ -2220,6 +2219,12 @@ static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mand
     }
 
     for (;;) {
+        last_token = &pc->tokens->at(*token_index);
+        if (last_token->id == TokenIdRBrace) {
+            *token_index += 1;
+            return node;
+        }
+
         AstNode *statement_node = ast_parse_local_var_decl(pc, token_index);
         if (!statement_node)
             statement_node = ast_parse_defer_expr(pc, token_index);
@@ -2228,32 +2233,14 @@ static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mand
         if (!statement_node)
             statement_node = ast_parse_expression(pc, token_index, false);
 
-        bool semicolon_expected = true;
-        if (statement_node) {
-            node->data.block.statements.append(statement_node);
-            if (statement_terminates_without_semicolon(statement_node)) {
-                semicolon_expected = false;
-            } else {
-                if (statement_node->type == NodeTypeDefer) {
-                    // defer without a block body requires a semicolon
-                    Token *token = &pc->tokens->at(*token_index);
-                    ast_expect_token(pc, token, TokenIdSemicolon);
-                }
-            }
+        if (!statement_node) {
+            ast_invalid_token_error(pc, last_token);
         }
 
-        node->data.block.last_statement_is_result_expression = statement_node && statement_node->type != NodeTypeDefer;
+        node->data.block.statements.append(statement_node);
 
-        last_token = &pc->tokens->at(*token_index);
-        if (last_token->id == TokenIdRBrace) {
-            *token_index += 1;
-            return node;
-        } else if (!semicolon_expected) {
-            continue;
-        } else if (last_token->id == TokenIdSemicolon) {
-            *token_index += 1;
-        } else {
-            ast_invalid_token_error(pc, last_token);
+        if (!statement_terminates_without_semicolon(statement_node)) {
+            ast_eat_token(pc, token_index, TokenIdSemicolon);
         }
     }
     zig_unreachable();

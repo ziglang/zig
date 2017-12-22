@@ -28,9 +28,9 @@ pub const Rand = struct {
 
     /// Initialize random state with the given seed.
     pub fn init(seed: usize) -> Rand {
-        Rand {
+        return Rand {
             .rng = Rng.init(seed),
-        }
+        };
     }
 
     /// Get an integer or boolean with random bits.
@@ -78,13 +78,13 @@ pub const Rand = struct {
                 const end_uint = uint(end);
                 const total_range = math.absCast(start) + end_uint;
                 const value = r.range(uint, 0, total_range);
-                const result = if (value < end_uint) {
-                    T(value)
-                } else if (value == end_uint) {
-                    start
-                } else {
+                const result = if (value < end_uint) x: {
+                    break :x T(value);
+                } else if (value == end_uint) x: {
+                    break :x start;
+                } else x: {
                     // Can't overflow because the range is over signed ints
-                    %%math.negateCast(value - end_uint)
+                    break :x %%math.negateCast(value - end_uint);
                 };
                 return result;
             } else {
@@ -114,13 +114,13 @@ pub const Rand = struct {
         // const rand_bits = r.rng.scalar(int) & mask;
         // return @float_compose(T, false, 0, rand_bits) - 1.0
         const int_type = @IntType(false, @sizeOf(T) * 8);
-        const precision = if (T == f32) {
+        const precision = if (T == f32)
             16777216
-        } else if (T == f64) {
+        else if (T == f64)
             9007199254740992
-        } else {
+        else
             @compileError("unknown floating point type")
-        };
+        ;
         return T(r.range(int_type, 0, precision)) / T(precision);
     }
 };
@@ -133,7 +133,7 @@ fn MersenneTwister(
     comptime t: math.Log2Int(int), comptime c: int,
     comptime l: math.Log2Int(int), comptime f: int) -> type
 {
-    struct {
+    return struct {
         const Self = this;
 
         array: [n]int,
@@ -189,7 +189,7 @@ fn MersenneTwister(
 
             return x;
         }
-    }
+    };
 }
 
 test "rand float 32" {

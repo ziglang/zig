@@ -14,7 +14,7 @@ pub fn log2(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (@typeId(T)) {
         TypeId.FloatLiteral => {
-            return @typeOf(1.0)(log2_64(x))
+            return @typeOf(1.0)(log2_64(x));
         },
         TypeId.Float => {
             return switch (T) {
@@ -26,7 +26,7 @@ pub fn log2(x: var) -> @typeOf(x) {
         TypeId.IntLiteral => comptime {
             var result = 0;
             var x_shifted = x;
-            while ({x_shifted >>= 1; x_shifted != 0}) : (result += 1) {}
+            while (b: {x_shifted >>= 1; break :b x_shifted != 0;}) : (result += 1) {}
             return result;
         },
         TypeId.Int => {
@@ -94,7 +94,7 @@ pub fn log2_32(x_: f32) -> f32 {
     u &= 0xFFFFF000;
     hi = @bitCast(f32, u);
     const lo = f - hi - hfsq + s * (hfsq + R);
-    (lo + hi) * ivln2lo + lo * ivln2hi + hi * ivln2hi + f32(k)
+    return (lo + hi) * ivln2lo + lo * ivln2hi + hi * ivln2hi + f32(k);
 }
 
 pub fn log2_64(x_: f64) -> f64 {
@@ -165,7 +165,7 @@ pub fn log2_64(x_: f64) -> f64 {
     val_lo += (y - ww) + val_hi;
     val_hi = ww;
 
-    val_lo + val_hi
+    return val_lo + val_hi;
 }
 
 test "math.log2" {

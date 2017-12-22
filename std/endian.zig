@@ -2,15 +2,15 @@ const mem = @import("mem.zig");
 const builtin = @import("builtin");
 
 pub fn swapIfLe(comptime T: type, x: T) -> T {
-    swapIf(false, T, x)
+    return swapIf(false, T, x);
 }
 
 pub fn swapIfBe(comptime T: type, x: T) -> T {
-    swapIf(true, T, x)
+    return swapIf(true, T, x);
 }
 
 pub fn swapIf(endian: builtin.Endian, comptime T: type, x: T) -> T {
-    if (builtin.endian == endian) swap(T, x) else x
+    return if (builtin.endian == endian) swap(T, x) else x;
 }
 
 pub fn swap(comptime T: type, x: T) -> T {

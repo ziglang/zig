@@ -171,6 +171,20 @@ static AstNode * trans_create_node(Context *c, NodeType id) {
     return node;
 }
 
+static AstNode *trans_create_node_break(Context *c, Buf *label_name, AstNode *value_node) {
+    AstNode *node = trans_create_node(c, NodeTypeBreak);
+    node->data.break_expr.name = label_name;
+    node->data.break_expr.expr = value_node;
+    return node;
+}
+
+static AstNode *trans_create_node_return(Context *c, AstNode *value_node) {
+    AstNode *node = trans_create_node(c, NodeTypeReturnExpr);
+    node->data.return_expr.kind = ReturnKindUnconditional;
+    node->data.return_expr.expr = value_node;
+    return node;
+}
+
 static AstNode *trans_create_node_if(Context *c, AstNode *cond_node, AstNode *then_node, AstNode *else_node) {
     AstNode *node = trans_create_node(c, NodeTypeIfBoolExpr);
     node->data.if_bool_expr.condition = cond_node;
@@ -372,8 +386,7 @@ static AstNode *trans_create_node_inline_fn(Context *c, Buf *fn_name, AstNode *r
 
     AstNode *block = trans_create_node(c, NodeTypeBlock);
     block->data.block.statements.resize(1);
-    block->data.block.statements.items[0] = fn_call_node;
-    block->data.block.last_statement_is_result_expression = true;
+    block->data.block.statements.items[0] = trans_create_node_return(c, fn_call_node);
 
     fn_def->data.fn_def.body = block;
     return fn_def;
@@ -1140,13 +1153,15 @@ static AstNode *trans_create_assign(Context *c, ResultUsed result_used, TransSco
     } else {
         // worst case
         // c: lhs = rhs
-        // zig: {
+        // zig: x: {
         // zig:     const _tmp = rhs;
         // zig:     lhs = _tmp;
-        // zig:     _tmp
+        // zig:     break :x _tmp
         // zig: }
 
         TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
+        Buf *label_name = buf_create_from_str("x");
+        child_scope->node->data.block.name = label_name;
 
         // const _tmp = rhs;
         AstNode *rhs_node = trans_expr(c, ResultUsedYes, &child_scope->base, rhs, TransRValue);
@@ -1163,9 +1178,9 @@ static AstNode *trans_create_assign(Context *c, ResultUsed result_used, TransSco
             trans_create_node_bin_op(c, lhs_node, BinOpTypeAssign,
                 trans_create_node_symbol(c, tmp_var_name)));
 
-        // _tmp
-        child_scope->node->data.block.statements.append(trans_create_node_symbol(c, tmp_var_name));
-        child_scope->node->data.block.last_statement_is_result_expression = true;
+        // break :x _tmp
+        AstNode *tmp_symbol_node = trans_create_node_symbol(c, tmp_var_name);
+        child_scope->node->data.block.statements.append(trans_create_node_break(c, label_name, tmp_symbol_node));
 
         return child_scope->node;
     }
@@ -1270,6 +1285,9 @@ static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransS
         case BO_Comma:
             {
                 TransScopeBlock *scope_block = trans_scope_block_create(c, scope);
+                Buf *label_name = buf_create_from_str("x");
+                scope_block->node->data.block.name = label_name;
+
                 AstNode *lhs = trans_expr(c, ResultUsedNo, &scope_block->base, stmt->getLHS(), TransRValue);
                 if (lhs == nullptr)
                     return nullptr;
@@ -1278,9 +1296,7 @@ static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransS
                 AstNode *rhs = trans_expr(c, result_used, &scope_block->base, stmt->getRHS(), TransRValue);
                 if (rhs == nullptr)
                     return nullptr;
-                scope_block->node->data.block.statements.append(maybe_suppress_result(c, result_used, rhs));
-
-                scope_block->node->data.block.last_statement_is_result_expression = true;
+                scope_block->node->data.block.statements.append(trans_create_node_break(c, label_name, maybe_suppress_result(c, result_used, rhs)));
                 return scope_block->node;
             }
         case BO_MulAssign:
@@ -1320,14 +1336,16 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
     } else {
         // need more complexity. worst case, this looks like this:
         // c:   lhs >>= rhs
-        // zig: {
+        // zig: x: {
         // zig:     const _ref = &lhs;
         // zig:     *_ref = result_type(operation_type(*_ref) >> u5(rhs));
-        // zig:     *_ref
+        // zig:     break :x *_ref
         // zig: }
         // where u5 is the appropriate type
 
         TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
+        Buf *label_name = buf_create_from_str("x");
+        child_scope->node->data.block.name = label_name;
 
         // const _ref = &lhs;
         AstNode *lhs = trans_expr(c, ResultUsedYes, &child_scope->base, stmt->getLHS(), TransLValue);
@@ -1369,11 +1387,11 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
         child_scope->node->data.block.statements.append(assign_statement);
 
         if (result_used == ResultUsedYes) {
-            // *_ref
+            // break :x *_ref
             child_scope->node->data.block.statements.append(
-                trans_create_node_prefix_op(c, PrefixOpDereference,
-                    trans_create_node_symbol(c, tmp_var_name)));
-            child_scope->node->data.block.last_statement_is_result_expression = true;
+                trans_create_node_break(c, label_name, 
+                    trans_create_node_prefix_op(c, PrefixOpDereference,
+                        trans_create_node_symbol(c, tmp_var_name))));
         }
 
         return child_scope->node;
@@ -1394,13 +1412,15 @@ static AstNode *trans_create_compound_assign(Context *c, ResultUsed result_used,
     } else {
         // need more complexity. worst case, this looks like this:
         // c:   lhs += rhs
-        // zig: {
+        // zig: x: {
         // zig:     const _ref = &lhs;
         // zig:     *_ref = *_ref + rhs;
-        // zig:     *_ref
+        // zig:     break :x *_ref
         // zig: }
 
         TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
+        Buf *label_name = buf_create_from_str("x");
+        child_scope->node->data.block.name = label_name;
 
         // const _ref = &lhs;
         AstNode *lhs = trans_expr(c, ResultUsedYes, &child_scope->base, stmt->getLHS(), TransLValue);
@@ -1427,11 +1447,11 @@ static AstNode *trans_create_compound_assign(Context *c, ResultUsed result_used,
                 rhs));
         child_scope->node->data.block.statements.append(assign_statement);
 
-        // *_ref
+        // break :x *_ref
         child_scope->node->data.block.statements.append(
-            trans_create_node_prefix_op(c, PrefixOpDereference,
-                trans_create_node_symbol(c, tmp_var_name)));
-        child_scope->node->data.block.last_statement_is_result_expression = true;
+            trans_create_node_break(c, label_name,
+                trans_create_node_prefix_op(c, PrefixOpDereference,
+                    trans_create_node_symbol(c, tmp_var_name))));
 
         return child_scope->node;
     }
@@ -1726,13 +1746,15 @@ static AstNode *trans_create_post_crement(Context *c, ResultUsed result_used, Tr
     }
     // worst case
     // c: expr++
-    // zig: {
+    // zig: x: {
     // zig:     const _ref = &expr;
     // zig:     const _tmp = *_ref;
     // zig:     *_ref += 1;
-    // zig:     _tmp
+    // zig:     break :x _tmp
     // zig: }
     TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
+    Buf *label_name = buf_create_from_str("x");
+    child_scope->node->data.block.name = label_name;
 
     // const _ref = &expr;
     AstNode *expr = trans_expr(c, ResultUsedYes, &child_scope->base, op_expr, TransLValue);
@@ -1758,9 +1780,8 @@ static AstNode *trans_create_post_crement(Context *c, ResultUsed result_used, Tr
         trans_create_node_unsigned(c, 1));
     child_scope->node->data.block.statements.append(assign_statement);
 
-    // _tmp
-    child_scope->node->data.block.statements.append(trans_create_node_symbol(c, tmp_var_name));
-    child_scope->node->data.block.last_statement_is_result_expression = true;
+    // break :x _tmp
+    child_scope->node->data.block.statements.append(trans_create_node_break(c, label_name, trans_create_node_symbol(c, tmp_var_name)));
 
     return child_scope->node;
 }
@@ -1781,12 +1802,14 @@ static AstNode *trans_create_pre_crement(Context *c, ResultUsed result_used, Tra
     }
     // worst case
     // c: ++expr
-    // zig: {
+    // zig: x: {
     // zig:     const _ref = &expr;
     // zig:     *_ref += 1;
-    // zig:     *_ref
+    // zig:     break :x *_ref
     // zig: }
     TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
+    Buf *label_name = buf_create_from_str("x");
+    child_scope->node->data.block.name = label_name;
 
     // const _ref = &expr;
     AstNode *expr = trans_expr(c, ResultUsedYes, &child_scope->base, op_expr, TransLValue);
@@ -1805,11 +1828,10 @@ static AstNode *trans_create_pre_crement(Context *c, ResultUsed result_used, Tra
         trans_create_node_unsigned(c, 1));
     child_scope->node->data.block.statements.append(assign_statement);
 
-    // *_ref
+    // break :x *_ref
     AstNode *deref_expr = trans_create_node_prefix_op(c, PrefixOpDereference,
             trans_create_node_symbol(c, ref_var_name));
-    child_scope->node->data.block.statements.append(deref_expr);
-    child_scope->node->data.block.last_statement_is_result_expression = true;
+    child_scope->node->data.block.statements.append(trans_create_node_break(c, label_name, deref_expr));
 
     return child_scope->node;
 }

@@ -44,7 +44,7 @@ test "static function evaluation" {
     assert(statically_added_number == 3);
 }
 const statically_added_number = staticAdd(1, 2);
-fn staticAdd(a: i32, b: i32) -> i32 { a + b }
+fn staticAdd(a: i32, b: i32) -> i32 { return a + b; }
 
 
 test "const expr eval on single expr blocks" {
@@ -54,10 +54,10 @@ test "const expr eval on single expr blocks" {
 fn constExprEvalOnSingleExprBlocksFn(x: i32, b: bool) -> i32 {
     const literal = 3;
 
-    const result = if (b) {
-        literal
-    } else {
-        x
+    const result = if (b) b: {
+        break :b literal;
+    } else b: {
+        break :b x;
     };
 
     return result;
@@ -94,9 +94,9 @@ pub const Vec3 = struct {
     data: [3]f32,
 };
 pub fn vec3(x: f32, y: f32, z: f32) -> Vec3 {
-    Vec3 {
+    return Vec3 {
         .data = []f32 { x, y, z, },
-    }
+    };
 }
 
 
@@ -176,7 +176,7 @@ fn max(comptime T: type, a: T, b: T) -> T {
     }
 }
 fn letsTryToCompareBools(a: bool, b: bool) -> bool {
-    max(bool, a, b)
+    return max(bool, a, b);
 }
 test "inlined block and runtime block phi" {
     assert(letsTryToCompareBools(true, true));
@@ -202,9 +202,9 @@ const cmd_fns = []CmdFn{
     CmdFn {.name = "two", .func = two},
     CmdFn {.name = "three", .func = three},
 };
-fn one(value: i32) -> i32 { value + 1 }
-fn two(value: i32) -> i32 { value + 2 }
-fn three(value: i32) -> i32 { value + 3 }
+fn one(value: i32) -> i32 { return value + 1; }
+fn two(value: i32) -> i32 { return value + 2; }
+fn three(value: i32) -> i32 { return value + 3; }
 
 fn performFn(comptime prefix_char: u8, start_value: i32) -> i32 {
     var result: i32 = start_value;
@@ -317,12 +317,12 @@ test "create global array with for loop" {
     assert(global_array[9] == 9 * 9);
 }
 
-const global_array = {
+const global_array = x: {
     var result: [10]usize = undefined;
     for (result) |*item, index| {
         *item = index * index;
     }
-    result
+    break :x result;
 };
 
 test "compile-time downcast when the bits fit" {

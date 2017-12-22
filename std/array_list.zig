@@ -8,7 +8,7 @@ pub fn ArrayList(comptime T: type) -> type {
 }
 
 pub fn AlignedArrayList(comptime T: type, comptime A: u29) -> type{
-    struct {
+    return struct {
         const Self = this;
 
         /// Use toSlice instead of slicing this directly, because if you don't
@@ -20,11 +20,11 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) -> type{
 
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
         pub fn init(allocator: &Allocator) -> Self {
-            Self {
+            return Self {
                 .items = []align(A) T{},
                 .len = 0,
                 .allocator = allocator,
-            }
+            };
         }
 
         pub fn deinit(l: &Self) {
@@ -107,7 +107,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) -> type{
                 return null;
             return self.pop();
         }
-    }
+    };
 }
 
 test "basic ArrayList test" {

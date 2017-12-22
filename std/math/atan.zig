@@ -8,11 +8,11 @@ const assert = @import("../debug.zig").assert;
 
 pub fn atan(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
+    return switch (T) {
         f32 => @inlineCall(atan32, x),
         f64 => @inlineCall(atan64, x),
         else => @compileError("atan not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 fn atan32(x_: f32) -> f32 {
@@ -100,10 +100,10 @@ fn atan32(x_: f32) -> f32 {
     const s2 = w * (aT[1] + w * aT[3]);
 
     if (id == null) {
-        x - x * (s1 + s2)
+        return x - x * (s1 + s2);
     } else {
         const zz = atanhi[??id] - ((x * (s1 + s2) - atanlo[??id]) - x);
-        if (sign != 0) -zz else zz
+        return if (sign != 0) -zz else zz;
     }
 }
 
@@ -199,10 +199,10 @@ fn atan64(x_: f64) -> f64 {
     const s2 = w * (aT[1] + w * (aT[3] + w * (aT[5] + w * (aT[7] + w * aT[9]))));
 
     if (id == null) {
-        x - x * (s1 + s2)
+        return x - x * (s1 + s2);
     } else {
         const zz = atanhi[??id] - ((x * (s1 + s2) - atanlo[??id]) - x);
-        if (sign != 0) -zz else zz
+        return if (sign != 0) -zz else zz;
     }
 }
 

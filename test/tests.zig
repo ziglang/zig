@@ -284,7 +284,7 @@ pub const CompareOutputContext = struct {
                     warn("Process {} terminated unexpectedly\n", full_exe_path);
                     return error.TestFailed;
                 },
-            };
+            }
 
 
             if (!mem.eql(u8, self.expected_output, stdout.toSliceConst())) {
@@ -615,7 +615,7 @@ pub const CompileErrorContext = struct {
                     warn("Process {} terminated unexpectedly\n", b.zig_exe);
                     return error.TestFailed;
                 },
-            };
+            }
 
 
             const stdout = stdout_buf.toSliceConst();
@@ -891,7 +891,7 @@ pub const TranslateCContext = struct {
                     warn("Compilation terminated unexpectedly\n");
                     return error.TestFailed;
                 },
-            };
+            }
 
             const stdout = stdout_buf.toSliceConst();
             const stderr = stderr_buf.toSliceConst();

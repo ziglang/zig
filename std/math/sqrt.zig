@@ -14,7 +14,7 @@ pub fn sqrt(x: var) -> (if (@typeId(@typeOf(x)) == TypeId.Int) @IntType(false, @
     const T = @typeOf(x);
     switch (@typeId(T)) {
         TypeId.FloatLiteral => {
-            return T(sqrt64(x))
+            return T(sqrt64(x));
         },
         TypeId.Float => {
             return switch (T) {
@@ -64,7 +64,7 @@ fn sqrt32(x: f32) -> f32 {
         // subnormal
         var i: i32 = 0;
         while (ix & 0x00800000 == 0) : (i += 1) {
-            ix <<= 1
+            ix <<= 1;
         }
         m -= i - 1;
     }
@@ -112,7 +112,7 @@ fn sqrt32(x: f32) -> f32 {
 
     ix = (q >> 1) + 0x3f000000;
     ix += m << 23;
-    @bitCast(f32, ix)
+    return @bitCast(f32, ix);
 }
 
 // NOTE: The original code is full of implicit signed -> unsigned assumptions and u32 wraparound
@@ -153,7 +153,7 @@ fn sqrt64(x: f64) -> f64 {
         // subnormal
         var i: u32 = 0;
         while (ix0 & 0x00100000 == 0) : (i += 1) {
-            ix0 <<= 1
+            ix0 <<= 1;
         }
         m -= i32(i) - 1;
         ix0 |= ix1 >> u5(32 - i);
@@ -245,7 +245,7 @@ fn sqrt64(x: f64) -> f64 {
     iix0 = iix0 +% (m << 20);
 
     const uz = (u64(iix0) << 32) | ix1;
-    @bitCast(f64, uz)
+    return @bitCast(f64, uz);
 }
 
 test "math.sqrt" {

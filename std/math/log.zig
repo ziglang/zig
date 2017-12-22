@@ -29,7 +29,7 @@ pub fn log(comptime T: type, base: T, x: T) -> T {
                 f32 => return f32(math.ln(f64(x)) / math.ln(f64(base))),
                 f64 => return math.ln(x) / math.ln(f64(base)),
                 else => @compileError("log not implemented for " ++ @typeName(T)),
-            };
+            }
         },
 
         else => {

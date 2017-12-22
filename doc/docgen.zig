@@ -49,7 +49,7 @@ fn gen(in: &io.InStream, out: &io.OutStream) {
             if (err == error.EndOfStream) {
                 return;
             }
-            std.debug.panic("{}", err)
+            std.debug.panic("{}", err);
         };
         switch (state) {
             State.Start => switch (byte) {

@@ -11,11 +11,11 @@ const expo2 = @import("expo2.zig").expo2;
 
 pub fn tanh(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
+    return switch (T) {
         f32 => @inlineCall(tanh32, x),
         f64 => @inlineCall(tanh64, x),
         else => @compileError("tanh not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 // tanh(x) = (exp(x) - exp(-x)) / (exp(x) + exp(-x))
@@ -59,9 +59,9 @@ fn tanh32(x: f32) -> f32 {
     }
 
     if (u >> 31 != 0) {
-        -t
+        return -t;
     } else {
-        t
+        return t;
     }
 }
 
@@ -104,9 +104,9 @@ fn tanh64(x: f64) -> f64 {
     }
 
     if (u >> 63 != 0) {
-        -t
+        return -t;
     } else {
-        t
+        return t;
     }
 }
 

@@ -22,7 +22,7 @@ test "bool cmp" {
     assert(testBoolCmp(true, false) == false);
 }
 fn testBoolCmp(a: bool, b: bool) -> bool {
-    a == b
+    return a == b;
 }
 
 const global_f = false;

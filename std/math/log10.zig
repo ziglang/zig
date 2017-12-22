@@ -14,7 +14,7 @@ pub fn log10(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (@typeId(T)) {
         TypeId.FloatLiteral => {
-            return @typeOf(1.0)(log10_64(x))
+            return @typeOf(1.0)(log10_64(x));
         },
         TypeId.Float => {
             return switch (T) {
@@ -90,7 +90,7 @@ pub fn log10_32(x_: f32) -> f32 {
     const lo = f - hi - hfsq + s * (hfsq + R);
     const dk = f32(k);
 
-    dk * log10_2lo + (lo + hi) * ivln10lo + lo * ivln10hi + hi * ivln10hi + dk * log10_2hi
+    return dk * log10_2lo + (lo + hi) * ivln10lo + lo * ivln10hi + hi * ivln10hi + dk * log10_2hi;
 }
 
 pub fn log10_64(x_: f64) -> f64 {
@@ -124,7 +124,7 @@ pub fn log10_64(x_: f64) -> f64 {
         // subnormal, scale x
         k -= 54;
         x *= 0x1.0p54;
-        hx = u32(@bitCast(u64, x) >> 32)
+        hx = u32(@bitCast(u64, x) >> 32);
     }
     else if (hx >= 0x7FF00000) {
         return x;
@@ -167,7 +167,7 @@ pub fn log10_64(x_: f64) -> f64 {
     val_lo += (y - ww) + val_hi;
     val_hi = ww;
 
-    val_lo + val_hi
+    return val_lo + val_hi;
 }
 
 test "math.log10" {

@@ -21,12 +21,12 @@ test "switch with all ranges" {
 }
 
 fn testSwitchWithAllRanges(x: u32, y: u32) -> u32 {
-    switch (x) {
+    return switch (x) {
         0 ... 100 => 1,
         101 ... 200 => 2,
         201 ... 300 => 3,
         else => y,
-    }
+    };
 }
 
 test "implicit comptime switch" {
@@ -132,7 +132,7 @@ test "switch with multiple expressions" {
     assert(x == 2);
 }
 fn returnsFive() -> i32 {
-    5
+    return 5;
 }
 
 
@@ -161,10 +161,10 @@ test "switch on type" {
 }
 
 fn trueIfBoolFalseOtherwise(comptime T: type) -> bool {
-    switch (T) {
+    return switch (T) {
         bool => true,
         else => false,
-    }
+    };
 }
 
 test "switch handles all cases of number" {
@@ -186,22 +186,22 @@ fn testSwitchHandleAllCases() {
 }
 
 fn testSwitchHandleAllCasesExhaustive(x: u2) -> u2 {
-    switch (x) {
+    return switch (x) {
         0 => u2(3),
         1 => 2,
         2 => 1,
         3 => 0,
-    }
+    };
 }
 
 fn testSwitchHandleAllCasesRange(x: u8) -> u8 {
-    switch (x) {
+    return switch (x) {
         0 ... 100 => u8(0),
         101 ... 200 => 1,
         201, 203 => 2,
         202 => 4,
         204 ... 255 => 3,
-    }
+    };
 }
 
 test "switch all prongs unreachable" {

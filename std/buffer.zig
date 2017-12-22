@@ -30,9 +30,9 @@ pub const Buffer = struct {
     /// * ::replaceContentsBuffer
     /// * ::resize
     pub fn initNull(allocator: &Allocator) -> Buffer {
-        Buffer {
+        return Buffer {
             .list = ArrayList(u8).init(allocator),
-        }
+        };
     }
 
     /// Must deinitialize with deinit.
@@ -120,7 +120,7 @@ pub const Buffer = struct {
     }
 
     pub fn eql(self: &const Buffer, m: []const u8) -> bool {
-        mem.eql(u8, self.toSliceConst(), m)
+        return mem.eql(u8, self.toSliceConst(), m);
     }
 
     pub fn startsWith(self: &const Buffer, m: []const u8) -> bool {

@@ -251,11 +251,10 @@ pub fn formatFloat(value: var, context: var, output: fn(@typeOf(context), []cons
     %return output(context, float_decimal.digits[0..1]);
     %return output(context, ".");
     if (float_decimal.digits.len > 1) {
-        const num_digits = if (@typeOf(value) == f32) {
+        const num_digits = if (@typeOf(value) == f32)
             math.min(usize(9), float_decimal.digits.len)
-        } else {
-            float_decimal.digits.len
-        };
+        else
+            float_decimal.digits.len;
         %return output(context, float_decimal.digits[1 .. num_digits]);
     } else {
         %return output(context, "0");

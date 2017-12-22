@@ -9,7 +9,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\        }
         \\    }
         \\}
-    , ".tmp_source.zig:4:13: error: labeled loop not found: 'outer'");
+    , ".tmp_source.zig:4:13: error: label not found: 'outer'");
 
     cases.add("labeled continue not found",
         \\export fn entry() {
@@ -39,7 +39,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    ({})
         \\    var bad = {};
         \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
+    , ".tmp_source.zig:5:5: error: expected token ';', found 'var'");
 
     cases.add("implicit semicolon - block expr",
         \\export fn entry() {
@@ -48,7 +48,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    _ = {}
         \\    var bad = {};
         \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
+    , ".tmp_source.zig:5:5: error: expected token ';', found 'var'");
 
     cases.add("implicit semicolon - comptime statement",
         \\export fn entry() {
@@ -57,7 +57,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    comptime ({})
         \\    var bad = {};
         \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
+    , ".tmp_source.zig:5:5: error: expected token ';', found 'var'");
 
     cases.add("implicit semicolon - comptime expression",
         \\export fn entry() {
@@ -66,7 +66,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    _ = comptime {}
         \\    var bad = {};
         \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
+    , ".tmp_source.zig:5:5: error: expected token ';', found 'var'");
 
     cases.add("implicit semicolon - defer",
         \\export fn entry() {
@@ -84,7 +84,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    if(true) ({})
         \\    var bad = {};
         \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
+    , ".tmp_source.zig:5:5: error: expected token ';', found 'var'");
 
     cases.add("implicit semicolon - if expression",
         \\export fn entry() {
@@ -93,7 +93,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    _ = if(true) {}
         \\    var bad = {};
         \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
+    , ".tmp_source.zig:5:5: error: expected token ';', found 'var'");
 
     cases.add("implicit semicolon - if-else statement",
         \\export fn entry() {
@@ -102,7 +102,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    if(true) ({}) else ({})
         \\    var bad = {};
         \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
+    , ".tmp_source.zig:5:5: error: expected token ';', found 'var'");
 
     cases.add("implicit semicolon - if-else expression",
         \\export fn entry() {
@@ -111,7 +111,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    _ = if(true) {} else {}
         \\    var bad = {};
         \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
+    , ".tmp_source.zig:5:5: error: expected token ';', found 'var'");
 
     cases.add("implicit semicolon - if-else-if statement",
         \\export fn entry() {
@@ -120,7 +120,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    if(true) ({}) else if(true) ({})
         \\    var bad = {};
         \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
+    , ".tmp_source.zig:5:5: error: expected token ';', found 'var'");
 
     cases.add("implicit semicolon - if-else-if expression",
         \\export fn entry() {
@@ -129,7 +129,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    _ = if(true) {} else if(true) {}
         \\    var bad = {};
         \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
+    , ".tmp_source.zig:5:5: error: expected token ';', found 'var'");
 
     cases.add("implicit semicolon - if-else-if-else statement",
         \\export fn entry() {
@@ -138,7 +138,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    if(true) ({}) else if(true) ({}) else ({})
         \\    var bad = {};
         \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
+    , ".tmp_source.zig:5:5: error: expected token ';', found 'var'");
 
     cases.add("implicit semicolon - if-else-if-else expression",
         \\export fn entry() {
@@ -147,7 +147,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    _ = if(true) {} else if(true) {} else {}
         \\    var bad = {};
         \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
+    , ".tmp_source.zig:5:5: error: expected token ';', found 'var'");
 
     cases.add("implicit semicolon - test statement",
         \\export fn entry() {
@@ -156,7 +156,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    if (foo()) |_| ({})
         \\    var bad = {};
         \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
+    , ".tmp_source.zig:5:5: error: expected token ';', found 'var'");
 
     cases.add("implicit semicolon - test expression",
         \\export fn entry() {
@@ -165,7 +165,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    _ = if (foo()) |_| {}
         \\    var bad = {};
         \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
+    , ".tmp_source.zig:5:5: error: expected token ';', found 'var'");
 
     cases.add("implicit semicolon - while statement",
         \\export fn entry() {
@@ -174,7 +174,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    while(true) ({})
         \\    var bad = {};
         \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
+    , ".tmp_source.zig:5:5: error: expected token ';', found 'var'");
 
     cases.add("implicit semicolon - while expression",
         \\export fn entry() {
@@ -183,7 +183,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    _ = while(true) {}
         \\    var bad = {};
         \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
+    , ".tmp_source.zig:5:5: error: expected token ';', found 'var'");
 
     cases.add("implicit semicolon - while-continue statement",
         \\export fn entry() {
@@ -192,7 +192,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    while(true):({}) ({})
         \\    var bad = {};
         \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
+    , ".tmp_source.zig:5:5: error: expected token ';', found 'var'");
 
     cases.add("implicit semicolon - while-continue expression",
         \\export fn entry() {
@@ -201,7 +201,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    _ = while(true):({}) {}
         \\    var bad = {};
         \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
+    , ".tmp_source.zig:5:5: error: expected token ';', found 'var'");
 
     cases.add("implicit semicolon - for statement",
         \\export fn entry() {
@@ -210,7 +210,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    for(foo()) ({})
         \\    var bad = {};
         \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
+    , ".tmp_source.zig:5:5: error: expected token ';', found 'var'");
 
     cases.add("implicit semicolon - for expression",
         \\export fn entry() {
@@ -219,7 +219,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    _ = for(foo()) {}
         \\    var bad = {};
         \\}
-    , ".tmp_source.zig:5:5: error: invalid token: 'var'");
+    , ".tmp_source.zig:5:5: error: expected token ';', found 'var'");
 
     cases.add("multiple function definitions",
         \\fn a() {}
@@ -276,12 +276,13 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("undeclared identifier",
         \\export fn a() {
+        \\    return
         \\    b +
-        \\    c
+        \\    c;
         \\}
     ,
-            ".tmp_source.zig:2:5: error: use of undeclared identifier 'b'",
-            ".tmp_source.zig:3:5: error: use of undeclared identifier 'c'");
+            ".tmp_source.zig:3:5: error: use of undeclared identifier 'b'",
+            ".tmp_source.zig:4:5: error: use of undeclared identifier 'c'");
 
     cases.add("parameter redeclaration",
         \\fn f(a : i32, a : i32) {
@@ -306,9 +307,9 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     cases.add("variable has wrong type",
         \\export fn f() -> i32 {
         \\    const a = c"a";
-        \\    a
+        \\    return a;
         \\}
-    , ".tmp_source.zig:3:5: error: expected type 'i32', found '&const u8'");
+    , ".tmp_source.zig:3:12: error: expected type 'i32', found '&const u8'");
 
     cases.add("if condition is bool, not int",
         \\export fn f() {
@@ -393,23 +394,23 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("missing else clause",
         \\fn f(b: bool) {
-        \\    const x : i32 = if (b) { 1 };
-        \\    const y = if (b) { i32(1) };
+        \\    const x : i32 = if (b) h: { break :h 1; };
+        \\    const y = if (b) h: { break :h i32(1); };
         \\}
         \\export fn entry() { f(true); }
-    , ".tmp_source.zig:2:30: error: integer value 1 cannot be implicitly casted to type 'void'",
+    , ".tmp_source.zig:2:42: error: integer value 1 cannot be implicitly casted to type 'void'",
                  ".tmp_source.zig:3:15: error: incompatible types: 'i32' and 'void'");
 
     cases.add("direct struct loop",
         \\const A = struct { a : A, };
-        \\export fn entry() -> usize { @sizeOf(A) }
+        \\export fn entry() -> usize { return @sizeOf(A); }
     , ".tmp_source.zig:1:11: error: struct 'A' contains itself");
 
     cases.add("indirect struct loop",
         \\const A = struct { b : B, };
         \\const B = struct { c : C, };
         \\const C = struct { a : A, };
-        \\export fn entry() -> usize { @sizeOf(A) }
+        \\export fn entry() -> usize { return @sizeOf(A); }
     , ".tmp_source.zig:1:11: error: struct 'A' contains itself");
 
     cases.add("invalid struct field",
@@ -507,10 +508,10 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("cast unreachable",
         \\fn f() -> i32 {
-        \\    i32(return 1)
+        \\    return i32(return 1);
         \\}
         \\export fn entry() { _ = f(); }
-    , ".tmp_source.zig:2:8: error: unreachable code");
+    , ".tmp_source.zig:2:15: error: unreachable code");
 
     cases.add("invalid builtin fn",
         \\fn f() -> @bogus(foo) {
@@ -533,7 +534,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("struct init syntax for array",
         \\const foo = []u16{.x = 1024,};
-        \\export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(foo)); }
     , ".tmp_source.zig:1:18: error: type '[]u16' does not support struct initialization syntax");
 
     cases.add("type variables must be constant",
@@ -576,7 +577,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    }
         \\}
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(f)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(f)); }
     , ".tmp_source.zig:8:5: error: enumeration value 'Number.Four' not handled in switch");
 
     cases.add("switch expression - duplicate enumeration prong",
@@ -596,7 +597,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    }
         \\}
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(f)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(f)); }
     , ".tmp_source.zig:13:15: error: duplicate switch value",
       ".tmp_source.zig:10:15: note: other value is here");
 
@@ -618,7 +619,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    }
         \\}
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(f)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(f)); }
     , ".tmp_source.zig:13:15: error: duplicate switch value",
       ".tmp_source.zig:10:15: note: other value is here");
 
@@ -641,20 +642,20 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\        0 => {},
         \\    }
         \\}
-        \\export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(foo)); }
     ,
         ".tmp_source.zig:2:5: error: switch must handle all possibilities");
 
     cases.add("switch expression - duplicate or overlapping integer value",
         \\fn foo(x: u8) -> u8 {
-        \\    switch (x) {
+        \\    return switch (x) {
         \\        0 ... 100 => u8(0),
         \\        101 ... 200 => 1,
         \\        201, 203 ... 207 => 2,
         \\        206 ... 255 => 3,
-        \\    }
+        \\    };
         \\}
-        \\export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(foo)); }
     ,
         ".tmp_source.zig:6:9: error: duplicate switch value",
         ".tmp_source.zig:5:14: note: previous value is here");
@@ -666,14 +667,14 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    }
         \\}
         \\const y: u8 = 100;
-        \\export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(foo)); }
     ,
         ".tmp_source.zig:2:5: error: else prong required when switching on type '&u8'");
 
     cases.add("global variable initializer must be constant expression",
         \\extern fn foo() -> i32;
         \\const x = foo();
-        \\export fn entry() -> i32 { x }
+        \\export fn entry() -> i32 { return x; }
     , ".tmp_source.zig:2:11: error: unable to evaluate constant expression");
 
     cases.add("array concatenation with wrong type",
@@ -681,38 +682,38 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\const derp = usize(1234);
         \\const a = derp ++ "foo";
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(a)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(a)); }
     , ".tmp_source.zig:3:11: error: expected array or C string literal, found 'usize'");
 
     cases.add("non compile time array concatenation",
         \\fn f() -> []u8 {
-        \\    s ++ "foo"
+        \\    return s ++ "foo";
         \\}
         \\var s: [10]u8 = undefined;
-        \\export fn entry() -> usize { @sizeOf(@typeOf(f)) }
-    , ".tmp_source.zig:2:5: error: unable to evaluate constant expression");
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(f)); }
+    , ".tmp_source.zig:2:12: error: unable to evaluate constant expression");
 
     cases.add("@cImport with bogus include",
         \\const c = @cImport(@cInclude("bogus.h"));
-        \\export fn entry() -> usize { @sizeOf(@typeOf(c.bogo)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(c.bogo)); }
     , ".tmp_source.zig:1:11: error: C import failed",
                  ".h:1:10: note: 'bogus.h' file not found");
 
     cases.add("address of number literal",
         \\const x = 3;
         \\const y = &x;
-        \\fn foo() -> &const i32 { y }
-        \\export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
-    , ".tmp_source.zig:3:26: error: expected type '&const i32', found '&const (integer literal)'");
+        \\fn foo() -> &const i32 { return y; }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(foo)); }
+    , ".tmp_source.zig:3:33: error: expected type '&const i32', found '&const (integer literal)'");
 
     cases.add("integer overflow error",
         \\const x : u8 = 300;
-        \\export fn entry() -> usize { @sizeOf(@typeOf(x)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(x)); }
     , ".tmp_source.zig:1:16: error: integer value 300 cannot be implicitly casted to type 'u8'");
 
     cases.add("incompatible number literals",
         \\const x = 2 == 2.0;
-        \\export fn entry() -> usize { @sizeOf(@typeOf(x)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(x)); }
     , ".tmp_source.zig:1:11: error: integer value 2 cannot be implicitly casted to type '(float literal)'");
 
     cases.add("missing function call param",
@@ -738,32 +739,32 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    const result = members[index]();
         \\}
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(f)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(f)); }
     , ".tmp_source.zig:20:34: error: expected 1 arguments, found 0");
 
     cases.add("missing function name and param name",
         \\fn () {}
         \\fn f(i32) {}
-        \\export fn entry() -> usize { @sizeOf(@typeOf(f)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(f)); }
     ,
             ".tmp_source.zig:1:1: error: missing function name",
             ".tmp_source.zig:2:6: error: missing parameter name");
 
     cases.add("wrong function type",
         \\const fns = []fn(){ a, b, c };
-        \\fn a() -> i32 {0}
-        \\fn b() -> i32 {1}
-        \\fn c() -> i32 {2}
-        \\export fn entry() -> usize { @sizeOf(@typeOf(fns)) }
+        \\fn a() -> i32 {return 0;}
+        \\fn b() -> i32 {return 1;}
+        \\fn c() -> i32 {return 2;}
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(fns)); }
     , ".tmp_source.zig:1:21: error: expected type 'fn()', found 'fn() -> i32'");
 
     cases.add("extern function pointer mismatch",
         \\const fns = [](fn(i32)->i32){ a, b, c };
-        \\pub fn a(x: i32) -> i32 {x + 0}
-        \\pub fn b(x: i32) -> i32 {x + 1}
-        \\export fn c(x: i32) -> i32 {x + 2}
+        \\pub fn a(x: i32) -> i32 {return x + 0;}
+        \\pub fn b(x: i32) -> i32 {return x + 1;}
+        \\export fn c(x: i32) -> i32 {return x + 2;}
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(fns)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(fns)); }
     , ".tmp_source.zig:1:37: error: expected type 'fn(i32) -> i32', found 'extern fn(i32) -> i32'");
 
 
@@ -771,14 +772,14 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\const x : f64 = 1.0;
         \\const y : f32 = x;
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(y)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(y)); }
     , ".tmp_source.zig:2:17: error: expected type 'f32', found 'f64'");
 
 
     cases.add("colliding invalid top level functions",
         \\fn func() -> bogus {}
         \\fn func() -> bogus {}
-        \\export fn entry() -> usize { @sizeOf(@typeOf(func)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(func)); }
     ,
             ".tmp_source.zig:2:1: error: redefinition of 'func'",
             ".tmp_source.zig:1:14: error: use of undeclared identifier 'bogus'");
@@ -786,7 +787,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("bogus compile var",
         \\const x = @import("builtin").bogus;
-        \\export fn entry() -> usize { @sizeOf(@typeOf(x)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(x)); }
     , ".tmp_source.zig:1:29: error: no member named 'bogus' in '");
 
 
@@ -795,11 +796,11 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    y: [get()]u8,
         \\};
         \\var global_var: usize = 1;
-        \\fn get() -> usize { global_var }
+        \\fn get() -> usize { return global_var; }
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(Foo)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(Foo)); }
     ,
-            ".tmp_source.zig:5:21: error: unable to evaluate constant expression",
+            ".tmp_source.zig:5:28: error: unable to evaluate constant expression",
             ".tmp_source.zig:2:12: note: called from here",
             ".tmp_source.zig:2:8: note: called from here");
 
@@ -810,7 +811,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\};
         \\const x = Foo {.field = 1} + Foo {.field = 2};
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(x)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(x)); }
     , ".tmp_source.zig:4:28: error: invalid operands to binary expression: 'Foo' and 'Foo'");
 
 
@@ -820,10 +821,10 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\const int_x = u32(1) / u32(0);
         \\const float_x = f32(1.0) / f32(0.0);
         \\
-        \\export fn entry1() -> usize { @sizeOf(@typeOf(lit_int_x)) }
-        \\export fn entry2() -> usize { @sizeOf(@typeOf(lit_float_x)) }
-        \\export fn entry3() -> usize { @sizeOf(@typeOf(int_x)) }
-        \\export fn entry4() -> usize { @sizeOf(@typeOf(float_x)) }
+        \\export fn entry1() -> usize { return @sizeOf(@typeOf(lit_int_x)); }
+        \\export fn entry2() -> usize { return @sizeOf(@typeOf(lit_float_x)); }
+        \\export fn entry3() -> usize { return @sizeOf(@typeOf(int_x)); }
+        \\export fn entry4() -> usize { return @sizeOf(@typeOf(float_x)); }
     ,
             ".tmp_source.zig:1:21: error: division by zero is undefined",
             ".tmp_source.zig:2:25: error: division by zero is undefined",
@@ -835,14 +836,14 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\const foo = "a
         \\b";
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(foo)); }
     , ".tmp_source.zig:1:13: error: newline not allowed in string literal");
 
     cases.add("invalid comparison for function pointers",
         \\fn foo() {}
         \\const invalid = foo > foo;
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(invalid)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(invalid)); }
     , ".tmp_source.zig:2:21: error: operator not allowed for type 'fn()'");
 
     cases.add("generic function instance with non-constant expression",
@@ -851,13 +852,13 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    return foo(a, b);
         \\}
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(test1)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(test1)); }
     , ".tmp_source.zig:3:16: error: unable to evaluate constant expression");
 
     cases.add("assign null to non-nullable pointer",
         \\const a: &u8 = null;
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(a)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(a)); }
     , ".tmp_source.zig:1:16: error: expected type '&u8', found '(null)'");
 
     cases.add("indexing an array of size zero",
@@ -870,18 +871,18 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     cases.add("compile time division by zero",
         \\const y = foo(0);
         \\fn foo(x: u32) -> u32 {
-        \\    1 / x
+        \\    return 1 / x;
         \\}
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(y)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(y)); }
     ,
-            ".tmp_source.zig:3:7: error: division by zero is undefined",
+            ".tmp_source.zig:3:14: error: division by zero is undefined",
             ".tmp_source.zig:1:14: note: called from here");
 
     cases.add("branch on undefined value",
         \\const x = if (undefined) true else false;
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(x)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(x)); }
     , ".tmp_source.zig:1:15: error: use of undefined value");
 
 
@@ -891,7 +892,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    return fibbonaci(x - 1) + fibbonaci(x - 2);
         \\}
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(seventh_fib_number)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(seventh_fib_number)); }
     ,
             ".tmp_source.zig:3:21: error: evaluation exceeded 1000 backwards branches",
             ".tmp_source.zig:3:21: note: called from here");
@@ -899,7 +900,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     cases.add("@embedFile with bogus file",
         \\const resource = @embedFile("bogus.txt");
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(resource)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(resource)); }
     , ".tmp_source.zig:1:29: error: unable to find '", "bogus.txt'");
 
     cases.add("non-const expression in struct literal outside function",
@@ -909,7 +910,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\const a = Foo {.x = get_it()};
         \\extern fn get_it() -> i32;
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(a)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(a)); }
     , ".tmp_source.zig:4:21: error: unable to evaluate constant expression");
 
     cases.add("non-const expression function call with struct return value outside function",
@@ -919,11 +920,11 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\const a = get_it();
         \\fn get_it() -> Foo {
         \\    global_side_effect = true;
-        \\    Foo {.x = 13}
+        \\    return Foo {.x = 13};
         \\}
         \\var global_side_effect = false;
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(a)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(a)); }
     ,
             ".tmp_source.zig:6:24: error: unable to evaluate constant expression",
             ".tmp_source.zig:4:17: note: called from here");
@@ -939,21 +940,21 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("illegal comparison of types",
         \\fn bad_eql_1(a: []u8, b: []u8) -> bool {
-        \\    a == b
+        \\    return a == b;
         \\}
         \\const EnumWithData = union(enum) {
         \\    One: void,
         \\    Two: i32,
         \\};
         \\fn bad_eql_2(a: &const EnumWithData, b: &const EnumWithData) -> bool {
-        \\    *a == *b
+        \\    return *a == *b;
         \\}
         \\
-        \\export fn entry1() -> usize { @sizeOf(@typeOf(bad_eql_1)) }
-        \\export fn entry2() -> usize { @sizeOf(@typeOf(bad_eql_2)) }
+        \\export fn entry1() -> usize { return @sizeOf(@typeOf(bad_eql_1)); }
+        \\export fn entry2() -> usize { return @sizeOf(@typeOf(bad_eql_2)); }
     ,
-            ".tmp_source.zig:2:7: error: operator not allowed for type '[]u8'",
-            ".tmp_source.zig:9:8: error: operator not allowed for type 'EnumWithData'");
+            ".tmp_source.zig:2:14: error: operator not allowed for type '[]u8'",
+            ".tmp_source.zig:9:15: error: operator not allowed for type 'EnumWithData'");
 
     cases.add("non-const switch number literal",
         \\export fn foo() {
@@ -964,7 +965,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    };
         \\}
         \\fn bar() -> i32 {
-        \\    2
+        \\    return 2;
         \\}
     , ".tmp_source.zig:2:15: error: unable to infer expression type");
 
@@ -987,56 +988,56 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     cases.add("negation overflow in function evaluation",
         \\const y = neg(-128);
         \\fn neg(x: i8) -> i8 {
-        \\    -x
+        \\    return -x;
         \\}
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(y)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(y)); }
     ,
-            ".tmp_source.zig:3:5: error: negation caused overflow",
+            ".tmp_source.zig:3:12: error: negation caused overflow",
             ".tmp_source.zig:1:14: note: called from here");
 
     cases.add("add overflow in function evaluation",
         \\const y = add(65530, 10);
         \\fn add(a: u16, b: u16) -> u16 {
-        \\    a + b
+        \\    return a + b;
         \\}
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(y)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(y)); }
     ,
-            ".tmp_source.zig:3:7: error: operation caused overflow",
+            ".tmp_source.zig:3:14: error: operation caused overflow",
             ".tmp_source.zig:1:14: note: called from here");
 
 
     cases.add("sub overflow in function evaluation",
         \\const y = sub(10, 20);
         \\fn sub(a: u16, b: u16) -> u16 {
-        \\    a - b
+        \\    return a - b;
         \\}
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(y)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(y)); }
     ,
-            ".tmp_source.zig:3:7: error: operation caused overflow",
+            ".tmp_source.zig:3:14: error: operation caused overflow",
             ".tmp_source.zig:1:14: note: called from here");
 
     cases.add("mul overflow in function evaluation",
         \\const y = mul(300, 6000);
         \\fn mul(a: u16, b: u16) -> u16 {
-        \\    a * b
+        \\    return a * b;
         \\}
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(y)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(y)); }
     ,
-            ".tmp_source.zig:3:7: error: operation caused overflow",
+            ".tmp_source.zig:3:14: error: operation caused overflow",
             ".tmp_source.zig:1:14: note: called from here");
 
     cases.add("truncate sign mismatch",
         \\fn f() -> i8 {
         \\    const x: u32 = 10;
-        \\    @truncate(i8, x)
+        \\    return @truncate(i8, x);
         \\}
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(f)) }
-    , ".tmp_source.zig:3:19: error: expected signed integer type, found 'u32'");
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(f)); }
+    , ".tmp_source.zig:3:26: error: expected signed integer type, found 'u32'");
 
     cases.add("%return in function with non error return type",
         \\export fn f() {
@@ -1067,16 +1068,16 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("export function with comptime parameter",
         \\export fn foo(comptime x: i32, y: i32) -> i32{
-        \\    x + y
+        \\    return x + y;
         \\}
     , ".tmp_source.zig:1:15: error: comptime parameter not allowed in function with calling convention 'ccc'");
 
     cases.add("extern function with comptime parameter",
         \\extern fn foo(comptime x: i32, y: i32) -> i32;
         \\fn f() -> i32 {
-        \\    foo(1, 2)
+        \\    return foo(1, 2);
         \\}
-        \\export fn entry() -> usize { @sizeOf(@typeOf(f)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(f)); }
     , ".tmp_source.zig:1:15: error: comptime parameter not allowed in function with calling convention 'ccc'");
 
     cases.add("convert fixed size array to slice with invalid size",
@@ -1090,15 +1091,15 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\var a: u32 = 0;
         \\pub fn List(comptime T: type) -> type {
         \\    a += 1;
-        \\    SmallList(T, 8)
+        \\    return SmallList(T, 8);
         \\}
         \\
         \\pub fn SmallList(comptime T: type, comptime STATIC_SIZE: usize) -> type {
-        \\    struct {
+        \\    return struct {
         \\        items: []T,
         \\        length: usize,
         \\        prealloc_items: [STATIC_SIZE]T,
-        \\    }
+        \\    };
         \\}
         \\
         \\export fn function_with_return_type_type() {
@@ -1113,7 +1114,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\fn f(m: []const u8) {
         \\    m.copy(u8, self[0..], m);
         \\}
-        \\export fn entry() -> usize { @sizeOf(@typeOf(f)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(f)); }
     , ".tmp_source.zig:3:6: error: no member named 'copy' in '[]const u8'");
 
     cases.add("wrong number of arguments for method fn call",
@@ -1124,7 +1125,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\
         \\    foo.method(1, 2);
         \\}
-        \\export fn entry() -> usize { @sizeOf(@typeOf(f)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(f)); }
     , ".tmp_source.zig:6:15: error: expected 2 arguments, found 3");
 
     cases.add("assign through constant pointer",
@@ -1149,7 +1150,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\fn foo(blah: []u8) {
         \\    for (blah) { }
         \\}
-        \\export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(foo)); }
     , ".tmp_source.zig:2:5: error: for loop expression missing element parameter");
 
     cases.add("misspelled type with pointer only reference",
@@ -1182,7 +1183,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    var jd = JsonNode {.kind = JsonType.JSONArray , .jobject = JsonOA.JSONArray {jll} };
         \\}
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(foo)); }
     , ".tmp_source.zig:5:16: error: use of undeclared identifier 'JsonList'");
 
     cases.add("method call with first arg type primitive",
@@ -1190,9 +1191,9 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    x: i32,
         \\
         \\    fn init(x: i32) -> Foo {
-        \\        Foo {
+        \\        return Foo {
         \\            .x = x,
-        \\        }
+        \\        };
         \\    }
         \\};
         \\
@@ -1209,10 +1210,10 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    allocator: &Allocator,
         \\
         \\    pub fn init(allocator: &Allocator) -> List {
-        \\        List {
+        \\        return List {
         \\            .len = 0,
         \\            .allocator = allocator,
-        \\        }
+        \\        };
         \\    }
         \\};
         \\
@@ -1235,10 +1236,10 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\const TINY_QUANTUM_SIZE = 1 << TINY_QUANTUM_SHIFT;
         \\var block_aligned_stuff: usize = (4 + TINY_QUANTUM_SIZE) & ~(TINY_QUANTUM_SIZE - 1);
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(block_aligned_stuff)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(block_aligned_stuff)); }
     , ".tmp_source.zig:3:60: error: unable to perform binary not operation on type '(integer literal)'");
 
-    cases.addCase({
+    cases.addCase(x: {
         const tc = cases.create("multiple files with private function error",
             \\const foo = @import("foo.zig");
             \\
@@ -1253,14 +1254,14 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
             \\fn privateFunction() { }
         );
 
-        tc
+        break :x tc;
     });
 
     cases.add("container init with non-type",
         \\const zero: i32 = 0;
         \\const a = zero{1};
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(a)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(a)); }
     , ".tmp_source.zig:2:11: error: expected type, found 'i32'");
 
     cases.add("assign to constant field",
@@ -1288,22 +1289,22 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    return 0;
         \\}
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(testTrickyDefer)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(testTrickyDefer)); }
     , ".tmp_source.zig:4:11: error: cannot return from defer expression");
 
     cases.add("attempt to access var args out of bounds",
         \\fn add(args: ...) -> i32 {
-        \\    args[0] + args[1]
+        \\    return args[0] + args[1];
         \\}
         \\
         \\fn foo() -> i32 {
-        \\    add(i32(1234))
+        \\    return add(i32(1234));
         \\}
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(foo)); }
     ,
-            ".tmp_source.zig:2:19: error: index 1 outside argument list of size 1",
-            ".tmp_source.zig:6:8: note: called from here");
+            ".tmp_source.zig:2:26: error: index 1 outside argument list of size 1",
+            ".tmp_source.zig:6:15: note: called from here");
 
     cases.add("pass integer literal to var args",
         \\fn add(args: ...) -> i32 {
@@ -1315,11 +1316,11 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
         \\
         \\fn bar() -> i32 {
-        \\    add(1, 2, 3, 4)
+        \\    return add(1, 2, 3, 4);
         \\}
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(bar)) }
-    , ".tmp_source.zig:10:9: error: parameter of type '(integer literal)' requires comptime");
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(bar)); }
+    , ".tmp_source.zig:10:16: error: parameter of type '(integer literal)' requires comptime");
 
     cases.add("assign too big number to u16",
         \\export fn foo() {
@@ -1329,12 +1330,12 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("global variable alignment non power of 2",
         \\const some_data: [100]u8 align(3) = undefined;
-        \\export fn entry() -> usize { @sizeOf(@typeOf(some_data)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(some_data)); }
     , ".tmp_source.zig:1:32: error: alignment value 3 is not a power of 2");
 
     cases.add("function alignment non power of 2",
         \\extern fn foo() align(3);
-        \\export fn entry() { foo() }
+        \\export fn entry() { return foo(); }
     , ".tmp_source.zig:1:23: error: alignment value 3 is not a power of 2");
 
     cases.add("compile log",
@@ -1369,7 +1370,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    return *x;
         \\}
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(foo)); }
     , ".tmp_source.zig:8:26: error: expected type '&const u3', found '&align(1:3:6) const u3'");
 
     cases.add("referring to a struct that is invalid",
@@ -1405,14 +1406,14 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\export fn foo() {
         \\    bar();
         \\}
-        \\fn bar() -> i32 { 0 }
+        \\fn bar() -> i32 { return 0; }
     , ".tmp_source.zig:2:8: error: expression value is ignored");
 
     cases.add("ignored assert-err-ok return value",
         \\export fn foo() {
         \\    %%bar();
         \\}
-        \\fn bar() -> %i32 { 0 }
+        \\fn bar() -> %i32 { return 0; }
     , ".tmp_source.zig:2:5: error: expression value is ignored");
 
     cases.add("ignored statement value",
@@ -1439,11 +1440,11 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\}
     , ".tmp_source.zig:2:12: error: expression value is ignored");
 
-    cases.add("ignored defered statement value",
+    cases.add("ignored defered function call",
         \\export fn foo() {
         \\    defer bar();
         \\}
-        \\fn bar() -> %i32 { 0 }
+        \\fn bar() -> %i32 { return 0; }
     , ".tmp_source.zig:2:14: error: expression value is ignored");
 
     cases.add("dereference an array",
@@ -1454,7 +1455,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    return (*out)[0..1];
         \\}
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(pass)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(pass)); }
     , ".tmp_source.zig:4:5: error: attempt to dereference non pointer type '[10]u8'");
 
     cases.add("pass const ptr to mutable ptr fn",
@@ -1467,10 +1468,10 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    return true;
         \\}
         \\
-        \\export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(foo)); }
     , ".tmp_source.zig:4:19: error: expected type '&[]const u8', found '&const []const u8'");
 
-    cases.addCase({
+    cases.addCase(x: {
         const tc = cases.create("export collision",
             \\const foo = @import("foo.zig");
             \\
@@ -1486,13 +1487,13 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
             \\pub const baz = 1234;
         );
 
-        tc
+        break :x tc;
     });
 
     cases.add("pass non-copyable type by value to function",
         \\const Point = struct { x: i32, y: i32, };
         \\fn foo(p: Point) { }
-        \\export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(foo)); }
     , ".tmp_source.zig:2:11: error: type 'Point' is not copyable; cannot pass by value");
 
     cases.add("implicit cast from array to mutable slice",
@@ -1515,7 +1516,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\fn foo(e: error) -> u2 {
         \\    return u2(e);
         \\}
-        \\export fn entry() -> usize { @sizeOf(@typeOf(foo)) }
+        \\export fn entry() -> usize { return @sizeOf(@typeOf(foo)); }
     , ".tmp_source.zig:4:14: error: too many error values to fit in 'u2'");
 
     cases.add("asm at compile time",
@@ -1665,17 +1666,17 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("inner struct member shadowing outer struct member",
         \\fn A() -> type {
-        \\    struct {
+        \\    return struct {
         \\        b: B(),
         \\
         \\        const Self = this;
         \\
         \\        fn B() -> type {
-        \\            struct {
+        \\            return struct {
         \\                const Self = this;
-        \\            }
+        \\            };
         \\        }
-        \\    }
+        \\    };
         \\}
         \\comptime {
         \\    assert(A().B().Self != A().Self);
@@ -1691,7 +1692,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\export fn foo() {
         \\    while (bar()) {}
         \\}
-        \\fn bar() -> ?i32 { 1 }
+        \\fn bar() -> ?i32 { return 1; }
     ,
         ".tmp_source.zig:2:15: error: expected type 'bool', found '?i32'");
 
@@ -1699,7 +1700,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\export fn foo() {
         \\    while (bar()) {}
         \\}
-        \\fn bar() -> %i32 { 1 }
+        \\fn bar() -> %i32 { return 1; }
     ,
         ".tmp_source.zig:2:15: error: expected type 'bool', found '%i32'");
 
@@ -1707,7 +1708,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\export fn foo() {
         \\    while (bar()) |x| {}
         \\}
-        \\fn bar() -> bool { true }
+        \\fn bar() -> bool { return true; }
     ,
         ".tmp_source.zig:2:15: error: expected nullable type, found 'bool'");
 
@@ -1715,7 +1716,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\export fn foo() {
         \\    while (bar()) |x| {}
         \\}
-        \\fn bar() -> %i32 { 1 }
+        \\fn bar() -> %i32 { return 1; }
     ,
         ".tmp_source.zig:2:15: error: expected nullable type, found '%i32'");
 
@@ -1723,7 +1724,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\export fn foo() {
         \\    while (bar()) |x| {} else |err| {}
         \\}
-        \\fn bar() -> bool { true }
+        \\fn bar() -> bool { return true; }
     ,
         ".tmp_source.zig:2:15: error: expected error union type, found 'bool'");
 
@@ -1731,7 +1732,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\export fn foo() {
         \\    while (bar()) |x| {} else |err| {}
         \\}
-        \\fn bar() -> ?i32 { 1 }
+        \\fn bar() -> ?i32 { return 1; }
     ,
         ".tmp_source.zig:2:15: error: expected error union type, found '?i32'");
 
@@ -1762,17 +1763,17 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("signed integer division",
         \\export fn foo(a: i32, b: i32) -> i32 {
-        \\    a / b
+        \\    return a / b;
         \\}
     ,
-        ".tmp_source.zig:2:7: error: division with 'i32' and 'i32': signed integers must use @divTrunc, @divFloor, or @divExact");
+        ".tmp_source.zig:2:14: error: division with 'i32' and 'i32': signed integers must use @divTrunc, @divFloor, or @divExact");
 
     cases.add("signed integer remainder division",
         \\export fn foo(a: i32, b: i32) -> i32 {
-        \\    a % b
+        \\    return a % b;
         \\}
     ,
-        ".tmp_source.zig:2:7: error: remainder division with 'i32' and 'i32': signed integers and floats must use @rem or @mod");
+        ".tmp_source.zig:2:14: error: remainder division with 'i32' and 'i32': signed integers and floats must use @rem or @mod");
 
     cases.add("cast negative value to unsigned integer",
         \\comptime {
@@ -1922,17 +1923,17 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("explicit cast float literal to integer when there is a fraction component",
         \\export fn entry() -> i32 {
-        \\    i32(12.34)
+        \\    return i32(12.34);
         \\}
     ,
-        ".tmp_source.zig:2:9: error: fractional component prevents float value 12.340000 from being casted to type 'i32'");
+        ".tmp_source.zig:2:16: error: fractional component prevents float value 12.340000 from being casted to type 'i32'");
 
     cases.add("non pointer given to @ptrToInt",
         \\export fn entry(x: i32) -> usize {
-        \\    @ptrToInt(x)
+        \\    return @ptrToInt(x);
         \\}
     ,
-        ".tmp_source.zig:2:15: error: expected pointer, found 'i32'");
+        ".tmp_source.zig:2:22: error: expected pointer, found 'i32'");
 
     cases.add("@shlExact shifts out 1 bits",
         \\comptime {
@@ -2028,7 +2029,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("@alignCast expects pointer or slice",
         \\export fn entry() {
-        \\    @alignCast(4, u32(3))
+        \\    @alignCast(4, u32(3));
         \\}
     ,
         ".tmp_source.zig:2:22: error: expected pointer or slice, found 'u32'");
@@ -2040,7 +2041,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\fn testImplicitlyDecreaseFnAlign(ptr: fn () align(8) -> i32, answer: i32) {
         \\    if (ptr() != answer) unreachable;
         \\}
-        \\fn alignedSmall() align(4) -> i32 { 1234 }
+        \\fn alignedSmall() align(4) -> i32 { return 1234; }
     ,
         ".tmp_source.zig:2:35: error: expected type 'fn() align(8) -> i32', found 'fn() align(4) -> i32'");
 
@@ -2206,17 +2207,17 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\const Mode = @import("builtin").Mode;
         \\
         \\fn Free(comptime filename: []const u8) -> TestCase {
-        \\    TestCase {
+        \\    return TestCase {
         \\        .filename = filename,
         \\        .problem_type = ProblemType.Free,
-        \\    }
+        \\    };
         \\}
         \\
         \\fn LibC(comptime filename: []const u8) -> TestCase {
-        \\    TestCase {
+        \\    return TestCase {
         \\        .filename = filename,
         \\        .problem_type = ProblemType.LinkLibC,
-        \\    }
+        \\    };
         \\}
         \\
         \\const TestCase = struct {
@@ -2374,9 +2375,9 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\pub fn MemoryPool(comptime T: type) -> type {
         \\    const free_list_t = @compileError("aoeu");
         \\
-        \\    struct {
+        \\    return struct {
         \\        free_list: free_list_t,
-        \\    }
+        \\    };
         \\}
         \\
         \\export fn entry() {
@@ -2651,7 +2652,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    C: bool,
         \\};
         \\export fn entry() {
-        \\    var a = Payload { .A = { 1234 } };
+        \\    var a = Payload { .A = 1234 };
         \\}
     ,
         ".tmp_source.zig:6:29: error: extern union does not support enum tag type");
@@ -2668,7 +2669,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    C: bool,
         \\};
         \\export fn entry() {
-        \\    var a = Payload { .A = { 1234 } };
+        \\    var a = Payload { .A = 1234 };
         \\}
     ,
         ".tmp_source.zig:6:29: error: packed union does not support enum tag type");
@@ -2680,7 +2681,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    C: bool,
         \\};
         \\export fn entry() {
-        \\    const a = Payload { .A = { 1234 } };
+        \\    const a = Payload { .A = 1234 };
         \\    foo(a);
         \\}
         \\fn foo(a: &const Payload) {

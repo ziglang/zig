@@ -9,11 +9,11 @@ const assert = @import("../debug.zig").assert;
 
 pub fn cos(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
+    return switch (T) {
         f32 => @inlineCall(cos32, x),
         f64 => @inlineCall(cos64, x),
         else => @compileError("cos not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 // sin polynomial coefficients
@@ -73,18 +73,18 @@ fn cos32(x_: f32) -> f32 {
     const z = ((x - y * pi4a) - y * pi4b) - y * pi4c;
     const w = z * z;
 
-    const r = {
+    const r = r: {
         if (j == 1 or j == 2) {
-            z + z * w * (S5 + w * (S4 + w * (S3 + w * (S2 + w * (S1 + w * S0)))))
+            break :r z + z * w * (S5 + w * (S4 + w * (S3 + w * (S2 + w * (S1 + w * S0)))));
         } else {
-            1.0 - 0.5 * w + w * w * (C5 + w * (C4 + w * (C3 + w * (C2 + w * (C1 + w * C0)))))
+            break :r 1.0 - 0.5 * w + w * w * (C5 + w * (C4 + w * (C3 + w * (C2 + w * (C1 + w * C0)))));
         }
     };
 
     if (sign) {
-        -r
+        return -r;
     } else {
-        r
+        return r;
     }
 }
 
@@ -124,18 +124,18 @@ fn cos64(x_: f64) -> f64 {
     const z = ((x - y * pi4a) - y * pi4b) - y * pi4c;
     const w = z * z;
 
-    const r = {
+    const r = r: {
         if (j == 1 or j == 2) {
-            z + z * w * (S5 + w * (S4 + w * (S3 + w * (S2 + w * (S1 + w * S0)))))
+            break :r z + z * w * (S5 + w * (S4 + w * (S3 + w * (S2 + w * (S1 + w * S0)))));
         } else {
-            1.0 - 0.5 * w + w * w * (C5 + w * (C4 + w * (C3 + w * (C2 + w * (C1 + w * C0)))))
+            break :r 1.0 - 0.5 * w + w * w * (C5 + w * (C4 + w * (C3 + w * (C2 + w * (C1 + w * C0)))));
         }
     };
 
     if (sign) {
-        -r
+        return -r;
     } else {
-        r
+        return r;
     }
 }
 

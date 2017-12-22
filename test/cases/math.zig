@@ -28,16 +28,16 @@ fn testDivision() {
     assert(divTrunc(f32, -5.0, 3.0) == -1.0);
 }
 fn div(comptime T: type, a: T, b: T) -> T {
-    a / b
+    return a / b;
 }
 fn divExact(comptime T: type, a: T, b: T) -> T {
-    @divExact(a, b)
+    return @divExact(a, b);
 }
 fn divFloor(comptime T: type, a: T, b: T) -> T {
-    @divFloor(a, b)
+    return @divFloor(a, b);
 }
 fn divTrunc(comptime T: type, a: T, b: T) -> T {
-    @divTrunc(a, b)
+    return @divTrunc(a, b);
 }
 
 test "@addWithOverflow" {
@@ -71,7 +71,7 @@ fn testClz() {
 }
 
 fn clz(x: var) -> usize {
-    @clz(x)
+    return @clz(x);
 }
 
 test "@ctz" {
@@ -86,7 +86,7 @@ fn testCtz() {
 }
 
 fn ctz(x: var) -> usize {
-    @ctz(x)
+    return @ctz(x);
 }
 
 test "assignment operators" {
@@ -180,10 +180,10 @@ fn test_u64_div() {
     assert(result.remainder == 100663296);
 }
 fn divWithResult(a: u64, b: u64) -> DivResult {
-    DivResult {
+    return DivResult {
         .quotient = a / b,
         .remainder = a % b,
-    }
+    };
 }
 const DivResult = struct {
     quotient: u64,
@@ -191,8 +191,8 @@ const DivResult = struct {
 };
 
 test "binary not" {
-    assert(comptime {~u16(0b1010101010101010) == 0b0101010101010101});
-    assert(comptime {~u64(2147483647) == 18446744071562067968});
+    assert(comptime x: {break :x ~u16(0b1010101010101010) == 0b0101010101010101;});
+    assert(comptime x: {break :x ~u64(2147483647) == 18446744071562067968;});
     testBinaryNot(0b1010101010101010);
 }
 
@@ -331,7 +331,7 @@ test "f128" {
     comptime test_f128();
 }
 
-fn make_f128(x: f128) -> f128 { x }
+fn make_f128(x: f128) -> f128 { return x; }
 
 fn test_f128() {
     assert(@sizeOf(f128) == 16);

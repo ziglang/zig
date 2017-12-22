@@ -22,7 +22,7 @@ test "reflection: function return type, var args, and param types" {
     }
 }
 
-fn dummy(a: bool, b: i32, c: f32) -> i32 { 1234 }
+fn dummy(a: bool, b: i32, c: f32) -> i32 { return 1234; }
 fn dummy_varargs(args: ...) {}
 
 test "reflection: struct member types and names" {

@@ -111,11 +111,11 @@ pub const Parser = struct {
     }
 
     pub fn parse(self: &Parser) -> %&ast.NodeRoot {
-        const result = self.parseInner() %% |err| {
+        const result = self.parseInner() %% |err| x: {
             if (self.cleanup_root_node) |root_node| {
                 self.freeAst(root_node);
             }
-            err
+            break :x err;
         };
         self.cleanup_root_node = null;
         return result;
@@ -125,12 +125,12 @@ pub const Parser = struct {
         var stack = self.initUtilityArrayList(State);
         defer self.deinitUtilityArrayList(stack);
 
-        const root_node = {
+        const root_node = x: {
             const root_node = %return self.createRoot();
             %defer self.allocator.destroy(root_node);
             // This stack append has to succeed for freeAst to work
             %return stack.append(State.TopLevel);
-            root_node
+            break :x root_node;
         };
         assert(self.cleanup_root_node == null);
         self.cleanup_root_node = root_node;
@@ -462,7 +462,7 @@ pub const Parser = struct {
                     } else if (token.id == Token.Id.Keyword_noalias) {
                         param_decl.noalias_token = token;
                         token = self.getNextToken();
-                    };
+                    }
                     if (token.id == Token.Id.Identifier) {
                         const next_token = self.getNextToken();
                         if (next_token.id == Token.Id.Colon) {
@@ -793,14 +793,14 @@ pub const Parser = struct {
     }
 
     fn getNextToken(self: &Parser) -> Token {
-        return if (self.put_back_count != 0) {
+        if (self.put_back_count != 0) {
             const put_back_index = self.put_back_count - 1;
             const put_back_token = self.put_back_tokens[put_back_index];
             self.put_back_count = put_back_index;
-            put_back_token
+            return put_back_token;
         } else {
-            self.tokenizer.next()
-        };
+            return self.tokenizer.next();
+        }
     }
 
     const RenderAstFrame = struct {
@@ -873,7 +873,7 @@ pub const Parser = struct {
                                     Token.Id.Keyword_pub => %return stream.print("pub "),
                                     Token.Id.Keyword_export => %return stream.print("export "),
                                     else => unreachable,
-                                };
+                                }
                             }
                             if (fn_proto.extern_token) |extern_token| {
                                 %return stream.print("{} ", self.tokenizer.getTokenSlice(extern_token));
@@ -1102,7 +1102,7 @@ fn testParse(source: []const u8, allocator: &mem.Allocator) -> %[]u8 {
 // TODO test for memory leaks
 // TODO test for valid frees
 fn testCanonical(source: []const u8) {
-    const needed_alloc_count = {
+    const needed_alloc_count = x: {
         // Try it once with unlimited memory, make sure it works
         var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
         var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, @maxValue(usize));
@@ -1116,7 +1116,7 @@ fn testCanonical(source: []const u8) {
             @panic("test failed");
         }
         failing_allocator.allocator.free(result_source);
-        failing_allocator.index
+        break :x failing_allocator.index;
     };
 
     // TODO make this pass

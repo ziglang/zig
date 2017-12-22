@@ -36,7 +36,7 @@ pub const inf = @import("inf.zig").inf;
 
 pub fn approxEq(comptime T: type, x: T, y: T, epsilon: T) -> bool {
     assert(@typeId(T) == TypeId.Float);
-    fabs(x - y) < epsilon
+    return fabs(x - y) < epsilon;
 }
 
 // TODO: Hide the following in an internal module.
@@ -175,7 +175,7 @@ test "math" {
 
 
 pub fn min(x: var, y: var) -> @typeOf(x + y) {
-    if (x < y) x else y
+    return if (x < y) x else y;
 }
 
 test "math.min" {
@@ -183,7 +183,7 @@ test "math.min" {
 }
 
 pub fn max(x: var, y: var) -> @typeOf(x + y) {
-    if (x > y) x else y
+    return if (x > y) x else y;
 }
 
 test "math.max" {
@@ -193,19 +193,19 @@ test "math.max" {
 error Overflow;
 pub fn mul(comptime T: type, a: T, b: T) -> %T {
     var answer: T = undefined;
-    if (@mulWithOverflow(T, a, b, &answer)) error.Overflow else answer
+    return if (@mulWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
 error Overflow;
 pub fn add(comptime T: type, a: T, b: T) -> %T {
     var answer: T = undefined;
-    if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer
+    return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
 error Overflow;
 pub fn sub(comptime T: type, a: T, b: T) -> %T {
     var answer: T = undefined;
-    if (@subWithOverflow(T, a, b, &answer)) error.Overflow else answer
+    return if (@subWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
 pub fn negate(x: var) -> %@typeOf(x) {
@@ -215,7 +215,7 @@ pub fn negate(x: var) -> %@typeOf(x) {
 error Overflow;
 pub fn shlExact(comptime T: type, a: T, shift_amt: Log2Int(T)) -> %T {
     var answer: T = undefined;
-    if (@shlWithOverflow(T, a, shift_amt, &answer)) error.Overflow else answer
+    return if (@shlWithOverflow(T, a, shift_amt, &answer)) error.Overflow else answer;
 }
 
 /// Shifts left. Overflowed bits are truncated.
@@ -267,7 +267,7 @@ test "math.shr" {
 }
 
 pub fn Log2Int(comptime T: type) -> type {
-    @IntType(false, log2(T.bit_count))
+    return @IntType(false, log2(T.bit_count));
 }
 
 test "math overflow functions" {

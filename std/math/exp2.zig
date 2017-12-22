@@ -8,11 +8,11 @@ const assert = @import("../debug.zig").assert;
 
 pub fn exp2(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
+    return switch (T) {
         f32 => @inlineCall(exp2_32, x),
         f64 => @inlineCall(exp2_64, x),
         else => @compileError("exp2 not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 const exp2ft = []const f64 {
@@ -88,7 +88,7 @@ fn exp2_32(x: f32) -> f32 {
     var r: f64 = exp2ft[i0];
     const t: f64 = r * z;
     r = r + t * (P1 + z * P2) + t * (z * z) * (P3 + z * P4);
-    f32(r * uk)
+    return f32(r * uk);
 }
 
 const exp2dt = []f64 {
@@ -414,7 +414,7 @@ fn exp2_64(x: f64) -> f64 {
     z -= exp2dt[2 * i0 + 1];
     const r = t + t * z * (P1 + z * (P2 + z * (P3 + z * (P4 + z * P5))));
 
-    math.scalbn(r, ik)
+    return math.scalbn(r, ik);
 }
 
 test "math.exp2" {
