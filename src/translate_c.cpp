@@ -73,7 +73,7 @@ struct Context {
     ImportTableEntry *import;
     ZigList<ErrorMsg *> *errors;
     VisibMod visib_mod;
-    VisibMod export_visib_mod;
+    bool want_export;
     AstNode *root;
     HashMap<const void *, AstNode *, ptr_hash, ptr_eq> decl_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> macro_table;
@@ -104,10 +104,8 @@ static TransScopeRoot *trans_scope_root_create(Context *c);
 static TransScopeWhile *trans_scope_while_create(Context *c, TransScope *parent_scope);
 static TransScopeBlock *trans_scope_block_create(Context *c, TransScope *parent_scope);
 static TransScopeVar *trans_scope_var_create(Context *c, TransScope *parent_scope, Buf *wanted_name);
-static TransScopeSwitch *trans_scope_switch_create(Context *c, TransScope *parent_scope);
 
 static TransScopeBlock *trans_scope_block_find(TransScope *scope);
-static TransScopeSwitch *trans_scope_switch_find(TransScope *scope);
 
 static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl);
 static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl);
@@ -170,6 +168,28 @@ static AstNode * trans_create_node(Context *c, NodeType id) {
     node->type = id;
     node->owner = c->import;
     // TODO line/column. mapping to C file??
+    return node;
+}
+
+static AstNode *trans_create_node_break(Context *c, Buf *label_name, AstNode *value_node) {
+    AstNode *node = trans_create_node(c, NodeTypeBreak);
+    node->data.break_expr.name = label_name;
+    node->data.break_expr.expr = value_node;
+    return node;
+}
+
+static AstNode *trans_create_node_return(Context *c, AstNode *value_node) {
+    AstNode *node = trans_create_node(c, NodeTypeReturnExpr);
+    node->data.return_expr.kind = ReturnKindUnconditional;
+    node->data.return_expr.expr = value_node;
+    return node;
+}
+
+static AstNode *trans_create_node_if(Context *c, AstNode *cond_node, AstNode *then_node, AstNode *else_node) {
+    AstNode *node = trans_create_node(c, NodeTypeIfBoolExpr);
+    node->data.if_bool_expr.condition = cond_node;
+    node->data.if_bool_expr.then_block = then_node;
+    node->data.if_bool_expr.else_node = else_node;
     return node;
 }
 
@@ -255,18 +275,6 @@ static AstNode *trans_create_node_addr_of(Context *c, bool is_const, bool is_vol
     node->data.addr_of_expr.is_volatile = is_volatile;
     node->data.addr_of_expr.op_expr = child_node;
     return node;
-}
-
-static AstNode *trans_create_node_goto(Context *c, Buf *label_name) {
-    AstNode *goto_node = trans_create_node(c, NodeTypeGoto);
-    goto_node->data.goto_expr.name = label_name;
-    return goto_node;
-}
-
-static AstNode *trans_create_node_label(Context *c, Buf *label_name) {
-    AstNode *label_node = trans_create_node(c, NodeTypeLabel);
-    label_node->data.label.name = label_name;
-    return label_node;
 }
 
 static AstNode *trans_create_node_bool(Context *c, bool value) {
@@ -378,8 +386,7 @@ static AstNode *trans_create_node_inline_fn(Context *c, Buf *fn_name, AstNode *r
 
     AstNode *block = trans_create_node(c, NodeTypeBlock);
     block->data.block.statements.resize(1);
-    block->data.block.statements.items[0] = fn_call_node;
-    block->data.block.last_statement_is_result_expression = true;
+    block->data.block.statements.items[0] = trans_create_node_return(c, fn_call_node);
 
     fn_def->data.fn_def.body = block;
     return fn_def;
@@ -1149,13 +1156,15 @@ static AstNode *trans_create_assign(Context *c, ResultUsed result_used, TransSco
     } else {
         // worst case
         // c: lhs = rhs
-        // zig: {
+        // zig: x: {
         // zig:     const _tmp = rhs;
         // zig:     lhs = _tmp;
-        // zig:     _tmp
+        // zig:     break :x _tmp
         // zig: }
 
         TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
+        Buf *label_name = buf_create_from_str("x");
+        child_scope->node->data.block.name = label_name;
 
         // const _tmp = rhs;
         AstNode *rhs_node = trans_expr(c, ResultUsedYes, &child_scope->base, rhs, TransRValue);
@@ -1172,9 +1181,9 @@ static AstNode *trans_create_assign(Context *c, ResultUsed result_used, TransSco
             trans_create_node_bin_op(c, lhs_node, BinOpTypeAssign,
                 trans_create_node_symbol(c, tmp_var_name)));
 
-        // _tmp
-        child_scope->node->data.block.statements.append(trans_create_node_symbol(c, tmp_var_name));
-        child_scope->node->data.block.last_statement_is_result_expression = true;
+        // break :x _tmp
+        AstNode *tmp_symbol_node = trans_create_node_symbol(c, tmp_var_name);
+        child_scope->node->data.block.statements.append(trans_create_node_break(c, label_name, tmp_symbol_node));
 
         return child_scope->node;
     }
@@ -1279,6 +1288,9 @@ static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransS
         case BO_Comma:
             {
                 TransScopeBlock *scope_block = trans_scope_block_create(c, scope);
+                Buf *label_name = buf_create_from_str("x");
+                scope_block->node->data.block.name = label_name;
+
                 AstNode *lhs = trans_expr(c, ResultUsedNo, &scope_block->base, stmt->getLHS(), TransRValue);
                 if (lhs == nullptr)
                     return nullptr;
@@ -1287,9 +1299,7 @@ static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransS
                 AstNode *rhs = trans_expr(c, result_used, &scope_block->base, stmt->getRHS(), TransRValue);
                 if (rhs == nullptr)
                     return nullptr;
-                scope_block->node->data.block.statements.append(maybe_suppress_result(c, result_used, rhs));
-
-                scope_block->node->data.block.last_statement_is_result_expression = true;
+                scope_block->node->data.block.statements.append(trans_create_node_break(c, label_name, maybe_suppress_result(c, result_used, rhs)));
                 return scope_block->node;
             }
         case BO_MulAssign:
@@ -1329,14 +1339,16 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
     } else {
         // need more complexity. worst case, this looks like this:
         // c:   lhs >>= rhs
-        // zig: {
+        // zig: x: {
         // zig:     const _ref = &lhs;
         // zig:     *_ref = result_type(operation_type(*_ref) >> u5(rhs));
-        // zig:     *_ref
+        // zig:     break :x *_ref
         // zig: }
         // where u5 is the appropriate type
 
         TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
+        Buf *label_name = buf_create_from_str("x");
+        child_scope->node->data.block.name = label_name;
 
         // const _ref = &lhs;
         AstNode *lhs = trans_expr(c, ResultUsedYes, &child_scope->base, stmt->getLHS(), TransLValue);
@@ -1378,11 +1390,11 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
         child_scope->node->data.block.statements.append(assign_statement);
 
         if (result_used == ResultUsedYes) {
-            // *_ref
+            // break :x *_ref
             child_scope->node->data.block.statements.append(
-                trans_create_node_prefix_op(c, PrefixOpDereference,
-                    trans_create_node_symbol(c, tmp_var_name)));
-            child_scope->node->data.block.last_statement_is_result_expression = true;
+                trans_create_node_break(c, label_name, 
+                    trans_create_node_prefix_op(c, PrefixOpDereference,
+                        trans_create_node_symbol(c, tmp_var_name))));
         }
 
         return child_scope->node;
@@ -1403,13 +1415,15 @@ static AstNode *trans_create_compound_assign(Context *c, ResultUsed result_used,
     } else {
         // need more complexity. worst case, this looks like this:
         // c:   lhs += rhs
-        // zig: {
+        // zig: x: {
         // zig:     const _ref = &lhs;
         // zig:     *_ref = *_ref + rhs;
-        // zig:     *_ref
+        // zig:     break :x *_ref
         // zig: }
 
         TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
+        Buf *label_name = buf_create_from_str("x");
+        child_scope->node->data.block.name = label_name;
 
         // const _ref = &lhs;
         AstNode *lhs = trans_expr(c, ResultUsedYes, &child_scope->base, stmt->getLHS(), TransLValue);
@@ -1436,11 +1450,11 @@ static AstNode *trans_create_compound_assign(Context *c, ResultUsed result_used,
                 rhs));
         child_scope->node->data.block.statements.append(assign_statement);
 
-        // *_ref
+        // break :x *_ref
         child_scope->node->data.block.statements.append(
-            trans_create_node_prefix_op(c, PrefixOpDereference,
-                trans_create_node_symbol(c, tmp_var_name)));
-        child_scope->node->data.block.last_statement_is_result_expression = true;
+            trans_create_node_break(c, label_name,
+                trans_create_node_prefix_op(c, PrefixOpDereference,
+                    trans_create_node_symbol(c, tmp_var_name))));
 
         return child_scope->node;
     }
@@ -1735,13 +1749,15 @@ static AstNode *trans_create_post_crement(Context *c, ResultUsed result_used, Tr
     }
     // worst case
     // c: expr++
-    // zig: {
+    // zig: x: {
     // zig:     const _ref = &expr;
     // zig:     const _tmp = *_ref;
     // zig:     *_ref += 1;
-    // zig:     _tmp
+    // zig:     break :x _tmp
     // zig: }
     TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
+    Buf *label_name = buf_create_from_str("x");
+    child_scope->node->data.block.name = label_name;
 
     // const _ref = &expr;
     AstNode *expr = trans_expr(c, ResultUsedYes, &child_scope->base, op_expr, TransLValue);
@@ -1767,9 +1783,8 @@ static AstNode *trans_create_post_crement(Context *c, ResultUsed result_used, Tr
         trans_create_node_unsigned(c, 1));
     child_scope->node->data.block.statements.append(assign_statement);
 
-    // _tmp
-    child_scope->node->data.block.statements.append(trans_create_node_symbol(c, tmp_var_name));
-    child_scope->node->data.block.last_statement_is_result_expression = true;
+    // break :x _tmp
+    child_scope->node->data.block.statements.append(trans_create_node_break(c, label_name, trans_create_node_symbol(c, tmp_var_name)));
 
     return child_scope->node;
 }
@@ -1790,12 +1805,14 @@ static AstNode *trans_create_pre_crement(Context *c, ResultUsed result_used, Tra
     }
     // worst case
     // c: ++expr
-    // zig: {
+    // zig: x: {
     // zig:     const _ref = &expr;
     // zig:     *_ref += 1;
-    // zig:     *_ref
+    // zig:     break :x *_ref
     // zig: }
     TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
+    Buf *label_name = buf_create_from_str("x");
+    child_scope->node->data.block.name = label_name;
 
     // const _ref = &expr;
     AstNode *expr = trans_expr(c, ResultUsedYes, &child_scope->base, op_expr, TransLValue);
@@ -1814,11 +1831,10 @@ static AstNode *trans_create_pre_crement(Context *c, ResultUsed result_used, Tra
         trans_create_node_unsigned(c, 1));
     child_scope->node->data.block.statements.append(assign_statement);
 
-    // *_ref
+    // break :x *_ref
     AstNode *deref_expr = trans_create_node_prefix_op(c, PrefixOpDereference,
             trans_create_node_symbol(c, ref_var_name));
-    child_scope->node->data.block.statements.append(deref_expr);
-    child_scope->node->data.block.last_statement_is_result_expression = true;
+    child_scope->node->data.block.statements.append(trans_create_node_break(c, label_name, deref_expr));
 
     return child_scope->node;
 }
@@ -2374,145 +2390,6 @@ static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const DoStmt
     return while_scope->node;
 }
 
-static AstNode *trans_switch_stmt(Context *c, TransScope *parent_scope, const SwitchStmt *stmt) {
-    TransScopeBlock *block_scope = trans_scope_block_create(c, parent_scope);
-
-    TransScopeSwitch *switch_scope;
-
-    const DeclStmt *var_decl_stmt = stmt->getConditionVariableDeclStmt();
-    if (var_decl_stmt == nullptr) {
-        switch_scope = trans_scope_switch_create(c, &block_scope->base);
-    } else {
-        AstNode *vars_node;
-        TransScope *var_scope = trans_stmt(c, &block_scope->base, var_decl_stmt, &vars_node);
-        if (var_scope == nullptr)
-            return nullptr;
-        if (vars_node != nullptr)
-            block_scope->node->data.block.statements.append(vars_node);
-        switch_scope = trans_scope_switch_create(c, var_scope);
-    }
-    block_scope->node->data.block.statements.append(switch_scope->switch_node);
-
-    // TODO avoid name collisions
-    Buf *end_label_name = buf_create_from_str("end");
-    switch_scope->end_label_name = end_label_name;
-
-    const Expr *cond_expr = stmt->getCond();
-    assert(cond_expr != nullptr);
-
-    AstNode *expr_node = trans_expr(c, ResultUsedYes, &block_scope->base, cond_expr, TransRValue);
-    if (expr_node == nullptr)
-        return nullptr;
-    switch_scope->switch_node->data.switch_expr.expr = expr_node;
-
-    AstNode *body_node;
-    const Stmt *body_stmt = stmt->getBody();
-    if (body_stmt->getStmtClass() == Stmt::CompoundStmtClass) {
-        if (trans_compound_stmt_inline(c, &switch_scope->base, (const CompoundStmt *)body_stmt,
-            block_scope->node, nullptr))
-        {
-            return nullptr;
-        }
-    } else {
-        TransScope *body_scope = trans_stmt(c, &switch_scope->base, body_stmt, &body_node);
-        if (body_scope == nullptr)
-            return nullptr;
-        if (body_node != nullptr)
-            block_scope->node->data.block.statements.append(body_node);
-    }
-
-    if (!switch_scope->found_default && !stmt->isAllEnumCasesCovered()) {
-        AstNode *prong_node = trans_create_node(c, NodeTypeSwitchProng);
-        prong_node->data.switch_prong.expr = trans_create_node_goto(c, end_label_name);
-        switch_scope->switch_node->data.switch_expr.prongs.append(prong_node);
-    }
-
-    // This is necessary if the last switch case "falls through" the end of the switch block
-    block_scope->node->data.block.statements.append(trans_create_node_goto(c, end_label_name));
-
-    block_scope->node->data.block.statements.append(trans_create_node_label(c, end_label_name));
-
-    return block_scope->node;
-}
-
-static int trans_switch_case(Context *c, TransScope *parent_scope, const CaseStmt *stmt, AstNode **out_node,
-        TransScope **out_scope)
-{
-    *out_node = nullptr;
-
-    if (stmt->getRHS() != nullptr) {
-        emit_warning(c, stmt->getLocStart(), "TODO support GNU switch case a ... b extension");
-        return ErrorUnexpected;
-    }
-
-    TransScopeSwitch *switch_scope = trans_scope_switch_find(parent_scope);
-    assert(switch_scope != nullptr);
-
-    Buf *label_name = buf_sprintf("case_%" PRIu32, switch_scope->case_index);
-    switch_scope->case_index += 1;
-
-    {
-        // Add the prong
-        AstNode *prong_node = trans_create_node(c, NodeTypeSwitchProng);
-        AstNode *item_node = trans_expr(c, ResultUsedYes, &switch_scope->base, stmt->getLHS(), TransRValue);
-        if (item_node == nullptr)
-            return ErrorUnexpected;
-        prong_node->data.switch_prong.items.append(item_node);
-
-        prong_node->data.switch_prong.expr = trans_create_node_goto(c, label_name);
-
-        switch_scope->switch_node->data.switch_expr.prongs.append(prong_node);
-    }
-
-    TransScopeBlock *scope_block = trans_scope_block_find(parent_scope);
-    scope_block->node->data.block.statements.append(trans_create_node_label(c, label_name));
-
-    AstNode *sub_stmt_node;
-    TransScope *new_scope = trans_stmt(c, parent_scope, stmt->getSubStmt(), &sub_stmt_node);
-    if (new_scope == nullptr)
-        return ErrorUnexpected;
-    if (sub_stmt_node != nullptr)
-        scope_block->node->data.block.statements.append(sub_stmt_node);
-
-    *out_scope = new_scope;
-    return ErrorNone;
-}
-
-static int trans_switch_default(Context *c, TransScope *parent_scope, const DefaultStmt *stmt, AstNode **out_node,
-        TransScope **out_scope)
-{
-    *out_node = nullptr;
-
-    TransScopeSwitch *switch_scope = trans_scope_switch_find(parent_scope);
-    assert(switch_scope != nullptr);
-
-    Buf *label_name = buf_sprintf("default");
-
-    {
-        // Add the prong
-        AstNode *prong_node = trans_create_node(c, NodeTypeSwitchProng);
-
-        prong_node->data.switch_prong.expr = trans_create_node_goto(c, label_name);
-
-        switch_scope->switch_node->data.switch_expr.prongs.append(prong_node);
-        switch_scope->found_default = true;
-    }
-
-    TransScopeBlock *scope_block = trans_scope_block_find(parent_scope);
-    scope_block->node->data.block.statements.append(trans_create_node_label(c, label_name));
-
-
-    AstNode *sub_stmt_node;
-    TransScope *new_scope = trans_stmt(c, parent_scope, stmt->getSubStmt(), &sub_stmt_node);
-    if (new_scope == nullptr)
-        return ErrorUnexpected;
-    if (sub_stmt_node != nullptr)
-        scope_block->node->data.block.statements.append(sub_stmt_node);
-
-    *out_scope = new_scope;
-    return ErrorNone;
-}
-
 static AstNode *trans_for_loop(Context *c, TransScope *parent_scope, const ForStmt *stmt) {
     AstNode *loop_block_node;
     TransScopeWhile *while_scope;
@@ -2590,8 +2467,7 @@ static AstNode *trans_break_stmt(Context *c, TransScope *scope, const BreakStmt 
         if (cur_scope->id == TransScopeIdWhile) {
             return trans_create_node(c, NodeTypeBreak);
         } else if (cur_scope->id == TransScopeIdSwitch) {
-            TransScopeSwitch *switch_scope = (TransScopeSwitch *)cur_scope;
-            return trans_create_node_goto(c, switch_scope->end_label_name);
+            zig_panic("TODO");
         }
         cur_scope = cur_scope->parent;
     }
@@ -2691,12 +2567,14 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
             return wrap_stmt(out_node, out_child_scope, scope,
                     trans_expr(c, result_used, scope, ((const ParenExpr*)stmt)->getSubExpr(), lrvalue));
         case Stmt::SwitchStmtClass:
-            return wrap_stmt(out_node, out_child_scope, scope,
-                    trans_switch_stmt(c, scope, (const SwitchStmt *)stmt));
+            emit_warning(c, stmt->getLocStart(), "TODO handle C SwitchStmtClass");
+            return ErrorUnexpected;
         case Stmt::CaseStmtClass:
-            return trans_switch_case(c, scope, (const CaseStmt *)stmt, out_node, out_child_scope);
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CaseStmtClass");
+            return ErrorUnexpected;
         case Stmt::DefaultStmtClass:
-            return trans_switch_default(c, scope, (const DefaultStmt *)stmt, out_node, out_child_scope);
+            emit_warning(c, stmt->getLocStart(), "TODO handle C DefaultStmtClass");
+            return ErrorUnexpected;
         case Stmt::NoStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C NoStmtClass");
             return ErrorUnexpected;
@@ -3246,7 +3124,8 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
 
     StorageClass sc = fn_decl->getStorageClass();
     if (sc == SC_None) {
-        proto_node->data.fn_proto.visib_mod = fn_decl->hasBody() ? c->export_visib_mod : c->visib_mod;
+        proto_node->data.fn_proto.visib_mod = c->visib_mod;
+        proto_node->data.fn_proto.is_export = fn_decl->hasBody() ? c->want_export : false;
     } else if (sc == SC_Extern || sc == SC_Static) {
         proto_node->data.fn_proto.visib_mod = c->visib_mod;
     } else if (sc == SC_PrivateExtern) {
@@ -3865,28 +3744,10 @@ static TransScopeVar *trans_scope_var_create(Context *c, TransScope *parent_scop
     return result;
 }
 
-static TransScopeSwitch *trans_scope_switch_create(Context *c, TransScope *parent_scope) {
-    TransScopeSwitch *result = allocate<TransScopeSwitch>(1);
-    result->base.id = TransScopeIdSwitch;
-    result->base.parent = parent_scope;
-    result->switch_node = trans_create_node(c, NodeTypeSwitchExpr);
-    return result;
-}
-
 static TransScopeBlock *trans_scope_block_find(TransScope *scope) {
     while (scope != nullptr) {
         if (scope->id == TransScopeIdBlock) {
             return (TransScopeBlock *)scope;
-        }
-        scope = scope->parent;
-    }
-    return nullptr;
-}
-
-static TransScopeSwitch *trans_scope_switch_find(TransScope *scope) {
-    while (scope != nullptr) {
-        if (scope->id == TransScopeIdSwitch) {
-            return (TransScopeSwitch *)scope;
         }
         scope = scope->parent;
     }
@@ -4003,6 +3864,10 @@ static void render_macros(Context *c) {
     }
 }
 
+static AstNode *parse_ctok_primary_expr(Context *c, CTokenize *ctok, size_t *tok_i);
+static AstNode *parse_ctok_expr(Context *c, CTokenize *ctok, size_t *tok_i);
+static AstNode *parse_ctok_prefix_op_expr(Context *c, CTokenize *ctok, size_t *tok_i);
+
 static AstNode *parse_ctok_num_lit(Context *c, CTokenize *ctok, size_t *tok_i, bool negate) {
     CTok *tok = &ctok->tokens.at(*tok_i);
     if (tok->id == CTokIdNumLitInt) {
@@ -4030,7 +3895,7 @@ static AstNode *parse_ctok_num_lit(Context *c, CTokenize *ctok, size_t *tok_i, b
     return nullptr;
 }
 
-static AstNode *parse_ctok(Context *c, CTokenize *ctok, size_t *tok_i) {
+static AstNode *parse_ctok_primary_expr(Context *c, CTokenize *ctok, size_t *tok_i) {
     CTok *tok = &ctok->tokens.at(*tok_i);
     switch (tok->id) {
         case CTokIdCharLit:
@@ -4047,53 +3912,129 @@ static AstNode *parse_ctok(Context *c, CTokenize *ctok, size_t *tok_i) {
             return parse_ctok_num_lit(c, ctok, tok_i, false);
         case CTokIdSymbol:
             {
-                bool need_symbol = false;
-                CTokId curr_id = CTokIdSymbol;
+                *tok_i += 1;
                 Buf *symbol_name = buf_create_from_buf(&tok->data.symbol);
-                AstNode *curr_node = trans_create_node_symbol(c, symbol_name);
-                AstNode *parent_node = curr_node;
-                do {
-                    *tok_i += 1;
-                    CTok* curr_tok = &ctok->tokens.at(*tok_i);
-                    if (need_symbol) {
-                        if (curr_tok->id == CTokIdSymbol) {
-                            symbol_name = buf_create_from_buf(&curr_tok->data.symbol);
-                            curr_node = trans_create_node_field_access(c, parent_node, buf_create_from_buf(symbol_name));
-                            parent_node = curr_node;
-                            need_symbol = false;
-                        } else {
-                            return nullptr;
-                        }
-                    } else {
-                        if (curr_tok->id == CTokIdDot) {
-                            need_symbol = true;
-                            continue;
-                        } else {
-                            break;
-                        }
-                    }
-                } while (curr_id != CTokIdEOF);
-                return curr_node;
+                return trans_create_node_symbol(c, symbol_name);
             }
         case CTokIdLParen:
             {
                 *tok_i += 1;
-                AstNode *inner_node = parse_ctok(c, ctok, tok_i);
+                AstNode *inner_node = parse_ctok_expr(c, ctok, tok_i);
+                if (inner_node == nullptr) {
+                    return nullptr;
+                }
 
                 CTok *next_tok = &ctok->tokens.at(*tok_i);
-                if (next_tok->id != CTokIdRParen) {
+                if (next_tok->id == CTokIdRParen) {
+                    *tok_i += 1;
+                    return inner_node;
+                }
+
+                AstNode *node_to_cast = parse_ctok_expr(c, ctok, tok_i);
+                if (node_to_cast == nullptr) {
+                    return nullptr;
+                }
+
+                CTok *next_tok2 = &ctok->tokens.at(*tok_i);
+                if (next_tok2->id != CTokIdRParen) {
                     return nullptr;
                 }
                 *tok_i += 1;
-                return inner_node;
+
+
+                //if (@typeId(@typeOf(x)) == @import("builtin").TypeId.Pointer)
+                //    @ptrCast(dest, x)
+                //else if (@typeId(@typeOf(x)) == @import("builtin").TypeId.Integer)
+                //    @intToPtr(dest, x)
+                //else
+                //    (dest)(x)
+
+                AstNode *import_builtin = trans_create_node_builtin_fn_call_str(c, "import");
+                import_builtin->data.fn_call_expr.params.append(trans_create_node_str_lit_non_c(c, buf_create_from_str("builtin")));
+                AstNode *typeid_type = trans_create_node_field_access_str(c, import_builtin, "TypeId");
+                AstNode *typeid_pointer = trans_create_node_field_access_str(c, typeid_type, "Pointer");
+                AstNode *typeid_integer = trans_create_node_field_access_str(c, typeid_type, "Int");
+                AstNode *typeof_x = trans_create_node_builtin_fn_call_str(c, "typeOf");
+                typeof_x->data.fn_call_expr.params.append(node_to_cast);
+                AstNode *typeid_value = trans_create_node_builtin_fn_call_str(c, "typeId");
+                typeid_value->data.fn_call_expr.params.append(typeof_x);
+
+                AstNode *outer_if_cond = trans_create_node_bin_op(c, typeid_value, BinOpTypeCmpEq, typeid_pointer);
+                AstNode *inner_if_cond = trans_create_node_bin_op(c, typeid_value, BinOpTypeCmpEq, typeid_integer);
+                AstNode *inner_if_then = trans_create_node_builtin_fn_call_str(c, "intToPtr");
+                inner_if_then->data.fn_call_expr.params.append(inner_node);
+                inner_if_then->data.fn_call_expr.params.append(node_to_cast);
+                AstNode *inner_if_else = trans_create_node_cast(c, inner_node, node_to_cast);
+                AstNode *inner_if = trans_create_node_if(c, inner_if_cond, inner_if_then, inner_if_else);
+                AstNode *outer_if_then = trans_create_node_builtin_fn_call_str(c, "ptrCast");
+                outer_if_then->data.fn_call_expr.params.append(inner_node);
+                outer_if_then->data.fn_call_expr.params.append(node_to_cast);
+                return trans_create_node_if(c, outer_if_cond, outer_if_then, inner_if);
             }
         case CTokIdDot:
         case CTokIdEOF:
         case CTokIdRParen:
+        case CTokIdAsterisk:
+        case CTokIdBang:
+        case CTokIdTilde:
             // not able to make sense of this
             return nullptr;
     }
     zig_unreachable();
+}
+
+static AstNode *parse_ctok_expr(Context *c, CTokenize *ctok, size_t *tok_i) {
+    return parse_ctok_prefix_op_expr(c, ctok, tok_i);
+}
+
+static AstNode *parse_ctok_suffix_op_expr(Context *c, CTokenize *ctok, size_t *tok_i) {
+    AstNode *node = parse_ctok_primary_expr(c, ctok, tok_i);
+    if (node == nullptr)
+        return nullptr;
+
+    while (true) {
+        CTok *first_tok = &ctok->tokens.at(*tok_i);
+        if (first_tok->id == CTokIdDot) {
+            *tok_i += 1;
+
+            CTok *name_tok = &ctok->tokens.at(*tok_i);
+            if (name_tok->id != CTokIdSymbol) {
+                return nullptr;
+            }
+            *tok_i += 1;
+
+            node = trans_create_node_field_access(c, node, buf_create_from_buf(&name_tok->data.symbol));
+        } else if (first_tok->id == CTokIdAsterisk) {
+            *tok_i += 1;
+
+            node = trans_create_node_addr_of(c, false, false, node);
+        } else {
+            return node;
+        }
+    }
+}
+
+static PrefixOp ctok_to_prefix_op(CTok *token) {
+    switch (token->id) {
+        case CTokIdBang: return PrefixOpBoolNot;
+        case CTokIdMinus: return PrefixOpNegation;
+        case CTokIdTilde: return PrefixOpBinNot;
+        case CTokIdAsterisk: return PrefixOpDereference;
+        default: return PrefixOpInvalid;
+    }
+}
+static AstNode *parse_ctok_prefix_op_expr(Context *c, CTokenize *ctok, size_t *tok_i) {
+    CTok *op_tok = &ctok->tokens.at(*tok_i);
+    PrefixOp prefix_op = ctok_to_prefix_op(op_tok);
+    if (prefix_op == PrefixOpInvalid) {
+        return parse_ctok_suffix_op_expr(c, ctok, tok_i);
+    }
+    *tok_i += 1;
+
+    AstNode *prefix_op_expr = parse_ctok_prefix_op_expr(c, ctok, tok_i);
+    if (prefix_op_expr == nullptr)
+        return nullptr;
+    return trans_create_node_prefix_op(c, prefix_op, prefix_op_expr);
 }
 
 static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *char_ptr) {
@@ -4108,7 +4049,7 @@ static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *ch
     assert(name_tok->id == CTokIdSymbol && buf_eql_buf(&name_tok->data.symbol, name));
     tok_i += 1;
 
-    AstNode *result_node = parse_ctok(c, ctok, &tok_i);
+    AstNode *result_node = parse_ctok_suffix_op_expr(c, ctok, &tok_i);
     if (result_node == nullptr) {
         return;
     }
@@ -4189,10 +4130,10 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     c->errors = errors;
     if (buf_ends_with_str(buf_create_from_str(target_file), ".h")) {
         c->visib_mod = VisibModPub;
-        c->export_visib_mod = VisibModPub;
+        c->want_export = false;
     } else {
         c->visib_mod = VisibModPub;
-        c->export_visib_mod = VisibModExport;
+        c->want_export = true;
     }
     c->decl_table.init(8);
     c->macro_table.init(8);

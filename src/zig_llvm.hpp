@@ -45,8 +45,13 @@ enum ZigLLVM_EmitOutputType {
 bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
         const char *filename, ZigLLVM_EmitOutputType output_type, char **error_message, bool is_debug);
 
+enum ZigLLVM_FnInline {
+    ZigLLVM_FnInlineAuto,
+    ZigLLVM_FnInlineAlways,
+    ZigLLVM_FnInlineNever,
+};
 LLVMValueRef ZigLLVMBuildCall(LLVMBuilderRef B, LLVMValueRef Fn, LLVMValueRef *Args,
-        unsigned NumArgs, unsigned CC, bool always_inline, const char *Name);
+        unsigned NumArgs, unsigned CC, ZigLLVM_FnInline fn_inline, const char *Name);
 
 LLVMValueRef ZigLLVMBuildCmpXchg(LLVMBuilderRef builder, LLVMValueRef ptr, LLVMValueRef cmp,
         LLVMValueRef new_val, LLVMAtomicOrdering success_ordering,

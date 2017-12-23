@@ -26,7 +26,6 @@ struct ScopeFnDef;
 struct TypeTableEntry;
 struct VariableTableEntry;
 struct ErrorTableEntry;
-struct LabelTableEntry;
 struct BuiltinFnEntry;
 struct TypeStructField;
 struct CodeGen;
@@ -37,6 +36,7 @@ struct IrBasicBlock;
 struct ScopeDecls;
 struct ZigWindowsSDK;
 struct Tld;
+struct TldExport;
 
 struct IrGotoItem {
     AstNode *source_node;
@@ -53,7 +53,6 @@ struct IrExecutable {
     size_t *backward_branch_count;
     size_t backward_branch_quota;
     bool invalid;
-    ZigList<LabelTableEntry *> all_labels;
     ZigList<IrGotoItem> goto_list;
     bool is_inline;
     FnTableEntry *fn_entry;
@@ -272,7 +271,6 @@ enum ReturnKnowledge {
 enum VisibMod {
     VisibModPrivate,
     VisibModPub,
-    VisibModExport,
 };
 
 enum GlobalLinkageId {
@@ -313,11 +311,8 @@ struct TldVar {
     Tld base;
 
     VariableTableEntry *var;
-    AstNode *set_global_section_node;
-    Buf *section_name;
-    AstNode *set_global_linkage_node;
-    GlobalLinkageId linkage;
     Buf *extern_lib_name;
+    Buf *section_name;
 };
 
 struct TldFn {
@@ -389,8 +384,6 @@ enum NodeType {
     NodeTypeSwitchExpr,
     NodeTypeSwitchProng,
     NodeTypeSwitchRange,
-    NodeTypeLabel,
-    NodeTypeGoto,
     NodeTypeCompTime,
     NodeTypeBreak,
     NodeTypeContinue,
@@ -425,6 +418,7 @@ struct AstNodeFnProto {
     AstNode *return_type;
     bool is_var_args;
     bool is_extern;
+    bool is_export;
     bool is_inline;
     CallingConvention cc;
     AstNode *fn_def_node;
@@ -432,6 +426,8 @@ struct AstNodeFnProto {
     Buf *lib_name;
     // populated if the "align A" is present
     AstNode *align_expr;
+    // populated if the "section(S)" is present
+    AstNode *section_expr;
 };
 
 struct AstNodeFnDef {
@@ -452,8 +448,8 @@ struct AstNodeParamDecl {
 };
 
 struct AstNodeBlock {
+    Buf *name;
     ZigList<AstNode *> statements;
-    bool last_statement_is_result_expression;
 };
 
 enum ReturnKind {
@@ -480,15 +476,18 @@ struct AstNodeVariableDeclaration {
     VisibMod visib_mod;
     Buf *symbol;
     bool is_const;
-    bool is_inline;
+    bool is_comptime;
+    bool is_export;
     bool is_extern;
     // one or both of type and expr will be non null
     AstNode *type;
     AstNode *expr;
     // populated if this is an extern declaration
     Buf *lib_name;
-    // populated if the "align A" is present
+    // populated if the "align(A)" is present
     AstNode *align_expr;
+    // populated if the "section(S)" is present
+    AstNode *section_expr;
 };
 
 struct AstNodeErrorValueDecl {
@@ -659,6 +658,7 @@ struct AstNodeTestExpr {
 };
 
 struct AstNodeWhileExpr {
+    Buf *name;
     AstNode *condition;
     Buf *var_symbol;
     bool var_is_ptr;
@@ -670,6 +670,7 @@ struct AstNodeWhileExpr {
 };
 
 struct AstNodeForExpr {
+    Buf *name;
     AstNode *array_expr;
     AstNode *elem_node; // always a symbol
     AstNode *index_node; // always a symbol, might be null
@@ -699,11 +700,6 @@ struct AstNodeSwitchRange {
 
 struct AstNodeLabel {
     Buf *name;
-};
-
-struct AstNodeGoto {
-    Buf *name;
-    bool is_inline;
 };
 
 struct AstNodeCompTime {
@@ -833,11 +829,14 @@ struct AstNodeBoolLiteral {
 };
 
 struct AstNodeBreakExpr {
+    Buf *name;
     AstNode *expr; // may be null
 };
 
 struct AstNodeContinueExpr {
+    Buf *name;
 };
+
 struct AstNodeUnreachableExpr {
 };
 
@@ -883,7 +882,6 @@ struct AstNode {
         AstNodeSwitchProng switch_prong;
         AstNodeSwitchRange switch_range;
         AstNodeLabel label;
-        AstNodeGoto goto_expr;
         AstNodeCompTime comptime_expr;
         AstNodeAsmExpr asm_expr;
         AstNodeFieldAccessExpr field_access_expr;
@@ -1177,6 +1175,11 @@ enum FnInline {
     FnInlineNever,
 };
 
+struct FnExport {
+    Buf name;
+    GlobalLinkageId linkage;
+};
+
 struct FnTableEntry {
     LLVMValueRef llvm_value;
     const char *llvm_name;
@@ -1204,12 +1207,11 @@ struct FnTableEntry {
     ZigList<IrInstruction *> alloca_list;
     ZigList<VariableTableEntry *> variable_list;
 
-    AstNode *set_global_section_node;
     Buf *section_name;
-    AstNode *set_global_linkage_node;
-    GlobalLinkageId linkage;
     AstNode *set_alignstack_node;
     uint32_t alignstack_value;
+
+    ZigList<FnExport> export_list;
 };
 
 uint32_t fn_table_entry_hash(FnTableEntry*);
@@ -1258,8 +1260,6 @@ enum BuiltinFnId {
     BuiltinFnIdSetFloatMode,
     BuiltinFnIdTypeName,
     BuiltinFnIdCanImplicitCast,
-    BuiltinFnIdSetGlobalSection,
-    BuiltinFnIdSetGlobalLinkage,
     BuiltinFnIdPanic,
     BuiltinFnIdPtrCast,
     BuiltinFnIdBitCast,
@@ -1270,6 +1270,7 @@ enum BuiltinFnId {
     BuiltinFnIdFieldParentPtr,
     BuiltinFnIdOffsetOf,
     BuiltinFnIdInlineCall,
+    BuiltinFnIdNoInlineCall,
     BuiltinFnIdTypeId,
     BuiltinFnIdShlExact,
     BuiltinFnIdShrExact,
@@ -1278,6 +1279,7 @@ enum BuiltinFnId {
     BuiltinFnIdOpaqueType,
     BuiltinFnIdSetAlignStack,
     BuiltinFnIdArgType,
+    BuiltinFnIdExport,
 };
 
 struct BuiltinFnEntry {
@@ -1424,7 +1426,7 @@ struct CodeGen {
     HashMap<GenericFnTypeId *, FnTableEntry *, generic_fn_type_id_hash, generic_fn_type_id_eql> generic_table;
     HashMap<Scope *, IrInstruction *, fn_eval_hash, fn_eval_eql> memoized_fn_eval_table;
     HashMap<ZigLLVMFnKey, LLVMValueRef, zig_llvm_fn_key_hash, zig_llvm_fn_key_eql> llvm_fn_table;
-    HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> exported_symbol_names;
+    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> exported_symbol_names;
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_prototypes;
 
 
@@ -1439,7 +1441,7 @@ struct CodeGen {
 
     struct {
         TypeTableEntry *entry_bool;
-        TypeTableEntry *entry_int[2][11]; // [signed,unsigned][2,3,4,5,6,7,8,16,32,64,128]
+        TypeTableEntry *entry_int[2][12]; // [signed,unsigned][2,3,4,5,6,7,8,16,29,32,64,128]
         TypeTableEntry *entry_c_int[CIntTypeCount];
         TypeTableEntry *entry_c_longdouble;
         TypeTableEntry *entry_c_void;
@@ -1639,12 +1641,6 @@ struct ErrorTableEntry {
     ConstExprValue *cached_error_name_val;
 };
 
-struct LabelTableEntry {
-    AstNode *decl_node;
-    IrBasicBlock *bb;
-    bool used;
-};
-
 enum ScopeId {
     ScopeIdDecls,
     ScopeIdBlock,
@@ -1688,7 +1684,12 @@ struct ScopeDecls {
 struct ScopeBlock {
     Scope base;
 
-    HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table;
+    Buf *name;
+    IrBasicBlock *end_block;
+    IrInstruction *is_comptime;
+    ZigList<IrInstruction *> *incoming_values;
+    ZigList<IrBasicBlock *> *incoming_blocks;
+
     bool safety_off;
     AstNode *safety_set_node;
     bool fast_math_off;
@@ -1734,6 +1735,7 @@ struct ScopeCImport {
 struct ScopeLoop {
     Scope base;
 
+    Buf *name;
     IrBasicBlock *break_block;
     IrBasicBlock *continue_block;
     IrInstruction *is_comptime;
@@ -1885,8 +1887,6 @@ enum IrInstructionId {
     IrInstructionIdCheckStatementIsVoid,
     IrInstructionIdTypeName,
     IrInstructionIdCanImplicitCast,
-    IrInstructionIdSetGlobalSection,
-    IrInstructionIdSetGlobalLinkage,
     IrInstructionIdDeclRef,
     IrInstructionIdPanic,
     IrInstructionIdTagName,
@@ -1900,6 +1900,7 @@ enum IrInstructionId {
     IrInstructionIdOpaqueType,
     IrInstructionIdSetAlignStack,
     IrInstructionIdArgType,
+    IrInstructionIdExport,
 };
 
 struct IrInstruction {
@@ -2102,7 +2103,7 @@ struct IrInstructionCall {
     IrInstruction **args;
     bool is_comptime;
     LLVMValueRef tmp_ptr;
-    bool is_inline;
+    FnInline fn_inline;
 };
 
 struct IrInstructionConst {
@@ -2625,20 +2626,6 @@ struct IrInstructionCanImplicitCast {
     IrInstruction *target_value;
 };
 
-struct IrInstructionSetGlobalSection {
-    IrInstruction base;
-
-    Tld *tld;
-    IrInstruction *value;
-};
-
-struct IrInstructionSetGlobalLinkage {
-    IrInstruction base;
-
-    Tld *tld;
-    IrInstruction *value;
-};
-
 struct IrInstructionDeclRef {
     IrInstruction base;
 
@@ -2725,6 +2712,14 @@ struct IrInstructionArgType {
 
     IrInstruction *fn_type;
     IrInstruction *arg_index;
+};
+
+struct IrInstructionExport {
+    IrInstruction base;
+
+    IrInstruction *name;
+    IrInstruction *linkage;
+    IrInstruction *target;
 };
 
 static const size_t slice_ptr_index = 0;

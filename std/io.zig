@@ -50,35 +50,32 @@ error Unseekable;
 error EndOfFile;
 
 pub fn getStdErr() -> %File {
-    const handle = if (is_windows) {
+    const handle = if (is_windows)
         %return os.windowsGetStdHandle(system.STD_ERROR_HANDLE)
-    } else if (is_posix) {
+    else if (is_posix)
         system.STDERR_FILENO
-    } else {
-        unreachable
-    };
+    else
+        unreachable;
     return File.openHandle(handle);
 }
 
 pub fn getStdOut() -> %File {
-    const handle = if (is_windows) {
+    const handle = if (is_windows)
         %return os.windowsGetStdHandle(system.STD_OUTPUT_HANDLE)
-    } else if (is_posix) {
+    else if (is_posix)
         system.STDOUT_FILENO
-    } else {
-        unreachable
-    };
+    else
+        unreachable;
     return File.openHandle(handle);
 }
 
 pub fn getStdIn() -> %File {
-    const handle = if (is_windows) {
+    const handle = if (is_windows)
         %return os.windowsGetStdHandle(system.STD_INPUT_HANDLE)
-    } else if (is_posix) {
+    else if (is_posix)
         system.STDIN_FILENO
-    } else {
-        unreachable
-    };
+    else
+        unreachable;
     return File.openHandle(handle);
 }
 
@@ -261,7 +258,7 @@ pub const File = struct {
                     system.EBADF => error.BadFd,
                     system.ENOMEM => error.SystemResources,
                     else => os.unexpectedErrorPosix(err),
-                }
+                };
             }
 
             return usize(stat.size);
@@ -481,6 +478,14 @@ pub const OutStream = struct {
         const slice = (&byte)[0..1];
         return self.writeFn(self, slice);
     }
+
+    pub fn writeByteNTimes(self: &OutStream, byte: u8, n: usize) -> %void {
+        const slice = (&byte)[0..1];
+        var i: usize = 0;
+        while (i < n) : (i += 1) {
+            %return self.writeFn(self, slice);
+        }
+    }
 };
 
 /// `path` may need to be copied in memory to add a null terminating byte. In this case
@@ -491,6 +496,20 @@ pub fn writeFile(path: []const u8, data: []const u8, allocator: ?&mem.Allocator)
     var file = %return File.openWrite(path, allocator);
     defer file.close();
     %return file.write(data);
+}
+
+/// On success, caller owns returned buffer.
+pub fn readFileAlloc(path: []const u8, allocator: &mem.Allocator) -> %[]u8 {
+    var file = %return File.openRead(path, allocator);
+    defer file.close();
+
+    const size = %return file.getEndPos();
+    const buf = %return allocator.alloc(u8, size);
+    %defer allocator.free(buf);
+
+    var adapter = FileInStream.init(&file);
+    %return adapter.stream.readNoEof(buf);
+    return buf;
 }
 
 pub const BufferedInStream = BufferedInStreamCustom(os.page_size);
@@ -619,3 +638,24 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize) -> type {
         }
     };
 }
+
+/// Implementation of OutStream trait for Buffer
+pub const BufferOutStream = struct {
+    buffer: &Buffer,
+    stream: OutStream,
+
+    pub fn init(buffer: &Buffer) -> BufferOutStream {
+        return BufferOutStream {
+            .buffer = buffer,
+            .stream = OutStream {
+                .writeFn = writeFn,
+            },
+        };
+    }
+
+    fn writeFn(out_stream: &OutStream, bytes: []const u8) -> %void {
+        const self = @fieldParentPtr(BufferOutStream, "stream", out_stream);
+        return self.buffer.append(bytes);
+    }
+};
+

@@ -16,11 +16,11 @@ pub fn windowsWaitSingle(handle: windows.HANDLE, milliseconds: windows.DWORD) ->
         windows.WAIT_ABANDONED => error.WaitAbandoned,
         windows.WAIT_OBJECT_0 => {},
         windows.WAIT_TIMEOUT => error.WaitTimeOut,
-        windows.WAIT_FAILED => {
+        windows.WAIT_FAILED => x: {
             const err = windows.GetLastError();
-            switch (err) {
+            break :x switch (err) {
                 else => os.unexpectedErrorWindows(err),
-            }
+            };
         },
         else => error.Unexpected,
     };
@@ -122,7 +122,7 @@ pub fn windowsOpen(file_path: []const u8, desired_access: windows.DWORD, share_m
 /// Caller must free result.
 pub fn createWindowsEnvBlock(allocator: &mem.Allocator, env_map: &const BufMap) -> %[]u8 {
     // count bytes needed
-    const bytes_needed = {
+    const bytes_needed = x: {
         var bytes_needed: usize = 1; // 1 for the final null byte
         var it = env_map.iterator();
         while (it.next()) |pair| {
@@ -130,7 +130,7 @@ pub fn createWindowsEnvBlock(allocator: &mem.Allocator, env_map: &const BufMap) 
             // +1 for null byte
             bytes_needed += pair.key.len + pair.value.len + 2;
         }
-        bytes_needed
+        break :x bytes_needed;
     };
     const result = %return allocator.alloc(u8, bytes_needed);
     %defer allocator.free(result);

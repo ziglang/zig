@@ -12,8 +12,11 @@ test "empty function with comments" {
     emptyFunctionWithComments();
 }
 
-export fn disabledExternFn() {
-    @setGlobalLinkage(disabledExternFn, builtin.GlobalLinkage.Internal);
+comptime {
+    @export("disabledExternFn", disabledExternFn, builtin.GlobalLinkage.Internal);
+}
+
+extern fn disabledExternFn() {
 }
 
 test "call disabled extern fn" {
@@ -107,17 +110,17 @@ fn testShortCircuit(f: bool, t: bool) {
     var hit_3 = f;
     var hit_4 = f;
 
-    if (t or {assert(f); f}) {
+    if (t or x: {assert(f); break :x f;}) {
         hit_1 = t;
     }
-    if (f or { hit_2 = t; f }) {
+    if (f or x: { hit_2 = t; break :x f; }) {
         assert(f);
     }
 
-    if (t and { hit_3 = t; f }) {
+    if (t and x: { hit_3 = t; break :x f; }) {
         assert(f);
     }
-    if (f and {assert(f); f}) {
+    if (f and x: {assert(f); break :x f;}) {
         assert(f);
     } else {
         hit_4 = t;
@@ -132,11 +135,11 @@ test "truncate" {
     assert(testTruncate(0x10fd) == 0xfd);
 }
 fn testTruncate(x: u32) -> u8 {
-    @truncate(u8, x)
+    return @truncate(u8, x);
 }
 
 fn first4KeysOfHomeRow() -> []const u8 {
-    "aoeu"
+    return "aoeu";
 }
 
 test "return string from function" {
@@ -164,7 +167,7 @@ test "memcpy and memset intrinsics" {
 }
 
 test "builtin static eval" {
-    const x : i32 = comptime {1 + 2 + 3};
+    const x : i32 = comptime x: {break :x 1 + 2 + 3;};
     assert(x == comptime 6);
 }
 
@@ -187,7 +190,7 @@ test "slicing" {
 
 test "constant equal function pointers" {
     const alias = emptyFn;
-    assert(comptime {emptyFn == alias});
+    assert(comptime x: {break :x emptyFn == alias;});
 }
 
 fn emptyFn() {}
@@ -277,14 +280,14 @@ test "cast small unsigned to larger signed" {
     assert(castSmallUnsignedToLargerSigned1(200) == i16(200));
     assert(castSmallUnsignedToLargerSigned2(9999) == i64(9999));
 }
-fn castSmallUnsignedToLargerSigned1(x: u8) -> i16 { x }
-fn castSmallUnsignedToLargerSigned2(x: u16) -> i64 { x }
+fn castSmallUnsignedToLargerSigned1(x: u8) -> i16 { return x; }
+fn castSmallUnsignedToLargerSigned2(x: u16) -> i64 { return x; }
 
 
 test "implicit cast after unreachable" {
     assert(outer() == 1234);
 }
-fn inner() -> i32 { 1234 }
+fn inner() -> i32 { return 1234; }
 fn outer() -> i64 {
     return inner();
 }
@@ -307,8 +310,8 @@ test "call result of if else expression" {
 fn f2(x: bool) -> []const u8 {
     return (if (x) fA else fB)();
 }
-fn fA() -> []const u8 { "a" }
-fn fB() -> []const u8 { "b" }
+fn fA() -> []const u8 { return "a"; }
+fn fB() -> []const u8 { return "b"; }
 
 
 test "const expression eval handling of variables" {
@@ -376,7 +379,7 @@ test "pointer comparison" {
     assert(ptrEql(b, b));
 }
 fn ptrEql(a: &const []const u8, b: &const []const u8) -> bool {
-    a == b
+    return a == b;
 }
 
 
@@ -480,7 +483,7 @@ test "@typeId" {
         assert(@typeId(AUnion) == Tid.Union);
         assert(@typeId(fn()) == Tid.Fn);
         assert(@typeId(@typeOf(builtin)) == Tid.Namespace);
-        assert(@typeId(@typeOf({this})) == Tid.Block);
+        assert(@typeId(@typeOf(x: {break :x this;})) == Tid.Block);
         // TODO bound fn
         // TODO arg tuple
         // TODO opaque
@@ -504,7 +507,7 @@ test "@typeName" {
 
 test "volatile load and store" {
     var number: i32 = 1234;
-    const ptr = &volatile number;
+    const ptr = (&volatile i32)(&number);
     *ptr += 1;
     assert(*ptr == 1235);
 }

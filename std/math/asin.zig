@@ -8,11 +8,11 @@ const assert = @import("../debug.zig").assert;
 
 pub fn asin(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(asin32, x),
-        f64 => @inlineCall(asin64, x),
+    return switch (T) {
+        f32 => asin32(x),
+        f64 => asin64(x),
         else => @compileError("asin not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 fn r32(z: f32) -> f32 {
@@ -23,7 +23,7 @@ fn r32(z: f32) -> f32 {
 
     const p = z * (pS0 + z * (pS1 + z * pS2));
     const q = 1.0 + z * qS1;
-    p / q
+    return p / q;
 }
 
 fn asin32(x: f32) -> f32 {
@@ -58,9 +58,9 @@ fn asin32(x: f32) -> f32 {
     const fx = pio2 - 2 * (s + s * r32(z));
 
     if (hx >> 31 != 0) {
-        -fx
+        return -fx;
     } else {
-        fx
+        return fx;
     }
 }
 
@@ -78,7 +78,7 @@ fn r64(z: f64) -> f64 {
 
     const p = z * (pS0 + z * (pS1 + z * (pS2 + z * (pS3 + z * (pS4 + z * pS5)))));
     const q = 1.0 + z * (qS1 + z * (qS2 + z * (qS3 + z * qS4)));
-    p / q
+    return p / q;
 }
 
 fn asin64(x: f64) -> f64 {
@@ -119,7 +119,7 @@ fn asin64(x: f64) -> f64 {
 
     // |x| > 0.975
     if (ix >= 0x3FEF3333) {
-        fx = pio2_hi - 2 * (s + s * r)
+        fx = pio2_hi - 2 * (s + s * r);
     } else {
         const jx = @bitCast(u64, s);
         const df = @bitCast(f64, jx & 0xFFFFFFFF00000000);
@@ -128,9 +128,9 @@ fn asin64(x: f64) -> f64 {
     }
 
     if (hx >> 31 != 0) {
-        -fx
+        return -fx;
     } else {
-        fx
+        return fx;
     }
 }
 

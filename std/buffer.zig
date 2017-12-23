@@ -30,9 +30,9 @@ pub const Buffer = struct {
     /// * ::replaceContentsBuffer
     /// * ::resize
     pub fn initNull(allocator: &Allocator) -> Buffer {
-        Buffer {
+        return Buffer {
             .list = ArrayList(u8).init(allocator),
-        }
+        };
     }
 
     /// Must deinitialize with deinit.
@@ -98,14 +98,17 @@ pub const Buffer = struct {
         mem.copy(u8, self.list.toSlice()[old_len..], m);
     }
 
+    // TODO: remove, use OutStream for this
     pub fn appendFormat(self: &Buffer, comptime format: []const u8, args: ...) -> %void {
         return fmt.format(self, append, format, args);
     }
 
+    // TODO: remove, use OutStream for this
     pub fn appendByte(self: &Buffer, byte: u8) -> %void {
         return self.appendByteNTimes(byte, 1);
     }
 
+    // TODO: remove, use OutStream for this
     pub fn appendByteNTimes(self: &Buffer, byte: u8, count: usize) -> %void {
         var prev_size: usize = self.len();
         %return self.resize(prev_size + count);
@@ -117,7 +120,7 @@ pub const Buffer = struct {
     }
 
     pub fn eql(self: &const Buffer, m: []const u8) -> bool {
-        mem.eql(u8, self.toSliceConst(), m)
+        return mem.eql(u8, self.toSliceConst(), m);
     }
 
     pub fn startsWith(self: &const Buffer, m: []const u8) -> bool {
@@ -135,6 +138,11 @@ pub const Buffer = struct {
     pub fn replaceContents(self: &const Buffer, m: []const u8) -> %void {
         %return self.resize(m.len);
         mem.copy(u8, self.list.toSlice(), m);
+    }
+
+    /// For passing to C functions.
+    pub fn ptr(self: &const Buffer) -> &u8 {
+        return self.list.items.ptr;
     }
 };
 

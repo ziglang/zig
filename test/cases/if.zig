@@ -29,10 +29,10 @@ test "else if expression" {
 }
 fn elseIfExpressionF(c: u8) -> u8 {
     if (c == 0) {
-        0
+        return 0;
     } else if (c == 1) {
-        1
+        return 1;
     } else {
-        u8(2)
+        return u8(2);
     }
 }

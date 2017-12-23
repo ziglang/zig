@@ -18,7 +18,7 @@ fn doThing(form_id: u64) -> %FormValue {
     return switch (form_id) {
         17 => FormValue { .Address = %return readOnce() },
         else => error.InvalidDebugInfo,
-    }
+    };
 }
 
 test "switch prong returns error enum" {

@@ -3,26 +3,31 @@ const assert = debug.assert;
 const math = @import("math/index.zig");
 const builtin = @import("builtin");
 
-pub const Cmp = math.Cmp;
+error OutOfMemory;
 
 pub const Allocator = struct {
     /// Allocate byte_count bytes and return them in a slice, with the
-    /// slicer's pointer aligned at least to alignment bytes.
-    allocFn: fn (self: &Allocator, byte_count: usize, alignment: usize) -> %[]u8,
+    /// slice's pointer aligned at least to alignment bytes.
+    /// The returned newly allocated memory is undefined.
+    allocFn: fn (self: &Allocator, byte_count: usize, alignment: u29) -> %[]u8,
 
-    /// Guaranteed: `old_mem.len` is the same as what was returned from allocFn or reallocFn.
-    /// Guaranteed: alignment >= alignment of old_mem.ptr
+    /// If `new_byte_count > old_mem.len`:
+    /// * `old_mem.len` is the same as what was returned from allocFn or reallocFn.
+    /// * alignment >= alignment of old_mem.ptr
     ///
-    /// If `new_byte_count` is less than or equal to `old_mem.len` this function must
-    /// return successfully.
-    reallocFn: fn (self: &Allocator, old_mem: []u8, new_byte_count: usize, alignment: usize) -> %[]u8,
+    /// If `new_byte_count <= old_mem.len`:
+    /// * this function must return successfully. 
+    /// * alignment <= alignment of old_mem.ptr
+    ///
+    /// The returned newly allocated memory is undefined.
+    reallocFn: fn (self: &Allocator, old_mem: []u8, new_byte_count: usize, alignment: u29) -> %[]u8,
 
     /// Guaranteed: `old_mem.len` is the same as what was returned from `allocFn` or `reallocFn`
     freeFn: fn (self: &Allocator, old_mem: []u8),
 
     fn create(self: &Allocator, comptime T: type) -> %&T {
         const slice = %return self.alloc(T, 1);
-        &slice[0]
+        return &slice[0];
     }
 
     fn destroy(self: &Allocator, ptr: var) {
@@ -30,28 +35,52 @@ pub const Allocator = struct {
     }
 
     fn alloc(self: &Allocator, comptime T: type, n: usize) -> %[]T {
+        return self.alignedAlloc(T, @alignOf(T), n);
+    }
+
+    fn alignedAlloc(self: &Allocator, comptime T: type, comptime alignment: u29,
+        n: usize) -> %[]align(alignment) T
+    {
         const byte_count = %return math.mul(usize, @sizeOf(T), n);
-        const byte_slice = %return self.allocFn(self, byte_count, @alignOf(T));
-        ([]T)(@alignCast(@alignOf(T), byte_slice))
+        const byte_slice = %return self.allocFn(self, byte_count, alignment);
+        // This loop should get optimized out in ReleaseFast mode
+        for (byte_slice) |*byte| {
+            *byte = undefined;
+        }
+        return ([]align(alignment) T)(@alignCast(alignment, byte_slice));
     }
 
     fn realloc(self: &Allocator, comptime T: type, old_mem: []T, n: usize) -> %[]T {
+        return self.alignedRealloc(T, @alignOf(T), @alignCast(@alignOf(T), old_mem), n);
+    }
+
+    fn alignedRealloc(self: &Allocator, comptime T: type, comptime alignment: u29,
+        old_mem: []align(alignment) T, n: usize) -> %[]align(alignment) T
+    {
         if (old_mem.len == 0) {
             return self.alloc(T, n);
         }
 
-        // Assert that old_mem.ptr is properly aligned.
-        const aligned_old_mem = @alignCast(@alignOf(T), old_mem);
-
+        const old_byte_slice = ([]u8)(old_mem);
         const byte_count = %return math.mul(usize, @sizeOf(T), n);
-        const byte_slice = %return self.reallocFn(self, ([]u8)(aligned_old_mem), byte_count, @alignOf(T));
-        return ([]T)(@alignCast(@alignOf(T), byte_slice));
+        const byte_slice = %return self.reallocFn(self, old_byte_slice, byte_count, alignment);
+        // This loop should get optimized out in ReleaseFast mode
+        for (byte_slice[old_byte_slice.len..]) |*byte| {
+            *byte = undefined;
+        }
+        return ([]T)(@alignCast(alignment, byte_slice));
     }
 
     /// Reallocate, but `n` must be less than or equal to `old_mem.len`.
     /// Unlike `realloc`, this function cannot fail.
     /// Shrinking to 0 is the same as calling `free`.
     fn shrink(self: &Allocator, comptime T: type, old_mem: []T, n: usize) -> []T {
+        return self.alignedShrink(T, @alignOf(T), @alignCast(@alignOf(T), old_mem), n);
+    }
+
+    fn alignedShrink(self: &Allocator, comptime T: type, comptime alignment: u29,
+        old_mem: []align(alignment) T, n: usize) -> []align(alignment) T
+    {
         if (n == 0) {
             self.free(old_mem);
             return old_mem[0..0];
@@ -59,15 +88,12 @@ pub const Allocator = struct {
 
         assert(n <= old_mem.len);
 
-        // Assert that old_mem.ptr is properly aligned.
-        const aligned_old_mem = @alignCast(@alignOf(T), old_mem);
-
         // Here we skip the overflow checking on the multiplication because
         // n <= old_mem.len and the multiplication didn't overflow for that operation.
         const byte_count = @sizeOf(T) * n;
 
-        const byte_slice = %%self.reallocFn(self, ([]u8)(aligned_old_mem), byte_count, @alignOf(T));
-        return ([]T)(@alignCast(@alignOf(T), byte_slice));
+        const byte_slice = %%self.reallocFn(self, ([]u8)(old_mem), byte_count, alignment);
+        return ([]align(alignment) T)(@alignCast(alignment, byte_slice));
     }
 
     fn free(self: &Allocator, memory: var) {
@@ -77,6 +103,51 @@ pub const Allocator = struct {
         const non_const_ptr = @intToPtr(&u8, @ptrToInt(bytes.ptr));
         self.freeFn(self, non_const_ptr[0..bytes.len]);
     }
+};
+
+pub const FixedBufferAllocator = struct {
+    allocator: Allocator,
+    end_index: usize,
+    buffer: []u8,
+
+    pub fn init(buffer: []u8) -> FixedBufferAllocator {
+        return FixedBufferAllocator {
+            .allocator = Allocator {
+                .allocFn = alloc,
+                .reallocFn = realloc,
+                .freeFn = free,
+            },
+            .buffer = buffer,
+            .end_index = 0,
+        };
+    }
+
+    fn alloc(allocator: &Allocator, n: usize, alignment: u29) -> %[]u8 {
+        const self = @fieldParentPtr(FixedBufferAllocator, "allocator", allocator);
+        const addr = @ptrToInt(&self.buffer[self.end_index]);
+        const rem = @rem(addr, alignment);
+        const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
+        const adjusted_index = self.end_index + march_forward_bytes;
+        const new_end_index = adjusted_index + n;
+        if (new_end_index > self.buffer.len) {
+            return error.OutOfMemory;
+        }
+        const result = self.buffer[adjusted_index .. new_end_index];
+        self.end_index = new_end_index;
+        return result;
+    }
+
+    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) -> %[]u8 {
+        if (new_size <= old_mem.len) {
+            return old_mem[0..new_size];
+        } else {
+            const result = %return alloc(allocator, new_size, alignment);
+            copy(u8, result, old_mem);
+            return result;
+        }
+    }
+
+    fn free(allocator: &Allocator, bytes: []u8) { }
 };
 
 
@@ -95,17 +166,24 @@ pub fn set(comptime T: type, dest: []T, value: T) {
     for (dest) |*d| *d = value;
 }
 
-/// Return < 0, == 0, or > 0 if memory a is less than, equal to, or greater than,
-/// memory b, respectively.
-pub fn cmp(comptime T: type, a: []const T, b: []const T) -> Cmp {
-    const n = math.min(a.len, b.len);
+/// Returns true if lhs < rhs, false otherwise
+pub fn lessThan(comptime T: type, lhs: []const T, rhs: []const T) -> bool {
+    const n = math.min(lhs.len, rhs.len);
     var i: usize = 0;
     while (i < n) : (i += 1) {
-        if (a[i] == b[i]) continue;
-        return if (a[i] > b[i]) Cmp.Greater else if (a[i] < b[i]) Cmp.Less else Cmp.Equal;
+        if (lhs[i] == rhs[i]) continue;
+        return lhs[i] < rhs[i];
     }
 
-    return if (a.len > b.len) Cmp.Greater else if (a.len < b.len) Cmp.Less else Cmp.Equal;
+    return lhs.len < rhs.len;
+}
+
+test "mem.lessThan" {
+    assert(lessThan(u8, "abcd", "bee"));
+    assert(!lessThan(u8, "abc", "abc"));
+    assert(lessThan(u8, "abc", "abc0"));
+    assert(!lessThan(u8, "", ""));
+    assert(lessThan(u8, "", "a"));
 }
 
 /// Compares two slices and returns whether they are equal.
@@ -276,11 +354,11 @@ pub fn eql_slice_u8(a: []const u8, b: []const u8) -> bool {
 /// split("   abc def    ghi  ", " ")
 /// Will return slices for "abc", "def", "ghi", null, in that order.
 pub fn split(buffer: []const u8, split_bytes: []const u8) -> SplitIterator {
-    SplitIterator {
+    return SplitIterator {
         .index = 0,
         .buffer = buffer,
         .split_bytes = split_bytes,
-    }
+    };
 }
 
 test "mem.split" {
@@ -433,9 +511,8 @@ fn testWriteIntImpl() {
 
 pub fn min(comptime T: type, slice: []const T) -> T {
     var best = slice[0];
-    var i: usize = 1;
-    while (i < slice.len) : (i += 1) {
-        best = math.min(best, slice[i]);
+    for (slice[1..]) |item| {
+        best = math.min(best, item);
     }
     return best;
 }
@@ -446,13 +523,49 @@ test "mem.min" {
 
 pub fn max(comptime T: type, slice: []const T) -> T {
     var best = slice[0];
-    var i: usize = 1;
-    while (i < slice.len) : (i += 1) {
-        best = math.max(best, slice[i]);
+    for (slice[1..]) |item| {
+        best = math.max(best, item);
     }
     return best;
 }
 
 test "mem.max" {
     assert(max(u8, "abcdefg") == 'g');
+}
+
+pub fn swap(comptime T: type, a: &T, b: &T) {
+    const tmp = *a;
+    *a = *b;
+    *b = tmp;
+}
+
+/// In-place order reversal of a slice
+pub fn reverse(comptime T: type, items: []T) {
+    var i: usize = 0;
+    const end = items.len / 2;
+    while (i < end) : (i += 1) {
+        swap(T, &items[i], &items[items.len - i - 1]);
+    }
+}
+
+test "std.mem.reverse" {
+    var arr = []i32{ 5, 3, 1, 2, 4 };
+    reverse(i32, arr[0..]);
+
+    assert(eql(i32, arr, []i32{ 4, 2, 1, 3, 5 }));
+}
+
+/// In-place rotation of the values in an array ([0 1 2 3] becomes [1 2 3 0] if we rotate by 1)
+/// Assumes 0 <= amount <= items.len
+pub fn rotate(comptime T: type, items: []T, amount: usize) {
+    reverse(T, items[0..amount]);
+    reverse(T, items[amount..]);
+    reverse(T, items);
+}
+
+test "std.mem.rotate" {
+    var arr = []i32{ 5, 3, 1, 2, 4 };
+    rotate(i32, arr[0..], 2);
+
+    assert(eql(i32, arr, []i32{ 1, 2, 4, 5, 3 }));
 }

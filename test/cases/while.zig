@@ -118,80 +118,95 @@ test "while with error union condition" {
 var numbers_left: i32 = undefined;
 error OutOfNumbers;
 fn getNumberOrErr() -> %i32 {
-    return if (numbers_left == 0) {
+    return if (numbers_left == 0)
         error.OutOfNumbers
-    } else {
+    else x: {
         numbers_left -= 1;
-        numbers_left
+        break :x numbers_left;
     };
 }
 fn getNumberOrNull() -> ?i32 {
-    return if (numbers_left == 0) {
+    return if (numbers_left == 0)
         null
-    } else {
+    else x: {
         numbers_left -= 1;
-        numbers_left
+        break :x numbers_left;
     };
 }
 
 test "while on nullable with else result follow else prong" {
     const result = while (returnNull()) |value| {
         break value;
-    } else {
-        i32(2)
-    };
+    } else i32(2);
     assert(result == 2);
 }
 
 test "while on nullable with else result follow break prong" {
     const result = while (returnMaybe(10)) |value| {
         break value;
-    } else {
-        i32(2)
-    };
+    } else i32(2);
     assert(result == 10);
 }
 
 test "while on error union with else result follow else prong" {
     const result = while (returnError()) |value| {
         break value;
-    } else |err| {
-        i32(2)
-    };
+    } else |err| i32(2);
     assert(result == 2);
 }
 
 test "while on error union with else result follow break prong" {
     const result = while (returnSuccess(10)) |value| {
         break value;
-    } else |err| {
-        i32(2)
-    };
+    } else |err| i32(2);
     assert(result == 10);
 }
 
 test "while on bool with else result follow else prong" {
     const result = while (returnFalse()) {
         break i32(10);
-    } else {
-        i32(2)
-    };
+    } else i32(2);
     assert(result == 2);
 }
 
 test "while on bool with else result follow break prong" {
     const result = while (returnTrue()) {
         break i32(10);
-    } else {
-        i32(2)
-    };
+    } else i32(2);
     assert(result == 10);
 }
 
-fn returnNull() -> ?i32 { null }
-fn returnMaybe(x: i32) -> ?i32 { x }
+test "break from outer while loop" {
+    testBreakOuter();
+    comptime testBreakOuter();
+}
+
+fn testBreakOuter() {
+    outer: while (true) {
+        while (true) {
+            break :outer;
+        }
+    }
+}
+
+test "continue outer while loop" {
+    testContinueOuter();
+    comptime testContinueOuter();
+}
+
+fn testContinueOuter() {
+    var i: usize = 0;
+    outer: while (i < 10) : (i += 1) {
+        while (true) {
+            continue :outer;
+        }
+    }
+}
+
+fn returnNull() -> ?i32 { return null; }
+fn returnMaybe(x: i32) -> ?i32 { return x; }
 error YouWantedAnError;
-fn returnError() -> %i32 { error.YouWantedAnError }
-fn returnSuccess(x: i32) -> %i32 { x }
-fn returnFalse() -> bool { false }
-fn returnTrue() -> bool { true }
+fn returnError() -> %i32 { return error.YouWantedAnError; }
+fn returnSuccess(x: i32) -> %i32 { return x; }
+fn returnFalse() -> bool { return false; }
+fn returnTrue() -> bool { return true; }

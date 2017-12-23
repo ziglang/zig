@@ -136,6 +136,7 @@
             <li><a href="#builtin-divFloor">@divFloor</a></li>
             <li><a href="#builtin-divTrunc">@divTrunc</a></li>
             <li><a href="#builtin-embedFile">@embedFile</a></li>
+            <li><a href="#builtin-export">@export</a></li>
             <li><a href="#builtin-tagName">@tagName</a></li>
             <li><a href="#builtin-EnumTagType">@EnumTagType</a></li>
             <li><a href="#builtin-errorName">@errorName</a></li>
@@ -3020,14 +3021,13 @@ const assert = @import("std").debug.assert;</code></pre>
       <pre><code class="zig">const assert = @import("std").debug.assert;
 
 // Functions are declared like this
-// The last expression in the function can be used as the return value.
 fn add(a: i8, b: i8) -&gt; i8 {
     if (a == 0) {
         // You can still return manually if needed.
         return b;
     }
 
-    a + b
+    return a + b;
 }
 
 // The export specifier makes a function externally visible in the generated
@@ -4368,6 +4368,11 @@ test.zig:6:2: error: found compile log statement
       <ul>
         <li><a href="#builtin-import">@import</a></li>
       </ul>
+      <h3 id="builtin-export">@export</h3>
+      <pre><code class="zig">@export(comptime name: []const u8, target: var, linkage: builtin.GlobalLinkage) -&gt; []const u8</code></pre>
+      <p>
+      Creates a symbol in the output object file.
+      </p>
       <h3 id="builtin-tagName">@tagName</h3>
       <pre><code class="zig">@tagName(value: var) -&gt; []const u8</code></pre>
       <p>
@@ -5815,13 +5820,15 @@ TopLevelItem = ErrorValueDecl | CompTimeExpression(Block) | TopLevelDecl | TestD
 
 TestDecl = "test" String Block
 
-TopLevelDecl = option(VisibleMod) (FnDef | ExternDecl | GlobalVarDecl | UseDecl)
+TopLevelDecl = option("pub") (FnDef | ExternDecl | GlobalVarDecl | UseDecl)
 
 ErrorValueDecl = "error" Symbol ";"
 
-GlobalVarDecl = VariableDeclaration ";"
+GlobalVarDecl = option("export") VariableDeclaration ";"
 
-VariableDeclaration = option("comptime") ("var" | "const") Symbol option(":" TypeExpr) option("align" "(" Expression ")") "=" Expression
+LocalVarDecl = option("comptime") VariableDeclaration
+
+VariableDeclaration = ("var" | "const") Symbol option(":" TypeExpr) option("align" "(" Expression ")") option("section" "(" Expression ")") "=" Expression
 
 ContainerMember = (ContainerField | FnDef | GlobalVarDecl)
 
@@ -5831,21 +5838,17 @@ UseDecl = "use" Expression ";"
 
 ExternDecl = "extern" option(String) (FnProto | VariableDeclaration) ";"
 
-FnProto = option("coldcc" | "nakedcc" | "stdcallcc") "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("-&gt;" TypeExpr)
+FnProto = option("coldcc" | "nakedcc" | "stdcallcc" | "extern") "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") option("-&gt;" TypeExpr)
 
-VisibleMod = "pub" | "export"
-
-FnDef = option("inline" | "extern") FnProto Block
+FnDef = option("inline" | "export") FnProto Block
 
 ParamDeclList = "(" list(ParamDecl, ",") ")"
 
 ParamDecl = option("noalias" | "comptime") option(Symbol ":") (TypeExpr | "...")
 
-Block = "{" many(Statement) option(Expression) "}"
+Block = option(Symbol ":") "{" many(Statement) "}"
 
-Statement = Label | VariableDeclaration ";" | Defer(Block) | Defer(Expression) ";" | BlockExpression(Block) | Expression ";" | ";"
-
-Label = Symbol ":"
+Statement = LocalVarDecl ";" | Defer(Block) | Defer(Expression) ";" | BlockExpression(Block) | Expression ";" | ";"
 
 TypeExpr = PrefixOpExpression | "var"
 
@@ -5885,13 +5888,13 @@ SwitchProng = (list(SwitchItem, ",") | "else") "=&gt;" option("|" option("*") Sy
 
 SwitchItem = Expression | (Expression "..." Expression)
 
-ForExpression(body) = option("inline") "for" "(" Expression ")" option("|" option("*") Symbol option("," Symbol) "|") body option("else" BlockExpression(body))
+ForExpression(body) = option(Symbol ":") option("inline") "for" "(" Expression ")" option("|" option("*") Symbol option("," Symbol) "|") body option("else" BlockExpression(body))
 
 BoolOrExpression = BoolAndExpression "or" BoolOrExpression | BoolAndExpression
 
 ReturnExpression = option("%") "return" option(Expression)
 
-BreakExpression = "break" option(Expression)
+BreakExpression = "break" option(":" Symbol) option(Expression)
 
 Defer(body) = option("%") "defer" body
 
@@ -5901,7 +5904,7 @@ TryExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|")
 
 TestExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|") body option("else" BlockExpression(body))
 
-WhileExpression(body) = option("inline") "while" "(" Expression ")" option("|" option("*") Symbol "|") option(":" "(" Expression ")") body option("else" option("|" Symbol "|") BlockExpression(body))
+WhileExpression(body) = option(Symbol ":") option("inline") "while" "(" Expression ")" option("|" option("*") Symbol "|") option(":" "(" Expression ")") body option("else" option("|" Symbol "|") BlockExpression(body))
 
 BoolAndExpression = ComparisonExpression "and" BoolAndExpression | ComparisonExpression
 
@@ -5949,15 +5952,13 @@ StructLiteralField = "." Symbol "=" Expression
 
 PrefixOp = "!" | "-" | "~" | "*" | ("&amp;" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "%" | "%%" | "??" | "-%"
 
-PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | GotoExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | (option("extern") FnProto) | AsmExpression | ("error" "." Symbol) | ContainerDecl
+PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ("error" "." Symbol) | ContainerDecl | ("continue" option(":" Symbol))
 
 ArrayType : "[" option(Expression) "]" option("align" "(" Expression option(":" Integer ":" Integer) ")")) option("const") option("volatile") TypeExpr
 
-GotoExpression = "goto" Symbol
-
 GroupedExpression = "(" Expression ")"
 
-KeywordLiteral = "true" | "false" | "null" | "continue" | "undefined" | "error" | "this" | "unreachable"
+KeywordLiteral = "true" | "false" | "null" | "undefined" | "error" | "this" | "unreachable"
 
 ContainerDecl = option("extern" | "packed")
   ("struct" option(GroupedExpression) | "union" option("enum" option(GroupedExpression) | GroupedExpression) | ("enum" option(GroupedExpression)))

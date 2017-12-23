@@ -749,21 +749,19 @@ pub fn relativeWindows(allocator: &Allocator, from: []const u8, to: []const u8) 
     const resolved_to = %return resolveWindows(allocator, [][]const u8{to});
     defer if (clean_up_resolved_to) allocator.free(resolved_to);
 
-    const result_is_to = if (drive(resolved_to)) |to_drive| {
-        if (drive(resolved_from)) |from_drive| {
+    const result_is_to = if (drive(resolved_to)) |to_drive|
+        if (drive(resolved_from)) |from_drive|
             asciiUpper(from_drive[0]) != asciiUpper(to_drive[0])
-        } else {
+        else
             true
-        }
-    } else if (networkShare(resolved_to)) |to_ns| {
-        if (networkShare(resolved_from)) |from_ns| {
+    else if (networkShare(resolved_to)) |to_ns|
+        if (networkShare(resolved_from)) |from_ns|
             !networkShareServersEql(to_ns, from_ns)
-        } else {
+        else
             true
-        }
-    } else {
-        unreachable
-    };
+    else
+        unreachable;
+
     if (result_is_to) {
         clean_up_resolved_to = false;
         return resolved_to;
@@ -964,14 +962,16 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
 
                 // windows returns \\?\ prepended to the path
                 // we strip it because nobody wants \\?\ prepended to their path
-                const final_len = if (result > 4 and mem.startsWith(u8, buf, "\\\\?\\")) {
-                    var i: usize = 4;
-                    while (i < result) : (i += 1) {
-                        buf[i - 4] = buf[i];
+                const final_len = x: {
+                    if (result > 4 and mem.startsWith(u8, buf, "\\\\?\\")) {
+                        var i: usize = 4;
+                        while (i < result) : (i += 1) {
+                            buf[i - 4] = buf[i];
+                        }
+                        break :x result - 4;
+                    } else {
+                        break :x result;
                     }
-                    result - 4
-                } else {
-                    result
                 };
 
                 return allocator.shrink(u8, buf, final_len);
@@ -1012,7 +1012,7 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
             defer os.close(fd);
 
             var buf: ["/proc/self/fd/-2147483648".len]u8 = undefined;
-            const proc_path = fmt.bufPrint(buf[0..], "/proc/self/fd/{}", fd);
+            const proc_path = %%fmt.bufPrint(buf[0..], "/proc/self/fd/{}", fd);
 
             return os.readLink(allocator, proc_path);
         },

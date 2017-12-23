@@ -2,7 +2,7 @@ const assert = @import("std").debug.assert;
 const builtin = @import("builtin");
 
 const StructWithNoFields = struct {
-    fn add(a: i32, b: i32) -> i32 { a + b }
+    fn add(a: i32, b: i32) -> i32 { return a + b; }
 };
 const empty_global_instance = StructWithNoFields {};
 
@@ -109,7 +109,7 @@ const Foo = struct {
     ptr: fn() -> i32,
 };
 
-fn aFunc() -> i32 { 13 }
+fn aFunc() -> i32 { return 13; }
 
 fn callStructField(foo: &const Foo) -> i32 {
     return foo.ptr();
@@ -124,7 +124,7 @@ test "store member function in variable" {
 }
 const MemberFnTestFoo = struct {
     x: i32,
-    fn member(foo: &const MemberFnTestFoo) -> i32 { foo.x }
+    fn member(foo: &const MemberFnTestFoo) -> i32 { return foo.x; }
 };
 
 
@@ -141,7 +141,7 @@ test "member functions" {
 const MemberFnRand = struct {
     seed: u32,
     pub fn getSeed(r: &const MemberFnRand) -> u32 {
-        r.seed
+        return r.seed;
     }
 };
 
@@ -154,10 +154,10 @@ const Bar = struct {
     y: i32,
 };
 fn makeBar(x: i32, y: i32) -> Bar {
-    Bar {
+    return Bar {
         .x = x,
         .y = y,
-    }
+    };
 }
 
 test "empty struct method call" {
@@ -166,7 +166,7 @@ test "empty struct method call" {
 }
 const EmptyStruct = struct {
     fn method(es: &const EmptyStruct) -> i32 {
-        1234
+        return 1234;
     }
 };
 
@@ -176,14 +176,14 @@ test "return empty struct from fn" {
 }
 const EmptyStruct2 = struct {};
 fn testReturnEmptyStructFromFn() -> EmptyStruct2 {
-    EmptyStruct2 {}
+    return EmptyStruct2 {};
 }
 
 test "pass slice of empty struct to fn" {
     assert(testPassSliceOfEmptyStructToFn([]EmptyStruct2{ EmptyStruct2{} }) == 1);
 }
 fn testPassSliceOfEmptyStructToFn(slice: []const EmptyStruct2) -> usize {
-    slice.len
+    return slice.len;
 }
 
 const APackedStruct = packed struct {
@@ -379,3 +379,28 @@ const Nibbles = packed struct {
     x: u4,
     y: u4,
 };
+
+const Bitfields = packed struct {
+    f1: u16,
+    f2: u16,
+    f3: u8,
+    f4: u8,
+    f5: u4,
+    f6: u4,
+    f7: u8,
+};
+
+test "native bit field understands endianness" {
+    var all: u64 = 0x7765443322221111;
+    var bytes: [8]u8 = undefined;
+    @memcpy(&bytes[0], @ptrCast(&u8, &all), 8);
+    var bitfields = *@ptrCast(&Bitfields, &bytes[0]);
+
+    assert(bitfields.f1 == 0x1111);
+    assert(bitfields.f2 == 0x2222);
+    assert(bitfields.f3 == 0x33);
+    assert(bitfields.f4 == 0x44);
+    assert(bitfields.f5 == 0x5);
+    assert(bitfields.f6 == 0x6);
+    assert(bitfields.f7 == 0x77);
+}

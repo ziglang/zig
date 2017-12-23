@@ -11,11 +11,11 @@ const assert = @import("../debug.zig").assert;
 
 pub fn log1p(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(log1p_32, x),
-        f64 => @inlineCall(log1p_64, x),
+    return switch (T) {
+        f32 => log1p_32(x),
+        f64 => log1p_64(x),
         else => @compileError("log1p not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 fn log1p_32(x: f32) -> f32 {
@@ -91,7 +91,7 @@ fn log1p_32(x: f32) -> f32 {
     const hfsq = 0.5 * f * f;
     const dk = f32(k);
 
-    s * (hfsq + R) + (dk * ln2_lo + c) - hfsq + f + dk * ln2_hi
+    return s * (hfsq + R) + (dk * ln2_lo + c) - hfsq + f + dk * ln2_hi;
 }
 
 fn log1p_64(x: f64) -> f64 {
@@ -172,7 +172,7 @@ fn log1p_64(x: f64) -> f64 {
     const R = t2 + t1;
     const dk = f64(k);
 
-    s * (hfsq + R) + (dk * ln2_lo + c) - hfsq + f + dk * ln2_hi
+    return s * (hfsq + R) + (dk * ln2_lo + c) - hfsq + f + dk * ln2_hi;
 }
 
 test "math.log1p" {

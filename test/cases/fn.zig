@@ -4,7 +4,7 @@ test "params" {
     assert(testParamsAdd(22, 11) == 33);
 }
 fn testParamsAdd(a: i32, b: i32) -> i32 {
-    a + b
+    return a + b;
 }
 
 
@@ -22,7 +22,7 @@ test "void parameters" {
 }
 fn voidFun(a: i32, b: void, c: i32, d: void) {
     const v = b;
-    const vv: void = if (a == 1) {v} else {};
+    const vv: void = if (a == 1) v else {};
     assert(a + c == 3);
     return vv;
 }
@@ -45,9 +45,9 @@ test "separate block scopes" {
         assert(no_conflict == 5);
     }
 
-    const c = {
+    const c = x: {
         const no_conflict = i32(10);
-        no_conflict
+        break :x no_conflict;
     };
     assert(c == 10);
 }
@@ -73,7 +73,7 @@ test "implicit cast function unreachable return" {
 fn wantsFnWithVoid(f: fn()) { }
 
 fn fnWithUnreachable() -> noreturn {
-    unreachable
+    unreachable;
 }
 
 
@@ -83,14 +83,14 @@ test "function pointers" {
         assert(f() == u32(i) + 5);
     }
 }
-fn fn1() -> u32 {5}
-fn fn2() -> u32 {6}
-fn fn3() -> u32 {7}
-fn fn4() -> u32 {8}
+fn fn1() -> u32 {return 5;}
+fn fn2() -> u32 {return 6;}
+fn fn3() -> u32 {return 7;}
+fn fn4() -> u32 {return 8;}
 
 
 test "inline function call" {
     assert(@inlineCall(add, 3, 9) == 12);
 }
 
-fn add(a: i32, b: i32) -> i32 { a + b }
+fn add(a: i32, b: i32) -> i32 { return a + b; }

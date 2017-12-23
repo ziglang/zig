@@ -180,5 +180,9 @@ void add_link_lib_symbol(CodeGen *g, Buf *lib_name, Buf *symbol_name);
 
 uint32_t get_abi_alignment(CodeGen *g, TypeTableEntry *type_entry);
 TypeTableEntry *get_align_amt_type(CodeGen *g);
+PackageTableEntry *new_anonymous_package(void);
+
+Buf *const_value_to_buffer(ConstExprValue *const_val);
+void add_fn_export(CodeGen *g, FnTableEntry *fn_table_entry, Buf *symbol_name, GlobalLinkageId linkage, bool ccc);
 
 #endif

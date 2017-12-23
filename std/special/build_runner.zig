@@ -45,21 +45,17 @@ pub fn main() -> %void {
 
     var stderr_file = io.getStdErr();
     var stderr_file_stream: io.FileOutStream = undefined;
-    var stderr_stream: %&io.OutStream = if (stderr_file) |*f| {
+    var stderr_stream: %&io.OutStream = if (stderr_file) |*f| x: {
         stderr_file_stream = io.FileOutStream.init(f);
-        &stderr_file_stream.stream
-    } else |err| {
-        err
-    };
+        break :x &stderr_file_stream.stream;
+    } else |err| err;
 
     var stdout_file = io.getStdOut();
     var stdout_file_stream: io.FileOutStream = undefined;
-    var stdout_stream: %&io.OutStream = if (stdout_file) |*f| {
+    var stdout_stream: %&io.OutStream = if (stdout_file) |*f| x: {
         stdout_file_stream = io.FileOutStream.init(f);
-        &stdout_file_stream.stream
-    } else |err| {
-        err
-    };
+        break :x &stdout_file_stream.stream;
+    } else |err| err;
 
     while (arg_it.next(allocator)) |err_or_arg| {
         const arg = %return unwrapArg(err_or_arg);

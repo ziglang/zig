@@ -10,11 +10,11 @@ const assert = @import("../debug.zig").assert;
 
 pub fn tan(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(tan32, x),
-        f64 => @inlineCall(tan64, x),
+    return switch (T) {
+        f32 => tan32(x),
+        f64 => tan64(x),
         else => @compileError("tan not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 const Tp0 = -1.30936939181383777646E4;
@@ -62,11 +62,11 @@ fn tan32(x_: f32) -> f32 {
     const z = ((x - y * pi4a) - y * pi4b) - y * pi4c;
     const w = z * z;
 
-    var r = {
+    var r = r: {
         if (w > 1e-14) {
-            z + z * (w * ((Tp0 * w + Tp1) * w + Tp2) / ((((w + Tq1) * w + Tq2) * w + Tq3) * w + Tq4))
+            break :r z + z * (w * ((Tp0 * w + Tp1) * w + Tp2) / ((((w + Tq1) * w + Tq2) * w + Tq3) * w + Tq4));
         } else {
-            z
+            break :r z;
         }
     };
 
@@ -77,7 +77,7 @@ fn tan32(x_: f32) -> f32 {
         r = -r;
     }
 
-    r
+    return r;
 }
 
 fn tan64(x_: f64) -> f64 {
@@ -111,11 +111,11 @@ fn tan64(x_: f64) -> f64 {
     const z = ((x - y * pi4a) - y * pi4b) - y * pi4c;
     const w = z * z;
 
-    var r = {
+    var r = r: {
         if (w > 1e-14) {
-            z + z * (w * ((Tp0 * w + Tp1) * w + Tp2) / ((((w + Tq1) * w + Tq2) * w + Tq3) * w + Tq4))
+            break :r z + z * (w * ((Tp0 * w + Tp1) * w + Tp2) / ((((w + Tq1) * w + Tq2) * w + Tq3) * w + Tq4));
         } else {
-            z
+            break :r z;
         }
     };
 
@@ -126,7 +126,7 @@ fn tan64(x_: f64) -> f64 {
         r = -r;
     }
 
-    r
+    return r;
 }
 
 test "math.tan" {

@@ -36,7 +36,7 @@ pub const inf = @import("inf.zig").inf;
 
 pub fn approxEq(comptime T: type, x: T, y: T, epsilon: T) -> bool {
     assert(@typeId(T) == TypeId.Float);
-    fabs(x - y) < epsilon
+    return fabs(x - y) < epsilon;
 }
 
 // TODO: Hide the following in an internal module.
@@ -174,14 +174,8 @@ test "math" {
 }
 
 
-pub const Cmp = enum {
-    Less,
-    Equal,
-    Greater,
-};
-
 pub fn min(x: var, y: var) -> @typeOf(x + y) {
-    if (x < y) x else y
+    return if (x < y) x else y;
 }
 
 test "math.min" {
@@ -189,7 +183,7 @@ test "math.min" {
 }
 
 pub fn max(x: var, y: var) -> @typeOf(x + y) {
-    if (x > y) x else y
+    return if (x > y) x else y;
 }
 
 test "math.max" {
@@ -199,19 +193,19 @@ test "math.max" {
 error Overflow;
 pub fn mul(comptime T: type, a: T, b: T) -> %T {
     var answer: T = undefined;
-    if (@mulWithOverflow(T, a, b, &answer)) error.Overflow else answer
+    return if (@mulWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
 error Overflow;
 pub fn add(comptime T: type, a: T, b: T) -> %T {
     var answer: T = undefined;
-    if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer
+    return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
 error Overflow;
 pub fn sub(comptime T: type, a: T, b: T) -> %T {
     var answer: T = undefined;
-    if (@subWithOverflow(T, a, b, &answer)) error.Overflow else answer
+    return if (@subWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
 pub fn negate(x: var) -> %@typeOf(x) {
@@ -221,7 +215,7 @@ pub fn negate(x: var) -> %@typeOf(x) {
 error Overflow;
 pub fn shlExact(comptime T: type, a: T, shift_amt: Log2Int(T)) -> %T {
     var answer: T = undefined;
-    if (@shlWithOverflow(T, a, shift_amt, &answer)) error.Overflow else answer
+    return if (@shlWithOverflow(T, a, shift_amt, &answer)) error.Overflow else answer;
 }
 
 /// Shifts left. Overflowed bits are truncated.
@@ -273,7 +267,7 @@ test "math.shr" {
 }
 
 pub fn Log2Int(comptime T: type) -> type {
-    @IntType(false, log2(T.bit_count))
+    return @IntType(false, log2(T.bit_count));
 }
 
 test "math overflow functions" {
@@ -521,4 +515,29 @@ pub fn cast(comptime T: type, x: var) -> %T {
     } else {
         return T(x);
     }
+}
+
+pub fn floorPowerOfTwo(comptime T: type, value: T) -> T {
+    var x = value;
+
+    comptime var i = 1;
+    inline while(T.bit_count > i) : (i *= 2) {
+        x |= (x >> i);
+    }
+
+    return x - (x >> 1);
+}
+
+test "math.floorPowerOfTwo" {
+    testFloorPowerOfTwo();
+    comptime testFloorPowerOfTwo();
+}
+
+fn testFloorPowerOfTwo() {
+    assert(floorPowerOfTwo(u32, 63) == 32);
+    assert(floorPowerOfTwo(u32, 64) == 64);
+    assert(floorPowerOfTwo(u32, 65) == 64);
+    assert(floorPowerOfTwo(u4, 7) == 4);
+    assert(floorPowerOfTwo(u4, 8) == 8);
+    assert(floorPowerOfTwo(u4, 9) == 8);
 }

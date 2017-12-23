@@ -886,27 +886,18 @@ static void ir_print_can_implicit_cast(IrPrint *irp, IrInstructionCanImplicitCas
 }
 
 static void ir_print_ptr_type_of(IrPrint *irp, IrInstructionPtrTypeOf *instruction) {
-    fprintf(irp->f, "&align ");
-    ir_print_other_instruction(irp, instruction->align_value);
+    fprintf(irp->f, "&");
+    if (instruction->align_value != nullptr) {
+        fprintf(irp->f, "align(");
+        ir_print_other_instruction(irp, instruction->align_value);
+        fprintf(irp->f, ")");
+    }
     const char *const_str = instruction->is_const ? "const " : "";
     const char *volatile_str = instruction->is_volatile ? "volatile " : "";
     fprintf(irp->f, ":%" PRIu32 ":%" PRIu32 " %s%s", instruction->bit_offset_start, instruction->bit_offset_end,
             const_str, volatile_str);
     ir_print_other_instruction(irp, instruction->child_type);
 }
-
-static void ir_print_set_global_section(IrPrint *irp, IrInstructionSetGlobalSection *instruction) {
-    fprintf(irp->f, "@setGlobalSection(%s,", buf_ptr(instruction->tld->name));
-    ir_print_other_instruction(irp, instruction->value);
-    fprintf(irp->f, ")");
-}
-
-static void ir_print_set_global_linkage(IrPrint *irp, IrInstructionSetGlobalLinkage *instruction) {
-    fprintf(irp->f, "@setGlobalLinkage(%s,", buf_ptr(instruction->tld->name));
-    ir_print_other_instruction(irp, instruction->value);
-    fprintf(irp->f, ")");
-}
-
 
 static void ir_print_decl_ref(IrPrint *irp, IrInstructionDeclRef *instruction) {
     const char *ptr_str = instruction->lval.is_ptr ? "ptr " : "";
@@ -985,6 +976,24 @@ static void ir_print_enum_tag_type(IrPrint *irp, IrInstructionTagType *instructi
     fprintf(irp->f, "@TagType(");
     ir_print_other_instruction(irp, instruction->target);
     fprintf(irp->f, ")");
+}
+
+static void ir_print_export(IrPrint *irp, IrInstructionExport *instruction) {
+    if (instruction->linkage == nullptr) {
+        fprintf(irp->f, "@export(");
+        ir_print_other_instruction(irp, instruction->name);
+        fprintf(irp->f, ",");
+        ir_print_other_instruction(irp, instruction->target);
+        fprintf(irp->f, ")");
+    } else {
+        fprintf(irp->f, "@exportWithLinkage(");
+        ir_print_other_instruction(irp, instruction->name);
+        fprintf(irp->f, ",");
+        ir_print_other_instruction(irp, instruction->target);
+        fprintf(irp->f, ",");
+        ir_print_other_instruction(irp, instruction->linkage);
+        fprintf(irp->f, ")");
+    }
 }
 
 
@@ -1263,12 +1272,6 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdPtrTypeOf:
             ir_print_ptr_type_of(irp, (IrInstructionPtrTypeOf *)instruction);
             break;
-        case IrInstructionIdSetGlobalSection:
-            ir_print_set_global_section(irp, (IrInstructionSetGlobalSection *)instruction);
-            break;
-        case IrInstructionIdSetGlobalLinkage:
-            ir_print_set_global_linkage(irp, (IrInstructionSetGlobalLinkage *)instruction);
-            break;
         case IrInstructionIdDeclRef:
             ir_print_decl_ref(irp, (IrInstructionDeclRef *)instruction);
             break;
@@ -1301,6 +1304,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdTagType:
             ir_print_enum_tag_type(irp, (IrInstructionTagType *)instruction);
+            break;
+        case IrInstructionIdExport:
+            ir_print_export(irp, (IrInstructionExport *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

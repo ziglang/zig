@@ -10,30 +10,28 @@ const Allocator = mem.Allocator;
 
 error OutOfMemory;
 
-pub var c_allocator = Allocator {
+pub const c_allocator = &c_allocator_state;
+var c_allocator_state = Allocator {
     .allocFn = cAlloc,
     .reallocFn = cRealloc,
     .freeFn = cFree,
 };
 
-fn cAlloc(self: &Allocator, n: usize, alignment: usize) -> %[]u8 {
-    if (c.malloc(usize(n))) |buf| {
+fn cAlloc(self: &Allocator, n: usize, alignment: u29) -> %[]u8 {
+    return if (c.malloc(usize(n))) |buf|
         @ptrCast(&u8, buf)[0..n]
-    } else {
-        error.OutOfMemory
-    }
+    else
+        error.OutOfMemory;
 }
 
-fn cRealloc(self: &Allocator, old_mem: []u8, new_size: usize, alignment: usize) -> %[]u8 {
-    if (new_size <= old_mem.len) {
-        old_mem[0..new_size]
+fn cRealloc(self: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) -> %[]u8 {
+    const old_ptr = @ptrCast(&c_void, old_mem.ptr);
+    if (c.realloc(old_ptr, new_size)) |buf| {
+        return @ptrCast(&u8, buf)[0..new_size];
+    } else if (new_size <= old_mem.len) {
+        return old_mem[0..new_size];
     } else {
-        const old_ptr = @ptrCast(&c_void, old_mem.ptr);
-        if (c.realloc(old_ptr, usize(new_size))) |buf| {
-            @ptrCast(&u8, buf)[0..new_size]
-        } else {
-            error.OutOfMemory
-        }
+        return error.OutOfMemory;
     }
 }
 
@@ -106,7 +104,7 @@ pub const IncrementingAllocator = struct {
         return self.bytes.len - self.end_index;
     }
 
-    fn alloc(allocator: &Allocator, n: usize, alignment: usize) -> %[]u8 {
+    fn alloc(allocator: &Allocator, n: usize, alignment: u29) -> %[]u8 {
         const self = @fieldParentPtr(IncrementingAllocator, "allocator", allocator);
         const addr = @ptrToInt(&self.bytes[self.end_index]);
         const rem = @rem(addr, alignment);
@@ -121,7 +119,7 @@ pub const IncrementingAllocator = struct {
         return result;
     }
 
-    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: usize) -> %[]u8 {
+    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) -> %[]u8 {
         if (new_size <= old_mem.len) {
             return old_mem[0..new_size];
         } else {

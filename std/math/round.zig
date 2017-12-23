@@ -10,11 +10,11 @@ const math = @import("index.zig");
 
 pub fn round(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(round32, x),
-        f64 => @inlineCall(round64, x),
+    return switch (T) {
+        f32 => round32(x),
+        f64 => round64(x),
         else => @compileError("round not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 fn round32(x_: f32) -> f32 {
@@ -48,9 +48,9 @@ fn round32(x_: f32) -> f32 {
     }
 
     if (u >> 31 != 0) {
-        -y
+        return -y;
     } else {
-        y
+        return y;
     }
 }
 
@@ -85,9 +85,9 @@ fn round64(x_: f64) -> f64 {
     }
 
     if (u >> 63 != 0) {
-        -y
+        return -y;
     } else {
-        y
+        return y;
     }
 }
 

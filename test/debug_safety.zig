@@ -19,7 +19,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    baz(bar(a));
         \\}
         \\fn bar(a: []const i32) -> i32 {
-        \\    a[4]
+        \\    return a[4];
         \\}
         \\fn baz(a: i32) { }
     );
@@ -34,7 +34,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    if (x == 0) return error.Whatever;
         \\}
         \\fn add(a: u16, b: u16) -> u16 {
-        \\    a + b
+        \\    return a + b;
         \\}
     );
 
@@ -48,7 +48,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    if (x == 0) return error.Whatever;
         \\}
         \\fn sub(a: u16, b: u16) -> u16 {
-        \\    a - b
+        \\    return a - b;
         \\}
     );
 
@@ -62,7 +62,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    if (x == 0) return error.Whatever;
         \\}
         \\fn mul(a: u16, b: u16) -> u16 {
-        \\    a * b
+        \\    return a * b;
         \\}
     );
 
@@ -76,7 +76,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    if (x == 32767) return error.Whatever;
         \\}
         \\fn neg(a: i16) -> i16 {
-        \\    -a
+        \\    return -a;
         \\}
     );
 
@@ -90,7 +90,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    if (x == 32767) return error.Whatever;
         \\}
         \\fn div(a: i16, b: i16) -> i16 {
-        \\    @divTrunc(a, b)
+        \\    return @divTrunc(a, b);
         \\}
     );
 
@@ -104,7 +104,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    if (x == 0) return error.Whatever;
         \\}
         \\fn shl(a: i16, b: u4) -> i16 {
-        \\    @shlExact(a, b)
+        \\    return @shlExact(a, b);
         \\}
     );
 
@@ -118,7 +118,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    if (x == 0) return error.Whatever;
         \\}
         \\fn shl(a: u16, b: u4) -> u16 {
-        \\    @shlExact(a, b)
+        \\    return @shlExact(a, b);
         \\}
     );
 
@@ -132,7 +132,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    if (x == 0) return error.Whatever;
         \\}
         \\fn shr(a: i16, b: u4) -> i16 {
-        \\    @shrExact(a, b)
+        \\    return @shrExact(a, b);
         \\}
     );
 
@@ -146,7 +146,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    if (x == 0) return error.Whatever;
         \\}
         \\fn shr(a: u16, b: u4) -> u16 {
-        \\    @shrExact(a, b)
+        \\    return @shrExact(a, b);
         \\}
     );
 
@@ -159,7 +159,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    const x = div0(999, 0);
         \\}
         \\fn div0(a: i32, b: i32) -> i32 {
-        \\    @divTrunc(a, b)
+        \\    return @divTrunc(a, b);
         \\}
     );
 
@@ -173,7 +173,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    if (x == 0) return error.Whatever;
         \\}
         \\fn divExact(a: i32, b: i32) -> i32 {
-        \\    @divExact(a, b)
+        \\    return @divExact(a, b);
         \\}
     );
 
@@ -187,7 +187,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    if (x.len == 0) return error.Whatever;
         \\}
         \\fn widenSlice(slice: []align(1) const u8) -> []align(1) const i32 {
-        \\    ([]align(1) const i32)(slice)
+        \\    return ([]align(1) const i32)(slice);
         \\}
     );
 
@@ -201,7 +201,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    if (x == 0) return error.Whatever;
         \\}
         \\fn shorten_cast(x: i32) -> i8 {
-        \\    i8(x)
+        \\    return i8(x);
         \\}
     );
 
@@ -215,7 +215,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    if (x == 0) return error.Whatever;
         \\}
         \\fn unsigned_cast(x: i32) -> u32 {
-        \\    u32(x)
+        \\    return u32(x);
         \\}
     );
 

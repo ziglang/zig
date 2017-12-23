@@ -17,7 +17,7 @@ pub fn cmp(a: &const u8, b: &const u8) -> i8 {
         return -1;
     } else {
         return 0;
-    };
+    }
 }
 
 pub fn toSliceConst(str: &const u8) -> []const u8 {

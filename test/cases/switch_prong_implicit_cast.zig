@@ -8,11 +8,11 @@ const FormValue = union(enum) {
 error Whatever;
 
 fn foo(id: u64) -> %FormValue {
-    switch (id) {
+    return switch (id) {
         2 => FormValue { .Two = true },
         1 => FormValue { .One = {} },
         else => return error.Whatever,
-    }
+    };
 }
 
 test "switch prong implicit cast" {

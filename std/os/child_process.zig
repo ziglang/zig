@@ -5,7 +5,6 @@ const os = std.os;
 const posix = os.posix;
 const windows = os.windows;
 const mem = std.mem;
-const Allocator = mem.Allocator;
 const debug = std.debug;
 const assert = debug.assert;
 const BufMap = std.BufMap;
@@ -74,7 +73,7 @@ pub const ChildProcess = struct {
 
     /// First argument in argv is the executable.
     /// On success must call deinit.
-    pub fn init(argv: []const []const u8, allocator: &Allocator) -> %&ChildProcess {
+    pub fn init(argv: []const []const u8, allocator: &mem.Allocator) -> %&ChildProcess {
         const child = %return allocator.create(ChildProcess);
         %defer allocator.destroy(child);
 
@@ -116,7 +115,7 @@ pub const ChildProcess = struct {
             return self.spawnWindows();
         } else {
             return self.spawnPosix();
-        };
+        }
     }
 
     pub fn spawnAndWait(self: &ChildProcess) -> %Term {
@@ -180,6 +179,46 @@ pub const ChildProcess = struct {
         }
     }
 
+    pub const ExecResult = struct {
+        term: os.ChildProcess.Term,
+        stdout: []u8,
+        stderr: []u8,
+    };
+
+    /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
+    /// If it succeeds, the caller owns result.stdout and result.stderr memory.
+    pub fn exec(allocator: &mem.Allocator, argv: []const []const u8, cwd: ?[]const u8,
+        env_map: ?&const BufMap, max_output_size: usize) -> %ExecResult
+    {
+        const child = %%ChildProcess.init(argv, allocator);
+        defer child.deinit();
+
+        child.stdin_behavior = ChildProcess.StdIo.Ignore;
+        child.stdout_behavior = ChildProcess.StdIo.Pipe;
+        child.stderr_behavior = ChildProcess.StdIo.Pipe;
+        child.cwd = cwd;
+        child.env_map = env_map;
+
+        %return child.spawn();
+
+        var stdout = Buffer.initNull(allocator);
+        var stderr = Buffer.initNull(allocator);
+        defer Buffer.deinit(&stdout);
+        defer Buffer.deinit(&stderr);
+
+        var stdout_file_in_stream = io.FileInStream.init(&??child.stdout);
+        var stderr_file_in_stream = io.FileInStream.init(&??child.stderr);
+
+        %return stdout_file_in_stream.stream.readAllBuffer(&stdout, max_output_size);
+        %return stderr_file_in_stream.stream.readAllBuffer(&stderr, max_output_size);
+
+        return ExecResult {
+            .term = %return child.wait(),
+            .stdout = stdout.toOwnedSlice(),
+            .stderr = stderr.toOwnedSlice(),
+        };
+    }
+
     fn waitWindows(self: &ChildProcess) -> %Term {
         if (self.term) |term| {
             self.cleanupStreams();
@@ -210,12 +249,12 @@ pub const ChildProcess = struct {
     fn waitUnwrappedWindows(self: &ChildProcess) -> %void {
         const result = os.windowsWaitSingle(self.handle, windows.INFINITE);
 
-        self.term = (%Term)({
+        self.term = (%Term)(x: {
             var exit_code: windows.DWORD = undefined;
             if (windows.GetExitCodeProcess(self.handle, &exit_code) == 0) {
-                Term { .Unknown = 0 }
+                break :x Term { .Unknown = 0 };
             } else {
-                Term { .Exited = @bitCast(i32, exit_code)}
+                break :x Term { .Exited = @bitCast(i32, exit_code)};
             }
         });
 
@@ -261,7 +300,7 @@ pub const ChildProcess = struct {
         defer {
             os.close(self.err_pipe[0]);
             os.close(self.err_pipe[1]);
-        };
+        }
 
         // Write @maxValue(ErrInt) to the write end of the err_pipe. This is after
         // waitpid, so this write is guaranteed to be after the child
@@ -280,15 +319,15 @@ pub const ChildProcess = struct {
     }
 
     fn statusToTerm(status: i32) -> Term {
-        return if (posix.WIFEXITED(status)) {
+        return if (posix.WIFEXITED(status))
             Term { .Exited = posix.WEXITSTATUS(status) }
-        } else if (posix.WIFSIGNALED(status)) {
+        else if (posix.WIFSIGNALED(status))
             Term { .Signal = posix.WTERMSIG(status) }
-        } else if (posix.WIFSTOPPED(status)) {
+        else if (posix.WIFSTOPPED(status))
             Term { .Stopped = posix.WSTOPSIG(status) }
-        } else {
+        else
             Term { .Unknown = status }
-        };
+        ;
     }
 
     fn spawnPosix(self: &ChildProcess) -> %void {
@@ -305,22 +344,22 @@ pub const ChildProcess = struct {
         %defer if (self.stderr_behavior == StdIo.Pipe) { destroyPipe(stderr_pipe); };
 
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
-        const dev_null_fd = if (any_ignore) {
+        const dev_null_fd = if (any_ignore)
             %return os.posixOpen("/dev/null", posix.O_RDWR, 0, null)
-        } else {
+        else
             undefined
-        };
-        defer { if (any_ignore) os.close(dev_null_fd); };
+        ;
+        defer { if (any_ignore) os.close(dev_null_fd); }
 
         var env_map_owned: BufMap = undefined;
         var we_own_env_map: bool = undefined;
-        const env_map = if (self.env_map) |env_map| {
+        const env_map = if (self.env_map) |env_map| x: {
             we_own_env_map = false;
-            env_map
-        } else {
+            break :x env_map;
+        } else x: {
             we_own_env_map = true;
             env_map_owned = %return os.getEnvMap(self.allocator);
-            &env_map_owned
+            break :x &env_map_owned;
         };
         defer { if (we_own_env_map) env_map_owned.deinit(); }
 
@@ -411,13 +450,13 @@ pub const ChildProcess = struct {
             self.stdout_behavior == StdIo.Ignore or
             self.stderr_behavior == StdIo.Ignore);
 
-        const nul_handle = if (any_ignore) {
+        const nul_handle = if (any_ignore)
             %return os.windowsOpen("NUL", windows.GENERIC_READ, windows.FILE_SHARE_READ,
                 windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, null)
-        } else {
+        else
             undefined
-        };
-        defer { if (any_ignore) os.close(nul_handle); };
+        ;
+        defer { if (any_ignore) os.close(nul_handle); }
         if (any_ignore) {
             %return windowsSetHandleInfo(nul_handle, windows.HANDLE_FLAG_INHERIT, 0);
         }
@@ -503,30 +542,32 @@ pub const ChildProcess = struct {
         };
         var piProcInfo: windows.PROCESS_INFORMATION = undefined;
 
-        const cwd_slice = if (self.cwd) |cwd| {
+        const cwd_slice = if (self.cwd) |cwd|
             %return cstr.addNullByte(self.allocator, cwd)
-        } else {
+        else
             null
-        };
+        ;
         defer if (cwd_slice) |cwd| self.allocator.free(cwd);
         const cwd_ptr = if (cwd_slice) |cwd| cwd.ptr else null;
 
-        const maybe_envp_buf = if (self.env_map) |env_map| {
+        const maybe_envp_buf = if (self.env_map) |env_map|
             %return os.createWindowsEnvBlock(self.allocator, env_map)
-        } else {
+        else
             null
-        };
+        ;
         defer if (maybe_envp_buf) |envp_buf| self.allocator.free(envp_buf);
         const envp_ptr = if (maybe_envp_buf) |envp_buf| envp_buf.ptr else null;
 
         // the cwd set in ChildProcess is in effect when choosing the executable path
         // to match posix semantics
-        const app_name = if (self.cwd) |cwd| {
-            const resolved = %return os.path.resolve(self.allocator, cwd, self.argv[0]);
-            defer self.allocator.free(resolved);
-            %return cstr.addNullByte(self.allocator, resolved)
-        } else {
-            %return cstr.addNullByte(self.allocator, self.argv[0])
+        const app_name = x: {
+            if (self.cwd) |cwd| {
+                const resolved = %return os.path.resolve(self.allocator, cwd, self.argv[0]);
+                defer self.allocator.free(resolved);
+                break :x %return cstr.addNullByte(self.allocator, resolved);
+            } else {
+                break :x %return cstr.addNullByte(self.allocator, self.argv[0]);
+            }
         };
         defer self.allocator.free(app_name);
 
@@ -589,6 +630,7 @@ pub const ChildProcess = struct {
             StdIo.Ignore => %return os.posixDup2(dev_null_fd, std_fileno),
         }
     }
+
 };
 
 fn windowsCreateProcess(app_name: &u8, cmd_line: &u8, envp_ptr: ?&u8, cwd_ptr: ?&u8,
@@ -611,7 +653,7 @@ fn windowsCreateProcess(app_name: &u8, cmd_line: &u8, envp_ptr: ?&u8, cwd_ptr: ?
 
 /// Caller must dealloc.
 /// Guarantees a null byte at result[result.len].
-fn windowsCreateCommandLine(allocator: &Allocator, argv: []const []const u8) -> %[]u8 {
+fn windowsCreateCommandLine(allocator: &mem.Allocator, argv: []const []const u8) -> %[]u8 {
     var buf = %return Buffer.initSize(allocator, 0);
     defer buf.deinit();
 
@@ -701,7 +743,7 @@ fn makePipe() -> %[2]i32 {
         return switch (err) {
             posix.EMFILE, posix.ENFILE => error.SystemResources,
             else => os.unexpectedErrorPosix(err),
-        }
+        };
     }
     return fds;
 }
@@ -760,10 +802,10 @@ fn handleTerm(pid: i32, status: i32) {
     }
 }
 
-const sigchld_set = {
+const sigchld_set = x: {
     var signal_set = posix.empty_sigset;
     posix.sigaddset(&signal_set, posix.SIGCHLD);
-    signal_set
+    break :x signal_set;
 };
 
 fn block_SIGCHLD() {

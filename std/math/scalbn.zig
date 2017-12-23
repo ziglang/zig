@@ -3,11 +3,11 @@ const assert = @import("../debug.zig").assert;
 
 pub fn scalbn(x: var, n: i32) -> @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(scalbn32, x, n),
-        f64 => @inlineCall(scalbn64, x, n),
+    return switch (T) {
+        f32 => scalbn32(x, n),
+        f64 => scalbn64(x, n),
         else => @compileError("scalbn not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 fn scalbn32(x: f32, n_: i32) -> f32 {
@@ -37,7 +37,7 @@ fn scalbn32(x: f32, n_: i32) -> f32 {
     }
 
     const u = u32(n +% 0x7F) << 23;
-    y * @bitCast(f32, u)
+    return y * @bitCast(f32, u);
 }
 
 fn scalbn64(x: f64, n_: i32) -> f64 {
@@ -67,7 +67,7 @@ fn scalbn64(x: f64, n_: i32) -> f64 {
     }
 
     const u = u64(n +% 0x3FF) << 52;
-    y * @bitCast(f64, u)
+    return y * @bitCast(f64, u);
 }
 
 test "math.scalbn" {

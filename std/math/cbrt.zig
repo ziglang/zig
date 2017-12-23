@@ -9,11 +9,11 @@ const assert = @import("../debug.zig").assert;
 
 pub fn cbrt(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(cbrt32, x),
-        f64 => @inlineCall(cbrt64, x),
+    return switch (T) {
+        f32 => cbrt32(x),
+        f64 => cbrt64(x),
         else => @compileError("cbrt not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 fn cbrt32(x: f32) -> f32 {
@@ -53,7 +53,7 @@ fn cbrt32(x: f32) -> f32 {
     r = t * t * t;
     t = t * (f64(x) + x + r) / (x + r + r);
 
-    f32(t)
+    return f32(t);
 }
 
 fn cbrt64(x: f64) -> f64 {
@@ -109,7 +109,7 @@ fn cbrt64(x: f64) -> f64 {
     var w = t + t;
     q = (q - t) / (w + q);
 
-    t + t * q
+    return t + t * q;
 }
 
 test "math.cbrt" {

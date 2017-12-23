@@ -7,6 +7,8 @@ comptime {
     _ = @import("cases/bitcast.zig");
     _ = @import("cases/bool.zig");
     _ = @import("cases/bugs/394.zig");
+    _ = @import("cases/bugs/655.zig");
+    _ = @import("cases/bugs/656.zig");
     _ = @import("cases/cast.zig");
     _ = @import("cases/const_slice_child.zig");
     _ = @import("cases/defer.zig");
@@ -18,7 +20,6 @@ comptime {
     _ = @import("cases/fn.zig");
     _ = @import("cases/for.zig");
     _ = @import("cases/generics.zig");
-    _ = @import("cases/goto.zig");
     _ = @import("cases/if.zig");
     _ = @import("cases/import.zig");
     _ = @import("cases/incomplete_struct_param_tld.zig");

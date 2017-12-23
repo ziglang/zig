@@ -110,7 +110,7 @@ ScopeBlock *create_block_scope(AstNode *node, Scope *parent) {
     assert(node->type == NodeTypeBlock);
     ScopeBlock *scope = allocate<ScopeBlock>(1);
     init_scope(&scope->base, ScopeIdBlock, node, parent);
-    scope->label_table.init(1);
+    scope->name = node->data.block.name;
     return scope;
 }
 
@@ -144,9 +144,15 @@ ScopeCImport *create_cimport_scope(AstNode *node, Scope *parent) {
 }
 
 ScopeLoop *create_loop_scope(AstNode *node, Scope *parent) {
-    assert(node->type == NodeTypeWhileExpr || node->type == NodeTypeForExpr);
     ScopeLoop *scope = allocate<ScopeLoop>(1);
     init_scope(&scope->base, ScopeIdLoop, node, parent);
+    if (node->type == NodeTypeWhileExpr) {
+        scope->name = node->data.while_expr.name;
+    } else if (node->type == NodeTypeForExpr) {
+        scope->name = node->data.for_expr.name;
+    } else {
+        zig_unreachable();
+    }
     return scope;
 }
 
@@ -429,7 +435,7 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
         ensure_complete_type(g, child_type);
 
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdMaybe);
-        assert(child_type->type_ref);
+        assert(child_type->type_ref || child_type->zero_bits);
         assert(child_type->di_type);
         entry->is_copyable = type_is_copyable(g, child_type);
 
@@ -1062,7 +1068,7 @@ void init_fn_type_id(FnTypeId *fn_type_id, AstNode *proto_node, size_t param_cou
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
     if (fn_proto->cc == CallingConventionUnspecified) {
-        bool extern_abi = fn_proto->is_extern || (fn_proto->visib_mod == VisibModExport);
+        bool extern_abi = fn_proto->is_extern || fn_proto->is_export;
         fn_type_id->cc = extern_abi ? CallingConventionC : CallingConventionUnspecified;
     } else {
         fn_type_id->cc = fn_proto->cc;
@@ -1090,6 +1096,38 @@ static bool analyze_const_align(CodeGen *g, Scope *scope, AstNode *node, uint32_
     }
 
     *result = align_bytes;
+    return true;
+}
+
+static bool analyze_const_string(CodeGen *g, Scope *scope, AstNode *node, Buf **out_buffer) {
+    TypeTableEntry *ptr_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
+    TypeTableEntry *str_type = get_slice_type(g, ptr_type);
+    IrInstruction *instr = analyze_const_value(g, scope, node, str_type, nullptr);
+    if (type_is_invalid(instr->value.type))
+        return false;
+
+    ConstExprValue *ptr_field = &instr->value.data.x_struct.fields[slice_ptr_index];
+    ConstExprValue *len_field = &instr->value.data.x_struct.fields[slice_len_index];
+
+    assert(ptr_field->data.x_ptr.special == ConstPtrSpecialBaseArray);
+    ConstExprValue *array_val = ptr_field->data.x_ptr.data.base_array.array_val;
+    expand_undef_array(g, array_val);
+    size_t len = bigint_as_unsigned(&len_field->data.x_bigint);
+    Buf *result = buf_alloc();
+    buf_resize(result, len);
+    for (size_t i = 0; i < len; i += 1) {
+        size_t new_index = ptr_field->data.x_ptr.data.base_array.elem_index + i;
+        ConstExprValue *char_val = &array_val->data.x_array.s_none.elements[new_index];
+        if (char_val->special == ConstValSpecialUndef) {
+            add_node_error(g, node, buf_sprintf("use of undefined value"));
+            return false;
+        }
+        uint64_t big_c = bigint_as_unsigned(&char_val->data.x_bigint);
+        assert(big_c <= UINT8_MAX);
+        uint8_t c = (uint8_t)big_c;
+        buf_ptr(result)[i] = c;
+    }
+    *out_buffer = result;
     return true;
 }
 
@@ -1130,6 +1168,15 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         }
 
         TypeTableEntry *type_entry = analyze_type_expr(g, child_scope, param_node->data.param_decl.type);
+        if (fn_type_id.cc != CallingConventionUnspecified) {
+            type_ensure_zero_bits_known(g, type_entry);
+            if (!type_has_bits(type_entry)) {
+                add_node_error(g, param_node->data.param_decl.type,
+                    buf_sprintf("parameter of type '%s' has 0 bits; not allowed in function with calling convention '%s'",
+                        buf_ptr(&type_entry->name), calling_convention_name(fn_type_id.cc)));
+                return g->builtin_types.entry_invalid;
+            }
+        }
 
         switch (type_entry->id) {
             case TypeTableEntryIdInvalid:
@@ -2227,7 +2274,7 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
 
         tag_type = new_type_table_entry(TypeTableEntryIdEnum);
         buf_resize(&tag_type->name, 0);
-        buf_appendf(&tag_type->name, "@EnumTagType(%s)", buf_ptr(&union_type->name));
+        buf_appendf(&tag_type->name, "@TagType(%s)", buf_ptr(&union_type->name));
         tag_type->is_copyable = true;
         tag_type->type_ref = tag_int_type->type_ref;
         tag_type->zero_bits = tag_int_type->zero_bits;
@@ -2244,12 +2291,10 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
         TypeTableEntry *enum_type = analyze_type_expr(g, scope, enum_type_node);
         if (type_is_invalid(enum_type)) {
             union_type->data.unionation.is_invalid = true;
-            union_type->data.unionation.embedded_in_current = false;
             return;
         }
         if (enum_type->id != TypeTableEntryIdEnum) {
             union_type->data.unionation.is_invalid = true;
-            union_type->data.unionation.embedded_in_current = false;
             add_node_error(g, enum_type_node,
                 buf_sprintf("expected enum tag type, found '%s'", buf_ptr(&enum_type->name)));
             return;
@@ -2474,7 +2519,7 @@ static void get_fully_qualified_decl_name(Buf *buf, Tld *tld, uint8_t sep) {
     buf_append_buf(buf, tld->name);
 }
 
-FnTableEntry *create_fn_raw(FnInline inline_value, GlobalLinkageId linkage) {
+FnTableEntry *create_fn_raw(FnInline inline_value) {
     FnTableEntry *fn_entry = allocate<FnTableEntry>(1);
 
     fn_entry->analyzed_executable.backward_branch_count = &fn_entry->prealloc_bbc;
@@ -2482,7 +2527,6 @@ FnTableEntry *create_fn_raw(FnInline inline_value, GlobalLinkageId linkage) {
     fn_entry->analyzed_executable.fn_entry = fn_entry;
     fn_entry->ir_executable.fn_entry = fn_entry;
     fn_entry->fn_inline = inline_value;
-    fn_entry->linkage = linkage;
 
     return fn_entry;
 }
@@ -2492,9 +2536,7 @@ FnTableEntry *create_fn(AstNode *proto_node) {
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
     FnInline inline_value = fn_proto->is_inline ? FnInlineAlways : FnInlineAuto;
-    GlobalLinkageId linkage = (fn_proto->visib_mod == VisibModExport || proto_node->data.fn_proto.is_extern) ?
-        GlobalLinkageIdStrong : GlobalLinkageIdInternal;
-    FnTableEntry *fn_entry = create_fn_raw(inline_value, linkage);
+    FnTableEntry *fn_entry = create_fn_raw(inline_value);
 
     fn_entry->proto_node = proto_node;
     fn_entry->body_node = (proto_node->data.fn_proto.fn_def_node == nullptr) ? nullptr :
@@ -2550,6 +2592,34 @@ TypeTableEntry *get_test_fn_type(CodeGen *g) {
     return g->test_fn_type;
 }
 
+void add_fn_export(CodeGen *g, FnTableEntry *fn_table_entry, Buf *symbol_name, GlobalLinkageId linkage, bool ccc) {
+    if (ccc) {
+        if (buf_eql_str(symbol_name, "main") && g->libc_link_lib != nullptr) {
+            g->have_c_main = true;
+            g->windows_subsystem_windows = false;
+            g->windows_subsystem_console = true;
+        } else if (buf_eql_str(symbol_name, "WinMain") &&
+            g->zig_target.os == ZigLLVM_Win32)
+        {
+            g->have_winmain = true;
+            g->windows_subsystem_windows = true;
+            g->windows_subsystem_console = false;
+        } else if (buf_eql_str(symbol_name, "WinMainCRTStartup") &&
+            g->zig_target.os == ZigLLVM_Win32)
+        {
+            g->have_winmain_crt_startup = true;
+        } else if (buf_eql_str(symbol_name, "DllMainCRTStartup") &&
+            g->zig_target.os == ZigLLVM_Win32)
+        {
+            g->have_dllmain_crt_startup = true;
+        }
+    }
+    FnExport *fn_export = fn_table_entry->export_list.add_one();
+    memset(fn_export, 0, sizeof(FnExport));
+    buf_init_from_buf(&fn_export->name, symbol_name);
+    fn_export->linkage = linkage;
+}
+
 static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
     ImportTableEntry *import = tld_fn->base.import;
     AstNode *source_node = tld_fn->base.source_node;
@@ -2560,6 +2630,11 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
 
         FnTableEntry *fn_table_entry = create_fn(source_node);
         get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base, '_');
+
+        if (fn_proto->is_export) {
+            bool ccc = (fn_proto->cc == CallingConventionUnspecified || fn_proto->cc == CallingConventionC);
+            add_fn_export(g, fn_table_entry, &fn_table_entry->symbol_name, GlobalLinkageIdStrong, ccc);
+        }
 
         tld_fn->fn_entry = fn_table_entry;
 
@@ -2574,13 +2649,22 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
                     add_node_error(g, param_node, buf_sprintf("missing parameter name"));
                 }
             }
-        } else if (fn_table_entry->linkage != GlobalLinkageIdInternal) {
+        } else {
             g->external_prototypes.put_unique(tld_fn->base.name, &tld_fn->base);
         }
 
         Scope *child_scope = fn_table_entry->fndef_scope ? &fn_table_entry->fndef_scope->base : tld_fn->base.parent_scope;
 
         fn_table_entry->type_entry = analyze_fn_type(g, source_node, child_scope);
+
+        if (fn_proto->section_expr != nullptr) {
+            if (fn_table_entry->body_node == nullptr) {
+                add_node_error(g, fn_proto->section_expr,
+                    buf_sprintf("cannot set section of external function '%s'", buf_ptr(&fn_table_entry->symbol_name)));
+            } else {
+                analyze_const_string(g, child_scope, fn_proto->section_expr, &fn_table_entry->section_name);
+            }
+        }
 
         if (fn_table_entry->type_entry->id == TypeTableEntryIdInvalid) {
             tld_fn->base.resolution = TldResolutionInvalid;
@@ -2596,15 +2680,12 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
             {
                 if (g->have_pub_main && buf_eql_str(&fn_table_entry->symbol_name, "main")) {
                     g->main_fn = fn_table_entry;
-
-                    if (tld_fn->base.visib_mod != VisibModExport) {
-                        TypeTableEntry *err_void = get_error_type(g, g->builtin_types.entry_void);
-                        TypeTableEntry *actual_return_type = fn_table_entry->type_entry->data.fn.fn_type_id.return_type;
-                        if (actual_return_type != err_void) {
-                            add_node_error(g, fn_proto->return_type,
-                                    buf_sprintf("expected return type of main to be '%%void', instead is '%s'",
-                                        buf_ptr(&actual_return_type->name)));
-                        }
+                    TypeTableEntry *err_void = get_error_type(g, g->builtin_types.entry_void);
+                    TypeTableEntry *actual_return_type = fn_table_entry->type_entry->data.fn.fn_type_id.return_type;
+                    if (actual_return_type != err_void) {
+                        add_node_error(g, fn_proto->return_type,
+                                buf_sprintf("expected return type of main to be '%%void', instead is '%s'",
+                                    buf_ptr(&actual_return_type->name)));
                     }
                 } else if ((import->package == g->panic_package || g->have_pub_panic) &&
                         buf_eql_str(&fn_table_entry->symbol_name, "panic"))
@@ -2615,7 +2696,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
             }
         }
     } else if (source_node->type == NodeTypeTestDecl) {
-        FnTableEntry *fn_table_entry = create_fn_raw(FnInlineAuto, GlobalLinkageIdStrong);
+        FnTableEntry *fn_table_entry = create_fn_raw(FnInlineAuto);
 
         get_fully_qualified_decl_name(&fn_table_entry->symbol_name, &tld_fn->base, '_');
 
@@ -2642,17 +2723,23 @@ static void resolve_decl_comptime(CodeGen *g, TldCompTime *tld_comptime) {
 }
 
 static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
-    if (tld->visib_mod == VisibModExport) {
-        g->resolve_queue.append(tld);
+    bool is_export = false;
+    if (tld->id == TldIdVar) {
+        assert(tld->source_node->type == NodeTypeVariableDeclaration);
+        is_export = tld->source_node->data.variable_declaration.is_export;
+    } else if (tld->id == TldIdFn) {
+        assert(tld->source_node->type == NodeTypeFnProto);
+        is_export = tld->source_node->data.fn_proto.is_export;
     }
+    if (is_export) {
+        g->resolve_queue.append(tld);
 
-    if (tld->visib_mod == VisibModExport) {
-        auto entry = g->exported_symbol_names.put_unique(tld->name, tld);
+        auto entry = g->exported_symbol_names.put_unique(tld->name, tld->source_node);
         if (entry) {
-            Tld *other_tld = entry->value;
+            AstNode *other_source_node = entry->value;
             ErrorMsg *msg = add_node_error(g, tld->source_node,
                     buf_sprintf("exported symbol collision: '%s'", buf_ptr(tld->name)));
-            add_error_note(g, msg, other_tld->source_node, buf_sprintf("other symbol is here"));
+            add_error_note(g, msg, other_source_node, buf_sprintf("other symbol here"));
         }
     }
 
@@ -2730,7 +2817,6 @@ static void preview_comptime_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_s
     init_tld(&tld_comptime->base, TldIdCompTime, nullptr, VisibModPrivate, node, &decls_scope->base);
     g->resolve_queue.append(&tld_comptime->base);
 }
-
 
 void init_tld(Tld *tld, TldId id, Buf *name, VisibMod visib_mod, AstNode *source_node,
     Scope *parent_scope)
@@ -2836,8 +2922,6 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeSwitchExpr:
         case NodeTypeSwitchProng:
         case NodeTypeSwitchRange:
-        case NodeTypeLabel:
-        case NodeTypeGoto:
         case NodeTypeBreak:
         case NodeTypeContinue:
         case NodeTypeUnreachable:
@@ -2987,8 +3071,8 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
     AstNodeVariableDeclaration *var_decl = &source_node->data.variable_declaration;
 
     bool is_const = var_decl->is_const;
-    bool is_export = (tld_var->base.visib_mod == VisibModExport);
     bool is_extern = var_decl->is_extern;
+    bool is_export = var_decl->is_export;
 
     TypeTableEntry *explicit_type = nullptr;
     if (var_decl->type) {
@@ -2996,9 +3080,7 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
         explicit_type = validate_var_type(g, var_decl->type, proposed_type);
     }
 
-    if (is_export && is_extern) {
-        add_node_error(g, source_node, buf_sprintf("variable is both export and extern"));
-    }
+    assert(!is_export || !is_extern);
 
     VarLinkage linkage;
     if (is_export) {
@@ -3008,7 +3090,6 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
     } else {
         linkage = VarLinkageInternal;
     }
-
 
     IrInstruction *init_value = nullptr;
 
@@ -3055,6 +3136,15 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
     if (var_decl->align_expr != nullptr) {
         if (!analyze_const_align(g, tld_var->base.parent_scope, var_decl->align_expr, &tld_var->var->align_bytes)) {
             tld_var->var->value->type = g->builtin_types.entry_invalid;
+        }
+    }
+
+    if (var_decl->section_expr != nullptr) {
+        if (var_decl->is_extern) {
+            add_node_error(g, var_decl->section_expr,
+                buf_sprintf("cannot set section of external variable '%s'", buf_ptr(var_decl->symbol)));
+        } else if (!analyze_const_string(g, tld_var->base.parent_scope, var_decl->section_expr, &tld_var->section_name)) {
+            tld_var->section_name = nullptr;
         }
     }
 
@@ -3319,7 +3409,7 @@ TypeStructField *find_struct_type_field(TypeTableEntry *type_entry, Buf *name) {
 
 TypeUnionField *find_union_type_field(TypeTableEntry *type_entry, Buf *name) {
     assert(type_entry->id == TypeTableEntryIdUnion);
-    assert(type_entry->data.unionation.complete);
+    assert(type_entry->data.unionation.zero_bits_known);
     for (uint32_t i = 0; i < type_entry->data.unionation.src_field_count; i += 1) {
         TypeUnionField *field = &type_entry->data.unionation.fields[i];
         if (buf_eql_buf(field->enum_field->name, name)) {
@@ -3331,7 +3421,7 @@ TypeUnionField *find_union_type_field(TypeTableEntry *type_entry, Buf *name) {
 
 TypeUnionField *find_union_field_by_tag(TypeTableEntry *type_entry, const BigInt *tag) {
     assert(type_entry->id == TypeTableEntryIdUnion);
-    assert(type_entry->data.unionation.complete);
+    assert(type_entry->data.unionation.zero_bits_known);
     assert(type_entry->data.unionation.gen_tag_index != SIZE_MAX);
     for (uint32_t i = 0; i < type_entry->data.unionation.src_field_count; i += 1) {
         TypeUnionField *field = &type_entry->data.unionation.fields[i];
@@ -3726,8 +3816,10 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *a
             Buf *proto_name = proto_node->data.fn_proto.name;
 
             bool is_pub = (proto_node->data.fn_proto.visib_mod == VisibModPub);
+            bool ok_cc = (proto_node->data.fn_proto.cc == CallingConventionUnspecified ||
+                    proto_node->data.fn_proto.cc == CallingConventionCold);
 
-            if (is_pub) {
+            if (is_pub && ok_cc) {
                 if (buf_eql_str(proto_name, "main")) {
                     g->have_pub_main = true;
                     g->windows_subsystem_windows = false;
@@ -3735,28 +3827,7 @@ ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *a
                 } else if (buf_eql_str(proto_name, "panic")) {
                     g->have_pub_panic = true;
                 }
-            } else if (proto_node->data.fn_proto.visib_mod == VisibModExport && buf_eql_str(proto_name, "main") &&
-                    g->libc_link_lib != nullptr)
-            {
-                g->have_c_main = true;
-                g->windows_subsystem_windows = false;
-                g->windows_subsystem_console = true;
-            } else if (proto_node->data.fn_proto.visib_mod == VisibModExport && buf_eql_str(proto_name, "WinMain") &&
-                    g->zig_target.os == ZigLLVM_Win32)
-            {
-                g->have_winmain = true;
-                g->windows_subsystem_windows = true;
-                g->windows_subsystem_console = false;
-            } else if (proto_node->data.fn_proto.visib_mod == VisibModExport &&
-                buf_eql_str(proto_name, "WinMainCRTStartup") && g->zig_target.os == ZigLLVM_Win32)
-            {
-                g->have_winmain_crt_startup = true;
-            } else if (proto_node->data.fn_proto.visib_mod == VisibModExport &&
-                buf_eql_str(proto_name, "DllMainCRTStartup") && g->zig_target.os == ZigLLVM_Win32)
-            {
-                g->have_dllmain_crt_startup = true;
             }
-
         }
     }
 
@@ -3820,12 +3891,14 @@ TypeTableEntry **get_int_type_ptr(CodeGen *g, bool is_signed, uint32_t size_in_b
         index = 6;
     } else if (size_in_bits == 16) {
         index = 7;
-    } else if (size_in_bits == 32) {
+    } else if (size_in_bits == 29) {
         index = 8;
-    } else if (size_in_bits == 64) {
+    } else if (size_in_bits == 32) {
         index = 9;
-    } else if (size_in_bits == 128) {
+    } else if (size_in_bits == 64) {
         index = 10;
+    } else if (size_in_bits == 128) {
+        index = 11;
     } else {
         return nullptr;
     }
@@ -3888,7 +3961,6 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
              return false;
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
-        case TypeTableEntryIdUnion:
              return type_has_bits(type_entry);
         case TypeTableEntryIdErrorUnion:
              return type_has_bits(type_entry->data.error.child_type);
@@ -3896,6 +3968,14 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
              return type_has_bits(type_entry->data.maybe.child_type) &&
                     type_entry->data.maybe.child_type->id != TypeTableEntryIdPointer &&
                     type_entry->data.maybe.child_type->id != TypeTableEntryIdFn;
+        case TypeTableEntryIdUnion:
+             assert(type_entry->data.unionation.complete);
+             if (type_entry->data.unionation.gen_field_count == 0)
+                 return false;
+             if (!type_has_bits(type_entry))
+                 return false;
+             return true;
+
     }
     zig_unreachable();
 }
@@ -5438,3 +5518,4 @@ uint32_t type_ptr_hash(const TypeTableEntry *ptr) {
 bool type_ptr_eql(const TypeTableEntry *a, const TypeTableEntry *b) {
     return a == b;
 }
+

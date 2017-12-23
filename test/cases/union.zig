@@ -190,3 +190,33 @@ test "cast union to tag type of union" {
 fn testCastUnionToTagType(x: &const TheUnion) {
     assert(TheTag(*x) == TheTag.B);
 }
+
+test "cast tag type of union to union" {
+    var x: Value2 = Letter2.B;
+    assert(Letter2(x) == Letter2.B);
+}
+const Letter2 = enum { A, B, C };
+const Value2 = union(Letter2) { A: i32, B, C, };
+
+test "implicit cast union to its tag type" {
+    var x: Value2 = Letter2.B;
+    assert(x == Letter2.B);
+    giveMeLetterB(x);
+}
+fn giveMeLetterB(x: Letter2) {
+    assert(x == Value2.B);
+}
+
+test "implicit cast from @EnumTagType(TheUnion) to &const TheUnion" {
+    assertIsTheUnion2Item1(TheUnion2.Item1);
+}
+
+const TheUnion2 = union(enum) {
+    Item1,
+    Item2: i32,
+};
+
+fn assertIsTheUnion2Item1(value: &const TheUnion2) {
+    assert(*value == TheUnion2.Item1);
+}
+

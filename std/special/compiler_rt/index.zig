@@ -1,33 +1,74 @@
-comptime {
-    _ = @import("comparetf2.zig");
-    _ = @import("fixunsdfdi.zig");
-    _ = @import("fixunsdfsi.zig");
-    _ = @import("fixunsdfti.zig");
-    _ = @import("fixunssfdi.zig");
-    _ = @import("fixunssfsi.zig");
-    _ = @import("fixunssfti.zig");
-    _ = @import("fixunstfdi.zig");
-    _ = @import("fixunstfsi.zig");
-    _ = @import("fixunstfti.zig");
-    _ = @import("udivmoddi4.zig");
-    _ = @import("udivmodti4.zig");
-    _ = @import("udivti3.zig");
-    _ = @import("umodti3.zig");
-    _ = @import("aulldiv.zig");
-    _ = @import("aullrem.zig");
-}
-
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
+
+comptime {
+    const linkage = if (is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.Weak;
+    const strong_linkage = if (is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.Strong;
+
+    @export("__letf2", @import("comparetf2.zig").__letf2, linkage);
+    @export("__getf2", @import("comparetf2.zig").__getf2, linkage);
+
+    if (!is_test) {
+        // only create these aliases when not testing
+        @export("__cmptf2", @import("comparetf2.zig").__letf2, linkage);
+        @export("__eqtf2", @import("comparetf2.zig").__letf2, linkage);
+        @export("__lttf2", @import("comparetf2.zig").__letf2, linkage);
+        @export("__netf2", @import("comparetf2.zig").__letf2, linkage);
+        @export("__gttf2", @import("comparetf2.zig").__getf2, linkage);
+    }
+
+    @export("__unordtf2", @import("comparetf2.zig").__unordtf2, linkage);
+
+    @export("__fixunssfsi", @import("fixunssfsi.zig").__fixunssfsi, linkage);
+    @export("__fixunssfdi", @import("fixunssfdi.zig").__fixunssfdi, linkage);
+    @export("__fixunssfti", @import("fixunssfti.zig").__fixunssfti, linkage);
+
+    @export("__fixunsdfsi", @import("fixunsdfsi.zig").__fixunsdfsi, linkage);
+    @export("__fixunsdfdi", @import("fixunsdfdi.zig").__fixunsdfdi, linkage);
+    @export("__fixunsdfti", @import("fixunsdfti.zig").__fixunsdfti, linkage);
+
+    @export("__fixunstfsi", @import("fixunstfsi.zig").__fixunstfsi, linkage);
+    @export("__fixunstfdi", @import("fixunstfdi.zig").__fixunstfdi, linkage);
+    @export("__fixunstfti", @import("fixunstfti.zig").__fixunstfti, linkage);
+
+    @export("__udivmoddi4", @import("udivmoddi4.zig").__udivmoddi4, linkage);
+    @export("__udivmodti4", @import("udivmodti4.zig").__udivmodti4, linkage);
+
+    @export("__udivti3", @import("udivti3.zig").__udivti3, linkage);
+    @export("__umodti3", @import("umodti3.zig").__umodti3, linkage);
+
+    @export("__udivsi3", __udivsi3, linkage);
+    @export("__udivdi3", __udivdi3, linkage);
+    @export("__umoddi3", __umoddi3, linkage);
+    @export("__udivmodsi4", __udivmodsi4, linkage);
+
+    if (isArmArch()) {
+        @export("__aeabi_uldivmod", __aeabi_uldivmod, linkage);
+        @export("__aeabi_uidivmod", __aeabi_uidivmod, linkage);
+        @export("__aeabi_uidiv", __udivsi3, linkage);
+    }
+    if (builtin.os == builtin.Os.windows) {
+        switch (builtin.arch) {
+            builtin.Arch.i386 => {
+                if (!builtin.link_libc) {
+                    @export("_chkstk", _chkstk, strong_linkage);
+                    @export("__chkstk_ms", __chkstk_ms, linkage);
+                }
+                @export("_aulldiv", @import("aulldiv.zig")._aulldiv, strong_linkage);
+                @export("_aullrem", @import("aullrem.zig")._aullrem, strong_linkage);
+            },
+            builtin.Arch.x86_64 => {
+                if (!builtin.link_libc) {
+                    @export("__chkstk", __chkstk, strong_linkage);
+                    @export("___chkstk_ms", ___chkstk_ms, linkage);
+                }
+            },
+            else => {},
+        }
+    }
+}
+
 const assert = @import("../../debug.zig").assert;
-
-
-const win32 = builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386;
-const win64 = builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.x86_64;
-const win32_nocrt = win32 and !builtin.link_libc;
-const win64_nocrt = win64 and !builtin.link_libc;
-pub const linkage = if (builtin.is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.Weak;
-const strong_linkage = if (builtin.is_test) builtin.GlobalLinkage.Internal else builtin.GlobalLinkage.Strong;
 
 const __udivmoddi4 = @import("udivmoddi4.zig").__udivmoddi4;
 
@@ -41,15 +82,13 @@ pub coldcc fn panic(msg: []const u8) -> noreturn {
     }
 }
 
-export fn __udivdi3(a: u64, b: u64) -> u64 {
+extern fn __udivdi3(a: u64, b: u64) -> u64 {
     @setDebugSafety(this, is_test);
-    @setGlobalLinkage(__udivdi3, linkage);
     return __udivmoddi4(a, b, null);
 }
 
-export fn __umoddi3(a: u64, b: u64) -> u64 {
+extern fn __umoddi3(a: u64, b: u64) -> u64 {
     @setDebugSafety(this, is_test);
-    @setGlobalLinkage(__umoddi3, linkage);
 
     var r: u64 = undefined;
     _ = __udivmoddi4(a, b, &r);
@@ -60,17 +99,11 @@ const AeabiUlDivModResult = extern struct {
     quot: u64,
     rem: u64,
 };
-export fn __aeabi_uldivmod(numerator: u64, denominator: u64) -> AeabiUlDivModResult {
+extern fn __aeabi_uldivmod(numerator: u64, denominator: u64) -> AeabiUlDivModResult {
     @setDebugSafety(this, is_test);
-    if (comptime isArmArch()) {
-        @setGlobalLinkage(__aeabi_uldivmod, linkage);
-        var result: AeabiUlDivModResult = undefined;
-        result.quot = __udivmoddi4(numerator, denominator, &result.rem);
-        return result;
-    }
-
-    @setGlobalLinkage(__aeabi_uldivmod, builtin.GlobalLinkage.Internal);
-    unreachable;
+    var result: AeabiUlDivModResult = undefined;
+    result.quot = __udivmoddi4(numerator, denominator, &result.rem);
+    return result;
 }
 
 fn isArmArch() -> bool {
@@ -115,156 +148,124 @@ fn isArmArch() -> bool {
     };
 }
 
-export nakedcc fn __aeabi_uidivmod() {
+nakedcc fn __aeabi_uidivmod() {
     @setDebugSafety(this, false);
-
-    if (comptime isArmArch()) {
-        @setGlobalLinkage(__aeabi_uidivmod, linkage);
-        asm volatile (
-            \\ push    { lr }
-            \\ sub     sp, sp, #4
-            \\ mov     r2, sp
-            \\ bl      __udivmodsi4
-            \\ ldr     r1, [sp]
-            \\ add     sp, sp, #4
-            \\ pop     { pc }
-        ::: "r2", "r1");
-        unreachable;
-    }
-
-    @setGlobalLinkage(__aeabi_uidivmod, builtin.GlobalLinkage.Internal);
+    asm volatile (
+        \\ push    { lr }
+        \\ sub     sp, sp, #4
+        \\ mov     r2, sp
+        \\ bl      __udivmodsi4
+        \\ ldr     r1, [sp]
+        \\ add     sp, sp, #4
+        \\ pop     { pc }
+    ::: "r2", "r1");
 }
 
 // _chkstk (_alloca) routine - probe stack between %esp and (%esp-%eax) in 4k increments,
 // then decrement %esp by %eax.  Preserves all registers except %esp and flags.
 // This routine is windows specific
 // http://msdn.microsoft.com/en-us/library/ms648426.aspx
-export nakedcc fn _chkstk() align(4) {
+nakedcc fn _chkstk() align(4) {
     @setDebugSafety(this, false);
 
-    if (win32_nocrt) {
-        @setGlobalLinkage(_chkstk, strong_linkage);
-        asm volatile (
-            \\         push   %%ecx
-            \\         push   %%eax
-            \\         cmp    $0x1000,%%eax
-            \\         lea    12(%%esp),%%ecx
-            \\         jb     1f
-            \\ 2:
-            \\         sub    $0x1000,%%ecx
-            \\         test   %%ecx,(%%ecx)
-            \\         sub    $0x1000,%%eax
-            \\         cmp    $0x1000,%%eax
-            \\         ja     2b
-            \\ 1:
-            \\         sub    %%eax,%%ecx
-            \\         test   %%ecx,(%%ecx)
-            \\         pop    %%eax
-            \\         pop    %%ecx
-            \\         ret
-        );
-        unreachable;
-    }
-
-    @setGlobalLinkage(_chkstk, builtin.GlobalLinkage.Internal);
+    asm volatile (
+        \\         push   %%ecx
+        \\         push   %%eax
+        \\         cmp    $0x1000,%%eax
+        \\         lea    12(%%esp),%%ecx
+        \\         jb     1f
+        \\ 2:
+        \\         sub    $0x1000,%%ecx
+        \\         test   %%ecx,(%%ecx)
+        \\         sub    $0x1000,%%eax
+        \\         cmp    $0x1000,%%eax
+        \\         ja     2b
+        \\ 1:
+        \\         sub    %%eax,%%ecx
+        \\         test   %%ecx,(%%ecx)
+        \\         pop    %%eax
+        \\         pop    %%ecx
+        \\         ret
+    );
 }
 
-export nakedcc fn __chkstk() align(4) {
+nakedcc fn __chkstk() align(4) {
     @setDebugSafety(this, false);
 
-    if (win64_nocrt) {
-        @setGlobalLinkage(__chkstk, strong_linkage);
-        asm volatile (
-            \\        push   %%rcx
-            \\        push   %%rax
-            \\        cmp    $0x1000,%%rax
-            \\        lea    24(%%rsp),%%rcx
-            \\        jb     1f
-            \\2:
-            \\        sub    $0x1000,%%rcx
-            \\        test   %%rcx,(%%rcx)
-            \\        sub    $0x1000,%%rax
-            \\        cmp    $0x1000,%%rax
-            \\        ja     2b
-            \\1:
-            \\        sub    %%rax,%%rcx
-            \\        test   %%rcx,(%%rcx)
-            \\        pop    %%rax
-            \\        pop    %%rcx
-            \\        ret
-        );
-        unreachable;
-    }
-
-    @setGlobalLinkage(__chkstk, builtin.GlobalLinkage.Internal);
+    asm volatile (
+        \\        push   %%rcx
+        \\        push   %%rax
+        \\        cmp    $0x1000,%%rax
+        \\        lea    24(%%rsp),%%rcx
+        \\        jb     1f
+        \\2:
+        \\        sub    $0x1000,%%rcx
+        \\        test   %%rcx,(%%rcx)
+        \\        sub    $0x1000,%%rax
+        \\        cmp    $0x1000,%%rax
+        \\        ja     2b
+        \\1:
+        \\        sub    %%rax,%%rcx
+        \\        test   %%rcx,(%%rcx)
+        \\        pop    %%rax
+        \\        pop    %%rcx
+        \\        ret
+    );
 }
 
 // _chkstk routine
 // This routine is windows specific
 // http://msdn.microsoft.com/en-us/library/ms648426.aspx
-export nakedcc fn __chkstk_ms() align(4) {
+nakedcc fn __chkstk_ms() align(4) {
     @setDebugSafety(this, false);
 
-    if (win32_nocrt) {
-        @setGlobalLinkage(__chkstk_ms, linkage);
-        asm volatile (
-            \\         push   %%ecx
-            \\         push   %%eax
-            \\         cmp    $0x1000,%%eax
-            \\         lea    12(%%esp),%%ecx
-            \\         jb     1f
-            \\ 2:
-            \\         sub    $0x1000,%%ecx
-            \\         test   %%ecx,(%%ecx)
-            \\         sub    $0x1000,%%eax
-            \\         cmp    $0x1000,%%eax
-            \\         ja     2b
-            \\ 1:
-            \\         sub    %%eax,%%ecx
-            \\         test   %%ecx,(%%ecx)
-            \\         pop    %%eax
-            \\         pop    %%ecx
-            \\         ret
-        );
-        unreachable;
-    }
-
-    @setGlobalLinkage(__chkstk_ms, builtin.GlobalLinkage.Internal);
+    asm volatile (
+        \\         push   %%ecx
+        \\         push   %%eax
+        \\         cmp    $0x1000,%%eax
+        \\         lea    12(%%esp),%%ecx
+        \\         jb     1f
+        \\ 2:
+        \\         sub    $0x1000,%%ecx
+        \\         test   %%ecx,(%%ecx)
+        \\         sub    $0x1000,%%eax
+        \\         cmp    $0x1000,%%eax
+        \\         ja     2b
+        \\ 1:
+        \\         sub    %%eax,%%ecx
+        \\         test   %%ecx,(%%ecx)
+        \\         pop    %%eax
+        \\         pop    %%ecx
+        \\         ret
+    );
 }
 
-export nakedcc fn ___chkstk_ms() align(4) {
+nakedcc fn ___chkstk_ms() align(4) {
     @setDebugSafety(this, false);
 
-    if (win64_nocrt) {
-        @setGlobalLinkage(___chkstk_ms, linkage);
-        asm volatile (
-            \\        push   %%rcx
-            \\        push   %%rax
-            \\        cmp    $0x1000,%%rax
-            \\        lea    24(%%rsp),%%rcx
-            \\        jb     1f
-            \\2:
-            \\        sub    $0x1000,%%rcx
-            \\        test   %%rcx,(%%rcx)
-            \\        sub    $0x1000,%%rax
-            \\        cmp    $0x1000,%%rax
-            \\        ja     2b
-            \\1:
-            \\        sub    %%rax,%%rcx
-            \\        test   %%rcx,(%%rcx)
-            \\        pop    %%rax
-            \\        pop    %%rcx
-            \\        ret
-        );
-        unreachable;
-    }
-
-    @setGlobalLinkage(___chkstk_ms, builtin.GlobalLinkage.Internal);
+    asm volatile (
+        \\        push   %%rcx
+        \\        push   %%rax
+        \\        cmp    $0x1000,%%rax
+        \\        lea    24(%%rsp),%%rcx
+        \\        jb     1f
+        \\2:
+        \\        sub    $0x1000,%%rcx
+        \\        test   %%rcx,(%%rcx)
+        \\        sub    $0x1000,%%rax
+        \\        cmp    $0x1000,%%rax
+        \\        ja     2b
+        \\1:
+        \\        sub    %%rax,%%rcx
+        \\        test   %%rcx,(%%rcx)
+        \\        pop    %%rax
+        \\        pop    %%rcx
+        \\        ret
+    );
 }
 
-export fn __udivmodsi4(a: u32, b: u32, rem: &u32) -> u32 {
+extern fn __udivmodsi4(a: u32, b: u32, rem: &u32) -> u32 {
     @setDebugSafety(this, is_test);
-    @setGlobalLinkage(__udivmodsi4, linkage);
 
     const d = __udivsi3(a, b);
     *rem = u32(i32(a) -% (i32(d) * i32(b)));
@@ -272,19 +273,8 @@ export fn __udivmodsi4(a: u32, b: u32, rem: &u32) -> u32 {
 }
 
 
-// TODO make this an alias instead of an extra function call
-// https://github.com/andrewrk/zig/issues/256
-
-export fn __aeabi_uidiv(n: u32, d: u32) -> u32 {
+extern fn __udivsi3(n: u32, d: u32) -> u32 {
     @setDebugSafety(this, is_test);
-    @setGlobalLinkage(__aeabi_uidiv, linkage);
-
-    return __udivsi3(n, d);
-}
-
-export fn __udivsi3(n: u32, d: u32) -> u32 {
-    @setDebugSafety(this, is_test);
-    @setGlobalLinkage(__udivsi3, linkage);
 
     const n_uword_bits: c_uint = u32.bit_count;
     // special cases
@@ -480,4 +470,3 @@ fn test_one_udivsi3(a: u32, b: u32, expected_q: u32) {
     const q: u32 = __udivsi3(a, b);
     assert(q == expected_q);
 }
-

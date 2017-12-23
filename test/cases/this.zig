@@ -3,7 +3,7 @@ const assert = @import("std").debug.assert;
 const module = this;
 
 fn Point(comptime T: type) -> type {
-    struct {
+    return struct {
         const Self = this;
         x: T,
         y: T,
@@ -12,20 +12,16 @@ fn Point(comptime T: type) -> type {
             self.x += 1;
             self.y += 1;
         }
-    }
+    };
 }
 
 fn add(x: i32, y: i32) -> i32 {
-    x + y
+    return x + y;
 }
 
 fn factorial(x: i32) -> i32 {
     const selfFn = this;
-    if (x == 0) {
-        1
-    } else {
-        x * selfFn(x - 1)
-    }
+    return if (x == 0) 1 else x * selfFn(x - 1);
 }
 
 test "this refer to module call private fn" {

@@ -189,6 +189,7 @@ pub const CompareOutputContext = struct {
         expected_output: []const u8,
         link_libc: bool,
         special: Special,
+        cli_args: []const []const u8,
 
         const SourceFile = struct {
             filename: []const u8,
@@ -201,6 +202,10 @@ pub const CompareOutputContext = struct {
                 .source = source,
             });
         }
+
+        pub fn setCommandLineArgs(self: &TestCase, args: []const []const u8) {
+            self.cli_args = args;
+        }
     };
 
     const RunCompareOutputStep = struct {
@@ -210,9 +215,11 @@ pub const CompareOutputContext = struct {
         name: []const u8,
         expected_output: []const u8,
         test_index: usize,
+        cli_args: []const []const u8,
 
         pub fn create(context: &CompareOutputContext, exe_path: []const u8,
-            name: []const u8, expected_output: []const u8) -> &RunCompareOutputStep
+            name: []const u8, expected_output: []const u8,
+            cli_args: []const []const u8) -> &RunCompareOutputStep
         {
             const allocator = context.b.allocator;
             const ptr = %%allocator.create(RunCompareOutputStep);
@@ -223,6 +230,7 @@ pub const CompareOutputContext = struct {
                 .expected_output = expected_output,
                 .test_index = context.test_index,
                 .step = build.Step.init("RunCompareOutput", allocator, make),
+                .cli_args = cli_args,
             };
             context.test_index += 1;
             return ptr;
@@ -233,10 +241,17 @@ pub const CompareOutputContext = struct {
             const b = self.context.b;
 
             const full_exe_path = b.pathFromRoot(self.exe_path);
+            var args = ArrayList([]const u8).init(b.allocator);
+            defer args.deinit();
+
+            %%args.append(full_exe_path);
+            for (self.cli_args) |arg| {
+                %%args.append(arg);
+            }
 
             warn("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
 
-            const child = %%os.ChildProcess.init([][]u8{full_exe_path}, b.allocator);
+            const child = %%os.ChildProcess.init(args.toSliceConst(), b.allocator);
             defer child.deinit();
 
             child.stdin_behavior = StdIo.Ignore;
@@ -269,7 +284,7 @@ pub const CompareOutputContext = struct {
                     warn("Process {} terminated unexpectedly\n", full_exe_path);
                     return error.TestFailed;
                 },
-            };
+            }
 
 
             if (!mem.eql(u8, self.expected_output, stdout.toSliceConst())) {
@@ -364,6 +379,7 @@ pub const CompareOutputContext = struct {
             .expected_output = expected_output,
             .link_libc = false,
             .special = special,
+            .cli_args = []const []const u8{},
         };
         const root_src_name = if (special == Special.Asm) "source.s" else "source.zig";
         tc.addSourceFile(root_src_name, source);
@@ -420,7 +436,7 @@ pub const CompareOutputContext = struct {
                 }
 
                 const run_and_cmp_output = RunCompareOutputStep.create(self, exe.getOutputPath(), annotated_case_name,
-                    case.expected_output);
+                    case.expected_output, case.cli_args);
                 run_and_cmp_output.step.dependOn(&exe.step);
 
                 self.step.dependOn(&run_and_cmp_output.step);
@@ -447,7 +463,7 @@ pub const CompareOutputContext = struct {
                     }
 
                     const run_and_cmp_output = RunCompareOutputStep.create(self, exe.getOutputPath(),
-                        annotated_case_name, case.expected_output);
+                        annotated_case_name, case.expected_output, case.cli_args);
                     run_and_cmp_output.step.dependOn(&exe.step);
 
                     self.step.dependOn(&run_and_cmp_output.step);
@@ -599,7 +615,7 @@ pub const CompileErrorContext = struct {
                     warn("Process {} terminated unexpectedly\n", b.zig_exe);
                     return error.TestFailed;
                 },
-            };
+            }
 
 
             const stdout = stdout_buf.toSliceConst();
@@ -875,7 +891,7 @@ pub const TranslateCContext = struct {
                     warn("Compilation terminated unexpectedly\n");
                     return error.TestFailed;
                 },
-            };
+            }
 
             const stdout = stdout_buf.toSliceConst();
             const stderr = stderr_buf.toSliceConst();

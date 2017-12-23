@@ -14,7 +14,7 @@ pub fn ln(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
     switch (@typeId(T)) {
         TypeId.FloatLiteral => {
-            return @typeOf(1.0)(ln_64(x))
+            return @typeOf(1.0)(ln_64(x));
         },
         TypeId.Float => {
             return switch (T) {
@@ -84,7 +84,7 @@ pub fn ln_32(x_: f32) -> f32 {
     const hfsq = 0.5 * f * f;
     const dk = f32(k);
 
-    s * (hfsq + R) + dk * ln2_lo - hfsq + f + dk * ln2_hi
+    return s * (hfsq + R) + dk * ln2_lo - hfsq + f + dk * ln2_hi;
 }
 
 pub fn ln_64(x_: f64) -> f64 {
@@ -116,7 +116,7 @@ pub fn ln_64(x_: f64) -> f64 {
         // subnormal, scale x
         k -= 54;
         x *= 0x1.0p54;
-        hx = u32(@bitCast(u64, ix) >> 32)
+        hx = u32(@bitCast(u64, ix) >> 32);
     }
     else if (hx >= 0x7FF00000) {
         return x;
@@ -142,7 +142,7 @@ pub fn ln_64(x_: f64) -> f64 {
     const R = t2 + t1;
     const dk = f64(k);
 
-    s * (hfsq + R) + dk * ln2_lo - hfsq + f + dk * ln2_hi
+    return s * (hfsq + R) + dk * ln2_lo - hfsq + f + dk * ln2_hi;
 }
 
 test "math.ln" {

@@ -5,7 +5,7 @@ const Allocator = mem.Allocator;
 
 /// Generic doubly linked list.
 pub fn LinkedList(comptime T: type) -> type {
-    struct {
+    return struct {
         const Self = this;
 
         /// Node inside the linked list wrapping the actual data.
@@ -15,11 +15,11 @@ pub fn LinkedList(comptime T: type) -> type {
             data: T,
 
             pub fn init(data: &const T) -> Node {
-                Node {
+                return Node {
                     .prev = null,
                     .next = null,
                     .data = *data,
-                }
+                };
             }
         };
 
@@ -32,11 +32,11 @@ pub fn LinkedList(comptime T: type) -> type {
         /// Returns:
         ///     An empty linked list.
         pub fn init() -> Self {
-            Self {
+            return Self {
                 .first = null,
                 .last  = null,
                 .len   = 0,
-            }
+            };
         }
 
         /// Insert a new node after an existing one.
@@ -166,7 +166,7 @@ pub fn LinkedList(comptime T: type) -> type {
         /// Returns:
         ///     A pointer to the new node.
         pub fn allocateNode(list: &Self, allocator: &Allocator) -> %&Node {
-            allocator.create(Node)
+            return allocator.create(Node);
         }
 
         /// Deallocate a node.
@@ -191,7 +191,7 @@ pub fn LinkedList(comptime T: type) -> type {
             *node = Node.init(data);
             return node;
         }
-    }
+    };
 }
 
 test "basic linked list test" {

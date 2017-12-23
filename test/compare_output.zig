@@ -10,7 +10,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\}
     , "Hello, world!" ++ os.line_sep);
 
-    cases.addCase({
+    cases.addCase(x: {
         var tc = cases.create("multiple files with private function",
             \\use @import("std").io;
             \\use @import("foo.zig");
@@ -41,10 +41,10 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
             \\}
         );
 
-        tc
+        break :x tc;
     });
 
-    cases.addCase({
+    cases.addCase(x: {
         var tc = cases.create("import segregation",
             \\use @import("foo.zig");
             \\use @import("bar.zig");
@@ -82,10 +82,10 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
             \\}
         );
 
-        tc
+        break :x tc;
     });
 
-    cases.addCase({
+    cases.addCase(x: {
         var tc = cases.create("two files use import each other",
             \\use @import("a.zig");
             \\
@@ -112,7 +112,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
             \\pub const b_text = a_text;
         );
 
-        tc
+        break :x tc;
     });
 
     cases.add("hello world without libc",
@@ -286,11 +286,11 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    const a_int = @ptrCast(&align(1) i32, a ?? unreachable);
         \\    const b_int = @ptrCast(&align(1) i32, b ?? unreachable);
         \\    if (*a_int < *b_int) {
-        \\        -1
+        \\        return -1;
         \\    } else if (*a_int > *b_int) {
-        \\        1
+        \\        return 1;
         \\    } else {
-        \\        c_int(0)
+        \\        return 0;
         \\    }
         \\}
         \\
@@ -342,13 +342,13 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\const Foo = struct {
         \\    field1: Bar,
         \\
-        \\    fn method(a: &const Foo) -> bool { true }
+        \\    fn method(a: &const Foo) -> bool { return true; }
         \\};
         \\
         \\const Bar = struct {
         \\    field2: i32,
         \\
-        \\    fn method(b: &const Bar) -> bool { true }
+        \\    fn method(b: &const Bar) -> bool { return true; }
         \\};
         \\
         \\pub fn main() -> %void {
@@ -429,7 +429,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\fn its_gonna_pass() -> %void { }
     , "before\nafter\ndefer3\ndefer1\n");
 
-    cases.addCase({
+    cases.addCase(x: {
         var tc = cases.create("@embedFile",
             \\const foo_txt = @embedFile("foo.txt");
             \\const io = @import("std").io;
@@ -442,6 +442,88 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
 
         tc.addSourceFile("foo.txt", "1234\nabcd\n");
 
-        tc
+        break :x tc;
+    });
+
+    cases.addCase(x: {
+        var tc = cases.create("parsing args",
+            \\const std = @import("std");
+            \\const io = std.io;
+            \\const os = std.os;
+            \\const allocator = std.debug.global_allocator;
+            \\
+            \\pub fn main() -> %void {
+            \\    var args_it = os.args();
+            \\    var stdout_file = %return io.getStdOut();
+            \\    var stdout_adapter = io.FileOutStream.init(&stdout_file);
+            \\    const stdout = &stdout_adapter.stream;
+            \\    var index: usize = 0;
+            \\    _ = args_it.skip();
+            \\    while (args_it.next(allocator)) |arg_or_err| : (index += 1) {
+            \\        const arg = %return arg_or_err;
+            \\        %return stdout.print("{}: {}\n", index, arg);
+            \\    }
+            \\}
+        ,
+            \\0: first arg
+            \\1: 'a' 'b' \
+            \\2: bare
+            \\3: ba""re
+            \\4: "
+            \\5: last arg
+            \\
+        );
+
+        tc.setCommandLineArgs([][]const u8 {
+            "first arg",
+            "'a' 'b' \\",
+            "bare",
+            "ba\"\"re",
+            "\"",
+            "last arg",
+        });
+
+        break :x tc;
+    });
+
+    cases.addCase(x: {
+        var tc = cases.create("parsing args new API",
+            \\const std = @import("std");
+            \\const io = std.io;
+            \\const os = std.os;
+            \\const allocator = std.debug.global_allocator;
+            \\
+            \\pub fn main() -> %void {
+            \\    var args_it = os.args();
+            \\    var stdout_file = %return io.getStdOut();
+            \\    var stdout_adapter = io.FileOutStream.init(&stdout_file);
+            \\    const stdout = &stdout_adapter.stream;
+            \\    var index: usize = 0;
+            \\    _ = args_it.skip();
+            \\    while (args_it.next(allocator)) |arg_or_err| : (index += 1) {
+            \\        const arg = %return arg_or_err;
+            \\        %return stdout.print("{}: {}\n", index, arg);
+            \\    }
+            \\}
+        ,
+            \\0: first arg
+            \\1: 'a' 'b' \
+            \\2: bare
+            \\3: ba""re
+            \\4: "
+            \\5: last arg
+            \\
+        );
+
+        tc.setCommandLineArgs([][]const u8 {
+            "first arg",
+            "'a' 'b' \\",
+            "bare",
+            "ba\"\"re",
+            "\"",
+            "last arg",
+        });
+
+        break :x tc;
     });
 }

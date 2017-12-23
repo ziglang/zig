@@ -193,7 +193,7 @@ pub const Base64DecoderWithIgnore = struct {
     /// Decoding more data than can fit in dest results in error.OutputTooSmall. See also ::calcSizeUpperBound.
     /// Returns the number of bytes writen to dest.
     pub fn decode(decoder_with_ignore: &const Base64DecoderWithIgnore, dest: []u8, source: []const u8) -> %usize {
-        const decoder = &const decoder_with_ignore.decoder;
+        const decoder = &decoder_with_ignore.decoder;
 
         var src_cursor: usize = 0;
         var dest_cursor: usize = 0;

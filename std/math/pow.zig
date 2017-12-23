@@ -166,12 +166,12 @@ pub fn pow(comptime T: type, x: T, y: T) -> T {
         ae = -ae;
     }
 
-    math.scalbn(a1, ae)
+    return math.scalbn(a1, ae);
 }
 
 fn isOddInteger(x: f64) -> bool {
     const r = math.modf(x);
-    r.fpart == 0.0 and i64(r.ipart) & 1 == 1
+    return r.fpart == 0.0 and i64(r.ipart) & 1 == 1;
 }
 
 test "math.pow" {

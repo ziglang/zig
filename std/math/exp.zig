@@ -8,11 +8,11 @@ const assert = @import("../debug.zig").assert;
 
 pub fn exp(x: var) -> @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(exp32, x),
-        f64 => @inlineCall(exp64, x),
+    return switch (T) {
+        f32 => exp32(x),
+        f64 => exp64(x),
         else => @compileError("exp not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 fn exp32(x_: f32) -> f32 {
@@ -86,9 +86,9 @@ fn exp32(x_: f32) -> f32 {
     const y = 1 + (x * c / (2 - c) - lo + hi);
 
     if (k == 0) {
-        y
+        return y;
     } else {
-        math.scalbn(y, k)
+        return math.scalbn(y, k);
     }
 }
 
@@ -172,9 +172,9 @@ fn exp64(x_: f64) -> f64 {
     const y = 1 + (x * c / (2 - c) - lo + hi);
 
     if (k == 0) {
-        y
+        return y;
     } else {
-        math.scalbn(y, k)
+        return math.scalbn(y, k);
     }
 }
 

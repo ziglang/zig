@@ -3,7 +3,7 @@ const mem = @import("std").mem;
 
 pub fn foo() -> %i32 {
     const x = %return bar();
-    return x + 1
+    return x + 1;
 }
 
 pub fn bar() -> %i32 {
@@ -21,7 +21,7 @@ test "error wrapping" {
 
 error ItBroke;
 fn gimmeItBroke() -> []const u8 {
-    @errorName(error.ItBroke)
+    return @errorName(error.ItBroke);
 }
 
 test "@errorName" {
@@ -48,7 +48,7 @@ error AnError;
 error AnError;
 error SecondError;
 fn shouldBeNotEqual(a: error, b: error) {
-    if (a == b) unreachable
+    if (a == b) unreachable;
 }
 
 
@@ -60,11 +60,7 @@ test "error binary operator" {
 }
 error ItBroke;
 fn errBinaryOperatorG(x: bool) -> %isize {
-    if (x) {
-        error.ItBroke
-    } else {
-        isize(10)
-    }
+    return if (x) error.ItBroke else isize(10);
 }
 
 
@@ -72,7 +68,7 @@ test "unwrap simple value from error" {
     const i = %%unwrapSimpleValueFromErrorDo();
     assert(i == 13);
 }
-fn unwrapSimpleValueFromErrorDo() -> %isize { 13 }
+fn unwrapSimpleValueFromErrorDo() -> %isize { return 13; }
 
 
 test "error return in assignment" {

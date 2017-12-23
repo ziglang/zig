@@ -41,7 +41,7 @@ const Bar = enum {
 };
 
 fn returnAnInt(x: i32) -> Foo {
-    Foo { .One = x }
+    return Foo { .One = x };
 }
 
 
@@ -343,4 +343,37 @@ fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) {
         MultipleChoice2.Unspecified4 => 8,
         MultipleChoice2.Unspecified5 => 9,
     });
+}
+
+test "cast integer literal to enum" {
+    assert(MultipleChoice2(0) == MultipleChoice2.Unspecified1);
+    assert(MultipleChoice2(40) == MultipleChoice2.B);
+}
+
+const EnumWithOneMember = enum {
+    Eof,
+};
+
+fn doALoopThing(id: EnumWithOneMember) {
+    while (true) {
+        if (id == EnumWithOneMember.Eof) {
+            break;
+        }
+        @compileError("above if condition should be comptime");
+    }
+}
+
+test "comparison operator on enum with one member is comptime known" {
+    doALoopThing(EnumWithOneMember.Eof);
+}
+
+const State = enum {
+    Start,
+};
+test "switch on enum with one member is comptime known" {
+    var state = State.Start;
+    switch (state) {
+        State.Start => return,
+    }
+    @compileError("analysis should not reach here");
 }

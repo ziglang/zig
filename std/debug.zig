@@ -32,7 +32,7 @@ fn getStderrStream() -> %&io.OutStream {
         const st = &stderr_file_out_stream.stream;
         stderr_stream = st;
         return st;
-    };
+    }
 }
 
 /// Tries to print a stack trace to stderr, unbuffered, and ignores any error returned.
@@ -52,9 +52,9 @@ pub fn assert(ok: bool) {
         // we insert an explicit call to @panic instead of unreachable.
         // TODO we should use `assertOrPanic` in tests and remove this logic.
         if (builtin.is_test) {
-            @panic("assertion failure")
+            @panic("assertion failure");
         } else {
-            unreachable // assertion failure
+            unreachable; // assertion failure
         }
     }
 }
@@ -96,8 +96,6 @@ const WHITE = "\x1b[37;1m";
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
-pub var user_main_fn: ?fn() -> %void = null;
-
 error PathNotFound;
 error InvalidDebugInfo;
 
@@ -113,6 +111,7 @@ pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty
                 .debug_abbrev = undefined,
                 .debug_str = undefined,
                 .debug_line = undefined,
+                .debug_ranges = null,
                 .abbrev_table_list = ArrayList(AbbrevTableHeader).init(allocator),
                 .compile_unit_list = ArrayList(CompileUnit).init(allocator),
             };
@@ -127,6 +126,7 @@ pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty
             st.debug_abbrev = (%return st.elf.findSection(".debug_abbrev")) ?? return error.MissingDebugInfo;
             st.debug_str = (%return st.elf.findSection(".debug_str")) ?? return error.MissingDebugInfo;
             st.debug_line = (%return st.elf.findSection(".debug_line")) ?? return error.MissingDebugInfo;
+            st.debug_ranges = (%return st.elf.findSection(".debug_ranges"));
             %return scanAllCompileUnits(st);
 
             var ignored_count: usize = 0;
@@ -144,7 +144,7 @@ pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty
                 // at compile time. I'll call it issue #313
                 const ptr_hex = if (@sizeOf(usize) == 4) "0x{x8}" else "0x{x16}";
 
-                const compile_unit = findCompileUnit(st, return_address) ?? {
+                const compile_unit = findCompileUnit(st, return_address) %% {
                     %return out_stream.print("???:?:?: " ++ DIM ++ ptr_hex ++ " in ??? (???)" ++ RESET ++ "\n    ???\n\n",
                         return_address);
                     continue;
@@ -175,7 +175,7 @@ pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty
                             return_address, compile_unit_name);
                     },
                     else => return err,
-                };
+                }
             }
         },
         builtin.ObjectFormat.coff => {
@@ -233,6 +233,7 @@ const ElfStackTrace = struct {
     debug_abbrev: &elf.SectionHeader,
     debug_str: &elf.SectionHeader,
     debug_line: &elf.SectionHeader,
+    debug_ranges: ?&elf.SectionHeader,
     abbrev_table_list: ArrayList(AbbrevTableHeader),
     compile_unit_list: ArrayList(CompileUnit),
 
@@ -333,6 +334,15 @@ const Die = struct {
         };
     }
 
+    fn getAttrSecOffset(self: &const Die, id: u64) -> %u64 {
+        const form_value = self.getAttr(id) ?? return error.MissingDebugInfo;
+        return switch (*form_value) {
+            FormValue.Const => |value| value.asUnsignedLe(),
+            FormValue.SecOffset => |value| value,
+            else => error.InvalidDebugInfo,
+        };
+    }
+
     fn getAttrUnsignedLe(self: &const Die, id: u64) -> %u64 {
         const form_value = self.getAttr(id) ?? return error.MissingDebugInfo;
         return switch (*form_value) {
@@ -347,7 +357,7 @@ const Die = struct {
             FormValue.String => |value| value,
             FormValue.StrPtr => |offset| getString(st, offset),
             else => error.InvalidDebugInfo,
-        }
+        };
     }
 };
 
@@ -393,7 +403,7 @@ const LineNumberProgram = struct {
     pub fn init(is_stmt: bool, include_dirs: []const []const u8,
         file_entries: &ArrayList(FileEntry), target_address: usize) -> LineNumberProgram
     {
-        LineNumberProgram {
+        return LineNumberProgram {
             .address = 0,
             .file = 1,
             .line = 1,
@@ -411,7 +421,7 @@ const LineNumberProgram = struct {
             .prev_is_stmt = undefined,
             .prev_basic_block = undefined,
             .prev_end_sequence = undefined,
-        }
+        };
     }
 
     pub fn checkLineMatch(self: &LineNumberProgram) -> %?LineInfo {
@@ -420,14 +430,11 @@ const LineNumberProgram = struct {
                 return error.MissingDebugInfo;
             } else if (self.prev_file - 1 >= self.file_entries.len) {
                 return error.InvalidDebugInfo;
-            } else {
-                &self.file_entries.items[self.prev_file - 1]
-            };
+            } else &self.file_entries.items[self.prev_file - 1];
+
             const dir_name = if (file_entry.dir_index >= self.include_dirs.len) {
                 return error.InvalidDebugInfo;
-            } else {
-                self.include_dirs[file_entry.dir_index]
-            };
+            } else self.include_dirs[file_entry.dir_index];
             const file_name = %return os.path.join(self.file_entries.allocator, dir_name, file_entry.file_name);
             %defer self.file_entries.allocator.free(file_name);
             return LineInfo {
@@ -484,28 +491,21 @@ fn parseFormValueBlock(allocator: &mem.Allocator, in_stream: &io.InStream, size:
 }
 
 fn parseFormValueConstant(allocator: &mem.Allocator, in_stream: &io.InStream, signed: bool, size: usize) -> %FormValue {
-    FormValue { .Const = Constant {
+    return FormValue { .Const = Constant {
         .signed = signed,
         .payload = %return readAllocBytes(allocator, in_stream, size),
-    }}
+    }};
 }
 
 fn parseFormValueDwarfOffsetSize(in_stream: &io.InStream, is_64: bool) -> %u64 {
-    return if (is_64) {
-        %return in_stream.readIntLe(u64)
-    } else {
-        u64(%return in_stream.readIntLe(u32))
-    };
+    return if (is_64) %return in_stream.readIntLe(u64)
+    else u64(%return in_stream.readIntLe(u32)) ;
 }
 
 fn parseFormValueTargetAddrSize(in_stream: &io.InStream) -> %u64 {
-    return if (@sizeOf(usize) == 4) {
-        u64(%return in_stream.readIntLe(u32))
-    } else if (@sizeOf(usize) == 8) {
-        %return in_stream.readIntLe(u64)
-    } else {
-        unreachable;
-    };
+    return if (@sizeOf(usize) == 4) u64(%return in_stream.readIntLe(u32))
+    else if (@sizeOf(usize) == 8) %return in_stream.readIntLe(u64)
+    else unreachable;
 }
 
 fn parseFormValueRefLen(allocator: &mem.Allocator, in_stream: &io.InStream, size: usize) -> %FormValue {
@@ -524,9 +524,9 @@ fn parseFormValue(allocator: &mem.Allocator, in_stream: &io.InStream, form_id: u
         DW.FORM_block1 => parseFormValueBlock(allocator, in_stream, 1),
         DW.FORM_block2 => parseFormValueBlock(allocator, in_stream, 2),
         DW.FORM_block4 => parseFormValueBlock(allocator, in_stream, 4),
-        DW.FORM_block => {
+        DW.FORM_block => x: {
             const block_len = %return readULeb128(in_stream);
-            parseFormValueBlockLen(allocator, in_stream, block_len)
+            return parseFormValueBlockLen(allocator, in_stream, block_len);
         },
         DW.FORM_data1 => parseFormValueConstant(allocator, in_stream, false, 1),
         DW.FORM_data2 => parseFormValueConstant(allocator, in_stream, false, 2),
@@ -535,7 +535,7 @@ fn parseFormValue(allocator: &mem.Allocator, in_stream: &io.InStream, form_id: u
         DW.FORM_udata, DW.FORM_sdata => {
             const block_len = %return readULeb128(in_stream);
             const signed = form_id == DW.FORM_sdata;
-            parseFormValueConstant(allocator, in_stream, signed, block_len)
+            return parseFormValueConstant(allocator, in_stream, signed, block_len);
         },
         DW.FORM_exprloc => {
             const size = %return readULeb128(in_stream);
@@ -552,7 +552,7 @@ fn parseFormValue(allocator: &mem.Allocator, in_stream: &io.InStream, form_id: u
         DW.FORM_ref8 => parseFormValueRef(allocator, in_stream, u64),
         DW.FORM_ref_udata => {
             const ref_len = %return readULeb128(in_stream);
-            parseFormValueRefLen(allocator, in_stream, ref_len)
+            return parseFormValueRefLen(allocator, in_stream, ref_len);
         },
 
         DW.FORM_ref_addr => FormValue { .RefAddr = %return parseFormValueDwarfOffsetSize(in_stream, is_64) },
@@ -562,10 +562,10 @@ fn parseFormValue(allocator: &mem.Allocator, in_stream: &io.InStream, form_id: u
         DW.FORM_strp => FormValue { .StrPtr = %return parseFormValueDwarfOffsetSize(in_stream, is_64) },
         DW.FORM_indirect => {
             const child_form_id = %return readULeb128(in_stream);
-            parseFormValue(allocator, in_stream, child_form_id, is_64)
+            return parseFormValue(allocator, in_stream, child_form_id, is_64);
         },
         else => error.InvalidDebugInfo,
-    }
+    };
 }
 
 fn parseAbbrevTable(st: &ElfStackTrace) -> %AbbrevTable {
@@ -842,11 +842,9 @@ fn scanAllCompileUnits(st: &ElfStackTrace) -> %void {
         const version = %return in_stream.readInt(st.elf.endian, u16);
         if (version < 2 or version > 5) return error.InvalidDebugInfo;
 
-        const debug_abbrev_offset = if (is_64) {
-            %return in_stream.readInt(st.elf.endian, u64)
-        } else {
-            %return in_stream.readInt(st.elf.endian, u32)
-        };
+        const debug_abbrev_offset =
+            if (is_64) %return in_stream.readInt(st.elf.endian, u64)
+            else %return in_stream.readInt(st.elf.endian, u32);
 
         const address_size = %return in_stream.readByte();
         if (address_size != @sizeOf(usize)) return error.InvalidDebugInfo;
@@ -862,28 +860,28 @@ fn scanAllCompileUnits(st: &ElfStackTrace) -> %void {
         if (compile_unit_die.tag_id != DW.TAG_compile_unit)
             return error.InvalidDebugInfo;
 
-        const pc_range = {
+        const pc_range = x: {
             if (compile_unit_die.getAttrAddr(DW.AT_low_pc)) |low_pc| {
                 if (compile_unit_die.getAttr(DW.AT_high_pc)) |high_pc_value| {
                     const pc_end = switch (*high_pc_value) {
                         FormValue.Address => |value| value,
-                        FormValue.Const => |value| {
+                        FormValue.Const => |value| b: {
                             const offset = %return value.asUnsignedLe();
-                            low_pc + offset
+                            break :b (low_pc + offset);
                         },
                         else => return error.InvalidDebugInfo,
                     };
-                    PcRange {
+                    break :x PcRange {
                         .start = low_pc,
                         .end = pc_end,
-                    }
+                    };
                 } else {
-                    null
+                    break :x null;
                 }
             } else |err| {
                 if (err != error.MissingDebugInfo)
                     return err;
-                null
+                break :x null;
             }
         };
 
@@ -900,25 +898,51 @@ fn scanAllCompileUnits(st: &ElfStackTrace) -> %void {
     }
 }
 
-fn findCompileUnit(st: &ElfStackTrace, target_address: u64) -> ?&const CompileUnit {
+fn findCompileUnit(st: &ElfStackTrace, target_address: u64) -> %&const CompileUnit {
+    var in_file_stream = io.FileInStream.init(&st.self_exe_file);
+    const in_stream = &in_file_stream.stream;
     for (st.compile_unit_list.toSlice()) |*compile_unit| {
         if (compile_unit.pc_range) |range| {
             if (target_address >= range.start and target_address < range.end)
                 return compile_unit;
         }
+        if (compile_unit.die.getAttrSecOffset(DW.AT_ranges)) |ranges_offset| {
+            var base_address: usize = 0;
+            if (st.debug_ranges) |debug_ranges| {
+                %return st.self_exe_file.seekTo(debug_ranges.offset + ranges_offset);
+                while (true) {
+                    const begin_addr = %return in_stream.readIntLe(usize);
+                    const end_addr = %return in_stream.readIntLe(usize);
+                    if (begin_addr == 0 and end_addr == 0) {
+                        break;
+                    }
+                    if (begin_addr == @maxValue(usize)) {
+                        base_address = begin_addr;
+                        continue;
+                    }
+                    if (target_address >= begin_addr and target_address < end_addr) {
+                        return compile_unit;
+                    }
+                }
+            }
+        } else |err| {
+            if (err != error.MissingDebugInfo)
+                return err;
+            continue;
+        }
     }
-    return null;
+    return error.MissingDebugInfo;
 }
 
 fn readInitialLength(in_stream: &io.InStream, is_64: &bool) -> %u64 {
     const first_32_bits = %return in_stream.readIntLe(u32);
     *is_64 = (first_32_bits == 0xffffffff);
-    return if (*is_64) {
-        %return in_stream.readIntLe(u64)
+    if (*is_64) {
+        return in_stream.readIntLe(u64);
     } else {
         if (first_32_bits >= 0xfffffff0) return error.InvalidDebugInfo;
-        u64(first_32_bits)
-    };
+        return u64(first_32_bits);
+    }
 }
 
 fn readULeb128(in_stream: &io.InStream) -> %u64 {
@@ -965,40 +989,62 @@ fn readILeb128(in_stream: &io.InStream) -> %i64 {
     }
 }
 
-pub const global_allocator = &global_allocator_state;
-var global_allocator_state = mem.Allocator {
-    .allocFn = globalAlloc,
-    .reallocFn = globalRealloc,
-    .freeFn = globalFree,
-};
+pub const global_allocator = &global_fixed_allocator.allocator;
+var global_fixed_allocator = mem.FixedBufferAllocator.init(global_allocator_mem[0..]);
+var global_allocator_mem: [100 * 1024]u8 = undefined;
 
-var some_mem: [100 * 1024]u8 = undefined;
-var some_mem_index: usize = 0;
+/// Allocator that fails after N allocations, useful for making sure out of
+/// memory conditions are handled correctly.
+pub const FailingAllocator = struct {
+    allocator: mem.Allocator,
+    index: usize,
+    fail_index: usize,
+    internal_allocator: &mem.Allocator,
+    allocated_bytes: usize,
 
-error OutOfMemory;
-
-fn globalAlloc(self: &mem.Allocator, n: usize, alignment: usize) -> %[]u8 {
-    const addr = @ptrToInt(&some_mem[some_mem_index]);
-    const rem = @rem(addr, alignment);
-    const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
-    const adjusted_index = some_mem_index + march_forward_bytes;
-    const end_index = adjusted_index + n;
-    if (end_index > some_mem.len) {
-        return error.OutOfMemory;
+    pub fn init(allocator: &mem.Allocator, fail_index: usize) -> FailingAllocator {
+        return FailingAllocator {
+            .internal_allocator = allocator,
+            .fail_index = fail_index,
+            .index = 0,
+            .allocated_bytes = 0,
+            .allocator = mem.Allocator {
+                .allocFn = alloc,
+                .reallocFn = realloc,
+                .freeFn = free,
+            },
+        };
     }
-    const result = some_mem[adjusted_index .. end_index];
-    some_mem_index = end_index;
-    return result;
-}
 
-fn globalRealloc(self: &mem.Allocator, old_mem: []u8, new_size: usize, alignment: usize) -> %[]u8 {
-    if (new_size <= old_mem.len) {
-        return old_mem[0..new_size];
-    } else {
-        const result = %return globalAlloc(self, new_size, alignment);
-        @memcpy(result.ptr, old_mem.ptr, old_mem.len);
+    fn alloc(allocator: &mem.Allocator, n: usize, alignment: u29) -> %[]u8 {
+        const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
+        if (self.index == self.fail_index) {
+            return error.OutOfMemory;
+        }
+        self.index += 1;
+        const result = %return self.internal_allocator.allocFn(self.internal_allocator, n, alignment);
+        self.allocated_bytes += result.len;
         return result;
     }
-}
 
-fn globalFree(self: &mem.Allocator, memory: []u8) { }
+    fn realloc(allocator: &mem.Allocator, old_mem: []u8, new_size: usize, alignment: u29) -> %[]u8 {
+        const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
+        if (new_size <= old_mem.len) {
+            self.allocated_bytes -= old_mem.len - new_size;
+            return self.internal_allocator.reallocFn(self.internal_allocator, old_mem, new_size, alignment);
+        }
+        if (self.index == self.fail_index) {
+            return error.OutOfMemory;
+        }
+        self.index += 1;
+        const result = %return self.internal_allocator.reallocFn(self.internal_allocator, old_mem, new_size, alignment);
+        self.allocated_bytes += new_size - old_mem.len;
+        return result;
+    }
+
+    fn free(allocator: &mem.Allocator, bytes: []u8) {
+        const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
+        self.allocated_bytes -= bytes.len;
+        return self.internal_allocator.freeFn(self.internal_allocator, bytes);
+    }
+};
