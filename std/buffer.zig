@@ -139,6 +139,11 @@ pub const Buffer = struct {
         %return self.resize(m.len);
         mem.copy(u8, self.list.toSlice(), m);
     }
+
+    /// For passing to C functions.
+    pub fn ptr(self: &const Buffer) -> &u8 {
+        return self.list.items.ptr;
+    }
 };
 
 test "simple Buffer" {

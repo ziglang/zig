@@ -119,31 +119,22 @@ libc. Create demo games using Zig.
 [![Build Status](https://travis-ci.org/zig-lang/zig.svg?branch=master)](https://travis-ci.org/zig-lang/zig)
 [![Build status](https://ci.appveyor.com/api/projects/status/4t80mk2dmucrc38i/branch/master?svg=true)](https://ci.appveyor.com/project/andrewrk/zig-d3l86/branch/master)
 
-### Dependencies
+### Stage 1: Build Zig from C++ Source Code
 
-#### Build Dependencies
-
-These compile tools must be available on your system and are used to build
-the Zig compiler itself:
+#### Dependencies
 
 ##### POSIX
 
  * gcc >= 5.0.0 or clang >= 3.6.0
  * cmake >= 2.8.5
+ * LLVM, Clang, LLD libraries == 5.x, compiled with the same gcc or clang version above
 
 ##### Windows
 
  * Microsoft Visual Studio 2015
+ * LLVM, Clang, LLD libraries == 5.x, compiled with the same MSVC version above
 
-#### Library Dependencies
-
-These libraries must be installed on your system, with the development files
-available. The Zig compiler links against them. You have to use the same
-compiler for these libraries as you do to compile Zig.
-
- * LLVM, Clang, and LLD libraries == 5.x
-
-### Debug / Development Build
+#### Instructions
 
 If you have gcc or clang installed, you can find out what `ZIG_LIBC_LIB_DIR`,
 `ZIG_LIBC_STATIC_LIB_DIR`, and `ZIG_LIBC_INCLUDE_DIR` should be set to
@@ -158,7 +149,7 @@ make install
 ./zig build --build-file ../build.zig test
 ```
 
-#### MacOS
+##### MacOS
 
 `ZIG_LIBC_LIB_DIR` and `ZIG_LIBC_STATIC_LIB_DIR` are unused.
 
@@ -172,21 +163,35 @@ make install
 ./zig build --build-file ../build.zig test
 ```
 
-#### Windows
+##### Windows
 
 See https://github.com/zig-lang/zig/wiki/Building-Zig-on-Windows
 
-### Release / Install Build
+### Stage 2: Build Self-Hosted Zig from Zig Source Code
 
-Once installed, `ZIG_LIBC_LIB_DIR` and `ZIG_LIBC_INCLUDE_DIR` can be overridden
-by the `--libc-lib-dir` and `--libc-include-dir` parameters to the zig binary.
+*Note: Stage 2 compiler is not complete. Beta users of Zig should use the
+Stage 1 compiler for now.*
+
+Dependencies are the same as Stage 1, except now you have a working zig compiler.
 
 ```
-mkdir build
-cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release -DZIG_LIBC_LIB_DIR=/some/path -DZIG_LIBC_INCLUDE_DIR=/some/path -DZIG_LIBC_STATIC_INCLUDE_DIR=/some/path
-make
-sudo make install
+bin/zig build --build-file ../build.zig --prefix $(pwd)/stage2 install
+```
+
+### Stage 3: Rebuild Self-Hosted Zig Using the Self-Hosted Compiler
+
+This is the actual compiler binary that we will install to the system.
+
+#### Debug / Development Build
+
+```
+./stage2/bin/zig build --build-file ../build.zig --prefix $(pwd)/stage3 install
+```
+
+#### Release / Install Build
+
+```
+./stage2/bin/zig build --build-file ../build.zig install -Drelease-fast
 ```
 
 ### Test Coverage

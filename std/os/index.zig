@@ -1543,6 +1543,39 @@ pub fn openSelfExe() -> %io.File {
     }
 }
 
+/// Get the directory path that contains the current executable.
+/// Caller owns returned memory.
+pub fn selfExeDirPath(allocator: &mem.Allocator) -> %[]u8 {
+    switch (builtin.os) {
+        Os.linux => {
+            // If the currently executing binary has been deleted,
+            // the file path looks something like `/a/b/c/exe (deleted)`
+            // This path cannot be opened, but it's valid for determining the directory
+            // the executable was in when it was run.
+            const full_exe_path = %return readLink(allocator, "/proc/self/exe");
+            %defer allocator.free(full_exe_path);
+            const dir = path.dirname(full_exe_path);
+            return allocator.shrink(u8, full_exe_path, dir.len);
+        },
+        Os.windows => {
+            @panic("TODO windows std.os.selfExeDirPath");
+            //buf_resize(out_path, 256);
+            //for (;;) {
+            //    DWORD copied_amt = GetModuleFileName(nullptr, buf_ptr(out_path), buf_len(out_path));
+            //    if (copied_amt <= 0) {
+            //        return ErrorFileNotFound;
+            //    }
+            //    if (copied_amt < buf_len(out_path)) {
+            //        buf_resize(out_path, copied_amt);
+            //        return 0;
+            //    }
+            //    buf_resize(out_path, buf_len(out_path) * 2);
+            //}
+        },
+        else => @compileError("unimplemented: std.os.selfExeDirPath for " ++ @tagName(builtin.os)),
+    }
+}
+
 pub fn isTty(handle: FileHandle) -> bool {
     if (is_windows) {
         return windows_util.windowsIsTty(handle);

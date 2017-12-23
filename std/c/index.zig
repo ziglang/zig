@@ -48,3 +48,4 @@ pub extern "c" fn setregid(rgid: c_uint, egid: c_uint) -> c_int;
 pub extern "c" fn malloc(usize) -> ?&c_void;
 pub extern "c" fn realloc(&c_void, usize) -> ?&c_void;
 pub extern "c" fn free(&c_void);
+pub extern "c" fn posix_memalign(memptr: &&c_void, alignment: usize, size: usize) -> c_int;
