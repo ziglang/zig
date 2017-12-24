@@ -299,7 +299,7 @@ pub fn main() -&gt; %void {
         <li>Non-Ascii Unicode line endings: U+0085 (NEL), U+2028 (LS), U+2029 (PS).</li>
       </ul>
       <p>The codepoint U+000a (LF) (which is encoded as the single-byte value 0x0a) is the line terminator character. This character always terminates a line of zig source code. A non-empty zig source must end with the line terminator character.</p>
-      <p>For some discussion on the rationale behind these designe decisions, see <a href="https://github.com/zig-lang/zig/issues/663">issue #663</a></p>
+      <p>For some discussion on the rationale behind these design decisions, see <a href="https://github.com/zig-lang/zig/issues/663">issue #663</a></p>
       <h2 id="values">Values</h2>
       <pre><code class="zig">const warn = @import("std").debug.warn;
 const os = @import("std").os;
