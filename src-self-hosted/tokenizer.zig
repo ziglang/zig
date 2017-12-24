@@ -70,6 +70,7 @@ pub const Token = struct {
         Identifier,
         StringLiteral: StrLitKind,
         Eof,
+        NoEolAtEof,
         Builtin,
         Bang,
         Equal,
@@ -139,6 +140,7 @@ pub const Token = struct {
 pub const Tokenizer = struct {
     buffer: []const u8,
     index: usize,
+    actual_file_end: usize,
 
     pub const Location = struct {
         line: usize,
@@ -177,10 +179,24 @@ pub const Tokenizer = struct {
     }
 
     pub fn init(buffer: []const u8) -> Tokenizer {
-        return Tokenizer {
-            .buffer = buffer,
-            .index = 0,
-        };
+        if (buffer.len == 0 or buffer[buffer.len - 1] == '\n') {
+            return Tokenizer {
+                .buffer = buffer,
+                .index = 0,
+                .actual_file_end = buffer.len,
+            };
+        } else {
+            // last line is incomplete, so skip it, and give an error when we get there.
+            var source_len = buffer.len;
+            while (source_len > 0) : (source_len -= 1) {
+                if (buffer[source_len - 1] == '\n') break;
+            }
+            return Tokenizer {
+                .buffer = buffer[0..source_len],
+                .index = 0,
+                .actual_file_end = buffer.len,
+            };
+        }
     }
 
     const State = enum {
@@ -497,7 +513,11 @@ pub const Tokenizer = struct {
             }
         }
         result.end = self.index;
-        // TODO check state when returning EOF
+        if (result.id == Token.Id.Eof and self.actual_file_end != self.buffer.len) {
+            // instead of an Eof, give an error token
+            result.id = Token.Id.NoEolAtEof;
+            result.end = self.actual_file_end;
+        }
         return result;
     }
 
@@ -507,3 +527,30 @@ pub const Tokenizer = struct {
 };
 
 
+
+test "tokenizer" {
+    // source must end with eol
+    testTokenize("no newline", []Token.Id {
+    }, false);
+    testTokenize("test\n", []Token.Id {
+        Token.Id.Keyword_test,
+    }, true);
+    testTokenize("test\nno newline", []Token.Id {
+        Token.Id.Keyword_test,
+    }, false);
+}
+
+fn testTokenize(source: []const u8, expected_tokens: []const Token.Id, expected_eol_at_eof: bool) {
+    var tokenizer = Tokenizer.init(source);
+    for (expected_tokens) |expected_token_id| {
+        const token = tokenizer.next();
+        std.debug.assert(@TagType(Token.Id)(token.id) == @TagType(Token.Id)(expected_token_id));
+        switch (expected_token_id) {
+            Token.Id.StringLiteral => |kind| {
+                @panic("TODO: how do i test this?");
+            },
+            else => {},
+        }
+    }
+    std.debug.assert(tokenizer.next().id == if (expected_eol_at_eof) Token.Id.Eof else Token.Id.NoEolAtEof);
+}
