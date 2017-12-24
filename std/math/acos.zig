@@ -2,8 +2,9 @@
 //
 // - acos(x)   = nan if x < -1 or x > 1
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
 pub fn acos(x: var) -> @typeOf(x) {
     const T = @typeOf(x);

@@ -1,10 +1,10 @@
-const std = @import("index.zig");
+const std = @import("../index.zig");
 const math = std.math;
 const mem = std.mem;
 const io = std.io;
 const os = std.os;
-const elf = @import("elf.zig");
-const DW = @import("dwarf.zig");
+const elf = std.elf;
+const DW = std.dwarf;
 const ArrayList = std.ArrayList;
 const builtin = @import("builtin");
 
@@ -992,59 +992,3 @@ fn readILeb128(in_stream: &io.InStream) -> %i64 {
 pub const global_allocator = &global_fixed_allocator.allocator;
 var global_fixed_allocator = mem.FixedBufferAllocator.init(global_allocator_mem[0..]);
 var global_allocator_mem: [100 * 1024]u8 = undefined;
-
-/// Allocator that fails after N allocations, useful for making sure out of
-/// memory conditions are handled correctly.
-pub const FailingAllocator = struct {
-    allocator: mem.Allocator,
-    index: usize,
-    fail_index: usize,
-    internal_allocator: &mem.Allocator,
-    allocated_bytes: usize,
-
-    pub fn init(allocator: &mem.Allocator, fail_index: usize) -> FailingAllocator {
-        return FailingAllocator {
-            .internal_allocator = allocator,
-            .fail_index = fail_index,
-            .index = 0,
-            .allocated_bytes = 0,
-            .allocator = mem.Allocator {
-                .allocFn = alloc,
-                .reallocFn = realloc,
-                .freeFn = free,
-            },
-        };
-    }
-
-    fn alloc(allocator: &mem.Allocator, n: usize, alignment: u29) -> %[]u8 {
-        const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
-        if (self.index == self.fail_index) {
-            return error.OutOfMemory;
-        }
-        self.index += 1;
-        const result = %return self.internal_allocator.allocFn(self.internal_allocator, n, alignment);
-        self.allocated_bytes += result.len;
-        return result;
-    }
-
-    fn realloc(allocator: &mem.Allocator, old_mem: []u8, new_size: usize, alignment: u29) -> %[]u8 {
-        const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
-        if (new_size <= old_mem.len) {
-            self.allocated_bytes -= old_mem.len - new_size;
-            return self.internal_allocator.reallocFn(self.internal_allocator, old_mem, new_size, alignment);
-        }
-        if (self.index == self.fail_index) {
-            return error.OutOfMemory;
-        }
-        self.index += 1;
-        const result = %return self.internal_allocator.reallocFn(self.internal_allocator, old_mem, new_size, alignment);
-        self.allocated_bytes += new_size - old_mem.len;
-        return result;
-    }
-
-    fn free(allocator: &mem.Allocator, bytes: []u8) {
-        const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
-        self.allocated_bytes -= bytes.len;
-        return self.internal_allocator.freeFn(self.internal_allocator, bytes);
-    }
-};

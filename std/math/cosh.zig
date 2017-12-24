@@ -5,9 +5,10 @@
 // - cosh(nan)   = nan
 
 const builtin = @import("builtin");
-const math = @import("index.zig");
+const std = @import("../index.zig");
+const math = std.math;
 const expo2 = @import("expo2.zig").expo2;
-const assert = @import("../debug.zig").assert;
+const assert = std.debug.assert;
 
 pub fn cosh(x: var) -> @typeOf(x) {
     const T = @typeOf(x);

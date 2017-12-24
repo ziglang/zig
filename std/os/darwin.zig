@@ -1,5 +1,6 @@
-const c = @import("../c/index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const c = std.c;
+const assert = std.debug.assert;
 
 pub use @import("darwin_errno.zig");
 

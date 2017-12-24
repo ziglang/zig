@@ -22,8 +22,9 @@
 //  pow(x, y)      = nan for finite x < 0 and finite non-integer y
 
 const builtin = @import("builtin");
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
 // This implementation is taken from the go stlib, musl is a bit more complex.
 pub fn pow(comptime T: type, x: T, y: T) -> T {

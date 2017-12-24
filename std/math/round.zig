@@ -5,8 +5,9 @@
 // - round(nan)   = nan
 
 const builtin = @import("builtin");
-const assert = @import("../debug.zig").assert;
-const math = @import("index.zig");
+const assert = std.debug.assert;
+const std = @import("../index.zig");
+const math = std.math;
 
 pub fn round(x: var) -> @typeOf(x) {
     const T = @typeOf(x);

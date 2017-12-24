@@ -1119,18 +1119,24 @@ fn testCanonical(source: []const u8) {
         break :x failing_allocator.index;
     };
 
-    // TODO make this pass
-    //var fail_index = needed_alloc_count;
-    //while (fail_index != 0) {
-    //    fail_index -= 1;
-    //    var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-    //    var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, fail_index);
-    //    if (testParse(source, &failing_allocator.allocator)) |_| {
-    //        @panic("non-deterministic memory usage");
-    //    } else |err| {
-    //        assert(err == error.OutOfMemory);
-    //    }
-    //}
+    var fail_index: usize = 0;
+    while (fail_index < needed_alloc_count) : (fail_index += 1) {
+        var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+        var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, fail_index);
+        if (testParse(source, &failing_allocator.allocator)) |_| {
+            @panic("non-deterministic memory usage");
+        } else |err| {
+            assert(err == error.OutOfMemory);
+            // TODO make this pass
+            //if (failing_allocator.allocated_bytes != failing_allocator.freed_bytes) {
+            //    warn("\nfail_index: {}/{}\nallocated bytes: {}\nfreed bytes: {}\nallocations: {}\ndeallocations: {}\n",
+            //        fail_index, needed_alloc_count,
+            //        failing_allocator.allocated_bytes, failing_allocator.freed_bytes,
+            //        failing_allocator.index, failing_allocator.deallocations);
+            //    @panic("memory leak detected");
+            //}
+        }
+    }
 }
 
 test "zig fmt" {

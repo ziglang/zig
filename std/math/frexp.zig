@@ -4,8 +4,9 @@
 // - frexp(+-inf) = +-inf, 0
 // - frexp(nan)   = nan, undefined
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
 fn frexp_result(comptime T: type) -> type {
     return struct {

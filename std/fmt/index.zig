@@ -1,7 +1,8 @@
-const math = @import("../math/index.zig");
-const debug = @import("../debug.zig");
+const std = @import("../index.zig");
+const math = std.math;
+const debug = std.debug;
 const assert = debug.assert;
-const mem = @import("../mem.zig");
+const mem = std.mem;
 const builtin = @import("builtin");
 const errol3 = @import("errol/index.zig").errol3;
 

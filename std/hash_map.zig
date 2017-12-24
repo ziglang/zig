@@ -1,7 +1,8 @@
-const debug = @import("debug.zig");
+const std = @import("index.zig");
+const debug = std.debug;
 const assert = debug.assert;
-const math = @import("math/index.zig");
-const mem = @import("mem.zig");
+const math = std.math;
+const mem = std.mem;
 const Allocator = mem.Allocator;
 const builtin = @import("builtin");
 

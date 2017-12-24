@@ -6,8 +6,9 @@
 // - log1p(x)     = nan if x < -1
 // - log1p(nan)   = nan
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
 pub fn log1p(x: var) -> @typeOf(x) {
     const T = @typeOf(x);

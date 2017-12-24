@@ -1,5 +1,6 @@
-const debug = @import("debug.zig");
-const mem = @import("mem.zig");
+const std = @import("index.zig");
+const debug = std.debug;
+const mem = std.mem;
 const assert = debug.assert;
 
 pub fn len(ptr: &const u8) -> usize {

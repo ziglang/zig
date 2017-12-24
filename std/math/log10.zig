@@ -5,8 +5,9 @@
 // - log10(x)     = nan if x < 0
 // - log10(nan)   = nan
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
 

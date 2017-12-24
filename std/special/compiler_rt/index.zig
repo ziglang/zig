@@ -68,7 +68,7 @@ comptime {
     }
 }
 
-const assert = @import("../../debug.zig").assert;
+const assert = @import("../../index.zig").debug.assert;
 
 const __udivmoddi4 = @import("udivmoddi4.zig").__udivmoddi4;
 

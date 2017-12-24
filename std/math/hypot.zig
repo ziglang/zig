@@ -5,8 +5,9 @@
 // - hypot(nan, y)    = nan
 // - hypot(x, nan)    = nan
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
 pub fn hypot(comptime T: type, x: T, y: T) -> T {
     return switch (T) {

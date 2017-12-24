@@ -1,10 +1,11 @@
-const debug = @import("debug.zig");
-const mem = @import("mem.zig");
+const std = @import("index.zig");
+const debug = std.debug;
+const mem = std.mem;
 const Allocator = mem.Allocator;
 const assert = debug.assert;
-const ArrayList = @import("array_list.zig").ArrayList;
+const ArrayList = std.ArrayList;
 
-const fmt = @import("fmt/index.zig");
+const fmt = std.fmt;
 
 /// A buffer that allocates memory and maintains a null byte at the end.
 pub const Buffer = struct {

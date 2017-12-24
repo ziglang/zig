@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
+const std = @import("../index.zig");
 const TypeId = builtin.TypeId;
-const assert = @import("../debug.zig").assert;
+const assert = std.debug.assert;
 
 pub const e = 2.71828182845904523536028747135266249775724709369995;
 pub const pi = 3.14159265358979323846264338327950288419716939937510;
