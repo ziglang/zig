@@ -532,60 +532,181 @@ pub const Tokenizer = struct {
 
     fn checkLiteralCharacter(self: &Tokenizer) {
         if (self.pending_invalid_token != null) return;
+        const invalid_length = self.getInvalidCharacterLength();
+        if (invalid_length == 0) return;
+        self.pending_invalid_token = Token {
+            .id = Token.Id.Invalid,
+            .start = self.index,
+            .end = self.index + invalid_length,
+        };
+    }
+
+    fn getInvalidCharacterLength(self: &Tokenizer) -> u3 {
         const c0 = self.buffer[self.index];
-        if (c0 < 0x20 or c0 == 0x7f) {
-            // ascii control codes are never allowed
-            // (note that \n was checked before we got here)
-            self.pending_invalid_token = Token {
-                .id = Token.Id.Invalid,
-                .start = self.index,
-                .end = self.index + 1,
-            };
-            return;
+        if (c0 < 0x80) {
+            if (c0 < 0x20 or c0 == 0x7f) {
+                // ascii control codes are never allowed
+                // (note that \n was checked before we got here)
+                return 1;
+            }
+            // looks fine to me.
+            return 0;
+        } else {
+            // check utf8-encoded character.
+            // remember that the last byte in the buffer is guaranteed to be '\n',
+            // which means we really don't need to do bounds checks here,
+            // as long as we check one byte at a time for being a continuation byte.
+            var value: u32 = undefined;
+            var length: u3 = undefined;
+            if      (c0 & 0b11100000 == 0b11000000) {value = c0 & 0b00011111; length = 2;}
+            else if (c0 & 0b11110000 == 0b11100000) {value = c0 & 0b00001111; length = 3;}
+            else if (c0 & 0b11111000 == 0b11110000) {value = c0 & 0b00000111; length = 4;}
+            else return 1; // unexpected continuation or too many leading 1's
+
+            const c1 = self.buffer[self.index + 1];
+            if (c1 & 0b11000000 != 0b10000000) return 1; // expected continuation
+            value <<= 6;
+            value |= c1 & 0b00111111;
+            if (length == 2) {
+                if (value < 0x80) return length; // overlong
+                if (value == 0x85) return length; // U+0085 (NEL)
+                self.index += length - 1;
+                return 0;
+            }
+            const c2 = self.buffer[self.index + 2];
+            if (c2 & 0b11000000 != 0b10000000) return 2; // expected continuation
+            value <<= 6;
+            value |= c2 & 0b00111111;
+            if (length == 3) {
+                if (value < 0x800) return length; // overlong
+                if (value == 0x2028) return length; // U+2028 (LS)
+                if (value == 0x2029) return length; // U+2029 (PS)
+                if (0xd800 <= value and value <= 0xdfff) return length; // surrogate halves not allowed in utf8
+                self.index += length - 1;
+                return 0;
+            }
+            const c3 = self.buffer[self.index + 3];
+            if (c3 & 0b11000000 != 0b10000000) return 3; // expected continuation
+            value <<= 6;
+            value |= c3 & 0b00111111;
+            if (length == 4) {
+                if (value < 0x10000) return length; // overlong
+                if (value > 0x10FFFF) return length; // out of bounds
+                self.index += length - 1;
+                return 0;
+            }
+            unreachable;
         }
     }
 };
 
 
 
-test "tokenizer" {
-    // source must end with eol
-    testTokenize("", []Token.Id {
+test "tokenizer - source must end with eol" {
+    testTokenizeWithEol("", []Token.Id {
     }, true);
-    testTokenize("no newline", []Token.Id {
+    testTokenizeWithEol("no newline", []Token.Id {
     }, false);
-    testTokenize("test\n", []Token.Id {
+    testTokenizeWithEol("test\n", []Token.Id {
         Token.Id.Keyword_test,
     }, true);
-    testTokenize("test\nno newline", []Token.Id {
+    testTokenizeWithEol("test\nno newline", []Token.Id {
         Token.Id.Keyword_test,
     }, false);
+}
 
-    // invalid token characters
-    testTokenize("#\n", []Token.Id {
-        Token.Id.Invalid,
-    }, true);
-    testTokenize("`\n", []Token.Id {
-        Token.Id.Invalid,
-    }, true);
+test "tokenizer - invalid token characters" {
+    testTokenize("#\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("`\n", []Token.Id{Token.Id.Invalid});
+}
 
-    // invalid literal/comment characters
+test "tokenizer - invalid literal/comment characters" {
     testTokenize("\"\x00\"\n", []Token.Id {
         Token.Id { .StringLiteral = Token.StrLitKind.Normal },
         Token.Id.Invalid,
-    }, true);
+    });
     testTokenize("//\x00\n", []Token.Id {
         Token.Id.Invalid,
-    }, true);
+    });
     testTokenize("//\x1f\n", []Token.Id {
         Token.Id.Invalid,
-    }, true);
+    });
     testTokenize("//\x7f\n", []Token.Id {
         Token.Id.Invalid,
-    }, true);
+    });
 }
 
-fn testTokenize(source: []const u8, expected_tokens: []const Token.Id, expected_eol_at_eof: bool) {
+test "tokenizer - valid unicode" {
+    testTokenize("//\xc2\x80\n", []Token.Id{});
+    testTokenize("//\xdf\xbf\n", []Token.Id{});
+    testTokenize("//\xe0\xa0\x80\n", []Token.Id{});
+    testTokenize("//\xe1\x80\x80\n", []Token.Id{});
+    testTokenize("//\xef\xbf\xbf\n", []Token.Id{});
+    testTokenize("//\xf0\x90\x80\x80\n", []Token.Id{});
+    testTokenize("//\xf1\x80\x80\x80\n", []Token.Id{});
+    testTokenize("//\xf3\xbf\xbf\xbf\n", []Token.Id{});
+    testTokenize("//\xf4\x8f\xbf\xbf\n", []Token.Id{});
+}
+
+test "tokenizer - invalid unicode continuation bytes" {
+    // unexpected continuation
+    testTokenize("//\x80\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xbf\n", []Token.Id{Token.Id.Invalid});
+    // too many leading 1's
+    testTokenize("//\xf8\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xff\n", []Token.Id{Token.Id.Invalid});
+    // expected continuation for 2 byte sequences
+    testTokenize("//\xc2\x00\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xc2\xc0\n", []Token.Id{Token.Id.Invalid});
+    // expected continuation for 3 byte sequences
+    testTokenize("//\xe0\x00\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xe0\xc0\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xe0\xa0\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xe0\xa0\x00\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xe0\xa0\xc0\n", []Token.Id{Token.Id.Invalid});
+    // expected continuation for 4 byte sequences
+    testTokenize("//\xf0\x00\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xf0\xc0\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xf0\x90\x00\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xf0\x90\xc0\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xf0\x90\x80\x00\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xf0\x90\x80\xc0\n", []Token.Id{Token.Id.Invalid});
+}
+
+test "tokenizer - overlong utf8 codepoint" {
+    testTokenize("//\xc0\x80\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xc1\xbf\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xe0\x80\x80\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xe0\x9f\xbf\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xf0\x80\x80\x80\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xf0\x8f\xbf\xbf\n", []Token.Id{Token.Id.Invalid});
+}
+
+test "tokenizer - misc invalid utf8" {
+    // codepoint out of bounds
+    testTokenize("//\xf4\x90\x80\x80\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xf7\xbf\xbf\xbf\n", []Token.Id{Token.Id.Invalid});
+    // unicode newline characters.U+0085, U+2028, U+2029
+    testTokenize("//\xc2\x84\n", []Token.Id{});
+    testTokenize("//\xc2\x85\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xc2\x86\n", []Token.Id{});
+    testTokenize("//\xe2\x80\xa7\n", []Token.Id{});
+    testTokenize("//\xe2\x80\xa8\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xe2\x80\xa9\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xe2\x80\xaa\n", []Token.Id{});
+    // surrogate halves
+    testTokenize("//\xed\x9f\x80\n", []Token.Id{});
+    testTokenize("//\xed\xa0\x80\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xed\xbf\xbf\n", []Token.Id{Token.Id.Invalid});
+    testTokenize("//\xee\x80\x80\n", []Token.Id{});
+    // surrogate halves are invalid, even in surrogate pairs
+    testTokenize("//\xed\xa0\xad\xed\xb2\xa9\n", []Token.Id{Token.Id.Invalid});
+}
+
+fn testTokenize(source: []const u8, expected_tokens: []const Token.Id) {
+    testTokenizeWithEol(source, expected_tokens, true);
+}
+fn testTokenizeWithEol(source: []const u8, expected_tokens: []const Token.Id, expected_eol_at_eof: bool) {
     var tokenizer = Tokenizer.init(source);
     for (expected_tokens) |expected_token_id| {
         const token = tokenizer.next();
