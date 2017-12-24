@@ -14051,6 +14051,8 @@ static TypeTableEntry *ir_analyze_instruction_c_import(IrAnalyze *ira, IrInstruc
     child_import->package = new_anonymous_package();
     child_import->package->package_table.put(buf_create_from_str("builtin"), ira->codegen->compile_var_package);
     child_import->package->package_table.put(buf_create_from_str("std"), ira->codegen->std_package);
+    child_import->di_file = ZigLLVMCreateFile(ira->codegen->dbuilder,
+        buf_ptr(buf_create_from_str("cimport.h")), buf_ptr(buf_create_from_str(".")));
 
     ZigList<ErrorMsg *> errors = {0};
 

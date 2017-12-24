@@ -590,8 +590,10 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
             bool is_optimized = g->build_mode != BuildModeDebug;
             bool is_internal_linkage = (fn_table_entry->body_node != nullptr &&
                     fn_table_entry->export_list.length == 0);
+            ZigLLVMDIScope *fn_di_scope = get_di_scope(g, scope->parent);
+            assert(fn_di_scope != nullptr);
             ZigLLVMDISubprogram *subprogram = ZigLLVMCreateFunction(g->dbuilder,
-                get_di_scope(g, scope->parent), buf_ptr(&fn_table_entry->symbol_name), "",
+                fn_di_scope, buf_ptr(&fn_table_entry->symbol_name), "",
                 import->di_file, line_number,
                 fn_table_entry->type_entry->di_type, is_internal_linkage,
                 is_definition, scope_line, flags, is_optimized, nullptr);
