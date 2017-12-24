@@ -111,6 +111,7 @@ test "os.path.isAbsoluteWindows" {
     testIsAbsoluteWindows("C:cwd\\another", false);
     testIsAbsoluteWindows("directory/directory", false);
     testIsAbsoluteWindows("directory\\directory", false);
+    testIsAbsoluteWindows("/usr/local", true);
 }
 
 test "os.path.isAbsolutePosix" {
@@ -128,53 +129,115 @@ fn testIsAbsolutePosix(path: []const u8, expected_result: bool) {
     assert(isAbsolutePosix(path) == expected_result);
 }
 
-pub fn drive(path: []const u8) -> ?[]const u8 {
-    if (path.len < 2)
-        return null;
-    if (path[1] != ':')
-        return null;
-    return path[0..2];
-}
+pub const WindowsPath = struct {
+    is_abs: bool,
+    kind: Kind,
+    disk_designator: []const u8,
 
-pub fn networkShare(path: []const u8) -> ?[]const u8 {
-    if (path.len < "//a/b".len)
-        return null;
+    pub const Kind = enum {
+        None,
+        Drive,
+        NetworkShare,
+    };
+};
+
+pub fn windowsParsePath(path: []const u8) -> WindowsPath {
+    if (path.len >= 2 and path[1] == ':') {
+        return WindowsPath {
+            .is_abs = isAbsoluteWindows(path),
+            .kind = WindowsPath.Kind.Drive,
+            .disk_designator = path[0..2],
+        };
+    }
+    if (path.len >= 1 and (path[0] == '/' or path[0] == '\\') and
+       (path.len == 1 or (path[1] != '/' and path[1] != '\\')))
+    {
+        return WindowsPath {
+            .is_abs = true,
+            .kind = WindowsPath.Kind.None,
+            .disk_designator = path[0..0],
+        };
+    }
+    const relative_path = WindowsPath {
+        .kind = WindowsPath.Kind.None,
+        .disk_designator = []u8{},
+        .is_abs = false,
+    };
+    if (path.len < "//a/b".len) {
+        return relative_path;
+    }
 
     // TODO when I combined these together with `inline for` the compiler crashed
     {
         const this_sep = '/';
         const two_sep = []u8{this_sep, this_sep};
         if (mem.startsWith(u8, path, two_sep)) {
-            if (path[2] == this_sep)
-                return null;
+            if (path[2] == this_sep) {
+                return relative_path;
+            }
 
             var it = mem.split(path, []u8{this_sep});
-            _ = (it.next() ?? return null);
-            _ = (it.next() ?? return null);
-            return path[0..it.index];
+            _ = (it.next() ?? return relative_path);
+            _ = (it.next() ?? return relative_path);
+            return WindowsPath {
+                .is_abs = isAbsoluteWindows(path),
+                .kind = WindowsPath.Kind.NetworkShare,
+                .disk_designator = path[0..it.index],
+            };
         }
     }
     {
         const this_sep = '\\';
         const two_sep = []u8{this_sep, this_sep};
         if (mem.startsWith(u8, path, two_sep)) {
-            if (path[2] == this_sep)
-                return null;
+            if (path[2] == this_sep) {
+                return relative_path;
+            }
 
             var it = mem.split(path, []u8{this_sep});
-            _ = (it.next() ?? return null);
-            _ = (it.next() ?? return null);
-            return path[0..it.index];
+            _ = (it.next() ?? return relative_path);
+            _ = (it.next() ?? return relative_path);
+            return WindowsPath {
+                .is_abs = isAbsoluteWindows(path),
+                .kind = WindowsPath.Kind.NetworkShare,
+                .disk_designator = path[0..it.index],
+            };
         }
     }
-    return null;
+    return relative_path;
 }
 
-test "os.path.networkShare" {
-    assert(mem.eql(u8, ??networkShare("//a/b"), "//a/b"));
-    assert(mem.eql(u8, ??networkShare("\\\\a\\b"), "\\\\a\\b"));
-
-    assert(networkShare("\\\\a\\") == null);
+test "os.path.windowsParsePath" {
+    {
+        const parsed = windowsParsePath("//a/b");
+        assert(parsed.is_abs);
+        assert(parsed.kind == WindowsPath.Kind.NetworkShare);
+        assert(mem.eql(u8, parsed.disk_designator, "//a/b"));
+    }
+    {
+        const parsed = windowsParsePath("\\\\a\\b");
+        assert(parsed.is_abs);
+        assert(parsed.kind == WindowsPath.Kind.NetworkShare);
+        assert(mem.eql(u8, parsed.disk_designator, "\\\\a\\b"));
+    }
+    {
+        const parsed = windowsParsePath("\\\\a\\");
+        assert(!parsed.is_abs);
+        assert(parsed.kind == WindowsPath.Kind.None);
+        assert(mem.eql(u8, parsed.disk_designator, ""));
+    }
+    {
+        const parsed = windowsParsePath("/usr/local");
+        assert(parsed.is_abs);
+        assert(parsed.kind == WindowsPath.Kind.None);
+        assert(mem.eql(u8, parsed.disk_designator, ""));
+    }
+    {
+        const parsed = windowsParsePath("c:../");
+        assert(!parsed.is_abs);
+        assert(parsed.kind == WindowsPath.Kind.Drive);
+        assert(mem.eql(u8, parsed.disk_designator, "c:"));
+    }
 }
 
 pub fn diskDesignator(path: []const u8) -> []const u8 {
@@ -186,10 +249,9 @@ pub fn diskDesignator(path: []const u8) -> []const u8 {
 }
 
 pub fn diskDesignatorWindows(path: []const u8) -> []const u8 {
-    return drive(path) ?? (networkShare(path) ?? []u8{});
+    return windowsParsePath(path).disk_designator;
 }
 
-// TODO ASCII is wrong, we actually need full unicode support to compare paths.
 fn networkShareServersEql(ns1: []const u8, ns2: []const u8) -> bool {
     const sep1 = ns1[0];
     const sep2 = ns2[0];
@@ -197,7 +259,31 @@ fn networkShareServersEql(ns1: []const u8, ns2: []const u8) -> bool {
     var it1 = mem.split(ns1, []u8{sep1});
     var it2 = mem.split(ns2, []u8{sep2});
 
+    // TODO ASCII is wrong, we actually need full unicode support to compare paths.
     return asciiEqlIgnoreCase(??it1.next(), ??it2.next());
+}
+
+fn compareDiskDesignators(kind: WindowsPath.Kind, p1: []const u8, p2: []const u8) -> bool {
+    switch (kind) {
+        WindowsPath.Kind.None => {
+            assert(p1.len == 0);
+            assert(p2.len == 0);
+            return true;
+        },
+        WindowsPath.Kind.Drive => {
+            return asciiUpper(p1[0]) == asciiUpper(p2[0]);
+        },
+        WindowsPath.Kind.NetworkShare => {
+            const sep1 = p1[0];
+            const sep2 = p2[0];
+
+            var it1 = mem.split(p1, []u8{sep1});
+            var it2 = mem.split(p2, []u8{sep2});
+
+            // TODO ASCII is wrong, we actually need full unicode support to compare paths.
+            return asciiEqlIgnoreCase(??it1.next(), ??it2.next()) and asciiEqlIgnoreCase(??it1.next(), ??it2.next());
+        },
+    }
 }
 
 fn asciiUpper(byte: u8) -> u8 {
@@ -249,120 +335,157 @@ pub fn resolveWindows(allocator: &Allocator, paths: []const []const u8) -> %[]u8
         return os.getCwd(allocator);
     }
 
-    // determine which drive we want to result with
-    var result_drive_upcase: ?u8 = null;
-    var have_abs = false;
+    // determine which disk designator we will result with, if any
+    var result_drive_buf = "_:";
+    var result_disk_designator: []const u8 = "";
+    var have_drive_kind = WindowsPath.Kind.None;
+    var have_abs_path = false;
     var first_index: usize = 0;
     var max_size: usize = 0;
     for (paths) |p, i| {
-        const is_abs = isAbsoluteWindows(p);
-        if (is_abs) {
-            have_abs = true;
+        const parsed = windowsParsePath(p);
+        if (parsed.is_abs) {
+            have_abs_path = true;
             first_index = i;
-            max_size = 0;
+            max_size = result_disk_designator.len;
         }
-        if (drive(p)) |d| {
-            result_drive_upcase = asciiUpper(d[0]);
-        } else if (networkShare(p)) |_| {
-            result_drive_upcase = null;
+        switch (parsed.kind) {
+            WindowsPath.Kind.Drive => {
+                result_drive_buf[0] = asciiUpper(parsed.disk_designator[0]);
+                result_disk_designator = result_drive_buf[0..];
+                have_drive_kind = WindowsPath.Kind.Drive;
+            },
+            WindowsPath.Kind.NetworkShare => {
+                result_disk_designator = parsed.disk_designator;
+                have_drive_kind = WindowsPath.Kind.NetworkShare;
+            },
+            WindowsPath.Kind.None => {},
         }
         max_size += p.len + 1;
     }
 
 
-    // if we will result with a drive, loop again to determine
-    // which is the first time the drive is absolutely specified, if any
-    // and count up the max bytes for paths related to this drive
-    if (result_drive_upcase) |res_dr| {
-        have_abs = false;
+    // if we will result with a disk designator, loop again to determine
+    // which is the last time the disk designator is absolutely specified, if any
+    // and count up the max bytes for paths related to this disk designator
+    if (have_drive_kind != WindowsPath.Kind.None) {
+        have_abs_path = false;
         first_index = 0;
-        max_size = "_:".len;
-        var correct_drive = false;
+        max_size = result_disk_designator.len;
+        var correct_disk_designator = false;
 
         for (paths) |p, i| {
-            if (drive(p)) |dr| {
-                correct_drive = asciiUpper(dr[0]) == res_dr;
-            } else if (networkShare(p)) |_| {
+            const parsed = windowsParsePath(p);
+            if (parsed.kind != WindowsPath.Kind.None) {
+                if (parsed.kind == have_drive_kind) {
+                    correct_disk_designator = compareDiskDesignators(have_drive_kind,
+                        result_disk_designator, parsed.disk_designator);
+                } else {
+                    continue;
+                }
+            }
+            if (!correct_disk_designator) {
                 continue;
             }
-            if (!correct_drive) {
-                continue;
-            }
-            const is_abs = isAbsoluteWindows(p);
-            if (is_abs) {
+            if (parsed.is_abs) {
                 first_index = i;
-                max_size = "_:".len;
-                have_abs = true;
+                max_size = result_disk_designator.len;
+                have_abs_path = true;
             }
             max_size += p.len + 1;
         }
     }
 
-    var drive_buf = "_:";
+
+    // Allocate result and fill in the disk designator, calling getCwd if we have to.
     var result: []u8 = undefined;
     var result_index: usize = 0;
-    var root_slice: []const u8 = undefined;
 
-    if (have_abs) {
-        result = %return allocator.alloc(u8, max_size);
+    if (have_abs_path) {
+        switch (have_drive_kind) {
+            WindowsPath.Kind.Drive => {
+                result = %return allocator.alloc(u8, max_size);
 
-        if (result_drive_upcase) |res_dr| {
-            drive_buf[0] = res_dr;
-            root_slice = drive_buf[0..];
+                mem.copy(u8, result, result_disk_designator);
+                result_index += result_disk_designator.len;
+            },
+            WindowsPath.Kind.NetworkShare => {
+                result = %return allocator.alloc(u8, max_size);
+                var it = mem.split(paths[first_index], "/\\");
+                const server_name = ??it.next();
+                const other_name = ??it.next();
 
-            mem.copy(u8, result, root_slice);
-            result_index += root_slice.len;
-        } else {
-            // We know it looks like //a/b or \\a\b because of earlier code
-            var it = mem.split(paths[first_index], "/\\");
-            const server_name = ??it.next();
-            const other_name = ??it.next();
-
-            result[result_index] = '\\';
-            result_index += 1;
-            result[result_index] = '\\';
-            result_index += 1;
-            mem.copy(u8, result[result_index..], server_name);
-            result_index += server_name.len;
-            result[result_index] = '\\';
-            result_index += 1;
-            mem.copy(u8, result[result_index..], other_name);
-            result_index += other_name.len;
-            
-            root_slice = result[0..result_index];
+                result[result_index] = '\\';
+                result_index += 1;
+                result[result_index] = '\\';
+                result_index += 1;
+                mem.copy(u8, result[result_index..], server_name);
+                result_index += server_name.len;
+                result[result_index] = '\\';
+                result_index += 1;
+                mem.copy(u8, result[result_index..], other_name);
+                result_index += other_name.len;
+                
+                result_disk_designator = result[0..result_index];
+            },
+            WindowsPath.Kind.None => {
+                assert(is_windows); // resolveWindows called on non windows can't use getCwd
+                const cwd = %return os.getCwd(allocator);
+                defer allocator.free(cwd);
+                const parsed_cwd = windowsParsePath(cwd);
+                result = %return allocator.alloc(u8, max_size + parsed_cwd.disk_designator.len + 1);
+                mem.copy(u8, result, parsed_cwd.disk_designator);
+                result_index += parsed_cwd.disk_designator.len;
+                result_disk_designator = result[0..parsed_cwd.disk_designator.len];
+                if (parsed_cwd.kind == WindowsPath.Kind.Drive) {
+                    result[0] = asciiUpper(result[0]);
+                }
+                have_drive_kind = parsed_cwd.kind;
+            },
         }
     } else {
         assert(is_windows); // resolveWindows called on non windows can't use getCwd
-        // TODO get cwd for result_drive if applicable
+        // TODO call get cwd for the result_disk_designator instead of the global one
         const cwd = %return os.getCwd(allocator);
         defer allocator.free(cwd);
+
         result = %return allocator.alloc(u8, max_size + cwd.len + 1);
+
         mem.copy(u8, result, cwd);
         result_index += cwd.len;
-
-        root_slice = diskDesignatorWindows(result[0..result_index]);
+        const parsed_cwd = windowsParsePath(result[0..result_index]);
+        result_disk_designator = parsed_cwd.disk_designator;
+        if (parsed_cwd.kind == WindowsPath.Kind.Drive) {
+            result[0] = asciiUpper(result[0]);
+        }
+        have_drive_kind = parsed_cwd.kind;
     }
     %defer allocator.free(result);
 
-    var correct_drive = true;
+    // Now we know the disk designator to use, if any, and what kind it is. And our result
+    // is big enough to append all the paths to.
+    var correct_disk_designator = true;
     for (paths[first_index..]) |p, i| {
-        if (result_drive_upcase) |res_dr| {
-            if (drive(p)) |dr| {
-                correct_drive = asciiUpper(dr[0]) == res_dr;
-            } else if (networkShare(p)) |_| {
-                continue;
-            }
-            if (!correct_drive) {
+        const parsed = windowsParsePath(p);
+
+        if (parsed.kind != WindowsPath.Kind.None) {
+            if (parsed.kind == have_drive_kind) {
+                correct_disk_designator = compareDiskDesignators(have_drive_kind,
+                    result_disk_designator, parsed.disk_designator);
+            } else {
                 continue;
             }
         }
-        var it = mem.split(p[diskDesignatorWindows(p).len..], "/\\");
+        if (!correct_disk_designator) {
+            continue;
+        }
+        var it = mem.split(p[parsed.disk_designator.len..], "/\\");
         while (it.next()) |component| {
             if (mem.eql(u8, component, ".")) {
                 continue;
             } else if (mem.eql(u8, component, "..")) {
                 while (true) {
-                    if (result_index == 0 or result_index == root_slice.len)
+                    if (result_index == 0 or result_index == result_disk_designator.len)
                         break;
                     result_index -= 1;
                     if (result[result_index] == '\\' or result[result_index] == '/')
@@ -377,7 +500,7 @@ pub fn resolveWindows(allocator: &Allocator, paths: []const []const u8) -> %[]u8
         }
     }
 
-    if (result_index == root_slice.len) {
+    if (result_index == result_disk_designator.len) {
         result[result_index] = '\\';
         result_index += 1;
     }
@@ -455,6 +578,9 @@ pub fn resolvePosix(allocator: &Allocator, paths: []const []const u8) -> %[]u8 {
 test "os.path.resolve" {
     const cwd = %%os.getCwd(debug.global_allocator);
     if (is_windows) {
+        if (windowsParsePath(cwd).kind == WindowsPath.Kind.Drive) {
+            cwd[0] = asciiUpper(cwd[0]);
+        }
         assert(mem.eql(u8, testResolveWindows([][]const u8{"."}), cwd));
     } else {
         assert(mem.eql(u8, testResolvePosix([][]const u8{"a/b/c/", "../../.."}), cwd));
@@ -463,6 +589,29 @@ test "os.path.resolve" {
 }
 
 test "os.path.resolveWindows" {
+    if (is_windows) {
+        const cwd = %%os.getCwd(debug.global_allocator);
+        const parsed_cwd = windowsParsePath(cwd);
+        {
+            const result = testResolveWindows([][]const u8{"/usr/local", "lib\\zig\\std\\array_list.zig"});
+            const expected = %%join(debug.global_allocator,
+                parsed_cwd.disk_designator, "usr\\local\\lib\\zig\\std\\array_list.zig");
+            if (parsed_cwd.kind == WindowsPath.Kind.Drive) {
+                expected[0] = asciiUpper(parsed_cwd.disk_designator[0]);
+            }
+            assert(mem.eql(u8, result, expected));
+        }
+        {
+            const result = testResolveWindows([][]const u8{"usr/local", "lib\\zig"});
+            const expected = %%join(debug.global_allocator, cwd, "usr\\local\\lib\\zig");
+            if (parsed_cwd.kind == WindowsPath.Kind.Drive) {
+                expected[0] = asciiUpper(parsed_cwd.disk_designator[0]);
+            }
+            assert(mem.eql(u8, result, expected));
+        }
+    }
+
+    assert(mem.eql(u8, testResolveWindows([][]const u8{"c:\\a\\b\\c", "/hi", "ok"}), "C:\\hi\\ok"));
     assert(mem.eql(u8, testResolveWindows([][]const u8{"c:/blah\\blah", "d:/games", "c:../a"}), "C:\\blah\\a"));
     assert(mem.eql(u8, testResolveWindows([][]const u8{"c:/blah\\blah", "d:/games", "C:../a"}), "C:\\blah\\a"));
     assert(mem.eql(u8, testResolveWindows([][]const u8{"c:/ignore", "d:\\a/b\\c/d", "\\e.exe"}), "D:\\e.exe"));
@@ -749,18 +898,21 @@ pub fn relativeWindows(allocator: &Allocator, from: []const u8, to: []const u8) 
     const resolved_to = %return resolveWindows(allocator, [][]const u8{to});
     defer if (clean_up_resolved_to) allocator.free(resolved_to);
 
-    const result_is_to = if (drive(resolved_to)) |to_drive|
-        if (drive(resolved_from)) |from_drive|
-            asciiUpper(from_drive[0]) != asciiUpper(to_drive[0])
-        else
-            true
-    else if (networkShare(resolved_to)) |to_ns|
-        if (networkShare(resolved_from)) |from_ns|
-            !networkShareServersEql(to_ns, from_ns)
-        else
-            true
-    else
-        unreachable;
+    const parsed_from = windowsParsePath(resolved_from);
+    const parsed_to = windowsParsePath(resolved_to);
+    const result_is_to = x: {
+        if (parsed_from.kind != parsed_to.kind) {
+            break :x true;
+        } else switch (parsed_from.kind) {
+            WindowsPath.Kind.NetworkShare => {
+                break :x !networkShareServersEql(parsed_to.disk_designator, parsed_from.disk_designator);
+            },
+            WindowsPath.Kind.Drive => {
+                break :x asciiUpper(parsed_from.disk_designator[0]) != asciiUpper(parsed_to.disk_designator[0]);
+            },
+            else => unreachable,
+        }
+    };
 
     if (result_is_to) {
         clean_up_resolved_to = false;
