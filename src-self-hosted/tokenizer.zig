@@ -141,6 +141,7 @@ pub const Tokenizer = struct {
     buffer: []const u8,
     index: usize,
     actual_file_end: usize,
+    pending_invalid_token: ?Token,
 
     pub const Location = struct {
         line: usize,
@@ -179,24 +180,18 @@ pub const Tokenizer = struct {
     }
 
     pub fn init(buffer: []const u8) -> Tokenizer {
-        if (buffer.len == 0 or buffer[buffer.len - 1] == '\n') {
-            return Tokenizer {
-                .buffer = buffer,
-                .index = 0,
-                .actual_file_end = buffer.len,
-            };
-        } else {
+        var source_len = buffer.len;
+        while (source_len > 0) : (source_len -= 1) {
+            if (buffer[source_len - 1] == '\n') break;
             // last line is incomplete, so skip it, and give an error when we get there.
-            var source_len = buffer.len;
-            while (source_len > 0) : (source_len -= 1) {
-                if (buffer[source_len - 1] == '\n') break;
-            }
-            return Tokenizer {
-                .buffer = buffer[0..source_len],
-                .index = 0,
-                .actual_file_end = buffer.len,
-            };
         }
+
+        return Tokenizer {
+            .buffer = buffer[0..source_len],
+            .index = 0,
+            .actual_file_end = buffer.len,
+            .pending_invalid_token = null,
+        };
     }
 
     const State = enum {
@@ -223,6 +218,10 @@ pub const Tokenizer = struct {
     };
 
     pub fn next(self: &Tokenizer) -> Token {
+        if (self.pending_invalid_token) |token| {
+            self.pending_invalid_token = null;
+            return token;
+        }
         var state = State.Start;
         var result = Token {
             .id = Token.Id.Eof,
@@ -368,7 +367,7 @@ pub const Tokenizer = struct {
                         break;
                     },
                     '\n' => break, // Look for this error later.
-                    else => {},
+                    else => self.checkLiteralCharacter(),
                 },
 
                 State.StringLiteralBackslash => switch (c) {
@@ -455,7 +454,7 @@ pub const Tokenizer = struct {
                             .end = undefined,
                         };
                     },
-                    else => {},
+                    else => self.checkLiteralCharacter(),
                 },
                 State.Zero => switch (c) {
                     'b', 'o', 'x' => {
@@ -513,10 +512,16 @@ pub const Tokenizer = struct {
             }
         }
         result.end = self.index;
-        if (result.id == Token.Id.Eof and self.actual_file_end != self.buffer.len) {
-            // instead of an Eof, give an error token
-            result.id = Token.Id.NoEolAtEof;
-            result.end = self.actual_file_end;
+        if (result.id == Token.Id.Eof) {
+            if (self.pending_invalid_token) |token| {
+                self.pending_invalid_token = null;
+                return token;
+            }
+            if (self.actual_file_end != self.buffer.len) {
+                // instead of an Eof, give an error token
+                result.id = Token.Id.NoEolAtEof;
+                result.end = self.actual_file_end;
+            }
         }
         return result;
     }
@@ -524,12 +529,29 @@ pub const Tokenizer = struct {
     pub fn getTokenSlice(self: &const Tokenizer, token: &const Token) -> []const u8 {
         return self.buffer[token.start..token.end];
     }
+
+    fn checkLiteralCharacter(self: &Tokenizer) {
+        if (self.pending_invalid_token != null) return;
+        const c0 = self.buffer[self.index];
+        if (c0 < 0x20 or c0 == 0x7f) {
+            // ascii control codes are never allowed
+            // (note that \n was checked before we got here)
+            self.pending_invalid_token = Token {
+                .id = Token.Id.Invalid,
+                .start = self.index,
+                .end = self.index + 1,
+            };
+            return;
+        }
+    }
 };
 
 
 
 test "tokenizer" {
     // source must end with eol
+    testTokenize("", []Token.Id {
+    }, true);
     testTokenize("no newline", []Token.Id {
     }, false);
     testTokenize("test\n", []Token.Id {
@@ -538,6 +560,29 @@ test "tokenizer" {
     testTokenize("test\nno newline", []Token.Id {
         Token.Id.Keyword_test,
     }, false);
+
+    // invalid token characters
+    testTokenize("#\n", []Token.Id {
+        Token.Id.Invalid,
+    }, true);
+    testTokenize("`\n", []Token.Id {
+        Token.Id.Invalid,
+    }, true);
+
+    // invalid literal/comment characters
+    testTokenize("\"\x00\"\n", []Token.Id {
+        Token.Id { .StringLiteral = Token.StrLitKind.Normal },
+        Token.Id.Invalid,
+    }, true);
+    testTokenize("//\x00\n", []Token.Id {
+        Token.Id.Invalid,
+    }, true);
+    testTokenize("//\x1f\n", []Token.Id {
+        Token.Id.Invalid,
+    }, true);
+    testTokenize("//\x7f\n", []Token.Id {
+        Token.Id.Invalid,
+    }, true);
 }
 
 fn testTokenize(source: []const u8, expected_tokens: []const Token.Id, expected_eol_at_eof: bool) {
@@ -546,8 +591,8 @@ fn testTokenize(source: []const u8, expected_tokens: []const Token.Id, expected_
         const token = tokenizer.next();
         std.debug.assert(@TagType(Token.Id)(token.id) == @TagType(Token.Id)(expected_token_id));
         switch (expected_token_id) {
-            Token.Id.StringLiteral => |kind| {
-                @panic("TODO: how do i test this?");
+            Token.Id.StringLiteral => |expected_kind| {
+                std.debug.assert(expected_kind == switch (token.id) { Token.Id.StringLiteral => |kind| kind, else => unreachable });
             },
             else => {},
         }
