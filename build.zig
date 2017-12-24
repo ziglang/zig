@@ -128,7 +128,11 @@ fn findLLVM(b: &Builder) -> ?LibraryDep {
             if (mem.startsWith(u8, lib_arg, "-l")) {
                 %%result.system_libs.append(lib_arg[2..]);
             } else {
-                %%result.libs.append(lib_arg);
+                if (os.path.isAbsolute(lib_arg)) {
+                    %%result.libs.append(lib_arg);
+                } else {
+                    %%result.system_libs.append(lib_arg);
+                }
             }
         }
     }
