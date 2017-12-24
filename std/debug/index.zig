@@ -8,7 +8,7 @@ const DW = std.dwarf;
 const ArrayList = std.ArrayList;
 const builtin = @import("builtin");
 
-pub use @import("./failing_allocator.zig");
+pub const FailingAllocator = @import("failing_allocator.zig").FailingAllocator;
 
 error MissingDebugInfo;
 error InvalidDebugInfo;
