@@ -84,6 +84,12 @@ pub fn main() -> %void {
                     warn("Expected argument after --prefix\n\n");
                     return usageAndErr(&builder, false, %return stderr_stream);
                 });
+            } else if (mem.eql(u8, arg, "--search-prefix")) {
+                const search_prefix = %return unwrapArg(arg_it.next(allocator) ?? {
+                    warn("Expected argument after --search-prefix\n\n");
+                    return usageAndErr(&builder, false, %return stderr_stream);
+                });
+                builder.addSearchPrefix(search_prefix);
             } else if (mem.eql(u8, arg, "--verbose-tokenize")) {
                 builder.verbose_tokenize = true;
             } else if (mem.eql(u8, arg, "--verbose-ast")) {
@@ -145,6 +151,7 @@ fn usage(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) 
         \\  --help                 Print this help and exit
         \\  --verbose              Print commands before executing them
         \\  --prefix [path]        Override default install prefix
+        \\  --search-prefix [path] Add a path to look for binaries, libraries, headers
         \\
         \\Project-Specific Options:
         \\

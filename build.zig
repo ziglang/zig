@@ -80,8 +80,11 @@ fn dependOnLib(lib_exe_obj: &std.build.LibExeObjStep, dep: &const LibraryDep) {
     for (dep.libdirs.toSliceConst()) |lib_dir| {
         lib_exe_obj.addLibPath(lib_dir);
     }
-    for (dep.libs.toSliceConst()) |lib| {
+    for (dep.system_libs.toSliceConst()) |lib| {
         lib_exe_obj.linkSystemLibrary(lib);
+    }
+    for (dep.libs.toSliceConst()) |lib| {
+        lib_exe_obj.addObjectFile(lib);
     }
     for (dep.includes.toSliceConst()) |include_path| {
         lib_exe_obj.addIncludeDir(include_path);
@@ -91,6 +94,7 @@ fn dependOnLib(lib_exe_obj: &std.build.LibExeObjStep, dep: &const LibraryDep) {
 const LibraryDep = struct {
     libdirs: ArrayList([]const u8),
     libs: ArrayList([]const u8),
+    system_libs: ArrayList([]const u8),
     includes: ArrayList([]const u8),
 };
 
@@ -98,11 +102,11 @@ fn findLLVM(b: &Builder) -> ?LibraryDep {
     const llvm_config_exe = b.findProgram(
         [][]const u8{"llvm-config-5.0", "llvm-config"},
         [][]const u8{
-            "/usr/local/opt/llvm@5/bin",
-            "/mingw64/bin",
+            "C:/Libraries/llvm-5.0.0/bin",
             "/c/msys64/mingw64/bin",
             "c:/msys64/mingw64/bin",
-            "C:/Libraries/llvm-5.0.0/bin",
+            "/usr/local/opt/llvm@5/bin",
+            "/mingw64/bin",
         }) %% |err|
     {
         warn("unable to find llvm-config: {}\n", err);
@@ -114,6 +118,7 @@ fn findLLVM(b: &Builder) -> ?LibraryDep {
 
     var result = LibraryDep {
         .libs = ArrayList([]const u8).init(b.allocator),
+        .system_libs = ArrayList([]const u8).init(b.allocator),
         .includes = ArrayList([]const u8).init(b.allocator),
         .libdirs = ArrayList([]const u8).init(b.allocator),
     };
@@ -121,7 +126,13 @@ fn findLLVM(b: &Builder) -> ?LibraryDep {
         var it = mem.split(libs_output, " \n");
         while (it.next()) |lib_arg| {
             if (mem.startsWith(u8, lib_arg, "-l")) {
-                %%result.libs.append(lib_arg[2..]);
+                %%result.system_libs.append(lib_arg[2..]);
+            } else {
+                if (os.path.isAbsolute(lib_arg)) {
+                    %%result.libs.append(lib_arg);
+                } else {
+                    %%result.system_libs.append(lib_arg);
+                }
             }
         }
     }
