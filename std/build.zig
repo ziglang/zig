@@ -47,6 +47,7 @@ pub const Builder = struct {
     env_map: BufMap,
     top_level_steps: ArrayList(&TopLevelStep),
     prefix: []const u8,
+    search_prefixes: ArrayList([]const u8),
     lib_dir: []const u8,
     exe_dir: []const u8,
     installed_files: ArrayList([]const u8),
@@ -114,6 +115,7 @@ pub const Builder = struct {
             .default_step = undefined,
             .env_map = %%os.getEnvMap(allocator),
             .prefix = undefined,
+            .search_prefixes = ArrayList([]const u8).init(allocator),
             .lib_dir = undefined,
             .exe_dir = undefined,
             .installed_files = ArrayList([]const u8).init(allocator),
@@ -671,7 +673,22 @@ pub const Builder = struct {
     }
 
     pub fn findProgram(self: &Builder, names: []const []const u8, paths: []const []const u8) -> %[]const u8 {
+        // TODO report error for ambiguous situations
         const exe_extension = (Target { .Native = {}}).exeFileExt();
+        for (self.search_prefixes.toSliceConst()) |search_prefix| {
+            for (names) |name| {
+                if (os.path.isAbsolute(name)) {
+                    return name;
+                }
+                const full_path = %return os.path.join(self.allocator, search_prefix, "bin",
+                    self.fmt("{}{}", name, exe_extension));
+                if (os.path.real(self.allocator, full_path)) |real_path| {
+                    return real_path;
+                } else |_| {
+                    continue;
+                }
+            }
+        }
         if (self.env_map.get("PATH")) |PATH| {
             for (names) |name| {
                 if (os.path.isAbsolute(name)) {
@@ -726,6 +743,10 @@ pub const Builder = struct {
                 std.debug.panic("command failed");
             },
         }
+    }
+
+    pub fn addSearchPrefix(self: &Builder, search_prefix: []const u8) {
+        %%self.search_prefixes.append(search_prefix);
     }
 };
 
