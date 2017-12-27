@@ -199,6 +199,13 @@ pub const Module = struct {
     }
 
     pub fn build(self: &Module) -> %void {
+        if (self.llvm_argv.len != 0) {
+            var c_compatible_args = %return std.cstr.NullTerminated2DArray.fromSlices(self.allocator,
+                [][]const []const u8 { [][]const u8{"zig (LLVM option parsing)"}, self.llvm_argv, });
+            defer c_compatible_args.deinit();
+            c.ZigLLVMParseCommandLineOptions(self.llvm_argv.len + 1, c_compatible_args.ptr);
+        }
+
         const root_src_path = self.root_src_path ?? @panic("TODO handle null root src path");
         const root_src_real_path = os.path.real(self.allocator, root_src_path) %% |err| {
             %return printError("unable to open '{}': {}", root_src_path, err);

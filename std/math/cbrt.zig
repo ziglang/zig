@@ -4,8 +4,9 @@
 // - cbrt(+-inf) = +-inf
 // - cbrt(nan)   = nan
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
 pub fn cbrt(x: var) -> @typeOf(x) {
     const T = @typeOf(x);

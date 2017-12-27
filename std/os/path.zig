@@ -1,16 +1,16 @@
+const std = @import("../index.zig");
 const builtin = @import("builtin");
 const Os = builtin.Os;
-const debug = @import("../debug.zig");
+const debug = std.debug;
 const assert = debug.assert;
-const mem = @import("../mem.zig");
-const fmt = @import("../fmt/index.zig");
+const mem = std.mem;
+const fmt = std.fmt;
 const Allocator = mem.Allocator;
-const os = @import("index.zig");
-const math = @import("../math/index.zig");
+const os = std.os;
+const math = std.math;
 const posix = os.posix;
 const windows = os.windows;
-const c = @import("../c/index.zig");
-const cstr = @import("../cstr.zig");
+const cstr = std.cstr;
 
 pub const sep_windows = '\\';
 pub const sep_posix = '/';

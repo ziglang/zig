@@ -14,7 +14,7 @@
 #include "os.hpp"
 #include "parser.hpp"
 #include "softfloat.hpp"
-#include "zig_llvm.hpp"
+#include "zig_llvm.h"
 
 
 static const size_t default_backward_branch_quota = 1000;

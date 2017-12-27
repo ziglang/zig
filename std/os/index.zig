@@ -1,3 +1,4 @@
+const std = @import("../index.zig");
 const builtin = @import("builtin");
 const Os = builtin.Os;
 const is_windows = builtin.os == Os.windows;
@@ -37,22 +38,22 @@ pub const createWindowsEnvBlock = windows_util.createWindowsEnvBlock;
 
 pub const FileHandle = if (is_windows) windows.HANDLE else i32;
 
-const debug = @import("../debug.zig");
+const debug = std.debug;
 const assert = debug.assert;
 
-const c = @import("../c/index.zig");
+const c = std.c;
 
-const mem = @import("../mem.zig");
+const mem = std.mem;
 const Allocator = mem.Allocator;
 
-const BufMap = @import("../buf_map.zig").BufMap;
-const cstr = @import("../cstr.zig");
+const BufMap = std.BufMap;
+const cstr = std.cstr;
 
-const io = @import("../io.zig");
-const base64 = @import("../base64.zig");
-const ArrayList = @import("../array_list.zig").ArrayList;
-const Buffer = @import("../buffer.zig").Buffer;
-const math = @import("../index.zig").math;
+const io = std.io;
+const base64 = std.base64;
+const ArrayList = std.ArrayList;
+const Buffer = std.Buffer;
+const math = std.math;
 
 error SystemResources;
 error AccessDenied;

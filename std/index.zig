@@ -11,7 +11,7 @@ pub const base64 = @import("base64.zig");
 pub const build = @import("build.zig");
 pub const c = @import("c/index.zig");
 pub const cstr = @import("cstr.zig");
-pub const debug = @import("debug.zig");
+pub const debug = @import("debug/index.zig");
 pub const dwarf = @import("dwarf.zig");
 pub const elf = @import("elf.zig");
 pub const empty_import = @import("empty.zig");
@@ -39,7 +39,7 @@ test "std" {
     _ = @import("build.zig");
     _ = @import("c/index.zig");
     _ = @import("cstr.zig");
-    _ = @import("debug.zig");
+    _ = @import("debug/index.zig");
     _ = @import("dwarf.zig");
     _ = @import("elf.zig");
     _ = @import("empty.zig");

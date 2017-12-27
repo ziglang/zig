@@ -4,8 +4,9 @@
 // - cos(nan)   = nan
 
 const builtin = @import("builtin");
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
 pub fn cos(x: var) -> @typeOf(x) {
     const T = @typeOf(x);

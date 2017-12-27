@@ -1,4 +1,5 @@
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 const arch = switch (builtin.arch) {
     builtin.Arch.x86_64 => @import("linux_x86_64.zig"),

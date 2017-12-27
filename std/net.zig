@@ -1,6 +1,7 @@
-const linux = @import("os/linux.zig");
-const assert = @import("debug.zig").assert;
-const endian = @import("endian.zig");
+const std = @import("index.zig");
+const linux = std.os.linux;
+const assert = std.debug.assert;
+const endian = std.endian;
 
 error SigInterrupt;
 error Io;

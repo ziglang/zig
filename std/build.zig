@@ -784,6 +784,13 @@ const Target = union(enum) {
         };
     }
 
+    pub fn libFileExt(self: &const Target) -> []const u8 {
+        return switch (self.getOs()) {
+            builtin.Os.windows => ".lib",
+            else => ".a",
+        };
+    }
+
     pub fn getOs(self: &const Target) -> builtin.Os {
         return switch (*self) {
             Target.Native => builtin.os,

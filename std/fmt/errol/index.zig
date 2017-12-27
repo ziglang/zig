@@ -1,10 +1,11 @@
+const std = @import("../../index.zig");
 const enum3 = @import("enum3.zig").enum3;
 const enum3_data = @import("enum3.zig").enum3_data;
 const lookup_table = @import("lookup.zig").lookup_table;
 const HP = @import("lookup.zig").HP;
-const math = @import("../../math/index.zig");
-const mem = @import("../../mem.zig");
-const assert = @import("../../debug.zig").assert;
+const math = std.math;
+const mem = std.mem;
+const assert = std.debug.assert;
 
 pub const FloatDecimal = struct {
     digits: []u8,

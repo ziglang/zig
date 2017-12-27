@@ -49,6 +49,8 @@ option(ZIG_FORCE_EXTERNAL_LLD "If your system has the LLD patches use it instead
 find_package(llvm)
 find_package(clang)
 
+set(ZIG_CPP_LIB_DIR "${CMAKE_BINARY_DIR}/zig_cpp")
+
 if(ZIG_FORCE_EXTERNAL_LLD)
     find_package(lld)
     include_directories(${LLVM_INCLUDE_DIRS})
@@ -192,6 +194,7 @@ else()
         embedded_lld_coff
         embedded_lld_lib
     )
+    install(TARGETS embedded_lld_elf embedded_lld_coff embedded_lld_lib DESTINATION "${ZIG_CPP_LIB_DIR}")
 endif()
 
 # No patches have been applied to SoftFloat-3d
@@ -345,6 +348,8 @@ set(ZIG_SOURCES
     "${CMAKE_SOURCE_DIR}/src/tokenizer.cpp"
     "${CMAKE_SOURCE_DIR}/src/util.cpp"
     "${CMAKE_SOURCE_DIR}/src/translate_c.cpp"
+)
+set(ZIG_CPP_SOURCES
     "${CMAKE_SOURCE_DIR}/src/zig_llvm.cpp"
 )
 
@@ -390,6 +395,11 @@ if(ZIG_TEST_COVERAGE)
     set(EXE_LDFLAGS "${EXE_LDFLAGS} -fprofile-arcs -ftest-coverage")
 endif()
 
+add_library(zig_cpp STATIC ${ZIG_CPP_SOURCES})
+set_target_properties(zig_cpp PROPERTIES
+    COMPILE_FLAGS ${EXE_CFLAGS}
+)
+
 add_executable(zig ${ZIG_SOURCES})
 set_target_properties(zig PROPERTIES
     COMPILE_FLAGS ${EXE_CFLAGS}
@@ -397,6 +407,7 @@ set_target_properties(zig PROPERTIES
 )
 
 target_link_libraries(zig LINK_PUBLIC
+    zig_cpp
     ${SOFTFLOAT_LIBRARIES}
     ${CLANG_LIBRARIES}
     ${LLD_LIBRARIES}
@@ -407,6 +418,7 @@ if(MSVC OR MINGW)
     target_link_libraries(zig LINK_PUBLIC version)
 endif()
 install(TARGETS zig DESTINATION bin)
+install(TARGETS zig_cpp DESTINATION "${ZIG_CPP_LIB_DIR}")
 
 install(FILES "${CMAKE_SOURCE_DIR}/c_headers/__clang_cuda_builtin_vars.h" DESTINATION "${C_HEADERS_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/c_headers/__clang_cuda_cmath.h" DESTINATION "${C_HEADERS_DEST}")
@@ -516,7 +528,8 @@ install(FILES "${CMAKE_SOURCE_DIR}/std/c/index.zig" DESTINATION "${ZIG_STD_DEST}
 install(FILES "${CMAKE_SOURCE_DIR}/std/c/linux.zig" DESTINATION "${ZIG_STD_DEST}/c")
 install(FILES "${CMAKE_SOURCE_DIR}/std/c/windows.zig" DESTINATION "${ZIG_STD_DEST}/c")
 install(FILES "${CMAKE_SOURCE_DIR}/std/cstr.zig" DESTINATION "${ZIG_STD_DEST}")
-install(FILES "${CMAKE_SOURCE_DIR}/std/debug.zig" DESTINATION "${ZIG_STD_DEST}")
+install(FILES "${CMAKE_SOURCE_DIR}/std/debug/index.zig" DESTINATION "${ZIG_STD_DEST}/debug")
+install(FILES "${CMAKE_SOURCE_DIR}/std/debug/failing_allocator.zig" DESTINATION "${ZIG_STD_DEST}/debug")
 install(FILES "${CMAKE_SOURCE_DIR}/std/dwarf.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/elf.zig" DESTINATION "${ZIG_STD_DEST}")
 install(FILES "${CMAKE_SOURCE_DIR}/std/empty.zig" DESTINATION "${ZIG_STD_DEST}")
@@ -618,16 +631,3 @@ install(FILES "${CMAKE_SOURCE_DIR}/std/special/compiler_rt/udivti3.zig" DESTINAT
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/compiler_rt/umodti3.zig" DESTINATION "${ZIG_STD_DEST}/special/compiler_rt")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/panic.zig" DESTINATION "${ZIG_STD_DEST}/special")
 install(FILES "${CMAKE_SOURCE_DIR}/std/special/test_runner.zig" DESTINATION "${ZIG_STD_DEST}/special")
-
-if (ZIG_TEST_COVERAGE)
-    add_custom_target(coverage
-        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-        COMMAND lcov --directory . --zerocounters --rc lcov_branch_coverage=1
-        COMMAND ./zig build --build-file ../build.zig test
-        COMMAND lcov --directory . --capture --output-file coverage.info --rc lcov_branch_coverage=1
-        COMMAND lcov --remove coverage.info '/usr/*' --output-file coverage.info.cleaned --rc lcov_branch_coverage=1
-        COMMAND genhtml -o coverage coverage.info.cleaned --rc lcov_branch_coverage=1
-        COMMAND rm coverage.info coverage.info.cleaned
-    )
-endif()
-

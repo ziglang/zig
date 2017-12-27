@@ -3,8 +3,9 @@
 // - modf(+-inf) = +-inf, nan
 // - modf(nan)   = nan, nan
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
 fn modf_result(comptime T: type) -> type {
     return struct {

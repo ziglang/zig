@@ -220,3 +220,18 @@ fn assertIsTheUnion2Item1(value: &const TheUnion2) {
     assert(*value == TheUnion2.Item1);
 }
 
+
+pub const PackThis = union(enum) {
+    Invalid: bool,
+    StringLiteral: u2,
+};
+
+test "constant packed union" {
+    testConstPackedUnion([]PackThis {
+        PackThis { .StringLiteral = 1 },
+    });
+}
+
+fn testConstPackedUnion(expected_tokens: []const PackThis) {
+    assert(expected_tokens[0].StringLiteral == 1);
+}

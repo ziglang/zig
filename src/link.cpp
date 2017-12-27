@@ -351,6 +351,16 @@ static void coff_append_machine_arg(CodeGen *g, ZigList<const char *> *list) {
     }
 }
 
+static void link_diag_callback(void *context, const char *ptr, size_t len) {
+    Buf *diag = reinterpret_cast<Buf *>(context);
+    buf_append_mem(diag, ptr, len);
+}
+
+static bool zig_lld_link(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_count, Buf *diag) {
+    buf_resize(diag, 0);
+    return ZigLLDLink(oformat, args, arg_count, link_diag_callback, diag);
+}
+
 static void construct_linker_job_coff(LinkJob *lj) {
     CodeGen *g = lj->codegen;
 
@@ -515,7 +525,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
             gen_lib_args.append(buf_ptr(buf_sprintf("-DEF:%s", buf_ptr(def_path))));
             gen_lib_args.append(buf_ptr(buf_sprintf("-OUT:%s", buf_ptr(generated_lib_path))));
             Buf diag = BUF_INIT;
-            if (!ZigLLDLink(g->zig_target.oformat, gen_lib_args.items, gen_lib_args.length, &diag)) {
+            if (!zig_lld_link(g->zig_target.oformat, gen_lib_args.items, gen_lib_args.length, &diag)) {
                 fprintf(stderr, "%s\n", buf_ptr(&diag));
                 exit(1);
             }
@@ -930,7 +940,7 @@ void codegen_link(CodeGen *g, const char *out_file) {
     Buf diag = BUF_INIT;
 
     codegen_add_time_event(g, "LLVM Link");
-    if (!ZigLLDLink(g->zig_target.oformat, lj.args.items, lj.args.length, &diag)) {
+    if (!zig_lld_link(g->zig_target.oformat, lj.args.items, lj.args.length, &diag)) {
         fprintf(stderr, "%s\n", buf_ptr(&diag));
         exit(1);
     }

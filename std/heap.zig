@@ -1,10 +1,11 @@
-const debug = @import("debug.zig");
+const std = @import("index.zig");
+const debug = std.debug;
 const assert = debug.assert;
-const mem = @import("mem.zig");
-const os = @import("os/index.zig");
+const mem = std.mem;
+const os = std.os;
 const builtin = @import("builtin");
 const Os = builtin.Os;
-const c = @import("c/index.zig");
+const c = std.c;
 
 const Allocator = mem.Allocator;
 

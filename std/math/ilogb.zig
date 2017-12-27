@@ -4,8 +4,9 @@
 // - ilogb(0)     = @maxValue(i32)
 // - ilogb(nan)   = @maxValue(i32)
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
 pub fn ilogb(x: var) -> i32 {
     const T = @typeOf(x);

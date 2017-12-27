@@ -1,6 +1,7 @@
-const debug = @import("debug.zig");
+const std = @import("index.zig");
+const debug = std.debug;
 const assert = debug.assert;
-const mem = @import("mem.zig");
+const mem = std.mem;
 const Allocator = mem.Allocator;
 
 pub fn ArrayList(comptime T: type) -> type {

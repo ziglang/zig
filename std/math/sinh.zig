@@ -5,8 +5,9 @@
 // - sinh(nan)   = nan
 
 const builtin = @import("builtin");
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 const expo2 = @import("expo2.zig").expo2;
 
 pub fn sinh(x: var) -> @typeOf(x) {

@@ -3,8 +3,9 @@
 // - atan(+-0)   = +-0
 // - atan(+-inf) = +-pi/2
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
 pub fn atan(x: var) -> @typeOf(x) {
     const T = @typeOf(x);

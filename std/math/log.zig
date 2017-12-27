@@ -1,7 +1,8 @@
-const math = @import("index.zig");
+const std = @import("../index.zig");
+const math = std.math;
 const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
-const assert = @import("../debug.zig").assert;
+const assert = std.debug.assert;
 
 pub fn log(comptime T: type, base: T, x: T) -> T {
     if (base == 2) {

@@ -18,8 +18,9 @@
 //  atan2(+inf, x)    = +pi/2
 //  atan2(-inf, x)    = -pi/2
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
 fn atan2(comptime T: type, x: T, y: T) -> T {
     return switch (T) {

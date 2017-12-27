@@ -266,6 +266,11 @@ static void add_package(CodeGen *g, CliPkg *cli_pkg, PackageTableEntry *pkg) {
 }
 
 int main(int argc, char **argv) {
+    if (argc == 2 && strcmp(argv[1], "BUILD_INFO") == 0) {
+        printf("%s\n%s\n", ZIG_CMAKE_BINARY_DIR, ZIG_CXX_COMPILER);
+        return 0;
+    }
+
     os_init();
 
     char *arg0 = argv[0];

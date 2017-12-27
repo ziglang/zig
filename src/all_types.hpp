@@ -10,7 +10,7 @@
 
 #include "list.hpp"
 #include "buffer.hpp"
-#include "zig_llvm.hpp"
+#include "zig_llvm.h"
 #include "hash_map.hpp"
 #include "errmsg.hpp"
 #include "bigint.hpp"

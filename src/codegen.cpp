@@ -17,7 +17,7 @@
 #include "os.hpp"
 #include "translate_c.hpp"
 #include "target.hpp"
-#include "zig_llvm.hpp"
+#include "zig_llvm.h"
 
 #include <stdio.h>
 #include <errno.h>
@@ -3705,12 +3705,24 @@ static LLVMValueRef gen_const_ptr_array_recursive(CodeGen *g, ConstExprValue *ar
     ConstParent *parent = &array_const_val->data.x_array.s_none.parent;
     LLVMValueRef base_ptr = gen_parent_ptr(g, array_const_val, parent);
 
-    TypeTableEntry *usize = g->builtin_types.entry_usize;
-    LLVMValueRef indices[] = {
-        LLVMConstNull(usize->type_ref),
-        LLVMConstInt(usize->type_ref, index, false),
-    };
-    return LLVMConstInBoundsGEP(base_ptr, indices, 2);
+    LLVMTypeKind el_type = LLVMGetTypeKind(LLVMGetElementType(LLVMTypeOf(base_ptr)));
+    if (el_type == LLVMArrayTypeKind) {
+        TypeTableEntry *usize = g->builtin_types.entry_usize;
+        LLVMValueRef indices[] = {
+            LLVMConstNull(usize->type_ref),
+            LLVMConstInt(usize->type_ref, index, false),
+        };
+        return LLVMConstInBoundsGEP(base_ptr, indices, 2);
+    } else if (el_type == LLVMStructTypeKind) {
+        TypeTableEntry *u32 = g->builtin_types.entry_u32;
+        LLVMValueRef indices[] = {
+            LLVMConstNull(u32->type_ref),
+            LLVMConstInt(u32->type_ref, index, false),
+        };
+        return LLVMConstInBoundsGEP(base_ptr, indices, 2);
+    } else {
+        zig_unreachable();
+    }
 }
 
 static LLVMValueRef gen_const_ptr_struct_recursive(CodeGen *g, ConstExprValue *struct_const_val, size_t field_index) {
@@ -3732,7 +3744,7 @@ static LLVMValueRef gen_const_ptr_union_recursive(CodeGen *g, ConstExprValue *un
     TypeTableEntry *u32 = g->builtin_types.entry_u32;
     LLVMValueRef indices[] = {
         LLVMConstNull(u32->type_ref),
-        LLVMConstInt(u32->type_ref, 0, false),
+        LLVMConstInt(u32->type_ref, 0, false), // TODO test const union with more aligned tag type than payload
     };
     return LLVMConstInBoundsGEP(base_ptr, indices, 2);
 }

@@ -3,8 +3,9 @@
 // - exp2(+inf) = +inf
 // - exp2(nan)  = nan
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
 pub fn exp2(x: var) -> @typeOf(x) {
     const T = @typeOf(x);

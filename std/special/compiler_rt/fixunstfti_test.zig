@@ -1,5 +1,5 @@
 const __fixunstfti = @import("fixunstfti.zig").__fixunstfti;
-const assert = @import("../../debug.zig").assert;
+const assert = @import("../../index.zig").debug.assert;
 
 fn test__fixunstfti(a: f128, expected: u128) {
     const x = __fixunstfti(a);

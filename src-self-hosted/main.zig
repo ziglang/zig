@@ -12,6 +12,7 @@ const ErrColor = Module.ErrColor;
 const Emit = Module.Emit;
 const builtin = @import("builtin");
 const ArrayList = std.ArrayList;
+const c = @import("c.zig");
 
 error InvalidCommandLineArguments;
 error ZigLibDirNotFound;
@@ -462,7 +463,11 @@ pub fn main2() -> %void {
                 else => unreachable,
             }
         },
-        Cmd.Version => @panic("TODO zig version"),
+        Cmd.Version => {
+            var stdout_file = %return io.getStdErr();
+            %return stdout_file.write(std.cstr.toSliceConst(c.ZIG_VERSION_STRING));
+            %return stdout_file.write("\n");
+        },
         Cmd.Targets => @panic("TODO zig targets"),
     }
 }

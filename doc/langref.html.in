@@ -291,6 +291,15 @@ pub fn main() -&gt; %void {
         <li><a href="#errors">Errors</a></li>
         <li><a href="#root-source-file">Root Source File</a></li>
       </ul>
+      <h2 id="values">Source encoding</h2>
+      <p>Zig source code is encoded in UTF-8. An invalid UTF-8 byte sequence results in a compile error.</p>
+      <p>Throughout all zig source code (including in comments), some codepoints are never allowed:</p>
+      <ul>
+        <li>Ascii control characters, except for U+000a (LF): U+0000 - U+0009, U+000b - U+0001f, U+007f. (Note that Windows line endings (CRLF) are not allowed, and hard tabs are not allowed.)</li>
+        <li>Non-Ascii Unicode line endings: U+0085 (NEL), U+2028 (LS), U+2029 (PS).</li>
+      </ul>
+      <p>The codepoint U+000a (LF) (which is encoded as the single-byte value 0x0a) is the line terminator character. This character always terminates a line of zig source code. A non-empty zig source must end with the line terminator character.</p>
+      <p>For some discussion on the rationale behind these design decisions, see <a href="https://github.com/zig-lang/zig/issues/663">issue #663</a></p>
       <h2 id="values">Values</h2>
       <pre><code class="zig">const warn = @import("std").debug.warn;
 const os = @import("std").os;

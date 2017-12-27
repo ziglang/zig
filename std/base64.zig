@@ -1,5 +1,6 @@
-const assert = @import("debug.zig").assert;
-const mem = @import("mem.zig");
+const std = @import("index.zig");
+const assert = std.debug.assert;
+const mem = std.mem;
 
 pub const standard_alphabet_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 pub const standard_pad_char = '=';

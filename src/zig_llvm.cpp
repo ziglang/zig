@@ -13,7 +13,7 @@
  * 3. Prevent C++ from infecting the rest of the project.
  */
 
-#include "zig_llvm.hpp"
+#include "zig_llvm.h"
 
 #include <llvm/Analysis/TargetLibraryInfo.h>
 #include <llvm/Analysis/TargetTransformInfo.h>
@@ -39,7 +39,34 @@
 
 #include <lld/Common/Driver.h>
 
+#include <new>
+
+#include <stdlib.h>
+
+#if defined(_MSC_VER)
+#define ATTRIBUTE_RETURNS_NOALIAS __declspec(restrict)
+#else
+#define ATTRIBUTE_RETURNS_NOALIAS __attribute__((__malloc__))
+#endif
+
 using namespace llvm;
+
+template<typename T, typename... Args>
+ATTRIBUTE_RETURNS_NOALIAS static inline T * create(Args... args) {
+    T * ptr = reinterpret_cast<T*>(malloc(sizeof(T)));
+    if (ptr == nullptr)
+        return nullptr;
+    new (ptr) T(args...);
+    return ptr;
+}
+
+template<typename T>
+static inline void destroy(T * ptr) {
+    if (ptr != nullptr) {
+        ptr[0].~T();
+    }
+    free(ptr);
+}
 
 void ZigLLVMInitializeLoopStrengthReducePass(LLVMPassRegistryRef R) {
     initializeLoopStrengthReducePass(*unwrap(R));
@@ -50,8 +77,7 @@ void ZigLLVMInitializeLowerIntrinsicsPass(LLVMPassRegistryRef R) {
 }
 
 char *ZigLLVMGetHostCPUName(void) {
-    std::string str = sys::getHostCPUName();
-    return strdup(str.c_str());
+    return strdup((const char *)sys::getHostCPUName().bytes_begin());
 }
 
 char *ZigLLVMGetNativeFeatures(void) {
@@ -63,11 +89,11 @@ char *ZigLLVMGetNativeFeatures(void) {
             features.AddFeature(F.first(), F.second);
     }
 
-    return strdup(features.getString().c_str());
+    return strdup((const char *)StringRef(features.getString()).bytes_begin());
 }
 
 static void addDiscriminatorsPass(const PassManagerBuilder &Builder, legacy::PassManagerBase &PM) {
-  PM.add(createAddDiscriminatorsPass());
+    PM.add(createAddDiscriminatorsPass());
 }
 
 #ifndef NDEBUG
@@ -82,7 +108,7 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     std::error_code EC;
     raw_fd_ostream dest(filename, EC, sys::fs::F_None);
     if (EC) {
-        *error_message = strdup(EC.message().c_str());
+        *error_message = strdup((const char *)StringRef(EC.message()).bytes_begin());
         return true;
     }
     TargetMachine* target_machine = reinterpret_cast<TargetMachine*>(targ_machine_ref);
@@ -90,7 +116,7 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
 
     Module* module = unwrap(module_ref);
 
-    PassManagerBuilder *PMBuilder = new PassManagerBuilder();
+    PassManagerBuilder *PMBuilder = create<PassManagerBuilder>();
     PMBuilder->OptLevel = target_machine->getOptLevel();
     PMBuilder->SizeLevel = 0;
 
@@ -123,7 +149,7 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
 
     // Set up the per-function pass manager.
     legacy::FunctionPassManager FPM = legacy::FunctionPassManager(module);
-    FPM.add(new TargetLibraryInfoWrapperPass(tlii));
+    FPM.add(create<TargetLibraryInfoWrapperPass>(tlii));
     FPM.add(createTargetTransformInfoWrapperPass(target_machine->getTargetIRAnalysis()));
     if (assertions_on) {
         FPM.add(createVerifierPass());
@@ -415,7 +441,10 @@ unsigned ZigLLVMTag_DW_union_type(void) {
 }
 
 ZigLLVMDIBuilder *ZigLLVMCreateDIBuilder(LLVMModuleRef module, bool allow_unresolved) {
-    DIBuilder *di_builder = new DIBuilder(*unwrap(module), allow_unresolved);
+    DIBuilder *di_builder = reinterpret_cast<DIBuilder*>(malloc(sizeof(DIBuilder)));
+    if (di_builder == nullptr)
+        return nullptr;
+    new (di_builder) DIBuilder(*unwrap(module), allow_unresolved);
     return reinterpret_cast<ZigLLVMDIBuilder *>(di_builder);
 }
 
@@ -617,7 +646,7 @@ void ZigLLVMAddFunctionAttrCold(LLVMValueRef fn_ref) {
     func->setAttributes(new_attr_set);
 }
 
-void ZigLLVMParseCommandLineOptions(int argc, const char *const *argv) {
+void ZigLLVMParseCommandLineOptions(size_t argc, const char *const *argv) {
     llvm::cl::ParseCommandLineOptions(argc, argv);
 }
 
@@ -775,29 +804,35 @@ LLVMValueRef ZigLLVMBuildAShrExact(LLVMBuilderRef builder, LLVMValueRef LHS, LLV
 }
 
 
-#include "buffer.hpp"
+class MyOStream: public raw_ostream {
+    public:
+        MyOStream(void (*_append_diagnostic)(void *, const char *, size_t), void *_context) :
+            raw_ostream(true), append_diagnostic(_append_diagnostic), context(_context), pos(0) {
 
-bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_count, Buf *diag_buf) {
+        }
+        void write_impl(const char *ptr, size_t len) override {
+            append_diagnostic(context, ptr, len);
+            pos += len;
+        }
+        uint64_t current_pos() const override {
+            return pos;
+        }
+        void (*append_diagnostic)(void *, const char *, size_t);
+        void *context;
+        size_t pos;
+};
+
+
+bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_count,
+        void (*append_diagnostic)(void *, const char *, size_t), void *context)
+{
     ArrayRef<const char *> array_ref_args(args, arg_count);
 
-    buf_resize(diag_buf, 0);
-    class MyOStream: public raw_ostream {
-        public:
-            MyOStream(Buf *_diag_buf) : raw_ostream(true), diag_buf(_diag_buf) {
-
-            }
-            void write_impl(const char *ptr, size_t len) override {
-                buf_append_mem(diag_buf, ptr, len);
-            }
-            uint64_t current_pos() const override {
-                return buf_len(diag_buf);
-            }
-            Buf *diag_buf;
-    } diag(diag_buf);
+    MyOStream diag(append_diagnostic, context);
 
     switch (oformat) {
         case ZigLLVM_UnknownObjectFormat:
-            zig_unreachable();
+            assert(false); // unreachable
 
         case ZigLLVM_COFF:
             return lld::coff::link(array_ref_args, false, diag);
@@ -809,7 +844,8 @@ bool ZigLLDLink(ZigLLVM_ObjectFormatType oformat, const char **args, size_t arg_
             return lld::mach_o::link(array_ref_args, diag);
 
         case ZigLLVM_Wasm:
-            zig_panic("ZigLLDLink for Wasm");
+            assert(false); // TODO ZigLLDLink for Wasm
     }
-    zig_unreachable();
+    assert(false); // unreachable
+    abort();
 }
