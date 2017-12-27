@@ -276,6 +276,7 @@ pub fn installStdLib(b: &Builder) {
         "os/windows/util.zig",
         "rand.zig",
         "sort.zig",
+        "unicode.zig",
         "special/bootstrap.zig",
         "special/bootstrap_lib.zig",
         "special/build_file_template.zig",
