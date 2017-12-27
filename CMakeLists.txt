@@ -396,6 +396,9 @@ if(ZIG_TEST_COVERAGE)
 endif()
 
 add_library(zig_cpp STATIC ${ZIG_CPP_SOURCES})
+set_target_properties(zig_cpp PROPERTIES
+    COMPILE_FLAGS ${EXE_CFLAGS}
+)
 
 add_executable(zig ${ZIG_SOURCES})
 set_target_properties(zig PROPERTIES
