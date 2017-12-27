@@ -24,4 +24,8 @@
 // Only used for running tests before installing.
 #define ZIG_TEST_DIR "@CMAKE_SOURCE_DIR@/test"
 
+// Used for communicating build information to self hosted build.
+#define ZIG_CMAKE_BINARY_DIR "@CMAKE_BINARY_DIR@"
+#define ZIG_CXX_COMPILER "@CMAKE_CXX_COMPILER@"
+
 #endif

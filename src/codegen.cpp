@@ -17,7 +17,7 @@
 #include "os.hpp"
 #include "translate_c.hpp"
 #include "target.hpp"
-#include "zig_llvm.hpp"
+#include "zig_llvm.h"
 
 #include <stdio.h>
 #include <errno.h>

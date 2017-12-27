@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const Builder = std.build.Builder;
 const tests = @import("test/tests.zig");
@@ -33,10 +34,31 @@ pub fn build(b: &Builder) {
     docs_step.dependOn(&docgen_home_cmd.step);
 
     if (findLLVM(b)) |llvm| {
+        // find the stage0 build artifacts because we're going to re-use config.h and zig_cpp library
+        const build_info = b.exec([][]const u8{b.zig_exe, "BUILD_INFO"});
+        var build_info_it = mem.split(build_info, "\n");
+        const cmake_binary_dir = ??build_info_it.next();
+        const cxx_compiler = ??build_info_it.next();
+
         var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
         exe.setBuildMode(mode);
-        exe.linkSystemLibrary("c");
+        exe.addIncludeDir("src");
+        exe.addIncludeDir(cmake_binary_dir);
+        addCppLib(b, exe, cmake_binary_dir, "libzig_cpp");
+        addCppLib(b, exe, cmake_binary_dir, "libembedded_lld_elf");
+        addCppLib(b, exe, cmake_binary_dir, "libembedded_lld_coff");
+        addCppLib(b, exe, cmake_binary_dir, "libembedded_lld_lib");
         dependOnLib(exe, llvm);
+
+        if (!exe.target.isWindows()) {
+            const libstdcxx_path_padded = b.exec([][]const u8{cxx_compiler, "-print-file-name=libstdc++.a"});
+            const libstdcxx_path = ??mem.split(libstdcxx_path_padded, "\n").next();
+            exe.addObjectFile(libstdcxx_path);
+
+            exe.linkSystemLibrary("pthread");
+        }
+
+        exe.linkSystemLibrary("c");
 
         b.default_step.dependOn(&exe.step);
         b.default_step.dependOn(docs_step);
@@ -89,6 +111,11 @@ fn dependOnLib(lib_exe_obj: &std.build.LibExeObjStep, dep: &const LibraryDep) {
     for (dep.includes.toSliceConst()) |include_path| {
         lib_exe_obj.addIncludeDir(include_path);
     }
+}
+
+fn addCppLib(b: &Builder, lib_exe_obj: &std.build.LibExeObjStep, cmake_binary_dir: []const u8, lib_name: []const u8) {
+    lib_exe_obj.addObjectFile(%%os.path.join(b.allocator, cmake_binary_dir, "zig_cpp",
+        b.fmt("{}{}", lib_name, lib_exe_obj.target.libFileExt())));
 }
 
 const LibraryDep = struct {

@@ -26,7 +26,7 @@ clarity.
    always compiled against statically in source form. Compile units do not
    depend on libc unless explicitly linked.
  * Nullable type instead of null pointers.
- * Tagged union type instead of raw unions.
+ * Safe unions, tagged unions, and C ABI compatible unions.
  * Generics so that one can write efficient data structures that work for any
    data type.
  * No header files required. Top level declarations are entirely
@@ -35,7 +35,7 @@ clarity.
  * Partial compile-time function evaluation with eliminates the need for
    a preprocessor or macros.
  * The binaries produced by Zig have complete debugging information so you can,
-   for example, use GDB to debug your software.
+   for example, use GDB or MSVC to debug your software.
  * Built-in unit tests with `zig test`.
  * Friendly toward package maintainers. Reproducible build, bootstrapping
    process carefully documented. Issues filed by package maintainers are
@@ -78,10 +78,10 @@ that counts as "freestanding" for the purposes of this table.
 
 ### Wanted: Windows Developers
 
-Help get the tests passing on Windows, flesh out the standard library for
-Windows, streamline Zig installation and distribution for Windows. Work with
-LLVM and LLD teams to improve PDB/CodeView/MSVC debugging. Implement stack traces
-for Windows in the MinGW environment and the MSVC environment.
+Flesh out the standard library for Windows, streamline Zig installation and
+distribution for Windows. Work with LLVM and LLD teams to improve
+PDB/CodeView/MSVC debugging. Implement stack traces for Windows in the MinGW
+environment and the MSVC environment.
 
 ### Wanted: MacOS and iOS Developers
 
@@ -178,6 +178,10 @@ Dependencies are the same as Stage 1, except now you have a working zig compiler
 bin/zig build --build-file ../build.zig --prefix $(pwd)/stage2 install
 ```
 
+This produces `./stage2/bin/zig` which can be used for testing and development.
+Once it is feature complete, it will be used to build stage 3 - the final compiler
+binary.
+
 ### Stage 3: Rebuild Self-Hosted Zig Using the Self-Hosted Compiler
 
 This is the actual compiler binary that we will install to the system.
@@ -193,20 +197,6 @@ This is the actual compiler binary that we will install to the system.
 ```
 ./stage2/bin/zig build --build-file ../build.zig install -Drelease-fast
 ```
-
-### Test Coverage
-
-To see test coverage in Zig, configure with `-DZIG_TEST_COVERAGE=ON` as an
-additional parameter to the Debug build.
-
-You must have `lcov` installed and available.
-
-Then `make coverage`.
-
-With GCC you will get a nice HTML view of the coverage data. With clang,
-the last step will fail, but you can execute
-`llvm-cov gcov $(find CMakeFiles/ -name "*.gcda")` and then inspect the
-produced .gcov files.
 
 ### Related Projects
 

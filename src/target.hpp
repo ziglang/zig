@@ -8,7 +8,7 @@
 #ifndef ZIG_TARGET_HPP
 #define ZIG_TARGET_HPP
 
-#include <zig_llvm.hpp>
+#include <zig_llvm.h>
 
 struct Buf;
 
