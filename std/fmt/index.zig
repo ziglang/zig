@@ -14,6 +14,8 @@ const State = enum { // TODO put inside format function and make sure the name a
     CloseBrace,
     Integer,
     IntegerWidth,
+    Float,
+    FloatWidth,
     Character,
     Buf,
     BufWidth,
@@ -85,6 +87,8 @@ pub fn format(context: var, output: fn(@typeOf(context), []const u8)->%void,
                 },
                 's' => {
                     state = State.Buf;
+                },'.' => {
+                    state = State.Float;
                 },
                 else => @compileError("Unknown format character: " ++ []u8{c}),
             },
@@ -122,6 +126,30 @@ pub fn format(context: var, output: fn(@typeOf(context), []const u8)->%void,
                 '}' => {
                     width = comptime %%parseUnsigned(usize, fmt[width_start..i], 10);
                     %return formatInt(args[next_arg], radix, uppercase, width, context, output);
+                    next_arg += 1;
+                    state = State.Start;
+                    start_index = i + 1;
+                },
+                '0' ... '9' => {},
+                else => @compileError("Unexpected character in format string: " ++ []u8{c}),
+            },
+            State.Float => switch (c) {
+                '}' => {
+                    %return formatFloatDecimal(args[next_arg], 0, context, output);
+                    next_arg += 1;
+                    state = State.Start;
+                    start_index = i + 1;
+                },
+                '0' ... '9' => {
+                    width_start = i;
+                    state = State.FloatWidth;
+                },
+                else => @compileError("Unexpected character in format string: " ++ []u8{c}),
+            },
+            State.FloatWidth => switch (c) {
+                '}' => {
+                    width = comptime %%parseUnsigned(usize, fmt[width_start..i], 10);
+                    %return formatFloatDecimal(args[next_arg], width, context, output);
                     next_arg += 1;
                     state = State.Start;
                     start_index = i + 1;
@@ -266,6 +294,47 @@ pub fn formatFloat(value: var, context: var, output: fn(@typeOf(context), []cons
         %return formatInt(float_decimal.exp - 1, 10, false, 0, context, output);
     }
 }
+
+pub fn formatFloatDecimal(value: var, precision: usize, context: var, output: fn(@typeOf(context), []const u8)->%void) -> %void {
+    var x = f64(value);
+
+    // Errol doesn't handle these special cases.
+    if (math.isNan(x)) {
+        return output(context, "NaN");
+    }
+    if (math.signbit(x)) {
+        %return output(context, "-");
+        x = -x;
+    }
+    if (math.isPositiveInf(x)) {
+        return output(context, "Infinity");
+    }
+    if (x == 0.0) {
+        return output(context, "0.0");
+    }
+
+    var buffer: [32]u8 = undefined;
+    const float_decimal = errol3(x, buffer[0..]);
+
+    const num_left_digits = if (float_decimal.exp > 0) usize(float_decimal.exp) else 1;
+
+    %return output(context, float_decimal.digits[0 .. num_left_digits]);
+    %return output(context, ".");
+    if (float_decimal.digits.len > 1) {
+        const num_valid_digtis = if (@typeOf(value) == f32)  math.min(usize(7), float_decimal.digits.len)
+        else
+            float_decimal.digits.len;
+
+        const num_right_digits = if (precision != 0)
+            math.min(precision, (num_valid_digtis-num_left_digits))
+        else
+            num_valid_digtis - num_left_digits;
+        %return output(context, float_decimal.digits[num_left_digits .. (num_left_digits + num_right_digits)]);
+    } else {
+        %return output(context, "0");
+    }
+}
+
 
 pub fn formatInt(value: var, base: u8, uppercase: bool, width: usize,
     context: var, output: fn(@typeOf(context), []const u8)->%void) -> %void
@@ -540,6 +609,39 @@ test "fmt.format" {
             const result = %%bufPrint(buf1[0..], "f64: {}\n", -math.inf_f64);
             assert(mem.eql(u8, result, "f64: -Infinity\n"));
         }
+        {
+            var buf1: [32]u8 = undefined;
+            const value: f32 = 1.1234;
+            const result = %%bufPrint(buf1[0..], "f32: {.1}\n", value);
+            assert(mem.eql(u8, result, "f32: 1.1\n"));
+        }
+        {
+            var buf1: [32]u8 = undefined;
+            const value: f32 = 1234.567;
+            const result = %%bufPrint(buf1[0..], "f32: {.2}\n", value);
+            assert(mem.eql(u8, result, "f32: 1234.56\n"));
+        }
+        {
+            var buf1: [32]u8 = undefined;
+            const value: f32 = -11.1234;
+            const result = %%bufPrint(buf1[0..], "f32: {.4}\n", value);
+            // -11.1234 is converted to f64 -11.12339... internally (errol3() function takes f64).
+            // -11.12339... is truncated to -11.1233
+            assert(mem.eql(u8, result, "f32: -11.1233\n"));
+        }
+        {
+            var buf1: [32]u8 = undefined;
+            const value: f32 = 91.12345;
+            const result = %%bufPrint(buf1[0..], "f32: {.}\n", value);
+            assert(mem.eql(u8, result, "f32: 91.12345\n"));
+        }
+        {
+            var buf1: [32]u8 = undefined;
+            const value: f64 = 91.12345678901235;
+            const result = %%bufPrint(buf1[0..], "f64: {.10}\n", value);
+            assert(mem.eql(u8, result, "f64: 91.1234567890\n"));
+        }
+
     }
 }
 
