@@ -560,3 +560,14 @@ fn hereIsAnOpaqueType(ptr: &OpaqueA) -> &OpaqueA {
     var a = ptr;
     return a;
 }
+
+test "comptime if inside runtime while which unconditionally breaks" {
+    testComptimeIfInsideRuntimeWhileWhichUnconditionallyBreaks(true);
+    comptime testComptimeIfInsideRuntimeWhileWhichUnconditionallyBreaks(true);
+}
+fn testComptimeIfInsideRuntimeWhileWhichUnconditionallyBreaks(cond: bool) {
+    while (cond) {
+        if (false) { }
+        break;
+    }
+}

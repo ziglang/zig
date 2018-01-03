@@ -500,11 +500,16 @@ pub fn writeFile(path: []const u8, data: []const u8, allocator: ?&mem.Allocator)
 
 /// On success, caller owns returned buffer.
 pub fn readFileAlloc(path: []const u8, allocator: &mem.Allocator) -> %[]u8 {
+    return readFileAllocExtra(path, allocator, 0);
+}
+/// On success, caller owns returned buffer.
+/// Allocates extra_len extra bytes at the end of the file buffer, which are uninitialized.
+pub fn readFileAllocExtra(path: []const u8, allocator: &mem.Allocator, extra_len: usize) -> %[]u8 {
     var file = %return File.openRead(path, allocator);
     defer file.close();
 
     const size = %return file.getEndPos();
-    const buf = %return allocator.alloc(u8, size);
+    const buf = %return allocator.alloc(u8, size + extra_len);
     %defer allocator.free(buf);
 
     var adapter = FileInStream.init(&file);

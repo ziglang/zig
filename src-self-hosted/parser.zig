@@ -1086,7 +1086,13 @@ pub const Parser = struct {
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
 fn testParse(source: []const u8, allocator: &mem.Allocator) -> %[]u8 {
-    var tokenizer = Tokenizer.init(source);
+    var padded_source: [0x100]u8 = undefined;
+    std.mem.copy(u8, padded_source[0..source.len], source);
+    padded_source[source.len + 0] = '\n';
+    padded_source[source.len + 1] = '\n';
+    padded_source[source.len + 2] = '\n';
+
+    var tokenizer = Tokenizer.init(padded_source[0..source.len + 3]);
     var parser = Parser.init(&tokenizer, allocator, "(memory buffer)");
     defer parser.deinit();
 

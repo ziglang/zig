@@ -39,7 +39,7 @@ fn acos32(x: f32) -> f32 {
             if (hx >> 31 != 0) {
                 return 2.0 * pio2_hi + 0x1.0p-120;
             } else {
-                return 0;
+                return 0.0;
             }
         } else {
             return math.nan(f32);
