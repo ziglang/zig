@@ -50,6 +50,7 @@
     </ul>
     <h2 id="reading-material">Reading Material</h2>
     <ul>
+      <li>2018-01-03 - <a href="http://andrewkelley.me/post/zig-december-2017-in-review.html">December 2017 in Review</a></li>
       <li>2017-10-17 - <a href="download/0.1.1/release-notes.html">Zig 0.1.1 Release Notes</a></li>
       <li>2017-07-19 - <a href="http://tiehuis.github.io/iterative-replacement-of-c-with-zig">Iterative Replacement of C with Zig</a></li>
       <li>2017-02-16 - <a href="http://andrewkelley.me/post/a-better-way-to-implement-bit-fields.html">A Better Way to Implement Bit-Fields</a></li>
