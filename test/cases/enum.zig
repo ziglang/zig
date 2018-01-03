@@ -377,3 +377,13 @@ test "switch on enum with one member is comptime known" {
     }
     @compileError("analysis should not reach here");
 }
+
+const EnumWithTagValues = enum(u4) {
+    A = 1 << 0,
+    B = 1 << 1,
+    C = 1 << 2,
+    D = 1 << 3,
+};
+test "enum with tag values don't require parens" {
+    assert(u4(EnumWithTagValues.C) == 0b0100);
+}

@@ -2552,7 +2552,7 @@ static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, 
             Token *eq_token = &pc->tokens->at(*token_index);
             if (eq_token->id == TokenIdEq) {
                 *token_index += 1;
-                field_node->data.struct_field.value = ast_parse_prefix_op_expr(pc, token_index, true);
+                field_node->data.struct_field.value = ast_parse_expression(pc, token_index, true);
             }
 
             Token *next_token = &pc->tokens->at(*token_index);
