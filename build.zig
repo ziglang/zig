@@ -33,6 +33,8 @@ pub fn build(b: &Builder) {
     docs_step.dependOn(&docgen_cmd.step);
     docs_step.dependOn(&docgen_home_cmd.step);
 
+    const test_step = b.step("test", "Run all the tests");
+
     if (findLLVM(b)) |llvm| {
         // find the stage0 build artifacts because we're going to re-use config.h and zig_cpp library
         const build_info = b.exec([][]const u8{b.zig_exe, "BUILD_INFO"});
@@ -72,15 +74,16 @@ pub fn build(b: &Builder) {
 
         b.default_step.dependOn(&exe.step);
         b.default_step.dependOn(docs_step);
+        test_step.dependOn(&exe.step);
 
         b.installArtifact(exe);
         installStdLib(b);
+
     }
 
 
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
     const with_lldb = b.option(bool, "with-lldb", "Run tests in LLDB to get a backtrace if one fails") ?? false;
-    const test_step = b.step("test", "Run all the tests");
 
     test_step.dependOn(docs_step);
 
