@@ -36,23 +36,33 @@ pub fn build(b: &Builder) {
     if (findLLVM(b)) |llvm| {
         // find the stage0 build artifacts because we're going to re-use config.h and zig_cpp library
         const build_info = b.exec([][]const u8{b.zig_exe, "BUILD_INFO"});
-        var build_info_it = mem.split(build_info, "\n");
-        const cmake_binary_dir = ??build_info_it.next();
-        const cxx_compiler = ??build_info_it.next();
+        var index: usize = 0;
+        const cmake_binary_dir = nextValue(&index, build_info);
+        const cxx_compiler = nextValue(&index, build_info);
+        const lld_include_dir = nextValue(&index, build_info);
+        const lld_libraries = nextValue(&index, build_info);
 
         var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
         exe.setBuildMode(mode);
         exe.addIncludeDir("src");
         exe.addIncludeDir(cmake_binary_dir);
-        addCppLib(b, exe, cmake_binary_dir, "libzig_cpp");
-        addCppLib(b, exe, cmake_binary_dir, "libembedded_lld_elf");
-        addCppLib(b, exe, cmake_binary_dir, "libembedded_lld_coff");
-        addCppLib(b, exe, cmake_binary_dir, "libembedded_lld_lib");
+        addCppLib(b, exe, cmake_binary_dir, "zig_cpp");
+        if (lld_include_dir.len != 0) {
+            exe.addIncludeDir(lld_include_dir);
+            var it = mem.split(lld_libraries, ";");
+            while (it.next()) |lib| {
+                exe.addObjectFile(lib);
+            }
+        } else {
+            addCppLib(b, exe, cmake_binary_dir, "embedded_lld_elf");
+            addCppLib(b, exe, cmake_binary_dir, "embedded_lld_coff");
+            addCppLib(b, exe, cmake_binary_dir, "embedded_lld_lib");
+        }
         dependOnLib(exe, llvm);
 
         if (!exe.target.isWindows()) {
             const libstdcxx_path_padded = b.exec([][]const u8{cxx_compiler, "-print-file-name=libstdc++.a"});
-            const libstdcxx_path = ??mem.split(libstdcxx_path_padded, "\n").next();
+            const libstdcxx_path = ??mem.split(libstdcxx_path_padded, "\r\n").next();
             exe.addObjectFile(libstdcxx_path);
 
             exe.linkSystemLibrary("pthread");
@@ -114,8 +124,9 @@ fn dependOnLib(lib_exe_obj: &std.build.LibExeObjStep, dep: &const LibraryDep) {
 }
 
 fn addCppLib(b: &Builder, lib_exe_obj: &std.build.LibExeObjStep, cmake_binary_dir: []const u8, lib_name: []const u8) {
+    const lib_prefix = if (lib_exe_obj.target.isWindows()) "" else "lib";
     lib_exe_obj.addObjectFile(%%os.path.join(b.allocator, cmake_binary_dir, "zig_cpp",
-        b.fmt("{}{}", lib_name, lib_exe_obj.target.libFileExt())));
+        b.fmt("{}{}{}", lib_prefix, lib_name, lib_exe_obj.target.libFileExt())));
 }
 
 const LibraryDep = struct {
@@ -150,7 +161,7 @@ fn findLLVM(b: &Builder) -> ?LibraryDep {
         .libdirs = ArrayList([]const u8).init(b.allocator),
     };
     {
-        var it = mem.split(libs_output, " \n");
+        var it = mem.split(libs_output, " \r\n");
         while (it.next()) |lib_arg| {
             if (mem.startsWith(u8, lib_arg, "-l")) {
                 %%result.system_libs.append(lib_arg[2..]);
@@ -164,7 +175,7 @@ fn findLLVM(b: &Builder) -> ?LibraryDep {
         }
     }
     {
-        var it = mem.split(includes_output, " \n");
+        var it = mem.split(includes_output, " \r\n");
         while (it.next()) |include_arg| {
             if (mem.startsWith(u8, include_arg, "-I")) {
                 %%result.includes.append(include_arg[2..]);
@@ -174,7 +185,7 @@ fn findLLVM(b: &Builder) -> ?LibraryDep {
         }
     }
     {
-        var it = mem.split(libdir_output, " \n");
+        var it = mem.split(libdir_output, " \r\n");
         while (it.next()) |libdir| {
             if (mem.startsWith(u8, libdir, "-L")) {
                 %%result.libdirs.append(libdir[2..]);
@@ -309,4 +320,12 @@ pub fn installStdLib(b: &Builder) {
         const dest_path = %%os.path.join(b.allocator, "lib", "zig", "std", stdlib_file);
         b.installFile(src_path, dest_path);
     }
+}
+
+fn nextValue(index: &usize, build_info: []const u8) -> []const u8 {
+    const start = *index;
+    while (build_info[*index] != '\n' and build_info[*index] != '\r') : (*index += 1) { }
+    const result = build_info[start..*index];
+    *index += 1;
+    return result;
 }

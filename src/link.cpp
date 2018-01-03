@@ -426,8 +426,7 @@ static void construct_linker_job_coff(LinkJob *lj) {
         if (g->is_static) {
             Buf *cmt_lib_name = buf_sprintf("libcmt%s.lib", d_str);
             lj->args.append(buf_ptr(cmt_lib_name));
-        }
-        else {
+        } else {
             Buf *msvcrt_lib_name = buf_sprintf("msvcrt%s.lib", d_str);
             lj->args.append(buf_ptr(msvcrt_lib_name));
         }
@@ -452,6 +451,9 @@ static void construct_linker_job_coff(LinkJob *lj) {
         //    }
         //}
         //lj->args.append(get_libc_static_file(g, "crtbegin.o"));
+
+        // msvcrt depends on kernel32
+        lj->args.append("kernel32.lib");
     } else {
         lj->args.append("-NODEFAULTLIB");
         if (!is_library) {

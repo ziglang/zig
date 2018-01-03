@@ -27,5 +27,7 @@
 // Used for communicating build information to self hosted build.
 #define ZIG_CMAKE_BINARY_DIR "@CMAKE_BINARY_DIR@"
 #define ZIG_CXX_COMPILER "@CMAKE_CXX_COMPILER@"
+#define ZIG_LLD_INCLUDE_PATH "@LLD_INCLUDE_DIRS@"
+#define ZIG_LLD_LIBRARIES "@LLD_LIBRARIES@"
 
 #endif

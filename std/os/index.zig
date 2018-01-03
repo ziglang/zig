@@ -851,7 +851,7 @@ pub fn makePath(allocator: &Allocator, full_path: []const u8) -> %void {
                 // march end_index backward until next path component
                 while (true) {
                     end_index -= 1;
-                    if (resolved_path[end_index] == '/')
+                    if (os.path.isSep(resolved_path[end_index]))
                         break;
                 }
                 continue;
@@ -864,7 +864,7 @@ pub fn makePath(allocator: &Allocator, full_path: []const u8) -> %void {
         // march end_index forward until next path component
         while (true) {
             end_index += 1;
-            if (end_index == resolved_path.len or resolved_path[end_index] == '/')
+            if (end_index == resolved_path.len or os.path.isSep(resolved_path[end_index]))
                 break;
         }
     }
