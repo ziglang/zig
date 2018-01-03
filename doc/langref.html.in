@@ -34,6 +34,7 @@
       <ul>
         <li><a href="#introduction">Introduction</a></li>
         <li><a href="#hello-world">Hello World</a></li>
+        <li><a href="#source-encoding">Source Encoding</a></li>
         <li><a href="#values">Values</a></li>
           <ul>
             <li><a href="#primitive-types">Primitive Types</a></li>
@@ -138,6 +139,7 @@
             <li><a href="#builtin-embedFile">@embedFile</a></li>
             <li><a href="#builtin-export">@export</a></li>
             <li><a href="#builtin-tagName">@tagName</a></li>
+            <li><a href="#builtin-TagType">@TagType</a></li>
             <li><a href="#builtin-EnumTagType">@EnumTagType</a></li>
             <li><a href="#builtin-errorName">@errorName</a></li>
             <li><a href="#builtin-fence">@fence</a></li>
@@ -291,7 +293,7 @@ pub fn main() -&gt; %void {
         <li><a href="#errors">Errors</a></li>
         <li><a href="#root-source-file">Root Source File</a></li>
       </ul>
-      <h2 id="values">Source encoding</h2>
+      <h2 id="source-encoding">Source Encoding</h2>
       <p>Zig source code is encoded in UTF-8. An invalid UTF-8 byte sequence results in a compile error.</p>
       <p>Throughout all zig source code (including in comments), some codepoints are never allowed:</p>
       <ul>
@@ -4387,10 +4389,13 @@ test.zig:6:2: error: found compile log statement
       <p>
       Converts an enum value or union value to a slice of bytes representing the name.
       </p>
-      <h3 id="builtin-EnumTagType">@EnumTagType</h3>
-      <pre><code class="zig">@EnumTagType(T: type) -&gt; type</code></pre>
+      <h3 id="builtin-TagType">@TagType</h3>
+      <pre><code class="zig">@TagType(T: type) -&gt; type</code></pre>
       <p>
-      Returns the integer type that is used to store the enumeration value.
+      For an enum, returns the integer type that is used to store the enumeration value.
+      </p>
+      <p>
+      For a union, returns the enum type that is used to store the tag value.
       </p>
       <h3 id="builtin-errorName">@errorName</h3>
       <pre><code class="zig">@errorName(err: error) -&gt; []u8</code></pre>
