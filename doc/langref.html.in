@@ -158,6 +158,7 @@
             <li><a href="#builtin-minValue">@minValue</a></li>
             <li><a href="#builtin-mod">@mod</a></li>
             <li><a href="#builtin-mulWithOverflow">@mulWithOverflow</a></li>
+            <li><a href="#builtin-noInlineCall">@noInlineCall</a></li>
             <li><a href="#builtin-offsetOf">@offsetOf</a></li>
             <li><a href="#builtin-OpaqueType">@OpaqueType</a></li>
             <li><a href="#builtin-panic">@panic</a></li>
@@ -4481,6 +4482,10 @@ fn add(a: i32, b: i32) -&gt; i32 { a + b }</code></pre>
       Unlike a normal function call, however, <code>@inlineCall</code> guarantees that the call
       will be inlined. If the call cannot be inlined, a compile error is emitted.
       </p>
+      <p>See also:</p>
+      <ul>
+        <li><a href="#builtin-noInlineCall">@noInlineCall</a></li>
+      </ul>
       <h3 id="builtin-intToPtr">@intToPtr</h3>
       <pre><code class="zig">@intToPtr(comptime DestType: type, int: usize) -&gt; DestType</code></pre>
       <p>
@@ -4574,6 +4579,25 @@ mem.set(u8, dest, c);</code></pre>
       stores the overflowed bits in <code>result</code> and returns <code>true</code>.
       If no overflow or underflow occurs, returns <code>false</code>.
       </p>
+      <h3 id="builtin-noInlineCall">@noInlineCall</h3>
+      <pre><code class="zig">@noInlineCall(function: var, args: ...) -&gt; var</code></pre>
+      <p>
+      This calls a function, in the same way that invoking an expression with parentheses does:
+      </p>
+      <pre><code class="zig">const assert = @import("std").debug.assert;
+test "noinline function call" {
+    assert(@noInlineCall(add, 3, 9) == 12);
+}
+
+fn add(a: i32, b: i32) -&gt; i32 { a + b }</code></pre>
+      <p>
+      Unlike a normal function call, however, <code>@noInlineCall</code> guarantees that the call
+      will not be inlined. If the call must be inlined, a compile error is emitted.
+      </p>
+      <p>See also:</p>
+      <ul>
+        <li><a href="#builtin-inlineCall">@inlineCall</a></li>
+      </ul>
       <h3 id="builtin-offsetOf">@offsetOf</h3>
       <pre><code class="zig">@offsetOf(comptime T: type, comptime field_name: [] const u8) -&gt; (number literal)</code></pre>
       <p>
