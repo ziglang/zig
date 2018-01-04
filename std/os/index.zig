@@ -1553,10 +1553,12 @@ pub fn openSelfExe() -> %io.File {
 pub fn selfExePath(allocator: &mem.Allocator) -> %[]u8 {
     switch (builtin.os) {
         Os.linux => {
-            @compileError("TODO: selfExePath for linux");
+            // If the currently executing binary has been deleted,
+            // the file path looks something like `/a/b/c/exe (deleted)`
+            return readLink(allocator, "/proc/self/exe");
         },
         Os.windows => {
-            var out_path = %return Buffer.initSize(allocator, 256);
+            var out_path = %return Buffer.initSize(allocator, 0xff);
             %defer out_path.deinit();
             while (true) {
                 const dword_len = %return math.cast(windows.DWORD, out_path.len());
@@ -1571,8 +1573,19 @@ pub fn selfExePath(allocator: &mem.Allocator) -> %[]u8 {
                     out_path.shrink(copied_amt);
                     return out_path.toOwnedSlice();
                 }
-                %return out_path.resize(out_path.len() * 2);
+                const new_len = (%return math.shlExact(out_path.len(), 1)) | 0b1;
+                %return out_path.resize(new_len);
             }
+        },
+        Os.darwin, Os.macosx, Os.ios => {
+            var u32_len: u32 = 0;
+            const ret1 = c._NSGetExecutablePath(undefined, &u32_len);
+            assert(ret1 != 0);
+            const bytes = %return allocator.alloc(u8, u32_len);
+            %defer allocator.free(bytes);
+            const ret2 = c._NSGetExecutablePath(bytes.ptr, &u32_len);
+            assert(ret2 == 0);
+            return bytes;
         },
         else => @compileError("Unsupported OS"),
     }
@@ -1592,7 +1605,7 @@ pub fn selfExeDirPath(allocator: &mem.Allocator) -> %[]u8 {
             const dir = path.dirname(full_exe_path);
             return allocator.shrink(u8, full_exe_path, dir.len);
         },
-        Os.windows => {
+        Os.windows, Os.darwin, Os.macosx, Os.ios => {
             const self_exe_path = %return selfExePath(allocator);
             %defer allocator.free(self_exe_path);
             const dirname = os.path.dirname(self_exe_path);

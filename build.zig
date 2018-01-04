@@ -66,12 +66,14 @@ pub fn build(b: &Builder) {
     }
     dependOnLib(exe, llvm);
 
-    if (!exe.target.isWindows()) {
+    if (exe.target.getOs() == builtin.Os.linux) {
         const libstdcxx_path_padded = b.exec([][]const u8{cxx_compiler, "-print-file-name=libstdc++.a"});
         const libstdcxx_path = ??mem.split(libstdcxx_path_padded, "\r\n").next();
         exe.addObjectFile(libstdcxx_path);
 
         exe.linkSystemLibrary("pthread");
+    } else if (exe.target.isDarwin()) {
+        exe.linkSystemLibrary("c++");
     }
 
     exe.linkSystemLibrary("c");
