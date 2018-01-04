@@ -1573,7 +1573,7 @@ pub fn selfExePath(allocator: &mem.Allocator) -> %[]u8 {
                     out_path.shrink(copied_amt);
                     return out_path.toOwnedSlice();
                 }
-                const new_len = (%return math.shlExact(out_path.len(), 1)) | 0b1;
+                const new_len = (out_path.len() << 1) | 0b1;
                 %return out_path.resize(new_len);
             }
         },
