@@ -209,8 +209,19 @@ pub fn installCHeaders(b: &Builder, c_header_files: []const u8) {
 
 fn nextValue(index: &usize, build_info: []const u8) -> []const u8 {
     const start = *index;
-    while (build_info[*index] != '\n' and build_info[*index] != '\r') : (*index += 1) { }
-    const result = build_info[start..*index];
-    *index += 1;
-    return result;
+    while (true) : (*index += 1) {
+        switch (build_info[*index]) {
+            '\n' => {
+                const result = build_info[start..*index];
+                *index += 1;
+                return result;
+            },
+            '\r' => {
+                const result = build_info[start..*index];
+                *index += 2;
+                return result;
+            },
+            else => continue,
+        }
+    }
 }
