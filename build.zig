@@ -43,6 +43,8 @@ pub fn build(b: &Builder) {
         const cxx_compiler = nextValue(&index, build_info);
         const lld_include_dir = nextValue(&index, build_info);
         const lld_libraries = nextValue(&index, build_info);
+        const std_files = nextValue(&index, build_info);
+        const c_header_files = nextValue(&index, build_info);
 
         var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
         exe.setBuildMode(mode);
@@ -77,7 +79,8 @@ pub fn build(b: &Builder) {
         test_step.dependOn(&exe.step);
 
         b.installArtifact(exe);
-        installStdLib(b);
+        installStdLib(b, std_files);
+        installCHeaders(b, c_header_files);
 
     }
 
@@ -200,127 +203,20 @@ fn findLLVM(b: &Builder) -> ?LibraryDep {
     return result;
 }
 
-pub fn installStdLib(b: &Builder) {
-    const stdlib_files = []const []const u8 {
-        "array_list.zig",
-        "base64.zig",
-        "buf_map.zig",
-        "buf_set.zig",
-        "buffer.zig",
-        "build.zig",
-        "c/darwin.zig",
-        "c/index.zig",
-        "c/linux.zig",
-        "c/windows.zig",
-        "cstr.zig",
-        "debug/failing_allocator.zig",
-        "debug/index.zig",
-        "dwarf.zig",
-        "elf.zig",
-        "empty.zig",
-        "endian.zig",
-        "fmt/errol/enum3.zig",
-        "fmt/errol/index.zig",
-        "fmt/errol/lookup.zig",
-        "fmt/index.zig",
-        "hash_map.zig",
-        "heap.zig",
-        "index.zig",
-        "io.zig",
-        "linked_list.zig",
-        "math/acos.zig",
-        "math/acosh.zig",
-        "math/asin.zig",
-        "math/asinh.zig",
-        "math/atan.zig",
-        "math/atan2.zig",
-        "math/atanh.zig",
-        "math/cbrt.zig",
-        "math/ceil.zig",
-        "math/copysign.zig",
-        "math/cos.zig",
-        "math/cosh.zig",
-        "math/exp.zig",
-        "math/exp2.zig",
-        "math/expm1.zig",
-        "math/expo2.zig",
-        "math/fabs.zig",
-        "math/floor.zig",
-        "math/fma.zig",
-        "math/frexp.zig",
-        "math/hypot.zig",
-        "math/ilogb.zig",
-        "math/index.zig",
-        "math/inf.zig",
-        "math/isfinite.zig",
-        "math/isinf.zig",
-        "math/isnan.zig",
-        "math/isnormal.zig",
-        "math/ln.zig",
-        "math/log.zig",
-        "math/log10.zig",
-        "math/log1p.zig",
-        "math/log2.zig",
-        "math/modf.zig",
-        "math/nan.zig",
-        "math/pow.zig",
-        "math/round.zig",
-        "math/scalbn.zig",
-        "math/signbit.zig",
-        "math/sin.zig",
-        "math/sinh.zig",
-        "math/sqrt.zig",
-        "math/tan.zig",
-        "math/tanh.zig",
-        "math/trunc.zig",
-        "mem.zig",
-        "net.zig",
-        "os/child_process.zig",
-        "os/darwin.zig",
-        "os/darwin_errno.zig",
-        "os/get_user_id.zig",
-        "os/index.zig",
-        "os/linux.zig",
-        "os/linux_errno.zig",
-        "os/linux_i386.zig",
-        "os/linux_x86_64.zig",
-        "os/path.zig",
-        "os/windows/error.zig",
-        "os/windows/index.zig",
-        "os/windows/util.zig",
-        "rand.zig",
-        "sort.zig",
-        "unicode.zig",
-        "special/bootstrap.zig",
-        "special/bootstrap_lib.zig",
-        "special/build_file_template.zig",
-        "special/build_runner.zig",
-        "special/builtin.zig",
-        "special/compiler_rt/aulldiv.zig",
-        "special/compiler_rt/aullrem.zig",
-        "special/compiler_rt/comparetf2.zig",
-        "special/compiler_rt/fixuint.zig",
-        "special/compiler_rt/fixunsdfdi.zig",
-        "special/compiler_rt/fixunsdfsi.zig",
-        "special/compiler_rt/fixunsdfti.zig",
-        "special/compiler_rt/fixunssfdi.zig",
-        "special/compiler_rt/fixunssfsi.zig",
-        "special/compiler_rt/fixunssfti.zig",
-        "special/compiler_rt/fixunstfdi.zig",
-        "special/compiler_rt/fixunstfsi.zig",
-        "special/compiler_rt/fixunstfti.zig",
-        "special/compiler_rt/index.zig",
-        "special/compiler_rt/udivmod.zig",
-        "special/compiler_rt/udivmoddi4.zig",
-        "special/compiler_rt/udivmodti4.zig",
-        "special/compiler_rt/udivti3.zig",
-        "special/compiler_rt/umodti3.zig",
-        "special/panic.zig",
-        "special/test_runner.zig",
-    };
-    for (stdlib_files) |stdlib_file| {
+pub fn installStdLib(b: &Builder, stdlib_files: []const u8) {
+    var it = mem.split(stdlib_files, ";");
+    while (it.next()) |stdlib_file| {
         const src_path = %%os.path.join(b.allocator, "std", stdlib_file);
         const dest_path = %%os.path.join(b.allocator, "lib", "zig", "std", stdlib_file);
+        b.installFile(src_path, dest_path);
+    }
+}
+
+pub fn installCHeaders(b: &Builder, c_header_files: []const u8) {
+    var it = mem.split(c_header_files, ";");
+    while (it.next()) |c_header_file| {
+        const src_path = %%os.path.join(b.allocator, "c_headers", c_header_file);
+        const dest_path = %%os.path.join(b.allocator, "lib", "zig", "include", c_header_file);
         b.installFile(src_path, dest_path);
     }
 }
