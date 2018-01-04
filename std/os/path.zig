@@ -22,6 +22,14 @@ pub const delimiter = if (is_windows) delimiter_windows else delimiter_posix;
 
 const is_windows = builtin.os == builtin.Os.windows;
 
+pub fn isSep(byte: u8) -> bool {
+    if (is_windows) {
+        return byte == '/' or byte == '\\';
+    } else {
+        return byte == '/';
+    }
+}
+
 /// Naively combines a series of paths with the native path seperator.
 /// Allocates memory for the result, which must be freed by the caller.
 pub fn join(allocator: &Allocator, paths: ...) -> %[]u8 {

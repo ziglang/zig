@@ -571,3 +571,9 @@ fn testComptimeIfInsideRuntimeWhileWhichUnconditionallyBreaks(cond: bool) {
         break;
     }
 }
+
+test "implicit comptime while" {
+    while (false) {
+        @compileError("bad");
+    }
+}

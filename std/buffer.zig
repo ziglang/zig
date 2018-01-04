@@ -112,11 +112,12 @@ pub const Buffer = struct {
     // TODO: remove, use OutStream for this
     pub fn appendByteNTimes(self: &Buffer, byte: u8, count: usize) -> %void {
         var prev_size: usize = self.len();
-        %return self.resize(prev_size + count);
+        const new_size = prev_size + count;
+        %return self.resize(new_size);
 
-        var i: usize = 0;
-        while (i < count) : (i += 1) {
-            self.list.items[prev_size + i] = byte;
+        var i: usize = prev_size;
+        while (i < new_size) : (i += 1) {
+            self.list.items[i] = byte;
         }
     }
 

@@ -204,6 +204,7 @@ pub const Tokenizer = struct {
         LineComment,
         Zero,
         IntegerLiteral,
+        IntegerLiteralWithRadix,
         NumberDot,
         FloatFraction,
         FloatExponentUnsigned,
@@ -454,7 +455,7 @@ pub const Tokenizer = struct {
                 },
                 State.Zero => switch (c) {
                     'b', 'o', 'x' => {
-                        state = State.IntegerLiteral;
+                        state = State.IntegerLiteralWithRadix;
                     },
                     else => {
                         // reinterpret as a normal number
@@ -467,6 +468,16 @@ pub const Tokenizer = struct {
                         state = State.NumberDot;
                     },
                     'p', 'P', 'e', 'E' => {
+                        state = State.FloatExponentUnsigned;
+                    },
+                    '0'...'9' => {},
+                    else => break,
+                },
+                State.IntegerLiteralWithRadix => switch (c) {
+                    '.' => {
+                        state = State.NumberDot;
+                    },
+                    'p', 'P' => {
                         state = State.FloatExponentUnsigned;
                     },
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
@@ -485,7 +496,7 @@ pub const Tokenizer = struct {
                     },
                 },
                 State.FloatFraction => switch (c) {
-                    'p', 'P', 'e', 'E' => {
+                    'p', 'P' => {
                         state = State.FloatExponentUnsigned;
                     },
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
