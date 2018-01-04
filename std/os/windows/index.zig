@@ -48,6 +48,8 @@ pub extern "kernel32" stdcallcc fn GetExitCodeProcess(hProcess: HANDLE, lpExitCo
 
 pub extern "kernel32" stdcallcc fn GetFileSizeEx(hFile: HANDLE, lpFileSize: &LARGE_INTEGER) -> BOOL;
 
+pub extern "kernel32" stdcallcc fn GetModuleFileNameA(hModule: ?HMODULE, lpFilename: LPSTR, nSize: DWORD) -> DWORD;
+
 pub extern "kernel32" stdcallcc fn GetLastError() -> DWORD;
 
 pub extern "kernel32" stdcallcc fn GetFileInformationByHandleEx(in_hFile: HANDLE,

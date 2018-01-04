@@ -513,7 +513,7 @@ pub fn readFileAllocExtra(path: []const u8, allocator: &mem.Allocator, extra_len
     %defer allocator.free(buf);
 
     var adapter = FileInStream.init(&file);
-    %return adapter.stream.readNoEof(buf);
+    %return adapter.stream.readNoEof(buf[0..size]);
     return buf;
 }
 

@@ -208,7 +208,7 @@ pub const Module = struct {
 
         const root_src_path = self.root_src_path ?? @panic("TODO handle null root src path");
         const root_src_real_path = os.path.real(self.allocator, root_src_path) %% |err| {
-            %return printError("unable to open '{}': {}", root_src_path, err);
+            %return printError("unable to get real path '{}': {}", root_src_path, err);
             return err;
         };
         %defer self.allocator.free(root_src_real_path);

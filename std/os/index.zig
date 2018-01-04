@@ -1544,6 +1544,40 @@ pub fn openSelfExe() -> %io.File {
     }
 }
 
+/// Get the path to the current executable.
+/// If you only need the directory, use selfExeDirPath.
+/// If you only want an open file handle, use openSelfExe.
+/// This function may return an error if the current executable
+/// was deleted after spawning.
+/// Caller owns returned memory.
+pub fn selfExePath(allocator: &mem.Allocator) -> %[]u8 {
+    switch (builtin.os) {
+        Os.linux => {
+            @compileError("TODO: selfExePath for linux");
+        },
+        Os.windows => {
+            var out_path = %return Buffer.initSize(allocator, 256);
+            %defer out_path.deinit();
+            while (true) {
+                const dword_len = %return math.cast(windows.DWORD, out_path.len());
+                const copied_amt = windows.GetModuleFileNameA(null, out_path.ptr(), dword_len);
+                if (copied_amt <= 0) {
+                    const err = windows.GetLastError();
+                    return switch (err) {
+                        else => unexpectedErrorWindows(err),
+                    };
+                }
+                if (copied_amt < out_path.len()) {
+                    out_path.shrink(copied_amt);
+                    return out_path.toOwnedSlice();
+                }
+                %return out_path.resize(out_path.len() * 2);
+            }
+        },
+        else => @compileError("Unsupported OS"),
+    }
+}
+
 /// Get the directory path that contains the current executable.
 /// Caller owns returned memory.
 pub fn selfExeDirPath(allocator: &mem.Allocator) -> %[]u8 {
@@ -1559,19 +1593,10 @@ pub fn selfExeDirPath(allocator: &mem.Allocator) -> %[]u8 {
             return allocator.shrink(u8, full_exe_path, dir.len);
         },
         Os.windows => {
-            @panic("TODO windows std.os.selfExeDirPath");
-            //buf_resize(out_path, 256);
-            //for (;;) {
-            //    DWORD copied_amt = GetModuleFileName(nullptr, buf_ptr(out_path), buf_len(out_path));
-            //    if (copied_amt <= 0) {
-            //        return ErrorFileNotFound;
-            //    }
-            //    if (copied_amt < buf_len(out_path)) {
-            //        buf_resize(out_path, copied_amt);
-            //        return 0;
-            //    }
-            //    buf_resize(out_path, buf_len(out_path) * 2);
-            //}
+            const self_exe_path = %return selfExePath(allocator);
+            %defer allocator.free(self_exe_path);
+            const dirname = os.path.dirname(self_exe_path);
+            return allocator.shrink(u8, self_exe_path, dirname.len);
         },
         else => @compileError("unimplemented: std.os.selfExeDirPath for " ++ @tagName(builtin.os)),
     }
