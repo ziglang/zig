@@ -35,55 +35,54 @@ pub fn build(b: &Builder) {
 
     const test_step = b.step("test", "Run all the tests");
 
-    if (findLLVM(b)) |llvm| {
-        // find the stage0 build artifacts because we're going to re-use config.h and zig_cpp library
-        const build_info = b.exec([][]const u8{b.zig_exe, "BUILD_INFO"});
-        var index: usize = 0;
-        const cmake_binary_dir = nextValue(&index, build_info);
-        const cxx_compiler = nextValue(&index, build_info);
-        const lld_include_dir = nextValue(&index, build_info);
-        const lld_libraries = nextValue(&index, build_info);
-        const std_files = nextValue(&index, build_info);
-        const c_header_files = nextValue(&index, build_info);
+    // find the stage0 build artifacts because we're going to re-use config.h and zig_cpp library
+    const build_info = b.exec([][]const u8{b.zig_exe, "BUILD_INFO"});
+    var index: usize = 0;
+    const cmake_binary_dir = nextValue(&index, build_info);
+    const cxx_compiler = nextValue(&index, build_info);
+    const llvm_config_exe = nextValue(&index, build_info);
+    const lld_include_dir = nextValue(&index, build_info);
+    const lld_libraries = nextValue(&index, build_info);
+    const std_files = nextValue(&index, build_info);
+    const c_header_files = nextValue(&index, build_info);
 
-        var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
-        exe.setBuildMode(mode);
-        exe.addIncludeDir("src");
-        exe.addIncludeDir(cmake_binary_dir);
-        addCppLib(b, exe, cmake_binary_dir, "zig_cpp");
-        if (lld_include_dir.len != 0) {
-            exe.addIncludeDir(lld_include_dir);
-            var it = mem.split(lld_libraries, ";");
-            while (it.next()) |lib| {
-                exe.addObjectFile(lib);
-            }
-        } else {
-            addCppLib(b, exe, cmake_binary_dir, "embedded_lld_elf");
-            addCppLib(b, exe, cmake_binary_dir, "embedded_lld_coff");
-            addCppLib(b, exe, cmake_binary_dir, "embedded_lld_lib");
+    const llvm = findLLVM(b, llvm_config_exe);
+
+    var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
+    exe.setBuildMode(mode);
+    exe.addIncludeDir("src");
+    exe.addIncludeDir(cmake_binary_dir);
+    addCppLib(b, exe, cmake_binary_dir, "zig_cpp");
+    if (lld_include_dir.len != 0) {
+        exe.addIncludeDir(lld_include_dir);
+        var it = mem.split(lld_libraries, ";");
+        while (it.next()) |lib| {
+            exe.addObjectFile(lib);
         }
-        dependOnLib(exe, llvm);
+    } else {
+        addCppLib(b, exe, cmake_binary_dir, "embedded_lld_elf");
+        addCppLib(b, exe, cmake_binary_dir, "embedded_lld_coff");
+        addCppLib(b, exe, cmake_binary_dir, "embedded_lld_lib");
+    }
+    dependOnLib(exe, llvm);
 
-        if (!exe.target.isWindows()) {
-            const libstdcxx_path_padded = b.exec([][]const u8{cxx_compiler, "-print-file-name=libstdc++.a"});
-            const libstdcxx_path = ??mem.split(libstdcxx_path_padded, "\r\n").next();
-            exe.addObjectFile(libstdcxx_path);
+    if (!exe.target.isWindows()) {
+        const libstdcxx_path_padded = b.exec([][]const u8{cxx_compiler, "-print-file-name=libstdc++.a"});
+        const libstdcxx_path = ??mem.split(libstdcxx_path_padded, "\r\n").next();
+        exe.addObjectFile(libstdcxx_path);
 
-            exe.linkSystemLibrary("pthread");
-        }
-
-        exe.linkSystemLibrary("c");
-
-        b.default_step.dependOn(&exe.step);
-        b.default_step.dependOn(docs_step);
-        test_step.dependOn(&exe.step);
-
-        b.installArtifact(exe);
-        installStdLib(b, std_files);
-        installCHeaders(b, c_header_files);
-
+        exe.linkSystemLibrary("pthread");
     }
 
+    exe.linkSystemLibrary("c");
+
+    b.default_step.dependOn(&exe.step);
+    b.default_step.dependOn(docs_step);
+    test_step.dependOn(&exe.step);
+
+    b.installArtifact(exe);
+    installStdLib(b, std_files);
+    installCHeaders(b, c_header_files);
 
     const test_filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter");
     const with_lldb = b.option(bool, "with-lldb", "Run tests in LLDB to get a backtrace if one fails") ?? false;
@@ -142,20 +141,7 @@ const LibraryDep = struct {
     includes: ArrayList([]const u8),
 };
 
-fn findLLVM(b: &Builder) -> ?LibraryDep {
-    const llvm_config_exe = b.findProgram(
-        [][]const u8{"llvm-config-5.0", "llvm-config"},
-        [][]const u8{
-            "C:/Libraries/llvm-5.0.0/bin",
-            "/c/msys64/mingw64/bin",
-            "c:/msys64/mingw64/bin",
-            "/usr/local/opt/llvm@5/bin",
-            "/mingw64/bin",
-        }) %% |err|
-    {
-        warn("unable to find llvm-config: {}\n", err);
-        return null;
-    };
+fn findLLVM(b: &Builder, llvm_config_exe: []const u8) -> LibraryDep {
     const libs_output = b.exec([][]const u8{llvm_config_exe, "--libs", "--system-libs"});
     const includes_output = b.exec([][]const u8{llvm_config_exe, "--includedir"});
     const libdir_output = b.exec([][]const u8{llvm_config_exe, "--libdir"});
