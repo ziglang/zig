@@ -1055,6 +1055,11 @@ int os_find_windows_sdk(ZigWindowsSDK **out_sdk) {
             if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
                 int c0 = 0, c1 = 0, c2 = 0, c3 = 0;
                 sscanf(ffd.cFileName, "%d.%d.%d.%d", &c0, &c1, &c2, &c3);
+                if (c0 == 10 && c1 == 0 && c2 == 10240 && c3 == 0) {
+                    // Microsoft released 26624 as 10240 accidentally.
+                    // https://developer.microsoft.com/en-us/windows/downloads/sdk-archive
+                    c2 = 26624;
+                }
                 if ((c0 > v0) || (c1 > v1) || (c2 > v2) || (c3 > v3)) {
                     v0 = c0, v1 = c1, v2 = c2, v3 = c3;
                     buf_init_from_str(&result_sdk->version10, ffd.cFileName);
