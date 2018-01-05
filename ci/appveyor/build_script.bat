@@ -23,7 +23,7 @@ cd %ZIGBUILDDIR%
 cmake.exe .. -Thost=x64 -G"Visual Studio 14 2015 Win64" "-DCMAKE_INSTALL_PREFIX=%ZIGBUILDDIR%" "-DCMAKE_PREFIX_PATH=%ZIGPREFIXPATH%" -DCMAKE_BUILD_TYPE=Release "-DZIG_LIBC_INCLUDE_DIR=C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt" "-DZIG_LIBC_LIB_DIR=C:\Program Files (x86)\Windows Kits\10\bin\x64\ucrt" "-DZIG_LIBC_STATIC_LIB_DIR=C:\Program Files (x86)\Windows Kits\10\Lib\10.0.10240.0\ucrt\x64" || exit /b
 msbuild /p:Configuration=Release INSTALL.vcxproj || exit /b
 
-bin\zig.exe build --build-file ..\build.zig test -Dskip-self-hosted || exit /b
+bin\zig.exe build --build-file ..\build.zig test -Dverbose-link || exit /b
 
 @echo "MSVC build succeeded, proceeding with MinGW build"
 cd %APPVEYOR_BUILD_FOLDER%

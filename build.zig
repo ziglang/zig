@@ -90,6 +90,8 @@ pub fn build(b: &Builder) {
     if (!skip_self_hosted) {
         test_step.dependOn(&exe.step);
     }
+    const verbose_link_exe = b.option(bool, "verbose-link", "Print link command for self hosted compiler") ?? false;
+    exe.setVerboseLink(verbose_link_exe);
 
     b.installArtifact(exe);
     installStdLib(b, std_files);
