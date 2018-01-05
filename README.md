@@ -154,8 +154,7 @@ make install
 `ZIG_LIBC_LIB_DIR` and `ZIG_LIBC_STATIC_LIB_DIR` are unused.
 
 ```
-brew install cmake
-brew install llvm@6
+brew install cmake llvm@6
 brew outdated llvm@6 || brew upgrade llvm@6
 mkdir build
 cd build

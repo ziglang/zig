@@ -3397,7 +3397,7 @@ fn doAThing() -&gt; ?&amp;Foo {
       <pre><code class="zig">fn doAThing(nullable_foo: ?&amp;Foo) {
     // do some stuff
 
-    if (const foo ?= nullable_foo) {
+    if (nullable_foo) |foo| {
       doSomethingWithFoo(foo);
     }
 

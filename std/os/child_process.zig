@@ -15,6 +15,7 @@ const LinkedList = std.LinkedList;
 
 error PermissionDenied;
 error ProcessNotFound;
+error InvalidName;
 
 var children_nodes = LinkedList(&ChildProcess).init();
 
@@ -643,6 +644,7 @@ fn windowsCreateProcess(app_name: &u8, cmd_line: &u8, envp_ptr: ?&u8, cwd_ptr: ?
         return switch (err) {
             windows.ERROR.FILE_NOT_FOUND, windows.ERROR.PATH_NOT_FOUND => error.FileNotFound,
             windows.ERROR.INVALID_PARAMETER => unreachable,
+            windows.ERROR.INVALID_NAME => error.InvalidName,
             else => os.unexpectedErrorWindows(err),
         };
     }

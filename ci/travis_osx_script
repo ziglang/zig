@@ -9,17 +9,4 @@ cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@5/ -DCMAKE_INSTALL_PREFIX=$(pwd
 make VERBOSE=1
 make install
 
-# TODO: we run the tests separately because when run all together there is some
-# mysterious issue where after N child process spawns it crashes. I've been
-# unable to reproduce the issue on my macbook - it only happens on Travis.
-# ./zig build --build-file ../build.zig test
-
-./zig build --build-file ../build.zig test-behavior --verbose
-./zig build --build-file ../build.zig test-std --verbose
-./zig build --build-file ../build.zig test-compiler-rt --verbose
-./zig build --build-file ../build.zig test-compare-output --verbose
-./zig build --build-file ../build.zig test-build-examples --verbose
-./zig build --build-file ../build.zig test-compile-errors --verbose
-./zig build --build-file ../build.zig test-asm-link --verbose
-./zig build --build-file ../build.zig test-debug-safety --verbose
-./zig build --build-file ../build.zig test-translate-c --verbose
+./zig build --build-file ../build.zig test

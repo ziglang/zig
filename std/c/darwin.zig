@@ -1,4 +1,6 @@
 extern "c" fn __error() -> &c_int;
+pub extern "c" fn _NSGetExecutablePath(buf: &u8, bufsize: &u32) -> c_int;
+
 
 pub use @import("../os/darwin_errno.zig");
 

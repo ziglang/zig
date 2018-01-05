@@ -1516,8 +1516,8 @@ const unexpected_error_tracing = false;
 /// and you get an unexpected error.
 pub fn unexpectedErrorPosix(errno: usize) -> error {
     if (unexpected_error_tracing) {
-        io.stderr.printf("unexpected errno: {}\n", errno) %% return error.Unexpected;
-        debug.printStackTrace() %% return error.Unexpected;
+        debug.warn("unexpected errno: {}\n", errno);
+        debug.dumpStackTrace();
     }
     return error.Unexpected;
 }
@@ -1526,8 +1526,8 @@ pub fn unexpectedErrorPosix(errno: usize) -> error {
 /// and you get an unexpected error.
 pub fn unexpectedErrorWindows(err: windows.DWORD) -> error {
     if (unexpected_error_tracing) {
-        io.stderr.printf("unexpected GetLastError(): {}\n", err) %% return error.Unexpected;
-        debug.printStackTrace() %% return error.Unexpected;
+        debug.warn("unexpected GetLastError(): {}\n", err);
+        debug.dumpStackTrace();
     }
     return error.Unexpected;
 }
@@ -1539,6 +1539,53 @@ pub fn openSelfExe() -> %io.File {
         },
         Os.darwin => {
             @panic("TODO: openSelfExe on Darwin");
+        },
+        else => @compileError("Unsupported OS"),
+    }
+}
+
+/// Get the path to the current executable.
+/// If you only need the directory, use selfExeDirPath.
+/// If you only want an open file handle, use openSelfExe.
+/// This function may return an error if the current executable
+/// was deleted after spawning.
+/// Caller owns returned memory.
+pub fn selfExePath(allocator: &mem.Allocator) -> %[]u8 {
+    switch (builtin.os) {
+        Os.linux => {
+            // If the currently executing binary has been deleted,
+            // the file path looks something like `/a/b/c/exe (deleted)`
+            return readLink(allocator, "/proc/self/exe");
+        },
+        Os.windows => {
+            var out_path = %return Buffer.initSize(allocator, 0xff);
+            %defer out_path.deinit();
+            while (true) {
+                const dword_len = %return math.cast(windows.DWORD, out_path.len());
+                const copied_amt = windows.GetModuleFileNameA(null, out_path.ptr(), dword_len);
+                if (copied_amt <= 0) {
+                    const err = windows.GetLastError();
+                    return switch (err) {
+                        else => unexpectedErrorWindows(err),
+                    };
+                }
+                if (copied_amt < out_path.len()) {
+                    out_path.shrink(copied_amt);
+                    return out_path.toOwnedSlice();
+                }
+                const new_len = (out_path.len() << 1) | 0b1;
+                %return out_path.resize(new_len);
+            }
+        },
+        Os.darwin, Os.macosx, Os.ios => {
+            var u32_len: u32 = 0;
+            const ret1 = c._NSGetExecutablePath(undefined, &u32_len);
+            assert(ret1 != 0);
+            const bytes = %return allocator.alloc(u8, u32_len);
+            %defer allocator.free(bytes);
+            const ret2 = c._NSGetExecutablePath(bytes.ptr, &u32_len);
+            assert(ret2 == 0);
+            return bytes;
         },
         else => @compileError("Unsupported OS"),
     }
@@ -1558,20 +1605,11 @@ pub fn selfExeDirPath(allocator: &mem.Allocator) -> %[]u8 {
             const dir = path.dirname(full_exe_path);
             return allocator.shrink(u8, full_exe_path, dir.len);
         },
-        Os.windows => {
-            @panic("TODO windows std.os.selfExeDirPath");
-            //buf_resize(out_path, 256);
-            //for (;;) {
-            //    DWORD copied_amt = GetModuleFileName(nullptr, buf_ptr(out_path), buf_len(out_path));
-            //    if (copied_amt <= 0) {
-            //        return ErrorFileNotFound;
-            //    }
-            //    if (copied_amt < buf_len(out_path)) {
-            //        buf_resize(out_path, copied_amt);
-            //        return 0;
-            //    }
-            //    buf_resize(out_path, buf_len(out_path) * 2);
-            //}
+        Os.windows, Os.darwin, Os.macosx, Os.ios => {
+            const self_exe_path = %return selfExePath(allocator);
+            %defer allocator.free(self_exe_path);
+            const dirname = os.path.dirname(self_exe_path);
+            return allocator.shrink(u8, self_exe_path, dirname.len);
         },
         else => @compileError("unimplemented: std.os.selfExeDirPath for " ++ @tagName(builtin.os)),
     }
