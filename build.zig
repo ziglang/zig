@@ -45,6 +45,7 @@ pub fn build(b: &Builder) {
     const lld_libraries = nextValue(&index, build_info);
     const std_files = nextValue(&index, build_info);
     const c_header_files = nextValue(&index, build_info);
+    const dia_guids_lib = nextValue(&index, build_info);
 
     const llvm = findLLVM(b, llvm_config_exe);
 
@@ -76,11 +77,21 @@ pub fn build(b: &Builder) {
         exe.linkSystemLibrary("c++");
     }
 
+    if (dia_guids_lib.len != 0) {
+        exe.addObjectFile(dia_guids_lib);
+    }
+
     exe.linkSystemLibrary("c");
 
     b.default_step.dependOn(&exe.step);
     b.default_step.dependOn(docs_step);
-    test_step.dependOn(&exe.step);
+
+    const skip_self_hosted = b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") ?? false;
+    if (!skip_self_hosted) {
+        test_step.dependOn(&exe.step);
+    }
+    const verbose_link_exe = b.option(bool, "verbose-link", "Print link command for self hosted compiler") ?? false;
+    exe.setVerboseLink(verbose_link_exe);
 
     b.installArtifact(exe);
     installStdLib(b, std_files);

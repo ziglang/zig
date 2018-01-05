@@ -570,6 +570,14 @@ set(ZIG_C_HEADER_FILES
     "xtestintrin.h"
 )
 
+if(MSVC)
+    set(MSVC_DIA_SDK_DIR "$ENV{VSINSTALLDIR}DIA SDK")
+    if (IS_DIRECTORY ${MSVC_DIA_SDK_DIR})
+        set(ZIG_DIA_GUIDS_LIB "${MSVC_DIA_SDK_DIR}/lib/amd64/diaguids.lib")
+        string(REGEX REPLACE "\\\\" "\\\\\\\\" ZIG_DIA_GUIDS_LIB_ESCAPED "${ZIG_DIA_GUIDS_LIB}")
+    endif()
+endif()
+
 set(ZIG_LIB_DIR "lib/zig")
 set(C_HEADERS_DEST "${ZIG_LIB_DIR}/include")
 set(ZIG_STD_DEST "${ZIG_LIB_DIR}/std")
@@ -631,6 +639,10 @@ target_link_libraries(zig LINK_PUBLIC
     ${LLVM_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
+if(ZIG_DIA_GUIDS_LIB)
+    target_link_libraries(zig LINK_PUBLIC ${ZIG_DIA_GUIDS_LIB})
+endif()
+
 if(MSVC OR MINGW)
     target_link_libraries(zig LINK_PUBLIC version)
 endif()

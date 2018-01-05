@@ -842,10 +842,10 @@ pub const LibExeObjStep = struct {
     lib_paths: ArrayList([]const u8),
     disable_libc: bool,
     frameworks: BufSet,
+    verbose_link: bool,
 
     // zig only stuff
     root_src: ?[]const u8,
-    verbose: bool,
     output_h_path: ?[]const u8,
     out_h_filename: []const u8,
     assembly_files: ArrayList([]const u8),
@@ -923,7 +923,7 @@ pub const LibExeObjStep = struct {
         var self = LibExeObjStep {
             .strip = false,
             .builder = builder,
-            .verbose = false,
+            .verbose_link = false,
             .build_mode = builtin.Mode.Debug,
             .static = static,
             .kind = kind,
@@ -988,7 +988,7 @@ pub const LibExeObjStep = struct {
             .linker_script = null,
 
             .root_src = undefined,
-            .verbose = undefined,
+            .verbose_link = false,
             .output_h_path = undefined,
             .out_h_filename = undefined,
             .assembly_files = undefined,
@@ -1087,8 +1087,8 @@ pub const LibExeObjStep = struct {
         %%self.source_files.append(file);
     }
 
-    pub fn setVerbose(self: &LibExeObjStep, value: bool) {
-        self.verbose = value;
+    pub fn setVerboseLink(self: &LibExeObjStep, value: bool) {
+        self.verbose_link = value;
     }
 
     pub fn setBuildMode(self: &LibExeObjStep, mode: builtin.Mode) {
@@ -1223,15 +1223,12 @@ pub const LibExeObjStep = struct {
             %%zig_args.append(builder.pathFromRoot(asm_file));
         }
 
-        if (self.verbose) {
-            %%zig_args.append("--verbose");
-        }
         if (builder.verbose_tokenize) %%zig_args.append("--verbose-tokenize");
         if (builder.verbose_ast) %%zig_args.append("--verbose-ast");
         if (builder.verbose_cimport) %%zig_args.append("--verbose-cimport");
         if (builder.verbose_ir) %%zig_args.append("--verbose-ir");
         if (builder.verbose_llvm_ir) %%zig_args.append("--verbose-llvm-ir");
-        if (builder.verbose_link) %%zig_args.append("--verbose-link");
+        if (builder.verbose_link or self.verbose_link) %%zig_args.append("--verbose-link");
 
         if (self.strip) {
             %%zig_args.append("--strip");
