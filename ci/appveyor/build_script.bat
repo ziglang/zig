@@ -10,6 +10,7 @@ SET "APPVEYOR_CACHE_ENTRY_ZIP_ARGS=-m0=Copy"
 bash -lc "cd ${APPVEYOR_BUILD_FOLDER} && if [ -s ""llvm+clang-5.0.1-win64-msvc-release.tar.xz"" ]; then echo 'skipping LLVM download'; else wget 'https://s3.amazonaws.com/ziglang.org/deps/llvm%%2bclang-5.0.1-win64-msvc-release.tar.xz'; fi && tar xf llvm+clang-5.0.1-win64-msvc-release.tar.xz" || exit /b
 
 
+SET "VCINSTALLDIR=C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\"
 SET "PATH=%PREVPATH%"
 SET "MSYSTEM=%PREVMSYSTEM%"
 SET "ZIGBUILDDIR=%APPVEYOR_BUILD_FOLDER%\build-msvc-release"
