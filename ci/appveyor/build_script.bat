@@ -13,7 +13,7 @@ bash -lc "cd ${APPVEYOR_BUILD_FOLDER} && if [ -s ""llvm+clang-5.0.0-win64-msvc-r
 SET "PATH=%PREVPATH%"
 SET "MSYSTEM=%PREVMSYSTEM%"
 SET "ZIGBUILDDIR=%APPVEYOR_BUILD_FOLDER%\build-msvc-release"
-SET "ZIGPREFIXPATH=C:\Libraries\LLVM-5.0.0"
+SET "ZIGPREFIXPATH=%APPVEYOR_BUILD_FOLDER%\llvm+clang-5.0.0-win64-msvc-release"
 
 mkdir %ZIGBUILDDIR%
 cd %ZIGBUILDDIR%
