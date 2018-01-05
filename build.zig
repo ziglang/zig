@@ -45,6 +45,7 @@ pub fn build(b: &Builder) {
     const lld_libraries = nextValue(&index, build_info);
     const std_files = nextValue(&index, build_info);
     const c_header_files = nextValue(&index, build_info);
+    const dia_guids_lib = nextValue(&index, build_info);
 
     const llvm = findLLVM(b, llvm_config_exe);
 
@@ -74,6 +75,10 @@ pub fn build(b: &Builder) {
         exe.linkSystemLibrary("pthread");
     } else if (exe.target.isDarwin()) {
         exe.linkSystemLibrary("c++");
+    }
+
+    if (dia_guids_lib.len != 0) {
+        exe.addObjectFile(dia_guids_lib);
     }
 
     exe.linkSystemLibrary("c");
