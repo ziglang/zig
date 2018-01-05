@@ -85,7 +85,11 @@ pub fn build(b: &Builder) {
 
     b.default_step.dependOn(&exe.step);
     b.default_step.dependOn(docs_step);
-    test_step.dependOn(&exe.step);
+
+    const skip_self_hosted = b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") ?? false;
+    if (!skip_self_hosted) {
+        test_step.dependOn(&exe.step);
+    }
 
     b.installArtifact(exe);
     installStdLib(b, std_files);
