@@ -16,5 +16,5 @@ pub fn swapIf(endian: builtin.Endian, comptime T: type, x: T) -> T {
 pub fn swap(comptime T: type, x: T) -> T {
     var buf: [@sizeOf(T)]u8 = undefined;
     mem.writeInt(buf[0..], x, false);
-    return mem.readInt(buf, T, true);
+    return mem.readInt(buf, T, builtin.Endian.Big);
 }
