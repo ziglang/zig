@@ -126,7 +126,8 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
     PMBuilder->SLPVectorize = !is_debug;
     PMBuilder->LoopVectorize = !is_debug;
     PMBuilder->RerollLoops = !is_debug;
-    PMBuilder->NewGVN = !is_debug;
+    // Leaving NewGVN as default (off) because when on it caused issue #673
+    //PMBuilder->NewGVN = !is_debug;
     PMBuilder->DisableGVNLoadPRE = is_debug;
     PMBuilder->VerifyInput = assertions_on;
     PMBuilder->VerifyOutput = assertions_on;
