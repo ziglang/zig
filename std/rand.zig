@@ -43,7 +43,7 @@ pub const Rand = struct {
         } else {
             var result: [@sizeOf(T)]u8 = undefined;
             r.fillBytes(result[0..]);
-            return mem.readInt(result, T, false);
+            return mem.readInt(result, T, builtin.Endian.Little);
         }
     }
 
