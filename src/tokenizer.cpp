@@ -141,6 +141,7 @@ static const struct ZigKeyword zig_keywords[] = {
     {"test", TokenIdKeywordTest},
     {"this", TokenIdKeywordThis},
     {"true", TokenIdKeywordTrue},
+    {"try", TokenIdKeywordTry},
     {"undefined", TokenIdKeywordUndefined},
     {"union", TokenIdKeywordUnion},
     {"unreachable", TokenIdKeywordUnreachable},
@@ -1541,6 +1542,7 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordTest: return "test";
         case TokenIdKeywordThis: return "this";
         case TokenIdKeywordTrue: return "true";
+        case TokenIdKeywordTry: return "try";
         case TokenIdKeywordUndefined: return "undefined";
         case TokenIdKeywordUnion: return "union";
         case TokenIdKeywordUnreachable: return "unreachable";

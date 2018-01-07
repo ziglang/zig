@@ -2,7 +2,7 @@ const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
 pub fn foo() -> %i32 {
-    const x = %return bar();
+    const x = try bar();
     return x + 1;
 }
 
@@ -77,7 +77,7 @@ test "error return in assignment" {
 
 fn doErrReturnInAssignment() -> %void {
     var x : i32 = undefined;
-    x = %return makeANonErr();
+    x = try makeANonErr();
 }
 
 fn makeANonErr() -> %i32 {

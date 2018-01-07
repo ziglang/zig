@@ -83,14 +83,14 @@ pub fn HashMap(comptime K: type, comptime V: type,
         /// Returns the value that was already there.
         pub fn put(hm: &Self, key: K, value: &const V) -> %?V {
             if (hm.entries.len == 0) {
-                %return hm.initCapacity(16);
+                try hm.initCapacity(16);
             }
             hm.incrementModificationCount();
 
             // if we get too full (60%), double the capacity
             if (hm.size * 5 >= hm.entries.len * 3) {
                 const old_entries = hm.entries;
-                %return hm.initCapacity(hm.entries.len * 2);
+                try hm.initCapacity(hm.entries.len * 2);
                 // dump all of the old elements into the new table
                 for (old_entries) |*old_entry| {
                     if (old_entry.used) {
@@ -149,7 +149,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
         }
 
         fn initCapacity(hm: &Self, capacity: usize) -> %void {
-            hm.entries = %return hm.allocator.alloc(Entry, capacity);
+            hm.entries = try hm.allocator.alloc(Entry, capacity);
             hm.size = 0;
             hm.max_distance_from_start_index = 0;
             for (hm.entries) |*entry| {

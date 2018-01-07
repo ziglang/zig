@@ -7,16 +7,16 @@ const allocator = std.debug.global_allocator;
 
 pub fn main() -> %void {
     var args_it = os.args();
-    const exe = %return unwrapArg(??args_it.next(allocator));
+    const exe = try unwrapArg(??args_it.next(allocator));
     var catted_anything = false;
-    var stdout_file = %return io.getStdOut();
+    var stdout_file = try io.getStdOut();
 
     while (args_it.next(allocator)) |arg_or_err| {
-        const arg = %return unwrapArg(arg_or_err);
+        const arg = try unwrapArg(arg_or_err);
         if (mem.eql(u8, arg, "-")) {
             catted_anything = true;
-            var stdin_file = %return io.getStdIn();
-            %return cat_file(&stdout_file, &stdin_file);
+            var stdin_file = try io.getStdIn();
+            try cat_file(&stdout_file, &stdin_file);
         } else if (arg[0] == '-') {
             return usage(exe);
         } else {
@@ -27,12 +27,12 @@ pub fn main() -> %void {
             defer file.close();
 
             catted_anything = true;
-            %return cat_file(&stdout_file, &file);
+            try cat_file(&stdout_file, &file);
         }
     }
     if (!catted_anything) {
-        var stdin_file = %return io.getStdIn();
-        %return cat_file(&stdout_file, &stdin_file);
+        var stdin_file = try io.getStdIn();
+        try cat_file(&stdout_file, &stdin_file);
     }
 }
 

@@ -268,10 +268,10 @@
 
 pub fn main() -&gt; %void {
     // If this program is run without stdout attached, exit with an error.
-    var stdout_file = %return std.io.getStdOut();
+    var stdout_file = try std.io.getStdOut();
     // If this program encounters pipe failure when printing to stdout, exit
     // with an error.
-    %return stdout_file.write("Hello, world!\n");
+    try stdout_file.write("Hello, world!\n");
 }</code></pre>
       <pre><code class="sh">$ zig build-exe hello.zig
 $ ./hello
@@ -3224,14 +3224,14 @@ pub fn parseU64(buf: []const u8, radix: u8) -&gt; %u64 {
     // ...
 }</code></pre>
       <p>
-        There is a shortcut for this. The <code>%return</code> expression:
+        There is a shortcut for this. The <code>try</code> expression:
       </p>
       <pre><code class="zig">fn doAThing(str: []u8) -&gt; %void {
-    const number = %return parseU64(str, 10);
+    const number = try parseU64(str, 10);
     // ...
 }</code></pre>
       <p>
-      <code>%return</code> evaluates an error union expression. If it is an error, it returns
+      <code>try</code> evaluates an error union expression. If it is an error, it returns
       from the current function with the same error. Otherwise, the expression results in
       the unwrapped value.
       </p>
@@ -3278,7 +3278,7 @@ pub fn parseU64(buf: []const u8, radix: u8) -&gt; %u64 {
       Example:
       </p>
       <pre><code class="zig">fn createFoo(param: i32) -&gt; %Foo {
-    const foo = %return tryToAllocateFoo();
+    const foo = try tryToAllocateFoo();
     // now we have allocated foo. we need to free it if the function fails.
     // but we want to return it if the function succeeds.
     %defer deallocateFoo(foo);
@@ -3928,11 +3928,11 @@ pub fn printf(self: &amp;OutStream, comptime format: []const u8, args: ...) -&gt
         switch (state) {
             State.Start =&gt; switch (c) {
                 '{' =&gt; {
-                    if (start_index &lt; i) %return self.write(format[start_index...i]);
+                    if (start_index &lt; i) try self.write(format[start_index...i]);
                     state = State.OpenBrace;
                 },
                 '}' =&gt; {
-                    if (start_index &lt; i) %return self.write(format[start_index...i]);
+                    if (start_index &lt; i) try self.write(format[start_index...i]);
                     state = State.CloseBrace;
                 },
                 else =&gt; {},
@@ -3943,7 +3943,7 @@ pub fn printf(self: &amp;OutStream, comptime format: []const u8, args: ...) -&gt
                     start_index = i;
                 },
                 '}' =&gt; {
-                    %return self.printValue(args[next_arg]);
+                    try self.printValue(args[next_arg]);
                     next_arg += 1;
                     state = State.Start;
                     start_index = i + 1;
@@ -3968,9 +3968,9 @@ pub fn printf(self: &amp;OutStream, comptime format: []const u8, args: ...) -&gt
         }
     }
     if (start_index &lt; format.len) {
-        %return self.write(format[start_index...format.len]);
+        try self.write(format[start_index...format.len]);
     }
-    %return self.flush();
+    try self.flush();
 }</code></pre>
       <p>
       This is a proof of concept implementation; the actual function in the standard library has more
@@ -3984,12 +3984,12 @@ pub fn printf(self: &amp;OutStream, comptime format: []const u8, args: ...) -&gt
       and emits a function that actually looks like this:
       </p>
       <pre><code class="zig">pub fn printf(self: &amp;OutStream, arg0: i32, arg1: []const u8) -&gt; %void {
-    %return self.write("here is a string: '");
-    %return self.printValue(arg0);
-    %return self.write("' here is a number: ");
-    %return self.printValue(arg1);
-    %return self.write("\n");
-    %return self.flush();
+    try self.write("here is a string: '");
+    try self.printValue(arg0);
+    try self.write("' here is a number: ");
+    try self.printValue(arg1);
+    try self.write("\n");
+    try self.flush();
 }</code></pre>
       <p>
       <code>printValue</code> is a function that takes a parameter of any type, and does different things depending
@@ -5891,7 +5891,7 @@ TypeExpr = PrefixOpExpression | "var"
 
 BlockOrExpression = Block | Expression
 
-Expression = ReturnExpression | BreakExpression | AssignmentExpression
+Expression = TryExpression | ReturnExpression | BreakExpression | AssignmentExpression
 
 AsmExpression = "asm" option("volatile") "(" String option(AsmOutput) ")"
 
@@ -5915,7 +5915,7 @@ AssignmentExpression = UnwrapExpression AssignmentOperator UnwrapExpression | Un
 
 AssignmentOperator = "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "&lt;&lt;=" | "&gt;&gt;=" | "&amp;=" | "^=" | "|=" | "*%=" | "+%=" | "-%="
 
-BlockExpression(body) = Block | IfExpression(body) | TryExpression(body) | TestExpression(body) | WhileExpression(body) | ForExpression(body) | SwitchExpression | CompTimeExpression(body)
+BlockExpression(body) = Block | IfExpression(body) | IfErrorExpression(body) | TestExpression(body) | WhileExpression(body) | ForExpression(body) | SwitchExpression | CompTimeExpression(body)
 
 CompTimeExpression(body) = "comptime" body
 
@@ -5929,7 +5929,9 @@ ForExpression(body) = option(Symbol ":") option("inline") "for" "(" Expression "
 
 BoolOrExpression = BoolAndExpression "or" BoolOrExpression | BoolAndExpression
 
-ReturnExpression = option("%") "return" option(Expression)
+ReturnExpression = "return" option(Expression)
+
+TryExpression = "try" Expression
 
 BreakExpression = "break" option(":" Symbol) option(Expression)
 
@@ -5937,7 +5939,7 @@ Defer(body) = option("%") "defer" body
 
 IfExpression(body) = "if" "(" Expression ")" body option("else" BlockExpression(body))
 
-TryExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|") body "else" "|" Symbol "|" BlockExpression(body)
+IfErrorExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|") body "else" "|" Symbol "|" BlockExpression(body)
 
 TestExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|") body option("else" BlockExpression(body))
 
@@ -5987,7 +5989,7 @@ ContainerInitBody = list(StructLiteralField, ",") | list(Expression, ",")
 
 StructLiteralField = "." Symbol "=" Expression
 
-PrefixOp = "!" | "-" | "~" | "*" | ("&amp;" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "%" | "%%" | "??" | "-%"
+PrefixOp = "!" | "-" | "~" | "*" | ("&amp;" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "%" | "%%" | "??" | "-%" | "try"
 
 PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ("error" "." Symbol) | ContainerDecl | ("continue" option(":" Symbol))
 

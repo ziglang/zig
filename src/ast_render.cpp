@@ -85,7 +85,7 @@ static const char *visib_mod_string(VisibMod mod) {
 static const char *return_string(ReturnKind kind) {
     switch (kind) {
         case ReturnKindUnconditional: return "return";
-        case ReturnKindError: return "%return";
+        case ReturnKindError: return "try";
     }
     zig_unreachable();
 }

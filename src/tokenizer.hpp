@@ -80,6 +80,7 @@ enum TokenId {
     TokenIdKeywordTest,
     TokenIdKeywordThis,
     TokenIdKeywordTrue,
+    TokenIdKeywordTry,
     TokenIdKeywordUndefined,
     TokenIdKeywordUnion,
     TokenIdKeywordUnreachable,

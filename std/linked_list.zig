@@ -188,7 +188,7 @@ pub fn LinkedList(comptime T: type) -> type {
         /// Returns:
         ///     A pointer to the new node.
         pub fn createNode(list: &Self, data: &const T, allocator: &Allocator) -> %&Node {
-            var node = %return list.allocateNode(allocator);
+            var node = try list.allocateNode(allocator);
             *node = Node.init(data);
             return node;
         }

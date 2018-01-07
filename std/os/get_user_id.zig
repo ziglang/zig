@@ -31,7 +31,7 @@ error CorruptPasswordFile;
 // like NIS, AD, etc. See `man nss` or look at an strace for `id myuser`.
 
 pub fn posixGetUserInfo(name: []const u8) -> %UserInfo {
-    var in_stream = %return io.InStream.open("/etc/passwd", null);
+    var in_stream = try io.InStream.open("/etc/passwd", null);
     defer in_stream.close();
 
     var buf: [os.page_size]u8 = undefined;
@@ -41,7 +41,7 @@ pub fn posixGetUserInfo(name: []const u8) -> %UserInfo {
     var gid: u32 = 0;
 
     while (true) {
-        const amt_read = %return in_stream.read(buf[0..]);
+        const amt_read = try in_stream.read(buf[0..]);
         for (buf[0..amt_read]) |byte| {
             switch (state) {
                 State.Start => switch (byte) {

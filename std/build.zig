@@ -250,13 +250,13 @@ pub const Builder = struct {
             %%wanted_steps.append(&self.default_step);
         } else {
             for (step_names) |step_name| {
-                const s = %return self.getTopLevelStepByName(step_name);
+                const s = try self.getTopLevelStepByName(step_name);
                 %%wanted_steps.append(s);
             }
         }
 
         for (wanted_steps.toSliceConst()) |s| {
-            %return self.makeOneStep(s);
+            try self.makeOneStep(s);
         }
     }
 
@@ -310,7 +310,7 @@ pub const Builder = struct {
 
         s.loop_flag = false;
 
-        %return s.make();
+        try s.make();
     }
 
     fn getTopLevelStepByName(self: &Builder, name: []const u8) -> %&Step {
@@ -680,7 +680,7 @@ pub const Builder = struct {
                 if (os.path.isAbsolute(name)) {
                     return name;
                 }
-                const full_path = %return os.path.join(self.allocator, search_prefix, "bin",
+                const full_path = try os.path.join(self.allocator, search_prefix, "bin",
                     self.fmt("{}{}", name, exe_extension));
                 if (os.path.real(self.allocator, full_path)) |real_path| {
                     return real_path;
@@ -696,7 +696,7 @@ pub const Builder = struct {
                 }
                 var it = mem.split(PATH, []u8{os.path.delimiter});
                 while (it.next()) |path| {
-                    const full_path = %return os.path.join(self.allocator, path, self.fmt("{}{}", name, exe_extension));
+                    const full_path = try os.path.join(self.allocator, path, self.fmt("{}{}", name, exe_extension));
                     if (os.path.real(self.allocator, full_path)) |real_path| {
                         return real_path;
                     } else |_| {
@@ -710,7 +710,7 @@ pub const Builder = struct {
                 return name;
             }
             for (paths) |path| {
-                const full_path = %return os.path.join(self.allocator, path, self.fmt("{}{}", name, exe_extension));
+                const full_path = try os.path.join(self.allocator, path, self.fmt("{}{}", name, exe_extension));
                 if (os.path.real(self.allocator, full_path)) |real_path| {
                     return real_path;
                 } else |_| {
@@ -1345,10 +1345,10 @@ pub const LibExeObjStep = struct {
             }
         }
 
-        %return builder.spawnChild(zig_args.toSliceConst());
+        try builder.spawnChild(zig_args.toSliceConst());
 
         if (self.kind == Kind.Lib and !self.static and self.target.wantSharedLibSymLinks()) {
-            %return doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename,
+            try doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename,
                 self.name_only_filename);
         }
     }
@@ -1423,7 +1423,7 @@ pub const LibExeObjStep = struct {
 
                 self.appendCompileFlags(&cc_args);
 
-                %return builder.spawnChild(cc_args.toSliceConst());
+                try builder.spawnChild(cc_args.toSliceConst());
             },
             Kind.Lib => {
                 for (self.source_files.toSliceConst()) |source_file| {
@@ -1440,14 +1440,14 @@ pub const LibExeObjStep = struct {
 
                     const cache_o_src = %%os.path.join(builder.allocator, builder.cache_root, source_file);
                     const cache_o_dir = os.path.dirname(cache_o_src);
-                    %return builder.makePath(cache_o_dir);
+                    try builder.makePath(cache_o_dir);
                     const cache_o_file = builder.fmt("{}{}", cache_o_src, self.target.oFileExt());
                     %%cc_args.append("-o");
                     %%cc_args.append(builder.pathFromRoot(cache_o_file));
 
                     self.appendCompileFlags(&cc_args);
 
-                    %return builder.spawnChild(cc_args.toSliceConst());
+                    try builder.spawnChild(cc_args.toSliceConst());
 
                     %%self.object_files.append(cache_o_file);
                 }
@@ -1466,14 +1466,14 @@ pub const LibExeObjStep = struct {
                         %%cc_args.append(builder.pathFromRoot(object_file));
                     }
 
-                    %return builder.spawnChild(cc_args.toSliceConst());
+                    try builder.spawnChild(cc_args.toSliceConst());
 
                     // ranlib
                     %%cc_args.resize(0);
                     %%cc_args.append("ranlib");
                     %%cc_args.append(output_path);
 
-                    %return builder.spawnChild(cc_args.toSliceConst());
+                    try builder.spawnChild(cc_args.toSliceConst());
                 } else {
                     %%cc_args.resize(0);
                     %%cc_args.append(cc);
@@ -1537,10 +1537,10 @@ pub const LibExeObjStep = struct {
                         }
                     }
 
-                    %return builder.spawnChild(cc_args.toSliceConst());
+                    try builder.spawnChild(cc_args.toSliceConst());
 
                     if (self.target.wantSharedLibSymLinks()) {
-                        %return doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename,
+                        try doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename,
                             self.name_only_filename);
                     }
                 }
@@ -1556,7 +1556,7 @@ pub const LibExeObjStep = struct {
 
                     const cache_o_src = %%os.path.join(builder.allocator, builder.cache_root, source_file);
                     const cache_o_dir = os.path.dirname(cache_o_src);
-                    %return builder.makePath(cache_o_dir);
+                    try builder.makePath(cache_o_dir);
                     const cache_o_file = builder.fmt("{}{}", cache_o_src, self.target.oFileExt());
                     %%cc_args.append("-o");
                     %%cc_args.append(builder.pathFromRoot(cache_o_file));
@@ -1570,7 +1570,7 @@ pub const LibExeObjStep = struct {
                         %%cc_args.append(builder.pathFromRoot(dir));
                     }
 
-                    %return builder.spawnChild(cc_args.toSliceConst());
+                    try builder.spawnChild(cc_args.toSliceConst());
 
                     %%self.object_files.append(cache_o_file);
                 }
@@ -1619,7 +1619,7 @@ pub const LibExeObjStep = struct {
                     }
                 }
 
-                %return builder.spawnChild(cc_args.toSliceConst());
+                try builder.spawnChild(cc_args.toSliceConst());
             },
         }
     }
@@ -1770,7 +1770,7 @@ pub const TestStep = struct {
             %%zig_args.append(lib_path);
         }
 
-        %return builder.spawnChild(zig_args.toSliceConst());
+        try builder.spawnChild(zig_args.toSliceConst());
     }
 };
 
@@ -1847,9 +1847,9 @@ const InstallArtifactStep = struct {
             LibExeObjStep.Kind.Exe => usize(0o755),
             LibExeObjStep.Kind.Lib => if (self.artifact.static) usize(0o666) else usize(0o755),
         };
-        %return builder.copyFileMode(self.artifact.getOutputPath(), self.dest_file, mode);
+        try builder.copyFileMode(self.artifact.getOutputPath(), self.dest_file, mode);
         if (self.artifact.kind == LibExeObjStep.Kind.Lib and !self.artifact.static) {
-            %return doAtomicSymLinks(builder.allocator, self.dest_file,
+            try doAtomicSymLinks(builder.allocator, self.dest_file,
                 self.artifact.major_only_filename, self.artifact.name_only_filename);
         }
     }
@@ -1872,7 +1872,7 @@ pub const InstallFileStep = struct {
 
     fn make(step: &Step) -> %void {
         const self = @fieldParentPtr(InstallFileStep, "step", step);
-        %return self.builder.copyFile(self.src_path, self.dest_path);
+        try self.builder.copyFile(self.src_path, self.dest_path);
     }
 };
 
@@ -1973,7 +1973,7 @@ pub const Step = struct {
         if (self.done_flag)
             return;
 
-        %return self.makeFn(self);
+        try self.makeFn(self);
         self.done_flag = true;
     }
 

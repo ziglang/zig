@@ -33,7 +33,7 @@ pub const FailingAllocator = struct {
         if (self.index == self.fail_index) {
             return error.OutOfMemory;
         }
-        const result = %return self.internal_allocator.allocFn(self.internal_allocator, n, alignment);
+        const result = try self.internal_allocator.allocFn(self.internal_allocator, n, alignment);
         self.allocated_bytes += result.len;
         self.index += 1;
         return result;
@@ -48,7 +48,7 @@ pub const FailingAllocator = struct {
         if (self.index == self.fail_index) {
             return error.OutOfMemory;
         }
-        const result = %return self.internal_allocator.reallocFn(self.internal_allocator, old_mem, new_size, alignment);
+        const result = try self.internal_allocator.reallocFn(self.internal_allocator, old_mem, new_size, alignment);
         self.allocated_bytes += new_size - old_mem.len;
         self.deallocations += 1;
         self.index += 1;

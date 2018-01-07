@@ -23,15 +23,15 @@ pub fn main() -> %void {
     // skip my own exe name
     _ = arg_it.skip();
 
-    const zig_exe = %return unwrapArg(arg_it.next(allocator) ?? {
+    const zig_exe = try unwrapArg(arg_it.next(allocator) ?? {
         warn("Expected first argument to be path to zig compiler\n");
         return error.InvalidArgs;
     });
-    const build_root = %return unwrapArg(arg_it.next(allocator) ?? {
+    const build_root = try unwrapArg(arg_it.next(allocator) ?? {
         warn("Expected second argument to be build root directory path\n");
         return error.InvalidArgs;
     });
-    const cache_root = %return unwrapArg(arg_it.next(allocator) ?? {
+    const cache_root = try unwrapArg(arg_it.next(allocator) ?? {
         warn("Expected third argument to be cache root directory path\n");
         return error.InvalidArgs;
     });
@@ -58,36 +58,36 @@ pub fn main() -> %void {
     } else |err| err;
 
     while (arg_it.next(allocator)) |err_or_arg| {
-        const arg = %return unwrapArg(err_or_arg);
+        const arg = try unwrapArg(err_or_arg);
         if (mem.startsWith(u8, arg, "-D")) {
             const option_contents = arg[2..];
             if (option_contents.len == 0) {
                 warn("Expected option name after '-D'\n\n");
-                return usageAndErr(&builder, false, %return stderr_stream);
+                return usageAndErr(&builder, false, try stderr_stream);
             }
             if (mem.indexOfScalar(u8, option_contents, '=')) |name_end| {
                 const option_name = option_contents[0..name_end];
                 const option_value = option_contents[name_end + 1..];
                 if (builder.addUserInputOption(option_name, option_value))
-                    return usageAndErr(&builder, false, %return stderr_stream);
+                    return usageAndErr(&builder, false, try stderr_stream);
             } else {
                 if (builder.addUserInputFlag(option_contents))
-                    return usageAndErr(&builder, false, %return stderr_stream);
+                    return usageAndErr(&builder, false, try stderr_stream);
             }
         } else if (mem.startsWith(u8, arg, "-")) {
             if (mem.eql(u8, arg, "--verbose")) {
                 builder.verbose = true;
             } else if (mem.eql(u8, arg, "--help")) {
-                return usage(&builder, false, %return stdout_stream);
+                return usage(&builder, false, try stdout_stream);
             } else if (mem.eql(u8, arg, "--prefix")) {
-                prefix = %return unwrapArg(arg_it.next(allocator) ?? {
+                prefix = try unwrapArg(arg_it.next(allocator) ?? {
                     warn("Expected argument after --prefix\n\n");
-                    return usageAndErr(&builder, false, %return stderr_stream);
+                    return usageAndErr(&builder, false, try stderr_stream);
                 });
             } else if (mem.eql(u8, arg, "--search-prefix")) {
-                const search_prefix = %return unwrapArg(arg_it.next(allocator) ?? {
+                const search_prefix = try unwrapArg(arg_it.next(allocator) ?? {
                     warn("Expected argument after --search-prefix\n\n");
-                    return usageAndErr(&builder, false, %return stderr_stream);
+                    return usageAndErr(&builder, false, try stderr_stream);
                 });
                 builder.addSearchPrefix(search_prefix);
             } else if (mem.eql(u8, arg, "--verbose-tokenize")) {
@@ -104,7 +104,7 @@ pub fn main() -> %void {
                 builder.verbose_cimport = true;
             } else {
                 warn("Unrecognized argument: {}\n\n", arg);
-                return usageAndErr(&builder, false, %return stderr_stream);
+                return usageAndErr(&builder, false, try stderr_stream);
             }
         } else {
             %%targets.append(arg);
@@ -115,11 +115,11 @@ pub fn main() -> %void {
     root.build(&builder);
 
     if (builder.validateUserInputDidItFail())
-        return usageAndErr(&builder, true, %return stderr_stream);
+        return usageAndErr(&builder, true, try stderr_stream);
 
     builder.make(targets.toSliceConst()) %% |err| {
         if (err == error.InvalidStepName) {
-            return usageAndErr(&builder, true, %return stderr_stream);
+            return usageAndErr(&builder, true, try stderr_stream);
         }
         return err;
     };
@@ -133,7 +133,7 @@ fn usage(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) 
     }
 
     // This usage text has to be synchronized with src/main.cpp
-    %return out_stream.print(
+    try out_stream.print(
         \\Usage: {} build [steps] [options]
         \\
         \\Steps:
@@ -142,10 +142,10 @@ fn usage(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) 
 
     const allocator = builder.allocator;
     for (builder.top_level_steps.toSliceConst()) |top_level_step| {
-        %return out_stream.print("  {s22} {}\n", top_level_step.step.name, top_level_step.description);
+        try out_stream.print("  {s22} {}\n", top_level_step.step.name, top_level_step.description);
     }
 
-    %return out_stream.write(
+    try out_stream.write(
         \\
         \\General Options:
         \\  --help                 Print this help and exit
@@ -158,17 +158,17 @@ fn usage(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) 
     );
 
     if (builder.available_options_list.len == 0) {
-        %return out_stream.print("  (none)\n");
+        try out_stream.print("  (none)\n");
     } else {
         for (builder.available_options_list.toSliceConst()) |option| {
-            const name = %return fmt.allocPrint(allocator,
+            const name = try fmt.allocPrint(allocator,
                 "  -D{}=[{}]", option.name, Builder.typeIdName(option.type_id));
             defer allocator.free(name);
-            %return out_stream.print("{s24} {}\n", name, option.description);
+            try out_stream.print("{s24} {}\n", name, option.description);
         }
     }
 
-    %return out_stream.write(
+    try out_stream.write(
         \\
         \\Advanced Options:
         \\  --build-file [file]    Override path to build.zig

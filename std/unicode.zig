@@ -162,7 +162,7 @@ fn testValid(bytes: []const u8, expected_codepoint: u32) {
 }
 
 fn testDecode(bytes: []const u8) -> %u32 {
-    const length = %return utf8ByteSequenceLength(bytes[0]);
+    const length = try utf8ByteSequenceLength(bytes[0]);
     if (bytes.len < length) return error.UnexpectedEof;
     std.debug.assert(bytes.len == length);
     return utf8Decode(bytes);

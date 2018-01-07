@@ -124,7 +124,7 @@ pub const IncrementingAllocator = struct {
         if (new_size <= old_mem.len) {
             return old_mem[0..new_size];
         } else {
-            const result = %return alloc(allocator, new_size, alignment);
+            const result = try alloc(allocator, new_size, alignment);
             mem.copy(u8, result, old_mem);
             return result;
         }
