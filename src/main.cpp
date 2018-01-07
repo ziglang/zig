@@ -120,7 +120,7 @@ static int print_target_list(FILE *f) {
     fprintf(f, "\nOperating Systems:\n");
     size_t os_count = target_os_count();
     for (size_t i = 0; i < os_count; i += 1) {
-        ZigLLVM_OSType os_type = get_target_os(i);
+        Os os_type = get_target_os(i);
         const char *native_str = (native.os == os_type) ? " (native)" : "";
         fprintf(f, "  %s%s\n", get_target_os_name(os_type), native_str);
     }

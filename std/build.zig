@@ -800,7 +800,7 @@ const Target = union(enum) {
 
     pub fn isDarwin(self: &const Target) -> bool {
         return switch (self.getOs()) {
-            builtin.Os.darwin, builtin.Os.ios, builtin.Os.macosx => true,
+            builtin.Os.ios, builtin.Os.macosx => true,
             else => false,
         };
     }
@@ -1011,7 +1011,7 @@ pub const LibExeObjStep = struct {
                     self.out_filename = self.builder.fmt("lib{}.a", self.name);
                 } else {
                     switch (self.target.getOs()) {
-                        builtin.Os.darwin, builtin.Os.ios, builtin.Os.macosx => {
+                        builtin.Os.ios, builtin.Os.macosx => {
                             self.out_filename = self.builder.fmt("lib{}.{d}.{d}.{d}.dylib",
                                 self.name, self.version.major, self.version.minor, self.version.patch);
                             self.major_only_filename = self.builder.fmt("lib{}.{d}.dylib", self.name, self.version.major);

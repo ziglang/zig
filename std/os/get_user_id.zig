@@ -11,7 +11,7 @@ pub const UserInfo = struct {
 /// POSIX function which gets a uid from username.
 pub fn getUserInfo(name: []const u8) -> %UserInfo {
     return switch (builtin.os) {
-        Os.linux, Os.darwin, Os.macosx, Os.ios => posixGetUserInfo(name),
+        Os.linux, Os.macosx, Os.ios => posixGetUserInfo(name),
         else => @compileError("Unsupported OS"),
     };
 }

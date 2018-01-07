@@ -32,7 +32,7 @@ ErrorMsg *add_node_error(CodeGen *g, AstNode *node, Buf *msg) {
         // failed semantic analysis, which isn't supposed to happen
         ErrorMsg *err = add_node_error(g, node->owner->c_import_node,
             buf_sprintf("compiler bug: @cImport generated invalid zig code"));
-            
+
         add_error_note(g, err, node, msg);
 
         g->errors.append(err);
@@ -2425,7 +2425,7 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
                 qual_str = "extern";
                 break;
         }
-        AstNode *source_node = (decl_node->data.container_decl.init_arg_expr != nullptr) ? 
+        AstNode *source_node = (decl_node->data.container_decl.init_arg_expr != nullptr) ?
             decl_node->data.container_decl.init_arg_expr : decl_node;
         add_node_error(g, source_node,
             buf_sprintf("%s union does not support enum tag type", qual_str));
@@ -2599,17 +2599,17 @@ void add_fn_export(CodeGen *g, FnTableEntry *fn_table_entry, Buf *symbol_name, G
             g->windows_subsystem_windows = false;
             g->windows_subsystem_console = true;
         } else if (buf_eql_str(symbol_name, "WinMain") &&
-            g->zig_target.os == ZigLLVM_Win32)
+            g->zig_target.os == OsWindows)
         {
             g->have_winmain = true;
             g->windows_subsystem_windows = true;
             g->windows_subsystem_console = false;
         } else if (buf_eql_str(symbol_name, "WinMainCRTStartup") &&
-            g->zig_target.os == ZigLLVM_Win32)
+            g->zig_target.os == OsWindows)
         {
             g->have_winmain_crt_startup = true;
         } else if (buf_eql_str(symbol_name, "DllMainCRTStartup") &&
-            g->zig_target.os == ZigLLVM_Win32)
+            g->zig_target.os == OsWindows)
         {
             g->have_dllmain_crt_startup = true;
         }
@@ -3994,7 +3994,7 @@ void find_libc_include_path(CodeGen *g) {
     if (!g->libc_include_dir || buf_len(g->libc_include_dir) == 0) {
         ZigWindowsSDK *sdk = get_windows_sdk(g);
 
-        if (g->zig_target.os == ZigLLVM_Win32) {
+        if (g->zig_target.os == OsWindows) {
             if (os_get_win32_ucrt_include_path(sdk, g->libc_include_dir)) {
                 zig_panic("Unable to determine libc include path.");
             }
@@ -4010,9 +4010,9 @@ void find_libc_include_path(CodeGen *g) {
 void find_libc_lib_path(CodeGen *g) {
     // later we can handle this better by reporting an error via the normal mechanism
     if (!g->libc_lib_dir || buf_len(g->libc_lib_dir) == 0 ||
-        (g->zig_target.os == ZigLLVM_Win32 && (g->msvc_lib_dir == nullptr || g->kernel32_lib_dir == nullptr)))
+        (g->zig_target.os == OsWindows && (g->msvc_lib_dir == nullptr || g->kernel32_lib_dir == nullptr)))
     {
-        if (g->zig_target.os == ZigLLVM_Win32) {
+        if (g->zig_target.os == OsWindows) {
             ZigWindowsSDK *sdk = get_windows_sdk(g);
 
             Buf* vc_lib_dir = buf_alloc();
@@ -4039,7 +4039,7 @@ void find_libc_lib_path(CodeGen *g) {
     }
 
     if (!g->libc_static_lib_dir || buf_len(g->libc_static_lib_dir) == 0) {
-        if ((g->zig_target.os == ZigLLVM_Win32) && (g->msvc_lib_dir != NULL)) {
+        if ((g->zig_target.os == OsWindows) && (g->msvc_lib_dir != NULL)) {
             return;
         }
         else {

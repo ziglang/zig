@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const Os = builtin.Os;
 const system = switch(builtin.os) {
     Os.linux => @import("os/linux.zig"),
-    Os.darwin, Os.macosx, Os.ios => @import("os/darwin.zig"),
+    Os.macosx, Os.ios => @import("os/darwin.zig"),
     Os.windows => @import("os/windows/index.zig"),
     else => @compileError("Unsupported OS"),
 };
@@ -190,7 +190,7 @@ pub const File = struct {
 
     pub fn seekForward(self: &File, amount: isize) -> %void {
         switch (builtin.os) {
-            Os.linux, Os.darwin => {
+            Os.linux, Os.macosx, Os.ios => {
                 const result = system.lseek(self.handle, amount, system.SEEK_CUR);
                 const err = system.getErrno(result);
                 if (err > 0) {
@@ -210,7 +210,7 @@ pub const File = struct {
 
     pub fn seekTo(self: &File, pos: usize) -> %void {
         switch (builtin.os) {
-            Os.linux, Os.darwin => {
+            Os.linux, Os.macosx, Os.ios => {
                 const result = system.lseek(self.handle, @bitCast(isize, pos), system.SEEK_SET);
                 const err = system.getErrno(result);
                 if (err > 0) {
@@ -230,7 +230,7 @@ pub const File = struct {
 
     pub fn getPos(self: &File) -> %usize {
         switch (builtin.os) {
-            Os.linux, Os.darwin => {
+            Os.linux, Os.macosx, Os.ios => {
                 const result = system.lseek(self.handle, 0, system.SEEK_CUR);
                 const err = system.getErrno(result);
                 if (err > 0) {

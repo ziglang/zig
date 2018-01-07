@@ -9,7 +9,7 @@ pub const darwin = @import("darwin.zig");
 pub const linux = @import("linux.zig");
 pub const posix = switch(builtin.os) {
     Os.linux => linux,
-    Os.darwin, Os.macosx, Os.ios => darwin,
+    Os.macosx, Os.ios => darwin,
     else => @compileError("Unsupported OS"),
 };
 
@@ -89,7 +89,7 @@ pub fn getRandomBytes(buf: []u8) -> %void {
             }
             return;
         },
-        Os.darwin, Os.macosx, Os.ios => {
+        Os.macosx, Os.ios => {
             const fd = %return posixOpen("/dev/urandom", posix.O_RDONLY|posix.O_CLOEXEC,
                 0, null);
             defer close(fd);
@@ -130,7 +130,7 @@ pub coldcc fn abort() -> noreturn {
         c.abort();
     }
     switch (builtin.os) {
-        Os.linux, Os.darwin, Os.macosx, Os.ios => {
+        Os.linux, Os.macosx, Os.ios => {
             _ = posix.raise(posix.SIGABRT);
             _ = posix.raise(posix.SIGKILL);
             while (true) {}
@@ -151,7 +151,7 @@ pub coldcc fn exit(status: i32) -> noreturn {
         c.exit(status);
     }
     switch (builtin.os) {
-        Os.linux, Os.darwin, Os.macosx, Os.ios => {
+        Os.linux, Os.macosx, Os.ios => {
             posix.exit(status);
         },
         Os.windows => {
@@ -1104,7 +1104,7 @@ pub fn readLink(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
 
 pub fn sleep(seconds: usize, nanoseconds: usize) {
     switch(builtin.os) {
-        Os.linux, Os.darwin, Os.macosx, Os.ios => {
+        Os.linux, Os.macosx, Os.ios => {
             posixSleep(u63(seconds), u63(nanoseconds));
         },
         Os.windows => {
@@ -1537,7 +1537,7 @@ pub fn openSelfExe() -> %io.File {
         Os.linux => {
             return io.File.openRead("/proc/self/exe", null);
         },
-        Os.darwin => {
+        Os.macosx, Os.ios => {
             @panic("TODO: openSelfExe on Darwin");
         },
         else => @compileError("Unsupported OS"),
@@ -1577,7 +1577,7 @@ pub fn selfExePath(allocator: &mem.Allocator) -> %[]u8 {
                 %return out_path.resize(new_len);
             }
         },
-        Os.darwin, Os.macosx, Os.ios => {
+        Os.macosx, Os.ios => {
             var u32_len: u32 = 0;
             const ret1 = c._NSGetExecutablePath(undefined, &u32_len);
             assert(ret1 != 0);
@@ -1605,7 +1605,7 @@ pub fn selfExeDirPath(allocator: &mem.Allocator) -> %[]u8 {
             const dir = path.dirname(full_exe_path);
             return allocator.shrink(u8, full_exe_path, dir.len);
         },
-        Os.windows, Os.darwin, Os.macosx, Os.ios => {
+        Os.windows, Os.macosx, Os.ios => {
             const self_exe_path = %return selfExePath(allocator);
             %defer allocator.free(self_exe_path);
             const dirname = os.path.dirname(self_exe_path);
