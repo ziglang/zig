@@ -264,15 +264,14 @@
       please <a href="https://github.com/zig-lang/www.ziglang.org/issues/new?title=I%20searched%20for%20___%20in%20the%20docs%20and%20didn%27t%20find%20it">file an issue</a> or <a href="https://webchat.freenode.net/?channels=%23zig">say something on IRC</a>.
       </p>
       <h2 id="hello-world">Hello World</h2>
-    <pre><code class="zig">const io = @import("std").io;
+    <pre><code class="zig">const std = @import("std");
 
 pub fn main() -&gt; %void {
     // If this program is run without stdout attached, exit with an error.
-    var stdout_file = %return io.getStdOut();
-    const stdout = &amp;stdout_file.out_stream;
+    var stdout_file = %return std.io.getStdOut();
     // If this program encounters pipe failure when printing to stdout, exit
     // with an error.
-    %return stdout.print("Hello, world!\n");
+    %return stdout_file.write("Hello, world!\n");
 }</code></pre>
       <pre><code class="sh">$ zig build-exe hello.zig
 $ ./hello

@@ -37,13 +37,7 @@ struct ScopeDecls;
 struct ZigWindowsSDK;
 struct Tld;
 struct TldExport;
-
-struct IrGotoItem {
-    AstNode *source_node;
-    IrBasicBlock *bb;
-    size_t instruction_index;
-    Scope *scope;
-};
+struct IrAnalyze;
 
 struct IrExecutable {
     ZigList<IrBasicBlock *> basic_block_list;
@@ -53,13 +47,13 @@ struct IrExecutable {
     size_t *backward_branch_count;
     size_t backward_branch_quota;
     bool invalid;
-    ZigList<IrGotoItem> goto_list;
     bool is_inline;
     FnTableEntry *fn_entry;
     Buf *c_import_buf;
     AstNode *source_node;
     IrExecutable *parent_exec;
     IrExecutable *source_exec;
+    IrAnalyze *analysis;
     Scope *begin_scope;
     ZigList<Tld *> tld_list;
 };
@@ -1626,6 +1620,7 @@ struct VariableTableEntry {
     LLVMValueRef param_value_ref;
     bool shadowable;
     size_t mem_slot_index;
+    IrExecutable *owner_exec;
     size_t ref_count;
     VarLinkage linkage;
     IrInstruction *decl_instruction;
