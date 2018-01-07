@@ -596,3 +596,15 @@ fn testStructInFn() {
 
     assert(block.kind == 1235);
 }
+
+fn fnThatClosesOverLocalConst() -> type {
+    const c = 1;
+    return struct {
+        fn g() -> i32 { return c; }
+    };
+}
+
+test "function closes over local const" {
+    const x = fnThatClosesOverLocalConst().g();
+    assert(x == 1);
+}
