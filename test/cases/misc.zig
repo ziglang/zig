@@ -577,3 +577,22 @@ test "implicit comptime while" {
         @compileError("bad");
     }
 }
+
+test "struct inside function" {
+    testStructInFn();
+    comptime testStructInFn();
+}
+
+fn testStructInFn() {
+    const BlockKind = u32;
+
+    const Block = struct {
+        kind: BlockKind,
+    };
+
+    var block = Block { .kind = 1234 };
+
+    block.kind += 1;
+
+    assert(block.kind == 1235);
+}

@@ -1,6 +1,18 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) {
+    cases.add("bad identifier in function with struct defined inside function which references local const",
+        \\export fn entry() {
+        \\    const BlockKind = u32;
+        \\
+        \\    const Block = struct {
+        \\        kind: BlockKind,
+        \\    };
+        \\
+        \\    bogus;
+        \\}
+    , ".tmp_source.zig:8:5: error: use of undeclared identifier 'bogus'");
+
     cases.add("labeled break not found",
         \\export fn entry() {
         \\    blah: while (true) {
