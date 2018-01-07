@@ -68,7 +68,7 @@ static const char *prefix_op_str(PrefixOp prefix_op) {
         case PrefixOpDereference: return "*";
         case PrefixOpMaybe: return "?";
         case PrefixOpError: return "%";
-        case PrefixOpUnwrapError: return "%%";
+        case PrefixOpUnwrapError: return "catch";
         case PrefixOpUnwrapMaybe: return "??";
     }
     zig_unreachable();
@@ -241,8 +241,8 @@ static const char *node_type_str(NodeType node_type) {
             return "ErrorType";
         case NodeTypeVarLiteral:
             return "VarLiteral";
-        case NodeTypeTryExpr:
-            return "TryExpr";
+        case NodeTypeIfErrorExpr:
+            return "IfErrorExpr";
         case NodeTypeTestExpr:
             return "TestExpr";
     }
@@ -872,23 +872,23 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 fprintf(ar->f, "null");
                 break;
             }
-        case NodeTypeTryExpr:
+        case NodeTypeIfErrorExpr:
             {
                 fprintf(ar->f, "if (");
-                render_node_grouped(ar, node->data.try_expr.target_node);
+                render_node_grouped(ar, node->data.if_err_expr.target_node);
                 fprintf(ar->f, ") ");
-                if (node->data.try_expr.var_symbol) {
-                    const char *ptr_str = node->data.try_expr.var_is_ptr ? "*" : "";
-                    const char *var_name = buf_ptr(node->data.try_expr.var_symbol);
+                if (node->data.if_err_expr.var_symbol) {
+                    const char *ptr_str = node->data.if_err_expr.var_is_ptr ? "*" : "";
+                    const char *var_name = buf_ptr(node->data.if_err_expr.var_symbol);
                     fprintf(ar->f, "|%s%s| ", ptr_str, var_name);
                 }
-                render_node_grouped(ar, node->data.try_expr.then_node);
-                if (node->data.try_expr.else_node) {
+                render_node_grouped(ar, node->data.if_err_expr.then_node);
+                if (node->data.if_err_expr.else_node) {
                     fprintf(ar->f, " else ");
-                    if (node->data.try_expr.err_symbol) {
-                        fprintf(ar->f, "|%s| ", buf_ptr(node->data.try_expr.err_symbol));
+                    if (node->data.if_err_expr.err_symbol) {
+                        fprintf(ar->f, "|%s| ", buf_ptr(node->data.if_err_expr.err_symbol));
                     }
-                    render_node_grouped(ar, node->data.try_expr.else_node);
+                    render_node_grouped(ar, node->data.if_err_expr.else_node);
                 }
                 break;
             }

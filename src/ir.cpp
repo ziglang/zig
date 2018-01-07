@@ -4665,16 +4665,16 @@ static IrInstruction *ir_gen_test_expr(IrBuilder *irb, Scope *scope, AstNode *no
     return ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
 }
 
-static IrInstruction *ir_gen_try_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
-    assert(node->type == NodeTypeTryExpr);
+static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
+    assert(node->type == NodeTypeIfErrorExpr);
 
-    AstNode *target_node = node->data.try_expr.target_node;
-    AstNode *then_node = node->data.try_expr.then_node;
-    AstNode *else_node = node->data.try_expr.else_node;
-    bool var_is_ptr = node->data.try_expr.var_is_ptr;
+    AstNode *target_node = node->data.if_err_expr.target_node;
+    AstNode *then_node = node->data.if_err_expr.then_node;
+    AstNode *else_node = node->data.if_err_expr.else_node;
+    bool var_is_ptr = node->data.if_err_expr.var_is_ptr;
     bool var_is_const = true;
-    Buf *var_symbol = node->data.try_expr.var_symbol;
-    Buf *err_symbol = node->data.try_expr.err_symbol;
+    Buf *var_symbol = node->data.if_err_expr.var_symbol;
+    Buf *err_symbol = node->data.if_err_expr.err_symbol;
 
     IrInstruction *err_val_ptr = ir_gen_node_extra(irb, target_node, scope, LVAL_PTR);
     if (err_val_ptr == irb->codegen->invalid_instruction)
@@ -5411,8 +5411,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_null_literal(irb, scope, node), lval);
         case NodeTypeVarLiteral:
             return ir_lval_wrap(irb, scope, ir_gen_var_literal(irb, scope, node), lval);
-        case NodeTypeTryExpr:
-            return ir_lval_wrap(irb, scope, ir_gen_try_expr(irb, scope, node), lval);
+        case NodeTypeIfErrorExpr:
+            return ir_lval_wrap(irb, scope, ir_gen_if_err_expr(irb, scope, node), lval);
         case NodeTypeTestExpr:
             return ir_lval_wrap(irb, scope, ir_gen_test_expr(irb, scope, node), lval);
         case NodeTypeSwitchExpr:

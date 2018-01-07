@@ -22,8 +22,8 @@ var stderr_file: io.File = undefined;
 var stderr_file_out_stream: io.FileOutStream = undefined;
 var stderr_stream: ?&io.OutStream = null;
 pub fn warn(comptime fmt: []const u8, args: ...) {
-    const stderr = getStderrStream() %% return;
-    stderr.print(fmt, args) %% return;
+    const stderr = getStderrStream() catch return;
+    stderr.print(fmt, args) catch return;
 }
 fn getStderrStream() -> %&io.OutStream {
     if (stderr_stream) |st| {
@@ -39,8 +39,8 @@ fn getStderrStream() -> %&io.OutStream {
 
 /// Tries to print a stack trace to stderr, unbuffered, and ignores any error returned.
 pub fn dumpStackTrace() {
-    const stderr = getStderrStream() %% return;
-    writeStackTrace(stderr, global_allocator, stderr_file.isTty(), 1) %% return;
+    const stderr = getStderrStream() catch return;
+    writeStackTrace(stderr, global_allocator, stderr_file.isTty(), 1) catch return;
 }
 
 /// This function invokes undefined behavior when `ok` is `false`.
@@ -86,9 +86,9 @@ pub fn panic(comptime format: []const u8, args: ...) -> noreturn {
         panicking = true;
     }
 
-    const stderr = getStderrStream() %% os.abort();
-    stderr.print(format ++ "\n", args) %% os.abort();
-    writeStackTrace(stderr, global_allocator, stderr_file.isTty(), 1) %% os.abort();
+    const stderr = getStderrStream() catch os.abort();
+    stderr.print(format ++ "\n", args) catch os.abort();
+    writeStackTrace(stderr, global_allocator, stderr_file.isTty(), 1) catch os.abort();
 
     os.abort();
 }
@@ -146,7 +146,7 @@ pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty
                 // at compile time. I'll call it issue #313
                 const ptr_hex = if (@sizeOf(usize) == 4) "0x{x8}" else "0x{x16}";
 
-                const compile_unit = findCompileUnit(st, return_address) %% {
+                const compile_unit = findCompileUnit(st, return_address) catch {
                     try out_stream.print("???:?:?: " ++ DIM ++ ptr_hex ++ " in ??? (???)" ++ RESET ++ "\n    ???\n\n",
                         return_address);
                     continue;
@@ -757,7 +757,7 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
                         });
                     },
                     else => {
-                        const fwd_amt = math.cast(isize, op_size - 1) %% return error.InvalidDebugInfo;
+                        const fwd_amt = math.cast(isize, op_size - 1) catch return error.InvalidDebugInfo;
                         try in_file.seekForward(fwd_amt);
                     },
                 }

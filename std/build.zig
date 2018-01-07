@@ -300,7 +300,7 @@ pub const Builder = struct {
         s.loop_flag = true;
 
         for (s.dependencies.toSlice()) |dep| {
-            self.makeOneStep(dep) %% |err| {
+            self.makeOneStep(dep) catch |err| {
                 if (err == error.DependencyLoopDetected) {
                     warn("  {}\n", s.name);
                 }
@@ -573,7 +573,7 @@ pub const Builder = struct {
         child.cwd = cwd;
         child.env_map = env_map;
 
-        const term = child.spawnAndWait() %% |err| {
+        const term = child.spawnAndWait() catch |err| {
             warn("Unable to spawn {}: {}\n", argv[0], @errorName(err));
             return err;
         };
@@ -596,7 +596,7 @@ pub const Builder = struct {
     }
 
     pub fn makePath(self: &Builder, path: []const u8) -> %void {
-        os.makePath(self.allocator, self.pathFromRoot(path)) %% |err| {
+        os.makePath(self.allocator, self.pathFromRoot(path)) catch |err| {
             warn("Unable to create path {}: {}\n", path, @errorName(err));
             return err;
         };
@@ -641,11 +641,11 @@ pub const Builder = struct {
 
         const dirname = os.path.dirname(dest_path);
         const abs_source_path = self.pathFromRoot(source_path);
-        os.makePath(self.allocator, dirname) %% |err| {
+        os.makePath(self.allocator, dirname) catch |err| {
             warn("Unable to create path {}: {}\n", dirname, @errorName(err));
             return err;
         };
-        os.copyFileMode(self.allocator, abs_source_path, dest_path, mode) %% |err| {
+        os.copyFileMode(self.allocator, abs_source_path, dest_path, mode) catch |err| {
             warn("Unable to copy {} to {}: {}\n", abs_source_path, dest_path, @errorName(err));
             return err;
         };
@@ -663,7 +663,7 @@ pub const Builder = struct {
         if (builtin.environ == builtin.Environ.msvc) {
             return "cl.exe";
         } else {
-            return os.getEnvVarOwned(self.allocator, "CC") %% |err| 
+            return os.getEnvVarOwned(self.allocator, "CC") catch |err| 
                 if (err == error.EnvironmentVariableNotFound)
                     ([]const u8)("cc")
                 else
@@ -723,7 +723,7 @@ pub const Builder = struct {
 
     pub fn exec(self: &Builder, argv: []const []const u8) -> []u8 {
         const max_output_size = 100 * 1024;
-        const result = os.ChildProcess.exec(self.allocator, argv, null, null, max_output_size) %% |err| {
+        const result = os.ChildProcess.exec(self.allocator, argv, null, null, max_output_size) catch |err| {
             std.debug.panic("Unable to spawn {}: {}", argv[0], @errorName(err));
         };
         switch (result.term) {
@@ -1895,11 +1895,11 @@ pub const WriteFileStep = struct {
         const self = @fieldParentPtr(WriteFileStep, "step", step);
         const full_path = self.builder.pathFromRoot(self.file_path);
         const full_path_dir = os.path.dirname(full_path);
-        os.makePath(self.builder.allocator, full_path_dir) %% |err| {
+        os.makePath(self.builder.allocator, full_path_dir) catch |err| {
             warn("unable to make path {}: {}\n", full_path_dir, @errorName(err));
             return err;
         };
-        io.writeFile(full_path, self.data, self.builder.allocator) %% |err| {
+        io.writeFile(full_path, self.data, self.builder.allocator) catch |err| {
             warn("unable to write {}: {}\n", full_path, @errorName(err));
             return err;
         };
@@ -1942,7 +1942,7 @@ pub const RemoveDirStep = struct {
         const self = @fieldParentPtr(RemoveDirStep, "step", step);
 
         const full_path = self.builder.pathFromRoot(self.dir_path);
-        os.deleteTree(self.builder.allocator, full_path) %% |err| {
+        os.deleteTree(self.builder.allocator, full_path) catch |err| {
             warn("Unable to remove {}: {}\n", full_path, @errorName(err));
             return err;
         };
@@ -1991,13 +1991,13 @@ fn doAtomicSymLinks(allocator: &Allocator, output_path: []const u8, filename_maj
     const out_basename = os.path.basename(output_path);
     // sym link for libfoo.so.1 to libfoo.so.1.2.3
     const major_only_path = %%os.path.join(allocator, out_dir, filename_major_only);
-    os.atomicSymLink(allocator, out_basename, major_only_path) %% |err| {
+    os.atomicSymLink(allocator, out_basename, major_only_path) catch |err| {
         warn("Unable to symlink {} -> {}\n", major_only_path, out_basename);
         return err;
     };
     // sym link for libfoo.so to libfoo.so.1
     const name_only_path = %%os.path.join(allocator, out_dir, filename_name_only);
-    os.atomicSymLink(allocator, filename_major_only, name_only_path) %% |err| {
+    os.atomicSymLink(allocator, filename_major_only, name_only_path) catch |err| {
         warn("Unable to symlink {} -> {}\n", name_only_path, filename_major_only);
         return err;
     };

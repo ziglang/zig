@@ -20,7 +20,7 @@ pub fn main() -> %void {
         } else if (arg[0] == '-') {
             return usage(exe);
         } else {
-            var file = io.File.openRead(arg, null) %% |err| {
+            var file = io.File.openRead(arg, null) catch |err| {
                 warn("Unable to open file: {}\n", @errorName(err));
                 return err;
             };
@@ -45,7 +45,7 @@ fn cat_file(stdout: &io.File, file: &io.File) -> %void {
     var buf: [1024 * 4]u8 = undefined;
 
     while (true) {
-        const bytes_read = file.read(buf[0..]) %% |err| {
+        const bytes_read = file.read(buf[0..]) catch |err| {
             warn("Unable to read from stream: {}\n", @errorName(err));
             return err;
         };
@@ -54,7 +54,7 @@ fn cat_file(stdout: &io.File, file: &io.File) -> %void {
             break;
         }
 
-        stdout.write(buf[0..bytes_read]) %% |err| {
+        stdout.write(buf[0..bytes_read]) catch |err| {
             warn("Unable to write to stdout: {}\n", @errorName(err));
             return err;
         };
@@ -62,7 +62,7 @@ fn cat_file(stdout: &io.File, file: &io.File) -> %void {
 }
 
 fn unwrapArg(arg: %[]u8) -> %[]u8 {
-    return arg %% |err| {
+    return arg catch |err| {
         warn("Unable to parse command line: {}\n", err);
         return err;
     };

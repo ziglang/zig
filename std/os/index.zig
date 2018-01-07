@@ -842,7 +842,7 @@ pub fn makePath(allocator: &Allocator, full_path: []const u8) -> %void {
 
     var end_index: usize = resolved_path.len;
     while (true) {
-        makeDir(allocator, resolved_path[0..end_index]) %% |err| {
+        makeDir(allocator, resolved_path[0..end_index]) catch |err| {
             if (err == error.PathAlreadyExists) {
                 // TODO stat the file and return an error if it's not a directory
                 // this is important because otherwise a dangling symlink
@@ -915,7 +915,7 @@ pub fn deleteTree(allocator: &Allocator, full_path: []const u8) -> %void {
                 return err;
         }
         {
-            var dir = Dir.open(allocator, full_path) %% |err| {
+            var dir = Dir.open(allocator, full_path) catch |err| {
                 if (err == error.FileNotFound)
                     return;
                 if (err == error.NotDir)

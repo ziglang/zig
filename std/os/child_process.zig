@@ -383,27 +383,27 @@ pub const ChildProcess = struct {
             // we are the child
             restore_SIGCHLD();
 
-            setUpChildIo(self.stdin_behavior, stdin_pipe[0], posix.STDIN_FILENO, dev_null_fd) %%
+            setUpChildIo(self.stdin_behavior, stdin_pipe[0], posix.STDIN_FILENO, dev_null_fd) catch
                 |err| forkChildErrReport(err_pipe[1], err);
-            setUpChildIo(self.stdout_behavior, stdout_pipe[1], posix.STDOUT_FILENO, dev_null_fd) %%
+            setUpChildIo(self.stdout_behavior, stdout_pipe[1], posix.STDOUT_FILENO, dev_null_fd) catch
                 |err| forkChildErrReport(err_pipe[1], err);
-            setUpChildIo(self.stderr_behavior, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) %%
+            setUpChildIo(self.stderr_behavior, stderr_pipe[1], posix.STDERR_FILENO, dev_null_fd) catch
                 |err| forkChildErrReport(err_pipe[1], err);
 
             if (self.cwd) |cwd| {
-                os.changeCurDir(self.allocator, cwd) %%
+                os.changeCurDir(self.allocator, cwd) catch
                     |err| forkChildErrReport(err_pipe[1], err);
             }
 
             if (self.gid) |gid| {
-                os.posix_setregid(gid, gid) %% |err| forkChildErrReport(err_pipe[1], err);
+                os.posix_setregid(gid, gid) catch |err| forkChildErrReport(err_pipe[1], err);
             }
 
             if (self.uid) |uid| {
-                os.posix_setreuid(uid, uid) %% |err| forkChildErrReport(err_pipe[1], err);
+                os.posix_setreuid(uid, uid) catch |err| forkChildErrReport(err_pipe[1], err);
             }
 
-            os.posixExecve(self.argv, env_map, self.allocator) %%
+            os.posixExecve(self.argv, env_map, self.allocator) catch
                 |err| forkChildErrReport(err_pipe[1], err);
         }
 
@@ -573,7 +573,7 @@ pub const ChildProcess = struct {
         defer self.allocator.free(app_name);
 
         windowsCreateProcess(app_name.ptr, cmd_line.ptr, envp_ptr, cwd_ptr,
-            &siStartInfo, &piProcInfo) %% |no_path_err|
+            &siStartInfo, &piProcInfo) catch |no_path_err|
         {
             if (no_path_err != error.FileNotFound)
                 return no_path_err;
@@ -767,12 +767,12 @@ const ErrInt = @IntType(false, @sizeOf(error) * 8);
 fn writeIntFd(fd: i32, value: ErrInt) -> %void {
     var bytes: [@sizeOf(ErrInt)]u8 = undefined;
     mem.writeInt(bytes[0..], value, builtin.endian);
-    os.posixWrite(fd, bytes[0..]) %% return error.SystemResources;
+    os.posixWrite(fd, bytes[0..]) catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) -> %ErrInt {
     var bytes: [@sizeOf(ErrInt)]u8 = undefined;
-    os.posixRead(fd, bytes[0..]) %% return error.SystemResources;
+    os.posixRead(fd, bytes[0..]) catch return error.SystemResources;
     return mem.readInt(bytes[0..], ErrInt, builtin.endian);
 }
 

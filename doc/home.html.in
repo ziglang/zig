@@ -142,7 +142,7 @@ pub fn addOverflow(comptime T: type, a: T, b: T) -&gt; %T {
 }
 
 fn getNumberWithDefault(s: []u8) -&gt; u32 {
-    parseUnsigned(u32, s, 10) %% 42
+    parseUnsigned(u32, s, 10) catch 42
 }
 
 fn getNumberOrCrash(s: []u8) -&gt; u32 {
@@ -150,8 +150,8 @@ fn getNumberOrCrash(s: []u8) -&gt; u32 {
 }
 
 fn addTwoTogetherOrReturnErr(a_str: []u8, b_str: []u8) -&gt; %u32 {
-    const a = parseUnsigned(u32, a_str, 10) %% |err| return err;
-    const b = parseUnsigned(u32, b_str, 10) %% |err| return err;
+    const a = parseUnsigned(u32, a_str, 10) catch |err| return err;
+    const b = parseUnsigned(u32, b_str, 10) catch |err| return err;
     return a + b;
 }</code></pre>
     <h3 id="hashmap">HashMap with Custom Allocator</h3>
@@ -424,7 +424,7 @@ pub fn main() -&gt; %void {
         } else if (arg[0] == '-') {
             return usage(exe);
         } else {
-            var is = io.InStream.open(arg, null) %% |err| {
+            var is = io.InStream.open(arg, null) catch |err| {
                 %%io.stderr.printf("Unable to open file: {}\n", @errorName(err));
                 return err;
             };
@@ -449,7 +449,7 @@ fn cat_stream(is: &amp;io.InStream) -&gt; %void {
     var buf: [1024 * 4]u8 = undefined;
 
     while (true) {
-        const bytes_read = is.read(buf[0..]) %% |err| {
+        const bytes_read = is.read(buf[0..]) catch |err| {
             %%io.stderr.printf("Unable to read from stream: {}\n", @errorName(err));
             return err;
         };
@@ -458,7 +458,7 @@ fn cat_stream(is: &amp;io.InStream) -&gt; %void {
             break;
         }
 
-        io.stdout.write(buf[0..bytes_read]) %% |err| {
+        io.stdout.write(buf[0..bytes_read]) catch |err| {
             %%io.stderr.printf("Unable to write to stdout: {}\n", @errorName(err));
             return err;
         };

@@ -1288,7 +1288,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("return from defer expression",
         \\pub fn testTrickyDefer() -> %void {
-        \\    defer canFail() %% {};
+        \\    defer canFail() catch {};
         \\
         \\    defer try canFail();
         \\

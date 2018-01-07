@@ -1102,7 +1102,7 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
             var buf = try allocator.alloc(u8, 256);
             %defer allocator.free(buf);
             while (true) {
-                const buf_len = math.cast(windows.DWORD, buf.len) %% return error.NameTooLong;
+                const buf_len = math.cast(windows.DWORD, buf.len) catch return error.NameTooLong;
                 const result = windows.GetFinalPathNameByHandleA(h_file, buf.ptr, buf_len, windows.VOLUME_NAME_DOS);
 
                 if (result == 0) {

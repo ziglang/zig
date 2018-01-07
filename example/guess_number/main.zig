@@ -25,12 +25,12 @@ pub fn main() -> %void {
         try stdout.print("\nGuess a number between 1 and 100: ");
         var line_buf : [20]u8 = undefined;
 
-        const line_len = stdin_file.read(line_buf[0..]) %% |err| {
+        const line_len = stdin_file.read(line_buf[0..]) catch |err| {
             try stdout.print("Unable to read from stdin: {}\n", @errorName(err));
             return err;
         };
 
-        const guess = fmt.parseUnsigned(u8, line_buf[0..line_len - 1], 10) %% {
+        const guess = fmt.parseUnsigned(u8, line_buf[0..line_len - 1], 10) catch {
             try stdout.print("Invalid number.\n");
             continue;
         };

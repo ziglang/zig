@@ -21,7 +21,7 @@ error ZigInstallationNotFound;
 const default_zig_cache_name = "zig-cache";
 
 pub fn main() -> %void {
-    main2() %% |err| {
+    main2() catch |err| {
         if (err != error.InvalidCommandLineArguments) {
             warn("{}\n", @errorName(err));
         }
@@ -571,12 +571,12 @@ fn printZen() -> %void {
 /// Caller must free result
 fn resolveZigLibDir(allocator: &mem.Allocator, zig_install_prefix_arg: ?[]const u8) -> %[]u8 {
     if (zig_install_prefix_arg) |zig_install_prefix| {
-        return testZigInstallPrefix(allocator, zig_install_prefix) %% |err| {
+        return testZigInstallPrefix(allocator, zig_install_prefix) catch |err| {
             warn("No Zig installation found at prefix {}: {}\n", zig_install_prefix_arg, @errorName(err));
             return error.ZigInstallationNotFound;
         };
     } else {
-        return findZigLibDir(allocator) %% |err| {
+        return findZigLibDir(allocator) catch |err| {
             warn("Unable to find zig lib directory: {}.\nReinstall Zig or use --zig-install-prefix.\n",
                 @errorName(err));
             return error.ZigLibDirNotFound;
@@ -611,7 +611,7 @@ fn findZigLibDir(allocator: &mem.Allocator) -> %[]u8 {
             break;
         }
 
-        return testZigInstallPrefix(allocator, test_dir) %% |err| {
+        return testZigInstallPrefix(allocator, test_dir) catch |err| {
             cur_path = test_dir;
             continue;
         };

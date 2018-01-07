@@ -259,7 +259,7 @@ pub const CompareOutputContext = struct {
             child.stderr_behavior = StdIo.Pipe;
             child.env_map = &b.env_map;
 
-            child.spawn() %% |err| debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
+            child.spawn() catch |err| debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
 
             var stdout = Buffer.initNull(b.allocator);
             var stderr = Buffer.initNull(b.allocator);
@@ -270,7 +270,7 @@ pub const CompareOutputContext = struct {
             %%stdout_file_in_stream.stream.readAllBuffer(&stdout, max_stdout_size);
             %%stderr_file_in_stream.stream.readAllBuffer(&stderr, max_stdout_size);
 
-            const term = child.wait() %% |err| {
+            const term = child.wait() catch |err| {
                 debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
             };
             switch (term) {
@@ -341,7 +341,7 @@ pub const CompareOutputContext = struct {
             child.stdout_behavior = StdIo.Ignore;
             child.stderr_behavior = StdIo.Ignore;
 
-            const term = child.spawnAndWait() %% |err| {
+            const term = child.spawnAndWait() catch |err| {
                 debug.panic("Unable to spawn {}: {}\n", full_exe_path, @errorName(err));
             };
 
@@ -590,7 +590,7 @@ pub const CompileErrorContext = struct {
             child.stdout_behavior = StdIo.Pipe;
             child.stderr_behavior = StdIo.Pipe;
 
-            child.spawn() %% |err| debug.panic("Unable to spawn {}: {}\n", zig_args.items[0], @errorName(err));
+            child.spawn() catch |err| debug.panic("Unable to spawn {}: {}\n", zig_args.items[0], @errorName(err));
 
             var stdout_buf = Buffer.initNull(b.allocator);
             var stderr_buf = Buffer.initNull(b.allocator);
@@ -601,7 +601,7 @@ pub const CompileErrorContext = struct {
             %%stdout_file_in_stream.stream.readAllBuffer(&stdout_buf, max_stdout_size);
             %%stderr_file_in_stream.stream.readAllBuffer(&stderr_buf, max_stdout_size);
 
-            const term = child.wait() %% |err| {
+            const term = child.wait() catch |err| {
                 debug.panic("Unable to spawn {}: {}\n", zig_args.items[0], @errorName(err));
             };
             switch (term) {
@@ -862,7 +862,7 @@ pub const TranslateCContext = struct {
             child.stdout_behavior = StdIo.Pipe;
             child.stderr_behavior = StdIo.Pipe;
 
-            child.spawn() %% |err| debug.panic("Unable to spawn {}: {}\n", zig_args.toSliceConst()[0], @errorName(err));
+            child.spawn() catch |err| debug.panic("Unable to spawn {}: {}\n", zig_args.toSliceConst()[0], @errorName(err));
 
             var stdout_buf = Buffer.initNull(b.allocator);
             var stderr_buf = Buffer.initNull(b.allocator);
@@ -873,7 +873,7 @@ pub const TranslateCContext = struct {
             %%stdout_file_in_stream.stream.readAllBuffer(&stdout_buf, max_stdout_size);
             %%stderr_file_in_stream.stream.readAllBuffer(&stderr_buf, max_stdout_size);
 
-            const term = child.wait() %% |err| {
+            const term = child.wait() catch |err| {
                 debug.panic("Unable to spawn {}: {}\n", zig_args.toSliceConst()[0], @errorName(err));
             };
             switch (term) {

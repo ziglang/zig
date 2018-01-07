@@ -22,7 +22,7 @@ comptime {
 
 extern fn zenMain() -> noreturn {
     // TODO: call exit.
-    root.main() %% {};
+    root.main() catch {};
     while (true) {}
 }
 
@@ -44,7 +44,7 @@ nakedcc fn _start() -> noreturn {
 extern fn WinMainCRTStartup() -> noreturn {
     @setAlignStack(16);
 
-    root.main() %% std.os.windows.ExitProcess(1);
+    root.main() catch std.os.windows.ExitProcess(1);
     std.os.windows.ExitProcess(0);
 }
 
@@ -52,7 +52,7 @@ fn posixCallMainAndExit() -> noreturn {
     const argc = *argc_ptr;
     const argv = @ptrCast(&&u8, &argc_ptr[1]);
     const envp = @ptrCast(&?&u8, &argv[argc + 1]);
-    callMain(argc, argv, envp) %% std.os.posix.exit(1);
+    callMain(argc, argv, envp) catch std.os.posix.exit(1);
     std.os.posix.exit(0);
 }
 
@@ -67,6 +67,6 @@ fn callMain(argc: usize, argv: &&u8, envp: &?&u8) -> %void {
 }
 
 extern fn main(c_argc: i32, c_argv: &&u8, c_envp: &?&u8) -> i32 {
-    callMain(usize(c_argc), c_argv, c_envp) %% return 1;
+    callMain(usize(c_argc), c_argv, c_envp) catch return 1;
     return 0;
 }

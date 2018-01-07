@@ -1211,8 +1211,8 @@ unwrapped == 1234</code></pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a %% b
-a %% |err| b</code></pre></td>
+          <td><pre><code class="zig">a catch b
+a catch |err| b</code></pre></td>
           <td>
             <ul>
               <li><a href="#errors">Error Unions</a></li>
@@ -1226,7 +1226,7 @@ a %% |err| b</code></pre></td>
           </td>
           <td>
             <pre><code class="zig">const value: %u32 = null;
-const unwrapped = value %% 1234;
+const unwrapped = value catch 1234;
 unwrapped == 1234</code></pre>
           </td>
         </tr>
@@ -1238,7 +1238,7 @@ unwrapped == 1234</code></pre>
             </ul>
           </td>
           <td>Equivalent to:
-            <pre><code class="zig">a %% unreachable</code></pre>
+            <pre><code class="zig">a catch unreachable</code></pre>
           </td>
           <td>
             <pre><code class="zig">const value: %u32 = 5678;
@@ -1482,7 +1482,7 @@ x{}
 == != &lt; &gt; &lt;= &gt;=
 and
 or
-?? %%
+?? catch
 = *= /= %= += -= &lt;&lt;= &gt;&gt;= &amp;= ^= |=</code></pre>
       <h2 id="arrays">Arrays</h2>
       <pre><code class="zig">const assert = @import("std").debug.assert;
@@ -1829,7 +1829,7 @@ Test 1/1 pointer alignment safety...incorrect alignment
     return root.main();
                     ^
 /home/andy/dev/zig/build/lib/zig/std/special/bootstrap.zig:47:13: 0x0000000000216050 in ??? (test)
-    callMain(argc, argv, envp) %% std.os.posix.exit(1);
+    callMain(argc, argv, envp) catch std.os.posix.exit(1);
             ^
 /home/andy/dev/zig/build/lib/zig/std/special/bootstrap.zig:34:25: 0x0000000000215fa0 in ??? (test)
     posixCallMainAndExit()
@@ -1885,7 +1885,7 @@ lib/zig/std/special/bootstrap.zig:60:21: 0x00000000002149e7 in ??? (test)
     return root.main();
                     ^
 lib/zig/std/special/bootstrap.zig:47:13: 0x00000000002148a0 in ??? (test)
-    callMain(argc, argv, envp) %% std.os.posix.exit(1);
+    callMain(argc, argv, envp) catch std.os.posix.exit(1);
             ^
 lib/zig/std/special/bootstrap.zig:34:25: 0x00000000002147f0 in ??? (test)
     posixCallMainAndExit()
@@ -2965,7 +2965,7 @@ lib/zig/std/special/bootstrap.zig:60:21: 0x0000000000214947 in ??? (test)
     return root.main();
                     ^
 lib/zig/std/special/bootstrap.zig:47:13: 0x0000000000214800 in ??? (test)
-    callMain(argc, argv, envp) %% std.os.posix.exit(1);
+    callMain(argc, argv, envp) catch std.os.posix.exit(1);
             ^
 lib/zig/std/special/bootstrap.zig:34:25: 0x0000000000214750 in ??? (test)
     posixCallMainAndExit()
@@ -3019,7 +3019,7 @@ extern fn bar(value: u32);</code></pre>
       <pre><code class="zig">pub extern "kernel32" stdcallcc fn ExitProcess(exit_code: c_uint) -&gt; noreturn;
 
 fn foo() {
-    const value = bar() %% ExitProcess(1);
+    const value = bar() catch ExitProcess(1);
     assert(value == 1234);
 }
 
@@ -3209,7 +3209,7 @@ pub fn parseU64(buf: []const u8, radix: u8) -&gt; %u64 {
       </ul>
       <p>If you want to provide a default value, you can use the <code>%%</code> binary operator:</p>
       <pre><code class="zig">fn doAThing(str: []u8) {
-    const number = parseU64(str, 10) %% 13;
+    const number = parseU64(str, 10) catch 13;
     // ...
 }</code></pre>
       <p>
@@ -3220,7 +3220,7 @@ pub fn parseU64(buf: []const u8, radix: u8) -&gt; %u64 {
       <p>Let's say you wanted to return the error if you got one, otherwise continue with the
       function logic:</p>
       <pre><code class="zig">fn doAThing(str: []u8) -&gt; %void {
-    const number = parseU64(str, 10) %% |err| return err;
+    const number = parseU64(str, 10) catch |err| return err;
     // ...
 }</code></pre>
       <p>
@@ -3239,7 +3239,7 @@ pub fn parseU64(buf: []const u8, radix: u8) -&gt; %u64 {
         Maybe you know with complete certainty that an expression will never be an error.
         In this case you can do this:
       </p>
-      <pre><code class="zig">const number = parseU64("1234", 10) %% unreachable;</code></pre>
+      <pre><code class="zig">const number = parseU64("1234", 10) catch unreachable;</code></pre>
       <p>
       Here we know for sure that "1234" will parse successfully. So we put the
       <code>unreachable</code> value on the right hand side. <code>unreachable</code> generates
@@ -3250,7 +3250,7 @@ pub fn parseU64(buf: []const u8, radix: u8) -&gt; %u64 {
       <p>Again there is a syntactic shortcut for this:</p>
       <pre><code class="zig">const number = %%parseU64("1234", 10);</code></pre>
       <p>
-      The <code>%%</code> <em>prefix</em> operator is equivalent to <code class="zig">expression %% unreachable</code>. It unwraps an error union type,
+      The <code>%%</code> <em>prefix</em> operator is equivalent to <code class="zig">expression catch unreachable</code>. It unwraps an error union type,
       and panics in debug mode if the value was an error.
       </p>
       <p>
@@ -4984,7 +4984,7 @@ Test 1/1 safety check...reached unreachable code
     return root.main();
                     ^
 /home/andy/dev/zig/build/lib/zig/std/special/bootstrap.zig:37:13: 0x00000000002148d0 in ??? (test)
-    callMain(argc, argv, envp) %% exit(1);
+    callMain(argc, argv, envp) catch exit(1);
             ^
 /home/andy/dev/zig/build/lib/zig/std/special/bootstrap.zig:30:20: 0x0000000000214820 in ??? (test)
     callMainAndExit()
@@ -5909,7 +5909,7 @@ UnwrapExpression = BoolOrExpression (UnwrapNullable | UnwrapError) | BoolOrExpre
 
 UnwrapNullable = "??" Expression
 
-UnwrapError = "%%" option("|" Symbol "|") Expression
+UnwrapError = "catch" option("|" Symbol "|") Expression
 
 AssignmentExpression = UnwrapExpression AssignmentOperator UnwrapExpression | UnwrapExpression
 

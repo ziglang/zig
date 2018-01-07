@@ -137,9 +137,9 @@ pub const IncrementingAllocator = struct {
 
 test "c_allocator" {
     if (builtin.link_libc) {
-        var slice = c_allocator.alloc(u8, 50) %% return;
+        var slice = c_allocator.alloc(u8, 50) catch return;
         defer c_allocator.free(slice);
-        slice = c_allocator.realloc(u8, slice, 100) %% return;
+        slice = c_allocator.realloc(u8, slice, 100) catch return;
     }
 }
 

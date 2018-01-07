@@ -117,7 +117,7 @@ pub fn main() -> %void {
     if (builder.validateUserInputDidItFail())
         return usageAndErr(&builder, true, try stderr_stream);
 
-    builder.make(targets.toSliceConst()) %% |err| {
+    builder.make(targets.toSliceConst()) catch |err| {
         if (err == error.InvalidStepName) {
             return usageAndErr(&builder, true, try stderr_stream);
         }
@@ -184,12 +184,12 @@ fn usage(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) 
 }
 
 fn usageAndErr(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) -> error {
-    usage(builder, already_ran_build, out_stream) %% {};
+    usage(builder, already_ran_build, out_stream) catch {};
     return error.InvalidArgs;
 }
 
 fn unwrapArg(arg: %[]u8) -> %[]u8 {
-    return arg %% |err| {
+    return arg catch |err| {
         warn("Unable to parse command line: {}\n", err);
         return err;
     };

@@ -2933,7 +2933,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeArrayType:
         case NodeTypeErrorType:
         case NodeTypeVarLiteral:
-        case NodeTypeTryExpr:
+        case NodeTypeIfErrorExpr:
         case NodeTypeTestExpr:
             zig_unreachable();
     }

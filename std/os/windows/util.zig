@@ -166,7 +166,7 @@ pub fn windowsUnloadDll(hModule: windows.HMODULE) {
 test "InvalidDll" {
     const DllName = "asdf.dll";
     const allocator = std.debug.global_allocator;
-    const handle = os.windowsLoadDll(allocator, DllName) %%  |err| {
+    const handle = os.windowsLoadDll(allocator, DllName) catch  |err| {
         assert(err == error.DllNotFound);
         return;
     };

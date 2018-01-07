@@ -395,7 +395,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
     cases.add("%defer and it fails",
         \\const io = @import("std").io;
         \\pub fn main() -> %void {
-        \\    do_test() %% return;
+        \\    do_test() catch return;
         \\}
         \\fn do_test() -> %void {
         \\    const stdout = &(io.FileOutStream.init(&%%io.getStdOut()).stream);
@@ -415,7 +415,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
     cases.add("%defer and it passes",
         \\const io = @import("std").io;
         \\pub fn main() -> %void {
-        \\    do_test() %% return;
+        \\    do_test() catch return;
         \\}
         \\fn do_test() -> %void {
         \\    const stdout = &(io.FileOutStream.init(&%%io.getStdOut()).stream);

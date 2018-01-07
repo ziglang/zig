@@ -96,12 +96,12 @@ pub const Parser = struct {
         var stack = self.initUtilityArrayList(&ast.Node);
         defer self.deinitUtilityArrayList(stack);
 
-        stack.append(&root_node.base) %% unreachable;
+        stack.append(&root_node.base) catch unreachable;
         while (stack.popOrNull()) |node| {
             var i: usize = 0;
             while (node.iterate(i)) |child| : (i += 1) {
                 if (child.iterate(0) != null) {
-                    stack.append(child) %% unreachable;
+                    stack.append(child) catch unreachable;
                 } else {
                     child.destroy(self.allocator);
                 }
@@ -111,7 +111,7 @@ pub const Parser = struct {
     }
 
     pub fn parse(self: &Parser) -> %&ast.NodeRoot {
-        const result = self.parseInner() %% |err| x: {
+        const result = self.parseInner() catch |err| x: {
             if (self.cleanup_root_node) |root_node| {
                 self.freeAst(root_node);
             }
@@ -156,14 +156,14 @@ pub const Parser = struct {
                     const token = self.getNextToken();
                     switch (token.id) {
                         Token.Id.Keyword_pub, Token.Id.Keyword_export => {
-                            stack.append(State { .TopLevelExtern = token }) %% unreachable;
+                            stack.append(State { .TopLevelExtern = token }) catch unreachable;
                             continue;
                         },
                         Token.Id.Eof => return root_node,
                         else => {
                             self.putBackToken(token);
                             // TODO shouldn't need this cast
-                            stack.append(State { .TopLevelExtern = null }) %% unreachable;
+                            stack.append(State { .TopLevelExtern = null }) catch unreachable;
                             continue;
                         },
                     }
@@ -176,7 +176,7 @@ pub const Parser = struct {
                                 .visib_token = visib_token,
                                 .extern_token = token,
                             },
-                        }) %% unreachable;
+                        }) catch unreachable;
                         continue;
                     }
                     self.putBackToken(token);
@@ -185,14 +185,14 @@ pub const Parser = struct {
                             .visib_token = visib_token,
                             .extern_token = null,
                         },
-                    }) %% unreachable;
+                    }) catch unreachable;
                     continue;
                 },
                 State.TopLevelDecl => |ctx| {
                     const token = self.getNextToken();
                     switch (token.id) {
                         Token.Id.Keyword_var, Token.Id.Keyword_const => {
-                            stack.append(State.TopLevel) %% unreachable;
+                            stack.append(State.TopLevel) catch unreachable;
                             // TODO shouldn't need these casts
                             const var_decl_node = try self.createAttachVarDecl(&root_node.decls, ctx.visib_token,
                                 token, (?Token)(null), ctx.extern_token);
@@ -200,7 +200,7 @@ pub const Parser = struct {
                             continue;
                         },
                         Token.Id.Keyword_fn => {
-                            stack.append(State.TopLevel) %% unreachable;
+                            stack.append(State.TopLevel) catch unreachable;
                             // TODO shouldn't need these casts
                             const fn_proto = try self.createAttachFnProto(&root_node.decls, token,
                                 ctx.extern_token, (?Token)(null), (?Token)(null), (?Token)(null));
@@ -212,7 +212,7 @@ pub const Parser = struct {
                             @panic("TODO extern with string literal");
                         },
                         Token.Id.Keyword_coldcc, Token.Id.Keyword_nakedcc, Token.Id.Keyword_stdcallcc => {
-                            stack.append(State.TopLevel) %% unreachable;
+                            stack.append(State.TopLevel) catch unreachable;
                             const fn_token = try self.eatToken(Token.Id.Keyword_fn);
                             // TODO shouldn't need this cast
                             const fn_proto = try self.createAttachFnProto(&root_node.decls, fn_token,
@@ -226,7 +226,7 @@ pub const Parser = struct {
                 },
                 State.VarDecl => |var_decl| {
                     var_decl.name_token = try self.eatToken(Token.Id.Identifier);
-                    stack.append(State { .VarDeclAlign = var_decl }) %% unreachable;
+                    stack.append(State { .VarDeclAlign = var_decl }) catch unreachable;
 
                     const next_token = self.getNextToken();
                     if (next_token.id == Token.Id.Colon) {
@@ -238,7 +238,7 @@ pub const Parser = struct {
                     continue;
                 },
                 State.VarDeclAlign => |var_decl| {
-                    stack.append(State { .VarDeclEq = var_decl }) %% unreachable;
+                    stack.append(State { .VarDeclEq = var_decl }) catch unreachable;
 
                     const next_token = self.getNextToken();
                     if (next_token.id == Token.Id.Keyword_align) {
@@ -255,7 +255,7 @@ pub const Parser = struct {
                     const token = self.getNextToken();
                     if (token.id == Token.Id.Equal) {
                         var_decl.eq_token = token;
-                        stack.append(State { .ExpectToken = Token.Id.Semicolon }) %% unreachable;
+                        stack.append(State { .ExpectToken = Token.Id.Semicolon }) catch unreachable;
                         try stack.append(State {
                             .Expression = DestPtr {.NullableField = &var_decl.init_node},
                         });
@@ -273,7 +273,7 @@ pub const Parser = struct {
 
                 State.Expression => |dest_ptr| {
                     // save the dest_ptr for later
-                    stack.append(state) %% unreachable;
+                    stack.append(state) catch unreachable;
                     try stack.append(State.ExpectOperand);
                     continue;
                 },
@@ -383,7 +383,7 @@ pub const Parser = struct {
                     var token = self.getNextToken();
                     switch (token.id) {
                         Token.Id.Keyword_align => {
-                            stack.append(state) %% unreachable;
+                            stack.append(state) catch unreachable;
                             if (addr_of_info.align_expr != null) return self.parseError(token, "multiple align qualifiers");
                             _ = try self.eatToken(Token.Id.LParen);
                             try stack.append(State { .ExpectToken = Token.Id.RParen });
@@ -391,13 +391,13 @@ pub const Parser = struct {
                             continue;
                         },
                         Token.Id.Keyword_const => {
-                            stack.append(state) %% unreachable;
+                            stack.append(state) catch unreachable;
                             if (addr_of_info.const_token != null) return self.parseError(token, "duplicate qualifier: const");
                             addr_of_info.const_token = token;
                             continue;
                         },
                         Token.Id.Keyword_volatile => {
-                            stack.append(state) %% unreachable;
+                            stack.append(state) catch unreachable;
                             if (addr_of_info.volatile_token != null) return self.parseError(token, "duplicate qualifier: volatile");
                             addr_of_info.volatile_token = token;
                             continue;
@@ -416,12 +416,12 @@ pub const Parser = struct {
                     }
                     self.putBackToken(token);
 
-                    stack.append(State { .Expression = dest_ptr }) %% unreachable;
+                    stack.append(State { .Expression = dest_ptr }) catch unreachable;
                     continue;
                 },
 
                 State.FnProto => |fn_proto| {
-                    stack.append(State { .FnProtoAlign = fn_proto }) %% unreachable;
+                    stack.append(State { .FnProtoAlign = fn_proto }) catch unreachable;
                     try stack.append(State { .ParamDecl = fn_proto });
                     try stack.append(State { .ExpectToken = Token.Id.LParen });
 
@@ -442,7 +442,7 @@ pub const Parser = struct {
                     if (token.id == Token.Id.Arrow) {
                         stack.append(State {
                             .TypeExpr = DestPtr {.NullableField = &fn_proto.return_type},
-                        }) %% unreachable;
+                        }) catch unreachable;
                         continue;
                     } else {
                         self.putBackToken(token);
@@ -474,13 +474,13 @@ pub const Parser = struct {
                     }
                     if (token.id == Token.Id.Ellipsis3) {
                         param_decl.var_args_token = token;
-                        stack.append(State { .ExpectToken = Token.Id.RParen }) %% unreachable;
+                        stack.append(State { .ExpectToken = Token.Id.RParen }) catch unreachable;
                         continue;
                     } else {
                         self.putBackToken(token);
                     }
 
-                    stack.append(State { .ParamDecl = fn_proto }) %% unreachable;
+                    stack.append(State { .ParamDecl = fn_proto }) catch unreachable;
                     try stack.append(State.ParamDeclComma);
                     try stack.append(State {
                         .TypeExpr = DestPtr {.Field = &param_decl.type_node}
@@ -506,7 +506,7 @@ pub const Parser = struct {
                         Token.Id.LBrace => {
                             const block = try self.createBlock(token);
                             fn_proto.body_node = &block.base;
-                            stack.append(State { .Block = block }) %% unreachable;
+                            stack.append(State { .Block = block }) catch unreachable;
                             continue;
                         },
                         Token.Id.Semicolon => continue,
@@ -523,7 +523,7 @@ pub const Parser = struct {
                         },
                         else => {
                             self.putBackToken(token);
-                            stack.append(State { .Block = block }) %% unreachable;
+                            stack.append(State { .Block = block }) catch unreachable;
                             try stack.append(State { .Statement = block });
                             continue;
                         },
@@ -560,7 +560,7 @@ pub const Parser = struct {
                         self.putBackToken(mut_token);
                     }
 
-                    stack.append(State { .ExpectToken = Token.Id.Semicolon }) %% unreachable;
+                    stack.append(State { .ExpectToken = Token.Id.Semicolon }) catch unreachable;
                     try stack.append(State { .Expression = DestPtr{.List = &block.statements} });
                     continue;
                 },
@@ -1112,7 +1112,7 @@ fn testCanonical(source: []const u8) {
         // Try it once with unlimited memory, make sure it works
         var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
         var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, @maxValue(usize));
-        const result_source = testParse(source, &failing_allocator.allocator) %% @panic("test failed");
+        const result_source = testParse(source, &failing_allocator.allocator) catch @panic("test failed");
         if (!mem.eql(u8, result_source, source)) {
             warn("\n====== expected this output: =========\n");
             warn("{}", source);

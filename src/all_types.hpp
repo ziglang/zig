@@ -389,7 +389,7 @@ enum NodeType {
     NodeTypeArrayType,
     NodeTypeErrorType,
     NodeTypeVarLiteral,
-    NodeTypeTryExpr,
+    NodeTypeIfErrorExpr,
     NodeTypeTestExpr,
 };
 
@@ -546,7 +546,7 @@ struct AstNodeBinOpExpr {
     AstNode *op2;
 };
 
-struct AstNodeUnwrapErrorExpr {
+struct AstNodeCatchExpr {
     AstNode *op1;
     AstNode *symbol; // can be null
     AstNode *op2;
@@ -860,7 +860,7 @@ struct AstNode {
         AstNodeErrorValueDecl error_value_decl;
         AstNodeTestDecl test_decl;
         AstNodeBinOpExpr bin_op_expr;
-        AstNodeUnwrapErrorExpr unwrap_err_expr;
+        AstNodeCatchExpr unwrap_err_expr;
         AstNodePrefixOpExpr prefix_op_expr;
         AstNodeAddrOfExpr addr_of_expr;
         AstNodeFnCallExpr fn_call_expr;
@@ -868,7 +868,7 @@ struct AstNode {
         AstNodeSliceExpr slice_expr;
         AstNodeUse use;
         AstNodeIfBoolExpr if_bool_expr;
-        AstNodeTryExpr try_expr;
+        AstNodeTryExpr if_err_expr;
         AstNodeTestExpr test_expr;
         AstNodeWhileExpr while_expr;
         AstNodeForExpr for_expr;
