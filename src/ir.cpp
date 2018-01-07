@@ -3898,22 +3898,21 @@ static IrInstruction *ir_gen_address_of(IrBuilder *irb, Scope *scope, AstNode *n
             align_value, bit_offset_start, bit_offset_end);
 }
 
-static IrInstruction *ir_gen_err_assert_ok(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval) {
-    assert(node->type == NodeTypePrefixOpExpr);
-    AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
-
+static IrInstruction *ir_gen_err_assert_ok(IrBuilder *irb, Scope *scope, AstNode *source_node, AstNode *expr_node,
+        LVal lval)
+{
     IrInstruction *err_union_ptr = ir_gen_node_extra(irb, expr_node, scope, LVAL_PTR);
     if (err_union_ptr == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
-    IrInstruction *payload_ptr = ir_build_unwrap_err_payload(irb, scope, node, err_union_ptr, true);
+    IrInstruction *payload_ptr = ir_build_unwrap_err_payload(irb, scope, source_node, err_union_ptr, true);
     if (payload_ptr == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
     if (lval.is_ptr)
         return payload_ptr;
 
-    return ir_build_load_ptr(irb, scope, node, payload_ptr);
+    return ir_build_load_ptr(irb, scope, source_node, payload_ptr);
 }
 
 static IrInstruction *ir_gen_maybe_assert_ok(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval) {
@@ -3965,7 +3964,7 @@ static IrInstruction *ir_gen_prefix_op_expr(IrBuilder *irb, Scope *scope, AstNod
         case PrefixOpError:
             return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpError), lval);
         case PrefixOpUnwrapError:
-            return ir_gen_err_assert_ok(irb, scope, node, lval);
+            return ir_gen_err_assert_ok(irb, scope, node, node->data.prefix_op_expr.primary_expr, lval);
         case PrefixOpUnwrapMaybe:
             return ir_gen_maybe_assert_ok(irb, scope, node, lval);
     }
@@ -5180,6 +5179,17 @@ static IrInstruction *ir_gen_err_ok_or(IrBuilder *irb, Scope *parent_scope, AstN
     AstNode *op1_node = node->data.unwrap_err_expr.op1;
     AstNode *op2_node = node->data.unwrap_err_expr.op2;
     AstNode *var_node = node->data.unwrap_err_expr.symbol;
+
+    if (op2_node->type == NodeTypeUnreachable) {
+        if (var_node != nullptr) {
+            assert(var_node->type == NodeTypeSymbol);
+            Buf *var_name = var_node->data.symbol_expr.symbol;
+            add_node_error(irb->codegen, var_node, buf_sprintf("unused variable: '%s'", buf_ptr(var_name)));
+            return irb->codegen->invalid_instruction;
+        }
+        return ir_gen_err_assert_ok(irb, parent_scope, node, op1_node, LVAL_NONE);
+    }
+
 
     IrInstruction *err_union_ptr = ir_gen_node_extra(irb, op1_node, parent_scope, LVAL_PTR);
     if (err_union_ptr == irb->codegen->invalid_instruction)

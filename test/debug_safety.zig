@@ -221,11 +221,14 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
 
     cases.addDebugSafety("unwrap error",
         \\pub fn panic(message: []const u8) -> noreturn {
-        \\    @import("std").os.exit(126);
+        \\    if (@import("std").mem.eql(u8, message, "attempt to unwrap error: Whatever")) {
+        \\        @import("std").os.exit(126); // good
+        \\    }
+        \\    @import("std").os.exit(0); // test failed
         \\}
         \\error Whatever;
         \\pub fn main() -> %void {
-        \\    %%bar();
+        \\    bar() catch unreachable;
         \\}
         \\fn bar() -> %void {
         \\    return error.Whatever;
