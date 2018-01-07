@@ -7,9 +7,11 @@ const os = this;
 pub const windows = @import("windows/index.zig");
 pub const darwin = @import("darwin.zig");
 pub const linux = @import("linux.zig");
+pub const zen = @import("zen.zig");
 pub const posix = switch(builtin.os) {
     Os.linux => linux,
     Os.macosx, Os.ios => darwin,
+    Os.zen => zen,
     else => @compileError("Unsupported OS"),
 };
 

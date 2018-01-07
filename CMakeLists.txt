@@ -440,6 +440,7 @@ set(ZIG_STD_FILES
     "os/windows/error.zig"
     "os/windows/index.zig"
     "os/windows/util.zig"
+    "os/zen.zig"
     "rand.zig"
     "sort.zig"
     "special/bootstrap.zig"
