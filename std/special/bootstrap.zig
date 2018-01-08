@@ -21,9 +21,8 @@ comptime {
 }
 
 extern fn zenMain() -> noreturn {
-    // TODO: call exit.
-    root.main() catch {};
-    while (true) {}
+    root.main() catch std.os.posix.exit(1);
+    std.os.posix.exit(0);
 }
 
 nakedcc fn _start() -> noreturn {
