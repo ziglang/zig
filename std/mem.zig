@@ -27,7 +27,7 @@ pub const Allocator = struct {
     freeFn: fn (self: &Allocator, old_mem: []u8),
 
     fn create(self: &Allocator, comptime T: type) -> %&T {
-        const slice = %return self.alloc(T, 1);
+        const slice = try self.alloc(T, 1);
         return &slice[0];
     }
 
@@ -42,8 +42,8 @@ pub const Allocator = struct {
     fn alignedAlloc(self: &Allocator, comptime T: type, comptime alignment: u29,
         n: usize) -> %[]align(alignment) T
     {
-        const byte_count = %return math.mul(usize, @sizeOf(T), n);
-        const byte_slice = %return self.allocFn(self, byte_count, alignment);
+        const byte_count = try math.mul(usize, @sizeOf(T), n);
+        const byte_slice = try self.allocFn(self, byte_count, alignment);
         // This loop should get optimized out in ReleaseFast mode
         for (byte_slice) |*byte| {
             *byte = undefined;
@@ -63,8 +63,8 @@ pub const Allocator = struct {
         }
 
         const old_byte_slice = ([]u8)(old_mem);
-        const byte_count = %return math.mul(usize, @sizeOf(T), n);
-        const byte_slice = %return self.reallocFn(self, old_byte_slice, byte_count, alignment);
+        const byte_count = try math.mul(usize, @sizeOf(T), n);
+        const byte_slice = try self.reallocFn(self, old_byte_slice, byte_count, alignment);
         // This loop should get optimized out in ReleaseFast mode
         for (byte_slice[old_byte_slice.len..]) |*byte| {
             *byte = undefined;
@@ -142,7 +142,7 @@ pub const FixedBufferAllocator = struct {
         if (new_size <= old_mem.len) {
             return old_mem[0..new_size];
         } else {
-            const result = %return alloc(allocator, new_size, alignment);
+            const result = try alloc(allocator, new_size, alignment);
             copy(u8, result, old_mem);
             return result;
         }
@@ -198,7 +198,7 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) -> bool {
 
 /// Copies ::m to newly allocated memory. Caller is responsible to free it.
 pub fn dupe(allocator: &Allocator, comptime T: type, m: []const T) -> %[]T {
-    const new_buf = %return allocator.alloc(T, m.len);
+    const new_buf = try allocator.alloc(T, m.len);
     copy(T, new_buf, m);
     return new_buf;
 }
@@ -425,7 +425,7 @@ pub fn join(allocator: &Allocator, sep: u8, strings: ...) -> %[]u8 {
         }
     }
 
-    const buf = %return allocator.alloc(u8, total_strings_len);
+    const buf = try allocator.alloc(u8, total_strings_len);
     %defer allocator.free(buf);
 
     var buf_index: usize = 0;

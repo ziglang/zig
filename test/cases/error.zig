@@ -2,7 +2,7 @@ const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
 pub fn foo() -> %i32 {
-    const x = %return bar();
+    const x = try bar();
     return x + 1;
 }
 
@@ -11,7 +11,7 @@ pub fn bar() -> %i32 {
 }
 
 pub fn baz() -> %i32 {
-    const y = foo() %% 1234;
+    const y = foo() catch 1234;
     return y + 1;
 }
 
@@ -53,8 +53,8 @@ fn shouldBeNotEqual(a: error, b: error) {
 
 
 test "error binary operator" {
-    const a = errBinaryOperatorG(true) %% 3;
-    const b = errBinaryOperatorG(false) %% 3;
+    const a = errBinaryOperatorG(true) catch 3;
+    const b = errBinaryOperatorG(false) catch 3;
     assert(a == 3);
     assert(b == 10);
 }
@@ -77,7 +77,7 @@ test "error return in assignment" {
 
 fn doErrReturnInAssignment() -> %void {
     var x : i32 = undefined;
-    x = %return makeANonErr();
+    x = try makeANonErr();
 }
 
 fn makeANonErr() -> %i32 {

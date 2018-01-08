@@ -49,7 +49,7 @@ pub const IncrementingAllocator = struct {
 
     fn init(capacity: usize) -> %IncrementingAllocator {
         switch (builtin.os) {
-            Os.linux, Os.darwin, Os.macosx, Os.ios => {
+            Os.linux, Os.macosx, Os.ios => {
                 const p = os.posix;
                 const addr = p.mmap(null, capacity, p.PROT_READ|p.PROT_WRITE,
                     p.MAP_PRIVATE|p.MAP_ANONYMOUS|p.MAP_NORESERVE, -1, 0);
@@ -87,7 +87,7 @@ pub const IncrementingAllocator = struct {
 
     fn deinit(self: &IncrementingAllocator) {
         switch (builtin.os) {
-            Os.linux, Os.darwin, Os.macosx, Os.ios => {
+            Os.linux, Os.macosx, Os.ios => {
                 _ = os.posix.munmap(self.bytes.ptr, self.bytes.len);
             },
             Os.windows => {
@@ -124,7 +124,7 @@ pub const IncrementingAllocator = struct {
         if (new_size <= old_mem.len) {
             return old_mem[0..new_size];
         } else {
-            const result = %return alloc(allocator, new_size, alignment);
+            const result = try alloc(allocator, new_size, alignment);
             mem.copy(u8, result, old_mem);
             return result;
         }
@@ -137,9 +137,9 @@ pub const IncrementingAllocator = struct {
 
 test "c_allocator" {
     if (builtin.link_libc) {
-        var slice = c_allocator.alloc(u8, 50) %% return;
+        var slice = c_allocator.alloc(u8, 50) catch return;
         defer c_allocator.free(slice);
-        slice = c_allocator.realloc(u8, slice, 100) %% return;
+        slice = c_allocator.realloc(u8, slice, 100) catch return;
     }
 }
 

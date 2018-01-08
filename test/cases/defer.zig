@@ -18,7 +18,7 @@ test "mixing normal and error defers" {
     assert(result[0] == 'c');
     assert(result[1] == 'a');
 
-    const ok = runSomeErrorDefers(false) %% |err| x: {
+    const ok = runSomeErrorDefers(false) catch |err| x: {
         assert(err == error.FalseNotAllowed);
         break :x true;
     };

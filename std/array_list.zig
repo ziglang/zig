@@ -60,18 +60,18 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) -> type{
         }
 
         pub fn append(l: &Self, item: &const T) -> %void {
-            const new_item_ptr = %return l.addOne();
+            const new_item_ptr = try l.addOne();
             *new_item_ptr = *item;
         }
 
         pub fn appendSlice(l: &Self, items: []align(A) const T) -> %void {
-            %return l.ensureCapacity(l.len + items.len);
+            try l.ensureCapacity(l.len + items.len);
             mem.copy(T, l.items[l.len..], items);
             l.len += items.len;
         }
 
         pub fn resize(l: &Self, new_len: usize) -> %void {
-            %return l.ensureCapacity(new_len);
+            try l.ensureCapacity(new_len);
             l.len = new_len;
         }
 
@@ -87,12 +87,12 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) -> type{
                 better_capacity += better_capacity / 2 + 8;
                 if (better_capacity >= new_capacity) break;
             }
-            l.items = %return l.allocator.alignedRealloc(T, A, l.items, better_capacity);
+            l.items = try l.allocator.alignedRealloc(T, A, l.items, better_capacity);
         }
 
         pub fn addOne(l: &Self) -> %&T {
             const new_length = l.len + 1;
-            %return l.ensureCapacity(new_length);
+            try l.ensureCapacity(new_length);
             const result = &l.items[l.len];
             l.len = new_length;
             return result;

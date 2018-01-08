@@ -11,11 +11,19 @@ comptime {
     const strong_linkage = builtin.GlobalLinkage.Strong;
     if (builtin.link_libc) {
         @export("main", main, strong_linkage);
+    } else if (builtin.os == builtin.Os.zen) {
+        @export("main", zenMain, strong_linkage);
     } else if (builtin.os == builtin.Os.windows) {
         @export("WinMainCRTStartup", WinMainCRTStartup, strong_linkage);
     } else {
         @export("_start", _start, strong_linkage);
     }
+}
+
+extern fn zenMain() -> noreturn {
+    // TODO: call exit.
+    root.main() catch {};
+    while (true) {}
 }
 
 nakedcc fn _start() -> noreturn {
@@ -36,7 +44,7 @@ nakedcc fn _start() -> noreturn {
 extern fn WinMainCRTStartup() -> noreturn {
     @setAlignStack(16);
 
-    root.main() %% std.os.windows.ExitProcess(1);
+    root.main() catch std.os.windows.ExitProcess(1);
     std.os.windows.ExitProcess(0);
 }
 
@@ -44,7 +52,7 @@ fn posixCallMainAndExit() -> noreturn {
     const argc = *argc_ptr;
     const argv = @ptrCast(&&u8, &argc_ptr[1]);
     const envp = @ptrCast(&?&u8, &argv[argc + 1]);
-    callMain(argc, argv, envp) %% std.os.posix.exit(1);
+    callMain(argc, argv, envp) catch std.os.posix.exit(1);
     std.os.posix.exit(0);
 }
 
@@ -59,6 +67,6 @@ fn callMain(argc: usize, argv: &&u8, envp: &?&u8) -> %void {
 }
 
 extern fn main(c_argc: i32, c_argv: &&u8, c_envp: &?&u8) -> i32 {
-    callMain(usize(c_argc), c_argv, c_envp) %% return 1;
+    callMain(usize(c_argc), c_argv, c_envp) catch return 1;
     return 0;
 }

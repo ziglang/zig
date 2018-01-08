@@ -2530,8 +2530,10 @@ static VariableTableEntry *ir_create_var(IrBuilder *irb, AstNode *node, Scope *s
         bool src_is_const, bool gen_is_const, bool is_shadowable, IrInstruction *is_comptime)
 {
     VariableTableEntry *var = create_local_var(irb->codegen, node, scope, name, src_is_const, gen_is_const, is_shadowable, is_comptime);
-    if (is_comptime != nullptr || gen_is_const)
+    if (is_comptime != nullptr || gen_is_const) {
         var->mem_slot_index = exec_next_mem_slot(irb->exec);
+        var->owner_exec = irb->exec;
+    }
     assert(var->child_scope);
     return var;
 }
@@ -3896,22 +3898,21 @@ static IrInstruction *ir_gen_address_of(IrBuilder *irb, Scope *scope, AstNode *n
             align_value, bit_offset_start, bit_offset_end);
 }
 
-static IrInstruction *ir_gen_err_assert_ok(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval) {
-    assert(node->type == NodeTypePrefixOpExpr);
-    AstNode *expr_node = node->data.prefix_op_expr.primary_expr;
-
+static IrInstruction *ir_gen_err_assert_ok(IrBuilder *irb, Scope *scope, AstNode *source_node, AstNode *expr_node,
+        LVal lval)
+{
     IrInstruction *err_union_ptr = ir_gen_node_extra(irb, expr_node, scope, LVAL_PTR);
     if (err_union_ptr == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
-    IrInstruction *payload_ptr = ir_build_unwrap_err_payload(irb, scope, node, err_union_ptr, true);
+    IrInstruction *payload_ptr = ir_build_unwrap_err_payload(irb, scope, source_node, err_union_ptr, true);
     if (payload_ptr == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
     if (lval.is_ptr)
         return payload_ptr;
 
-    return ir_build_load_ptr(irb, scope, node, payload_ptr);
+    return ir_build_load_ptr(irb, scope, source_node, payload_ptr);
 }
 
 static IrInstruction *ir_gen_maybe_assert_ok(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval) {
@@ -3963,7 +3964,7 @@ static IrInstruction *ir_gen_prefix_op_expr(IrBuilder *irb, Scope *scope, AstNod
         case PrefixOpError:
             return ir_lval_wrap(irb, scope, ir_gen_prefix_op_id(irb, scope, node, IrUnOpError), lval);
         case PrefixOpUnwrapError:
-            return ir_gen_err_assert_ok(irb, scope, node, lval);
+            return ir_gen_err_assert_ok(irb, scope, node, node->data.prefix_op_expr.primary_expr, lval);
         case PrefixOpUnwrapMaybe:
             return ir_gen_maybe_assert_ok(irb, scope, node, lval);
     }
@@ -4663,16 +4664,16 @@ static IrInstruction *ir_gen_test_expr(IrBuilder *irb, Scope *scope, AstNode *no
     return ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
 }
 
-static IrInstruction *ir_gen_try_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
-    assert(node->type == NodeTypeTryExpr);
+static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
+    assert(node->type == NodeTypeIfErrorExpr);
 
-    AstNode *target_node = node->data.try_expr.target_node;
-    AstNode *then_node = node->data.try_expr.then_node;
-    AstNode *else_node = node->data.try_expr.else_node;
-    bool var_is_ptr = node->data.try_expr.var_is_ptr;
+    AstNode *target_node = node->data.if_err_expr.target_node;
+    AstNode *then_node = node->data.if_err_expr.then_node;
+    AstNode *else_node = node->data.if_err_expr.else_node;
+    bool var_is_ptr = node->data.if_err_expr.var_is_ptr;
     bool var_is_const = true;
-    Buf *var_symbol = node->data.try_expr.var_symbol;
-    Buf *err_symbol = node->data.try_expr.err_symbol;
+    Buf *var_symbol = node->data.if_err_expr.var_symbol;
+    Buf *err_symbol = node->data.if_err_expr.err_symbol;
 
     IrInstruction *err_val_ptr = ir_gen_node_extra(irb, target_node, scope, LVAL_PTR);
     if (err_val_ptr == irb->codegen->invalid_instruction)
@@ -5179,6 +5180,17 @@ static IrInstruction *ir_gen_err_ok_or(IrBuilder *irb, Scope *parent_scope, AstN
     AstNode *op2_node = node->data.unwrap_err_expr.op2;
     AstNode *var_node = node->data.unwrap_err_expr.symbol;
 
+    if (op2_node->type == NodeTypeUnreachable) {
+        if (var_node != nullptr) {
+            assert(var_node->type == NodeTypeSymbol);
+            Buf *var_name = var_node->data.symbol_expr.symbol;
+            add_node_error(irb->codegen, var_node, buf_sprintf("unused variable: '%s'", buf_ptr(var_name)));
+            return irb->codegen->invalid_instruction;
+        }
+        return ir_gen_err_assert_ok(irb, parent_scope, node, op1_node, LVAL_NONE);
+    }
+
+
     IrInstruction *err_union_ptr = ir_gen_node_extra(irb, op1_node, parent_scope, LVAL_PTR);
     if (err_union_ptr == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
@@ -5409,8 +5421,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_null_literal(irb, scope, node), lval);
         case NodeTypeVarLiteral:
             return ir_lval_wrap(irb, scope, ir_gen_var_literal(irb, scope, node), lval);
-        case NodeTypeTryExpr:
-            return ir_lval_wrap(irb, scope, ir_gen_try_expr(irb, scope, node), lval);
+        case NodeTypeIfErrorExpr:
+            return ir_lval_wrap(irb, scope, ir_gen_if_err_expr(irb, scope, node), lval);
         case NodeTypeTestExpr:
             return ir_lval_wrap(irb, scope, ir_gen_test_expr(irb, scope, node), lval);
         case NodeTypeSwitchExpr:
@@ -7037,48 +7049,48 @@ IrInstruction *ir_eval_const_value(CodeGen *codegen, Scope *scope, AstNode *node
     if (expected_type != nullptr && type_is_invalid(expected_type))
         return codegen->invalid_instruction;
 
-    IrExecutable ir_executable = {0};
-    ir_executable.source_node = source_node;
-    ir_executable.parent_exec = parent_exec;
-    ir_executable.name = exec_name;
-    ir_executable.is_inline = true;
-    ir_executable.fn_entry = fn_entry;
-    ir_executable.c_import_buf = c_import_buf;
-    ir_executable.begin_scope = scope;
-    ir_gen(codegen, node, scope, &ir_executable);
+    IrExecutable *ir_executable = allocate<IrExecutable>(1);
+    ir_executable->source_node = source_node;
+    ir_executable->parent_exec = parent_exec;
+    ir_executable->name = exec_name;
+    ir_executable->is_inline = true;
+    ir_executable->fn_entry = fn_entry;
+    ir_executable->c_import_buf = c_import_buf;
+    ir_executable->begin_scope = scope;
+    ir_gen(codegen, node, scope, ir_executable);
 
-    if (ir_executable.invalid)
+    if (ir_executable->invalid)
         return codegen->invalid_instruction;
 
     if (codegen->verbose_ir) {
         fprintf(stderr, "\nSource: ");
         ast_render(codegen, stderr, node, 4);
         fprintf(stderr, "\n{ // (IR)\n");
-        ir_print(codegen, stderr, &ir_executable, 4);
+        ir_print(codegen, stderr, ir_executable, 4);
         fprintf(stderr, "}\n");
     }
-    IrExecutable analyzed_executable = {0};
-    analyzed_executable.source_node = source_node;
-    analyzed_executable.parent_exec = parent_exec;
-    analyzed_executable.source_exec = &ir_executable;
-    analyzed_executable.name = exec_name;
-    analyzed_executable.is_inline = true;
-    analyzed_executable.fn_entry = fn_entry;
-    analyzed_executable.c_import_buf = c_import_buf;
-    analyzed_executable.backward_branch_count = backward_branch_count;
-    analyzed_executable.backward_branch_quota = backward_branch_quota;
-    analyzed_executable.begin_scope = scope;
-    TypeTableEntry *result_type = ir_analyze(codegen, &ir_executable, &analyzed_executable, expected_type, node);
+    IrExecutable *analyzed_executable = allocate<IrExecutable>(1);
+    analyzed_executable->source_node = source_node;
+    analyzed_executable->parent_exec = parent_exec;
+    analyzed_executable->source_exec = ir_executable;
+    analyzed_executable->name = exec_name;
+    analyzed_executable->is_inline = true;
+    analyzed_executable->fn_entry = fn_entry;
+    analyzed_executable->c_import_buf = c_import_buf;
+    analyzed_executable->backward_branch_count = backward_branch_count;
+    analyzed_executable->backward_branch_quota = backward_branch_quota;
+    analyzed_executable->begin_scope = scope;
+    TypeTableEntry *result_type = ir_analyze(codegen, ir_executable, analyzed_executable, expected_type, node);
     if (type_is_invalid(result_type))
         return codegen->invalid_instruction;
 
     if (codegen->verbose_ir) {
         fprintf(stderr, "{ // (analyzed)\n");
-        ir_print(codegen, stderr, &analyzed_executable, 4);
+        ir_print(codegen, stderr, analyzed_executable, 4);
         fprintf(stderr, "}\n");
     }
 
-    return ir_exec_const_result(codegen, &analyzed_executable);
+    return ir_exec_const_result(codegen, analyzed_executable);
 }
 
 static TypeTableEntry *ir_resolve_type(IrAnalyze *ira, IrInstruction *type_value) {
@@ -9334,6 +9346,8 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
     IrInstruction *casted_init_value = ir_implicit_cast(ira, init_value, explicit_type);
     bool is_comptime_var = ir_get_var_is_comptime(var);
 
+    bool var_class_requires_const = false;
+
     TypeTableEntry *result_type = casted_init_value->value.type;
     if (type_is_invalid(result_type)) {
         result_type = ira->codegen->builtin_types.entry_invalid;
@@ -9345,6 +9359,7 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
                 result_type = ira->codegen->builtin_types.entry_invalid;
                 break;
             case VarClassRequiredConst:
+                var_class_requires_const = true;
                 if (!var->src_is_const && !is_comptime_var) {
                     ir_add_error_node(ira, source_node,
                         buf_sprintf("variable of type '%s' must be const or comptime",
@@ -9366,8 +9381,6 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
         return ira->codegen->builtin_types.entry_void;
     }
 
-    bool is_comptime = ir_get_var_is_comptime(var);
-
     if (decl_var_instruction->align_value == nullptr) {
         var->align_bytes = get_abi_alignment(ira->codegen, result_type);
     } else {
@@ -9382,12 +9395,12 @@ static TypeTableEntry *ir_analyze_instruction_decl_var(IrAnalyze *ira, IrInstruc
             ConstExprValue *mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
             *mem_slot = casted_init_value->value;
 
-            if (is_comptime) {
+            if (is_comptime_var || (var_class_requires_const && var->gen_is_const)) {
                 ir_build_const_from(ira, &decl_var_instruction->base);
                 return ira->codegen->builtin_types.entry_void;
             }
         }
-    } else if (is_comptime) {
+    } else if (is_comptime_var) {
         ir_add_error(ira, &decl_var_instruction->base,
                 buf_sprintf("cannot store runtime value in compile time variable"));
         var->value->type = ira->codegen->builtin_types.entry_invalid;
@@ -9690,6 +9703,10 @@ static VariableTableEntry *get_fn_var_by_index(FnTableEntry *fn_entry, size_t in
 static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
         VariableTableEntry *var, bool is_const_ptr, bool is_volatile_ptr)
 {
+    if (var->mem_slot_index != SIZE_MAX && var->owner_exec->analysis == nullptr) {
+        assert(ira->codegen->errors.length != 0);
+        return ira->codegen->invalid_instruction;
+    }
     assert(var->value->type);
     if (type_is_invalid(var->value->type))
         return ira->codegen->invalid_instruction;
@@ -9700,9 +9717,14 @@ static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
     if (var->value->special == ConstValSpecialStatic) {
         mem_slot = var->value;
     } else {
-        // TODO once the analyze code is fully ported over to IR we won't need this SIZE_MAX thing.
-        if (var->mem_slot_index != SIZE_MAX && (comptime_var_mem || var->gen_is_const))
-            mem_slot = &ira->exec_context.mem_slot_list[var->mem_slot_index];
+        if (var->mem_slot_index != SIZE_MAX && (comptime_var_mem || var->gen_is_const)) {
+            // find the relevant exec_context
+            assert(var->owner_exec != nullptr);
+            assert(var->owner_exec->analysis != nullptr);
+            IrExecContext *exec_context = &var->owner_exec->analysis->exec_context;
+            assert(var->mem_slot_index < exec_context->mem_slot_count);
+            mem_slot = &exec_context->mem_slot_list[var->mem_slot_index];
+        }
     }
 
     bool is_const = (var->value->type->id == TypeTableEntryIdMetaType) ? is_const_ptr : var->src_is_const;
@@ -15328,8 +15350,8 @@ TypeTableEntry *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutabl
     assert(!old_exec->invalid);
     assert(expected_type == nullptr || !type_is_invalid(expected_type));
 
-    IrAnalyze ir_analyze_data = {};
-    IrAnalyze *ira = &ir_analyze_data;
+    IrAnalyze *ira = allocate<IrAnalyze>(1);
+    old_exec->analysis = ira;
     ira->codegen = codegen;
     ira->explicit_return_type = expected_type;
 

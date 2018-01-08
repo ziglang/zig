@@ -7,9 +7,11 @@ const os = this;
 pub const windows = @import("windows/index.zig");
 pub const darwin = @import("darwin.zig");
 pub const linux = @import("linux.zig");
+pub const zen = @import("zen.zig");
 pub const posix = switch(builtin.os) {
     Os.linux => linux,
-    Os.darwin, Os.macosx, Os.ios => darwin,
+    Os.macosx, Os.ios => darwin,
+    Os.zen => zen,
     else => @compileError("Unsupported OS"),
 };
 
@@ -89,12 +91,12 @@ pub fn getRandomBytes(buf: []u8) -> %void {
             }
             return;
         },
-        Os.darwin, Os.macosx, Os.ios => {
-            const fd = %return posixOpen("/dev/urandom", posix.O_RDONLY|posix.O_CLOEXEC,
+        Os.macosx, Os.ios => {
+            const fd = try posixOpen("/dev/urandom", posix.O_RDONLY|posix.O_CLOEXEC,
                 0, null);
             defer close(fd);
 
-            %return posixRead(fd, buf);
+            try posixRead(fd, buf);
         },
         Os.windows => {
             var hCryptProv: windows.HCRYPTPROV = undefined;
@@ -130,7 +132,7 @@ pub coldcc fn abort() -> noreturn {
         c.abort();
     }
     switch (builtin.os) {
-        Os.linux, Os.darwin, Os.macosx, Os.ios => {
+        Os.linux, Os.macosx, Os.ios => {
             _ = posix.raise(posix.SIGABRT);
             _ = posix.raise(posix.SIGKILL);
             while (true) {}
@@ -151,7 +153,7 @@ pub coldcc fn exit(status: i32) -> noreturn {
         c.exit(status);
     }
     switch (builtin.os) {
-        Os.linux, Os.darwin, Os.macosx, Os.ios => {
+        Os.linux, Os.macosx, Os.ios => {
             posix.exit(status);
         },
         Os.windows => {
@@ -254,7 +256,7 @@ pub fn posixOpen(file_path: []const u8, flags: u32, perm: usize, allocator: ?&Al
     if (file_path.len < stack_buf.len) {
         path0 = stack_buf[0..file_path.len + 1];
     } else if (allocator) |a| {
-        path0 = %return a.alloc(u8, file_path.len + 1);
+        path0 = try a.alloc(u8, file_path.len + 1);
         need_free = true;
     } else {
         return error.NameTooLong;
@@ -312,14 +314,14 @@ pub fn posixDup2(old_fd: i32, new_fd: i32) -> %void {
 
 pub fn createNullDelimitedEnvMap(allocator: &Allocator, env_map: &const BufMap) -> %[]?&u8 {
     const envp_count = env_map.count();
-    const envp_buf = %return allocator.alloc(?&u8, envp_count + 1);
+    const envp_buf = try allocator.alloc(?&u8, envp_count + 1);
     mem.set(?&u8, envp_buf, null);
     %defer freeNullDelimitedEnvMap(allocator, envp_buf);
     {
         var it = env_map.iterator();
         var i: usize = 0;
         while (it.next()) |pair| : (i += 1) {
-            const env_buf = %return allocator.alloc(u8, pair.key.len + pair.value.len + 2);
+            const env_buf = try allocator.alloc(u8, pair.key.len + pair.value.len + 2);
             @memcpy(&env_buf[0], pair.key.ptr, pair.key.len);
             env_buf[pair.key.len] = '=';
             @memcpy(&env_buf[pair.key.len + 1], pair.value.ptr, pair.value.len);
@@ -349,7 +351,7 @@ pub fn freeNullDelimitedEnvMap(allocator: &Allocator, envp_buf: []?&u8) {
 pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap,
     allocator: &Allocator) -> %void
 {
-    const argv_buf = %return allocator.alloc(?&u8, argv.len + 1);
+    const argv_buf = try allocator.alloc(?&u8, argv.len + 1);
     mem.set(?&u8, argv_buf, null);
     defer {
         for (argv_buf) |arg| {
@@ -359,7 +361,7 @@ pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap,
         allocator.free(argv_buf);
     }
     for (argv) |arg, i| {
-        const arg_buf = %return allocator.alloc(u8, arg.len + 1);
+        const arg_buf = try allocator.alloc(u8, arg.len + 1);
         @memcpy(&arg_buf[0], arg.ptr, arg.len);
         arg_buf[arg.len] = 0;
 
@@ -367,7 +369,7 @@ pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap,
     }
     argv_buf[argv.len] = null;
 
-    const envp_buf = %return createNullDelimitedEnvMap(allocator, env_map);
+    const envp_buf = try createNullDelimitedEnvMap(allocator, env_map);
     defer freeNullDelimitedEnvMap(allocator, envp_buf);
 
     const exe_path = argv[0];
@@ -379,7 +381,7 @@ pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap,
     // PATH.len because it is >= the largest search_path
     // +1 for the / to join the search path and exe_path
     // +1 for the null terminating byte
-    const path_buf = %return allocator.alloc(u8, PATH.len + exe_path.len + 2);
+    const path_buf = try allocator.alloc(u8, PATH.len + exe_path.len + 2);
     defer allocator.free(path_buf);
     var it = mem.split(PATH, ":");
     var seen_eacces = false;
@@ -448,7 +450,7 @@ pub fn getEnvMap(allocator: &Allocator) -> %BufMap {
 
             i += 1; // skip over null byte
 
-            %return result.set(key, value);
+            try result.set(key, value);
         }
     } else {
         for (posix_environ_raw) |ptr| {
@@ -460,7 +462,7 @@ pub fn getEnvMap(allocator: &Allocator) -> %BufMap {
             while (ptr[end_i] != 0) : (end_i += 1) {}
             const value = ptr[line_i + 1..end_i];
 
-            %return result.set(key, value);
+            try result.set(key, value);
         }
         return result;
     }
@@ -488,14 +490,14 @@ error EnvironmentVariableNotFound;
 /// Caller must free returned memory.
 pub fn getEnvVarOwned(allocator: &mem.Allocator, key: []const u8) -> %[]u8 {
     if (is_windows) {
-        const key_with_null = %return cstr.addNullByte(allocator, key);
+        const key_with_null = try cstr.addNullByte(allocator, key);
         defer allocator.free(key_with_null);
 
-        var buf = %return allocator.alloc(u8, 256);
+        var buf = try allocator.alloc(u8, 256);
         %defer allocator.free(buf);
 
         while (true) {
-            const windows_buf_len = %return math.cast(windows.DWORD, buf.len);
+            const windows_buf_len = try math.cast(windows.DWORD, buf.len);
             const result = windows.GetEnvironmentVariableA(key_with_null.ptr, buf.ptr, windows_buf_len);
 
             if (result == 0) {
@@ -507,7 +509,7 @@ pub fn getEnvVarOwned(allocator: &mem.Allocator, key: []const u8) -> %[]u8 {
             }
 
             if (result > buf.len) {
-                buf = %return allocator.realloc(u8, buf, result);
+                buf = try allocator.realloc(u8, buf, result);
                 continue;
             }
 
@@ -523,7 +525,7 @@ pub fn getEnvVarOwned(allocator: &mem.Allocator, key: []const u8) -> %[]u8 {
 pub fn getCwd(allocator: &Allocator) -> %[]u8 {
     switch (builtin.os) {
         Os.windows => {
-            var buf = %return allocator.alloc(u8, 256);
+            var buf = try allocator.alloc(u8, 256);
             %defer allocator.free(buf);
 
             while (true) {
@@ -537,7 +539,7 @@ pub fn getCwd(allocator: &Allocator) -> %[]u8 {
                 }
 
                 if (result > buf.len) {
-                    buf = %return allocator.realloc(u8, buf, result);
+                    buf = try allocator.realloc(u8, buf, result);
                     continue;
                 }
 
@@ -545,12 +547,12 @@ pub fn getCwd(allocator: &Allocator) -> %[]u8 {
             }
         },
         else => {
-            var buf = %return allocator.alloc(u8, 1024);
+            var buf = try allocator.alloc(u8, 1024);
             %defer allocator.free(buf);
             while (true) {
                 const err = posix.getErrno(posix.getcwd(buf.ptr, buf.len));
                 if (err == posix.ERANGE) {
-                    buf = %return allocator.realloc(u8, buf, buf.len * 2);
+                    buf = try allocator.realloc(u8, buf, buf.len * 2);
                     continue;
                 } else if (err > 0) {
                     return unexpectedErrorPosix(err);
@@ -576,9 +578,9 @@ pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []con
 }
 
 pub fn symLinkWindows(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) -> %void {
-    const existing_with_null = %return cstr.addNullByte(allocator, existing_path);
+    const existing_with_null = try cstr.addNullByte(allocator, existing_path);
     defer allocator.free(existing_with_null);
-    const new_with_null = %return cstr.addNullByte(allocator, new_path);
+    const new_with_null = try cstr.addNullByte(allocator, new_path);
     defer allocator.free(new_with_null);
 
     if (windows.CreateSymbolicLinkA(existing_with_null.ptr, new_with_null.ptr, 0) == 0) {
@@ -590,7 +592,7 @@ pub fn symLinkWindows(allocator: &Allocator, existing_path: []const u8, new_path
 }
 
 pub fn symLinkPosix(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) -> %void {
-    const full_buf = %return allocator.alloc(u8, existing_path.len + new_path.len + 2);
+    const full_buf = try allocator.alloc(u8, existing_path.len + new_path.len + 2);
     defer allocator.free(full_buf);
 
     const existing_buf = full_buf;
@@ -636,11 +638,11 @@ pub fn atomicSymLink(allocator: &Allocator, existing_path: []const u8, new_path:
     }
 
     var rand_buf: [12]u8 = undefined;
-    const tmp_path = %return allocator.alloc(u8, new_path.len + base64.Base64Encoder.calcSize(rand_buf.len));
+    const tmp_path = try allocator.alloc(u8, new_path.len + base64.Base64Encoder.calcSize(rand_buf.len));
     defer allocator.free(tmp_path);
     mem.copy(u8, tmp_path[0..], new_path);
     while (true) {
-        %return getRandomBytes(rand_buf[0..]);
+        try getRandomBytes(rand_buf[0..]);
         b64_fs_encoder.encode(tmp_path[new_path.len..], rand_buf);
         if (symLink(allocator, existing_path, tmp_path)) {
             return rename(allocator, tmp_path, new_path);
@@ -667,7 +669,7 @@ error FileNotFound;
 error AccessDenied;
 
 pub fn deleteFileWindows(allocator: &Allocator, file_path: []const u8) -> %void {
-    const buf = %return allocator.alloc(u8, file_path.len + 1);
+    const buf = try allocator.alloc(u8, file_path.len + 1);
     defer allocator.free(buf);
 
     mem.copy(u8, buf, file_path);
@@ -685,7 +687,7 @@ pub fn deleteFileWindows(allocator: &Allocator, file_path: []const u8) -> %void 
 }
 
 pub fn deleteFilePosix(allocator: &Allocator, file_path: []const u8) -> %void {
-    const buf = %return allocator.alloc(u8, file_path.len + 1);
+    const buf = try allocator.alloc(u8, file_path.len + 1);
     defer allocator.free(buf);
 
     mem.copy(u8, buf, file_path);
@@ -719,30 +721,30 @@ pub fn copyFile(allocator: &Allocator, source_path: []const u8, dest_path: []con
 /// Guaranteed to be atomic.
 pub fn copyFileMode(allocator: &Allocator, source_path: []const u8, dest_path: []const u8, mode: usize) -> %void {
     var rand_buf: [12]u8 = undefined;
-    const tmp_path = %return allocator.alloc(u8, dest_path.len + base64.Base64Encoder.calcSize(rand_buf.len));
+    const tmp_path = try allocator.alloc(u8, dest_path.len + base64.Base64Encoder.calcSize(rand_buf.len));
     defer allocator.free(tmp_path);
     mem.copy(u8, tmp_path[0..], dest_path);
-    %return getRandomBytes(rand_buf[0..]);
+    try getRandomBytes(rand_buf[0..]);
     b64_fs_encoder.encode(tmp_path[dest_path.len..], rand_buf);
 
-    var out_file = %return io.File.openWriteMode(tmp_path, mode, allocator);
+    var out_file = try io.File.openWriteMode(tmp_path, mode, allocator);
     defer out_file.close();
     %defer _ = deleteFile(allocator, tmp_path);
 
-    var in_file = %return io.File.openRead(source_path, allocator);
+    var in_file = try io.File.openRead(source_path, allocator);
     defer in_file.close();
 
     var buf: [page_size]u8 = undefined;
     while (true) {
-        const amt = %return in_file.read(buf[0..]);
-        %return out_file.write(buf[0..amt]);
+        const amt = try in_file.read(buf[0..]);
+        try out_file.write(buf[0..amt]);
         if (amt != buf.len)
             return rename(allocator, tmp_path, dest_path);
     }
 }
 
 pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8) -> %void {
-    const full_buf = %return allocator.alloc(u8, old_path.len + new_path.len + 2);
+    const full_buf = try allocator.alloc(u8, old_path.len + new_path.len + 2);
     defer allocator.free(full_buf);
 
     const old_buf = full_buf;
@@ -795,7 +797,7 @@ pub fn makeDir(allocator: &Allocator, dir_path: []const u8) -> %void {
 }
 
 pub fn makeDirWindows(allocator: &Allocator, dir_path: []const u8) -> %void {
-    const path_buf = %return cstr.addNullByte(allocator, dir_path);
+    const path_buf = try cstr.addNullByte(allocator, dir_path);
     defer allocator.free(path_buf);
 
     if (windows.CreateDirectoryA(path_buf.ptr, null) == 0) {
@@ -809,7 +811,7 @@ pub fn makeDirWindows(allocator: &Allocator, dir_path: []const u8) -> %void {
 }
 
 pub fn makeDirPosix(allocator: &Allocator, dir_path: []const u8) -> %void {
-    const path_buf = %return cstr.addNullByte(allocator, dir_path);
+    const path_buf = try cstr.addNullByte(allocator, dir_path);
     defer allocator.free(path_buf);
 
     const err = posix.getErrno(posix.mkdir(path_buf.ptr, 0o755));
@@ -835,12 +837,12 @@ pub fn makeDirPosix(allocator: &Allocator, dir_path: []const u8) -> %void {
 /// Calls makeDir recursively to make an entire path. Returns success if the path
 /// already exists and is a directory.
 pub fn makePath(allocator: &Allocator, full_path: []const u8) -> %void {
-    const resolved_path = %return path.resolve(allocator, full_path);
+    const resolved_path = try path.resolve(allocator, full_path);
     defer allocator.free(resolved_path);
 
     var end_index: usize = resolved_path.len;
     while (true) {
-        makeDir(allocator, resolved_path[0..end_index]) %% |err| {
+        makeDir(allocator, resolved_path[0..end_index]) catch |err| {
             if (err == error.PathAlreadyExists) {
                 // TODO stat the file and return an error if it's not a directory
                 // this is important because otherwise a dangling symlink
@@ -873,7 +875,7 @@ pub fn makePath(allocator: &Allocator, full_path: []const u8) -> %void {
 /// Returns ::error.DirNotEmpty if the directory is not empty.
 /// To delete a directory recursively, see ::deleteTree
 pub fn deleteDir(allocator: &Allocator, dir_path: []const u8) -> %void {
-    const path_buf = %return allocator.alloc(u8, dir_path.len + 1);
+    const path_buf = try allocator.alloc(u8, dir_path.len + 1);
     defer allocator.free(path_buf);
 
     mem.copy(u8, path_buf, dir_path);
@@ -913,7 +915,7 @@ pub fn deleteTree(allocator: &Allocator, full_path: []const u8) -> %void {
                 return err;
         }
         {
-            var dir = Dir.open(allocator, full_path) %% |err| {
+            var dir = Dir.open(allocator, full_path) catch |err| {
                 if (err == error.FileNotFound)
                     return;
                 if (err == error.NotDir)
@@ -925,14 +927,14 @@ pub fn deleteTree(allocator: &Allocator, full_path: []const u8) -> %void {
             var full_entry_buf = ArrayList(u8).init(allocator);
             defer full_entry_buf.deinit();
 
-            while (%return dir.next()) |entry| {
-                %return full_entry_buf.resize(full_path.len + entry.name.len + 1);
+            while (try dir.next()) |entry| {
+                try full_entry_buf.resize(full_path.len + entry.name.len + 1);
                 const full_entry_path = full_entry_buf.toSlice();
                 mem.copy(u8, full_entry_path, full_path);
                 full_entry_path[full_path.len] = '/';
                 mem.copy(u8, full_entry_path[full_path.len + 1..], entry.name);
 
-                %return deleteTree(allocator, full_entry_path);
+                try deleteTree(allocator, full_entry_path);
             }
         }
         return deleteDir(allocator, full_path);
@@ -971,7 +973,7 @@ pub const Dir = struct {
     };
 
     pub fn open(allocator: &Allocator, dir_path: []const u8) -> %Dir {
-        const fd = %return posixOpen(dir_path, posix.O_RDONLY|posix.O_DIRECTORY|posix.O_CLOEXEC, 0, allocator);
+        const fd = try posixOpen(dir_path, posix.O_RDONLY|posix.O_DIRECTORY|posix.O_CLOEXEC, 0, allocator);
         return Dir {
             .allocator = allocator,
             .fd = fd,
@@ -992,7 +994,7 @@ pub const Dir = struct {
         start_over: while (true) {
             if (self.index >= self.end_index) {
                 if (self.buf.len == 0) {
-                    self.buf = %return self.allocator.alloc(u8, page_size);
+                    self.buf = try self.allocator.alloc(u8, page_size);
                 }
 
                 while (true) {
@@ -1002,7 +1004,7 @@ pub const Dir = struct {
                         switch (err) {
                             posix.EBADF, posix.EFAULT, posix.ENOTDIR => unreachable,
                             posix.EINVAL => {
-                                self.buf = %return self.allocator.realloc(u8, self.buf, self.buf.len * 2);
+                                self.buf = try self.allocator.realloc(u8, self.buf, self.buf.len * 2);
                                 continue;
                             },
                             else => return unexpectedErrorPosix(err),
@@ -1046,7 +1048,7 @@ pub const Dir = struct {
 };
 
 pub fn changeCurDir(allocator: &Allocator, dir_path: []const u8) -> %void {
-    const path_buf = %return allocator.alloc(u8, dir_path.len + 1);
+    const path_buf = try allocator.alloc(u8, dir_path.len + 1);
     defer allocator.free(path_buf);
 
     mem.copy(u8, path_buf, dir_path);
@@ -1070,13 +1072,13 @@ pub fn changeCurDir(allocator: &Allocator, dir_path: []const u8) -> %void {
 
 /// Read value of a symbolic link.
 pub fn readLink(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
-    const path_buf = %return allocator.alloc(u8, pathname.len + 1);
+    const path_buf = try allocator.alloc(u8, pathname.len + 1);
     defer allocator.free(path_buf);
 
     mem.copy(u8, path_buf, pathname);
     path_buf[pathname.len] = 0;
 
-    var result_buf = %return allocator.alloc(u8, 1024);
+    var result_buf = try allocator.alloc(u8, 1024);
     %defer allocator.free(result_buf);
     while (true) {
         const ret_val = posix.readlink(path_buf.ptr, result_buf.ptr, result_buf.len);
@@ -1095,7 +1097,7 @@ pub fn readLink(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
             };
         }
         if (ret_val == result_buf.len) {
-            result_buf = %return allocator.realloc(u8, result_buf, result_buf.len * 2);
+            result_buf = try allocator.realloc(u8, result_buf, result_buf.len * 2);
             continue;
         }
         return allocator.shrink(u8, result_buf, ret_val);
@@ -1104,7 +1106,7 @@ pub fn readLink(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
 
 pub fn sleep(seconds: usize, nanoseconds: usize) {
     switch(builtin.os) {
-        Os.linux, Os.darwin, Os.macosx, Os.ios => {
+        Os.linux, Os.macosx, Os.ios => {
             posixSleep(u63(seconds), u63(nanoseconds));
         },
         Os.windows => {
@@ -1318,7 +1320,7 @@ pub const ArgIteratorWindows = struct {
     }
 
     fn internalNext(self: &ArgIteratorWindows, allocator: &Allocator) -> %[]u8 {
-        var buf = %return Buffer.initSize(allocator, 0);
+        var buf = try Buffer.initSize(allocator, 0);
         defer buf.deinit();
 
         var backslash_count: usize = 0;
@@ -1328,34 +1330,34 @@ pub const ArgIteratorWindows = struct {
                 0 => return buf.toOwnedSlice(),
                 '"' => {
                     const quote_is_real = backslash_count % 2 == 0;
-                    %return self.emitBackslashes(&buf, backslash_count / 2);
+                    try self.emitBackslashes(&buf, backslash_count / 2);
                     backslash_count = 0;
 
                     if (quote_is_real) {
                         self.seen_quote_count += 1;
                         if (self.seen_quote_count == self.quote_count and self.seen_quote_count % 2 == 1) {
-                            %return buf.appendByte('"');
+                            try buf.appendByte('"');
                         }
                     } else {
-                        %return buf.appendByte('"');
+                        try buf.appendByte('"');
                     }
                 },
                 '\\' => {
                     backslash_count += 1;
                 },
                 ' ', '\t' => {
-                    %return self.emitBackslashes(&buf, backslash_count);
+                    try self.emitBackslashes(&buf, backslash_count);
                     backslash_count = 0;
                     if (self.seen_quote_count % 2 == 1 and self.seen_quote_count != self.quote_count) {
-                        %return buf.appendByte(byte);
+                        try buf.appendByte(byte);
                     } else {
                         return buf.toOwnedSlice();
                     }
                 },
                 else => {
-                    %return self.emitBackslashes(&buf, backslash_count);
+                    try self.emitBackslashes(&buf, backslash_count);
                     backslash_count = 0;
-                    %return buf.appendByte(byte);
+                    try buf.appendByte(byte);
                 },
             }
         }
@@ -1364,7 +1366,7 @@ pub const ArgIteratorWindows = struct {
     fn emitBackslashes(self: &ArgIteratorWindows, buf: &Buffer, emit_count: usize) -> %void {
         var i: usize = 0;
         while (i < emit_count) : (i += 1) {
-            %return buf.appendByte('\\');
+            try buf.appendByte('\\');
         }
     }
 
@@ -1428,24 +1430,24 @@ pub fn args() -> ArgIterator {
 pub fn argsAlloc(allocator: &mem.Allocator) -> %[]const []u8 {
     // TODO refactor to only make 1 allocation.
     var it = args();
-    var contents = %return Buffer.initSize(allocator, 0);
+    var contents = try Buffer.initSize(allocator, 0);
     defer contents.deinit();
 
     var slice_list = ArrayList(usize).init(allocator);
     defer slice_list.deinit();
 
     while (it.next(allocator)) |arg_or_err| {
-        const arg = %return arg_or_err;
+        const arg = try arg_or_err;
         defer allocator.free(arg);
-        %return contents.append(arg);
-        %return slice_list.append(arg.len);
+        try contents.append(arg);
+        try slice_list.append(arg.len);
     }
 
     const contents_slice = contents.toSliceConst();
     const slice_sizes = slice_list.toSliceConst();
-    const slice_list_bytes = %return math.mul(usize, @sizeOf([]u8), slice_sizes.len);
-    const total_bytes = %return math.add(usize, slice_list_bytes, contents_slice.len);
-    const buf = %return allocator.alignedAlloc(u8, @alignOf([]u8), total_bytes);
+    const slice_list_bytes = try math.mul(usize, @sizeOf([]u8), slice_sizes.len);
+    const total_bytes = try math.add(usize, slice_list_bytes, contents_slice.len);
+    const buf = try allocator.alignedAlloc(u8, @alignOf([]u8), total_bytes);
     %defer allocator.free(buf);
 
     const result_slice_list = ([][]u8)(buf[0..slice_list_bytes]);
@@ -1537,7 +1539,7 @@ pub fn openSelfExe() -> %io.File {
         Os.linux => {
             return io.File.openRead("/proc/self/exe", null);
         },
-        Os.darwin => {
+        Os.macosx, Os.ios => {
             @panic("TODO: openSelfExe on Darwin");
         },
         else => @compileError("Unsupported OS"),
@@ -1558,10 +1560,10 @@ pub fn selfExePath(allocator: &mem.Allocator) -> %[]u8 {
             return readLink(allocator, "/proc/self/exe");
         },
         Os.windows => {
-            var out_path = %return Buffer.initSize(allocator, 0xff);
+            var out_path = try Buffer.initSize(allocator, 0xff);
             %defer out_path.deinit();
             while (true) {
-                const dword_len = %return math.cast(windows.DWORD, out_path.len());
+                const dword_len = try math.cast(windows.DWORD, out_path.len());
                 const copied_amt = windows.GetModuleFileNameA(null, out_path.ptr(), dword_len);
                 if (copied_amt <= 0) {
                     const err = windows.GetLastError();
@@ -1574,14 +1576,14 @@ pub fn selfExePath(allocator: &mem.Allocator) -> %[]u8 {
                     return out_path.toOwnedSlice();
                 }
                 const new_len = (out_path.len() << 1) | 0b1;
-                %return out_path.resize(new_len);
+                try out_path.resize(new_len);
             }
         },
-        Os.darwin, Os.macosx, Os.ios => {
+        Os.macosx, Os.ios => {
             var u32_len: u32 = 0;
             const ret1 = c._NSGetExecutablePath(undefined, &u32_len);
             assert(ret1 != 0);
-            const bytes = %return allocator.alloc(u8, u32_len);
+            const bytes = try allocator.alloc(u8, u32_len);
             %defer allocator.free(bytes);
             const ret2 = c._NSGetExecutablePath(bytes.ptr, &u32_len);
             assert(ret2 == 0);
@@ -1600,13 +1602,13 @@ pub fn selfExeDirPath(allocator: &mem.Allocator) -> %[]u8 {
             // the file path looks something like `/a/b/c/exe (deleted)`
             // This path cannot be opened, but it's valid for determining the directory
             // the executable was in when it was run.
-            const full_exe_path = %return readLink(allocator, "/proc/self/exe");
+            const full_exe_path = try readLink(allocator, "/proc/self/exe");
             %defer allocator.free(full_exe_path);
             const dir = path.dirname(full_exe_path);
             return allocator.shrink(u8, full_exe_path, dir.len);
         },
-        Os.windows, Os.darwin, Os.macosx, Os.ios => {
-            const self_exe_path = %return selfExePath(allocator);
+        Os.windows, Os.macosx, Os.ios => {
+            const self_exe_path = try selfExePath(allocator);
             %defer allocator.free(self_exe_path);
             const dirname = os.path.dirname(self_exe_path);
             return allocator.shrink(u8, self_exe_path, dirname.len);

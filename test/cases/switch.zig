@@ -230,7 +230,7 @@ fn return_a_number() -> %i32 {
 }
 
 test "capture value of switch with all unreachable prongs" {
-    const x = return_a_number() %% |err| switch (err) {
+    const x = return_a_number() catch |err| switch (err) {
         else => unreachable,
     };
     assert(x == 1);

@@ -4,8 +4,8 @@ fn foo(id: u64) -> %i32 {
     return switch (id) {
         1 => getErrInt(),
         2 => {
-            const size = %return getErrInt();
-            return %return getErrInt();
+            const size = try getErrInt();
+            return try getErrInt();
         },
         else => error.ItBroke,
     };

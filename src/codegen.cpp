@@ -42,7 +42,7 @@ static void init_darwin_native(CodeGen *g) {
         g->mmacosx_version_min = buf_create_from_str(osx_target);
     } else if (ios_target) {
         g->mios_version_min = buf_create_from_str(ios_target);
-    } else if (g->zig_target.os != ZigLLVM_IOS) {
+    } else if (g->zig_target.os != OsIOS) {
         g->mmacosx_version_min = buf_create_from_str("10.10");
     }
 }
@@ -136,9 +136,8 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
         g->each_lib_rpath = true;
 #endif
 
-        if (g->zig_target.os == ZigLLVM_Darwin ||
-            g->zig_target.os == ZigLLVM_MacOSX ||
-            g->zig_target.os == ZigLLVM_IOS)
+        if (g->zig_target.os == OsMacOSX ||
+            g->zig_target.os == OsIOS)
         {
             init_darwin_native(g);
         }
@@ -146,9 +145,8 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
     }
 
     // On Darwin/MacOS/iOS, we always link libSystem which contains libc.
-    if (g->zig_target.os == ZigLLVM_Darwin ||
-        g->zig_target.os == ZigLLVM_MacOSX ||
-        g->zig_target.os == ZigLLVM_IOS)
+    if (g->zig_target.os == OsMacOSX ||
+        g->zig_target.os == OsIOS)
     {
         g->libc_link_lib = create_link_lib(buf_create_from_str("c"));
         g->link_libs_list.append(g->libc_link_lib);
@@ -363,7 +361,7 @@ static LLVMCallConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
                 g->zig_target.arch.arch == ZigLLVM_x86_64)
             {
                 // cold calling convention is not supported on windows
-                if (g->zig_target.os == ZigLLVM_Win32) {
+                if (g->zig_target.os == OsWindows) {
                     return LLVMCCallConv;
                 } else {
                     return LLVMColdCallConv;
@@ -386,7 +384,7 @@ static LLVMCallConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
 }
 
 static void add_uwtable_attr(CodeGen *g, LLVMValueRef fn_val) {
-    if (g->zig_target.os == ZigLLVM_Win32) {
+    if (g->zig_target.os == OsWindows) {
         addLLVMFnAttr(fn_val, "uwtable");
     }
 }
@@ -559,7 +557,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
         }
         // Note: byval is disabled on windows due to an LLVM bug:
         // https://github.com/zig-lang/zig/issues/536
-        if (is_byval && g->zig_target.os != ZigLLVM_Win32) {
+        if (is_byval && g->zig_target.os != OsWindows) {
             addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)gen_index, "byval");
         }
     }
@@ -2371,7 +2369,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         FnGenParamInfo *gen_info = &fn_type->data.fn.gen_param_info[param_i];
         // Note: byval is disabled on windows due to an LLVM bug:
         // https://github.com/zig-lang/zig/issues/536
-        if (gen_info->is_byval && g->zig_target.os != ZigLLVM_Win32) {
+        if (gen_info->is_byval && g->zig_target.os != OsWindows) {
             addLLVMCallsiteAttr(result, (unsigned)gen_info->gen_index, "byval");
         }
     }
@@ -5094,7 +5092,7 @@ static void define_builtin_compile_vars(CodeGen *g) {
         buf_appendf(contents, "pub const Os = enum {\n");
         uint32_t field_count = (uint32_t)target_os_count();
         for (uint32_t i = 0; i < field_count; i += 1) {
-            ZigLLVM_OSType os_type = get_target_os(i);
+            Os os_type = get_target_os(i);
             const char *name = get_target_os_name(os_type);
             buf_appendf(contents, "    %s,\n", name);
 
@@ -5304,7 +5302,7 @@ static void init(CodeGen *g) {
         // LLVM creates invalid binaries on Windows sometimes.
         // See https://github.com/zig-lang/zig/issues/508
         // As a workaround we do not use target native features on Windows.
-        if (g->zig_target.os == ZigLLVM_Win32) {
+        if (g->zig_target.os == OsWindows) {
             target_specific_cpu_args = "";
             target_specific_features = "";
         } else {
@@ -5524,13 +5522,13 @@ static void gen_root_source(CodeGen *g) {
     }
     report_errors_and_maybe_exit(g);
 
-    if (!g->is_test_build && g->zig_target.os != ZigLLVM_UnknownOS &&
+    if (!g->is_test_build && g->zig_target.os != OsFreestanding &&
         !g->have_c_main && !g->have_winmain && !g->have_winmain_crt_startup &&
         ((g->have_pub_main && g->out_type == OutTypeObj) || g->out_type == OutTypeExe))
     {
         g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g, g->root_package), "bootstrap.zig");
     }
-    if (g->zig_target.os == ZigLLVM_Win32 && !g->have_dllmain_crt_startup && g->out_type == OutTypeLib) {
+    if (g->zig_target.os == OsWindows && !g->have_dllmain_crt_startup && g->out_type == OutTypeLib) {
         g->bootstrap_import = add_special_code(g, create_bootstrap_pkg(g, g->root_package), "bootstrap_lib.zig");
     }
 

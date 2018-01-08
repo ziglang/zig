@@ -21,7 +21,7 @@ error ZigInstallationNotFound;
 const default_zig_cache_name = "zig-cache";
 
 pub fn main() -> %void {
-    main2() %% |err| {
+    main2() catch |err| {
         if (err != error.InvalidCommandLineArguments) {
             warn("{}\n", @errorName(err));
         }
@@ -40,18 +40,18 @@ const Cmd = enum {
 };
 
 fn badArgs(comptime format: []const u8, args: ...) -> error {
-    var stderr = %return io.getStdErr();
+    var stderr = try io.getStdErr();
     var stderr_stream_adapter = io.FileOutStream.init(&stderr);
     const stderr_stream = &stderr_stream_adapter.stream;
-    %return stderr_stream.print(format ++ "\n\n", args);
-    %return printUsage(&stderr_stream_adapter.stream);
+    try stderr_stream.print(format ++ "\n\n", args);
+    try printUsage(&stderr_stream_adapter.stream);
     return error.InvalidCommandLineArguments;
 }
 
 pub fn main2() -> %void {
     const allocator = std.heap.c_allocator;
 
-    const args = %return os.argsAlloc(allocator);
+    const args = try os.argsAlloc(allocator);
     defer os.argsFree(allocator, args);
 
     var cmd = Cmd.None;
@@ -167,7 +167,7 @@ pub fn main2() -> %void {
                 @panic("TODO --test-cmd-bin");
             } else if (arg[1] == 'L' and arg.len > 2) {
                 // alias for --library-path
-                %return lib_dirs.append(arg[1..]);
+                try lib_dirs.append(arg[1..]);
             } else if (mem.eql(u8, arg, "--pkg-begin")) {
                 @panic("TODO --pkg-begin");
             } else if (mem.eql(u8, arg, "--pkg-end")) {
@@ -217,24 +217,24 @@ pub fn main2() -> %void {
                 } else if (mem.eql(u8, arg, "--dynamic-linker")) {
                     dynamic_linker_arg = args[arg_i];
                 } else if (mem.eql(u8, arg, "-isystem")) {
-                    %return clang_argv.append("-isystem");
-                    %return clang_argv.append(args[arg_i]);
+                    try clang_argv.append("-isystem");
+                    try clang_argv.append(args[arg_i]);
                 } else if (mem.eql(u8, arg, "-dirafter")) {
-                    %return clang_argv.append("-dirafter");
-                    %return clang_argv.append(args[arg_i]);
+                    try clang_argv.append("-dirafter");
+                    try clang_argv.append(args[arg_i]);
                 } else if (mem.eql(u8, arg, "-mllvm")) {
-                    %return clang_argv.append("-mllvm");
-                    %return clang_argv.append(args[arg_i]);
+                    try clang_argv.append("-mllvm");
+                    try clang_argv.append(args[arg_i]);
 
-                    %return llvm_argv.append(args[arg_i]);
+                    try llvm_argv.append(args[arg_i]);
                 } else if (mem.eql(u8, arg, "--library-path") or mem.eql(u8, arg, "-L")) {
-                    %return lib_dirs.append(args[arg_i]);
+                    try lib_dirs.append(args[arg_i]);
                 } else if (mem.eql(u8, arg, "--library")) {
-                    %return link_libs.append(args[arg_i]);
+                    try link_libs.append(args[arg_i]);
                 } else if (mem.eql(u8, arg, "--object")) {
-                    %return objects.append(args[arg_i]);
+                    try objects.append(args[arg_i]);
                 } else if (mem.eql(u8, arg, "--assembly")) {
-                    %return asm_files.append(args[arg_i]);
+                    try asm_files.append(args[arg_i]);
                 } else if (mem.eql(u8, arg, "--cache-dir")) {
                     cache_dir_arg = args[arg_i];
                 } else if (mem.eql(u8, arg, "--target-arch")) {
@@ -248,21 +248,21 @@ pub fn main2() -> %void {
                 } else if (mem.eql(u8, arg, "-mios-version-min")) {
                     mios_version_min = args[arg_i];
                 } else if (mem.eql(u8, arg, "-framework")) {
-                    %return frameworks.append(args[arg_i]);
+                    try frameworks.append(args[arg_i]);
                 } else if (mem.eql(u8, arg, "--linker-script")) {
                     linker_script_arg = args[arg_i];
                 } else if (mem.eql(u8, arg, "-rpath")) {
-                    %return rpath_list.append(args[arg_i]);
+                    try rpath_list.append(args[arg_i]);
                 } else if (mem.eql(u8, arg, "--test-filter")) {
-                    %return test_filters.append(args[arg_i]);
+                    try test_filters.append(args[arg_i]);
                 } else if (mem.eql(u8, arg, "--test-name-prefix")) {
                     test_name_prefix_arg = args[arg_i];
                 } else if (mem.eql(u8, arg, "--ver-major")) {
-                    ver_major = %return std.fmt.parseUnsigned(u32, args[arg_i], 10);
+                    ver_major = try std.fmt.parseUnsigned(u32, args[arg_i], 10);
                 } else if (mem.eql(u8, arg, "--ver-minor")) {
-                    ver_minor = %return std.fmt.parseUnsigned(u32, args[arg_i], 10);
+                    ver_minor = try std.fmt.parseUnsigned(u32, args[arg_i], 10);
                 } else if (mem.eql(u8, arg, "--ver-patch")) {
-                    ver_patch = %return std.fmt.parseUnsigned(u32, args[arg_i], 10);
+                    ver_patch = try std.fmt.parseUnsigned(u32, args[arg_i], 10);
                 } else if (mem.eql(u8, arg, "--test-cmd")) {
                     @panic("TODO --test-cmd");
                 } else {
@@ -367,13 +367,13 @@ pub fn main2() -> %void {
             const zig_root_source_file = if (cmd == Cmd.TranslateC) null else in_file_arg;
 
             const chosen_cache_dir = cache_dir_arg ?? default_zig_cache_name;
-            const full_cache_dir = %return os.path.resolve(allocator, ".", chosen_cache_dir);
+            const full_cache_dir = try os.path.resolve(allocator, ".", chosen_cache_dir);
             defer allocator.free(full_cache_dir);
 
-            const zig_lib_dir = %return resolveZigLibDir(allocator, zig_install_prefix);
+            const zig_lib_dir = try resolveZigLibDir(allocator, zig_install_prefix);
             %defer allocator.free(zig_lib_dir);
 
-            const module = %return Module.create(allocator, root_name, zig_root_source_file,
+            const module = try Module.create(allocator, root_name, zig_root_source_file,
                 Target.Native, build_kind, build_mode, zig_lib_dir, full_cache_dir);
             defer module.destroy();
 
@@ -424,7 +424,7 @@ pub fn main2() -> %void {
             module.rpath_list = rpath_list.toSliceConst();
 
             for (link_libs.toSliceConst()) |name| {
-                _ = %return module.addLinkLib(name, true);
+                _ = try module.addLinkLib(name, true);
             }
 
             module.windows_subsystem_windows = mwindows;
@@ -455,8 +455,8 @@ pub fn main2() -> %void {
                     module.link_objects = objects.toSliceConst();
                     module.assembly_files = asm_files.toSliceConst();
 
-                    %return module.build();
-                    %return module.link(out_file);
+                    try module.build();
+                    try module.link(out_file);
                 },
                 Cmd.TranslateC => @panic("TODO translate-c"),
                 Cmd.Test => @panic("TODO test cmd"),
@@ -464,16 +464,16 @@ pub fn main2() -> %void {
             }
         },
         Cmd.Version => {
-            var stdout_file = %return io.getStdErr();
-            %return stdout_file.write(std.cstr.toSliceConst(c.ZIG_VERSION_STRING));
-            %return stdout_file.write("\n");
+            var stdout_file = try io.getStdErr();
+            try stdout_file.write(std.cstr.toSliceConst(c.ZIG_VERSION_STRING));
+            try stdout_file.write("\n");
         },
         Cmd.Targets => @panic("TODO zig targets"),
     }
 }
 
 fn printUsage(stream: &io.OutStream) -> %void {
-    %return stream.write(
+    try stream.write(
         \\Usage: zig [command] [options]
         \\
         \\Commands:
@@ -549,8 +549,8 @@ fn printUsage(stream: &io.OutStream) -> %void {
 }
 
 fn printZen() -> %void {
-    var stdout_file = %return io.getStdErr();
-    %return stdout_file.write(
+    var stdout_file = try io.getStdErr();
+    try stdout_file.write(
         \\
         \\ * Communicate intent precisely.
         \\ * Edge cases matter.
@@ -571,12 +571,12 @@ fn printZen() -> %void {
 /// Caller must free result
 fn resolveZigLibDir(allocator: &mem.Allocator, zig_install_prefix_arg: ?[]const u8) -> %[]u8 {
     if (zig_install_prefix_arg) |zig_install_prefix| {
-        return testZigInstallPrefix(allocator, zig_install_prefix) %% |err| {
+        return testZigInstallPrefix(allocator, zig_install_prefix) catch |err| {
             warn("No Zig installation found at prefix {}: {}\n", zig_install_prefix_arg, @errorName(err));
             return error.ZigInstallationNotFound;
         };
     } else {
-        return findZigLibDir(allocator) %% |err| {
+        return findZigLibDir(allocator) catch |err| {
             warn("Unable to find zig lib directory: {}.\nReinstall Zig or use --zig-install-prefix.\n",
                 @errorName(err));
             return error.ZigLibDirNotFound;
@@ -586,13 +586,13 @@ fn resolveZigLibDir(allocator: &mem.Allocator, zig_install_prefix_arg: ?[]const 
 
 /// Caller must free result
 fn testZigInstallPrefix(allocator: &mem.Allocator, test_path: []const u8) -> %[]u8 {
-    const test_zig_dir = %return os.path.join(allocator, test_path, "lib", "zig");
+    const test_zig_dir = try os.path.join(allocator, test_path, "lib", "zig");
     %defer allocator.free(test_zig_dir);
 
-    const test_index_file = %return os.path.join(allocator, test_zig_dir, "std", "index.zig");
+    const test_index_file = try os.path.join(allocator, test_zig_dir, "std", "index.zig");
     defer allocator.free(test_index_file);
 
-    var file = %return io.File.openRead(test_index_file, allocator);
+    var file = try io.File.openRead(test_index_file, allocator);
     file.close();
 
     return test_zig_dir;
@@ -600,7 +600,7 @@ fn testZigInstallPrefix(allocator: &mem.Allocator, test_path: []const u8) -> %[]
 
 /// Caller must free result
 fn findZigLibDir(allocator: &mem.Allocator) -> %[]u8 {
-    const self_exe_path = %return os.selfExeDirPath(allocator);
+    const self_exe_path = try os.selfExeDirPath(allocator);
     defer allocator.free(self_exe_path);
 
     var cur_path: []const u8 = self_exe_path;
@@ -611,7 +611,7 @@ fn findZigLibDir(allocator: &mem.Allocator) -> %[]u8 {
             break;
         }
 
-        return testZigInstallPrefix(allocator, test_dir) %% |err| {
+        return testZigInstallPrefix(allocator, test_dir) catch |err| {
             cur_path = test_dir;
             continue;
         };

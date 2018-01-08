@@ -395,14 +395,14 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
     cases.add("%defer and it fails",
         \\const io = @import("std").io;
         \\pub fn main() -> %void {
-        \\    do_test() %% return;
+        \\    do_test() catch return;
         \\}
         \\fn do_test() -> %void {
         \\    const stdout = &(io.FileOutStream.init(&%%io.getStdOut()).stream);
         \\    %%stdout.print("before\n");
         \\    defer %%stdout.print("defer1\n");
         \\    %defer %%stdout.print("deferErr\n");
-        \\    %return its_gonna_fail();
+        \\    try its_gonna_fail();
         \\    defer %%stdout.print("defer3\n");
         \\    %%stdout.print("after\n");
         \\}
@@ -415,14 +415,14 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
     cases.add("%defer and it passes",
         \\const io = @import("std").io;
         \\pub fn main() -> %void {
-        \\    do_test() %% return;
+        \\    do_test() catch return;
         \\}
         \\fn do_test() -> %void {
         \\    const stdout = &(io.FileOutStream.init(&%%io.getStdOut()).stream);
         \\    %%stdout.print("before\n");
         \\    defer %%stdout.print("defer1\n");
         \\    %defer %%stdout.print("deferErr\n");
-        \\    %return its_gonna_pass();
+        \\    try its_gonna_pass();
         \\    defer %%stdout.print("defer3\n");
         \\    %%stdout.print("after\n");
         \\}
@@ -454,14 +454,14 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
             \\
             \\pub fn main() -> %void {
             \\    var args_it = os.args();
-            \\    var stdout_file = %return io.getStdOut();
+            \\    var stdout_file = try io.getStdOut();
             \\    var stdout_adapter = io.FileOutStream.init(&stdout_file);
             \\    const stdout = &stdout_adapter.stream;
             \\    var index: usize = 0;
             \\    _ = args_it.skip();
             \\    while (args_it.next(allocator)) |arg_or_err| : (index += 1) {
-            \\        const arg = %return arg_or_err;
-            \\        %return stdout.print("{}: {}\n", index, arg);
+            \\        const arg = try arg_or_err;
+            \\        try stdout.print("{}: {}\n", index, arg);
             \\    }
             \\}
         ,
@@ -495,14 +495,14 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
             \\
             \\pub fn main() -> %void {
             \\    var args_it = os.args();
-            \\    var stdout_file = %return io.getStdOut();
+            \\    var stdout_file = try io.getStdOut();
             \\    var stdout_adapter = io.FileOutStream.init(&stdout_file);
             \\    const stdout = &stdout_adapter.stream;
             \\    var index: usize = 0;
             \\    _ = args_it.skip();
             \\    while (args_it.next(allocator)) |arg_or_err| : (index += 1) {
-            \\        const arg = %return arg_or_err;
-            \\        %return stdout.print("{}: {}\n", index, arg);
+            \\        const arg = try arg_or_err;
+            \\        try stdout.print("{}: {}\n", index, arg);
             \\    }
             \\}
         ,

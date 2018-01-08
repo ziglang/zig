@@ -577,3 +577,34 @@ test "implicit comptime while" {
         @compileError("bad");
     }
 }
+
+test "struct inside function" {
+    testStructInFn();
+    comptime testStructInFn();
+}
+
+fn testStructInFn() {
+    const BlockKind = u32;
+
+    const Block = struct {
+        kind: BlockKind,
+    };
+
+    var block = Block { .kind = 1234 };
+
+    block.kind += 1;
+
+    assert(block.kind == 1235);
+}
+
+fn fnThatClosesOverLocalConst() -> type {
+    const c = 1;
+    return struct {
+        fn g() -> i32 { return c; }
+    };
+}
+
+test "function closes over local const" {
+    const x = fnThatClosesOverLocalConst().g();
+    assert(x == 1);
+}

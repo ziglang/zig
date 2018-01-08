@@ -40,13 +40,13 @@ pub fn format(context: var, output: fn(@typeOf(context), []const u8)->%void,
             State.Start => switch (c) {
                 '{' => {
                     if (start_index < i) {
-                        %return output(context, fmt[start_index..i]);
+                        try output(context, fmt[start_index..i]);
                     }
                     state = State.OpenBrace;
                 },
                 '}' => {
                     if (start_index < i) {
-                        %return output(context, fmt[start_index..i]);
+                        try output(context, fmt[start_index..i]);
                     }
                     state = State.CloseBrace;
                 },
@@ -58,7 +58,7 @@ pub fn format(context: var, output: fn(@typeOf(context), []const u8)->%void,
                     start_index = i;
                 },
                 '}' => {
-                    %return formatValue(args[next_arg], context, output);
+                    try formatValue(args[next_arg], context, output);
                     next_arg += 1;
                     state = State.Start;
                     start_index = i + 1;
@@ -110,7 +110,7 @@ pub fn format(context: var, output: fn(@typeOf(context), []const u8)->%void,
             },
             State.Integer => switch (c) {
                 '}' => {
-                    %return formatInt(args[next_arg], radix, uppercase, width, context, output);
+                    try formatInt(args[next_arg], radix, uppercase, width, context, output);
                     next_arg += 1;
                     state = State.Start;
                     start_index = i + 1;
@@ -124,7 +124,7 @@ pub fn format(context: var, output: fn(@typeOf(context), []const u8)->%void,
             State.IntegerWidth => switch (c) {
                 '}' => {
                     width = comptime %%parseUnsigned(usize, fmt[width_start..i], 10);
-                    %return formatInt(args[next_arg], radix, uppercase, width, context, output);
+                    try formatInt(args[next_arg], radix, uppercase, width, context, output);
                     next_arg += 1;
                     state = State.Start;
                     start_index = i + 1;
@@ -134,7 +134,7 @@ pub fn format(context: var, output: fn(@typeOf(context), []const u8)->%void,
             },
             State.Float => switch (c) {
                 '}' => {
-                    %return formatFloatDecimal(args[next_arg], 0, context, output);
+                    try formatFloatDecimal(args[next_arg], 0, context, output);
                     next_arg += 1;
                     state = State.Start;
                     start_index = i + 1;
@@ -148,7 +148,7 @@ pub fn format(context: var, output: fn(@typeOf(context), []const u8)->%void,
             State.FloatWidth => switch (c) {
                 '}' => {
                     width = comptime %%parseUnsigned(usize, fmt[width_start..i], 10);
-                    %return formatFloatDecimal(args[next_arg], width, context, output);
+                    try formatFloatDecimal(args[next_arg], width, context, output);
                     next_arg += 1;
                     state = State.Start;
                     start_index = i + 1;
@@ -159,7 +159,7 @@ pub fn format(context: var, output: fn(@typeOf(context), []const u8)->%void,
             State.BufWidth => switch (c) {
                 '}' => {
                     width = comptime %%parseUnsigned(usize, fmt[width_start..i], 10);
-                    %return formatBuf(args[next_arg], width, context, output);
+                    try formatBuf(args[next_arg], width, context, output);
                     next_arg += 1;
                     state = State.Start;
                     start_index = i + 1;
@@ -169,7 +169,7 @@ pub fn format(context: var, output: fn(@typeOf(context), []const u8)->%void,
             },
             State.Character => switch (c) {
                 '}' => {
-                    %return formatAsciiChar(args[next_arg], context, output);
+                    try formatAsciiChar(args[next_arg], context, output);
                     next_arg += 1;
                     state = State.Start;
                     start_index = i + 1;
@@ -187,7 +187,7 @@ pub fn format(context: var, output: fn(@typeOf(context), []const u8)->%void,
         }
     }
     if (start_index < fmt.len) {
-        %return output(context, fmt[start_index..]);
+        try output(context, fmt[start_index..]);
     }
 }
 
@@ -221,7 +221,7 @@ pub fn formatValue(value: var, context: var, output: fn(@typeOf(context), []cons
             }
         },
         builtin.TypeId.Error => {
-            %return output(context, "error.");
+            try output(context, "error.");
             return output(context, @errorName(value));
         },
         builtin.TypeId.Pointer => {
@@ -247,12 +247,12 @@ pub fn formatAsciiChar(c: u8, context: var, output: fn(@typeOf(context), []const
 pub fn formatBuf(buf: []const u8, width: usize,
     context: var, output: fn(@typeOf(context), []const u8)->%void) -> %void
 {
-    %return output(context, buf);
+    try output(context, buf);
 
     var leftover_padding = if (width > buf.len) (width - buf.len) else return;
     const pad_byte: u8 = ' ';
     while (leftover_padding > 0) : (leftover_padding -= 1) {
-        %return output(context, (&pad_byte)[0..1]);
+        try output(context, (&pad_byte)[0..1]);
     }
 }
 
@@ -264,7 +264,7 @@ pub fn formatFloat(value: var, context: var, output: fn(@typeOf(context), []cons
         return output(context, "NaN");
     }
     if (math.signbit(x)) {
-        %return output(context, "-");
+        try output(context, "-");
         x = -x;
     }
     if (math.isPositiveInf(x)) {
@@ -276,21 +276,21 @@ pub fn formatFloat(value: var, context: var, output: fn(@typeOf(context), []cons
 
     var buffer: [32]u8 = undefined;
     const float_decimal = errol3(x, buffer[0..]);
-    %return output(context, float_decimal.digits[0..1]);
-    %return output(context, ".");
+    try output(context, float_decimal.digits[0..1]);
+    try output(context, ".");
     if (float_decimal.digits.len > 1) {
         const num_digits = if (@typeOf(value) == f32)
             math.min(usize(9), float_decimal.digits.len)
         else
             float_decimal.digits.len;
-        %return output(context, float_decimal.digits[1 .. num_digits]);
+        try output(context, float_decimal.digits[1 .. num_digits]);
     } else {
-        %return output(context, "0");
+        try output(context, "0");
     }
 
     if (float_decimal.exp != 1) {
-        %return output(context, "e");
-        %return formatInt(float_decimal.exp - 1, 10, false, 0, context, output);
+        try output(context, "e");
+        try formatInt(float_decimal.exp - 1, 10, false, 0, context, output);
     }
 }
 
@@ -302,7 +302,7 @@ pub fn formatFloatDecimal(value: var, precision: usize, context: var, output: fn
         return output(context, "NaN");
     }
     if (math.signbit(x)) {
-        %return output(context, "-");
+        try output(context, "-");
         x = -x;
     }
     if (math.isPositiveInf(x)) {
@@ -317,8 +317,8 @@ pub fn formatFloatDecimal(value: var, precision: usize, context: var, output: fn
 
     const num_left_digits = if (float_decimal.exp > 0) usize(float_decimal.exp) else 1;
 
-    %return output(context, float_decimal.digits[0 .. num_left_digits]);
-    %return output(context, ".");
+    try output(context, float_decimal.digits[0 .. num_left_digits]);
+    try output(context, ".");
     if (float_decimal.digits.len > 1) {
         const num_valid_digtis = if (@typeOf(value) == f32)  math.min(usize(7), float_decimal.digits.len)
         else
@@ -328,9 +328,9 @@ pub fn formatFloatDecimal(value: var, precision: usize, context: var, output: fn
             math.min(precision, (num_valid_digtis-num_left_digits))
         else
             num_valid_digtis - num_left_digits;
-        %return output(context, float_decimal.digits[num_left_digits .. (num_left_digits + num_right_digits)]);
+        try output(context, float_decimal.digits[num_left_digits .. (num_left_digits + num_right_digits)]);
     } else {
-        %return output(context, "0");
+        try output(context, "0");
     }
 }
 
@@ -351,7 +351,7 @@ fn formatIntSigned(value: var, base: u8, uppercase: bool, width: usize,
     const uint = @IntType(false, @typeOf(value).bit_count);
     if (value < 0) {
         const minus_sign: u8 = '-';
-        %return output(context, (&minus_sign)[0..1]);
+        try output(context, (&minus_sign)[0..1]);
         const new_value = uint(-(value + 1)) + 1;
         const new_width = if (width == 0) 0 else (width - 1);
         return formatIntUnsigned(new_value, base, uppercase, new_width, context, output);
@@ -359,7 +359,7 @@ fn formatIntSigned(value: var, base: u8, uppercase: bool, width: usize,
         return formatIntUnsigned(uint(value), base, uppercase, width, context, output);
     } else {
         const plus_sign: u8 = '+';
-        %return output(context, (&plus_sign)[0..1]);
+        try output(context, (&plus_sign)[0..1]);
         const new_value = uint(value);
         const new_width = if (width == 0) 0 else (width - 1);
         return formatIntUnsigned(new_value, base, uppercase, new_width, context, output);
@@ -391,7 +391,7 @@ fn formatIntUnsigned(value: var, base: u8, uppercase: bool, width: usize,
         const zero_byte: u8 = '0';
         var leftover_padding = padding - index;
         while (true) {
-            %return output(context, (&zero_byte)[0..1]);
+            try output(context, (&zero_byte)[0..1]);
             leftover_padding -= 1;
             if (leftover_padding == 0)
                 break;
@@ -428,7 +428,7 @@ pub fn parseInt(comptime T: type, buf: []const u8, radix: u8) -> %T {
     if (buf.len == 0)
         return T(0);
     if (buf[0] == '-') {
-        return math.negate(%return parseUnsigned(T, buf[1..], radix));
+        return math.negate(try parseUnsigned(T, buf[1..], radix));
     } else if (buf[0] == '+') {
         return parseUnsigned(T, buf[1..], radix);
     } else {
@@ -450,9 +450,9 @@ pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) -> %T {
     var x: T = 0;
 
     for (buf) |c| {
-        const digit = %return charToDigit(c, radix);
-        x = %return math.mul(T, x, radix);
-        x = %return math.add(T, x, digit);
+        const digit = try charToDigit(c, radix);
+        x = try math.mul(T, x, radix);
+        x = try math.add(T, x, digit);
     }
 
     return x;
@@ -494,7 +494,7 @@ fn bufPrintWrite(context: &BufPrintContext, bytes: []const u8) -> %void {
 
 pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: ...) -> %[]u8 {
     var context = BufPrintContext { .remaining = buf, };
-    %return format(&context, bufPrintWrite, fmt, args);
+    try format(&context, bufPrintWrite, fmt, args);
     return buf[0..buf.len - context.remaining.len];
 }
 
@@ -502,7 +502,7 @@ pub fn allocPrint(allocator: &mem.Allocator, comptime fmt: []const u8, args: ...
     var size: usize = 0;
     // Cannot fail because `countSize` cannot fail.
     %%format(&size, countSize, fmt, args);
-    const buf = %return allocator.alloc(u8, size);
+    const buf = try allocator.alloc(u8, size);
     return bufPrint(buf, fmt, args);
 }
 
@@ -533,7 +533,7 @@ fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, width: u
 }
 
 test "parse u64 digit too big" {
-    _ = parseUnsigned(u64, "123a", 10) %% |err| {
+    _ = parseUnsigned(u64, "123a", 10) catch |err| {
         if (err == error.InvalidChar) return;
         unreachable;
     };

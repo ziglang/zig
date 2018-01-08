@@ -93,7 +93,7 @@ pub fn windowsOpen(file_path: []const u8, desired_access: windows.DWORD, share_m
     if (file_path.len < stack_buf.len) {
         path0 = stack_buf[0..file_path.len + 1];
     } else if (allocator) |a| {
-        path0 = %return a.alloc(u8, file_path.len + 1);
+        path0 = try a.alloc(u8, file_path.len + 1);
         need_free = true;
     } else {
         return error.NameTooLong;
@@ -132,7 +132,7 @@ pub fn createWindowsEnvBlock(allocator: &mem.Allocator, env_map: &const BufMap) 
         }
         break :x bytes_needed;
     };
-    const result = %return allocator.alloc(u8, bytes_needed);
+    const result = try allocator.alloc(u8, bytes_needed);
     %defer allocator.free(result);
 
     var it = env_map.iterator();
@@ -153,7 +153,7 @@ pub fn createWindowsEnvBlock(allocator: &mem.Allocator, env_map: &const BufMap) 
 
 error DllNotFound;
 pub fn windowsLoadDll(allocator: &mem.Allocator, dll_path: []const u8) -> %windows.HMODULE {
-    const padded_buff = %return cstr.addNullByte(allocator, dll_path);
+    const padded_buff = try cstr.addNullByte(allocator, dll_path);
     defer allocator.free(padded_buff);
     return windows.LoadLibraryA(padded_buff.ptr) ?? error.DllNotFound;
 }
@@ -166,7 +166,7 @@ pub fn windowsUnloadDll(hModule: windows.HMODULE) {
 test "InvalidDll" {
     const DllName = "asdf.dll";
     const allocator = std.debug.global_allocator;
-    const handle = os.windowsLoadDll(allocator, DllName) %%  |err| {
+    const handle = os.windowsLoadDll(allocator, DllName) catch  |err| {
         assert(err == error.DllNotFound);
         return;
     };

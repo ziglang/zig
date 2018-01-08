@@ -264,15 +264,14 @@
       please <a href="https://github.com/zig-lang/www.ziglang.org/issues/new?title=I%20searched%20for%20___%20in%20the%20docs%20and%20didn%27t%20find%20it">file an issue</a> or <a href="https://webchat.freenode.net/?channels=%23zig">say something on IRC</a>.
       </p>
       <h2 id="hello-world">Hello World</h2>
-    <pre><code class="zig">const io = @import("std").io;
+    <pre><code class="zig">const std = @import("std");
 
 pub fn main() -&gt; %void {
     // If this program is run without stdout attached, exit with an error.
-    var stdout_file = %return io.getStdOut();
-    const stdout = &amp;stdout_file.out_stream;
+    var stdout_file = try std.io.getStdOut();
     // If this program encounters pipe failure when printing to stdout, exit
     // with an error.
-    %return stdout.print("Hello, world!\n");
+    try stdout_file.write("Hello, world!\n");
 }</code></pre>
       <pre><code class="sh">$ zig build-exe hello.zig
 $ ./hello
@@ -1212,8 +1211,8 @@ unwrapped == 1234</code></pre>
           </td>
         </tr>
         <tr>
-          <td><pre><code class="zig">a %% b
-a %% |err| b</code></pre></td>
+          <td><pre><code class="zig">a catch b
+a catch |err| b</code></pre></td>
           <td>
             <ul>
               <li><a href="#errors">Error Unions</a></li>
@@ -1227,7 +1226,7 @@ a %% |err| b</code></pre></td>
           </td>
           <td>
             <pre><code class="zig">const value: %u32 = null;
-const unwrapped = value %% 1234;
+const unwrapped = value catch 1234;
 unwrapped == 1234</code></pre>
           </td>
         </tr>
@@ -1239,7 +1238,7 @@ unwrapped == 1234</code></pre>
             </ul>
           </td>
           <td>Equivalent to:
-            <pre><code class="zig">a %% unreachable</code></pre>
+            <pre><code class="zig">a catch unreachable</code></pre>
           </td>
           <td>
             <pre><code class="zig">const value: %u32 = 5678;
@@ -1483,7 +1482,7 @@ x{}
 == != &lt; &gt; &lt;= &gt;=
 and
 or
-?? %%
+?? catch
 = *= /= %= += -= &lt;&lt;= &gt;&gt;= &amp;= ^= |=</code></pre>
       <h2 id="arrays">Arrays</h2>
       <pre><code class="zig">const assert = @import("std").debug.assert;
@@ -1830,7 +1829,7 @@ Test 1/1 pointer alignment safety...incorrect alignment
     return root.main();
                     ^
 /home/andy/dev/zig/build/lib/zig/std/special/bootstrap.zig:47:13: 0x0000000000216050 in ??? (test)
-    callMain(argc, argv, envp) %% std.os.posix.exit(1);
+    callMain(argc, argv, envp) catch std.os.posix.exit(1);
             ^
 /home/andy/dev/zig/build/lib/zig/std/special/bootstrap.zig:34:25: 0x0000000000215fa0 in ??? (test)
     posixCallMainAndExit()
@@ -1886,7 +1885,7 @@ lib/zig/std/special/bootstrap.zig:60:21: 0x00000000002149e7 in ??? (test)
     return root.main();
                     ^
 lib/zig/std/special/bootstrap.zig:47:13: 0x00000000002148a0 in ??? (test)
-    callMain(argc, argv, envp) %% std.os.posix.exit(1);
+    callMain(argc, argv, envp) catch std.os.posix.exit(1);
             ^
 lib/zig/std/special/bootstrap.zig:34:25: 0x00000000002147f0 in ??? (test)
     posixCallMainAndExit()
@@ -2966,7 +2965,7 @@ lib/zig/std/special/bootstrap.zig:60:21: 0x0000000000214947 in ??? (test)
     return root.main();
                     ^
 lib/zig/std/special/bootstrap.zig:47:13: 0x0000000000214800 in ??? (test)
-    callMain(argc, argv, envp) %% std.os.posix.exit(1);
+    callMain(argc, argv, envp) catch std.os.posix.exit(1);
             ^
 lib/zig/std/special/bootstrap.zig:34:25: 0x0000000000214750 in ??? (test)
     posixCallMainAndExit()
@@ -3020,7 +3019,7 @@ extern fn bar(value: u32);</code></pre>
       <pre><code class="zig">pub extern "kernel32" stdcallcc fn ExitProcess(exit_code: c_uint) -&gt; noreturn;
 
 fn foo() {
-    const value = bar() %% ExitProcess(1);
+    const value = bar() catch ExitProcess(1);
     assert(value == 1234);
 }
 
@@ -3210,7 +3209,7 @@ pub fn parseU64(buf: []const u8, radix: u8) -&gt; %u64 {
       </ul>
       <p>If you want to provide a default value, you can use the <code>%%</code> binary operator:</p>
       <pre><code class="zig">fn doAThing(str: []u8) {
-    const number = parseU64(str, 10) %% 13;
+    const number = parseU64(str, 10) catch 13;
     // ...
 }</code></pre>
       <p>
@@ -3221,18 +3220,18 @@ pub fn parseU64(buf: []const u8, radix: u8) -&gt; %u64 {
       <p>Let's say you wanted to return the error if you got one, otherwise continue with the
       function logic:</p>
       <pre><code class="zig">fn doAThing(str: []u8) -&gt; %void {
-    const number = parseU64(str, 10) %% |err| return err;
+    const number = parseU64(str, 10) catch |err| return err;
     // ...
 }</code></pre>
       <p>
-        There is a shortcut for this. The <code>%return</code> expression:
+        There is a shortcut for this. The <code>try</code> expression:
       </p>
       <pre><code class="zig">fn doAThing(str: []u8) -&gt; %void {
-    const number = %return parseU64(str, 10);
+    const number = try parseU64(str, 10);
     // ...
 }</code></pre>
       <p>
-      <code>%return</code> evaluates an error union expression. If it is an error, it returns
+      <code>try</code> evaluates an error union expression. If it is an error, it returns
       from the current function with the same error. Otherwise, the expression results in
       the unwrapped value.
       </p>
@@ -3240,7 +3239,7 @@ pub fn parseU64(buf: []const u8, radix: u8) -&gt; %u64 {
         Maybe you know with complete certainty that an expression will never be an error.
         In this case you can do this:
       </p>
-      <pre><code class="zig">const number = parseU64("1234", 10) %% unreachable;</code></pre>
+      <pre><code class="zig">const number = parseU64("1234", 10) catch unreachable;</code></pre>
       <p>
       Here we know for sure that "1234" will parse successfully. So we put the
       <code>unreachable</code> value on the right hand side. <code>unreachable</code> generates
@@ -3251,7 +3250,7 @@ pub fn parseU64(buf: []const u8, radix: u8) -&gt; %u64 {
       <p>Again there is a syntactic shortcut for this:</p>
       <pre><code class="zig">const number = %%parseU64("1234", 10);</code></pre>
       <p>
-      The <code>%%</code> <em>prefix</em> operator is equivalent to <code class="zig">expression %% unreachable</code>. It unwraps an error union type,
+      The <code>%%</code> <em>prefix</em> operator is equivalent to <code class="zig">expression catch unreachable</code>. It unwraps an error union type,
       and panics in debug mode if the value was an error.
       </p>
       <p>
@@ -3279,7 +3278,7 @@ pub fn parseU64(buf: []const u8, radix: u8) -&gt; %u64 {
       Example:
       </p>
       <pre><code class="zig">fn createFoo(param: i32) -&gt; %Foo {
-    const foo = %return tryToAllocateFoo();
+    const foo = try tryToAllocateFoo();
     // now we have allocated foo. we need to free it if the function fails.
     // but we want to return it if the function succeeds.
     %defer deallocateFoo(foo);
@@ -3929,11 +3928,11 @@ pub fn printf(self: &amp;OutStream, comptime format: []const u8, args: ...) -&gt
         switch (state) {
             State.Start =&gt; switch (c) {
                 '{' =&gt; {
-                    if (start_index &lt; i) %return self.write(format[start_index...i]);
+                    if (start_index &lt; i) try self.write(format[start_index...i]);
                     state = State.OpenBrace;
                 },
                 '}' =&gt; {
-                    if (start_index &lt; i) %return self.write(format[start_index...i]);
+                    if (start_index &lt; i) try self.write(format[start_index...i]);
                     state = State.CloseBrace;
                 },
                 else =&gt; {},
@@ -3944,7 +3943,7 @@ pub fn printf(self: &amp;OutStream, comptime format: []const u8, args: ...) -&gt
                     start_index = i;
                 },
                 '}' =&gt; {
-                    %return self.printValue(args[next_arg]);
+                    try self.printValue(args[next_arg]);
                     next_arg += 1;
                     state = State.Start;
                     start_index = i + 1;
@@ -3969,9 +3968,9 @@ pub fn printf(self: &amp;OutStream, comptime format: []const u8, args: ...) -&gt
         }
     }
     if (start_index &lt; format.len) {
-        %return self.write(format[start_index...format.len]);
+        try self.write(format[start_index...format.len]);
     }
-    %return self.flush();
+    try self.flush();
 }</code></pre>
       <p>
       This is a proof of concept implementation; the actual function in the standard library has more
@@ -3985,12 +3984,12 @@ pub fn printf(self: &amp;OutStream, comptime format: []const u8, args: ...) -&gt
       and emits a function that actually looks like this:
       </p>
       <pre><code class="zig">pub fn printf(self: &amp;OutStream, arg0: i32, arg1: []const u8) -&gt; %void {
-    %return self.write("here is a string: '");
-    %return self.printValue(arg0);
-    %return self.write("' here is a number: ");
-    %return self.printValue(arg1);
-    %return self.write("\n");
-    %return self.flush();
+    try self.write("here is a string: '");
+    try self.printValue(arg0);
+    try self.write("' here is a number: ");
+    try self.printValue(arg1);
+    try self.write("\n");
+    try self.flush();
 }</code></pre>
       <p>
       <code>printValue</code> is a function that takes a parameter of any type, and does different things depending
@@ -4985,7 +4984,7 @@ Test 1/1 safety check...reached unreachable code
     return root.main();
                     ^
 /home/andy/dev/zig/build/lib/zig/std/special/bootstrap.zig:37:13: 0x00000000002148d0 in ??? (test)
-    callMain(argc, argv, envp) %% exit(1);
+    callMain(argc, argv, envp) catch exit(1);
             ^
 /home/andy/dev/zig/build/lib/zig/std/special/bootstrap.zig:30:20: 0x0000000000214820 in ??? (test)
     callMainAndExit()
@@ -5892,7 +5891,7 @@ TypeExpr = PrefixOpExpression | "var"
 
 BlockOrExpression = Block | Expression
 
-Expression = ReturnExpression | BreakExpression | AssignmentExpression
+Expression = TryExpression | ReturnExpression | BreakExpression | AssignmentExpression
 
 AsmExpression = "asm" option("volatile") "(" String option(AsmOutput) ")"
 
@@ -5910,13 +5909,13 @@ UnwrapExpression = BoolOrExpression (UnwrapNullable | UnwrapError) | BoolOrExpre
 
 UnwrapNullable = "??" Expression
 
-UnwrapError = "%%" option("|" Symbol "|") Expression
+UnwrapError = "catch" option("|" Symbol "|") Expression
 
 AssignmentExpression = UnwrapExpression AssignmentOperator UnwrapExpression | UnwrapExpression
 
 AssignmentOperator = "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "&lt;&lt;=" | "&gt;&gt;=" | "&amp;=" | "^=" | "|=" | "*%=" | "+%=" | "-%="
 
-BlockExpression(body) = Block | IfExpression(body) | TryExpression(body) | TestExpression(body) | WhileExpression(body) | ForExpression(body) | SwitchExpression | CompTimeExpression(body)
+BlockExpression(body) = Block | IfExpression(body) | IfErrorExpression(body) | TestExpression(body) | WhileExpression(body) | ForExpression(body) | SwitchExpression | CompTimeExpression(body)
 
 CompTimeExpression(body) = "comptime" body
 
@@ -5930,7 +5929,9 @@ ForExpression(body) = option(Symbol ":") option("inline") "for" "(" Expression "
 
 BoolOrExpression = BoolAndExpression "or" BoolOrExpression | BoolAndExpression
 
-ReturnExpression = option("%") "return" option(Expression)
+ReturnExpression = "return" option(Expression)
+
+TryExpression = "try" Expression
 
 BreakExpression = "break" option(":" Symbol) option(Expression)
 
@@ -5938,7 +5939,7 @@ Defer(body) = option("%") "defer" body
 
 IfExpression(body) = "if" "(" Expression ")" body option("else" BlockExpression(body))
 
-TryExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|") body "else" "|" Symbol "|" BlockExpression(body)
+IfErrorExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|") body "else" "|" Symbol "|" BlockExpression(body)
 
 TestExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|") body option("else" BlockExpression(body))
 
@@ -5988,7 +5989,7 @@ ContainerInitBody = list(StructLiteralField, ",") | list(Expression, ",")
 
 StructLiteralField = "." Symbol "=" Expression
 
-PrefixOp = "!" | "-" | "~" | "*" | ("&amp;" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "%" | "%%" | "??" | "-%"
+PrefixOp = "!" | "-" | "~" | "*" | ("&amp;" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "%" | "%%" | "??" | "-%" | "try"
 
 PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ("error" "." Symbol) | ContainerDecl | ("continue" option(":" Symbol))
 

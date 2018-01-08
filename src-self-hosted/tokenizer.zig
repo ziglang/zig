@@ -557,22 +557,22 @@ pub const Tokenizer = struct {
             return 0;
         } else {
             // check utf8-encoded character.
-            const length = std.unicode.utf8ByteSequenceLength(c0) %% return 1;
+            const length = std.unicode.utf8ByteSequenceLength(c0) catch return 1;
             // the last 3 bytes in the buffer are guaranteed to be '\n',
             // which means we don't need to do any bounds checking here.
             const bytes = self.buffer[self.index..self.index + length];
             switch (length) {
                 2 => {
-                    const value = std.unicode.utf8Decode2(bytes) %% return length;
+                    const value = std.unicode.utf8Decode2(bytes) catch return length;
                     if (value == 0x85) return length; // U+0085 (NEL)
                 },
                 3 => {
-                    const value = std.unicode.utf8Decode3(bytes) %% return length;
+                    const value = std.unicode.utf8Decode3(bytes) catch return length;
                     if (value == 0x2028) return length; // U+2028 (LS)
                     if (value == 0x2029) return length; // U+2029 (PS)
                 },
                 4 => {
-                    _ = std.unicode.utf8Decode4(bytes) %% return length;
+                    _ = std.unicode.utf8Decode4(bytes) catch return length;
                 },
                 else => unreachable,
             }

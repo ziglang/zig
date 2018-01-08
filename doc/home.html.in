@@ -75,10 +75,10 @@
 
 pub fn main() -&gt; %void {
     // If this program is run without stdout attached, exit with an error.
-    var stdout_file = %return std.io.getStdOut();
+    var stdout_file = try std.io.getStdOut();
     // If this program encounters pipe failure when printing to stdout, exit
     // with an error.
-    %return stdout_file.write("Hello, world!\n");
+    try stdout_file.write("Hello, world!\n");
 }</code></pre>
     <p>Build this with:</p>
     <pre>zig build-exe hello.zig</pre>
@@ -105,9 +105,9 @@ export fn main(argc: c_int, argv: &amp;&amp;u8) -&gt; c_int {
     var x: T = 0;
 
     for (buf) |c| {
-        const digit = %return charToDigit(c, radix);
-        x = %return mulOverflow(T, x, radix);
-        x = %return addOverflow(T, x, digit);
+        const digit = try charToDigit(c, radix);
+        x = try mulOverflow(T, x, radix);
+        x = try addOverflow(T, x, digit);
     }
 
     return x;
@@ -142,7 +142,7 @@ pub fn addOverflow(comptime T: type, a: T, b: T) -&gt; %T {
 }
 
 fn getNumberWithDefault(s: []u8) -&gt; u32 {
-    parseUnsigned(u32, s, 10) %% 42
+    parseUnsigned(u32, s, 10) catch 42
 }
 
 fn getNumberOrCrash(s: []u8) -&gt; u32 {
@@ -150,8 +150,8 @@ fn getNumberOrCrash(s: []u8) -&gt; u32 {
 }
 
 fn addTwoTogetherOrReturnErr(a_str: []u8, b_str: []u8) -&gt; %u32 {
-    const a = parseUnsigned(u32, a_str, 10) %% |err| return err;
-    const b = parseUnsigned(u32, b_str, 10) %% |err| return err;
+    const a = parseUnsigned(u32, a_str, 10) catch |err| return err;
+    const b = parseUnsigned(u32, b_str, 10) catch |err| return err;
     return a + b;
 }</code></pre>
     <h3 id="hashmap">HashMap with Custom Allocator</h3>
@@ -234,14 +234,14 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn(key: K)-&gt
 
         pub fn put(hm: &amp;Self, key: K, value: V) -&gt; %void {
             if (hm.entries.len == 0) {
-                %return hm.initCapacity(16);
+                try hm.initCapacity(16);
             }
             hm.incrementModificationCount();
 
             // if we get too full (60%), double the capacity
             if (hm.size * 5 &gt;= hm.entries.len * 3) {
                 const old_entries = hm.entries;
-                %return hm.initCapacity(hm.entries.len * 2);
+                try hm.initCapacity(hm.entries.len * 2);
                 // dump all of the old elements into the new table
                 for (old_entries) |*old_entry| {
                     if (old_entry.used) {
@@ -296,7 +296,7 @@ pub fn HashMap(comptime K: type, comptime V: type, comptime hash: fn(key: K)-&gt
         }
 
         fn initCapacity(hm: &amp;Self, capacity: usize) -&gt; %void {
-            hm.entries = %return hm.allocator.alloc(Entry, capacity);
+            hm.entries = try hm.allocator.alloc(Entry, capacity);
             hm.size = 0;
             hm.max_distance_from_start_index = 0;
             for (hm.entries) |*entry| {
@@ -420,24 +420,24 @@ pub fn main() -&gt; %void {
         const arg = os.args.at(arg_i);
         if (mem.eql(u8, arg, "-")) {
             catted_anything = true;
-            %return cat_stream(&amp;io.stdin);
+            try cat_stream(&amp;io.stdin);
         } else if (arg[0] == '-') {
             return usage(exe);
         } else {
-            var is = io.InStream.open(arg, null) %% |err| {
+            var is = io.InStream.open(arg, null) catch |err| {
                 %%io.stderr.printf("Unable to open file: {}\n", @errorName(err));
                 return err;
             };
             defer is.close();
 
             catted_anything = true;
-            %return cat_stream(&amp;is);
+            try cat_stream(&amp;is);
         }
     }
     if (!catted_anything) {
-        %return cat_stream(&amp;io.stdin);
+        try cat_stream(&amp;io.stdin);
     }
-    %return io.stdout.flush();
+    try io.stdout.flush();
 }
 
 fn usage(exe: []const u8) -&gt; %void {
@@ -449,7 +449,7 @@ fn cat_stream(is: &amp;io.InStream) -&gt; %void {
     var buf: [1024 * 4]u8 = undefined;
 
     while (true) {
-        const bytes_read = is.read(buf[0..]) %% |err| {
+        const bytes_read = is.read(buf[0..]) catch |err| {
             %%io.stderr.printf("Unable to read from stream: {}\n", @errorName(err));
             return err;
         };
@@ -458,7 +458,7 @@ fn cat_stream(is: &amp;io.InStream) -&gt; %void {
             break;
         }
 
-        io.stdout.write(buf[0..bytes_read]) %% |err| {
+        io.stdout.write(buf[0..bytes_read]) catch |err| {
             %%io.stderr.printf("Unable to write to stdout: {}\n", @errorName(err));
             return err;
         };

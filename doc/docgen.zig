@@ -45,7 +45,7 @@ const State = enum {
 fn gen(in: &io.InStream, out: &io.OutStream) {
     var state = State.Start;
     while (true) {
-        const byte = in.readByte() %% |err| {
+        const byte = in.readByte() catch |err| {
             if (err == error.EndOfStream) {
                 return;
             }

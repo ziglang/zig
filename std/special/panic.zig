@@ -6,9 +6,13 @@
 const builtin = @import("builtin");
 
 pub coldcc fn panic(msg: []const u8) -> noreturn {
-    if (builtin.os == builtin.Os.freestanding) {
-        while (true) {}
-    } else {
-        @import("std").debug.panic("{}", msg);
+    switch (builtin.os) {
+        // TODO: fix panic in zen.
+        builtin.Os.freestanding, builtin.Os.zen => {
+            while (true) {}
+        },
+        else => {
+            @import("std").debug.panic("{}", msg);
+        },
     }
 }

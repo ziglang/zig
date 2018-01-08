@@ -250,13 +250,13 @@ pub const Builder = struct {
             %%wanted_steps.append(&self.default_step);
         } else {
             for (step_names) |step_name| {
-                const s = %return self.getTopLevelStepByName(step_name);
+                const s = try self.getTopLevelStepByName(step_name);
                 %%wanted_steps.append(s);
             }
         }
 
         for (wanted_steps.toSliceConst()) |s| {
-            %return self.makeOneStep(s);
+            try self.makeOneStep(s);
         }
     }
 
@@ -300,7 +300,7 @@ pub const Builder = struct {
         s.loop_flag = true;
 
         for (s.dependencies.toSlice()) |dep| {
-            self.makeOneStep(dep) %% |err| {
+            self.makeOneStep(dep) catch |err| {
                 if (err == error.DependencyLoopDetected) {
                     warn("  {}\n", s.name);
                 }
@@ -310,7 +310,7 @@ pub const Builder = struct {
 
         s.loop_flag = false;
 
-        %return s.make();
+        try s.make();
     }
 
     fn getTopLevelStepByName(self: &Builder, name: []const u8) -> %&Step {
@@ -573,7 +573,7 @@ pub const Builder = struct {
         child.cwd = cwd;
         child.env_map = env_map;
 
-        const term = child.spawnAndWait() %% |err| {
+        const term = child.spawnAndWait() catch |err| {
             warn("Unable to spawn {}: {}\n", argv[0], @errorName(err));
             return err;
         };
@@ -596,7 +596,7 @@ pub const Builder = struct {
     }
 
     pub fn makePath(self: &Builder, path: []const u8) -> %void {
-        os.makePath(self.allocator, self.pathFromRoot(path)) %% |err| {
+        os.makePath(self.allocator, self.pathFromRoot(path)) catch |err| {
             warn("Unable to create path {}: {}\n", path, @errorName(err));
             return err;
         };
@@ -641,11 +641,11 @@ pub const Builder = struct {
 
         const dirname = os.path.dirname(dest_path);
         const abs_source_path = self.pathFromRoot(source_path);
-        os.makePath(self.allocator, dirname) %% |err| {
+        os.makePath(self.allocator, dirname) catch |err| {
             warn("Unable to create path {}: {}\n", dirname, @errorName(err));
             return err;
         };
-        os.copyFileMode(self.allocator, abs_source_path, dest_path, mode) %% |err| {
+        os.copyFileMode(self.allocator, abs_source_path, dest_path, mode) catch |err| {
             warn("Unable to copy {} to {}: {}\n", abs_source_path, dest_path, @errorName(err));
             return err;
         };
@@ -663,7 +663,7 @@ pub const Builder = struct {
         if (builtin.environ == builtin.Environ.msvc) {
             return "cl.exe";
         } else {
-            return os.getEnvVarOwned(self.allocator, "CC") %% |err| 
+            return os.getEnvVarOwned(self.allocator, "CC") catch |err| 
                 if (err == error.EnvironmentVariableNotFound)
                     ([]const u8)("cc")
                 else
@@ -680,7 +680,7 @@ pub const Builder = struct {
                 if (os.path.isAbsolute(name)) {
                     return name;
                 }
-                const full_path = %return os.path.join(self.allocator, search_prefix, "bin",
+                const full_path = try os.path.join(self.allocator, search_prefix, "bin",
                     self.fmt("{}{}", name, exe_extension));
                 if (os.path.real(self.allocator, full_path)) |real_path| {
                     return real_path;
@@ -696,7 +696,7 @@ pub const Builder = struct {
                 }
                 var it = mem.split(PATH, []u8{os.path.delimiter});
                 while (it.next()) |path| {
-                    const full_path = %return os.path.join(self.allocator, path, self.fmt("{}{}", name, exe_extension));
+                    const full_path = try os.path.join(self.allocator, path, self.fmt("{}{}", name, exe_extension));
                     if (os.path.real(self.allocator, full_path)) |real_path| {
                         return real_path;
                     } else |_| {
@@ -710,7 +710,7 @@ pub const Builder = struct {
                 return name;
             }
             for (paths) |path| {
-                const full_path = %return os.path.join(self.allocator, path, self.fmt("{}{}", name, exe_extension));
+                const full_path = try os.path.join(self.allocator, path, self.fmt("{}{}", name, exe_extension));
                 if (os.path.real(self.allocator, full_path)) |real_path| {
                     return real_path;
                 } else |_| {
@@ -723,7 +723,7 @@ pub const Builder = struct {
 
     pub fn exec(self: &Builder, argv: []const []const u8) -> []u8 {
         const max_output_size = 100 * 1024;
-        const result = os.ChildProcess.exec(self.allocator, argv, null, null, max_output_size) %% |err| {
+        const result = os.ChildProcess.exec(self.allocator, argv, null, null, max_output_size) catch |err| {
             std.debug.panic("Unable to spawn {}: {}", argv[0], @errorName(err));
         };
         switch (result.term) {
@@ -800,7 +800,7 @@ const Target = union(enum) {
 
     pub fn isDarwin(self: &const Target) -> bool {
         return switch (self.getOs()) {
-            builtin.Os.darwin, builtin.Os.ios, builtin.Os.macosx => true,
+            builtin.Os.ios, builtin.Os.macosx => true,
             else => false,
         };
     }
@@ -1011,7 +1011,7 @@ pub const LibExeObjStep = struct {
                     self.out_filename = self.builder.fmt("lib{}.a", self.name);
                 } else {
                     switch (self.target.getOs()) {
-                        builtin.Os.darwin, builtin.Os.ios, builtin.Os.macosx => {
+                        builtin.Os.ios, builtin.Os.macosx => {
                             self.out_filename = self.builder.fmt("lib{}.{d}.{d}.{d}.dylib",
                                 self.name, self.version.major, self.version.minor, self.version.patch);
                             self.major_only_filename = self.builder.fmt("lib{}.{d}.dylib", self.name, self.version.major);
@@ -1345,10 +1345,10 @@ pub const LibExeObjStep = struct {
             }
         }
 
-        %return builder.spawnChild(zig_args.toSliceConst());
+        try builder.spawnChild(zig_args.toSliceConst());
 
         if (self.kind == Kind.Lib and !self.static and self.target.wantSharedLibSymLinks()) {
-            %return doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename,
+            try doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename,
                 self.name_only_filename);
         }
     }
@@ -1423,7 +1423,7 @@ pub const LibExeObjStep = struct {
 
                 self.appendCompileFlags(&cc_args);
 
-                %return builder.spawnChild(cc_args.toSliceConst());
+                try builder.spawnChild(cc_args.toSliceConst());
             },
             Kind.Lib => {
                 for (self.source_files.toSliceConst()) |source_file| {
@@ -1440,14 +1440,14 @@ pub const LibExeObjStep = struct {
 
                     const cache_o_src = %%os.path.join(builder.allocator, builder.cache_root, source_file);
                     const cache_o_dir = os.path.dirname(cache_o_src);
-                    %return builder.makePath(cache_o_dir);
+                    try builder.makePath(cache_o_dir);
                     const cache_o_file = builder.fmt("{}{}", cache_o_src, self.target.oFileExt());
                     %%cc_args.append("-o");
                     %%cc_args.append(builder.pathFromRoot(cache_o_file));
 
                     self.appendCompileFlags(&cc_args);
 
-                    %return builder.spawnChild(cc_args.toSliceConst());
+                    try builder.spawnChild(cc_args.toSliceConst());
 
                     %%self.object_files.append(cache_o_file);
                 }
@@ -1466,14 +1466,14 @@ pub const LibExeObjStep = struct {
                         %%cc_args.append(builder.pathFromRoot(object_file));
                     }
 
-                    %return builder.spawnChild(cc_args.toSliceConst());
+                    try builder.spawnChild(cc_args.toSliceConst());
 
                     // ranlib
                     %%cc_args.resize(0);
                     %%cc_args.append("ranlib");
                     %%cc_args.append(output_path);
 
-                    %return builder.spawnChild(cc_args.toSliceConst());
+                    try builder.spawnChild(cc_args.toSliceConst());
                 } else {
                     %%cc_args.resize(0);
                     %%cc_args.append(cc);
@@ -1537,10 +1537,10 @@ pub const LibExeObjStep = struct {
                         }
                     }
 
-                    %return builder.spawnChild(cc_args.toSliceConst());
+                    try builder.spawnChild(cc_args.toSliceConst());
 
                     if (self.target.wantSharedLibSymLinks()) {
-                        %return doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename,
+                        try doAtomicSymLinks(builder.allocator, output_path, self.major_only_filename,
                             self.name_only_filename);
                     }
                 }
@@ -1556,7 +1556,7 @@ pub const LibExeObjStep = struct {
 
                     const cache_o_src = %%os.path.join(builder.allocator, builder.cache_root, source_file);
                     const cache_o_dir = os.path.dirname(cache_o_src);
-                    %return builder.makePath(cache_o_dir);
+                    try builder.makePath(cache_o_dir);
                     const cache_o_file = builder.fmt("{}{}", cache_o_src, self.target.oFileExt());
                     %%cc_args.append("-o");
                     %%cc_args.append(builder.pathFromRoot(cache_o_file));
@@ -1570,7 +1570,7 @@ pub const LibExeObjStep = struct {
                         %%cc_args.append(builder.pathFromRoot(dir));
                     }
 
-                    %return builder.spawnChild(cc_args.toSliceConst());
+                    try builder.spawnChild(cc_args.toSliceConst());
 
                     %%self.object_files.append(cache_o_file);
                 }
@@ -1619,7 +1619,7 @@ pub const LibExeObjStep = struct {
                     }
                 }
 
-                %return builder.spawnChild(cc_args.toSliceConst());
+                try builder.spawnChild(cc_args.toSliceConst());
             },
         }
     }
@@ -1770,7 +1770,7 @@ pub const TestStep = struct {
             %%zig_args.append(lib_path);
         }
 
-        %return builder.spawnChild(zig_args.toSliceConst());
+        try builder.spawnChild(zig_args.toSliceConst());
     }
 };
 
@@ -1847,9 +1847,9 @@ const InstallArtifactStep = struct {
             LibExeObjStep.Kind.Exe => usize(0o755),
             LibExeObjStep.Kind.Lib => if (self.artifact.static) usize(0o666) else usize(0o755),
         };
-        %return builder.copyFileMode(self.artifact.getOutputPath(), self.dest_file, mode);
+        try builder.copyFileMode(self.artifact.getOutputPath(), self.dest_file, mode);
         if (self.artifact.kind == LibExeObjStep.Kind.Lib and !self.artifact.static) {
-            %return doAtomicSymLinks(builder.allocator, self.dest_file,
+            try doAtomicSymLinks(builder.allocator, self.dest_file,
                 self.artifact.major_only_filename, self.artifact.name_only_filename);
         }
     }
@@ -1872,7 +1872,7 @@ pub const InstallFileStep = struct {
 
     fn make(step: &Step) -> %void {
         const self = @fieldParentPtr(InstallFileStep, "step", step);
-        %return self.builder.copyFile(self.src_path, self.dest_path);
+        try self.builder.copyFile(self.src_path, self.dest_path);
     }
 };
 
@@ -1895,11 +1895,11 @@ pub const WriteFileStep = struct {
         const self = @fieldParentPtr(WriteFileStep, "step", step);
         const full_path = self.builder.pathFromRoot(self.file_path);
         const full_path_dir = os.path.dirname(full_path);
-        os.makePath(self.builder.allocator, full_path_dir) %% |err| {
+        os.makePath(self.builder.allocator, full_path_dir) catch |err| {
             warn("unable to make path {}: {}\n", full_path_dir, @errorName(err));
             return err;
         };
-        io.writeFile(full_path, self.data, self.builder.allocator) %% |err| {
+        io.writeFile(full_path, self.data, self.builder.allocator) catch |err| {
             warn("unable to write {}: {}\n", full_path, @errorName(err));
             return err;
         };
@@ -1942,7 +1942,7 @@ pub const RemoveDirStep = struct {
         const self = @fieldParentPtr(RemoveDirStep, "step", step);
 
         const full_path = self.builder.pathFromRoot(self.dir_path);
-        os.deleteTree(self.builder.allocator, full_path) %% |err| {
+        os.deleteTree(self.builder.allocator, full_path) catch |err| {
             warn("Unable to remove {}: {}\n", full_path, @errorName(err));
             return err;
         };
@@ -1973,7 +1973,7 @@ pub const Step = struct {
         if (self.done_flag)
             return;
 
-        %return self.makeFn(self);
+        try self.makeFn(self);
         self.done_flag = true;
     }
 
@@ -1991,13 +1991,13 @@ fn doAtomicSymLinks(allocator: &Allocator, output_path: []const u8, filename_maj
     const out_basename = os.path.basename(output_path);
     // sym link for libfoo.so.1 to libfoo.so.1.2.3
     const major_only_path = %%os.path.join(allocator, out_dir, filename_major_only);
-    os.atomicSymLink(allocator, out_basename, major_only_path) %% |err| {
+    os.atomicSymLink(allocator, out_basename, major_only_path) catch |err| {
         warn("Unable to symlink {} -> {}\n", major_only_path, out_basename);
         return err;
     };
     // sym link for libfoo.so to libfoo.so.1
     const name_only_path = %%os.path.join(allocator, out_dir, filename_name_only);
-    os.atomicSymLink(allocator, filename_major_only, name_only_path) %% |err| {
+    os.atomicSymLink(allocator, filename_major_only, name_only_path) catch |err| {
         warn("Unable to symlink {} -> {}\n", name_only_path, filename_major_only);
         return err;
     };

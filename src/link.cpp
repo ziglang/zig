@@ -334,6 +334,13 @@ static void construct_linker_job_elf(LinkJob *lj) {
     if (!g->is_native_target) {
         lj->args.append("--allow-shlib-undefined");
     }
+
+    if (g->zig_target.os == OsZen) {
+        lj->args.append("-e");
+        lj->args.append("main");
+
+        lj->args.append("--image-base=0x10000000");
+    }
 }
 
 //static bool is_target_cyg_mingw(const ZigTarget *target) {
@@ -644,7 +651,7 @@ static void get_darwin_platform(LinkJob *lj, DarwinPlatform *platform) {
         platform->kind = MacOS;
     } else if (g->mios_version_min) {
         platform->kind = IPhoneOS;
-    } else if (g->zig_target.os == ZigLLVM_MacOSX || g->zig_target.os == ZigLLVM_Darwin) {
+    } else if (g->zig_target.os == OsMacOSX) {
         platform->kind = MacOS;
         g->mmacosx_version_min = buf_create_from_str("10.10");
     } else {

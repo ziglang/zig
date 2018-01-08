@@ -225,6 +225,7 @@ static AstNode *ast_parse_return_expr(ParseContext *pc, size_t *token_index);
 static AstNode *ast_parse_grouped_expr(ParseContext *pc, size_t *token_index, bool mandatory);
 static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, bool mandatory);
 static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bool mandatory);
+static AstNode *ast_parse_try_expr(ParseContext *pc, size_t *token_index);
 
 static void ast_expect_token(ParseContext *pc, Token *token, TokenId token_id) {
     if (token->id == token_id) {
@@ -1003,23 +1004,19 @@ static AstNode *ast_parse_addr_of(ParseContext *pc, size_t *token_index) {
 
 /*
 PrefixOpExpression : PrefixOp PrefixOpExpression | SuffixOpExpression
-PrefixOp = "!" | "-" | "~" | "*" | ("&" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "%" | "%%" | "??" | "-%"
+PrefixOp = "!" | "-" | "~" | "*" | ("&amp;" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "%" | "%%" | "??" | "-%" | "try"
 */
 static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
     if (token->id == TokenIdAmpersand) {
         return ast_parse_addr_of(pc, token_index);
     }
+    if (token->id == TokenIdKeywordTry) {
+        return ast_parse_try_expr(pc, token_index);
+    }
     PrefixOp prefix_op = tok_to_prefix_op(token);
     if (prefix_op == PrefixOpInvalid) {
         return ast_parse_suffix_op_expr(pc, token_index, mandatory);
-    }
-
-    if (prefix_op == PrefixOpError || prefix_op == PrefixOpMaybe) {
-        Token *maybe_return = &pc->tokens->at(*token_index + 1);
-        if (maybe_return->id == TokenIdKeywordReturn) {
-            return ast_parse_return_expr(pc, token_index);
-        }
     }
 
     *token_index += 1;
@@ -1410,15 +1407,15 @@ static AstNode *ast_parse_if_try_test_expr(ParseContext *pc, size_t *token_index
     }
 
     if (err_name_tok != nullptr) {
-        AstNode *node = ast_create_node(pc, NodeTypeTryExpr, if_token);
-        node->data.try_expr.target_node = condition;
-        node->data.try_expr.var_is_ptr = var_is_ptr;
+        AstNode *node = ast_create_node(pc, NodeTypeIfErrorExpr, if_token);
+        node->data.if_err_expr.target_node = condition;
+        node->data.if_err_expr.var_is_ptr = var_is_ptr;
         if (var_name_tok != nullptr) {
-            node->data.try_expr.var_symbol = token_buf(var_name_tok);
+            node->data.if_err_expr.var_symbol = token_buf(var_name_tok);
         }
-        node->data.try_expr.then_node = body_node;
-        node->data.try_expr.err_symbol = token_buf(err_name_tok);
-        node->data.try_expr.else_node = else_node;
+        node->data.if_err_expr.then_node = body_node;
+        node->data.if_err_expr.err_symbol = token_buf(err_name_tok);
+        node->data.if_err_expr.else_node = else_node;
         return node;
     } else if (var_name_tok != nullptr) {
         AstNode *node = ast_create_node(pc, NodeTypeTestExpr, if_token);
@@ -1438,34 +1435,37 @@ static AstNode *ast_parse_if_try_test_expr(ParseContext *pc, size_t *token_index
 }
 
 /*
-ReturnExpression : option("%") "return" option(Expression)
+ReturnExpression : "return" option(Expression)
 */
 static AstNode *ast_parse_return_expr(ParseContext *pc, size_t *token_index) {
     Token *token = &pc->tokens->at(*token_index);
 
-    NodeType node_type;
-    ReturnKind kind;
-
-    if (token->id == TokenIdPercent) {
-        Token *next_token = &pc->tokens->at(*token_index + 1);
-        if (next_token->id == TokenIdKeywordReturn) {
-            kind = ReturnKindError;
-            node_type = NodeTypeReturnExpr;
-            *token_index += 2;
-        } else {
-            return nullptr;
-        }
-    } else if (token->id == TokenIdKeywordReturn) {
-        kind = ReturnKindUnconditional;
-        node_type = NodeTypeReturnExpr;
-        *token_index += 1;
-    } else {
+    if (token->id != TokenIdKeywordReturn) {
         return nullptr;
     }
+    *token_index += 1;
 
-    AstNode *node = ast_create_node(pc, node_type, token);
-    node->data.return_expr.kind = kind;
+    AstNode *node = ast_create_node(pc, NodeTypeReturnExpr, token);
+    node->data.return_expr.kind = ReturnKindUnconditional;
     node->data.return_expr.expr = ast_parse_expression(pc, token_index, false);
+
+    return node;
+}
+
+/*
+TryExpression : "try" Expression
+*/
+static AstNode *ast_parse_try_expr(ParseContext *pc, size_t *token_index) {
+    Token *token = &pc->tokens->at(*token_index);
+
+    if (token->id != TokenIdKeywordTry) {
+        return nullptr;
+    }
+    *token_index += 1;
+
+    AstNode *node = ast_create_node(pc, NodeTypeReturnExpr, token);
+    node->data.return_expr.kind = ReturnKindError;
+    node->data.return_expr.expr = ast_parse_expression(pc, token_index, true);
 
     return node;
 }
@@ -2041,7 +2041,7 @@ static BinOpType ast_parse_ass_op(ParseContext *pc, size_t *token_index, bool ma
 /*
 UnwrapExpression : BoolOrExpression (UnwrapMaybe | UnwrapError) | BoolOrExpression
 UnwrapMaybe : "??" BoolOrExpression
-UnwrapError : "%%" option("|" "Symbol" "|") BoolOrExpression
+UnwrapError = "catch" option("|" Symbol "|") Expression
 */
 static AstNode *ast_parse_unwrap_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     AstNode *lhs = ast_parse_bool_or_expr(pc, token_index, mandatory);
@@ -2061,7 +2061,7 @@ static AstNode *ast_parse_unwrap_expr(ParseContext *pc, size_t *token_index, boo
         node->data.bin_op_expr.op2 = rhs;
 
         return node;
-    } else if (token->id == TokenIdPercentPercent) {
+    } else if (token->id == TokenIdKeywordCatch) {
         *token_index += 1;
 
         AstNode *node = ast_create_node(pc, NodeTypeUnwrapErrorExpr, token);
@@ -2124,7 +2124,7 @@ static AstNode *ast_parse_block_or_expression(ParseContext *pc, size_t *token_in
 }
 
 /*
-Expression = ReturnExpression | BreakExpression | AssignmentExpression
+Expression = TryExpression | ReturnExpression | BreakExpression | AssignmentExpression
 */
 static AstNode *ast_parse_expression(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -2132,6 +2132,10 @@ static AstNode *ast_parse_expression(ParseContext *pc, size_t *token_index, bool
     AstNode *return_expr = ast_parse_return_expr(pc, token_index);
     if (return_expr)
         return return_expr;
+
+    AstNode *try_expr = ast_parse_try_expr(pc, token_index);
+    if (try_expr)
+        return try_expr;
 
     AstNode *break_expr = ast_parse_break_expr(pc, token_index);
     if (break_expr)
@@ -2153,10 +2157,10 @@ static bool statement_terminates_without_semicolon(AstNode *node) {
             if (node->data.if_bool_expr.else_node)
                 return statement_terminates_without_semicolon(node->data.if_bool_expr.else_node);
             return node->data.if_bool_expr.then_block->type == NodeTypeBlock;
-        case NodeTypeTryExpr:
-            if (node->data.try_expr.else_node)
-                return statement_terminates_without_semicolon(node->data.try_expr.else_node);
-            return node->data.try_expr.then_node->type == NodeTypeBlock;
+        case NodeTypeIfErrorExpr:
+            if (node->data.if_err_expr.else_node)
+                return statement_terminates_without_semicolon(node->data.if_err_expr.else_node);
+            return node->data.if_err_expr.then_node->type == NodeTypeBlock;
         case NodeTypeTestExpr:
             if (node->data.test_expr.else_node)
                 return statement_terminates_without_semicolon(node->data.test_expr.else_node);
@@ -2829,10 +2833,10 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_field(&node->data.if_bool_expr.then_block, visit, context);
             visit_field(&node->data.if_bool_expr.else_node, visit, context);
             break;
-        case NodeTypeTryExpr:
-            visit_field(&node->data.try_expr.target_node, visit, context);
-            visit_field(&node->data.try_expr.then_node, visit, context);
-            visit_field(&node->data.try_expr.else_node, visit, context);
+        case NodeTypeIfErrorExpr:
+            visit_field(&node->data.if_err_expr.target_node, visit, context);
+            visit_field(&node->data.if_err_expr.then_node, visit, context);
+            visit_field(&node->data.if_err_expr.else_node, visit, context);
             break;
         case NodeTypeTestExpr:
             visit_field(&node->data.test_expr.target_node, visit, context);

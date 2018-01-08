@@ -379,37 +379,37 @@ test "base64" {
 }
 
 fn testBase64() -> %void {
-    %return testAllApis("",       "");
-    %return testAllApis("f",      "Zg==");
-    %return testAllApis("fo",     "Zm8=");
-    %return testAllApis("foo",    "Zm9v");
-    %return testAllApis("foob",   "Zm9vYg==");
-    %return testAllApis("fooba",  "Zm9vYmE=");
-    %return testAllApis("foobar", "Zm9vYmFy");
+    try testAllApis("",       "");
+    try testAllApis("f",      "Zg==");
+    try testAllApis("fo",     "Zm8=");
+    try testAllApis("foo",    "Zm9v");
+    try testAllApis("foob",   "Zm9vYg==");
+    try testAllApis("fooba",  "Zm9vYmE=");
+    try testAllApis("foobar", "Zm9vYmFy");
 
-    %return testDecodeIgnoreSpace("",       " ");
-    %return testDecodeIgnoreSpace("f",      "Z g= =");
-    %return testDecodeIgnoreSpace("fo",     "    Zm8=");
-    %return testDecodeIgnoreSpace("foo",    "Zm9v    ");
-    %return testDecodeIgnoreSpace("foob",   "Zm9vYg = = ");
-    %return testDecodeIgnoreSpace("fooba",  "Zm9v YmE=");
-    %return testDecodeIgnoreSpace("foobar", " Z m 9 v Y m F y ");
+    try testDecodeIgnoreSpace("",       " ");
+    try testDecodeIgnoreSpace("f",      "Z g= =");
+    try testDecodeIgnoreSpace("fo",     "    Zm8=");
+    try testDecodeIgnoreSpace("foo",    "Zm9v    ");
+    try testDecodeIgnoreSpace("foob",   "Zm9vYg = = ");
+    try testDecodeIgnoreSpace("fooba",  "Zm9v YmE=");
+    try testDecodeIgnoreSpace("foobar", " Z m 9 v Y m F y ");
 
     // test getting some api errors
-    %return testError("A",    error.InvalidPadding);
-    %return testError("AA",   error.InvalidPadding);
-    %return testError("AAA",  error.InvalidPadding);
-    %return testError("A..A", error.InvalidCharacter);
-    %return testError("AA=A", error.InvalidCharacter);
-    %return testError("AA/=", error.InvalidPadding);
-    %return testError("A/==", error.InvalidPadding);
-    %return testError("A===", error.InvalidCharacter);
-    %return testError("====", error.InvalidCharacter);
+    try testError("A",    error.InvalidPadding);
+    try testError("AA",   error.InvalidPadding);
+    try testError("AAA",  error.InvalidPadding);
+    try testError("A..A", error.InvalidCharacter);
+    try testError("AA=A", error.InvalidCharacter);
+    try testError("AA/=", error.InvalidPadding);
+    try testError("A/==", error.InvalidPadding);
+    try testError("A===", error.InvalidCharacter);
+    try testError("====", error.InvalidCharacter);
 
-    %return testOutputTooSmallError("AA==");
-    %return testOutputTooSmallError("AAA=");
-    %return testOutputTooSmallError("AAAA");
-    %return testOutputTooSmallError("AAAAAA==");
+    try testOutputTooSmallError("AA==");
+    try testOutputTooSmallError("AAA=");
+    try testOutputTooSmallError("AAAA");
+    try testOutputTooSmallError("AAAAAA==");
 }
 
 fn testAllApis(expected_decoded: []const u8, expected_encoded: []const u8) -> %void {
@@ -424,8 +424,8 @@ fn testAllApis(expected_decoded: []const u8, expected_encoded: []const u8) -> %v
     // Base64Decoder
     {
         var buffer: [0x100]u8 = undefined;
-        var decoded = buffer[0..%return standard_decoder.calcSize(expected_encoded)];
-        %return standard_decoder.decode(decoded, expected_encoded);
+        var decoded = buffer[0..try standard_decoder.calcSize(expected_encoded)];
+        try standard_decoder.decode(decoded, expected_encoded);
         assert(mem.eql(u8, decoded, expected_decoded));
     }
 
@@ -434,8 +434,8 @@ fn testAllApis(expected_decoded: []const u8, expected_encoded: []const u8) -> %v
         const standard_decoder_ignore_nothing = Base64DecoderWithIgnore.init(
             standard_alphabet_chars, standard_pad_char, "");
         var buffer: [0x100]u8 = undefined;
-        var decoded = buffer[0..%return Base64DecoderWithIgnore.calcSizeUpperBound(expected_encoded.len)];
-        var written = %return standard_decoder_ignore_nothing.decode(decoded, expected_encoded);
+        var decoded = buffer[0..try Base64DecoderWithIgnore.calcSizeUpperBound(expected_encoded.len)];
+        var written = try standard_decoder_ignore_nothing.decode(decoded, expected_encoded);
         assert(written <= decoded.len);
         assert(mem.eql(u8, decoded[0..written], expected_decoded));
     }
@@ -453,8 +453,8 @@ fn testDecodeIgnoreSpace(expected_decoded: []const u8, encoded: []const u8) -> %
     const standard_decoder_ignore_space = Base64DecoderWithIgnore.init(
         standard_alphabet_chars, standard_pad_char, " ");
     var buffer: [0x100]u8 = undefined;
-    var decoded = buffer[0..%return Base64DecoderWithIgnore.calcSizeUpperBound(encoded.len)];
-    var written = %return standard_decoder_ignore_space.decode(decoded, encoded);
+    var decoded = buffer[0..try Base64DecoderWithIgnore.calcSizeUpperBound(encoded.len)];
+    var written = try standard_decoder_ignore_space.decode(decoded, encoded);
     assert(mem.eql(u8, decoded[0..written], expected_decoded));
 }
 

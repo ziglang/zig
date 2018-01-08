@@ -37,13 +37,7 @@ struct ScopeDecls;
 struct ZigWindowsSDK;
 struct Tld;
 struct TldExport;
-
-struct IrGotoItem {
-    AstNode *source_node;
-    IrBasicBlock *bb;
-    size_t instruction_index;
-    Scope *scope;
-};
+struct IrAnalyze;
 
 struct IrExecutable {
     ZigList<IrBasicBlock *> basic_block_list;
@@ -53,13 +47,13 @@ struct IrExecutable {
     size_t *backward_branch_count;
     size_t backward_branch_quota;
     bool invalid;
-    ZigList<IrGotoItem> goto_list;
     bool is_inline;
     FnTableEntry *fn_entry;
     Buf *c_import_buf;
     AstNode *source_node;
     IrExecutable *parent_exec;
     IrExecutable *source_exec;
+    IrAnalyze *analysis;
     Scope *begin_scope;
     ZigList<Tld *> tld_list;
 };
@@ -395,7 +389,7 @@ enum NodeType {
     NodeTypeArrayType,
     NodeTypeErrorType,
     NodeTypeVarLiteral,
-    NodeTypeTryExpr,
+    NodeTypeIfErrorExpr,
     NodeTypeTestExpr,
 };
 
@@ -552,7 +546,7 @@ struct AstNodeBinOpExpr {
     AstNode *op2;
 };
 
-struct AstNodeUnwrapErrorExpr {
+struct AstNodeCatchExpr {
     AstNode *op1;
     AstNode *symbol; // can be null
     AstNode *op2;
@@ -866,7 +860,7 @@ struct AstNode {
         AstNodeErrorValueDecl error_value_decl;
         AstNodeTestDecl test_decl;
         AstNodeBinOpExpr bin_op_expr;
-        AstNodeUnwrapErrorExpr unwrap_err_expr;
+        AstNodeCatchExpr unwrap_err_expr;
         AstNodePrefixOpExpr prefix_op_expr;
         AstNodeAddrOfExpr addr_of_expr;
         AstNodeFnCallExpr fn_call_expr;
@@ -874,7 +868,7 @@ struct AstNode {
         AstNodeSliceExpr slice_expr;
         AstNodeUse use;
         AstNodeIfBoolExpr if_bool_expr;
-        AstNodeTryExpr try_expr;
+        AstNodeTryExpr if_err_expr;
         AstNodeTestExpr test_expr;
         AstNodeWhileExpr while_expr;
         AstNodeForExpr for_expr;
@@ -1626,6 +1620,7 @@ struct VariableTableEntry {
     LLVMValueRef param_value_ref;
     bool shadowable;
     size_t mem_slot_index;
+    IrExecutable *owner_exec;
     size_t ref_count;
     VarLinkage linkage;
     IrInstruction *decl_instruction;

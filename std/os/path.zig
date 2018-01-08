@@ -412,13 +412,13 @@ pub fn resolveWindows(allocator: &Allocator, paths: []const []const u8) -> %[]u8
     if (have_abs_path) {
         switch (have_drive_kind) {
             WindowsPath.Kind.Drive => {
-                result = %return allocator.alloc(u8, max_size);
+                result = try allocator.alloc(u8, max_size);
 
                 mem.copy(u8, result, result_disk_designator);
                 result_index += result_disk_designator.len;
             },
             WindowsPath.Kind.NetworkShare => {
-                result = %return allocator.alloc(u8, max_size);
+                result = try allocator.alloc(u8, max_size);
                 var it = mem.split(paths[first_index], "/\\");
                 const server_name = ??it.next();
                 const other_name = ??it.next();
@@ -438,10 +438,10 @@ pub fn resolveWindows(allocator: &Allocator, paths: []const []const u8) -> %[]u8
             },
             WindowsPath.Kind.None => {
                 assert(is_windows); // resolveWindows called on non windows can't use getCwd
-                const cwd = %return os.getCwd(allocator);
+                const cwd = try os.getCwd(allocator);
                 defer allocator.free(cwd);
                 const parsed_cwd = windowsParsePath(cwd);
-                result = %return allocator.alloc(u8, max_size + parsed_cwd.disk_designator.len + 1);
+                result = try allocator.alloc(u8, max_size + parsed_cwd.disk_designator.len + 1);
                 mem.copy(u8, result, parsed_cwd.disk_designator);
                 result_index += parsed_cwd.disk_designator.len;
                 result_disk_designator = result[0..parsed_cwd.disk_designator.len];
@@ -454,10 +454,10 @@ pub fn resolveWindows(allocator: &Allocator, paths: []const []const u8) -> %[]u8
     } else {
         assert(is_windows); // resolveWindows called on non windows can't use getCwd
         // TODO call get cwd for the result_disk_designator instead of the global one
-        const cwd = %return os.getCwd(allocator);
+        const cwd = try os.getCwd(allocator);
         defer allocator.free(cwd);
 
-        result = %return allocator.alloc(u8, max_size + cwd.len + 1);
+        result = try allocator.alloc(u8, max_size + cwd.len + 1);
 
         mem.copy(u8, result, cwd);
         result_index += cwd.len;
@@ -542,12 +542,12 @@ pub fn resolvePosix(allocator: &Allocator, paths: []const []const u8) -> %[]u8 {
     var result_index: usize = 0;
 
     if (have_abs) {
-        result = %return allocator.alloc(u8, max_size);
+        result = try allocator.alloc(u8, max_size);
     } else {
         assert(!is_windows); // resolvePosix called on windows can't use getCwd
-        const cwd = %return os.getCwd(allocator);
+        const cwd = try os.getCwd(allocator);
         defer allocator.free(cwd);
-        result = %return allocator.alloc(u8, max_size + cwd.len + 1);
+        result = try allocator.alloc(u8, max_size + cwd.len + 1);
         mem.copy(u8, result, cwd);
         result_index += cwd.len;
     }
@@ -899,11 +899,11 @@ pub fn relative(allocator: &Allocator, from: []const u8, to: []const u8) -> %[]u
 }
 
 pub fn relativeWindows(allocator: &Allocator, from: []const u8, to: []const u8) -> %[]u8 {
-    const resolved_from = %return resolveWindows(allocator, [][]const u8{from});
+    const resolved_from = try resolveWindows(allocator, [][]const u8{from});
     defer allocator.free(resolved_from);
 
     var clean_up_resolved_to = true;
-    const resolved_to = %return resolveWindows(allocator, [][]const u8{to});
+    const resolved_to = try resolveWindows(allocator, [][]const u8{to});
     defer if (clean_up_resolved_to) allocator.free(resolved_to);
 
     const parsed_from = windowsParsePath(resolved_from);
@@ -942,7 +942,7 @@ pub fn relativeWindows(allocator: &Allocator, from: []const u8, to: []const u8) 
             up_count += 1;
         }
         const up_index_end = up_count * "..\\".len;
-        const result = %return allocator.alloc(u8, up_index_end + to_rest.len);
+        const result = try allocator.alloc(u8, up_index_end + to_rest.len);
         %defer allocator.free(result);
 
         var result_index: usize = 0;
@@ -972,10 +972,10 @@ pub fn relativeWindows(allocator: &Allocator, from: []const u8, to: []const u8) 
 }
 
 pub fn relativePosix(allocator: &Allocator, from: []const u8, to: []const u8) -> %[]u8 {
-    const resolved_from = %return resolvePosix(allocator, [][]const u8{from});
+    const resolved_from = try resolvePosix(allocator, [][]const u8{from});
     defer allocator.free(resolved_from);
 
-    const resolved_to = %return resolvePosix(allocator, [][]const u8{to});
+    const resolved_to = try resolvePosix(allocator, [][]const u8{to});
     defer allocator.free(resolved_to);
 
     var from_it = mem.split(resolved_from, "/");
@@ -992,7 +992,7 @@ pub fn relativePosix(allocator: &Allocator, from: []const u8, to: []const u8) ->
             up_count += 1;
         }
         const up_index_end = up_count * "../".len;
-        const result = %return allocator.alloc(u8, up_index_end + to_rest.len);
+        const result = try allocator.alloc(u8, up_index_end + to_rest.len);
         %defer allocator.free(result);
 
         var result_index: usize = 0;
@@ -1080,7 +1080,7 @@ error InputOutput;
 pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
     switch (builtin.os) {
         Os.windows => {
-            const pathname_buf = %return allocator.alloc(u8, pathname.len + 1);
+            const pathname_buf = try allocator.alloc(u8, pathname.len + 1);
             defer allocator.free(pathname_buf);
 
             mem.copy(u8, pathname_buf, pathname);
@@ -1099,10 +1099,10 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
                 };
             }
             defer os.close(h_file);
-            var buf = %return allocator.alloc(u8, 256);
+            var buf = try allocator.alloc(u8, 256);
             %defer allocator.free(buf);
             while (true) {
-                const buf_len = math.cast(windows.DWORD, buf.len) %% return error.NameTooLong;
+                const buf_len = math.cast(windows.DWORD, buf.len) catch return error.NameTooLong;
                 const result = windows.GetFinalPathNameByHandleA(h_file, buf.ptr, buf_len, windows.VOLUME_NAME_DOS);
 
                 if (result == 0) {
@@ -1116,7 +1116,7 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
                 }
 
                 if (result > buf.len) {
-                    buf = %return allocator.realloc(u8, buf, result);
+                    buf = try allocator.realloc(u8, buf, result);
                     continue;
                 }
 
@@ -1137,13 +1137,13 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
                 return allocator.shrink(u8, buf, final_len);
             }
         },
-        Os.darwin, Os.macosx, Os.ios => {
+        Os.macosx, Os.ios => {
             // TODO instead of calling the libc function here, port the implementation
             // to Zig, and then remove the NameTooLong error possibility.
-            const pathname_buf = %return allocator.alloc(u8, pathname.len + 1);
+            const pathname_buf = try allocator.alloc(u8, pathname.len + 1);
             defer allocator.free(pathname_buf);
 
-            const result_buf = %return allocator.alloc(u8, posix.PATH_MAX);
+            const result_buf = try allocator.alloc(u8, posix.PATH_MAX);
             %defer allocator.free(result_buf);
 
             mem.copy(u8, pathname_buf, pathname);
@@ -1168,7 +1168,7 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
             return allocator.shrink(u8, result_buf, cstr.len(result_buf.ptr));
         },
         Os.linux => {
-            const fd = %return os.posixOpen(pathname, posix.O_PATH|posix.O_NONBLOCK|posix.O_CLOEXEC, 0, allocator);
+            const fd = try os.posixOpen(pathname, posix.O_PATH|posix.O_NONBLOCK|posix.O_CLOEXEC, 0, allocator);
             defer os.close(fd);
 
             var buf: ["/proc/self/fd/-2147483648".len]u8 = undefined;

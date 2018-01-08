@@ -1,6 +1,18 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) {
+    cases.add("bad identifier in function with struct defined inside function which references local const",
+        \\export fn entry() {
+        \\    const BlockKind = u32;
+        \\
+        \\    const Block = struct {
+        \\        kind: BlockKind,
+        \\    };
+        \\
+        \\    bogus;
+        \\}
+    , ".tmp_source.zig:8:5: error: use of undeclared identifier 'bogus'");
+
     cases.add("labeled break not found",
         \\export fn entry() {
         \\    blah: while (true) {
@@ -1039,9 +1051,9 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\export fn entry() -> usize { return @sizeOf(@typeOf(f)); }
     , ".tmp_source.zig:3:26: error: expected signed integer type, found 'u32'");
 
-    cases.add("%return in function with non error return type",
+    cases.add("try in function with non error return type",
         \\export fn f() {
-        \\    %return something();
+        \\    try something();
         \\}
         \\fn something() -> %void { }
     ,
@@ -1276,9 +1288,9 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("return from defer expression",
         \\pub fn testTrickyDefer() -> %void {
-        \\    defer canFail() %% {};
+        \\    defer canFail() catch {};
         \\
-        \\    defer %return canFail();
+        \\    defer try canFail();
         \\
         \\    const a = maybeInt() ?? return;
         \\}

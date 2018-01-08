@@ -112,7 +112,7 @@ pub const Module = struct {
     pub fn create(allocator: &mem.Allocator, name: []const u8, root_src_path: ?[]const u8, target: &const Target,
         kind: Kind, build_mode: builtin.Mode, zig_lib_dir: []const u8, cache_dir: []const u8) -> %&Module
     {
-        var name_buffer = %return Buffer.init(allocator, name);
+        var name_buffer = try Buffer.init(allocator, name);
         %defer name_buffer.deinit();
 
         const context = c.LLVMContextCreate() ?? return error.OutOfMemory;
@@ -124,7 +124,7 @@ pub const Module = struct {
         const builder = c.LLVMCreateBuilderInContext(context) ?? return error.OutOfMemory;
         %defer c.LLVMDisposeBuilder(builder);
 
-        const module_ptr = %return allocator.create(Module);
+        const module_ptr = try allocator.create(Module);
         %defer allocator.destroy(module_ptr);
 
         *module_ptr = Module {
@@ -200,21 +200,21 @@ pub const Module = struct {
 
     pub fn build(self: &Module) -> %void {
         if (self.llvm_argv.len != 0) {
-            var c_compatible_args = %return std.cstr.NullTerminated2DArray.fromSlices(self.allocator,
+            var c_compatible_args = try std.cstr.NullTerminated2DArray.fromSlices(self.allocator,
                 [][]const []const u8 { [][]const u8{"zig (LLVM option parsing)"}, self.llvm_argv, });
             defer c_compatible_args.deinit();
             c.ZigLLVMParseCommandLineOptions(self.llvm_argv.len + 1, c_compatible_args.ptr);
         }
 
         const root_src_path = self.root_src_path ?? @panic("TODO handle null root src path");
-        const root_src_real_path = os.path.real(self.allocator, root_src_path) %% |err| {
-            %return printError("unable to get real path '{}': {}", root_src_path, err);
+        const root_src_real_path = os.path.real(self.allocator, root_src_path) catch |err| {
+            try printError("unable to get real path '{}': {}", root_src_path, err);
             return err;
         };
         %defer self.allocator.free(root_src_real_path);
 
-        const source_code = io.readFileAllocExtra(root_src_real_path, self.allocator, 3) %% |err| {
-            %return printError("unable to open '{}': {}", root_src_real_path, err);
+        const source_code = io.readFileAllocExtra(root_src_real_path, self.allocator, 3) catch |err| {
+            try printError("unable to open '{}': {}", root_src_real_path, err);
             return err;
         };
         %defer self.allocator.free(source_code);
@@ -244,16 +244,16 @@ pub const Module = struct {
         var parser = Parser.init(&tokenizer, self.allocator, root_src_real_path);
         defer parser.deinit();
 
-        const root_node = %return parser.parse();
+        const root_node = try parser.parse();
         defer parser.freeAst(root_node);
 
-        var stderr_file = %return std.io.getStdErr();
+        var stderr_file = try std.io.getStdErr();
         var stderr_file_out_stream = std.io.FileOutStream.init(&stderr_file);
         const out_stream = &stderr_file_out_stream.stream;
-        %return parser.renderAst(out_stream, root_node);
+        try parser.renderAst(out_stream, root_node);
 
         warn("====fmt:====\n");
-        %return parser.renderSource(out_stream, root_node);
+        try parser.renderSource(out_stream, root_node);
 
         warn("====ir:====\n");
         warn("TODO\n\n");
@@ -282,14 +282,14 @@ pub const Module = struct {
             }
         }
 
-        const link_lib = %return self.allocator.create(LinkLib);
+        const link_lib = try self.allocator.create(LinkLib);
         *link_lib = LinkLib {
             .name = name,
             .path = null,
             .provided_explicitly = provided_explicitly,
             .symbols = ArrayList([]u8).init(self.allocator),
         };
-        %return self.link_libs_list.append(link_lib);
+        try self.link_libs_list.append(link_lib);
         if (is_libc) {
             self.libc_link_lib = link_lib;
         }
@@ -298,8 +298,8 @@ pub const Module = struct {
 };
 
 fn printError(comptime format: []const u8, args: ...) -> %void {
-    var stderr_file = %return std.io.getStdErr();
+    var stderr_file = try std.io.getStdErr();
     var stderr_file_out_stream = std.io.FileOutStream.init(&stderr_file);
     const out_stream = &stderr_file_out_stream.stream;
-    %return out_stream.print(format, args);
+    try out_stream.print(format, args);
 }

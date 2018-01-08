@@ -43,7 +43,7 @@ fn testCStrFnsImpl() {
 /// have a null byte after it.
 /// Caller owns the returned memory.
 pub fn addNullByte(allocator: &mem.Allocator, slice: []const u8) -> %[]u8 {
-    const result = %return allocator.alloc(u8, slice.len + 1);
+    const result = try allocator.alloc(u8, slice.len + 1);
     mem.copy(u8, result, slice);
     result[slice.len] = 0;
     return result;
@@ -70,7 +70,7 @@ pub const NullTerminated2DArray = struct {
         const index_size = @sizeOf(usize) * new_len; // size of the ptrs
         byte_count += index_size;
 
-        const buf = %return allocator.alignedAlloc(u8, @alignOf(?&u8), byte_count);
+        const buf = try allocator.alignedAlloc(u8, @alignOf(?&u8), byte_count);
         %defer allocator.free(buf);
 
         var write_index = index_size;

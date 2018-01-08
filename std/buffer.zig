@@ -13,7 +13,7 @@ pub const Buffer = struct {
 
     /// Must deinitialize with deinit.
     pub fn init(allocator: &Allocator, m: []const u8) -> %Buffer {
-        var self = %return initSize(allocator, m.len);
+        var self = try initSize(allocator, m.len);
         mem.copy(u8, self.list.items, m);
         return self;
     }
@@ -21,7 +21,7 @@ pub const Buffer = struct {
     /// Must deinitialize with deinit.
     pub fn initSize(allocator: &Allocator, size: usize) -> %Buffer {
         var self = initNull(allocator);
-        %return self.resize(size);
+        try self.resize(size);
         return self;
     }
 
@@ -81,7 +81,7 @@ pub const Buffer = struct {
     }
 
     pub fn resize(self: &Buffer, new_len: usize) -> %void {
-        %return self.list.resize(new_len + 1);
+        try self.list.resize(new_len + 1);
         self.list.items[self.len()] = 0;
     }
 
@@ -95,7 +95,7 @@ pub const Buffer = struct {
 
     pub fn append(self: &Buffer, m: []const u8) -> %void {
         const old_len = self.len();
-        %return self.resize(old_len + m.len);
+        try self.resize(old_len + m.len);
         mem.copy(u8, self.list.toSlice()[old_len..], m);
     }
 
@@ -113,7 +113,7 @@ pub const Buffer = struct {
     pub fn appendByteNTimes(self: &Buffer, byte: u8, count: usize) -> %void {
         var prev_size: usize = self.len();
         const new_size = prev_size + count;
-        %return self.resize(new_size);
+        try self.resize(new_size);
 
         var i: usize = prev_size;
         while (i < new_size) : (i += 1) {
@@ -138,7 +138,7 @@ pub const Buffer = struct {
     }
 
     pub fn replaceContents(self: &const Buffer, m: []const u8) -> %void {
-        %return self.resize(m.len);
+        try self.resize(m.len);
         mem.copy(u8, self.list.toSlice(), m);
     }
 

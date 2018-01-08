@@ -38,7 +38,7 @@ pub const Target = union(enum) {
 
     pub fn isDarwin(self: &const Target) -> bool {
         return switch (self.getOs()) {
-            builtin.Os.darwin, builtin.Os.ios, builtin.Os.macosx => true,
+            builtin.Os.ios, builtin.Os.macosx => true,
             else => false,
         };
     }
