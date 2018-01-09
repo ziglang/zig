@@ -19,7 +19,7 @@ error Utf8EncodesSurrogateHalf;
 error Utf8CodepointTooLarge;
 
 /// Decodes the UTF-8 codepoint encoded in the given slice of bytes.
-/// bytes.len must be equal to %%utf8ByteSequenceLength(bytes[0]).
+/// bytes.len must be equal to utf8ByteSequenceLength(bytes[0]) catch unreachable.
 /// If you already know the length at comptime, you can call one of
 /// utf8Decode2,utf8Decode3,utf8Decode4 directly instead of this function.
 pub fn utf8Decode(bytes: []const u8) -> %u32 {
@@ -158,7 +158,7 @@ fn testError(bytes: []const u8, expected_err: error) {
 }
 
 fn testValid(bytes: []const u8, expected_codepoint: u32) {
-    std.debug.assert(%%testDecode(bytes) == expected_codepoint);
+    std.debug.assert((testDecode(bytes) catch unreachable) == expected_codepoint);
 }
 
 fn testDecode(bytes: []const u8) -> %u32 {

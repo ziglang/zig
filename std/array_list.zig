@@ -116,7 +116,7 @@ test "basic ArrayList test" {
     defer list.deinit();
 
     {var i: usize = 0; while (i < 10) : (i += 1) {
-        %%list.append(i32(i + 1));
+        list.append(i32(i + 1)) catch unreachable;
     }}
 
     {var i: usize = 0; while (i < 10) : (i += 1) {
@@ -126,13 +126,13 @@ test "basic ArrayList test" {
     assert(list.pop() == 10);
     assert(list.len == 9);
 
-    %%list.appendSlice([]const i32 { 1, 2, 3 });
+    list.appendSlice([]const i32 { 1, 2, 3 }) catch unreachable;
     assert(list.len == 12);
     assert(list.pop() == 3);
     assert(list.pop() == 2);
     assert(list.pop() == 1);
     assert(list.len == 9);
 
-    %%list.appendSlice([]const i32 {});
+    list.appendSlice([]const i32 {}) catch unreachable;
     assert(list.len == 9);
 }

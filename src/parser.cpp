@@ -956,7 +956,6 @@ static PrefixOp tok_to_prefix_op(Token *token) {
         case TokenIdStar: return PrefixOpDereference;
         case TokenIdMaybe: return PrefixOpMaybe;
         case TokenIdPercent: return PrefixOpError;
-        case TokenIdPercentPercent: return PrefixOpUnwrapError;
         case TokenIdDoubleQuestion: return PrefixOpUnwrapMaybe;
         case TokenIdStarStar: return PrefixOpDereference;
         default: return PrefixOpInvalid;

@@ -101,7 +101,6 @@ enum TokenId {
     TokenIdNumberSign,
     TokenIdPercent,
     TokenIdPercentDot,
-    TokenIdPercentPercent,
     TokenIdPlus,
     TokenIdPlusEq,
     TokenIdPlusPercent,

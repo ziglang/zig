@@ -2587,7 +2587,7 @@ TypeTableEntry *get_test_fn_type(CodeGen *g) {
         return g->test_fn_type;
 
     FnTypeId fn_type_id = {0};
-    fn_type_id.return_type = g->builtin_types.entry_void;
+    fn_type_id.return_type = get_error_type(g,  g->builtin_types.entry_void);
     g->test_fn_type = get_fn_type(g, &fn_type_id);
     return g->test_fn_type;
 }

@@ -26,7 +26,7 @@ test "unions embedded in aggregate types" {
         Value.Array => |arr| assert(arr[4] == 3),
         else => unreachable,
     }
-    switch((%%err).val1) {
+    switch((err catch unreachable).val1) {
         Value.Int => |x| assert(x == 1234),
         else => unreachable,
     }

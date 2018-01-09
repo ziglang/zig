@@ -68,7 +68,6 @@ static const char *prefix_op_str(PrefixOp prefix_op) {
         case PrefixOpDereference: return "*";
         case PrefixOpMaybe: return "?";
         case PrefixOpError: return "%";
-        case PrefixOpUnwrapError: return "catch";
         case PrefixOpUnwrapMaybe: return "??";
     }
     zig_unreachable();

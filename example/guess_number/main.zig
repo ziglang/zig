@@ -15,7 +15,10 @@ pub fn main() -> %void {
     try stdout.print("Welcome to the Guess Number Game in Zig.\n");
 
     var seed_bytes: [@sizeOf(usize)]u8 = undefined;
-    %%os.getRandomBytes(seed_bytes[0..]);
+    os.getRandomBytes(seed_bytes[0..]) catch |err| {
+        std.debug.warn("unable to seed random number generator: {}", err);
+        return err;
+    };
     const seed = std.mem.readInt(seed_bytes, usize, builtin.Endian.Big);
     var rand = Rand.init(seed);
 

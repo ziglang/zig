@@ -74,7 +74,7 @@ pub const Rand = struct {
                 return T(r.range(uint, uint(start), uint(end)));
             } else if (start < 0 and end < 0) {
                 // Can't overflow because the range is over signed ints
-                return %%math.negateCast(r.range(uint, math.absCast(end), math.absCast(start)) + 1);
+                return math.negateCast(r.range(uint, math.absCast(end), math.absCast(start)) + 1) catch unreachable;
             } else if (start < 0 and end >= 0) {
                 const end_uint = uint(end);
                 const total_range = math.absCast(start) + end_uint;
@@ -85,7 +85,7 @@ pub const Rand = struct {
                     break :x start;
                 } else x: {
                     // Can't overflow because the range is over signed ints
-                    break :x %%math.negateCast(value - end_uint);
+                    break :x math.negateCast(value - end_uint) catch unreachable;
                 };
                 return result;
             } else {

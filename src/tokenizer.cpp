@@ -816,11 +816,6 @@ void tokenize(Buf *buf, Tokenization *out) {
                         end_token(&t);
                         t.state = TokenizeStateStart;
                         break;
-                    case '%':
-                        set_token_id(&t, t.cur_tok, TokenIdPercentPercent);
-                        end_token(&t);
-                        t.state = TokenizeStateStart;
-                        break;
                     default:
                         t.pos -= 1;
                         end_token(&t);
@@ -1564,7 +1559,6 @@ const char * token_name(TokenId id) {
         case TokenIdNumberSign: return "#";
         case TokenIdPercent: return "%";
         case TokenIdPercentDot: return "%.";
-        case TokenIdPercentPercent: return "%%";
         case TokenIdPlus: return "+";
         case TokenIdPlusEq: return "+=";
         case TokenIdPlusPercent: return "+%";

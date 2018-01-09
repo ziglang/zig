@@ -22,7 +22,7 @@ fn doThing(form_id: u64) -> %FormValue {
 }
 
 test "switch prong returns error enum" {
-    switch (%%doThing(17)) {
+    switch (doThing(17) catch unreachable) {
         FormValue.Address => |payload| { assert(payload == 1); },
         else => unreachable,
     }

@@ -48,7 +48,7 @@ fn runContinueAndBreakTest() {
 }
 
 test "return with implicit cast from while loop" {
-    %%returnWithImplicitCastFromWhileLoopTest();
+    returnWithImplicitCastFromWhileLoopTest() catch unreachable;
 }
 fn returnWithImplicitCastFromWhileLoopTest() -> %void {
     while (true) {

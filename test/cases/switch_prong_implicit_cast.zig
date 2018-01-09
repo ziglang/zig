@@ -16,7 +16,7 @@ fn foo(id: u64) -> %FormValue {
 }
 
 test "switch prong implicit cast" {
-    const result = switch (%%foo(2)) {
+    const result = switch (foo(2) catch unreachable) {
         FormValue.One => false,
         FormValue.Two => |x| x,
     };

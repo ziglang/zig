@@ -18,14 +18,14 @@ pub fn build(b: &Builder) {
     var docgen_cmd = b.addCommand(null, b.env_map, [][]const u8 {
         docgen_exe.getOutputPath(),
         "doc/langref.html.in",
-        %%os.path.join(b.allocator, b.cache_root, "langref.html"),
+        os.path.join(b.allocator, b.cache_root, "langref.html") catch unreachable,
     });
     docgen_cmd.step.dependOn(&docgen_exe.step);
 
     var docgen_home_cmd = b.addCommand(null, b.env_map, [][]const u8 {
         docgen_exe.getOutputPath(),
         "doc/home.html.in",
-        %%os.path.join(b.allocator, b.cache_root, "home.html"),
+        os.path.join(b.allocator, b.cache_root, "home.html") catch unreachable,
     });
     docgen_home_cmd.step.dependOn(&docgen_exe.step);
 
@@ -47,7 +47,7 @@ pub fn build(b: &Builder) {
     const c_header_files = nextValue(&index, build_info);
     const dia_guids_lib = nextValue(&index, build_info);
 
-    const llvm = findLLVM(b, llvm_config_exe);
+    const llvm = findLLVM(b, llvm_config_exe) catch unreachable;
 
     var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
     exe.setBuildMode(mode);
@@ -143,8 +143,8 @@ fn dependOnLib(lib_exe_obj: &std.build.LibExeObjStep, dep: &const LibraryDep) {
 
 fn addCppLib(b: &Builder, lib_exe_obj: &std.build.LibExeObjStep, cmake_binary_dir: []const u8, lib_name: []const u8) {
     const lib_prefix = if (lib_exe_obj.target.isWindows()) "" else "lib";
-    lib_exe_obj.addObjectFile(%%os.path.join(b.allocator, cmake_binary_dir, "zig_cpp",
-        b.fmt("{}{}{}", lib_prefix, lib_name, lib_exe_obj.target.libFileExt())));
+    lib_exe_obj.addObjectFile(os.path.join(b.allocator, cmake_binary_dir, "zig_cpp",
+        b.fmt("{}{}{}", lib_prefix, lib_name, lib_exe_obj.target.libFileExt())) catch unreachable);
 }
 
 const LibraryDep = struct {
@@ -154,7 +154,7 @@ const LibraryDep = struct {
     includes: ArrayList([]const u8),
 };
 
-fn findLLVM(b: &Builder, llvm_config_exe: []const u8) -> LibraryDep {
+fn findLLVM(b: &Builder, llvm_config_exe: []const u8) -> %LibraryDep {
     const libs_output = b.exec([][]const u8{llvm_config_exe, "--libs", "--system-libs"});
     const includes_output = b.exec([][]const u8{llvm_config_exe, "--includedir"});
     const libdir_output = b.exec([][]const u8{llvm_config_exe, "--libdir"});
@@ -169,12 +169,12 @@ fn findLLVM(b: &Builder, llvm_config_exe: []const u8) -> LibraryDep {
         var it = mem.split(libs_output, " \r\n");
         while (it.next()) |lib_arg| {
             if (mem.startsWith(u8, lib_arg, "-l")) {
-                %%result.system_libs.append(lib_arg[2..]);
+                try result.system_libs.append(lib_arg[2..]);
             } else {
                 if (os.path.isAbsolute(lib_arg)) {
-                    %%result.libs.append(lib_arg);
+                    try result.libs.append(lib_arg);
                 } else {
-                    %%result.system_libs.append(lib_arg);
+                    try result.system_libs.append(lib_arg);
                 }
             }
         }
@@ -183,9 +183,9 @@ fn findLLVM(b: &Builder, llvm_config_exe: []const u8) -> LibraryDep {
         var it = mem.split(includes_output, " \r\n");
         while (it.next()) |include_arg| {
             if (mem.startsWith(u8, include_arg, "-I")) {
-                %%result.includes.append(include_arg[2..]);
+                try result.includes.append(include_arg[2..]);
             } else {
-                %%result.includes.append(include_arg);
+                try result.includes.append(include_arg);
             }
         }
     }
@@ -193,9 +193,9 @@ fn findLLVM(b: &Builder, llvm_config_exe: []const u8) -> LibraryDep {
         var it = mem.split(libdir_output, " \r\n");
         while (it.next()) |libdir| {
             if (mem.startsWith(u8, libdir, "-L")) {
-                %%result.libdirs.append(libdir[2..]);
+                try result.libdirs.append(libdir[2..]);
             } else {
-                %%result.libdirs.append(libdir);
+                try result.libdirs.append(libdir);
             }
         }
     }
@@ -205,8 +205,8 @@ fn findLLVM(b: &Builder, llvm_config_exe: []const u8) -> LibraryDep {
 pub fn installStdLib(b: &Builder, stdlib_files: []const u8) {
     var it = mem.split(stdlib_files, ";");
     while (it.next()) |stdlib_file| {
-        const src_path = %%os.path.join(b.allocator, "std", stdlib_file);
-        const dest_path = %%os.path.join(b.allocator, "lib", "zig", "std", stdlib_file);
+        const src_path = os.path.join(b.allocator, "std", stdlib_file) catch unreachable;
+        const dest_path = os.path.join(b.allocator, "lib", "zig", "std", stdlib_file) catch unreachable;
         b.installFile(src_path, dest_path);
     }
 }
@@ -214,8 +214,8 @@ pub fn installStdLib(b: &Builder, stdlib_files: []const u8) {
 pub fn installCHeaders(b: &Builder, c_header_files: []const u8) {
     var it = mem.split(c_header_files, ";");
     while (it.next()) |c_header_file| {
-        const src_path = %%os.path.join(b.allocator, "c_headers", c_header_file);
-        const dest_path = %%os.path.join(b.allocator, "lib", "zig", "include", c_header_file);
+        const src_path = os.path.join(b.allocator, "c_headers", c_header_file) catch unreachable;
+        const dest_path = os.path.join(b.allocator, "lib", "zig", "include", c_header_file) catch unreachable;
         b.installFile(src_path, dest_path);
     }
 }

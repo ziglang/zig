@@ -4,7 +4,7 @@ const os = std.os;
 
 pub fn main() -> %void {
     // TODO use a more general purpose allocator here
-    var inc_allocator = %%std.heap.IncrementingAllocator.init(5 * 1024 * 1024);
+    var inc_allocator = try std.heap.IncrementingAllocator.init(5 * 1024 * 1024);
     defer inc_allocator.deinit();
     const allocator = &inc_allocator.allocator;
 
@@ -12,16 +12,16 @@ pub fn main() -> %void {
 
     if (!args_it.skip()) @panic("expected self arg");
 
-    const in_file_name = %%(args_it.next(allocator) ?? @panic("expected input arg"));
+    const in_file_name = try (args_it.next(allocator) ?? @panic("expected input arg"));
     defer allocator.free(in_file_name);
 
-    const out_file_name = %%(args_it.next(allocator) ?? @panic("expected output arg"));
+    const out_file_name = try (args_it.next(allocator) ?? @panic("expected output arg"));
     defer allocator.free(out_file_name);
 
-    var in_file = %%io.File.openRead(in_file_name, allocator);
+    var in_file = try io.File.openRead(in_file_name, allocator);
     defer in_file.close();
 
-    var out_file = %%io.File.openWrite(out_file_name, allocator);
+    var out_file = try io.File.openWrite(out_file_name, allocator);
     defer out_file.close();
 
     var file_in_stream = io.FileInStream.init(&in_file);
@@ -31,7 +31,7 @@ pub fn main() -> %void {
     var buffered_out_stream = io.BufferedOutStream.init(&file_out_stream.stream);
 
     gen(&buffered_in_stream.stream, &buffered_out_stream.stream);
-    %%buffered_out_stream.flush();
+    try buffered_out_stream.flush();
 
 }
 
@@ -54,7 +54,7 @@ fn gen(in: &io.InStream, out: &io.OutStream) {
         switch (state) {
             State.Start => switch (byte) {
                 else => {
-                    %%out.writeByte(byte);
+                    out.writeByte(byte) catch unreachable;
                 },
             },
             State.Derp => unreachable,

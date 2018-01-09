@@ -145,14 +145,14 @@ test "c_allocator" {
 
 test "IncrementingAllocator" {
     const total_bytes = 100 * 1024 * 1024;
-    var inc_allocator = %%IncrementingAllocator.init(total_bytes);
+    var inc_allocator = try IncrementingAllocator.init(total_bytes);
     defer inc_allocator.deinit();
 
     const allocator = &inc_allocator.allocator;
-    const slice = %%allocator.alloc(&i32, 100);
+    const slice = try allocator.alloc(&i32, 100);
 
     for (slice) |*item, i| {
-        *item = %%allocator.create(i32);
+        *item = try allocator.create(i32);
         **item = i32(i);
     }
 

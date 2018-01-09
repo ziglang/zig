@@ -14,7 +14,7 @@ fn runSomeErrorDefers(x: bool) -> %bool {
 }
 
 test "mixing normal and error defers" {
-    assert(%%runSomeErrorDefers(true));
+    assert(runSomeErrorDefers(true) catch unreachable);
     assert(result[0] == 'c');
     assert(result[1] == 'a');
 
