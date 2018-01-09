@@ -3,6 +3,8 @@ const linux = std.os.linux;
 const assert = std.debug.assert;
 const endian = std.endian;
 
+// TODO don't trust this file, it bit rotted. start over
+
 error SigInterrupt;
 error Io;
 error TimedOut;
@@ -67,23 +69,8 @@ const Address = struct {
 pub fn lookup(hostname: []const u8, out_addrs: []Address) -> %[]Address {
     if (hostname.len == 0) {
 
-//
-//		if (family != AF_INET6)
-//			buf[cnt++] = (struct address){ .family = AF_INET, .addr = { 127,0,0,1 } };
-//		if (family != AF_INET)
-//			buf[cnt++] = (struct address){ .family = AF_INET6, .addr = { [15] = 1 } };
-//
         unreachable; // TODO
     }
-
-    // TODO
-    //switch (parseIpLiteral(hostname)) {
-    //    Ok => |addr| {
-    //        out_addrs[0] = addr;
-    //        return out_addrs[0..1];
-    //    },
-    //    else => {},
-    //};
 
     unreachable; // TODO
 }
@@ -142,23 +129,6 @@ pub fn connect(hostname: []const u8, port: u16) -> %Connection {
 error InvalidIpLiteral;
 
 pub fn parseIpLiteral(buf: []const u8) -> %Address {
-    // TODO
-    //switch (parseIp4(buf)) {
-    //    Ok => |ip4| {
-    //        var result: Address = undefined;
-    //        @memcpy(&result.addr[0], (&u8)(&ip4), @sizeOf(u32));
-    //        result.family = linux.AF_INET;
-    //        result.scope_id = 0;
-    //        return result;
-    //    },
-    //    else => {},
-    //}
-    //switch (parseIp6(buf)) {
-    //    Ok => |addr| {
-    //        return addr;
-    //    },
-    //    else => {},
-    //}
 
     return error.InvalidIpLiteral;
 }
@@ -249,21 +219,6 @@ fn parseIp6(buf: []const u8) -> %Address {
         return error.Incomplete;
     }
 
-//
-//	if (p) {
-//		if (isdigit(*++p)) scopeid = strtoull(p, &z, 10);
-//		else z = p-1;
-//		if (*z) {
-//			if (!IN6_IS_ADDR_LINKLOCAL(&a6) and
-//			    !IN6_IS_ADDR_MC_LINKLOCAL(&a6))
-//				return EAI_NONAME;
-//			scopeid = if_nametoindex(p);
-//			if (!scopeid) return EAI_NONAME;
-//		}
-//		if (scopeid > UINT_MAX) return EAI_NONAME;
-//	}
-//
-
     if (scope_id) {
         return result;
     }
@@ -316,43 +271,3 @@ fn parseIp4(buf: []const u8) -> %u32 {
 
     return error.Incomplete;
 }
-
-
-// TODO
-//fn testParseIp4() {
-//    @setFnTest(this);
-//
-//    assert(%%parseIp4("127.0.0.1") == endian.swapIfLe(u32, 0x7f000001));
-//    switch (parseIp4("256.0.0.1")) { Overflow => {}, else => unreachable, }
-//    switch (parseIp4("x.0.0.1")) { InvalidChar => {}, else => unreachable, }
-//    switch (parseIp4("127.0.0.1.1")) { JunkAtEnd => {}, else => unreachable, }
-//    switch (parseIp4("127.0.0.")) { Incomplete => {}, else => unreachable, }
-//    switch (parseIp4("100..0.1")) { InvalidChar => {}, else => unreachable, }
-//}
-//
-//fn testParseIp6() {
-//    @setFnTest(this);
-//
-//    {
-//        const addr = %%parseIp6("FF01:0:0:0:0:0:0:FB");
-//        assert(addr.addr[0] == 0xff);
-//        assert(addr.addr[1] == 0x01);
-//        assert(addr.addr[2] == 0x00);
-//    }
-//}
-//
-//fn testLookupSimpleIp() {
-//    @setFnTest(this);
-//
-//    {
-//        var addrs_buf: [5]Address = undefined;
-//        const addrs = %%lookup("192.168.1.1", addrs_buf);
-//        assert(addrs.len == 1);
-//        const addr = addrs[0];
-//        assert(addr.family == linux.AF_INET);
-//        assert(addr.addr[0] == 192);
-//        assert(addr.addr[1] == 168);
-//        assert(addr.addr[2] == 1);
-//        assert(addr.addr[3] == 1);
-//    }
-//}

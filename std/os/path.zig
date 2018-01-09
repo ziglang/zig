@@ -49,23 +49,23 @@ pub fn joinPosix(allocator: &Allocator, paths: ...) -> %[]u8 {
 }
 
 test "os.path.join" {
-    assert(mem.eql(u8, %%joinWindows(debug.global_allocator, "c:\\a\\b", "c"), "c:\\a\\b\\c"));
-    assert(mem.eql(u8, %%joinWindows(debug.global_allocator, "c:\\a\\b\\", "c"), "c:\\a\\b\\c"));
+    assert(mem.eql(u8, try joinWindows(debug.global_allocator, "c:\\a\\b", "c"), "c:\\a\\b\\c"));
+    assert(mem.eql(u8, try joinWindows(debug.global_allocator, "c:\\a\\b\\", "c"), "c:\\a\\b\\c"));
 
-    assert(mem.eql(u8, %%joinWindows(debug.global_allocator, "c:\\", "a", "b\\", "c"), "c:\\a\\b\\c"));
-    assert(mem.eql(u8, %%joinWindows(debug.global_allocator, "c:\\a\\", "b\\", "c"), "c:\\a\\b\\c"));
+    assert(mem.eql(u8, try joinWindows(debug.global_allocator, "c:\\", "a", "b\\", "c"), "c:\\a\\b\\c"));
+    assert(mem.eql(u8, try joinWindows(debug.global_allocator, "c:\\a\\", "b\\", "c"), "c:\\a\\b\\c"));
 
-    assert(mem.eql(u8, %%joinWindows(debug.global_allocator,
+    assert(mem.eql(u8, try joinWindows(debug.global_allocator,
         "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std", "io.zig"),
         "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std\\io.zig"));
 
-    assert(mem.eql(u8, %%joinPosix(debug.global_allocator, "/a/b", "c"), "/a/b/c"));
-    assert(mem.eql(u8, %%joinPosix(debug.global_allocator, "/a/b/", "c"), "/a/b/c"));
+    assert(mem.eql(u8, try joinPosix(debug.global_allocator, "/a/b", "c"), "/a/b/c"));
+    assert(mem.eql(u8, try joinPosix(debug.global_allocator, "/a/b/", "c"), "/a/b/c"));
 
-    assert(mem.eql(u8, %%joinPosix(debug.global_allocator, "/", "a", "b/", "c"), "/a/b/c"));
-    assert(mem.eql(u8, %%joinPosix(debug.global_allocator, "/a/", "b/", "c"), "/a/b/c"));
+    assert(mem.eql(u8, try joinPosix(debug.global_allocator, "/", "a", "b/", "c"), "/a/b/c"));
+    assert(mem.eql(u8, try joinPosix(debug.global_allocator, "/a/", "b/", "c"), "/a/b/c"));
 
-    assert(mem.eql(u8, %%joinPosix(debug.global_allocator, "/home/andy/dev/zig/build/lib/zig/std", "io.zig"),
+    assert(mem.eql(u8, try joinPosix(debug.global_allocator, "/home/andy/dev/zig/build/lib/zig/std", "io.zig"),
         "/home/andy/dev/zig/build/lib/zig/std/io.zig"));
 }
 
@@ -584,7 +584,7 @@ pub fn resolvePosix(allocator: &Allocator, paths: []const []const u8) -> %[]u8 {
 }
 
 test "os.path.resolve" {
-    const cwd = %%os.getCwd(debug.global_allocator);
+    const cwd = try os.getCwd(debug.global_allocator);
     if (is_windows) {
         if (windowsParsePath(cwd).kind == WindowsPath.Kind.Drive) {
             cwd[0] = asciiUpper(cwd[0]);
@@ -598,11 +598,11 @@ test "os.path.resolve" {
 
 test "os.path.resolveWindows" {
     if (is_windows) {
-        const cwd = %%os.getCwd(debug.global_allocator);
+        const cwd = try os.getCwd(debug.global_allocator);
         const parsed_cwd = windowsParsePath(cwd);
         {
             const result = testResolveWindows([][]const u8{"/usr/local", "lib\\zig\\std\\array_list.zig"});
-            const expected = %%join(debug.global_allocator,
+            const expected = try join(debug.global_allocator,
                 parsed_cwd.disk_designator, "usr\\local\\lib\\zig\\std\\array_list.zig");
             if (parsed_cwd.kind == WindowsPath.Kind.Drive) {
                 expected[0] = asciiUpper(parsed_cwd.disk_designator[0]);
@@ -611,7 +611,7 @@ test "os.path.resolveWindows" {
         }
         {
             const result = testResolveWindows([][]const u8{"usr/local", "lib\\zig"});
-            const expected = %%join(debug.global_allocator, cwd, "usr\\local\\lib\\zig");
+            const expected = try join(debug.global_allocator, cwd, "usr\\local\\lib\\zig");
             if (parsed_cwd.kind == WindowsPath.Kind.Drive) {
                 expected[0] = asciiUpper(parsed_cwd.disk_designator[0]);
             }
@@ -649,11 +649,11 @@ test "os.path.resolvePosix" {
 }
 
 fn testResolveWindows(paths: []const []const u8) -> []u8 {
-    return %%resolveWindows(debug.global_allocator, paths);
+    return resolveWindows(debug.global_allocator, paths) catch unreachable;
 }
 
 fn testResolvePosix(paths: []const []const u8) -> []u8 {
-    return %%resolvePosix(debug.global_allocator, paths);
+    return resolvePosix(debug.global_allocator, paths) catch unreachable;
 }
 
 pub fn dirname(path: []const u8) -> []const u8 {
@@ -1057,12 +1057,12 @@ test "os.path.relative" {
 }
 
 fn testRelativePosix(from: []const u8, to: []const u8, expected_output: []const u8) {
-    const result = %%relativePosix(debug.global_allocator, from, to);
+    const result = relativePosix(debug.global_allocator, from, to) catch unreachable;
     assert(mem.eql(u8, result, expected_output));
 }
 
 fn testRelativeWindows(from: []const u8, to: []const u8, expected_output: []const u8) {
-    const result = %%relativeWindows(debug.global_allocator, from, to);
+    const result = relativeWindows(debug.global_allocator, from, to) catch unreachable;
     assert(mem.eql(u8, result, expected_output));
 }
 
@@ -1172,7 +1172,7 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
             defer os.close(fd);
 
             var buf: ["/proc/self/fd/-2147483648".len]u8 = undefined;
-            const proc_path = %%fmt.bufPrint(buf[0..], "/proc/self/fd/{}", fd);
+            const proc_path = fmt.bufPrint(buf[0..], "/proc/self/fd/{}", fd) catch unreachable;
 
             return os.readLink(allocator, proc_path);
         },

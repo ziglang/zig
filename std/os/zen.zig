@@ -9,15 +9,22 @@ pub const MBOX_TERMINAL = 1;
 ////  Syscall numbers  ////
 ///////////////////////////
 
-pub const SYS_createMailbox = 0;
-pub const SYS_send = 1;
-pub const SYS_receive = 2;
-pub const SYS_map = 3;
+pub const SYS_exit = 0;
+pub const SYS_createMailbox = 1;
+pub const SYS_send = 2;
+pub const SYS_receive = 3;
+pub const SYS_map = 4;
+pub const SYS_createThread = 5;
 
 
 ////////////////////
 ////  Syscalls  ////
 ////////////////////
+
+pub fn exit(status: i32) -> noreturn {
+    _ = syscall1(SYS_exit, @bitCast(usize, isize(status)));
+    unreachable;
+}
 
 pub fn createMailbox(id: u16) {
     _ = syscall1(SYS_createMailbox, id);
@@ -33,6 +40,10 @@ pub fn receive(mailbox_id: u16) -> usize {
 
 pub fn map(v_addr: usize, p_addr: usize, size: usize, writable: bool) -> bool {
     return syscall4(SYS_map, v_addr, p_addr, size, usize(writable)) != 0;
+}
+
+pub fn createThread(function: fn()) -> u16 {
+    return u16(syscall1(SYS_createThread, @ptrToInt(function)));
 }
 
 

@@ -93,7 +93,7 @@ pub const Allocator = struct {
         // n <= old_mem.len and the multiplication didn't overflow for that operation.
         const byte_count = @sizeOf(T) * n;
 
-        const byte_slice = %%self.reallocFn(self, ([]u8)(old_mem), byte_count, alignment);
+        const byte_slice = self.reallocFn(self, ([]u8)(old_mem), byte_count, alignment) catch unreachable;
         return ([]align(alignment) T)(@alignCast(alignment, byte_slice));
     }
 
@@ -446,8 +446,8 @@ pub fn join(allocator: &Allocator, sep: u8, strings: ...) -> %[]u8 {
 }
 
 test "mem.join" {
-    assert(eql(u8, %%join(debug.global_allocator, ',', "a", "b", "c"), "a,b,c"));
-    assert(eql(u8, %%join(debug.global_allocator, ',', "a"), "a"));
+    assert(eql(u8, try join(debug.global_allocator, ',', "a", "b", "c"), "a,b,c"));
+    assert(eql(u8, try join(debug.global_allocator, ',', "a"), "a"));
 }
 
 test "testStringEquality" {

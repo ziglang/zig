@@ -16,7 +16,7 @@ pub fn baz() -> %i32 {
 }
 
 test "error wrapping" {
-    assert(%%baz() == 15);
+    assert((baz() catch unreachable) == 15);
 }
 
 error ItBroke;
@@ -65,14 +65,14 @@ fn errBinaryOperatorG(x: bool) -> %isize {
 
 
 test "unwrap simple value from error" {
-    const i = %%unwrapSimpleValueFromErrorDo();
+    const i = unwrapSimpleValueFromErrorDo() catch unreachable;
     assert(i == 13);
 }
 fn unwrapSimpleValueFromErrorDo() -> %isize { return 13; }
 
 
 test "error return in assignment" {
-    %%doErrReturnInAssignment();
+    doErrReturnInAssignment() catch unreachable;
 }
 
 fn doErrReturnInAssignment() -> %void {

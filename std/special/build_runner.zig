@@ -14,7 +14,7 @@ pub fn main() -> %void {
     var arg_it = os.args();
 
     // TODO use a more general purpose allocator here
-    var inc_allocator = %%std.heap.IncrementingAllocator.init(40 * 1024 * 1024);
+    var inc_allocator = std.heap.IncrementingAllocator.init(40 * 1024 * 1024) catch unreachable;
     defer inc_allocator.deinit();
 
     const allocator = &inc_allocator.allocator;
@@ -107,7 +107,7 @@ pub fn main() -> %void {
                 return usageAndErr(&builder, false, try stderr_stream);
             }
         } else {
-            %%targets.append(arg);
+            targets.append(arg) catch unreachable;
         }
     }
 

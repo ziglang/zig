@@ -258,7 +258,7 @@ test "explicit cast maybe pointers" {
 }
 
 test "generic malloc free" {
-    const a = %%memAlloc(u8, 10);
+    const a = memAlloc(u8, 10) catch unreachable;
     memFree(u8, a);
 }
 const some_mem : [100]u8 = undefined;
@@ -417,7 +417,7 @@ test "cast slice to u8 slice" {
 }
 
 test "pointer to void return type" {
-    %%testPointerToVoidReturnType();
+    testPointerToVoidReturnType() catch unreachable;
 }
 fn testPointerToVoidReturnType() -> %void {
     const a = testPointerToVoidReturnType2();

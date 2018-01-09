@@ -120,7 +120,7 @@ pub const Base64Decoder = struct {
     /// invalid characters result in error.InvalidCharacter.
     /// invalid padding results in error.InvalidPadding.
     pub fn decode(decoder: &const Base64Decoder, dest: []u8, source: []const u8) -> %void {
-        assert(dest.len == %%decoder.calcSize(source));
+        assert(dest.len == (decoder.calcSize(source) catch unreachable));
         assert(source.len % 4 == 0);
 
         var src_cursor: usize = 0;
@@ -374,8 +374,8 @@ fn calcDecodedSizeExactUnsafe(source: []const u8, pad_char: u8) -> usize {
 
 test "base64" {
     @setEvalBranchQuota(5000);
-    %%testBase64();
-    comptime %%testBase64();
+    testBase64() catch unreachable;
+    comptime (testBase64() catch unreachable);
 }
 
 fn testBase64() -> %void {

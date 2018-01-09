@@ -191,7 +191,7 @@ pub const ChildProcess = struct {
     pub fn exec(allocator: &mem.Allocator, argv: []const []const u8, cwd: ?[]const u8,
         env_map: ?&const BufMap, max_output_size: usize) -> %ExecResult
     {
-        const child = %%ChildProcess.init(argv, allocator);
+        const child = try ChildProcess.init(argv, allocator);
         defer child.deinit();
 
         child.stdin_behavior = ChildProcess.StdIo.Ignore;

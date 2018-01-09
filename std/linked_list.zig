@@ -199,11 +199,11 @@ test "basic linked list test" {
     const allocator = debug.global_allocator;
     var list = LinkedList(u32).init();
 
-    var one   = %%list.createNode(1, allocator);
-    var two   = %%list.createNode(2, allocator);
-    var three = %%list.createNode(3, allocator);
-    var four  = %%list.createNode(4, allocator);
-    var five  = %%list.createNode(5, allocator);
+    var one   = list.createNode(1, allocator) catch unreachable;
+    var two   = list.createNode(2, allocator) catch unreachable;
+    var three = list.createNode(3, allocator) catch unreachable;
+    var four  = list.createNode(4, allocator) catch unreachable;
+    var five  = list.createNode(5, allocator) catch unreachable;
     defer {
         list.destroyNode(one, allocator);
         list.destroyNode(two, allocator);

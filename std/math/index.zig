@@ -277,10 +277,10 @@ test "math overflow functions" {
 }
 
 fn testOverflow() {
-    assert(%%mul(i32, 3, 4) == 12);
-    assert(%%add(i32, 3, 4) == 7);
-    assert(%%sub(i32, 3, 4) == -1);
-    assert(%%shlExact(i32, 0b11, 4) == 0b110000);
+    assert((mul(i32, 3, 4) catch unreachable) == 12);
+    assert((add(i32, 3, 4) catch unreachable) == 7);
+    assert((sub(i32, 3, 4) catch unreachable) == -1);
+    assert((shlExact(i32, 0b11, 4) catch unreachable) == 0b110000);
 }
 
 
@@ -302,8 +302,8 @@ test "math.absInt" {
     comptime testAbsInt();
 }
 fn testAbsInt() {
-    assert(%%absInt(i32(-10)) == 10);
-    assert(%%absInt(i32(10)) == 10);
+    assert((absInt(i32(-10)) catch unreachable) == 10);
+    assert((absInt(i32(10)) catch unreachable) == 10);
 }
 
 pub const absFloat = @import("fabs.zig").fabs;
@@ -329,13 +329,13 @@ test "math.divTrunc" {
     comptime testDivTrunc();
 }
 fn testDivTrunc() {
-    assert(%%divTrunc(i32, 5, 3) == 1);
-    assert(%%divTrunc(i32, -5, 3) == -1);
+    assert((divTrunc(i32, 5, 3) catch unreachable) == 1);
+    assert((divTrunc(i32, -5, 3) catch unreachable) == -1);
     if (divTrunc(i8, -5, 0)) |_| unreachable else |err| assert(err == error.DivisionByZero);
     if (divTrunc(i8, -128, -1)) |_| unreachable else |err| assert(err == error.Overflow);
 
-    assert(%%divTrunc(f32, 5.0, 3.0) == 1.0);
-    assert(%%divTrunc(f32, -5.0, 3.0) == -1.0);
+    assert((divTrunc(f32, 5.0, 3.0) catch unreachable) == 1.0);
+    assert((divTrunc(f32, -5.0, 3.0) catch unreachable) == -1.0);
 }
 
 error DivisionByZero;
@@ -359,13 +359,13 @@ test "math.divFloor" {
     comptime testDivFloor();
 }
 fn testDivFloor() {
-    assert(%%divFloor(i32, 5, 3) == 1);
-    assert(%%divFloor(i32, -5, 3) == -2);
+    assert((divFloor(i32, 5, 3) catch unreachable) == 1);
+    assert((divFloor(i32, -5, 3) catch unreachable) == -2);
     if (divFloor(i8, -5, 0)) |_| unreachable else |err| assert(err == error.DivisionByZero);
     if (divFloor(i8, -128, -1)) |_| unreachable else |err| assert(err == error.Overflow);
 
-    assert(%%divFloor(f32, 5.0, 3.0) == 1.0);
-    assert(%%divFloor(f32, -5.0, 3.0) == -2.0);
+    assert((divFloor(f32, 5.0, 3.0) catch unreachable) == 1.0);
+    assert((divFloor(f32, -5.0, 3.0) catch unreachable) == -2.0);
 }
 
 error DivisionByZero;
@@ -393,14 +393,14 @@ test "math.divExact" {
     comptime testDivExact();
 }
 fn testDivExact() {
-    assert(%%divExact(i32, 10, 5) == 2);
-    assert(%%divExact(i32, -10, 5) == -2);
+    assert((divExact(i32, 10, 5) catch unreachable) == 2);
+    assert((divExact(i32, -10, 5) catch unreachable) == -2);
     if (divExact(i8, -5, 0)) |_| unreachable else |err| assert(err == error.DivisionByZero);
     if (divExact(i8, -128, -1)) |_| unreachable else |err| assert(err == error.Overflow);
     if (divExact(i32, 5, 2)) |_| unreachable else |err| assert(err == error.UnexpectedRemainder);
 
-    assert(%%divExact(f32, 10.0, 5.0) == 2.0);
-    assert(%%divExact(f32, -10.0, 5.0) == -2.0);
+    assert((divExact(f32, 10.0, 5.0) catch unreachable) == 2.0);
+    assert((divExact(f32, -10.0, 5.0) catch unreachable) == -2.0);
     if (divExact(f32, 5.0, 2.0)) |_| unreachable else |err| assert(err == error.UnexpectedRemainder);
 }
 
@@ -420,13 +420,13 @@ test "math.mod" {
     comptime testMod();
 }
 fn testMod() {
-    assert(%%mod(i32, -5, 3) == 1);
-    assert(%%mod(i32, 5, 3) == 2);
+    assert((mod(i32, -5, 3) catch unreachable) == 1);
+    assert((mod(i32, 5, 3) catch unreachable) == 2);
     if (mod(i32, 10, -1)) |_| unreachable else |err| assert(err == error.NegativeDenominator);
     if (mod(i32, 10, 0)) |_| unreachable else |err| assert(err == error.DivisionByZero);
 
-    assert(%%mod(f32, -5, 3) == 1);
-    assert(%%mod(f32, 5, 3) == 2);
+    assert((mod(f32, -5, 3) catch unreachable) == 1);
+    assert((mod(f32, 5, 3) catch unreachable) == 2);
     if (mod(f32, 10, -1)) |_| unreachable else |err| assert(err == error.NegativeDenominator);
     if (mod(f32, 10, 0)) |_| unreachable else |err| assert(err == error.DivisionByZero);
 }
@@ -447,13 +447,13 @@ test "math.rem" {
     comptime testRem();
 }
 fn testRem() {
-    assert(%%rem(i32, -5, 3) == -2);
-    assert(%%rem(i32, 5, 3) == 2);
+    assert((rem(i32, -5, 3) catch unreachable) == -2);
+    assert((rem(i32, 5, 3) catch unreachable) == 2);
     if (rem(i32, 10, -1)) |_| unreachable else |err| assert(err == error.NegativeDenominator);
     if (rem(i32, 10, 0)) |_| unreachable else |err| assert(err == error.DivisionByZero);
 
-    assert(%%rem(f32, -5, 3) == -2);
-    assert(%%rem(f32, 5, 3) == 2);
+    assert((rem(f32, -5, 3) catch unreachable) == -2);
+    assert((rem(f32, 5, 3) catch unreachable) == 2);
     if (rem(f32, 10, -1)) |_| unreachable else |err| assert(err == error.NegativeDenominator);
     if (rem(f32, 10, 0)) |_| unreachable else |err| assert(err == error.DivisionByZero);
 }
@@ -497,11 +497,11 @@ pub fn negateCast(x: var) -> %@IntType(true, @typeOf(x).bit_count) {
 }
 
 test "math.negateCast" {
-    assert(%%negateCast(u32(999)) == -999);
-    assert(@typeOf(%%negateCast(u32(999))) == i32);
+    assert((negateCast(u32(999)) catch unreachable) == -999);
+    assert(@typeOf(negateCast(u32(999)) catch unreachable) == i32);
 
-    assert(%%negateCast(u32(-@minValue(i32))) == @minValue(i32));
-    assert(@typeOf(%%negateCast(u32(-@minValue(i32)))) == i32);
+    assert((negateCast(u32(-@minValue(i32))) catch unreachable) == @minValue(i32));
+    assert(@typeOf(negateCast(u32(-@minValue(i32))) catch unreachable) == i32);
 
     if (negateCast(u32(@maxValue(i32) + 10))) |_| unreachable else |err| assert(err == error.Overflow);
 }

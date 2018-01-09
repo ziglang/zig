@@ -1423,10 +1423,10 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
 
     cases.add("ignored assert-err-ok return value",
         \\export fn foo() {
-        \\    %%bar();
+        \\    bar() catch unreachable;
         \\}
         \\fn bar() -> %i32 { return 0; }
-    , ".tmp_source.zig:2:5: error: expression value is ignored");
+    , ".tmp_source.zig:2:11: error: expression value is ignored");
 
     cases.add("ignored statement value",
         \\export fn foo() {

@@ -8,7 +8,10 @@ pub fn main() -> %void {
     for (test_fn_list) |test_fn, i| {
         warn("Test {}/{} {}...", i + 1, test_fn_list.len, test_fn.name);
 
-        test_fn.func();
+        test_fn.func() catch |err| {
+            warn("{}\n", err);
+            return err;
+        };
 
         warn("OK\n");
     }

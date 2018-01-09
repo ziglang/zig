@@ -594,7 +594,6 @@ enum PrefixOp {
     PrefixOpDereference,
     PrefixOpMaybe,
     PrefixOpError,
-    PrefixOpUnwrapError,
     PrefixOpUnwrapMaybe,
 };
 

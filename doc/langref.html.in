@@ -5989,7 +5989,7 @@ ContainerInitBody = list(StructLiteralField, ",") | list(Expression, ",")
 
 StructLiteralField = "." Symbol "=" Expression
 
-PrefixOp = "!" | "-" | "~" | "*" | ("&amp;" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "%" | "%%" | "??" | "-%" | "try"
+PrefixOp = "!" | "-" | "~" | "*" | ("&amp;" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "%" | "??" | "-%" | "try"
 
 PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ("error" "." Symbol) | ContainerDecl | ("continue" option(":" Symbol))
 

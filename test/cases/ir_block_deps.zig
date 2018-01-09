@@ -16,6 +16,6 @@ fn getErrInt() -> %i32 { return 0; }
 error ItBroke;
 
 test "ir block deps" {
-    assert(%%foo(1) == 0);
-    assert(%%foo(2) == 0);
+    assert((foo(1) catch unreachable) == 0);
+    assert((foo(2) catch unreachable) == 0);
 }

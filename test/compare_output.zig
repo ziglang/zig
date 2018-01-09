@@ -17,8 +17,8 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
             \\
             \\pub fn main() -> %void {
             \\    privateFunction();
-            \\    const stdout = &(FileOutStream.init(&%%getStdOut()).stream);
-            \\    %%stdout.print("OK 2\n");
+            \\    const stdout = &(FileOutStream.init(&(getStdOut() catch unreachable)).stream);
+            \\    stdout.print("OK 2\n") catch unreachable;
             \\}
             \\
             \\fn privateFunction() {
@@ -32,8 +32,8 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
             \\// purposefully conflicting function with main.zig
             \\// but it's private so it should be OK
             \\fn privateFunction() {
-            \\    const stdout = &(FileOutStream.init(&%%getStdOut()).stream);
-            \\    %%stdout.print("OK 1\n");
+            \\    const stdout = &(FileOutStream.init(&(getStdOut() catch unreachable)).stream);
+            \\    stdout.print("OK 1\n") catch unreachable;
             \\}
             \\
             \\pub fn printText() {
@@ -58,8 +58,8 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         tc.addSourceFile("foo.zig",
             \\use @import("std").io;
             \\pub fn foo_function() {
-            \\    const stdout = &(FileOutStream.init(&%%getStdOut()).stream);
-            \\    %%stdout.print("OK\n");
+            \\    const stdout = &(FileOutStream.init(&(getStdOut() catch unreachable)).stream);
+            \\    stdout.print("OK\n") catch unreachable;
             \\}
         );
 
@@ -69,8 +69,8 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
             \\
             \\pub fn bar_function() {
             \\    if (foo_function()) {
-            \\        const stdout = &(FileOutStream.init(&%%getStdOut()).stream);
-            \\        %%stdout.print("OK\n");
+            \\        const stdout = &(FileOutStream.init(&(getStdOut() catch unreachable)).stream);
+            \\        stdout.print("OK\n") catch unreachable;
             \\    }
             \\}
         );
@@ -101,8 +101,8 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
             \\pub const a_text = "OK\n";
             \\
             \\pub fn ok() {
-            \\    const stdout = &(io.FileOutStream.init(&%%io.getStdOut()).stream);
-            \\    %%stdout.print(b_text);
+            \\    const stdout = &(io.FileOutStream.init(&(io.getStdOut() catch unreachable)).stream);
+            \\    stdout.print(b_text) catch unreachable;
             \\}
         );
 
@@ -119,8 +119,8 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\const io = @import("std").io;
         \\
         \\pub fn main() -> %void {
-        \\    const stdout = &(io.FileOutStream.init(&%%io.getStdOut()).stream);
-        \\    %%stdout.print("Hello, world!\n{d4} {x3} {c}\n", u32(12), u16(0x12), u8('a'));
+        \\    const stdout = &(io.FileOutStream.init(&(io.getStdOut() catch unreachable)).stream);
+        \\    stdout.print("Hello, world!\n{d4} {x3} {c}\n", u32(12), u16(0x12), u8('a')) catch unreachable;
         \\}
     , "Hello, world!\n0012 012 a\n");
 
@@ -272,8 +272,8 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    var x_local : i32 = print_ok(x);
         \\}
         \\fn print_ok(val: @typeOf(x)) -> @typeOf(foo) {
-        \\    const stdout = &(io.FileOutStream.init(&%%io.getStdOut()).stream);
-        \\    %%stdout.print("OK\n");
+        \\    const stdout = &(io.FileOutStream.init(&(io.getStdOut() catch unreachable)).stream);
+        \\    stdout.print("OK\n") catch unreachable;
         \\    return 0;
         \\}
         \\const foo : i32 = 0;
@@ -354,26 +354,26 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\pub fn main() -> %void {
         \\    const bar = Bar {.field2 = 13,};
         \\    const foo = Foo {.field1 = bar,};
-        \\    const stdout = &(io.FileOutStream.init(&%%io.getStdOut()).stream);
+        \\    const stdout = &(io.FileOutStream.init(&(io.getStdOut() catch unreachable)).stream);
         \\    if (!foo.method()) {
-        \\        %%stdout.print("BAD\n");
+        \\        stdout.print("BAD\n") catch unreachable;
         \\    }
         \\    if (!bar.method()) {
-        \\        %%stdout.print("BAD\n");
+        \\        stdout.print("BAD\n") catch unreachable;
         \\    }
-        \\    %%stdout.print("OK\n");
+        \\    stdout.print("OK\n") catch unreachable;
         \\}
     , "OK\n");
 
     cases.add("defer with only fallthrough",
         \\const io = @import("std").io;
         \\pub fn main() -> %void {
-        \\    const stdout = &(io.FileOutStream.init(&%%io.getStdOut()).stream);
-        \\    %%stdout.print("before\n");
-        \\    defer %%stdout.print("defer1\n");
-        \\    defer %%stdout.print("defer2\n");
-        \\    defer %%stdout.print("defer3\n");
-        \\    %%stdout.print("after\n");
+        \\    const stdout = &(io.FileOutStream.init(&(io.getStdOut() catch unreachable)).stream);
+        \\    stdout.print("before\n") catch unreachable;
+        \\    defer stdout.print("defer1\n") catch unreachable;
+        \\    defer stdout.print("defer2\n") catch unreachable;
+        \\    defer stdout.print("defer3\n") catch unreachable;
+        \\    stdout.print("after\n") catch unreachable;
         \\}
     , "before\nafter\ndefer3\ndefer2\ndefer1\n");
 
@@ -381,14 +381,14 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\const io = @import("std").io;
         \\const os = @import("std").os;
         \\pub fn main() -> %void {
-        \\    const stdout = &(io.FileOutStream.init(&%%io.getStdOut()).stream);
-        \\    %%stdout.print("before\n");
-        \\    defer %%stdout.print("defer1\n");
-        \\    defer %%stdout.print("defer2\n");
+        \\    const stdout = &(io.FileOutStream.init(&(io.getStdOut() catch unreachable)).stream);
+        \\    stdout.print("before\n") catch unreachable;
+        \\    defer stdout.print("defer1\n") catch unreachable;
+        \\    defer stdout.print("defer2\n") catch unreachable;
         \\    var args_it = @import("std").os.args();
         \\    if (args_it.skip() and !args_it.skip()) return;
-        \\    defer %%stdout.print("defer3\n");
-        \\    %%stdout.print("after\n");
+        \\    defer stdout.print("defer3\n") catch unreachable;
+        \\    stdout.print("after\n") catch unreachable;
         \\}
     , "before\ndefer2\ndefer1\n");
 
@@ -398,13 +398,13 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    do_test() catch return;
         \\}
         \\fn do_test() -> %void {
-        \\    const stdout = &(io.FileOutStream.init(&%%io.getStdOut()).stream);
-        \\    %%stdout.print("before\n");
-        \\    defer %%stdout.print("defer1\n");
-        \\    %defer %%stdout.print("deferErr\n");
+        \\    const stdout = &(io.FileOutStream.init(&(io.getStdOut() catch unreachable)).stream);
+        \\    stdout.print("before\n") catch unreachable;
+        \\    defer stdout.print("defer1\n") catch unreachable;
+        \\    %defer stdout.print("deferErr\n") catch unreachable;
         \\    try its_gonna_fail();
-        \\    defer %%stdout.print("defer3\n");
-        \\    %%stdout.print("after\n");
+        \\    defer stdout.print("defer3\n") catch unreachable;
+        \\    stdout.print("after\n") catch unreachable;
         \\}
         \\error IToldYouItWouldFail;
         \\fn its_gonna_fail() -> %void {
@@ -418,13 +418,13 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    do_test() catch return;
         \\}
         \\fn do_test() -> %void {
-        \\    const stdout = &(io.FileOutStream.init(&%%io.getStdOut()).stream);
-        \\    %%stdout.print("before\n");
-        \\    defer %%stdout.print("defer1\n");
-        \\    %defer %%stdout.print("deferErr\n");
+        \\    const stdout = &(io.FileOutStream.init(&(io.getStdOut() catch unreachable)).stream);
+        \\    stdout.print("before\n") catch unreachable;
+        \\    defer stdout.print("defer1\n") catch unreachable;
+        \\    %defer stdout.print("deferErr\n") catch unreachable;
         \\    try its_gonna_pass();
-        \\    defer %%stdout.print("defer3\n");
-        \\    %%stdout.print("after\n");
+        \\    defer stdout.print("defer3\n") catch unreachable;
+        \\    stdout.print("after\n") catch unreachable;
         \\}
         \\fn its_gonna_pass() -> %void { }
     , "before\nafter\ndefer3\ndefer1\n");
@@ -435,8 +435,8 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
             \\const io = @import("std").io;
             \\
             \\pub fn main() -> %void {
-            \\    const stdout = &(io.FileOutStream.init(&%%io.getStdOut()).stream);
-            \\    %%stdout.print(foo_txt);
+            \\    const stdout = &(io.FileOutStream.init(&(io.getStdOut() catch unreachable)).stream);
+            \\    stdout.print(foo_txt) catch unreachable;
             \\}
         , "1234\nabcd\n");
 

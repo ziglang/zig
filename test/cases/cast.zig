@@ -85,14 +85,14 @@ const A = struct {
 fn castToMaybeTypeError(z: i32) {
     const x = i32(1);
     const y: %?i32 = x;
-    assert(??%%y == 1);
+    assert(??(try y) == 1);
 
     const f = z;
     const g: %?i32 = f;
 
     const a = A{ .a = z };
     const b: %?A = a;
-    assert((??%%b).a == 1);
+    assert((??(b catch unreachable)).a == 1);
 }
 
 test "implicitly cast from int to %?T" {
@@ -108,7 +108,7 @@ fn implicitIntLitToMaybe() {
 test "return null from fn() -> %?&T" {
     const a = returnNullFromMaybeTypeErrorRef();
     const b = returnNullLitFromMaybeTypeErrorRef();
-    assert(%%a == null and %%b == null);
+    assert((try a) == null and (try b) == null);
 }
 fn returnNullFromMaybeTypeErrorRef() -> %?&A {
     const a: ?&A = null;
@@ -167,7 +167,7 @@ test "implicitly cast from [0]T to %[]T" {
 }
 
 fn testCastZeroArrayToErrSliceMut() {
-    assert((%%gimmeErrOrSlice()).len == 0);
+    assert((gimmeErrOrSlice() catch unreachable).len == 0);
 }
 
 fn gimmeErrOrSlice() -> %[]u8 {
@@ -178,14 +178,14 @@ test "peer type resolution: [0]u8, []const u8, and %[]u8" {
     {
         var data = "hi";
         const slice = data[0..];
-        assert((%%peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
-        assert((%%peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
+        assert((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
+        assert((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
     }
     comptime {
         var data = "hi";
         const slice = data[0..];
-        assert((%%peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
-        assert((%%peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
+        assert((try peerTypeEmptyArrayAndSliceAndError(true, slice)).len == 0);
+        assert((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
     }
 }
 fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) -> %[]u8 {
@@ -231,11 +231,11 @@ fn foo(args: ...) {
 
 test "peer type resolution: error and [N]T" {
     // TODO: implicit %T to %U where T can implicitly cast to U
-    //assert(mem.eql(u8, %%testPeerErrorAndArray(0), "OK"));
-    //comptime assert(mem.eql(u8, %%testPeerErrorAndArray(0), "OK"));
+    //assert(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
+    //comptime assert(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
 
-    assert(mem.eql(u8, %%testPeerErrorAndArray2(1), "OKK"));
-    comptime assert(mem.eql(u8, %%testPeerErrorAndArray2(1), "OKK"));
+    assert(mem.eql(u8, try testPeerErrorAndArray2(1), "OKK"));
+    comptime assert(mem.eql(u8, try testPeerErrorAndArray2(1), "OKK"));
 }
 
 error BadValue;

@@ -121,7 +121,7 @@ pub fn getRandomBytes(buf: []u8) -> %void {
 
 test "os.getRandomBytes" {
     var buf: [50]u8 = undefined;
-    %%getRandomBytes(buf[0..]);
+    try getRandomBytes(buf[0..]);
 }
 
 /// Raises a signal in the current kernel thread, ending its execution.
@@ -1489,7 +1489,7 @@ test "windows arg parsing" {
 fn testWindowsCmdLine(input_cmd_line: &const u8, expected_args: []const []const u8) {
     var it = ArgIteratorWindows.initWithCmdLine(input_cmd_line);
     for (expected_args) |expected_arg| {
-        const arg = %%??it.next(debug.global_allocator);
+        const arg = ??it.next(debug.global_allocator) catch unreachable;
         assert(mem.eql(u8, arg, expected_arg));
     }
     assert(it.next(debug.global_allocator) == null);
