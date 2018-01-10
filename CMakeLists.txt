@@ -425,6 +425,7 @@ set(ZIG_STD_FILES
     "math/tan.zig"
     "math/tanh.zig"
     "math/trunc.zig"
+    "math/x86_64/sqrt.zig"
     "mem.zig"
     "net.zig"
     "os/child_process.zig"
