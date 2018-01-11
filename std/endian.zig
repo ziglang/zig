@@ -2,11 +2,11 @@ const mem = @import("mem.zig");
 const builtin = @import("builtin");
 
 pub fn swapIfLe(comptime T: type, x: T) -> T {
-    return swapIf(false, T, x);
+    return swapIf(builtin.Endian.Little, T, x);
 }
 
 pub fn swapIfBe(comptime T: type, x: T) -> T {
-    return swapIf(true, T, x);
+    return swapIf(builtin.Endian.Big, T, x);
 }
 
 pub fn swapIf(endian: builtin.Endian, comptime T: type, x: T) -> T {
@@ -15,6 +15,11 @@ pub fn swapIf(endian: builtin.Endian, comptime T: type, x: T) -> T {
 
 pub fn swap(comptime T: type, x: T) -> T {
     var buf: [@sizeOf(T)]u8 = undefined;
-    mem.writeInt(buf[0..], x, false);
+    mem.writeInt(buf[0..], x, builtin.Endian.Little);
     return mem.readInt(buf, T, builtin.Endian.Big);
+}
+
+test "swap" {
+    const debug = @import("debug/index.zig");
+    debug.assert(swap(u32, 0xDEADBEEF) == 0xEFBEADDE);
 }
