@@ -869,6 +869,16 @@ static const char *calling_convention_fn_type_str(CallingConvention cc) {
     zig_unreachable();
 }
 
+static TypeTableEntry *get_ptr_to_stack_trace_type(CodeGen *g) {
+    if (g->stack_trace_type == nullptr) {
+        ConstExprValue *stack_trace_type_val = get_builtin_value(g, "StackTrace");
+        assert(stack_trace_type_val->type->id == TypeTableEntryIdMetaType);
+        g->stack_trace_type = stack_trace_type_val->data.x_type;
+        g->ptr_to_stack_trace_type = get_pointer_to_type(g, g->stack_trace_type, false);
+    }
+    return g->ptr_to_stack_trace_type;
+}
+
 TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     auto table_entry = g->fn_type_table.maybe_get(fn_type_id);
     if (table_entry) {
@@ -915,10 +925,15 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     if (!skip_debug_info) {
         bool first_arg_return = calling_convention_does_first_arg_return(fn_type_id->cc) &&
             handle_is_ptr(fn_type_id->return_type);
+        bool last_arg_error_return_trace = fn_type_id->return_type->id == TypeTableEntryIdErrorUnion || 
+            fn_type_id->return_type->id == TypeTableEntryIdPureError;
         // +1 for maybe making the first argument the return value
-        LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(1 + fn_type_id->param_count);
-        // +1 because 0 is the return type and +1 for maybe making first arg ret val
-        ZigLLVMDIType **param_di_types = allocate<ZigLLVMDIType*>(2 + fn_type_id->param_count);
+        // +1 for maybe last argument the error return trace
+        LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(2 + fn_type_id->param_count);
+        // +1 because 0 is the return type and
+        // +1 for maybe making first arg ret val and
+        // +1 for maybe last argument the error return trace
+        ZigLLVMDIType **param_di_types = allocate<ZigLLVMDIType*>(3 + fn_type_id->param_count);
         param_di_types[0] = fn_type_id->return_type->di_type;
         size_t gen_param_index = 0;
         TypeTableEntry *gen_return_type;
@@ -963,6 +978,14 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
                 // after the gen_param_index += 1 because 0 is the return type
                 param_di_types[gen_param_index] = gen_type->di_type;
             }
+        }
+
+        if (last_arg_error_return_trace) {
+            TypeTableEntry *gen_type = get_ptr_to_stack_trace_type(g);
+            gen_param_types[gen_param_index] = gen_type->type_ref;
+            gen_param_index += 1;
+            // after the gen_param_index += 1 because 0 is the return type
+            param_di_types[gen_param_index] = gen_type->di_type;
         }
 
         fn_type->data.fn.gen_param_count = gen_param_index;
@@ -5525,5 +5548,15 @@ uint32_t type_ptr_hash(const TypeTableEntry *ptr) {
 
 bool type_ptr_eql(const TypeTableEntry *a, const TypeTableEntry *b) {
     return a == b;
+}
+
+ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
+    Tld *tld = codegen->compile_var_import->decls_scope->decl_table.get(buf_create_from_str(name));
+    resolve_top_level_decl(codegen, tld, false, nullptr);
+    assert(tld->id == TldIdVar);
+    TldVar *tld_var = (TldVar *)tld;
+    ConstExprValue *var_value = tld_var->var->value;
+    assert(var_value != nullptr);
+    return var_value;
 }
 

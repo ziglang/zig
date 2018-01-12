@@ -1595,6 +1595,8 @@ struct CodeGen {
     ZigList<AstNode *> tld_ref_source_node_stack;
 
     TypeTableEntry *align_amt_type;
+    TypeTableEntry *stack_trace_type;
+    TypeTableEntry *ptr_to_stack_trace_type;
 };
 
 enum VarLinkage {

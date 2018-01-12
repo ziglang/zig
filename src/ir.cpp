@@ -8230,16 +8230,6 @@ static bool ir_resolve_comptime(IrAnalyze *ira, IrInstruction *value, bool *out)
     return ir_resolve_bool(ira, value, out);
 }
 
-static ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
-    Tld *tld = codegen->compile_var_import->decls_scope->decl_table.get(buf_create_from_str(name));
-    resolve_top_level_decl(codegen, tld, false, nullptr);
-    assert(tld->id == TldIdVar);
-    TldVar *tld_var = (TldVar *)tld;
-    ConstExprValue *var_value = tld_var->var->value;
-    assert(var_value != nullptr);
-    return var_value;
-}
-
 static bool ir_resolve_atomic_order(IrAnalyze *ira, IrInstruction *value, AtomicOrder *out) {
     if (type_is_invalid(value->value.type))
         return false;

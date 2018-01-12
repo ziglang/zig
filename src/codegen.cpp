@@ -483,7 +483,8 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
         LLVMSetUnnamedAddr(fn_table_entry->llvm_value, true);
     }
 
-    if (fn_type->data.fn.fn_type_id.return_type->id == TypeTableEntryIdUnreachable) {
+    TypeTableEntry *return_type = fn_type->data.fn.fn_type_id.return_type;
+    if (return_type->id == TypeTableEntryIdUnreachable) {
         addLLVMFnAttr(fn_table_entry->llvm_value, "noreturn");
     }
 
@@ -520,13 +521,11 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
         // use the ABI alignment, which is fine.
     }
 
-    if (!type_has_bits(fn_type->data.fn.fn_type_id.return_type)) {
+    if (!type_has_bits(return_type)) {
         // nothing to do
-    } else if (fn_type->data.fn.fn_type_id.return_type->id == TypeTableEntryIdPointer ||
-                fn_type->data.fn.fn_type_id.return_type->id == TypeTableEntryIdFn)
-    {
+    } else if (return_type->id == TypeTableEntryIdPointer || return_type->id == TypeTableEntryIdFn) {
         addLLVMAttr(fn_table_entry->llvm_value, 0, "nonnull");
-    } else if (handle_is_ptr(fn_type->data.fn.fn_type_id.return_type) &&
+    } else if (handle_is_ptr(return_type) &&
             calling_convention_does_first_arg_return(fn_type->data.fn.fn_type_id.cc))
     {
         addLLVMArgAttr(fn_table_entry->llvm_value, 0, "sret");
@@ -561,6 +560,10 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
         if (is_byval && g->zig_target.os != OsWindows) {
             addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)gen_index, "byval");
         }
+    }
+    if (return_type->id == TypeTableEntryIdErrorUnion || return_type->id == TypeTableEntryIdPureError) {
+        unsigned gen_index = LLVMCountParamTypes(fn_llvm_type) - 1;
+        addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)gen_index, "nonnull");
     }
 
     return fn_table_entry->llvm_value;
@@ -2330,7 +2333,8 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     TypeTableEntry *src_return_type = fn_type_id->return_type;
     bool ret_has_bits = type_has_bits(src_return_type);
     bool first_arg_ret = ret_has_bits && handle_is_ptr(src_return_type);
-    size_t actual_param_count = instruction->arg_count + (first_arg_ret ? 1 : 0);
+    bool last_arg_err_ret_stack = src_return_type->id == TypeTableEntryIdErrorUnion || src_return_type->id == TypeTableEntryIdPureError;
+    size_t actual_param_count = instruction->arg_count + (first_arg_ret ? 1 : 0) + (last_arg_err_ret_stack ? 1 : 0);
     bool is_var_args = fn_type_id->is_var_args;
     LLVMValueRef *gen_param_values = allocate<LLVMValueRef>(actual_param_count);
     size_t gen_param_index = 0;
@@ -2347,6 +2351,10 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
             gen_param_values[gen_param_index] = param_value;
             gen_param_index += 1;
         }
+    }
+    if (last_arg_err_ret_stack) {
+        gen_param_values[gen_param_index] = LLVMGetUndef(g->ptr_to_stack_trace_type->type_ref);
+        gen_param_index += 1;
     }
 
     ZigLLVM_FnInline fn_inline;
@@ -5087,6 +5095,13 @@ static void define_builtin_compile_vars(CodeGen *g) {
     Buf *builtin_zig_path = buf_alloc();
     os_path_join(g->cache_dir, buf_create_from_str(builtin_zig_basename), builtin_zig_path);
     Buf *contents = buf_alloc();
+
+    buf_append_str(contents,
+        "pub const StackTrace = struct {\n"
+        "    index: usize,\n"
+        "    instruction_addresses: [31]usize,\n"
+        "};\n\n"
+    );
 
     const char *cur_os = nullptr;
     {
