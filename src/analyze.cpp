@@ -869,7 +869,7 @@ static const char *calling_convention_fn_type_str(CallingConvention cc) {
     zig_unreachable();
 }
 
-static TypeTableEntry *get_ptr_to_stack_trace_type(CodeGen *g) {
+TypeTableEntry *get_ptr_to_stack_trace_type(CodeGen *g) {
     if (g->stack_trace_type == nullptr) {
         ConstExprValue *stack_trace_type_val = get_builtin_value(g, "StackTrace");
         assert(stack_trace_type_val->type->id == TypeTableEntryIdMetaType);
@@ -1191,6 +1191,9 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         }
 
         TypeTableEntry *type_entry = analyze_type_expr(g, child_scope, param_node->data.param_decl.type);
+        if (type_is_invalid(type_entry)) {
+            return g->builtin_types.entry_invalid;
+        }
         if (fn_type_id.cc != CallingConventionUnspecified) {
             type_ensure_zero_bits_known(g, type_entry);
             if (!type_has_bits(type_entry)) {
@@ -2586,6 +2589,7 @@ static void wrong_panic_prototype(CodeGen *g, AstNode *proto_node, TypeTableEntr
 }
 
 static void typecheck_panic_fn(CodeGen *g, FnTableEntry *panic_fn) {
+    return; // TODO
     AstNode *proto_node = panic_fn->proto_node;
     assert(proto_node->type == NodeTypeFnProto);
     TypeTableEntry *fn_type = panic_fn->type_entry;

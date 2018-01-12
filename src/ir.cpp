@@ -10043,8 +10043,20 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         TypeTableEntry *return_type = impl_fn->type_entry->data.fn.fn_type_id.return_type;
         ir_add_alloca(ira, new_call_instruction, return_type);
 
+        if (return_type->id == TypeTableEntryIdPureError || return_type->id == TypeTableEntryIdErrorUnion) {
+            parent_fn_entry->calls_errorable_function = true;
+        }
+
         return ir_finish_anal(ira, return_type);
     }
+
+    FnTableEntry *parent_fn_entry = exec_fn_entry(ira->new_irb.exec);
+    assert(fn_type_id->return_type != nullptr);
+    assert(parent_fn_entry != nullptr);
+    if (fn_type_id->return_type->id == TypeTableEntryIdPureError || fn_type_id->return_type->id == TypeTableEntryIdErrorUnion) {
+        parent_fn_entry->calls_errorable_function = true;
+    }
+
 
     IrInstruction **casted_args = allocate<IrInstruction *>(call_param_count);
     size_t next_arg_index = 0;

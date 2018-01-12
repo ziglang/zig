@@ -1205,6 +1205,7 @@ struct FnTableEntry {
     uint32_t alignstack_value;
 
     ZigList<FnExport> export_list;
+    bool calls_errorable_function;
 };
 
 uint32_t fn_table_entry_hash(FnTableEntry*);
@@ -1530,6 +1531,7 @@ struct CodeGen {
     FnTableEntry *panic_fn;
     LLVMValueRef cur_ret_ptr;
     LLVMValueRef cur_fn_val;
+    LLVMValueRef cur_err_ret_trace_val;
     bool c_want_stdint;
     bool c_want_stdbool;
     AstNode *root_export_decl;

@@ -10,7 +10,7 @@ const ArrayList = std.ArrayList;
 const Buffer = std.Buffer;
 const io = std.io;
 
-pub fn build(b: &Builder) {
+pub fn build(b: &Builder) -> %void {
     const mode = b.standardReleaseOptions();
 
     var docgen_exe = b.addExecutable("docgen", "doc/docgen.zig");
@@ -36,7 +36,7 @@ pub fn build(b: &Builder) {
     const test_step = b.step("test", "Run all the tests");
 
     // find the stage0 build artifacts because we're going to re-use config.h and zig_cpp library
-    const build_info = b.exec([][]const u8{b.zig_exe, "BUILD_INFO"});
+    const build_info = try b.exec([][]const u8{b.zig_exe, "BUILD_INFO"});
     var index: usize = 0;
     const cmake_binary_dir = nextValue(&index, build_info);
     const cxx_compiler = nextValue(&index, build_info);
@@ -68,7 +68,7 @@ pub fn build(b: &Builder) {
     dependOnLib(exe, llvm);
 
     if (exe.target.getOs() == builtin.Os.linux) {
-        const libstdcxx_path_padded = b.exec([][]const u8{cxx_compiler, "-print-file-name=libstdc++.a"});
+        const libstdcxx_path_padded = try b.exec([][]const u8{cxx_compiler, "-print-file-name=libstdc++.a"});
         const libstdcxx_path = ??mem.split(libstdcxx_path_padded, "\r\n").next();
         exe.addObjectFile(libstdcxx_path);
 
@@ -155,9 +155,9 @@ const LibraryDep = struct {
 };
 
 fn findLLVM(b: &Builder, llvm_config_exe: []const u8) -> %LibraryDep {
-    const libs_output = b.exec([][]const u8{llvm_config_exe, "--libs", "--system-libs"});
-    const includes_output = b.exec([][]const u8{llvm_config_exe, "--includedir"});
-    const libdir_output = b.exec([][]const u8{llvm_config_exe, "--libdir"});
+    const libs_output = try b.exec([][]const u8{llvm_config_exe, "--libs", "--system-libs"});
+    const includes_output = try b.exec([][]const u8{llvm_config_exe, "--includedir"});
+    const libdir_output = try b.exec([][]const u8{llvm_config_exe, "--libdir"});
 
     var result = LibraryDep {
         .libs = ArrayList([]const u8).init(b.allocator),

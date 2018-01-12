@@ -112,7 +112,7 @@ pub fn main() -> %void {
     }
 
     builder.setInstallPrefix(prefix);
-    root.build(&builder);
+    root.build(&builder) catch unreachable;
 
     if (builder.validateUserInputDidItFail())
         return usageAndErr(&builder, true, try stderr_stream);
@@ -129,7 +129,7 @@ fn usage(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) 
     // run the build script to collect the options
     if (!already_ran_build) {
         builder.setInstallPrefix(null);
-        root.build(builder);
+        root.build(builder) catch unreachable;
     }
 
     // This usage text has to be synchronized with src/main.cpp
