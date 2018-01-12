@@ -87,6 +87,7 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
     g->memoized_fn_eval_table.init(16);
     g->exported_symbol_names.init(8);
     g->external_prototypes.init(8);
+    g->string_literals_table.init(16);
     g->is_test_build = false;
     g->want_h_file = (out_type == OutTypeObj || out_type == OutTypeLib);
     buf_resize(&g->global_asm, 0);

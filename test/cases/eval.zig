@@ -375,3 +375,16 @@ test "f128 at compile time is lossy" {
 
 // TODO need a better implementation of bigfloat_init_bigint
 // assert(f128(1 << 113) == 10384593717069655257060992658440192);
+
+pub fn TypeWithCompTimeSlice(comptime field_name: []const u8) -> type {
+    return struct {
+        pub const Node = struct { };
+    };
+}
+
+test "string literal used as comptime slice is memoized" {
+    const a = "link";
+    const b = "link";
+    comptime assert(TypeWithCompTimeSlice(a).Node == TypeWithCompTimeSlice(b).Node);
+    comptime assert(TypeWithCompTimeSlice("link").Node == TypeWithCompTimeSlice("link").Node);
+}

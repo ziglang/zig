@@ -13224,9 +13224,9 @@ static TypeTableEntry *ir_analyze_instruction_embed_file(IrAnalyze *ira, IrInstr
     os_path_resolve(&source_dir_path, rel_file_path, &file_path);
 
     // load from file system into const expr
-    Buf file_contents = BUF_INIT;
+    Buf *file_contents = buf_alloc();
     int err;
-    if ((err = os_fetch_file_path(&file_path, &file_contents))) {
+    if ((err = os_fetch_file_path(&file_path, file_contents))) {
         if (err == ErrorFileNotFound) {
             ir_add_error(ira, instruction->name, buf_sprintf("unable to find '%s'", buf_ptr(&file_path)));
             return ira->codegen->builtin_types.entry_invalid;
@@ -13240,9 +13240,9 @@ static TypeTableEntry *ir_analyze_instruction_embed_file(IrAnalyze *ira, IrInstr
     // we'll have to invalidate the cache
 
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
-    init_const_str_lit(ira->codegen, out_val, &file_contents);
+    init_const_str_lit(ira->codegen, out_val, file_contents);
 
-    return get_array_type(ira->codegen, ira->codegen->builtin_types.entry_u8, buf_len(&file_contents));
+    return get_array_type(ira->codegen, ira->codegen->builtin_types.entry_u8, buf_len(file_contents));
 }
 
 static TypeTableEntry *ir_analyze_instruction_cmpxchg(IrAnalyze *ira, IrInstructionCmpxchg *instruction) {

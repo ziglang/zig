@@ -4370,6 +4370,12 @@ bool type_requires_comptime(TypeTableEntry *type_entry) {
 }
 
 void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
+    auto entry = g->string_literals_table.maybe_get(str);
+    if (entry != nullptr) {
+        *const_val = *entry->value;
+        return;
+    }
+
     const_val->special = ConstValSpecialStatic;
     const_val->type = get_array_type(g, g->builtin_types.entry_u8, buf_len(str));
     const_val->data.x_array.s_none.elements = create_const_vals(buf_len(str));
@@ -4380,6 +4386,8 @@ void init_const_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
         this_char->type = g->builtin_types.entry_u8;
         bigint_init_unsigned(&this_char->data.x_bigint, (uint8_t)buf_ptr(str)[i]);
     }
+
+    g->string_literals_table.put(str, const_val);
 }
 
 ConstExprValue *create_const_str_lit(CodeGen *g, Buf *str) {

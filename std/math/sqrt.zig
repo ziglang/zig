@@ -18,11 +18,21 @@ pub fn sqrt(x: var) -> (if (@typeId(@typeOf(x)) == TypeId.Int) @IntType(false, @
             return T(sqrt64(x));
         },
         TypeId.Float => {
-            return switch (T) {
-                f32 => sqrt32(x),
-                f64 => sqrt64(x),
+            switch (T) {
+                f32 => {
+                    switch (builtin.arch) {
+                        builtin.Arch.x86_64 => return @import("x86_64/sqrt.zig").sqrt32(x),
+                        else => return sqrt32(x),
+                    }
+                },
+                f64 => {
+                    switch (builtin.arch) {
+                        builtin.Arch.x86_64 => return @import("x86_64/sqrt.zig").sqrt64(x),
+                        else => return sqrt64(x),
+                    }
+                },
                 else => @compileError("sqrt not implemented for " ++ @typeName(T)),
-            };
+            }
         },
         TypeId.IntLiteral => comptime {
             if (x > @maxValue(u128)) {
