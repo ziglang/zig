@@ -1421,6 +1421,7 @@ struct CodeGen {
     HashMap<ZigLLVMFnKey, LLVMValueRef, zig_llvm_fn_key_hash, zig_llvm_fn_key_eql> llvm_fn_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> exported_symbol_names;
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_prototypes;
+    HashMap<Buf *, ConstExprValue *, buf_hash, buf_eql_buf> string_literals_table;
 
 
     ZigList<ImportTableEntry *> import_queue;
