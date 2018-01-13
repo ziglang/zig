@@ -10,6 +10,7 @@ pub const LinkedList = @import("linked_list.zig").LinkedList;
 pub const base64 = @import("base64.zig");
 pub const build = @import("build.zig");
 pub const c = @import("c/index.zig");
+pub const crypto = @import("crypto/index.zig");
 pub const cstr = @import("cstr.zig");
 pub const debug = @import("debug/index.zig");
 pub const dwarf = @import("dwarf.zig");
@@ -39,6 +40,7 @@ test "std" {
     _ = @import("base64.zig");
     _ = @import("build.zig");
     _ = @import("c/index.zig");
+    _ = @import("crypto/index.zig");
     _ = @import("cstr.zig");
     _ = @import("debug/index.zig");
     _ = @import("dwarf.zig");

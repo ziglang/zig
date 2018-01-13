@@ -267,6 +267,45 @@ test "math.shr" {
     assert(shr(u8, 0b11111111, isize(-2)) == 0b11111100);
 }
 
+/// Rotates right. Only unsigned values can be rotated.
+/// Negative shift values results in shift modulo the bit count.
+pub fn rotr(comptime T: type, x: T, r: var) -> T {
+    if (T.is_signed) {
+        @compileError("cannot rotate signed integer");
+    } else {
+        const ar = @mod(r, T.bit_count);
+        return shr(T, x, ar) | shl(T, x, T.bit_count - ar);
+    }
+}
+
+test "math.rotr" {
+    assert(rotr(u8, 0b00000001, usize(0))  == 0b00000001);
+    assert(rotr(u8, 0b00000001, usize(9))  == 0b10000000);
+    assert(rotr(u8, 0b00000001, usize(8))  == 0b00000001);
+    assert(rotr(u8, 0b00000001, usize(4))  == 0b00010000);
+    assert(rotr(u8, 0b00000001, isize(-1)) == 0b00000010);
+}
+
+/// Rotates left. Only unsigned values can be rotated.
+/// Negative shift values results in shift modulo the bit count.
+pub fn rotl(comptime T: type, x: T, r: var) -> T {
+    if (T.is_signed) {
+        @compileError("cannot rotate signed integer");
+    } else {
+        const ar = @mod(r, T.bit_count);
+        return shl(T, x, ar) | shr(T, x, T.bit_count - ar);
+    }
+}
+
+test "math.rotl" {
+    assert(rotl(u8, 0b00000001, usize(0))  == 0b00000001);
+    assert(rotl(u8, 0b00000001, usize(9))  == 0b00000010);
+    assert(rotl(u8, 0b00000001, usize(8))  == 0b00000001);
+    assert(rotl(u8, 0b00000001, usize(4))  == 0b00010000);
+    assert(rotl(u8, 0b00000001, isize(-1)) == 0b10000000);
+}
+
+
 pub fn Log2Int(comptime T: type) -> type {
     return @IntType(false, log2(T.bit_count));
 }
