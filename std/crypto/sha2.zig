@@ -7,11 +7,11 @@ const debug = @import("../debug/index.zig");
 // Sha224 + Sha256
 
 const RoundParam256 = struct {
-    a: u32, b: u32, c: u32, d: u32, e: u32, f: u32, g: u32, h: u32,
-    i: u32, k: u32,
+    a: usize, b: usize, c: usize, d: usize, e: usize, f: usize, g: usize, h: usize,
+    i: usize, k: u32,
 };
 
-fn Rp256(a: u32, b: u32, c: u32, d: u32, e: u32, f: u32, g: u32, h: u32, i: u32, k: u32) -> RoundParam256 {
+fn Rp256(a: usize, b: usize, c: usize, d: usize, e: usize, f: usize, g: usize, h: usize, i: usize, k: u32) -> RoundParam256 {
     return RoundParam256 { .a = a, .b = b, .c = c, .d = d, .e = e, .f = f, .g = g, .h = h, .i = i, .k = k };
 }
 
@@ -24,7 +24,7 @@ const Sha2Params32 = struct {
     iv5: u32,
     iv6: u32,
     iv7: u32,
-    out_len: u32,
+    out_len: usize,
 };
 
 const Sha224Params = Sha2Params32 {
