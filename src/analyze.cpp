@@ -2584,22 +2584,26 @@ static bool scope_is_root_decls(Scope *scope) {
 
 static void wrong_panic_prototype(CodeGen *g, AstNode *proto_node, TypeTableEntry *fn_type) {
     add_node_error(g, proto_node,
-            buf_sprintf("expected 'fn([]const u8) -> unreachable', found '%s'",
+            buf_sprintf("expected 'fn([]const u8, ?&builtin.StackTrace) -> unreachable', found '%s'",
                 buf_ptr(&fn_type->name)));
 }
 
 static void typecheck_panic_fn(CodeGen *g, FnTableEntry *panic_fn) {
-    return; // TODO
     AstNode *proto_node = panic_fn->proto_node;
     assert(proto_node->type == NodeTypeFnProto);
     TypeTableEntry *fn_type = panic_fn->type_entry;
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
-    if (fn_type_id->param_count != 1) {
+    if (fn_type_id->param_count != 2) {
         return wrong_panic_prototype(g, proto_node, fn_type);
     }
     TypeTableEntry *const_u8_ptr = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
     TypeTableEntry *const_u8_slice = get_slice_type(g, const_u8_ptr);
     if (fn_type_id->param_info[0].type != const_u8_slice) {
+        return wrong_panic_prototype(g, proto_node, fn_type);
+    }
+
+    TypeTableEntry *nullable_ptr_to_stack_trace_type = get_maybe_type(g, get_ptr_to_stack_trace_type(g));
+    if (fn_type_id->param_info[1].type != nullable_ptr_to_stack_trace_type) {
         return wrong_panic_prototype(g, proto_node, fn_type);
     }
 
