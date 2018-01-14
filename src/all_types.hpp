@@ -1574,6 +1574,8 @@ struct CodeGen {
     size_t largest_err_name_len;
     LLVMValueRef safety_crash_err_fn;
 
+    LLVMValueRef return_err_fn;
+
     IrInstruction *invalid_instruction;
     ConstExprValue const_void_val;
 
