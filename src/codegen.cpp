@@ -406,6 +406,16 @@ static LLVMLinkage to_llvm_linkage(GlobalLinkageId id) {
     zig_unreachable();
 }
 
+static uint32_t get_err_ret_trace_arg_index(FnTableEntry *fn_table_entry) {
+    TypeTableEntry *fn_type = fn_table_entry->type_entry;
+    TypeTableEntry *return_type = fn_type->data.fn.fn_type_id.return_type;
+    if (return_type->id != TypeTableEntryIdErrorUnion && return_type->id != TypeTableEntryIdPureError) {
+        return UINT32_MAX;
+    }
+    bool first_arg_ret = type_has_bits(return_type) && handle_is_ptr(return_type);
+    return first_arg_ret ? 1 : 0;
+}
+
 static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     if (fn_table_entry->llvm_value)
         return fn_table_entry->llvm_value;
@@ -563,9 +573,10 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
             addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)gen_index, "byval");
         }
     }
-    if (return_type->id == TypeTableEntryIdErrorUnion || return_type->id == TypeTableEntryIdPureError) {
-        unsigned gen_index = LLVMCountParamTypes(fn_llvm_type) - 1;
-        addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)gen_index, "nonnull");
+
+    uint32_t err_ret_trace_arg_index = get_err_ret_trace_arg_index(fn_table_entry);
+    if (err_ret_trace_arg_index != UINT32_MAX) {
+        addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)err_ret_trace_arg_index, "nonnull");
     }
 
     return fn_table_entry->llvm_value;
@@ -2400,13 +2411,17 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     TypeTableEntry *src_return_type = fn_type_id->return_type;
     bool ret_has_bits = type_has_bits(src_return_type);
     bool first_arg_ret = ret_has_bits && handle_is_ptr(src_return_type);
-    bool last_arg_err_ret_stack = src_return_type->id == TypeTableEntryIdErrorUnion || src_return_type->id == TypeTableEntryIdPureError;
-    size_t actual_param_count = instruction->arg_count + (first_arg_ret ? 1 : 0) + (last_arg_err_ret_stack ? 1 : 0);
+    bool prefix_arg_err_ret_stack = src_return_type->id == TypeTableEntryIdErrorUnion || src_return_type->id == TypeTableEntryIdPureError;
+    size_t actual_param_count = instruction->arg_count + (first_arg_ret ? 1 : 0) + (prefix_arg_err_ret_stack ? 1 : 0);
     bool is_var_args = fn_type_id->is_var_args;
     LLVMValueRef *gen_param_values = allocate<LLVMValueRef>(actual_param_count);
     size_t gen_param_index = 0;
     if (first_arg_ret) {
         gen_param_values[gen_param_index] = instruction->tmp_ptr;
+        gen_param_index += 1;
+    }
+    if (prefix_arg_err_ret_stack) {
+        gen_param_values[gen_param_index] = g->cur_err_ret_trace_val;
         gen_param_index += 1;
     }
     for (size_t call_i = 0; call_i < instruction->arg_count; call_i += 1) {
@@ -2418,10 +2433,6 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
             gen_param_values[gen_param_index] = param_value;
             gen_param_index += 1;
         }
-    }
-    if (last_arg_err_ret_stack) {
-        gen_param_values[gen_param_index] = g->cur_err_ret_trace_val;
-        gen_param_index += 1;
     }
 
     ZigLLVM_FnInline fn_inline;
@@ -4578,8 +4589,9 @@ static void do_code_gen(CodeGen *g) {
         build_all_basic_blocks(g, fn_table_entry);
         clear_debug_source_node(g);
 
-        if (return_type->id == TypeTableEntryIdPureError || return_type->id == TypeTableEntryIdErrorUnion) {
-            g->cur_err_ret_trace_val = LLVMGetParam(fn, LLVMCountParamTypes(fn_table_entry->type_entry->data.fn.raw_type_ref) - 1);
+        uint32_t err_ret_trace_arg_index = get_err_ret_trace_arg_index(fn_table_entry);
+        if (err_ret_trace_arg_index != UINT32_MAX) {
+            g->cur_err_ret_trace_val = LLVMGetParam(fn, err_ret_trace_arg_index);
         } else if (fn_table_entry->calls_errorable_function) {
             g->cur_err_ret_trace_val = build_alloca(g, g->stack_trace_type, "error_return_trace", get_abi_alignment(g, g->stack_trace_type));
             size_t index_field_index = g->stack_trace_type->data.structure.fields[0].gen_index;

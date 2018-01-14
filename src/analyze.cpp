@@ -925,7 +925,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     if (!skip_debug_info) {
         bool first_arg_return = calling_convention_does_first_arg_return(fn_type_id->cc) &&
             handle_is_ptr(fn_type_id->return_type);
-        bool last_arg_error_return_trace = fn_type_id->return_type->id == TypeTableEntryIdErrorUnion || 
+        bool prefix_arg_error_return_trace = fn_type_id->return_type->id == TypeTableEntryIdErrorUnion || 
             fn_type_id->return_type->id == TypeTableEntryIdPureError;
         // +1 for maybe making the first argument the return value
         // +1 for maybe last argument the error return trace
@@ -950,6 +950,14 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             gen_return_type = fn_type_id->return_type;
         }
         fn_type->data.fn.gen_return_type = gen_return_type;
+
+        if (prefix_arg_error_return_trace) {
+            TypeTableEntry *gen_type = get_ptr_to_stack_trace_type(g);
+            gen_param_types[gen_param_index] = gen_type->type_ref;
+            gen_param_index += 1;
+            // after the gen_param_index += 1 because 0 is the return type
+            param_di_types[gen_param_index] = gen_type->di_type;
+        }
 
         fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(fn_type_id->param_count);
         for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
@@ -978,14 +986,6 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
                 // after the gen_param_index += 1 because 0 is the return type
                 param_di_types[gen_param_index] = gen_type->di_type;
             }
-        }
-
-        if (last_arg_error_return_trace) {
-            TypeTableEntry *gen_type = get_ptr_to_stack_trace_type(g);
-            gen_param_types[gen_param_index] = gen_type->type_ref;
-            gen_param_index += 1;
-            // after the gen_param_index += 1 because 0 is the return type
-            param_di_types[gen_param_index] = gen_type->di_type;
         }
 
         fn_type->data.fn.gen_param_count = gen_param_index;
