@@ -367,6 +367,7 @@ set(ZIG_STD_FILES
     "crypto/index.zig"
     "crypto/md5.zig"
     "crypto/sha1.zig"
+    "crypto/sha2.zig"
     "cstr.zig"
     "debug/failing_allocator.zig"
     "debug/index.zig"

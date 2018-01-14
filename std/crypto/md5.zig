@@ -4,11 +4,11 @@ const endian = @import("../endian.zig");
 const debug = @import("../debug/index.zig");
 
 const RoundParam = struct {
-    a: u32, b: u32, c: u32, d: u32,
-    k: u32, s: u32, t: u32
+    a: usize, b: usize, c: usize, d: usize,
+    k: usize, s: u32, t: u32
 };
 
-fn Rp(a: u32, b: u32, c: u32, d: u32, k: u32, s: u5, t: u32) -> RoundParam {
+fn Rp(a: usize, b: usize, c: usize, d: usize, k: usize, s: u32, t: u32) -> RoundParam {
     return RoundParam { .a = a, .b = b, .c = c, .d = d, .k = k, .s = s, .t = t };
 }
 
@@ -69,7 +69,8 @@ pub const Md5 = struct {
         mem.copy(u8, d.buf[d.buf_len..], b[off..]);
         d.buf_len += u8(b[off..].len);
 
-        d.total_len += b.len;
+        // Md5 uses the bottom 64-bits for length padding
+        d.total_len +%= b.len;
     }
 
     pub fn final(d: &Self) -> u128 {

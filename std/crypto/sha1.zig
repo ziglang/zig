@@ -6,10 +6,10 @@ const debug = @import("../debug/index.zig");
 pub const u160 = @IntType(false, 160);
 
 const RoundParam = struct {
-    a: u32, b: u32, c: u32, d: u32, e: u32, i: u32,
+    a: usize, b: usize, c: usize, d: usize, e: usize, i: u32,
 };
 
-fn Rp(a: u32, b: u32, c: u32, d: u32, e: u32, i: u32) -> RoundParam {
+fn Rp(a: usize, b: usize, c: usize, d: usize, e: usize, i: u32) -> RoundParam {
     return RoundParam { .a = a, .b = b, .c = c, .d = d, .e = e, .i = i };
 }
 
