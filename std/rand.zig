@@ -194,11 +194,6 @@ fn MersenneTwister(
 }
 
 test "rand float 32" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     var r = Rand.init(42);
     var i: usize = 0;
     while (i < 1000) : (i += 1) {
@@ -209,11 +204,6 @@ test "rand float 32" {
 }
 
 test "rand.MT19937_64" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     var rng = MT19937_64.init(rand_test.mt64_seed);
     for (rand_test.mt64_data) |value| {
         assert(value == rng.get());
@@ -221,11 +211,6 @@ test "rand.MT19937_64" {
 }
 
 test "rand.MT19937_32" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     var rng = MT19937_32.init(rand_test.mt32_seed);
     for (rand_test.mt32_data) |value| {
         assert(value == rng.get());
@@ -233,11 +218,6 @@ test "rand.MT19937_32" {
 }
 
 test "rand.Rand.range" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     var r = Rand.init(42);
     testRange(&r, -4, 3);
     testRange(&r, -4, -1);

@@ -42,11 +42,6 @@ const test_targets = []TestTarget {
         .arch = builtin.Arch.x86_64,
         .environ = builtin.Environ.msvc,
     },
-    TestTarget {
-        .os = builtin.Os.windows,
-        .arch = builtin.Arch.i386,
-        .environ = builtin.Environ.msvc,
-    },
 };
 
 error TestFailed;

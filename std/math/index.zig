@@ -359,11 +359,6 @@ pub fn divTrunc(comptime T: type, numerator: T, denominator: T) -> %T {
 }
 
 test "math.divTrunc" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     testDivTrunc();
     comptime testDivTrunc();
 }
@@ -389,11 +384,6 @@ pub fn divFloor(comptime T: type, numerator: T, denominator: T) -> %T {
 }
 
 test "math.divFloor" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     testDivFloor();
     comptime testDivFloor();
 }
@@ -423,11 +413,6 @@ pub fn divExact(comptime T: type, numerator: T, denominator: T) -> %T {
 }
 
 test "math.divExact" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     testDivExact();
     comptime testDivExact();
 }

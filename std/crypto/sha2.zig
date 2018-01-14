@@ -270,22 +270,12 @@ fn Sha2_32(comptime params: Sha2Params32) -> type { return struct {
 };}
 
 test "sha224 single" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
-
     debug.assert(0xd14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f == Sha224.hash(""));
     debug.assert(0x23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7 == Sha224.hash("abc"));
     debug.assert(0xc97ca9a559850ce97a04a96def6d99a9e0e0e2ab14e6b8df265fc0b3 == Sha224.hash("abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu"));
 }
 
 test "sha224 streaming" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
-
     var h = Sha224.init();
 
     debug.assert(0xd14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f == h.final());
@@ -302,22 +292,12 @@ test "sha224 streaming" {
 }
 
 test "sha256 single" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
-
     debug.assert(0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 == Sha256.hash(""));
     debug.assert(0xba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad == Sha256.hash("abc"));
     debug.assert(0xcf5b16a778af8380036ce59e7b0492370b249b11e8f07a51afac45037afee9d1 == Sha256.hash("abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu"));
 }
 
 test "sha256 streaming" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
-
     var h = Sha256.init();
 
     debug.assert(0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 == h.final());
@@ -621,11 +601,6 @@ fn Sha2_64(comptime params: Sha2Params64) -> type { return struct {
 };}
 
 test "sha384 single" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
-
     const h1 = 0x38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b;
     debug.assert(h1 == Sha384.hash(""));
 
@@ -637,11 +612,6 @@ test "sha384 single" {
 }
 
 test "sha384 streaming" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
-
     var h = Sha384.init();
 
     const h1 = 0x38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b;
@@ -661,11 +631,6 @@ test "sha384 streaming" {
 }
 
 test "sha512 single" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
-
     const h1 = 0xcf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e;
     debug.assert(h1 == Sha512.hash(""));
 
@@ -677,11 +642,6 @@ test "sha512 single" {
 }
 
 test "sha512 streaming" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
-
     var h = Sha512.init();
 
     const h1 = 0xcf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e;

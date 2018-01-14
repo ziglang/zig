@@ -147,11 +147,6 @@ pub fn ln_64(x_: f64) -> f64 {
 }
 
 test "math.ln" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     assert(ln(f32(0.2)) == ln_32(0.2));
     assert(ln(f64(0.2)) == ln_64(0.2));
 }
