@@ -1274,6 +1274,7 @@ enum BuiltinFnId {
     BuiltinFnIdSetAlignStack,
     BuiltinFnIdArgType,
     BuiltinFnIdExport,
+    BuiltinFnIdErrorReturnTrace,
 };
 
 struct BuiltinFnEntry {
@@ -1499,6 +1500,7 @@ struct CodeGen {
     Buf triple_str;
     BuildMode build_mode;
     bool is_test_build;
+    bool have_err_ret_tracing;
     uint32_t target_os_index;
     uint32_t target_arch_index;
     uint32_t target_environ_index;
@@ -1902,6 +1904,7 @@ enum IrInstructionId {
     IrInstructionIdSetAlignStack,
     IrInstructionIdArgType,
     IrInstructionIdExport,
+    IrInstructionIdErrorReturnTrace,
 };
 
 struct IrInstruction {
@@ -2721,6 +2724,10 @@ struct IrInstructionExport {
     IrInstruction *name;
     IrInstruction *linkage;
     IrInstruction *target;
+};
+
+struct IrInstructionErrorReturnTrace {
+    IrInstruction base;
 };
 
 static const size_t slice_ptr_index = 0;

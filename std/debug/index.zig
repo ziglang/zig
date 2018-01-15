@@ -56,7 +56,7 @@ pub fn dumpCurrentStackTrace() {
 }
 
 /// Tries to print a stack trace to stderr, unbuffered, and ignores any error returned.
-pub fn dumpStackTrace(stack_trace: &builtin.StackTrace) {
+pub fn dumpStackTrace(stack_trace: &const builtin.StackTrace) {
     const stderr = getStderrStream() catch return;
     const debug_info = openSelfDebugInfo(global_allocator) catch |err| {
         stderr.print("Unable to open debug info: {}\n", @errorName(err)) catch return;
@@ -127,7 +127,7 @@ const RESET = "\x1b[0m";
 error PathNotFound;
 error InvalidDebugInfo;
 
-pub fn writeStackTrace(stack_trace: &builtin.StackTrace, out_stream: &io.OutStream, allocator: &mem.Allocator,
+pub fn writeStackTrace(stack_trace: &const builtin.StackTrace, out_stream: &io.OutStream, allocator: &mem.Allocator,
     debug_info: &ElfStackTrace, tty_color: bool) -> %void
 {
     var frame_index: usize = undefined;
@@ -167,6 +167,9 @@ pub fn writeCurrentStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocat
 }
 
 fn printSourceAtAddress(debug_info: &ElfStackTrace, out_stream: &io.OutStream, address: usize) -> %void {
+    if (builtin.os == builtin.Os.windows) {
+        return error.UnsupportedDebugInfo;
+    }
     // TODO we really should be able to convert @sizeOf(usize) * 2 to a string literal
     // at compile time. I'll call it issue #313
     const ptr_hex = if (@sizeOf(usize) == 4) "0x{x8}" else "0x{x16}";
@@ -177,7 +180,7 @@ fn printSourceAtAddress(debug_info: &ElfStackTrace, out_stream: &io.OutStream, a
         return;
     };
     const compile_unit_name = try compile_unit.die.getAttrString(debug_info, DW.AT_name);
-    if (getLineNumberInfo(debug_info, compile_unit, usize(address) - 1)) |line_info| {
+    if (getLineNumberInfo(debug_info, compile_unit, address - 1)) |line_info| {
         defer line_info.deinit();
         try out_stream.print(WHITE ++ "{}:{}:{}" ++ RESET ++ ": " ++
             DIM ++ ptr_hex ++ " in ??? ({})" ++ RESET ++ "\n",

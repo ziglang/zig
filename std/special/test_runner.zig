@@ -8,14 +8,7 @@ pub fn main() -> %void {
     for (test_fn_list) |test_fn, i| {
         warn("Test {}/{} {}...", i + 1, test_fn_list.len, test_fn.name);
 
-        if (builtin.is_test) {
-            test_fn.func() catch unreachable;
-        } else {
-            test_fn.func() catch |err| {
-                warn("{}\n", err);
-                return err;
-            };
-        }
+        try test_fn.func();
 
         warn("OK\n");
     }

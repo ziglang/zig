@@ -404,7 +404,10 @@ static LLVMLinkage to_llvm_linkage(GlobalLinkageId id) {
     zig_unreachable();
 }
 
-static uint32_t get_err_ret_trace_arg_index(FnTableEntry *fn_table_entry) {
+static uint32_t get_err_ret_trace_arg_index(CodeGen *g, FnTableEntry *fn_table_entry) {
+    if (!g->have_err_ret_tracing) {
+        return UINT32_MAX;
+    }
     TypeTableEntry *fn_type = fn_table_entry->type_entry;
     TypeTableEntry *return_type = fn_type->data.fn.fn_type_id.return_type;
     if (return_type->id != TypeTableEntryIdErrorUnion && return_type->id != TypeTableEntryIdPureError) {
@@ -572,7 +575,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
         }
     }
 
-    uint32_t err_ret_trace_arg_index = get_err_ret_trace_arg_index(fn_table_entry);
+    uint32_t err_ret_trace_arg_index = get_err_ret_trace_arg_index(g, fn_table_entry);
     if (err_ret_trace_arg_index != UINT32_MAX) {
         addLLVMArgAttr(fn_table_entry->llvm_value, (unsigned)err_ret_trace_arg_index, "nonnull");
     }
@@ -1415,31 +1418,33 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
     LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
     TypeTableEntry *return_type = return_instruction->value->value.type;
 
-    bool is_err_return = false;
-    if (return_type->id == TypeTableEntryIdErrorUnion) {
-        if (return_instruction->value->value.special == ConstValSpecialStatic) {
-            is_err_return = return_instruction->value->value.data.x_err_union.err != nullptr;
-        } else if (return_instruction->value->value.special == ConstValSpecialRuntime) {
-            is_err_return = return_instruction->value->value.data.rh_error_union == RuntimeHintErrorUnionError;
-            // TODO: emit a branch to check if the return value is an error
+    if (g->have_err_ret_tracing) {
+        bool is_err_return = false;
+        if (return_type->id == TypeTableEntryIdErrorUnion) {
+            if (return_instruction->value->value.special == ConstValSpecialStatic) {
+                is_err_return = return_instruction->value->value.data.x_err_union.err != nullptr;
+            } else if (return_instruction->value->value.special == ConstValSpecialRuntime) {
+                is_err_return = return_instruction->value->value.data.rh_error_union == RuntimeHintErrorUnionError;
+                // TODO: emit a branch to check if the return value is an error
+            }
+        } else if (return_type->id == TypeTableEntryIdPureError) {
+            is_err_return = true;
         }
-    } else if (return_type->id == TypeTableEntryIdPureError) {
-        is_err_return = true;
-    }
-    if (is_err_return) {
-        LLVMBasicBlockRef return_block = LLVMAppendBasicBlock(g->cur_fn_val, "ReturnError");
-        LLVMValueRef block_address = LLVMBlockAddress(g->cur_fn_val, return_block);
+        if (is_err_return) {
+            LLVMBasicBlockRef return_block = LLVMAppendBasicBlock(g->cur_fn_val, "ReturnError");
+            LLVMValueRef block_address = LLVMBlockAddress(g->cur_fn_val, return_block);
 
-        LLVMValueRef return_err_fn = get_return_err_fn(g);
-        LLVMValueRef args[] = {
-            g->cur_err_ret_trace_val,
-            block_address,
-        };
-        LLVMBuildBr(g->builder, return_block);
-        LLVMPositionBuilderAtEnd(g->builder, return_block);
-        LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, return_err_fn, args, 2,
-                get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
-        LLVMSetTailCall(call_instruction, true);
+            LLVMValueRef return_err_fn = get_return_err_fn(g);
+            LLVMValueRef args[] = {
+                g->cur_err_ret_trace_val,
+                block_address,
+            };
+            LLVMBuildBr(g->builder, return_block);
+            LLVMPositionBuilderAtEnd(g->builder, return_block);
+            LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, return_err_fn, args, 2,
+                    get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
+            LLVMSetTailCall(call_instruction, true);
+        }
     }
     if (handle_is_ptr(return_type)) {
         if (calling_convention_does_first_arg_return(g->cur_fn->type_entry->data.fn.fn_type_id.cc)) {
@@ -2475,7 +2480,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     TypeTableEntry *src_return_type = fn_type_id->return_type;
     bool ret_has_bits = type_has_bits(src_return_type);
     bool first_arg_ret = ret_has_bits && handle_is_ptr(src_return_type);
-    bool prefix_arg_err_ret_stack = src_return_type->id == TypeTableEntryIdErrorUnion || src_return_type->id == TypeTableEntryIdPureError;
+    bool prefix_arg_err_ret_stack = g->have_err_ret_tracing && (src_return_type->id == TypeTableEntryIdErrorUnion || src_return_type->id == TypeTableEntryIdPureError);
     size_t actual_param_count = instruction->arg_count + (first_arg_ret ? 1 : 0) + (prefix_arg_err_ret_stack ? 1 : 0);
     bool is_var_args = fn_type_id->is_var_args;
     LLVMValueRef *gen_param_values = allocate<LLVMValueRef>(actual_param_count);
@@ -3029,6 +3034,16 @@ static LLVMValueRef ir_render_align_cast(CodeGen *g, IrExecutable *executable, I
     LLVMPositionBuilderAtEnd(g->builder, ok_block);
 
     return target_val;
+}
+
+static LLVMValueRef ir_render_error_return_trace(CodeGen *g, IrExecutable *executable,
+        IrInstructionErrorReturnTrace *instruction)
+{
+    TypeTableEntry *ptr_to_stack_trace_type = get_ptr_to_stack_trace_type(g);
+    if (g->cur_err_ret_trace_val == nullptr) {
+        return LLVMConstNull(ptr_to_stack_trace_type->type_ref);
+    }
+    return g->cur_err_ret_trace_val;
 }
 
 static LLVMAtomicOrdering to_LLVMAtomicOrdering(AtomicOrder atomic_order) {
@@ -3804,6 +3819,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_field_parent_ptr(g, executable, (IrInstructionFieldParentPtr *)instruction);
         case IrInstructionIdAlignCast:
             return ir_render_align_cast(g, executable, (IrInstructionAlignCast *)instruction);
+        case IrInstructionIdErrorReturnTrace:
+            return ir_render_error_return_trace(g, executable, (IrInstructionErrorReturnTrace *)instruction);
     }
     zig_unreachable();
 }
@@ -4653,10 +4670,10 @@ static void do_code_gen(CodeGen *g) {
         build_all_basic_blocks(g, fn_table_entry);
         clear_debug_source_node(g);
 
-        uint32_t err_ret_trace_arg_index = get_err_ret_trace_arg_index(fn_table_entry);
+        uint32_t err_ret_trace_arg_index = get_err_ret_trace_arg_index(g, fn_table_entry);
         if (err_ret_trace_arg_index != UINT32_MAX) {
             g->cur_err_ret_trace_val = LLVMGetParam(fn, err_ret_trace_arg_index);
-        } else if (fn_table_entry->calls_errorable_function) {
+        } else if (g->have_err_ret_tracing && fn_table_entry->calls_errorable_function) {
             // TODO call graph analysis to find out what this number needs to be for every function
             static const size_t stack_trace_ptr_count = 30;
 
@@ -5251,6 +5268,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdSetAlignStack, "setAlignStack", 1);
     create_builtin_fn(g, BuiltinFnIdArgType, "ArgType", 2);
     create_builtin_fn(g, BuiltinFnIdExport, "export", 3);
+    create_builtin_fn(g, BuiltinFnIdErrorReturnTrace, "errorReturnTrace", 0);
 }
 
 static const char *bool_to_str(bool b) {
@@ -5552,6 +5570,8 @@ static void init(CodeGen *g) {
             g->panic_msg_vals[i].global_refs = &global_refs[i];
         }
     }
+
+    g->have_err_ret_tracing = g->build_mode != BuildModeFastRelease;
 
     define_builtin_fns(g);
     define_builtin_compile_vars(g);

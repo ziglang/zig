@@ -925,8 +925,9 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     if (!skip_debug_info) {
         bool first_arg_return = calling_convention_does_first_arg_return(fn_type_id->cc) &&
             handle_is_ptr(fn_type_id->return_type);
-        bool prefix_arg_error_return_trace = fn_type_id->return_type->id == TypeTableEntryIdErrorUnion || 
-            fn_type_id->return_type->id == TypeTableEntryIdPureError;
+        bool prefix_arg_error_return_trace = g->have_err_ret_tracing &&
+            (fn_type_id->return_type->id == TypeTableEntryIdErrorUnion || 
+            fn_type_id->return_type->id == TypeTableEntryIdPureError);
         // +1 for maybe making the first argument the return value
         // +1 for maybe last argument the error return trace
         LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(2 + fn_type_id->param_count);
@@ -2711,13 +2712,6 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
             {
                 if (g->have_pub_main && buf_eql_str(&fn_table_entry->symbol_name, "main")) {
                     g->main_fn = fn_table_entry;
-                    TypeTableEntry *err_void = get_error_type(g, g->builtin_types.entry_void);
-                    TypeTableEntry *actual_return_type = fn_table_entry->type_entry->data.fn.fn_type_id.return_type;
-                    if (actual_return_type != err_void) {
-                        add_node_error(g, fn_proto->return_type,
-                                buf_sprintf("expected return type of main to be '%%void', instead is '%s'",
-                                    buf_ptr(&actual_return_type->name)));
-                    }
                 } else if ((import->package == g->panic_package || g->have_pub_panic) &&
                         buf_eql_str(&fn_table_entry->symbol_name, "panic"))
                 {

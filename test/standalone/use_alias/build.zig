@@ -1,6 +1,6 @@
 const Builder = @import("std").build.Builder;
 
-pub fn build(b: &Builder) {
+pub fn build(b: &Builder) -> %void {
     b.addCIncludePath(".");
 
     const main = b.addTest("main.zig");
