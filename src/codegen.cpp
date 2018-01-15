@@ -5444,6 +5444,7 @@ static void define_builtin_compile_vars(CodeGen *g) {
     buf_appendf(contents, "pub const object_format = ObjectFormat.%s;\n", cur_obj_fmt);
     buf_appendf(contents, "pub const mode = %s;\n", build_mode_to_str(g->build_mode));
     buf_appendf(contents, "pub const link_libc = %s;\n", bool_to_str(g->libc_link_lib != nullptr));
+    buf_appendf(contents, "pub const have_error_return_tracing = %s;\n", bool_to_str(g->have_err_ret_tracing));
 
     buf_appendf(contents, "pub const __zig_test_fn_slice = {}; // overwritten later\n");
 
