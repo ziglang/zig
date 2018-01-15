@@ -5,7 +5,7 @@ const builtin = @import("builtin");
 
 // Avoid dragging in the debug safety mechanisms into this .o file,
 // unless we're trying to test this file.
-pub coldcc fn panic(msg: []const u8) -> noreturn {
+pub coldcc fn panic(msg: []const u8, error_return_trace: ?&builtin.StackTrace) -> noreturn {
     if (builtin.is_test) {
         @import("std").debug.panic("{}", msg);
     } else {

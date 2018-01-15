@@ -572,6 +572,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionArgType *) {
     return IrInstructionIdArgType;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionErrorReturnTrace *) {
+    return IrInstructionIdErrorReturnTrace;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -2305,6 +2309,12 @@ static IrInstruction *ir_build_arg_type(IrBuilder *irb, Scope *scope, AstNode *s
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_error_return_trace(IrBuilder *irb, Scope *scope, AstNode *source_node) {
+    IrInstructionErrorReturnTrace *instruction = ir_build_instruction<IrInstructionErrorReturnTrace>(irb, scope, source_node);
+
+    return &instruction->base;
+}
+
 static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope, size_t *results) {
     results[ReturnKindUnconditional] = 0;
     results[ReturnKindError] = 0;
@@ -3730,6 +3740,10 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                     return arg2_value;
 
                 return ir_build_export(irb, scope, node, arg0_value, arg1_value, arg2_value);
+            }
+        case BuiltinFnIdErrorReturnTrace:
+            {
+                return ir_build_error_return_trace(irb, scope, node);
             }
     }
     zig_unreachable();
@@ -8230,16 +8244,6 @@ static bool ir_resolve_comptime(IrAnalyze *ira, IrInstruction *value, bool *out)
     return ir_resolve_bool(ira, value, out);
 }
 
-static ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
-    Tld *tld = codegen->compile_var_import->decls_scope->decl_table.get(buf_create_from_str(name));
-    resolve_top_level_decl(codegen, tld, false, nullptr);
-    assert(tld->id == TldIdVar);
-    TldVar *tld_var = (TldVar *)tld;
-    ConstExprValue *var_value = tld_var->var->value;
-    assert(var_value != nullptr);
-    return var_value;
-}
-
 static bool ir_resolve_atomic_order(IrAnalyze *ira, IrInstruction *value, AtomicOrder *out) {
     if (type_is_invalid(value->value.type))
         return false;
@@ -9578,6 +9582,24 @@ static TypeTableEntry *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructi
     return ira->codegen->builtin_types.entry_void;
 }
 
+static TypeTableEntry *ir_analyze_instruction_error_return_trace(IrAnalyze *ira,
+        IrInstructionErrorReturnTrace *instruction)
+{
+    FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
+    TypeTableEntry *ptr_to_stack_trace_type = get_ptr_to_stack_trace_type(ira->codegen);
+    TypeTableEntry *nullable_type = get_maybe_type(ira->codegen, ptr_to_stack_trace_type);
+    if (fn_entry == nullptr || !fn_entry->calls_errorable_function || !ira->codegen->have_err_ret_tracing) {
+        ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+        out_val->data.x_maybe = nullptr;
+        return nullable_type;
+    }
+
+    IrInstruction *new_instruction = ir_build_error_return_trace(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node);
+    ir_link_new_instruction(new_instruction, &instruction->base);
+    return nullable_type;
+}
+
 static bool ir_analyze_fn_call_inline_arg(IrAnalyze *ira, AstNode *fn_proto_node,
     IrInstruction *arg, Scope **exec_scope, size_t *next_proto_i)
 {
@@ -10053,8 +10075,20 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         TypeTableEntry *return_type = impl_fn->type_entry->data.fn.fn_type_id.return_type;
         ir_add_alloca(ira, new_call_instruction, return_type);
 
+        if (return_type->id == TypeTableEntryIdPureError || return_type->id == TypeTableEntryIdErrorUnion) {
+            parent_fn_entry->calls_errorable_function = true;
+        }
+
         return ir_finish_anal(ira, return_type);
     }
+
+    FnTableEntry *parent_fn_entry = exec_fn_entry(ira->new_irb.exec);
+    assert(fn_type_id->return_type != nullptr);
+    assert(parent_fn_entry != nullptr);
+    if (fn_type_id->return_type->id == TypeTableEntryIdPureError || fn_type_id->return_type->id == TypeTableEntryIdErrorUnion) {
+        parent_fn_entry->calls_errorable_function = true;
+    }
+
 
     IrInstruction **casted_args = allocate<IrInstruction *>(call_param_count);
     size_t next_arg_index = 0;
@@ -15322,6 +15356,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_tag_type(ira, (IrInstructionTagType *)instruction);
         case IrInstructionIdExport:
             return ir_analyze_instruction_export(ira, (IrInstructionExport *)instruction);
+        case IrInstructionIdErrorReturnTrace:
+            return ir_analyze_instruction_error_return_trace(ira, (IrInstructionErrorReturnTrace *)instruction);
     }
     zig_unreachable();
 }
@@ -15505,6 +15541,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdOpaqueType:
         case IrInstructionIdArgType:
         case IrInstructionIdTagType:
+        case IrInstructionIdErrorReturnTrace:
             return false;
         case IrInstructionIdAsm:
             {

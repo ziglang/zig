@@ -1205,6 +1205,7 @@ struct FnTableEntry {
     uint32_t alignstack_value;
 
     ZigList<FnExport> export_list;
+    bool calls_errorable_function;
 };
 
 uint32_t fn_table_entry_hash(FnTableEntry*);
@@ -1273,6 +1274,7 @@ enum BuiltinFnId {
     BuiltinFnIdSetAlignStack,
     BuiltinFnIdArgType,
     BuiltinFnIdExport,
+    BuiltinFnIdErrorReturnTrace,
 };
 
 struct BuiltinFnEntry {
@@ -1498,6 +1500,7 @@ struct CodeGen {
     Buf triple_str;
     BuildMode build_mode;
     bool is_test_build;
+    bool have_err_ret_tracing;
     uint32_t target_os_index;
     uint32_t target_arch_index;
     uint32_t target_environ_index;
@@ -1530,6 +1533,7 @@ struct CodeGen {
     FnTableEntry *panic_fn;
     LLVMValueRef cur_ret_ptr;
     LLVMValueRef cur_fn_val;
+    LLVMValueRef cur_err_ret_trace_val;
     bool c_want_stdint;
     bool c_want_stdbool;
     AstNode *root_export_decl;
@@ -1572,6 +1576,8 @@ struct CodeGen {
     size_t largest_err_name_len;
     LLVMValueRef safety_crash_err_fn;
 
+    LLVMValueRef return_err_fn;
+
     IrInstruction *invalid_instruction;
     ConstExprValue const_void_val;
 
@@ -1595,6 +1601,8 @@ struct CodeGen {
     ZigList<AstNode *> tld_ref_source_node_stack;
 
     TypeTableEntry *align_amt_type;
+    TypeTableEntry *stack_trace_type;
+    TypeTableEntry *ptr_to_stack_trace_type;
 };
 
 enum VarLinkage {
@@ -1896,6 +1904,7 @@ enum IrInstructionId {
     IrInstructionIdSetAlignStack,
     IrInstructionIdArgType,
     IrInstructionIdExport,
+    IrInstructionIdErrorReturnTrace,
 };
 
 struct IrInstruction {
@@ -2715,6 +2724,10 @@ struct IrInstructionExport {
     IrInstruction *name;
     IrInstruction *linkage;
     IrInstruction *target;
+};
+
+struct IrInstructionErrorReturnTrace {
+    IrInstruction base;
 };
 
 static const size_t slice_ptr_index = 0;

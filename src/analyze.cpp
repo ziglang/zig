@@ -869,6 +869,16 @@ static const char *calling_convention_fn_type_str(CallingConvention cc) {
     zig_unreachable();
 }
 
+TypeTableEntry *get_ptr_to_stack_trace_type(CodeGen *g) {
+    if (g->stack_trace_type == nullptr) {
+        ConstExprValue *stack_trace_type_val = get_builtin_value(g, "StackTrace");
+        assert(stack_trace_type_val->type->id == TypeTableEntryIdMetaType);
+        g->stack_trace_type = stack_trace_type_val->data.x_type;
+        g->ptr_to_stack_trace_type = get_pointer_to_type(g, g->stack_trace_type, false);
+    }
+    return g->ptr_to_stack_trace_type;
+}
+
 TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     auto table_entry = g->fn_type_table.maybe_get(fn_type_id);
     if (table_entry) {
@@ -915,10 +925,16 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     if (!skip_debug_info) {
         bool first_arg_return = calling_convention_does_first_arg_return(fn_type_id->cc) &&
             handle_is_ptr(fn_type_id->return_type);
+        bool prefix_arg_error_return_trace = g->have_err_ret_tracing &&
+            (fn_type_id->return_type->id == TypeTableEntryIdErrorUnion || 
+            fn_type_id->return_type->id == TypeTableEntryIdPureError);
         // +1 for maybe making the first argument the return value
-        LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(1 + fn_type_id->param_count);
-        // +1 because 0 is the return type and +1 for maybe making first arg ret val
-        ZigLLVMDIType **param_di_types = allocate<ZigLLVMDIType*>(2 + fn_type_id->param_count);
+        // +1 for maybe last argument the error return trace
+        LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(2 + fn_type_id->param_count);
+        // +1 because 0 is the return type and
+        // +1 for maybe making first arg ret val and
+        // +1 for maybe last argument the error return trace
+        ZigLLVMDIType **param_di_types = allocate<ZigLLVMDIType*>(3 + fn_type_id->param_count);
         param_di_types[0] = fn_type_id->return_type->di_type;
         size_t gen_param_index = 0;
         TypeTableEntry *gen_return_type;
@@ -935,6 +951,14 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             gen_return_type = fn_type_id->return_type;
         }
         fn_type->data.fn.gen_return_type = gen_return_type;
+
+        if (prefix_arg_error_return_trace) {
+            TypeTableEntry *gen_type = get_ptr_to_stack_trace_type(g);
+            gen_param_types[gen_param_index] = gen_type->type_ref;
+            gen_param_index += 1;
+            // after the gen_param_index += 1 because 0 is the return type
+            param_di_types[gen_param_index] = gen_type->di_type;
+        }
 
         fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(fn_type_id->param_count);
         for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
@@ -1168,6 +1192,9 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         }
 
         TypeTableEntry *type_entry = analyze_type_expr(g, child_scope, param_node->data.param_decl.type);
+        if (type_is_invalid(type_entry)) {
+            return g->builtin_types.entry_invalid;
+        }
         if (fn_type_id.cc != CallingConventionUnspecified) {
             type_ensure_zero_bits_known(g, type_entry);
             if (!type_has_bits(type_entry)) {
@@ -2558,7 +2585,7 @@ static bool scope_is_root_decls(Scope *scope) {
 
 static void wrong_panic_prototype(CodeGen *g, AstNode *proto_node, TypeTableEntry *fn_type) {
     add_node_error(g, proto_node,
-            buf_sprintf("expected 'fn([]const u8) -> unreachable', found '%s'",
+            buf_sprintf("expected 'fn([]const u8, ?&builtin.StackTrace) -> unreachable', found '%s'",
                 buf_ptr(&fn_type->name)));
 }
 
@@ -2567,12 +2594,17 @@ static void typecheck_panic_fn(CodeGen *g, FnTableEntry *panic_fn) {
     assert(proto_node->type == NodeTypeFnProto);
     TypeTableEntry *fn_type = panic_fn->type_entry;
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
-    if (fn_type_id->param_count != 1) {
+    if (fn_type_id->param_count != 2) {
         return wrong_panic_prototype(g, proto_node, fn_type);
     }
     TypeTableEntry *const_u8_ptr = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
     TypeTableEntry *const_u8_slice = get_slice_type(g, const_u8_ptr);
     if (fn_type_id->param_info[0].type != const_u8_slice) {
+        return wrong_panic_prototype(g, proto_node, fn_type);
+    }
+
+    TypeTableEntry *nullable_ptr_to_stack_trace_type = get_maybe_type(g, get_ptr_to_stack_trace_type(g));
+    if (fn_type_id->param_info[1].type != nullable_ptr_to_stack_trace_type) {
         return wrong_panic_prototype(g, proto_node, fn_type);
     }
 
@@ -2680,13 +2712,6 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
             {
                 if (g->have_pub_main && buf_eql_str(&fn_table_entry->symbol_name, "main")) {
                     g->main_fn = fn_table_entry;
-                    TypeTableEntry *err_void = get_error_type(g, g->builtin_types.entry_void);
-                    TypeTableEntry *actual_return_type = fn_table_entry->type_entry->data.fn.fn_type_id.return_type;
-                    if (actual_return_type != err_void) {
-                        add_node_error(g, fn_proto->return_type,
-                                buf_sprintf("expected return type of main to be '%%void', instead is '%s'",
-                                    buf_ptr(&actual_return_type->name)));
-                    }
                 } else if ((import->package == g->panic_package || g->have_pub_panic) &&
                         buf_eql_str(&fn_table_entry->symbol_name, "panic"))
                 {
@@ -5525,5 +5550,15 @@ uint32_t type_ptr_hash(const TypeTableEntry *ptr) {
 
 bool type_ptr_eql(const TypeTableEntry *a, const TypeTableEntry *b) {
     return a == b;
+}
+
+ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
+    Tld *tld = codegen->compile_var_import->decls_scope->decl_table.get(buf_create_from_str(name));
+    resolve_top_level_decl(codegen, tld, false, nullptr);
+    assert(tld->id == TldIdVar);
+    TldVar *tld_var = (TldVar *)tld;
+    ConstExprValue *var_value = tld_var->var->value;
+    assert(var_value != nullptr);
+    return var_value;
 }
 
