@@ -41,10 +41,21 @@ fn getStderrStream() -> %&io.OutStream {
     }
 }
 
+var self_debug_info: ?&ElfStackTrace = null;
+pub fn getSelfDebugInfo() -> %&ElfStackTrace {
+    if (self_debug_info) |info| {
+        return info;
+    } else {
+        const info = try openSelfDebugInfo(global_allocator);
+        self_debug_info = info;
+        return info;
+    }
+}
+
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
 pub fn dumpCurrentStackTrace() {
     const stderr = getStderrStream() catch return;
-    const debug_info = openSelfDebugInfo(global_allocator) catch |err| {
+    const debug_info = getSelfDebugInfo() catch |err| {
         stderr.print("Unable to open debug info: {}\n", @errorName(err)) catch return;
         return;
     };
@@ -58,7 +69,7 @@ pub fn dumpCurrentStackTrace() {
 /// Tries to print a stack trace to stderr, unbuffered, and ignores any error returned.
 pub fn dumpStackTrace(stack_trace: &const builtin.StackTrace) {
     const stderr = getStderrStream() catch return;
-    const debug_info = openSelfDebugInfo(global_allocator) catch |err| {
+    const debug_info = getSelfDebugInfo() catch |err| {
         stderr.print("Unable to open debug info: {}\n", @errorName(err)) catch return;
         return;
     };
@@ -114,6 +125,20 @@ pub fn panic(comptime format: []const u8, args: ...) -> noreturn {
 
     const stderr = getStderrStream() catch os.abort();
     stderr.print(format ++ "\n", args) catch os.abort();
+    dumpCurrentStackTrace();
+
+    os.abort();
+}
+
+pub fn panicWithTrace(trace: &const builtin.StackTrace, comptime format: []const u8, args: ...) -> noreturn {
+    if (panicking) {
+        os.abort();
+    } else {
+        panicking = true;
+    }
+    const stderr = getStderrStream() catch os.abort();
+    stderr.print(format ++ "\n", args) catch os.abort();
+    dumpStackTrace(trace);
     dumpCurrentStackTrace();
 
     os.abort();

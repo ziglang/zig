@@ -13,12 +13,8 @@ pub coldcc fn panic(msg: []const u8, error_return_trace: ?&builtin.StackTrace) -
             while (true) {}
         },
         else => {
-            if (builtin.have_error_return_tracing) {
-                if (error_return_trace) |trace| {
-                    std.debug.warn("{}\n", msg);
-                    std.debug.dumpStackTrace(trace);
-                    @import("std").debug.panic("");
-                }
+            if (error_return_trace) |trace| {
+                @import("std").debug.panicWithTrace(trace, "{}", msg);
             }
             @import("std").debug.panic("{}", msg);
         },
