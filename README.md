@@ -125,16 +125,19 @@ libc. Create demo games using Zig.
 
 ##### POSIX
 
- * gcc >= 5.0.0 or clang >= 3.6.0
  * cmake >= 2.8.5
+ * gcc >= 5.0.0 or clang >= 3.6.0
  * LLVM, Clang, LLD libraries == 5.x, compiled with the same gcc or clang version above
 
 ##### Windows
 
+ * cmake >= 2.8.5
  * Microsoft Visual Studio 2015
  * LLVM, Clang, LLD libraries == 5.x, compiled with the same MSVC version above
 
 #### Instructions
+
+##### POSIX
 
 If you have gcc or clang installed, you can find out what `ZIG_LIBC_LIB_DIR`,
 `ZIG_LIBC_STATIC_LIB_DIR`, and `ZIG_LIBC_INCLUDE_DIR` should be set to
