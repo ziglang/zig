@@ -56,11 +56,6 @@ test "math.log float" {
 }
 
 test "math.log float_special" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     assert(log(f32, 2, 0.2301974) == math.log2(f32(0.2301974)));
     assert(log(f32, 10, 0.2301974) == math.log10(f32(0.2301974)));
 

@@ -142,6 +142,7 @@
             <li><a href="#builtin-TagType">@TagType</a></li>
             <li><a href="#builtin-EnumTagType">@EnumTagType</a></li>
             <li><a href="#builtin-errorName">@errorName</a></li>
+            <li><a href="#builtin-errorReturnTrace">@errorReturnTrace</a></li>
             <li><a href="#builtin-fence">@fence</a></li>
             <li><a href="#builtin-fieldParentPtr">@fieldParentPtr</a></li>
             <li><a href="#builtin-frameAddress">@frameAddress</a></li>
@@ -4411,6 +4412,13 @@ test.zig:6:2: error: found compile log statement
       If there are no calls to <code>@errorName</code> in an entire application,
       or all calls have a compile-time known value for <code>err</code>, then no
       error name table will be generated.
+      </p>
+      <h3 id="builtin-errorReturnTrace">@errorReturnTrace</h3>
+      <pre><code class="zig">@errorReturnTrace() -&gt; ?&amp;builtin.StackTrace</code></pre>
+      <p>
+      If the binary is built with error return tracing, and this function is invoked in a
+      function that calls a function with an error or error union return type, returns a
+      stack trace object. Otherwise returns `null`.
       </p>
       <h3 id="builtin-fence">@fence</h3>
       <pre><code class="zig">@fence(order: AtomicOrder)</code></pre>

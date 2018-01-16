@@ -224,7 +224,7 @@ pub const File = struct {
                     };
                 }
             },
-            else => @compileError("unsupported OS"),
+            else => @compileError("unsupported OS: " ++ @tagName(builtin.os)),
         }
     }
 

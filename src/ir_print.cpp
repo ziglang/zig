@@ -996,6 +996,10 @@ static void ir_print_export(IrPrint *irp, IrInstructionExport *instruction) {
     }
 }
 
+static void ir_print_error_return_trace(IrPrint *irp, IrInstructionErrorReturnTrace *instruction) {
+    fprintf(irp->f, "@errorReturnTrace()");
+}
+
 
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
@@ -1307,6 +1311,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdExport:
             ir_print_export(irp, (IrInstructionExport *)instruction);
+            break;
+        case IrInstructionIdErrorReturnTrace:
+            ir_print_error_return_trace(irp, (IrInstructionErrorReturnTrace *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

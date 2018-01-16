@@ -54,7 +54,7 @@ that counts as "freestanding" for the purposes of this table.
 
 |             | freestanding | linux   | macosx  | windows | other   |
 |-------------|--------------|---------|---------|---------|---------|
-|i386         | OK           | planned | OK      | OK      | planned |
+|i386         | OK           | planned | OK      | planned | planned |
 |x86_64       | OK           | OK      | OK      | OK      | planned |
 |arm          | OK           | planned | planned | N/A     | planned |
 |aarch64      | OK           | planned | planned | planned | planned |

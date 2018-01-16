@@ -42,14 +42,10 @@ const test_targets = []TestTarget {
         .arch = builtin.Arch.x86_64,
         .environ = builtin.Environ.msvc,
     },
-    TestTarget {
-        .os = builtin.Os.windows,
-        .arch = builtin.Arch.i386,
-        .environ = builtin.Environ.msvc,
-    },
 };
 
 error TestFailed;
+error CompilationIncorrectlySucceeded;
 
 const max_stdout_size = 1 * 1024 * 1024; // 1 MB
 
@@ -607,8 +603,7 @@ pub const CompileErrorContext = struct {
             switch (term) {
                 Term.Exited => |code| {
                     if (code == 0) {
-                        warn("Compilation incorrectly succeeded\n");
-                        return error.TestFailed;
+                        return error.CompilationIncorrectlySucceeded;
                     }
                 },
                 else => {

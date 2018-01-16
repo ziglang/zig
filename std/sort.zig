@@ -1020,11 +1020,6 @@ fn cmpByValue(a: &const IdAndValue, b: &const IdAndValue) -> bool {
 }
 
 test "std.sort" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     const u8cases = [][]const []const u8 {
         [][]const u8{"", ""},
         [][]const u8{"a", "a"},
@@ -1061,11 +1056,6 @@ test "std.sort" {
 }
 
 test "std.sort descending" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     const rev_cases = [][]const []const i32 {
         [][]const i32{[]i32{}, []i32{}},
         [][]const i32{[]i32{1}, []i32{1}},
@@ -1085,11 +1075,6 @@ test "std.sort descending" {
 }
 
 test "another sort case" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     var arr = []i32{ 5, 3, 1, 2, 4 };
     sort(i32, arr[0..], i32asc);
 
@@ -1097,11 +1082,6 @@ test "another sort case" {
 }
 
 test "sort fuzz testing" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     var rng = std.rand.Rand.init(0x12345678);
     const test_case_count = 10;
     var i: usize = 0;

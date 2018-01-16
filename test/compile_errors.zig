@@ -1,6 +1,15 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) {
+    cases.add("wrong return type for main",
+        \\pub fn main() -> f32 { }
+    , "error: expected return type of main to be 'u8', 'noreturn', 'void', or '%void'");
+
+    cases.add("double ?? on main return value",
+        \\pub fn main() -> ??void {
+        \\}
+    , "error: expected return type of main to be 'u8', 'noreturn', 'void', or '%void'");
+
     cases.add("bad identifier in function with struct defined inside function which references local const",
         \\export fn entry() {
         \\    const BlockKind = u32;
@@ -1058,15 +1067,6 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\fn something() -> %void { }
     ,
             ".tmp_source.zig:2:5: error: expected type 'void', found 'error'");
-
-    cases.add("wrong return type for main",
-        \\pub fn main() { }
-    , ".tmp_source.zig:1:15: error: expected return type of main to be '%void', instead is 'void'");
-
-    cases.add("double ?? on main return value",
-        \\pub fn main() -> ??void {
-        \\}
-    , ".tmp_source.zig:1:18: error: expected return type of main to be '%void', instead is '??void'");
 
     cases.add("invalid pointer for var type",
         \\extern fn ext() -> usize;
