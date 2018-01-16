@@ -408,7 +408,7 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\}
     ,
         \\pub export fn s(a: c_int, b: c_int) -> c_int {
-        \\    var c: c_int;
+        \\    var c: c_int = undefined;
         \\    c = (a + b);
         \\    c = (a - b);
         \\    c = (a * b);
@@ -416,7 +416,7 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\    c = @rem(a, b);
         \\}
         \\pub export fn u(a: c_uint, b: c_uint) -> c_uint {
-        \\    var c: c_uint;
+        \\    var c: c_uint = undefined;
         \\    c = (a +% b);
         \\    c = (a -% b);
         \\    c = (a *% b);
@@ -460,7 +460,7 @@ pub fn addCases(cases: &tests.TranslateCContext) {
     ,
         \\pub export fn max(_arg_a: c_int) -> c_int {
         \\    var a = _arg_a;
-        \\    var tmp: c_int;
+        \\    var tmp: c_int = undefined;
         \\    tmp = a;
         \\    a = tmp;
         \\}
@@ -473,8 +473,8 @@ pub fn addCases(cases: &tests.TranslateCContext) {
         \\}
     ,
         \\pub export fn max(a: c_int) {
-        \\    var b: c_int;
-        \\    var c: c_int;
+        \\    var b: c_int = undefined;
+        \\    var c: c_int = undefined;
         \\    c = x: {
         \\        const _tmp = a;
         \\        b = _tmp;
