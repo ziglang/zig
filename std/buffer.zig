@@ -146,6 +146,16 @@ pub const Buffer = struct {
     pub fn ptr(self: &const Buffer) -> &u8 {
         return self.list.items.ptr;
     }
+
+    /// Returns a copy of this buffer's toSlice() contents
+    /// allocated exactly to size.
+    /// This method uses the provided allocator instead of
+    /// this object's own allocator to allocate the new array.
+    pub fn toSliceCopy(self: &Buffer, allocator: &Allocator) -> %[]u8 {
+        var result = try allocator.alloc(u8, self.len());
+        mem.copy(u8, result, self.toSliceConst());
+        return result;
+    }
 };
 
 test "simple Buffer" {
@@ -167,4 +177,13 @@ test "simple Buffer" {
 
     try buf2.resize(4);
     assert(buf.startsWith(buf2.toSliceConst()));
+}
+
+test "Buffer.toSliceCopy" {
+    var buffer = try Buffer.init(debug.global_allocator, "abc");
+    var copy = try buffer.toSliceCopy(debug.global_allocator);
+    buffer.shrink(0);
+    try buffer.append("xyz");
+    assert(mem.eql(u8, buffer.toSliceConst(), "xyz"));
+    assert(mem.eql(u8, copy, "abc"));
 }
