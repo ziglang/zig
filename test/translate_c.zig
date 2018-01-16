@@ -1114,4 +1114,25 @@ pub fn addCases(cases: &tests.TranslateCContext) {
     ,
         \\pub const NRF_GPIO = if (@typeId(@typeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Pointer) @ptrCast(&NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeId(@typeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Int) @intToPtr(&NRF_GPIO_Type, NRF_GPIO_BASE) else (&NRF_GPIO_Type)(NRF_GPIO_BASE);
     );
+
+    cases.add("if on int",
+        \\int if_int(int i) {
+        \\    if (i) {
+        \\        return 0;
+        \\    } else {
+        \\        return 1;
+        \\    }
+        \\}
+    ,
+        \\pub fn if_int(i: c_int) -> c_int {
+        \\    {
+        \\        const _tmp = i;
+        \\        if (@bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0) {
+        \\            return 0;
+        \\        } else {
+        \\            return 1;
+        \\        };
+        \\    };
+        \\}
+    );
 }
