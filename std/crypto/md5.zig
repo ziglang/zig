@@ -1,7 +1,9 @@
 const mem = @import("../mem.zig");
 const math = @import("../math/index.zig");
 const endian = @import("../endian.zig");
+const builtin = @import("builtin");
 const debug = @import("../debug/index.zig");
+const fmt = @import("../fmt/index.zig");
 
 const RoundParam = struct {
     a: usize, b: usize, c: usize, d: usize,
@@ -42,10 +44,10 @@ pub const Md5 = struct {
         d.total_len = 0;
     }
 
-    pub fn hash(b: []const u8) -> u128 {
+    pub fn hash(b: []const u8, out: []u8) {
         var d = Md5.init();
         d.update(b);
-        return d.final();
+        d.final(out);
     }
 
     pub fn update(d: &Self, b: []const u8) {
@@ -73,7 +75,9 @@ pub const Md5 = struct {
         d.total_len +%= b.len;
     }
 
-    pub fn final(d: &Self) -> u128 {
+    pub fn final(d: &Self, out: []u8) {
+        debug.assert(out.len >= 16);
+
         // The buffer here will never be completely full.
         mem.set(u8, d.buf[d.buf_len..], 0);
 
@@ -98,13 +102,9 @@ pub const Md5 = struct {
 
         d.round(d.buf[0..]);
 
-        const r =
-            (u128(d.s[3]) << 96) |
-            (u128(d.s[2]) << 64) |
-            (u128(d.s[1]) << 32) |
-            (u128(d.s[0]) << 0);
-
-        return endian.swapIfLe(u128, r);
+        for (d.s) |s, j| {
+            mem.writeInt(out[4*j .. 4*j + 4], s, builtin.Endian.Little);
+        }
     }
 
     fn round(d: &Self, b: []const u8) {
@@ -226,28 +226,35 @@ pub const Md5 = struct {
     }
 };
 
+const htest = @import("test.zig");
+
 test "md5 single" {
-    debug.assert(0xd41d8cd98f00b204e9800998ecf8427e == Md5.hash(""));
-    debug.assert(0x0cc175b9c0f1b6a831c399e269772661 == Md5.hash("a"));
-    debug.assert(0x900150983cd24fb0d6963f7d28e17f72 == Md5.hash("abc"));
-    debug.assert(0xf96b697d7cb7938d525a2f31aaf161d0 == Md5.hash("message digest"));
-    debug.assert(0xc3fcd3d76192e4007dfb496cca67e13b == Md5.hash("abcdefghijklmnopqrstuvwxyz"));
-    debug.assert(0xd174ab98d277d9f5a5611c2c9f419d9f == Md5.hash("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"));
-    debug.assert(0x57edf4a22be3c955ac49da2e2107b67a == Md5.hash("12345678901234567890123456789012345678901234567890123456789012345678901234567890"));
+    htest.assertEqualHash(Md5, "d41d8cd98f00b204e9800998ecf8427e", "");
+    htest.assertEqualHash(Md5, "0cc175b9c0f1b6a831c399e269772661", "a");
+    htest.assertEqualHash(Md5, "900150983cd24fb0d6963f7d28e17f72", "abc");
+    htest.assertEqualHash(Md5, "f96b697d7cb7938d525a2f31aaf161d0", "message digest");
+    htest.assertEqualHash(Md5, "c3fcd3d76192e4007dfb496cca67e13b", "abcdefghijklmnopqrstuvwxyz");
+    htest.assertEqualHash(Md5, "d174ab98d277d9f5a5611c2c9f419d9f", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789");
+    htest.assertEqualHash(Md5, "57edf4a22be3c955ac49da2e2107b67a", "12345678901234567890123456789012345678901234567890123456789012345678901234567890");
 }
 
 test "md5 streaming" {
     var h = Md5.init();
+    var out: [16]u8 = undefined;
 
-    debug.assert(0xd41d8cd98f00b204e9800998ecf8427e == h.final());
+    h.final(out[0..]);
+    htest.assertEqual("d41d8cd98f00b204e9800998ecf8427e", out[0..]);
 
     h.reset();
     h.update("abc");
-    debug.assert(0x900150983cd24fb0d6963f7d28e17f72 == h.final());
+    h.final(out[0..]);
+    htest.assertEqual("900150983cd24fb0d6963f7d28e17f72", out[0..]);
 
     h.reset();
     h.update("a");
     h.update("b");
     h.update("c");
-    debug.assert(0x900150983cd24fb0d6963f7d28e17f72 == h.final());
+    h.final(out[0..]);
+
+    htest.assertEqual("900150983cd24fb0d6963f7d28e17f72", out[0..]);
 }

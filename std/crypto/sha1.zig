@@ -2,6 +2,7 @@ const mem = @import("../mem.zig");
 const math = @import("../math/index.zig");
 const endian = @import("../endian.zig");
 const debug = @import("../debug/index.zig");
+const builtin = @import("builtin");
 
 pub const u160 = @IntType(false, 160);
 
@@ -38,10 +39,10 @@ pub const Sha1 = struct {
         d.total_len = 0;
     }
 
-    pub fn hash(b: []const u8) -> u160 {
+    pub fn hash(b: []const u8, out: []u8) {
         var d = Sha1.init();
         d.update(b);
-        return d.final();
+        d.final(out);
     }
 
     pub fn update(d: &Self, b: []const u8) {
@@ -68,7 +69,9 @@ pub const Sha1 = struct {
         d.total_len += b.len;
     }
 
-    pub fn final(d: &Self) -> u160 {
+    pub fn final(d: &Self, out: []u8) {
+        debug.assert(out.len >= 20);
+
         // The buffer here will never be completely full.
         mem.set(u8, d.buf[d.buf_len..], 0);
 
@@ -93,14 +96,9 @@ pub const Sha1 = struct {
 
         d.round(d.buf[0..]);
 
-        const r =
-            (u160(d.s[0]) << 128) |
-            (u160(d.s[1]) << 96)  |
-            (u160(d.s[2]) << 64)  |
-            (u160(d.s[3]) << 32)  |
-            (u160(d.s[4]) << 0);
-
-        return endian.swapIfBe(u160, r);
+        for (d.s) |s, j| {
+            mem.writeInt(out[4*j .. 4*j + 4], s, builtin.Endian.Big);
+        }
     }
 
     fn round(d: &Self, b: []const u8) {
@@ -257,24 +255,30 @@ pub const Sha1 = struct {
     }
 };
 
+const htest = @import("test.zig");
+
 test "sha1 single" {
-    debug.assert(0xda39a3ee5e6b4b0d3255bfef95601890afd80709 == Sha1.hash(""));
-    debug.assert(0xa9993e364706816aba3e25717850c26c9cd0d89d == Sha1.hash("abc"));
-    debug.assert(0xa49b2446a02c645bf419f995b67091253a04a259 == Sha1.hash("abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu"));
+    htest.assertEqualHash(Sha1, "da39a3ee5e6b4b0d3255bfef95601890afd80709", "");
+    htest.assertEqualHash(Sha1, "a9993e364706816aba3e25717850c26c9cd0d89d", "abc");
+    htest.assertEqualHash(Sha1, "a49b2446a02c645bf419f995b67091253a04a259", "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
 }
 
 test "sha1 streaming" {
     var h = Sha1.init();
+    var out: [20]u8 = undefined;
 
-    debug.assert(0xda39a3ee5e6b4b0d3255bfef95601890afd80709 == h.final());
+    h.final(out[0..]);
+    htest.assertEqual("da39a3ee5e6b4b0d3255bfef95601890afd80709", out[0..]);
 
     h.reset();
     h.update("abc");
-    debug.assert(0xa9993e364706816aba3e25717850c26c9cd0d89d == h.final());
+    h.final(out[0..]);
+    htest.assertEqual("a9993e364706816aba3e25717850c26c9cd0d89d", out[0..]);
 
     h.reset();
     h.update("a");
     h.update("b");
     h.update("c");
-    debug.assert(0xa9993e364706816aba3e25717850c26c9cd0d89d == h.final());
+    h.final(out[0..]);
+    htest.assertEqual("a9993e364706816aba3e25717850c26c9cd0d89d", out[0..]);
 }
