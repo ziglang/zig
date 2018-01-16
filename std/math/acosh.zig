@@ -55,11 +55,6 @@ fn acosh64(x: f64) -> f64 {
 }
 
 test "math.acosh" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     assert(acosh(f32(1.5)) == acosh32(1.5));
     assert(acosh(f64(1.5)) == acosh64(1.5));
 }

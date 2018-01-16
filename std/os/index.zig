@@ -148,7 +148,7 @@ pub coldcc fn abort() -> noreturn {
 }
 
 /// Exits the program cleanly with the specified status code.
-pub coldcc fn exit(status: i32) -> noreturn {
+pub coldcc fn exit(status: u8) -> noreturn {
     if (builtin.link_libc) {
         c.exit(status);
     }
@@ -157,14 +157,7 @@ pub coldcc fn exit(status: i32) -> noreturn {
             posix.exit(status);
         },
         Os.windows => {
-            // Map a possibly negative status code to a non-negative status for the systems default
-            // integer width.
-            const p_status = if (@sizeOf(c_uint) < @sizeOf(u32))
-                @truncate(c_uint, @bitCast(u32, status))
-            else
-                c_uint(@bitCast(u32, status));
-
-            windows.ExitProcess(p_status);
+            windows.ExitProcess(status);
         },
         else => @compileError("Unsupported OS"),
     }

@@ -13,6 +13,10 @@ pub const FailingAllocator = @import("failing_allocator.zig").FailingAllocator;
 error MissingDebugInfo;
 error InvalidDebugInfo;
 error UnsupportedDebugInfo;
+error UnknownObjectFormat;
+error TodoSupportCoffDebugInfo;
+error TodoSupportMachoDebugInfo;
+error TodoSupportCOFFDebugInfo;
 
 
 /// Tries to write to stderr, unbuffered, and ignores any error returned.
@@ -37,10 +41,43 @@ fn getStderrStream() -> %&io.OutStream {
     }
 }
 
-/// Tries to print a stack trace to stderr, unbuffered, and ignores any error returned.
-pub fn dumpStackTrace() {
+var self_debug_info: ?&ElfStackTrace = null;
+pub fn getSelfDebugInfo() -> %&ElfStackTrace {
+    if (self_debug_info) |info| {
+        return info;
+    } else {
+        const info = try openSelfDebugInfo(global_allocator);
+        self_debug_info = info;
+        return info;
+    }
+}
+
+/// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
+pub fn dumpCurrentStackTrace() {
     const stderr = getStderrStream() catch return;
-    writeStackTrace(stderr, global_allocator, stderr_file.isTty(), 1) catch return;
+    const debug_info = getSelfDebugInfo() catch |err| {
+        stderr.print("Unable to open debug info: {}\n", @errorName(err)) catch return;
+        return;
+    };
+    defer debug_info.close();
+    writeCurrentStackTrace(stderr, global_allocator, debug_info, stderr_file.isTty(), 1) catch |err| {
+        stderr.print("Unable to dump stack trace: {}\n", @errorName(err)) catch return;
+        return;
+    };
+}
+
+/// Tries to print a stack trace to stderr, unbuffered, and ignores any error returned.
+pub fn dumpStackTrace(stack_trace: &const builtin.StackTrace) {
+    const stderr = getStderrStream() catch return;
+    const debug_info = getSelfDebugInfo() catch |err| {
+        stderr.print("Unable to open debug info: {}\n", @errorName(err)) catch return;
+        return;
+    };
+    defer debug_info.close();
+    writeStackTrace(stack_trace, stderr, global_allocator, debug_info, stderr_file.isTty()) catch |err| {
+        stderr.print("Unable to dump stack trace: {}\n", @errorName(err)) catch return;
+        return;
+    };
 }
 
 /// This function invokes undefined behavior when `ok` is `false`.
@@ -88,7 +125,21 @@ pub fn panic(comptime format: []const u8, args: ...) -> noreturn {
 
     const stderr = getStderrStream() catch os.abort();
     stderr.print(format ++ "\n", args) catch os.abort();
-    writeStackTrace(stderr, global_allocator, stderr_file.isTty(), 1) catch os.abort();
+    dumpCurrentStackTrace();
+
+    os.abort();
+}
+
+pub fn panicWithTrace(trace: &const builtin.StackTrace, comptime format: []const u8, args: ...) -> noreturn {
+    if (panicking) {
+        os.abort();
+    } else {
+        panicking = true;
+    }
+    const stderr = getStderrStream() catch os.abort();
+    stderr.print(format ++ "\n", args) catch os.abort();
+    dumpStackTrace(trace);
+    dumpCurrentStackTrace();
 
     os.abort();
 }
@@ -101,12 +152,91 @@ const RESET = "\x1b[0m";
 error PathNotFound;
 error InvalidDebugInfo;
 
-pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty_color: bool,
-    ignore_frame_count: usize) -> %void
+pub fn writeStackTrace(stack_trace: &const builtin.StackTrace, out_stream: &io.OutStream, allocator: &mem.Allocator,
+    debug_info: &ElfStackTrace, tty_color: bool) -> %void
 {
+    var frame_index: usize = undefined;
+    var frames_left: usize = undefined;
+    if (stack_trace.index < stack_trace.instruction_addresses.len) {
+        frame_index = 0;
+        frames_left = stack_trace.index;
+    } else {
+        frame_index = (stack_trace.index + 1) % stack_trace.instruction_addresses.len;
+        frames_left = stack_trace.instruction_addresses.len;
+    }
+
+    while (frames_left != 0) : ({
+        frames_left -= 1;
+        frame_index = (frame_index + 1) % stack_trace.instruction_addresses.len;
+    }) {
+        const return_address = stack_trace.instruction_addresses[frame_index];
+        try printSourceAtAddress(debug_info, out_stream, return_address);
+    }
+}
+
+pub fn writeCurrentStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator,
+    debug_info: &ElfStackTrace, tty_color: bool, ignore_frame_count: usize) -> %void
+{
+    var ignored_count: usize = 0;
+
+    var fp = @ptrToInt(@frameAddress());
+    while (fp != 0) : (fp = *@intToPtr(&const usize, fp)) {
+        if (ignored_count < ignore_frame_count) {
+            ignored_count += 1;
+            continue;
+        }
+
+        const return_address = *@intToPtr(&const usize, fp + @sizeOf(usize));
+        try printSourceAtAddress(debug_info, out_stream, return_address);
+    }
+}
+
+fn printSourceAtAddress(debug_info: &ElfStackTrace, out_stream: &io.OutStream, address: usize) -> %void {
+    if (builtin.os == builtin.Os.windows) {
+        return error.UnsupportedDebugInfo;
+    }
+    // TODO we really should be able to convert @sizeOf(usize) * 2 to a string literal
+    // at compile time. I'll call it issue #313
+    const ptr_hex = if (@sizeOf(usize) == 4) "0x{x8}" else "0x{x16}";
+
+    const compile_unit = findCompileUnit(debug_info, address) catch {
+        try out_stream.print("???:?:?: " ++ DIM ++ ptr_hex ++ " in ??? (???)" ++ RESET ++ "\n    ???\n\n",
+            address);
+        return;
+    };
+    const compile_unit_name = try compile_unit.die.getAttrString(debug_info, DW.AT_name);
+    if (getLineNumberInfo(debug_info, compile_unit, address - 1)) |line_info| {
+        defer line_info.deinit();
+        try out_stream.print(WHITE ++ "{}:{}:{}" ++ RESET ++ ": " ++
+            DIM ++ ptr_hex ++ " in ??? ({})" ++ RESET ++ "\n",
+            line_info.file_name, line_info.line, line_info.column,
+            address, compile_unit_name);
+        if (printLineFromFile(debug_info.allocator(), out_stream, line_info)) {
+            if (line_info.column == 0) {
+                try out_stream.write("\n");
+            } else {
+                {var col_i: usize = 1; while (col_i < line_info.column) : (col_i += 1) {
+                    try out_stream.writeByte(' ');
+                }}
+                try out_stream.write(GREEN ++ "^" ++ RESET ++ "\n");
+            }
+        } else |err| switch (err) {
+            error.EndOfFile, error.PathNotFound => {},
+            else => return err,
+        }
+    } else |err| switch (err) {
+        error.MissingDebugInfo, error.InvalidDebugInfo => {
+            try out_stream.print(ptr_hex ++ " in ??? ({})\n", address, compile_unit_name);
+        },
+        else => return err,
+    }
+}
+
+pub fn openSelfDebugInfo(allocator: &mem.Allocator) -> %&ElfStackTrace {
     switch (builtin.object_format) {
         builtin.ObjectFormat.elf => {
-            var stack_trace = ElfStackTrace {
+            const st = try allocator.create(ElfStackTrace);
+            *st = ElfStackTrace {
                 .self_exe_file = undefined,
                 .elf = undefined,
                 .debug_info = undefined,
@@ -117,12 +247,11 @@ pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty
                 .abbrev_table_list = ArrayList(AbbrevTableHeader).init(allocator),
                 .compile_unit_list = ArrayList(CompileUnit).init(allocator),
             };
-            const st = &stack_trace;
             st.self_exe_file = try os.openSelfExe();
-            defer st.self_exe_file.close();
+            %defer st.self_exe_file.close();
 
             try st.elf.openFile(allocator, &st.self_exe_file);
-            defer st.elf.close();
+            %defer st.elf.close();
 
             st.debug_info = (try st.elf.findSection(".debug_info")) ?? return error.MissingDebugInfo;
             st.debug_abbrev = (try st.elf.findSection(".debug_abbrev")) ?? return error.MissingDebugInfo;
@@ -130,67 +259,19 @@ pub fn writeStackTrace(out_stream: &io.OutStream, allocator: &mem.Allocator, tty
             st.debug_line = (try st.elf.findSection(".debug_line")) ?? return error.MissingDebugInfo;
             st.debug_ranges = (try st.elf.findSection(".debug_ranges"));
             try scanAllCompileUnits(st);
-
-            var ignored_count: usize = 0;
-
-            var fp = @ptrToInt(@frameAddress());
-            while (fp != 0) : (fp = *@intToPtr(&const usize, fp)) {
-                if (ignored_count < ignore_frame_count) {
-                    ignored_count += 1;
-                    continue;
-                }
-
-                const return_address = *@intToPtr(&const usize, fp + @sizeOf(usize));
-
-                // TODO we really should be able to convert @sizeOf(usize) * 2 to a string literal
-                // at compile time. I'll call it issue #313
-                const ptr_hex = if (@sizeOf(usize) == 4) "0x{x8}" else "0x{x16}";
-
-                const compile_unit = findCompileUnit(st, return_address) catch {
-                    try out_stream.print("???:?:?: " ++ DIM ++ ptr_hex ++ " in ??? (???)" ++ RESET ++ "\n    ???\n\n",
-                        return_address);
-                    continue;
-                };
-                const compile_unit_name = try compile_unit.die.getAttrString(st, DW.AT_name);
-                if (getLineNumberInfo(st, compile_unit, usize(return_address) - 1)) |line_info| {
-                    defer line_info.deinit();
-                    try out_stream.print(WHITE ++ "{}:{}:{}" ++ RESET ++ ": " ++
-                        DIM ++ ptr_hex ++ " in ??? ({})" ++ RESET ++ "\n",
-                        line_info.file_name, line_info.line, line_info.column,
-                        return_address, compile_unit_name);
-                    if (printLineFromFile(st.allocator(), out_stream, line_info)) {
-                        if (line_info.column == 0) {
-                            try out_stream.write("\n");
-                        } else {
-                            {var col_i: usize = 1; while (col_i < line_info.column) : (col_i += 1) {
-                                try out_stream.writeByte(' ');
-                            }}
-                            try out_stream.write(GREEN ++ "^" ++ RESET ++ "\n");
-                        }
-                    } else |err| switch (err) {
-                        error.EndOfFile, error.PathNotFound => {},
-                        else => return err,
-                    }
-                } else |err| switch (err) {
-                    error.MissingDebugInfo, error.InvalidDebugInfo => {
-                        try out_stream.print(ptr_hex ++ " in ??? ({})\n",
-                            return_address, compile_unit_name);
-                    },
-                    else => return err,
-                }
-            }
+            return st;
         },
         builtin.ObjectFormat.coff => {
-            try out_stream.write("(stack trace unavailable for COFF object format)\n");
+            return error.TodoSupportCoffDebugInfo;
         },
         builtin.ObjectFormat.macho => {
-            try out_stream.write("(stack trace unavailable for Mach-O object format)\n");
+            return error.TodoSupportMachoDebugInfo;
         },
         builtin.ObjectFormat.wasm => {
-            try out_stream.write("(stack trace unavailable for WASM object format)\n");
+            return error.TodoSupportCOFFDebugInfo;
         },
         builtin.ObjectFormat.unknown => {
-            try out_stream.write("(stack trace unavailable for unknown object format)\n");
+            return error.UnknownObjectFormat;
         },
     }
 }
@@ -228,7 +309,7 @@ fn printLineFromFile(allocator: &mem.Allocator, out_stream: &io.OutStream, line_
     }
 }
 
-const ElfStackTrace = struct {
+pub const ElfStackTrace = struct {
     self_exe_file: io.File,
     elf: elf.Elf,
     debug_info: &elf.SectionHeader,
@@ -247,6 +328,11 @@ const ElfStackTrace = struct {
         var in_file_stream = io.FileInStream.init(&self.self_exe_file);
         const in_stream = &in_file_stream.stream;
         return readStringRaw(self.allocator(), in_stream);
+    }
+
+    pub fn close(self: &ElfStackTrace) {
+        self.self_exe_file.close();
+        self.elf.close();
     }
 };
 

@@ -98,11 +98,6 @@ test "math.round" {
 }
 
 test "math.round32" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     assert(round32(1.3) == 1.0);
     assert(round32(-1.3) == -1.0);
     assert(round32(0.2) == 0.0);

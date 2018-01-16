@@ -247,11 +247,11 @@ pub const Builder = struct {
         defer wanted_steps.deinit();
 
         if (step_names.len == 0) {
-            wanted_steps.append(&self.default_step) catch unreachable;
+            try wanted_steps.append(&self.default_step);
         } else {
             for (step_names) |step_name| {
                 const s = try self.getTopLevelStepByName(step_name);
-                wanted_steps.append(s) catch unreachable;
+                try wanted_steps.append(s);
             }
         }
 
@@ -721,11 +721,9 @@ pub const Builder = struct {
         return error.FileNotFound;
     }
 
-    pub fn exec(self: &Builder, argv: []const []const u8) -> []u8 {
+    pub fn exec(self: &Builder, argv: []const []const u8) -> %[]u8 {
         const max_output_size = 100 * 1024;
-        const result = os.ChildProcess.exec(self.allocator, argv, null, null, max_output_size) catch |err| {
-            std.debug.panic("Unable to spawn {}: {}", argv[0], @errorName(err));
-        };
+        const result = try os.ChildProcess.exec(self.allocator, argv, null, null, max_output_size);
         switch (result.term) {
             os.ChildProcess.Term.Exited => |code| {
                 if (code != 0) {

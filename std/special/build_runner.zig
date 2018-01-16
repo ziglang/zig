@@ -14,7 +14,7 @@ pub fn main() -> %void {
     var arg_it = os.args();
 
     // TODO use a more general purpose allocator here
-    var inc_allocator = std.heap.IncrementingAllocator.init(40 * 1024 * 1024) catch unreachable;
+    var inc_allocator = try std.heap.IncrementingAllocator.init(40 * 1024 * 1024);
     defer inc_allocator.deinit();
 
     const allocator = &inc_allocator.allocator;
@@ -107,12 +107,12 @@ pub fn main() -> %void {
                 return usageAndErr(&builder, false, try stderr_stream);
             }
         } else {
-            targets.append(arg) catch unreachable;
+            try targets.append(arg);
         }
     }
 
     builder.setInstallPrefix(prefix);
-    root.build(&builder);
+    try root.build(&builder);
 
     if (builder.validateUserInputDidItFail())
         return usageAndErr(&builder, true, try stderr_stream);
@@ -129,7 +129,7 @@ fn usage(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) 
     // run the build script to collect the options
     if (!already_ran_build) {
         builder.setInstallPrefix(null);
-        root.build(builder);
+        try root.build(builder);
     }
 
     // This usage text has to be synchronized with src/main.cpp

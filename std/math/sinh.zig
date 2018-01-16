@@ -88,11 +88,6 @@ fn sinh64(x: f64) -> f64 {
 }
 
 test "math.sinh" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     assert(sinh(f32(1.5)) == sinh32(1.5));
     assert(sinh(f64(1.5)) == sinh64(1.5));
 }

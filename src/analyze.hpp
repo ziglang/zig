@@ -185,4 +185,9 @@ PackageTableEntry *new_anonymous_package(void);
 Buf *const_value_to_buffer(ConstExprValue *const_val);
 void add_fn_export(CodeGen *g, FnTableEntry *fn_table_entry, Buf *symbol_name, GlobalLinkageId linkage, bool ccc);
 
+
+ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name);
+TypeTableEntry *get_ptr_to_stack_trace_type(CodeGen *g);
+
+
 #endif

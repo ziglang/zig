@@ -54,7 +54,7 @@ that counts as "freestanding" for the purposes of this table.
 
 |             | freestanding | linux   | macosx  | windows | other   |
 |-------------|--------------|---------|---------|---------|---------|
-|i386         | OK           | planned | OK      | OK      | planned |
+|i386         | OK           | planned | OK      | planned | planned |
 |x86_64       | OK           | OK      | OK      | OK      | planned |
 |arm          | OK           | planned | planned | N/A     | planned |
 |aarch64      | OK           | planned | planned | planned | planned |
@@ -125,16 +125,19 @@ libc. Create demo games using Zig.
 
 ##### POSIX
 
- * gcc >= 5.0.0 or clang >= 3.6.0
  * cmake >= 2.8.5
+ * gcc >= 5.0.0 or clang >= 3.6.0
  * LLVM, Clang, LLD libraries == 6.x, compiled with the same gcc or clang version above
 
 ##### Windows
 
+ * cmake >= 2.8.5
  * Microsoft Visual Studio 2015
  * LLVM, Clang, LLD libraries == 6.x, compiled with the same MSVC version above
 
 #### Instructions
+
+##### POSIX
 
 If you have gcc or clang installed, you can find out what `ZIG_LIBC_LIB_DIR`,
 `ZIG_LIBC_STATIC_LIB_DIR`, and `ZIG_LIBC_INCLUDE_DIR` should be set to

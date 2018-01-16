@@ -1964,6 +1964,8 @@ static int trans_local_declaration(Context *c, TransScope *scope, const DeclStmt
                     if (init_node == nullptr)
                         return ErrorUnexpected;
 
+                } else {
+                    init_node = trans_create_node(c, NodeTypeUndefinedLiteral);
                 }
                 AstNode *type_node = trans_qual_type(c, qual_type, stmt->getLocStart());
                 if (type_node == nullptr)
@@ -2224,12 +2226,6 @@ static AstNode *trans_if_statement(Context *c, TransScope *scope, const IfStmt *
     // if (c) t else e
     AstNode *if_node = trans_create_node(c, NodeTypeIfBoolExpr);
 
-    // TODO: condition != 0
-    AstNode *condition_node = trans_expr(c, ResultUsedYes, scope, stmt->getCond(), TransRValue);
-    if (condition_node == nullptr)
-        return nullptr;
-    if_node->data.if_bool_expr.condition = condition_node;
-
     TransScope *then_scope = trans_stmt(c, scope, stmt->getThen(), &if_node->data.if_bool_expr.then_block);
     if (then_scope == nullptr)
         return nullptr;
@@ -2240,7 +2236,87 @@ static AstNode *trans_if_statement(Context *c, TransScope *scope, const IfStmt *
             return nullptr;
     }
 
-    return if_node;
+    AstNode *condition_node = trans_expr(c, ResultUsedYes, scope, stmt->getCond(), TransRValue);
+    if (condition_node == nullptr)
+        return nullptr;
+
+    switch (condition_node->type) {
+        case NodeTypeBinOpExpr:
+            switch (condition_node->data.bin_op_expr.bin_op) {
+                case BinOpTypeBoolOr:
+                case BinOpTypeBoolAnd:
+                case BinOpTypeCmpEq:
+                case BinOpTypeCmpNotEq:
+                case BinOpTypeCmpLessThan:
+                case BinOpTypeCmpGreaterThan:
+                case BinOpTypeCmpLessOrEq:
+                case BinOpTypeCmpGreaterOrEq:
+                    if_node->data.if_bool_expr.condition = condition_node;
+                    return if_node;
+                default:
+                    goto convert_to_bitcast;
+            }
+
+        case NodeTypePrefixOpExpr:
+            switch (condition_node->data.prefix_op_expr.prefix_op) {
+                case PrefixOpBoolNot:
+                    if_node->data.if_bool_expr.condition = condition_node;
+                    return if_node;
+                default:
+                    goto convert_to_bitcast;
+            }
+
+        case NodeTypeBoolLiteral:
+            if_node->data.if_bool_expr.condition = condition_node;
+            return if_node;
+
+        default: {
+        // In Zig, float, int and pointer does not work in if statements.
+        // To make it work, we bitcast any value we get to an int of the right size
+        // and comp it to 0
+        // TODO: This doesn't work for pointers, as they become nullable on
+        //       translate
+        // c: if (cond) { }
+        // zig: {
+        // zig:     const _tmp = cond;
+        // zig:     if (@bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0) { }
+        // zig: }
+        convert_to_bitcast:
+            TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
+
+            // const _tmp = cond;
+            // TODO: avoid name collisions with generated variable names
+            Buf* tmp_var_name = buf_create_from_str("_tmp");
+            AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr, condition_node);
+            child_scope->node->data.block.statements.append(tmp_var_decl);
+
+            // @sizeOf(@typeOf(_tmp)) * 8
+            AstNode *typeof_tmp = trans_create_node_builtin_fn_call_str(c, "typeOf");
+            typeof_tmp->data.fn_call_expr.params.append(trans_create_node_symbol(c, tmp_var_name));
+            AstNode *sizeof_tmp = trans_create_node_builtin_fn_call_str(c, "sizeOf");
+            sizeof_tmp->data.fn_call_expr.params.append(typeof_tmp);
+            AstNode *sizeof_tmp_in_bits = trans_create_node_bin_op(
+                c, sizeof_tmp, BinOpTypeMult,
+                trans_create_node_unsigned_negative(c, 8, false));
+
+            // @IntType(false, @sizeOf(@typeOf(_tmp)) * 8)
+            AstNode *int_type = trans_create_node_builtin_fn_call_str(c, "IntType");
+            int_type->data.fn_call_expr.params.append(trans_create_node_bool(c, false));
+            int_type->data.fn_call_expr.params.append(sizeof_tmp_in_bits);
+
+            // @bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp)
+            AstNode *bit_cast = trans_create_node_builtin_fn_call_str(c, "bitCast");
+            bit_cast->data.fn_call_expr.params.append(int_type);
+            bit_cast->data.fn_call_expr.params.append(trans_create_node_symbol(c, tmp_var_name));
+
+            // if (@bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0) { }
+            AstNode *not_eql_zero = trans_create_node_bin_op(c, bit_cast, BinOpTypeCmpNotEq, trans_create_node_unsigned_negative(c, 0, false));
+            if_node->data.if_bool_expr.condition = not_eql_zero;
+            child_scope->node->data.block.statements.append(if_node);
+
+            return child_scope->node;
+        }
+    }
 }
 
 static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *scope, const CallExpr *stmt) {
