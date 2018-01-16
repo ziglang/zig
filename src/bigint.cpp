@@ -1015,21 +1015,29 @@ static void bigint_unsigned_division(const BigInt *op1, const BigInt *op2, BigIn
 
     // If the caller wants the quotient
     if (Quotient) {
-        Quotient->digit_count = lhsWords;
-        Quotient->data.digits = allocate<uint64_t>(lhsWords);
         Quotient->is_negative = false;
-        for (size_t i = 0; i < lhsWords; i += 1) {
-            Quotient->data.digits[i] = Make_64(Q[i*2+1], Q[i*2]);
+        Quotient->digit_count = lhsWords;
+        if (lhsWords == 1) {
+            Quotient->data.digit = Make_64(Q[1], Q[0]);
+        } else {
+            Quotient->data.digits = allocate<uint64_t>(lhsWords);
+            for (size_t i = 0; i < lhsWords; i += 1) {
+                Quotient->data.digits[i] = Make_64(Q[i*2+1], Q[i*2]);
+            }
         }
     }
 
     // If the caller wants the remainder
     if (Remainder) {
-        Remainder->digit_count = rhsWords;
-        Remainder->data.digits = allocate<uint64_t>(rhsWords);
         Remainder->is_negative = false;
-        for (size_t i = 0; i < rhsWords; i += 1) {
-            Remainder->data.digits[i] = Make_64(R[i*2+1], R[i*2]);
+        Remainder->digit_count = rhsWords;
+        if (rhsWords == 1) {
+            Remainder->data.digit = Make_64(R[1], R[0]);
+        } else {
+            Remainder->data.digits = allocate<uint64_t>(rhsWords);
+            for (size_t i = 0; i < rhsWords; i += 1) {
+                Remainder->data.digits[i] = Make_64(R[i*2+1], R[i*2]);
+            }
         }
     }
 }
