@@ -9858,7 +9858,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
         if (fn_proto_node->data.fn_proto.is_var_args) {
             ir_add_error(ira, &call_instruction->base,
-                    buf_sprintf("compiler bug: unable to call var args function at compile time. https://github.com/andrewrk/zig/issues/313"));
+                    buf_sprintf("compiler bug: unable to call var args function at compile time. https://github.com/zig-lang/zig/issues/313"));
             return ira->codegen->builtin_types.entry_invalid;
         }
 
@@ -14011,7 +14011,7 @@ static TypeTableEntry *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstruc
         return ira->codegen->builtin_types.entry_invalid;
     TypeTableEntry *type_entry = ir_resolve_type(ira, type_value);
 
-    ensure_complete_type(ira->codegen, type_entry);
+    type_ensure_zero_bits_known(ira->codegen, type_entry);
     if (type_is_invalid(type_entry))
         return ira->codegen->builtin_types.entry_invalid;
 

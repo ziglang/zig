@@ -2231,6 +2231,7 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
         // is a pointer to this very struct, or a function pointer with parameters that
         // reference such a type.
         union_type->data.unionation.zero_bits_known = true;
+        union_type->data.unionation.zero_bits_loop_flag = false;
         if (union_type->data.unionation.abi_alignment == 0) {
             if (union_type->data.unionation.layout == ContainerLayoutPacked) {
                 union_type->data.unionation.abi_alignment = 1;

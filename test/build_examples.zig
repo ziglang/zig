@@ -16,4 +16,5 @@ pub fn addCases(cases: &tests.BuildExamplesContext) {
     cases.addBuildFile("test/standalone/issue_339/build.zig");
     cases.addBuildFile("test/standalone/pkg_import/build.zig");
     cases.addBuildFile("test/standalone/use_alias/build.zig");
+    cases.addBuildFile("test/standalone/brace_expansion/build.zig");
 }
