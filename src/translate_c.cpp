@@ -1955,6 +1955,8 @@ static int trans_local_declaration(Context *c, TransScope *scope, const DeclStmt
                     if (init_node == nullptr)
                         return ErrorUnexpected;
 
+                } else {
+                    init_node = trans_create_node(c, NodeTypeUndefinedLiteral);
                 }
                 AstNode *type_node = trans_qual_type(c, qual_type, stmt->getLocStart());
                 if (type_node == nullptr)
