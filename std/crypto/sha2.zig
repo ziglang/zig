@@ -3,6 +3,7 @@ const math = @import("../math/index.zig");
 const endian = @import("../endian.zig");
 const debug = @import("../debug/index.zig");
 const builtin = @import("builtin");
+const htest = @import("test.zig");
 
 /////////////////////
 // Sha224 + Sha256
@@ -57,7 +58,6 @@ pub const Sha256 = Sha2_32(Sha256Params);
 
 fn Sha2_32(comptime params: Sha2Params32) -> type { return struct {
     const Self = this;
-    const ReturnType = @IntType(false, params.out_len);
 
     s: [8]u32,
     // Streaming Cache
@@ -84,10 +84,10 @@ fn Sha2_32(comptime params: Sha2Params32) -> type { return struct {
         d.total_len = 0;
     }
 
-    pub fn hash(b: []const u8) -> ReturnType {
+    pub fn hash(b: []const u8, out: []u8) {
         var d = Self.init();
         d.update(b);
-        return d.final();
+        d.final(out);
     }
 
     pub fn update(d: &Self, b: []const u8) {
@@ -114,7 +114,9 @@ fn Sha2_32(comptime params: Sha2Params32) -> type { return struct {
         d.total_len += b.len;
     }
 
-    pub fn final(d: &Self) -> ReturnType {
+    pub fn final(d: &Self, out: []u8) {
+        debug.assert(out.len >= params.out_len / 8);
+
         // The buffer here will never be completely full.
         mem.set(u8, d.buf[d.buf_len..], 0);
 
@@ -142,14 +144,9 @@ fn Sha2_32(comptime params: Sha2Params32) -> type { return struct {
         // May truncate for possible 224 output
         const rr = d.s[0 .. params.out_len / 32];
 
-        var j: u8 = u8(rr.len - 1) * 32;
-        var r: ReturnType = 0;
-        for (rr) |p| {
-            r |= ReturnType(p) << j;
-            j -%= 32;
+        for (rr) |s, j| {
+            mem.writeInt(out[4*j .. 4*j + 4], s, builtin.Endian.Big);
         }
-
-        return endian.swapIfBe(ReturnType, r);
     }
 
     fn round(d: &Self, b: []const u8) {
@@ -275,9 +272,9 @@ test "sha224 single" {
         return;
     }
 
-    debug.assert(0xd14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f == Sha224.hash(""));
-    debug.assert(0x23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7 == Sha224.hash("abc"));
-    debug.assert(0xc97ca9a559850ce97a04a96def6d99a9e0e0e2ab14e6b8df265fc0b3 == Sha224.hash("abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu"));
+    htest.assertEqualHash(Sha224, "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f", "");
+    htest.assertEqualHash(Sha224, "23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7", "abc");
+    htest.assertEqualHash(Sha224, "c97ca9a559850ce97a04a96def6d99a9e0e0e2ab14e6b8df265fc0b3", "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
 }
 
 test "sha224 streaming" {
@@ -287,18 +284,22 @@ test "sha224 streaming" {
     }
 
     var h = Sha224.init();
+    var out: [28]u8 = undefined;
 
-    debug.assert(0xd14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f == h.final());
+    h.final(out[0..]);
+    htest.assertEqual("d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f", out[0..]);
 
     h.reset();
     h.update("abc");
-    debug.assert(0x23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7 == h.final());
+    h.final(out[0..]);
+    htest.assertEqual("23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7", out[0..]);
 
     h.reset();
     h.update("a");
     h.update("b");
     h.update("c");
-    debug.assert(0x23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7 == h.final());
+    h.final(out[0..]);
+    htest.assertEqual("23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7", out[0..]);
 }
 
 test "sha256 single" {
@@ -307,9 +308,9 @@ test "sha256 single" {
         return;
     }
 
-    debug.assert(0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 == Sha256.hash(""));
-    debug.assert(0xba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad == Sha256.hash("abc"));
-    debug.assert(0xcf5b16a778af8380036ce59e7b0492370b249b11e8f07a51afac45037afee9d1 == Sha256.hash("abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu"));
+    htest.assertEqualHash(Sha256, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "");
+    htest.assertEqualHash(Sha256, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", "abc");
+    htest.assertEqualHash(Sha256, "cf5b16a778af8380036ce59e7b0492370b249b11e8f07a51afac45037afee9d1", "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
 }
 
 test "sha256 streaming" {
@@ -319,18 +320,22 @@ test "sha256 streaming" {
     }
 
     var h = Sha256.init();
+    var out: [32]u8 = undefined;
 
-    debug.assert(0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 == h.final());
+    h.final(out[0..]);
+    htest.assertEqual("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", out[0..]);
 
     h.reset();
     h.update("abc");
-    debug.assert(0xba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad == h.final());
+    h.final(out[0..]);
+    htest.assertEqual("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", out[0..]);
 
     h.reset();
     h.update("a");
     h.update("b");
     h.update("c");
-    debug.assert(0xba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad == h.final());
+    h.final(out[0..]);
+    htest.assertEqual("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", out[0..]);
 }
 
 
@@ -387,7 +392,6 @@ pub const Sha512 = Sha2_64(Sha512Params);
 
 fn Sha2_64(comptime params: Sha2Params64) -> type { return struct {
     const Self = this;
-    const ReturnType = @IntType(false, params.out_len);
     const u9 = @IntType(false, 9);
 
     s: [8]u64,
@@ -415,10 +419,10 @@ fn Sha2_64(comptime params: Sha2Params64) -> type { return struct {
         d.total_len = 0;
     }
 
-    pub fn hash(b: []const u8) -> ReturnType {
+    pub fn hash(b: []const u8, out: []u8) {
         var d = Self.init();
         d.update(b);
-        return d.final();
+        d.final(out);
     }
 
     pub fn update(d: &Self, b: []const u8) {
@@ -445,7 +449,9 @@ fn Sha2_64(comptime params: Sha2Params64) -> type { return struct {
         d.total_len += b.len;
     }
 
-    pub fn final(d: &Self) -> ReturnType {
+    pub fn final(d: &Self, out: []u8) {
+        debug.assert(out.len >= params.out_len / 8);
+
         // The buffer here will never be completely full.
         mem.set(u8, d.buf[d.buf_len..], 0);
 
@@ -473,14 +479,9 @@ fn Sha2_64(comptime params: Sha2Params64) -> type { return struct {
         // May truncate for possible 384 output
         const rr = d.s[0 .. params.out_len / 64];
 
-        var j: u9 = u9(rr.len - 1) * 64;
-        var r: ReturnType = 0;
-        for (rr) |p| {
-            r |= ReturnType(p) << j;
-            j -%= 64;
+        for (rr) |s, j| {
+            mem.writeInt(out[8*j .. 8*j + 8], s, builtin.Endian.Big);
         }
-
-        return endian.swapIfBe(ReturnType, r);
     }
 
     fn round(d: &Self, b: []const u8) {
@@ -626,14 +627,14 @@ test "sha384 single" {
         return;
     }
 
-    const h1 = 0x38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b;
-    debug.assert(h1 == Sha384.hash(""));
+    const h1 = "38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b";
+    htest.assertEqualHash(Sha384, h1, "");
 
-    const h2 = 0xcb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7;
-    debug.assert(h2 == Sha384.hash("abc"));
+    const h2 = "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7";
+    htest.assertEqualHash(Sha384, h2, "abc");
 
-    const h3 = 0x09330c33f71147e83d192fc782cd1b4753111b173b3b05d22fa08086e3b0f712fcc7c71a557e2db966c3e9fa91746039;
-    debug.assert(h3 == Sha384.hash("abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu"));
+    const h3 = "09330c33f71147e83d192fc782cd1b4753111b173b3b05d22fa08086e3b0f712fcc7c71a557e2db966c3e9fa91746039";
+    htest.assertEqualHash(Sha384, h3, "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
 }
 
 test "sha384 streaming" {
@@ -643,21 +644,25 @@ test "sha384 streaming" {
     }
 
     var h = Sha384.init();
+    var out: [48]u8 = undefined;
 
-    const h1 = 0x38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b;
-    debug.assert(h1 == h.final());
+    const h1 = "38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b";
+    h.final(out[0..]);
+    htest.assertEqual(h1, out[0..]);
 
-    const h2 = 0xcb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7;
+    const h2 = "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7";
 
     h.reset();
     h.update("abc");
-    debug.assert(h2 == h.final());
+    h.final(out[0..]);
+    htest.assertEqual(h2, out[0..]);
 
     h.reset();
     h.update("a");
     h.update("b");
     h.update("c");
-    debug.assert(h2 == h.final());
+    h.final(out[0..]);
+    htest.assertEqual(h2, out[0..]);
 }
 
 test "sha512 single" {
@@ -666,14 +671,14 @@ test "sha512 single" {
         return;
     }
 
-    const h1 = 0xcf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e;
-    debug.assert(h1 == Sha512.hash(""));
+    const h1 = "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e";
+    htest.assertEqualHash(Sha512, h1, "");
 
-    const h2 = 0xddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f;
-    debug.assert(h2 == Sha512.hash("abc"));
+    const h2 = "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f";
+    htest.assertEqualHash(Sha512, h2, "abc");
 
-    const h3 = 0x8e959b75dae313da8cf4f72814fc143f8f7779c6eb9f7fa17299aeadb6889018501d289e4900f7e4331b99dec4b5433ac7d329eeb6dd26545e96e55b874be909;
-    debug.assert(h3 == Sha512.hash("abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu"));
+    const h3 = "8e959b75dae313da8cf4f72814fc143f8f7779c6eb9f7fa17299aeadb6889018501d289e4900f7e4331b99dec4b5433ac7d329eeb6dd26545e96e55b874be909";
+    htest.assertEqualHash(Sha512, h3, "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
 }
 
 test "sha512 streaming" {
@@ -683,19 +688,23 @@ test "sha512 streaming" {
     }
 
     var h = Sha512.init();
+    var out: [64]u8 = undefined;
 
-    const h1 = 0xcf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e;
-    debug.assert(h1 == h.final());
+    const h1 = "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e";
+    h.final(out[0..]);
+    htest.assertEqual(h1, out[0..]);
 
-    const h2 = 0xddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f;
+    const h2 = "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f";
 
     h.reset();
     h.update("abc");
-    debug.assert(h2 == h.final());
+    h.final(out[0..]);
+    htest.assertEqual(h2, out[0..]);
 
     h.reset();
     h.update("a");
     h.update("b");
     h.update("c");
-    debug.assert(h2 == h.final());
+    h.final(out[0..]);
+    htest.assertEqual(h2, out[0..]);
 }
