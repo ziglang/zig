@@ -7,6 +7,12 @@ pub const Sha256 = sha2.Sha256;
 pub const Sha384 = sha2.Sha384;
 pub const Sha512 = sha2.Sha512;
 
+const sha3 = @import("sha3.zig");
+pub const Sha3_224 = sha3.Sha3_224;
+pub const Sha3_256 = sha3.Sha3_256;
+pub const Sha3_384 = sha3.Sha3_384;
+pub const Sha3_512 = sha3.Sha3_512;
+
 const blake2 = @import("blake2.zig");
 pub const Blake2s224 = blake2.Blake2s224;
 pub const Blake2s256 = blake2.Blake2s256;
@@ -17,5 +23,6 @@ test "crypto" {
     _ = @import("md5.zig");
     _ = @import("sha1.zig");
     _ = @import("sha2.zig");
+    _ = @import("sha3.zig");
     _ = @import("blake2.zig");
 }
