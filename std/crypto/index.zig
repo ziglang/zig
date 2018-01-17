@@ -1,5 +1,5 @@
-pub const Md5 = @import("sha1.zig").Md5;
-pub const Sha1 = @import("md5.zig").Sha1;
+pub const Md5 = @import("md5.zig").Md5;
+pub const Sha1 = @import("sha1.zig").Sha1;
 
 const sha2 = @import("sha2.zig");
 pub const Sha224 = sha2.Sha224;
