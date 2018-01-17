@@ -2,7 +2,13 @@
 
 # RUN: lld-link /out:%t.exe /entry:main %t.obj
 # RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=BIND %s
-BIND: IMAGE_DLL_CHARACTERISTICS_NO_BIND
+# RUN: lld-link /allowbind /out:%t.exe /entry:main %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=BIND %s
+BIND-NOT: IMAGE_DLL_CHARACTERISTICS_NO_BIND
+
+# RUN: lld-link /allowbind:no /out:%t.exe /entry:main %t.obj
+# RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=NOBIND %s
+NOBIND: IMAGE_DLL_CHARACTERISTICS_NO_BIND
 
 # RUN: lld-link /out:%t.exe /entry:main %t.obj
 # RUN: llvm-readobj -file-headers %t.exe | FileCheck -check-prefix=ISO %s

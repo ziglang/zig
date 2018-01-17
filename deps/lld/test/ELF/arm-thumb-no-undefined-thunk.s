@@ -21,4 +21,4 @@ _start:
 // 69636 = 0x11004 = next instruction
 // CHECK:         11000: {{.*}} bl      #0
 // CHECK-NEXT:    11004: {{.*}} b.w     #0 <_start+0x8>
-// CHECK-NEXT:    11008: {{.*}} b.w     #0 <_start+0xC>
+// CHECK-NEXT:    11008: {{.*}} b.w     #0 <_start+0xc>

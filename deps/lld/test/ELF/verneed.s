@@ -1,6 +1,12 @@
 # REQUIRES: x86
+# RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %S/Inputs/verneed1.s -o %t1.o
+# RUN: echo "v1 {}; v2 {}; v3 { local: *; };" > %t.script
+# RUN: ld.lld -shared %t1.o --version-script %t.script -o %t1.so -soname verneed1.so.0
+# RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %S/Inputs/verneed2.s -o %t2.o
+# RUN: ld.lld -shared %t2.o --version-script %t.script -o %t2.so -soname verneed2.so.0
+
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
-# RUN: ld.lld %t.o %S/Inputs/verneed1.so %S/Inputs/verneed2.so -o %t
+# RUN: ld.lld --hash-style=sysv %t.o %t1.so %t2.so -o %t
 # RUN: llvm-readobj -V -sections -section-data -dyn-symbols -dynamic-table %t | FileCheck %s
 
 # CHECK:        Section {

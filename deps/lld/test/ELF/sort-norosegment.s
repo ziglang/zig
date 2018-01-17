@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t
 
-# RUN: ld.lld -no-rosegment -o %t1  %t -shared
+# RUN: ld.lld --hash-style=sysv -no-rosegment -o %t1  %t -shared
 # RUN: llvm-readobj -elf-output-style=GNU -s %t1 | FileCheck %s
 
 # CHECK:      .text    {{.*}}   AX

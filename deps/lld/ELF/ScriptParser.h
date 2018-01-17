@@ -10,7 +10,7 @@
 #ifndef LLD_ELF_SCRIPT_PARSER_H
 #define LLD_ELF_SCRIPT_PARSER_H
 
-#include "lld/Core/LLVM.h"
+#include "lld/Common/LLVM.h"
 #include "llvm/Support/MemoryBuffer.h"
 
 namespace lld {
@@ -24,6 +24,9 @@ void readLinkerScript(MemoryBufferRef MB);
 void readVersionScript(MemoryBufferRef MB);
 
 void readDynamicList(MemoryBufferRef MB);
+
+// Parses the defsym expression.
+void readDefsym(StringRef Name, MemoryBufferRef MB);
 
 } // namespace elf
 } // namespace lld

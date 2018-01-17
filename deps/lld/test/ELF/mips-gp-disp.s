@@ -24,7 +24,7 @@
 # DIS-NEXT:    10000:  3c 08 00 01  lui   $8, 1
 # DIS-NEXT:    10004:  21 08 7f f0  addi  $8, $8, 32752
 #                                                 ^-- 0x37ff0 & 0xffff
-# DIS: 00027ff0  *ABS*  00000000 .hidden _gp
+# DIS: 00027ff0  .got  00000000 .hidden _gp
 
 # REL:      Relocations [
 # REL-NEXT: ]

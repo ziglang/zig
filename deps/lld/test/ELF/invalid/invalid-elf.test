@@ -20,10 +20,6 @@
 # RUN:   FileCheck --check-prefix=INVALID-SECTION-INDEX-LLD %s
 # INVALID-SECTION-INDEX-LLD: invalid section index
 
-## section-index2.elf has local symbol with incorrect section index.
-# RUN: not ld.lld %p/Inputs/section-index2.elf -o %t2 2>&1 | \
-# RUN:   FileCheck --check-prefix=INVALID-SECTION-INDEX-LLD %s
-
 # RUN: not ld.lld %p/Inputs/multiple-eh-relocs.elf -o %t2 2>&1 | \
 # RUN:   FileCheck --check-prefix=INVALID-EH-RELOCS %s
 # INVALID-EH-RELOCS: multiple relocation sections to one section are not supported

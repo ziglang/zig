@@ -9,8 +9,8 @@
 // CHECK-NEXT:    SHF_ALLOC
 // CHECK-NEXT:    SHF_WRITE
 // CHECK-NEXT:  ]
-// CHECK-NEXT:  Address: 0x30000
-// CHECK-NEXT:  Offset: 0x20000
+// CHECK-NEXT:  Address:
+// CHECK-NEXT:  Offset:
 // CHECK-NEXT:  Size: 8
 // CHECK-NEXT:  Link: 0
 // CHECK-NEXT:  Info: 0

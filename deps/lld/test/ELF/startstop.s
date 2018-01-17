@@ -1,6 +1,6 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
-// RUN: ld.lld %t -o %tout -shared
+// RUN: ld.lld --hash-style=sysv %t -o %tout -shared
 // RUN: llvm-objdump -d %tout | FileCheck -check-prefix=DISASM %s
 // RUN: llvm-readobj -symbols -r %tout | FileCheck -check-prefix=SYMBOL %s
 

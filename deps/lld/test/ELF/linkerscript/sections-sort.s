@@ -2,7 +2,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
 
 # RUN: echo "SECTIONS { .text : {*(.text)} foo : {*(foo)}}" > %t.script
-# RUN: ld.lld -o %t --script %t.script %t.o -shared
+# RUN: ld.lld --hash-style=sysv -o %t --script %t.script %t.o -shared
 # RUN: llvm-objdump --section-headers %t | FileCheck  %s
 
 # Test the section order. This is a case where at least with libstdc++'s

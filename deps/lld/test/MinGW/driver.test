@@ -1,0 +1,126 @@
+RUN: ld.lld -### foo.o -m i386pe | FileCheck -check-prefix=X86 %s
+X86:      -out:a.exe
+X86-SAME: -machine:x86
+X86-SAME: -alternatename:__image_base__=___ImageBase
+X86-SAME: foo.o
+
+RUN: ld.lld -### foo.o -m i386pep | FileCheck -check-prefix=X64 %s
+X64:      -out:a.exe
+X64-SAME: -machine:x64
+X64-SAME: -alternatename:__image_base__=__ImageBase
+X64-SAME: foo.o
+
+RUN: ld.lld -### foo.o -m thumb2pe | FileCheck -check-prefix=ARM %s
+ARM:      -out:a.exe
+ARM-SAME: -machine:arm
+ARM-SAME: -alternatename:__image_base__=__ImageBase
+ARM-SAME: foo.o
+
+RUN: ld.lld -### foo.o -m arm64pe | FileCheck -check-prefix=ARM64 %s
+ARM64:      -out:a.exe
+ARM64-SAME: -machine:arm64
+ARM64-SAME: -alternatename:__image_base__=__ImageBase
+ARM64-SAME: foo.o
+
+RUN: ld.lld -### foo.o -m i386pep -shared | FileCheck -check-prefix=SHARED %s
+RUN: ld.lld -### foo.o -m i386pep --shared | FileCheck -check-prefix=SHARED %s
+SHARED:      -out:a.dll
+SHARED-SAME: -dll
+
+RUN: ld.lld -### foo.o -m i386pep -shared foo.def | FileCheck -check-prefix=DEF1 %s
+DEF1: -def:foo.def
+
+RUN: ld.lld -### foo.o -m i386pep -shared FOO.DEF | FileCheck -check-prefix=DEF2 %s
+DEF2: -def:FOO.DEF
+
+RUN: ld.lld -### foo.o -m i386pep -obar.exe | FileCheck -check-prefix=OUT %s
+RUN: ld.lld -### foo.o -m i386pep -o bar.exe | FileCheck -check-prefix=OUT %s
+OUT: -out:bar.exe
+
+RUN: ld.lld -### foo.o -m i386pep --out-implib bar | FileCheck -check-prefix=IMPLIB %s
+RUN: ld.lld -### foo.o -m i386pep --out-implib=bar | FileCheck -check-prefix=IMPLIB %s
+IMPLIB: -implib:bar
+
+RUN: ld.lld -### foo.o -m i386pep -out-implib bar | FileCheck -check-prefix=NOIMPLIB %s
+NOIMPLIB: -out:ut-implib
+
+RUN: ld.lld -### foo.o -m i386pep -e bar | FileCheck -check-prefix=ENTRY %s
+RUN: ld.lld -### foo.o -m i386pep -entry bar | FileCheck -check-prefix=ENTRY %s
+RUN: ld.lld -### foo.o -m i386pep --entry bar | FileCheck -check-prefix=ENTRY %s
+ENTRY: -entry:bar
+
+RUN: ld.lld -### foo.o -m i386pep -mllvm bar -mllvm baz | FileCheck -check-prefix=MLLVM %s
+MLLVM: -mllvm:bar -mllvm:baz
+
+RUN: ld.lld -### foo.o -m i386pep -subsystem console | FileCheck -check-prefix=SUBSYSTEM %s
+RUN: ld.lld -### foo.o -m i386pep --subsystem console | FileCheck -check-prefix=SUBSYSTEM %s
+SUBSYSTEM: -subsystem:console
+
+RUN: ld.lld -### foo.o -m i386pep -stack 4194304,8192 | FileCheck -check-prefix=STACK %s
+RUN: ld.lld -### foo.o -m i386pep --stack 4194304,8192 | FileCheck -check-prefix=STACK %s
+STACK: -stack:4194304,8192
+
+RUN: ld.lld -### foo.o -m i386pep -verbose | FileCheck -check-prefix=VERBOSE %s
+RUN: ld.lld -### foo.o -m i386pep --verbose | FileCheck -check-prefix=VERBOSE %s
+VERBOSE: -verbose
+
+RUN: ld.lld -### -shared -m i386pe -e _DllMainCRTStartup@12 foo.o | FileCheck -check-prefix I386-ENTRY %s
+I386-ENTRY: -entry:DllMainCRTStartup@12
+
+RUN: ld.lld -### -m i386pep foo.o --whole-archive bar.a --no-whole-archive baz.a | FileCheck -check-prefix WHOLE-ARCHIVE %s
+RUN: ld.lld -### -m i386pep foo.o -whole-archive bar.a -no-whole-archive baz.a | FileCheck -check-prefix WHOLE-ARCHIVE %s
+WHOLE-ARCHIVE: foo.o -wholearchive:bar.a baz.a
+
+RUN: ld.lld -### -m i386pep foo.o | FileCheck -check-prefix MINGW-FLAG %s
+MINGW-FLAG: -lldmingw
+
+RUN: ld.lld -### -m i386pep foo.o --export-all-symbols | FileCheck -check-prefix EXPORT-ALL %s
+EXPORT-ALL: -export-all-symbols
+
+RUN: ld.lld -### -m i386pep foo.o --output-def out.def | FileCheck -check-prefix OUTPUT-DEF %s
+OUTPUT-DEF: -output-def:out.def
+
+RUN: ld.lld -### -m i386pep foo.o -Xlink=-lldmap | FileCheck -check-prefix XLINK %s
+XLINK: -lldmap
+
+RUN: ld.lld -### -m i386pep foo.o | FileCheck -check-prefix DEBUG %s
+DEBUG: -debug:dwarf
+
+RUN: ld.lld -### -m i386pep foo.o -s | FileCheck -check-prefix STRIP %s
+RUN: ld.lld -### -m i386pep foo.o --strip-all | FileCheck -check-prefix STRIP %s
+STRIP-NOT: -debug:dwarf
+
+RUN: ld.lld -### -m i386pep foo.o --large-address-aware | FileCheck -check-prefix LARGE-ADDRESS-AWARE %s
+LARGE-ADDRESS-AWARE: -largeaddressaware
+
+RUN: ld.lld -### -m i386pe foo.o | FileCheck -check-prefix DEFAULT-DISABLE-FLAGS %s
+RUN: ld.lld -### -m i386pep foo.o | FileCheck -check-prefix DEFAULT-DISABLE-FLAGS %s
+DEFAULT-DISABLE-FLAGS: -dynamicbase:no
+RUN: ld.lld -### -m i386pe --dynamicbase foo.o | FileCheck -check-prefix NO-DEFAULT-DISABLE-FLAGS %s
+RUN: ld.lld -### -m i386pep -dynamicbase foo.o | FileCheck -check-prefix NO-DEFAULT-DISABLE-FLAGS %s
+RUN: ld.lld -### -m thumb2pe foo.o | FileCheck -check-prefix NO-DEFAULT-DISABLE-FLAGS %s
+RUN: ld.lld -### -m arm64pe foo.o | FileCheck -check-prefix NO-DEFAULT-DISABLE-FLAGS %s
+NO-DEFAULT-DISABLE-FLAGS-NOT: -dynamicbase:no
+
+RUN: ld.lld -### -m i386pep foo.o --image-base 0x1230000 | FileCheck -check-prefix IMAGE-BASE %s
+RUN: ld.lld -### -m i386pep foo.o -image-base 0x1230000 | FileCheck -check-prefix IMAGE-BASE %s
+IMAGE-BASE: -base:0x1230000
+
+RUN: ld.lld -### -m i386pep foo.o | FileCheck -check-prefix NO-GC-SECTIONS %s
+RUN: ld.lld -### -m i386pep foo.o --gc-sections --no-gc-sections | FileCheck -check-prefix NO-GC-SECTIONS %s
+NO-GC-SECTIONS: -opt:noref
+
+RUN: ld.lld -### -m i386pep foo.o --gc-sections | FileCheck -check-prefix GC-SECTIONS %s
+RUN: ld.lld -### -m i386pep foo.o -gc-sections | FileCheck -check-prefix GC-SECTIONS %s
+GC-SECTIONS: -opt:ref
+
+RUN: ld.lld -### -m i386pep foo.o | FileCheck -check-prefix ICF-NONE %s
+RUN: ld.lld -### -m i386pep foo.o --icf=none | FileCheck -check-prefix ICF-NONE %s
+RUN: ld.lld -### -m i386pep foo.o -icf=none | FileCheck -check-prefix ICF-NONE %s
+RUN: ld.lld -### -m i386pep foo.o --icf=safe | FileCheck -check-prefix ICF-NONE %s
+RUN: ld.lld -### -m i386pep foo.o -icf=safe | FileCheck -check-prefix ICF-NONE %s
+ICF-NONE: -opt:noicf
+
+RUN: ld.lld -### -m i386pep foo.o --icf=all | FileCheck -check-prefix ICF %s
+RUN: ld.lld -### -m i386pep foo.o -icf=all | FileCheck -check-prefix ICF %s
+ICF: -opt:icf

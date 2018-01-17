@@ -1,6 +1,6 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
-// RUN: ld.lld --eh-frame-hdr %t.o -o %t -shared
+// RUN: ld.lld --hash-style=sysv --eh-frame-hdr %t.o -o %t -shared
 // RUN: llvm-objdump --dwarf=frames %t | FileCheck %s
 
 // CHECK: .eh_frame contents:

@@ -3,7 +3,7 @@
 ; RUN: mkdir -p %t.dir
 ; RUN: llvm-mc -triple=x86_64-pc-windows-msvc -filetype=obj -o %t.dir/bitcode.obj %p/Inputs/msvclto.s
 ; RUN: lld-link %t.obj %t.dir/bitcode.obj /msvclto /out:%t.exe /opt:lldlto=1 /opt:icf \
-; RUN:   /entry:main /verbose > %t.log || true
+; RUN:   /entry:main /verbose 2> %t.log || true
 ; RUN: FileCheck %s < %t.log
 
 ; CHECK: /opt:icf /entry:main

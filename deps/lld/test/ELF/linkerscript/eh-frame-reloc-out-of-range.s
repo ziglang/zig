@@ -12,7 +12,7 @@
 # RUN:       }" > %t.script
 # RUN: not ld.lld %t.o -T %t.script -o %t 2>&1 | FileCheck %s
 
-# CHECK: error: {{.*}}:(.eh_frame+0x20): relocation R_X86_64_PC32 out of range
+# CHECK: error: {{.*}}:(.eh_frame+0x20): relocation R_X86_64_PC32 out of range: 64424443872 is not in [-2147483648, 2147483647]
 
 	.text
   .globl _start

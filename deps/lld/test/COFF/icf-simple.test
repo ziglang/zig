@@ -1,5 +1,5 @@
 # RUN: yaml2obj < %s > %t.obj
-# RUN: lld-link /entry:foo /out:%t.exe /subsystem:console /include:bar \
+# RUN: lld-link /opt:icf /entry:foo /out:%t.exe /subsystem:console /include:bar \
 # RUN:   /verbose %t.obj > %t.log 2>&1
 # RUN: FileCheck -check-prefix=ICF %s < %t.log
 
@@ -11,6 +11,31 @@
 # RUN: FileCheck -check-prefix=NOICF %s < %t.log
 # RUN: lld-link /entry:foo /out:%t.exe /subsystem:console /include:bar \
 # RUN:   /verbose /opt:noref,noicf %t.obj > %t.log 2>&1
+# RUN: FileCheck -check-prefix=NOICF %s < %t.log
+
+# ICF is on by default (no /opt: flags).
+# RUN: lld-link /entry:foo /out:%t.exe /subsystem:console \
+# RUN:   /include:bar /verbose %t.obj > %t.log 2>&1
+# RUN: FileCheck -check-prefix=ICF %s < %t.log
+
+# /debug disables ICF.
+# RUN: lld-link /debug /entry:foo /out:%t.exe /subsystem:console \
+# RUN:   /include:bar /verbose %t.obj > %t.log 2>&1
+# RUN: FileCheck -check-prefix=NOICF %s < %t.log
+
+# /opt:noref disables ICF.
+# RUN: lld-link /opt:noref /entry:foo /out:%t.exe /subsystem:console \
+# RUN:   /include:bar /verbose %t.obj > %t.log 2>&1
+# RUN: FileCheck -check-prefix=NOICF %s < %t.log
+
+# /debug /opt:ref enables ICF.
+# RUN: lld-link /debug /opt:ref /entry:foo /out:%t.exe /subsystem:console \
+# RUN:   /include:bar /verbose %t.obj > %t.log 2>&1
+# RUN: FileCheck -check-prefix=ICF %s < %t.log
+
+# /debug /opt:noicf,ref disables ICF.
+# RUN: lld-link /debug /opt:noicf,ref /entry:foo /out:%t.exe /subsystem:console \
+# RUN:   /include:bar /verbose %t.obj > %t.log 2>&1
 # RUN: FileCheck -check-prefix=NOICF %s < %t.log
 
 # NOICF-NOT: Removed foo

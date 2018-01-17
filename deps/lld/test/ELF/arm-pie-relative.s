@@ -1,5 +1,5 @@
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t
-// RUN: ld.lld %t --pie -o %t2
+// RUN: ld.lld --hash-style=sysv %t --pie -o %t2
 // RUN: llvm-readobj -r %t2 | FileCheck %s
 // RUN: llvm-objdump -s %t2 | FileCheck %s --check-prefix=GOT
 // REQUIRES: arm

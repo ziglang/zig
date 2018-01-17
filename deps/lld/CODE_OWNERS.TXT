@@ -17,3 +17,6 @@ N: Lang Hames, Nick Kledzik
 E: lhames@gmail.com, kledzik@apple.com
 D: Mach-O backend
 
+N: Sam Clegg
+E: sbc@chromium.org
+D: WebAssembly backend (wasm/*)

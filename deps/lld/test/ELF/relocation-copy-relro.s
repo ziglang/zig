@@ -2,7 +2,7 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %p/Inputs/relocation-copy-relro.s -o %t2.o
 // RUN: ld.lld -shared %t2.o -o %t.so
-// RUN: ld.lld %t.o %t.so -o %t3
+// RUN: ld.lld --hash-style=sysv %t.o %t.so -o %t3
 // RUN: llvm-readobj -program-headers -s -r %t3 | FileCheck %s
 
 // CHECK:        Name: .bss.rel.ro (48)

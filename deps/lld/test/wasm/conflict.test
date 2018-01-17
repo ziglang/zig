@@ -1,0 +1,6 @@
+# RUN: llc -filetype=obj -mtriple=wasm32-unknown-unknown-wasm %p/Inputs/ret32.ll -o %t.ret32.o
+# RUN: not lld -flavor wasm -o %t.wasm %t.ret32.o %t.ret32.o 2>&1 | FileCheck %s
+
+# CHECK:      duplicate symbol: ret32
+# CHECK-NEXT: >>> defined in {{.*}}conflict.test.tmp.ret32.o
+# CHECK-NEXT: >>> defined in {{.*}}conflict.test.tmp.ret32.o

@@ -1,16 +1,17 @@
 # RUN: yaml2obj %s -o %t.obj
 # RUN: lld-link -debug -entry:main -out:%t.exe -pdb:%t.pdb %t.obj
-# RUN: llvm-pdbutil dump -symbols %t.pdb | FileCheck %s
+# RUN: llvm-pdbutil dump -globals %t.pdb | FileCheck %s
 
 # There is an S_GDATA32 symbol record with .secrel32 and .secidx relocations in
 # it in this debug info. This is similar to the relocations in the loadcfg.obj
 # file in the MSVC CRT. We need to make sure that our relocation logic matches
 # MSVC's for these absolute, linker-provided symbols.
 
-# CHECK: Mod 0000 |
-# CHECK-NEXT: 4 | S_GDATA32 [size = 40] `___safe_se_handler_table`
-# CHECK-NEXT:     type = 0x0022 (unsigned long), addr = 0003:0000
-# CHECK-NEXT: Mod 0001 | `* Linker *`:
+# CHECK:                             Global Symbols
+# CHECK-NEXT: ============================================================
+# CHECK-NEXT:   Records
+# CHECK-NEXT:       20 | S_GDATA32 [size = 40] `___safe_se_handler_table`
+# CHECK-NEXT:            type = 0x0022 (unsigned long), addr = 0003:0000
 
 --- !COFF
 header:

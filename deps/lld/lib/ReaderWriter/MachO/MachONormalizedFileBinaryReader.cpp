@@ -24,8 +24,8 @@
 #include "ArchHandler.h"
 #include "MachONormalizedFile.h"
 #include "MachONormalizedFileBinaryUtils.h"
+#include "lld/Common/LLVM.h"
 #include "lld/Core/Error.h"
-#include "lld/Core/LLVM.h"
 #include "lld/Core/SharedLibraryFile.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
@@ -511,7 +511,8 @@ readBinary(std::unique_ptr<MemoryBuffer> &mb,
       const uint8_t *trieStart = reinterpret_cast<const uint8_t *>(
           start + read32(&dyldInfo->export_off, isBig));
       ArrayRef<uint8_t> trie(trieStart, read32(&dyldInfo->export_size, isBig));
-      for (const ExportEntry &trieExport : MachOObjectFile::exports(trie)) {
+      Error Err = Error::success();
+      for (const ExportEntry &trieExport : MachOObjectFile::exports(Err, trie)) {
         Export normExport;
         normExport.name = trieExport.name().copy(f->ownedAllocations);
         normExport.offset = trieExport.address();
@@ -522,6 +523,8 @@ readBinary(std::unique_ptr<MemoryBuffer> &mb,
           normExport.otherName = trieExport.otherName().copy(f->ownedAllocations);
         f->exportInfo.push_back(normExport);
       }
+      if (Err)
+        return std::move(Err);
     }
   }
 

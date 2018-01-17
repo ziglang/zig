@@ -43,5 +43,5 @@
 
 # RUN: not ld.lld %S/Inputs/i386-got32x-baseless.elf -o %t1 -pie 2>&1 | \
 # RUN:   FileCheck %s --check-prefix=ERR
-# ERR: relocation R_386_GOT32X against 'foo' without base register can not be used when PIC enabled
-# ERR: relocation R_386_GOT32X against 'foo' without base register can not be used when PIC enabled
+# ERR: error: can't create dynamic relocation R_386_GOT32X against symbol: foo in readonly segment; recompile object files with -fPIC
+# ERR: error: can't create dynamic relocation R_386_GOT32X against symbol: foo in readonly segment; recompile object files with -fPIC

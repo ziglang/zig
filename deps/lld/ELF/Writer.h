@@ -20,11 +20,10 @@ namespace elf {
 class InputFile;
 class OutputSection;
 class InputSectionBase;
-template <class ELFT> class ObjectFile;
-template <class ELFT> class SymbolTable;
+template <class ELFT> class ObjFile;
+class SymbolTable;
 template <class ELFT> void writeResult();
 template <class ELFT> void markLive();
-bool isRelroSection(const OutputSection *Sec);
 
 // This describes a program header entry.
 // Each contains type, access flags and range of output sections that will be
@@ -42,19 +41,22 @@ struct PhdrEntry {
   uint32_t p_type = 0;
   uint32_t p_flags = 0;
 
-  OutputSection *First = nullptr;
-  OutputSection *Last = nullptr;
+  OutputSection *FirstSec = nullptr;
+  OutputSection *LastSec = nullptr;
   bool HasLMA = false;
 };
 
-llvm::StringRef getOutputSectionName(llvm::StringRef Name);
+void addReservedSymbols();
+llvm::StringRef getOutputSectionName(InputSectionBase *S);
 
-template <class ELFT> uint32_t getMipsEFlags();
+template <class ELFT> uint32_t calcMipsEFlags();
 
 uint8_t getMipsFpAbiFlag(uint8_t OldFlag, uint8_t NewFlag,
                          llvm::StringRef FileName);
 
 bool isMipsN32Abi(const InputFile *F);
+bool isMicroMips();
+bool isMipsR6();
 } // namespace elf
 } // namespace lld
 

@@ -22,7 +22,7 @@ sections:
     Relocations:
       - VirtualAddress:  0
         SymbolName:      __imp_function
-        Type:            17
+        Type:            IMAGE_REL_ARM_MOV32T
 symbols:
   - Name:            .text
     Value:           0

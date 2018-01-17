@@ -4,7 +4,7 @@
 ; RUN: opt -thinlto-bc -o %T/thinlto/main.obj %s
 ; RUN: opt -thinlto-bc -o %T/thinlto/foo.obj %S/Inputs/lto-dep.ll
 ; RUN: lld-link /lldsavetemps /out:%T/thinlto/main.exe /entry:main /subsystem:console %T/thinlto/main.obj %T/thinlto/foo.obj
-; RUN: llvm-nm %T/thinlto/main.exe.lto.obj | FileCheck %s
+; RUN: llvm-nm %T/thinlto/main.exe1.lto.obj | FileCheck %s
 
 ; CHECK-NOT: U foo
 

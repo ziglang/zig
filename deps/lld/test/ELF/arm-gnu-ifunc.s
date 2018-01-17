@@ -111,30 +111,29 @@ _start:
 
 // DISASM: Disassembly of section .text:
 // DISASM-NEXT: foo:
-// DISASM-NEXT:    11000:	1e ff 2f e1 	bx	lr
-// DISASM:      bar:
-// DISASM-NEXT:    11004:	1e ff 2f e1 	bx	lr
-// DISASM:       _start:
-// DISASM-NEXT:    11008:	04 00 00 eb 	bl	#16
-// DISASM-NEXT:    1100c:	07 00 00 eb 	bl	#28
+// DISASM-NEXT:    11000:      1e ff 2f e1     bx      lr
+// DISASM: bar:
+// DISASM-NEXT:    11004:      1e ff 2f e1     bx      lr
+// DISASM: _start:
+// DISASM-NEXT:    11008:      04 00 00 eb     bl      #16
+// DISASM-NEXT:    1100c:      07 00 00 eb     bl      #28
 // 1 * 65536 + 244 = 0x100f4 __rel_iplt_start
-// DISASM-NEXT:    11010:	f4 00 00 e3 	movw	r0, #244
-// DISASM-NEXT:    11014:	01 00 40 e3 	movt	r0, #1
+// DISASM-NEXT:    11010:      f4 00 00 e3     movw    r0, #244
+// DISASM-NEXT:    11014:      01 00 40 e3     movt    r0, #1
 // 1 * 65536 + 260 = 0x10104 __rel_iplt_end
-// DISASM-NEXT:    11018:	04 01 00 e3 	movw	r0, #260
-// DISASM-NEXT:    1101c:	01 00 40 e3 	movt	r0, #1
+// DISASM-NEXT:    11018:      04 01 00 e3     movw    r0, #260
+// DISASM-NEXT:    1101c:      01 00 40 e3     movt    r0, #1
 // DISASM-NEXT: Disassembly of section .plt:
-// DISASM: $a:
-// DISASM-NEXT:    11020:       04 c0 9f e5     ldr     r12, [pc, #4]
-// DISASM-NEXT:    11024:       0f c0 8c e0     add     r12, r12, pc
-// 11024 + 8 + fd4 = 0x12000
-// DISASM-NEXT:    11028:       00 f0 9c e5     ldr     pc, [r12]
+// DISASM-NEXT: $a:
+// DISASM-NEXT:    11020:       00 c6 8f e2     add     r12, pc, #0, #12
+// DISASM-NEXT:    11024:       00 ca 8c e2     add     r12, r12, #0, #20
+// DISASM-NEXT:    11028:       d8 ff bc e5     ldr     pc, [r12, #4056]!
 // DISASM: $d:
-// DISASM-NEXT:    1102c:       d4 0f 00 00     .word   0x00000fd4
+// DISASM-NEXT:    1102c:       d4 d4 d4 d4     .word   0xd4d4d4d4
 // DISASM: $a:
-// DISASM-NEXT:    11030:       04 c0 9f e5     ldr     r12, [pc, #4]
-// DISASM-NEXT:    11034:       0f c0 8c e0     add     r12, r12, pc
-// 11034 + 8 + fc8 = 0x12004        
-// DISASM-NEXT:    11038:       00 f0 9c e5     ldr     pc, [r12]
+// DISASM-NEXT:    11030:       00 c6 8f e2     add     r12, pc, #0, #12
+// DISASM-NEXT:    11034:       00 ca 8c e2     add     r12, r12, #0, #20
+// DISASM-NEXT:    11038:       cc ff bc e5     ldr     pc, [r12, #4044]!
 // DISASM: $d:
-// DISASM-NEXT:    1103c:       c8 0f 00 00     .word   0x00000fc8
+// DISASM-NEXT:    1103c:       d4 d4 d4 d4     .word   0xd4d4d4d4
+

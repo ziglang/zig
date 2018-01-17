@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-linux %s -o %t.o
 # RUN: echo "SECTIONS { .data 0x4000 : { *(.data) } .text 0x2000 : { *(.text) } }" > %t.script
-# RUN: ld.lld -o %t.so --script %t.script %t.o -shared
+# RUN: ld.lld --hash-style=sysv -o %t.so --script %t.script %t.o -shared
 # RUN: llvm-objdump -section-headers %t.so | FileCheck %s
 
 # CHECK:      Sections:

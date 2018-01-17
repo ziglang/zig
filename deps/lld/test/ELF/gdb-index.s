@@ -1,12 +1,12 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t1.o
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %p/Inputs/gdb-index.s -o %t2.o
-# RUN: ld.lld --gdb-index -e main %t1.o %t2.o -o %t
-# RUN: llvm-dwarfdump -debug-dump=gdb_index %t | FileCheck %s
+# RUN: ld.lld --gdb-index %t1.o %t2.o -o %t
+# RUN: llvm-dwarfdump -gdb-index %t | FileCheck %s
 # RUN: llvm-objdump -d %t | FileCheck %s --check-prefix=DISASM
 
 # DISASM:       Disassembly of section .text:
-# DISASM:       main:
+# DISASM:       entrypoint:
 # DISASM-CHECK:   201000: 90 nop
 # DISASM-CHECK:   201001: cc int3
 # DISASM-CHECK:   201002: cc int3
@@ -24,25 +24,29 @@
 # CHECK-NEXT:    Low/High address = [0x201000, 0x201001) (Size: 0x1), CU id = 0
 # CHECK-NEXT:    Low/High address = [0x201004, 0x201006) (Size: 0x2), CU id = 1
 # CHECK:       Symbol table offset = 0x60, size = 1024, filled slots:
-# CHECK-NEXT:    489: Name offset = 0x1d, CU vector offset = 0x0
-# CHECK-NEXT:      String name: main, CU vector index: 0
-# CHECK-NEXT:    754: Name offset = 0x22, CU vector offset = 0x8
-# CHECK-NEXT:      String name: int, CU vector index: 1
-# CHECK-NEXT:    956: Name offset = 0x26, CU vector offset = 0x14
+# CHECK-NEXT:    754: Name offset = 0x27, CU vector offset = 0x8
+# CHECK-NEXT:	   String name: int, CU vector index: 1
+# CHECK-NEXT:    822: Name offset = 0x1c, CU vector offset = 0x0
+# CHECK-NEXT:	   String name: entrypoint, CU vector index: 0
+# CHECK-NEXT:    956: Name offset = 0x2b, CU vector offset = 0x14
 # CHECK-NEXT:      String name: main2, CU vector index: 2
 # CHECK:       Constant pool offset = 0x2060, has 3 CU vectors:
 # CHECK-NEXT:    0(0x0): 0x30000000
 # CHECK-NEXT:    1(0x8): 0x90000000 0x90000001
 # CHECK-NEXT:    2(0x14): 0x30000001
 
+# RUN: ld.lld --gdb-index --no-gdb-index %t1.o %t2.o -o %t2
+# RUN: llvm-readobj -sections %t2 | FileCheck -check-prefix=NOGDB %s
+# NOGDB-NOT: Name: .gdb_index
+
 ## The following section contents are created by this using gcc 7.1.0:
-## echo 'int main() { return 0; }' | gcc -gsplit-dwarf -xc++ -S -o- -
+## echo 'int entrypoint() { return 0; }' | gcc -gsplit-dwarf -xc++ -S -o- -
 
 .text
 .Ltext0:
-.globl main
-.type main, @function
-main:
+.globl entrypoint
+.type entrypoint, @function
+entrypoint:
  nop
 .Letext0:
 
@@ -98,7 +102,7 @@ main:
 .long 0x33
 .long 0x18
 .byte 0x30
-.string "main"
+.string "entrypoint"
 .long 0
 
 .section .debug_gnu_pubtypes,"",@progbits

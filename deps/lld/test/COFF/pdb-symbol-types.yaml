@@ -1,6 +1,6 @@
 # RUN: yaml2obj %s -o %t.obj
 # RUN: lld-link %t.obj -nodefaultlib -entry:main -debug -out:%t.exe -pdb:%t.pdb
-# RUN: llvm-pdbutil dump -symbols %t.pdb | FileCheck %s
+# RUN: llvm-pdbutil dump -symbols -globals %t.pdb | FileCheck %s
 
 # To regenerate the object file:
 # $ cat symbol-types.c
@@ -13,6 +13,14 @@
 # Note that the type of 'global' goes from 0x1005 in the object file to 0x1004
 # in the PDB because the LF_FUNC_ID is moved to the id stream.
 
+# CHECK-LABEL:                  Global Symbols
+# CHECK-NEXT:  ============================================================
+# CHECK-NEXT:   Records
+# CHECK-NEXT:       48 | S_PROCREF [size = 20] `main`
+# CHECK-NEXT:             module = 1, sum name = 0, offset = 116
+# CHECK-NEXT:       68 | S_GDATA32 [size = 28] `global_foo`
+# CHECK-NEXT:             type = 0x1004 (Foo), addr = 0001:0000
+
 # CHECK:                           Symbols
 # CHECK: ============================================================
 # CHECK-LABEL:   Mod 0000 | `{{.*}}pdb-symbol-types.yaml.tmp.obj`:
@@ -21,7 +29,7 @@
 # CHECK:         machine = intel x86-x64, Ver = Microsoft (R) Optimizing Compiler, language = c
 # CHECK:         frontend = 19.0.24215.1, backend = 19.0.24215.1
 # CHECK:         flags = security checks | hot patchable
-# CHECK:   116 | S_GPROC32_ID [size = 44] `main`
+# CHECK:   116 | S_GPROC32 [size = 44] `main`
 # CHECK:         parent = 0, end = 192, addr = 0002:0000, code size = 7
 # CHECK:         debug start = 0, debug end = 6, flags = none
 # CHECK:   160 | S_FRAMEPROC [size = 32]
@@ -29,13 +37,7 @@
 # CHECK:         bytes of callee saved registers = 0, exception handler addr = 0000:0000
 # CHECK:         flags = has async eh | opt speed
 # CHECK:   192 | S_END [size = 4]
-# CHECK:   196 | S_GDATA32 [size = 28] `global_foo`
-# CHECK:         type = 0x1004 (Foo), addr = 0001:0000
-# CHECK:   224 | S_UDT [size = 16] `UDT_Foo`
-# CHECK:         original type = 0x1004
-# CHECK:   240 | S_UDT [size = 12] `Foo`
-# CHECK:         original type = 0x1004
-# CHECK:   252 | S_BUILDINFO [size = 8] BuildId = `0x100A`
+# CHECK:   196 | S_BUILDINFO [size = 8] BuildId = `0x100A`
 # CHECK-LABEL:   Mod 0001 | `* Linker *`:
 
 --- !COFF

@@ -14,10 +14,6 @@ sections:
     Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
     Alignment:       4
     SectionData:     B82A000000C3
-  - Name:            .text
-    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
-    Alignment:       4
-    SectionData:     B82A000000C3
   - Name:            .rdata
     Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ ]
     Alignment:       16
@@ -35,19 +31,6 @@ symbols:
       NumberOfLinenumbers: 0
       CheckSum:        0
       Number:          0
-  - Name:            .text
-    Value:           0
-    SectionNumber:   2
-    SimpleType:      IMAGE_SYM_TYPE_NULL
-    ComplexType:     IMAGE_SYM_DTYPE_NULL
-    StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition:
-      Length:          6
-      NumberOfRelocations: 0
-      NumberOfLinenumbers: 0
-      CheckSum:        0
-      Number:          0
-      Selection:       IMAGE_COMDAT_SELECT_ANY
   - Name:            main
     Value:           0
     SectionNumber:   1
@@ -56,7 +39,7 @@ symbols:
     StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
   - Name:            .rdata
     Value:           0
-    SectionNumber:   3
+    SectionNumber:   2
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
@@ -68,7 +51,7 @@ symbols:
       Number:          3
   - Name:            _load_config_used
     Value:           0
-    SectionNumber:   3
+    SectionNumber:   2
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_EXTERNAL

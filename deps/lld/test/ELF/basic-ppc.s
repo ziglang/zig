@@ -1,5 +1,5 @@
 # RUN: llvm-mc -filetype=obj -triple=powerpc-unknown-freebsd %s -o %t
-# RUN: ld.lld -discard-all -shared %t -o %t2
+# RUN: ld.lld --hash-style=sysv -discard-all -shared %t -o %t2
 # RUN: llvm-readobj -file-headers -sections -section-data -program-headers %t2 | FileCheck %s
 # REQUIRES: ppc
 
@@ -163,7 +163,7 @@
 // CHECK-NEXT:     Link: 0
 // CHECK-NEXT:     Info: 0
 // CHECK-NEXT:     AddressAlignment: 1
-// CHECK-NEXT:     EntrySize: 0
+// CHECK-NEXT:     EntrySize: 1
 // CHECK-NEXT:     SectionData (
 // CHECK-NEXT:       0000: 4C4C4420 312E3000 |LLD 1.0.|
 // CHECK-NEXT:     )

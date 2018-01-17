@@ -1,6 +1,6 @@
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %S/Inputs/arm-exidx-cantunwind.s -o %tcantunwind
-// RUN: ld.lld %t %tcantunwind -o %t2 2>&1
+// RUN: ld.lld --no-merge-exidx-entries %t %tcantunwind -o %t2 2>&1
 // RUN: llvm-objdump -d -triple=armv7a-none-linux-gnueabi %t2 | FileCheck %s
 // RUN: llvm-objdump -s -triple=armv7a-none-linux-gnueabi %t2 | FileCheck -check-prefix=CHECK-EXIDX %s
 // RUN: llvm-readobj --program-headers --sections %t2 | FileCheck -check-prefix=CHECK-PT %s
@@ -8,7 +8,7 @@
 // RUN: echo "SECTIONS { \
 // RUN:          .text 0x11000 : { *(.text*) } \
 // RUN:          .ARM.exidx : { *(.ARM.exidx) } } " > %t.script
-// RUN: ld.lld --script %t.script %tcantunwind %t -o %t3 2>&1
+// RUN: ld.lld --no-merge-exidx-entries --script %t.script %tcantunwind %t -o %t3 2>&1
 // RUN: llvm-objdump -d -triple=armv7a-none-linux-gnueabi %t3 | FileCheck -check-prefix=CHECK-SCRIPT %s
 // RUN: llvm-objdump -s -triple=armv7a-none-linux-gnueabi %t3 | FileCheck -check-prefix=CHECK-SCRIPT-EXIDX %s
 // REQUIRES: arm

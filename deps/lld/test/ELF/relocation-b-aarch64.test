@@ -1,0 +1,48 @@
+# REQUIRES: aarch64
+
+# RUN: yaml2obj %s -o %t.o
+# RUN: ld.lld %t.o -o %t.out
+# RUN: llvm-objdump -d -triple=aarch64-none-linux %t.out | FileCheck %s
+
+# Check that the R_AARCH64_JUMP26 writes the branch opcode as well as the
+# immediate. We use this property to overwrite instructions with a branch.
+
+# CHECK: Disassembly of section .text:
+# CHECK-NEXT: foo:
+# CHECK-NEXT:    20000:        01 00 00 14     b       #4
+# CHECK: bar:
+# CHECK-NEXT:    20004:        ff ff ff 17     b       #-4
+
+!ELF
+FileHeader:
+  Class:           ELFCLASS64
+  Data:            ELFDATA2LSB
+  Type:            ET_REL
+  Machine:         EM_AARCH64
+Sections:
+  - Type:            SHT_PROGBITS
+    Name:            .text
+    Flags:           [ SHF_ALLOC, SHF_EXECINSTR ]
+    Content:         "0000000000000000"
+  - Type:            SHT_RELA
+    Name:            .rela.text
+    Link:            .symtab
+    Info:            .text
+    Relocations:
+      - Offset:          0
+        Symbol:          bar
+        Type:            R_AARCH64_JUMP26
+      - Offset:          4
+        Symbol:          foo
+        Type:            R_AARCH64_JUMP26
+
+Symbols:
+ Local:
+   - Type:             STT_FUNC
+     Section:          .text
+     Name:             foo
+     Value:            0
+   - Type:             STT_FUNC
+     Section:          .text
+     Name:             bar
+     Value:            4

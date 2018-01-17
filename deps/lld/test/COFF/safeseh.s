@@ -1,9 +1,15 @@
 # RUN: llvm-mc -triple i686-windows-msvc %s -filetype=obj -o %t.obj
 # RUN: lld-link %t.obj -safeseh -out:%t.exe -opt:noref -entry:main
-# RUN: llvm-readobj -coff-load-config %t.exe | FileCheck %s --check-prefix=CHECK-NOGC
+# RUN: llvm-readobj -coff-basereloc -coff-load-config -file-headers %t.exe | FileCheck %s --check-prefix=CHECK-NOGC
 # RUN: lld-link %t.obj -safeseh -out:%t.exe -opt:ref -entry:main
-# RUN: llvm-readobj -coff-load-config %t.exe | FileCheck %s --check-prefix=CHECK-GC
+# RUN: llvm-readobj -coff-basereloc -coff-load-config -file-headers %t.exe | FileCheck %s --check-prefix=CHECK-GC
 
+# __safe_se_handler_table needs to be relocated against ImageBase.
+# check that the relocation is present.
+# CHECK-NOGC-NOT: IMAGE_DLL_CHARACTERISTICS_NO_SEH
+# CHECK-NOGC: BaseReloc [
+# CHECK-NOGC:   Entry {
+# CHECK-NOGC:     Type: HIGHLOW
 # CHECK-NOGC: LoadConfig [
 # CHECK-NOGC:   Size: 0x48
 # CHECK-NOGC:   SEHandlerTable: 0x401048
@@ -13,6 +19,11 @@
 # CHECK-NOGC-NEXT:   0x402006
 # CHECK-NOGC-NEXT: ]
 
+# Without the SEH table, the address is absolute, so check that we do
+# not have a relocation for it.
+# CHECK-GC-NOT: IMAGE_DLL_CHARACTERISTICS_NO_SEH
+# CHECK-GC: BaseReloc [
+# CHECK-GC-NEXT: ]
 # CHECK-GC: LoadConfig [
 # CHECK-GC:   Size: 0x48
 # CHECK-GC:   SEHandlerTable: 0x0

@@ -71,8 +71,14 @@ __start:
 # R1R2-NEXT:   EF_MIPS_CPIC
 # R1R2-NEXT: ]
 
-# R3R32: target ISA 'mips3' is incompatible with 'mips32': {{.*}}mips-elf-flags-err.s.tmp2.o
-# R6OCTEON: target ISA 'mips64r6' is incompatible with 'octeon': {{.*}}mips-elf-flags-err.s.tmp2.o
+# R3R32:      error: incompatible target ISA:
+# R3R32-NEXT: >>> {{.+}}mips-elf-flags-err.s.tmp1.o: mips3
+# R3R32-NEXT: >>> {{.+}}mips-elf-flags-err.s.tmp2.o: mips32
+
+# R6OCTEON:      error: incompatible target ISA:
+# R6OCTEON-NEXT: >>> {{.+}}mips-elf-flags-err.s.tmp1.o: mips64r6
+# R6OCTEON-NEXT: >>> {{.+}}mips-elf-flags-err.s.tmp2.o: mips64r2 (octeon)
+
 # FPABI: target floating point ABI '-mdouble-float' is incompatible with '-mgp32 -mfp64': {{.*}}mips-elf-flags-err.s.tmp2.o
 
 # OCTEON:      Flags [

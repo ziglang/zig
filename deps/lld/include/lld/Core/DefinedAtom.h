@@ -10,9 +10,9 @@
 #ifndef LLD_CORE_DEFINED_ATOM_H
 #define LLD_CORE_DEFINED_ATOM_H
 
+#include "lld/Common/LLVM.h"
 #include "lld/Core/Atom.h"
 #include "lld/Core/Reference.h"
-#include "lld/Core/LLVM.h"
 #include "llvm/Support/ErrorHandling.h"
 
 namespace lld {

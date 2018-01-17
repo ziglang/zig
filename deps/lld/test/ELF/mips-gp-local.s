@@ -11,7 +11,7 @@
 # CHECK-NEXT:    20000:  3c 08 00 03  lui   $8, 3
 # CHECK-NEXT:    20004:  21 08 7f f0  addi  $8, $8, 32752
 
-# CHECK: 00037ff0  *ABS*  00000000 .hidden _gp
+# CHECK: 00037ff0  .got  00000000 .hidden _gp
 
   .text
   .globl  __start

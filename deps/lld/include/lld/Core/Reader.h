@@ -10,7 +10,7 @@
 #ifndef LLD_CORE_READER_H
 #define LLD_CORE_READER_H
 
-#include "lld/Core/LLVM.h"
+#include "lld/Common/LLVM.h"
 #include "lld/Core/Reference.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/BinaryFormat/Magic.h"

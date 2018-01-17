@@ -14,7 +14,7 @@
 
 namespace lld {
 namespace elf {
-class SymbolBody;
+class Symbol;
 class ThunkSection;
 // Class to describe an instance of a Thunk.
 // A Thunk is a code-sequence inserted by the linker in between a caller and
@@ -23,11 +23,11 @@ class ThunkSection;
 // include transferring control from non-pi to pi and changing state on
 // targets like ARM.
 //
-// Thunks can be created for DefinedRegular, Shared and Undefined Symbols.
+// Thunks can be created for Defined, Shared and Undefined Symbols.
 // Thunks are assigned to synthetic ThunkSections
 class Thunk {
 public:
-  Thunk(const SymbolBody &Destination);
+  Thunk(Symbol &Destination);
   virtual ~Thunk();
 
   virtual uint32_t size() const { return 0; }
@@ -41,21 +41,21 @@ public:
   // a branch and fall through to the first Symbol in the Target.
   virtual InputSection *getTargetInputSection() const { return nullptr; }
 
-  // To reuse a Thunk the caller as identified by the RelocType must be
+  // To reuse a Thunk the caller as identified by the Type must be
   // compatible with it.
-  virtual bool isCompatibleWith(uint32_t RelocType) const { return true; }
+  virtual bool isCompatibleWith(RelType Type) const { return true; }
 
   // The alignment requirement for this Thunk, defaults to the size of the
   // typical code section alignment.
-  const SymbolBody &Destination;
-  SymbolBody *ThunkSym;
-  uint64_t Offset;
+  Symbol &Destination;
+  Symbol *ThunkSym;
+  uint64_t Offset = 0;
   uint32_t Alignment = 4;
 };
 
 // For a Relocation to symbol S create a Thunk to be added to a synthetic
 // ThunkSection. At present there are implementations for ARM and Mips Thunks.
-Thunk *addThunk(uint32_t RelocType, SymbolBody &S);
+Thunk *addThunk(RelType Type, Symbol &S);
 
 } // namespace elf
 } // namespace lld

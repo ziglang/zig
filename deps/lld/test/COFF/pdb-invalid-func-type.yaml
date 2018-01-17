@@ -7,7 +7,7 @@
 # RUN: llvm-pdbutil dump -symbols %t.pdb | FileCheck %s
 
 # CHECK: Mod 0000 | `{{.*}}pdb-invalid-func-type.yaml.tmp.obj`:
-# CHECK:      4 | S_GPROC32_ID [size = 44] `main`
+# CHECK:      4 | S_GPROC32 [size = 44] `main`
 # CHECK:          parent = 0, end = 80, addr = 0001:0000, code size = 3
 # CHECK:     48 | S_FRAMEPROC [size = 32]
 # CHECK:     80 | S_END [size = 4]

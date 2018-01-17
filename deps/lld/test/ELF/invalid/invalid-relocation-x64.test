@@ -1,7 +1,10 @@
-# RUN: yaml2obj %s -o %t.o
-# RUN: not ld.lld %t.o -o /dev/null 2>&1 | FileCheck %s
-# CHECK: {{.*}}.o: unknown relocation type: Unknown (152)
-# CHECK: {{.*}}.o: unknown relocation type: Unknown (153)
+# REQUIRES: x86
+# RUN: yaml2obj %s -o %t1.o
+# RUN: echo ".global foo; foo:" > %t2.s
+# RUN: llvm-mc %t2.s -o %t2.o -filetype=obj -triple x86_64-pc-linux
+# RUN: not ld.lld %t1.o %t2.o -o /dev/null 2>&1 | FileCheck %s
+# CHECK: error: unrecognized reloc 152
+# CHECK: error: unrecognized reloc 153
 
 !ELF
 FileHeader:
@@ -20,8 +23,11 @@ Sections:
     Info:            .text
     Relocations:
       - Offset:          0x0000000000000000
-        Symbol:          ''
+        Symbol:          foo
         Type:            0x98
       - Offset:          0x0000000000000000
-        Symbol:          ''
+        Symbol:          foo
         Type:            0x99
+Symbols:
+  Global:
+      - Name:            foo

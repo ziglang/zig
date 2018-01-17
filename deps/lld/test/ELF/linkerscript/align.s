@@ -66,6 +66,51 @@
 # SYMBOLS-NEXT: 0000000000011000         .bbb            00000000 __start_bbb
 # SYMBOLS-NEXT: 0000000000012000         .bbb            00000000 __end_bbb
 
+## Check that ALIGN zero do nothing and does not crash #1.
+# RUN: echo "SECTIONS { . = ALIGN(0x123, 0); .aaa : { *(.aaa) } }" > %t.script
+# RUN: ld.lld -o %t4 --script %t.script %t
+# RUN: llvm-objdump -section-headers %t4 | FileCheck %s -check-prefix=ZERO
+
+# ZERO:      Sections:
+# ZERO-NEXT: Idx Name          Size      Address         Type
+# ZERO-NEXT:   0               00000000 0000000000000000
+# ZERO-NEXT:   1 .aaa          00000008 0000000000000123 DATA
+
+## Check that ALIGN zero do nothing and does not crash #2.
+# RUN: echo "SECTIONS { . = 0x123; . = ALIGN(0); .aaa : { *(.aaa) } }" > %t.script
+# RUN: ld.lld -o %t5 --script %t.script %t
+# RUN: llvm-objdump -section-headers %t5 | FileCheck %s -check-prefix=ZERO
+
+## Test we fail gracefuly when alignment value is not a power of 2 (#1).
+# RUN: echo "SECTIONS { . = 0x123; . = ALIGN(0x123, 3); .aaa : { *(.aaa) } }" > %t.script
+# RUN: not ld.lld -o %t6 --script %t.script %t 2>&1 | FileCheck -check-prefix=ERR %s
+# ERR: {{.*}}.script:1: alignment must be power of 2
+
+## Test we fail gracefuly when alignment value is not a power of 2 (#2).
+# RUN: echo "SECTIONS { . = 0x123; . = ALIGN(3); .aaa : { *(.aaa) } }" > %t.script
+# RUN: not ld.lld -o %t7 --script %t.script %t 2>&1 | FileCheck -check-prefix=ERR %s
+
+# RUN: echo "SECTIONS {                              \
+# RUN:  . = 0xff8;                                   \
+# RUN:  .aaa : {                                     \
+# RUN:           *(.aaa)                             \
+# RUN:           foo = ALIGN(., 0x100);              \
+# RUN:           bar = .;                            \
+# RUN:           zed1 = ALIGN(., 0x100) + 1;         \
+# RUN:           zed2 = ALIGN(., 0x100) - 1;         \
+# RUN:         }                                     \
+# RUN:  .bbb : { *(.bbb); }                          \
+# RUN:  .ccc : { *(.ccc); }                          \
+# RUN:  .text : { *(.text); }                        \
+# RUN: }" > %t.script
+# RUN: ld.lld -o %t1 --script %t.script %t
+# RUN: llvm-objdump -t %t1 | FileCheck --check-prefix=OFFSET %s
+
+# OFFSET: 0000000000001000         .aaa            00000000 foo
+# OFFSET: 0000000000001000         .aaa            00000000 bar
+# OFFSET: 0000000000001001         .aaa            00000000 zed1
+# OFFSET: 0000000000000fff         .aaa            00000000 zed2
+
 .global _start
 _start:
  nop

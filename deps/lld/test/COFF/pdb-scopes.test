@@ -34,12 +34,12 @@ RUN: lld-link %t-a.obj %t-b.obj -debug -entry:main -nodefaultlib -out:%t.exe -pd
 RUN: llvm-pdbutil dump -symbols %t.pdb | FileCheck %s
 
 CHECK-LABEL: Mod 0000 | `{{.*}}pdb-scopes.test.tmp-a.obj`:
-CHECK: 104 | S_GPROC32_ID [size = 44] `g`
+CHECK: 104 | S_GPROC32 [size = 44] `g`
 CHECK:       parent = 0, end = 196, addr = 0002:0000, code size = 5
 CHECK:       debug start = 4, debug end = 4, flags = none
 CHECK: 180 | S_REGREL32 [size = 16] `x`
 CHECK: 196 | S_END [size = 4]
-CHECK: 200 | S_GPROC32_ID [size = 44] `main`
+CHECK: 200 | S_GPROC32 [size = 44] `main`
 CHECK:       parent = 0, end = 384, addr = 0002:0016, code size = 58
 CHECK:       debug start = 8, debug end = 53, flags = none
 CHECK: 276 | S_REGREL32 [size = 20] `argc`
@@ -56,7 +56,7 @@ CHECK: 380 | S_END [size = 4]
 CHECK: 384 | S_END [size = 4]
 
 CHECK-LABEL: Mod 0001 | `{{.*}}pdb-scopes.test.tmp-b.obj`:
-CHECK: 104 | S_GPROC32_ID [size = 44] `f`
+CHECK: 104 | S_GPROC32 [size = 44] `f`
 CHECK:       parent = 0, end = 284, addr = 0002:0080, code size = 62
 CHECK:       debug start = 8, debug end = 57, flags = none
 CHECK: 180 | S_REGREL32 [size = 16] `x`

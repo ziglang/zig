@@ -2,7 +2,7 @@
 // RUN: ld.lld %t -o %t2
 // RUN: llvm-mc %s -o %t.o -filetype=obj -triple=armv7a-linux-gnueabi
 // RUN: llvm-objdump -s %t2 | FileCheck %s
-// RUN: ld.lld %t --shared -o %t3.so
+// RUN: ld.lld --hash-style=sysv %t --shared -o %t3.so
 // RUN: llvm-objdump -s %t3.so | FileCheck -check-prefix=CHECK-SHARED %s
 // REQUIRES: arm
 

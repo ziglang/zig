@@ -1,0 +1,2747 @@
+# RUN: yaml2obj %s -o %t.obj
+# RUN: lld-link %t.obj -dll -debug -noentry -nodefaultlib -debug -out:%t.exe -pdb:%t.pdb
+# RUN: llvm-pdbutil dump -symbols %t.pdb | FileCheck %s
+
+# We used to skip vtable thunk symbol records, leading to symbol scope stack
+# imbalances (PR35014). Test that they survive the object file into the PDB.
+
+# This object generated from this C++ source:
+# // t.cpp
+# struct A {
+#   virtual int f();
+# };
+# struct B {
+#   virtual int f();
+# };
+# struct C : A, B {
+#   __declspec(dllexport) C();
+#   int f() override;
+#   int c;
+# };
+# int A::f() { return 0; }
+# int B::f() { return 0; }
+# int C::f() { return c; }
+# C::C() : c(42) {}
+
+# Compile as:
+# $ cl -GR- -Z7 -c t.cpp
+
+# CHECK: S_THUNK32
+# CHECK: S_END
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_AMD64
+  Characteristics: [  ]
+sections:
+  - Name:            .drectve
+    Characteristics: [ IMAGE_SCN_LNK_INFO, IMAGE_SCN_LNK_REMOVE ]
+    Alignment:       1
+    SectionData:     2020202F44454641554C544C49423A224C4942434D5422202F44454641554C544C49423A224F4C444E414D455322202F4558504F52543A3F3F304340405145414140585A20
+  - Name:            '.debug$S'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    Subsections:
+      - !Symbols
+        Records:
+          - Kind:            S_OBJNAME
+            ObjNameSym:
+              Signature:       0
+              ObjectName:      'C:\src\llvm-project\build\t.obj'
+          - Kind:            S_COMPILE3
+            Compile3Sym:
+              Flags:           [ SecurityChecks, HotPatch ]
+              Machine:         X64
+              FrontendMajor:   19
+              FrontendMinor:   11
+              FrontendBuild:   25508
+              FrontendQFE:     2
+              BackendMajor:    19
+              BackendMinor:    11
+              BackendBuild:    25508
+              BackendQFE:      2
+              Version:         'Microsoft (R) Optimizing Compiler'
+      - !Symbols
+        Records:
+          - Kind:            S_GPROC32_ID
+            ProcSym:
+              CodeSize:        8
+              DbgStart:        5
+              DbgEnd:          7
+              FunctionType:    4172
+              Flags:           [  ]
+              DisplayName:     'A::f'
+          - Kind:            S_FRAMEPROC
+            FrameProcSym:
+              TotalFrameBytes: 0
+              PaddingFrameBytes: 0
+              OffsetToPadding: 0
+              BytesOfCalleeSavedRegisters: 0
+              OffsetOfExceptionHandler: 0
+              SectionIdOfExceptionHandler: 0
+              Flags:           [ AsynchronousExceptionHandling, OptimizedForSpeed ]
+          - Kind:            S_REGREL32
+            RegRelativeSym:
+              Offset:          8
+              Type:            4097
+              Register:        RSP
+              VarName:         this
+          - Kind:            S_PROC_ID_END
+            ScopeEndSym:
+      - !Lines
+        CodeSize:        8
+        Flags:           [  ]
+        RelocOffset:     0
+        RelocSegment:    0
+        Blocks:
+          - FileName:        'c:\src\llvm-project\build\t.cpp'
+            Lines:
+              - Offset:          0
+                LineStart:       12
+                IsStatement:     true
+                EndDelta:        0
+            Columns:
+      - !Symbols
+        Records:
+          - Kind:            S_GPROC32_ID
+            ProcSym:
+              CodeSize:        8
+              DbgStart:        5
+              DbgEnd:          7
+              FunctionType:    4173
+              Flags:           [  ]
+              DisplayName:     'B::f'
+          - Kind:            S_FRAMEPROC
+            FrameProcSym:
+              TotalFrameBytes: 0
+              PaddingFrameBytes: 0
+              OffsetToPadding: 0
+              BytesOfCalleeSavedRegisters: 0
+              OffsetOfExceptionHandler: 0
+              SectionIdOfExceptionHandler: 0
+              Flags:           [ AsynchronousExceptionHandling, OptimizedForSpeed ]
+          - Kind:            S_REGREL32
+            RegRelativeSym:
+              Offset:          8
+              Type:            4121
+              Register:        RSP
+              VarName:         this
+          - Kind:            S_PROC_ID_END
+            ScopeEndSym:
+      - !Lines
+        CodeSize:        8
+        Flags:           [  ]
+        RelocOffset:     0
+        RelocSegment:    0
+        Blocks:
+          - FileName:        'c:\src\llvm-project\build\t.cpp'
+            Lines:
+              - Offset:          0
+                LineStart:       13
+                IsStatement:     true
+                EndDelta:        0
+            Columns:
+      - !Symbols
+        Records:
+          - Kind:            S_GPROC32_ID
+            ProcSym:
+              CodeSize:        89
+              DbgStart:        9
+              DbgEnd:          84
+              FunctionType:    4175
+              Flags:           [  ]
+              DisplayName:     'C::C'
+          - Kind:            S_FRAMEPROC
+            FrameProcSym:
+              TotalFrameBytes: 40
+              PaddingFrameBytes: 0
+              OffsetToPadding: 0
+              BytesOfCalleeSavedRegisters: 0
+              OffsetOfExceptionHandler: 0
+              SectionIdOfExceptionHandler: 0
+              Flags:           [ AsynchronousExceptionHandling, OptimizedForSpeed ]
+          - Kind:            S_REGREL32
+            RegRelativeSym:
+              Offset:          48
+              Type:            4143
+              Register:        RSP
+              VarName:         this
+          - Kind:            S_PROC_ID_END
+            ScopeEndSym:
+      - !Lines
+        CodeSize:        89
+        Flags:           [  ]
+        RelocOffset:     0
+        RelocSegment:    0
+        Blocks:
+          - FileName:        'c:\src\llvm-project\build\t.cpp'
+            Lines:
+              - Offset:          0
+                LineStart:       15
+                IsStatement:     true
+                EndDelta:        0
+              - Offset:          67
+                LineStart:       15
+                IsStatement:     true
+                EndDelta:        0
+            Columns:
+      - !Symbols
+        Records:
+          - Kind:            S_GPROC32_ID
+            ProcSym:
+              CodeSize:        14
+              DbgStart:        5
+              DbgEnd:          13
+              FunctionType:    4174
+              Flags:           [  ]
+              DisplayName:     'C::f'
+          - Kind:            S_FRAMEPROC
+            FrameProcSym:
+              TotalFrameBytes: 0
+              PaddingFrameBytes: 0
+              OffsetToPadding: 0
+              BytesOfCalleeSavedRegisters: 0
+              OffsetOfExceptionHandler: 0
+              SectionIdOfExceptionHandler: 0
+              Flags:           [ AsynchronousExceptionHandling, OptimizedForSpeed ]
+          - Kind:            S_REGREL32
+            RegRelativeSym:
+              Offset:          8
+              Type:            4143
+              Register:        RSP
+              VarName:         this
+          - Kind:            S_PROC_ID_END
+            ScopeEndSym:
+      - !Lines
+        CodeSize:        14
+        Flags:           [  ]
+        RelocOffset:     0
+        RelocSegment:    0
+        Blocks:
+          - FileName:        'c:\src\llvm-project\build\t.cpp'
+            Lines:
+              - Offset:          0
+                LineStart:       14
+                IsStatement:     true
+                EndDelta:        0
+            Columns:
+      - !Symbols
+        Records:
+          - Kind:            S_UDT
+            UDTSym:
+              Type:            4117
+              UDTName:         A
+          - Kind:            S_UDT
+            UDTSym:
+              Type:            4268
+              UDTName:         '__vc_attributes::event_sourceAttribute'
+          - Kind:            S_UDT
+            UDTSym:
+              Type:            4260
+              UDTName:         '__vc_attributes::event_sourceAttribute::optimize_e'
+          - Kind:            S_UDT
+            UDTSym:
+              Type:            4257
+              UDTName:         '__vc_attributes::event_sourceAttribute::type_e'
+          - Kind:            S_UDT
+            UDTSym:
+              Type:            4253
+              UDTName:         '__vc_attributes::helper_attributes::v1_alttypeAttribute'
+          - Kind:            S_UDT
+            UDTSym:
+              Type:            4247
+              UDTName:         '__vc_attributes::helper_attributes::v1_alttypeAttribute::type_e'
+          - Kind:            S_UDT
+            UDTSym:
+              Type:            4243
+              UDTName:         '__vc_attributes::helper_attributes::usageAttribute'
+          - Kind:            S_UDT
+            UDTSym:
+              Type:            4237
+              UDTName:         '__vc_attributes::helper_attributes::usageAttribute::usage_e'
+          - Kind:            S_UDT
+            UDTSym:
+              Type:            4233
+              UDTName:         '__vc_attributes::threadingAttribute'
+          - Kind:            S_UDT
+            UDTSym:
+              Type:            4225
+              UDTName:         '__vc_attributes::threadingAttribute::threading_e'
+          - Kind:            S_UDT
+            UDTSym:
+              Type:            4221
+              UDTName:         '__vc_attributes::aggregatableAttribute'
+          - Kind:            S_UDT
+            UDTSym:
+              Type:            4213
+              UDTName:         '__vc_attributes::aggregatableAttribute::type_e'
+          - Kind:            S_UDT
+            UDTSym:
+              Type:            4209
+              UDTName:         '__vc_attributes::event_receiverAttribute'
+          - Kind:            S_UDT
+            UDTSym:
+              Type:            4199
+              UDTName:         '__vc_attributes::event_receiverAttribute::type_e'
+          - Kind:            S_UDT
+            UDTSym:
+              Type:            4195
+              UDTName:         '__vc_attributes::moduleAttribute'
+          - Kind:            S_UDT
+            UDTSym:
+              Type:            4182
+              UDTName:         '__vc_attributes::moduleAttribute::type_e'
+          - Kind:            S_UDT
+            UDTSym:
+              Type:            4160
+              UDTName:         C
+          - Kind:            S_UDT
+            UDTSym:
+              Type:            4140
+              UDTName:         B
+      - !FileChecksums
+        Checksums:
+          - FileName:        'c:\src\llvm-project\build\t.cpp'
+            Kind:            MD5
+            Checksum:        1E487A6B7D4DB0A502F8E5945CCB70D1
+      - !StringTable
+        Strings:
+          - 'c:\src\llvm-project\build\t.cpp'
+      - !Symbols
+        Records:
+          - Kind:            S_BUILDINFO
+            BuildInfoSym:
+              BuildId:         4281
+    Relocations:
+      - VirtualAddress:  152
+        SymbolName:      '?f@A@@UEAAHXZ'
+        Type:            IMAGE_REL_AMD64_SECREL
+      - VirtualAddress:  156
+        SymbolName:      '?f@A@@UEAAHXZ'
+        Type:            IMAGE_REL_AMD64_SECTION
+      - VirtualAddress:  228
+        SymbolName:      '?f@A@@UEAAHXZ'
+        Type:            IMAGE_REL_AMD64_SECREL
+      - VirtualAddress:  232
+        SymbolName:      '?f@A@@UEAAHXZ'
+        Type:            IMAGE_REL_AMD64_SECTION
+      - VirtualAddress:  300
+        SymbolName:      '?f@B@@UEAAHXZ'
+        Type:            IMAGE_REL_AMD64_SECREL
+      - VirtualAddress:  304
+        SymbolName:      '?f@B@@UEAAHXZ'
+        Type:            IMAGE_REL_AMD64_SECTION
+      - VirtualAddress:  376
+        SymbolName:      '?f@B@@UEAAHXZ'
+        Type:            IMAGE_REL_AMD64_SECREL
+      - VirtualAddress:  380
+        SymbolName:      '?f@B@@UEAAHXZ'
+        Type:            IMAGE_REL_AMD64_SECTION
+      - VirtualAddress:  448
+        SymbolName:      '??0C@@QEAA@XZ'
+        Type:            IMAGE_REL_AMD64_SECREL
+      - VirtualAddress:  452
+        SymbolName:      '??0C@@QEAA@XZ'
+        Type:            IMAGE_REL_AMD64_SECTION
+      - VirtualAddress:  524
+        SymbolName:      '??0C@@QEAA@XZ'
+        Type:            IMAGE_REL_AMD64_SECREL
+      - VirtualAddress:  528
+        SymbolName:      '??0C@@QEAA@XZ'
+        Type:            IMAGE_REL_AMD64_SECTION
+      - VirtualAddress:  604
+        SymbolName:      '?f@C@@UEAAHXZ'
+        Type:            IMAGE_REL_AMD64_SECREL
+      - VirtualAddress:  608
+        SymbolName:      '?f@C@@UEAAHXZ'
+        Type:            IMAGE_REL_AMD64_SECTION
+      - VirtualAddress:  680
+        SymbolName:      '?f@C@@UEAAHXZ'
+        Type:            IMAGE_REL_AMD64_SECREL
+      - VirtualAddress:  684
+        SymbolName:      '?f@C@@UEAAHXZ'
+        Type:            IMAGE_REL_AMD64_SECTION
+  - Name:            '.debug$T'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    Types:
+      - Kind:            LF_STRUCTURE
+        Class:
+          MemberCount:     0
+          Options:         [ None, ForwardReference, HasUniqueName ]
+          FieldList:       0
+          Name:            A
+          UniqueName:      '.?AUA@@'
+          DerivationList:  0
+          VTableShape:     0
+          Size:            0
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4096
+          Attrs:           66572
+      - Kind:            LF_VTSHAPE
+        VFTableShape:
+          Slots:
+            - Near16
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4098
+          Attrs:           65548
+      - Kind:            LF_ARGLIST
+        ArgList:
+          ArgIndices:      [  ]
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      116
+          ClassType:       4096
+          ThisType:        4097
+          CallConv:        NearC
+          Options:         [ None ]
+          ParameterCount:  0
+          ArgumentList:    4100
+          ThisPointerAdjustment: 0
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4096
+          Attrs:           65676
+      - Kind:            LF_ARGLIST
+        ArgList:
+          ArgIndices:      [ 4102 ]
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4096
+          ThisType:        4097
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  1
+          ArgumentList:    4103
+          ThisPointerAdjustment: 0
+      - Kind:            LF_MODIFIER
+        Modifier:
+          ModifiedType:    4096
+          Modifiers:       [ None, Const ]
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4105
+          Attrs:           65580
+      - Kind:            LF_ARGLIST
+        ArgList:
+          ArgIndices:      [ 4106 ]
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4096
+          ThisType:        4097
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  1
+          ArgumentList:    4107
+          ThisPointerAdjustment: 0
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4096
+          ThisType:        4097
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  0
+          ArgumentList:    4100
+          ThisPointerAdjustment: 0
+      - Kind:            LF_METHODLIST
+        MethodOverloadList:
+          Methods:
+            - Type:            4104
+              Attrs:           259
+              VFTableOffset:   -1
+              Name:            ''
+            - Type:            4108
+              Attrs:           259
+              VFTableOffset:   -1
+              Name:            ''
+            - Type:            4109
+              Attrs:           259
+              VFTableOffset:   -1
+              Name:            ''
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4096
+          Attrs:           65580
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      4111
+          ClassType:       4096
+          ThisType:        4097
+          CallConv:        NearC
+          Options:         [ None ]
+          ParameterCount:  1
+          ArgumentList:    4103
+          ThisPointerAdjustment: 0
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      4111
+          ClassType:       4096
+          ThisType:        4097
+          CallConv:        NearC
+          Options:         [ None ]
+          ParameterCount:  1
+          ArgumentList:    4107
+          ThisPointerAdjustment: 0
+      - Kind:            LF_METHODLIST
+        MethodOverloadList:
+          Methods:
+            - Type:            4112
+              Attrs:           259
+              VFTableOffset:   -1
+              Name:            ''
+            - Type:            4113
+              Attrs:           259
+              VFTableOffset:   -1
+              Name:            ''
+      - Kind:            LF_FIELDLIST
+        FieldList:
+          - Kind:            LF_VFUNCTAB
+            VFPtr:
+              Type:            4099
+          - Kind:            LF_ONEMETHOD
+            OneMethod:
+              Type:            4101
+              Attrs:           19
+              VFTableOffset:   0
+              Name:            f
+          - Kind:            LF_METHOD
+            OverloadedMethod:
+              NumOverloads:    3
+              MethodList:      4110
+              Name:            A
+          - Kind:            LF_METHOD
+            OverloadedMethod:
+              NumOverloads:    2
+              MethodList:      4114
+              Name:            'operator='
+      - Kind:            LF_VTSHAPE
+        VFTableShape:
+          Slots:
+            - Near16
+      - Kind:            LF_STRUCTURE
+        Class:
+          MemberCount:     7
+          Options:         [ None, HasConstructorOrDestructor, HasOverloadedOperator, HasOverloadedAssignmentOperator, HasUniqueName ]
+          FieldList:       4115
+          Name:            A
+          UniqueName:      '.?AUA@@'
+          DerivationList:  0
+          VTableShape:     4116
+          Size:            8
+      - Kind:            LF_STRING_ID
+        StringId:
+          Id:              0
+          String:          'c:\src\llvm-project\build\t.cpp'
+      - Kind:            LF_UDT_SRC_LINE
+        UdtSourceLine:
+          UDT:             4117
+          SourceFile:      4118
+          LineNumber:      1
+      - Kind:            LF_STRUCTURE
+        Class:
+          MemberCount:     0
+          Options:         [ None, ForwardReference, HasUniqueName ]
+          FieldList:       0
+          Name:            B
+          UniqueName:      '.?AUB@@'
+          DerivationList:  0
+          VTableShape:     0
+          Size:            0
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4120
+          Attrs:           66572
+      - Kind:            LF_VTSHAPE
+        VFTableShape:
+          Slots:
+            - Near16
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4122
+          Attrs:           65548
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      116
+          ClassType:       4120
+          ThisType:        4121
+          CallConv:        NearC
+          Options:         [ None ]
+          ParameterCount:  0
+          ArgumentList:    4100
+          ThisPointerAdjustment: 0
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4120
+          Attrs:           65676
+      - Kind:            LF_ARGLIST
+        ArgList:
+          ArgIndices:      [ 4125 ]
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4120
+          ThisType:        4121
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  1
+          ArgumentList:    4126
+          ThisPointerAdjustment: 0
+      - Kind:            LF_MODIFIER
+        Modifier:
+          ModifiedType:    4120
+          Modifiers:       [ None, Const ]
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4128
+          Attrs:           65580
+      - Kind:            LF_ARGLIST
+        ArgList:
+          ArgIndices:      [ 4129 ]
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4120
+          ThisType:        4121
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  1
+          ArgumentList:    4130
+          ThisPointerAdjustment: 0
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4120
+          ThisType:        4121
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  0
+          ArgumentList:    4100
+          ThisPointerAdjustment: 0
+      - Kind:            LF_METHODLIST
+        MethodOverloadList:
+          Methods:
+            - Type:            4127
+              Attrs:           259
+              VFTableOffset:   -1
+              Name:            ''
+            - Type:            4131
+              Attrs:           259
+              VFTableOffset:   -1
+              Name:            ''
+            - Type:            4132
+              Attrs:           259
+              VFTableOffset:   -1
+              Name:            ''
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4120
+          Attrs:           65580
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      4134
+          ClassType:       4120
+          ThisType:        4121
+          CallConv:        NearC
+          Options:         [ None ]
+          ParameterCount:  1
+          ArgumentList:    4126
+          ThisPointerAdjustment: 0
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      4134
+          ClassType:       4120
+          ThisType:        4121
+          CallConv:        NearC
+          Options:         [ None ]
+          ParameterCount:  1
+          ArgumentList:    4130
+          ThisPointerAdjustment: 0
+      - Kind:            LF_METHODLIST
+        MethodOverloadList:
+          Methods:
+            - Type:            4135
+              Attrs:           259
+              VFTableOffset:   -1
+              Name:            ''
+            - Type:            4136
+              Attrs:           259
+              VFTableOffset:   -1
+              Name:            ''
+      - Kind:            LF_FIELDLIST
+        FieldList:
+          - Kind:            LF_VFUNCTAB
+            VFPtr:
+              Type:            4123
+          - Kind:            LF_ONEMETHOD
+            OneMethod:
+              Type:            4124
+              Attrs:           19
+              VFTableOffset:   0
+              Name:            f
+          - Kind:            LF_METHOD
+            OverloadedMethod:
+              NumOverloads:    3
+              MethodList:      4133
+              Name:            B
+          - Kind:            LF_METHOD
+            OverloadedMethod:
+              NumOverloads:    2
+              MethodList:      4137
+              Name:            'operator='
+      - Kind:            LF_VTSHAPE
+        VFTableShape:
+          Slots:
+            - Near16
+      - Kind:            LF_STRUCTURE
+        Class:
+          MemberCount:     7
+          Options:         [ None, HasConstructorOrDestructor, HasOverloadedOperator, HasOverloadedAssignmentOperator, HasUniqueName ]
+          FieldList:       4138
+          Name:            B
+          UniqueName:      '.?AUB@@'
+          DerivationList:  0
+          VTableShape:     4139
+          Size:            8
+      - Kind:            LF_UDT_SRC_LINE
+        UdtSourceLine:
+          UDT:             4140
+          SourceFile:      4118
+          LineNumber:      4
+      - Kind:            LF_STRUCTURE
+        Class:
+          MemberCount:     0
+          Options:         [ None, ForwardReference, HasUniqueName ]
+          FieldList:       0
+          Name:            C
+          UniqueName:      '.?AUC@@'
+          DerivationList:  0
+          VTableShape:     0
+          Size:            0
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4142
+          Attrs:           66572
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4142
+          Attrs:           65676
+      - Kind:            LF_ARGLIST
+        ArgList:
+          ArgIndices:      [ 4144 ]
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4142
+          ThisType:        4143
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  1
+          ArgumentList:    4145
+          ThisPointerAdjustment: 0
+      - Kind:            LF_MODIFIER
+        Modifier:
+          ModifiedType:    4142
+          Modifiers:       [ None, Const ]
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4147
+          Attrs:           65580
+      - Kind:            LF_ARGLIST
+        ArgList:
+          ArgIndices:      [ 4148 ]
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4142
+          ThisType:        4143
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  1
+          ArgumentList:    4149
+          ThisPointerAdjustment: 0
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4142
+          ThisType:        4143
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  0
+          ArgumentList:    4100
+          ThisPointerAdjustment: 0
+      - Kind:            LF_METHODLIST
+        MethodOverloadList:
+          Methods:
+            - Type:            4146
+              Attrs:           259
+              VFTableOffset:   -1
+              Name:            ''
+            - Type:            4150
+              Attrs:           259
+              VFTableOffset:   -1
+              Name:            ''
+            - Type:            4151
+              Attrs:           3
+              VFTableOffset:   -1
+              Name:            ''
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      116
+          ClassType:       4142
+          ThisType:        4143
+          CallConv:        NearC
+          Options:         [ None ]
+          ParameterCount:  0
+          ArgumentList:    4100
+          ThisPointerAdjustment: 0
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4142
+          Attrs:           65580
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      4154
+          ClassType:       4142
+          ThisType:        4143
+          CallConv:        NearC
+          Options:         [ None ]
+          ParameterCount:  1
+          ArgumentList:    4145
+          ThisPointerAdjustment: 0
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      4154
+          ClassType:       4142
+          ThisType:        4143
+          CallConv:        NearC
+          Options:         [ None ]
+          ParameterCount:  1
+          ArgumentList:    4149
+          ThisPointerAdjustment: 0
+      - Kind:            LF_METHODLIST
+        MethodOverloadList:
+          Methods:
+            - Type:            4155
+              Attrs:           259
+              VFTableOffset:   -1
+              Name:            ''
+            - Type:            4156
+              Attrs:           259
+              VFTableOffset:   -1
+              Name:            ''
+      - Kind:            LF_FIELDLIST
+        FieldList:
+          - Kind:            LF_BCLASS
+            BaseClass:
+              Attrs:           3
+              Type:            4096
+              Offset:          0
+          - Kind:            LF_BCLASS
+            BaseClass:
+              Attrs:           3
+              Type:            4120
+              Offset:          8
+          - Kind:            LF_METHOD
+            OverloadedMethod:
+              NumOverloads:    3
+              MethodList:      4152
+              Name:            C
+          - Kind:            LF_ONEMETHOD
+            OneMethod:
+              Type:            4153
+              Attrs:           7
+              VFTableOffset:   -1
+              Name:            f
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            116
+              FieldOffset:     16
+              Name:            c
+          - Kind:            LF_METHOD
+            OverloadedMethod:
+              NumOverloads:    2
+              MethodList:      4157
+              Name:            'operator='
+      - Kind:            LF_VTSHAPE
+        VFTableShape:
+          Slots:
+            - Near16
+      - Kind:            LF_STRUCTURE
+        Class:
+          MemberCount:     9
+          Options:         [ None, HasConstructorOrDestructor, HasOverloadedOperator, HasOverloadedAssignmentOperator, HasUniqueName ]
+          FieldList:       4158
+          Name:            C
+          UniqueName:      '.?AUC@@'
+          DerivationList:  0
+          VTableShape:     4159
+          Size:            24
+      - Kind:            LF_UDT_SRC_LINE
+        UdtSourceLine:
+          UDT:             4160
+          SourceFile:      4118
+          LineNumber:      7
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4142
+          Attrs:           65548
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4142
+          ThisType:        4143
+          CallConv:        NearC
+          Options:         [ None ]
+          ParameterCount:  0
+          ArgumentList:    4100
+          ThisPointerAdjustment: 0
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4096
+          Attrs:           65548
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4096
+          ThisType:        4097
+          CallConv:        NearC
+          Options:         [ None ]
+          ParameterCount:  0
+          ArgumentList:    4100
+          ThisPointerAdjustment: 0
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4120
+          Attrs:           65548
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4120
+          ThisType:        4121
+          CallConv:        NearC
+          Options:         [ None ]
+          ParameterCount:  0
+          ArgumentList:    4100
+          ThisPointerAdjustment: 0
+      - Kind:            LF_PROCEDURE
+        Procedure:
+          ReturnType:      3
+          CallConv:        NearC
+          Options:         [ None ]
+          ParameterCount:  0
+          ArgumentList:    4100
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4168
+          Attrs:           66572
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4169
+          Attrs:           65548
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4170
+          Attrs:           65548
+      - Kind:            LF_MFUNC_ID
+        MemberFuncId:
+          ClassType:       4096
+          FunctionType:    4101
+          Name:            f
+      - Kind:            LF_MFUNC_ID
+        MemberFuncId:
+          ClassType:       4120
+          FunctionType:    4124
+          Name:            f
+      - Kind:            LF_MFUNC_ID
+        MemberFuncId:
+          ClassType:       4142
+          FunctionType:    4153
+          Name:            f
+      - Kind:            LF_MFUNC_ID
+        MemberFuncId:
+          ClassType:       4142
+          FunctionType:    4151
+          Name:            '{ctor}'
+      - Kind:            LF_MFUNC_ID
+        MemberFuncId:
+          ClassType:       4096
+          FunctionType:    4109
+          Name:            '{ctor}'
+      - Kind:            LF_MFUNC_ID
+        MemberFuncId:
+          ClassType:       4120
+          FunctionType:    4132
+          Name:            '{ctor}'
+      - Kind:            LF_MFUNC_ID
+        MemberFuncId:
+          ClassType:       4142
+          FunctionType:    4153
+          Name:            f
+      - Kind:            LF_ARRAY
+        Array:
+          ElementType:     4169
+          IndexType:       35
+          Size:            8
+          Name:            ''
+      - Kind:            LF_STRUCTURE
+        Class:
+          MemberCount:     0
+          Options:         [ None, ForwardReference, HasUniqueName ]
+          FieldList:       0
+          Name:            '__vc_attributes::moduleAttribute'
+          UniqueName:      '.?AUmoduleAttribute@__vc_attributes@@'
+          DerivationList:  0
+          VTableShape:     0
+          Size:            0
+      - Kind:            LF_FIELDLIST
+        FieldList:
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           1
+              Name:            dll
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           2
+              Name:            exe
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           3
+              Name:            service
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           4
+              Name:            unspecified
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           2
+              Name:            EXE
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           3
+              Name:            SERVICE
+      - Kind:            LF_ENUM
+        Enum:
+          NumEnumerators:  6
+          Options:         [ None, Nested, HasUniqueName ]
+          FieldList:       4181
+          Name:            '__vc_attributes::moduleAttribute::type_e'
+          UniqueName:      '.?AW4type_e@moduleAttribute@__vc_attributes@@'
+          UnderlyingType:  116
+      - Kind:            LF_STRING_ID
+        StringId:
+          Id:              0
+          String:          'c:\src\llvm-project\build\predefined c++ attributes (compiler internal)'
+      - Kind:            LF_UDT_SRC_LINE
+        UdtSourceLine:
+          UDT:             4182
+          SourceFile:      4183
+          LineNumber:      482
+      - Kind:            LF_MODIFIER
+        Modifier:
+          ModifiedType:    112
+          Modifiers:       [ None, Const ]
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4185
+          Attrs:           65548
+      - Kind:            LF_ARGLIST
+        ArgList:
+          ArgIndices:      [ 4182, 4186, 4186, 4186, 116, 48, 4186, 116,
+                             4186, 4186, 116, 48, 48, 4186, 4186 ]
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4180
+          Attrs:           66572
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4180
+          ThisType:        4188
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  15
+          ArgumentList:    4187
+          ThisPointerAdjustment: 0
+      - Kind:            LF_ARGLIST
+        ArgList:
+          ArgIndices:      [ 4182 ]
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4180
+          ThisType:        4188
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  1
+          ArgumentList:    4190
+          ThisPointerAdjustment: 0
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4180
+          ThisType:        4188
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  0
+          ArgumentList:    4100
+          ThisPointerAdjustment: 0
+      - Kind:            LF_METHODLIST
+        MethodOverloadList:
+          Methods:
+            - Type:            4189
+              Attrs:           3
+              VFTableOffset:   -1
+              Name:            ''
+            - Type:            4191
+              Attrs:           3
+              VFTableOffset:   -1
+              Name:            ''
+            - Type:            4192
+              Attrs:           3
+              VFTableOffset:   -1
+              Name:            ''
+      - Kind:            LF_FIELDLIST
+        FieldList:
+          - Kind:            LF_NESTTYPE
+            NestedType:
+              Type:            4182
+              Name:            type_e
+          - Kind:            LF_METHOD
+            OverloadedMethod:
+              NumOverloads:    3
+              MethodList:      4193
+              Name:            moduleAttribute
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            4182
+              FieldOffset:     0
+              Name:            type
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            4186
+              FieldOffset:     8
+              Name:            name
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            4186
+              FieldOffset:     16
+              Name:            version
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            4186
+              FieldOffset:     24
+              Name:            uuid
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            116
+              FieldOffset:     32
+              Name:            lcid
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            48
+              FieldOffset:     36
+              Name:            control
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            4186
+              FieldOffset:     40
+              Name:            helpstring
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            116
+              FieldOffset:     48
+              Name:            helpstringcontext
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            4186
+              FieldOffset:     56
+              Name:            helpstringdll
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            4186
+              FieldOffset:     64
+              Name:            helpfile
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            116
+              FieldOffset:     72
+              Name:            helpcontext
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            48
+              FieldOffset:     76
+              Name:            hidden
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            48
+              FieldOffset:     77
+              Name:            restricted
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            4186
+              FieldOffset:     80
+              Name:            custom
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            4186
+              FieldOffset:     88
+              Name:            resource_name
+      - Kind:            LF_STRUCTURE
+        Class:
+          MemberCount:     19
+          Options:         [ None, HasConstructorOrDestructor, ContainsNestedClass, HasUniqueName ]
+          FieldList:       4194
+          Name:            '__vc_attributes::moduleAttribute'
+          UniqueName:      '.?AUmoduleAttribute@__vc_attributes@@'
+          DerivationList:  0
+          VTableShape:     0
+          Size:            96
+      - Kind:            LF_UDT_SRC_LINE
+        UdtSourceLine:
+          UDT:             4195
+          SourceFile:      4183
+          LineNumber:      481
+      - Kind:            LF_STRUCTURE
+        Class:
+          MemberCount:     0
+          Options:         [ None, ForwardReference, HasUniqueName ]
+          FieldList:       0
+          Name:            '__vc_attributes::event_receiverAttribute'
+          UniqueName:      '.?AUevent_receiverAttribute@__vc_attributes@@'
+          DerivationList:  0
+          VTableShape:     0
+          Size:            0
+      - Kind:            LF_FIELDLIST
+        FieldList:
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           0
+              Name:            native
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           1
+              Name:            com
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           2
+              Name:            managed
+      - Kind:            LF_ENUM
+        Enum:
+          NumEnumerators:  3
+          Options:         [ None, Nested, HasUniqueName ]
+          FieldList:       4198
+          Name:            '__vc_attributes::event_receiverAttribute::type_e'
+          UniqueName:      '.?AW4type_e@event_receiverAttribute@__vc_attributes@@'
+          UnderlyingType:  116
+      - Kind:            LF_UDT_SRC_LINE
+        UdtSourceLine:
+          UDT:             4199
+          SourceFile:      4183
+          LineNumber:      136
+      - Kind:            LF_ARGLIST
+        ArgList:
+          ArgIndices:      [ 4199, 48 ]
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4197
+          Attrs:           66572
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4197
+          ThisType:        4202
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  2
+          ArgumentList:    4201
+          ThisPointerAdjustment: 0
+      - Kind:            LF_ARGLIST
+        ArgList:
+          ArgIndices:      [ 4199 ]
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4197
+          ThisType:        4202
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  1
+          ArgumentList:    4204
+          ThisPointerAdjustment: 0
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4197
+          ThisType:        4202
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  0
+          ArgumentList:    4100
+          ThisPointerAdjustment: 0
+      - Kind:            LF_METHODLIST
+        MethodOverloadList:
+          Methods:
+            - Type:            4203
+              Attrs:           3
+              VFTableOffset:   -1
+              Name:            ''
+            - Type:            4205
+              Attrs:           3
+              VFTableOffset:   -1
+              Name:            ''
+            - Type:            4206
+              Attrs:           3
+              VFTableOffset:   -1
+              Name:            ''
+      - Kind:            LF_FIELDLIST
+        FieldList:
+          - Kind:            LF_NESTTYPE
+            NestedType:
+              Type:            4199
+              Name:            type_e
+          - Kind:            LF_METHOD
+            OverloadedMethod:
+              NumOverloads:    3
+              MethodList:      4207
+              Name:            event_receiverAttribute
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            4199
+              FieldOffset:     0
+              Name:            type
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            48
+              FieldOffset:     4
+              Name:            layout_dependent
+      - Kind:            LF_STRUCTURE
+        Class:
+          MemberCount:     6
+          Options:         [ None, HasConstructorOrDestructor, ContainsNestedClass, HasUniqueName ]
+          FieldList:       4208
+          Name:            '__vc_attributes::event_receiverAttribute'
+          UniqueName:      '.?AUevent_receiverAttribute@__vc_attributes@@'
+          DerivationList:  0
+          VTableShape:     0
+          Size:            8
+      - Kind:            LF_UDT_SRC_LINE
+        UdtSourceLine:
+          UDT:             4209
+          SourceFile:      4183
+          LineNumber:      135
+      - Kind:            LF_STRUCTURE
+        Class:
+          MemberCount:     0
+          Options:         [ None, ForwardReference, HasUniqueName ]
+          FieldList:       0
+          Name:            '__vc_attributes::aggregatableAttribute'
+          UniqueName:      '.?AUaggregatableAttribute@__vc_attributes@@'
+          DerivationList:  0
+          VTableShape:     0
+          Size:            0
+      - Kind:            LF_FIELDLIST
+        FieldList:
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           0
+              Name:            never
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           1
+              Name:            allowed
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           2
+              Name:            always
+      - Kind:            LF_ENUM
+        Enum:
+          NumEnumerators:  3
+          Options:         [ None, Nested, HasUniqueName ]
+          FieldList:       4212
+          Name:            '__vc_attributes::aggregatableAttribute::type_e'
+          UniqueName:      '.?AW4type_e@aggregatableAttribute@__vc_attributes@@'
+          UnderlyingType:  116
+      - Kind:            LF_UDT_SRC_LINE
+        UdtSourceLine:
+          UDT:             4213
+          SourceFile:      4183
+          LineNumber:      545
+      - Kind:            LF_ARGLIST
+        ArgList:
+          ArgIndices:      [ 4213 ]
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4211
+          Attrs:           66572
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4211
+          ThisType:        4216
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  1
+          ArgumentList:    4215
+          ThisPointerAdjustment: 0
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4211
+          ThisType:        4216
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  0
+          ArgumentList:    4100
+          ThisPointerAdjustment: 0
+      - Kind:            LF_METHODLIST
+        MethodOverloadList:
+          Methods:
+            - Type:            4217
+              Attrs:           3
+              VFTableOffset:   -1
+              Name:            ''
+            - Type:            4218
+              Attrs:           3
+              VFTableOffset:   -1
+              Name:            ''
+      - Kind:            LF_FIELDLIST
+        FieldList:
+          - Kind:            LF_NESTTYPE
+            NestedType:
+              Type:            4213
+              Name:            type_e
+          - Kind:            LF_METHOD
+            OverloadedMethod:
+              NumOverloads:    2
+              MethodList:      4219
+              Name:            aggregatableAttribute
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            4213
+              FieldOffset:     0
+              Name:            type
+      - Kind:            LF_STRUCTURE
+        Class:
+          MemberCount:     4
+          Options:         [ None, HasConstructorOrDestructor, ContainsNestedClass, HasUniqueName ]
+          FieldList:       4220
+          Name:            '__vc_attributes::aggregatableAttribute'
+          UniqueName:      '.?AUaggregatableAttribute@__vc_attributes@@'
+          DerivationList:  0
+          VTableShape:     0
+          Size:            4
+      - Kind:            LF_UDT_SRC_LINE
+        UdtSourceLine:
+          UDT:             4221
+          SourceFile:      4183
+          LineNumber:      544
+      - Kind:            LF_STRUCTURE
+        Class:
+          MemberCount:     0
+          Options:         [ None, ForwardReference, HasUniqueName ]
+          FieldList:       0
+          Name:            '__vc_attributes::threadingAttribute'
+          UniqueName:      '.?AUthreadingAttribute@__vc_attributes@@'
+          DerivationList:  0
+          VTableShape:     0
+          Size:            0
+      - Kind:            LF_FIELDLIST
+        FieldList:
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           1
+              Name:            apartment
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           2
+              Name:            single
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           3
+              Name:            free
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           4
+              Name:            neutral
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           5
+              Name:            both
+      - Kind:            LF_ENUM
+        Enum:
+          NumEnumerators:  5
+          Options:         [ None, Nested, HasUniqueName ]
+          FieldList:       4224
+          Name:            '__vc_attributes::threadingAttribute::threading_e'
+          UniqueName:      '.?AW4threading_e@threadingAttribute@__vc_attributes@@'
+          UnderlyingType:  116
+      - Kind:            LF_UDT_SRC_LINE
+        UdtSourceLine:
+          UDT:             4225
+          SourceFile:      4183
+          LineNumber:      423
+      - Kind:            LF_ARGLIST
+        ArgList:
+          ArgIndices:      [ 4225 ]
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4223
+          Attrs:           66572
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4223
+          ThisType:        4228
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  1
+          ArgumentList:    4227
+          ThisPointerAdjustment: 0
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4223
+          ThisType:        4228
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  0
+          ArgumentList:    4100
+          ThisPointerAdjustment: 0
+      - Kind:            LF_METHODLIST
+        MethodOverloadList:
+          Methods:
+            - Type:            4229
+              Attrs:           3
+              VFTableOffset:   -1
+              Name:            ''
+            - Type:            4230
+              Attrs:           3
+              VFTableOffset:   -1
+              Name:            ''
+      - Kind:            LF_FIELDLIST
+        FieldList:
+          - Kind:            LF_NESTTYPE
+            NestedType:
+              Type:            4225
+              Name:            threading_e
+          - Kind:            LF_METHOD
+            OverloadedMethod:
+              NumOverloads:    2
+              MethodList:      4231
+              Name:            threadingAttribute
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            4225
+              FieldOffset:     0
+              Name:            value
+      - Kind:            LF_STRUCTURE
+        Class:
+          MemberCount:     4
+          Options:         [ None, HasConstructorOrDestructor, ContainsNestedClass, HasUniqueName ]
+          FieldList:       4232
+          Name:            '__vc_attributes::threadingAttribute'
+          UniqueName:      '.?AUthreadingAttribute@__vc_attributes@@'
+          DerivationList:  0
+          VTableShape:     0
+          Size:            4
+      - Kind:            LF_UDT_SRC_LINE
+        UdtSourceLine:
+          UDT:             4233
+          SourceFile:      4183
+          LineNumber:      422
+      - Kind:            LF_STRUCTURE
+        Class:
+          MemberCount:     0
+          Options:         [ None, ForwardReference, HasUniqueName ]
+          FieldList:       0
+          Name:            '__vc_attributes::helper_attributes::usageAttribute'
+          UniqueName:      '.?AUusageAttribute@helper_attributes@__vc_attributes@@'
+          DerivationList:  0
+          VTableShape:     0
+          Size:            0
+      - Kind:            LF_FIELDLIST
+        FieldList:
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           0
+              Name:            eAnyUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           1
+              Name:            eCoClassUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           2
+              Name:            eCOMInterfaceUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           6
+              Name:            eInterfaceUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           8
+              Name:            eMemberUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           16
+              Name:            eMethodUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           32
+              Name:            eInterfaceMethodUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           64
+              Name:            eInterfaceMemberUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           128
+              Name:            eCoClassMemberUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           256
+              Name:            eCoClassMethodUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           768
+              Name:            eGlobalMethodUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           1024
+              Name:            eGlobalDataUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           2048
+              Name:            eClassUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           4096
+              Name:            eInterfaceParameterUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           12288
+              Name:            eMethodParameterUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           16384
+              Name:            eIDLModuleUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           32768
+              Name:            eAnonymousUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           65536
+              Name:            eTypedefUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           131072
+              Name:            eUnionUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           262144
+              Name:            eEnumUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           524288
+              Name:            eDefineTagUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           1048576
+              Name:            eStructUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           2097152
+              Name:            eLocalUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           4194304
+              Name:            ePropertyUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           8388608
+              Name:            eEventUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           16777216
+              Name:            eTemplateUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           16777216
+              Name:            eModuleUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           33554432
+              Name:            eIllegalUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           67108864
+              Name:            eAsynchronousUsage
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           4161535
+              Name:            eAnyIDLUsage
+      - Kind:            LF_ENUM
+        Enum:
+          NumEnumerators:  30
+          Options:         [ None, Nested, HasUniqueName ]
+          FieldList:       4236
+          Name:            '__vc_attributes::helper_attributes::usageAttribute::usage_e'
+          UniqueName:      '.?AW4usage_e@usageAttribute@helper_attributes@__vc_attributes@@'
+          UnderlyingType:  116
+      - Kind:            LF_UDT_SRC_LINE
+        UdtSourceLine:
+          UDT:             4237
+          SourceFile:      4183
+          LineNumber:      51
+      - Kind:            LF_ARGLIST
+        ArgList:
+          ArgIndices:      [ 117 ]
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4235
+          Attrs:           66572
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4235
+          ThisType:        4240
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  1
+          ArgumentList:    4239
+          ThisPointerAdjustment: 0
+      - Kind:            LF_FIELDLIST
+        FieldList:
+          - Kind:            LF_NESTTYPE
+            NestedType:
+              Type:            4237
+              Name:            usage_e
+          - Kind:            LF_ONEMETHOD
+            OneMethod:
+              Type:            4241
+              Attrs:           3
+              VFTableOffset:   -1
+              Name:            usageAttribute
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            117
+              FieldOffset:     0
+              Name:            value
+      - Kind:            LF_STRUCTURE
+        Class:
+          MemberCount:     3
+          Options:         [ None, HasConstructorOrDestructor, ContainsNestedClass, HasUniqueName ]
+          FieldList:       4242
+          Name:            '__vc_attributes::helper_attributes::usageAttribute'
+          UniqueName:      '.?AUusageAttribute@helper_attributes@__vc_attributes@@'
+          DerivationList:  0
+          VTableShape:     0
+          Size:            4
+      - Kind:            LF_UDT_SRC_LINE
+        UdtSourceLine:
+          UDT:             4243
+          SourceFile:      4183
+          LineNumber:      49
+      - Kind:            LF_STRUCTURE
+        Class:
+          MemberCount:     0
+          Options:         [ None, ForwardReference, HasUniqueName ]
+          FieldList:       0
+          Name:            '__vc_attributes::helper_attributes::v1_alttypeAttribute'
+          UniqueName:      '.?AUv1_alttypeAttribute@helper_attributes@__vc_attributes@@'
+          DerivationList:  0
+          VTableShape:     0
+          Size:            0
+      - Kind:            LF_FIELDLIST
+        FieldList:
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           0
+              Name:            eBoolean
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           1
+              Name:            eInteger
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           2
+              Name:            eFloat
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           3
+              Name:            eDouble
+      - Kind:            LF_ENUM
+        Enum:
+          NumEnumerators:  4
+          Options:         [ None, Nested, HasUniqueName ]
+          FieldList:       4246
+          Name:            '__vc_attributes::helper_attributes::v1_alttypeAttribute::type_e'
+          UniqueName:      '.?AW4type_e@v1_alttypeAttribute@helper_attributes@__vc_attributes@@'
+          UnderlyingType:  116
+      - Kind:            LF_UDT_SRC_LINE
+        UdtSourceLine:
+          UDT:             4247
+          SourceFile:      4183
+          LineNumber:      38
+      - Kind:            LF_ARGLIST
+        ArgList:
+          ArgIndices:      [ 4247 ]
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4245
+          Attrs:           66572
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4245
+          ThisType:        4250
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  1
+          ArgumentList:    4249
+          ThisPointerAdjustment: 0
+      - Kind:            LF_FIELDLIST
+        FieldList:
+          - Kind:            LF_NESTTYPE
+            NestedType:
+              Type:            4247
+              Name:            type_e
+          - Kind:            LF_ONEMETHOD
+            OneMethod:
+              Type:            4251
+              Attrs:           3
+              VFTableOffset:   -1
+              Name:            v1_alttypeAttribute
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            4247
+              FieldOffset:     0
+              Name:            type
+      - Kind:            LF_STRUCTURE
+        Class:
+          MemberCount:     3
+          Options:         [ None, HasConstructorOrDestructor, ContainsNestedClass, HasUniqueName ]
+          FieldList:       4252
+          Name:            '__vc_attributes::helper_attributes::v1_alttypeAttribute'
+          UniqueName:      '.?AUv1_alttypeAttribute@helper_attributes@__vc_attributes@@'
+          DerivationList:  0
+          VTableShape:     0
+          Size:            4
+      - Kind:            LF_UDT_SRC_LINE
+        UdtSourceLine:
+          UDT:             4253
+          SourceFile:      4183
+          LineNumber:      37
+      - Kind:            LF_STRUCTURE
+        Class:
+          MemberCount:     0
+          Options:         [ None, ForwardReference, HasUniqueName ]
+          FieldList:       0
+          Name:            '__vc_attributes::event_sourceAttribute'
+          UniqueName:      '.?AUevent_sourceAttribute@__vc_attributes@@'
+          DerivationList:  0
+          VTableShape:     0
+          Size:            0
+      - Kind:            LF_FIELDLIST
+        FieldList:
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           0
+              Name:            native
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           1
+              Name:            com
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           2
+              Name:            managed
+      - Kind:            LF_ENUM
+        Enum:
+          NumEnumerators:  3
+          Options:         [ None, Nested, HasUniqueName ]
+          FieldList:       4256
+          Name:            '__vc_attributes::event_sourceAttribute::type_e'
+          UniqueName:      '.?AW4type_e@event_sourceAttribute@__vc_attributes@@'
+          UnderlyingType:  116
+      - Kind:            LF_UDT_SRC_LINE
+        UdtSourceLine:
+          UDT:             4257
+          SourceFile:      4183
+          LineNumber:      1142
+      - Kind:            LF_FIELDLIST
+        FieldList:
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           0
+              Name:            speed
+          - Kind:            LF_ENUMERATE
+            Enumerator:
+              Attrs:           3
+              Value:           1
+              Name:            size
+      - Kind:            LF_ENUM
+        Enum:
+          NumEnumerators:  2
+          Options:         [ None, Nested, HasUniqueName ]
+          FieldList:       4259
+          Name:            '__vc_attributes::event_sourceAttribute::optimize_e'
+          UniqueName:      '.?AW4optimize_e@event_sourceAttribute@__vc_attributes@@'
+          UnderlyingType:  116
+      - Kind:            LF_UDT_SRC_LINE
+        UdtSourceLine:
+          UDT:             4260
+          SourceFile:      4183
+          LineNumber:      1145
+      - Kind:            LF_ARGLIST
+        ArgList:
+          ArgIndices:      [ 4257 ]
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4255
+          Attrs:           66572
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4255
+          ThisType:        4263
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  1
+          ArgumentList:    4262
+          ThisPointerAdjustment: 0
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4255
+          ThisType:        4263
+          CallConv:        NearC
+          Options:         [ None, Constructor ]
+          ParameterCount:  0
+          ArgumentList:    4100
+          ThisPointerAdjustment: 0
+      - Kind:            LF_METHODLIST
+        MethodOverloadList:
+          Methods:
+            - Type:            4264
+              Attrs:           3
+              VFTableOffset:   -1
+              Name:            ''
+            - Type:            4265
+              Attrs:           3
+              VFTableOffset:   -1
+              Name:            ''
+      - Kind:            LF_FIELDLIST
+        FieldList:
+          - Kind:            LF_NESTTYPE
+            NestedType:
+              Type:            4257
+              Name:            type_e
+          - Kind:            LF_NESTTYPE
+            NestedType:
+              Type:            4260
+              Name:            optimize_e
+          - Kind:            LF_METHOD
+            OverloadedMethod:
+              NumOverloads:    2
+              MethodList:      4266
+              Name:            event_sourceAttribute
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            4257
+              FieldOffset:     0
+              Name:            type
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            4260
+              FieldOffset:     4
+              Name:            optimize
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            48
+              FieldOffset:     8
+              Name:            decorate
+      - Kind:            LF_STRUCTURE
+        Class:
+          MemberCount:     7
+          Options:         [ None, HasConstructorOrDestructor, ContainsNestedClass, HasUniqueName ]
+          FieldList:       4267
+          Name:            '__vc_attributes::event_sourceAttribute'
+          UniqueName:      '.?AUevent_sourceAttribute@__vc_attributes@@'
+          DerivationList:  0
+          VTableShape:     0
+          Size:            12
+      - Kind:            LF_UDT_SRC_LINE
+        UdtSourceLine:
+          UDT:             4268
+          SourceFile:      4183
+          LineNumber:      1141
+      - Kind:            LF_VFTABLE
+        VFTable:
+          CompleteClass:   4117
+          OverriddenVFTable: 0
+          VFPtrOffset:     0
+          MethodNames:
+            - '??_7A@@6B@'
+            - '?f@A@@UEAAHXZ'
+      - Kind:            LF_VFTABLE
+        VFTable:
+          CompleteClass:   4140
+          OverriddenVFTable: 0
+          VFPtrOffset:     0
+          MethodNames:
+            - '??_7B@@6B@'
+            - '?f@B@@UEAAHXZ'
+      - Kind:            LF_VFTABLE
+        VFTable:
+          CompleteClass:   4160
+          OverriddenVFTable: 4270
+          VFPtrOffset:     0
+          MethodNames:
+            - '??_7C@@6BA@@@'
+            - '?f@C@@UEAAHXZ'
+      - Kind:            LF_VFTABLE
+        VFTable:
+          CompleteClass:   4160
+          OverriddenVFTable: 4271
+          VFPtrOffset:     8
+          MethodNames:
+            - '??_7C@@6BB@@@'
+            - '?f@C@@W7EAAHXZ'
+      - Kind:            LF_STRING_ID
+        StringId:
+          Id:              0
+          String:          'C:\src\llvm-project\build'
+      - Kind:            LF_STRING_ID
+        StringId:
+          Id:              0
+          String:          'C:\PROGRA~2\MICROS~1\2017\PROFES~1\VC\Tools\MSVC\14.11.25503\bin\HostX64\x64\cl.exe'
+      - Kind:            LF_STRING_ID
+        StringId:
+          Id:              0
+          String:          '-GR- -Z7 -c -MT -IC:\PROGRA~2\MICROS~1\2017\PROFES~1\VC\Tools\MSVC\14.11.25503\ATLMFC\include -IC:\PROGRA~2\MICROS~1\2017\PROFES~1\VC\Tools\MSVC\14.11.25503\include -IC:\PROGRA~2\WI3CF2~1\10\include\10.0.16299.0\ucrt -IC:\PROGRA~2\WI3CF2~1\10\include\10.0.162'
+      - Kind:            LF_SUBSTR_LIST
+        StringList:
+          StringIndices:   [ 4276 ]
+      - Kind:            LF_STRING_ID
+        StringId:
+          Id:              4277
+          String:          '99.0\shared -IC:\PROGRA~2\WI3CF2~1\10\include\10.0.16299.0\um -IC:\PROGRA~2\WI3CF2~1\10\include\10.0.16299.0\winrt -TP -X'
+      - Kind:            LF_STRING_ID
+        StringId:
+          Id:              0
+          String:          t.cpp
+      - Kind:            LF_STRING_ID
+        StringId:
+          Id:              0
+          String:          'C:\src\llvm-project\build\vc140.pdb'
+      - Kind:            LF_BUILDINFO
+        BuildInfo:
+          ArgIndices:      [ 4274, 4275, 4279, 4280, 4278 ]
+  - Name:            '.text$mn'
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       16
+    SectionData:     48894C240833C0C3CCCCCCCCCCCCCCCC48894C240833C0C3CCCCCCCCCCCCCCCC48894C24084883EC28488B4C2430E800000000488B4424304883C008488BC8E800000000488B442430488D0D00000000488908488B442430488D0D0000000048894808488B442430C740102A000000488B4424304883C428C3CCCCCCCCCCCCCC48894C2408488B4424088B4010C3
+    Relocations:
+      - VirtualAddress:  47
+        SymbolName:      '??0A@@QEAA@XZ'
+        Type:            IMAGE_REL_AMD64_REL32
+      - VirtualAddress:  64
+        SymbolName:      '??0B@@QEAA@XZ'
+        Type:            IMAGE_REL_AMD64_REL32
+      - VirtualAddress:  76
+        SymbolName:      '??_7C@@6BA@@@'
+        Type:            IMAGE_REL_AMD64_REL32
+      - VirtualAddress:  91
+        SymbolName:      '??_7C@@6BB@@@'
+        Type:            IMAGE_REL_AMD64_REL32
+  - Name:            '.text$mn'
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       16
+    SectionData:     48894C2408488B442408488D0D00000000488908488B442408C3
+    Relocations:
+      - VirtualAddress:  13
+        SymbolName:      '??_7A@@6B@'
+        Type:            IMAGE_REL_AMD64_REL32
+  - Name:            '.debug$S'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    Subsections:
+      - !Symbols
+        Records:
+          - Kind:            S_GPROC32_ID
+            ProcSym:
+              CodeSize:        26
+              DbgStart:        5
+              DbgEnd:          25
+              FunctionType:    4176
+              Flags:           [  ]
+              DisplayName:     'A::A'
+          - Kind:            S_FRAMEPROC
+            FrameProcSym:
+              TotalFrameBytes: 0
+              PaddingFrameBytes: 0
+              OffsetToPadding: 0
+              BytesOfCalleeSavedRegisters: 0
+              OffsetOfExceptionHandler: 0
+              SectionIdOfExceptionHandler: 0
+              Flags:           [ MarkedInline, AsynchronousExceptionHandling, OptimizedForSpeed ]
+          - Kind:            S_REGREL32
+            RegRelativeSym:
+              Offset:          8
+              Type:            4097
+              Register:        RSP
+              VarName:         this
+          - Kind:            S_PROC_ID_END
+            ScopeEndSym:
+    Relocations:
+      - VirtualAddress:  44
+        SymbolName:      '??0A@@QEAA@XZ'
+        Type:            IMAGE_REL_AMD64_SECREL
+      - VirtualAddress:  48
+        SymbolName:      '??0A@@QEAA@XZ'
+        Type:            IMAGE_REL_AMD64_SECTION
+  - Name:            '.text$mn'
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       16
+    SectionData:     48894C2408488B442408488D0D00000000488908488B442408C3
+    Relocations:
+      - VirtualAddress:  13
+        SymbolName:      '??_7B@@6B@'
+        Type:            IMAGE_REL_AMD64_REL32
+  - Name:            '.debug$S'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    Subsections:
+      - !Symbols
+        Records:
+          - Kind:            S_GPROC32_ID
+            ProcSym:
+              CodeSize:        26
+              DbgStart:        5
+              DbgEnd:          25
+              FunctionType:    4177
+              Flags:           [  ]
+              DisplayName:     'B::B'
+          - Kind:            S_FRAMEPROC
+            FrameProcSym:
+              TotalFrameBytes: 0
+              PaddingFrameBytes: 0
+              OffsetToPadding: 0
+              BytesOfCalleeSavedRegisters: 0
+              OffsetOfExceptionHandler: 0
+              SectionIdOfExceptionHandler: 0
+              Flags:           [ MarkedInline, AsynchronousExceptionHandling, OptimizedForSpeed ]
+          - Kind:            S_REGREL32
+            RegRelativeSym:
+              Offset:          8
+              Type:            4121
+              Register:        RSP
+              VarName:         this
+          - Kind:            S_PROC_ID_END
+            ScopeEndSym:
+    Relocations:
+      - VirtualAddress:  44
+        SymbolName:      '??0B@@QEAA@XZ'
+        Type:            IMAGE_REL_AMD64_SECREL
+      - VirtualAddress:  48
+        SymbolName:      '??0B@@QEAA@XZ'
+        Type:            IMAGE_REL_AMD64_SECTION
+  - Name:            '.text$mn'
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    SectionData:     4883E908E900000000
+    Relocations:
+      - VirtualAddress:  5
+        SymbolName:      '?f@C@@UEAAHXZ'
+        Type:            IMAGE_REL_AMD64_REL32
+  - Name:            '.debug$S'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    Subsections:
+      - !Symbols
+        Records:
+          - Kind:            S_THUNK32
+            Thunk32Sym:
+              Parent:          0
+              End:             0
+              Next:            0
+              Off:             0
+              Seg:             0
+              Len:             9
+              Ordinal:         Pcode
+          - Kind:            S_FRAMEPROC
+            FrameProcSym:
+              TotalFrameBytes: 0
+              PaddingFrameBytes: 0
+              OffsetToPadding: 0
+              BytesOfCalleeSavedRegisters: 0
+              OffsetOfExceptionHandler: 0
+              SectionIdOfExceptionHandler: 0
+              Flags:           [ MarkedInline, Naked, AsynchronousExceptionHandling ]
+          - Kind:            S_PROC_ID_END
+            ScopeEndSym:
+    Relocations:
+      - VirtualAddress:  28
+        SymbolName:      '?f@C@@W7EAAHXZ'
+        Type:            IMAGE_REL_AMD64_SECREL
+      - VirtualAddress:  32
+        SymbolName:      '?f@C@@W7EAAHXZ'
+        Type:            IMAGE_REL_AMD64_SECTION
+  - Name:            .xdata
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    SectionData:     '0109010009420000'
+  - Name:            .pdata
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    SectionData:     '000000005900000000000000'
+    Relocations:
+      - VirtualAddress:  0
+        SymbolName:      '$LN3'
+        Type:            IMAGE_REL_AMD64_ADDR32NB
+      - VirtualAddress:  4
+        SymbolName:      '$LN3'
+        Type:            IMAGE_REL_AMD64_ADDR32NB
+      - VirtualAddress:  8
+        SymbolName:      '$unwind$??0C@@QEAA@XZ'
+        Type:            IMAGE_REL_AMD64_ADDR32NB
+  - Name:            .rdata
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_READ ]
+    Alignment:       8
+    SectionData:     '0000000000000000'
+    Relocations:
+      - VirtualAddress:  0
+        SymbolName:      '?f@A@@UEAAHXZ'
+        Type:            IMAGE_REL_AMD64_ADDR64
+  - Name:            .rdata
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_READ ]
+    Alignment:       8
+    SectionData:     '0000000000000000'
+    Relocations:
+      - VirtualAddress:  0
+        SymbolName:      '?f@B@@UEAAHXZ'
+        Type:            IMAGE_REL_AMD64_ADDR64
+  - Name:            .rdata
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_READ ]
+    Alignment:       8
+    SectionData:     '0000000000000000'
+    Relocations:
+      - VirtualAddress:  0
+        SymbolName:      '?f@C@@UEAAHXZ'
+        Type:            IMAGE_REL_AMD64_ADDR64
+  - Name:            .rdata
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_READ ]
+    Alignment:       8
+    SectionData:     '0000000000000000'
+    Relocations:
+      - VirtualAddress:  0
+        SymbolName:      '?f@C@@W7EAAHXZ'
+        Type:            IMAGE_REL_AMD64_ADDR64
+  - Name:            '.debug$S'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    Subsections:
+      - !Symbols
+        Records:
+          - Kind:            S_GDATA32
+            DataSym:
+              Type:            4179
+              DisplayName:     'A::`vftable'''
+    Relocations:
+      - VirtualAddress:  20
+        SymbolName:      '??_7A@@6B@'
+        Type:            IMAGE_REL_AMD64_SECREL
+      - VirtualAddress:  24
+        SymbolName:      '??_7A@@6B@'
+        Type:            IMAGE_REL_AMD64_SECTION
+  - Name:            '.debug$S'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    Subsections:
+      - !Symbols
+        Records:
+          - Kind:            S_GDATA32
+            DataSym:
+              Type:            4179
+              DisplayName:     'B::`vftable'''
+    Relocations:
+      - VirtualAddress:  20
+        SymbolName:      '??_7B@@6B@'
+        Type:            IMAGE_REL_AMD64_SECREL
+      - VirtualAddress:  24
+        SymbolName:      '??_7B@@6B@'
+        Type:            IMAGE_REL_AMD64_SECTION
+  - Name:            '.debug$S'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    Subsections:
+      - !Symbols
+        Records:
+          - Kind:            S_GDATA32
+            DataSym:
+              Type:            4179
+              DisplayName:     'C::`vftable'''
+    Relocations:
+      - VirtualAddress:  20
+        SymbolName:      '??_7C@@6BA@@@'
+        Type:            IMAGE_REL_AMD64_SECREL
+      - VirtualAddress:  24
+        SymbolName:      '??_7C@@6BA@@@'
+        Type:            IMAGE_REL_AMD64_SECTION
+  - Name:            '.debug$S'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       1
+    Subsections:
+      - !Symbols
+        Records:
+          - Kind:            S_GDATA32
+            DataSym:
+              Type:            4179
+              DisplayName:     'C::`vftable'''
+    Relocations:
+      - VirtualAddress:  20
+        SymbolName:      '??_7C@@6BB@@@'
+        Type:            IMAGE_REL_AMD64_SECREL
+      - VirtualAddress:  24
+        SymbolName:      '??_7C@@6BB@@@'
+        Type:            IMAGE_REL_AMD64_SECTION
+symbols:
+  - Name:            '@comp.id'
+    Value:           17130404
+    SectionNumber:   -1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+  - Name:            '@feat.00'
+    Value:           2147484048
+    SectionNumber:   -1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+  - Name:            .drectve
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          69
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        876125206
+      Number:          0
+  - Name:            '.debug$S'
+    Value:           0
+    SectionNumber:   2
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          1668
+      NumberOfRelocations: 16
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          0
+  - Name:            '.debug$T'
+    Value:           0
+    SectionNumber:   3
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          8276
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          0
+  - Name:            '.text$mn'
+    Value:           0
+    SectionNumber:   4
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          142
+      NumberOfRelocations: 4
+      NumberOfLinenumbers: 0
+      CheckSum:        1906691115
+      Number:          0
+  - Name:            '.text$mn'
+    Value:           0
+    SectionNumber:   5
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          26
+      NumberOfRelocations: 1
+      NumberOfLinenumbers: 0
+      CheckSum:        2299407997
+      Number:          0
+      Selection:       IMAGE_COMDAT_SELECT_ANY
+  - Name:            '.debug$S'
+    Value:           0
+    SectionNumber:   6
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          112
+      NumberOfRelocations: 2
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          5
+      Selection:       IMAGE_COMDAT_SELECT_ASSOCIATIVE
+  - Name:            '.text$mn'
+    Value:           0
+    SectionNumber:   7
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          26
+      NumberOfRelocations: 1
+      NumberOfLinenumbers: 0
+      CheckSum:        2299407997
+      Number:          0
+      Selection:       IMAGE_COMDAT_SELECT_ANY
+  - Name:            '.debug$S'
+    Value:           0
+    SectionNumber:   8
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          112
+      NumberOfRelocations: 2
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          7
+      Selection:       IMAGE_COMDAT_SELECT_ASSOCIATIVE
+  - Name:            '.text$mn'
+    Value:           0
+    SectionNumber:   9
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          9
+      NumberOfRelocations: 1
+      NumberOfLinenumbers: 0
+      CheckSum:        3880904481
+      Number:          0
+      Selection:       IMAGE_COMDAT_SELECT_ANY
+  - Name:            '.debug$S'
+    Value:           0
+    SectionNumber:   10
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          100
+      NumberOfRelocations: 2
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          9
+      Selection:       IMAGE_COMDAT_SELECT_ASSOCIATIVE
+  - Name:            '?f@A@@UEAAHXZ'
+    Value:           0
+    SectionNumber:   4
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            '??0A@@QEAA@XZ'
+    Value:           0
+    SectionNumber:   5
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            '?f@B@@UEAAHXZ'
+    Value:           16
+    SectionNumber:   4
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            '??0B@@QEAA@XZ'
+    Value:           0
+    SectionNumber:   7
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            '??0C@@QEAA@XZ'
+    Value:           32
+    SectionNumber:   4
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            '?f@C@@UEAAHXZ'
+    Value:           128
+    SectionNumber:   4
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            '?f@C@@W7EAAHXZ'
+    Value:           0
+    SectionNumber:   9
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            '$LN3'
+    Value:           32
+    SectionNumber:   4
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_LABEL
+  - Name:            .xdata
+    Value:           0
+    SectionNumber:   11
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          8
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        2625142988
+      Number:          0
+  - Name:            '$unwind$??0C@@QEAA@XZ'
+    Value:           0
+    SectionNumber:   11
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+  - Name:            .pdata
+    Value:           0
+    SectionNumber:   12
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          12
+      NumberOfRelocations: 3
+      NumberOfLinenumbers: 0
+      CheckSum:        1248454893
+      Number:          0
+  - Name:            '$pdata$??0C@@QEAA@XZ'
+    Value:           0
+    SectionNumber:   12
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+  - Name:            .rdata
+    Value:           0
+    SectionNumber:   13
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          8
+      NumberOfRelocations: 1
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          0
+      Selection:       IMAGE_COMDAT_SELECT_ANY
+  - Name:            '??_7A@@6B@'
+    Value:           0
+    SectionNumber:   13
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            .rdata
+    Value:           0
+    SectionNumber:   14
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          8
+      NumberOfRelocations: 1
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          0
+      Selection:       IMAGE_COMDAT_SELECT_ANY
+  - Name:            '??_7B@@6B@'
+    Value:           0
+    SectionNumber:   14
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            .rdata
+    Value:           0
+    SectionNumber:   15
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          8
+      NumberOfRelocations: 1
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          0
+      Selection:       IMAGE_COMDAT_SELECT_ANY
+  - Name:            '??_7C@@6BA@@@'
+    Value:           0
+    SectionNumber:   15
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            .rdata
+    Value:           0
+    SectionNumber:   16
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          8
+      NumberOfRelocations: 1
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          0
+      Selection:       IMAGE_COMDAT_SELECT_ANY
+  - Name:            '??_7C@@6BB@@@'
+    Value:           0
+    SectionNumber:   16
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            '.debug$S'
+    Value:           0
+    SectionNumber:   17
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          40
+      NumberOfRelocations: 2
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          13
+      Selection:       IMAGE_COMDAT_SELECT_ASSOCIATIVE
+  - Name:            '.debug$S'
+    Value:           0
+    SectionNumber:   18
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          40
+      NumberOfRelocations: 2
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          14
+      Selection:       IMAGE_COMDAT_SELECT_ASSOCIATIVE
+  - Name:            '.debug$S'
+    Value:           0
+    SectionNumber:   19
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          40
+      NumberOfRelocations: 2
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          15
+      Selection:       IMAGE_COMDAT_SELECT_ASSOCIATIVE
+  - Name:            '.debug$S'
+    Value:           0
+    SectionNumber:   20
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          40
+      NumberOfRelocations: 2
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          16
+      Selection:       IMAGE_COMDAT_SELECT_ASSOCIATIVE
+...
+

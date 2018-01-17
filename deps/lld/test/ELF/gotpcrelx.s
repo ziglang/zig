@@ -1,7 +1,7 @@
 // RUN: llvm-mc -filetype=obj -relax-relocations -triple x86_64-pc-linux-gnu \
 // RUN: %s -o %t.o
 // RUN: llvm-readobj -r %t.o | FileCheck --check-prefix=RELS %s
-// RUN: ld.lld %t.o -o %t.so -shared
+// RUN: ld.lld --hash-style=sysv %t.o -o %t.so -shared
 // RUN: llvm-readobj -s -r %t.so | FileCheck %s
 
 movq foo@GOTPCREL(%rip), %rax

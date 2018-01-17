@@ -1,0 +1,47 @@
+# REQUIRES: x86
+# RUN: yaml2obj %s -o %t.o
+# RUN: not ld.lld %t.o -o %t.exe 2>&1 | FileCheck %s
+
+# The debug info has a broken relocation. Check that we don't crash
+# and still report the undefined symbol.
+
+# CHECK: error: unsupported relocation target while parsing debug info
+# CHECK: error: undefined symbol: bar
+
+--- !ELF
+FileHeader:
+  Class:           ELFCLASS64
+  Data:            ELFDATA2LSB
+  Type:            ET_REL
+  Machine:         EM_X86_64
+Sections:
+  - Name:            .text
+    Type:            SHT_PROGBITS
+    Flags:           [ SHF_ALLOC, SHF_EXECINSTR ]
+    Content:         '0000000000000000'
+  - Name:            .rela.text
+    Type:            SHT_RELA
+    AddressAlign:    8
+    Link:            .symtab
+    Info:            .text
+    Relocations:
+      - Offset:          0x0000000000000000
+        Symbol:          bar
+        Type:            R_X86_64_64
+  - Name:            .debug_line
+    Type:            SHT_PROGBITS
+    Content:         3300000002001C0000000101FB0E0D000101010100000001000001006162632E7300000000000009020000000000000000140208000101
+  - Name:            .rela.debug_line
+    AddressAlign:    8
+    Type:            SHT_RELA
+    Link:            .symtab
+    Info:            .debug_line
+    Relocations:
+      - Offset:          0x0000000000000029
+        Symbol:          bar
+        Type:            R_X86_64_64
+Symbols:
+  Global:
+    - Name:            _start
+      Section:         .text
+    - Name:            bar

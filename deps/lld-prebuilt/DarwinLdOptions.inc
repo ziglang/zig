@@ -187,3 +187,10 @@ OPTION(prefix_1, "v", v, Flag, INVALID, INVALID, nullptr, 0, 0,
 OPTION(prefix_1, "Z", Z, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Do not search standard directories for libraries or frameworks", nullptr, nullptr)
 #endif // OPTION
+
+#ifdef OPTTABLE_ARG_INIT
+//////////
+// Option Values
+
+
+#endif // OPTTABLE_ARG_INIT

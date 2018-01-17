@@ -8,10 +8,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "Symbols.h"
-#include "Error.h"
 #include "InputFiles.h"
-#include "Memory.h"
 #include "Strings.h"
+#include "lld/Common/ErrorHandler.h"
+#include "lld/Common/Memory.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
@@ -20,8 +20,8 @@ using namespace llvm;
 using namespace llvm::object;
 
 // Returns a symbol name for an error message.
-std::string lld::toString(coff::SymbolBody &B) {
-  if (Optional<std::string> S = coff::demangle(B.getName()))
+std::string lld::toString(coff::Symbol &B) {
+  if (Optional<std::string> S = coff::demangleMSVC(B.getName()))
     return ("\"" + *S + "\" (" + B.getName() + ")").str();
   return B.getName();
 }
@@ -29,7 +29,7 @@ std::string lld::toString(coff::SymbolBody &B) {
 namespace lld {
 namespace coff {
 
-StringRef SymbolBody::getName() {
+StringRef Symbol::getName() {
   // COFF symbol names are read lazily for a performance reason.
   // Non-external symbol names are never used by the linker except for logging
   // or debugging. Their internal references are resolved not by name but by
@@ -39,12 +39,12 @@ StringRef SymbolBody::getName() {
   // is a waste of time.
   if (Name.empty()) {
     auto *D = cast<DefinedCOFF>(this);
-    cast<ObjectFile>(D->File)->getCOFFObj()->getSymbolName(D->Sym, Name);
+    cast<ObjFile>(D->File)->getCOFFObj()->getSymbolName(D->Sym, Name);
   }
   return Name;
 }
 
-InputFile *SymbolBody::getFile() {
+InputFile *Symbol::getFile() {
   if (auto *Sym = dyn_cast<DefinedCOFF>(this))
     return Sym->File;
   if (auto *Sym = dyn_cast<Lazy>(this))
@@ -52,9 +52,19 @@ InputFile *SymbolBody::getFile() {
   return nullptr;
 }
 
+bool Symbol::isLive() const {
+  if (auto *R = dyn_cast<DefinedRegular>(this))
+    return R->getChunk()->isLive();
+  if (auto *Imp = dyn_cast<DefinedImportData>(this))
+    return Imp->File->Live;
+  if (auto *Imp = dyn_cast<DefinedImportThunk>(this))
+    return Imp->WrappedSym->File->Live;
+  // Assume any other kind of symbol is live.
+  return true;
+}
+
 COFFSymbolRef DefinedCOFF::getCOFFSymbol() {
-  size_t SymSize =
-      cast<ObjectFile>(File)->getCOFFObj()->getSymbolTableEntrySize();
+  size_t SymSize = cast<ObjFile>(File)->getCOFFObj()->getSymbolTableEntrySize();
   if (SymSize == sizeof(coff_symbol16))
     return COFFSymbolRef(reinterpret_cast<const coff_symbol16 *>(Sym));
   assert(SymSize == sizeof(coff_symbol32));
@@ -81,7 +91,7 @@ DefinedImportThunk::DefinedImportThunk(StringRef Name, DefinedImportData *S,
 
 Defined *Undefined::getWeakAlias() {
   // A weak alias may be a weak alias to another symbol, so check recursively.
-  for (SymbolBody *A = WeakAlias; A; A = cast<Undefined>(A)->WeakAlias)
+  for (Symbol *A = WeakAlias; A; A = cast<Undefined>(A)->WeakAlias)
     if (auto *D = dyn_cast<Defined>(A))
       return D;
   return nullptr;

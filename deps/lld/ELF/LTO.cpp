@@ -9,10 +9,12 @@
 
 #include "LTO.h"
 #include "Config.h"
-#include "Error.h"
 #include "InputFiles.h"
+#include "LinkerScript.h"
+#include "SymbolTable.h"
 #include "Symbols.h"
-#include "lld/Core/TargetOptionsCommandFlags.h"
+#include "lld/Common/ErrorHandler.h"
+#include "lld/Common/TargetOptionsCommandFlags.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringRef.h"
@@ -60,10 +62,8 @@ static void diagnosticHandler(const DiagnosticInfo &DI) {
 }
 
 static void checkError(Error E) {
-  handleAllErrors(std::move(E), [&](ErrorInfoBase &EIB) -> Error {
-    error(EIB.message());
-    return Error::success();
-  });
+  handleAllErrors(std::move(E),
+                  [&](ErrorInfoBase &EIB) { error(EIB.message()); });
 }
 
 static std::unique_ptr<lto::LTO> createLTO() {
@@ -72,6 +72,10 @@ static std::unique_ptr<lto::LTO> createLTO() {
   // LLD supports the new relocations.
   Conf.Options = InitTargetOptionsFromCodeGenFlags();
   Conf.Options.RelaxELFRelocations = true;
+
+  // Always emit a section per function/datum with LTO.
+  Conf.Options.FunctionSections = true;
+  Conf.Options.DataSections = true;
 
   if (Config->Relocatable)
     Conf.RelocModel = None;
@@ -103,13 +107,20 @@ static std::unique_ptr<lto::LTO> createLTO() {
                                      Config->LTOPartitions);
 }
 
-BitcodeCompiler::BitcodeCompiler() : LTOObj(createLTO()) {}
+BitcodeCompiler::BitcodeCompiler() : LTOObj(createLTO()) {
+  for (Symbol *Sym : Symtab->getSymbols()) {
+    StringRef Name = Sym->getName();
+    for (StringRef Prefix : {"__start_", "__stop_"})
+      if (Name.startswith(Prefix))
+        UsedStartStop.insert(Name.substr(Prefix.size()));
+  }
+}
 
 BitcodeCompiler::~BitcodeCompiler() = default;
 
 static void undefine(Symbol *S) {
-  replaceBody<Undefined>(S, S->body()->getName(), /*IsLocal=*/false,
-                         STV_DEFAULT, S->body()->Type, nullptr);
+  replaceSymbol<Undefined>(S, nullptr, S->getName(), STB_GLOBAL, STV_DEFAULT,
+                           S->Type);
 }
 
 void BitcodeCompiler::add(BitcodeFile &F) {
@@ -118,25 +129,42 @@ void BitcodeCompiler::add(BitcodeFile &F) {
   std::vector<Symbol *> Syms = F.getSymbols();
   std::vector<lto::SymbolResolution> Resols(Syms.size());
 
+  DenseSet<StringRef> ScriptSymbols;
+  for (BaseCommand *Base : Script->SectionCommands)
+    if (auto *Cmd = dyn_cast<SymbolAssignment>(Base))
+      ScriptSymbols.insert(Cmd->Name);
+
   // Provide a resolution to the LTO API for each symbol.
   for (const lto::InputFile::Symbol &ObjSym : Obj.symbols()) {
     Symbol *Sym = Syms[SymNum];
     lto::SymbolResolution &R = Resols[SymNum];
     ++SymNum;
-    SymbolBody *B = Sym->body();
 
     // Ideally we shouldn't check for SF_Undefined but currently IRObjectFile
     // reports two symbols for module ASM defined. Without this check, lld
     // flags an undefined in IR with a definition in ASM as prevailing.
     // Once IRObjectFile is fixed to report only one symbol this hack can
     // be removed.
-    R.Prevailing = !ObjSym.isUndefined() && B->File == &F;
+    R.Prevailing = !ObjSym.isUndefined() && Sym->File == &F;
 
-    R.VisibleToRegularObj =
-        Sym->IsUsedInRegularObj || (R.Prevailing && Sym->includeInDynsym());
+    // We ask LTO to preserve following global symbols:
+    // 1) All symbols when doing relocatable link, so that them can be used
+    //    for doing final link.
+    // 2) Symbols that are used in regular objects.
+    // 3) C named sections if we have corresponding __start_/__stop_ symbol.
+    // 4) Symbols that are defined in bitcode files and used for dynamic linking.
+    R.VisibleToRegularObj = Config->Relocatable || Sym->IsUsedInRegularObj ||
+                            (R.Prevailing && Sym->includeInDynsym()) ||
+                            UsedStartStop.count(ObjSym.getSectionName());
     if (R.Prevailing)
       undefine(Sym);
-    R.LinkerRedefined = Config->RenamedSymbols.count(Sym);
+
+    // We tell LTO to not apply interprocedural optimization for following
+    // symbols because otherwise LTO would inline them while their values are
+    // still not final:
+    // 1) Aliased (with --defsym) or wrapped (with --wrap) symbols.
+    // 2) Symbols redefined in linker script.
+    R.LinkerRedefined = !Sym->CanInline || ScriptSymbols.count(Sym->getName());
   }
   checkError(LTOObj->add(std::move(F.Obj), Resols));
 }
@@ -156,9 +184,8 @@ std::vector<InputFile *> BitcodeCompiler::compile() {
   if (!Config->ThinLTOCacheDir.empty())
     Cache = check(
         lto::localCache(Config->ThinLTOCacheDir,
-                        [&](size_t Task, std::unique_ptr<MemoryBuffer> MB) {
-                          Files[Task] = std::move(MB);
-                        }));
+                        [&](size_t Task, std::unique_ptr<MemoryBuffer> MB,
+                            StringRef Path) { Files[Task] = std::move(MB); }));
 
   checkError(LTOObj->run(
       [&](size_t Task) {

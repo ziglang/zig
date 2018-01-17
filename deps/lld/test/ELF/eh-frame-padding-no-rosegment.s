@@ -31,7 +31,7 @@ bar:
 // OBJ-NEXT:   0020: 20000000 00000000 00000000 00000000
 // OBJ-NEXT: )
 
-// RUN: ld.lld %t.o -no-rosegment -o %t -shared
+// RUN: ld.lld --hash-style=sysv %t.o -no-rosegment -o %t -shared
 
 // Check that .eh_frame is in the same segment as .text
 // RUN: llvm-readobj -l --elf-output-style=GNU %t | FileCheck --check-prefix=PHDR %s

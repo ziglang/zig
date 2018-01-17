@@ -1,7 +1,7 @@
 // RUN: llvm-mc -filetype=obj -triple=i686-pc-linux %s -o %t.o
 // RUN: llvm-mc -filetype=obj -triple=i686-pc-linux %p/Inputs/tls-opt-iele-i686-nopic.s -o %tso.o
 // RUN: ld.lld -shared %tso.o -o %tso
-// RUN: ld.lld -shared %t.o %tso -o %t1
+// RUN: ld.lld --hash-style=sysv -shared %t.o %tso -o %t1
 // RUN: llvm-readobj -s -r -d %t1 | FileCheck --check-prefix=GOTRELSHARED %s
 // RUN: llvm-objdump -d %t1 | FileCheck --check-prefix=DISASMSHARED %s
 

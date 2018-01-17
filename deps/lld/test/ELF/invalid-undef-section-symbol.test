@@ -1,0 +1,27 @@
+# RUN: yaml2obj %s -o %t.o
+# RUN: not ld.lld -r %t.o -o %2.o 2>&1 | FileCheck %s
+
+# We used to crash at this.
+# CHECK: STT_SECTION symbol should be defined
+
+--- !ELF
+FileHeader:
+  Class:           ELFCLASS64
+  Data:            ELFDATA2LSB
+  Type:            ET_REL
+  Machine:         EM_X86_64
+Sections:
+  - Name:            .text
+    Type:            SHT_PROGBITS
+  - Name:            .rela.text
+    Type:            SHT_RELA
+    AddressAlign:    0x0000000000000008
+    Info:            .text
+    Relocations:
+      - Offset:          0x0000000000000000
+        Symbol:          .text
+        Type:            R_X86_64_NONE
+Symbols:
+  Local:
+    - Name:            .text
+      Type:            STT_SECTION

@@ -1,5 +1,5 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
-// RUN: ld.lld %t.o -o %t -shared
+// RUN: ld.lld --hash-style=sysv %t.o -o %t -shared
 // RUN: llvm-readobj -s -r -d %t | FileCheck %s
 // RUN: llvm-objdump -d %t | FileCheck --check-prefix=DISASM %s
 

@@ -1,7 +1,7 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %p/Inputs/abs-hidden.s -o %t2.o
-// RUN: ld.lld %t.o %t2.o -o %t.so -shared
+// RUN: ld.lld --hash-style=sysv %t.o %t2.o -o %t.so -shared
 // RUN: llvm-readobj -r -s -section-data %t.so | FileCheck %s
 
         .quad foo

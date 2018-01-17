@@ -1,5 +1,5 @@
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t
-// RUN: ld.lld %t --static -o %t2 2>&1
+// RUN: ld.lld --no-merge-exidx-entries %t --static -o %t2 2>&1
 // RUN: llvm-readobj --symbols %t2 | FileCheck %s
 // REQUIRES: arm
 

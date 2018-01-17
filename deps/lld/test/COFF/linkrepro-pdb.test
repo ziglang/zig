@@ -1,0 +1,9 @@
+REQUIRES: x86, gnutar
+
+RUN: rm -rf %t && mkdir -p %t && cd %t
+RUN: yaml2obj %S/Inputs/pdb-type-server-simple-a.yaml -o a.obj
+RUN: yaml2obj %S/Inputs/pdb-type-server-simple-b.yaml -o b.obj
+RUN: llvm-pdbutil yaml2pdb %S/Inputs/pdb-type-server-simple-ts.yaml -pdb ts.pdb
+RUN: lld-link a.obj b.obj -entry:main -debug -out:t.exe -pdb:t.pdb -nodefaultlib -linkrepro:.
+RUN: tar xOf repro.tar repro/%:t/ts.pdb > repro-ts.pdb
+RUN: diff ts.pdb repro-ts.pdb

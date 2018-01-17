@@ -164,7 +164,7 @@ __start:
 # CHECK-NEXT:     Link: 0
 # CHECK-NEXT:     Info: 0
 # CHECK-NEXT:     AddressAlignment: 1
-# CHECK-NEXT:     EntrySize: 0
+# CHECK-NEXT:     EntrySize: 1
 # CHECK-NEXT:   }
 # CHECK-NEXT:   Section {
 # CHECK-NEXT:     Index: 8
@@ -228,7 +228,7 @@ __start:
 # CHECK-NEXT:     Other [ (0x2)
 # CHECK-NEXT:       STV_HIDDEN (0x2)
 # CHECK-NEXT:     ]
-# CHECK-NEXT:     Section: Absolute
+# CHECK-NEXT:     Section: .got
 # CHECK-NEXT:   }
 # CHECK-NEXT:   Symbol {
 # CHECK-NEXT:     Name: __start

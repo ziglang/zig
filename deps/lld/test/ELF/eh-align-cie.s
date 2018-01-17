@@ -31,7 +31,7 @@ bar:
 // OBJ-NEXT:    )
 
 
-// RUN: ld.lld %t.o -o %t -shared
+// RUN: ld.lld --hash-style=sysv %t.o -o %t -shared
 // RUN: llvm-readobj -s -section-data %t | FileCheck %s
 
 // Check that the size of the CIE was changed to (0x1C + 4) and the FDE one was

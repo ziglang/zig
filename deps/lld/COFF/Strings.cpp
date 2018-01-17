@@ -20,7 +20,7 @@ using namespace lld;
 using namespace lld::coff;
 using namespace llvm;
 
-Optional<std::string> coff::demangle(StringRef S) {
+Optional<std::string> coff::demangleMSVC(StringRef S) {
 #if defined(_MSC_VER)
   // UnDecorateSymbolName is not thread-safe, so we need a mutex.
   static std::mutex Mu;

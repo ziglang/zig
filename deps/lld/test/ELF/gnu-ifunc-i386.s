@@ -15,7 +15,7 @@
 // CHECK-NEXT:  Address: [[RELA:.*]]
 // CHECK-NEXT:  Offset: 0xD4
 // CHECK-NEXT:  Size: 16
-// CHECK-NEXT:  Link: 6
+// CHECK-NEXT:  Link: 0
 // CHECK-NEXT:  Info: 0
 // CHECK-NEXT:  AddressAlignment: 4
 // CHECK-NEXT:  EntrySize: 8
@@ -102,10 +102,10 @@
 // DISASM-NEXT: .plt:
 // DISASM-NEXT:    11020: ff 25 00 20 01 00 jmpl *73728
 // DISASM-NEXT:    11026: 68 10 00 00 00 pushl $16
-// DISASM-NEXT:    1102b: e9 e0 ff ff ff jmp -32 <_start+0xE>
+// DISASM-NEXT:    1102b: e9 e0 ff ff ff jmp -32 <_start+0xe>
 // DISASM-NEXT:    11030: ff 25 04 20 01 00 jmpl *73732
 // DISASM-NEXT:    11036: 68 18 00 00 00 pushl $24
-// DISASM-NEXT:    1103b: e9 d0 ff ff ff jmp -48 <_start+0xE>
+// DISASM-NEXT:    1103b: e9 d0 ff ff ff jmp -48 <_start+0xe>
 
 .text
 .type foo STT_GNU_IFUNC

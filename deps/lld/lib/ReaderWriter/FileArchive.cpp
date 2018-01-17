@@ -7,9 +7,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "lld/Common/LLVM.h"
 #include "lld/Core/ArchiveLibraryFile.h"
 #include "lld/Core/File.h"
-#include "lld/Core/LLVM.h"
 #include "lld/Core/Reader.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"

@@ -1,7 +1,7 @@
 // RUN: llvm-mc -filetype=obj -triple=i686-pc-linux %p/Inputs/tls-opt-gdiele-i686.s -o %tso.o
 // RUN: llvm-mc -filetype=obj -triple=i686-pc-linux %s -o %t.o
 // RUN: ld.lld -shared %tso.o -o %tso
-// RUN: ld.lld %t.o %tso -o %tout
+// RUN: ld.lld --hash-style=sysv %t.o %tso -o %tout
 // RUN: llvm-readobj -r %tout | FileCheck --check-prefix=NORELOC %s
 // RUN: llvm-objdump -d %tout | FileCheck --check-prefix=DISASM %s
 

@@ -14,7 +14,7 @@
 // CHECK-NEXT:   }
 // CHECK-NEXT:   Symbol {
 // CHECK-NEXT:     Name: s3
-// CHECK-NEXT:     Value: 0x200125
+// CHECK-NEXT:     Value: 0x200120
 // CHECK-NEXT:     Size: 0
 // CHECK-NEXT:     Binding: Local (0x0)
 // CHECK-NEXT:     Type: Object (0x1)
@@ -23,7 +23,7 @@
 // CHECK-NEXT:   }
 // CHECK-NEXT:   Symbol {
 // CHECK-NEXT:     Name: s1
-// CHECK-NEXT:     Value: 0x200120
+// CHECK-NEXT:     Value: 0x200125
 // CHECK-NEXT:     Size: 0
 // CHECK-NEXT:     Binding: Local (0x0)
 // CHECK-NEXT:     Type: Object (0x1)

@@ -10,7 +10,7 @@
 #ifndef LLD_CORE_PASS_MANAGER_H
 #define LLD_CORE_PASS_MANAGER_H
 
-#include "lld/Core/LLVM.h"
+#include "lld/Common/LLVM.h"
 #include "lld/Core/Pass.h"
 #include "llvm/Support/Error.h"
 #include <memory>

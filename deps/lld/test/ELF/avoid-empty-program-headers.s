@@ -42,8 +42,8 @@ _start:
 // CHECK-NEXT:     Offset: 0x1000
 // CHECK-NEXT:     VirtualAddress: 0x201000
 // CHECK-NEXT:     PhysicalAddress: 0x201000
-// CHECK-NEXT:     FileSize: 1
-// CHECK-NEXT:     MemSize: 1
+// CHECK-NEXT:     FileSize: 4096
+// CHECK-NEXT:     MemSize: 4096
 // CHECK-NEXT:     Flags [ (0x5)
 // CHECK-NEXT:       PF_R (0x4)
 // CHECK-NEXT:       PF_X (0x1)
@@ -52,7 +52,7 @@ _start:
 // CHECK-NEXT:   }
 // CHECK-NEXT:   ProgramHeader {
 // CHECK-NEXT:     Type: PT_TLS (0x7)
-// CHECK-NEXT:     Offset: 0x1001
+// CHECK-NEXT:     Offset: 0x2000
 // CHECK-NEXT:     VirtualAddress: 0x201001
 // CHECK-NEXT:     PhysicalAddress: 0x201001
 // CHECK-NEXT:     FileSize: 0

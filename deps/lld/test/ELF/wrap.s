@@ -12,17 +12,31 @@
 // CHECK-NEXT: movl $0x11010, %edx
 // CHECK-NEXT: movl $0x11000, %edx
 
-// This shows an oddity of our implementation. The symbol foo gets
-// mapped to __wrap_foo, but stays in the symbol table. This results
-// in it showing up twice in the output.
+// RUN: llvm-readobj -t %t3 > %t4.dump
+// RUN: FileCheck --check-prefix=SYM1 %s < %t4.dump
+// RUN: FileCheck --check-prefix=SYM2 %s < %t4.dump
+// RUN: FileCheck --check-prefix=SYM3 %s < %t4.dump
 
-// RUN: llvm-readobj -t -s %t3 | FileCheck -check-prefix=SYM %s
-// SYM:      Name: foo
-// SYM-NEXT: Value: 0x11000
-// SYM:      Name: __wrap_foo
-// SYM-NEXT: Value: 0x11010
-// SYM:      Name: __wrap_foo
-// SYM-NEXT: Value: 0x11010
+// SYM1:      Name: foo
+// SYM1-NEXT: Value: 0x11000
+// SYM1-NEXT: Size:
+// SYM1-NEXT: Binding: Global
+// SYM1-NEXT: Type:    None
+// SYM1-NEXT: Other:   0
+// SYM2:      Name: __wrap_foo
+// SYM2-NEXT: Value: 0x11010
+// SYM2-NEXT: Size:
+// SYM2-NEXT: Binding: Weak
+// SYM2-NEXT: Type:    None
+// SYM2-NEXT: Other [
+// SYM2-NEXT:   STV_PROTECTED
+// SYM2-NEXT: ]
+// SYM3:      Name: __real_foo
+// SYM3-NEXT: Value: 0x11020
+// SYM3-NEXT: Size:
+// SYM3-NEXT: Binding: Global
+// SYM3-NEXT: Type:    None
+// SYM3-NEXT: Other:   0
 
 .global _start
 _start:

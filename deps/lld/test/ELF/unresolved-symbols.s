@@ -13,6 +13,9 @@
 # RUN: not ld.lld %t1.o %t2.o -o %t --unresolved-symbols=xxx 2>&1 | \
 # RUN:   FileCheck -check-prefix=ERR1 %s
 # ERR1: unknown --unresolved-symbols value: xxx
+## Check alias.
+# RUN: not ld.lld %t1.o %t2.o -o %t --unresolved-symbols xxx 2>&1 | \
+# RUN:   FileCheck -check-prefix=ERR1 %s
 
 ## Ignore all should not produce error for symbols from object except
 ## case when --no-undefined specified.

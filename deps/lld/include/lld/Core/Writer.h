@@ -10,7 +10,7 @@
 #ifndef LLD_CORE_WRITER_H
 #define LLD_CORE_WRITER_H
 
-#include "lld/Core/LLVM.h"
+#include "lld/Common/LLVM.h"
 #include "llvm/Support/Error.h"
 #include <memory>
 #include <vector>

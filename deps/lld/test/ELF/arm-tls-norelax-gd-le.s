@@ -1,7 +1,7 @@
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %p/Inputs/arm-tls-get-addr.s -o %t1
 // RUN: ld.lld %t1 --shared -o %t1.so
 // RUN: llvm-mc %s -o %t.o -filetype=obj -triple=armv7a-linux-gnueabi
-// RUN: ld.lld %t1.so %t.o -o %t
+// RUN: ld.lld --hash-style=sysv %t1.so %t.o -o %t
 // RUN: llvm-objdump -s %t | FileCheck %s
 // REQUIRES: arm
 
@@ -35,3 +35,7 @@ x:
 // Module index is always 1 for executable
 // CHECK-NEXT:  13060 01000000 00000000
 
+
+// Without any definition of __tls_get_addr we get an error
+// RUN: not ld.lld  %t.o -o %t 2>&1 | FileCheck --check-prefix=ERR %s
+// ERR: error: undefined symbol: __tls_get_addr

@@ -25,18 +25,18 @@ arm_fn:
  b thumb_fn
 
 // CHECK:     Name: __Thumbv7ABSLongThunk_arm_fn
-// CHECK-NEXT:     Value: 0x11005
+// CHECK-NEXT:     Value: 0x12005
 // CHECK-NEXT:     Size: 10
 // CHECK-NEXT:    Binding: Local (0x0)
 // CHECK-NEXT:    Type: Function (0x2)
 // CHECK:     Name: __ARMv7ABSLongThunk_thumb_fn
-// CHECK-NEXT:     Value: 0x11010
+// CHECK-NEXT:     Value: 0x12010
 // CHECK-NEXT:     Size: 12
 // CHECK-NEXT:    Binding: Local (0x0)
 // CHECK-NEXT:    Type: Function (0x2)
 
 // CHECK-PI:     Name: __ThumbV7PILongThunk_arm_fn
-// CHECK-PI-NEXT:     Value: 0x1005
+// CHECK-PI-NEXT:     Value: 0x2005
 // CHECK-PI-NEXT:     Size: 12
 // CHECK-PI-NEXT:    Binding: Local (0x0)
 // CHECK-PI-NEXT:    Type: Function (0x2)

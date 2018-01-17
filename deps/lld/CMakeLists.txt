@@ -160,8 +160,8 @@ endif ()
 
 # Configure the Version.inc file.
 configure_file(
-  ${CMAKE_CURRENT_SOURCE_DIR}/include/lld/Config/Version.inc.in
-  ${CMAKE_CURRENT_BINARY_DIR}/include/lld/Config/Version.inc)
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/lld/Common/Version.inc.in
+  ${CMAKE_CURRENT_BINARY_DIR}/include/lld/Common/Version.inc)
 
 
 if (CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
@@ -210,6 +210,7 @@ if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
     )
 endif()
 
+add_subdirectory(Common)
 add_subdirectory(lib)
 add_subdirectory(tools/lld)
 
@@ -221,4 +222,5 @@ endif()
 add_subdirectory(docs)
 add_subdirectory(COFF)
 add_subdirectory(ELF)
-
+add_subdirectory(MinGW)
+add_subdirectory(wasm)

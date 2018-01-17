@@ -31,19 +31,23 @@
 # RUN:   %t %t2 %t1 -o %t4 2>&1 | FileCheck -check-prefix=OBJECTD2FOO %s
 # RUN: ld.lld -y foo -y common %t %t1.so %t2 -o %t3 2>&1 | \
 # RUN:   FileCheck -check-prefix=OBJECTD2FOO %s
-# RUN: ld.lld -y foo -y common %t %t2 %t1.a -o %t3 2>&1 | \
-# RUN:   FileCheck -check-prefix=OBJECTD2FOO %s
 # OBJECTD2FOO: trace-symbols.s.tmp2: definition of foo
+
+# RUN: ld.lld -y foo -y common %t %t2 %t1.a -o %t3 2>&1 | \
+# RUN:   FileCheck -check-prefix=FOO_AND_COMMON %s
+# FOO_AND_COMMON: trace-symbols.s.tmp: reference to foo
+# FOO_AND_COMMON: trace-symbols.s.tmp2: definition of foo
+# FOO_AND_COMMON: trace-symbols.s.tmp1.a: lazy definition of common
 
 # RUN: ld.lld -y foo -y common %t %t1.so %t2 -o %t3 2>&1 | \
 # RUN:   FileCheck -check-prefix=SHLIBDCOMMON %s
-# SHLIBDCOMMON: trace-symbols.s.tmp1.so: definition of common
+# SHLIBDCOMMON: trace-symbols.s.tmp1.so: shared definition of common
 
 # RUN: ld.lld -y foo -y common %t %t2.so %t1.so -o %t3 2>&1 | \
 # RUN:   FileCheck -check-prefix=SHLIBD2FOO %s
 # RUN: ld.lld -y foo %t %t1.a %t2.so -o %t3 | \
 # RUN:   FileCheck -check-prefix=NO-SHLIBD2FOO %s
-# SHLIBD2FOO:        trace-symbols.s.tmp2.so: definition of foo
+# SHLIBD2FOO:        trace-symbols.s.tmp2.so: shared definition of foo
 # NO-SHLIBD2FOO-NOT: trace-symbols.s.tmp2.so: definition of foo
 
 # RUN: ld.lld -y foo -y common %t %t2 %t1.a -o %t3 2>&1 | \
@@ -61,7 +65,7 @@
 
 # RUN: ld.lld -y bar %t %t1.so %t2.so -o %t3 | \
 # RUN:   FileCheck -check-prefix=SHLIBDBAR %s
-# SHLIBDBAR: trace-symbols.s.tmp2.so: definition of bar
+# SHLIBDBAR: trace-symbols.s.tmp2.so: shared definition of bar
 
 # RUN: ld.lld -y foo -y bar %t %t1.so %t2.so -o %t3 | \
 # RUN:   FileCheck -check-prefix=SHLIBRBAR %s

@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
 # RUN: echo "SECTIONS { }" > %t0.script
-# RUN: ld.lld -shared %t.o -o %t0.out --script %t0.script
+# RUN: ld.lld --hash-style=sysv -shared %t.o -o %t0.out --script %t0.script
 # RUN: llvm-objdump -section-headers %t0.out | FileCheck %s --check-prefix=GOT
 # RUN: llvm-objdump -s -section=.got -section=.got.plt %t0.out \
 # RUN:   | FileCheck %s --check-prefix=GOTDATA
@@ -16,7 +16,7 @@
 # GOTDATA-NEXT:  01d0 00000000 00000000
 
 # RUN: echo "SECTIONS { .mygot : { *(.got) *(.got.plt) } }" > %t1.script
-# RUN: ld.lld -shared %t.o -o %t1.out --script %t1.script
+# RUN: ld.lld --hash-style=sysv -shared %t.o -o %t1.out --script %t1.script
 # RUN: llvm-objdump -section-headers %t1.out | FileCheck %s --check-prefix=MYGOT
 # RUN: llvm-objdump -s -section=.mygot %t1.out | FileCheck %s --check-prefix=MYGOTDATA
 

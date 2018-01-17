@@ -17,6 +17,20 @@ msg:
 # CHECK: msg:
 # CHECK:    11004:       66 6f 6f 00     oris 15, 19, 28416
 
+.section .R_PPC_ADDR16_HI,"ax",@progbits
+.globl _starti
+_starti:
+  lis 4,msgi@h
+msgi:
+  .string "foo"
+  leni = . - msgi
+
+# CHECK: Disassembly of section .R_PPC_ADDR16_HI:
+# CHECK: _starti:
+# CHECK:    11008:       3c 80 00 01     lis 4, 1
+# CHECK: msgi:
+# CHECK:    1100c:       66 6f 6f 00     oris 15, 19, 28416
+
 .section .R_PPC_ADDR16_LO,"ax",@progbits
   addi 4, 4, msg@l
 mystr:
@@ -25,9 +39,9 @@ mystr:
 
 # CHECK: Disassembly of section .R_PPC_ADDR16_LO:
 # CHECK: .R_PPC_ADDR16_LO:
-# CHECK:    11008:       38 84 10 04     addi 4, 4, 4100
+# CHECK:    11010:       38 84 10 04     addi 4, 4, 4100
 # CHECK: mystr:
-# CHECK:    1100c:       62 6c 61 68     ori 12, 19, 24936
+# CHECK:    11014:       62 6c 61 68     ori 12, 19, 24936
 
 .align  2
 .section .R_PPC_REL24,"ax",@progbits
@@ -39,7 +53,7 @@ mystr:
 
 # CHECK: Disassembly of section .R_PPC_REL24:
 # CHECK: .FR_PPC_REL24:
-# CHECK:    11014:       48 00 00 04     b .+4
+# CHECK:    1101c:       48 00 00 04     b .+4
 
 .section .R_PPC_REL32,"ax",@progbits
 .globl .FR_PPC_REL32
@@ -50,7 +64,7 @@ mystr:
 
 # CHECK: Disassembly of section .R_PPC_REL32:
 # CHECK: .FR_PPC_REL32:
-# CHECK:    11018:       00 00 00 04
+# CHECK:    11020:       00 00 00 04
 
 .section .R_PPC_ADDR32,"ax",@progbits
 .globl .FR_PPC_ADDR32
@@ -61,4 +75,16 @@ mystr:
 
 # CHECK: Disassembly of section .R_PPC_ADDR32:
 # CHECK: .FR_PPC_ADDR32:
-# CHECK:    1101c:       00 01 10 20
+# CHECK:    11024:       00 01 10 28
+
+.align  2
+.section .R_PPC_PLTREL24,"ax",@progbits
+.globl .R_PPC_PLTREL24
+.FR_PPC_PLTREL24:
+  b .Lfoox4@PLT
+.section .R_PPC_PLTREL24_2,"ax",@progbits
+.Lfoox4:
+
+# CHECK: Disassembly of section .R_PPC_PLTREL24:
+# CHECK: .R_PPC_PLTREL24:
+# CHECK:    11028:       48 00 00 04     b .+4

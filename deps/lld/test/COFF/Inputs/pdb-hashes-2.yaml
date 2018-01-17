@@ -1,0 +1,355 @@
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_I386
+  Characteristics: [  ]
+sections:
+  - Name:            .text
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       16
+    SectionData:     5589E5508B45088B4D088B09C1E1018945FC89C883C4045DC3
+  - Name:            .data
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
+    Alignment:       4
+    SectionData:     ''
+  - Name:            .bss
+    Characteristics: [ IMAGE_SCN_CNT_UNINITIALIZED_DATA, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
+    Alignment:       4
+    SectionData:     ''
+  - Name:            .drectve
+    Characteristics: [ IMAGE_SCN_LNK_INFO, IMAGE_SCN_LNK_REMOVE ]
+    Alignment:       1
+    SectionData:     202F44454641554C544C49423A6C6962636D742E6C6962202F44454641554C544C49423A6F6C646E616D65732E6C6962
+  - Name:            '.debug$S'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    SectionData:     04000000F10000002F0000002D003C1101000000070006000000000000007017000000000000636C616E672076657273696F6E20362E302E30200000F5000000640000000000000000000000190000000000000004000000000000002B000000040000000400000001000000180000000000000004000000000000005800000003000400000000000300000016000000000000000400000000000000960000000100040000000000F1000000540000002E0047110000000000000000000000001900000000000000000000000D100000000000000000004E533A3A66756E63000A003E110310000001006600120045111600000008000000070000000000120002004F11F20000002800000000000000000000001900000000000000020000001C00000000000000030000000700000004000000F1000000100000000E0008110A1000004E533A3A466F6F00F40000001800000001000000100159DFAC75D18675AED1AD169FE316317E0000F3000000D400000000443A5C7372635C6C6C766D6275696C645C636C616E675C44656275675C7838365C6F626A322E63707000245430202E7261536561726368203D202465697020245430205E203D2024657370202454302034202B203D2000245430202E7261536561726368203D202465697020245430205E203D2024657370202454302034202B203D2024656270202454302034202D205E203D200024543020246562702034202B203D202465697020245430205E203D2024657370202454302034202B203D2024656270202454302034202D205E203D200000
+    Subsections:
+      - !Symbols
+        Records:
+          - Kind:            S_COMPILE3
+            Compile3Sym:
+              Flags:           [  ]
+              Machine:         Pentium3
+              FrontendMajor:   6
+              FrontendMinor:   0
+              FrontendBuild:   0
+              FrontendQFE:     0
+              BackendMajor:    6000
+              BackendMinor:    0
+              BackendBuild:    0
+              BackendQFE:      0
+              Version:         'clang version 6.0.0 '
+      - !FrameData
+        Frames:
+          - CodeSize:        25
+            FrameFunc:       '$T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + = '
+            LocalSize:       0
+            MaxStackSize:    0
+            ParamsSize:      4
+            PrologSize:      4
+            RvaStart:        0
+            SavedRegsSize:   0
+          - CodeSize:        24
+            FrameFunc:       '$T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + = $ebp $T0 4 - ^ = '
+            LocalSize:       0
+            MaxStackSize:    0
+            ParamsSize:      4
+            PrologSize:      3
+            RvaStart:        1
+            SavedRegsSize:   4
+          - CodeSize:        22
+            FrameFunc:       '$T0 $ebp 4 + = $eip $T0 ^ = $esp $T0 4 + = $ebp $T0 4 - ^ = '
+            LocalSize:       0
+            MaxStackSize:    0
+            ParamsSize:      4
+            PrologSize:      1
+            RvaStart:        3
+            SavedRegsSize:   4
+      - !Symbols
+        Records:
+          - Kind:            S_GPROC32_ID
+            ProcSym:
+              CodeSize:        25
+              DbgStart:        0
+              DbgEnd:          0
+              FunctionType:    4109
+              Flags:           [  ]
+              DisplayName:     'NS::func'
+          - Kind:            S_LOCAL
+            LocalSym:
+              Type:            4099
+              Flags:           [ IsParameter ]
+              VarName:         f
+          - Kind:            S_DEFRANGE_REGISTER_REL
+            DefRangeRegisterRelSym:
+          - Kind:            S_PROC_ID_END
+            ScopeEndSym:
+      - !Lines
+        CodeSize:        25
+        Flags:           [  ]
+        RelocOffset:     0
+        RelocSegment:    0
+        Blocks:
+          - FileName:        'D:\src\llvmbuild\clang\Debug\x86\obj2.cpp'
+            Lines:
+              - Offset:          0
+                LineStart:       3
+                IsStatement:     false
+                EndDelta:        0
+              - Offset:          7
+                LineStart:       4
+                IsStatement:     false
+                EndDelta:        0
+            Columns:
+      - !Symbols
+        Records:
+          - Kind:            S_UDT
+            UDTSym:
+              Type:            4106
+              UDTName:         'NS::Foo'
+      - !FileChecksums
+        Checksums:
+          - FileName:        'D:\src\llvmbuild\clang\Debug\x86\obj2.cpp'
+            Kind:            MD5
+            Checksum:        59DFAC75D18675AED1AD169FE316317E
+      - !StringTable
+        Strings:
+          - 'D:\src\llvmbuild\clang\Debug\x86\obj2.cpp'
+          - '$T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + = '
+          - '$T0 .raSearch = $eip $T0 ^ = $esp $T0 4 + = $ebp $T0 4 - ^ = '
+          - '$T0 $ebp 4 + = $eip $T0 ^ = $esp $T0 4 + = $ebp $T0 4 - ^ = '
+          - ''
+    Relocations:
+      - VirtualAddress:  68
+        SymbolName:      '?func@NS@@YAHABUFoo@1@@Z'
+        Type:            IMAGE_REL_I386_DIR32NB
+      - VirtualAddress:  208
+        SymbolName:      '?func@NS@@YAHABUFoo@1@@Z'
+        Type:            IMAGE_REL_I386_SECREL
+      - VirtualAddress:  212
+        SymbolName:      '?func@NS@@YAHABUFoo@1@@Z'
+        Type:            IMAGE_REL_I386_SECTION
+      - VirtualAddress:  248
+        SymbolName:      .text
+        Type:            IMAGE_REL_I386_SECREL
+      - VirtualAddress:  252
+        SymbolName:      .text
+        Type:            IMAGE_REL_I386_SECTION
+      - VirtualAddress:  268
+        SymbolName:      '?func@NS@@YAHABUFoo@1@@Z'
+        Type:            IMAGE_REL_I386_SECREL
+      - VirtualAddress:  272
+        SymbolName:      '?func@NS@@YAHABUFoo@1@@Z'
+        Type:            IMAGE_REL_I386_SECTION
+  - Name:            '.debug$T'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    SectionData:     040000000A000516000000004E5300F12A0005150000800200000000000000000000000000004E533A3A466F6F002E3F4155466F6F404E53404000F10A000110011000000100F2F10A000210021000002A8000000A00011201000000031000000E0008107400000000000100041000000A000210011000000A8000000A00011201000000740000001A0009100300000001100000061000000B00010007100000000000001A0003120D15030074000000000058001115030008100000466F6F002A0005150200000209100000000000000000000004004E533A3A466F6F002E3F4155466F6F404E53404000F12E00051600000000443A5C7372635C6C6C766D6275696C645C636C616E675C44656275675C7838365C6F626A2E6800F10E0006160A1000000B1000000200000012000116001000000510000066756E6300F3F2F1
+    Types:
+      - Kind:            LF_STRING_ID
+        StringId:
+          Id:              0
+          String:          NS
+      - Kind:            LF_STRUCTURE
+        Class:
+          MemberCount:     0
+          Options:         [ None, ForwardReference, HasUniqueName ]
+          FieldList:       0
+          Name:            'NS::Foo'
+          UniqueName:      '.?AUFoo@NS@@'
+          DerivationList:  0
+          VTableShape:     0
+          Size:            0
+      - Kind:            LF_MODIFIER
+        Modifier:
+          ModifiedType:    4097
+          Modifiers:       [ None, Const ]
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4098
+          Attrs:           32810
+      - Kind:            LF_ARGLIST
+        ArgList:
+          ArgIndices:      [ 4099 ]
+      - Kind:            LF_PROCEDURE
+        Procedure:
+          ReturnType:      116
+          CallConv:        NearC
+          Options:         [ None ]
+          ParameterCount:  1
+          ArgumentList:    4100
+      - Kind:            LF_POINTER
+        Pointer:
+          ReferentType:    4097
+          Attrs:           32778
+      - Kind:            LF_ARGLIST
+        ArgList:
+          ArgIndices:      [ 116 ]
+      - Kind:            LF_MFUNCTION
+        MemberFunction:
+          ReturnType:      3
+          ClassType:       4097
+          ThisType:        4102
+          CallConv:        ThisCall
+          Options:         [ None ]
+          ParameterCount:  1
+          ArgumentList:    4103
+          ThisPointerAdjustment: 0
+      - Kind:            LF_FIELDLIST
+        FieldList:
+          - Kind:            LF_MEMBER
+            DataMember:
+              Attrs:           3
+              Type:            116
+              FieldOffset:     0
+              Name:            X
+          - Kind:            LF_ONEMETHOD
+            OneMethod:
+              Type:            4104
+              Attrs:           3
+              VFTableOffset:   -1
+              Name:            Foo
+      - Kind:            LF_STRUCTURE
+        Class:
+          MemberCount:     2
+          Options:         [ None, HasUniqueName ]
+          FieldList:       4105
+          Name:            'NS::Foo'
+          UniqueName:      '.?AUFoo@NS@@'
+          DerivationList:  0
+          VTableShape:     0
+          Size:            4
+      - Kind:            LF_STRING_ID
+        StringId:
+          Id:              0
+          String:          'D:\src\llvmbuild\clang\Debug\x86\obj.h'
+      - Kind:            LF_UDT_SRC_LINE
+        UdtSourceLine:
+          UDT:             4106
+          SourceFile:      4107
+          LineNumber:      2
+      - Kind:            LF_FUNC_ID
+        FuncId:
+          ParentScope:     4096
+          FunctionType:    4101
+          Name:            func
+  - Name:            '.debug$H'
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    SectionData:     C5C9330100000000EC145CD76AEFE74E78880D531132B3BB8FFACEF79E616EF06A14EA74A2420F9062A1FB04917E59759949E334BA18509ED692F3C65CE242D8450EBC78B81B63AF8316DC324562EB9F0D4A0D708E8A25C263DB05943C19B84A36719E1E414DDA3EDBDF005322238D70F9058EEDC5C50EF11BC849618B51FD89E3A50EABE5E8FE3945468547C19DC681D0BFB3B797DD91CA4D7F1953C314442D5549419E78044E38A0BF16BFFAA5EE9C0103E7DBFE9941E63379C0B0C0A9021B711ACC4F67008974EBF441031BDD653F6935DFF3112C6A5346EF2AC94B9B7EB56EF55CFA0AF6C1846743F43D846BB19517E12E8873BBA90CC41DD1BEAC89CBA8897AC1BA46762E2557A82D89DCBC783AF285D9DBB672F67A81E36906B2038B57
+    GlobalHashes:
+      Version:         0
+      HashAlgorithm:   0
+      HashValues:
+        - EC145CD76AEFE74E78880D531132B3BB8FFACEF7
+        - 9E616EF06A14EA74A2420F9062A1FB04917E5975
+        - 9949E334BA18509ED692F3C65CE242D8450EBC78
+        - B81B63AF8316DC324562EB9F0D4A0D708E8A25C2
+        - 63DB05943C19B84A36719E1E414DDA3EDBDF0053
+        - 22238D70F9058EEDC5C50EF11BC849618B51FD89
+        - E3A50EABE5E8FE3945468547C19DC681D0BFB3B7
+        - 97DD91CA4D7F1953C314442D5549419E78044E38
+        - A0BF16BFFAA5EE9C0103E7DBFE9941E63379C0B0
+        - C0A9021B711ACC4F67008974EBF441031BDD653F
+        - 6935DFF3112C6A5346EF2AC94B9B7EB56EF55CFA
+        - 0AF6C1846743F43D846BB19517E12E8873BBA90C
+        - C41DD1BEAC89CBA8897AC1BA46762E2557A82D89
+        - DCBC783AF285D9DBB672F67A81E36906B2038B57
+symbols:
+  - Name:            .text
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          25
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        1820185021
+      Number:          1
+  - Name:            .data
+    Value:           0
+    SectionNumber:   2
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          0
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          2
+  - Name:            .bss
+    Value:           0
+    SectionNumber:   3
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          0
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          3
+  - Name:            .drectve
+    Value:           0
+    SectionNumber:   4
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          48
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        149686238
+      Number:          4
+  - Name:            '.debug$S'
+    Value:           0
+    SectionNumber:   5
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          584
+      NumberOfRelocations: 7
+      NumberOfLinenumbers: 0
+      CheckSum:        2847177244
+      Number:          5
+  - Name:            '.debug$T'
+    Value:           0
+    SectionNumber:   6
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          320
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        2684556216
+      Number:          6
+  - Name:            '.debug$H'
+    Value:           0
+    SectionNumber:   7
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          288
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        2348181452
+      Number:          7
+  - Name:            '@feat.00'
+    Value:           1
+    SectionNumber:   -1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+  - Name:            '?func@NS@@YAHABUFoo@1@@Z'
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+...

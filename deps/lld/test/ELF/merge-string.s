@@ -1,10 +1,10 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
-// RUN: ld.lld -O2 %t.o -o %t.so -shared
+// RUN: ld.lld -O 2 %t.o -o %t.so -shared
 // RUN: llvm-readobj -s -section-data -t %t.so | FileCheck %s
-// RUN: ld.lld -O1 %t.o -o %t.so -shared
+// RUN: ld.lld -O 1 %t.o -o %t.so -shared
 // RUN: llvm-readobj -s -section-data -t %t.so | FileCheck --check-prefix=NOTAIL %s
-// RUN: ld.lld -O0 %t.o -o %t.so -shared
+// RUN: ld.lld -O 0 %t.o -o %t.so -shared
 // RUN: llvm-readobj -s -section-data -t %t.so | FileCheck --check-prefix=NOMERGE %s
 
         .section	.rodata1,"aMS",@progbits,1
@@ -34,7 +34,7 @@ zed:
 // CHECK-NEXT: Link: 0
 // CHECK-NEXT: Info: 0
 // CHECK-NEXT: AddressAlignment: 1
-// CHECK-NEXT: EntrySize: 0
+// CHECK-NEXT: EntrySize: 1
 // CHECK-NEXT: SectionData (
 // CHECK-NEXT:   0000: 61626300                             |abc.|
 // CHECK-NEXT: )
@@ -52,9 +52,9 @@ zed:
 // NOTAIL-NEXT: Link: 0
 // NOTAIL-NEXT: Info: 0
 // NOTAIL-NEXT: AddressAlignment: 1
-// NOTAIL-NEXT: EntrySize: 0
+// NOTAIL-NEXT: EntrySize: 1
 // NOTAIL-NEXT: SectionData (
-// NOTAIL-NEXT:   0000: 61626300 626300                     |abc.bc.|
+// NOTAIL-NEXT:   0000: 62630061 626300                     |bc.abc.|
 // NOTAIL-NEXT: )
 
 // NOMERGE:      Name:    .rodata1
@@ -88,7 +88,7 @@ zed:
 // CHECK-NEXT: Link: 0
 // CHECK-NEXT: Info: 0
 // CHECK-NEXT: AddressAlignment: 2
-// CHECK-NEXT: EntrySize: 0
+// CHECK-NEXT: EntrySize: 2
 // CHECK-NEXT: SectionData (
 // CHECK-NEXT:   0000: 14000000                             |....|
 // CHECK-NEXT: )

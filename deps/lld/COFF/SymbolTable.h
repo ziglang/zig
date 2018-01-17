@@ -31,8 +31,7 @@ class DefinedAbsolute;
 class DefinedRelative;
 class Lazy;
 class SectionChunk;
-class SymbolBody;
-struct Symbol;
+class Symbol;
 
 // SymbolTable is a bucket of all known symbols, including defined,
 // undefined, or lazy symbols (the last one is symbols in archive
@@ -66,7 +65,7 @@ public:
   // mangled symbol. This function tries to find a mangled name
   // for U from the symbol table, and if found, set the symbol as
   // a weak alias for U.
-  void mangleMaybe(SymbolBody *B);
+  void mangleMaybe(Symbol *B);
   StringRef findMangle(StringRef Name);
 
   // Build a set of COFF objects representing the combined contents of
@@ -75,15 +74,8 @@ public:
   void addCombinedLTOObjects();
   std::vector<StringRef> compileBitcodeFiles();
 
-  // The writer needs to handle DLL import libraries specially in
-  // order to create the import descriptor table.
-  std::vector<ImportFile *> ImportFiles;
-
-  // The writer needs to infer the machine type from the object files.
-  std::vector<ObjectFile *> ObjectFiles;
-
   // Creates an Undefined symbol for a given name.
-  SymbolBody *addUndefined(StringRef Name);
+  Symbol *addUndefined(StringRef Name);
 
   Symbol *addSynthetic(StringRef N, Chunk *C);
   Symbol *addAbsolute(StringRef N, uint64_t VA);
@@ -91,28 +83,35 @@ public:
   Symbol *addUndefined(StringRef Name, InputFile *F, bool IsWeakAlias);
   void addLazy(ArchiveFile *F, const Archive::Symbol Sym);
   Symbol *addAbsolute(StringRef N, COFFSymbolRef S);
-  Symbol *addRegular(InputFile *F, StringRef N, bool IsCOMDAT,
+  Symbol *addRegular(InputFile *F, StringRef N,
                      const llvm::object::coff_symbol_generic *S = nullptr,
                      SectionChunk *C = nullptr);
+  std::pair<Symbol *, bool>
+  addComdat(InputFile *F, StringRef N,
+            const llvm::object::coff_symbol_generic *S = nullptr);
   Symbol *addCommon(InputFile *F, StringRef N, uint64_t Size,
                     const llvm::object::coff_symbol_generic *S = nullptr,
                     CommonChunk *C = nullptr);
-  Symbol *addImportData(StringRef N, ImportFile *F);
-  Symbol *addImportThunk(StringRef Name, DefinedImportData *S,
-                         uint16_t Machine);
+  DefinedImportData *addImportData(StringRef N, ImportFile *F);
+  DefinedImportThunk *addImportThunk(StringRef Name, DefinedImportData *S,
+                                     uint16_t Machine);
 
   void reportDuplicate(Symbol *Existing, InputFile *NewFile);
 
   // A list of chunks which to be added to .rdata.
   std::vector<Chunk *> LocalImportChunks;
 
+  // Iterates symbols in non-determinstic hash table order.
+  template <typename T> void forEachSymbol(T Callback) {
+    for (auto &Pair : SymMap)
+      Callback(Pair.second);
+  }
+
 private:
   std::pair<Symbol *, bool> insert(StringRef Name);
   StringRef findByPrefix(StringRef Prefix);
 
-  llvm::DenseMap<llvm::CachedHashStringRef, Symbol *> Symtab;
-
-  std::vector<BitcodeFile *> BitcodeFiles;
+  llvm::DenseMap<llvm::CachedHashStringRef, Symbol *> SymMap;
   std::unique_ptr<BitcodeCompiler> LTO;
 };
 

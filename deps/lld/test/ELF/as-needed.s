@@ -15,6 +15,10 @@
 // RUN: ld.lld --as-needed %t.o %t2.so %t3.so %t4.so -o %t2
 // RUN: llvm-readobj -dynamic-table %t2 | FileCheck -check-prefix=CHECK2 %s
 
+// Test with the .o last
+// RUN: ld.lld --as-needed %t2.so %t3.so %t4.so %t.o -o %t2
+// RUN: llvm-readobj -dynamic-table %t2 | FileCheck -check-prefix=CHECK2 %s
+
 // RUN: ld.lld --as-needed %t.o %t2.so --no-as-needed %t3.so %t4.so -o %t2
 // RUN: llvm-readobj -dynamic-table %t2 | FileCheck %s
 

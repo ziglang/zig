@@ -13,7 +13,7 @@
 #include "Atoms.h"
 #include "File.h"
 #include "MachONormalizedFile.h"
-#include "lld/Core/LLVM.h"
+#include "lld/Common/LLVM.h"
 #include "lld/Core/Error.h"
 #include "lld/Core/Reference.h"
 #include "lld/Core/Simple.h"

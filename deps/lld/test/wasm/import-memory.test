@@ -1,0 +1,13 @@
+# RUN: llc -filetype=obj -mtriple=wasm32-unknown-unknown-wasm %p/Inputs/ret32.ll -o %t.ret32.o
+# RUN: lld -flavor wasm -entry ret32 --import-memory -o %t.wasm %t.ret32.o
+# RUN: obj2yaml %t.wasm | FileCheck %s
+
+# Verify the --import-memory flag creates a memory import
+
+# CHECK:       - Type:            IMPORT
+# CHECK-NEXT:    Imports:         
+# CHECK-NEXT:      - Module:          env
+# CHECK-NEXT:        Field:           memory
+# CHECK-NEXT:        Kind:            MEMORY
+# CHECK-NEXT:        Memory:          
+# CHECK-NEXT:          Initial:         0x00000002

@@ -62,6 +62,19 @@ symbols:
       CheckSum:        0
       Number:          0
       Selection:       IMAGE_COMDAT_SELECT_ANY
+  - Name:            '.text$mn'
+    Value:           0
+    SectionNumber:   3
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          6
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          0
+      Selection:       IMAGE_COMDAT_SELECT_ANY
   - Name:            main
     Value:           0
     SectionNumber:   1

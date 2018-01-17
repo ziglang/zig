@@ -1,0 +1,210 @@
+// REQUIRES: arm, aarch64
+
+// RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %p/Inputs/arm-shared.s -o %t.a32.so.o
+// RUN: ld.lld -shared %t.a32.so.o -o %t.a32.so
+// RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t.a32
+// RUN: ld.lld -pie --pack-dyn-relocs=none %t.a32 %t.a32.so -o %t2.a32
+// RUN: llvm-readobj -relocations %t2.a32 | FileCheck --check-prefix=UNPACKED32 %s
+// RUN: ld.lld -pie --pack-dyn-relocs=android %t.a32 %t.a32.so -o %t3.a32
+// RUN: llvm-readobj -s -dynamic-table %t3.a32 | FileCheck --check-prefix=PACKED32-HEADERS %s
+// RUN: llvm-readobj -relocations %t3.a32 | FileCheck --check-prefix=PACKED32 %s
+
+// Unpacked should have the relative relocations in their natural order.
+// UNPACKED32:          0x1000 R_ARM_RELATIVE - 0x0
+// UNPACKED32-NEXT:     0x1004 R_ARM_RELATIVE - 0x0
+// UNPACKED32-NEXT:     0x1008 R_ARM_RELATIVE - 0x0
+// UNPACKED32-NEXT:     0x100C R_ARM_RELATIVE - 0x0
+// UNPACKED32-NEXT:     0x1010 R_ARM_RELATIVE - 0x0
+// UNPACKED32-NEXT:     0x1014 R_ARM_RELATIVE - 0x0
+// UNPACKED32-NEXT:     0x1018 R_ARM_RELATIVE - 0x0
+// UNPACKED32-NEXT:     0x101C R_ARM_RELATIVE - 0x0
+
+// UNPACKED32-NEXT:     0x1024 R_ARM_RELATIVE - 0x0
+// UNPACKED32-NEXT:     0x1028 R_ARM_RELATIVE - 0x0
+// UNPACKED32-NEXT:     0x102C R_ARM_RELATIVE - 0x0
+// UNPACKED32-NEXT:     0x1030 R_ARM_RELATIVE - 0x0
+// UNPACKED32-NEXT:     0x1034 R_ARM_RELATIVE - 0x0
+// UNPACKED32-NEXT:     0x1038 R_ARM_RELATIVE - 0x0
+// UNPACKED32-NEXT:     0x103C R_ARM_RELATIVE - 0x0
+
+// UNPACKED32-NEXT:     0x1044 R_ARM_RELATIVE - 0x0
+// UNPACKED32-NEXT:     0x1048 R_ARM_RELATIVE - 0x0
+// UNPACKED32-NEXT:     0x104C R_ARM_RELATIVE - 0x0
+// UNPACKED32-NEXT:     0x1050 R_ARM_RELATIVE - 0x0
+// UNPACKED32-NEXT:     0x1054 R_ARM_RELATIVE - 0x0
+// UNPACKED32-NEXT:     0x1058 R_ARM_RELATIVE - 0x0
+// UNPACKED32-NEXT:     0x105C R_ARM_RELATIVE - 0x0
+// UNPACKED32-NEXT:     0x1060 R_ARM_RELATIVE - 0x0
+// UNPACKED32-NEXT:     0x1064 R_ARM_RELATIVE - 0x0
+
+// UNPACKED32-NEXT:     0x1020 R_ARM_ABS32 bar2 0x0
+// UNPACKED32-NEXT:     0x1040 R_ARM_ABS32 zed2 0x0
+
+// PACKED32-HEADERS:       Index: 1
+// PACKED32-HEADERS-NEXT:  Name: .dynsym
+
+// PACKED32-HEADERS:       Name: .rel.dyn
+// PACKED32-HEADERS-NEXT:  Type: SHT_ANDROID_REL
+// PACKED32-HEADERS-NEXT:  Flags [ (0x2)
+// PACKED32-HEADERS-NEXT:    SHF_ALLOC (0x2)
+// PACKED32-HEADERS-NEXT:  ]
+// PACKED32-HEADERS-NEXT:  Address: [[ADDR:.*]]
+// PACKED32-HEADERS-NEXT:  Offset: [[ADDR]]
+// PACKED32-HEADERS-NEXT:  Size: [[SIZE:.*]]
+// PACKED32-HEADERS-NEXT:  Link: 1
+// PACKED32-HEADERS-NEXT:  Info: 0
+// PACKED32-HEADERS-NEXT:  AddressAlignment: 4
+// PACKED32-HEADERS-NEXT:  EntrySize: 1
+
+// PACKED32-HEADERS: 0x6000000F ANDROID_REL          [[ADDR]]
+// PACKED32-HEADERS: 0x60000010 ANDROID_RELSZ        [[SIZE]]
+
+// Packed should have the larger groups of relative relocations first,
+// i.e. the 8 and 9 followed by the 7.
+// PACKED32:          0x1000 R_ARM_RELATIVE - 0x0
+// PACKED32-NEXT:     0x1004 R_ARM_RELATIVE - 0x0
+// PACKED32-NEXT:     0x1008 R_ARM_RELATIVE - 0x0
+// PACKED32-NEXT:     0x100C R_ARM_RELATIVE - 0x0
+// PACKED32-NEXT:     0x1010 R_ARM_RELATIVE - 0x0
+// PACKED32-NEXT:     0x1014 R_ARM_RELATIVE - 0x0
+// PACKED32-NEXT:     0x1018 R_ARM_RELATIVE - 0x0
+// PACKED32-NEXT:     0x101C R_ARM_RELATIVE - 0x0
+
+// PACKED32-NEXT:     0x1044 R_ARM_RELATIVE - 0x0
+// PACKED32-NEXT:     0x1048 R_ARM_RELATIVE - 0x0
+// PACKED32-NEXT:     0x104C R_ARM_RELATIVE - 0x0
+// PACKED32-NEXT:     0x1050 R_ARM_RELATIVE - 0x0
+// PACKED32-NEXT:     0x1054 R_ARM_RELATIVE - 0x0
+// PACKED32-NEXT:     0x1058 R_ARM_RELATIVE - 0x0
+// PACKED32-NEXT:     0x105C R_ARM_RELATIVE - 0x0
+// PACKED32-NEXT:     0x1060 R_ARM_RELATIVE - 0x0
+// PACKED32-NEXT:     0x1064 R_ARM_RELATIVE - 0x0
+
+// PACKED32-NEXT:     0x1024 R_ARM_RELATIVE - 0x0
+// PACKED32-NEXT:     0x1028 R_ARM_RELATIVE - 0x0
+// PACKED32-NEXT:     0x102C R_ARM_RELATIVE - 0x0
+// PACKED32-NEXT:     0x1030 R_ARM_RELATIVE - 0x0
+// PACKED32-NEXT:     0x1034 R_ARM_RELATIVE - 0x0
+// PACKED32-NEXT:     0x1038 R_ARM_RELATIVE - 0x0
+// PACKED32-NEXT:     0x103C R_ARM_RELATIVE - 0x0
+
+// PACKED32-NEXT:     0x1020 R_ARM_ABS32 bar2 0x0
+// PACKED32-NEXT:     0x1040 R_ARM_ABS32 zed2 0x0
+
+// RUN: llvm-mc -filetype=obj -triple=aarch64-unknown-linux %p/Inputs/shared2.s -o %t.a64.so.o
+// RUN: ld.lld -shared %t.a64.so.o -o %t.a64.so
+// RUN: llvm-mc -filetype=obj -triple=aarch64-unknown-linux %s -o %t.a64
+// RUN: ld.lld -pie --pack-dyn-relocs=none %t.a64 %t.a64.so -o %t2.a64
+// RUN: llvm-readobj -relocations %t2.a64 | FileCheck --check-prefix=UNPACKED64 %s
+// RUN: ld.lld -pie --pack-dyn-relocs=android %t.a64 %t.a64.so -o %t3.a64
+// RUN: llvm-readobj -s -dynamic-table %t3.a64 | FileCheck --check-prefix=PACKED64-HEADERS %s
+// RUN: llvm-readobj -relocations %t3.a64 | FileCheck --check-prefix=PACKED64 %s
+
+// UNPACKED64:          0x10000 R_AARCH64_RELATIVE - 0x1
+// UNPACKED64-NEXT:     0x10008 R_AARCH64_RELATIVE - 0x2
+// UNPACKED64-NEXT:     0x10010 R_AARCH64_RELATIVE - 0x3
+// UNPACKED64-NEXT:     0x10018 R_AARCH64_RELATIVE - 0x4
+// UNPACKED64-NEXT:     0x10020 R_AARCH64_RELATIVE - 0x5
+// UNPACKED64-NEXT:     0x10028 R_AARCH64_RELATIVE - 0x6
+// UNPACKED64-NEXT:     0x10030 R_AARCH64_RELATIVE - 0x7
+// UNPACKED64-NEXT:     0x10038 R_AARCH64_RELATIVE - 0x8
+
+// UNPACKED64-NEXT:     0x10048 R_AARCH64_RELATIVE - 0x1
+// UNPACKED64-NEXT:     0x10050 R_AARCH64_RELATIVE - 0x2
+// UNPACKED64-NEXT:     0x10058 R_AARCH64_RELATIVE - 0x3
+// UNPACKED64-NEXT:     0x10060 R_AARCH64_RELATIVE - 0x4
+// UNPACKED64-NEXT:     0x10068 R_AARCH64_RELATIVE - 0x5
+// UNPACKED64-NEXT:     0x10070 R_AARCH64_RELATIVE - 0x6
+// UNPACKED64-NEXT:     0x10078 R_AARCH64_RELATIVE - 0x7
+
+// UNPACKED64-NEXT:     0x10088 R_AARCH64_RELATIVE - 0x1
+// UNPACKED64-NEXT:     0x10090 R_AARCH64_RELATIVE - 0x2
+// UNPACKED64-NEXT:     0x10098 R_AARCH64_RELATIVE - 0x3
+// UNPACKED64-NEXT:     0x100A0 R_AARCH64_RELATIVE - 0x4
+// UNPACKED64-NEXT:     0x100A8 R_AARCH64_RELATIVE - 0x5
+// UNPACKED64-NEXT:     0x100B0 R_AARCH64_RELATIVE - 0x6
+// UNPACKED64-NEXT:     0x100B8 R_AARCH64_RELATIVE - 0x7
+// UNPACKED64-NEXT:     0x100C0 R_AARCH64_RELATIVE - 0x8
+// UNPACKED64-NEXT:     0x100C8 R_AARCH64_RELATIVE - 0x9
+
+// UNPACKED64-NEXT:     0x10040 R_AARCH64_ABS64 bar2 0x1
+// UNPACKED64-NEXT:     0x10080 R_AARCH64_ABS64 zed2 0x0
+
+// PACKED64:          0x10000 R_AARCH64_RELATIVE - 0x1
+// PACKED64-NEXT:     0x10008 R_AARCH64_RELATIVE - 0x2
+// PACKED64-NEXT:     0x10010 R_AARCH64_RELATIVE - 0x3
+// PACKED64-NEXT:     0x10018 R_AARCH64_RELATIVE - 0x4
+// PACKED64-NEXT:     0x10020 R_AARCH64_RELATIVE - 0x5
+// PACKED64-NEXT:     0x10028 R_AARCH64_RELATIVE - 0x6
+// PACKED64-NEXT:     0x10030 R_AARCH64_RELATIVE - 0x7
+// PACKED64-NEXT:     0x10038 R_AARCH64_RELATIVE - 0x8
+
+// PACKED64-NEXT:     0x10088 R_AARCH64_RELATIVE - 0x1
+// PACKED64-NEXT:     0x10090 R_AARCH64_RELATIVE - 0x2
+// PACKED64-NEXT:     0x10098 R_AARCH64_RELATIVE - 0x3
+// PACKED64-NEXT:     0x100A0 R_AARCH64_RELATIVE - 0x4
+// PACKED64-NEXT:     0x100A8 R_AARCH64_RELATIVE - 0x5
+// PACKED64-NEXT:     0x100B0 R_AARCH64_RELATIVE - 0x6
+// PACKED64-NEXT:     0x100B8 R_AARCH64_RELATIVE - 0x7
+// PACKED64-NEXT:     0x100C0 R_AARCH64_RELATIVE - 0x8
+// PACKED64-NEXT:     0x100C8 R_AARCH64_RELATIVE - 0x9
+
+// PACKED64-NEXT:     0x10048 R_AARCH64_RELATIVE - 0x1
+// PACKED64-NEXT:     0x10050 R_AARCH64_RELATIVE - 0x2
+// PACKED64-NEXT:     0x10058 R_AARCH64_RELATIVE - 0x3
+// PACKED64-NEXT:     0x10060 R_AARCH64_RELATIVE - 0x4
+// PACKED64-NEXT:     0x10068 R_AARCH64_RELATIVE - 0x5
+// PACKED64-NEXT:     0x10070 R_AARCH64_RELATIVE - 0x6
+// PACKED64-NEXT:     0x10078 R_AARCH64_RELATIVE - 0x7
+
+// PACKED64-NEXT:     0x10040 R_AARCH64_ABS64 bar2 0x1
+// PACKED64-NEXT:     0x10080 R_AARCH64_ABS64 zed2 0x0
+
+// PACKED64-HEADERS:       Index: 1
+// PACKED64-HEADERS-NEXT:  Name: .dynsym
+
+// PACKED64-HEADERS:       Name: .rela.dyn
+// PACKED64-HEADERS-NEXT:  Type: SHT_ANDROID_RELA
+// PACKED64-HEADERS-NEXT:  Flags [ (0x2)
+// PACKED64-HEADERS-NEXT:    SHF_ALLOC (0x2)
+// PACKED64-HEADERS-NEXT:  ]
+// PACKED64-HEADERS-NEXT:  Address: [[ADDR:.*]]
+// PACKED64-HEADERS-NEXT:  Offset: [[ADDR]]
+// PACKED64-HEADERS-NEXT:  Size: [[SIZE:.*]]
+// PACKED64-HEADERS-NEXT:  Link: 1
+// PACKED64-HEADERS-NEXT:  Info: 0
+// PACKED64-HEADERS-NEXT:  AddressAlignment: 8
+// PACKED64-HEADERS-NEXT:  EntrySize: 1
+
+// PACKED64-HEADERS: 0x0000000060000011 ANDROID_RELA          [[ADDR]]
+// PACKED64-HEADERS: 0x0000000060000012 ANDROID_RELASZ        [[SIZE]]
+
+.data
+.dc.a __ehdr_start + 1
+.dc.a __ehdr_start + 2
+.dc.a __ehdr_start + 3
+.dc.a __ehdr_start + 4
+.dc.a __ehdr_start + 5
+.dc.a __ehdr_start + 6
+.dc.a __ehdr_start + 7
+.dc.a __ehdr_start + 8
+.dc.a bar2 + 1
+
+.dc.a __ehdr_start + 1
+.dc.a __ehdr_start + 2
+.dc.a __ehdr_start + 3
+.dc.a __ehdr_start + 4
+.dc.a __ehdr_start + 5
+.dc.a __ehdr_start + 6
+.dc.a __ehdr_start + 7
+.dc.a zed2
+
+.dc.a __ehdr_start + 1
+.dc.a __ehdr_start + 2
+.dc.a __ehdr_start + 3
+.dc.a __ehdr_start + 4
+.dc.a __ehdr_start + 5
+.dc.a __ehdr_start + 6
+.dc.a __ehdr_start + 7
+.dc.a __ehdr_start + 8
+.dc.a __ehdr_start + 9

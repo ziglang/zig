@@ -1,6 +1,6 @@
 // REQUIRES: arm
 // RUN: llvm-mc -position-independent -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t.o
-// RUN: ld.lld %t.o -shared -o %t
+// RUN: ld.lld --hash-style=sysv %t.o -shared -o %t
 // RUN: llvm-readobj -s -symbols -dyn-relocations %t | FileCheck %s
 // RUN: llvm-objdump -d -triple=armv7a-none-linux-gnueabi %t | FileCheck -check-prefix=CODE %s
  .syntax unified

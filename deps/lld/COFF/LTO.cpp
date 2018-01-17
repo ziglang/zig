@@ -9,15 +9,16 @@
 
 #include "LTO.h"
 #include "Config.h"
-#include "Error.h"
 #include "InputFiles.h"
 #include "Symbols.h"
-#include "lld/Core/TargetOptionsCommandFlags.h"
+#include "lld/Common/ErrorHandler.h"
+#include "lld/Common/TargetOptionsCommandFlags.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/IR/DiagnosticPrinter.h"
+#include "llvm/LTO/Caching.h"
 #include "llvm/LTO/Config.h"
 #include "llvm/LTO/LTO.h"
 #include "llvm/Object/SymbolicFile.h"
@@ -48,10 +49,8 @@ static void diagnosticHandler(const DiagnosticInfo &DI) {
 }
 
 static void checkError(Error E) {
-  handleAllErrors(std::move(E), [&](ErrorInfoBase &EIB) -> Error {
-    error(EIB.message());
-    return Error::success();
-  });
+  handleAllErrors(std::move(E),
+                  [&](ErrorInfoBase &EIB) { error(EIB.message()); });
 }
 
 static void saveBuffer(StringRef Buffer, const Twine &Path) {
@@ -65,7 +64,13 @@ static void saveBuffer(StringRef Buffer, const Twine &Path) {
 static std::unique_ptr<lto::LTO> createLTO() {
   lto::Config Conf;
   Conf.Options = InitTargetOptionsFromCodeGenFlags();
-  Conf.RelocModel = Reloc::PIC_;
+  // Use static reloc model on 32-bit x86 because it usually results in more
+  // compact code, and because there are also known code generation bugs when
+  // using the PIC model (see PR34306).
+  if (Config->Machine == COFF::IMAGE_FILE_MACHINE_I386)
+    Conf.RelocModel = Reloc::Static;
+  else
+    Conf.RelocModel = Reloc::PIC_;
   Conf.DisableVerify = true;
   Conf.DiagHandler = diagnosticHandler;
   Conf.OptLevel = Config->LTOOptLevel;
@@ -83,20 +88,17 @@ BitcodeCompiler::BitcodeCompiler() : LTOObj(createLTO()) {}
 
 BitcodeCompiler::~BitcodeCompiler() = default;
 
-static void undefine(Symbol *S) {
-  replaceBody<Undefined>(S, S->body()->getName());
-}
+static void undefine(Symbol *S) { replaceSymbol<Undefined>(S, S->getName()); }
 
 void BitcodeCompiler::add(BitcodeFile &F) {
   lto::InputFile &Obj = *F.Obj;
   unsigned SymNum = 0;
-  std::vector<SymbolBody *> SymBodies = F.getSymbols();
+  std::vector<Symbol *> SymBodies = F.getSymbols();
   std::vector<lto::SymbolResolution> Resols(SymBodies.size());
 
   // Provide a resolution to the LTO API for each symbol.
   for (const lto::InputFile::Symbol &ObjSym : Obj.symbols()) {
-    SymbolBody *B = SymBodies[SymNum];
-    Symbol *Sym = B->symbol();
+    Symbol *Sym = SymBodies[SymNum];
     lto::SymbolResolution &R = Resols[SymNum];
     ++SymNum;
 
@@ -105,7 +107,7 @@ void BitcodeCompiler::add(BitcodeFile &F) {
     // flags an undefined in IR with a definition in ASM as prevailing.
     // Once IRObjectFile is fixed to report only one symbol this hack can
     // be removed.
-    R.Prevailing = !ObjSym.isUndefined() && B->getFile() == &F;
+    R.Prevailing = !ObjSym.isUndefined() && Sym->getFile() == &F;
     R.VisibleToRegularObj = Sym->IsUsedInRegularObj;
     if (R.Prevailing)
       undefine(Sym);
@@ -118,11 +120,27 @@ void BitcodeCompiler::add(BitcodeFile &F) {
 std::vector<StringRef> BitcodeCompiler::compile() {
   unsigned MaxTasks = LTOObj->getMaxTasks();
   Buff.resize(MaxTasks);
+  Files.resize(MaxTasks);
 
-  checkError(LTOObj->run([&](size_t Task) {
-    return llvm::make_unique<lto::NativeObjectStream>(
-        llvm::make_unique<raw_svector_ostream>(Buff[Task]));
-  }));
+  // The /lldltocache option specifies the path to a directory in which to cache
+  // native object files for ThinLTO incremental builds. If a path was
+  // specified, configure LTO to use it as the cache directory.
+  lto::NativeObjectCache Cache;
+  if (!Config->LTOCache.empty())
+    Cache = check(
+        lto::localCache(Config->LTOCache,
+                        [&](size_t Task, std::unique_ptr<MemoryBuffer> MB,
+                            StringRef Path) { Files[Task] = std::move(MB); }));
+
+  checkError(LTOObj->run(
+      [&](size_t Task) {
+        return llvm::make_unique<lto::NativeObjectStream>(
+            llvm::make_unique<raw_svector_ostream>(Buff[Task]));
+      },
+      Cache));
+
+  if (!Config->LTOCache.empty())
+    pruneCache(Config->LTOCache, Config->LTOCachePolicy);
 
   std::vector<StringRef> Ret;
   for (unsigned I = 0; I != MaxTasks; ++I) {
@@ -136,5 +154,10 @@ std::vector<StringRef> BitcodeCompiler::compile() {
     }
     Ret.emplace_back(Buff[I].data(), Buff[I].size());
   }
+
+  for (std::unique_ptr<MemoryBuffer> &File : Files)
+    if (File)
+      Ret.push_back(File->getBuffer());
+
   return Ret;
 }

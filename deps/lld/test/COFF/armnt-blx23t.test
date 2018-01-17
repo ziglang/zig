@@ -37,7 +37,7 @@ sections:
     Relocations:
       - VirtualAddress:  12
         SymbolName:      identity
-        Type:            21
+        Type:            IMAGE_REL_ARM_BLX23T
 symbols:
   - Name:            .text
     Value:           0

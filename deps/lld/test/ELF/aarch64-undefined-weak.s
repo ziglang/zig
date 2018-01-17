@@ -30,9 +30,11 @@ _start:
  .xword target - .
 // R_AARCH64_PREL16
  .hword target - .
+// R_AARCH64_LD_PREL_LO19
+ ldr x8, target
 
 // CHECK: Disassembly of section .text:
-// 131076 = 0x20004
+// 131072 = 0x20000
 // CHECK:         20000: {{.*}} b       #4
 // CHECK-NEXT:    20004: {{.*}} bl      #4
 // CHECK-NEXT:    20008: {{.*}} b.eq    #4
@@ -43,3 +45,5 @@ _start:
 // CHECK-NEXT:    2001c: {{.*}} .word   0x00000000
 // CHECK-NEXT:    20020: {{.*}} .word   0x00000000
 // CHECK-NEXT:    20024: {{.*}} .short  0x0000
+// CHECK:         $x.2:
+// CHECK-NEXT:    20026: {{.*}} ldr     x8, #0

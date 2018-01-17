@@ -28,6 +28,8 @@
 // Should substitute SysRoot if specified
 // RUN: ld.lld -o %t/r %t/m.o --sysroot=%t -L=lib -l:libls.a
 // RUN: ld.lld -o %t/r %t/m.o --sysroot=%t -L=/lib -l:libls.a
+// Check alias.
+// RUN: ld.lld -o %t/r %t/m.o --sysroot %t -L=lib -l:libls.a
 
 // Should not substitute SysRoot if the directory name does not start with '='
 // RUN: not ld.lld -o %t/r %r/m.o --sysroot=%t -Llib -l:libls.a

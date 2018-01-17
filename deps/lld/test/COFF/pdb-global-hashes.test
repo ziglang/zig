@@ -1,0 +1,93 @@
+RUN: yaml2obj %p/Inputs/pdb-hashes-1.yaml > %t.1.obj
+RUN: yaml2obj %p/Inputs/pdb-hashes-2.yaml > %t.2.obj
+RUN: yaml2obj %p/Inputs/pdb-hashes-2-missing.yaml > %t.2.missing.obj
+RUN: lld-link /debug %t.1.obj %t.2.obj /entry:main /nodefaultlib /PDB:%t.nohash.pdb
+RUN: lld-link /debug:ghash %t.1.obj %t.2.obj /entry:main /nodefaultlib /PDB:%t.hash.pdb
+RUN: lld-link /debug:ghash %t.1.obj %t.2.missing.obj /entry:main /nodefaultlib /PDB:%t.mixed.pdb
+RUN: llvm-pdbutil dump -types -ids %t.nohash.pdb | FileCheck %s
+RUN: llvm-pdbutil dump -types -ids %t.hash.pdb | FileCheck %s
+RUN: llvm-pdbutil dump -types -ids %t.mixed.pdb | FileCheck %s
+
+; These object files were generated via the following inputs and commands:
+; ----------------------------------------------
+; // obj.h
+; namespace NS {
+;   struct Foo {
+;     explicit Foo(int x) : X(x) {}
+;     int X;
+;   };
+;
+;   int func(const Foo &f);
+; }
+; ----------------------------------------------
+; // obj1.cpp
+; #include "obj.h"
+;
+; int main(int argc, char **argv) {
+;   NS::Foo f(argc);
+;   return NS::func(f);
+; }
+; ----------------------------------------------
+; // obj2.cpp
+; #include "obj.h"
+;
+; int NS::func(const Foo &f) {
+;   return 2 * f.X;
+; }
+; ----------------------------------------------
+; $ clang-cl /Z7 /GS- obj1.cpp /c /o obj1.obj
+; $ clang-cl /Z7 /GS- obj2.cpp /c /o obj2.obj
+
+CHECK:                           Types (TPI Stream)
+CHECK-NEXT: ============================================================
+CHECK-NEXT:   Showing 13 records
+CHECK-NEXT:   0x1000 | LF_POINTER [size = 12]
+CHECK-NEXT:            referent = 0x0470 (char*), mode = pointer, opts = None, kind = ptr32
+CHECK-NEXT:   0x1001 | LF_ARGLIST [size = 16]
+CHECK-NEXT:            0x0074 (int): `int`
+CHECK-NEXT:            0x1000: `char**`
+CHECK-NEXT:   0x1002 | LF_PROCEDURE [size = 16]
+CHECK-NEXT:            return type = 0x0074 (int), # args = 2, param list = 0x1001
+CHECK-NEXT:            calling conv = cdecl, options = None
+CHECK-NEXT:   0x1003 | LF_STRUCTURE [size = 44] `NS::Foo`
+CHECK-NEXT:            unique name: `.?AUFoo@NS@@`
+CHECK-NEXT:            vtable: <no type>, base list: <no type>, field list: <no type>
+CHECK-NEXT:            options: forward ref | has unique name
+CHECK-NEXT:   0x1004 | LF_POINTER [size = 12]
+CHECK-NEXT:            referent = 0x1003, mode = pointer, opts = None, kind = ptr32
+CHECK-NEXT:   0x1005 | LF_ARGLIST [size = 12]
+CHECK-NEXT:            0x0074 (int): `int`
+CHECK-NEXT:   0x1006 | LF_MFUNCTION [size = 28]
+CHECK-NEXT:            return type = 0x0003 (void), # args = 1, param list = 0x1005
+CHECK-NEXT:            class type = 0x1003, this type = 0x1004, this adjust = 0
+CHECK-NEXT:            calling conv = thiscall, options = None
+CHECK-NEXT:   0x1007 | LF_FIELDLIST [size = 28]
+CHECK-NEXT:            - LF_MEMBER [name = `X`, Type = 0x0074 (int), offset = 0, attrs = public]
+CHECK-NEXT:            - LF_ONEMETHOD [name = `Foo`]
+CHECK-NEXT:              type = 0x1006, vftable offset = -1, attrs = public
+CHECK-NEXT:   0x1008 | LF_STRUCTURE [size = 44] `NS::Foo`
+CHECK-NEXT:            unique name: `.?AUFoo@NS@@`
+CHECK-NEXT:            vtable: <no type>, base list: <no type>, field list: 0x1007
+CHECK-NEXT:            options: has unique name
+CHECK-NEXT:   0x1009 | LF_MODIFIER [size = 12]
+CHECK-NEXT:            referent = 0x1003, modifiers = const
+CHECK-NEXT:   0x100A | LF_POINTER [size = 12]
+CHECK-NEXT:            referent = 0x1009, mode = ref, opts = None, kind = ptr32
+CHECK-NEXT:   0x100B | LF_ARGLIST [size = 12]
+CHECK-NEXT:            0x100A: `const NS::Foo&`
+CHECK-NEXT:   0x100C | LF_PROCEDURE [size = 16]
+CHECK-NEXT:            return type = 0x0074 (int), # args = 1, param list = 0x100B
+CHECK-NEXT:            calling conv = cdecl, options = None
+CHECK:                           Types (IPI Stream)
+CHECK-NEXT: ============================================================
+CHECK-NEXT:   Showing 6 records
+CHECK-NEXT:   0x1000 | LF_FUNC_ID [size = 20]
+CHECK-NEXT:            name = main, type = 0x1002, parent scope = <no type>
+CHECK-NEXT:   0x1001 | LF_STRING_ID [size = 48] ID: <no type>, String: D:\src\llvmbuild\clang\Debug\x86\obj.h
+CHECK-NEXT:   0x1002 | LF_UDT_SRC_LINE [size = 16]
+CHECK-NEXT:            udt = 0x1008, file = 4097, line = 2
+CHECK-NEXT:   0x1003 | LF_MFUNC_ID [size = 16]
+CHECK-NEXT:            name = Foo, type = 0x1006, class type = 0x1003
+CHECK-NEXT:   0x1004 | LF_STRING_ID [size = 12] ID: <no type>, String: NS
+CHECK-NEXT:   0x1005 | LF_FUNC_ID [size = 20]
+CHECK-NEXT:            name = func, type = 0x100C, parent scope = 0x1004

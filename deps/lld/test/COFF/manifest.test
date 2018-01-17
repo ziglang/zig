@@ -57,10 +57,24 @@ DEPENDENCY:     </dependentAssembly>
 DEPENDENCY:   </dependency>
 DEPENDENCY: </assembly>
 
-# RUN: lld-link /manifest /out:%t.exe /entry:main /manifestuac:no %t.obj
+# RUN: lld-link /manifest /out:%t.exe /entry:main /manifestuac:no \
+# RUN:   /manifestdependency:"foo='bar'" %t.obj
 # RUN: FileCheck -check-prefix=NOUAC %s < %t.exe.manifest
 
 NOUAC: <?xml version="1.0" standalone="yes"?>
 NOUAC: <assembly xmlns="urn:schemas-microsoft-com:asm.v1"
 NOUAC:           manifestVersion="1.0">
+NOUAC:   <dependency>
+NOUAC:     <dependentAssembly>
+NOUAC:       <assemblyIdentity foo='bar' />
+NOUAC:     </dependentAssembly>
+NOUAC:   </dependency>
 NOUAC: </assembly>
+
+# RUN: lld-link /manifest /out:%t.exe /entry:main /manifestuac:no %t.obj
+# RUN: FileCheck -check-prefix=NOUACNODEP %s < %t.exe.manifest
+
+NOUACNODEP: <?xml version="1.0" standalone="yes"?>
+NOUACNODEP: <assembly xmlns="urn:schemas-microsoft-com:asm.v1"
+NOUACNODEP:           manifestVersion="1.0">
+NOUACNODEP: </assembly>

@@ -9,10 +9,6 @@
 # RUN: llvm-readobj -program-headers %t2 | FileCheck %s
 
 # CHECK:      Type: PT_LOAD
-# CHECK-NEXT:   Offset: 0x0
-# CHECK-NEXT:   VirtualAddress: 0x0
-# CHECK-NEXT:   PhysicalAddress: 0x0
-# CHECK:      Type: PT_LOAD
 # CHECK-NEXT:   Offset: 0x1000
 # CHECK-NEXT:   VirtualAddress: 0x1000
 # CHECK-NEXT:   PhysicalAddress: 0xB00

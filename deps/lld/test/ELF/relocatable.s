@@ -81,7 +81,7 @@
 # CHECKEXE-NEXT:    Version: 1
 # CHECKEXE-NEXT:    Entry: 0x201000
 # CHECKEXE-NEXT:    ProgramHeaderOffset: 0x40
-# CHECKEXE-NEXT:    SectionHeaderOffset: 0x11F8
+# CHECKEXE-NEXT:    SectionHeaderOffset: 0x21A0
 # CHECKEXE-NEXT:    Flags [
 # CHECKEXE-NEXT:    ]
 # CHECKEXE-NEXT:    HeaderSize: 64

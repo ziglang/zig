@@ -16,7 +16,7 @@
 
 namespace lld {
 namespace coff {
-llvm::Optional<std::string> demangle(llvm::StringRef S);
+llvm::Optional<std::string> demangleMSVC(llvm::StringRef S);
 }
 }
 

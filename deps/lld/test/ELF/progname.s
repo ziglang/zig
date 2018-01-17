@@ -1,6 +1,6 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
-// RUN: echo .global __progname > %t2.s
+// RUN: echo ".global __progname; .data; .dc.a __progname" > %t2.s
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %t2.s -o %t2.o
 // RUN: ld.lld -shared %t2.o -o %t2.so
 // RUN: ld.lld -o %t %t.o %t2.so

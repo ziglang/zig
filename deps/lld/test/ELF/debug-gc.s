@@ -4,11 +4,11 @@
 # RUN: llvm-objdump -s %t1 | FileCheck %s
 
 # CHECK:      Contents of section .debug_str:
-# CHECK-NEXT:  0000 41414100 42424200 43434300           AAA.BBB.CCC.
+# CHECK-NEXT:  0000 41414100 43434300 42424200           AAA.CCC.BBB.
 # CHECK:      Contents of section .foo:
 # CHECK-NEXT:  0000 2a000000
 # CHECK:      Contents of section .debug_info:
-# CHECK-NEXT:  0000 00000000 04000000
+# CHECK-NEXT:  0000 00000000 08000000
 
 .globl _start
 _start:

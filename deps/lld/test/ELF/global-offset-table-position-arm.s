@@ -1,5 +1,5 @@
 // RUN: llvm-mc -filetype=obj -triple=armv7a-linux-gnueabihf %s -o %t
-// RUN: ld.lld -shared %t -o %t2
+// RUN: ld.lld --hash-style=sysv -shared %t -o %t2
 // RUN: llvm-readobj -t %t2 | FileCheck %s
 // REQUIRES: arm
 

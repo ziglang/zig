@@ -32,7 +32,7 @@ _start:
 // CHECK:         11000: {{.*}} b       #-4 <_start+0x4>
 // CHECK-NEXT:    11004: {{.*}} bl      #-4 <_start+0x8>
 // blx is transformed into bl so we don't change state
-// CHECK-NEXT:    11008: {{.*}} bl      #-4 <_start+0xC>
+// CHECK-NEXT:    11008: {{.*}} bl      #-4 <_start+0xc>
 // CHECK-NEXT:    1100c: {{.*}} movt    r0, #0
 // CHECK-NEXT:    11010: {{.*}} movw    r0, #0
 // CHECK:         11014: {{.*}} .word   0x00000000

@@ -1,5 +1,5 @@
 # RUN: yaml2obj < %s > %t.obj
-# RUN: lld-link /entry:foo /out:%t.exe /subsystem:console /include:bar \
+# RUN: lld-link /opt:icf /entry:foo /out:%t.exe /subsystem:console /include:bar \
 # RUN:   /debug /verbose %t.obj > %t.log 2>&1
 # RUN: FileCheck %s < %t.log
 

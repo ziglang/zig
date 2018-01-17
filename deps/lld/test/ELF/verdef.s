@@ -3,7 +3,7 @@
 # RUN: echo "LIBSAMPLE_1.0 { global: a; local: *; };" > %t.script
 # RUN: echo "LIBSAMPLE_2.0 { global: b; local: *; };" >> %t.script
 # RUN: echo "LIBSAMPLE_3.0 { global: c; local: *; };" >> %t.script
-# RUN: ld.lld --version-script %t.script -shared -soname shared %t.o -o %t.so
+# RUN: ld.lld --hash-style=sysv --version-script %t.script -shared -soname shared %t.o -o %t.so
 # RUN: llvm-readobj -V -dyn-symbols %t.so | FileCheck --check-prefix=DSO %s
 
 # DSO:        Version symbols {
@@ -65,7 +65,7 @@
 
 ## Check that we can link agains DSO we produced.
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %S/Inputs/verdef.s -o %tmain.o
-# RUN: ld.lld %tmain.o %t.so -o %tout
+# RUN: ld.lld --hash-style=sysv %tmain.o %t.so -o %tout
 # RUN: llvm-readobj -V %tout | FileCheck --check-prefix=MAIN %s
 
 # MAIN:      Version symbols {
@@ -100,7 +100,7 @@
 # RUN: echo "LIBSAMPLE_2.0 { global: b; local: *; };" >> %t.script
 # RUN: echo "LIBSAMPLE_3.0 { global: c; local: *; };" >> %t.script
 # RUN: echo "}" >> %t.script
-# RUN: ld.lld --script %t.script -shared -soname shared %t.o -o %t2.so
+# RUN: ld.lld --hash-style=sysv --script %t.script -shared -soname shared %t.o -o %t2.so
 # RUN: llvm-readobj -V -dyn-symbols %t2.so | FileCheck --check-prefix=DSO %s
 
 .globl a

@@ -7,12 +7,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Error.h"
 #include "InputFiles.h"
 #include "Symbols.h"
 #include "SyntheticSections.h"
 #include "Target.h"
 #include "Thunks.h"
+#include "lld/Common/ErrorHandler.h"
 #include "llvm/Object/ELF.h"
 #include "llvm/Support/Endian.h"
 
@@ -26,23 +26,23 @@ namespace {
 class ARM final : public TargetInfo {
 public:
   ARM();
-  RelExpr getRelExpr(uint32_t Type, const SymbolBody &S,
+  uint32_t calcEFlags() const override;
+  RelExpr getRelExpr(RelType Type, const Symbol &S,
                      const uint8_t *Loc) const override;
-  bool isPicRel(uint32_t Type) const override;
-  uint32_t getDynRel(uint32_t Type) const override;
-  int64_t getImplicitAddend(const uint8_t *Buf, uint32_t Type) const override;
-  void writeGotPlt(uint8_t *Buf, const SymbolBody &S) const override;
-  void writeIgotPlt(uint8_t *Buf, const SymbolBody &S) const override;
+  bool isPicRel(RelType Type) const override;
+  RelType getDynRel(RelType Type) const override;
+  int64_t getImplicitAddend(const uint8_t *Buf, RelType Type) const override;
+  void writeGotPlt(uint8_t *Buf, const Symbol &S) const override;
+  void writeIgotPlt(uint8_t *Buf, const Symbol &S) const override;
   void writePltHeader(uint8_t *Buf) const override;
   void writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr, uint64_t PltEntryAddr,
                 int32_t Index, unsigned RelOff) const override;
-  void addPltSymbols(InputSectionBase *IS, uint64_t Off) const override;
-  void addPltHeaderSymbols(InputSectionBase *ISD) const override;
-  bool needsThunk(RelExpr Expr, uint32_t RelocType, const InputFile *File,
-                  const SymbolBody &S) const override;
-  bool inBranchRange(uint32_t RelocType, uint64_t Src,
-                     uint64_t Dst) const override;
-  void relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const override;
+  void addPltSymbols(InputSection &IS, uint64_t Off) const override;
+  void addPltHeaderSymbols(InputSection &ISD) const override;
+  bool needsThunk(RelExpr Expr, RelType Type, const InputFile *File,
+                  uint64_t BranchAddr, const Symbol &S) const override;
+  bool inBranchRange(RelType Type, uint64_t Src, uint64_t Dst) const override;
+  void relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const override;
 };
 } // namespace
 
@@ -58,18 +58,54 @@ ARM::ARM() {
   GotEntrySize = 4;
   GotPltEntrySize = 4;
   PltEntrySize = 16;
-  PltHeaderSize = 20;
+  PltHeaderSize = 32;
   TrapInstr = 0xd4d4d4d4;
   // ARM uses Variant 1 TLS
   TcbSize = 8;
   NeedsThunks = true;
+
+  // The placing of pre-created ThunkSections is controlled by the
+  // ThunkSectionSpacing parameter. The aim is to place the
+  // ThunkSection such that all branches from the InputSections prior to the
+  // ThunkSection can reach a Thunk placed at the end of the ThunkSection.
+  // Graphically:
+  // | up to ThunkSectionSpacing .text input sections |
+  // | ThunkSection                                   |
+  // | up to ThunkSectionSpacing .text input sections |
+  // | ThunkSection                                   |
+
+  // Pre-created ThunkSections are spaced roughly 16MiB apart on ARM. This is to
+  // match the most common expected case of a Thumb 2 encoded BL, BLX or B.W
+  // ARM B, BL, BLX range +/- 32MiB
+  // Thumb B.W, BL, BLX range +/- 16MiB
+  // Thumb B<cc>.W range +/- 1MiB
+  // If a branch cannot reach a pre-created ThunkSection a new one will be
+  // created so we can handle the rare cases of a Thumb 2 conditional branch.
+  // We intentionally use a lower size for ThunkSectionSpacing than the maximum
+  // branch range so the end of the ThunkSection is more likely to be within
+  // range of the branch instruction that is furthest away. The value we shorten
+  // ThunkSectionSpacing by is set conservatively to allow us to create 16,384
+  // 12 byte Thunks at any offset in a ThunkSection without risk of a branch to
+  // one of the Thunks going out of range.
+
+  // FIXME: lld assumes that the Thumb BL and BLX encoding permits the J1 and
+  // J2 bits to be used to extend the branch range. On earlier Architectures
+  // such as ARMv4, ARMv5 and ARMv6 (except ARMv6T2) the range is +/- 4MiB. If
+  // support for the earlier encodings is added then when they are used the
+  // ThunkSectionSpacing will need lowering.
+  ThunkSectionSpacing = 0x1000000 - 0x30000;
 }
 
-RelExpr ARM::getRelExpr(uint32_t Type, const SymbolBody &S,
+uint32_t ARM::calcEFlags() const {
+  // We don't currently use any features incompatible with EF_ARM_EABI_VER5,
+  // but we don't have any firm guarantees of conformance. Linux AArch64
+  // kernels (as of 2016) require an EABI version to be set.
+  return EF_ARM_EABI_VER5;
+}
+
+RelExpr ARM::getRelExpr(RelType Type, const Symbol &S,
                         const uint8_t *Loc) const {
   switch (Type) {
-  default:
-    return R_ABS;
   case R_ARM_THM_JUMP11:
     return R_PC;
   case R_ARM_CALL:
@@ -120,15 +156,17 @@ RelExpr ARM::getRelExpr(uint32_t Type, const SymbolBody &S,
     return R_NONE;
   case R_ARM_TLS_LE32:
     return R_TLS;
+  default:
+    return R_ABS;
   }
 }
 
-bool ARM::isPicRel(uint32_t Type) const {
+bool ARM::isPicRel(RelType Type) const {
   return (Type == R_ARM_TARGET1 && !Config->Target1Rel) ||
          (Type == R_ARM_ABS32);
 }
 
-uint32_t ARM::getDynRel(uint32_t Type) const {
+RelType ARM::getDynRel(RelType Type) const {
   if (Type == R_ARM_TARGET1 && !Config->Target1Rel)
     return R_ARM_ABS32;
   if (Type == R_ARM_ABS32)
@@ -137,41 +175,73 @@ uint32_t ARM::getDynRel(uint32_t Type) const {
   return R_ARM_ABS32;
 }
 
-void ARM::writeGotPlt(uint8_t *Buf, const SymbolBody &) const {
+void ARM::writeGotPlt(uint8_t *Buf, const Symbol &) const {
   write32le(Buf, InX::Plt->getVA());
 }
 
-void ARM::writeIgotPlt(uint8_t *Buf, const SymbolBody &S) const {
+void ARM::writeIgotPlt(uint8_t *Buf, const Symbol &S) const {
   // An ARM entry is the address of the ifunc resolver function.
   write32le(Buf, S.getVA());
 }
 
-void ARM::writePltHeader(uint8_t *Buf) const {
+// Long form PLT Header that does not have any restrictions on the displacement
+// of the .plt from the .plt.got.
+static void writePltHeaderLong(uint8_t *Buf) {
   const uint8_t PltData[] = {
       0x04, 0xe0, 0x2d, 0xe5, //     str lr, [sp,#-4]!
       0x04, 0xe0, 0x9f, 0xe5, //     ldr lr, L2
       0x0e, 0xe0, 0x8f, 0xe0, // L1: add lr, pc, lr
       0x08, 0xf0, 0xbe, 0xe5, //     ldr pc, [lr, #8]
       0x00, 0x00, 0x00, 0x00, // L2: .word   &(.got.plt) - L1 - 8
-  };
+      0xd4, 0xd4, 0xd4, 0xd4, //     Pad to 32-byte boundary
+      0xd4, 0xd4, 0xd4, 0xd4, //     Pad to 32-byte boundary
+      0xd4, 0xd4, 0xd4, 0xd4};
   memcpy(Buf, PltData, sizeof(PltData));
   uint64_t GotPlt = InX::GotPlt->getVA();
   uint64_t L1 = InX::Plt->getVA() + 8;
   write32le(Buf + 16, GotPlt - L1 - 8);
 }
 
-void ARM::addPltHeaderSymbols(InputSectionBase *ISD) const {
-  auto *IS = cast<InputSection>(ISD);
+// The default PLT header requires the .plt.got to be within 128 Mb of the
+// .plt in the positive direction.
+void ARM::writePltHeader(uint8_t *Buf) const {
+  // Use a similar sequence to that in writePlt(), the difference is the calling
+  // conventions mean we use lr instead of ip. The PLT entry is responsible for
+  // saving lr on the stack, the dynamic loader is responsible for reloading
+  // it.
+  const uint32_t PltData[] = {
+      0xe52de004, // L1: str lr, [sp,#-4]!
+      0xe28fe600, //     add lr, pc,  #0x0NN00000 &(.got.plt - L1 - 4)
+      0xe28eea00, //     add lr, lr,  #0x000NN000 &(.got.plt - L1 - 4)
+      0xe5bef000, //     ldr pc, [lr, #0x00000NNN] &(.got.plt -L1 - 4)
+  };
+
+  uint64_t Offset = InX::GotPlt->getVA() - InX::Plt->getVA() - 4;
+  if (!llvm::isUInt<27>(Offset)) {
+    // We cannot encode the Offset, use the long form.
+    writePltHeaderLong(Buf);
+    return;
+  }
+  write32le(Buf + 0, PltData[0]);
+  write32le(Buf + 4, PltData[1] | ((Offset >> 20) & 0xff));
+  write32le(Buf + 8, PltData[2] | ((Offset >> 12) & 0xff));
+  write32le(Buf + 12, PltData[3] | (Offset & 0xfff));
+  write32le(Buf + 16, TrapInstr); // Pad to 32-byte boundary
+  write32le(Buf + 20, TrapInstr);
+  write32le(Buf + 24, TrapInstr);
+  write32le(Buf + 28, TrapInstr);
+}
+
+void ARM::addPltHeaderSymbols(InputSection &IS) const {
   addSyntheticLocal("$a", STT_NOTYPE, 0, 0, IS);
   addSyntheticLocal("$d", STT_NOTYPE, 16, 0, IS);
 }
 
-void ARM::writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr,
-                   uint64_t PltEntryAddr, int32_t Index,
-                   unsigned RelOff) const {
-  // FIXME: Using simple code sequence with simple relocations.
-  // There is a more optimal sequence but it requires support for the group
-  // relocations. See ELF for the ARM Architecture Appendix A.3
+// Long form PLT entries that do not have any restrictions on the displacement
+// of the .plt from the .plt.got.
+static void writePltLong(uint8_t *Buf, uint64_t GotPltEntryAddr,
+                         uint64_t PltEntryAddr, int32_t Index,
+                         unsigned RelOff) {
   const uint8_t PltData[] = {
       0x04, 0xc0, 0x9f, 0xe5, //     ldr ip, L2
       0x0f, 0xc0, 0x8c, 0xe0, // L1: add ip, ip, pc
@@ -183,24 +253,49 @@ void ARM::writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr,
   write32le(Buf + 12, GotPltEntryAddr - L1 - 8);
 }
 
-void ARM::addPltSymbols(InputSectionBase *ISD, uint64_t Off) const {
-  auto *IS = cast<InputSection>(ISD);
+// The default PLT entries require the .plt.got to be within 128 Mb of the
+// .plt in the positive direction.
+void ARM::writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr,
+                   uint64_t PltEntryAddr, int32_t Index,
+                   unsigned RelOff) const {
+  // The PLT entry is similar to the example given in Appendix A of ELF for
+  // the Arm Architecture. Instead of using the Group Relocations to find the
+  // optimal rotation for the 8-bit immediate used in the add instructions we
+  // hard code the most compact rotations for simplicity. This saves a load
+  // instruction over the long plt sequences.
+  const uint32_t PltData[] = {
+      0xe28fc600, // L1: add ip, pc,  #0x0NN00000  Offset(&(.plt.got) - L1 - 8
+      0xe28cca00, //     add ip, ip,  #0x000NN000  Offset(&(.plt.got) - L1 - 8
+      0xe5bcf000, //     ldr pc, [ip, #0x00000NNN] Offset(&(.plt.got) - L1 - 8
+  };
+
+  uint64_t Offset = GotPltEntryAddr - PltEntryAddr - 8;
+  if (!llvm::isUInt<27>(Offset)) {
+    // We cannot encode the Offset, use the long form.
+    writePltLong(Buf, GotPltEntryAddr, PltEntryAddr, Index, RelOff);
+    return;
+  }
+  write32le(Buf + 0, PltData[0] | ((Offset >> 20) & 0xff));
+  write32le(Buf + 4, PltData[1] | ((Offset >> 12) & 0xff));
+  write32le(Buf + 8, PltData[2] | (Offset & 0xfff));
+  write32le(Buf + 12, TrapInstr); // Pad to 16-byte boundary
+}
+
+void ARM::addPltSymbols(InputSection &IS, uint64_t Off) const {
   addSyntheticLocal("$a", STT_NOTYPE, Off, 0, IS);
   addSyntheticLocal("$d", STT_NOTYPE, Off + 12, 0, IS);
 }
 
-bool ARM::needsThunk(RelExpr Expr, uint32_t RelocType, const InputFile *File,
-                     const SymbolBody &S) const {
-  // If S is an undefined weak symbol in an executable we don't need a Thunk.
-  // In a DSO calls to undefined symbols, including weak ones get PLT entries
-  // which may need a thunk.
-  if (S.isUndefined() && !S.isLocal() && S.symbol()->isWeak() &&
-      !Config->Shared)
+bool ARM::needsThunk(RelExpr Expr, RelType Type, const InputFile *File,
+                     uint64_t BranchAddr, const Symbol &S) const {
+  // If S is an undefined weak symbol and does not have a PLT entry then it
+  // will be resolved as a branch to the next instruction.
+  if (S.isUndefWeak() && !S.isInPlt())
     return false;
   // A state change from ARM to Thumb and vice versa must go through an
   // interworking thunk if the relocation type is not R_ARM_CALL or
   // R_ARM_THM_CALL.
-  switch (RelocType) {
+  switch (Type) {
   case R_ARM_PC24:
   case R_ARM_PLT32:
   case R_ARM_JUMP24:
@@ -208,23 +303,31 @@ bool ARM::needsThunk(RelExpr Expr, uint32_t RelocType, const InputFile *File,
     // Otherwise we need to interwork if Symbol has bit 0 set (Thumb).
     if (Expr == R_PC && ((S.getVA() & 1) == 1))
       return true;
-    break;
+    LLVM_FALLTHROUGH;
+  case R_ARM_CALL: {
+    uint64_t Dst = (Expr == R_PLT_PC) ? S.getPltVA() : S.getVA();
+    return !inBranchRange(Type, BranchAddr, Dst);
+  }
   case R_ARM_THM_JUMP19:
   case R_ARM_THM_JUMP24:
     // Source is Thumb, all PLT entries are ARM so interworking is required.
     // Otherwise we need to interwork if Symbol has bit 0 clear (ARM).
     if (Expr == R_PLT_PC || ((S.getVA() & 1) == 0))
       return true;
-    break;
+    LLVM_FALLTHROUGH;
+  case R_ARM_THM_CALL: {
+    uint64_t Dst = (Expr == R_PLT_PC) ? S.getPltVA() : S.getVA();
+    return !inBranchRange(Type, BranchAddr, Dst);
+  }
   }
   return false;
 }
 
-bool ARM::inBranchRange(uint32_t RelocType, uint64_t Src, uint64_t Dst) const {
+bool ARM::inBranchRange(RelType Type, uint64_t Src, uint64_t Dst) const {
   uint64_t Range;
   uint64_t InstrSize;
 
-  switch (RelocType) {
+  switch (Type) {
   case R_ARM_PC24:
   case R_ARM_PLT32:
   case R_ARM_JUMP24:
@@ -263,7 +366,7 @@ bool ARM::inBranchRange(uint32_t RelocType, uint64_t Src, uint64_t Dst) const {
   return Distance <= Range;
 }
 
-void ARM::relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const {
+void ARM::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
   switch (Type) {
   case R_ARM_ABS32:
   case R_ARM_BASE_PREL:
@@ -400,7 +503,7 @@ void ARM::relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const {
   }
 }
 
-int64_t ARM::getImplicitAddend(const uint8_t *Buf, uint32_t Type) const {
+int64_t ARM::getImplicitAddend(const uint8_t *Buf, RelType Type) const {
   switch (Type) {
   default:
     return 0;

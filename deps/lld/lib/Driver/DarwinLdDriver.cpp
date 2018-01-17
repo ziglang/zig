@@ -13,11 +13,11 @@
 ///
 //===----------------------------------------------------------------------===//
 
+#include "lld/Common/LLVM.h"
 #include "lld/Core/ArchiveLibraryFile.h"
 #include "lld/Core/Error.h"
 #include "lld/Core/File.h"
 #include "lld/Core/Instrumentation.h"
-#include "lld/Core/LLVM.h"
 #include "lld/Core/LinkingContext.h"
 #include "lld/Core/Node.h"
 #include "lld/Core/PassManager.h"
@@ -74,7 +74,7 @@ enum {
 #undef PREFIX
 
 // Create table mapping all options defined in DarwinLdOptions.td
-static const llvm::opt::OptTable::Info infoTable[] = {
+static const llvm::opt::OptTable::Info InfoTable[] = {
 #define OPTION(PREFIX, NAME, ID, KIND, GROUP, ALIAS, ALIASARGS, FLAGS, PARAM,  \
                HELPTEXT, METAVAR, VALUES)                                      \
   {PREFIX,      NAME,      HELPTEXT,                                           \
@@ -88,7 +88,7 @@ static const llvm::opt::OptTable::Info infoTable[] = {
 // Create OptTable class for parsing actual command line arguments
 class DarwinLdOptTable : public llvm::opt::OptTable {
 public:
-  DarwinLdOptTable() : OptTable(infoTable) {}
+  DarwinLdOptTable() : OptTable(InfoTable) {}
 };
 
 static std::vector<std::unique_ptr<File>>

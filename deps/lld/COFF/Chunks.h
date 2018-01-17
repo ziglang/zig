@@ -12,7 +12,7 @@
 
 #include "Config.h"
 #include "InputFiles.h"
-#include "lld/Core/LLVM.h"
+#include "lld/Common/LLVM.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/iterator.h"
 #include "llvm/ADT/iterator_range.h"
@@ -33,9 +33,9 @@ class Baserel;
 class Defined;
 class DefinedImportData;
 class DefinedRegular;
-class ObjectFile;
+class ObjFile;
 class OutputSection;
-class SymbolBody;
+class Symbol;
 
 // Mask for section types (code, data, bss, disacardable, etc.)
 // and permissions (writable, readable or executable).
@@ -62,7 +62,6 @@ public:
 
   // The writer sets and uses the addresses.
   uint64_t getRVA() const { return RVA; }
-  uint32_t getAlign() const { return Align; }
   void setRVA(uint64_t V) { RVA = V; }
 
   // Returns true if this has non-zero data. BSS chunks return
@@ -82,7 +81,7 @@ public:
   // An output section has pointers to chunks in the section, and each
   // chunk has a back pointer to an output section.
   void setOutputSection(OutputSection *O) { Out = O; }
-  OutputSection *getOutputSection() { return Out; }
+  OutputSection *getOutputSection() const { return Out; }
 
   // Windows-specific.
   // Collect all locations that contain absolute addresses for base relocations.
@@ -92,23 +91,22 @@ public:
   // bytes, so this is used only for logging or debugging.
   virtual StringRef getDebugName() { return ""; }
 
+  // The alignment of this chunk. The writer uses the value.
+  uint32_t Alignment = 1;
+
 protected:
   Chunk(Kind K = OtherKind) : ChunkKind(K) {}
   const Kind ChunkKind;
 
-  // The alignment of this chunk. The writer uses the value.
-  uint32_t Align = 1;
-
   // The RVA of this chunk in the output. The writer sets a value.
   uint64_t RVA = 0;
+
+  // The output section for this chunk.
+  OutputSection *Out = nullptr;
 
 public:
   // The offset from beginning of the output section. The writer sets a value.
   uint64_t OutputSectionOff = 0;
-
-protected:
-  // The output section for this chunk.
-  OutputSection *Out = nullptr;
 };
 
 // A chunk corresponding a section of an input file.
@@ -119,23 +117,21 @@ class SectionChunk final : public Chunk {
 public:
   class symbol_iterator : public llvm::iterator_adaptor_base<
                               symbol_iterator, const coff_relocation *,
-                              std::random_access_iterator_tag, SymbolBody *> {
+                              std::random_access_iterator_tag, Symbol *> {
     friend SectionChunk;
 
-    ObjectFile *File;
+    ObjFile *File;
 
-    symbol_iterator(ObjectFile *File, const coff_relocation *I)
+    symbol_iterator(ObjFile *File, const coff_relocation *I)
         : symbol_iterator::iterator_adaptor_base(I), File(File) {}
 
   public:
     symbol_iterator() = default;
 
-    SymbolBody *operator*() const {
-      return File->getSymbolBody(I->SymbolTableIndex);
-    }
+    Symbol *operator*() const { return File->getSymbol(I->SymbolTableIndex); }
   };
 
-  SectionChunk(ObjectFile *File, const coff_section *Header);
+  SectionChunk(ObjFile *File, const coff_section *Header);
   static bool classof(const Chunk *C) { return C->kind() == SectionKind; }
   size_t getSize() const override { return Header->SizeOfRawData; }
   ArrayRef<uint8_t> getContents() const;
@@ -163,10 +159,9 @@ public:
   void addAssociative(SectionChunk *Child);
 
   StringRef getDebugName() override;
-  void setSymbol(DefinedRegular *S) { if (!Sym) Sym = S; }
 
-  // Returns true if the chunk was not dropped by GC or COMDAT deduplication.
-  bool isLive() { return Live && !Discarded; }
+  // Returns true if the chunk was not dropped by GC.
+  bool isLive() { return Live; }
 
   // Used by the garbage collector.
   void markLive() {
@@ -175,21 +170,16 @@ public:
     Live = true;
   }
 
-  // Returns true if this chunk was dropped by COMDAT deduplication.
-  bool isDiscarded() const { return Discarded; }
-
-  // Used by the SymbolTable when discarding unused comdat sections. This is
-  // redundant when GC is enabled, as all comdat sections will start out dead.
-  void markDiscarded() { Discarded = true; }
-
   // True if this is a codeview debug info chunk. These will not be laid out in
   // the image. Instead they will end up in the PDB, if one is requested.
   bool isCodeView() const {
     return SectionName == ".debug" || SectionName.startswith(".debug$");
   }
 
-  // True if this is a DWARF debug info chunk.
-  bool isDWARF() const { return SectionName.startswith(".debug_"); }
+  // True if this is a DWARF debug info or exception handling chunk.
+  bool isDWARF() const {
+    return SectionName.startswith(".debug_") || SectionName == ".eh_frame";
+  }
 
   // Allow iteration over the bodies of this chunk's relocated symbols.
   llvm::iterator_range<symbol_iterator> symbols() const {
@@ -213,7 +203,10 @@ public:
   const coff_section *Header;
 
   // The file that this chunk was created from.
-  ObjectFile *File;
+  ObjFile *File;
+
+  // The COMDAT leader symbol if this is a COMDAT chunk.
+  DefinedRegular *Sym = nullptr;
 
 private:
   StringRef SectionName;
@@ -221,18 +214,12 @@ private:
   llvm::iterator_range<const coff_relocation *> Relocs;
   size_t NumRelocs;
 
-  // True if this chunk was discarded because it was a duplicate comdat section.
-  bool Discarded;
-
   // Used by the garbage collector.
   bool Live;
 
   // Used for ICF (Identical COMDAT Folding)
   void replace(SectionChunk *Other);
   uint32_t Class[2] = {0, 0};
-
-  // Sym points to a section symbol if this is a COMDAT chunk.
-  DefinedRegular *Sym = nullptr;
 };
 
 // A chunk for common symbols. Common chunks don't have actual data.
@@ -368,6 +355,9 @@ public:
   uint32_t RVA;
   uint8_t Type;
 };
+
+void applyMOV32T(uint8_t *Off, uint32_t V);
+void applyBranch24T(uint8_t *Off, int32_t V);
 
 } // namespace coff
 } // namespace lld

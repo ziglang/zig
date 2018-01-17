@@ -7,7 +7,7 @@
 # RUN: echo "LIBSAMPLE_2.0 { global:" >> %t.script
 # RUN: echo '  extern "C" { _Z3bari; };' >> %t.script
 # RUN: echo "};" >> %t.script
-# RUN: ld.lld --version-script %t.script -shared %t.o -o %t.so
+# RUN: ld.lld --hash-style=sysv --version-script %t.script -shared %t.o -o %t.so
 # RUN: llvm-readobj -V -dyn-symbols %t.so | FileCheck --check-prefix=DSO %s
 
 # DSO:      DynamicSymbols [

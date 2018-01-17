@@ -1,5 +1,5 @@
-The ELF and COFF Linkers
-========================
+The ELF, COFF and Wasm Linkers
+==============================
 
 The ELF Linker as a Library
 ---------------------------
@@ -33,11 +33,12 @@ between speed, simplicity and extensibility.
 
   We implemented the linkers as native linkers for each file format.
 
-  The two linkers share the same design but do not share code.
+  The linkers share the same design but share very little code.
   Sharing code makes sense if the benefit is worth its cost.
-  In our case, ELF and COFF are different enough that we thought the layer to
-  abstract the differences wouldn't worth its complexity and run-time cost.
-  Elimination of the abstract layer has greatly simplified the implementation.
+  In our case, the object formats are different enough that we thought the layer
+  to abstract the differences wouldn't be worth its complexity and run-time
+  cost.  Elimination of the abstract layer has greatly simplified the
+  implementation.
 
 * Speed by design
 
@@ -57,59 +58,61 @@ between speed, simplicity and extensibility.
 
 * Efficient archive file handling
 
-  LLD's handling of archive files (the files with ".a" file extension) is different
-  from the traditional Unix linkers and similar to Windows linkers.
-  We'll describe how the traditional Unix linker handles archive files,
-  what the problem is, and how LLD approached the problem.
+  LLD's handling of archive files (the files with ".a" file extension) is
+  different from the traditional Unix linkers and similar to Windows linkers.
+  We'll describe how the traditional Unix linker handles archive files, what the
+  problem is, and how LLD approached the problem.
 
-  The traditional Unix linker maintains a set of undefined symbols during linking.
-  The linker visits each file in the order as they appeared in the command line
-  until the set becomes empty. What the linker would do depends on file type.
+  The traditional Unix linker maintains a set of undefined symbols during
+  linking.  The linker visits each file in the order as they appeared in the
+  command line until the set becomes empty. What the linker would do depends on
+  file type.
 
-  - If the linker visits an object file, the linker links object files to the result,
-    and undefined symbols in the object file are added to the set.
+  - If the linker visits an object file, the linker links object files to the
+    result, and undefined symbols in the object file are added to the set.
 
-  - If the linker visits an archive file, it checks for the archive file's symbol table
-    and extracts all object files that have definitions for any symbols in the set.
+  - If the linker visits an archive file, it checks for the archive file's
+    symbol table and extracts all object files that have definitions for any
+    symbols in the set.
 
-  This algorithm sometimes leads to a counter-intuitive behavior.
-  If you give archive files before object files, nothing will happen
-  because when the linker visits archives, there is no undefined symbols in the set.
-  As a result, no files are extracted from the first archive file,
-  and the link is done at that point because the set is empty after it visits one file.
+  This algorithm sometimes leads to a counter-intuitive behavior.  If you give
+  archive files before object files, nothing will happen because when the linker
+  visits archives, there is no undefined symbols in the set.  As a result, no
+  files are extracted from the first archive file, and the link is done at that
+  point because the set is empty after it visits one file.
 
   You can fix the problem by reordering the files,
   but that cannot fix the issue of mutually-dependent archive files.
 
-  Linking mutually-dependent archive files is tricky.
-  You may specify the same archive file multiple times to
-  let the linker visit it more than once.
-  Or, you may use the special command line options, `--start-group` and `--end-group`,
-  to let the linker loop over the files between the options until
+  Linking mutually-dependent archive files is tricky.  You may specify the same
+  archive file multiple times to let the linker visit it more than once.  Or,
+  you may use the special command line options, `--start-group` and
+  `--end-group`, to let the linker loop over the files between the options until
   no new symbols are added to the set.
 
   Visiting the same archive files multiple makes the linker slower.
 
-  Here is how LLD approaches the problem. Instead of memorizing only undefined symbols,
-  we program LLD so that it memorizes all symbols.
-  When it sees an undefined symbol that can be resolved by extracting an object file
-  from an archive file it previously visited, it immediately extracts the file and link it.
-  It is doable because LLD does not forget symbols it have seen in archive files.
+  Here is how LLD approaches the problem. Instead of memorizing only undefined
+  symbols, we program LLD so that it memorizes all symbols.  When it sees an
+  undefined symbol that can be resolved by extracting an object file from an
+  archive file it previously visited, it immediately extracts the file and link
+  it.  It is doable because LLD does not forget symbols it have seen in archive
+  files.
 
   We believe that the LLD's way is efficient and easy to justify.
 
-  The semantics of LLD's archive handling is different from the traditional Unix's.
-  You can observe it if you carefully craft archive files to exploit it.
-  However, in reality, we don't know any program that cannot link
-  with our algorithm so far, so it's not going to cause trouble.
+  The semantics of LLD's archive handling is different from the traditional
+  Unix's.  You can observe it if you carefully craft archive files to exploit
+  it.  However, in reality, we don't know any program that cannot link with our
+  algorithm so far, so it's not going to cause trouble.
 
 Numbers You Want to Know
 ------------------------
 
 To give you intuition about what kinds of data the linker is mainly working on,
 I'll give you the list of objects and their numbers LLD has to read and process
-in order to link a very large executable. In order to link Chrome with debug info,
-which is roughly 2 GB in output size, LLD reads
+in order to link a very large executable. In order to link Chrome with debug
+info, which is roughly 2 GB in output size, LLD reads
 
 - 17,000 files,
 - 1,800,000 sections,
@@ -136,17 +139,17 @@ when handling files.
 Important Data Structures
 -------------------------
 
-We will describe the key data structures in LLD in this section.
-The linker can be understood as the interactions between them.
-Once you understand their functions, the code of the linker should look obvious to you.
+We will describe the key data structures in LLD in this section.  The linker can
+be understood as the interactions between them.  Once you understand their
+functions, the code of the linker should look obvious to you.
 
-* SymbolBody
+* Symbol
 
-  SymbolBody is a class to represent symbols.
+  This class represents a symbol.
   They are created for symbols in object files or archive files.
   The linker creates linker-defined symbols as well.
 
-  There are basically three types of SymbolBodies: Defined, Undefined, or Lazy.
+  There are basically three types of Symbols: Defined, Undefined, or Lazy.
 
   - Defined symbols are for all symbols that are considered as "resolved",
     including real defined symbols, COMDAT symbols, common symbols,
@@ -156,33 +159,25 @@ Once you understand their functions, the code of the linker should look obvious 
   - Lazy symbols represent symbols we found in archive file headers
     which can turn into Defined if we read archieve members.
 
-* Symbol
+  There's only one Symbol instance for each unique symbol name. This uniqueness
+  is guaranteed by the symbol table. As the resolver reads symbols from input
+  files, it replaces an existing Symbol with the "best" Symbol for its symbol
+  name using the placement new.
 
-  A Symbol is a container for a SymbolBody. There's only one Symbol for each
-  unique symbol name (this uniqueness is guaranteed by the symbol table).
-  Each global symbol has only one SymbolBody at any one time, which is
-  the SymbolBody stored within a memory region of the Symbol large enough
-  to store any SymbolBody.
-
-  As the resolver reads symbols from input files, it replaces the Symbol's
-  SymbolBody with the "best" SymbolBody for its symbol name by constructing
-  the new SymbolBody in place on top of the existing SymbolBody. For example,
-  if the resolver is given a defined symbol, and the SymbolBody with its name
-  is undefined, it will construct a Defined SymbolBody over the Undefined
-  SymbolBody.
-
-  This means that each SymbolBody pointer always points to the best SymbolBody,
-  and it is possible to get from a SymbolBody to a Symbol, or vice versa,
-  by adding or subtracting a fixed offset. This memory layout helps reduce
-  the cache miss rate through high locality and a small number of required
-  pointer indirections.
+  The above mechanism allows you to use pointers to Symbols as a very cheap way
+  to access name resolution results. Assume for example that you have a pointer
+  to an undefined symbol before name resolution. If the symbol is resolved to a
+  defined symbol by the resolver, the pointer will "automatically" point to the
+  defined symbol, because the undefined symbol the pointer pointed to will have
+  been replaced by the defined symbol in-place.
 
 * SymbolTable
 
   SymbolTable is basically a hash table from strings to Symbols
   with logic to resolve symbol conflicts. It resolves conflicts by symbol type.
 
-  - If we add Defined and Undefined symbols, the symbol table will keep the former.
+  - If we add Defined and Undefined symbols, the symbol table will keep the
+    former.
   - If we add Defined and Lazy symbols, it will keep the former.
   - If we add Lazy and Undefined, it will keep the former,
     but it will also trigger the Lazy symbol to load the archive member
@@ -221,15 +216,14 @@ There are mainly three actors in this linker.
   InputFile is a superclass of file readers.
   We have a different subclass for each input file type,
   such as regular object file, archive file, etc.
-  They are responsible for creating and owning SymbolBodies and
-  InputSections/Chunks.
+  They are responsible for creating and owning Symbols and InputSections/Chunks.
 
 * Writer
 
-  The writer is responsible for writing file headers and InputSections/Chunks to a file.
-  It creates OutputSections, put all InputSections/Chunks into them,
-  assign unique, non-overlapping addresses and file offsets to them,
-  and then write them down to a file.
+  The writer is responsible for writing file headers and InputSections/Chunks to
+  a file.  It creates OutputSections, put all InputSections/Chunks into them,
+  assign unique, non-overlapping addresses and file offsets to them, and then
+  write them down to a file.
 
 * Driver
 
@@ -237,7 +231,8 @@ There are mainly three actors in this linker.
 
   - processes command line options,
   - creates a symbol table,
-  - creates an InputFile for each input file and puts all symbols within into the symbol table,
+  - creates an InputFile for each input file and puts all symbols within into
+    the symbol table,
   - checks if there's no remaining undefined symbols,
   - creates a writer,
   - and passes the symbol table to the writer to write the result to a file.
@@ -301,7 +296,7 @@ Glossary
   they are merged by ICF. It is known as an effective technique,
   and it usually reduces C++ program's size by a few percent or more.
 
-  Note that this is not entirely sound optimization. C/C++ require
+  Note that this is not an entirely sound optimization. C/C++ require
   different functions have different addresses. If a program depends on
   that property, it would fail at runtime.
 

@@ -1,6 +1,6 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
-# RUN: ld.lld -o %t1 --script %S/Inputs/implicit-program-header.script  \
+# RUN: ld.lld --hash-style=sysv -o %t1 --script %S/Inputs/implicit-program-header.script  \
 # RUN:   %t.o -shared
 # RUN: llvm-readobj -elf-output-style=GNU -l %t1 | FileCheck %s
 

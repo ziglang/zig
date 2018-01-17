@@ -1,6 +1,6 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=i386-pc-linux %s -o %t.o
-// RUN: ld.lld %t.o -o %t.so -shared
+// RUN: ld.lld --hash-style=sysv %t.o -o %t.so -shared
 // RUN: llvm-readobj -s -l -section-data -r %t.so | FileCheck %s
 
 // CHECK:      Name: .got

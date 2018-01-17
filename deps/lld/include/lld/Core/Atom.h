@@ -10,7 +10,7 @@
 #ifndef LLD_CORE_ATOM_H
 #define LLD_CORE_ATOM_H
 
-#include "lld/Core/LLVM.h"
+#include "lld/Common/LLVM.h"
 #include "llvm/ADT/StringRef.h"
 
 namespace lld {
