@@ -14,14 +14,10 @@ fn Rp(a: usize, b: usize, c: usize, d: usize, k: usize, s: u32, t: u32) -> Round
     return RoundParam { .a = a, .b = b, .c = c, .d = d, .k = k, .s = s, .t = t };
 }
 
-/// const hash1 = Md5.hash("my input");
-///
-/// const hasher = Md5.init();
-/// hasher.update("my ");
-/// hasher.update("input");
-/// const hash2 = hasher.final();
 pub const Md5 = struct {
     const Self = this;
+    const block_size = 64;
+    const digest_size = 16;
 
     s: [4]u32,
     // Streaming Cache
