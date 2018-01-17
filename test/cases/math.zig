@@ -349,6 +349,29 @@ test "big number shifting" {
     }
 }
 
+test "xor" {
+    test_xor();
+    comptime test_xor();
+}
+
+fn test_xor() {
+    assert(0xFF ^ 0x00 == 0xFF);
+    assert(0xF0 ^ 0x0F == 0xFF);
+    assert(0xFF ^ 0xF0 == 0x0F);
+    assert(0xFF ^ 0x0F == 0xF0);
+    assert(0xFF ^ 0xFF == 0x00);
+}
+
+test "big number xor" {
+    comptime {
+        assert(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF ^ 0x00000000000000000000000000000000 == 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF);
+        assert(0xFFFFFFFFFFFFFFFF0000000000000000 ^ 0x0000000000000000FFFFFFFFFFFFFFFF == 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF);
+        assert(0xFFFFFFFFFFFFFFFF0000000000000000 ^ 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF == 0x0000000000000000FFFFFFFFFFFFFFFF);
+        assert(0x0000000000000000FFFFFFFFFFFFFFFF ^ 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF == 0xFFFFFFFFFFFFFFFF0000000000000000);
+        assert(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF ^ 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF == 0x00000000000000000000000000000000);
+    }
+}
+
 test "f128" {
     test_f128();
     comptime test_f128();
@@ -368,9 +391,4 @@ fn test_f128() {
 
 fn should_not_be_zero(x: f128) {
     assert(x != 0.0);
-}
-
-test "xor with zero" {
-    assert(0xFF ^ 0x00 == 0xFF);
-    comptime assert(0xFF ^ 0x00 == 0xFF);
 }
