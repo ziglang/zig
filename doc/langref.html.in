@@ -55,28 +55,30 @@
       </p>
       {#header_close#}
       {#header_open|Hello World#}
-    <pre><code class="zig">const std = @import("std");
 
-pub fn main() -&gt; %void {
+      {#code_begin|exe|hello#}
+const std = @import("std");
+
+pub fn main() -> %void {
     // If this program is run without stdout attached, exit with an error.
     var stdout_file = try std.io.getStdOut();
     // If this program encounters pipe failure when printing to stdout, exit
     // with an error.
     try stdout_file.write("Hello, world!\n");
-}</code></pre>
-      <pre><code class="sh">$ zig build-exe hello.zig
-$ ./hello
-Hello, world!</code></pre>
+}
+      {#code_end#}
       <p>
       Usually you don't want to write to stdout. You want to write to stderr. And you
       don't care if it fails. It's more like a <em>warning message</em> that you want
       to emit. For that you can use a simpler API:
       </p>
-    <pre><code class="zig">const warn = @import("std").debug.warn;
+      {#code_begin|exe|hello#}
+const warn = @import("std").debug.warn;
 
-pub fn main() -&gt; %void {
+pub fn main() -> %void {
     warn("Hello, world!\n");
-}</code></pre>
+}
+      {#code_end#}
       {#see_also|Values|@import|Errors|Root Source File#}
       {#header_close#}
       {#header_open|Source Encoding#}
