@@ -77,13 +77,7 @@ Hello, world!</code></pre>
 pub fn main() -&gt; %void {
     warn("Hello, world!\n");
 }</code></pre>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#values">Values</a></li>
-        <li><a href="#builtin-import">@import</a></li>
-        <li><a href="#errors">Errors</a></li>
-        <li><a href="#root-source-file">Root Source File</a></li>
-      </ul>
+      {#see_also|Values|@import|Errors|Root Source File#}
       {#header_close#}
       {#header_open|Source Encoding#}
       <p>Zig source code is encoded in UTF-8. An invalid UTF-8 byte sequence results in a compile error.</p>
@@ -391,13 +385,7 @@ value: 1234</code></pre>
           <td>an error code</td>
         </tr>
       </table>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#integers">Integers</a></li>
-        <li><a href="#floats">Floats</a></li>
-        <li><a href="#void">void</a></li>
-        <li><a href="#errors">Errors</a></li>
-      </ul>
+      {#see_also|Integers|Floats|void|Errors#}
       {#header_close#}
       {#header_open|Primitive Values#}
       <table>
@@ -426,11 +414,7 @@ value: 1234</code></pre>
           <td>refers to the thing in immediate scope</td>
         </tr>
       </table>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#nullables">Nullables</a></li>
-        <li><a href="#this">this</a></li>
-      </ul>
+      {#see_also|Nullables|this#}
       {#header_close#}
       {#header_open|String Literals#}
       <pre><code class="zig">const assert = @import("std").debug.assert;
@@ -452,11 +436,7 @@ test "string literals" {
 }</code></pre>
       <pre><code class="sh">$ zig test string_literals.zig
 Test 1/1 string literals...OK</code></pre>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#arrays">Arrays</a></li>
-        <li><a href="#zig-test">Zig Test</a></li>
-      </ul>
+      {#see_also|Arrays|Zig Test#}
       {#header_open|Escape Sequences#}
       <table>
         <tr>
@@ -538,10 +518,7 @@ Test 1/1 string literals...OK</code></pre>
       In this example the variable <code>c_string_literal</code> has type <code>&amp;const char</code> and
       has a terminating null byte.
       </p>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#builtin-embedFile">@embedFile</a></li>
-      </ul>
+      {#see_also|@embedFile#}
       {#header_close#}
       {#header_close#}
       {#header_open|Assignment#}
@@ -627,12 +604,7 @@ const binary_int = 0b11110000;</code></pre>
       integer overflow. Also available are operations such as <code>+%</code> and
       <code>-%</code> which are defined to have wrapping arithmetic on all targets.
       </p>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#undef-integer-overflow">Integer Overflow</a></li>
-        <li><a href="#undef-division-by-zero">Division By Zero</a></li>
-        <li><a href="#undef-int-overflow-wrap">Wrapping Operations</a></li>
-      </ul>
+      {#see_also|Integer Overflow|Division by Zero|Wrapping Operations#}
       {#header_close#}
       {#header_close#}
       {#header_open|Floats#}
@@ -680,11 +652,7 @@ $ zig build-exe test.zig --object foo.o
 $ ./test
 optimized = 1.0e-2
 strict = 9.765625e-3</code></pre>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#builtin-setFloatMode">@setFloatMode</a></li>
-        <li><a href="#undef-division-by-zero">Division By Zero</a></li>
-      </ul>
+      {#see_also|@setFloatMode|Division by Zero#}
       {#header_close#}
       {#header_open|Operators#}
       {#header_open|Table of Operators#}
@@ -1402,11 +1370,7 @@ Test 1/4 iterate over an array...OK
 Test 2/4 modify an array...OK
 Test 3/4 compile-time array initalization...OK
 Test 4/4 array initialization with function calls...OK</code></pre>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#for">for</a></li>
-        <li><a href="#slices">Slices</a></li>
-      </ul>
+      {#see_also|for|Slices#}
       {#header_close#}
       {#header_open|Pointers#}
       <pre><code class="zig">const assert = @import("std").debug.assert;
@@ -1659,11 +1623,7 @@ Tests failed. Use the following command to reproduce the failure:
       <p>Instead, use <a href="#builtin-bitCast">@bitCast</a>:
       <pre><code class="zig">@bitCast(u32, f32(12.34))</code></pre>
       <p>As an added benefit, the <code>@bitcast</code> version works at compile-time.</p>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#slices">Slices</a></li>
-        <li><a href="#memory">Memory</a></li>
-      </ul>
+      {#see_also|Slices|Memory#}
       {#header_close#}
       {#header_close#}
       {#header_open|Slices#}
@@ -1760,12 +1720,7 @@ test "slice widening" {
 Test 1/3 using slices for strings...OK
 Test 2/3 slice pointer...OK
 Test 3/3 slice widening...OK</code></pre>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#pointers">Pointers</a></li>
-        <li><a href="#for">for</a></li>
-        <li><a href="#arrays">Arrays</a></li>
-      </ul>
+      {#see_also|Pointers|for|Arrays#}
       {#header_close#}
       {#header_open|struct#}
       <pre><code class="zig">// Declare a struct.
@@ -1907,11 +1862,7 @@ Test 1/4 dot product...OK
 Test 2/4 struct namespaced variable...OK
 Test 3/4 field parent pointer...OK
 Test 4/4 linked list...OK</code></pre>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#comptime">comptime</a></li>
-        <li><a href="#builtin-fieldParentPtr">@fieldParentPtr</a></li>
-      </ul>
+      {#see_also|comptime|@fieldParentPtr#}
       {#header_close#}
       {#header_open|enum#}
       <pre><code class="zig">const assert = @import("std").debug.assert;
@@ -2024,12 +1975,7 @@ Test 5/8 @TagType...OK
 Test 6/8 @memberCount...OK
 Test 7/8 @memberName...OK
 Test 8/8 @tagName...OK</code></pre>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#builtin-memberName">@memberName</a></li>
-        <li><a href="#builtin-memberCount">@memberCount</a></li>
-        <li><a href="#builtin-tagName">@tagName</a></li>
-      </ul>
+      {#see_also|@memberName|@memberCount|@tagName#}
       {#header_close#}
       {#header_open|union#}
       <pre><code class="zig">const assert = @import("std").debug.assert;
@@ -2235,13 +2181,7 @@ test "switch inside function" {
 Test 1/2 switch simple...OK
 Test 2/2 switch enum...OK
 Test 3/3 switch inside function...OK</code></pre>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#comptime">comptime</a></li>
-        <li><a href="#enum">enum</a></li>
-        <li><a href="#builtin-compileError">@compileError</a></li>
-        <li><a href="#compile-variables">Compile Variables</a></li>
-      </ul>
+      {#see_also|comptime|enum|@compileError|Compile Variables#}
       {#header_close#}
       {#header_open|while#}
       <pre><code class="zig">const assert = @import("std").debug.assert;
@@ -2404,14 +2344,7 @@ Test 5/8 while loop continuation expression, more complicated...OK
 Test 6/8 while else...OK
 Test 7/8 while null capture...OK
 Test 8/8 inline while loop...OK</code></pre>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#if">if</a></li>
-        <li><a href="#nullables">Nullables</a></li>
-        <li><a href="#errors">Errors</a></li>
-        <li><a href="#comptime">comptime</a></li>
-        <li><a href="#unreachable">unreachable</a></li>
-      </ul>
+      {#see_also|if|Nullables|Errors|comptime|unreachable#}
       {#header_close#}
       {#header_open|for#}
       <pre><code class="zig">const assert = @import("std").debug.assert;
@@ -2507,13 +2440,7 @@ Test 1/4 for basics...OK
 Test 2/4 for reference...OK
 Test 3/4 for else...OK
 Test 4/4 inline for loop...OK</code></pre>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#while">while</a></li>
-        <li><a href="#comptime">comptime</a></li>
-        <li><a href="#arrays">Arrays</a></li>
-        <li><a href="#slices">Slices</a></li>
-      </ul>
+      {#see_also|while|comptime|Arrays|Slices#}
       {#header_close#}
       {#header_open|if#}
       <pre><code class="zig">// If expressions have three uses, corresponding to the three types:
@@ -2628,29 +2555,9 @@ test "if error union" {
 Test 1/3 if boolean...OK
 Test 2/3 if nullable...OK
 Test 3/3 if error union...OK</code></pre>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#nullables">Nullables</a></li>
-        <li><a href="#errors">Errors</a></li>
-      </ul>
+      {#see_also|Nullables|Errors#}
       {#header_close#}
-      {#header_open|goto#}
-      <pre><code class="zig">const assert = @import("std").debug.assert;
-
-test "goto" {
-    var value = false;
-    goto label;
-    value = true;
-
-label:
-    assert(value == false);
-}
-</code></pre>
-      <pre><code class="sh">$ zig test goto.zig
-Test 1/1 goto...OK
-</code></pre>
-<p>Note that there are <a href="https://github.com/zig-lang/zig/issues/346">plans to remove goto</a></p>
-{{deheader_open:fer}}
+      {#header_open|defer#}
       <pre><code class="zig">const assert = @import("std").debug.assert;
 const printf = @import("std").io.stdout.printf;
 
@@ -2736,10 +2643,7 @@ encountered an error!
 end of function
 OK
 </code></pre>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#errors">Errors</a></li>
-      </ul>
+      {#see_also|Errors#}
       {#header_close#}
       {#header_open|unreachable#}
       <p>
@@ -2811,12 +2715,7 @@ comptime {
 test.zig:9:12: error: unreachable code
     assert(@typeOf(unreachable) == noreturn);
            ^</code></pre>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#zig-test">Zig Test</a></li>
-        <li><a href="#build-mode">Build Mode</a></li>
-        <li><a href="#comptime">comptime</a></li>
-      </ul>
+      {#see_also|Zig Test|Build Mode|comptime#}
       {#header_close#}
       {#header_close#}
       {#header_open|noreturn#}
@@ -3142,12 +3041,7 @@ pub fn parseU64(buf: []const u8, radix: u8) -&gt; %u64 {
           in other languages.
         </li>
       </ul>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#defer">defer</a></li>
-        <li><a href="#if">if</a></li>
-        <li><a href="#switch">switch</a></li>
-      </ul>
+      {#see_also|defer|if|switch#}
       {#header_close#}
       {#header_open|Nullables#}
       <p>
@@ -3976,11 +3870,7 @@ comptime {
       The result is a target-specific compile time constant. It is guaranteed to be
       less than or equal to <a href="#builtin-sizeOf">@sizeOf(T)</a>.
       </p>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#alignment">Alignment</a></li>
-      </ul>
-
+      {#see_also|Alignment#}
       {#header_close#}
       {#header_open|@cDefine#}
       <pre><code class="zig">@cDefine(comptime name: []u8, value)</code></pre>
@@ -3999,14 +3889,7 @@ comptime {
       Use the void value, like this:
       </p>
       <pre><code class="zig">@cDefine("_GNU_SOURCE", {})</code></pre>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#c-import">Import from C Header File</a></li>
-        <li><a href="#builtin-cInclude">@cInclude</a></li>
-        <li><a href="#builtin-cImport">@cImport</a></li>
-        <li><a href="#builtin-cUndef">@cUndef</a></li>
-        <li><a href="#void">void</a></li>
-      </ul>
+      {#see_also|Import from C Header File|@cInclude|@cImport|@cUndef|void#}
       {#header_close#}
       {#header_open|@cImport#}
       <pre><code class="zig">@cImport(expression) -&gt; (namespace)</code></pre>
@@ -4019,13 +3902,7 @@ comptime {
       <code>@cInclude</code>, <code>@cDefine</code>, and <code>@cUndef</code> work
       within this expression, appending to a temporary buffer which is then parsed as C code.
       </p>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#c-import">Import from C Header File</a></li>
-        <li><a href="#builtin-cInclude">@cInclude</a></li>
-        <li><a href="#builtin-cDefine">@cDefine</a></li>
-        <li><a href="#builtin-cUndef">@cUndef</a></li>
-      </ul>
+      {#see_also|Import from C Header File|@cInclude|@cDefine|@cUndef#}
       {#header_close#}
       {#header_open|@cInclude#}
       <pre><code class="zig">@cInclude(comptime path: []u8)</code></pre>
@@ -4036,13 +3913,7 @@ comptime {
       This appends <code>#include <$path>\n</code> to the <code>c_import</code>
       temporary buffer.
       </p>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#c-import">Import from C Header File</a></li>
-        <li><a href="#builtin-cImport">@cImport</a></li>
-        <li><a href="#builtin-cDefine">@cDefine</a></li>
-        <li><a href="#builtin-cUndef">@cUndef</a></li>
-      </ul>
+      {#see_also|Import from C Header File|@cImport|@cDefine|@cUndef#}
       {#header_close#}
       {#header_open|@cUndef#}
       <pre><code class="zig">@cUndef(comptime name: []u8)</code></pre>
@@ -4053,13 +3924,7 @@ comptime {
       This appends <code>#undef $name</code> to the <code>@cImport</code>
       temporary buffer.
       </p>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#c-import">Import from C Header File</a></li>
-        <li><a href="#builtin-cImport">@cImport</a></li>
-        <li><a href="#builtin-cDefine">@cDefine</a></li>
-        <li><a href="#builtin-cInclude">@cInclude</a></li>
-      </ul>
+      {#see_also|Import from C Header File|@cImport|@cDefine|@cInclude#}
       {#header_close#}
       {#header_open|@canImplicitCast#}
       <pre><code class="zig">@canImplicitCast(comptime T: type, value) -&gt; bool</code></pre>
@@ -4091,11 +3956,7 @@ comptime {
       <code>AtomicOrder</code> can be found with <code>@import("builtin").AtomicOrder</code>.
       </p>
       <p><code>@typeOf(ptr).alignment</code> must be <code>&gt;= @sizeOf(T).</code></p>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#compile-variables">Compile Variables</a></li>
-      </ul>
-
+      {#see_also|Compile Variables#}
       {#header_close#}
       {#header_open|@compileError#}
       <pre><code class="zig">@compileError(comptime msg: []u8)</code></pre>
@@ -4183,12 +4044,8 @@ test.zig:6:2: error: found compile log statement
         <li><code>@divExact(6, 3) == 2</code></li>
         <li><code>@divExact(a, b) * b == a</code></li>
       </ul>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#builtin-divTrunc">@divTrunc</a></li>
-        <li><a href="#builtin-divFloor">@divFloor</a></li>
-        <li><code>@import("std").math.divExact</code></li>
-      </ul>
+      <p>For a function that returns a possible error code, use <code>@import("std").math.divExact</code>.</p>
+      {#see_also|@divTrunc|@divFloor#}
       {#header_close#}
       {#header_open|@divFloor#}
       <pre><code class="zig">@divFloor(numerator: T, denominator: T) -&gt; T</code></pre>
@@ -4201,12 +4058,8 @@ test.zig:6:2: error: found compile log statement
         <li><code>@divFloor(-5, 3) == -2</code></li>
         <li><code>@divFloor(a, b) + @mod(a, b) == a</code></li>
       </ul>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#builtin-divTrunc">@divTrunc</a></li>
-        <li><a href="#builtin-divExact">@divExact</a></li>
-        <li><code>@import("std").math.divFloor</code></li>
-      </ul>
+      <p>For a function that returns a possible error code, use <code>@import("std").math.divFloor</code>.</p>
+      {#see_also|@divTrunc|@divExact#}
       {#header_close#}
       {#header_open|@divTrunc#}
       <pre><code class="zig">@divTrunc(numerator: T, denominator: T) -&gt; T</code></pre>
@@ -4219,12 +4072,8 @@ test.zig:6:2: error: found compile log statement
         <li><code>@divTrunc(-5, 3) == -1</code></li>
         <li><code>@divTrunc(a, b) + @rem(a, b) == a</code></li>
       </ul>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#builtin-divFloor">@divFloor</a></li>
-        <li><a href="#builtin-divExact">@divExact</a></li>
-        <li><code>@import("std").math.divTrunc</code></li>
-      </ul>
+      <p>For a function that returns a possible error code, use <code>@import("std").math.divTrunc</code>.</p>
+      {#see_also|@divFloor|@divExact#}
       {#header_close#}
       {#header_open|@embedFile#}
       <pre><code class="zig">@embedFile(comptime path: []const u8) -&gt; [X]u8</code></pre>
@@ -4236,10 +4085,7 @@ test.zig:6:2: error: found compile log statement
       <p>
       <code>path</code> is absolute or relative to the current file, just like <code>@import</code>.
       </p>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#builtin-import">@import</a></li>
-      </ul>
+      {#see_also|@import#}
       {#header_close#}
       {#header_open|@export#}
       <pre><code class="zig">@export(comptime name: []const u8, target: var, linkage: builtin.GlobalLinkage) -&gt; []const u8</code></pre>
@@ -4294,10 +4140,7 @@ test.zig:6:2: error: found compile log statement
       <p>
       <code>AtomicOrder</code> can be found with <code>@import("builtin").AtomicOrder</code>.
       </p>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#compile-variables">Compile Variables</a></li>
-      </ul>
+      {#see_also|Compile Variables#}
       {#header_close#}
       {#header_open|@fieldParentPtr#}
       <pre><code class="zig">@fieldParentPtr(comptime ParentType: type, comptime field_name: []const u8,
@@ -4338,11 +4181,7 @@ test.zig:6:2: error: found compile log statement
         <li><code>@import("std")</code> - Zig Standard Library</li>
         <li><code>@import("builtin")</code> - Compiler-provided types and variables</li>
       </ul>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#compile-variables">Compile Variables</a></li>
-        <li><a href="#builtin-embedFile">@embedFile</a></li>
-      </ul>
+      {#see_also|Compile Variables|@embedFile#}
       {#header_close#}
       {#header_open|@inlineCall#}
       <pre><code class="zig">@inlineCall(function: X, args: ...) -&gt; Y</code></pre>
@@ -4359,10 +4198,7 @@ fn add(a: i32, b: i32) -&gt; i32 { a + b }</code></pre>
       Unlike a normal function call, however, <code>@inlineCall</code> guarantees that the call
       will be inlined. If the call cannot be inlined, a compile error is emitted.
       </p>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#builtin-noInlineCall">@noInlineCall</a></li>
-      </ul>
+      {#see_also|@noInlineCall#}
       {#header_close#}
       {#header_open|@intToPtr#}
       <pre><code class="zig">@intToPtr(comptime DestType: type, int: usize) -&gt; DestType</code></pre>
@@ -4454,11 +4290,8 @@ mem.set(u8, dest, c);</code></pre>
         <li><code>@mod(-5, 3) == 1</code></li>
         <li><code>@divFloor(a, b) + @mod(a, b) == a</code></li>
       </ul>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#builtin-rem">@rem</a></li>
-        <li><code>@import("std").math.mod</code></li>
-      </ul>
+      <p>For a function that returns an error code, see <code>@import("std").math.mod</code>.</p>
+      {#see_also|@rem#}
       {#header_close#}
       {#header_open|@mulWithOverflow#}
       <pre><code class="zig">@mulWithOverflow(comptime T: type, a: T, b: T, result: &amp;T) -&gt; bool</code></pre>
@@ -4483,10 +4316,7 @@ fn add(a: i32, b: i32) -&gt; i32 { a + b }</code></pre>
       Unlike a normal function call, however, <code>@noInlineCall</code> guarantees that the call
       will not be inlined. If the call must be inlined, a compile error is emitted.
       </p>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#builtin-inlineCall">@inlineCall</a></li>
-      </ul>
+      {#see_also|@inlineCall#}
       {#header_close#}
       {#header_open|@offsetOf#}
       <pre><code class="zig">@offsetOf(comptime T: type, comptime field_name: [] const u8) -&gt; (number literal)</code></pre>
@@ -4529,11 +4359,7 @@ test.zig:5:9: error: expected type '&amp;Derp', found '&amp;Wat'
         <li>From library code, calling the programmer's panic function if they exposed one in the root source file.</li>
         <li>When mixing C and Zig code, calling the canonical panic implementation across multiple .o files.</li>
       </ul>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#root-source-file">Root Source File</a></li>
-      </ul>
-
+      {#see_also|Root Source File#}
       {#header_close#}
       {#header_open|@ptrCast#}
       <pre><code class="zig">@ptrCast(comptime DestType: type, value: var) -&gt; DestType</code></pre>
@@ -4565,11 +4391,8 @@ test.zig:5:9: error: expected type '&amp;Derp', found '&amp;Wat'
         <li><code>@rem(-5, 3) == -2</code></li>
         <li><code>@divTrunc(a, b) + @rem(a, b) == a</code></li>
       </ul>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#builtin-mod">@mod</a></li>
-        <li><code>@import("std").math.rem</code></li>
-      </ul>
+      <p>For a function that returns an error code, see <code>@import("std").math.rem</code>.</p>
+      {#see_also|@mod#}
       {#header_close#}
       {#header_open|@returnAddress#}
       <pre><code class="zig">@returnAddress()</code></pre>
@@ -4584,7 +4407,6 @@ test.zig:5:9: error: expected type '&amp;Derp', found '&amp;Wat'
       <p>
       This function is only valid within function scope.
       </p>
-
       {#header_close#}
       {#header_open|@setDebugSafety#}
       <pre><code class="zig">@setDebugSafety(scope, safety_on: bool)</code></pre>
@@ -4623,11 +4445,7 @@ test.zig:5:9: error: expected type '&amp;Derp', found '&amp;Wat'
       <pre><code class="sh">$ ./zig build-obj test.zig</code></pre>
       <p>(no output because it worked fine)</p>
 
-      <p>See also:</p>
-      <ul>
-        <li><a href="#comptime">comptime</a></li>
-      </ul>
-
+      {#see_also|comptime#}
       {#header_close#}
       {#header_open|@setFloatMode#}
       <pre><code class="zig">@setFloatMode(scope, mode: @import("builtin").FloatMode)</code></pre>
@@ -4655,21 +4473,14 @@ test.zig:5:9: error: expected type '&amp;Derp', found '&amp;Wat'
           <code>Strict</code> - Floating point operations follow strict IEEE compliance.
         </li>
       </ul>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#float-operations">Floating Point Operations</a></li>
-      </ul>
-
+      {#see_also|Floating Point Operations#}
       {#header_close#}
       {#header_open|@setGlobalLinkage#}
       <pre><code class="zig">@setGlobalLinkage(global_variable_name, comptime linkage: GlobalLinkage)</code></pre>
       <p>
       <code>GlobalLinkage</code> can be found with <code>@import("builtin").GlobalLinkage</code>.
       </p>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#compile-variables">Compile Variables</a></li>
-      </ul>
+      {#see_also|Compile Variables#}
       {#header_close#}
       {#header_open|@setGlobalSection#}
       <pre><code class="zig">@setGlobalSection(global_variable_name, comptime section_name: []const u8) -&gt; bool</code></pre>
@@ -4687,11 +4498,7 @@ test.zig:5:9: error: expected type '&amp;Derp', found '&amp;Wat'
       The type of <code>shift_amt</code> is an unsigned integer with <code>log2(T.bit_count)</code> bits.
       This is because <code>shift_amt &gt;= T.bit_count</code> is undefined behavior.
       </p>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#builtin-shrExact">@shrExact</a></li>
-        <li><a href="#builtin-shlWithOverflow">@shlWithOverflow</a></li>
-      </ul>
+      {#see_also|@shrExact|@shlWithOverflow#}
       {#header_close#}
       {#header_open|@shlWithOverflow#}
       <pre><code class="zig">@shlWithOverflow(comptime T: type, a: T, shift_amt: Log2T, result: &amp;T) -&gt; bool</code></pre>
@@ -4704,11 +4511,7 @@ test.zig:5:9: error: expected type '&amp;Derp', found '&amp;Wat'
       The type of <code>shift_amt</code> is an unsigned integer with <code>log2(T.bit_count)</code> bits.
       This is because <code>shift_amt &gt;= T.bit_count</code> is undefined behavior.
       </p>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#builtin-shlExact">@shlExact</a></li>
-        <li><a href="#builtin-shrExact">@shrExact</a></li>
-      </ul>
+      {#see_also|@shlExact|@shrExact#}
       {#header_close#}
       {#header_open|@shrExact#}
       <pre><code class="zig">@shrExact(value: T, shift_amt: Log2T) -&gt; T</code></pre>
@@ -4720,10 +4523,7 @@ test.zig:5:9: error: expected type '&amp;Derp', found '&amp;Wat'
       The type of <code>shift_amt</code> is an unsigned integer with <code>log2(T.bit_count)</code> bits.
       This is because <code>shift_amt &gt;= T.bit_count</code> is undefined behavior.
       </p>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#builtin-shlExact">@shlExact</a></li>
-      </ul>
+      {#see_also|@shlExact|@shlWithOverflow#}
       {#header_close#}
       {#header_open|@sizeOf#}
       <pre><code class="zig">@sizeOf(comptime T: type) -&gt; (number literal)</code></pre>
@@ -4863,12 +4663,7 @@ pub fn build(b: &amp;Builder) {
         <li>Safety checks enabled</li>
         <li>Slow compilation speed</li>
       </ul>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#compile-variables">Compile Variables</a></li>
-        <li><a href="#zig-build-system">Zig Build System</a></li>
-        <li><a href="#undefined-behavior">Undefined Behavior</a></li>
-      </ul>
+      {#see_also|Compile Variables|Zig Build System|Undefined Behavior#}
       {#header_close#}
       {#header_close#}
       {#header_open|Undefined Behavior#}
@@ -5234,10 +5029,7 @@ comptime {
       <p>TODO: importance of checking for allocation failure</p>
       <p>TODO: mention overcommit and the OOM Killer</p>
       <p>TODO: mention recursion</p>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#pointers">Pointers</a></li>
-      </ul>
+      {#see_also|Pointers#}
 
       {#header_close#}
       {#header_open|Compile Variables#}
@@ -5406,10 +5198,7 @@ pub const object_format = ObjectFormat.elf;
 pub const mode = Mode.ReleaseFast;
 pub const link_libs = [][]const u8 {
 };</code></pre>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#build-mode">Build Mode</a></li>
-      </ul>
+      {#see_also|Build Mode#}
       {#header_close#}
       {#header_open|Root Source File#}
       <p>TODO: explain how root source file finds other files</p>
@@ -5456,10 +5245,7 @@ pub const link_libs = [][]const u8 {
         <li><code>c_longdouble</code></li>
         <li><code>c_void</code></li>
       </ul>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#primitive-types">Primitive Types</a></li>
-      </ul>
+      {#see_also|Primitive Types#}
       {#header_close#}
       {#header_open|C String Literals#}
       <pre><code class="zig">extern fn puts(&amp;const u8);
@@ -5472,10 +5258,7 @@ pub fn main() -&gt; %void {
         c\\multiline C string literal
     );
 }</code></pre>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#string-literals">String Literals</a></li>
-      </ul>
+      {#see_also|String Literals#}
       {#header_close#}
       {#header_open|Import from C Header File#}
       <p>
@@ -5504,14 +5287,7 @@ const c = @cImport({
     }
     @cInclude("soundio.h");
 });</code></pre>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#builtin-cImport">@cImport</a></li>
-        <li><a href="#builtin-cInclude">@cInclude</a></li>
-        <li><a href="#builtin-cDefine">@cDefine</a></li>
-        <li><a href="#builtin-cUndef">@cUndef</a></li>
-        <li><a href="#builtin-import">@import</a></li>
-      </ul>
+      {#see_also|@cImport|@cInclude|@cDefine|@cUndef|@import#}
       {#header_close#}
       {#header_open|Mixing Object Files#}
       <p>
@@ -5571,11 +5347,7 @@ pub fn build(b: &amp;Builder) {
       <pre><code class="sh">$ zig build
 $ ./test
 all your base are belong to us</code></pre>
-      <p>See also:</p>
-      <ul>
-        <li><a href="#targets">Targets</a></li>
-        <li><a href="#zig-build-system">Zig Build System</a></li>
-      </ul>
+      {#see_also|Targets|Zig Build System#}
       {#header_close#}
       {#header_close#}
       {#header_open|Targets#}

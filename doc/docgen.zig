@@ -35,9 +35,10 @@ pub fn main() -> %void {
     var file_out_stream = io.FileOutStream.init(&out_file);
     var buffered_out_stream = io.BufferedOutStream.init(&file_out_stream.stream);
 
-    const toc = try genToc(allocator, in_file_name, input_file_bytes);
+    var tokenizer = Tokenizer.init(in_file_name, input_file_bytes);
+    var toc = try genToc(allocator, &tokenizer);
 
-    try genHtml(allocator, toc, &buffered_out_stream.stream);
+    try genHtml(allocator, &tokenizer, &toc, &buffered_out_stream.stream);
     try buffered_out_stream.flush();
 }
 
@@ -240,21 +241,22 @@ const HeaderOpen = struct {
     n: usize,
 };
 
-const Tag = enum {
-    Nav,
-    HeaderOpen,
-    HeaderClose,
+const SeeAlsoItem = struct {
+    name: []const u8,
+    token: Token,
 };
 
 const Node = union(enum) {
     Content: []const u8,
     Nav,
     HeaderOpen: HeaderOpen,
+    SeeAlso: []const SeeAlsoItem,
 };
 
 const Toc = struct {
     nodes: []Node,
     toc: []u8,
+    urls: std.HashMap([]const u8, Token, mem.hash_slice_u8, mem.eql_slice_u8),
 };
 
 const Action = enum {
@@ -262,11 +264,9 @@ const Action = enum {
     Close,
 };
 
-fn genToc(allocator: &mem.Allocator, source_file_name: []const u8, input_file_bytes: []const u8) -> %Toc {
-    var tokenizer = Tokenizer.init(source_file_name, input_file_bytes);
-
+fn genToc(allocator: &mem.Allocator, tokenizer: &Tokenizer) -> %Toc {
     var urls = std.HashMap([]const u8, Token, mem.hash_slice_u8, mem.eql_slice_u8).init(allocator);
-    defer urls.deinit();
+    %defer urls.deinit();
 
     var header_stack_size: usize = 0;
     var last_action = Action.Open;
@@ -287,89 +287,98 @@ fn genToc(allocator: &mem.Allocator, source_file_name: []const u8, input_file_by
         switch (token.id) {
             Token.Id.Eof => {
                 if (header_stack_size != 0) {
-                    return parseError(&tokenizer, token, "unbalanced headers");
+                    return parseError(tokenizer, token, "unbalanced headers");
                 }
                 try toc.write("    </ul>\n");
                 break;
             },
             Token.Id.Content => {
-                try nodes.append(Node {.Content = input_file_bytes[token.start..token.end] });
+                try nodes.append(Node {.Content = tokenizer.buffer[token.start..token.end] });
             },
             Token.Id.BracketOpen => {
-                const tag_token = try eatToken(&tokenizer, Token.Id.TagContent);
-                const tag_name = input_file_bytes[tag_token.start..tag_token.end];
+                const tag_token = try eatToken(tokenizer, Token.Id.TagContent);
+                const tag_name = tokenizer.buffer[tag_token.start..tag_token.end];
 
-                var tag: Tag = undefined;
                 if (mem.eql(u8, tag_name, "nav")) {
-                    tag = Tag.Nav;
+                    _ = eatToken(tokenizer, Token.Id.BracketClose);
+
+                    try nodes.append(Node.Nav);
                 } else if (mem.eql(u8, tag_name, "header_open")) {
-                    tag = Tag.HeaderOpen;
+                    _ = eatToken(tokenizer, Token.Id.Separator);
+                    const content_token = try eatToken(tokenizer, Token.Id.TagContent);
+                    const content = tokenizer.buffer[content_token.start..content_token.end];
+                    _ = eatToken(tokenizer, Token.Id.BracketClose);
+
                     header_stack_size += 1;
+
+                    const urlized = try urlize(allocator, content);
+                    try nodes.append(Node{.HeaderOpen = HeaderOpen {
+                        .name = content,
+                        .url = urlized,
+                        .n = header_stack_size,
+                    }});
+                    if (try urls.put(urlized, tag_token)) |other_tag_token| {
+                        parseError(tokenizer, tag_token, "duplicate header url: #{}", urlized) catch {};
+                        parseError(tokenizer, other_tag_token, "other tag here") catch {};
+                        return error.ParseError;
+                    }
+                    if (last_action == Action.Open) {
+                        try toc.writeByte('\n');
+                        try toc.writeByteNTimes(' ', header_stack_size * 4);
+                        try toc.write("<ul>\n");
+                    } else {
+                        last_action = Action.Open;
+                    }
+                    try toc.writeByteNTimes(' ', 4 + header_stack_size * 4);
+                    try toc.print("<li><a href=\"#{}\">{}</a>", urlized, content);
                 } else if (mem.eql(u8, tag_name, "header_close")) {
                     if (header_stack_size == 0) {
-                        return parseError(&tokenizer, tag_token, "unbalanced close header");
+                        return parseError(tokenizer, tag_token, "unbalanced close header");
                     }
                     header_stack_size -= 1;
-                    tag = Tag.HeaderClose;
-                } else {
-                    return parseError(&tokenizer, tag_token, "unrecognized tag name: {}", tag_name);
-                }
+                    _ = eatToken(tokenizer, Token.Id.BracketClose);
 
-                var tag_content: ?[]const u8 = null;
-                const maybe_sep = tokenizer.next();
-                if (maybe_sep.id == Token.Id.Separator) {
-                    const content_token = try eatToken(&tokenizer, Token.Id.TagContent);
-                    tag_content = input_file_bytes[content_token.start..content_token.end];
-                    _ = eatToken(&tokenizer, Token.Id.BracketClose);
-                } else {
-                    try assertToken(&tokenizer, maybe_sep, Token.Id.BracketClose);
-                }
+                    if (last_action == Action.Close) {
+                        try toc.writeByteNTimes(' ', 8 + header_stack_size * 4);
+                        try toc.write("</ul></li>\n");
+                    } else {
+                        try toc.write("</li>\n");
+                        last_action = Action.Close;
+                    }
+                } else if (mem.eql(u8, tag_name, "see_also")) {
+                    var list = std.ArrayList(SeeAlsoItem).init(allocator);
+                    %defer list.deinit();
 
-                switch (tag) {
-                    Tag.HeaderOpen => {
-                        const content = tag_content ?? return parseError(&tokenizer, tag_token, "expected header content");
-                        const urlized = try urlize(allocator, content);
-                        try nodes.append(Node{.HeaderOpen = HeaderOpen {
-                            .name = content,
-                            .url = urlized,
-                            .n = header_stack_size,
-                        }});
-                        if (try urls.put(urlized, tag_token)) |other_tag_token| {
-                            parseError(&tokenizer, tag_token, "duplicate header url: #{}", urlized) catch {};
-                            parseError(&tokenizer, other_tag_token, "other tag here") catch {};
-                            return error.ParseError;
+                    while (true) {
+                        const see_also_tok = tokenizer.next();
+                        switch (see_also_tok.id) {
+                            Token.Id.TagContent => {
+                                const content = tokenizer.buffer[see_also_tok.start..see_also_tok.end];
+                                try list.append(SeeAlsoItem {
+                                    .name = content,
+                                    .token = see_also_tok,
+                                });
+                            },
+                            Token.Id.Separator => {},
+                            Token.Id.BracketClose => {
+                                try nodes.append(Node {.SeeAlso = list.toOwnedSlice() } );
+                                break;
+                            },
+                            else => return parseError(tokenizer, see_also_tok, "invalid see_also token"),
                         }
-                        if (last_action == Action.Open) {
-                            try toc.writeByte('\n');
-                            try toc.writeByteNTimes(' ', header_stack_size * 4);
-                            try toc.write("<ul>\n");
-                        } else {
-                            last_action = Action.Open;
-                        }
-                        try toc.writeByteNTimes(' ', 4 + header_stack_size * 4);
-                        try toc.print("<li><a href=\"#{}\">{}</a>", urlized, content);
-                    },
-                    Tag.HeaderClose => {
-                        if (last_action == Action.Close) {
-                            try toc.writeByteNTimes(' ', 8 + header_stack_size * 4);
-                            try toc.write("</ul></li>\n");
-                        } else {
-                            try toc.write("</li>\n");
-                            last_action = Action.Close;
-                        }
-                    },
-                    Tag.Nav => {
-                        try nodes.append(Node.Nav);
-                    },
+                    }
+                } else {
+                    return parseError(tokenizer, tag_token, "unrecognized tag name: {}", tag_name);
                 }
             },
-            else => return parseError(&tokenizer, token, "invalid token"),
+            else => return parseError(tokenizer, token, "invalid token"),
         }
     }
 
     return Toc {
         .nodes = nodes.toOwnedSlice(),
         .toc = toc_buf.toOwnedSlice(),
+        .urls = urls,
     };
 }
 
@@ -393,7 +402,7 @@ fn urlize(allocator: &mem.Allocator, input: []const u8) -> %[]u8 {
     return buf.toOwnedSlice();
 }
 
-fn genHtml(allocator: &mem.Allocator, toc: &const Toc, out: &io.OutStream) -> %void {
+fn genHtml(allocator: &mem.Allocator, tokenizer: &Tokenizer, toc: &Toc, out: &io.OutStream) -> %void {
     for (toc.nodes) |node| {
         switch (node) {
             Node.Content => |data| {
@@ -404,6 +413,17 @@ fn genHtml(allocator: &mem.Allocator, toc: &const Toc, out: &io.OutStream) -> %v
             },
             Node.HeaderOpen => |info| {
                 try out.print("<h{} id=\"{}\">{}</h{}>\n", info.n, info.url, info.name, info.n);
+            },
+            Node.SeeAlso => |items| {
+                try out.write("<p>See also:</p><ul>\n");
+                for (items) |item| {
+                    const url = try urlize(allocator, item.name);
+                    if (!toc.urls.contains(url)) {
+                        return parseError(tokenizer, item.token, "url not found: {}", url);
+                    }
+                    try out.print("<li><a href=\"#{}\">{}</a></li>\n", url, item.name);
+                }
+                try out.write("</ul>\n");
             },
         }
     }

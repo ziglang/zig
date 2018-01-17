@@ -109,6 +109,10 @@ pub fn HashMap(comptime K: type, comptime V: type,
             return hm.internalGet(key);
         }
 
+        pub fn contains(hm: &Self, key: K) -> bool {
+            return hm.get(key) != null;
+        }
+
         pub fn remove(hm: &Self, key: K) -> ?&Entry {
             hm.incrementModificationCount();
             const start_index = hm.keyToIndex(key);
