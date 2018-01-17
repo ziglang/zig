@@ -369,3 +369,8 @@ fn test_f128() {
 fn should_not_be_zero(x: f128) {
     assert(x != 0.0);
 }
+
+test "xor with zero" {
+    assert(0xFF ^ 0x00 == 0xFF);
+    comptime assert(0xFF ^ 0x00 == 0xFF);
+}

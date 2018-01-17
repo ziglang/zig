@@ -1271,6 +1271,12 @@ void bigint_and(BigInt *dest, const BigInt *op1, const BigInt *op2) {
 }
 
 void bigint_xor(BigInt *dest, const BigInt *op1, const BigInt *op2) {
+    if (op1->digit_count == 0) {
+        return bigint_init_bigint(dest, op2);
+    }
+    if (op2->digit_count == 0) {
+        return bigint_init_bigint(dest, op1);
+    }
     if (op1->is_negative || op2->is_negative) {
         // TODO this code path is untested
         size_t big_bit_count = max(bigint_bits_needed(op1), bigint_bits_needed(op2));
