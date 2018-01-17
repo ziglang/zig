@@ -24,17 +24,8 @@ pub fn build(b: &Builder) -> %void {
     });
     docgen_cmd.step.dependOn(&docgen_exe.step);
 
-    var docgen_home_cmd = b.addCommand(null, b.env_map, [][]const u8 {
-        docgen_exe.getOutputPath(),
-        rel_zig_exe,
-        "doc/home.html.in",
-        os.path.join(b.allocator, b.cache_root, "home.html") catch unreachable,
-    });
-    docgen_home_cmd.step.dependOn(&docgen_exe.step);
-
     const docs_step = b.step("docs", "Build documentation");
     docs_step.dependOn(&docgen_cmd.step);
-    docs_step.dependOn(&docgen_home_cmd.step);
 
     const test_step = b.step("test", "Run all the tests");
 

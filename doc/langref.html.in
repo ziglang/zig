@@ -92,14 +92,16 @@ pub fn main() -> %void {
       <p>For some discussion on the rationale behind these design decisions, see <a href="https://github.com/zig-lang/zig/issues/663">issue #663</a></p>
       {#header_close#}
       {#header_open|Values#}
-      <pre><code class="zig">const warn = @import("std").debug.warn;
-const os = @import("std").os;
-const assert = @import("std").debug.assert;
+      {#code_begin|exe|values#}
+const std = @import("std");
+const warn = std.debug.warn;
+const os = std.os;
+const assert = std.debug.assert;
 
 // error declaration, makes `error.ArgNotFound` available
 error ArgNotFound;
 
-pub fn main() -&gt; %void {
+pub fn main() -> %void {
     // integers
     const one_plus_one: i32 = 1 + 1;
     warn("1 + 1 = {}\n", one_plus_one);
@@ -137,30 +139,8 @@ pub fn main() -&gt; %void {
 
     warn("\nerror union 2\ntype: {}\nvalue: {}\n",
         @typeName(@typeOf(number_or_error)), number_or_error);
-}</code></pre>
-      <pre><code class="sh">$ zig build-exe values.zig
-$ ./values
-1 + 1 = 2
-7.0 / 3.0 = 2.333333
-false
-true
-false
-
-nullable 1
-type: ?[]const u8
-value: null
-
-nullable 2
-type: ?[]const u8
-value: hi
-
-error union 1
-type: %i32
-value: error.ArgNotFound
-
-error union 2
-type: %i32
-value: 1234</code></pre>
+}
+      {#code_end#}
       {#header_open|Primitive Types#}
       <table>
         <tr>
@@ -3630,17 +3610,18 @@ fn sum(numbers: []i32) -&gt; i32 {
       {#header_close#}
       {#header_open|Case Study: printf in Zig#}
       <p>
-      Putting all of this together, let's seee how <code>printf</code> works in Zig.
+      Putting all of this together, let's see how <code>printf</code> works in Zig.
       </p>
-      <pre><code class="zig">const warn = @import("std").debug.warn;
+      {#code_begin|exe|printf#}
+const warn = @import("std").debug.warn;
 
 const a_number: i32 = 1234;
 const a_string = "foobar";
 
-pub fn main(args: [][]u8) -&gt; %void {
+pub fn main() {
     warn("here is a string: '{}' here is a number: {}\n", a_string, a_number);
-}</code></pre>
-      <pre><code>here is a string: 'foobar' here is a number: 1234</code></pre>
+}
+      {#code_end#}
 
       <p>
       Let's crack open the implementation of this and see how it works:
@@ -3760,15 +3741,17 @@ pub fn printf(self: &amp;OutStream, comptime format: []const u8, args: ...) -&gt
       Zig doesn't care whether the format argument is a string literal,
       only that it is a compile-time known value that is implicitly castable to a <code>[]const u8</code>:
       </p>
-      <pre><code class="zig">const warn = @import("std").debug.warn;
+      {#code_begin|exe|printf#}
+const warn = @import("std").debug.warn;
 
 const a_number: i32 = 1234;
 const a_string = "foobar";
 const fmt = "here is a string: '{}' here is a number: {}\n";
 
-pub fn main(args: [][]u8) -&gt; %void {
+pub fn main() {
     warn(fmt, a_string, a_number);
-}</code></pre>
+}
+      {#code_end#}
       <p>
       This works fine.
       </p>
@@ -4943,8 +4926,9 @@ test "wraparound addition and subtraction" {
       <p>At runtime crashes with the message <code>attempt to unwrap null</code> and a stack trace.</p>
       <p>One way to avoid this crash is to test for null instead of assuming non-null, with
       the <code>if</code> expression:</p>
-      <pre><code class="zig">const warn = @import("std").debug.warn;
-pub fn main() -&gt; %void {
+      {#code_begin|exe|test#}
+const warn = @import("std").debug.warn;
+pub fn main() {
     const nullable_number: ?i32 = null;
 
     if (nullable_number) |number| {
@@ -4952,10 +4936,8 @@ pub fn main() -&gt; %void {
     } else {
         warn("it's null\n");
     }
-}</code></pre>
-      <pre><code class="sh">% zig build-exe test.zig
-$ ./test
-it's null</code></pre>
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Attempt to Unwrap Error#}
       <p>At compile-time:</p>
@@ -4975,9 +4957,10 @@ fn getNumberOrFail() -&gt; %i32 {
       <p>At runtime crashes with the message <code>attempt to unwrap error: ErrorCode</code> and a stack trace.</p>
       <p>One way to avoid this crash is to test for an error instead of assuming a successful result, with
       the <code>if</code> expression:</p>
-      <pre><code class="zig">const warn = @import("std").debug.warn;
+      {#code_begin|exe|test#}
+const warn = @import("std").debug.warn;
 
-pub fn main() -&gt; %void {
+pub fn main() {
     const result = getNumberOrFail();
 
     if (result) |number| {
@@ -4989,13 +4972,10 @@ pub fn main() -&gt; %void {
 
 error UnableToReturnNumber;
 
-fn getNumberOrFail() -&gt; %i32 {
+fn getNumberOrFail() -> %i32 {
     return error.UnableToReturnNumber;
-}</code></pre>
-      <pre><code class="sh">$ zig build-exe test.zig
-$ ./test
-got error: UnableToReturnNumber</code></pre>
-
+}
+      {#code_end#}
       {#header_close#}
       {#header_open|Invalid Error Code#}
       <p>At compile-time:</p>
