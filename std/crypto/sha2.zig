@@ -58,6 +58,8 @@ pub const Sha256 = Sha2_32(Sha256Params);
 
 fn Sha2_32(comptime params: Sha2Params32) -> type { return struct {
     const Self = this;
+    const block_size = 64;
+    const digest_size = params.out_len / 8;
 
     s: [8]u32,
     // Streaming Cache
@@ -372,7 +374,8 @@ pub const Sha512 = Sha2_64(Sha512Params);
 
 fn Sha2_64(comptime params: Sha2Params64) -> type { return struct {
     const Self = this;
-    const u9 = @IntType(false, 9);
+    const block_size = 128;
+    const digest_size = params.out_len / 8;
 
     s: [8]u64,
     // Streaming Cache

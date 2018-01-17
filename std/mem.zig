@@ -203,6 +203,20 @@ pub fn dupe(allocator: &Allocator, comptime T: type, m: []const T) -> %[]T {
     return new_buf;
 }
 
+/// Remove values from the beginning and end of a slice.
+pub fn trim(comptime T: type, slice: []const T, values_to_strip: []const T) -> []const T {
+    var begin: usize = 0;
+    var end: usize = slice.len;
+    while (begin < end and indexOfScalar(T, values_to_strip, slice[begin]) != null) : (begin += 1) {}
+    while (end > begin and indexOfScalar(T, values_to_strip, slice[end - 1]) != null) : (end -= 1) {}
+    return slice[begin..end];
+}
+
+test "mem.trim" {
+    assert(eql(u8, trim(u8, " foo\n ", " \n"), "foo"));
+    assert(eql(u8, trim(u8, "foo", " \n"), "foo"));
+}
+
 /// Linear search for the index of a scalar value inside a slice.
 pub fn indexOfScalar(comptime T: type, slice: []const T, value: T) -> ?usize {
     return indexOfScalarPos(T, slice, 0, value);

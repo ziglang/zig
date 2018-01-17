@@ -760,7 +760,7 @@ const CrossTarget = struct {
     environ: builtin.Environ,
 };
 
-const Target = union(enum) {
+pub const Target = union(enum) {
     Native: void,
     Cross: CrossTarget,
 

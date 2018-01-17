@@ -62,8 +62,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
                 .allocator = allocator,
                 .size = 0,
                 .max_distance_from_start_index = 0,
-                // it doesn't actually matter what we set this to since we use wrapping integer arithmetic
-                .modification_count = undefined,
+                .modification_count = if (want_modification_safety) 0 else {},
             };
         }
 
@@ -108,6 +107,10 @@ pub fn HashMap(comptime K: type, comptime V: type,
                 return null;
             }
             return hm.internalGet(key);
+        }
+
+        pub fn contains(hm: &Self, key: K) -> bool {
+            return hm.get(key) != null;
         }
 
         pub fn remove(hm: &Self, key: K) -> ?&Entry {

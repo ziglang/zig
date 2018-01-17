@@ -15,23 +15,17 @@ pub fn build(b: &Builder) -> %void {
 
     var docgen_exe = b.addExecutable("docgen", "doc/docgen.zig");
 
+    const rel_zig_exe = try os.path.relative(b.allocator, b.build_root, b.zig_exe);
     var docgen_cmd = b.addCommand(null, b.env_map, [][]const u8 {
         docgen_exe.getOutputPath(),
+        rel_zig_exe,
         "doc/langref.html.in",
         os.path.join(b.allocator, b.cache_root, "langref.html") catch unreachable,
     });
     docgen_cmd.step.dependOn(&docgen_exe.step);
 
-    var docgen_home_cmd = b.addCommand(null, b.env_map, [][]const u8 {
-        docgen_exe.getOutputPath(),
-        "doc/home.html.in",
-        os.path.join(b.allocator, b.cache_root, "home.html") catch unreachable,
-    });
-    docgen_home_cmd.step.dependOn(&docgen_exe.step);
-
     const docs_step = b.step("docs", "Build documentation");
     docs_step.dependOn(&docgen_cmd.step);
-    docs_step.dependOn(&docgen_home_cmd.step);
 
     const test_step = b.step("test", "Run all the tests");
 

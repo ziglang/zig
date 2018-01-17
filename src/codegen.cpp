@@ -921,31 +921,41 @@ static LLVMValueRef get_memcpy_fn_val(CodeGen *g) {
     return g->memcpy_fn_val;
 }
 
+static LLVMValueRef get_return_address_fn_val(CodeGen *g) {
+    if (g->return_address_fn_val)
+        return g->return_address_fn_val;
+
+    TypeTableEntry *return_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
+
+    LLVMTypeRef fn_type = LLVMFunctionType(return_type->type_ref,
+            &g->builtin_types.entry_i32->type_ref, 1, false);
+    g->return_address_fn_val = LLVMAddFunction(g->module, "llvm.returnaddress", fn_type);
+    assert(LLVMGetIntrinsicID(g->return_address_fn_val));
+
+    return g->return_address_fn_val;
+}
+
 static LLVMValueRef get_return_err_fn(CodeGen *g) {
     if (g->return_err_fn != nullptr)
         return g->return_err_fn;
 
     assert(g->err_tag_type != nullptr);
 
-    LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
-
     LLVMTypeRef arg_types[] = {
         // error return trace pointer
         get_ptr_to_stack_trace_type(g)->type_ref,
-        // return address
-        ptr_u8,
     };
-    LLVMTypeRef fn_type_ref = LLVMFunctionType(LLVMVoidType(), arg_types, 2, false);
+    LLVMTypeRef fn_type_ref = LLVMFunctionType(LLVMVoidType(), arg_types, 1, false);
 
     Buf *fn_name = get_mangled_name(g, buf_create_from_str("__zig_return_error"), false);
     LLVMValueRef fn_val = LLVMAddFunction(g->module, buf_ptr(fn_name), fn_type_ref);
+    addLLVMFnAttr(fn_val, "noinline"); // so that we can look at return address
     addLLVMFnAttr(fn_val, "cold");
     LLVMSetLinkage(fn_val, LLVMInternalLinkage);
     LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
     addLLVMFnAttr(fn_val, "nounwind");
     add_uwtable_attr(g, fn_val);
     addLLVMArgAttr(fn_val, (unsigned)0, "nonnull");
-    addLLVMArgAttr(fn_val, (unsigned)1, "nonnull");
     if (g->build_mode == BuildModeDebug) {
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim", "true");
         ZigLLVMAddFunctionAttr(fn_val, "no-frame-pointer-elim-non-leaf", nullptr);
@@ -983,7 +993,9 @@ static LLVMValueRef get_return_err_fn(CodeGen *g) {
     LLVMValueRef ptr_value = gen_load_untyped(g, ptr_field_ptr, 0, false, "");
     LLVMValueRef address_slot = LLVMBuildInBoundsGEP(g->builder, ptr_value, address_indices, 1, "");
 
-    LLVMValueRef return_address = LLVMBuildPtrToInt(g->builder, LLVMGetParam(fn_val, 1), usize_type_ref, "");
+    LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_i32->type_ref);
+    LLVMValueRef return_address_ptr = LLVMBuildCall(g->builder, get_return_address_fn_val(g), &zero, 1, "");
+    LLVMValueRef return_address = LLVMBuildPtrToInt(g->builder, return_address_ptr, usize_type_ref, "");
 
     LLVMValueRef address_value = LLVMBuildPtrToInt(g->builder, return_address, usize_type_ref, "");
     gen_store_untyped(g, address_value, address_slot, 0, false);
@@ -1431,17 +1443,11 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
             is_err_return = true;
         }
         if (is_err_return) {
-            LLVMBasicBlockRef return_block = LLVMAppendBasicBlock(g->cur_fn_val, "ReturnError");
-            LLVMValueRef block_address = LLVMBlockAddress(g->cur_fn_val, return_block);
-
             LLVMValueRef return_err_fn = get_return_err_fn(g);
             LLVMValueRef args[] = {
                 g->cur_err_ret_trace_val,
-                block_address,
             };
-            LLVMBuildBr(g->builder, return_block);
-            LLVMPositionBuilderAtEnd(g->builder, return_block);
-            LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, return_err_fn, args, 2,
+            LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, return_err_fn, args, 1,
                     get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
             LLVMSetTailCall(call_instruction, true);
         }
@@ -3289,20 +3295,6 @@ static LLVMValueRef get_trap_fn_val(CodeGen *g) {
 static LLVMValueRef ir_render_breakpoint(CodeGen *g, IrExecutable *executable, IrInstructionBreakpoint *instruction) {
     LLVMBuildCall(g->builder, get_trap_fn_val(g), nullptr, 0, "");
     return nullptr;
-}
-
-static LLVMValueRef get_return_address_fn_val(CodeGen *g) {
-    if (g->return_address_fn_val)
-        return g->return_address_fn_val;
-
-    TypeTableEntry *return_type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
-
-    LLVMTypeRef fn_type = LLVMFunctionType(return_type->type_ref,
-            &g->builtin_types.entry_i32->type_ref, 1, false);
-    g->return_address_fn_val = LLVMAddFunction(g->module, "llvm.returnaddress", fn_type);
-    assert(LLVMGetIntrinsicID(g->return_address_fn_val));
-
-    return g->return_address_fn_val;
 }
 
 static LLVMValueRef ir_render_return_address(CodeGen *g, IrExecutable *executable,

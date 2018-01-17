@@ -21,6 +21,8 @@ pub const Blake2s256 = Blake2s(256);
 
 fn Blake2s(comptime out_len: usize) -> type { return struct {
     const Self = this;
+    const block_size = 64;
+    const digest_size = out_len / 8;
 
     const iv = [8]u32 {
         0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A,
@@ -236,6 +238,8 @@ pub const Blake2b512 = Blake2b(512);
 
 fn Blake2b(comptime out_len: usize) -> type { return struct {
     const Self = this;
+    const block_size = 128;
+    const digest_size = out_len / 8;
 
     const iv = [8]u64 {
         0x6a09e667f3bcc908, 0xbb67ae8584caa73b,

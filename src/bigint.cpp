@@ -1271,6 +1271,12 @@ void bigint_and(BigInt *dest, const BigInt *op1, const BigInt *op2) {
 }
 
 void bigint_xor(BigInt *dest, const BigInt *op1, const BigInt *op2) {
+    if (op1->digit_count == 0) {
+        return bigint_init_bigint(dest, op2);
+    }
+    if (op2->digit_count == 0) {
+        return bigint_init_bigint(dest, op1);
+    }
     if (op1->is_negative || op2->is_negative) {
         // TODO this code path is untested
         size_t big_bit_count = max(bigint_bits_needed(op1), bigint_bits_needed(op2));
@@ -1289,14 +1295,16 @@ void bigint_xor(BigInt *dest, const BigInt *op1, const BigInt *op2) {
         dest->is_negative = false;
         const uint64_t *op1_digits = bigint_ptr(op1);
         const uint64_t *op2_digits = bigint_ptr(op2);
+
+        assert(op1->digit_count > 0 && op2->digit_count > 0);
+        uint64_t first_digit = op1_digits[0] ^ op2_digits[0];
         if (op1->digit_count == 1 && op2->digit_count == 1) {
             dest->digit_count = 1;
-            dest->data.digit = op1_digits[0] ^ op2_digits[0];
+            dest->data.digit = first_digit;
             bigint_normalize(dest);
             return;
         }
         // TODO this code path is untested
-        uint64_t first_digit = dest->data.digit;
         dest->digit_count = max(op1->digit_count, op2->digit_count);
         dest->data.digits = allocate_nonzero<uint64_t>(dest->digit_count);
         dest->data.digits[0] = first_digit;
