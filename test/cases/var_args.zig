@@ -79,3 +79,11 @@ fn assertSlicePtrsEql(args: ...) {
     assert(s1.ptr == s2.ptr);
 }
 
+
+test "pass zero length array to var args param" {
+    doNothingWithFirstArg("");
+}
+
+fn doNothingWithFirstArg(args: ...) {
+    const a = args[0];
+}

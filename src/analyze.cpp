@@ -609,7 +609,10 @@ TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t 
     buf_resize(&entry->name, 0);
     buf_appendf(&entry->name, "[%" ZIG_PRI_u64 "]%s", array_size, buf_ptr(&child_type->name));
 
-    if (!entry->zero_bits) {
+    if (entry->zero_bits) {
+        entry->di_type = ZigLLVMCreateDebugArrayType(g->dbuilder, 0,
+                0, child_type->di_type, 0);
+    } else {
         entry->type_ref = child_type->type_ref ? LLVMArrayType(child_type->type_ref,
                 (unsigned int)array_size) : nullptr;
 
