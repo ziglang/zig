@@ -1,6 +1,14 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) {
+    cases.add("@panic called at compile time",
+        \\export fn entry() {
+        \\    comptime {
+        \\        @panic("aoeu");
+        \\    }
+        \\}
+    , "error: encountered @panic at compile-time");
+
     cases.add("wrong return type for main",
         \\pub fn main() -> f32 { }
     , "error: expected return type of main to be 'u8', 'noreturn', 'void', or '%void'");

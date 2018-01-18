@@ -14499,6 +14499,11 @@ static TypeTableEntry *ir_analyze_instruction_panic(IrAnalyze *ira, IrInstructio
     if (type_is_invalid(msg->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
+    if (ir_should_inline(ira->new_irb.exec, instruction->base.scope)) {
+        ir_add_error(ira, &instruction->base, buf_sprintf("encountered @panic at compile-time"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
     TypeTableEntry *u8_ptr_type = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_u8, true);
     TypeTableEntry *str_type = get_slice_type(ira->codegen, u8_ptr_type);
     IrInstruction *casted_msg = ir_implicit_cast(ira, msg, str_type);
