@@ -135,9 +135,7 @@ fn expandString(input: []const u8, output: &Buffer) -> %void {
     }
 }
 
-const ListOfBuffer0 = ArrayList(Buffer); // TODO this is working around a compiler bug, fix and delete this
-
-fn expandNode(node: &const Node, output: &ListOfBuffer0) -> %void {
+fn expandNode(node: &const Node, output: &ArrayList(Buffer)) -> %void {
     assert(output.len == 0);
     switch (*node) {
         Node.Scalar => |scalar| {
@@ -214,7 +212,7 @@ fn expectError(test_input: []const u8, expected_err: error) {
     var output_buf = Buffer.initSize(global_allocator, 0) catch unreachable;
     defer output_buf.deinit();
 
-    if (expandString("}ABC", &output_buf)) {
+    if (expandString(test_input, &output_buf)) {
         unreachable;
     } else |err| {
         assert(expected_err == err);
