@@ -1,13 +1,19 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) {
+    cases.add("shift by negative comptime integer",
+        \\comptime {
+        \\    var a = 1 >> -1;
+        \\}
+    , ".tmp_source.zig:2:18: error: shift by negative value -1");
+
     cases.add("@panic called at compile time",
         \\export fn entry() {
         \\    comptime {
         \\        @panic("aoeu");
         \\    }
         \\}
-    , "error: encountered @panic at compile-time");
+    , ".tmp_source.zig:3:9: error: encountered @panic at compile-time");
 
     cases.add("wrong return type for main",
         \\pub fn main() -> f32 { }
