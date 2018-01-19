@@ -48,6 +48,7 @@ error PathNotFound;
 error OutOfMemory;
 error Unseekable;
 error EndOfFile;
+error FilePosLargerThanPointerRange;
 
 pub fn getStdErr() -> %File {
     const handle = if (is_windows)
@@ -266,8 +267,8 @@ pub const File = struct {
                 return result;
             },
             Os.windows => {
-                var pos : usize = undefined;
-                if (system.SetFilePointerEx(self.handle, 0, @ptrCast(system.PLARGE_INTEGER, &pos), system.FILE_CURRENT) == 0) {
+                var pos : system.LARGE_INTEGER = undefined;
+                if (system.SetFilePointerEx(self.handle, 0, &pos, system.FILE_CURRENT) == 0) {
                     const err = system.GetLastError();
                     return switch (err) {
                         system.ERROR.INVALID_PARAMETER => error.BadFd,
@@ -275,7 +276,12 @@ pub const File = struct {
                     };
                 }
 
-                return pos;
+                assert(pos >= 0);
+                if (pos > @maxValue(usize)) {
+                    return error.FilePosLargerThanPointerRange;
+                }
+
+                return usize(pos);
             },
             else => @compileError("unsupported OS"),
         }
