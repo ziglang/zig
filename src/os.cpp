@@ -797,17 +797,15 @@ int os_rename(Buf *src_path, Buf *dest_path) {
     if (buf_eql_buf(src_path, dest_path)) {
         return 0;
     }
-    if (rename(buf_ptr(src_path), buf_ptr(dest_path)) == -1) {
-        // Windows requires the dest path to be missing
-        if (errno == EACCES) {
-            remove(buf_ptr(dest_path));
-            if (rename(buf_ptr(src_path), buf_ptr(dest_path)) == -1) {
-                return ErrorFileSystem;
-            }
-            return 0;
-        }
+#if defined(ZIG_OS_WINDOWS)
+    if (!MoveFileEx(buf_ptr(dest_path), buf_ptr(src_path), MOVEFILE_REPLACE_EXISTING)) {
         return ErrorFileSystem;
     }
+#else
+    if (rename(buf_ptr(src_path), buf_ptr(dest_path)) == -1) {
+        return ErrorFileSystem;
+    }
+#endif
     return 0;
 }
 
