@@ -48,7 +48,14 @@ pub fn main() -> %void {
     var toc = try genToc(allocator, &tokenizer);
 
     try os.makePath(allocator, tmp_dir_name);
-    defer os.deleteTree(allocator, tmp_dir_name) catch {};
+    defer {
+        // TODO issue #709
+        // disabled to pass CI tests, but obviously we want to implement this
+        // and then remove this workaround
+        if (builtin.os == builtin.Os.linux) {
+            os.deleteTree(allocator, tmp_dir_name) catch {};
+        }
+    }
     try genHtml(allocator, &tokenizer, &toc, &buffered_out_stream.stream, zig_exe);
     try buffered_out_stream.flush();
 }
