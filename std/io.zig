@@ -209,7 +209,7 @@ pub const File = struct {
                     const err = system.GetLastError();
                     return switch (err) {
                         system.ERROR.INVALID_PARAMETER => error.BadFd,
-                        else => os.unexpectedErrorPosix(err),
+                        else => os.unexpectedErrorWindows(err),
                     };
                 }
             },
