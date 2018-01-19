@@ -220,7 +220,8 @@ pub const File = struct {
     pub fn seekTo(self: &File, pos: usize) -> %void {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios => {
-                const result = system.lseek(self.handle, @bitCast(isize, pos), system.SEEK_SET);
+                const ipos = try math.cast(isize, pos);
+                const result = system.lseek(self.handle, ipos, system.SEEK_SET);
                 const err = system.getErrno(result);
                 if (err > 0) {
                     return switch (err) {
@@ -234,7 +235,8 @@ pub const File = struct {
                 }
             },
             Os.windows => {
-                if (system.SetFilePointerEx(self.handle, @bitCast(isize, pos), null, system.FILE_BEGIN) == 0) {
+                const ipos = try math.cast(isize, pos);
+                if (system.SetFilePointerEx(self.handle, ipos, null, system.FILE_BEGIN) == 0) {
                     const err = system.GetLastError();
                     return switch (err) {
                         system.ERROR.INVALID_PARAMETER => error.BadFd,
