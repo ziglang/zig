@@ -74,6 +74,9 @@ pub extern "kernel32" stdcallcc fn ReadFile(in_hFile: HANDLE, out_lpBuffer: LPVO
     in_nNumberOfBytesToRead: DWORD, out_lpNumberOfBytesRead: &DWORD,
     in_out_lpOverlapped: ?&OVERLAPPED) -> BOOL;
 
+pub extern "kernel32" stdcallcc fn SetFilePointerEx(in_fFile: HANDLE, in_liDistanceToMove: LARGE_INTEGER, 
+    out_opt_ldNewFilePointer: ?&LARGE_INTEGER, in_dwMoveMethod: DWORD) -> BOOL;
+
 pub extern "kernel32" stdcallcc fn SetHandleInformation(hObject: HANDLE, dwMask: DWORD, dwFlags: DWORD) -> BOOL;
 
 pub extern "kernel32" stdcallcc fn Sleep(dwMilliseconds: DWORD);
@@ -289,3 +292,7 @@ pub const MOVEFILE_DELAY_UNTIL_REBOOT = 4;
 pub const MOVEFILE_FAIL_IF_NOT_TRACKABLE = 32;
 pub const MOVEFILE_REPLACE_EXISTING = 1;
 pub const MOVEFILE_WRITE_THROUGH = 8;
+
+pub const FILE_BEGIN = 0;
+pub const FILE_CURRENT = 1;
+pub const FILE_END = 2;

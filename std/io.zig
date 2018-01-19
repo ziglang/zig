@@ -48,6 +48,7 @@ error PathNotFound;
 error OutOfMemory;
 error Unseekable;
 error EndOfFile;
+error FilePosLargerThanPointerRange;
 
 pub fn getStdErr() -> %File {
     const handle = if (is_windows)
@@ -204,6 +205,15 @@ pub const File = struct {
                     };
                 }
             },
+            Os.windows => {
+                if (system.SetFilePointerEx(self.handle, amount, null, system.FILE_CURRENT) == 0) {
+                    const err = system.GetLastError();
+                    return switch (err) {
+                        system.ERROR.INVALID_PARAMETER => error.BadFd,
+                        else => os.unexpectedErrorWindows(err),
+                    };
+                }
+            },
             else => @compileError("unsupported OS"),
         }
     }
@@ -211,7 +221,8 @@ pub const File = struct {
     pub fn seekTo(self: &File, pos: usize) -> %void {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios => {
-                const result = system.lseek(self.handle, @bitCast(isize, pos), system.SEEK_SET);
+                const ipos = try math.cast(isize, pos);
+                const result = system.lseek(self.handle, ipos, system.SEEK_SET);
                 const err = system.getErrno(result);
                 if (err > 0) {
                     return switch (err) {
@@ -221,6 +232,16 @@ pub const File = struct {
                         system.ESPIPE => error.Unseekable,
                         system.ENXIO => error.Unseekable,
                         else => os.unexpectedErrorPosix(err),
+                    };
+                }
+            },
+            Os.windows => {
+                const ipos = try math.cast(isize, pos);
+                if (system.SetFilePointerEx(self.handle, ipos, null, system.FILE_BEGIN) == 0) {
+                    const err = system.GetLastError();
+                    return switch (err) {
+                        system.ERROR.INVALID_PARAMETER => error.BadFd,
+                        else => os.unexpectedErrorWindows(err),
                     };
                 }
             },
@@ -244,6 +265,25 @@ pub const File = struct {
                     };
                 }
                 return result;
+            },
+            Os.windows => {
+                var pos : system.LARGE_INTEGER = undefined;
+                if (system.SetFilePointerEx(self.handle, 0, &pos, system.FILE_CURRENT) == 0) {
+                    const err = system.GetLastError();
+                    return switch (err) {
+                        system.ERROR.INVALID_PARAMETER => error.BadFd,
+                        else => os.unexpectedErrorWindows(err),
+                    };
+                }
+
+                assert(pos >= 0);
+                if (@sizeOf(@typeOf(pos)) > @sizeOf(usize)) {
+                    if (pos > @maxValue(usize)) {
+                        return error.FilePosLargerThanPointerRange;
+                    }
+                }
+
+                return usize(pos);
             },
             else => @compileError("unsupported OS"),
         }
