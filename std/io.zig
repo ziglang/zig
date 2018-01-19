@@ -277,8 +277,10 @@ pub const File = struct {
                 }
 
                 assert(pos >= 0);
-                if (pos > @maxValue(usize)) {
-                    return error.FilePosLargerThanPointerRange;
+                if (@sizeOf(@typeOf(pos)) > @sizeOf(usize)) {
+                    if (pos > @maxValue(usize)) {
+                        return error.FilePosLargerThanPointerRange;
+                    }
                 }
 
                 return usize(pos);
