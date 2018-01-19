@@ -462,7 +462,7 @@ int main(int argc, char **argv) {
         Termination term;
         os_spawn_process(buf_ptr(path_to_build_exe), args, &term);
         if (term.how != TerminationIdClean || term.code != 0) {
-            fprintf(stderr, "\nBuild failed. Use the following command to reproduce the failure:\n");
+            fprintf(stderr, "\nBuild failed. The following command failed:\n");
             fprintf(stderr, "%s", buf_ptr(path_to_build_exe));
             for (size_t i = 0; i < args.length; i += 1) {
                 fprintf(stderr, " %s", args.at(i));

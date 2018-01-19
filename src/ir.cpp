@@ -9009,7 +9009,7 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
         int err;
         if ((err = ir_eval_math_op(resolved_type, op1_val, op_id, op2_val, out_val))) {
             if (err == ErrorDivByZero) {
-                ir_add_error(ira, &bin_op_instruction->base, buf_sprintf("division by zero is undefined"));
+                ir_add_error(ira, &bin_op_instruction->base, buf_sprintf("division by zero"));
                 return ira->codegen->builtin_types.entry_invalid;
             } else if (err == ErrorOverflow) {
                 ir_add_error(ira, &bin_op_instruction->base, buf_sprintf("operation caused overflow"));

@@ -861,10 +861,10 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\export fn entry3() -> usize { return @sizeOf(@typeOf(int_x)); }
         \\export fn entry4() -> usize { return @sizeOf(@typeOf(float_x)); }
     ,
-            ".tmp_source.zig:1:21: error: division by zero is undefined",
-            ".tmp_source.zig:2:25: error: division by zero is undefined",
-            ".tmp_source.zig:3:22: error: division by zero is undefined",
-            ".tmp_source.zig:4:26: error: division by zero is undefined");
+            ".tmp_source.zig:1:21: error: division by zero",
+            ".tmp_source.zig:2:25: error: division by zero",
+            ".tmp_source.zig:3:22: error: division by zero",
+            ".tmp_source.zig:4:26: error: division by zero");
 
 
     cases.add("normal string with newline",
@@ -911,7 +911,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\
         \\export fn entry() -> usize { return @sizeOf(@typeOf(y)); }
     ,
-            ".tmp_source.zig:3:14: error: division by zero is undefined",
+            ".tmp_source.zig:3:14: error: division by zero",
             ".tmp_source.zig:1:14: note: called from here");
 
     cases.add("branch on undefined value",
@@ -1816,7 +1816,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    const c = a / b;
         \\}
     ,
-        ".tmp_source.zig:4:17: error: division by zero is undefined");
+        ".tmp_source.zig:4:17: error: division by zero");
 
     cases.add("compile-time remainder division by zero",
         \\comptime {
@@ -1825,7 +1825,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
         \\    const c = a % b;
         \\}
     ,
-        ".tmp_source.zig:4:17: error: division by zero is undefined");
+        ".tmp_source.zig:4:17: error: division by zero");
 
     cases.add("compile-time integer cast truncates bits",
         \\comptime {
