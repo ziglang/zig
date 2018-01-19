@@ -204,6 +204,15 @@ pub const File = struct {
                     };
                 }
             },
+            Os.windows => {
+                if (system.SetFilePointerEx(self.handle, amount, null, system.FILE_CURRENT) == 0) {
+                    const err = system.GetLastError();
+                    return switch (err) {
+                        system.ERROR.INVALID_PARAMETER => error.BadFd,
+                        else => os.unexpectedErrorPosix(err),
+                    };
+                }
+            },
             else => @compileError("unsupported OS"),
         }
     }
@@ -221,6 +230,15 @@ pub const File = struct {
                         system.ESPIPE => error.Unseekable,
                         system.ENXIO => error.Unseekable,
                         else => os.unexpectedErrorPosix(err),
+                    };
+                }
+            },
+            Os.windows => {
+                if (system.SetFilePointerEx(self.handle, @bitCast(isize, pos), null, system.FILE_BEGIN) == 0) {
+                    const err = system.GetLastError();
+                    return switch (err) {
+                        system.ERROR.INVALID_PARAMETER => error.BadFd,
+                        else => os.unexpectedErrorWindows(err),
                     };
                 }
             },
@@ -244,6 +262,18 @@ pub const File = struct {
                     };
                 }
                 return result;
+            },
+            Os.windows => {
+                var pos : usize = undefined;
+                if (system.SetFilePointerEx(self.handle, 0, @ptrCast(system.PLARGE_INTEGER, &pos), system.FILE_CURRENT) == 0) {
+                    const err = system.GetLastError();
+                    return switch (err) {
+                        system.ERROR.INVALID_PARAMETER => error.BadFd,
+                        else => os.unexpectedErrorWindows(err),
+                    };
+                }
+
+                return pos;
             },
             else => @compileError("unsupported OS"),
         }
