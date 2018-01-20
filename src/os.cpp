@@ -390,7 +390,6 @@ static int os_exec_process_posix(const char *exe, ZigList<const char *> &args,
 
 #if defined(ZIG_OS_WINDOWS)
 
-/*
 static void win32_panic(const char *str) {
     DWORD err = GetLastError();
     LPSTR messageBuffer = nullptr;
@@ -400,7 +399,6 @@ static void win32_panic(const char *str) {
     zig_panic(str, messageBuffer);
     LocalFree(messageBuffer);
 }
-*/
 
 static int os_exec_process_windows(const char *exe, ZigList<const char *> &args,
         Termination *term, Buf *out_stderr, Buf *out_stdout)
@@ -798,7 +796,7 @@ int os_rename(Buf *src_path, Buf *dest_path) {
         return 0;
     }
 #if defined(ZIG_OS_WINDOWS)
-    if (!MoveFileEx(buf_ptr(dest_path), buf_ptr(src_path), MOVEFILE_REPLACE_EXISTING)) {
+    if (!MoveFileExA(buf_ptr(src_path), buf_ptr(dest_path), MOVEFILE_REPLACE_EXISTING)) {
         return ErrorFileSystem;
     }
 #else

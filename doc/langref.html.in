@@ -2099,10 +2099,10 @@ const os_msg = switch (builtin.os) {
 // evaluated if the target expression is compile-time known.
 test "switch inside function" {
     switch (builtin.os) {
-        builtin.Os.windows => {
-            // On an OS other than windows, block is not even analyzed,
+        builtin.Os.fuchsia => {
+            // On an OS other than fuchsia, block is not even analyzed,
             // so this compile error is not triggered.
-            // On windows this compile error would be triggered.
+            // On fuchsia this compile error would be triggered.
             @compileError("windows not supported");
         },
         else => {},
@@ -5172,7 +5172,11 @@ pub fn main() {
       </p>
       {#code_begin|exe#}
       {#link_libc#}
-const c = @cImport(@cInclude("stdio.h"));
+const c = @cImport({
+    // See https://github.com/zig-lang/zig/issues/515
+    @cDefine("_NO_CRT_STDIO_INLINE", "1");
+    @cInclude("stdio.h");
+});
 pub fn main() {
     _ = c.printf(c"hello\n");
 }
