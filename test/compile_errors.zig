@@ -1,6 +1,15 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) {
+    cases.add("switch on enum with 1 field with no prongs",
+        \\const Foo = enum { M };
+        \\
+        \\export fn entry() {
+        \\    var f = Foo.M;
+        \\    switch (f) {}
+        \\}
+    , ".tmp_source.zig:5:5: error: enumeration value 'Foo.M' not handled in switch");
+
     cases.add("shift by negative comptime integer",
         \\comptime {
         \\    var a = 1 >> -1;

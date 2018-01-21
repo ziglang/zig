@@ -4992,7 +4992,11 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
 
     ir_set_cursor_at_end_and_append_block(irb, end_block);
     assert(incoming_blocks.length == incoming_values.length);
-    return ir_build_phi(irb, scope, node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
+    if (incoming_blocks.length == 0) {
+        return ir_build_const_void(irb, scope, node);
+    } else {
+        return ir_build_phi(irb, scope, node, incoming_blocks.length, incoming_blocks.items, incoming_values.items);
+    }
 }
 
 static IrInstruction *ir_gen_comptime(IrBuilder *irb, Scope *parent_scope, AstNode *node, LVal lval) {
