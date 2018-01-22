@@ -235,3 +235,30 @@ test "constant packed union" {
 fn testConstPackedUnion(expected_tokens: []const PackThis) {
     assert(expected_tokens[0].StringLiteral == 1);
 }
+
+test "switch on union with only 1 field" {
+    var r: PartialInst = undefined;
+    r = PartialInst.Compiled;
+    switch (r) {
+        PartialInst.Compiled => {
+            var z: PartialInstWithPayload = undefined;
+            z = PartialInstWithPayload { .Compiled = 1234 };
+            switch (z) {
+                PartialInstWithPayload.Compiled => |x| {
+                    assert(x == 1234);
+                    return;
+                },
+            }
+        },
+    }
+    unreachable;
+}
+
+const PartialInst = union(enum) {
+    Compiled,
+};
+
+const PartialInstWithPayload = union(enum) {
+    Compiled: i32,
+};
+

@@ -4769,7 +4769,8 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
 }
 
 static bool ir_gen_switch_prong_expr(IrBuilder *irb, Scope *scope, AstNode *switch_node, AstNode *prong_node,
-        IrBasicBlock *end_block, IrInstruction *is_comptime, IrInstruction *target_value_ptr, IrInstruction *prong_value,
+        IrBasicBlock *end_block, IrInstruction *is_comptime, IrInstruction *var_is_comptime,
+        IrInstruction *target_value_ptr, IrInstruction *prong_value,
         ZigList<IrBasicBlock *> *incoming_blocks, ZigList<IrInstruction *> *incoming_values)
 {
     assert(switch_node->type == NodeTypeSwitchExpr);
@@ -4786,7 +4787,7 @@ static bool ir_gen_switch_prong_expr(IrBuilder *irb, Scope *scope, AstNode *swit
         bool is_shadowable = false;
         bool is_const = true;
         VariableTableEntry *var = ir_create_var(irb, var_symbol_node, scope,
-                var_name, is_const, is_const, is_shadowable, is_comptime);
+                var_name, is_const, is_const, is_shadowable, var_is_comptime);
         child_scope = var->child_scope;
         IrInstruction *var_value;
         if (prong_value) {
@@ -4827,10 +4828,13 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
     ZigList<IrInstructionSwitchBrCase> cases = {0};
 
     IrInstruction *is_comptime;
+    IrInstruction *var_is_comptime;
     if (ir_should_inline(irb->exec, scope)) {
         is_comptime = ir_build_const_bool(irb, scope, node, true);
+        var_is_comptime = is_comptime;
     } else {
         is_comptime = ir_build_test_comptime(irb, scope, node, target_value);
+        var_is_comptime = ir_build_test_comptime(irb, scope, node, target_value_ptr);
     }
 
     ZigList<IrInstruction *> incoming_values = {0};
@@ -4856,7 +4860,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
             IrBasicBlock *prev_block = irb->current_basic_block;
             ir_set_cursor_at_end_and_append_block(irb, else_block);
             if (!ir_gen_switch_prong_expr(irb, scope, node, prong_node, end_block,
-                is_comptime, target_value_ptr, nullptr, &incoming_blocks, &incoming_values))
+                is_comptime, var_is_comptime, target_value_ptr, nullptr, &incoming_blocks, &incoming_values))
             {
                 return irb->codegen->invalid_instruction;
             }
@@ -4923,7 +4927,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
 
             ir_set_cursor_at_end_and_append_block(irb, range_block_yes);
             if (!ir_gen_switch_prong_expr(irb, scope, node, prong_node, end_block,
-                is_comptime, target_value_ptr, nullptr, &incoming_blocks, &incoming_values))
+                is_comptime, var_is_comptime, target_value_ptr, nullptr, &incoming_blocks, &incoming_values))
             {
                 return irb->codegen->invalid_instruction;
             }
@@ -4967,7 +4971,7 @@ static IrInstruction *ir_gen_switch_expr(IrBuilder *irb, Scope *scope, AstNode *
         IrBasicBlock *prev_block = irb->current_basic_block;
         ir_set_cursor_at_end_and_append_block(irb, prong_block);
         if (!ir_gen_switch_prong_expr(irb, scope, node, prong_node, end_block,
-            is_comptime, target_value_ptr, only_item_value, &incoming_blocks, &incoming_values))
+            is_comptime, var_is_comptime, target_value_ptr, only_item_value, &incoming_blocks, &incoming_values))
         {
             return irb->codegen->invalid_instruction;
         }
@@ -12254,9 +12258,16 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
             }
             TypeTableEntry *tag_type = target_type->data.unionation.tag_type;
             assert(tag_type != nullptr);
+            assert(tag_type->id == TypeTableEntryIdEnum);
             if (pointee_val) {
                 ConstExprValue *out_val = ir_build_const_from(ira, &switch_target_instruction->base);
                 bigint_init_bigint(&out_val->data.x_enum_tag, &pointee_val->data.x_union.tag);
+                return tag_type;
+            }
+            if (tag_type->data.enumeration.src_field_count == 1) {
+                ConstExprValue *out_val = ir_build_const_from(ira, &switch_target_instruction->base);
+                TypeEnumField *only_field = &tag_type->data.enumeration.fields[0];
+                bigint_init_bigint(&out_val->data.x_enum_tag, &only_field->value);
                 return tag_type;
             }
 

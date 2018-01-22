@@ -1867,7 +1867,7 @@ static void resolve_union_type(CodeGen *g, TypeTableEntry *union_type) {
     uint64_t padding_in_bits = biggest_size_in_bits - size_of_most_aligned_member_in_bits;
 
     TypeTableEntry *tag_type = union_type->data.unionation.tag_type;
-    if (tag_type == nullptr) {
+    if (tag_type == nullptr || tag_type->zero_bits) {
         assert(most_aligned_union_member != nullptr);
 
         if (padding_in_bits > 0) {
@@ -2509,8 +2509,10 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
 
     if (create_enum_type) {
         ImportTableEntry *import = get_scope_import(scope);
-        uint64_t tag_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, tag_type->type_ref);
-        uint64_t tag_debug_align_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, tag_type->type_ref);
+        uint64_t tag_debug_size_in_bits = tag_type->zero_bits ? 0 :
+            8*LLVMStoreSizeOfType(g->target_data_ref, tag_type->type_ref);
+        uint64_t tag_debug_align_in_bits = tag_type->zero_bits ? 0 :
+            8*LLVMABIAlignmentOfType(g->target_data_ref, tag_type->type_ref);
         // TODO get a more accurate debug scope
         ZigLLVMDIType *tag_di_type = ZigLLVMCreateDebugEnumerationType(g->dbuilder,
                 ZigLLVMFileToScope(import->di_file), buf_ptr(&tag_type->name),
@@ -3451,7 +3453,6 @@ TypeUnionField *find_union_type_field(TypeTableEntry *type_entry, Buf *name) {
 TypeUnionField *find_union_field_by_tag(TypeTableEntry *type_entry, const BigInt *tag) {
     assert(type_entry->id == TypeTableEntryIdUnion);
     assert(type_entry->data.unionation.zero_bits_known);
-    assert(type_entry->data.unionation.gen_tag_index != SIZE_MAX);
     for (uint32_t i = 0; i < type_entry->data.unionation.src_field_count; i += 1) {
         TypeUnionField *field = &type_entry->data.unionation.fields[i];
         if (bigint_cmp(&field->enum_field->value, tag) == CmpEQ) {
