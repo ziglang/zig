@@ -290,12 +290,19 @@ const Code = struct {
     };
 };
 
+const Link = struct {
+    url: []const u8,
+    name: []const u8,
+    token: Token,
+};
+
 const Node = union(enum) {
     Content: []const u8,
     Nav,
     HeaderOpen: HeaderOpen,
     SeeAlso: []const SeeAlsoItem,
     Code: Code,
+    Link: Link,
 };
 
 const Toc = struct {
@@ -412,6 +419,31 @@ fn genToc(allocator: &mem.Allocator, tokenizer: &Tokenizer) -> %Toc {
                             else => return parseError(tokenizer, see_also_tok, "invalid see_also token"),
                         }
                     }
+                } else if (mem.eql(u8, tag_name, "link")) {
+                    _ = try eatToken(tokenizer, Token.Id.Separator);
+                    const name_tok = try eatToken(tokenizer, Token.Id.TagContent);
+                    const name = tokenizer.buffer[name_tok.start..name_tok.end];
+
+                    const url_name = blk: {
+                        const tok = tokenizer.next();
+                        switch (tok.id) {
+                            Token.Id.BracketClose => break :blk name,
+                            Token.Id.Separator => {
+                                const explicit_text = try eatToken(tokenizer, Token.Id.TagContent);
+                                _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                                break :blk tokenizer.buffer[explicit_text.start..explicit_text.end];
+                            },
+                            else => return parseError(tokenizer, tok, "invalid link token"),
+                        }
+                    };
+
+                    try nodes.append(Node {
+                        .Link = Link {
+                            .url = try urlize(allocator, url_name),
+                            .name = name,
+                            .token = name_tok,
+                        },
+                    });
                 } else if (mem.eql(u8, tag_name, "code_begin")) {
                     _ = try eatToken(tokenizer, Token.Id.Separator);
                     const code_kind_tok = try eatToken(tokenizer, Token.Id.TagContent);
@@ -660,6 +692,12 @@ fn genHtml(allocator: &mem.Allocator, tokenizer: &Tokenizer, toc: &Toc, out: &io
         switch (node) {
             Node.Content => |data| {
                 try out.write(data);
+            },
+            Node.Link => |info| {
+                if (!toc.urls.contains(info.url)) {
+                    return parseError(tokenizer, info.token, "url not found: {}", info.url);
+                }
+                try out.print("<a href=\"#{}\">{}</a>", info.url, info.name);
             },
             Node.Nav => {
                 try out.write(toc.toc);

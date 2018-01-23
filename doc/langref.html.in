@@ -33,7 +33,7 @@
       .file {
         text-decoration: underline;
       }
-      pre {
+      code {
         font-size: 12pt;
       }
       @media screen and (min-width: 28.75em) {
@@ -102,10 +102,14 @@ pub fn main() -> %void {
       {#code_begin|exe|hello#}
 const warn = @import("std").debug.warn;
 
-pub fn main() -> %void {
+pub fn main() -> void {
     warn("Hello, world!\n");
 }
       {#code_end#}
+      <p>
+      Note that we also left off the <code class="zig">%</code> from the return type.
+      In Zig, if your main function cannot fail, you may use the <code class="zig">void</code> return type.
+      </p>
       {#see_also|Values|@import|Errors|Root Source File#}
       {#header_close#}
       {#header_open|Source Encoding#}
@@ -621,7 +625,6 @@ fn divide(a: i32, b: i32) -> i32 {
       {#header_close#}
       {#header_close#}
       {#header_open|Floats#}
-      {#header_close#}
       {#header_open|Float Literals#}
       {#code_begin|syntax#}
 const floating_point = 123.0E+77;
@@ -668,6 +671,7 @@ pub fn main() -> %void {
       {#code_end#}
       {#see_also|@setFloatMode|Division by Zero#}
       {#header_close#}
+      {#header_close#}
       {#header_open|Operators#}
       {#header_open|Table of Operators#}
       <table>
@@ -690,13 +694,13 @@ pub fn main() -> %void {
 a += b</code></pre></td>
           <td>
             <ul>
-              <li><a href="#integers">Integers</a></li>
-              <li><a href="#floats">Floats</a></li>
+              <li>{#link|Integers#}</li>
+              <li>{#link|Floats#}</li>
             </ul>
           </td>
           <td>Addition.
             <ul>
-              <li>Can cause <a href="#undef-integer-overflow">overflow</a> for integers.</li>
+              <li>Can cause {#link|overflow|Default Operations#} for integers.</li>
             </ul>
           </td>
           <td>
@@ -708,7 +712,7 @@ a += b</code></pre></td>
 a +%= b</code></pre></td>
           <td>
             <ul>
-              <li><a href="#integers">Integers</a></li>
+              <li>{#link|Integers#}</li>
             </ul>
           </td>
           <td>Wrapping Addition.
@@ -725,13 +729,13 @@ a +%= b</code></pre></td>
 a -= b</code></pre></td>
           <td>
             <ul>
-              <li><a href="#integers">Integers</a></li>
-              <li><a href="#floats">Floats</a></li>
+              <li>{#link|Integers#}</li>
+              <li>{#link|Floats#}</li>
             </ul>
           </td>
           <td>Subtraction.
             <ul>
-              <li>Can cause <a href="#undef-integer-overflow">overflow</a> for integers.</li>
+              <li>Can cause {#link|overflow|Default Operations#} for integers.</li>
             </ul>
           </td>
           <td>
@@ -743,7 +747,7 @@ a -= b</code></pre></td>
 a -%= b</code></pre></td>
           <td>
             <ul>
-              <li><a href="#integers">Integers</a></li>
+              <li>{#link|Integers#}</li>
             </ul>
           </td>
           <td>Wrapping Subtraction.
@@ -759,14 +763,14 @@ a -%= b</code></pre></td>
           <td><pre><code class="zig">-a<code></pre></td>
           <td>
             <ul>
-              <li><a href="#integers">Integers</a></li>
-              <li><a href="#floats">Floats</a></li>
+              <li>{#link|Integers#}</li>
+              <li>{#link|Floats#}</li>
             </ul>
           </td>
           <td>
             Negation.
             <ul>
-              <li>Can cause <a href="#undef-integer-overflow">overflow</a> for integers.</li>
+              <li>Can cause {#link|overflow|Default Operations#} for integers.</li>
             </ul>
           </td>
           <td>
@@ -777,7 +781,7 @@ a -%= b</code></pre></td>
           <td><pre><code class="zig">-%a<code></pre></td>
           <td>
             <ul>
-              <li><a href="#integers">Integers</a></li>
+              <li>{#link|Integers#}</li>
             </ul>
           </td>
           <td>
@@ -795,13 +799,13 @@ a -%= b</code></pre></td>
 a *= b</code></pre></td>
           <td>
             <ul>
-              <li><a href="#integers">Integers</a></li>
-              <li><a href="#floats">Floats</a></li>
+              <li>{#link|Integers#}</li>
+              <li>{#link|Floats#}</li>
             </ul>
           </td>
           <td>Multiplication.
             <ul>
-              <li>Can cause <a href="#undef-integer-overflow">overflow</a> for integers.</li>
+              <li>Can cause {#link|overflow|Default Operations#} for integers.</li>
             </ul>
           </td>
           <td>
@@ -813,7 +817,7 @@ a *= b</code></pre></td>
 a *%= b</code></pre></td>
           <td>
             <ul>
-              <li><a href="#integers">Integers</a></li>
+              <li>{#link|Integers#}</li>
             </ul>
           </td>
           <td>Wrapping Multiplication.
@@ -830,19 +834,19 @@ a *%= b</code></pre></td>
 a /= b</code></pre></td>
           <td>
             <ul>
-              <li><a href="#integers">Integers</a></li>
-              <li><a href="#floats">Floats</a></li>
+              <li>{#link|Integers#}</li>
+              <li>{#link|Floats#}</li>
             </ul>
           </td>
           <td>Divison.
             <ul>
-              <li>Can cause <a href="#undef-integer-overflow">overflow</a> for integers.</li>
-              <li>Can cause <a href="#undef-division-by-zero">division by zero</a> for integers.</li>
-              <li>Can cause <a href="#undef-division-by-zero">division by zero</a> for floats in <a href="#float-operations">FloatMode.Optimized Mode</a>.</li>
+              <li>Can cause {#link|overflow|Default Operations#} for integers.</li>
+              <li>Can cause {#link|Division by Zero#} for integers.</li>
+              <li>Can cause {#link|Division by Zero#} for floats in {#link|FloatMode.Optimized Mode|Floating Point Operations#}.</li>
               <li>For non-compile-time-known signed integers, must use
-                <a href="#builtin-divTrunc">@divTrunc</a>,
-                <a href="#builtin-divFloor">@divFloor</a>, or
-                <a href="#builtin-divExact">@divExact</a> instead of <code>/</code>.
+                {#link|@divTrunc#},
+                {#link|@divFloor#}, or
+                {#link|@divExact#} instead of <code>/</code>.
               </li>
             </ul>
           </td>
@@ -855,17 +859,17 @@ a /= b</code></pre></td>
 a %= b</code></pre></td>
           <td>
             <ul>
-              <li><a href="#integers">Integers</a></li>
-              <li><a href="#floats">Floats</a></li>
+              <li>{#link|Integers#}</li>
+              <li>{#link|Floats#}</li>
             </ul>
           </td>
           <td>Remainder Division.
             <ul>
-              <li>Can cause <a href="#undef-division-by-zero">division by zero</a> for integers.</li>
-              <li>Can cause <a href="#undef-division-by-zero">division by zero</a> for floats in <a href="#float-operations">FloatMode.Optimized Mode</a>.</li>
+              <li>Can cause {#link|Division by Zero#} for integers.</li>
+              <li>Can cause {#link|Division by Zero#} for floats in {#link|FloatMode.Optimized Mode|Floating Point Operations#}.</li>
               <li>For non-compile-time-known signed integers, must use
-                <a href="#builtin-rem">@rem</a> or
-                <a href="#builtin-mod">@mod</a> instead of <code>%</code>.
+                {#link|@rem#} or
+                {#link|@mod#} instead of <code>%</code>.
               </li>
             </ul>
           </td>
@@ -878,13 +882,13 @@ a %= b</code></pre></td>
 a &lt;&lt;= b</code></pre></td>
           <td>
             <ul>
-              <li><a href="#integers">Integers</a></li>
+              <li>{#link|Integers#}</li>
             </ul>
           </td>
           <td>Bit Shift Left.
             <ul>
-              <li>See also <a href="#builtin-shlExact">@shlExact</a>.</li>
-              <li>See also <a href="#builtin-shlWithOverflow">@shlWithOverflow</a>.</li>
+              <li>See also {#link|@shlExact#}.</li>
+              <li>See also {#link|@shlWithOverflow#}.</li>
             </ul>
           </td>
           <td>
@@ -896,12 +900,12 @@ a &lt;&lt;= b</code></pre></td>
 a &gt;&gt;= b</code></pre></td>
           <td>
             <ul>
-              <li><a href="#integers">Integers</a></li>
+              <li>{#link|Integers#}</li>
             </ul>
           </td>
           <td>Bit Shift Right.
             <ul>
-              <li>See also <a href="#builtin-shrExact">@shrExact</a>.</li>
+              <li>See also {#link|@shrExact#}.</li>
             </ul>
           </td>
           <td>
@@ -913,7 +917,7 @@ a &gt;&gt;= b</code></pre></td>
 a &amp;= b</code></pre></td>
           <td>
             <ul>
-              <li><a href="#integers">Integers</a></li>
+              <li>{#link|Integers#}</li>
             </ul>
           </td>
           <td>Bitwise AND.
@@ -927,7 +931,7 @@ a &amp;= b</code></pre></td>
 a |= b</code></pre></td>
           <td>
             <ul>
-              <li><a href="#integers">Integers</a></li>
+              <li>{#link|Integers#}</li>
             </ul>
           </td>
           <td>Bitwise OR.
@@ -941,7 +945,7 @@ a |= b</code></pre></td>
 a ^= b</code></pre></td>
           <td>
             <ul>
-              <li><a href="#integers">Integers</a></li>
+              <li>{#link|Integers#}</li>
             </ul>
           </td>
           <td>Bitwise XOR.
@@ -954,7 +958,7 @@ a ^= b</code></pre></td>
           <td><pre><code class="zig">~a<code></pre></td>
           <td>
             <ul>
-              <li><a href="#integers">Integers</a></li>
+              <li>{#link|Integers#}</li>
             </ul>
           </td>
           <td>
@@ -968,13 +972,13 @@ a ^= b</code></pre></td>
           <td><pre><code class="zig">a ?? b</code></pre></td>
           <td>
             <ul>
-              <li><a href="#nullables">Nullables</a></li>
+              <li>{#link|Nullables#}</li>
             </ul>
           </td>
           <td>If <code>a</code> is <code>null</code>,
             returns <code>b</code> ("default value"),
             otherwise returns the unwrapped value of <code>a</code>.
-            Note that <code>b</code> may be a value of type <a href="#noreturn">noreturn</a>.
+            Note that <code>b</code> may be a value of type {#link|noreturn#}.
           </td>
           <td>
             <pre><code class="zig">const value: ?u32 = null;
@@ -986,7 +990,7 @@ unwrapped == 1234</code></pre>
           <td><pre><code class="zig">??a</code></pre></td>
           <td>
             <ul>
-              <li><a href="#nullables">Nullables</a></li>
+              <li>{#link|Nullables#}</li>
             </ul>
           </td>
           <td>
@@ -1003,13 +1007,13 @@ unwrapped == 1234</code></pre>
 a catch |err| b</code></pre></td>
           <td>
             <ul>
-              <li><a href="#errors">Error Unions</a></li>
+              <li>{#link|Error Unions|Errors#}</li>
             </ul>
           </td>
           <td>If <code>a</code> is an <code>error</code>,
             returns <code>b</code> ("default value"),
             otherwise returns the unwrapped value of <code>a</code>.
-            Note that <code>b</code> may be a value of type <a href="#noreturn">noreturn</a>.
+            Note that <code>b</code> may be a value of type {#link|noreturn#}.
             <code>err</code> is the <code>error</code> and is in scope of the expression <code>b</code>.
           </td>
           <td>
@@ -1022,7 +1026,7 @@ unwrapped == 1234</code></pre>
           <td><pre><code class="zig">a and b<code></pre></td>
           <td>
             <ul>
-              <li><a href="#primitive-types">bool</a></li>
+              <li>{#link|bool|Primitive Types#}</li>
             </ul>
           </td>
           <td>
@@ -1037,7 +1041,7 @@ unwrapped == 1234</code></pre>
           <td><pre><code class="zig">a or b<code></pre></td>
           <td>
             <ul>
-              <li><a href="#primitive-types">bool</a></li>
+              <li>{#link|bool|Primitive Types#}</li>
             </ul>
           </td>
           <td>
@@ -1052,7 +1056,7 @@ unwrapped == 1234</code></pre>
           <td><pre><code class="zig">!a<code></pre></td>
           <td>
             <ul>
-              <li><a href="#primitive-types">bool</a></li>
+              <li>{#link|bool|Primitive Types#}</li>
             </ul>
           </td>
           <td>
@@ -1066,10 +1070,10 @@ unwrapped == 1234</code></pre>
           <td><pre><code class="zig">a == b<code></pre></td>
           <td>
             <ul>
-              <li><a href="#integers">Integers</a></li>
-              <li><a href="#floats">Floats</a></li>
-              <li><a href="#primitive-types">bool</a></li>
-              <li><a href="#primitive-types">type</a></li>
+              <li>{#link|Integers#}</li>
+              <li>{#link|Floats#}</li>
+              <li>{#link|bool|Primitive Types#}</li>
+              <li>{#link|type|Primitive Types#}</li>
             </ul>
           </td>
           <td>
@@ -1083,7 +1087,7 @@ unwrapped == 1234</code></pre>
           <td><pre><code class="zig">a == null<code></pre></td>
           <td>
             <ul>
-              <li><a href="#nullables">Nullables</a></li>
+              <li>{#link|Nullables#}</li>
             </ul>
           </td>
           <td>
@@ -1098,10 +1102,10 @@ value == null</code></pre>
           <td><pre><code class="zig">a != b<code></pre></td>
           <td>
             <ul>
-              <li><a href="#integers">Integers</a></li>
-              <li><a href="#floats">Floats</a></li>
-              <li><a href="#primitive-types">bool</a></li>
-              <li><a href="#primitive-types">type</a></li>
+              <li>{#link|Integers#}</li>
+              <li>{#link|Floats#}</li>
+              <li>{#link|bool|Primitive Types#}</li>
+              <li>{#link|type|Primitive Types#}</li>
             </ul>
           </td>
           <td>
@@ -1115,8 +1119,8 @@ value == null</code></pre>
           <td><pre><code class="zig">a &gt; b<code></pre></td>
           <td>
             <ul>
-              <li><a href="#integers">Integers</a></li>
-              <li><a href="#floats">Floats</a></li>
+              <li>{#link|Integers#}</li>
+              <li>{#link|Floats#}</li>
             </ul>
           </td>
           <td>
@@ -1130,8 +1134,8 @@ value == null</code></pre>
           <td><pre><code class="zig">a &gt;= b<code></pre></td>
           <td>
             <ul>
-              <li><a href="#integers">Integers</a></li>
-              <li><a href="#floats">Floats</a></li>
+              <li>{#link|Integers#}</li>
+              <li>{#link|Floats#}</li>
             </ul>
           </td>
           <td>
@@ -1145,8 +1149,8 @@ value == null</code></pre>
           <td><pre><code class="zig">a &lt; b<code></pre></td>
           <td>
             <ul>
-              <li><a href="#integers">Integers</a></li>
-              <li><a href="#floats">Floats</a></li>
+              <li>{#link|Integers#}</li>
+              <li>{#link|Floats#}</li>
             </ul>
           </td>
           <td>
@@ -1160,8 +1164,8 @@ value == null</code></pre>
           <td><pre><code class="zig">a &lt;= b<code></pre></td>
           <td>
             <ul>
-              <li><a href="#integers">Integers</a></li>
-              <li><a href="#floats">Floats</a></li>
+              <li>{#link|Integers#}</li>
+              <li>{#link|Floats#}</li>
             </ul>
           </td>
           <td>
@@ -1175,13 +1179,13 @@ value == null</code></pre>
           <td><pre><code class="zig">a ++ b<code></pre></td>
           <td>
             <ul>
-              <li><a href="#arrays">Arrays</a></li>
+              <li>{#link|Arrays#}</li>
             </ul>
           </td>
           <td>
             Array concatenation.
             <ul>
-              <li>Only available when <code>a</code> and <code>b</code> are <a href="#comptime">compile-time known</a>.
+              <li>Only available when <code>a</code> and <code>b</code> are {#link|compile-time known|comptime#}.
             </ul>
           </td>
           <td>
@@ -1196,13 +1200,13 @@ mem.eql(u32, together, []u32{1,2,3,4})</code></pre>
           <td><pre><code class="zig">a ** b<code></pre></td>
           <td>
             <ul>
-              <li><a href="#arrays">Arrays</a></li>
+              <li>{#link|Arrays#}</li>
             </ul>
           </td>
           <td>
             Array multiplication.
             <ul>
-              <li>Only available when <code>a</code> and <code>b</code> are <a href="#comptime">compile-time known</a>.
+              <li>Only available when <code>a</code> and <code>b</code> are {#link|compile-time known|comptime#}.
             </ul>
           </td>
           <td>
@@ -1215,7 +1219,7 @@ mem.eql(u8, pattern, "ababab")</code></pre>
           <td><pre><code class="zig">*a<code></pre></td>
           <td>
             <ul>
-              <li><a href="#pointers">Pointers</a></li>
+              <li>{#link|Pointers#}</li>
             </ul>
           </td>
           <td>
@@ -1504,7 +1508,7 @@ test "pointer child type" {
       Each type has an <strong>alignment</strong> - a number of bytes such that,
       when a value of the type is loaded from or stored to memory,
       the memory address must be evenly divisible by this number. You can use
-      <a href="#builtin-alignOf">@alignOf</a> to find out this value for any type.
+      {#link|@alignOf#} to find out this value for any type.
       </p>
       <p>
       Alignment depends on the CPU architecture, but is always a power of two, and
@@ -1562,9 +1566,9 @@ test "function alignment" {
       {#code_end#}
       <p>
       If you have a pointer or a slice that has a small alignment, but you know that it actually
-      has a bigger alignment, use <a href="#builtin-alignCast">@alignCast</a> to change the
+      has a bigger alignment, use {#link|@alignCast#} to change the
       pointer into a more aligned pointer. This is a no-op at runtime, but inserts a
-      <a href="#undef-incorrect-pointer-alignment">safety check</a>:
+      {#link|safety check|Incorrect Pointer Alignment#}:
       </p>
       {#code_begin|test_safety|incorrect alignment#}
 const assert = @import("std").debug.assert;
@@ -1589,7 +1593,7 @@ fn foo(bytes: []u8) -> u32 {
       </p>
       <p>As an example, this code produces undefined behavior:</p>
       <pre><code class="zig">*@ptrCast(&amp;u32, f32(12.34))</code></pre>
-      <p>Instead, use <a href="#builtin-bitCast">@bitCast</a>:
+      <p>Instead, use {#link|@bitCast#}:
       <pre><code class="zig">@bitCast(u32, f32(12.34))</code></pre>
       <p>As an added benefit, the <code>@bitcast</code> version works at compile-time.</p>
       {#see_also|Slices|Memory#}
@@ -3391,7 +3395,7 @@ test "fibonacci" {
       The compiler noticed that evaluating this function at compile-time took a long time,
       and thus emitted a compile error and gave up. If the programmer wants to increase
       the budget for compile-time computation, they can use a built-in function called
-      <a href="#builtin-setEvalBranchQuota">@setEvalBranchQuota</a> to change the default number 1000 to something else.
+      {#link|@setEvalBranchQuota#} to change the default number 1000 to something else.
       </p>
       <p>
       What if we fix the base case, but put the wrong value in the <code>assert</code> line?
@@ -3750,7 +3754,7 @@ pub fn main() {
       <code>?fn()</code>, or <code>[]T</code>. It returns the same type as <code>ptr</code>
       except with the alignment adjusted to the new value.
       </p>
-      <p>A <a href="#undef-incorrect-pointer-alignment">pointer alignment safety check</a> is added
+      <p>A {#link|pointer alignment safety check|Incorrect Pointer Alignment#} is added
       to the generated code to make sure the pointer is aligned as promised.</p>
 
       {#header_close#}
@@ -3767,7 +3771,7 @@ comptime {
 }</code></pre>
       <p>
       The result is a target-specific compile time constant. It is guaranteed to be
-      less than or equal to <a href="#builtin-sizeOf">@sizeOf(T)</a>.
+      less than or equal to {#link|@sizeOf(T)|@sizeOf#}.
       </p>
       {#see_also|Alignment#}
       {#header_close#}
@@ -4109,7 +4113,7 @@ fn add(a: i32, b: i32) -> i32 { return a + b; }
       {#header_open|@intToPtr#}
       <pre><code class="zig">@intToPtr(comptime DestType: type, int: usize) -&gt; DestType</code></pre>
       <p>
-      Converts an integer to a pointer. To convert the other way, use <a href="#builtin-ptrToInt">@ptrToInt</a>.
+      Converts an integer to a pointer. To convert the other way, use {#link|@ptrToInt#}.
       </p>
       {#header_close#}
       {#header_open|@IntType#}
@@ -4286,7 +4290,7 @@ test "call foo" {
         <li><code>fn()</code></li>
         <li><code>?fn()</code></li>
       </ul>
-      <p>To convert the other way, use <a href="#builtin-intToPtr">@intToPtr</a></p>
+      <p>To convert the other way, use {#link|@intToPtr#}</p>
 
       {#header_close#}
       {#header_open|@rem#}
@@ -4539,9 +4543,9 @@ pub const TypeId = enum {
       Zig has three build modes:
       </p>
       <ul>
-        <li><a href="#build-mode-debug">Debug</a> (default)</li>
-        <li><a href="#build-mode-release-fast">ReleaseFast</a></li>
-        <li><a href="#build-mode-release-safe">ReleaseSafe</a></li>
+        <li>{#link|Debug#} (default)</li>
+        <li>{#link|ReleaseFast#}</li>
+        <li>{#link|ReleaseSafe#}</li>
       </ul>
       <p>
       To add standard build options to a <code>build.zig</code> file:
@@ -4592,7 +4596,7 @@ pub fn build(b: &Builder) -> %void {
       detected at compile-time, Zig emits an error. Most undefined behavior that
       cannot be detected at compile-time can be detected at runtime. In these cases,
       Zig has safety checks. Safety checks can be disabled on a per-block basis
-      with <code>@setDebugSafety</code>. The <a href="#build-mode-release-fast">ReleaseFast</a>
+      with <code>@setDebugSafety</code>. The {#link|ReleaseFast#}
       build mode disables all safety checks in order to facilitate optimizations.
       </p>
       <p>
