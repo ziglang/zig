@@ -127,7 +127,8 @@ test "os.getRandomBytes" {
 /// Raises a signal in the current kernel thread, ending its execution.
 /// If linking against libc, this calls the abort() libc function. Otherwise
 /// it uses the zig standard library implementation.
-pub coldcc fn abort() -> noreturn {
+pub fn abort() -> noreturn {
+    @setCold(true);
     if (builtin.link_libc) {
         c.abort();
     }
@@ -148,7 +149,8 @@ pub coldcc fn abort() -> noreturn {
 }
 
 /// Exits the program cleanly with the specified status code.
-pub coldcc fn exit(status: u8) -> noreturn {
+pub fn exit(status: u8) -> noreturn {
+    @setCold(true);
     if (builtin.link_libc) {
         c.exit(status);
     }

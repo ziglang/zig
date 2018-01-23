@@ -272,6 +272,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionPtrTypeChild *) 
     return IrInstructionIdPtrTypeChild;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSetCold *) {
+    return IrInstructionIdSetCold;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionSetDebugSafety *) {
     return IrInstructionIdSetDebugSafety;
 }
@@ -1258,6 +1262,15 @@ static IrInstruction *ir_build_ptr_type_child(IrBuilder *irb, Scope *scope, AstN
     instruction->value = value;
 
     ir_ref_instruction(value, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_set_cold(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *is_cold) {
+    IrInstructionSetCold *instruction = ir_build_instruction<IrInstructionSetCold>(irb, scope, source_node);
+    instruction->is_cold = is_cold;
+
+    ir_ref_instruction(is_cold, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -3064,6 +3077,15 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 if (arg == irb->codegen->invalid_instruction)
                     return arg;
                 return ir_build_typeof(irb, scope, node, arg);
+            }
+        case BuiltinFnIdSetCold:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                return ir_build_set_cold(irb, scope, node, arg0_value);
             }
         case BuiltinFnIdSetDebugSafety:
             {
@@ -11555,6 +11577,36 @@ static TypeTableEntry *ir_analyze_instruction_ptr_type_child(IrAnalyze *ira,
     return ira->codegen->builtin_types.entry_type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_set_cold(IrAnalyze *ira, IrInstructionSetCold *instruction) {
+    if (ira->new_irb.exec->is_inline) {
+        // ignore setCold when running functions at compile time
+        ir_build_const_from(ira, &instruction->base);
+        return ira->codegen->builtin_types.entry_void;
+    }
+
+    IrInstruction *is_cold_value = instruction->is_cold->other;
+    bool want_cold;
+    if (!ir_resolve_bool(ira, is_cold_value, &want_cold))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    FnTableEntry *fn_entry = scope_fn_entry(instruction->base.scope);
+    if (fn_entry == nullptr) {
+        ir_add_error(ira, &instruction->base, buf_sprintf("@setCold outside function"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    if (fn_entry->set_cold_node != nullptr) {
+        ErrorMsg *msg = ir_add_error(ira, &instruction->base, buf_sprintf("cold set twice in same function"));
+        add_error_note(ira->codegen, msg, fn_entry->set_cold_node, buf_sprintf("first set here"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    fn_entry->set_cold_node = instruction->base.source_node;
+    fn_entry->is_cold = want_cold;
+
+    ir_build_const_from(ira, &instruction->base);
+    return ira->codegen->builtin_types.entry_void;
+}
 static TypeTableEntry *ir_analyze_instruction_set_debug_safety(IrAnalyze *ira,
         IrInstructionSetDebugSafety *set_debug_safety_instruction)
 {
@@ -15239,6 +15291,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_to_ptr_type(ira, (IrInstructionToPtrType *)instruction);
         case IrInstructionIdPtrTypeChild:
             return ir_analyze_instruction_ptr_type_child(ira, (IrInstructionPtrTypeChild *)instruction);
+        case IrInstructionIdSetCold:
+            return ir_analyze_instruction_set_cold(ira, (IrInstructionSetCold *)instruction);
         case IrInstructionIdSetDebugSafety:
             return ir_analyze_instruction_set_debug_safety(ira, (IrInstructionSetDebugSafety *)instruction);
         case IrInstructionIdSetFloatMode:
@@ -15475,6 +15529,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCall:
         case IrInstructionIdReturn:
         case IrInstructionIdUnreachable:
+        case IrInstructionIdSetCold:
         case IrInstructionIdSetDebugSafety:
         case IrInstructionIdSetFloatMode:
         case IrInstructionIdImport:

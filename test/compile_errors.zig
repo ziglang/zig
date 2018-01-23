@@ -1,6 +1,29 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) {
+    cases.add("function with non-extern enum parameter",
+        \\const Foo = enum { A, B, C };
+        \\export fn entry(foo: Foo) { }
+    , ".tmp_source.zig:2:22: error: parameter of type 'Foo' not allowed in function with calling convention 'ccc'");
+
+    cases.add("function with non-extern struct parameter",
+        \\const Foo = struct {
+        \\    A: i32,
+        \\    B: f32,
+        \\    C: bool,
+        \\};
+        \\export fn entry(foo: Foo) { }
+    , ".tmp_source.zig:6:22: error: parameter of type 'Foo' not allowed in function with calling convention 'ccc'");
+
+    cases.add("function with non-extern union parameter",
+        \\const Foo = union {
+        \\    A: i32,
+        \\    B: f32,
+        \\    C: bool,
+        \\};
+        \\export fn entry(foo: Foo) { }
+    , ".tmp_source.zig:6:22: error: parameter of type 'Foo' not allowed in function with calling convention 'ccc'");
+
     cases.add("switch on enum with 1 field with no prongs",
         \\const Foo = enum { M };
         \\
@@ -1590,7 +1613,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     , ".tmp_source.zig:3:28: error: expected struct type, found 'i32'");
 
     cases.add("@fieldParentPtr - bad field name",
-        \\const Foo = struct {
+        \\const Foo = extern struct {
         \\    derp: i32,
         \\};
         \\export fn foo(a: &i32) -> &Foo {
@@ -1599,7 +1622,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     , ".tmp_source.zig:5:33: error: struct 'Foo' has no field 'a'");
 
     cases.add("@fieldParentPtr - field pointer is not pointer",
-        \\const Foo = struct {
+        \\const Foo = extern struct {
         \\    a: i32,
         \\};
         \\export fn foo(a: i32) -> &Foo {

@@ -286,7 +286,7 @@ const Code = struct {
         TestError: []const u8,
         TestSafety: []const u8,
         Exe: ExpectedOutcome,
-        Obj,
+        Obj: ?[]const u8,
     };
 };
 
@@ -442,9 +442,12 @@ fn genToc(allocator: &mem.Allocator, tokenizer: &Tokenizer) -> %Toc {
                         code_kind_id = Code.Id { .TestSafety = name};
                         name = "test";
                     } else if (mem.eql(u8, code_kind_str, "obj")) {
-                        code_kind_id = Code.Id.Obj;
+                        code_kind_id = Code.Id { .Obj = null };
+                    } else if (mem.eql(u8, code_kind_str, "obj_err")) {
+                        code_kind_id = Code.Id { .Obj = name };
+                        name = "test";
                     } else if (mem.eql(u8, code_kind_str, "syntax")) {
-                        code_kind_id = Code.Id.Obj;
+                        code_kind_id = Code.Id { .Obj = null };
                         is_inline = true;
                     } else {
                         return parseError(tokenizer, code_kind_tok, "unrecognized code kind: {}", code_kind_str);
@@ -861,13 +864,14 @@ fn genHtml(allocator: &mem.Allocator, tokenizer: &Tokenizer, toc: &Toc, out: &io
                         const colored_stderr = try termColor(allocator, escaped_stderr);
                         try out.print("<pre><code class=\"shell\">$ zig test {}.zig\n{}</code></pre>\n", code.name, colored_stderr);
                     },
-                    Code.Id.Obj => {
+                    Code.Id.Obj => |maybe_error_match| {
                         const name_plus_obj_ext = try std.fmt.allocPrint(allocator, "{}{}", code.name, obj_ext);
                         const tmp_obj_file_name = try os.path.join(allocator, tmp_dir_name, name_plus_obj_ext);
                         var build_args = std.ArrayList([]const u8).init(allocator);
                         defer build_args.deinit();
 
                         try build_args.appendSlice([][]const u8 {zig_exe, "build-obj", tmp_source_file_name,
+                            "--color", "on",
                             "--output", tmp_obj_file_name});
 
                         if (!code.is_inline) {
@@ -890,8 +894,36 @@ fn genHtml(allocator: &mem.Allocator, tokenizer: &Tokenizer, toc: &Toc, out: &io
                             },
                         }
 
-                        _ = exec(allocator, build_args.toSliceConst()) catch return parseError(
-                            tokenizer, code.source_token, "example failed to compile");
+                        if (maybe_error_match) |error_match| {
+                            const result = try os.ChildProcess.exec(allocator, build_args.toSliceConst(), null, null, max_doc_file_size);
+                            switch (result.term) {
+                                os.ChildProcess.Term.Exited => |exit_code| {
+                                    if (exit_code == 0) {
+                                        warn("{}\nThe following command incorrectly succeeded:\n", result.stderr);
+                                        for (build_args.toSliceConst()) |arg| warn("{} ", arg) else warn("\n");
+                                        return parseError(tokenizer, code.source_token, "example build incorrectly succeeded");
+                                    }
+                                },
+                                else => {
+                                    warn("{}\nThe following command crashed:\n", result.stderr);
+                                    for (build_args.toSliceConst()) |arg| warn("{} ", arg) else warn("\n");
+                                    return parseError(tokenizer, code.source_token, "example compile crashed");
+                                },
+                            }
+                            if (mem.indexOf(u8, result.stderr, error_match) == null) {
+                                warn("{}\nExpected to find '{}' in stderr", result.stderr, error_match);
+                                return parseError(tokenizer, code.source_token, "example did not have expected compile error message");
+                            }
+                            const escaped_stderr = try escapeHtml(allocator, result.stderr);
+                            const colored_stderr = try termColor(allocator, escaped_stderr);
+                            try out.print("\n{}\n", colored_stderr);
+                            if (!code.is_inline) {
+                                try out.print("</code></pre>\n");
+                            }
+                        } else {
+                            _ = exec(allocator, build_args.toSliceConst()) catch return parseError(
+                                tokenizer, code.source_token, "example failed to compile");
+                        }
                         if (!code.is_inline) {
                             try out.print("</code></pre>\n");
                         }

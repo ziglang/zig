@@ -51,7 +51,6 @@ enum TokenId {
     TokenIdKeywordAsm,
     TokenIdKeywordBreak,
     TokenIdKeywordCatch,
-    TokenIdKeywordColdCC,
     TokenIdKeywordCompTime,
     TokenIdKeywordConst,
     TokenIdKeywordContinue,

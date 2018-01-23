@@ -118,6 +118,7 @@ pub fn build(b: &Builder) -> %void {
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter));
     test_step.dependOn(tests.addDebugSafetyTests(b, test_filter));
     test_step.dependOn(tests.addTranslateCTests(b, test_filter));
+    test_step.dependOn(tests.addGenHTests(b, test_filter));
 }
 
 fn dependOnLib(lib_exe_obj: &std.build.LibExeObjStep, dep: &const LibraryDep) {

@@ -1108,6 +1108,7 @@ struct TypeTableEntry {
 
     bool zero_bits;
     bool is_copyable;
+    bool gen_h_loop_flag;
 
     union {
         TypeTableEntryPointer pointer;
@@ -1204,6 +1205,9 @@ struct FnTableEntry {
     AstNode *set_alignstack_node;
     uint32_t alignstack_value;
 
+    AstNode *set_cold_node;
+    bool is_cold;
+
     ZigList<FnExport> export_list;
     bool calls_errorable_function;
 };
@@ -1250,6 +1254,7 @@ enum BuiltinFnId {
     BuiltinFnIdMod,
     BuiltinFnIdTruncate,
     BuiltinFnIdIntType,
+    BuiltinFnIdSetCold,
     BuiltinFnIdSetDebugSafety,
     BuiltinFnIdSetFloatMode,
     BuiltinFnIdTypeName,
@@ -1830,6 +1835,7 @@ enum IrInstructionId {
     IrInstructionIdTypeOf,
     IrInstructionIdToPtrType,
     IrInstructionIdPtrTypeChild,
+    IrInstructionIdSetCold,
     IrInstructionIdSetDebugSafety,
     IrInstructionIdSetFloatMode,
     IrInstructionIdArrayType,
@@ -2200,6 +2206,12 @@ struct IrInstructionPtrTypeChild {
     IrInstruction base;
 
     IrInstruction *value;
+};
+
+struct IrInstructionSetCold {
+    IrInstruction base;
+
+    IrInstruction *is_cold;
 };
 
 struct IrInstructionSetDebugSafety {

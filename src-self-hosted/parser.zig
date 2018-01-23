@@ -211,7 +211,7 @@ pub const Parser = struct {
                         Token.Id.StringLiteral => {
                             @panic("TODO extern with string literal");
                         },
-                        Token.Id.Keyword_coldcc, Token.Id.Keyword_nakedcc, Token.Id.Keyword_stdcallcc => {
+                        Token.Id.Keyword_nakedcc, Token.Id.Keyword_stdcallcc => {
                             stack.append(State.TopLevel) catch unreachable;
                             const fn_token = try self.eatToken(Token.Id.Keyword_fn);
                             // TODO shouldn't need this cast

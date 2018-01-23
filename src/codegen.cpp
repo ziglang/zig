@@ -485,10 +485,13 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
         addLLVMFnAttr(fn_table_entry->llvm_value, "naked");
     } else {
         LLVMSetFunctionCallConv(fn_table_entry->llvm_value, get_llvm_cc(g, fn_type->data.fn.fn_type_id.cc));
-        if (fn_type->data.fn.fn_type_id.cc == CallingConventionCold) {
-            ZigLLVMAddFunctionAttrCold(fn_table_entry->llvm_value);
-        }
     }
+
+    bool want_cold = fn_table_entry->is_cold || fn_type->data.fn.fn_type_id.cc == CallingConventionCold;
+    if (want_cold) {
+        ZigLLVMAddFunctionAttrCold(fn_table_entry->llvm_value);
+    }
+
 
     LLVMSetLinkage(fn_table_entry->llvm_value, to_llvm_linkage(linkage));
 
@@ -3656,6 +3659,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdToPtrType:
         case IrInstructionIdPtrTypeChild:
         case IrInstructionIdFieldPtr:
+        case IrInstructionIdSetCold:
         case IrInstructionIdSetDebugSafety:
         case IrInstructionIdSetFloatMode:
         case IrInstructionIdArrayType:
@@ -5233,6 +5237,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCompileErr, "compileError", 1);
     create_builtin_fn(g, BuiltinFnIdCompileLog, "compileLog", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdIntType, "IntType", 2); // TODO rename to Int
+    create_builtin_fn(g, BuiltinFnIdSetCold, "setCold", 1);
     create_builtin_fn(g, BuiltinFnIdSetDebugSafety, "setDebugSafety", 2);
     create_builtin_fn(g, BuiltinFnIdSetFloatMode, "setFloatMode", 2);
     create_builtin_fn(g, BuiltinFnIdPanic, "panic", 1);
@@ -5788,7 +5793,76 @@ static const char *c_int_type_names[] = {
     "unsigned long long",
 };
 
-static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
+struct GenH {
+    ZigList<TypeTableEntry *> types_to_declare;
+};
+
+static void prepend_c_type_to_decl_list(CodeGen *g, GenH *gen_h, TypeTableEntry *type_entry) {
+    if (type_entry->gen_h_loop_flag)
+        return;
+    type_entry->gen_h_loop_flag = true;
+
+    switch (type_entry->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+            zig_unreachable();
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+            return;
+        case TypeTableEntryIdOpaque:
+            gen_h->types_to_declare.append(type_entry);
+            return;
+        case TypeTableEntryIdStruct:
+            for (uint32_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
+                TypeStructField *field = &type_entry->data.structure.fields[i];
+                prepend_c_type_to_decl_list(g, gen_h, field->type_entry);
+            }
+            gen_h->types_to_declare.append(type_entry);
+            return;
+        case TypeTableEntryIdUnion:
+            for (uint32_t i = 0; i < type_entry->data.unionation.src_field_count; i += 1) {
+                TypeUnionField *field = &type_entry->data.unionation.fields[i];
+                prepend_c_type_to_decl_list(g, gen_h, field->type_entry);
+            }
+            gen_h->types_to_declare.append(type_entry);
+            return;
+        case TypeTableEntryIdEnum:
+            prepend_c_type_to_decl_list(g, gen_h, type_entry->data.enumeration.tag_int_type);
+            gen_h->types_to_declare.append(type_entry);
+            return;
+        case TypeTableEntryIdPointer:
+            prepend_c_type_to_decl_list(g, gen_h, type_entry->data.pointer.child_type);
+            return;
+        case TypeTableEntryIdArray:
+            prepend_c_type_to_decl_list(g, gen_h, type_entry->data.array.child_type);
+            return;
+        case TypeTableEntryIdMaybe:
+            prepend_c_type_to_decl_list(g, gen_h, type_entry->data.maybe.child_type);
+            return;
+        case TypeTableEntryIdFn:
+            for (size_t i = 0; i < type_entry->data.fn.fn_type_id.param_count; i += 1) {
+                prepend_c_type_to_decl_list(g, gen_h, type_entry->data.fn.fn_type_id.param_info[i].type);
+            }
+            prepend_c_type_to_decl_list(g, gen_h, type_entry->data.fn.fn_type_id.return_type);
+            return;
+    }
+}
+
+static void get_c_type(CodeGen *g, GenH *gen_h, TypeTableEntry *type_entry, Buf *out_buf) {
     assert(type_entry);
 
     for (size_t i = 0; i < array_length(c_int_type_names); i += 1) {
@@ -5815,6 +5889,8 @@ static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
         buf_init_from_str(out_buf, "uintptr_t");
         return;
     }
+
+    prepend_c_type_to_decl_list(g, gen_h, type_entry);
 
     switch (type_entry->id) {
         case TypeTableEntryIdVoid:
@@ -5856,7 +5932,7 @@ static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
             {
                 Buf child_buf = BUF_INIT;
                 TypeTableEntry *child_type = type_entry->data.pointer.child_type;
-                get_c_type(g, child_type, &child_buf);
+                get_c_type(g, gen_h, child_type, &child_buf);
 
                 const char *const_str = type_entry->data.pointer.is_const ? "const " : "";
                 buf_resize(out_buf, 0);
@@ -5872,23 +5948,37 @@ static void get_c_type(CodeGen *g, TypeTableEntry *type_entry, Buf *out_buf) {
                 } else if (child_type->id == TypeTableEntryIdPointer ||
                     child_type->id == TypeTableEntryIdFn)
                 {
-                    return get_c_type(g, child_type, out_buf);
+                    return get_c_type(g, gen_h, child_type, out_buf);
                 } else {
                     zig_unreachable();
                 }
             }
         case TypeTableEntryIdStruct:
+            {
+                buf_init_from_str(out_buf, "struct ");
+                buf_append_buf(out_buf, &type_entry->name);
+                return;
+            }
+        case TypeTableEntryIdUnion:
+            {
+                buf_init_from_str(out_buf, "union ");
+                buf_append_buf(out_buf, &type_entry->name);
+                return;
+            }
+        case TypeTableEntryIdEnum:
+            {
+                buf_init_from_str(out_buf, "enum ");
+                buf_append_buf(out_buf, &type_entry->name);
+                return;
+            }
         case TypeTableEntryIdOpaque:
             {
-                // TODO add to table of structs we need to declare
                 buf_init_from_buf(out_buf, &type_entry->name);
                 return;
             }
         case TypeTableEntryIdArray:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdPureError:
-        case TypeTableEntryIdEnum:
-        case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
             zig_panic("TODO implement get_c_type for more types");
         case TypeTableEntryIdInvalid:
@@ -5942,6 +6032,9 @@ static void gen_h_file(CodeGen *g) {
     if (!g->want_h_file)
         return;
 
+    GenH gen_h_data = {0};
+    GenH *gen_h = &gen_h_data;
+
     codegen_add_time_event(g, "Generate .h");
 
     assert(!g->is_test_build);
@@ -5971,7 +6064,7 @@ static void gen_h_file(CodeGen *g) {
         FnTypeId *fn_type_id = &fn_table_entry->type_entry->data.fn.fn_type_id;
 
         Buf return_type_c = BUF_INIT;
-        get_c_type(g, fn_type_id->return_type, &return_type_c);
+        get_c_type(g, gen_h, fn_type_id->return_type, &return_type_c);
 
         buf_appendf(&h_buf, "%s %s %s(",
                 buf_ptr(export_macro),
@@ -5987,7 +6080,7 @@ static void gen_h_file(CodeGen *g) {
 
                 const char *comma_str = (param_i == 0) ? "" : ", ";
                 const char *restrict_str = param_info->is_noalias ? "restrict" : "";
-                get_c_type(g, param_info->type, &param_type_c);
+                get_c_type(g, gen_h, param_info->type, &param_type_c);
                 buf_appendf(&h_buf, "%s%s%s %s", comma_str, buf_ptr(&param_type_c),
                         restrict_str, buf_ptr(param_name));
             }
@@ -6026,6 +6119,77 @@ static void gen_h_file(CodeGen *g) {
             buf_ptr(export_macro), buf_ptr(extern_c_macro));
     fprintf(out_h, "#endif\n");
     fprintf(out_h, "\n");
+
+    for (size_t type_i = 0; type_i < gen_h->types_to_declare.length; type_i += 1) {
+        TypeTableEntry *type_entry = gen_h->types_to_declare.at(type_i);
+        switch (type_entry->id) {
+            case TypeTableEntryIdInvalid:
+            case TypeTableEntryIdVar:
+            case TypeTableEntryIdMetaType:
+            case TypeTableEntryIdVoid:
+            case TypeTableEntryIdBool:
+            case TypeTableEntryIdUnreachable:
+            case TypeTableEntryIdInt:
+            case TypeTableEntryIdFloat:
+            case TypeTableEntryIdPointer:
+            case TypeTableEntryIdNumLitFloat:
+            case TypeTableEntryIdNumLitInt:
+            case TypeTableEntryIdArray:
+            case TypeTableEntryIdUndefLit:
+            case TypeTableEntryIdNullLit:
+            case TypeTableEntryIdErrorUnion:
+            case TypeTableEntryIdPureError:
+            case TypeTableEntryIdNamespace:
+            case TypeTableEntryIdBlock:
+            case TypeTableEntryIdBoundFn:
+            case TypeTableEntryIdArgTuple:
+            case TypeTableEntryIdMaybe:
+            case TypeTableEntryIdFn:
+                zig_unreachable();
+            case TypeTableEntryIdEnum:
+                assert(type_entry->data.enumeration.layout == ContainerLayoutExtern);
+                fprintf(out_h, "enum %s {\n", buf_ptr(&type_entry->name));
+                for (uint32_t field_i = 0; field_i < type_entry->data.enumeration.src_field_count; field_i += 1) {
+                    TypeEnumField *enum_field = &type_entry->data.enumeration.fields[field_i];
+                    Buf *value_buf = buf_alloc();
+                    bigint_append_buf(value_buf, &enum_field->value, 10);
+                    fprintf(out_h, "    %s = %s", buf_ptr(enum_field->name), buf_ptr(value_buf));
+                    if (field_i != type_entry->data.enumeration.src_field_count - 1) {
+                        fprintf(out_h, ",");
+                    }
+                    fprintf(out_h, "\n");
+                }
+                fprintf(out_h, "};\n\n");
+                break;
+            case TypeTableEntryIdStruct:
+                assert(type_entry->data.structure.layout == ContainerLayoutExtern);
+                fprintf(out_h, "struct %s {\n", buf_ptr(&type_entry->name));
+                for (uint32_t field_i = 0; field_i < type_entry->data.structure.src_field_count; field_i += 1) {
+                    TypeStructField *struct_field = &type_entry->data.structure.fields[field_i];
+
+                    Buf *type_name_buf = buf_alloc();
+                    get_c_type(g, gen_h, struct_field->type_entry, type_name_buf);
+                    fprintf(out_h, "    %s %s;\n", buf_ptr(type_name_buf), buf_ptr(struct_field->name));
+                }
+                fprintf(out_h, "};\n\n");
+                break;
+            case TypeTableEntryIdUnion:
+                assert(type_entry->data.unionation.layout == ContainerLayoutExtern);
+                fprintf(out_h, "union %s {\n", buf_ptr(&type_entry->name));
+                for (uint32_t field_i = 0; field_i < type_entry->data.unionation.src_field_count; field_i += 1) {
+                    TypeUnionField *union_field = &type_entry->data.unionation.fields[field_i];
+
+                    Buf *type_name_buf = buf_alloc();
+                    get_c_type(g, gen_h, union_field->type_entry, type_name_buf);
+                    fprintf(out_h, "    %s %s;\n", buf_ptr(type_name_buf), buf_ptr(union_field->name));
+                }
+                fprintf(out_h, "};\n\n");
+                break;
+            case TypeTableEntryIdOpaque:
+                fprintf(out_h, "struct %s;\n\n", buf_ptr(&type_entry->name));
+                break;
+        }
+    }
 
     fprintf(out_h, "%s", buf_ptr(&h_buf));
 

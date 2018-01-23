@@ -368,6 +368,12 @@ static void ir_print_union_field_ptr(IrPrint *irp, IrInstructionUnionFieldPtr *i
     fprintf(irp->f, ")");
 }
 
+static void ir_print_set_cold(IrPrint *irp, IrInstructionSetCold *instruction) {
+    fprintf(irp->f, "@setCold(");
+    ir_print_other_instruction(irp, instruction->is_cold);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_set_debug_safety(IrPrint *irp, IrInstructionSetDebugSafety *instruction) {
     fprintf(irp->f, "@setDebugSafety(");
     ir_print_other_instruction(irp, instruction->scope_value);
@@ -1080,6 +1086,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdUnionFieldPtr:
             ir_print_union_field_ptr(irp, (IrInstructionUnionFieldPtr *)instruction);
+            break;
+        case IrInstructionIdSetCold:
+            ir_print_set_cold(irp, (IrInstructionSetCold *)instruction);
             break;
         case IrInstructionIdSetDebugSafety:
             ir_print_set_debug_safety(irp, (IrInstructionSetDebugSafety *)instruction);

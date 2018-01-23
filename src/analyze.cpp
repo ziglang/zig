@@ -1158,6 +1158,104 @@ static bool analyze_const_string(CodeGen *g, Scope *scope, AstNode *node, Buf **
     return true;
 }
 
+static bool type_allowed_in_packed_struct(TypeTableEntry *type_entry) {
+    switch (type_entry->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+            zig_unreachable();
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdOpaque:
+            return false;
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdPointer:
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdFn:
+            return true;
+        case TypeTableEntryIdStruct:
+            return type_entry->data.structure.layout == ContainerLayoutPacked;
+        case TypeTableEntryIdUnion:
+            return type_entry->data.unionation.layout == ContainerLayoutPacked;
+        case TypeTableEntryIdMaybe:
+            {
+                TypeTableEntry *child_type = type_entry->data.maybe.child_type;
+                return child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn;
+            }
+        case TypeTableEntryIdEnum:
+            return type_entry->data.enumeration.decl_node->data.container_decl.init_arg_expr != nullptr;
+    }
+    zig_unreachable();
+}
+
+static bool type_allowed_in_extern(CodeGen *g, TypeTableEntry *type_entry) {
+    switch (type_entry->id) {
+        case TypeTableEntryIdInvalid:
+        case TypeTableEntryIdVar:
+            zig_unreachable();
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdErrorUnion:
+        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdArgTuple:
+            return false;
+        case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+            return true;
+        case TypeTableEntryIdInt:
+            switch (type_entry->data.integral.bit_count) {
+                case 8:
+                case 16:
+                case 32:
+                case 64:
+                case 128:
+                    return true;
+                default:
+                    return false;
+            }
+        case TypeTableEntryIdFloat:
+            return true;
+        case TypeTableEntryIdArray:
+            return type_allowed_in_extern(g, type_entry->data.array.child_type);
+        case TypeTableEntryIdFn:
+            return type_entry->data.fn.fn_type_id.cc == CallingConventionC;
+        case TypeTableEntryIdPointer:
+            return type_allowed_in_extern(g, type_entry->data.pointer.child_type);
+        case TypeTableEntryIdStruct:
+            return type_entry->data.structure.layout == ContainerLayoutExtern;
+        case TypeTableEntryIdMaybe:
+            {
+                TypeTableEntry *child_type = type_entry->data.maybe.child_type;
+                return child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn;
+            }
+        case TypeTableEntryIdEnum:
+            return type_entry->data.enumeration.layout == ContainerLayoutExtern;
+        case TypeTableEntryIdUnion:
+            return type_entry->data.unionation.layout == ContainerLayoutExtern;
+    }
+    zig_unreachable();
+}
+
 static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_scope) {
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
@@ -1206,6 +1304,14 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
                         buf_ptr(&type_entry->name), calling_convention_name(fn_type_id.cc)));
                 return g->builtin_types.entry_invalid;
             }
+        }
+
+        if (fn_type_id.cc != CallingConventionUnspecified && !type_allowed_in_extern(g, type_entry)) {
+            add_node_error(g, param_node->data.param_decl.type,
+                    buf_sprintf("parameter of type '%s' not allowed in function with calling convention '%s'",
+                        buf_ptr(&type_entry->name),
+                        calling_convention_name(fn_type_id.cc)));
+            return g->builtin_types.entry_invalid;
         }
 
         switch (type_entry->id) {
@@ -1271,6 +1377,14 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
 
     fn_type_id.return_type = (fn_proto->return_type == nullptr) ?
         g->builtin_types.entry_void : analyze_type_expr(g, child_scope, fn_proto->return_type);
+
+    if (fn_type_id.cc != CallingConventionUnspecified && !type_allowed_in_extern(g, fn_type_id.return_type)) {
+        add_node_error(g, fn_proto->return_type,
+                buf_sprintf("return type '%s' not allowed in function with calling convention '%s'",
+                    buf_ptr(&fn_type_id.return_type->name),
+                    calling_convention_name(fn_type_id.cc)));
+        return g->builtin_types.entry_invalid;
+    }
 
     switch (fn_type_id.return_type->id) {
         case TypeTableEntryIdInvalid:
@@ -1424,46 +1538,6 @@ static void resolve_enum_type(CodeGen *g, TypeTableEntry *enum_type) {
     enum_type->di_type = tag_di_type;
 }
 
-static bool type_allowed_in_packed_struct(TypeTableEntry *type_entry) {
-    switch (type_entry->id) {
-        case TypeTableEntryIdInvalid:
-        case TypeTableEntryIdVar:
-            zig_unreachable();
-        case TypeTableEntryIdMetaType:
-        case TypeTableEntryIdUnreachable:
-        case TypeTableEntryIdNumLitFloat:
-        case TypeTableEntryIdNumLitInt:
-        case TypeTableEntryIdUndefLit:
-        case TypeTableEntryIdNullLit:
-        case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
-        case TypeTableEntryIdNamespace:
-        case TypeTableEntryIdBlock:
-        case TypeTableEntryIdBoundFn:
-        case TypeTableEntryIdArgTuple:
-        case TypeTableEntryIdOpaque:
-            return false;
-        case TypeTableEntryIdVoid:
-        case TypeTableEntryIdBool:
-        case TypeTableEntryIdInt:
-        case TypeTableEntryIdFloat:
-        case TypeTableEntryIdPointer:
-        case TypeTableEntryIdArray:
-        case TypeTableEntryIdUnion:
-        case TypeTableEntryIdFn:
-            return true;
-        case TypeTableEntryIdStruct:
-            return type_entry->data.structure.layout == ContainerLayoutPacked;
-        case TypeTableEntryIdMaybe:
-            {
-                TypeTableEntry *child_type = type_entry->data.maybe.child_type;
-                return child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn;
-            }
-        case TypeTableEntryIdEnum:
-            return type_entry->data.enumeration.decl_node->data.container_decl.init_arg_expr != nullptr;
-    }
-    zig_unreachable();
-}
 
 TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *field_names[],
         TypeTableEntry *field_types[], size_t field_count)

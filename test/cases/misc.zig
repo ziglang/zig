@@ -608,3 +608,12 @@ test "function closes over local const" {
     const x = fnThatClosesOverLocalConst().g();
     assert(x == 1);
 }
+
+test "cold function" {
+    thisIsAColdFn();
+    comptime thisIsAColdFn();
+}
+
+fn thisIsAColdFn() {
+    @setCold(true);
+}

@@ -19,6 +19,7 @@ const compile_errors = @import("compile_errors.zig");
 const assemble_and_link = @import("assemble_and_link.zig");
 const debug_safety = @import("debug_safety.zig");
 const translate_c = @import("translate_c.zig");
+const gen_h = @import("gen_h.zig");
 
 const TestTarget = struct {
     os: builtin.Os,
@@ -123,7 +124,7 @@ pub fn addTranslateCTests(b: &build.Builder, test_filter: ?[]const u8) -> &build
     const cases = b.allocator.create(TranslateCContext) catch unreachable;
     *cases = TranslateCContext {
         .b = b,
-        .step = b.step("test-translate-c", "Run the C header file parsing tests"),
+        .step = b.step("test-translate-c", "Run the C transation tests"),
         .test_index = 0,
         .test_filter = test_filter,
     };
@@ -132,6 +133,21 @@ pub fn addTranslateCTests(b: &build.Builder, test_filter: ?[]const u8) -> &build
 
     return cases.step;
 }
+
+pub fn addGenHTests(b: &build.Builder, test_filter: ?[]const u8) -> &build.Step {
+    const cases = b.allocator.create(GenHContext) catch unreachable;
+    *cases = GenHContext {
+        .b = b,
+        .step = b.step("test-gen-h", "Run the C header file generation tests"),
+        .test_index = 0,
+        .test_filter = test_filter,
+    };
+
+    gen_h.addCases(cases);
+
+    return cases.step;
+}
+
 
 pub fn addPkgTests(b: &build.Builder, test_filter: ?[]const u8, root_src: []const u8,
     name:[] const u8, desc: []const u8, with_lldb: bool) -> &build.Step
@@ -975,5 +991,138 @@ pub const TranslateCContext = struct {
             const write_src = b.addWriteFile(expanded_src_path, src_file.source);
             translate_c_and_cmp.step.dependOn(&write_src.step);
         }
+    }
+};
+
+pub const GenHContext = struct {
+    b: &build.Builder,
+    step: &build.Step,
+    test_index: usize,
+    test_filter: ?[]const u8,
+
+    const TestCase = struct {
+        name: []const u8,
+        sources: ArrayList(SourceFile),
+        expected_lines: ArrayList([]const u8),
+
+        const SourceFile = struct {
+            filename: []const u8,
+            source: []const u8,
+        };
+
+        pub fn addSourceFile(self: &TestCase, filename: []const u8, source: []const u8) {
+            self.sources.append(SourceFile {
+                .filename = filename,
+                .source = source,
+            }) catch unreachable;
+        }
+
+        pub fn addExpectedLine(self: &TestCase, text: []const u8) {
+            self.expected_lines.append(text) catch unreachable;
+        }
+    };
+
+    const GenHCmpOutputStep = struct {
+        step: build.Step,
+        context: &GenHContext,
+        h_path: []const u8,
+        name: []const u8,
+        test_index: usize,
+        case: &const TestCase,
+
+        pub fn create(context: &GenHContext, h_path: []const u8, name: []const u8, case: &const TestCase) -> &GenHCmpOutputStep {
+            const allocator = context.b.allocator;
+            const ptr = allocator.create(GenHCmpOutputStep) catch unreachable;
+            *ptr = GenHCmpOutputStep {
+                .step = build.Step.init("ParseCCmpOutput", allocator, make),
+                .context = context,
+                .h_path = h_path,
+                .name = name,
+                .test_index = context.test_index,
+                .case = case,
+            };
+            context.test_index += 1;
+            return ptr;
+        }
+
+        fn make(step: &build.Step) -> %void {
+            const self = @fieldParentPtr(GenHCmpOutputStep, "step", step);
+            const b = self.context.b;
+
+            warn("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
+
+            const full_h_path = b.pathFromRoot(self.h_path);
+            const actual_h = try io.readFileAlloc(full_h_path, b.allocator);
+
+            for (self.case.expected_lines.toSliceConst()) |expected_line| {
+                if (mem.indexOf(u8, actual_h, expected_line) == null) {
+                    warn(
+                        \\
+                        \\========= Expected this output: ================
+                        \\{}
+                        \\================================================
+                        \\{}
+                        \\
+                    , expected_line, actual_h);
+                    return error.TestFailed;
+                }
+            }
+            warn("OK\n");
+        }
+    };
+
+    fn printInvocation(args: []const []const u8) {
+        for (args) |arg| {
+            warn("{} ", arg);
+        }
+        warn("\n");
+    }
+
+    pub fn create(self: &GenHContext, filename: []const u8, name: []const u8,
+        source: []const u8, expected_lines: ...) -> &TestCase
+    {
+        const tc = self.b.allocator.create(TestCase) catch unreachable;
+        *tc = TestCase {
+            .name = name,
+            .sources = ArrayList(TestCase.SourceFile).init(self.b.allocator),
+            .expected_lines = ArrayList([]const u8).init(self.b.allocator),
+        };
+        tc.addSourceFile(filename, source);
+        comptime var arg_i = 0;
+        inline while (arg_i < expected_lines.len) : (arg_i += 1) {
+            tc.addExpectedLine(expected_lines[arg_i]);
+        }
+        return tc;
+    }
+
+    pub fn add(self: &GenHContext, name: []const u8, source: []const u8, expected_lines: ...) {
+        const tc = self.create("test.zig", name, source, expected_lines);
+        self.addCase(tc);
+    }
+
+    pub fn addCase(self: &GenHContext, case: &const TestCase) {
+        const b = self.b;
+        const root_src = os.path.join(b.allocator, b.cache_root, case.sources.items[0].filename) catch unreachable;
+
+        const mode = builtin.Mode.Debug;
+        const annotated_case_name = fmt.allocPrint(self.b.allocator, "gen-h {} ({})", case.name, @tagName(mode)) catch unreachable;
+        if (self.test_filter) |filter| {
+            if (mem.indexOf(u8, annotated_case_name, filter) == null)
+                return;
+        }
+
+        const obj = b.addObject("test", root_src);
+        obj.setBuildMode(mode);
+
+        for (case.sources.toSliceConst()) |src_file| {
+            const expanded_src_path = os.path.join(b.allocator, b.cache_root, src_file.filename) catch unreachable;
+            const write_src = b.addWriteFile(expanded_src_path, src_file.source);
+            obj.step.dependOn(&write_src.step);
+        }
+
+        const cmp_h = GenHCmpOutputStep.create(self, obj.getOutputHPath(), annotated_case_name, case);
+        cmp_h.step.dependOn(&obj.step);
+
+        self.step.dependOn(&cmp_h.step);
     }
 };
