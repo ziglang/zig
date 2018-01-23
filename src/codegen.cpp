@@ -5977,6 +5977,16 @@ static void get_c_type(CodeGen *g, GenH *gen_h, TypeTableEntry *type_entry, Buf 
                 return;
             }
         case TypeTableEntryIdArray:
+            {
+                TypeTableEntryArray *array_data = &type_entry->data.array;
+
+                Buf *child_buf = buf_alloc();
+                get_c_type(g, gen_h, array_data->child_type, child_buf);
+
+                buf_resize(out_buf, 0);
+                buf_appendf(out_buf, "%s", buf_ptr(child_buf));
+                return;
+            }
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdPureError:
         case TypeTableEntryIdFn:
@@ -6081,8 +6091,15 @@ static void gen_h_file(CodeGen *g) {
                 const char *comma_str = (param_i == 0) ? "" : ", ";
                 const char *restrict_str = param_info->is_noalias ? "restrict" : "";
                 get_c_type(g, gen_h, param_info->type, &param_type_c);
-                buf_appendf(&h_buf, "%s%s%s %s", comma_str, buf_ptr(&param_type_c),
-                        restrict_str, buf_ptr(param_name));
+
+                if (param_info->type->id == TypeTableEntryIdArray) {
+                    // Arrays decay to pointers
+                    buf_appendf(&h_buf, "%s%s%s %s[]", comma_str, buf_ptr(&param_type_c),
+                            restrict_str, buf_ptr(param_name));
+                } else {
+                    buf_appendf(&h_buf, "%s%s%s %s", comma_str, buf_ptr(&param_type_c),
+                            restrict_str, buf_ptr(param_name));
+                }
             }
             buf_appendf(&h_buf, ")");
         } else {
@@ -6169,7 +6186,15 @@ static void gen_h_file(CodeGen *g) {
 
                     Buf *type_name_buf = buf_alloc();
                     get_c_type(g, gen_h, struct_field->type_entry, type_name_buf);
-                    fprintf(out_h, "    %s %s;\n", buf_ptr(type_name_buf), buf_ptr(struct_field->name));
+
+                    if (struct_field->type_entry->id == TypeTableEntryIdArray) {
+                        fprintf(out_h, "    %s %s[%d];\n", buf_ptr(type_name_buf),
+                                buf_ptr(struct_field->name),
+                                struct_field->type_entry->data.array.len);
+                    } else {
+                        fprintf(out_h, "    %s %s;\n", buf_ptr(type_name_buf), buf_ptr(struct_field->name));
+                    }
+
                 }
                 fprintf(out_h, "};\n\n");
                 break;
