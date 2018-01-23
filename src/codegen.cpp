@@ -6188,7 +6188,7 @@ static void gen_h_file(CodeGen *g) {
                     get_c_type(g, gen_h, struct_field->type_entry, type_name_buf);
 
                     if (struct_field->type_entry->id == TypeTableEntryIdArray) {
-                        fprintf(out_h, "    %s %s[%d];\n", buf_ptr(type_name_buf),
+                        fprintf(out_h, "    %s %s[%" ZIG_PRI_u64 "];\n", buf_ptr(type_name_buf),
                                 buf_ptr(struct_field->name),
                                 struct_field->type_entry->data.array.len);
                     } else {
