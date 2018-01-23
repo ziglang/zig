@@ -50,4 +50,20 @@ pub fn addCases(cases: &tests.GenHContext) {
         \\TEST_EXPORT void entry(union Foo foo);
         \\
     );
+
+    cases.add("array field-type",
+        \\const Foo = extern struct {
+        \\    A: [2]i32,
+        \\    B: [4]&u32,
+        \\};
+        \\export fn entry(foo: Foo, bar: [3]u8) { }
+    ,
+        \\struct Foo {
+        \\    int32_t A[2];
+        \\    uint32_t * B[4];
+        \\};
+        \\
+        \\TEST_EXPORT void entry(struct Foo foo, uint8_t bar[]);
+        \\
+    );
 }
