@@ -133,7 +133,7 @@ pub fn createWindowsEnvBlock(allocator: &mem.Allocator, env_map: &const BufMap) 
         break :x bytes_needed;
     };
     const result = try allocator.alloc(u8, bytes_needed);
-    %defer allocator.free(result);
+    errdefer allocator.free(result);
 
     var it = env_map.iterator();
     var i: usize = 0;

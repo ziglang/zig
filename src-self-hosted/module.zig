@@ -113,19 +113,19 @@ pub const Module = struct {
         kind: Kind, build_mode: builtin.Mode, zig_lib_dir: []const u8, cache_dir: []const u8) -> %&Module
     {
         var name_buffer = try Buffer.init(allocator, name);
-        %defer name_buffer.deinit();
+        errdefer name_buffer.deinit();
 
         const context = c.LLVMContextCreate() ?? return error.OutOfMemory;
-        %defer c.LLVMContextDispose(context);
+        errdefer c.LLVMContextDispose(context);
 
         const module = c.LLVMModuleCreateWithNameInContext(name_buffer.ptr(), context) ?? return error.OutOfMemory;
-        %defer c.LLVMDisposeModule(module);
+        errdefer c.LLVMDisposeModule(module);
 
         const builder = c.LLVMCreateBuilderInContext(context) ?? return error.OutOfMemory;
-        %defer c.LLVMDisposeBuilder(builder);
+        errdefer c.LLVMDisposeBuilder(builder);
 
         const module_ptr = try allocator.create(Module);
-        %defer allocator.destroy(module_ptr);
+        errdefer allocator.destroy(module_ptr);
 
         *module_ptr = Module {
             .allocator = allocator,
@@ -211,13 +211,13 @@ pub const Module = struct {
             try printError("unable to get real path '{}': {}", root_src_path, err);
             return err;
         };
-        %defer self.allocator.free(root_src_real_path);
+        errdefer self.allocator.free(root_src_real_path);
 
         const source_code = io.readFileAllocExtra(root_src_real_path, self.allocator, 3) catch |err| {
             try printError("unable to open '{}': {}", root_src_real_path, err);
             return err;
         };
-        %defer self.allocator.free(source_code);
+        errdefer self.allocator.free(source_code);
         source_code[source_code.len - 3] = '\n';
         source_code[source_code.len - 2] = '\n';
         source_code[source_code.len - 1] = '\n';

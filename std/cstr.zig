@@ -71,7 +71,7 @@ pub const NullTerminated2DArray = struct {
         byte_count += index_size;
 
         const buf = try allocator.alignedAlloc(u8, @alignOf(?&u8), byte_count);
-        %defer allocator.free(buf);
+        errdefer allocator.free(buf);
 
         var write_index = index_size;
         const index_buf = ([]?&u8)(buf);

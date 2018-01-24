@@ -371,7 +371,7 @@ pub fn main2() -> %void {
             defer allocator.free(full_cache_dir);
 
             const zig_lib_dir = try resolveZigLibDir(allocator, zig_install_prefix);
-            %defer allocator.free(zig_lib_dir);
+            errdefer allocator.free(zig_lib_dir);
 
             const module = try Module.create(allocator, root_name, zig_root_source_file,
                 Target.Native, build_kind, build_mode, zig_lib_dir, full_cache_dir);
@@ -587,7 +587,7 @@ fn resolveZigLibDir(allocator: &mem.Allocator, zig_install_prefix_arg: ?[]const 
 /// Caller must free result
 fn testZigInstallPrefix(allocator: &mem.Allocator, test_path: []const u8) -> %[]u8 {
     const test_zig_dir = try os.path.join(allocator, test_path, "lib", "zig");
-    %defer allocator.free(test_zig_dir);
+    errdefer allocator.free(test_zig_dir);
 
     const test_index_file = try os.path.join(allocator, test_zig_dir, "std", "index.zig");
     defer allocator.free(test_index_file);

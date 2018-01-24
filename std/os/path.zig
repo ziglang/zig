@@ -468,7 +468,7 @@ pub fn resolveWindows(allocator: &Allocator, paths: []const []const u8) -> %[]u8
         }
         have_drive_kind = parsed_cwd.kind;
     }
-    %defer allocator.free(result);
+    errdefer allocator.free(result);
 
     // Now we know the disk designator to use, if any, and what kind it is. And our result
     // is big enough to append all the paths to.
@@ -551,7 +551,7 @@ pub fn resolvePosix(allocator: &Allocator, paths: []const []const u8) -> %[]u8 {
         mem.copy(u8, result, cwd);
         result_index += cwd.len;
     }
-    %defer allocator.free(result);
+    errdefer allocator.free(result);
 
     for (paths[first_index..]) |p, i| {
         var it = mem.split(p, "/");
@@ -943,7 +943,7 @@ pub fn relativeWindows(allocator: &Allocator, from: []const u8, to: []const u8) 
         }
         const up_index_end = up_count * "..\\".len;
         const result = try allocator.alloc(u8, up_index_end + to_rest.len);
-        %defer allocator.free(result);
+        errdefer allocator.free(result);
 
         var result_index: usize = 0;
         while (result_index < up_index_end) {
@@ -993,7 +993,7 @@ pub fn relativePosix(allocator: &Allocator, from: []const u8, to: []const u8) ->
         }
         const up_index_end = up_count * "../".len;
         const result = try allocator.alloc(u8, up_index_end + to_rest.len);
-        %defer allocator.free(result);
+        errdefer allocator.free(result);
 
         var result_index: usize = 0;
         while (result_index < up_index_end) {
@@ -1100,7 +1100,7 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
             }
             defer os.close(h_file);
             var buf = try allocator.alloc(u8, 256);
-            %defer allocator.free(buf);
+            errdefer allocator.free(buf);
             while (true) {
                 const buf_len = math.cast(windows.DWORD, buf.len) catch return error.NameTooLong;
                 const result = windows.GetFinalPathNameByHandleA(h_file, buf.ptr, buf_len, windows.VOLUME_NAME_DOS);
@@ -1144,7 +1144,7 @@ pub fn real(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
             defer allocator.free(pathname_buf);
 
             const result_buf = try allocator.alloc(u8, posix.PATH_MAX);
-            %defer allocator.free(result_buf);
+            errdefer allocator.free(result_buf);
 
             mem.copy(u8, pathname_buf, pathname);
             pathname_buf[pathname.len] = 0;

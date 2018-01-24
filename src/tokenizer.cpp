@@ -118,6 +118,7 @@ static const struct ZigKeyword zig_keywords[] = {
     {"defer", TokenIdKeywordDefer},
     {"else", TokenIdKeywordElse},
     {"enum", TokenIdKeywordEnum},
+    {"errdefer", TokenIdKeywordErrdefer},
     {"error", TokenIdKeywordError},
     {"export", TokenIdKeywordExport},
     {"extern", TokenIdKeywordExtern},
@@ -1514,6 +1515,7 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordDefer: return "defer";
         case TokenIdKeywordElse: return "else";
         case TokenIdKeywordEnum: return "enum";
+        case TokenIdKeywordErrdefer: return "errdefer";
         case TokenIdKeywordError: return "error";
         case TokenIdKeywordExport: return "export";
         case TokenIdKeywordExtern: return "extern";

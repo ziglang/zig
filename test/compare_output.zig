@@ -392,7 +392,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\}
     , "before\ndefer2\ndefer1\n");
 
-    cases.add("%defer and it fails",
+    cases.add("errdefer and it fails",
         \\const io = @import("std").io;
         \\pub fn main() -> %void {
         \\    do_test() catch return;
@@ -401,7 +401,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    const stdout = &(io.FileOutStream.init(&(io.getStdOut() catch unreachable)).stream);
         \\    stdout.print("before\n") catch unreachable;
         \\    defer stdout.print("defer1\n") catch unreachable;
-        \\    %defer stdout.print("deferErr\n") catch unreachable;
+        \\    errdefer stdout.print("deferErr\n") catch unreachable;
         \\    try its_gonna_fail();
         \\    defer stdout.print("defer3\n") catch unreachable;
         \\    stdout.print("after\n") catch unreachable;
@@ -412,7 +412,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\}
     , "before\ndeferErr\ndefer1\n");
 
-    cases.add("%defer and it passes",
+    cases.add("errdefer and it passes",
         \\const io = @import("std").io;
         \\pub fn main() -> %void {
         \\    do_test() catch return;
@@ -421,7 +421,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    const stdout = &(io.FileOutStream.init(&(io.getStdOut() catch unreachable)).stream);
         \\    stdout.print("before\n") catch unreachable;
         \\    defer stdout.print("defer1\n") catch unreachable;
-        \\    %defer stdout.print("deferErr\n") catch unreachable;
+        \\    errdefer stdout.print("deferErr\n") catch unreachable;
         \\    try its_gonna_pass();
         \\    defer stdout.print("defer3\n") catch unreachable;
         \\    stdout.print("after\n") catch unreachable;

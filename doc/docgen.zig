@@ -318,7 +318,7 @@ const Action = enum {
 
 fn genToc(allocator: &mem.Allocator, tokenizer: &Tokenizer) -> %Toc {
     var urls = std.HashMap([]const u8, Token, mem.hash_slice_u8, mem.eql_slice_u8).init(allocator);
-    %defer urls.deinit();
+    errdefer urls.deinit();
 
     var header_stack_size: usize = 0;
     var last_action = Action.Open;
@@ -399,7 +399,7 @@ fn genToc(allocator: &mem.Allocator, tokenizer: &Tokenizer) -> %Toc {
                     }
                 } else if (mem.eql(u8, tag_name, "see_also")) {
                     var list = std.ArrayList(SeeAlsoItem).init(allocator);
-                    %defer list.deinit();
+                    errdefer list.deinit();
 
                     while (true) {
                         const see_also_tok = tokenizer.next();

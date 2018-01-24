@@ -1495,7 +1495,7 @@ static AstNode *ast_parse_break_expr(ParseContext *pc, size_t *token_index) {
 }
 
 /*
-Defer(body) = option("%") "defer" body
+Defer(body) = ("defer" | "errdefer") body
 */
 static AstNode *ast_parse_defer_expr(ParseContext *pc, size_t *token_index) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1503,15 +1503,10 @@ static AstNode *ast_parse_defer_expr(ParseContext *pc, size_t *token_index) {
     NodeType node_type;
     ReturnKind kind;
 
-    if (token->id == TokenIdPercent) {
-        Token *next_token = &pc->tokens->at(*token_index + 1);
-        if (next_token->id == TokenIdKeywordDefer) {
-            kind = ReturnKindError;
-            node_type = NodeTypeDefer;
-            *token_index += 2;
-        } else {
-            return nullptr;
-        }
+    if (token->id == TokenIdKeywordErrdefer) {
+        kind = ReturnKindError;
+        node_type = NodeTypeDefer;
+        *token_index += 1;
     } else if (token->id == TokenIdKeywordDefer) {
         kind = ReturnKindUnconditional;
         node_type = NodeTypeDefer;

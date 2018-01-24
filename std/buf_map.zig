@@ -30,14 +30,14 @@ pub const BufMap = struct {
     pub fn set(self: &BufMap, key: []const u8, value: []const u8) -> %void {
         if (self.hash_map.get(key)) |entry| {
             const value_copy = try self.copy(value);
-            %defer self.free(value_copy);
+            errdefer self.free(value_copy);
             _ = try self.hash_map.put(key, value_copy);
             self.free(entry.value);
         } else {
             const key_copy = try self.copy(key);
-            %defer self.free(key_copy);
+            errdefer self.free(key_copy);
             const value_copy = try self.copy(value);
-            %defer self.free(value_copy);
+            errdefer self.free(value_copy);
             _ = try self.hash_map.put(key_copy, value_copy);
         }
     }

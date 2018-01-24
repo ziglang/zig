@@ -127,7 +127,7 @@ pub const Parser = struct {
 
         const root_node = x: {
             const root_node = try self.createRoot();
-            %defer self.allocator.destroy(root_node);
+            errdefer self.allocator.destroy(root_node);
             // This stack append has to succeed for freeAst to work
             try stack.append(State.TopLevel);
             break :x root_node;
@@ -577,7 +577,7 @@ pub const Parser = struct {
 
     fn createRoot(self: &Parser) -> %&ast.NodeRoot {
         const node = try self.allocator.create(ast.NodeRoot);
-        %defer self.allocator.destroy(node);
+        errdefer self.allocator.destroy(node);
 
         *node = ast.NodeRoot {
             .base = ast.Node {.id = ast.Node.Id.Root},
@@ -590,7 +590,7 @@ pub const Parser = struct {
         extern_token: &const ?Token) -> %&ast.NodeVarDecl
     {
         const node = try self.allocator.create(ast.NodeVarDecl);
-        %defer self.allocator.destroy(node);
+        errdefer self.allocator.destroy(node);
 
         *node = ast.NodeVarDecl {
             .base = ast.Node {.id = ast.Node.Id.VarDecl},
@@ -613,7 +613,7 @@ pub const Parser = struct {
         cc_token: &const ?Token, visib_token: &const ?Token, inline_token: &const ?Token) -> %&ast.NodeFnProto
     {
         const node = try self.allocator.create(ast.NodeFnProto);
-        %defer self.allocator.destroy(node);
+        errdefer self.allocator.destroy(node);
 
         *node = ast.NodeFnProto {
             .base = ast.Node {.id = ast.Node.Id.FnProto},
@@ -635,7 +635,7 @@ pub const Parser = struct {
 
     fn createParamDecl(self: &Parser) -> %&ast.NodeParamDecl {
         const node = try self.allocator.create(ast.NodeParamDecl);
-        %defer self.allocator.destroy(node);
+        errdefer self.allocator.destroy(node);
 
         *node = ast.NodeParamDecl {
             .base = ast.Node {.id = ast.Node.Id.ParamDecl},
@@ -650,7 +650,7 @@ pub const Parser = struct {
 
     fn createBlock(self: &Parser, begin_token: &const Token) -> %&ast.NodeBlock {
         const node = try self.allocator.create(ast.NodeBlock);
-        %defer self.allocator.destroy(node);
+        errdefer self.allocator.destroy(node);
 
         *node = ast.NodeBlock {
             .base = ast.Node {.id = ast.Node.Id.Block},
@@ -663,7 +663,7 @@ pub const Parser = struct {
 
     fn createInfixOp(self: &Parser, op_token: &const Token, op: &const ast.NodeInfixOp.InfixOp) -> %&ast.NodeInfixOp {
         const node = try self.allocator.create(ast.NodeInfixOp);
-        %defer self.allocator.destroy(node);
+        errdefer self.allocator.destroy(node);
 
         *node = ast.NodeInfixOp {
             .base = ast.Node {.id = ast.Node.Id.InfixOp},
@@ -677,7 +677,7 @@ pub const Parser = struct {
 
     fn createPrefixOp(self: &Parser, op_token: &const Token, op: &const ast.NodePrefixOp.PrefixOp) -> %&ast.NodePrefixOp {
         const node = try self.allocator.create(ast.NodePrefixOp);
-        %defer self.allocator.destroy(node);
+        errdefer self.allocator.destroy(node);
 
         *node = ast.NodePrefixOp {
             .base = ast.Node {.id = ast.Node.Id.PrefixOp},
@@ -690,7 +690,7 @@ pub const Parser = struct {
 
     fn createIdentifier(self: &Parser, name_token: &const Token) -> %&ast.NodeIdentifier {
         const node = try self.allocator.create(ast.NodeIdentifier);
-        %defer self.allocator.destroy(node);
+        errdefer self.allocator.destroy(node);
 
         *node = ast.NodeIdentifier {
             .base = ast.Node {.id = ast.Node.Id.Identifier},
@@ -701,7 +701,7 @@ pub const Parser = struct {
 
     fn createIntegerLiteral(self: &Parser, token: &const Token) -> %&ast.NodeIntegerLiteral {
         const node = try self.allocator.create(ast.NodeIntegerLiteral);
-        %defer self.allocator.destroy(node);
+        errdefer self.allocator.destroy(node);
 
         *node = ast.NodeIntegerLiteral {
             .base = ast.Node {.id = ast.Node.Id.IntegerLiteral},
@@ -712,7 +712,7 @@ pub const Parser = struct {
 
     fn createFloatLiteral(self: &Parser, token: &const Token) -> %&ast.NodeFloatLiteral {
         const node = try self.allocator.create(ast.NodeFloatLiteral);
-        %defer self.allocator.destroy(node);
+        errdefer self.allocator.destroy(node);
 
         *node = ast.NodeFloatLiteral {
             .base = ast.Node {.id = ast.Node.Id.FloatLiteral},
@@ -723,14 +723,14 @@ pub const Parser = struct {
 
     fn createAttachIdentifier(self: &Parser, dest_ptr: &const DestPtr, name_token: &const Token) -> %&ast.NodeIdentifier {
         const node = try self.createIdentifier(name_token);
-        %defer self.allocator.destroy(node);
+        errdefer self.allocator.destroy(node);
         try dest_ptr.store(&node.base);
         return node;
     }
 
     fn createAttachParamDecl(self: &Parser, list: &ArrayList(&ast.Node)) -> %&ast.NodeParamDecl {
         const node = try self.createParamDecl();
-        %defer self.allocator.destroy(node);
+        errdefer self.allocator.destroy(node);
         try list.append(&node.base);
         return node;
     }
@@ -740,7 +740,7 @@ pub const Parser = struct {
         inline_token: &const ?Token) -> %&ast.NodeFnProto
     {
         const node = try self.createFnProto(fn_token, extern_token, cc_token, visib_token, inline_token);
-        %defer self.allocator.destroy(node);
+        errdefer self.allocator.destroy(node);
         try list.append(&node.base);
         return node;
     }
@@ -749,7 +749,7 @@ pub const Parser = struct {
         mut_token: &const Token, comptime_token: &const ?Token, extern_token: &const ?Token) -> %&ast.NodeVarDecl
     {
         const node = try self.createVarDecl(visib_token, mut_token, comptime_token, extern_token);
-        %defer self.allocator.destroy(node);
+        errdefer self.allocator.destroy(node);
         try list.append(&node.base);
         return node;
     }

@@ -440,7 +440,7 @@ pub fn join(allocator: &Allocator, sep: u8, strings: ...) -> %[]u8 {
     }
 
     const buf = try allocator.alloc(u8, total_strings_len);
-    %defer allocator.free(buf);
+    errdefer allocator.free(buf);
 
     var buf_index: usize = 0;
     comptime var string_i = 0;

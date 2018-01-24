@@ -311,7 +311,7 @@ pub fn createNullDelimitedEnvMap(allocator: &Allocator, env_map: &const BufMap) 
     const envp_count = env_map.count();
     const envp_buf = try allocator.alloc(?&u8, envp_count + 1);
     mem.set(?&u8, envp_buf, null);
-    %defer freeNullDelimitedEnvMap(allocator, envp_buf);
+    errdefer freeNullDelimitedEnvMap(allocator, envp_buf);
     {
         var it = env_map.iterator();
         var i: usize = 0;
@@ -421,7 +421,7 @@ pub var posix_environ_raw: []&u8 = undefined;
 /// Caller must free result when done.
 pub fn getEnvMap(allocator: &Allocator) -> %BufMap {
     var result = BufMap.init(allocator);
-    %defer result.deinit();
+    errdefer result.deinit();
 
     if (is_windows) {
         const ptr = windows.GetEnvironmentStringsA() ?? return error.OutOfMemory;
@@ -489,7 +489,7 @@ pub fn getEnvVarOwned(allocator: &mem.Allocator, key: []const u8) -> %[]u8 {
         defer allocator.free(key_with_null);
 
         var buf = try allocator.alloc(u8, 256);
-        %defer allocator.free(buf);
+        errdefer allocator.free(buf);
 
         while (true) {
             const windows_buf_len = try math.cast(windows.DWORD, buf.len);
@@ -521,7 +521,7 @@ pub fn getCwd(allocator: &Allocator) -> %[]u8 {
     switch (builtin.os) {
         Os.windows => {
             var buf = try allocator.alloc(u8, 256);
-            %defer allocator.free(buf);
+            errdefer allocator.free(buf);
 
             while (true) {
                 const result = windows.GetCurrentDirectoryA(windows.WORD(buf.len), buf.ptr);
@@ -543,7 +543,7 @@ pub fn getCwd(allocator: &Allocator) -> %[]u8 {
         },
         else => {
             var buf = try allocator.alloc(u8, 1024);
-            %defer allocator.free(buf);
+            errdefer allocator.free(buf);
             while (true) {
                 const err = posix.getErrno(posix.getcwd(buf.ptr, buf.len));
                 if (err == posix.ERANGE) {
@@ -724,7 +724,7 @@ pub fn copyFileMode(allocator: &Allocator, source_path: []const u8, dest_path: [
 
     var out_file = try io.File.openWriteMode(tmp_path, mode, allocator);
     defer out_file.close();
-    %defer _ = deleteFile(allocator, tmp_path);
+    errdefer _ = deleteFile(allocator, tmp_path);
 
     var in_file = try io.File.openRead(source_path, allocator);
     defer in_file.close();
@@ -1074,7 +1074,7 @@ pub fn readLink(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
     path_buf[pathname.len] = 0;
 
     var result_buf = try allocator.alloc(u8, 1024);
-    %defer allocator.free(result_buf);
+    errdefer allocator.free(result_buf);
     while (true) {
         const ret_val = posix.readlink(path_buf.ptr, result_buf.ptr, result_buf.len);
         const err = posix.getErrno(ret_val);
@@ -1443,7 +1443,7 @@ pub fn argsAlloc(allocator: &mem.Allocator) -> %[]const []u8 {
     const slice_list_bytes = try math.mul(usize, @sizeOf([]u8), slice_sizes.len);
     const total_bytes = try math.add(usize, slice_list_bytes, contents_slice.len);
     const buf = try allocator.alignedAlloc(u8, @alignOf([]u8), total_bytes);
-    %defer allocator.free(buf);
+    errdefer allocator.free(buf);
 
     const result_slice_list = ([][]u8)(buf[0..slice_list_bytes]);
     const result_contents = buf[slice_list_bytes..];
@@ -1556,7 +1556,7 @@ pub fn selfExePath(allocator: &mem.Allocator) -> %[]u8 {
         },
         Os.windows => {
             var out_path = try Buffer.initSize(allocator, 0xff);
-            %defer out_path.deinit();
+            errdefer out_path.deinit();
             while (true) {
                 const dword_len = try math.cast(windows.DWORD, out_path.len());
                 const copied_amt = windows.GetModuleFileNameA(null, out_path.ptr(), dword_len);
@@ -1579,7 +1579,7 @@ pub fn selfExePath(allocator: &mem.Allocator) -> %[]u8 {
             const ret1 = c._NSGetExecutablePath(undefined, &u32_len);
             assert(ret1 != 0);
             const bytes = try allocator.alloc(u8, u32_len);
-            %defer allocator.free(bytes);
+            errdefer allocator.free(bytes);
             const ret2 = c._NSGetExecutablePath(bytes.ptr, &u32_len);
             assert(ret2 == 0);
             return bytes;
@@ -1598,13 +1598,13 @@ pub fn selfExeDirPath(allocator: &mem.Allocator) -> %[]u8 {
             // This path cannot be opened, but it's valid for determining the directory
             // the executable was in when it was run.
             const full_exe_path = try readLink(allocator, "/proc/self/exe");
-            %defer allocator.free(full_exe_path);
+            errdefer allocator.free(full_exe_path);
             const dir = path.dirname(full_exe_path);
             return allocator.shrink(u8, full_exe_path, dir.len);
         },
         Os.windows, Os.macosx, Os.ios => {
             const self_exe_path = try selfExePath(allocator);
-            %defer allocator.free(self_exe_path);
+            errdefer allocator.free(self_exe_path);
             const dirname = os.path.dirname(self_exe_path);
             return allocator.shrink(u8, self_exe_path, dirname.len);
         },

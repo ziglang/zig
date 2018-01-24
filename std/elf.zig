@@ -183,7 +183,7 @@ pub const Elf = struct {
         try elf.in_file.seekTo(elf.section_header_offset);
 
         elf.section_headers = try elf.allocator.alloc(SectionHeader, sh_entry_count);
-        %defer elf.allocator.free(elf.section_headers);
+        errdefer elf.allocator.free(elf.section_headers);
 
         if (elf.is_64) {
             if (sh_entry_size != 64) return error.InvalidFormat;

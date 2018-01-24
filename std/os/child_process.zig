@@ -76,7 +76,7 @@ pub const ChildProcess = struct {
     /// On success must call deinit.
     pub fn init(argv: []const []const u8, allocator: &mem.Allocator) -> %&ChildProcess {
         const child = try allocator.create(ChildProcess);
-        %defer allocator.destroy(child);
+        errdefer allocator.destroy(child);
 
         *child = ChildProcess {
             .allocator = allocator,
@@ -336,13 +336,13 @@ pub const ChildProcess = struct {
         install_SIGCHLD_handler();
 
         const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try makePipe() else undefined;
-        %defer if (self.stdin_behavior == StdIo.Pipe) { destroyPipe(stdin_pipe); };
+        errdefer if (self.stdin_behavior == StdIo.Pipe) { destroyPipe(stdin_pipe); };
 
         const stdout_pipe = if (self.stdout_behavior == StdIo.Pipe) try makePipe() else undefined;
-        %defer if (self.stdout_behavior == StdIo.Pipe) { destroyPipe(stdout_pipe); };
+        errdefer if (self.stdout_behavior == StdIo.Pipe) { destroyPipe(stdout_pipe); };
 
         const stderr_pipe = if (self.stderr_behavior == StdIo.Pipe) try makePipe() else undefined;
-        %defer if (self.stderr_behavior == StdIo.Pipe) { destroyPipe(stderr_pipe); };
+        errdefer if (self.stderr_behavior == StdIo.Pipe) { destroyPipe(stderr_pipe); };
 
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
         const dev_null_fd = if (any_ignore)
@@ -367,7 +367,7 @@ pub const ChildProcess = struct {
         // This pipe is used to communicate errors between the time of fork
         // and execve from the child process to the parent process.
         const err_pipe = try makePipe();
-        %defer destroyPipe(err_pipe);
+        errdefer destroyPipe(err_pipe);
 
         block_SIGCHLD();
         const pid_result = posix.fork();
@@ -479,7 +479,7 @@ pub const ChildProcess = struct {
                 g_hChildStd_IN_Rd = null;
             },
         }
-        %defer if (self.stdin_behavior == StdIo.Pipe) { windowsDestroyPipe(g_hChildStd_IN_Rd, g_hChildStd_IN_Wr); };
+        errdefer if (self.stdin_behavior == StdIo.Pipe) { windowsDestroyPipe(g_hChildStd_IN_Rd, g_hChildStd_IN_Wr); };
 
         var g_hChildStd_OUT_Rd: ?windows.HANDLE = null;
         var g_hChildStd_OUT_Wr: ?windows.HANDLE = null;
@@ -497,7 +497,7 @@ pub const ChildProcess = struct {
                 g_hChildStd_OUT_Wr = null;
             },
         }
-        %defer if (self.stdin_behavior == StdIo.Pipe) { windowsDestroyPipe(g_hChildStd_OUT_Rd, g_hChildStd_OUT_Wr); };
+        errdefer if (self.stdin_behavior == StdIo.Pipe) { windowsDestroyPipe(g_hChildStd_OUT_Rd, g_hChildStd_OUT_Wr); };
 
         var g_hChildStd_ERR_Rd: ?windows.HANDLE = null;
         var g_hChildStd_ERR_Wr: ?windows.HANDLE = null;
@@ -515,7 +515,7 @@ pub const ChildProcess = struct {
                 g_hChildStd_ERR_Wr = null;
             },
         }
-        %defer if (self.stdin_behavior == StdIo.Pipe) { windowsDestroyPipe(g_hChildStd_ERR_Rd, g_hChildStd_ERR_Wr); };
+        errdefer if (self.stdin_behavior == StdIo.Pipe) { windowsDestroyPipe(g_hChildStd_ERR_Rd, g_hChildStd_ERR_Wr); };
 
         const cmd_line = try windowsCreateCommandLine(self.allocator, self.argv);
         defer self.allocator.free(cmd_line);
@@ -722,7 +722,7 @@ fn windowsMakePipeIn(rd: &?windows.HANDLE, wr: &?windows.HANDLE, sattr: &const S
     var rd_h: windows.HANDLE = undefined;
     var wr_h: windows.HANDLE = undefined;
     try windowsMakePipe(&rd_h, &wr_h, sattr);
-    %defer windowsDestroyPipe(rd_h, wr_h);
+    errdefer windowsDestroyPipe(rd_h, wr_h);
     try windowsSetHandleInfo(wr_h, windows.HANDLE_FLAG_INHERIT, 0);
     *rd = rd_h;
     *wr = wr_h;
@@ -732,7 +732,7 @@ fn windowsMakePipeOut(rd: &?windows.HANDLE, wr: &?windows.HANDLE, sattr: &const 
     var rd_h: windows.HANDLE = undefined;
     var wr_h: windows.HANDLE = undefined;
     try windowsMakePipe(&rd_h, &wr_h, sattr);
-    %defer windowsDestroyPipe(rd_h, wr_h);
+    errdefer windowsDestroyPipe(rd_h, wr_h);
     try windowsSetHandleInfo(rd_h, windows.HANDLE_FLAG_INHERIT, 0);
     *rd = rd_h;
     *wr = wr_h;

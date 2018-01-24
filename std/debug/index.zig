@@ -248,10 +248,10 @@ pub fn openSelfDebugInfo(allocator: &mem.Allocator) -> %&ElfStackTrace {
                 .compile_unit_list = ArrayList(CompileUnit).init(allocator),
             };
             st.self_exe_file = try os.openSelfExe();
-            %defer st.self_exe_file.close();
+            errdefer st.self_exe_file.close();
 
             try st.elf.openFile(allocator, &st.self_exe_file);
-            %defer st.elf.close();
+            errdefer st.elf.close();
 
             st.debug_info = (try st.elf.findSection(".debug_info")) ?? return error.MissingDebugInfo;
             st.debug_abbrev = (try st.elf.findSection(".debug_abbrev")) ?? return error.MissingDebugInfo;
@@ -524,7 +524,7 @@ const LineNumberProgram = struct {
                 return error.InvalidDebugInfo;
             } else self.include_dirs[file_entry.dir_index];
             const file_name = try os.path.join(self.file_entries.allocator, dir_name, file_entry.file_name);
-            %defer self.file_entries.allocator.free(file_name);
+            errdefer self.file_entries.allocator.free(file_name);
             return LineInfo {
                 .line = if (self.prev_line >= 0) usize(self.prev_line) else 0,
                 .column = self.prev_column,
@@ -563,7 +563,7 @@ fn getString(st: &ElfStackTrace, offset: u64) -> %[]u8 {
 
 fn readAllocBytes(allocator: &mem.Allocator, in_stream: &io.InStream, size: usize) -> %[]u8 {
     const buf = try global_allocator.alloc(u8, size);
-    %defer global_allocator.free(buf);
+    errdefer global_allocator.free(buf);
     if ((try in_stream.read(buf)) < size) return error.EndOfFile;
     return buf;
 }

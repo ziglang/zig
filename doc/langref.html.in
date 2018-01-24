@@ -2533,7 +2533,7 @@ test "defer unwinding" {
     deferUnwindExample();
 }
 
-// The %defer keyword is similar to defer, but will only execute if the
+// The errdefer keyword is similar to defer, but will only execute if the
 // scope returns with an error.
 //
 // This is especially useful in allowing a function to clean up properly
@@ -2547,7 +2547,7 @@ fn deferErrorExample(is_error: bool) -> %void {
         warn("end of function\n");
     }
 
-    %defer {
+    errdefer {
         warn("encountered an error!\n");
     }
 
@@ -2556,7 +2556,7 @@ fn deferErrorExample(is_error: bool) -> %void {
     }
 }
 
-test "%defer unwinding" {
+test "errdefer unwinding" {
     _ = deferErrorExample(false);
     _ = deferErrorExample(true);
 }
@@ -2922,7 +2922,7 @@ fn doAThing(str: []u8) {
       {#code_end#}
       <p>
       The other component to error handling is defer statements.
-      In addition to an unconditional <code>defer</code>, Zig has <code>%defer</code>,
+      In addition to an unconditional <code>defer</code>, Zig has <code>errdefer</code>,
       which evaluates the deferred expression on block exit path if and only if
       the function returned with an error from the block.
       </p>
@@ -2934,7 +2934,7 @@ fn createFoo(param: i32) -> %Foo {
     const foo = try tryToAllocateFoo();
     // now we have allocated foo. we need to free it if the function fails.
     // but we want to return it if the function succeeds.
-    %defer deallocateFoo(foo);
+    errdefer deallocateFoo(foo);
 
     const tmp_buf = allocateTmpBuffer() ?? return error.OutOfMemory;
     // tmp_buf is truly a temporary resource, and we for sure want to clean it up
@@ -2943,7 +2943,7 @@ fn createFoo(param: i32) -> %Foo {
 
     if (param > 1337) return error.InvalidParam;
 
-    // here the %defer will not run since we're returning success from the function.
+    // here the errdefer will not run since we're returning success from the function.
     // but the defer will run!
     return foo;
 }
@@ -5619,7 +5619,7 @@ TryExpression = "try" Expression
 
 BreakExpression = "break" option(":" Symbol) option(Expression)
 
-Defer(body) = option("%") "defer" body
+Defer(body) = ("defer" | "deferror") body
 
 IfExpression(body) = "if" "(" Expression ")" body option("else" BlockExpression(body))
 
