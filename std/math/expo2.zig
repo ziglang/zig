@@ -1,6 +1,6 @@
 const math = @import("index.zig");
 
-pub fn expo2(x: var) -> @typeOf(x) {
+pub fn expo2(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
         f32 => expo2f(x),
@@ -9,7 +9,7 @@ pub fn expo2(x: var) -> @typeOf(x) {
     };
 }
 
-fn expo2f(x: f32) -> f32 {
+fn expo2f(x: f32) f32 {
     const k: u32 = 235;
     const kln2 = 0x1.45C778p+7;
 
@@ -18,7 +18,7 @@ fn expo2f(x: f32) -> f32 {
     return math.exp(x - kln2) * scale * scale;
 }
 
-fn expo2d(x: f64) -> f64 {
+fn expo2d(x: f64) f64 {
     const k: u32 = 2043;
     const kln2 = 0x1.62066151ADD8BP+10;
 

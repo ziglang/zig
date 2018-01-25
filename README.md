@@ -5,8 +5,6 @@ clarity.
 
 [ziglang.org](http://ziglang.org)
 
-[Documentation](http://ziglang.org/documentation/master/)
-
 ## Feature Highlights
 
  * Small, simple language. Focus on debugging your application rather than
@@ -200,11 +198,3 @@ This is the actual compiler binary that we will install to the system.
 ```
 ./stage2/bin/zig build --build-file ../build.zig install -Drelease-fast
 ```
-
-### Related Projects
-
- * [zig-mode](https://github.com/AndreaOrru/zig-mode) - Emacs integration
- * [zig.vim](https://github.com/zig-lang/zig.vim) - Vim configuration files
- * [vscode-zig](https://github.com/zig-lang/vscode-zig) - Visual Studio Code extension
- * [zig-compiler-completions](https://github.com/tiehuis/zig-compiler-completions) - bash and zsh completions for the zig compiler
- * [NppExtension](https://github.com/ice1000/NppExtension) - Notepad++ syntax highlighting

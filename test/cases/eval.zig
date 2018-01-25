@@ -5,14 +5,14 @@ test "compile time recursion" {
     assert(some_data.len == 21);
 }
 var some_data: [usize(fibonacci(7))]u8 = undefined;
-fn fibonacci(x: i32) -> i32 {
+fn fibonacci(x: i32) i32 {
     if (x <= 1) return 1;
     return fibonacci(x - 1) + fibonacci(x - 2);
 }
 
 
 
-fn unwrapAndAddOne(blah: ?i32) -> i32 {
+fn unwrapAndAddOne(blah: ?i32) i32 {
     return ??blah + 1;
 }
 const should_be_1235 = unwrapAndAddOne(1234);
@@ -28,7 +28,7 @@ test "inlined loop" {
     assert(sum == 15);
 }
 
-fn gimme1or2(comptime a: bool) -> i32 {
+fn gimme1or2(comptime a: bool) i32 {
     const x: i32 = 1;
     const y: i32 = 2;
     comptime var z: i32 = if (a) x else y;
@@ -44,14 +44,14 @@ test "static function evaluation" {
     assert(statically_added_number == 3);
 }
 const statically_added_number = staticAdd(1, 2);
-fn staticAdd(a: i32, b: i32) -> i32 { return a + b; }
+fn staticAdd(a: i32, b: i32) i32 { return a + b; }
 
 
 test "const expr eval on single expr blocks" {
     assert(constExprEvalOnSingleExprBlocksFn(1, true) == 3);
 }
 
-fn constExprEvalOnSingleExprBlocksFn(x: i32, b: bool) -> i32 {
+fn constExprEvalOnSingleExprBlocksFn(x: i32, b: bool) i32 {
     const literal = 3;
 
     const result = if (b) b: {
@@ -77,7 +77,7 @@ const Point = struct {
     y: i32,
 };
 const static_point_list = []Point { makePoint(1, 2), makePoint(3, 4) };
-fn makePoint(x: i32, y: i32) -> Point {
+fn makePoint(x: i32, y: i32) Point {
     return Point {
         .x = x,
         .y = y,
@@ -93,7 +93,7 @@ const static_vec3 = vec3(0.0, 0.0, 1.0);
 pub const Vec3 = struct {
     data: [3]f32,
 };
-pub fn vec3(x: f32, y: f32, z: f32) -> Vec3 {
+pub fn vec3(x: f32, y: f32, z: f32) Vec3 {
     return Vec3 {
         .data = []f32 { x, y, z, },
     };
@@ -156,7 +156,7 @@ test "try to trick eval with runtime if" {
     assert(testTryToTrickEvalWithRuntimeIf(true) == 10);
 }
 
-fn testTryToTrickEvalWithRuntimeIf(b: bool) -> usize {
+fn testTryToTrickEvalWithRuntimeIf(b: bool) usize {
     comptime var i: usize = 0;
     inline while (i < 10) : (i += 1) {
         const result = if (b) false else true;
@@ -166,7 +166,7 @@ fn testTryToTrickEvalWithRuntimeIf(b: bool) -> usize {
     }
 }
 
-fn max(comptime T: type, a: T, b: T) -> T {
+fn max(comptime T: type, a: T, b: T) T {
     if (T == bool) {
         return a or b;
     } else if (a > b) {
@@ -175,7 +175,7 @@ fn max(comptime T: type, a: T, b: T) -> T {
         return b;
     }
 }
-fn letsTryToCompareBools(a: bool, b: bool) -> bool {
+fn letsTryToCompareBools(a: bool, b: bool) bool {
     return max(bool, a, b);
 }
 test "inlined block and runtime block phi" {
@@ -194,7 +194,7 @@ test "inlined block and runtime block phi" {
 
 const CmdFn = struct {
     name: []const u8,
-    func: fn(i32) -> i32,
+    func: fn(i32) i32,
 };
 
 const cmd_fns = []CmdFn{
@@ -202,11 +202,11 @@ const cmd_fns = []CmdFn{
     CmdFn {.name = "two", .func = two},
     CmdFn {.name = "three", .func = three},
 };
-fn one(value: i32) -> i32 { return value + 1; }
-fn two(value: i32) -> i32 { return value + 2; }
-fn three(value: i32) -> i32 { return value + 3; }
+fn one(value: i32) i32 { return value + 1; }
+fn two(value: i32) i32 { return value + 2; }
+fn three(value: i32) i32 { return value + 3; }
 
-fn performFn(comptime prefix_char: u8, start_value: i32) -> i32 {
+fn performFn(comptime prefix_char: u8, start_value: i32) i32 {
     var result: i32 = start_value;
     comptime var i = 0;
     inline while (i < cmd_fns.len) : (i += 1) {
@@ -223,13 +223,13 @@ test "comptime iterate over fn ptr list" {
     assert(performFn('w', 99) == 99);
 }
 
-test "eval @setDebugSafety at compile-time" {
-    const result = comptime fnWithSetDebugSafety();
+test "eval @setRuntimeSafety at compile-time" {
+    const result = comptime fnWithSetRuntimeSafety();
     assert(result == 1234);
 }
 
-fn fnWithSetDebugSafety() -> i32{
-    @setDebugSafety(this, true);
+fn fnWithSetRuntimeSafety() i32{
+    @setRuntimeSafety(true);
     return 1234;
 }
 
@@ -238,7 +238,7 @@ test "eval @setFloatMode at compile-time" {
     assert(result == 1234.0);
 }
 
-fn fnWithFloatMode() -> f32 {
+fn fnWithFloatMode() f32 {
     @setFloatMode(this, builtin.FloatMode.Strict);
     return 1234.0;
 }
@@ -247,7 +247,7 @@ fn fnWithFloatMode() -> f32 {
 const SimpleStruct = struct {
     field: i32,
 
-    fn method(self: &const SimpleStruct) -> i32 {
+    fn method(self: &const SimpleStruct) i32 {
         return self.field + 3;
     }
 };
@@ -271,7 +271,7 @@ test "ptr to local array argument at comptime" {
     }
 }
 
-fn modifySomeBytes(bytes: []u8) {
+fn modifySomeBytes(bytes: []u8) void {
     bytes[0] = 'a';
     bytes[9] = 'b';
 }
@@ -280,7 +280,7 @@ fn modifySomeBytes(bytes: []u8) {
 test "comparisons 0 <= uint and 0 > uint should be comptime" {
     testCompTimeUIntComparisons(1234);
 }
-fn testCompTimeUIntComparisons(x: u32) {
+fn testCompTimeUIntComparisons(x: u32) void {
     if (!(0 <= x)) {
         @compileError("this condition should be comptime known");
     }
@@ -339,7 +339,7 @@ test "const global shares pointer with other same one" {
     assertEqualPtrs(&hi1[0], &hi2[0]);
     comptime assert(&hi1[0] == &hi2[0]);
 }
-fn assertEqualPtrs(ptr1: &const u8, ptr2: &const u8) {
+fn assertEqualPtrs(ptr1: &const u8, ptr2: &const u8) void {
     assert(ptr1 == ptr2);
 }
 
@@ -376,7 +376,7 @@ test "f128 at compile time is lossy" {
 // TODO need a better implementation of bigfloat_init_bigint
 // assert(f128(1 << 113) == 10384593717069655257060992658440192);
 
-pub fn TypeWithCompTimeSlice(comptime field_name: []const u8) -> type {
+pub fn TypeWithCompTimeSlice(comptime field_name: []const u8) type {
     return struct {
         pub const Node = struct { };
     };

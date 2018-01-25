@@ -4,8 +4,8 @@ const is_test = builtin.is_test;
 const low = switch (builtin.endian) { builtin.Endian.Big => 1, builtin.Endian.Little => 0 };
 const high = 1 - low;
 
-pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: ?&DoubleInt) -> DoubleInt {
-    @setDebugSafety(this, is_test);
+pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: ?&DoubleInt) DoubleInt {
+    @setRuntimeSafety(is_test);
 
     const SingleInt = @IntType(false, @divExact(DoubleInt.bit_count, 2));
     const SignedDoubleInt = @IntType(true, DoubleInt.bit_count);

@@ -390,17 +390,15 @@ static int os_exec_process_posix(const char *exe, ZigList<const char *> &args,
 
 #if defined(ZIG_OS_WINDOWS)
 
-/*
-static void win32_panic(const char *str) {
-    DWORD err = GetLastError();
-    LPSTR messageBuffer = nullptr;
-    FormatMessageA(
-        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-        NULL, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&messageBuffer, 0, NULL);
-    zig_panic(str, messageBuffer);
-    LocalFree(messageBuffer);
-}
-*/
+//static void win32_panic(const char *str) {
+//    DWORD err = GetLastError();
+//    LPSTR messageBuffer = nullptr;
+//    FormatMessageA(
+//        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+//        NULL, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&messageBuffer, 0, NULL);
+//    zig_panic(str, messageBuffer);
+//    LocalFree(messageBuffer);
+//}
 
 static int os_exec_process_windows(const char *exe, ZigList<const char *> &args,
         Termination *term, Buf *out_stderr, Buf *out_stdout)
@@ -794,9 +792,18 @@ int os_delete_file(Buf *path) {
 }
 
 int os_rename(Buf *src_path, Buf *dest_path) {
+    if (buf_eql_buf(src_path, dest_path)) {
+        return 0;
+    }
+#if defined(ZIG_OS_WINDOWS)
+    if (!MoveFileExA(buf_ptr(src_path), buf_ptr(dest_path), MOVEFILE_REPLACE_EXISTING)) {
+        return ErrorFileSystem;
+    }
+#else
     if (rename(buf_ptr(src_path), buf_ptr(dest_path)) == -1) {
         return ErrorFileSystem;
     }
+#endif
     return 0;
 }
 

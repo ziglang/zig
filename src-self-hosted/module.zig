@@ -110,22 +110,22 @@ pub const Module = struct {
     };
 
     pub fn create(allocator: &mem.Allocator, name: []const u8, root_src_path: ?[]const u8, target: &const Target,
-        kind: Kind, build_mode: builtin.Mode, zig_lib_dir: []const u8, cache_dir: []const u8) -> %&Module
+        kind: Kind, build_mode: builtin.Mode, zig_lib_dir: []const u8, cache_dir: []const u8) %&Module
     {
         var name_buffer = try Buffer.init(allocator, name);
-        %defer name_buffer.deinit();
+        errdefer name_buffer.deinit();
 
         const context = c.LLVMContextCreate() ?? return error.OutOfMemory;
-        %defer c.LLVMContextDispose(context);
+        errdefer c.LLVMContextDispose(context);
 
         const module = c.LLVMModuleCreateWithNameInContext(name_buffer.ptr(), context) ?? return error.OutOfMemory;
-        %defer c.LLVMDisposeModule(module);
+        errdefer c.LLVMDisposeModule(module);
 
         const builder = c.LLVMCreateBuilderInContext(context) ?? return error.OutOfMemory;
-        %defer c.LLVMDisposeBuilder(builder);
+        errdefer c.LLVMDisposeBuilder(builder);
 
         const module_ptr = try allocator.create(Module);
-        %defer allocator.destroy(module_ptr);
+        errdefer allocator.destroy(module_ptr);
 
         *module_ptr = Module {
             .allocator = allocator,
@@ -185,11 +185,11 @@ pub const Module = struct {
         return module_ptr;
     }
 
-    fn dump(self: &Module) {
+    fn dump(self: &Module) void {
         c.LLVMDumpModule(self.module);
     }
 
-    pub fn destroy(self: &Module) {
+    pub fn destroy(self: &Module) void {
         c.LLVMDisposeBuilder(self.builder);
         c.LLVMDisposeModule(self.module);
         c.LLVMContextDispose(self.context);
@@ -198,7 +198,7 @@ pub const Module = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn build(self: &Module) -> %void {
+    pub fn build(self: &Module) %void {
         if (self.llvm_argv.len != 0) {
             var c_compatible_args = try std.cstr.NullTerminated2DArray.fromSlices(self.allocator,
                 [][]const []const u8 { [][]const u8{"zig (LLVM option parsing)"}, self.llvm_argv, });
@@ -211,13 +211,13 @@ pub const Module = struct {
             try printError("unable to get real path '{}': {}", root_src_path, err);
             return err;
         };
-        %defer self.allocator.free(root_src_real_path);
+        errdefer self.allocator.free(root_src_real_path);
 
         const source_code = io.readFileAllocExtra(root_src_real_path, self.allocator, 3) catch |err| {
             try printError("unable to open '{}': {}", root_src_real_path, err);
             return err;
         };
-        %defer self.allocator.free(source_code);
+        errdefer self.allocator.free(source_code);
         source_code[source_code.len - 3] = '\n';
         source_code[source_code.len - 2] = '\n';
         source_code[source_code.len - 1] = '\n';
@@ -244,16 +244,16 @@ pub const Module = struct {
         var parser = Parser.init(&tokenizer, self.allocator, root_src_real_path);
         defer parser.deinit();
 
-        const root_node = try parser.parse();
-        defer parser.freeAst(root_node);
+        const tree = try parser.parse();
+        defer tree.deinit();
 
         var stderr_file = try std.io.getStdErr();
         var stderr_file_out_stream = std.io.FileOutStream.init(&stderr_file);
         const out_stream = &stderr_file_out_stream.stream;
-        try parser.renderAst(out_stream, root_node);
+        try parser.renderAst(out_stream, tree.root_node);
 
         warn("====fmt:====\n");
-        try parser.renderSource(out_stream, root_node);
+        try parser.renderSource(out_stream, tree.root_node);
 
         warn("====ir:====\n");
         warn("TODO\n\n");
@@ -263,11 +263,11 @@ pub const Module = struct {
         
     }
 
-    pub fn link(self: &Module, out_file: ?[]const u8) -> %void {
+    pub fn link(self: &Module, out_file: ?[]const u8) %void {
         warn("TODO link");
     }
 
-    pub fn addLinkLib(self: &Module, name: []const u8, provided_explicitly: bool) -> %&LinkLib {
+    pub fn addLinkLib(self: &Module, name: []const u8, provided_explicitly: bool) %&LinkLib {
         const is_libc = mem.eql(u8, name, "c");
 
         if (is_libc) {
@@ -297,7 +297,7 @@ pub const Module = struct {
     }
 };
 
-fn printError(comptime format: []const u8, args: ...) -> %void {
+fn printError(comptime format: []const u8, args: ...) %void {
     var stderr_file = try std.io.getStdErr();
     var stderr_file_out_stream = std.io.FileOutStream.init(&stderr_file);
     const out_stream = &stderr_file_out_stream.stream;

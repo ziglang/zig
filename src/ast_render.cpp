@@ -92,7 +92,7 @@ static const char *return_string(ReturnKind kind) {
 static const char *defer_string(ReturnKind kind) {
     switch (kind) {
         case ReturnKindUnconditional: return "defer";
-        case ReturnKindError: return "%defer";
+        case ReturnKindError: return "errdefer";
     }
     zig_unreachable();
 }
@@ -450,10 +450,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 }
 
                 AstNode *return_type_node = node->data.fn_proto.return_type;
-                if (return_type_node != nullptr) {
-                    fprintf(ar->f, " -> ");
-                    render_node_grouped(ar, return_type_node);
-                }
+                assert(return_type_node != nullptr);
+                fprintf(ar->f, " ");
+                render_node_grouped(ar, return_type_node);
                 break;
             }
         case NodeTypeFnDef:

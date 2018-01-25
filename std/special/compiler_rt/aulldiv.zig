@@ -1,5 +1,5 @@
-pub nakedcc fn _aulldiv() {
-    @setDebugSafety(this, false);
+pub nakedcc fn _aulldiv() void {
+    @setRuntimeSafety(false);
     asm volatile (
         \\.intel_syntax noprefix
         \\

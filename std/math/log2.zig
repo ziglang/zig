@@ -11,7 +11,7 @@ const assert = std.debug.assert;
 const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
 
-pub fn log2(x: var) -> @typeOf(x) {
+pub fn log2(x: var) @typeOf(x) {
     const T = @typeOf(x);
     switch (@typeId(T)) {
         TypeId.FloatLiteral => {
@@ -37,12 +37,12 @@ pub fn log2(x: var) -> @typeOf(x) {
     }
 }
 
-pub fn log2_int(comptime T: type, x: T) -> T {
+pub fn log2_int(comptime T: type, x: T) T {
     assert(x != 0);
     return T.bit_count - 1 - T(@clz(x));
 }
 
-pub fn log2_32(x_: f32) -> f32 {
+pub fn log2_32(x_: f32) f32 {
     const ivln2hi: f32 =  1.4428710938e+00;
     const ivln2lo: f32 = -1.7605285393e-04;
     const Lg1: f32 = 0xaaaaaa.0p-24;
@@ -98,7 +98,7 @@ pub fn log2_32(x_: f32) -> f32 {
     return (lo + hi) * ivln2lo + lo * ivln2hi + hi * ivln2hi + f32(k);
 }
 
-pub fn log2_64(x_: f64) -> f64 {
+pub fn log2_64(x_: f64) f64 {
     const ivln2hi: f64 = 1.44269504072144627571e+00;
     const ivln2lo: f64 = 1.67517131648865118353e-10;
     const Lg1: f64 = 6.666666666666735130e-01;

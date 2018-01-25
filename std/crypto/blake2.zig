@@ -9,7 +9,7 @@ const RoundParam = struct {
     a: usize, b: usize, c: usize, d: usize, x: usize, y: usize,
 };
 
-fn Rp(a: usize, b: usize, c: usize, d: usize, x: usize, y: usize) -> RoundParam {
+fn Rp(a: usize, b: usize, c: usize, d: usize, x: usize, y: usize) RoundParam {
     return RoundParam { .a = a, .b = b, .c = c, .d = d, .x = x, .y = y, };
 }
 
@@ -19,7 +19,7 @@ fn Rp(a: usize, b: usize, c: usize, d: usize, x: usize, y: usize) -> RoundParam 
 pub const Blake2s224 = Blake2s(224);
 pub const Blake2s256 = Blake2s(256);
 
-fn Blake2s(comptime out_len: usize) -> type { return struct {
+fn Blake2s(comptime out_len: usize) type { return struct {
     const Self = this;
     const block_size = 64;
     const digest_size = out_len / 8;
@@ -48,7 +48,7 @@ fn Blake2s(comptime out_len: usize) -> type { return struct {
     buf:       [64]u8,
     buf_len:   u8,
 
-    pub fn init() -> Self {
+    pub fn init() Self {
         debug.assert(8 <= out_len and out_len <= 512);
 
         var s: Self = undefined;
@@ -56,7 +56,7 @@ fn Blake2s(comptime out_len: usize) -> type { return struct {
         return s;
     }
 
-    pub fn reset(d: &Self) {
+    pub fn reset(d: &Self) void {
         mem.copy(u32, d.h[0..], iv[0..]);
 
         // No key plus default parameters
@@ -65,13 +65,13 @@ fn Blake2s(comptime out_len: usize) -> type { return struct {
         d.buf_len = 0;
     }
 
-    pub fn hash(b: []const u8, out: []u8) {
+    pub fn hash(b: []const u8, out: []u8) void {
         var d = Self.init();
         d.update(b);
         d.final(out);
     }
 
-    pub fn update(d: &Self, b: []const u8) {
+    pub fn update(d: &Self, b: []const u8) void {
         var off: usize = 0;
 
         // Partial buffer exists from previous update. Copy into buffer then hash.
@@ -94,7 +94,7 @@ fn Blake2s(comptime out_len: usize) -> type { return struct {
         d.buf_len += u8(b[off..].len);
     }
 
-    pub fn final(d: &Self, out: []u8) {
+    pub fn final(d: &Self, out: []u8) void {
         debug.assert(out.len >= out_len / 8);
 
         mem.set(u8, d.buf[d.buf_len..], 0);
@@ -108,7 +108,7 @@ fn Blake2s(comptime out_len: usize) -> type { return struct {
         }
     }
 
-    fn round(d: &Self, b: []const u8, last: bool) {
+    fn round(d: &Self, b: []const u8, last: bool) void {
         debug.assert(b.len == 64);
 
         var m: [16]u32 = undefined;
@@ -236,7 +236,7 @@ test "blake2s256 streaming" {
 pub const Blake2b384 = Blake2b(384);
 pub const Blake2b512 = Blake2b(512);
 
-fn Blake2b(comptime out_len: usize) -> type { return struct {
+fn Blake2b(comptime out_len: usize) type { return struct {
     const Self = this;
     const block_size = 128;
     const digest_size = out_len / 8;
@@ -269,7 +269,7 @@ fn Blake2b(comptime out_len: usize) -> type { return struct {
     buf:       [128]u8,
     buf_len:   u8,
 
-    pub fn init() -> Self {
+    pub fn init() Self {
         debug.assert(8 <= out_len and out_len <= 512);
 
         var s: Self = undefined;
@@ -277,7 +277,7 @@ fn Blake2b(comptime out_len: usize) -> type { return struct {
         return s;
     }
 
-    pub fn reset(d: &Self) {
+    pub fn reset(d: &Self) void {
         mem.copy(u64, d.h[0..], iv[0..]);
 
         // No key plus default parameters
@@ -286,13 +286,13 @@ fn Blake2b(comptime out_len: usize) -> type { return struct {
         d.buf_len = 0;
     }
 
-    pub fn hash(b: []const u8, out: []u8) {
+    pub fn hash(b: []const u8, out: []u8) void {
         var d = Self.init();
         d.update(b);
         d.final(out);
     }
 
-    pub fn update(d: &Self, b: []const u8) {
+    pub fn update(d: &Self, b: []const u8) void {
         var off: usize = 0;
 
         // Partial buffer exists from previous update. Copy into buffer then hash.
@@ -315,7 +315,7 @@ fn Blake2b(comptime out_len: usize) -> type { return struct {
         d.buf_len += u8(b[off..].len);
     }
 
-    pub fn final(d: &Self, out: []u8) {
+    pub fn final(d: &Self, out: []u8) void {
         mem.set(u8, d.buf[d.buf_len..], 0);
         d.t += d.buf_len;
         d.round(d.buf[0..], true);
@@ -327,7 +327,7 @@ fn Blake2b(comptime out_len: usize) -> type { return struct {
         }
     }
 
-    fn round(d: &Self, b: []const u8, last: bool) {
+    fn round(d: &Self, b: []const u8, last: bool) void {
         debug.assert(b.len == 128);
 
         var m: [16]u64 = undefined;

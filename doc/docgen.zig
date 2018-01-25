@@ -1,14 +1,18 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const io = std.io;
 const os = std.os;
 const warn = std.debug.warn;
 const mem = std.mem;
+const assert = std.debug.assert;
 
 const max_doc_file_size = 10 * 1024 * 1024;
 
 const exe_ext = std.build.Target(std.build.Target.Native).exeFileExt();
+const obj_ext = std.build.Target(std.build.Target.Native).oFileExt();
+const tmp_dir_name = "docgen_tmp";
 
-pub fn main() -> %void {
+pub fn main() %void {
     // TODO use a more general purpose allocator here
     var inc_allocator = try std.heap.IncrementingAllocator.init(max_doc_file_size);
     defer inc_allocator.deinit();
@@ -43,6 +47,15 @@ pub fn main() -> %void {
     var tokenizer = Tokenizer.init(in_file_name, input_file_bytes);
     var toc = try genToc(allocator, &tokenizer);
 
+    try os.makePath(allocator, tmp_dir_name);
+    defer {
+        // TODO issue #709
+        // disabled to pass CI tests, but obviously we want to implement this
+        // and then remove this workaround
+        if (builtin.os == builtin.Os.linux) {
+            os.deleteTree(allocator, tmp_dir_name) catch {};
+        }
+    }
     try genHtml(allocator, &tokenizer, &toc, &buffered_out_stream.stream, zig_exe);
     try buffered_out_stream.flush();
 }
@@ -68,6 +81,7 @@ const Tokenizer = struct {
     index: usize,
     state: State,
     source_file_name: []const u8,
+    code_node_count: usize,
 
     const State = enum {
         Start,
@@ -77,16 +91,17 @@ const Tokenizer = struct {
         Eof,
     };
 
-    fn init(source_file_name: []const u8, buffer: []const u8) -> Tokenizer {
+    fn init(source_file_name: []const u8, buffer: []const u8) Tokenizer {
         return Tokenizer {
             .buffer = buffer,
             .index = 0,
             .state = State.Start,
             .source_file_name = source_file_name,
+            .code_node_count = 0,
         };
     }
 
-    fn next(self: &Tokenizer) -> Token {
+    fn next(self: &Tokenizer) Token {
         var result = Token {
             .id = Token.Id.Eof,
             .start = self.index,
@@ -178,7 +193,7 @@ const Tokenizer = struct {
         line_end: usize,
     };
 
-    fn getTokenLocation(self: &Tokenizer, token: &const Token) -> Location {
+    fn getTokenLocation(self: &Tokenizer, token: &const Token) Location {
         var loc = Location {
             .line = 0,
             .column = 0,
@@ -205,7 +220,7 @@ const Tokenizer = struct {
 
 error ParseError;
 
-fn parseError(tokenizer: &Tokenizer, token: &const Token, comptime fmt: []const u8, args: ...) -> error {
+fn parseError(tokenizer: &Tokenizer, token: &const Token, comptime fmt: []const u8, args: ...) error {
     const loc = tokenizer.getTokenLocation(token);
     warn("{}:{}:{}: error: " ++ fmt ++ "\n", tokenizer.source_file_name, loc.line + 1, loc.column + 1, args);
     if (loc.line_start <= loc.line_end) {
@@ -228,13 +243,13 @@ fn parseError(tokenizer: &Tokenizer, token: &const Token, comptime fmt: []const 
     return error.ParseError;
 }
 
-fn assertToken(tokenizer: &Tokenizer, token: &const Token, id: Token.Id) -> %void {
+fn assertToken(tokenizer: &Tokenizer, token: &const Token, id: Token.Id) %void {
     if (token.id != id) {
         return parseError(tokenizer, token, "expected {}, found {}", @tagName(id), @tagName(token.id));
     }
 }
 
-fn eatToken(tokenizer: &Tokenizer, id: Token.Id) -> %Token {
+fn eatToken(tokenizer: &Tokenizer, id: Token.Id) %Token {
     const token = tokenizer.next();
     try assertToken(tokenizer, token, id);
     return token;
@@ -251,16 +266,34 @@ const SeeAlsoItem = struct {
     token: Token,
 };
 
+const ExpectedOutcome = enum {
+    Succeed,
+    Fail,
+};
+
 const Code = struct {
     id: Id,
     name: []const u8,
     source_token: Token,
+    is_inline: bool,
+    mode: builtin.Mode,
+    link_objects: []const []const u8,
+    target_windows: bool,
+    link_libc: bool,
 
-    const Id = enum {
+    const Id = union(enum) {
         Test,
-        Exe,
-        Error,
+        TestError: []const u8,
+        TestSafety: []const u8,
+        Exe: ExpectedOutcome,
+        Obj: ?[]const u8,
     };
+};
+
+const Link = struct {
+    url: []const u8,
+    name: []const u8,
+    token: Token,
 };
 
 const Node = union(enum) {
@@ -269,6 +302,7 @@ const Node = union(enum) {
     HeaderOpen: HeaderOpen,
     SeeAlso: []const SeeAlsoItem,
     Code: Code,
+    Link: Link,
 };
 
 const Toc = struct {
@@ -282,9 +316,9 @@ const Action = enum {
     Close,
 };
 
-fn genToc(allocator: &mem.Allocator, tokenizer: &Tokenizer) -> %Toc {
+fn genToc(allocator: &mem.Allocator, tokenizer: &Tokenizer) %Toc {
     var urls = std.HashMap([]const u8, Token, mem.hash_slice_u8, mem.eql_slice_u8).init(allocator);
-    %defer urls.deinit();
+    errdefer urls.deinit();
 
     var header_stack_size: usize = 0;
     var last_action = Action.Open;
@@ -365,7 +399,7 @@ fn genToc(allocator: &mem.Allocator, tokenizer: &Tokenizer) -> %Toc {
                     }
                 } else if (mem.eql(u8, tag_name, "see_also")) {
                     var list = std.ArrayList(SeeAlsoItem).init(allocator);
-                    %defer list.deinit();
+                    errdefer list.deinit();
 
                     while (true) {
                         const see_also_tok = tokenizer.next();
@@ -385,6 +419,31 @@ fn genToc(allocator: &mem.Allocator, tokenizer: &Tokenizer) -> %Toc {
                             else => return parseError(tokenizer, see_also_tok, "invalid see_also token"),
                         }
                     }
+                } else if (mem.eql(u8, tag_name, "link")) {
+                    _ = try eatToken(tokenizer, Token.Id.Separator);
+                    const name_tok = try eatToken(tokenizer, Token.Id.TagContent);
+                    const name = tokenizer.buffer[name_tok.start..name_tok.end];
+
+                    const url_name = blk: {
+                        const tok = tokenizer.next();
+                        switch (tok.id) {
+                            Token.Id.BracketClose => break :blk name,
+                            Token.Id.Separator => {
+                                const explicit_text = try eatToken(tokenizer, Token.Id.TagContent);
+                                _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                                break :blk tokenizer.buffer[explicit_text.start..explicit_text.end];
+                            },
+                            else => return parseError(tokenizer, tok, "invalid link token"),
+                        }
+                    };
+
+                    try nodes.append(Node {
+                        .Link = Link {
+                            .url = try urlize(allocator, url_name),
+                            .name = name,
+                            .token = name_tok,
+                        },
+                    });
                 } else if (mem.eql(u8, tag_name, "code_begin")) {
                     _ = try eatToken(tokenizer, Token.Id.Separator);
                     const code_kind_tok = try eatToken(tokenizer, Token.Id.TagContent);
@@ -401,28 +460,71 @@ fn genToc(allocator: &mem.Allocator, tokenizer: &Tokenizer) -> %Toc {
                     }
                     const code_kind_str = tokenizer.buffer[code_kind_tok.start..code_kind_tok.end];
                     var code_kind_id: Code.Id = undefined;
+                    var is_inline = false;
                     if (mem.eql(u8, code_kind_str, "exe")) {
-                        code_kind_id = Code.Id.Exe;
+                        code_kind_id = Code.Id { .Exe = ExpectedOutcome.Succeed };
+                    } else if (mem.eql(u8, code_kind_str, "exe_err")) {
+                        code_kind_id = Code.Id { .Exe = ExpectedOutcome.Fail };
                     } else if (mem.eql(u8, code_kind_str, "test")) {
                         code_kind_id = Code.Id.Test;
-                    } else if (mem.eql(u8, code_kind_str, "error")) {
-                        code_kind_id = Code.Id.Error;
+                    } else if (mem.eql(u8, code_kind_str, "test_err")) {
+                        code_kind_id = Code.Id { .TestError = name};
+                        name = "test";
+                    } else if (mem.eql(u8, code_kind_str, "test_safety")) {
+                        code_kind_id = Code.Id { .TestSafety = name};
+                        name = "test";
+                    } else if (mem.eql(u8, code_kind_str, "obj")) {
+                        code_kind_id = Code.Id { .Obj = null };
+                    } else if (mem.eql(u8, code_kind_str, "obj_err")) {
+                        code_kind_id = Code.Id { .Obj = name };
+                        name = "test";
+                    } else if (mem.eql(u8, code_kind_str, "syntax")) {
+                        code_kind_id = Code.Id { .Obj = null };
+                        is_inline = true;
                     } else {
                         return parseError(tokenizer, code_kind_tok, "unrecognized code kind: {}", code_kind_str);
                     }
-                    const source_token = try eatToken(tokenizer, Token.Id.Content);
-                    _ = try eatToken(tokenizer, Token.Id.BracketOpen);
-                    const end_code_tag = try eatToken(tokenizer, Token.Id.TagContent);
-                    const end_tag_name = tokenizer.buffer[end_code_tag.start..end_code_tag.end];
-                    if (!mem.eql(u8, end_tag_name, "code_end")) {
-                        return parseError(tokenizer, end_code_tag, "expected code_end token");
-                    }
-                    _ = try eatToken(tokenizer, Token.Id.BracketClose);
-                    try nodes.append(Node {.Code = Code{
+
+                    var mode = builtin.Mode.Debug;
+                    var link_objects = std.ArrayList([]const u8).init(allocator);
+                    defer link_objects.deinit();
+                    var target_windows = false;
+                    var link_libc = false;
+
+                    const source_token = while (true) {
+                        const content_tok = try eatToken(tokenizer, Token.Id.Content);
+                        _ = try eatToken(tokenizer, Token.Id.BracketOpen);
+                        const end_code_tag = try eatToken(tokenizer, Token.Id.TagContent);
+                        const end_tag_name = tokenizer.buffer[end_code_tag.start..end_code_tag.end];
+                        if (mem.eql(u8, end_tag_name, "code_release_fast")) {
+                            mode = builtin.Mode.ReleaseFast;
+                        } else if (mem.eql(u8, end_tag_name, "code_link_object")) {
+                            _ = try eatToken(tokenizer, Token.Id.Separator);
+                            const obj_tok = try eatToken(tokenizer, Token.Id.TagContent);
+                            try link_objects.append(tokenizer.buffer[obj_tok.start..obj_tok.end]);
+                        } else if (mem.eql(u8, end_tag_name, "target_windows")) {
+                            target_windows = true;
+                        } else if (mem.eql(u8, end_tag_name, "link_libc")) {
+                            link_libc = true;
+                        } else if (mem.eql(u8, end_tag_name, "code_end")) {
+                            _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                            break content_tok;
+                        } else {
+                            return parseError(tokenizer, end_code_tag, "invalid token inside code_begin: {}", end_tag_name);
+                        }
+                        _ = try eatToken(tokenizer, Token.Id.BracketClose);
+                    } else unreachable; // TODO issue #707
+                    try nodes.append(Node {.Code = Code {
                         .id = code_kind_id,
                         .name = name,
                         .source_token = source_token,
+                        .is_inline = is_inline,
+                        .mode = mode,
+                        .link_objects = link_objects.toOwnedSlice(),
+                        .target_windows = target_windows,
+                        .link_libc = link_libc,
                     }});
+                    tokenizer.code_node_count += 1;
                 } else {
                     return parseError(tokenizer, tag_token, "unrecognized tag name: {}", tag_name);
                 }
@@ -438,7 +540,7 @@ fn genToc(allocator: &mem.Allocator, tokenizer: &Tokenizer) -> %Toc {
     };
 }
 
-fn urlize(allocator: &mem.Allocator, input: []const u8) -> %[]u8 {
+fn urlize(allocator: &mem.Allocator, input: []const u8) %[]u8 {
     var buf = try std.Buffer.initSize(allocator, 0);
     defer buf.deinit();
 
@@ -458,7 +560,7 @@ fn urlize(allocator: &mem.Allocator, input: []const u8) -> %[]u8 {
     return buf.toOwnedSlice();
 }
 
-fn escapeHtml(allocator: &mem.Allocator, input: []const u8) -> %[]u8 {
+fn escapeHtml(allocator: &mem.Allocator, input: []const u8) %[]u8 {
     var buf = try std.Buffer.initSize(allocator, 0);
     defer buf.deinit();
 
@@ -476,13 +578,126 @@ fn escapeHtml(allocator: &mem.Allocator, input: []const u8) -> %[]u8 {
     return buf.toOwnedSlice();
 }
 
+//#define VT_RED "\x1b[31;1m"
+//#define VT_GREEN "\x1b[32;1m"
+//#define VT_CYAN "\x1b[36;1m"
+//#define VT_WHITE "\x1b[37;1m"
+//#define VT_BOLD "\x1b[0;1m"
+//#define VT_RESET "\x1b[0m"
+
+const TermState = enum {
+    Start,
+    Escape,
+    LBracket,
+    Number,
+    AfterNumber,
+    Arg,
+    ArgNumber,
+    ExpectEnd,
+};
+
+error UnsupportedEscape;
+
+test "term color" {
+    const input_bytes = "A\x1b[32;1mgreen\x1b[0mB";
+    const result = try termColor(std.debug.global_allocator, input_bytes);
+    assert(mem.eql(u8, result, "A<span class=\"t32\">green</span>B"));
+}
+
+fn termColor(allocator: &mem.Allocator, input: []const u8) %[]u8 {
+    var buf = try std.Buffer.initSize(allocator, 0);
+    defer buf.deinit();
+
+    var buf_adapter = io.BufferOutStream.init(&buf);
+    var out = &buf_adapter.stream;
+    var number_start_index: usize = undefined;
+    var first_number: usize = undefined;
+    var second_number: usize = undefined;
+    var i: usize = 0;
+    var state = TermState.Start;
+    var open_span_count: usize = 0;
+    while (i < input.len) : (i += 1) {
+        const c = input[i];
+        switch (state) {
+            TermState.Start => switch (c) {
+                '\x1b' => state = TermState.Escape,
+                else => try out.writeByte(c),
+            },
+            TermState.Escape => switch (c) {
+                '[' => state = TermState.LBracket,
+                else => return error.UnsupportedEscape,
+            },
+            TermState.LBracket => switch (c) {
+                '0'...'9' => {
+                    number_start_index = i;
+                    state = TermState.Number;
+                },
+                else => return error.UnsupportedEscape,
+            },
+            TermState.Number => switch (c) {
+                '0'...'9' => {},
+                else => {
+                    first_number = std.fmt.parseInt(usize, input[number_start_index..i], 10) catch unreachable;
+                    second_number = 0;
+                    state = TermState.AfterNumber;
+                    i -= 1;
+                },
+            },
+
+            TermState.AfterNumber => switch (c) {
+                ';' => state = TermState.Arg,
+                else => {
+                    state = TermState.ExpectEnd;
+                    i -= 1;
+                },
+            },
+            TermState.Arg => switch (c) {
+                '0'...'9' => {
+                    number_start_index = i;
+                    state = TermState.ArgNumber;
+                },
+                else => return error.UnsupportedEscape,
+            },
+            TermState.ArgNumber => switch (c) {
+                '0'...'9' => {},
+                else => {
+                    second_number = std.fmt.parseInt(usize, input[number_start_index..i], 10) catch unreachable;
+                    state = TermState.ExpectEnd;
+                    i -= 1;
+                },
+            },
+            TermState.ExpectEnd => switch (c) {
+                'm' => {
+                    state = TermState.Start;
+                    while (open_span_count != 0) : (open_span_count -= 1) {
+                        try out.write("</span>");
+                    }
+                    if (first_number != 0 or second_number != 0) {
+                        try out.print("<span class=\"t{}_{}\">", first_number, second_number);
+                        open_span_count += 1;
+                    }
+                },
+                else => return error.UnsupportedEscape,
+            },
+        }
+    }
+    return buf.toOwnedSlice();
+}
+
 error ExampleFailedToCompile;
 
-fn genHtml(allocator: &mem.Allocator, tokenizer: &Tokenizer, toc: &Toc, out: &io.OutStream, zig_exe: []const u8) -> %void {
+fn genHtml(allocator: &mem.Allocator, tokenizer: &Tokenizer, toc: &Toc, out: &io.OutStream, zig_exe: []const u8) %void {
+    var code_progress_index: usize = 0;
     for (toc.nodes) |node| {
         switch (node) {
             Node.Content => |data| {
                 try out.write(data);
+            },
+            Node.Link => |info| {
+                if (!toc.urls.contains(info.url)) {
+                    return parseError(tokenizer, info.token, "url not found: {}", info.url);
+                }
+                try out.print("<a href=\"#{}\">{}</a>", info.url, info.name);
             },
             Node.Nav => {
                 try out.write(toc.toc);
@@ -502,65 +717,281 @@ fn genHtml(allocator: &mem.Allocator, tokenizer: &Tokenizer, toc: &Toc, out: &io
                 try out.write("</ul>\n");
             },
             Node.Code => |code| {
+                code_progress_index += 1;
+                warn("docgen example code {}/{}...", code_progress_index, tokenizer.code_node_count);
+
                 const raw_source = tokenizer.buffer[code.source_token.start..code.source_token.end];
                 const trimmed_raw_source = mem.trim(u8, raw_source, " \n");
                 const escaped_source = try escapeHtml(allocator, trimmed_raw_source);
+                if (!code.is_inline) {
+                    try out.print("<p class=\"file\">{}.zig</p>", code.name);
+                }
                 try out.print("<pre><code class=\"zig\">{}</code></pre>", escaped_source);
-                const tmp_dir_name = "docgen_tmp";
-                try os.makePath(allocator, tmp_dir_name);
                 const name_plus_ext = try std.fmt.allocPrint(allocator, "{}.zig", code.name);
-                const name_plus_bin_ext = try std.fmt.allocPrint(allocator, "{}{}", code.name, exe_ext);
                 const tmp_source_file_name = try os.path.join(allocator, tmp_dir_name, name_plus_ext);
-                const tmp_bin_file_name = try os.path.join(allocator, tmp_dir_name, name_plus_bin_ext);
                 try io.writeFile(tmp_source_file_name, trimmed_raw_source, null);
                 
                 switch (code.id) {
-                    Code.Id.Exe => {
-                        {
-                            const args = [][]const u8 {zig_exe, "build-exe", tmp_source_file_name, "--output", tmp_bin_file_name};
-                            const result = try os.ChildProcess.exec(allocator, args, null, null, max_doc_file_size);
+                    Code.Id.Exe => |expected_outcome| {
+                        const name_plus_bin_ext = try std.fmt.allocPrint(allocator, "{}{}", code.name, exe_ext);
+                        const tmp_bin_file_name = try os.path.join(allocator, tmp_dir_name, name_plus_bin_ext);
+                        var build_args = std.ArrayList([]const u8).init(allocator);
+                        defer build_args.deinit();
+                        try build_args.appendSlice([][]const u8 {zig_exe,
+                            "build-exe", tmp_source_file_name,
+                            "--output", tmp_bin_file_name,
+                        });
+                        try out.print("<pre><code class=\"shell\">$ zig build-exe {}.zig", code.name);
+                        switch (code.mode) {
+                            builtin.Mode.Debug => {},
+                            builtin.Mode.ReleaseSafe => {
+                                try build_args.append("--release-safe");
+                                try out.print(" --release-safe");
+                            },
+                            builtin.Mode.ReleaseFast => {
+                                try build_args.append("--release-fast");
+                                try out.print(" --release-fast");
+                            },
+                        }
+                        for (code.link_objects) |link_object| {
+                            const name_with_ext = try std.fmt.allocPrint(allocator, "{}{}", link_object, obj_ext);
+                            const full_path_object = try os.path.join(allocator, tmp_dir_name, name_with_ext);
+                            try build_args.append("--object");
+                            try build_args.append(full_path_object);
+                            try out.print(" --object {}", name_with_ext);
+                        }
+                        if (code.link_libc) {
+                            try build_args.append("--library");
+                            try build_args.append("c");
+                            try out.print(" --library c");
+                        }
+                        _ = exec(allocator, build_args.toSliceConst()) catch return parseError(
+                            tokenizer, code.source_token, "example failed to compile");
+
+                        const run_args = [][]const u8 {tmp_bin_file_name};
+
+                        const result = if (expected_outcome == ExpectedOutcome.Fail) blk: {
+                            const result = try os.ChildProcess.exec(allocator, run_args, null, null, max_doc_file_size);
                             switch (result.term) {
                                 os.ChildProcess.Term.Exited => |exit_code| {
-                                    if (exit_code != 0) {
-                                        warn("{}\nThe following command exited with code {}:\n", result.stderr, exit_code);
-                                        for (args) |arg| warn("{} ", arg) else warn("\n");
-                                        return parseError(tokenizer, code.source_token, "example failed to compile");
+                                    if (exit_code == 0) {
+                                        warn("{}\nThe following command incorrectly succeeded:\n", result.stderr);
+                                        for (run_args) |arg| warn("{} ", arg) else warn("\n");
+                                        return parseError(tokenizer, code.source_token, "example incorrectly compiled");
+                                    }
+                                },
+                                else => {},
+                            }
+                            break :blk result;
+                        } else blk: {
+                            break :blk exec(allocator, run_args) catch return parseError(
+                                tokenizer, code.source_token, "example crashed");
+                        };
+
+                        
+                        const escaped_stderr = try escapeHtml(allocator, result.stderr);
+                        const escaped_stdout = try escapeHtml(allocator, result.stdout);
+
+                        const colored_stderr = try termColor(allocator, escaped_stderr);
+                        const colored_stdout = try termColor(allocator, escaped_stdout);
+
+                        try out.print("\n$ ./{}\n{}{}</code></pre>\n", code.name, colored_stdout, colored_stderr);
+                    },
+                    Code.Id.Test => {
+                        var test_args = std.ArrayList([]const u8).init(allocator);
+                        defer test_args.deinit();
+
+                        try test_args.appendSlice([][]const u8 {zig_exe, "test", tmp_source_file_name});
+                        try out.print("<pre><code class=\"shell\">$ zig test {}.zig", code.name);
+                        switch (code.mode) {
+                            builtin.Mode.Debug => {},
+                            builtin.Mode.ReleaseSafe => {
+                                try test_args.append("--release-safe");
+                                try out.print(" --release-safe");
+                            },
+                            builtin.Mode.ReleaseFast => {
+                                try test_args.append("--release-fast");
+                                try out.print(" --release-fast");
+                            },
+                        }
+                        if (code.target_windows) {
+                            try test_args.appendSlice([][]const u8{
+                                "--target-os", "windows",
+                                "--target-arch", "x86_64",
+                                "--target-environ", "msvc",
+                            });
+                        }
+                        const result = exec(allocator, test_args.toSliceConst()) catch return parseError(
+                            tokenizer, code.source_token, "test failed");
+                        const escaped_stderr = try escapeHtml(allocator, result.stderr);
+                        const escaped_stdout = try escapeHtml(allocator, result.stdout);
+                        try out.print("\n{}{}</code></pre>\n", escaped_stderr, escaped_stdout);
+                    },
+                    Code.Id.TestError => |error_match| {
+                        var test_args = std.ArrayList([]const u8).init(allocator);
+                        defer test_args.deinit();
+
+                        try test_args.appendSlice([][]const u8 {zig_exe, "test", "--color", "on", tmp_source_file_name});
+                        try out.print("<pre><code class=\"shell\">$ zig test {}.zig", code.name);
+                        switch (code.mode) {
+                            builtin.Mode.Debug => {},
+                            builtin.Mode.ReleaseSafe => {
+                                try test_args.append("--release-safe");
+                                try out.print(" --release-safe");
+                            },
+                            builtin.Mode.ReleaseFast => {
+                                try test_args.append("--release-fast");
+                                try out.print(" --release-fast");
+                            },
+                        }
+                        const result = try os.ChildProcess.exec(allocator, test_args.toSliceConst(), null, null, max_doc_file_size);
+                        switch (result.term) {
+                            os.ChildProcess.Term.Exited => |exit_code| {
+                                if (exit_code == 0) {
+                                    warn("{}\nThe following command incorrectly succeeded:\n", result.stderr);
+                                    for (test_args.toSliceConst()) |arg| warn("{} ", arg) else warn("\n");
+                                    return parseError(tokenizer, code.source_token, "example incorrectly compiled");
+                                }
+                            },
+                            else => {
+                                warn("{}\nThe following command crashed:\n", result.stderr);
+                                for (test_args.toSliceConst()) |arg| warn("{} ", arg) else warn("\n");
+                                return parseError(tokenizer, code.source_token, "example compile crashed");
+                            },
+                        }
+                        if (mem.indexOf(u8, result.stderr, error_match) == null) {
+                            warn("{}\nExpected to find '{}' in stderr", result.stderr, error_match);
+                            return parseError(tokenizer, code.source_token, "example did not have expected compile error");
+                        }
+                        const escaped_stderr = try escapeHtml(allocator, result.stderr);
+                        const colored_stderr = try termColor(allocator, escaped_stderr);
+                        try out.print("\n{}</code></pre>\n", colored_stderr);
+                    },
+
+                    Code.Id.TestSafety => |error_match| {
+                        var test_args = std.ArrayList([]const u8).init(allocator);
+                        defer test_args.deinit();
+
+                        try test_args.appendSlice([][]const u8 {zig_exe, "test", tmp_source_file_name});
+                        switch (code.mode) {
+                            builtin.Mode.Debug => {},
+                            builtin.Mode.ReleaseSafe => try test_args.append("--release-safe"),
+                            builtin.Mode.ReleaseFast => try test_args.append("--release-fast"),
+                        }
+
+                        const result = try os.ChildProcess.exec(allocator, test_args.toSliceConst(), null, null, max_doc_file_size);
+                        switch (result.term) {
+                            os.ChildProcess.Term.Exited => |exit_code| {
+                                if (exit_code == 0) {
+                                    warn("{}\nThe following command incorrectly succeeded:\n", result.stderr);
+                                    for (test_args.toSliceConst()) |arg| warn("{} ", arg) else warn("\n");
+                                    return parseError(tokenizer, code.source_token, "example test incorrectly succeeded");
+                                }
+                            },
+                            else => {
+                                warn("{}\nThe following command crashed:\n", result.stderr);
+                                for (test_args.toSliceConst()) |arg| warn("{} ", arg) else warn("\n");
+                                return parseError(tokenizer, code.source_token, "example compile crashed");
+                            },
+                        }
+                        if (mem.indexOf(u8, result.stderr, error_match) == null) {
+                            warn("{}\nExpected to find '{}' in stderr", result.stderr, error_match);
+                            return parseError(tokenizer, code.source_token, "example did not have expected runtime safety error message");
+                        }
+                        const escaped_stderr = try escapeHtml(allocator, result.stderr);
+                        const colored_stderr = try termColor(allocator, escaped_stderr);
+                        try out.print("<pre><code class=\"shell\">$ zig test {}.zig\n{}</code></pre>\n", code.name, colored_stderr);
+                    },
+                    Code.Id.Obj => |maybe_error_match| {
+                        const name_plus_obj_ext = try std.fmt.allocPrint(allocator, "{}{}", code.name, obj_ext);
+                        const tmp_obj_file_name = try os.path.join(allocator, tmp_dir_name, name_plus_obj_ext);
+                        var build_args = std.ArrayList([]const u8).init(allocator);
+                        defer build_args.deinit();
+
+                        try build_args.appendSlice([][]const u8 {zig_exe, "build-obj", tmp_source_file_name,
+                            "--color", "on",
+                            "--output", tmp_obj_file_name});
+
+                        if (!code.is_inline) {
+                            try out.print("<pre><code class=\"shell\">$ zig build-obj {}.zig", code.name);
+                        }
+
+                        switch (code.mode) {
+                            builtin.Mode.Debug => {},
+                            builtin.Mode.ReleaseSafe => {
+                                try build_args.append("--release-safe");
+                                if (!code.is_inline) {
+                                    try out.print(" --release-safe");
+                                }
+                            },
+                            builtin.Mode.ReleaseFast => {
+                                try build_args.append("--release-fast");
+                                if (!code.is_inline) {
+                                    try out.print(" --release-fast");
+                                }
+                            },
+                        }
+
+                        if (maybe_error_match) |error_match| {
+                            const result = try os.ChildProcess.exec(allocator, build_args.toSliceConst(), null, null, max_doc_file_size);
+                            switch (result.term) {
+                                os.ChildProcess.Term.Exited => |exit_code| {
+                                    if (exit_code == 0) {
+                                        warn("{}\nThe following command incorrectly succeeded:\n", result.stderr);
+                                        for (build_args.toSliceConst()) |arg| warn("{} ", arg) else warn("\n");
+                                        return parseError(tokenizer, code.source_token, "example build incorrectly succeeded");
                                     }
                                 },
                                 else => {
                                     warn("{}\nThe following command crashed:\n", result.stderr);
-                                    for (args) |arg| warn("{} ", arg) else warn("\n");
-                                    return parseError(tokenizer, code.source_token, "example failed to compile");
+                                    for (build_args.toSliceConst()) |arg| warn("{} ", arg) else warn("\n");
+                                    return parseError(tokenizer, code.source_token, "example compile crashed");
                                 },
                             }
+                            if (mem.indexOf(u8, result.stderr, error_match) == null) {
+                                warn("{}\nExpected to find '{}' in stderr", result.stderr, error_match);
+                                return parseError(tokenizer, code.source_token, "example did not have expected compile error message");
+                            }
+                            const escaped_stderr = try escapeHtml(allocator, result.stderr);
+                            const colored_stderr = try termColor(allocator, escaped_stderr);
+                            try out.print("\n{}\n", colored_stderr);
+                            if (!code.is_inline) {
+                                try out.print("</code></pre>\n");
+                            }
+                        } else {
+                            _ = exec(allocator, build_args.toSliceConst()) catch return parseError(
+                                tokenizer, code.source_token, "example failed to compile");
                         }
-                        const args = [][]const u8 {tmp_bin_file_name};
-                        const result = try os.ChildProcess.exec(allocator, args, null, null, max_doc_file_size);
-                        switch (result.term) {
-                            os.ChildProcess.Term.Exited => |exit_code| {
-                                if (exit_code != 0) {
-                                    warn("The following command exited with code {}:\n", exit_code);
-                                    for (args) |arg| warn("{} ", arg) else warn("\n");
-                                    return parseError(tokenizer, code.source_token, "example exited with code {}", exit_code);
-                                }
-                            },
-                            else => {
-                                warn("The following command crashed:\n");
-                                for (args) |arg| warn("{} ", arg) else warn("\n");
-                                return parseError(tokenizer, code.source_token, "example crashed");
-                            },
+                        if (!code.is_inline) {
+                            try out.print("</code></pre>\n");
                         }
-                        try out.print("<pre><code class=\"sh\">$ zig build-exe {}.zig\n$ ./{}\n{}{}</code></pre>\n", code.name, code.name, result.stderr, result.stdout);
-                    },
-                    Code.Id.Test => {
-                        @panic("TODO");
-                    },
-                    Code.Id.Error => {
-                        @panic("TODO");
                     },
                 }
+                warn("OK\n");
             },
         }
     }
 
+}
+
+error ChildCrashed;
+error ChildExitError;
+
+fn exec(allocator: &mem.Allocator, args: []const []const u8) %os.ChildProcess.ExecResult {
+    const result = try os.ChildProcess.exec(allocator, args, null, null, max_doc_file_size);
+    switch (result.term) {
+        os.ChildProcess.Term.Exited => |exit_code| {
+            if (exit_code != 0) {
+                warn("{}\nThe following command exited with code {}:\n", result.stderr, exit_code);
+                for (args) |arg| warn("{} ", arg) else warn("\n");
+                return error.ChildExitError;
+            }
+        },
+        else => {
+            warn("{}\nThe following command crashed:\n", result.stderr);
+            for (args) |arg| warn("{} ", arg) else warn("\n");
+            return error.ChildCrashed;
+        },
+    }
+    return result;
 }

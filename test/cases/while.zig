@@ -8,10 +8,10 @@ test "while loop" {
     assert(i == 4);
     assert(whileLoop1() == 1);
 }
-fn whileLoop1() -> i32 {
+fn whileLoop1() i32 {
     return whileLoop2();
 }
-fn whileLoop2() -> i32 {
+fn whileLoop2() i32 {
     while (true) {
         return 1;
     }
@@ -20,10 +20,10 @@ test "static eval while" {
     assert(static_eval_while_number == 1);
 }
 const static_eval_while_number = staticWhileLoop1();
-fn staticWhileLoop1() -> i32 {
+fn staticWhileLoop1() i32 {
     return whileLoop2();
 }
-fn staticWhileLoop2() -> i32 {
+fn staticWhileLoop2() i32 {
     while (true) {
         return 1;
     }
@@ -34,7 +34,7 @@ test "continue and break" {
     assert(continue_and_break_counter == 8);
 }
 var continue_and_break_counter: i32 = 0;
-fn runContinueAndBreakTest() {
+fn runContinueAndBreakTest() void {
     var i : i32 = 0;
     while (true) {
         continue_and_break_counter += 2;
@@ -50,7 +50,7 @@ fn runContinueAndBreakTest() {
 test "return with implicit cast from while loop" {
     returnWithImplicitCastFromWhileLoopTest() catch unreachable;
 }
-fn returnWithImplicitCastFromWhileLoopTest() -> %void {
+fn returnWithImplicitCastFromWhileLoopTest() %void {
     while (true) {
         return;
     }
@@ -117,7 +117,7 @@ test "while with error union condition" {
 
 var numbers_left: i32 = undefined;
 error OutOfNumbers;
-fn getNumberOrErr() -> %i32 {
+fn getNumberOrErr() %i32 {
     return if (numbers_left == 0)
         error.OutOfNumbers
     else x: {
@@ -125,7 +125,7 @@ fn getNumberOrErr() -> %i32 {
         break :x numbers_left;
     };
 }
-fn getNumberOrNull() -> ?i32 {
+fn getNumberOrNull() ?i32 {
     return if (numbers_left == 0)
         null
     else x: {
@@ -181,7 +181,7 @@ test "break from outer while loop" {
     comptime testBreakOuter();
 }
 
-fn testBreakOuter() {
+fn testBreakOuter() void {
     outer: while (true) {
         while (true) {
             break :outer;
@@ -194,7 +194,7 @@ test "continue outer while loop" {
     comptime testContinueOuter();
 }
 
-fn testContinueOuter() {
+fn testContinueOuter() void {
     var i: usize = 0;
     outer: while (i < 10) : (i += 1) {
         while (true) {
@@ -203,10 +203,10 @@ fn testContinueOuter() {
     }
 }
 
-fn returnNull() -> ?i32 { return null; }
-fn returnMaybe(x: i32) -> ?i32 { return x; }
+fn returnNull() ?i32 { return null; }
+fn returnMaybe(x: i32) ?i32 { return x; }
 error YouWantedAnError;
-fn returnError() -> %i32 { return error.YouWantedAnError; }
-fn returnSuccess(x: i32) -> %i32 { return x; }
-fn returnFalse() -> bool { return false; }
-fn returnTrue() -> bool { return true; }
+fn returnError() %i32 { return error.YouWantedAnError; }
+fn returnSuccess(x: i32) %i32 { return x; }
+fn returnFalse() bool { return false; }
+fn returnTrue() bool { return true; }

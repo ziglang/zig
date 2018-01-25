@@ -10,7 +10,7 @@ const RoundParam = struct {
     k: usize, s: u32, t: u32
 };
 
-fn Rp(a: usize, b: usize, c: usize, d: usize, k: usize, s: u32, t: u32) -> RoundParam {
+fn Rp(a: usize, b: usize, c: usize, d: usize, k: usize, s: u32, t: u32) RoundParam {
     return RoundParam { .a = a, .b = b, .c = c, .d = d, .k = k, .s = s, .t = t };
 }
 
@@ -25,13 +25,13 @@ pub const Md5 = struct {
     buf_len: u8,
     total_len: u64,
 
-    pub fn init() -> Self {
+    pub fn init() Self {
         var d: Self = undefined;
         d.reset();
         return d;
     }
 
-    pub fn reset(d: &Self) {
+    pub fn reset(d: &Self) void {
         d.s[0] = 0x67452301;
         d.s[1] = 0xEFCDAB89;
         d.s[2] = 0x98BADCFE;
@@ -40,13 +40,13 @@ pub const Md5 = struct {
         d.total_len = 0;
     }
 
-    pub fn hash(b: []const u8, out: []u8) {
+    pub fn hash(b: []const u8, out: []u8) void {
         var d = Md5.init();
         d.update(b);
         d.final(out);
     }
 
-    pub fn update(d: &Self, b: []const u8) {
+    pub fn update(d: &Self, b: []const u8) void {
         var off: usize = 0;
 
         // Partial buffer exists from previous update. Copy into buffer then hash.
@@ -71,7 +71,7 @@ pub const Md5 = struct {
         d.total_len +%= b.len;
     }
 
-    pub fn final(d: &Self, out: []u8) {
+    pub fn final(d: &Self, out: []u8) void {
         debug.assert(out.len >= 16);
 
         // The buffer here will never be completely full.
@@ -103,7 +103,7 @@ pub const Md5 = struct {
         }
     }
 
-    fn round(d: &Self, b: []const u8) {
+    fn round(d: &Self, b: []const u8) void {
         debug.assert(b.len == 64);
 
         var s: [16]u32 = undefined;

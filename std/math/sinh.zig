@@ -10,7 +10,7 @@ const math = std.math;
 const assert = std.debug.assert;
 const expo2 = @import("expo2.zig").expo2;
 
-pub fn sinh(x: var) -> @typeOf(x) {
+pub fn sinh(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
         f32 => sinh32(x),
@@ -22,7 +22,7 @@ pub fn sinh(x: var) -> @typeOf(x) {
 // sinh(x) = (exp(x) - 1 / exp(x)) / 2
 //         = (exp(x) - 1 + (exp(x) - 1) / exp(x)) / 2
 //         = x + x^3 / 6 + o(x^5)
-fn sinh32(x: f32) -> f32 {
+fn sinh32(x: f32) f32 {
     const u = @bitCast(u32, x);
     const ux = u & 0x7FFFFFFF;
     const ax = @bitCast(f32, ux);
@@ -53,7 +53,7 @@ fn sinh32(x: f32) -> f32 {
     return 2 * h * expo2(ax);
 }
 
-fn sinh64(x: f64) -> f64 {
+fn sinh64(x: f64) f64 {
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
     const u = @bitCast(u64, x);

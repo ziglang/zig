@@ -2,7 +2,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn copysign(comptime T: type, x: T, y: T) -> T {
+pub fn copysign(comptime T: type, x: T, y: T) T {
     return switch (T) {
         f32 => copysign32(x, y),
         f64 => copysign64(x, y),
@@ -10,7 +10,7 @@ pub fn copysign(comptime T: type, x: T, y: T) -> T {
     };
 }
 
-fn copysign32(x: f32, y: f32) -> f32 {
+fn copysign32(x: f32, y: f32) f32 {
     const ux = @bitCast(u32, x);
     const uy = @bitCast(u32, y);
 
@@ -19,7 +19,7 @@ fn copysign32(x: f32, y: f32) -> f32 {
     return @bitCast(f32, h1 | h2);
 }
 
-fn copysign64(x: f64, y: f64) -> f64 {
+fn copysign64(x: f64, y: f64) f64 {
     const ux = @bitCast(u64, x);
     const uy = @bitCast(u64, y);
 

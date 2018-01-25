@@ -21,8 +21,8 @@ const infRep = exponentMask;
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
 
-pub extern fn __letf2(a: f128, b: f128) -> c_int {
-    @setDebugSafety(this, is_test);
+pub extern fn __letf2(a: f128, b: f128) c_int {
+    @setRuntimeSafety(is_test);
 
     const aInt = @bitCast(rep_t, a);
     const bInt = @bitCast(rep_t, b);
@@ -66,8 +66,8 @@ const GE_EQUAL = c_int(0);
 const GE_GREATER = c_int(1);
 const GE_UNORDERED = c_int(-1); // Note: different from LE_UNORDERED
 
-pub extern fn __getf2(a: f128, b: f128) -> c_int {
-    @setDebugSafety(this, is_test);
+pub extern fn __getf2(a: f128, b: f128) c_int {
+    @setRuntimeSafety(is_test);
 
     const aInt = @bitCast(srep_t, a);
     const bInt = @bitCast(srep_t, b);
@@ -93,8 +93,8 @@ pub extern fn __getf2(a: f128, b: f128) -> c_int {
     ;
 }
 
-pub extern fn __unordtf2(a: f128, b: f128) -> c_int {
-    @setDebugSafety(this, is_test);
+pub extern fn __unordtf2(a: f128, b: f128) c_int {
+    @setRuntimeSafety(is_test);
 
     const aAbs = @bitCast(rep_t, a) & absMask;
     const bAbs = @bitCast(rep_t, b) & absMask;

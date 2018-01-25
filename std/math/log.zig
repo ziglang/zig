@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
 const assert = std.debug.assert;
 
-pub fn log(comptime T: type, base: T, x: T) -> T {
+pub fn log(comptime T: type, base: T, x: T) T {
     if (base == 2) {
         return math.log2(x);
     } else if (base == 10) {

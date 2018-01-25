@@ -8,7 +8,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn trunc(x: var) -> @typeOf(x) {
+pub fn trunc(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
         f32 => trunc32(x),
@@ -17,7 +17,7 @@ pub fn trunc(x: var) -> @typeOf(x) {
     };
 }
 
-fn trunc32(x: f32) -> f32 {
+fn trunc32(x: f32) f32 {
     const u = @bitCast(u32, x);
     var e = i32(((u >> 23) & 0xFF)) - 0x7F + 9;
     var m: u32 = undefined;
@@ -38,7 +38,7 @@ fn trunc32(x: f32) -> f32 {
     }
 }
 
-fn trunc64(x: f64) -> f64 {
+fn trunc64(x: f64) f64 {
     const u = @bitCast(u64, x);
     var e = i32(((u >> 52) & 0x7FF)) - 0x3FF + 12;
     var m: u64 = undefined;

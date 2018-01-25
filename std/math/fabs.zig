@@ -7,7 +7,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn fabs(x: var) -> @typeOf(x) {
+pub fn fabs(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
         f32 => fabs32(x),
@@ -16,13 +16,13 @@ pub fn fabs(x: var) -> @typeOf(x) {
     };
 }
 
-fn fabs32(x: f32) -> f32 {
+fn fabs32(x: f32) f32 {
     var u = @bitCast(u32, x);
     u &= 0x7FFFFFFF;
     return @bitCast(f32, u);
 }
 
-fn fabs64(x: f64) -> f64 {
+fn fabs64(x: f64) f64 {
     var u = @bitCast(u64, x);
     u &= @maxValue(u64) >> 1;
     return @bitCast(f64, u);

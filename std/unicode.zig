@@ -5,7 +5,7 @@ error Utf8InvalidStartByte;
 /// Given the first byte of a UTF-8 codepoint,
 /// returns a number 1-4 indicating the total length of the codepoint in bytes.
 /// If this byte does not match the form of a UTF-8 start byte, returns Utf8InvalidStartByte.
-pub fn utf8ByteSequenceLength(first_byte: u8) -> %u3 {
+pub fn utf8ByteSequenceLength(first_byte: u8) %u3 {
     if (first_byte < 0b10000000) return u3(1);
     if (first_byte & 0b11100000 == 0b11000000) return u3(2);
     if (first_byte & 0b11110000 == 0b11100000) return u3(3);
@@ -22,7 +22,7 @@ error Utf8CodepointTooLarge;
 /// bytes.len must be equal to utf8ByteSequenceLength(bytes[0]) catch unreachable.
 /// If you already know the length at comptime, you can call one of
 /// utf8Decode2,utf8Decode3,utf8Decode4 directly instead of this function.
-pub fn utf8Decode(bytes: []const u8) -> %u32 {
+pub fn utf8Decode(bytes: []const u8) %u32 {
     return switch (bytes.len) {
         1 => u32(bytes[0]),
         2 => utf8Decode2(bytes),
@@ -31,7 +31,7 @@ pub fn utf8Decode(bytes: []const u8) -> %u32 {
         else => unreachable,
     };
 }
-pub fn utf8Decode2(bytes: []const u8) -> %u32 {
+pub fn utf8Decode2(bytes: []const u8) %u32 {
     std.debug.assert(bytes.len == 2);
     std.debug.assert(bytes[0] & 0b11100000 == 0b11000000);
     var value: u32 = bytes[0] & 0b00011111;
@@ -44,7 +44,7 @@ pub fn utf8Decode2(bytes: []const u8) -> %u32 {
 
     return value;
 }
-pub fn utf8Decode3(bytes: []const u8) -> %u32 {
+pub fn utf8Decode3(bytes: []const u8) %u32 {
     std.debug.assert(bytes.len == 3);
     std.debug.assert(bytes[0] & 0b11110000 == 0b11100000);
     var value: u32 = bytes[0] & 0b00001111;
@@ -62,7 +62,7 @@ pub fn utf8Decode3(bytes: []const u8) -> %u32 {
 
     return value;
 }
-pub fn utf8Decode4(bytes: []const u8) -> %u32 {
+pub fn utf8Decode4(bytes: []const u8) %u32 {
     std.debug.assert(bytes.len == 4);
     std.debug.assert(bytes[0] & 0b11111000 == 0b11110000);
     var value: u32 = bytes[0] & 0b00000111;
@@ -149,7 +149,7 @@ test "misc invalid utf8" {
     testValid("\xee\x80\x80", 0xe000);
 }
 
-fn testError(bytes: []const u8, expected_err: error) {
+fn testError(bytes: []const u8, expected_err: error) void {
     if (testDecode(bytes)) |_| {
         unreachable;
     } else |err| {
@@ -157,11 +157,11 @@ fn testError(bytes: []const u8, expected_err: error) {
     }
 }
 
-fn testValid(bytes: []const u8, expected_codepoint: u32) {
+fn testValid(bytes: []const u8, expected_codepoint: u32) void {
     std.debug.assert((testDecode(bytes) catch unreachable) == expected_codepoint);
 }
 
-fn testDecode(bytes: []const u8) -> %u32 {
+fn testDecode(bytes: []const u8) %u32 {
     const length = try utf8ByteSequenceLength(bytes[0]);
     if (bytes.len < length) return error.UnexpectedEof;
     std.debug.assert(bytes.len == length);

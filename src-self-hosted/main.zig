@@ -20,7 +20,7 @@ error ZigInstallationNotFound;
 
 const default_zig_cache_name = "zig-cache";
 
-pub fn main() -> %void {
+pub fn main() %void {
     main2() catch |err| {
         if (err != error.InvalidCommandLineArguments) {
             warn("{}\n", @errorName(err));
@@ -39,7 +39,7 @@ const Cmd = enum {
     Targets,
 };
 
-fn badArgs(comptime format: []const u8, args: ...) -> error {
+fn badArgs(comptime format: []const u8, args: ...) error {
     var stderr = try io.getStdErr();
     var stderr_stream_adapter = io.FileOutStream.init(&stderr);
     const stderr_stream = &stderr_stream_adapter.stream;
@@ -48,7 +48,7 @@ fn badArgs(comptime format: []const u8, args: ...) -> error {
     return error.InvalidCommandLineArguments;
 }
 
-pub fn main2() -> %void {
+pub fn main2() %void {
     const allocator = std.heap.c_allocator;
 
     const args = try os.argsAlloc(allocator);
@@ -371,7 +371,7 @@ pub fn main2() -> %void {
             defer allocator.free(full_cache_dir);
 
             const zig_lib_dir = try resolveZigLibDir(allocator, zig_install_prefix);
-            %defer allocator.free(zig_lib_dir);
+            errdefer allocator.free(zig_lib_dir);
 
             const module = try Module.create(allocator, root_name, zig_root_source_file,
                 Target.Native, build_kind, build_mode, zig_lib_dir, full_cache_dir);
@@ -472,7 +472,7 @@ pub fn main2() -> %void {
     }
 }
 
-fn printUsage(stream: &io.OutStream) -> %void {
+fn printUsage(stream: &io.OutStream) %void {
     try stream.write(
         \\Usage: zig [command] [options]
         \\
@@ -548,7 +548,7 @@ fn printUsage(stream: &io.OutStream) -> %void {
     );
 }
 
-fn printZen() -> %void {
+fn printZen() %void {
     var stdout_file = try io.getStdErr();
     try stdout_file.write(
         \\
@@ -569,7 +569,7 @@ fn printZen() -> %void {
 }
 
 /// Caller must free result
-fn resolveZigLibDir(allocator: &mem.Allocator, zig_install_prefix_arg: ?[]const u8) -> %[]u8 {
+fn resolveZigLibDir(allocator: &mem.Allocator, zig_install_prefix_arg: ?[]const u8) %[]u8 {
     if (zig_install_prefix_arg) |zig_install_prefix| {
         return testZigInstallPrefix(allocator, zig_install_prefix) catch |err| {
             warn("No Zig installation found at prefix {}: {}\n", zig_install_prefix_arg, @errorName(err));
@@ -585,9 +585,9 @@ fn resolveZigLibDir(allocator: &mem.Allocator, zig_install_prefix_arg: ?[]const 
 }
 
 /// Caller must free result
-fn testZigInstallPrefix(allocator: &mem.Allocator, test_path: []const u8) -> %[]u8 {
+fn testZigInstallPrefix(allocator: &mem.Allocator, test_path: []const u8) %[]u8 {
     const test_zig_dir = try os.path.join(allocator, test_path, "lib", "zig");
-    %defer allocator.free(test_zig_dir);
+    errdefer allocator.free(test_zig_dir);
 
     const test_index_file = try os.path.join(allocator, test_zig_dir, "std", "index.zig");
     defer allocator.free(test_index_file);
@@ -599,7 +599,7 @@ fn testZigInstallPrefix(allocator: &mem.Allocator, test_path: []const u8) -> %[]
 }
 
 /// Caller must free result
-fn findZigLibDir(allocator: &mem.Allocator) -> %[]u8 {
+fn findZigLibDir(allocator: &mem.Allocator) %[]u8 {
     const self_exe_path = try os.selfExeDirPath(allocator);
     defer allocator.free(self_exe_path);
 

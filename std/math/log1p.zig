@@ -10,7 +10,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn log1p(x: var) -> @typeOf(x) {
+pub fn log1p(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
         f32 => log1p_32(x),
@@ -19,7 +19,7 @@ pub fn log1p(x: var) -> @typeOf(x) {
     };
 }
 
-fn log1p_32(x: f32) -> f32 {
+fn log1p_32(x: f32) f32 {
     const ln2_hi = 6.9313812256e-01;
     const ln2_lo = 9.0580006145e-06;
     const Lg1: f32 = 0xaaaaaa.0p-24;
@@ -95,7 +95,7 @@ fn log1p_32(x: f32) -> f32 {
     return s * (hfsq + R) + (dk * ln2_lo + c) - hfsq + f + dk * ln2_hi;
 }
 
-fn log1p_64(x: f64) -> f64 {
+fn log1p_64(x: f64) f64 {
     const ln2_hi: f64 = 6.93147180369123816490e-01;
     const ln2_lo: f64 = 1.90821492927058770002e-10;
     const Lg1: f64 = 6.666666666666735130e-01;

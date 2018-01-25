@@ -5,17 +5,17 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 
 /// Generic non-intrusive doubly linked list.
-pub fn LinkedList(comptime T: type) -> type {
+pub fn LinkedList(comptime T: type) type {
     return BaseLinkedList(T, void, "");
 }
 
 /// Generic intrusive doubly linked list.
-pub fn IntrusiveLinkedList(comptime ParentType: type, comptime field_name: []const u8) -> type {
+pub fn IntrusiveLinkedList(comptime ParentType: type, comptime field_name: []const u8) type {
     return BaseLinkedList(void, ParentType, field_name);
 }
 
 /// Generic doubly linked list.
-fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_name: []const u8) -> type {
+fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_name: []const u8) type {
     return struct {
         const Self = this;
 
@@ -25,7 +25,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
             next: ?&Node,
             data: T,
 
-            pub fn init(value: &const T) -> Node {
+            pub fn init(value: &const T) Node {
                 return Node {
                     .prev = null,
                     .next = null,
@@ -33,12 +33,12 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
                 };
             }
 
-            pub fn initIntrusive() -> Node {
+            pub fn initIntrusive() Node {
                 // TODO: when #678 is solved this can become `init`.
                 return Node.init({});
             }
 
-            pub fn toData(node: &Node) -> &ParentType {
+            pub fn toData(node: &Node) &ParentType {
                 comptime assert(isIntrusive());
                 return @fieldParentPtr(ParentType, field_name, node);
             }
@@ -52,7 +52,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         ///
         /// Returns:
         ///     An empty linked list.
-        pub fn init() -> Self {
+        pub fn init() Self {
             return Self {
                 .first = null,
                 .last  = null,
@@ -60,7 +60,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
             };
         }
 
-        fn isIntrusive() -> bool {
+        fn isIntrusive() bool {
             return ParentType != void or field_name.len != 0;
         }
 
@@ -69,7 +69,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         /// Arguments:
         ///     node: Pointer to a node in the list.
         ///     new_node: Pointer to the new node to insert.
-        pub fn insertAfter(list: &Self, node: &Node, new_node: &Node) {
+        pub fn insertAfter(list: &Self, node: &Node, new_node: &Node) void {
             new_node.prev = node;
             if (node.next) |next_node| {
                 // Intermediate node.
@@ -90,7 +90,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         /// Arguments:
         ///     node: Pointer to a node in the list.
         ///     new_node: Pointer to the new node to insert.
-        pub fn insertBefore(list: &Self, node: &Node, new_node: &Node) {
+        pub fn insertBefore(list: &Self, node: &Node, new_node: &Node) void {
             new_node.next = node;
             if (node.prev) |prev_node| {
                 // Intermediate node.
@@ -110,7 +110,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         ///
         /// Arguments:
         ///     new_node: Pointer to the new node to insert.
-        pub fn append(list: &Self, new_node: &Node) {
+        pub fn append(list: &Self, new_node: &Node) void {
             if (list.last) |last| {
                 // Insert after last.
                 list.insertAfter(last, new_node);
@@ -124,7 +124,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         ///
         /// Arguments:
         ///     new_node: Pointer to the new node to insert.
-        pub fn prepend(list: &Self, new_node: &Node) {
+        pub fn prepend(list: &Self, new_node: &Node) void {
             if (list.first) |first| {
                 // Insert before first.
                 list.insertBefore(first, new_node);
@@ -143,7 +143,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         ///
         /// Arguments:
         ///     node: Pointer to the node to be removed.
-        pub fn remove(list: &Self, node: &Node) {
+        pub fn remove(list: &Self, node: &Node) void {
             if (node.prev) |prev_node| {
                 // Intermediate node.
                 prev_node.next = node.next;
@@ -167,7 +167,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         ///
         /// Returns:
         ///     A pointer to the last node in the list.
-        pub fn pop(list: &Self) -> ?&Node {
+        pub fn pop(list: &Self) ?&Node {
             const last = list.last ?? return null;
             list.remove(last);
             return last;
@@ -177,7 +177,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         ///
         /// Returns:
         ///     A pointer to the first node in the list.
-        pub fn popFirst(list: &Self) -> ?&Node {
+        pub fn popFirst(list: &Self) ?&Node {
             const first = list.first ?? return null;
             list.remove(first);
             return first;
@@ -190,7 +190,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         ///
         /// Returns:
         ///     A pointer to the new node.
-        pub fn allocateNode(list: &Self, allocator: &Allocator) -> %&Node {
+        pub fn allocateNode(list: &Self, allocator: &Allocator) %&Node {
             comptime assert(!isIntrusive());
             return allocator.create(Node);
         }
@@ -200,7 +200,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         /// Arguments:
         ///     node: Pointer to the node to deallocate.
         ///     allocator: Dynamic memory allocator.
-        pub fn destroyNode(list: &Self, node: &Node, allocator: &Allocator) {
+        pub fn destroyNode(list: &Self, node: &Node, allocator: &Allocator) void {
             comptime assert(!isIntrusive());
             allocator.destroy(node);
         }
@@ -213,7 +213,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         ///
         /// Returns:
         ///     A pointer to the new node.
-        pub fn createNode(list: &Self, data: &const T, allocator: &Allocator) -> %&Node {
+        pub fn createNode(list: &Self, data: &const T, allocator: &Allocator) %&Node {
             comptime assert(!isIntrusive());
             var node = try list.allocateNode(allocator);
             *node = Node.init(data);

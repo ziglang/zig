@@ -84,11 +84,6 @@ static AstNode *ast_create_node(ParseContext *pc, NodeType type, Token *first_to
     return node;
 }
 
-static AstNode *ast_create_void_type_node(ParseContext *pc, Token *token) {
-    AstNode *node = ast_create_node(pc, NodeTypeSymbol, token);
-    node->data.symbol_expr.symbol = pc->void_buf;
-    return node;
-}
 
 static void parse_asm_template(ParseContext *pc, AstNode *node) {
     Buf *asm_template = node->data.asm_expr.asm_template;
@@ -1495,7 +1490,7 @@ static AstNode *ast_parse_break_expr(ParseContext *pc, size_t *token_index) {
 }
 
 /*
-Defer(body) = option("%") "defer" body
+Defer(body) = ("defer" | "errdefer") body
 */
 static AstNode *ast_parse_defer_expr(ParseContext *pc, size_t *token_index) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1503,15 +1498,10 @@ static AstNode *ast_parse_defer_expr(ParseContext *pc, size_t *token_index) {
     NodeType node_type;
     ReturnKind kind;
 
-    if (token->id == TokenIdPercent) {
-        Token *next_token = &pc->tokens->at(*token_index + 1);
-        if (next_token->id == TokenIdKeywordDefer) {
-            kind = ReturnKindError;
-            node_type = NodeTypeDefer;
-            *token_index += 2;
-        } else {
-            return nullptr;
-        }
+    if (token->id == TokenIdKeywordErrdefer) {
+        kind = ReturnKindError;
+        node_type = NodeTypeDefer;
+        *token_index += 1;
     } else if (token->id == TokenIdKeywordDefer) {
         kind = ReturnKindUnconditional;
         node_type = NodeTypeDefer;
@@ -2250,7 +2240,7 @@ static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mand
 }
 
 /*
-FnProto = option("coldcc" | "nakedcc" | "stdcallcc" | "extern") "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") option("-&gt;" TypeExpr)
+FnProto = option("nakedcc" | "stdcallcc" | "extern") "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") TypeExpr
 */
 static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool mandatory, VisibMod visib_mod) {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -2258,11 +2248,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool m
 
     CallingConvention cc;
     bool is_extern = false;
-    if (first_token->id == TokenIdKeywordColdCC) {
-        *token_index += 1;
-        fn_token = ast_eat_token(pc, token_index, TokenIdKeywordFn);
-        cc = CallingConventionCold;
-    } else if (first_token->id == TokenIdKeywordNakedCC) {
+    if (first_token->id == TokenIdKeywordNakedCC) {
         *token_index += 1;
         fn_token = ast_eat_token(pc, token_index, TokenIdKeywordFn);
         cc = CallingConventionNaked;
@@ -2329,12 +2315,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool m
         ast_eat_token(pc, token_index, TokenIdRParen);
         next_token = &pc->tokens->at(*token_index);
     }
-    if (next_token->id == TokenIdArrow) {
-        *token_index += 1;
-        node->data.fn_proto.return_type = ast_parse_type_expr(pc, token_index, false);
-    } else {
-        node->data.fn_proto.return_type = ast_create_void_type_node(pc, next_token);
-    }
+    node->data.fn_proto.return_type = ast_parse_type_expr(pc, token_index, true);
 
     return node;
 }

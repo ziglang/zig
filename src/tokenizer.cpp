@@ -112,13 +112,13 @@ static const struct ZigKeyword zig_keywords[] = {
     {"asm", TokenIdKeywordAsm},
     {"break", TokenIdKeywordBreak},
     {"catch", TokenIdKeywordCatch},
-    {"coldcc", TokenIdKeywordColdCC},
     {"comptime", TokenIdKeywordCompTime},
     {"const", TokenIdKeywordConst},
     {"continue", TokenIdKeywordContinue},
     {"defer", TokenIdKeywordDefer},
     {"else", TokenIdKeywordElse},
     {"enum", TokenIdKeywordEnum},
+    {"errdefer", TokenIdKeywordErrdefer},
     {"error", TokenIdKeywordError},
     {"export", TokenIdKeywordExport},
     {"extern", TokenIdKeywordExtern},
@@ -1509,13 +1509,13 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordAsm: return "asm";
         case TokenIdKeywordBreak: return "break";
         case TokenIdKeywordCatch: return "catch";
-        case TokenIdKeywordColdCC: return "coldcc";
         case TokenIdKeywordCompTime: return "comptime";
         case TokenIdKeywordConst: return "const";
         case TokenIdKeywordContinue: return "continue";
         case TokenIdKeywordDefer: return "defer";
         case TokenIdKeywordElse: return "else";
         case TokenIdKeywordEnum: return "enum";
+        case TokenIdKeywordErrdefer: return "errdefer";
         case TokenIdKeywordError: return "error";
         case TokenIdKeywordExport: return "export";
         case TokenIdKeywordExtern: return "extern";
