@@ -8,7 +8,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-fn frexp_result(comptime T: type) -> type {
+fn frexp_result(comptime T: type) type {
     return struct {
         significand: T,
         exponent: i32,
@@ -17,7 +17,7 @@ fn frexp_result(comptime T: type) -> type {
 pub const frexp32_result = frexp_result(f32);
 pub const frexp64_result = frexp_result(f64);
 
-pub fn frexp(x: var) -> frexp_result(@typeOf(x)) {
+pub fn frexp(x: var) frexp_result(@typeOf(x)) {
     const T = @typeOf(x);
     return switch (T) {
         f32 => frexp32(x),
@@ -26,7 +26,7 @@ pub fn frexp(x: var) -> frexp_result(@typeOf(x)) {
     };
 }
 
-fn frexp32(x: f32) -> frexp32_result {
+fn frexp32(x: f32) frexp32_result {
     var result: frexp32_result = undefined;
 
     var y = @bitCast(u32, x);
@@ -63,7 +63,7 @@ fn frexp32(x: f32) -> frexp32_result {
     return result;
 }
 
-fn frexp64(x: f64) -> frexp64_result {
+fn frexp64(x: f64) frexp64_result {
     var result: frexp64_result = undefined;
 
     var y = @bitCast(u64, x);

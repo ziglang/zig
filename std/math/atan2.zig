@@ -22,7 +22,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-fn atan2(comptime T: type, x: T, y: T) -> T {
+fn atan2(comptime T: type, x: T, y: T) T {
     return switch (T) {
         f32 => atan2_32(x, y),
         f64 => atan2_64(x, y),
@@ -30,7 +30,7 @@ fn atan2(comptime T: type, x: T, y: T) -> T {
     };
 }
 
-fn atan2_32(y: f32, x: f32) -> f32 {
+fn atan2_32(y: f32, x: f32) f32 {
     const pi: f32    =  3.1415927410e+00;
     const pi_lo: f32 = -8.7422776573e-08;
 
@@ -115,7 +115,7 @@ fn atan2_32(y: f32, x: f32) -> f32 {
     }
 }
 
-fn atan2_64(y: f64, x: f64) -> f64 {
+fn atan2_64(y: f64, x: f64) f64 {
     const pi: f64    = 3.1415926535897931160E+00;
     const pi_lo: f64 = 1.2246467991473531772E-16;
 

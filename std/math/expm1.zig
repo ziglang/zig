@@ -9,7 +9,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn expm1(x: var) -> @typeOf(x) {
+pub fn expm1(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
         f32 => expm1_32(x),
@@ -18,7 +18,7 @@ pub fn expm1(x: var) -> @typeOf(x) {
     };
 }
 
-fn expm1_32(x_: f32) -> f32 {
+fn expm1_32(x_: f32) f32 {
     @setFloatMode(this, builtin.FloatMode.Strict);
     const o_threshold: f32 = 8.8721679688e+01;
     const ln2_hi: f32      = 6.9313812256e-01;
@@ -145,7 +145,7 @@ fn expm1_32(x_: f32) -> f32 {
     }
 }
 
-fn expm1_64(x_: f64) -> f64 {
+fn expm1_64(x_: f64) f64 {
     @setFloatMode(this, builtin.FloatMode.Strict);
     const o_threshold: f64 = 7.09782712893383973096e+02;
     const ln2_hi: f64      = 6.93147180369123816490e-01;

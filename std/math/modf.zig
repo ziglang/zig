@@ -7,7 +7,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-fn modf_result(comptime T: type) -> type {
+fn modf_result(comptime T: type) type {
     return struct {
         fpart: T,
         ipart: T,
@@ -16,7 +16,7 @@ fn modf_result(comptime T: type) -> type {
 pub const modf32_result = modf_result(f32);
 pub const modf64_result = modf_result(f64);
 
-pub fn modf(x: var) -> modf_result(@typeOf(x)) {
+pub fn modf(x: var) modf_result(@typeOf(x)) {
     const T = @typeOf(x);
     return switch (T) {
         f32 => modf32(x),
@@ -25,7 +25,7 @@ pub fn modf(x: var) -> modf_result(@typeOf(x)) {
     };
 }
 
-fn modf32(x: f32) -> modf32_result {
+fn modf32(x: f32) modf32_result {
     var result: modf32_result = undefined;
 
     const u = @bitCast(u32, x);
@@ -70,7 +70,7 @@ fn modf32(x: f32) -> modf32_result {
     return result;
 }
 
-fn modf64(x: f64) -> modf64_result {
+fn modf64(x: f64) modf64_result {
     var result: modf64_result = undefined;
 
     const u = @bitCast(u64, x);

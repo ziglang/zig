@@ -48,14 +48,14 @@ test "maybe return" {
     comptime maybeReturnImpl();
 }
 
-fn maybeReturnImpl() {
+fn maybeReturnImpl() void {
     assert(??foo(1235));
     if (foo(null) != null)
         unreachable;
     assert(!??foo(1234));
 }
 
-fn foo(x: ?i32) -> ?bool {
+fn foo(x: ?i32) ?bool {
     const value = x ?? return null;
     return value > 1234;
 }
@@ -64,7 +64,7 @@ fn foo(x: ?i32) -> ?bool {
 test "if var maybe pointer" {
     assert(shouldBeAPlus1(Particle {.a = 14, .b = 1, .c = 1, .d = 1}) == 15);
 }
-fn shouldBeAPlus1(p: &const Particle) -> u64 {
+fn shouldBeAPlus1(p: &const Particle) u64 {
     var maybe_particle: ?Particle = *p;
     if (maybe_particle) |*particle| {
         particle.a += 1;
@@ -100,7 +100,7 @@ const here_is_a_null_literal = SillyStruct {
 test "test null runtime" {
     testTestNullRuntime(null);
 }
-fn testTestNullRuntime(x: ?i32) {
+fn testTestNullRuntime(x: ?i32) void {
     assert(x == null);
     assert(!(x != null));
 }
@@ -110,12 +110,12 @@ test "nullable void" {
     comptime nullableVoidImpl();
 }
 
-fn nullableVoidImpl() {
+fn nullableVoidImpl() void {
     assert(bar(null) == null);
     assert(bar({}) != null);
 }
 
-fn bar(x: ?void) -> ?void {
+fn bar(x: ?void) ?void {
     if (x) |_| {
         return {};
     } else {

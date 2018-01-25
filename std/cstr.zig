@@ -3,13 +3,13 @@ const debug = std.debug;
 const mem = std.mem;
 const assert = debug.assert;
 
-pub fn len(ptr: &const u8) -> usize {
+pub fn len(ptr: &const u8) usize {
     var count: usize = 0;
     while (ptr[count] != 0) : (count += 1) {}
     return count;
 }
 
-pub fn cmp(a: &const u8, b: &const u8) -> i8 {
+pub fn cmp(a: &const u8, b: &const u8) i8 {
     var index: usize = 0;
     while (a[index] == b[index] and a[index] != 0) : (index += 1) {}
     if (a[index] > b[index]) {
@@ -21,11 +21,11 @@ pub fn cmp(a: &const u8, b: &const u8) -> i8 {
     }
 }
 
-pub fn toSliceConst(str: &const u8) -> []const u8 {
+pub fn toSliceConst(str: &const u8) []const u8 {
     return str[0..len(str)];
 }
 
-pub fn toSlice(str: &u8) -> []u8 {
+pub fn toSlice(str: &u8) []u8 {
     return str[0..len(str)];
 }
 
@@ -34,7 +34,7 @@ test "cstr fns" {
     testCStrFnsImpl();
 }
 
-fn testCStrFnsImpl() {
+fn testCStrFnsImpl() void {
     assert(cmp(c"aoeu", c"aoez") == -1);
     assert(len(c"123456789") == 9);
 }
@@ -42,7 +42,7 @@ fn testCStrFnsImpl() {
 /// Returns a mutable slice with exactly the same size which is guaranteed to
 /// have a null byte after it.
 /// Caller owns the returned memory.
-pub fn addNullByte(allocator: &mem.Allocator, slice: []const u8) -> %[]u8 {
+pub fn addNullByte(allocator: &mem.Allocator, slice: []const u8) %[]u8 {
     const result = try allocator.alloc(u8, slice.len + 1);
     mem.copy(u8, result, slice);
     result[slice.len] = 0;
@@ -56,7 +56,7 @@ pub const NullTerminated2DArray = struct {
 
     /// Takes N lists of strings, concatenates the lists together, and adds a null terminator
     /// Caller must deinit result
-    pub fn fromSlices(allocator: &mem.Allocator, slices: []const []const []const u8) -> %NullTerminated2DArray {
+    pub fn fromSlices(allocator: &mem.Allocator, slices: []const []const []const u8) %NullTerminated2DArray {
         var new_len: usize = 1; // 1 for the list null
         var byte_count: usize = 0;
         for (slices) |slice| {
@@ -96,7 +96,7 @@ pub const NullTerminated2DArray = struct {
         };
     }
 
-    pub fn deinit(self: &NullTerminated2DArray) {
+    pub fn deinit(self: &NullTerminated2DArray) void {
         const buf = @ptrCast(&u8, self.ptr);
         self.allocator.free(buf[0..self.byte_count]);
     }

@@ -5,7 +5,7 @@ const fmt = std.fmt;
 const Rand = std.rand.Rand;
 const os = std.os;
 
-pub fn main() -> %void {
+pub fn main() %void {
     var stdout_file = try io.getStdOut();
     var stdout_file_stream = io.FileOutStream.init(&stdout_file);
     const stdout = &stdout_file_stream.stream;

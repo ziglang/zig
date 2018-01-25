@@ -20,7 +20,7 @@ pub const Node = struct {
         FloatLiteral,
     };
 
-    pub fn iterate(base: &Node, index: usize) -> ?&Node {
+    pub fn iterate(base: &Node, index: usize) ?&Node {
         return switch (base.id) {
             Id.Root => @fieldParentPtr(NodeRoot, "base", base).iterate(index),
             Id.VarDecl => @fieldParentPtr(NodeVarDecl, "base", base).iterate(index),
@@ -35,7 +35,7 @@ pub const Node = struct {
         };
     }
 
-    pub fn destroy(base: &Node, allocator: &mem.Allocator) {
+    pub fn destroy(base: &Node, allocator: &mem.Allocator) void {
         return switch (base.id) {
             Id.Root => allocator.destroy(@fieldParentPtr(NodeRoot, "base", base)),
             Id.VarDecl => allocator.destroy(@fieldParentPtr(NodeVarDecl, "base", base)),
@@ -55,7 +55,7 @@ pub const NodeRoot = struct {
     base: Node,
     decls: ArrayList(&Node),
 
-    pub fn iterate(self: &NodeRoot, index: usize) -> ?&Node {
+    pub fn iterate(self: &NodeRoot, index: usize) ?&Node {
         if (index < self.decls.len) {
             return self.decls.items[self.decls.len - index - 1];
         }
@@ -76,7 +76,7 @@ pub const NodeVarDecl = struct {
     align_node: ?&Node,
     init_node: ?&Node,
 
-    pub fn iterate(self: &NodeVarDecl, index: usize) -> ?&Node {
+    pub fn iterate(self: &NodeVarDecl, index: usize) ?&Node {
         var i = index;
 
         if (self.type_node) |type_node| {
@@ -102,7 +102,7 @@ pub const NodeIdentifier = struct {
     base: Node,
     name_token: Token,
 
-    pub fn iterate(self: &NodeIdentifier, index: usize) -> ?&Node {
+    pub fn iterate(self: &NodeIdentifier, index: usize) ?&Node {
         return null;
     }
 };
@@ -113,7 +113,7 @@ pub const NodeFnProto = struct {
     fn_token: Token,
     name_token: ?Token,
     params: ArrayList(&Node),
-    return_type: ?&Node,
+    return_type: &Node,
     var_args_token: ?Token,
     extern_token: ?Token,
     inline_token: ?Token,
@@ -122,7 +122,7 @@ pub const NodeFnProto = struct {
     lib_name: ?&Node, // populated if this is an extern declaration
     align_expr: ?&Node, // populated if align(A) is present
 
-    pub fn iterate(self: &NodeFnProto, index: usize) -> ?&Node {
+    pub fn iterate(self: &NodeFnProto, index: usize) ?&Node {
         var i = index;
 
         if (self.body_node) |body_node| {
@@ -130,10 +130,8 @@ pub const NodeFnProto = struct {
             i -= 1;
         }
 
-        if (self.return_type) |return_type| {
-            if (i < 1) return return_type;
-            i -= 1;
-        }
+        if (i < 1) return self.return_type;
+        i -= 1;
 
         if (self.align_expr) |align_expr| {
             if (i < 1) return align_expr;
@@ -160,7 +158,7 @@ pub const NodeParamDecl = struct {
     type_node: &Node,
     var_args_token: ?Token,
 
-    pub fn iterate(self: &NodeParamDecl, index: usize) -> ?&Node {
+    pub fn iterate(self: &NodeParamDecl, index: usize) ?&Node {
         var i = index;
 
         if (i < 1) return self.type_node;
@@ -176,7 +174,7 @@ pub const NodeBlock = struct {
     end_token: Token,
     statements: ArrayList(&Node),
 
-    pub fn iterate(self: &NodeBlock, index: usize) -> ?&Node {
+    pub fn iterate(self: &NodeBlock, index: usize) ?&Node {
         var i = index;
 
         if (i < self.statements.len) return self.statements.items[i];
@@ -198,7 +196,7 @@ pub const NodeInfixOp = struct {
         BangEqual,
     };
 
-    pub fn iterate(self: &NodeInfixOp, index: usize) -> ?&Node {
+    pub fn iterate(self: &NodeInfixOp, index: usize) ?&Node {
         var i = index;
 
         if (i < 1) return self.lhs;
@@ -234,7 +232,7 @@ pub const NodePrefixOp = struct {
         volatile_token: ?Token,
     };
 
-    pub fn iterate(self: &NodePrefixOp, index: usize) -> ?&Node {
+    pub fn iterate(self: &NodePrefixOp, index: usize) ?&Node {
         var i = index;
 
         switch (self.op) {
@@ -258,7 +256,7 @@ pub const NodeIntegerLiteral = struct {
     base: Node,
     token: Token,
 
-    pub fn iterate(self: &NodeIntegerLiteral, index: usize) -> ?&Node {
+    pub fn iterate(self: &NodeIntegerLiteral, index: usize) ?&Node {
         return null;
     }
 };
@@ -267,7 +265,7 @@ pub const NodeFloatLiteral = struct {
     base: Node,
     token: Token,
 
-    pub fn iterate(self: &NodeFloatLiteral, index: usize) -> ?&Node {
+    pub fn iterate(self: &NodeFloatLiteral, index: usize) ?&Node {
         return null;
     }
 };

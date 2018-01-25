@@ -10,7 +10,7 @@ const warn = std.debug.warn;
 
 error InvalidArgs;
 
-pub fn main() -> %void {
+pub fn main() %void {
     var arg_it = os.args();
 
     // TODO use a more general purpose allocator here
@@ -125,7 +125,7 @@ pub fn main() -> %void {
     };
 }
 
-fn usage(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) -> %void {
+fn usage(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) %void {
     // run the build script to collect the options
     if (!already_ran_build) {
         builder.setInstallPrefix(null);
@@ -183,12 +183,12 @@ fn usage(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) 
     );
 }
 
-fn usageAndErr(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) -> error {
+fn usageAndErr(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) error {
     usage(builder, already_ran_build, out_stream) catch {};
     return error.InvalidArgs;
 }
 
-fn unwrapArg(arg: %[]u8) -> %[]u8 {
+fn unwrapArg(arg: %[]u8) %[]u8 {
     return arg catch |err| {
         warn("Unable to parse command line: {}\n", err);
         return err;

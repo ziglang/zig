@@ -2,7 +2,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn isNormal(x: var) -> bool {
+pub fn isNormal(x: var) bool {
     const T = @typeOf(x);
     switch (T) {
         f32 => {

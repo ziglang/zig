@@ -86,7 +86,7 @@
       {#code_begin|exe|hello#}
 const std = @import("std");
 
-pub fn main() -> %void {
+pub fn main() %void {
     // If this program is run without stdout attached, exit with an error.
     var stdout_file = try std.io.getStdOut();
     // If this program encounters pipe failure when printing to stdout, exit
@@ -102,7 +102,7 @@ pub fn main() -> %void {
       {#code_begin|exe|hello#}
 const warn = @import("std").debug.warn;
 
-pub fn main() -> void {
+pub fn main() void {
     warn("Hello, world!\n");
 }
       {#code_end#}
@@ -132,7 +132,7 @@ const assert = std.debug.assert;
 // error declaration, makes `error.ArgNotFound` available
 error ArgNotFound;
 
-pub fn main() -> %void {
+pub fn main() %void {
     // integers
     const one_plus_one: i32 = 1 + 1;
     warn("1 + 1 = {}\n", one_plus_one);
@@ -543,7 +543,7 @@ const c_string_literal =
       {#code_begin|test_err|cannot assign to constant#}
 const x = 1234;
 
-fn foo() {
+fn foo() void {
     // It works at global scope as well as inside functions.
     const y = 5678;
 
@@ -607,7 +607,7 @@ const binary_int = 0b11110000;
       known size, and is vulnerable to undefined behavior.
       </p>
       {#code_begin|syntax#}
-fn divide(a: i32, b: i32) -> i32 {
+fn divide(a: i32, b: i32) i32 {
     return a / b;
 }
       {#code_end#}
@@ -644,12 +644,12 @@ const yet_another_hex_float = 0x103.70P-5;
 const builtin = @import("builtin");
 const big = f64(1 << 40);
 
-export fn foo_strict(x: f64) -> f64 {
+export fn foo_strict(x: f64) f64 {
     @setFloatMode(this, builtin.FloatMode.Strict);
     return x + big - big;
 }
 
-export fn foo_optimized(x: f64) -> f64 {
+export fn foo_optimized(x: f64) f64 {
     return x + big - big;
 }
       {#code_end#}
@@ -660,10 +660,10 @@ export fn foo_optimized(x: f64) -> f64 {
       {#code_link_object|foo#}
 const warn = @import("std").debug.warn;
 
-extern fn foo_strict(x: f64) -> f64;
-extern fn foo_optimized(x: f64) -> f64;
+extern fn foo_strict(x: f64) f64;
+extern fn foo_optimized(x: f64) f64;
 
-pub fn main() -> %void {
+pub fn main() %void {
     const x = 0.001;
     warn("optimized = {}\n", foo_optimized(x));
     warn("strict = {}\n", foo_strict(x));
@@ -1358,7 +1358,7 @@ test "compile-time array initalization" {
 
 // call a function to initialize an array
 var more_points = []Point{makePoint(3)} ** 10;
-fn makePoint(x: i32) -> Point {
+fn makePoint(x: i32) Point {
     return Point {
         .x = x,
         .y = x * 2,
@@ -1552,14 +1552,14 @@ test "global variable alignment" {
     assert(@typeOf(slice) == []align(4) u8);
 }
 
-fn derp() align(@sizeOf(usize) * 2) -> i32 { return 1234; }
-fn noop1() align(1) {}
-fn noop4() align(4) {}
+fn derp() align(@sizeOf(usize) * 2) i32 { return 1234; }
+fn noop1() align(1) void {}
+fn noop4() align(4) void {}
 
 test "function alignment" {
     assert(derp() == 1234);
-    assert(@typeOf(noop1) == fn() align(1));
-    assert(@typeOf(noop4) == fn() align(4));
+    assert(@typeOf(noop1) == fn() align(1) void);
+    assert(@typeOf(noop4) == fn() align(4) void);
     noop1();
     noop4();
 }
@@ -1578,7 +1578,7 @@ test "pointer alignment safety" {
     const bytes = ([]u8)(array[0..]);
     assert(foo(bytes) == 0x11111111);
 }
-fn foo(bytes: []u8) -> u32 {
+fn foo(bytes: []u8) u32 {
     const slice4 = bytes[1..5];
     const int_slice = ([]u32)(@alignCast(4, slice4));
     return int_slice[0];
@@ -1710,7 +1710,7 @@ const Vec3 = struct {
     y: f32,
     z: f32,
 
-    pub fn init(x: f32, y: f32, z: f32) -> Vec3 {
+    pub fn init(x: f32, y: f32, z: f32) Vec3 {
         return Vec3 {
             .x = x,
             .y = y,
@@ -1718,7 +1718,7 @@ const Vec3 = struct {
         };
     }
 
-    pub fn dot(self: &const Vec3, other: &const Vec3) -> f32 {
+    pub fn dot(self: &const Vec3, other: &const Vec3) f32 {
         return self.x * other.x + self.y * other.y + self.z * other.z;
     }
 };
@@ -1750,7 +1750,7 @@ test "struct namespaced variable" {
 
 // struct field order is determined by the compiler for optimal performance.
 // however, you can still calculate a struct base pointer given a field pointer:
-fn setYBasedOnX(x: &f32, y: f32) {
+fn setYBasedOnX(x: &f32, y: f32) void {
     const point = @fieldParentPtr(Point, "x", x);
     point.y = y;
 }
@@ -1765,7 +1765,7 @@ test "field parent pointer" {
 
 // You can return a struct from a function. This is how we do generics
 // in Zig:
-fn LinkedList(comptime T: type) -> type {
+fn LinkedList(comptime T: type) type {
     return struct {
         pub const Node = struct {
             prev: ?&Node,
@@ -1862,7 +1862,7 @@ const Suit = enum {
     Diamonds,
     Hearts,
 
-    pub fn isClubs(self: Suit) -> bool {
+    pub fn isClubs(self: Suit) bool {
         return self == Suit.Clubs;
     }
 };
@@ -1919,14 +1919,14 @@ test "@tagName" {
       </p>
       {#code_begin|obj_err|parameter of type 'Foo' not allowed in function with calling convention 'ccc'#}
 const Foo = enum { A, B, C };
-export fn entry(foo: Foo) { }
+export fn entry(foo: Foo) void { }
       {#code_end#}
       <p>
       For a C-ABI-compatible enum, use <code class="zig">extern enum</code>:
       </p>
       {#code_begin|obj#}
 const Foo = extern enum { A, B, C };
-export fn entry(foo: Foo) { }
+export fn entry(foo: Foo) void { }
       {#code_end#}
       {#header_close#}
       <p>TODO packed enum</p>
@@ -2191,7 +2191,7 @@ test "while else" {
     assert(!rangeHasNumber(0, 10, 15));
 }
 
-fn rangeHasNumber(begin: usize, end: usize, number: usize) -> bool {
+fn rangeHasNumber(begin: usize, end: usize, number: usize) bool {
     var i = begin;
     // While loops are expressions. The result of the expression is the
     // result of the else clause of a while loop, which is executed when
@@ -2242,14 +2242,14 @@ test "while null capture" {
 }
 
 var numbers_left: u32 = undefined;
-fn eventuallyNullSequence() -> ?u32 {
+fn eventuallyNullSequence() ?u32 {
     return if (numbers_left == 0) null else blk: {
         numbers_left -= 1;
         break :blk numbers_left;
     };
 }
 error ReachedZero;
-fn eventuallyErrorSequence() -> %u32 {
+fn eventuallyErrorSequence() %u32 {
     return if (numbers_left == 0) error.ReachedZero else blk: {
         numbers_left -= 1;
         break :blk numbers_left;
@@ -2274,7 +2274,7 @@ test "inline while loop" {
     assert(sum == 9);
 }
 
-fn typeNameLength(comptime T: type) -> usize {
+fn typeNameLength(comptime T: type) usize {
     return @typeName(T).len;
 }
       {#code_end#}
@@ -2367,7 +2367,7 @@ test "inline for loop" {
     assert(sum == 9);
 }
 
-fn typeNameLength(comptime T: type) -> usize {
+fn typeNameLength(comptime T: type) usize {
     return @typeName(T).len;
 }
       {#code_end#}
@@ -2493,7 +2493,7 @@ const assert = std.debug.assert;
 const warn = std.debug.warn;
 
 // defer will execute an expression at the end of the current scope.
-fn deferExample() -> usize {
+fn deferExample() usize {
     var a: usize = 1;
 
     {
@@ -2512,7 +2512,7 @@ test "defer basics" {
 
 // If multiple defer statements are specified, they will be executed in
 // the reverse order they were run.
-fn deferUnwindExample() {
+fn deferUnwindExample() void {
     warn("\n");
 
     defer {
@@ -2539,7 +2539,7 @@ test "defer unwinding" {
 // This is especially useful in allowing a function to clean up properly
 // on error, and replaces goto error handling tactics as seen in c.
 error DeferError;
-fn deferErrorExample(is_error: bool) -> %void {
+fn deferErrorExample(is_error: bool) %void {
     warn("\nstart of function\n");
 
     // This will always be executed on exit
@@ -2587,7 +2587,7 @@ test "basic math" {
       {#code_end#}
       <p>In fact, this is how assert is implemented:</p>
       {#code_begin|test_err#}
-fn assert(ok: bool) {
+fn assert(ok: bool) void {
     if (!ok) unreachable; // assertion failure
 }
 
@@ -2630,7 +2630,7 @@ test "type of unreachable" {
       the <code>noreturn</code> type is compatible with every other type. Consider:
       </p>
       {#code_begin|test#}
-fn foo(condition: bool, b: u32) {
+fn foo(condition: bool, b: u32) void {
     const a = if (condition) b else return;
     @panic("do something with a");
 }
@@ -2641,14 +2641,14 @@ test "noreturn" {
       <p>Another use case for <code>noreturn</code> is the <code>exit</code> function:</p>
       {#code_begin|test#}
       {#target_windows#}
-pub extern "kernel32" stdcallcc fn ExitProcess(exit_code: c_uint) -> noreturn;
+pub extern "kernel32" stdcallcc fn ExitProcess(exit_code: c_uint) noreturn;
 
 test "foo" {
     const value = bar() catch ExitProcess(1);
     assert(value == 1234);
 }
 
-fn bar() -> %u32 {
+fn bar() %u32 {
     return 1234;
 }
 
@@ -2660,7 +2660,7 @@ const assert = @import("std").debug.assert;
 const assert = @import("std").debug.assert;
 
 // Functions are declared like this
-fn add(a: i8, b: i8) -> i8 {
+fn add(a: i8, b: i8) i8 {
     if (a == 0) {
         // You can still return manually if needed.
         return b;
@@ -2671,34 +2671,34 @@ fn add(a: i8, b: i8) -> i8 {
 
 // The export specifier makes a function externally visible in the generated
 // object file, and makes it use the C ABI.
-export fn sub(a: i8, b: i8) -> i8 { return a - b; }
+export fn sub(a: i8, b: i8) i8 { return a - b; }
 
 // The extern specifier is used to declare a function that will be resolved
 // at link time, when linking statically, or at runtime, when linking
 // dynamically.
 // The stdcallcc specifier changes the calling convention of the function.
-extern "kernel32" stdcallcc fn ExitProcess(exit_code: u32) -> noreturn;
-extern "c" fn atan2(a: f64, b: f64) -> f64;
+extern "kernel32" stdcallcc fn ExitProcess(exit_code: u32) noreturn;
+extern "c" fn atan2(a: f64, b: f64) f64;
 
 // The @setCold builtin tells the optimizer that a function is rarely called.
-fn abort() -> noreturn {
+fn abort() noreturn {
     @setCold(true);
     while (true) {}
 }
 
 // nakedcc makes a function not have any function prologue or epilogue.
 // This can be useful when integrating with assembly.
-nakedcc fn _start() -> noreturn {
+nakedcc fn _start() noreturn {
     abort();
 }
 
 // The pub specifier allows the function to be visible when importing.
 // Another file can use @import and call sub2
-pub fn sub2(a: i8, b: i8) -> i8 { return a - b; }
+pub fn sub2(a: i8, b: i8) i8 { return a - b; }
 
 // Functions can be used as values and are equivalent to pointers.
-const call2_op = fn (a: i8, b: i8) -> i8;
-fn do_op(fn_call: call2_op, op1: i8, op2: i8) -> i8 {
+const call2_op = fn (a: i8, b: i8) i8;
+fn do_op(fn_call: call2_op, op1: i8, op2: i8) i8 {
     return fn_call(op1, op2);
 }
 
@@ -2712,11 +2712,11 @@ test "function" {
 const assert = @import("std").debug.assert;
 
 comptime {
-    assert(@typeOf(foo) == fn());
-    assert(@sizeOf(fn()) == @sizeOf(?fn()));
+    assert(@typeOf(foo) == fn()void);
+    assert(@sizeOf(fn()void) == @sizeOf(?fn()void));
 }
 
-fn foo() { }
+fn foo() void { }
       {#code_end#}
       {#header_open|Pass-by-value Parameters#}
       <p>
@@ -2728,7 +2728,7 @@ const Foo = struct {
     x: i32,
 };
 
-fn bar(foo: Foo) {}
+fn bar(foo: Foo) void {}
 
 test "pass aggregate type by value to function" {
     bar(Foo {.x = 12,});
@@ -2743,7 +2743,7 @@ const Foo = struct {
     x: i32,
 };
 
-fn bar(foo: &const Foo) {}
+fn bar(foo: &const Foo) void {}
 
 test "implicitly cast to const pointer" {
     bar(Foo {.x = 12,});
@@ -2798,7 +2798,7 @@ error UnexpectedToken;
 error InvalidChar;
 error Overflow;
 
-pub fn parseU64(buf: []const u8, radix: u8) -> %u64 {
+pub fn parseU64(buf: []const u8, radix: u8) %u64 {
     var x: u64 = 0;
 
     for (buf) |c| {
@@ -2822,7 +2822,7 @@ pub fn parseU64(buf: []const u8, radix: u8) -> %u64 {
     return x;
 }
 
-fn charToDigit(c: u8) -> u8 {
+fn charToDigit(c: u8) u8 {
     return switch (c) {
         '0' ... '9' => c - '0',
         'A' ... 'Z' => c - 'A' + 10,
@@ -2857,7 +2857,7 @@ test "parse u64" {
       </ul>
       <p>If you want to provide a default value, you can use the <code>catch</code> binary operator:</p>
       {#code_begin|syntax#}
-fn doAThing(str: []u8) {
+fn doAThing(str: []u8) void {
     const number = parseU64(str, 10) catch 13;
     // ...
 }
@@ -2870,7 +2870,7 @@ fn doAThing(str: []u8) {
       <p>Let's say you wanted to return the error if you got one, otherwise continue with the
       function logic:</p>
       {#code_begin|syntax#}
-fn doAThing(str: []u8) -> %void {
+fn doAThing(str: []u8) %void {
     const number = parseU64(str, 10) catch |err| return err;
     // ...
 }
@@ -2879,7 +2879,7 @@ fn doAThing(str: []u8) -> %void {
         There is a shortcut for this. The <code>try</code> expression:
       </p>
       {#code_begin|syntax#}
-fn doAThing(str: []u8) -> %void {
+fn doAThing(str: []u8) %void {
     const number = try parseU64(str, 10);
     // ...
 }
@@ -2907,7 +2907,7 @@ fn doAThing(str: []u8) -> %void {
       the <code>if</code> and <code>switch</code> expression:
       </p>
       {#code_begin|syntax#}
-fn doAThing(str: []u8) {
+fn doAThing(str: []u8) void {
     if (parseU64(str, 10)) |number| {
         doSomethingWithNumber(number);
     } else |err| switch (err) {
@@ -2929,7 +2929,7 @@ fn doAThing(str: []u8) {
       Example:
       </p>
       {#code_begin|syntax#}
-fn createFoo(param: i32) -> %Foo {
+fn createFoo(param: i32) %Foo {
     const foo = try tryToAllocateFoo();
     // now we have allocated foo. we need to free it if the function fails.
     // but we want to return it if the function succeeds.
@@ -3018,9 +3018,9 @@ struct Foo *do_a_thing(void) {
       <p>Zig code</p>
       {#code_begin|syntax#}
 // malloc prototype included for reference
-extern fn malloc(size: size_t) -> ?&u8;
+extern fn malloc(size: size_t) ?&u8;
 
-fn doAThing() -> ?&Foo {
+fn doAThing() ?&Foo {
     const ptr = malloc(1234) ?? return null;
     // ...
 }
@@ -3047,7 +3047,7 @@ fn doAThing() -> ?&Foo {
         In Zig you can accomplish the same thing:
       </p>
       {#code_begin|syntax#}
-fn doAThing(nullable_foo: ?&Foo) {
+fn doAThing(nullable_foo: ?&Foo) void {
     // do some stuff
 
     if (nullable_foo) |foo| {
@@ -3104,13 +3104,13 @@ fn doAThing(nullable_foo: ?&Foo) {
       Compile-time parameters is how Zig implements generics. It is compile-time duck typing.
       </p>
       {#code_begin|syntax#}
-fn max(comptime T: type, a: T, b: T) -> T {
+fn max(comptime T: type, a: T, b: T) T {
     return if (a > b) a else b;
 }
-fn gimmeTheBiggerFloat(a: f32, b: f32) -> f32 {
+fn gimmeTheBiggerFloat(a: f32, b: f32) f32 {
     return max(f32, a, b);
 }
-fn gimmeTheBiggerInteger(a: u64, b: u64) -> u64 {
+fn gimmeTheBiggerInteger(a: u64, b: u64) u64 {
     return max(u64, a, b);
 }
       {#code_end#}
@@ -3132,13 +3132,13 @@ fn gimmeTheBiggerInteger(a: u64, b: u64) -> u64 {
       For example, if we were to introduce another function to the above snippet:
       </p>
       {#code_begin|test_err|unable to evaluate constant expression#}
-fn max(comptime T: type, a: T, b: T) -> T {
+fn max(comptime T: type, a: T, b: T) T {
     return if (a > b) a else b;
 }
 test "try to pass a runtime type" {
     foo(false);
 }
-fn foo(condition: bool) {
+fn foo(condition: bool) void {
     const result = max(
         if (condition) f32 else u64,
         1234,
@@ -3157,7 +3157,7 @@ fn foo(condition: bool) {
       For example:
       </p>
       {#code_begin|test_err|operator not allowed for type 'bool'#}
-fn max(comptime T: type, a: T, b: T) -> T {
+fn max(comptime T: type, a: T, b: T) T {
     return if (a > b) a else b;
 }
 test "try to compare bools" {
@@ -3170,7 +3170,7 @@ test "try to compare bools" {
       if we wanted to:
       </p>
       {#code_begin|test#}
-fn max(comptime T: type, a: T, b: T) -> T {
+fn max(comptime T: type, a: T, b: T) T {
     if (T == bool) {
         return a or b;
     } else if (a > b) {
@@ -3193,7 +3193,7 @@ test "try to compare bools" {
       this:
       </p>
       {#code_begin|syntax#}
-fn max(a: bool, b: bool) -> bool {
+fn max(a: bool, b: bool) bool {
     return a or b;
 }
       {#code_end#}
@@ -3224,7 +3224,7 @@ const assert = @import("std").debug.assert;
 
 const CmdFn = struct {
     name: []const u8,
-    func: fn(i32) -> i32,
+    func: fn(i32) i32,
 };
 
 const cmd_fns = []CmdFn{
@@ -3232,11 +3232,11 @@ const cmd_fns = []CmdFn{
     CmdFn {.name = "two", .func = two},
     CmdFn {.name = "three", .func = three},
 };
-fn one(value: i32) -> i32 { return value + 1; }
-fn two(value: i32) -> i32 { return value + 2; }
-fn three(value: i32) -> i32 { return value + 3; }
+fn one(value: i32) i32 { return value + 1; }
+fn two(value: i32) i32 { return value + 2; }
+fn three(value: i32) i32 { return value + 3; }
 
-fn performFn(comptime prefix_char: u8, start_value: i32) -> i32 {
+fn performFn(comptime prefix_char: u8, start_value: i32) i32 {
     var result: i32 = start_value;
     comptime var i = 0;
     inline while (i < cmd_fns.len) : (i += 1) {
@@ -3262,7 +3262,7 @@ test "perform fn" {
       {#code_begin|syntax#}
 // From the line:
 // assert(performFn('t', 1) == 6);
-fn performFn(start_value: i32) -> i32 {
+fn performFn(start_value: i32) i32 {
     var result: i32 = start_value;
     result = two(result);
     result = three(result);
@@ -3272,7 +3272,7 @@ fn performFn(start_value: i32) -> i32 {
       {#code_begin|syntax#}
 // From the line:
 // assert(performFn('o', 0) == 1);
-fn performFn(start_value: i32) -> i32 {
+fn performFn(start_value: i32) i32 {
     var result: i32 = start_value;
     result = one(result);
     return result;
@@ -3281,7 +3281,7 @@ fn performFn(start_value: i32) -> i32 {
       {#code_begin|syntax#}
 // From the line:
 // assert(performFn('w', 99) == 99);
-fn performFn(start_value: i32) -> i32 {
+fn performFn(start_value: i32) i32 {
     var result: i32 = start_value;
     return result;
 }
@@ -3302,7 +3302,7 @@ fn performFn(start_value: i32) -> i32 {
       If this cannot be accomplished, the compiler will emit an error. For example:
       </p>
       {#code_begin|test_err|unable to evaluate constant expression#}
-extern fn exit() -> noreturn;
+extern fn exit() noreturn;
 
 test "foo" {
     comptime {
@@ -3335,7 +3335,7 @@ test "foo" {
       {#code_begin|test#}
 const assert = @import("std").debug.assert;
 
-fn fibonacci(index: u32) -> u32 {
+fn fibonacci(index: u32) u32 {
     if (index < 2) return index;
     return fibonacci(index - 1) + fibonacci(index - 2);
 }
@@ -3356,7 +3356,7 @@ test "fibonacci" {
       {#code_begin|test_err|operation caused overflow#}
 const assert = @import("std").debug.assert;
 
-fn fibonacci(index: u32) -> u32 {
+fn fibonacci(index: u32) u32 {
     //if (index < 2) return index;
     return fibonacci(index - 1) + fibonacci(index - 2);
 }
@@ -3379,7 +3379,7 @@ test "fibonacci" {
       {#code_begin|test_err|evaluation exceeded 1000 backwards branches#}
 const assert = @import("std").debug.assert;
 
-fn fibonacci(index: i32) -> i32 {
+fn fibonacci(index: i32) i32 {
     //if (index < 2) return index;
     return fibonacci(index - 1) + fibonacci(index - 2);
 }
@@ -3402,7 +3402,7 @@ test "fibonacci" {
       {#code_begin|test_err|encountered @panic at compile-time#}
 const assert = @import("std").debug.assert;
 
-fn fibonacci(index: i32) -> i32 {
+fn fibonacci(index: i32) i32 {
     if (index < 2) return index;
     return fibonacci(index - 1) + fibonacci(index - 2);
 }
@@ -3430,7 +3430,7 @@ test "fibonacci" {
 const first_25_primes = firstNPrimes(25);
 const sum_of_first_25_primes = sum(first_25_primes);
 
-fn firstNPrimes(comptime n: usize) -> [n]i32 {
+fn firstNPrimes(comptime n: usize) [n]i32 {
     var prime_list: [n]i32 = undefined;
     var next_index: usize = 0;
     var test_number: i32 = 2;
@@ -3451,7 +3451,7 @@ fn firstNPrimes(comptime n: usize) -> [n]i32 {
     return prime_list;
 }
 
-fn sum(numbers: []const i32) -> i32 {
+fn sum(numbers: []const i32) i32 {
     var result: i32 = 0;
     for (numbers) |x| {
         result += x;
@@ -3487,7 +3487,7 @@ test "variable values" {
       the type <code>i32</code>. In Zig we refer to the type as <code>List(i32)</code>.
       </p>
       {#code_begin|syntax#}
-fn List(comptime T: type) -> type {
+fn List(comptime T: type) type {
     return struct {
         items: []T,
         len: usize,
@@ -3526,7 +3526,7 @@ const warn = @import("std").debug.warn;
 const a_number: i32 = 1234;
 const a_string = "foobar";
 
-pub fn main() {
+pub fn main() void {
     warn("here is a string: '{}' here is a number: {}\n", a_string, a_number);
 }
       {#code_end#}
@@ -3537,7 +3537,7 @@ pub fn main() {
 
       {#code_begin|syntax#}
 /// Calls print and then flushes the buffer.
-pub fn printf(self: &OutStream, comptime format: []const u8, args: ...) -> %void {
+pub fn printf(self: &OutStream, comptime format: []const u8, args: ...) %void {
     const State = enum {
         Start,
         OpenBrace,
@@ -3609,7 +3609,7 @@ pub fn printf(self: &OutStream, comptime format: []const u8, args: ...) -> %void
       and emits a function that actually looks like this:
       </p>
       {#code_begin|syntax#}
-pub fn printf(self: &OutStream, arg0: i32, arg1: []const u8) -> %void {
+pub fn printf(self: &OutStream, arg0: i32, arg1: []const u8) %void {
     try self.write("here is a string: '");
     try self.printValue(arg0);
     try self.write("' here is a number: ");
@@ -3623,7 +3623,7 @@ pub fn printf(self: &OutStream, arg0: i32, arg1: []const u8) -> %void {
       on the type:
       </p>
       {#code_begin|syntax#}
-pub fn printValue(self: &OutStream, value: var) -> %void {
+pub fn printValue(self: &OutStream, value: var) %void {
     const T = @typeOf(value);
     if (@isInteger(T)) {
         return self.printInt(T, value);
@@ -3665,7 +3665,7 @@ const a_number: i32 = 1234;
 const a_string = "foobar";
 const fmt = "here is a string: '{}' here is a number: {}\n";
 
-pub fn main() {
+pub fn main() void {
     warn(fmt, a_string, a_number);
 }
       {#code_end#}
@@ -4101,7 +4101,7 @@ test "inline function call" {
     assert(@inlineCall(add, 3, 9) == 12);
 }
 
-fn add(a: i32, b: i32) -> i32 { return a + b; }
+fn add(a: i32, b: i32) i32 { return a + b; }
       {#code_end#}
       <p>
       Unlike a normal function call, however, <code>@inlineCall</code> guarantees that the call
@@ -4246,8 +4246,8 @@ fn add(a: i32, b: i32) -&gt; i32 { a + b }</code></pre>
 const Derp = @OpaqueType();
 const Wat = @OpaqueType();
 
-extern fn bar(d: &Derp);
-export fn foo(w: &Wat) {
+extern fn bar(d: &Derp) void;
+export fn foo(w: &Wat) void {
     bar(w);
 }
 
@@ -4552,7 +4552,7 @@ pub const TypeId = enum {
       {#code_begin|syntax#}
 const Builder = @import("std").build.Builder;
 
-pub fn build(b: &Builder) -> %void {
+pub fn build(b: &Builder) %void {
     const exe = b.addExecutable("example", "example.zig");
     exe.setBuildMode(b.standardReleaseOptions());
     b.default_step.dependOn(&exe.step);
@@ -4612,7 +4612,7 @@ test "safety check" {
 comptime {
     assert(false);
 }
-fn assert(ok: bool) {
+fn assert(ok: bool) void {
     if (!ok) unreachable; // assertion failure
 }
       {#code_end#}
@@ -4694,7 +4694,7 @@ comptime {
       {#code_begin|exe_err#}
 const math = @import("std").math;
 const warn = @import("std").debug.warn;
-pub fn main() -> %void {
+pub fn main() %void {
     var byte: u8 = 255;
 
     byte = if (math.add(u8, byte, 1)) |result| result else |err| {
@@ -4722,7 +4722,7 @@ pub fn main() -> %void {
       </p>
       {#code_begin|exe#}
 const warn = @import("std").debug.warn;
-pub fn main() -> %void {
+pub fn main() %void {
     var byte: u8 = 255;
 
     var result: u8 = undefined;
@@ -4818,7 +4818,7 @@ comptime {
       the <code>if</code> expression:</p>
       {#code_begin|exe|test#}
 const warn = @import("std").debug.warn;
-pub fn main() {
+pub fn main() void {
     const nullable_number: ?i32 = null;
 
     if (nullable_number) |number| {
@@ -4838,7 +4838,7 @@ comptime {
 
 error UnableToReturnNumber;
 
-fn getNumberOrFail() -> %i32 {
+fn getNumberOrFail() %i32 {
     return error.UnableToReturnNumber;
 }
       {#code_end#}
@@ -4848,7 +4848,7 @@ fn getNumberOrFail() -> %i32 {
       {#code_begin|exe#}
 const warn = @import("std").debug.warn;
 
-pub fn main() {
+pub fn main() void {
     const result = getNumberOrFail();
 
     if (result) |number| {
@@ -4860,7 +4860,7 @@ pub fn main() {
 
 error UnableToReturnNumber;
 
-fn getNumberOrFail() -> %i32 {
+fn getNumberOrFail() %i32 {
     return error.UnableToReturnNumber;
 }
       {#code_end#}
@@ -5177,9 +5177,9 @@ pub const have_error_return_tracing = true;
       {#header_open|C String Literals#}
       {#code_begin|exe#}
       {#link_libc#}
-extern fn puts(&const u8);
+extern fn puts(&const u8) void;
 
-pub fn main() {
+pub fn main() void {
     puts(c"this has a null terminator");
     puts(
         c\\and so
@@ -5202,7 +5202,7 @@ const c = @cImport({
     @cDefine("_NO_CRT_STDIO_INLINE", "1");
     @cInclude("stdio.h");
 });
-pub fn main() {
+pub fn main() void {
     _ = c.printf(c"hello\n");
 }
       {#code_end#}
@@ -5237,7 +5237,7 @@ const c = @cImport({
 const base64 = @import("std").base64;
 
 export fn decode_base_64(dest_ptr: &u8, dest_len: usize,
-    source_ptr: &const u8, source_len: usize) -> usize
+    source_ptr: &const u8, source_len: usize) usize
 {
     const src = source_ptr[0..source_len];
     const dest = dest_ptr[0..dest_len];
@@ -5268,7 +5268,7 @@ int main(int argc, char **argv) {
       {#code_begin|syntax#}
 const Builder = @import("std").build.Builder;
 
-pub fn build(b: &Builder) -> %void {
+pub fn build(b: &Builder) %void {
     const obj = b.addObject("base64", "base64.zig");
 
     const exe = b.addCExecutable("test");
@@ -5498,7 +5498,7 @@ const string_alias = []u8;
 const StructName = struct {};
 const StructAlias = StructName;
 
-fn functionName(param_name: TypeName) {
+fn functionName(param_name: TypeName) void {
     var functionPointer = functionName;
     functionPointer();
     functionPointer = otherFunction;
@@ -5506,14 +5506,14 @@ fn functionName(param_name: TypeName) {
 }
 const functionAlias = functionName;
 
-fn ListTemplateFunction(comptime ChildType: type, comptime fixed_size: usize) -> type {
+fn ListTemplateFunction(comptime ChildType: type, comptime fixed_size: usize) type {
     return List(ChildType, fixed_size);
 }
 
-fn ShortList(comptime T: type, comptime n: usize) -> type {
+fn ShortList(comptime T: type, comptime n: usize) type {
     return struct {
         field_name: [n]T,
-        fn methodName() {}
+        fn methodName() void {}
     };
 }
 
@@ -5526,7 +5526,7 @@ const xml_document =
 const XmlParser = struct {};
 
 // The initials BE (Big Endian) are just another word in Zig identifier names.
-fn readU32Be() -> u32 {}
+fn readU32Be() u32 {}
       {#code_end#}
       <p>
       See the Zig Standard Library for more examples.
@@ -5558,7 +5558,7 @@ UseDecl = "use" Expression ";"
 
 ExternDecl = "extern" option(String) (FnProto | VariableDeclaration) ";"
 
-FnProto = option("nakedcc" | "stdcallcc" | "extern") "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") option("-&gt;" TypeExpr)
+FnProto = option("nakedcc" | "stdcallcc" | "extern") "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") TypeExpr
 
 FnDef = option("inline" | "export") FnProto Block
 

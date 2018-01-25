@@ -2,7 +2,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn signbit(x: var) -> bool {
+pub fn signbit(x: var) bool {
     const T = @typeOf(x);
     return switch (T) {
         f32 => signbit32(x),
@@ -11,12 +11,12 @@ pub fn signbit(x: var) -> bool {
     };
 }
 
-fn signbit32(x: f32) -> bool {
+fn signbit32(x: f32) bool {
     const bits = @bitCast(u32, x);
     return bits >> 31 != 0;
 }
 
-fn signbit64(x: f64) -> bool {
+fn signbit64(x: f64) bool {
     const bits = @bitCast(u64, x);
     return bits >> 63 != 0;
 }

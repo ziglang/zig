@@ -1,6 +1,6 @@
 const assert = @import("std").debug.assert;
 
-fn add(args: ...) -> i32 {
+fn add(args: ...) i32 {
     var sum = i32(0);
     {comptime var i: usize = 0; inline while (i < args.len) : (i += 1) {
         sum += args[i];
@@ -14,7 +14,7 @@ test "add arbitrary args" {
     assert(add() == 0);
 }
 
-fn readFirstVarArg(args: ...) {
+fn readFirstVarArg(args: ...) void {
     const value = args[0];
 }
 
@@ -28,7 +28,7 @@ test "pass args directly" {
     assert(addSomeStuff() == 0);
 }
 
-fn addSomeStuff(args: ...) -> i32 {
+fn addSomeStuff(args: ...) i32 {
     return add(args);
 }
 
@@ -45,7 +45,7 @@ test "runtime parameter before var args" {
     //}
 }
 
-fn extraFn(extra: u32, args: ...) -> usize {
+fn extraFn(extra: u32, args: ...) usize {
     if (args.len >= 1) {
         assert(args[0] == false);
     }
@@ -56,10 +56,10 @@ fn extraFn(extra: u32, args: ...) -> usize {
 }
 
 
-const foos = []fn(...) -> bool { foo1, foo2 };
+const foos = []fn(...) bool { foo1, foo2 };
 
-fn foo1(args: ...) -> bool { return true; }
-fn foo2(args: ...) -> bool { return false; }
+fn foo1(args: ...) bool { return true; }
+fn foo2(args: ...) bool { return false; }
 
 test "array of var args functions" {
     assert(foos[0]());
@@ -73,7 +73,7 @@ test "pass array and slice of same array to var args should have same pointers" 
     return assertSlicePtrsEql(array, slice);
 }
 
-fn assertSlicePtrsEql(args: ...) {
+fn assertSlicePtrsEql(args: ...) void {
     const s1 = ([]const u8)(args[0]);
     const s2 = args[1];
     assert(s1.ptr == s2.ptr);
@@ -84,6 +84,6 @@ test "pass zero length array to var args param" {
     doNothingWithFirstArg("");
 }
 
-fn doNothingWithFirstArg(args: ...) {
+fn doNothingWithFirstArg(args: ...) void {
     const a = args[0];
 }

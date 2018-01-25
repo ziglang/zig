@@ -40,7 +40,7 @@ const Bar = enum {
     D,
 };
 
-fn returnAnInt(x: i32) -> Foo {
+fn returnAnInt(x: i32) Foo {
     return Foo { .One = x };
 }
 
@@ -52,14 +52,14 @@ test "constant enum with payload" {
     shouldBeNotEmpty(full);
 }
 
-fn shouldBeEmpty(x: &const AnEnumWithPayload) {
+fn shouldBeEmpty(x: &const AnEnumWithPayload) void {
     switch (*x) {
         AnEnumWithPayload.Empty => {},
         else => unreachable,
     }
 }
 
-fn shouldBeNotEmpty(x: &const AnEnumWithPayload) {
+fn shouldBeNotEmpty(x: &const AnEnumWithPayload) void {
     switch (*x) {
         AnEnumWithPayload.Empty => unreachable,
         else => {},
@@ -89,7 +89,7 @@ test "enum to int" {
     shouldEqual(Number.Four, 4);
 }
 
-fn shouldEqual(n: Number, expected: u3) {
+fn shouldEqual(n: Number, expected: u3) void {
     assert(u3(n) == expected);
 }
 
@@ -97,7 +97,7 @@ fn shouldEqual(n: Number, expected: u3) {
 test "int to enum" {
     testIntToEnumEval(3);
 }
-fn testIntToEnumEval(x: i32) {
+fn testIntToEnumEval(x: i32) void {
     assert(IntToEnumNumber(u3(x)) == IntToEnumNumber.Three);
 }
 const IntToEnumNumber = enum {
@@ -114,7 +114,7 @@ test "@tagName" {
     comptime assert(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
 }
 
-fn testEnumTagNameBare(n: BareNumber) -> []const u8 {
+fn testEnumTagNameBare(n: BareNumber) []const u8 {
     return @tagName(n);
 }
 
@@ -270,15 +270,15 @@ test "bit field access with enum fields" {
     assert(data.b == B.Four3);
 }
 
-fn getA(data: &const BitFieldOfEnums) -> A {
+fn getA(data: &const BitFieldOfEnums) A {
     return data.a;
 }
 
-fn getB(data: &const BitFieldOfEnums) -> B {
+fn getB(data: &const BitFieldOfEnums) B {
     return data.b;
 }
 
-fn getC(data: &const BitFieldOfEnums) -> C {
+fn getC(data: &const BitFieldOfEnums) C {
     return data.c;
 }
 
@@ -287,7 +287,7 @@ test "casting enum to its tag type" {
     comptime testCastEnumToTagType(Small2.Two);
 }
 
-fn testCastEnumToTagType(value: Small2) {
+fn testCastEnumToTagType(value: Small2) void {
     assert(u2(value) == 1);
 }
 
@@ -303,7 +303,7 @@ test "enum with specified tag values" {
     comptime testEnumWithSpecifiedTagValues(MultipleChoice.C);
 }
 
-fn testEnumWithSpecifiedTagValues(x: MultipleChoice) {
+fn testEnumWithSpecifiedTagValues(x: MultipleChoice) void {
     assert(u32(x) == 60);
     assert(1234 == switch (x) {
         MultipleChoice.A => 1,
@@ -330,7 +330,7 @@ test "enum with specified and unspecified tag values" {
     comptime testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
 }
 
-fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) {
+fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
     assert(u32(x) == 1000);
     assert(1234 == switch (x) {
         MultipleChoice2.A => 1,
@@ -354,7 +354,7 @@ const EnumWithOneMember = enum {
     Eof,
 };
 
-fn doALoopThing(id: EnumWithOneMember) {
+fn doALoopThing(id: EnumWithOneMember) void {
     while (true) {
         if (id == EnumWithOneMember.Eof) {
             break;

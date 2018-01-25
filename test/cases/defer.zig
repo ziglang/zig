@@ -5,7 +5,7 @@ var index: usize = undefined;
 
 error FalseNotAllowed;
 
-fn runSomeErrorDefers(x: bool) -> %bool {
+fn runSomeErrorDefers(x: bool) %bool {
     index = 0;
     defer {result[index] = 'a'; index += 1;}
     errdefer {result[index] = 'b'; index += 1;}
@@ -33,7 +33,7 @@ test "break and continue inside loop inside defer expression" {
     comptime testBreakContInDefer(10);
 }
 
-fn testBreakContInDefer(x: usize) {
+fn testBreakContInDefer(x: usize) void {
     defer {
         var i: usize = 0;
         while (i < x) : (i += 1) {

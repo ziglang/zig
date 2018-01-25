@@ -24,7 +24,7 @@ const foo = Foo {
     .d = -10,
 };
 
-fn testParentFieldPtr(c: &const i32) {
+fn testParentFieldPtr(c: &const i32) void {
     assert(c == &foo.c);
 
     const base = @fieldParentPtr(Foo, "c", c);
@@ -32,7 +32,7 @@ fn testParentFieldPtr(c: &const i32) {
     assert(&base.c == c);
 }
 
-fn testParentFieldPtrFirst(a: &const bool) {
+fn testParentFieldPtrFirst(a: &const bool) void {
     assert(a == &foo.a);
 
     const base = @fieldParentPtr(Foo, "a", a);

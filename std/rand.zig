@@ -28,14 +28,14 @@ pub const Rand = struct {
     rng: Rng,
 
     /// Initialize random state with the given seed.
-    pub fn init(seed: usize) -> Rand {
+    pub fn init(seed: usize) Rand {
         return Rand {
             .rng = Rng.init(seed),
         };
     }
 
     /// Get an integer or boolean with random bits.
-    pub fn scalar(r: &Rand, comptime T: type) -> T {
+    pub fn scalar(r: &Rand, comptime T: type) T {
         if (T == usize) {
             return r.rng.get();
         } else if (T == bool) {
@@ -48,7 +48,7 @@ pub const Rand = struct {
     }
 
     /// Fill `buf` with randomness.
-    pub fn fillBytes(r: &Rand, buf: []u8) {
+    pub fn fillBytes(r: &Rand, buf: []u8) void {
         var bytes_left = buf.len;
         while (bytes_left >= @sizeOf(usize)) {
             mem.writeInt(buf[buf.len - bytes_left..], r.rng.get(), builtin.Endian.Little);
@@ -66,7 +66,7 @@ pub const Rand = struct {
 
     /// Get a random unsigned integer with even distribution between `start`
     /// inclusive and `end` exclusive.
-    pub fn range(r: &Rand, comptime T: type, start: T, end: T) -> T {
+    pub fn range(r: &Rand, comptime T: type, start: T, end: T) T {
         assert(start <= end);
         if (T.is_signed) {
             const uint = @IntType(false, T.bit_count);
@@ -108,7 +108,7 @@ pub const Rand = struct {
     }
 
     /// Get a floating point value in the range 0.0..1.0.
-    pub fn float(r: &Rand, comptime T: type) -> T {
+    pub fn float(r: &Rand, comptime T: type) T {
         // TODO Implement this way instead:
         // const int = @int_type(false, @sizeOf(T) * 8);
         // const mask = ((1 << @float_mantissa_bit_count(T)) - 1);
@@ -132,7 +132,7 @@ fn MersenneTwister(
     comptime u: math.Log2Int(int), comptime d: int,
     comptime s: math.Log2Int(int), comptime b: int,
     comptime t: math.Log2Int(int), comptime c: int,
-    comptime l: math.Log2Int(int), comptime f: int) -> type
+    comptime l: math.Log2Int(int), comptime f: int) type
 {
     return struct {
         const Self = this;
@@ -140,7 +140,7 @@ fn MersenneTwister(
         array: [n]int,
         index: usize,
 
-        pub fn init(seed: int) -> Self {
+        pub fn init(seed: int) Self {
             var mt = Self {
                 .array = undefined,
                 .index = n,
@@ -156,7 +156,7 @@ fn MersenneTwister(
             return mt;
         }
 
-        pub fn get(mt: &Self) -> int {
+        pub fn get(mt: &Self) int {
             const mag01 = []int{0, a};
             const LM: int = (1 << r) - 1;
             const UM = ~LM;
@@ -224,7 +224,7 @@ test "rand.Rand.range" {
     testRange(&r, 10, 14);
 }
 
-fn testRange(r: &Rand, start: i32, end: i32) {
+fn testRange(r: &Rand, start: i32, end: i32) void {
     const count = usize(end - start);
     var values_buffer = []bool{false} ** 20;
     const values = values_buffer[0..count];

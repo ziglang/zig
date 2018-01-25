@@ -13,7 +13,7 @@ const RoundParam256 = struct {
     i: usize, k: u32,
 };
 
-fn Rp256(a: usize, b: usize, c: usize, d: usize, e: usize, f: usize, g: usize, h: usize, i: usize, k: u32) -> RoundParam256 {
+fn Rp256(a: usize, b: usize, c: usize, d: usize, e: usize, f: usize, g: usize, h: usize, i: usize, k: u32) RoundParam256 {
     return RoundParam256 { .a = a, .b = b, .c = c, .d = d, .e = e, .f = f, .g = g, .h = h, .i = i, .k = k };
 }
 
@@ -56,7 +56,7 @@ const Sha256Params = Sha2Params32 {
 pub const Sha224 = Sha2_32(Sha224Params);
 pub const Sha256 = Sha2_32(Sha256Params);
 
-fn Sha2_32(comptime params: Sha2Params32) -> type { return struct {
+fn Sha2_32(comptime params: Sha2Params32) type { return struct {
     const Self = this;
     const block_size = 64;
     const digest_size = params.out_len / 8;
@@ -67,13 +67,13 @@ fn Sha2_32(comptime params: Sha2Params32) -> type { return struct {
     buf_len: u8,
     total_len: u64,
 
-    pub fn init() -> Self {
+    pub fn init() Self {
         var d: Self = undefined;
         d.reset();
         return d;
     }
 
-    pub fn reset(d: &Self) {
+    pub fn reset(d: &Self) void {
         d.s[0] = params.iv0;
         d.s[1] = params.iv1;
         d.s[2] = params.iv2;
@@ -86,13 +86,13 @@ fn Sha2_32(comptime params: Sha2Params32) -> type { return struct {
         d.total_len = 0;
     }
 
-    pub fn hash(b: []const u8, out: []u8) {
+    pub fn hash(b: []const u8, out: []u8) void {
         var d = Self.init();
         d.update(b);
         d.final(out);
     }
 
-    pub fn update(d: &Self, b: []const u8) {
+    pub fn update(d: &Self, b: []const u8) void {
         var off: usize = 0;
 
         // Partial buffer exists from previous update. Copy into buffer then hash.
@@ -116,7 +116,7 @@ fn Sha2_32(comptime params: Sha2Params32) -> type { return struct {
         d.total_len += b.len;
     }
 
-    pub fn final(d: &Self, out: []u8) {
+    pub fn final(d: &Self, out: []u8) void {
         debug.assert(out.len >= params.out_len / 8);
 
         // The buffer here will never be completely full.
@@ -151,7 +151,7 @@ fn Sha2_32(comptime params: Sha2Params32) -> type { return struct {
         }
     }
 
-    fn round(d: &Self, b: []const u8) {
+    fn round(d: &Self, b: []const u8) void {
         debug.assert(b.len == 64);
 
         var s: [64]u32 = undefined;
@@ -329,7 +329,7 @@ const RoundParam512 = struct {
     i: usize, k: u64,
 };
 
-fn Rp512(a: usize, b: usize, c: usize, d: usize, e: usize, f: usize, g: usize, h: usize, i: usize, k: u64) -> RoundParam512 {
+fn Rp512(a: usize, b: usize, c: usize, d: usize, e: usize, f: usize, g: usize, h: usize, i: usize, k: u64) RoundParam512 {
     return RoundParam512 { .a = a, .b = b, .c = c, .d = d, .e = e, .f = f, .g = g, .h = h, .i = i, .k = k };
 }
 
@@ -372,7 +372,7 @@ const Sha512Params = Sha2Params64 {
 pub const Sha384 = Sha2_64(Sha384Params);
 pub const Sha512 = Sha2_64(Sha512Params);
 
-fn Sha2_64(comptime params: Sha2Params64) -> type { return struct {
+fn Sha2_64(comptime params: Sha2Params64) type { return struct {
     const Self = this;
     const block_size = 128;
     const digest_size = params.out_len / 8;
@@ -383,13 +383,13 @@ fn Sha2_64(comptime params: Sha2Params64) -> type { return struct {
     buf_len: u8,
     total_len: u128,
 
-    pub fn init() -> Self {
+    pub fn init() Self {
         var d: Self = undefined;
         d.reset();
         return d;
     }
 
-    pub fn reset(d: &Self) {
+    pub fn reset(d: &Self) void {
         d.s[0] = params.iv0;
         d.s[1] = params.iv1;
         d.s[2] = params.iv2;
@@ -402,13 +402,13 @@ fn Sha2_64(comptime params: Sha2Params64) -> type { return struct {
         d.total_len = 0;
     }
 
-    pub fn hash(b: []const u8, out: []u8) {
+    pub fn hash(b: []const u8, out: []u8) void {
         var d = Self.init();
         d.update(b);
         d.final(out);
     }
 
-    pub fn update(d: &Self, b: []const u8) {
+    pub fn update(d: &Self, b: []const u8) void {
         var off: usize = 0;
 
         // Partial buffer exists from previous update. Copy into buffer then hash.
@@ -432,7 +432,7 @@ fn Sha2_64(comptime params: Sha2Params64) -> type { return struct {
         d.total_len += b.len;
     }
 
-    pub fn final(d: &Self, out: []u8) {
+    pub fn final(d: &Self, out: []u8) void {
         debug.assert(out.len >= params.out_len / 8);
 
         // The buffer here will never be completely full.
@@ -467,7 +467,7 @@ fn Sha2_64(comptime params: Sha2Params64) -> type { return struct {
         }
     }
 
-    fn round(d: &Self, b: []const u8) {
+    fn round(d: &Self, b: []const u8) void {
         debug.assert(b.len == 128);
 
         var s: [80]u64 = undefined;

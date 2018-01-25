@@ -75,7 +75,7 @@ error WouldBlock;
 /// Fills `buf` with random bytes. If linking against libc, this calls the
 /// appropriate OS-specific library call. Otherwise it uses the zig standard
 /// library implementation.
-pub fn getRandomBytes(buf: []u8) -> %void {
+pub fn getRandomBytes(buf: []u8) %void {
     switch (builtin.os) {
         Os.linux => while (true) {
             // TODO check libc version and potentially call c.getrandom.
@@ -127,7 +127,7 @@ test "os.getRandomBytes" {
 /// Raises a signal in the current kernel thread, ending its execution.
 /// If linking against libc, this calls the abort() libc function. Otherwise
 /// it uses the zig standard library implementation.
-pub fn abort() -> noreturn {
+pub fn abort() noreturn {
     @setCold(true);
     if (builtin.link_libc) {
         c.abort();
@@ -149,7 +149,7 @@ pub fn abort() -> noreturn {
 }
 
 /// Exits the program cleanly with the specified status code.
-pub fn exit(status: u8) -> noreturn {
+pub fn exit(status: u8) noreturn {
     @setCold(true);
     if (builtin.link_libc) {
         c.exit(status);
@@ -166,7 +166,7 @@ pub fn exit(status: u8) -> noreturn {
 }
 
 /// Closes the file handle. Keeps trying if it gets interrupted by a signal.
-pub fn close(handle: FileHandle) {
+pub fn close(handle: FileHandle) void {
     if (is_windows) {
         windows_util.windowsClose(handle);
     } else {
@@ -182,7 +182,7 @@ pub fn close(handle: FileHandle) {
 }
 
 /// Calls POSIX read, and keeps trying if it gets interrupted.
-pub fn posixRead(fd: i32, buf: []u8) -> %void {
+pub fn posixRead(fd: i32, buf: []u8) %void {
     var index: usize = 0;
     while (index < buf.len) {
         const amt_written = posix.read(fd, &buf[index], buf.len - index);
@@ -213,7 +213,7 @@ error NoSpaceLeft;
 error BrokenPipe;
 
 /// Calls POSIX write, and keeps trying if it gets interrupted.
-pub fn posixWrite(fd: i32, bytes: []const u8) -> %void {
+pub fn posixWrite(fd: i32, bytes: []const u8) %void {
     while (true) {
         const write_ret = posix.write(fd, bytes.ptr, bytes.len);
         const write_err = posix.getErrno(write_ret);
@@ -243,7 +243,7 @@ pub fn posixWrite(fd: i32, bytes: []const u8) -> %void {
 /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
 /// Calls POSIX open, keeps trying if it gets interrupted, and translates
 /// the return value into zig errors.
-pub fn posixOpen(file_path: []const u8, flags: u32, perm: usize, allocator: ?&Allocator) -> %i32 {
+pub fn posixOpen(file_path: []const u8, flags: u32, perm: usize, allocator: ?&Allocator) %i32 {
     var stack_buf: [max_noalloc_path_len]u8 = undefined;
     var path0: []u8 = undefined;
     var need_free = false;
@@ -292,7 +292,7 @@ pub fn posixOpen(file_path: []const u8, flags: u32, perm: usize, allocator: ?&Al
     }
 }
 
-pub fn posixDup2(old_fd: i32, new_fd: i32) -> %void {
+pub fn posixDup2(old_fd: i32, new_fd: i32) %void {
     while (true) {
         const err = posix.getErrno(posix.dup2(old_fd, new_fd));
         if (err > 0) {
@@ -307,7 +307,7 @@ pub fn posixDup2(old_fd: i32, new_fd: i32) -> %void {
     }
 }
 
-pub fn createNullDelimitedEnvMap(allocator: &Allocator, env_map: &const BufMap) -> %[]?&u8 {
+pub fn createNullDelimitedEnvMap(allocator: &Allocator, env_map: &const BufMap) %[]?&u8 {
     const envp_count = env_map.count();
     const envp_buf = try allocator.alloc(?&u8, envp_count + 1);
     mem.set(?&u8, envp_buf, null);
@@ -330,7 +330,7 @@ pub fn createNullDelimitedEnvMap(allocator: &Allocator, env_map: &const BufMap) 
     return envp_buf;
 }
 
-pub fn freeNullDelimitedEnvMap(allocator: &Allocator, envp_buf: []?&u8) {
+pub fn freeNullDelimitedEnvMap(allocator: &Allocator, envp_buf: []?&u8) void {
     for (envp_buf) |env| {
         const env_buf = if (env) |ptr| ptr[0 .. cstr.len(ptr) + 1] else break;
         allocator.free(env_buf);
@@ -344,7 +344,7 @@ pub fn freeNullDelimitedEnvMap(allocator: &Allocator, envp_buf: []?&u8) {
 /// `argv[0]` is the executable path.
 /// This function also uses the PATH environment variable to get the full path to the executable.
 pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap,
-    allocator: &Allocator) -> %void
+    allocator: &Allocator) %void
 {
     const argv_buf = try allocator.alloc(?&u8, argv.len + 1);
     mem.set(?&u8, argv_buf, null);
@@ -400,7 +400,7 @@ pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap,
     return posixExecveErrnoToErr(err);
 }
 
-fn posixExecveErrnoToErr(err: usize) -> error {
+fn posixExecveErrnoToErr(err: usize) error {
     assert(err > 0);
     return switch (err) {
         posix.EFAULT => unreachable,
@@ -419,7 +419,7 @@ fn posixExecveErrnoToErr(err: usize) -> error {
 pub var posix_environ_raw: []&u8 = undefined;
 
 /// Caller must free result when done.
-pub fn getEnvMap(allocator: &Allocator) -> %BufMap {
+pub fn getEnvMap(allocator: &Allocator) %BufMap {
     var result = BufMap.init(allocator);
     errdefer result.deinit();
 
@@ -463,7 +463,7 @@ pub fn getEnvMap(allocator: &Allocator) -> %BufMap {
     }
 }
 
-pub fn getEnvPosix(key: []const u8) -> ?[]const u8 {
+pub fn getEnvPosix(key: []const u8) ?[]const u8 {
     for (posix_environ_raw) |ptr| {
         var line_i: usize = 0;
         while (ptr[line_i] != 0 and ptr[line_i] != '=') : (line_i += 1) {}
@@ -483,7 +483,7 @@ pub fn getEnvPosix(key: []const u8) -> ?[]const u8 {
 error EnvironmentVariableNotFound;
 
 /// Caller must free returned memory.
-pub fn getEnvVarOwned(allocator: &mem.Allocator, key: []const u8) -> %[]u8 {
+pub fn getEnvVarOwned(allocator: &mem.Allocator, key: []const u8) %[]u8 {
     if (is_windows) {
         const key_with_null = try cstr.addNullByte(allocator, key);
         defer allocator.free(key_with_null);
@@ -517,7 +517,7 @@ pub fn getEnvVarOwned(allocator: &mem.Allocator, key: []const u8) -> %[]u8 {
 }
 
 /// Caller must free the returned memory.
-pub fn getCwd(allocator: &Allocator) -> %[]u8 {
+pub fn getCwd(allocator: &Allocator) %[]u8 {
     switch (builtin.os) {
         Os.windows => {
             var buf = try allocator.alloc(u8, 256);
@@ -564,7 +564,7 @@ test "os.getCwd" {
     _ = getCwd(debug.global_allocator);
 }
 
-pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) -> %void {
+pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) %void {
     if (is_windows) {
         return symLinkWindows(allocator, existing_path, new_path);
     } else {
@@ -572,7 +572,7 @@ pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []con
     }
 }
 
-pub fn symLinkWindows(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) -> %void {
+pub fn symLinkWindows(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) %void {
     const existing_with_null = try cstr.addNullByte(allocator, existing_path);
     defer allocator.free(existing_with_null);
     const new_with_null = try cstr.addNullByte(allocator, new_path);
@@ -586,7 +586,7 @@ pub fn symLinkWindows(allocator: &Allocator, existing_path: []const u8, new_path
     }
 }
 
-pub fn symLinkPosix(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) -> %void {
+pub fn symLinkPosix(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) %void {
     const full_buf = try allocator.alloc(u8, existing_path.len + new_path.len + 2);
     defer allocator.free(full_buf);
 
@@ -623,7 +623,7 @@ const b64_fs_encoder = base64.Base64Encoder.init(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
     base64.standard_pad_char);
 
-pub fn atomicSymLink(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) -> %void {
+pub fn atomicSymLink(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) %void {
     if (symLink(allocator, existing_path, new_path)) {
         return;
     } else |err| {
@@ -652,7 +652,7 @@ pub fn atomicSymLink(allocator: &Allocator, existing_path: []const u8, new_path:
 
 }
 
-pub fn deleteFile(allocator: &Allocator, file_path: []const u8) -> %void {
+pub fn deleteFile(allocator: &Allocator, file_path: []const u8) %void {
     if (builtin.os == Os.windows) {
         return deleteFileWindows(allocator, file_path);
     } else {
@@ -663,7 +663,7 @@ pub fn deleteFile(allocator: &Allocator, file_path: []const u8) -> %void {
 error FileNotFound;
 error AccessDenied;
 
-pub fn deleteFileWindows(allocator: &Allocator, file_path: []const u8) -> %void {
+pub fn deleteFileWindows(allocator: &Allocator, file_path: []const u8) %void {
     const buf = try allocator.alloc(u8, file_path.len + 1);
     defer allocator.free(buf);
 
@@ -681,7 +681,7 @@ pub fn deleteFileWindows(allocator: &Allocator, file_path: []const u8) -> %void 
     }
 }
 
-pub fn deleteFilePosix(allocator: &Allocator, file_path: []const u8) -> %void {
+pub fn deleteFilePosix(allocator: &Allocator, file_path: []const u8) %void {
     const buf = try allocator.alloc(u8, file_path.len + 1);
     defer allocator.free(buf);
 
@@ -708,13 +708,13 @@ pub fn deleteFilePosix(allocator: &Allocator, file_path: []const u8) -> %void {
 }
 
 /// Calls ::copyFileMode with 0o666 for the mode.
-pub fn copyFile(allocator: &Allocator, source_path: []const u8, dest_path: []const u8) -> %void {
+pub fn copyFile(allocator: &Allocator, source_path: []const u8, dest_path: []const u8) %void {
     return copyFileMode(allocator, source_path, dest_path, 0o666);
 }
 
 // TODO instead of accepting a mode argument, use the mode from fstat'ing the source path once open
 /// Guaranteed to be atomic.
-pub fn copyFileMode(allocator: &Allocator, source_path: []const u8, dest_path: []const u8, mode: usize) -> %void {
+pub fn copyFileMode(allocator: &Allocator, source_path: []const u8, dest_path: []const u8, mode: usize) %void {
     var rand_buf: [12]u8 = undefined;
     const tmp_path = try allocator.alloc(u8, dest_path.len + base64.Base64Encoder.calcSize(rand_buf.len));
     defer allocator.free(tmp_path);
@@ -738,7 +738,7 @@ pub fn copyFileMode(allocator: &Allocator, source_path: []const u8, dest_path: [
     }
 }
 
-pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8) -> %void {
+pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8) %void {
     const full_buf = try allocator.alloc(u8, old_path.len + new_path.len + 2);
     defer allocator.free(full_buf);
 
@@ -783,7 +783,7 @@ pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8)
     }
 }
 
-pub fn makeDir(allocator: &Allocator, dir_path: []const u8) -> %void {
+pub fn makeDir(allocator: &Allocator, dir_path: []const u8) %void {
     if (is_windows) {
         return makeDirWindows(allocator, dir_path);
     } else {
@@ -791,7 +791,7 @@ pub fn makeDir(allocator: &Allocator, dir_path: []const u8) -> %void {
     }
 }
 
-pub fn makeDirWindows(allocator: &Allocator, dir_path: []const u8) -> %void {
+pub fn makeDirWindows(allocator: &Allocator, dir_path: []const u8) %void {
     const path_buf = try cstr.addNullByte(allocator, dir_path);
     defer allocator.free(path_buf);
 
@@ -805,7 +805,7 @@ pub fn makeDirWindows(allocator: &Allocator, dir_path: []const u8) -> %void {
     }
 }
 
-pub fn makeDirPosix(allocator: &Allocator, dir_path: []const u8) -> %void {
+pub fn makeDirPosix(allocator: &Allocator, dir_path: []const u8) %void {
     const path_buf = try cstr.addNullByte(allocator, dir_path);
     defer allocator.free(path_buf);
 
@@ -831,7 +831,7 @@ pub fn makeDirPosix(allocator: &Allocator, dir_path: []const u8) -> %void {
 
 /// Calls makeDir recursively to make an entire path. Returns success if the path
 /// already exists and is a directory.
-pub fn makePath(allocator: &Allocator, full_path: []const u8) -> %void {
+pub fn makePath(allocator: &Allocator, full_path: []const u8) %void {
     const resolved_path = try path.resolve(allocator, full_path);
     defer allocator.free(resolved_path);
 
@@ -869,7 +869,7 @@ pub fn makePath(allocator: &Allocator, full_path: []const u8) -> %void {
 
 /// Returns ::error.DirNotEmpty if the directory is not empty.
 /// To delete a directory recursively, see ::deleteTree
-pub fn deleteDir(allocator: &Allocator, dir_path: []const u8) -> %void {
+pub fn deleteDir(allocator: &Allocator, dir_path: []const u8) %void {
     const path_buf = try allocator.alloc(u8, dir_path.len + 1);
     defer allocator.free(path_buf);
 
@@ -898,7 +898,7 @@ pub fn deleteDir(allocator: &Allocator, dir_path: []const u8) -> %void {
 /// removes it. If it cannot be removed because it is a non-empty directory,
 /// this function recursively removes its entries and then tries again.
 // TODO non-recursive implementation
-pub fn deleteTree(allocator: &Allocator, full_path: []const u8) -> %void {
+pub fn deleteTree(allocator: &Allocator, full_path: []const u8) %void {
     start_over: while (true) {
         // First, try deleting the item as a file. This way we don't follow sym links.
         if (deleteFile(allocator, full_path)) {
@@ -967,7 +967,7 @@ pub const Dir = struct {
         };
     };
 
-    pub fn open(allocator: &Allocator, dir_path: []const u8) -> %Dir {
+    pub fn open(allocator: &Allocator, dir_path: []const u8) %Dir {
         const fd = try posixOpen(dir_path, posix.O_RDONLY|posix.O_DIRECTORY|posix.O_CLOEXEC, 0, allocator);
         return Dir {
             .allocator = allocator,
@@ -978,14 +978,14 @@ pub const Dir = struct {
         };
     }
 
-    pub fn close(self: &Dir) {
+    pub fn close(self: &Dir) void {
         self.allocator.free(self.buf);
         os.close(self.fd);
     }
 
     /// Memory such as file names referenced in this returned entry becomes invalid
     /// with subsequent calls to next, as well as when this ::Dir is deinitialized.
-    pub fn next(self: &Dir) -> %?Entry {
+    pub fn next(self: &Dir) %?Entry {
         start_over: while (true) {
             if (self.index >= self.end_index) {
                 if (self.buf.len == 0) {
@@ -1042,7 +1042,7 @@ pub const Dir = struct {
     }
 };
 
-pub fn changeCurDir(allocator: &Allocator, dir_path: []const u8) -> %void {
+pub fn changeCurDir(allocator: &Allocator, dir_path: []const u8) %void {
     const path_buf = try allocator.alloc(u8, dir_path.len + 1);
     defer allocator.free(path_buf);
 
@@ -1066,7 +1066,7 @@ pub fn changeCurDir(allocator: &Allocator, dir_path: []const u8) -> %void {
 }
 
 /// Read value of a symbolic link.
-pub fn readLink(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
+pub fn readLink(allocator: &Allocator, pathname: []const u8) %[]u8 {
     const path_buf = try allocator.alloc(u8, pathname.len + 1);
     defer allocator.free(path_buf);
 
@@ -1099,7 +1099,7 @@ pub fn readLink(allocator: &Allocator, pathname: []const u8) -> %[]u8 {
     }
 }
 
-pub fn sleep(seconds: usize, nanoseconds: usize) {
+pub fn sleep(seconds: usize, nanoseconds: usize) void {
     switch(builtin.os) {
         Os.linux, Os.macosx, Os.ios => {
             posixSleep(u63(seconds), u63(nanoseconds));
@@ -1113,7 +1113,7 @@ pub fn sleep(seconds: usize, nanoseconds: usize) {
 }
 
 const u63 = @IntType(false, 63);
-pub fn posixSleep(seconds: u63, nanoseconds: u63) {
+pub fn posixSleep(seconds: u63, nanoseconds: u63) void {
     var req = posix.timespec {
         .tv_sec = seconds,
         .tv_nsec = nanoseconds,
@@ -1147,7 +1147,7 @@ error ResourceLimitReached;
 error InvalidUserId;
 error PermissionDenied;
 
-pub fn posix_setuid(uid: u32) -> %void {
+pub fn posix_setuid(uid: u32) %void {
     const err = posix.getErrno(posix.setuid(uid));
     if (err == 0) return;
     return switch (err) {
@@ -1158,7 +1158,7 @@ pub fn posix_setuid(uid: u32) -> %void {
     };
 }
 
-pub fn posix_setreuid(ruid: u32, euid: u32) -> %void {
+pub fn posix_setreuid(ruid: u32, euid: u32) %void {
     const err = posix.getErrno(posix.setreuid(ruid, euid));
     if (err == 0) return;
     return switch (err) {
@@ -1169,7 +1169,7 @@ pub fn posix_setreuid(ruid: u32, euid: u32) -> %void {
     };
 }
 
-pub fn posix_setgid(gid: u32) -> %void {
+pub fn posix_setgid(gid: u32) %void {
     const err = posix.getErrno(posix.setgid(gid));
     if (err == 0) return;
     return switch (err) {
@@ -1180,7 +1180,7 @@ pub fn posix_setgid(gid: u32) -> %void {
     };
 }
 
-pub fn posix_setregid(rgid: u32, egid: u32) -> %void {
+pub fn posix_setregid(rgid: u32, egid: u32) %void {
     const err = posix.getErrno(posix.setregid(rgid, egid));
     if (err == 0) return;
     return switch (err) {
@@ -1192,7 +1192,7 @@ pub fn posix_setregid(rgid: u32, egid: u32) -> %void {
 }
 
 error NoStdHandles;
-pub fn windowsGetStdHandle(handle_id: windows.DWORD) -> %windows.HANDLE {
+pub fn windowsGetStdHandle(handle_id: windows.DWORD) %windows.HANDLE {
     if (windows.GetStdHandle(handle_id)) |handle| {
         if (handle == windows.INVALID_HANDLE_VALUE) {
             const err = windows.GetLastError();
@@ -1210,14 +1210,14 @@ pub const ArgIteratorPosix = struct {
     index: usize,
     count: usize,
 
-    pub fn init() -> ArgIteratorPosix {
+    pub fn init() ArgIteratorPosix {
         return ArgIteratorPosix {
             .index = 0,
             .count = raw.len,
         };
     }
 
-    pub fn next(self: &ArgIteratorPosix) -> ?[]const u8 {
+    pub fn next(self: &ArgIteratorPosix) ?[]const u8 {
         if (self.index == self.count)
             return null;
 
@@ -1226,7 +1226,7 @@ pub const ArgIteratorPosix = struct {
         return cstr.toSlice(s);
     }
 
-    pub fn skip(self: &ArgIteratorPosix) -> bool {
+    pub fn skip(self: &ArgIteratorPosix) bool {
         if (self.index == self.count)
             return false;
 
@@ -1246,11 +1246,11 @@ pub const ArgIteratorWindows = struct {
     quote_count: usize,
     seen_quote_count: usize,
 
-    pub fn init() -> ArgIteratorWindows {
+    pub fn init() ArgIteratorWindows {
         return initWithCmdLine(windows.GetCommandLineA());
     }
 
-    pub fn initWithCmdLine(cmd_line: &const u8) -> ArgIteratorWindows {
+    pub fn initWithCmdLine(cmd_line: &const u8) ArgIteratorWindows {
         return ArgIteratorWindows {
             .index = 0,
             .cmd_line = cmd_line,
@@ -1261,7 +1261,7 @@ pub const ArgIteratorWindows = struct {
     }
 
     /// You must free the returned memory when done.
-    pub fn next(self: &ArgIteratorWindows, allocator: &Allocator) -> ?%[]u8 {
+    pub fn next(self: &ArgIteratorWindows, allocator: &Allocator) ?%[]u8 {
         // march forward over whitespace
         while (true) : (self.index += 1) {
             const byte = self.cmd_line[self.index];
@@ -1275,7 +1275,7 @@ pub const ArgIteratorWindows = struct {
         return self.internalNext(allocator);
     }
 
-    pub fn skip(self: &ArgIteratorWindows) -> bool {
+    pub fn skip(self: &ArgIteratorWindows) bool {
         // march forward over whitespace
         while (true) : (self.index += 1) {
             const byte = self.cmd_line[self.index];
@@ -1314,7 +1314,7 @@ pub const ArgIteratorWindows = struct {
         }
     }
 
-    fn internalNext(self: &ArgIteratorWindows, allocator: &Allocator) -> %[]u8 {
+    fn internalNext(self: &ArgIteratorWindows, allocator: &Allocator) %[]u8 {
         var buf = try Buffer.initSize(allocator, 0);
         defer buf.deinit();
 
@@ -1358,14 +1358,14 @@ pub const ArgIteratorWindows = struct {
         }
     }
 
-    fn emitBackslashes(self: &ArgIteratorWindows, buf: &Buffer, emit_count: usize) -> %void {
+    fn emitBackslashes(self: &ArgIteratorWindows, buf: &Buffer, emit_count: usize) %void {
         var i: usize = 0;
         while (i < emit_count) : (i += 1) {
             try buf.appendByte('\\');
         }
     }
 
-    fn countQuotes(cmd_line: &const u8) -> usize {
+    fn countQuotes(cmd_line: &const u8) usize {
         var result: usize = 0;
         var backslash_count: usize = 0;
         var index: usize = 0;
@@ -1390,14 +1390,14 @@ pub const ArgIteratorWindows = struct {
 pub const ArgIterator = struct {
     inner: if (builtin.os == Os.windows) ArgIteratorWindows else ArgIteratorPosix,
 
-    pub fn init() -> ArgIterator {
+    pub fn init() ArgIterator {
         return ArgIterator {
             .inner = if (builtin.os == Os.windows) ArgIteratorWindows.init() else ArgIteratorPosix.init(),
         };
     }
     
     /// You must free the returned memory when done.
-    pub fn next(self: &ArgIterator, allocator: &Allocator) -> ?%[]u8 {
+    pub fn next(self: &ArgIterator, allocator: &Allocator) ?%[]u8 {
         if (builtin.os == Os.windows) {
             return self.inner.next(allocator);
         } else {
@@ -1406,23 +1406,23 @@ pub const ArgIterator = struct {
     }
 
     /// If you only are targeting posix you can call this and not need an allocator.
-    pub fn nextPosix(self: &ArgIterator) -> ?[]const u8 {
+    pub fn nextPosix(self: &ArgIterator) ?[]const u8 {
         return self.inner.next();
     }
 
     /// Parse past 1 argument without capturing it.
     /// Returns `true` if skipped an arg, `false` if we are at the end.
-    pub fn skip(self: &ArgIterator) -> bool {
+    pub fn skip(self: &ArgIterator) bool {
         return self.inner.skip();
     }
 };
 
-pub fn args() -> ArgIterator {
+pub fn args() ArgIterator {
     return ArgIterator.init();
 }
 
 /// Caller must call freeArgs on result.
-pub fn argsAlloc(allocator: &mem.Allocator) -> %[]const []u8 {
+pub fn argsAlloc(allocator: &mem.Allocator) %[]const []u8 {
     // TODO refactor to only make 1 allocation.
     var it = args();
     var contents = try Buffer.initSize(allocator, 0);
@@ -1459,7 +1459,7 @@ pub fn argsAlloc(allocator: &mem.Allocator) -> %[]const []u8 {
     return result_slice_list;
 }
 
-pub fn argsFree(allocator: &mem.Allocator, args_alloc: []const []u8) {
+pub fn argsFree(allocator: &mem.Allocator, args_alloc: []const []u8) void {
     var total_bytes: usize = 0;
     for (args_alloc) |arg| {
         total_bytes += @sizeOf([]u8) + arg.len;
@@ -1481,7 +1481,7 @@ test "windows arg parsing" {
         [][]const u8{".\\..\\zig-cache\\build", "bin\\zig.exe", ".\\..", ".\\..\\zig-cache", "--help"});
 }
 
-fn testWindowsCmdLine(input_cmd_line: &const u8, expected_args: []const []const u8) {
+fn testWindowsCmdLine(input_cmd_line: &const u8, expected_args: []const []const u8) void {
     var it = ArgIteratorWindows.initWithCmdLine(input_cmd_line);
     for (expected_args) |expected_arg| {
         const arg = ??it.next(debug.global_allocator) catch unreachable;
@@ -1511,7 +1511,7 @@ const unexpected_error_tracing = false;
 
 /// Call this when you made a syscall or something that sets errno
 /// and you get an unexpected error.
-pub fn unexpectedErrorPosix(errno: usize) -> error {
+pub fn unexpectedErrorPosix(errno: usize) error {
     if (unexpected_error_tracing) {
         debug.warn("unexpected errno: {}\n", errno);
         debug.dumpStackTrace();
@@ -1521,7 +1521,7 @@ pub fn unexpectedErrorPosix(errno: usize) -> error {
 
 /// Call this when you made a windows DLL call or something that does SetLastError
 /// and you get an unexpected error.
-pub fn unexpectedErrorWindows(err: windows.DWORD) -> error {
+pub fn unexpectedErrorWindows(err: windows.DWORD) error {
     if (unexpected_error_tracing) {
         debug.warn("unexpected GetLastError(): {}\n", err);
         debug.dumpStackTrace();
@@ -1529,7 +1529,7 @@ pub fn unexpectedErrorWindows(err: windows.DWORD) -> error {
     return error.Unexpected;
 }
 
-pub fn openSelfExe() -> %io.File {
+pub fn openSelfExe() %io.File {
     switch (builtin.os) {
         Os.linux => {
             return io.File.openRead("/proc/self/exe", null);
@@ -1547,7 +1547,7 @@ pub fn openSelfExe() -> %io.File {
 /// This function may return an error if the current executable
 /// was deleted after spawning.
 /// Caller owns returned memory.
-pub fn selfExePath(allocator: &mem.Allocator) -> %[]u8 {
+pub fn selfExePath(allocator: &mem.Allocator) %[]u8 {
     switch (builtin.os) {
         Os.linux => {
             // If the currently executing binary has been deleted,
@@ -1590,7 +1590,7 @@ pub fn selfExePath(allocator: &mem.Allocator) -> %[]u8 {
 
 /// Get the directory path that contains the current executable.
 /// Caller owns returned memory.
-pub fn selfExeDirPath(allocator: &mem.Allocator) -> %[]u8 {
+pub fn selfExeDirPath(allocator: &mem.Allocator) %[]u8 {
     switch (builtin.os) {
         Os.linux => {
             // If the currently executing binary has been deleted,
@@ -1612,7 +1612,7 @@ pub fn selfExeDirPath(allocator: &mem.Allocator) -> %[]u8 {
     }
 }
 
-pub fn isTty(handle: FileHandle) -> bool {
+pub fn isTty(handle: FileHandle) bool {
     if (is_windows) {
         return windows_util.windowsIsTty(handle);
     } else {

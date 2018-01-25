@@ -10,8 +10,8 @@ const want_modification_safety = builtin.mode != builtin.Mode.ReleaseFast;
 const debug_u32 = if (want_modification_safety) u32 else void;
 
 pub fn HashMap(comptime K: type, comptime V: type,
-    comptime hash: fn(key: K)->u32,
-    comptime eql: fn(a: K, b: K)->bool) -> type
+    comptime hash: fn(key: K)u32,
+    comptime eql: fn(a: K, b: K)bool) type
 {
     return struct {
         entries: []Entry,
@@ -39,7 +39,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
             // used to detect concurrent modification
             initial_modification_count: debug_u32,
 
-            pub fn next(it: &Iterator) -> ?&Entry {
+            pub fn next(it: &Iterator) ?&Entry {
                 if (want_modification_safety) {
                     assert(it.initial_modification_count == it.hm.modification_count); // concurrent modification
                 }
@@ -56,7 +56,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
             }
         };
 
-        pub fn init(allocator: &Allocator) -> Self {
+        pub fn init(allocator: &Allocator) Self {
             return Self {
                 .entries = []Entry{},
                 .allocator = allocator,
@@ -66,11 +66,11 @@ pub fn HashMap(comptime K: type, comptime V: type,
             };
         }
 
-        pub fn deinit(hm: &Self) {
+        pub fn deinit(hm: &Self) void {
             hm.allocator.free(hm.entries);
         }
 
-        pub fn clear(hm: &Self) {
+        pub fn clear(hm: &Self) void {
             for (hm.entries) |*entry| {
                 entry.used = false;
             }
@@ -80,7 +80,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
         }
 
         /// Returns the value that was already there.
-        pub fn put(hm: &Self, key: K, value: &const V) -> %?V {
+        pub fn put(hm: &Self, key: K, value: &const V) %?V {
             if (hm.entries.len == 0) {
                 try hm.initCapacity(16);
             }
@@ -102,18 +102,18 @@ pub fn HashMap(comptime K: type, comptime V: type,
             return hm.internalPut(key, value);
         }
 
-        pub fn get(hm: &Self, key: K) -> ?&Entry {
+        pub fn get(hm: &Self, key: K) ?&Entry {
             if (hm.entries.len == 0) {
                 return null;
             }
             return hm.internalGet(key);
         }
 
-        pub fn contains(hm: &Self, key: K) -> bool {
+        pub fn contains(hm: &Self, key: K) bool {
             return hm.get(key) != null;
         }
 
-        pub fn remove(hm: &Self, key: K) -> ?&Entry {
+        pub fn remove(hm: &Self, key: K) ?&Entry {
             hm.incrementModificationCount();
             const start_index = hm.keyToIndex(key);
             {var roll_over: usize = 0; while (roll_over <= hm.max_distance_from_start_index) : (roll_over += 1) {
@@ -142,7 +142,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
             return null;
         }
 
-        pub fn iterator(hm: &const Self) -> Iterator {
+        pub fn iterator(hm: &const Self) Iterator {
             return Iterator {
                 .hm = hm,
                 .count = 0,
@@ -151,7 +151,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
             };
         }
 
-        fn initCapacity(hm: &Self, capacity: usize) -> %void {
+        fn initCapacity(hm: &Self, capacity: usize) %void {
             hm.entries = try hm.allocator.alloc(Entry, capacity);
             hm.size = 0;
             hm.max_distance_from_start_index = 0;
@@ -160,14 +160,14 @@ pub fn HashMap(comptime K: type, comptime V: type,
             }
         }
 
-        fn incrementModificationCount(hm: &Self) {
+        fn incrementModificationCount(hm: &Self) void {
             if (want_modification_safety) {
                 hm.modification_count +%= 1;
             }
         }
 
         /// Returns the value that was already there.
-        fn internalPut(hm: &Self, orig_key: K, orig_value: &const V) -> ?V {
+        fn internalPut(hm: &Self, orig_key: K, orig_value: &const V) ?V {
             var key = orig_key;
             var value = *orig_value;
             const start_index = hm.keyToIndex(key);
@@ -217,7 +217,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
             unreachable; // put into a full map
         }
 
-        fn internalGet(hm: &Self, key: K) -> ?&Entry {
+        fn internalGet(hm: &Self, key: K) ?&Entry {
             const start_index = hm.keyToIndex(key);
             {var roll_over: usize = 0; while (roll_over <= hm.max_distance_from_start_index) : (roll_over += 1) {
                 const index = (start_index + roll_over) % hm.entries.len;
@@ -229,7 +229,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
             return null;
         }
 
-        fn keyToIndex(hm: &Self, key: K) -> usize {
+        fn keyToIndex(hm: &Self, key: K) usize {
             return usize(hash(key)) % hm.entries.len;
         }
     };
@@ -254,10 +254,10 @@ test "basicHashMapTest" {
     assert(map.get(2) == null);
 }
 
-fn hash_i32(x: i32) -> u32 {
+fn hash_i32(x: i32) u32 {
     return @bitCast(u32, x);
 }
 
-fn eql_i32(a: i32, b: i32) -> bool {
+fn eql_i32(a: i32, b: i32) bool {
     return a == b;
 }

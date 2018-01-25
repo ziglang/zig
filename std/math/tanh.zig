@@ -10,7 +10,7 @@ const math = std.math;
 const assert = std.debug.assert;
 const expo2 = @import("expo2.zig").expo2;
 
-pub fn tanh(x: var) -> @typeOf(x) {
+pub fn tanh(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
         f32 => tanh32(x),
@@ -22,7 +22,7 @@ pub fn tanh(x: var) -> @typeOf(x) {
 // tanh(x) = (exp(x) - exp(-x)) / (exp(x) + exp(-x))
 //         = (exp(2x) - 1) / (exp(2x) - 1 + 2)
 //         = (1 - exp(-2x)) / (exp(-2x) - 1 + 2)
-fn tanh32(x: f32) -> f32 {
+fn tanh32(x: f32) f32 {
     const u = @bitCast(u32, x);
     const ux = u & 0x7FFFFFFF;
     const ax = @bitCast(f32, ux);
@@ -66,7 +66,7 @@ fn tanh32(x: f32) -> f32 {
     }
 }
 
-fn tanh64(x: f64) -> f64 {
+fn tanh64(x: f64) f64 {
     const u = @bitCast(u64, x);
     const w = u32(u >> 32);
     const ax = @bitCast(f64, u & (@maxValue(u64) >> 1));

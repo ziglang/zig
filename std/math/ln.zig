@@ -11,7 +11,7 @@ const assert = std.debug.assert;
 const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
 
-pub fn ln(x: var) -> @typeOf(x) {
+pub fn ln(x: var) @typeOf(x) {
     const T = @typeOf(x);
     switch (@typeId(T)) {
         TypeId.FloatLiteral => {
@@ -34,7 +34,7 @@ pub fn ln(x: var) -> @typeOf(x) {
     }
 }
 
-pub fn ln_32(x_: f32) -> f32 {
+pub fn ln_32(x_: f32) f32 {
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
     const ln2_hi: f32 = 6.9313812256e-01;
@@ -88,7 +88,7 @@ pub fn ln_32(x_: f32) -> f32 {
     return s * (hfsq + R) + dk * ln2_lo - hfsq + f + dk * ln2_hi;
 }
 
-pub fn ln_64(x_: f64) -> f64 {
+pub fn ln_64(x_: f64) f64 {
     const ln2_hi: f64 = 6.93147180369123816490e-01;
     const ln2_lo: f64 = 1.90821492927058770002e-10;
     const Lg1: f64 = 6.666666666666735130e-01;

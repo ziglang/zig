@@ -8,7 +8,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn cos(x: var) -> @typeOf(x) {
+pub fn cos(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
         f32 => cos32(x),
@@ -36,7 +36,7 @@ const C5 =  4.16666666666665929218E-2;
 // NOTE: This is taken from the go stdlib. The musl implementation is much more complex.
 //
 // This may have slight differences on some edge cases and may need to replaced if so.
-fn cos32(x_: f32) -> f32 {
+fn cos32(x_: f32) f32 {
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
     const pi4a = 7.85398125648498535156e-1;
@@ -89,7 +89,7 @@ fn cos32(x_: f32) -> f32 {
     }
 }
 
-fn cos64(x_: f64) -> f64 {
+fn cos64(x_: f64) f64 {
     const pi4a = 7.85398125648498535156e-1;
     const pi4b = 3.77489470793079817668E-8;
     const pi4c = 2.69515142907905952645E-15;

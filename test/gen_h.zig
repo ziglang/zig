@@ -1,9 +1,9 @@
 const tests = @import("tests.zig");
 
-pub fn addCases(cases: &tests.GenHContext) {
+pub fn addCases(cases: &tests.GenHContext) void {
     cases.add("declare enum",
         \\const Foo = extern enum { A, B, C };
-        \\export fn entry(foo: Foo) { }
+        \\export fn entry(foo: Foo) void { }
     ,
         \\enum Foo {
         \\    A = 0,
@@ -21,7 +21,7 @@ pub fn addCases(cases: &tests.GenHContext) {
         \\    B: f32,
         \\    C: bool,
         \\};
-        \\export fn entry(foo: Foo) { }
+        \\export fn entry(foo: Foo) void { }
     ,
         \\struct Foo {
         \\    int32_t A;
@@ -39,7 +39,7 @@ pub fn addCases(cases: &tests.GenHContext) {
         \\    B: f32,
         \\    C: bool,
         \\};
-        \\export fn entry(foo: Foo) { }
+        \\export fn entry(foo: Foo) void { }
     ,
         \\union Foo {
         \\    int32_t A;
@@ -56,7 +56,7 @@ pub fn addCases(cases: &tests.GenHContext) {
         \\    A: [2]i32,
         \\    B: [4]&u32,
         \\};
-        \\export fn entry(foo: Foo, bar: [3]u8) { }
+        \\export fn entry(foo: Foo, bar: [3]u8) void { }
     ,
         \\struct Foo {
         \\    int32_t A[2];

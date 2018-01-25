@@ -2,7 +2,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn fma(comptime T: type, x: T, y: T, z: T) -> T {
+pub fn fma(comptime T: type, x: T, y: T, z: T) T {
     return switch (T) {
         f32 => fma32(x, y, z),
         f64 => fma64(x, y ,z),
@@ -10,7 +10,7 @@ pub fn fma(comptime T: type, x: T, y: T, z: T) -> T {
     };
 }
 
-fn fma32(x: f32, y: f32, z: f32) -> f32 {
+fn fma32(x: f32, y: f32, z: f32) f32 {
     const xy = f64(x) * y;
     const xy_z = xy + z;
     const u = @bitCast(u64, xy_z);
@@ -24,7 +24,7 @@ fn fma32(x: f32, y: f32, z: f32) -> f32 {
     }
 }
 
-fn fma64(x: f64, y: f64, z: f64) -> f64 {
+fn fma64(x: f64, y: f64, z: f64) f64 {
     if (!math.isFinite(x) or !math.isFinite(y)) {
         return x * y + z;
     }
@@ -73,7 +73,7 @@ fn fma64(x: f64, y: f64, z: f64) -> f64 {
 
 const dd = struct { hi: f64, lo: f64, };
 
-fn dd_add(a: f64, b: f64) -> dd {
+fn dd_add(a: f64, b: f64) dd {
     var ret: dd = undefined;
     ret.hi = a + b;
     const s = ret.hi - a;
@@ -81,7 +81,7 @@ fn dd_add(a: f64, b: f64) -> dd {
     return ret;
 }
 
-fn dd_mul(a: f64, b: f64) -> dd {
+fn dd_mul(a: f64, b: f64) dd {
     var ret: dd = undefined;
     const split: f64 = 0x1.0p27 + 1.0;
 
@@ -103,7 +103,7 @@ fn dd_mul(a: f64, b: f64) -> dd {
     return ret;
 }
 
-fn add_adjusted(a: f64, b: f64) -> f64 {
+fn add_adjusted(a: f64, b: f64) f64 {
     var sum = dd_add(a, b);
     if (sum.lo != 0) {
         var uhii = @bitCast(u64, sum.hi);
@@ -117,7 +117,7 @@ fn add_adjusted(a: f64, b: f64) -> f64 {
     return sum.hi;
 }
 
-fn add_and_denorm(a: f64, b: f64, scale: i32) -> f64 {
+fn add_and_denorm(a: f64, b: f64, scale: i32) f64 {
     var sum = dd_add(a, b);
     if (sum.lo != 0) {
         var uhii = @bitCast(u64, sum.hi);

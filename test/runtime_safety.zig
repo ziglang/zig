@@ -1,263 +1,263 @@
 const tests = @import("tests.zig");
 
-pub fn addCases(cases: &tests.CompareOutputContext) {
+pub fn addCases(cases: &tests.CompareOutputContext) void {
     cases.addRuntimeSafety("calling panic",
-        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) -> noreturn {
+        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\pub fn main() -> %void {
+        \\pub fn main() %void {
         \\    @panic("oh no");
         \\}
     );
 
     cases.addRuntimeSafety("out of bounds slice access",
-        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) -> noreturn {
+        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\pub fn main() -> %void {
+        \\pub fn main() %void {
         \\    const a = []i32{1, 2, 3, 4};
         \\    baz(bar(a));
         \\}
-        \\fn bar(a: []const i32) -> i32 {
+        \\fn bar(a: []const i32) i32 {
         \\    return a[4];
         \\}
-        \\fn baz(a: i32) { }
+        \\fn baz(a: i32) void { }
     );
 
     cases.addRuntimeSafety("integer addition overflow",
-        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) -> noreturn {
+        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
         \\error Whatever;
-        \\pub fn main() -> %void {
+        \\pub fn main() %void {
         \\    const x = add(65530, 10);
         \\    if (x == 0) return error.Whatever;
         \\}
-        \\fn add(a: u16, b: u16) -> u16 {
+        \\fn add(a: u16, b: u16) u16 {
         \\    return a + b;
         \\}
     );
 
     cases.addRuntimeSafety("integer subtraction overflow",
-        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) -> noreturn {
+        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
         \\error Whatever;
-        \\pub fn main() -> %void {
+        \\pub fn main() %void {
         \\    const x = sub(10, 20);
         \\    if (x == 0) return error.Whatever;
         \\}
-        \\fn sub(a: u16, b: u16) -> u16 {
+        \\fn sub(a: u16, b: u16) u16 {
         \\    return a - b;
         \\}
     );
 
     cases.addRuntimeSafety("integer multiplication overflow",
-        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) -> noreturn {
+        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
         \\error Whatever;
-        \\pub fn main() -> %void {
+        \\pub fn main() %void {
         \\    const x = mul(300, 6000);
         \\    if (x == 0) return error.Whatever;
         \\}
-        \\fn mul(a: u16, b: u16) -> u16 {
+        \\fn mul(a: u16, b: u16) u16 {
         \\    return a * b;
         \\}
     );
 
     cases.addRuntimeSafety("integer negation overflow",
-        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) -> noreturn {
+        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
         \\error Whatever;
-        \\pub fn main() -> %void {
+        \\pub fn main() %void {
         \\    const x = neg(-32768);
         \\    if (x == 32767) return error.Whatever;
         \\}
-        \\fn neg(a: i16) -> i16 {
+        \\fn neg(a: i16) i16 {
         \\    return -a;
         \\}
     );
 
     cases.addRuntimeSafety("signed integer division overflow",
-        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) -> noreturn {
+        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
         \\error Whatever;
-        \\pub fn main() -> %void {
+        \\pub fn main() %void {
         \\    const x = div(-32768, -1);
         \\    if (x == 32767) return error.Whatever;
         \\}
-        \\fn div(a: i16, b: i16) -> i16 {
+        \\fn div(a: i16, b: i16) i16 {
         \\    return @divTrunc(a, b);
         \\}
     );
 
     cases.addRuntimeSafety("signed shift left overflow",
-        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) -> noreturn {
+        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
         \\error Whatever;
-        \\pub fn main() -> %void {
+        \\pub fn main() %void {
         \\    const x = shl(-16385, 1);
         \\    if (x == 0) return error.Whatever;
         \\}
-        \\fn shl(a: i16, b: u4) -> i16 {
+        \\fn shl(a: i16, b: u4) i16 {
         \\    return @shlExact(a, b);
         \\}
     );
 
     cases.addRuntimeSafety("unsigned shift left overflow",
-        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) -> noreturn {
+        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
         \\error Whatever;
-        \\pub fn main() -> %void {
+        \\pub fn main() %void {
         \\    const x = shl(0b0010111111111111, 3);
         \\    if (x == 0) return error.Whatever;
         \\}
-        \\fn shl(a: u16, b: u4) -> u16 {
+        \\fn shl(a: u16, b: u4) u16 {
         \\    return @shlExact(a, b);
         \\}
     );
 
     cases.addRuntimeSafety("signed shift right overflow",
-        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) -> noreturn {
+        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
         \\error Whatever;
-        \\pub fn main() -> %void {
+        \\pub fn main() %void {
         \\    const x = shr(-16385, 1);
         \\    if (x == 0) return error.Whatever;
         \\}
-        \\fn shr(a: i16, b: u4) -> i16 {
+        \\fn shr(a: i16, b: u4) i16 {
         \\    return @shrExact(a, b);
         \\}
     );
 
     cases.addRuntimeSafety("unsigned shift right overflow",
-        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) -> noreturn {
+        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
         \\error Whatever;
-        \\pub fn main() -> %void {
+        \\pub fn main() %void {
         \\    const x = shr(0b0010111111111111, 3);
         \\    if (x == 0) return error.Whatever;
         \\}
-        \\fn shr(a: u16, b: u4) -> u16 {
+        \\fn shr(a: u16, b: u4) u16 {
         \\    return @shrExact(a, b);
         \\}
     );
 
     cases.addRuntimeSafety("integer division by zero",
-        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) -> noreturn {
+        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
         \\error Whatever;
-        \\pub fn main() -> %void {
+        \\pub fn main() %void {
         \\    const x = div0(999, 0);
         \\}
-        \\fn div0(a: i32, b: i32) -> i32 {
+        \\fn div0(a: i32, b: i32) i32 {
         \\    return @divTrunc(a, b);
         \\}
     );
 
     cases.addRuntimeSafety("exact division failure",
-        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) -> noreturn {
+        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
         \\error Whatever;
-        \\pub fn main() -> %void {
+        \\pub fn main() %void {
         \\    const x = divExact(10, 3);
         \\    if (x == 0) return error.Whatever;
         \\}
-        \\fn divExact(a: i32, b: i32) -> i32 {
+        \\fn divExact(a: i32, b: i32) i32 {
         \\    return @divExact(a, b);
         \\}
     );
 
     cases.addRuntimeSafety("cast []u8 to bigger slice of wrong size",
-        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) -> noreturn {
+        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
         \\error Whatever;
-        \\pub fn main() -> %void {
+        \\pub fn main() %void {
         \\    const x = widenSlice([]u8{1, 2, 3, 4, 5});
         \\    if (x.len == 0) return error.Whatever;
         \\}
-        \\fn widenSlice(slice: []align(1) const u8) -> []align(1) const i32 {
+        \\fn widenSlice(slice: []align(1) const u8) []align(1) const i32 {
         \\    return ([]align(1) const i32)(slice);
         \\}
     );
 
     cases.addRuntimeSafety("value does not fit in shortening cast",
-        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) -> noreturn {
+        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
         \\error Whatever;
-        \\pub fn main() -> %void {
+        \\pub fn main() %void {
         \\    const x = shorten_cast(200);
         \\    if (x == 0) return error.Whatever;
         \\}
-        \\fn shorten_cast(x: i32) -> i8 {
+        \\fn shorten_cast(x: i32) i8 {
         \\    return i8(x);
         \\}
     );
 
     cases.addRuntimeSafety("signed integer not fitting in cast to unsigned integer",
-        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) -> noreturn {
+        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
         \\error Whatever;
-        \\pub fn main() -> %void {
+        \\pub fn main() %void {
         \\    const x = unsigned_cast(-10);
         \\    if (x == 0) return error.Whatever;
         \\}
-        \\fn unsigned_cast(x: i32) -> u32 {
+        \\fn unsigned_cast(x: i32) u32 {
         \\    return u32(x);
         \\}
     );
 
     cases.addRuntimeSafety("unwrap error",
-        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) -> noreturn {
+        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    if (@import("std").mem.eql(u8, message, "attempt to unwrap error: Whatever")) {
         \\        @import("std").os.exit(126); // good
         \\    }
         \\    @import("std").os.exit(0); // test failed
         \\}
         \\error Whatever;
-        \\pub fn main() -> %void {
+        \\pub fn main() %void {
         \\    bar() catch unreachable;
         \\}
-        \\fn bar() -> %void {
+        \\fn bar() %void {
         \\    return error.Whatever;
         \\}
     );
 
     cases.addRuntimeSafety("cast integer to error and no code matches",
-        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) -> noreturn {
+        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\pub fn main() -> %void {
+        \\pub fn main() %void {
         \\    _ = bar(9999);
         \\}
-        \\fn bar(x: u32) -> error {
+        \\fn bar(x: u32) error {
         \\    return error(x);
         \\}
     );
 
     cases.addRuntimeSafety("@alignCast misaligned",
-        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) -> noreturn {
+        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
         \\error Wrong;
-        \\pub fn main() -> %void {
+        \\pub fn main() %void {
         \\    var array align(4) = []u32{0x11111111, 0x11111111};
         \\    const bytes = ([]u8)(array[0..]);
         \\    if (foo(bytes) != 0x11111111) return error.Wrong;
         \\}
-        \\fn foo(bytes: []u8) -> u32 {
+        \\fn foo(bytes: []u8) u32 {
         \\    const slice4 = bytes[1..5];
         \\    const int_slice = ([]u32)(@alignCast(4, slice4));
         \\    return int_slice[0];
@@ -265,7 +265,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
     );
 
     cases.addRuntimeSafety("bad union field access",
-        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) -> noreturn {
+        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
         \\
@@ -274,12 +274,12 @@ pub fn addCases(cases: &tests.CompareOutputContext) {
         \\    int: u32,
         \\};
         \\
-        \\pub fn main() -> %void {
+        \\pub fn main() %void {
         \\    var f = Foo { .int = 42 };
         \\    bar(&f);
         \\}
         \\
-        \\fn bar(f: &Foo) {
+        \\fn bar(f: &Foo) void {
         \\    f.float = 12.34;
         \\}
     );

@@ -1,16 +1,16 @@
 const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
-pub fn foo() -> %i32 {
+pub fn foo() %i32 {
     const x = try bar();
     return x + 1;
 }
 
-pub fn bar() -> %i32 {
+pub fn bar() %i32 {
     return 13;
 }
 
-pub fn baz() -> %i32 {
+pub fn baz() %i32 {
     const y = foo() catch 1234;
     return y + 1;
 }
@@ -20,7 +20,7 @@ test "error wrapping" {
 }
 
 error ItBroke;
-fn gimmeItBroke() -> []const u8 {
+fn gimmeItBroke() []const u8 {
     return @errorName(error.ItBroke);
 }
 
@@ -47,7 +47,7 @@ test "redefinition of error values allowed" {
 error AnError;
 error AnError;
 error SecondError;
-fn shouldBeNotEqual(a: error, b: error) {
+fn shouldBeNotEqual(a: error, b: error) void {
     if (a == b) unreachable;
 }
 
@@ -59,7 +59,7 @@ test "error binary operator" {
     assert(b == 10);
 }
 error ItBroke;
-fn errBinaryOperatorG(x: bool) -> %isize {
+fn errBinaryOperatorG(x: bool) %isize {
     return if (x) error.ItBroke else isize(10);
 }
 
@@ -68,18 +68,18 @@ test "unwrap simple value from error" {
     const i = unwrapSimpleValueFromErrorDo() catch unreachable;
     assert(i == 13);
 }
-fn unwrapSimpleValueFromErrorDo() -> %isize { return 13; }
+fn unwrapSimpleValueFromErrorDo() %isize { return 13; }
 
 
 test "error return in assignment" {
     doErrReturnInAssignment() catch unreachable;
 }
 
-fn doErrReturnInAssignment() -> %void {
+fn doErrReturnInAssignment() %void {
     var x : i32 = undefined;
     x = try makeANonErr();
 }
 
-fn makeANonErr() -> %i32 {
+fn makeANonErr() %i32 {
     return 1;
 }

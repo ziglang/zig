@@ -8,7 +8,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn acosh(x: var) -> @typeOf(x) {
+pub fn acosh(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
         f32 => acosh32(x),
@@ -18,7 +18,7 @@ pub fn acosh(x: var) -> @typeOf(x) {
 }
 
 // acosh(x) = log(x + sqrt(x * x - 1))
-fn acosh32(x: f32) -> f32 {
+fn acosh32(x: f32) f32 {
     const u = @bitCast(u32, x);
     const i = u & 0x7FFFFFFF;
 
@@ -36,7 +36,7 @@ fn acosh32(x: f32) -> f32 {
     }
 }
 
-fn acosh64(x: f64) -> f64 {
+fn acosh64(x: f64) f64 {
     const u = @bitCast(u64, x);
     const e = (u >> 52) & 0x7FF;
 

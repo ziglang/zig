@@ -22,7 +22,7 @@ test "runtime safety lets us slice from len..len" {
     assert(mem.eql(u8, sliceFromLenToLen(an_array[0..], 3, 3), ""));
 }
 
-fn sliceFromLenToLen(a_slice: []u8, start: usize, end: usize) -> []u8 {
+fn sliceFromLenToLen(a_slice: []u8, start: usize, end: usize) []u8 {
     return a_slice[start..end];
 }
 
@@ -31,6 +31,6 @@ test "implicitly cast array of size 0 to slice" {
     assertLenIsZero(msg);
 }
 
-fn assertLenIsZero(msg: []const u8) {
+fn assertLenIsZero(msg: []const u8) void {
     assert(msg.len == 0);
 }

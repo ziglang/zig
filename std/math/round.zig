@@ -9,7 +9,7 @@ const assert = std.debug.assert;
 const std = @import("../index.zig");
 const math = std.math;
 
-pub fn round(x: var) -> @typeOf(x) {
+pub fn round(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
         f32 => round32(x),
@@ -18,7 +18,7 @@ pub fn round(x: var) -> @typeOf(x) {
     };
 }
 
-fn round32(x_: f32) -> f32 {
+fn round32(x_: f32) f32 {
     var x = x_;
     const u = @bitCast(u32, x);
     const e = (u >> 23) & 0xFF;
@@ -55,7 +55,7 @@ fn round32(x_: f32) -> f32 {
     }
 }
 
-fn round64(x_: f64) -> f64 {
+fn round64(x_: f64) f64 {
     var x = x_;
     const u = @bitCast(u64, x);
     const e = (u >> 52) & 0x7FF;

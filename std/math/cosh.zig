@@ -10,7 +10,7 @@ const math = std.math;
 const expo2 = @import("expo2.zig").expo2;
 const assert = std.debug.assert;
 
-pub fn cosh(x: var) -> @typeOf(x) {
+pub fn cosh(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
         f32 => cosh32(x),
@@ -22,7 +22,7 @@ pub fn cosh(x: var) -> @typeOf(x) {
 // cosh(x) = (exp(x) + 1 / exp(x)) / 2
 //         = 1 + 0.5 * (exp(x) - 1) * (exp(x) - 1) / exp(x)
 //         = 1 + (x * x) / 2 + o(x^4)
-fn cosh32(x: f32) -> f32 {
+fn cosh32(x: f32) f32 {
     const u = @bitCast(u32, x);
     const ux = u & 0x7FFFFFFF;
     const ax = @bitCast(f32, ux);
@@ -47,7 +47,7 @@ fn cosh32(x: f32) -> f32 {
     return expo2(ax);
 }
 
-fn cosh64(x: f64) -> f64 {
+fn cosh64(x: f64) f64 {
     const u = @bitCast(u64, x);
     const w = u32(u >> 32);
     const ax = @bitCast(f64, u & (@maxValue(u64) >> 1));

@@ -8,7 +8,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn cbrt(x: var) -> @typeOf(x) {
+pub fn cbrt(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
         f32 => cbrt32(x),
@@ -17,7 +17,7 @@ pub fn cbrt(x: var) -> @typeOf(x) {
     };
 }
 
-fn cbrt32(x: f32) -> f32 {
+fn cbrt32(x: f32) f32 {
     const B1: u32 = 709958130; // (127 - 127.0 / 3 - 0.03306235651) * 2^23
     const B2: u32 = 642849266; // (127 - 127.0 / 3 - 24 / 3 - 0.03306235651) * 2^23
 
@@ -57,7 +57,7 @@ fn cbrt32(x: f32) -> f32 {
     return f32(t);
 }
 
-fn cbrt64(x: f64) -> f64 {
+fn cbrt64(x: f64) f64 {
     const B1: u32 = 715094163;  // (1023 - 1023 / 3 - 0.03306235651 * 2^20
     const B2: u32 = 696219795;  // (1023 - 1023 / 3 - 54 / 3 - 0.03306235651 * 2^20
 

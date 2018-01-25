@@ -18,14 +18,14 @@ var c_allocator_state = Allocator {
     .freeFn = cFree,
 };
 
-fn cAlloc(self: &Allocator, n: usize, alignment: u29) -> %[]u8 {
+fn cAlloc(self: &Allocator, n: usize, alignment: u29) %[]u8 {
     return if (c.malloc(usize(n))) |buf|
         @ptrCast(&u8, buf)[0..n]
     else
         error.OutOfMemory;
 }
 
-fn cRealloc(self: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) -> %[]u8 {
+fn cRealloc(self: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) %[]u8 {
     const old_ptr = @ptrCast(&c_void, old_mem.ptr);
     if (c.realloc(old_ptr, new_size)) |buf| {
         return @ptrCast(&u8, buf)[0..new_size];
@@ -36,7 +36,7 @@ fn cRealloc(self: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) ->
     }
 }
 
-fn cFree(self: &Allocator, old_mem: []u8) {
+fn cFree(self: &Allocator, old_mem: []u8) void {
     const old_ptr = @ptrCast(&c_void, old_mem.ptr);
     c.free(old_ptr);
 }
@@ -47,7 +47,7 @@ pub const IncrementingAllocator = struct {
     end_index: usize,
     heap_handle: if (builtin.os == Os.windows) os.windows.HANDLE else void,
 
-    fn init(capacity: usize) -> %IncrementingAllocator {
+    fn init(capacity: usize) %IncrementingAllocator {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios => {
                 const p = os.posix;
@@ -85,7 +85,7 @@ pub const IncrementingAllocator = struct {
         }
     }
 
-    fn deinit(self: &IncrementingAllocator) {
+    fn deinit(self: &IncrementingAllocator) void {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios => {
                 _ = os.posix.munmap(self.bytes.ptr, self.bytes.len);
@@ -97,15 +97,15 @@ pub const IncrementingAllocator = struct {
         }
     }
 
-    fn reset(self: &IncrementingAllocator) {
+    fn reset(self: &IncrementingAllocator) void {
         self.end_index = 0;
     }
 
-    fn bytesLeft(self: &const IncrementingAllocator) -> usize {
+    fn bytesLeft(self: &const IncrementingAllocator) usize {
         return self.bytes.len - self.end_index;
     }
 
-    fn alloc(allocator: &Allocator, n: usize, alignment: u29) -> %[]u8 {
+    fn alloc(allocator: &Allocator, n: usize, alignment: u29) %[]u8 {
         const self = @fieldParentPtr(IncrementingAllocator, "allocator", allocator);
         const addr = @ptrToInt(&self.bytes[self.end_index]);
         const rem = @rem(addr, alignment);
@@ -120,7 +120,7 @@ pub const IncrementingAllocator = struct {
         return result;
     }
 
-    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) -> %[]u8 {
+    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) %[]u8 {
         if (new_size <= old_mem.len) {
             return old_mem[0..new_size];
         } else {
@@ -130,7 +130,7 @@ pub const IncrementingAllocator = struct {
         }
     }
 
-    fn free(allocator: &Allocator, bytes: []u8) {
+    fn free(allocator: &Allocator, bytes: []u8) void {
         // Do nothing. That's the point of an incrementing allocator.
     }
 };

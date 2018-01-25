@@ -5,7 +5,7 @@ const os = std.os;
 const warn = std.debug.warn;
 const allocator = std.debug.global_allocator;
 
-pub fn main() -> %void {
+pub fn main() %void {
     var args_it = os.args();
     const exe = try unwrapArg(??args_it.next(allocator));
     var catted_anything = false;
@@ -36,12 +36,12 @@ pub fn main() -> %void {
     }
 }
 
-fn usage(exe: []const u8) -> %void {
+fn usage(exe: []const u8) %void {
     warn("Usage: {} [FILE]...\n", exe);
     return error.Invalid;
 }
 
-fn cat_file(stdout: &io.File, file: &io.File) -> %void {
+fn cat_file(stdout: &io.File, file: &io.File) %void {
     var buf: [1024 * 4]u8 = undefined;
 
     while (true) {
@@ -61,7 +61,7 @@ fn cat_file(stdout: &io.File, file: &io.File) -> %void {
     }
 }
 
-fn unwrapArg(arg: %[]u8) -> %[]u8 {
+fn unwrapArg(arg: %[]u8) %[]u8 {
     return arg catch |err| {
         warn("Unable to parse command line: {}\n", err);
         return err;

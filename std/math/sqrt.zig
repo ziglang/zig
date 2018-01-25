@@ -11,7 +11,7 @@ const assert = std.debug.assert;
 const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
 
-pub fn sqrt(x: var) -> (if (@typeId(@typeOf(x)) == TypeId.Int) @IntType(false, @typeOf(x).bit_count / 2) else @typeOf(x)) {
+pub fn sqrt(x: var) (if (@typeId(@typeOf(x)) == TypeId.Int) @IntType(false, @typeOf(x).bit_count / 2) else @typeOf(x)) {
     const T = @typeOf(x);
     switch (@typeId(T)) {
         TypeId.FloatLiteral => {
@@ -50,7 +50,7 @@ pub fn sqrt(x: var) -> (if (@typeId(@typeOf(x)) == TypeId.Int) @IntType(false, @
     }
 }
 
-fn sqrt32(x: f32) -> f32 {
+fn sqrt32(x: f32) f32 {
     const tiny: f32 = 1.0e-30;
     const sign: i32 = @bitCast(i32, u32(0x80000000));
     var ix: i32 = @bitCast(i32, x);
@@ -129,7 +129,7 @@ fn sqrt32(x: f32) -> f32 {
 // NOTE: The original code is full of implicit signed -> unsigned assumptions and u32 wraparound
 // behaviour. Most intermediate i32 values are changed to u32 where appropriate but there are
 // potentially some edge cases remaining that are not handled in the same way.
-fn sqrt64(x: f64) -> f64 {
+fn sqrt64(x: f64) f64 {
     const tiny: f64 = 1.0e-300;
     const sign: u32 = 0x80000000;
     const u = @bitCast(u64, x);
@@ -308,7 +308,7 @@ test "math.sqrt64.special" {
     assert(math.isNan(sqrt64(math.nan(f64))));
 }
 
-fn sqrt_int(comptime T: type, value: T) -> @IntType(false, T.bit_count / 2) {
+fn sqrt_int(comptime T: type, value: T) @IntType(false, T.bit_count / 2) {
     var op = value;
     var res: T = 0;
     var one: T = 1 << (T.bit_count - 2);

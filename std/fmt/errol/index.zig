@@ -13,7 +13,7 @@ pub const FloatDecimal = struct {
 };
 
 /// Corrected Errol3 double to ASCII conversion.
-pub fn errol3(value: f64, buffer: []u8) -> FloatDecimal {
+pub fn errol3(value: f64, buffer: []u8) FloatDecimal {
     const bits = @bitCast(u64, value);
     const i = tableLowerBound(bits);
     if (i < enum3.len and enum3[i] == bits) {
@@ -30,7 +30,7 @@ pub fn errol3(value: f64, buffer: []u8) -> FloatDecimal {
 }
 
 /// Uncorrected Errol3 double to ASCII conversion.
-fn errol3u(val: f64, buffer: []u8) -> FloatDecimal {
+fn errol3u(val: f64, buffer: []u8) FloatDecimal {
     // check if in integer or fixed range
 
     if (val > 9.007199254740992e15 and val < 3.40282366920938e+38) {
@@ -133,7 +133,7 @@ fn errol3u(val: f64, buffer: []u8) -> FloatDecimal {
     };
 }
 
-fn tableLowerBound(k: u64) -> usize {
+fn tableLowerBound(k: u64) usize {
     var i = enum3.len;
     var j: usize = 0;
 
@@ -153,7 +153,7 @@ fn tableLowerBound(k: u64) -> usize {
 ///   @in: The HP number.
 ///   @val: The double.
 ///   &returns: The HP number.
-fn hpProd(in: &const HP, val: f64) -> HP {
+fn hpProd(in: &const HP, val: f64) HP {
     var hi: f64 = undefined;
     var lo: f64 = undefined;
     split(in.val, &hi, &lo);
@@ -175,12 +175,12 @@ fn hpProd(in: &const HP, val: f64) -> HP {
 ///   @val: The double.
 ///   @hi: The high bits.
 ///   @lo: The low bits.
-fn split(val: f64, hi: &f64, lo: &f64) {
+fn split(val: f64, hi: &f64, lo: &f64) void {
     *hi = gethi(val);
     *lo = val - *hi;
 }
 
-fn gethi(in: f64) -> f64 {
+fn gethi(in: f64) f64 {
     const bits = @bitCast(u64, in);
     const new_bits = bits & 0xFFFFFFFFF8000000;
     return @bitCast(f64, new_bits);
@@ -188,7 +188,7 @@ fn gethi(in: f64) -> f64 {
 
 /// Normalize the number by factoring in the error.
 ///   @hp: The float pair.
-fn hpNormalize(hp: &HP) {
+fn hpNormalize(hp: &HP) void {
     const val = hp.val;
 
     hp.val += hp.off;
@@ -197,7 +197,7 @@ fn hpNormalize(hp: &HP) {
 
 /// Divide the high-precision number by ten.
 ///   @hp: The high-precision number
-fn hpDiv10(hp: &HP) {
+fn hpDiv10(hp: &HP) void {
     var val = hp.val;
 
     hp.val /= 10.0;
@@ -213,7 +213,7 @@ fn hpDiv10(hp: &HP) {
 
 /// Multiply the high-precision number by ten.
 ///   @hp: The high-precision number
-fn hpMul10(hp: &HP) {
+fn hpMul10(hp: &HP) void {
     const val = hp.val;
 
     hp.val *= 10.0;
@@ -233,7 +233,7 @@ fn hpMul10(hp: &HP) {
 ///  @val: The val.
 ///  @buf: The output buffer.
 ///  &return: The exponent.
-fn errolInt(val: f64, buffer: []u8) -> FloatDecimal {
+fn errolInt(val: f64, buffer: []u8) FloatDecimal {
     const pow19 = u128(1e19);
 
     assert((val > 9.007199254740992e15) and val < (3.40282366920938e38));
@@ -291,7 +291,7 @@ fn errolInt(val: f64, buffer: []u8) -> FloatDecimal {
 ///  @val: The val.
 ///  @buf: The output buffer.
 ///  &return: The exponent.
-fn errolFixed(val: f64, buffer: []u8) -> FloatDecimal {
+fn errolFixed(val: f64, buffer: []u8) FloatDecimal {
     assert((val >= 16.0) and (val < 9.007199254740992e15));
 
     const u = u64(val);
@@ -347,11 +347,11 @@ fn errolFixed(val: f64, buffer: []u8) -> FloatDecimal {
     };
 }
 
-fn fpnext(val: f64) -> f64 {
+fn fpnext(val: f64) f64 {
     return @bitCast(f64, @bitCast(u64, val) +% 1);
 }
 
-fn fpprev(val: f64) -> f64 {
+fn fpprev(val: f64) f64 {
     return @bitCast(f64, @bitCast(u64, val) -% 1);
 }
 
@@ -373,7 +373,7 @@ pub const c_digits_lut = []u8 {
     '9', '8', '9', '9',
 };
 
-fn u64toa(value_param: u64, buffer: []u8) -> usize {
+fn u64toa(value_param: u64, buffer: []u8) usize {
     var value = value_param;
     const kTen8: u64 = 100000000;
     const kTen9: u64 = kTen8 * 10;
@@ -606,7 +606,7 @@ fn u64toa(value_param: u64, buffer: []u8) -> usize {
     return buf_index;
 }
 
-fn fpeint(from: f64) -> u128 {
+fn fpeint(from: f64) u128 {
     const bits = @bitCast(u64, from);
     assert((bits & ((1 << 52) - 1)) == 0);
 
@@ -621,7 +621,7 @@ fn fpeint(from: f64) -> u128 {
 ///   @a: Integer a.
 ///   @b: Integer b.
 ///   &returns: An index within [0, 19).
-fn mismatch10(a: u64, b: u64) -> i32 {
+fn mismatch10(a: u64, b: u64) i32 {
     const pow10 = 10000000000;
     const af = a / pow10;
     const bf = b / pow10;

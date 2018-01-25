@@ -8,7 +8,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn ilogb(x: var) -> i32 {
+pub fn ilogb(x: var) i32 {
     const T = @typeOf(x);
     return switch (T) {
         f32 => ilogb32(x),
@@ -21,7 +21,7 @@ pub fn ilogb(x: var) -> i32 {
 const fp_ilogbnan = -1 - i32(@maxValue(u32) >> 1);
 const fp_ilogb0 = fp_ilogbnan;
 
-fn ilogb32(x: f32) -> i32 {
+fn ilogb32(x: f32) i32 {
     var u = @bitCast(u32, x);
     var e = i32((u >> 23) & 0xFF);
 
@@ -57,7 +57,7 @@ fn ilogb32(x: f32) -> i32 {
     return e - 0x7F;
 }
 
-fn ilogb64(x: f64) -> i32 {
+fn ilogb64(x: f64) i32 {
     var u = @bitCast(u64, x);
     var e = i32((u >> 52) & 0x7FF);
 

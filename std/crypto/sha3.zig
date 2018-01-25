@@ -10,7 +10,7 @@ pub const Sha3_256 = Keccak(256, 0x06);
 pub const Sha3_384 = Keccak(384, 0x06);
 pub const Sha3_512 = Keccak(512, 0x06);
 
-fn Keccak(comptime bits: usize, comptime delim: u8) -> type { return struct {
+fn Keccak(comptime bits: usize, comptime delim: u8) type { return struct {
     const Self = this;
     const block_size = 200;
     const digest_size = bits / 8;
@@ -19,25 +19,25 @@ fn Keccak(comptime bits: usize, comptime delim: u8) -> type { return struct {
     offset: usize,
     rate: usize,
 
-    pub fn init() -> Self {
+    pub fn init() Self {
         var d: Self = undefined;
         d.reset();
         return d;
     }
 
-    pub fn reset(d: &Self) {
+    pub fn reset(d: &Self) void {
         mem.set(u8, d.s[0..], 0);
         d.offset = 0;
         d.rate = 200 - (bits / 4);
     }
 
-    pub fn hash(b: []const u8, out: []u8) {
+    pub fn hash(b: []const u8, out: []u8) void {
         var d = Self.init();
         d.update(b);
         d.final(out);
     }
 
-    pub fn update(d: &Self, b: []const u8) {
+    pub fn update(d: &Self, b: []const u8) void {
         var ip: usize = 0;
         var len = b.len;
         var rate = d.rate - d.offset;
@@ -62,7 +62,7 @@ fn Keccak(comptime bits: usize, comptime delim: u8) -> type { return struct {
         d.offset = offset + len;
     }
 
-    pub fn final(d: &Self, out: []u8) {
+    pub fn final(d: &Self, out: []u8) void {
         // padding
         d.s[d.offset] ^= delim;
         d.s[d.rate - 1] ^= 0x80;
@@ -109,7 +109,7 @@ const M5 = []const usize {
     0, 1, 2, 3, 4, 0, 1, 2, 3, 4
 };
 
-fn keccak_f(comptime F: usize, d: []u8) {
+fn keccak_f(comptime F: usize, d: []u8) void {
     debug.assert(d.len == F / 8);
 
     const B = F / 25;
