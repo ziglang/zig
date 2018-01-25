@@ -3,7 +3,7 @@
 
 const builtin = @import("builtin");
 
-// Avoid dragging in the debug safety mechanisms into this .o file,
+// Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.
 pub fn panic(msg: []const u8, error_return_trace: ?&builtin.StackTrace) -> noreturn {
     if (builtin.is_test) {
@@ -18,7 +18,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?&builtin.StackTrace) -> noret
 // The semantics of memset is dictated by the corresponding
 // LLVM intrinsics, not by the libc API.
 export fn memset(dest: ?&u8, c: u8, n: usize) {
-    @setDebugSafety(this, false);
+    @setRuntimeSafety(false);
 
     var index: usize = 0;
     while (index != n) : (index += 1)
@@ -29,7 +29,7 @@ export fn memset(dest: ?&u8, c: u8, n: usize) {
 // The semantics of memcpy is dictated by the corresponding
 // LLVM intrinsics, not by the libc API.
 export fn memcpy(noalias dest: ?&u8, noalias src: ?&const u8, n: usize) {
-    @setDebugSafety(this, false);
+    @setRuntimeSafety(false);
 
     var index: usize = 0;
     while (index != n) : (index += 1)
@@ -58,7 +58,7 @@ export fn floor(x: f64) -> f64 { return math.floor(x); }
 export fn ceil(x: f64) -> f64 { return math.ceil(x); }
 
 fn generic_fmod(comptime T: type, x: T, y: T) -> T {
-    @setDebugSafety(this, false);
+    @setRuntimeSafety(false);
 
     const uint = @IntType(false, T.bit_count);
     const log2uint = math.Log2Int(uint);

@@ -156,9 +156,9 @@ pub const FixedBufferAllocator = struct {
 /// dest.len must be >= source.len.
 pub fn copy(comptime T: type, dest: []T, source: []const T) {
     // TODO instead of manually doing this check for the whole array
-    // and turning off debug safety, the compiler should detect loops like
+    // and turning off runtime safety, the compiler should detect loops like
     // this and automatically omit safety checks for loops
-    @setDebugSafety(this, false);
+    @setRuntimeSafety(false);
     assert(dest.len >= source.len);
     for (source) |s, i| dest[i] = s;
 }

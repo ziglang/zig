@@ -374,11 +374,9 @@ static void ir_print_set_cold(IrPrint *irp, IrInstructionSetCold *instruction) {
     fprintf(irp->f, ")");
 }
 
-static void ir_print_set_debug_safety(IrPrint *irp, IrInstructionSetDebugSafety *instruction) {
-    fprintf(irp->f, "@setDebugSafety(");
-    ir_print_other_instruction(irp, instruction->scope_value);
-    fprintf(irp->f, ", ");
-    ir_print_other_instruction(irp, instruction->debug_safety_on);
+static void ir_print_set_runtime_safety(IrPrint *irp, IrInstructionSetRuntimeSafety *instruction) {
+    fprintf(irp->f, "@setRuntimeSafety(");
+    ir_print_other_instruction(irp, instruction->safety_on);
     fprintf(irp->f, ")");
 }
 
@@ -1090,8 +1088,8 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
         case IrInstructionIdSetCold:
             ir_print_set_cold(irp, (IrInstructionSetCold *)instruction);
             break;
-        case IrInstructionIdSetDebugSafety:
-            ir_print_set_debug_safety(irp, (IrInstructionSetDebugSafety *)instruction);
+        case IrInstructionIdSetRuntimeSafety:
+            ir_print_set_runtime_safety(irp, (IrInstructionSetRuntimeSafety *)instruction);
             break;
         case IrInstructionIdSetFloatMode:
             ir_print_set_float_mode(irp, (IrInstructionSetFloatMode *)instruction);

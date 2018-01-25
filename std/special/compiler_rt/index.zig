@@ -72,7 +72,7 @@ const assert = @import("../../index.zig").debug.assert;
 
 const __udivmoddi4 = @import("udivmoddi4.zig").__udivmoddi4;
 
-// Avoid dragging in the debug safety mechanisms into this .o file,
+// Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.
 pub fn panic(msg: []const u8, error_return_trace: ?&builtin.StackTrace) -> noreturn {
     @setCold(true);
@@ -84,12 +84,12 @@ pub fn panic(msg: []const u8, error_return_trace: ?&builtin.StackTrace) -> noret
 }
 
 extern fn __udivdi3(a: u64, b: u64) -> u64 {
-    @setDebugSafety(this, is_test);
+    @setRuntimeSafety(is_test);
     return __udivmoddi4(a, b, null);
 }
 
 extern fn __umoddi3(a: u64, b: u64) -> u64 {
-    @setDebugSafety(this, is_test);
+    @setRuntimeSafety(is_test);
 
     var r: u64 = undefined;
     _ = __udivmoddi4(a, b, &r);
@@ -101,7 +101,7 @@ const AeabiUlDivModResult = extern struct {
     rem: u64,
 };
 extern fn __aeabi_uldivmod(numerator: u64, denominator: u64) -> AeabiUlDivModResult {
-    @setDebugSafety(this, is_test);
+    @setRuntimeSafety(is_test);
     var result: AeabiUlDivModResult = undefined;
     result.quot = __udivmoddi4(numerator, denominator, &result.rem);
     return result;
@@ -133,7 +133,7 @@ fn isArmArch() -> bool {
 }
 
 nakedcc fn __aeabi_uidivmod() {
-    @setDebugSafety(this, false);
+    @setRuntimeSafety(false);
     asm volatile (
         \\ push    { lr }
         \\ sub     sp, sp, #4
@@ -150,7 +150,7 @@ nakedcc fn __aeabi_uidivmod() {
 // This routine is windows specific
 // http://msdn.microsoft.com/en-us/library/ms648426.aspx
 nakedcc fn _chkstk() align(4) {
-    @setDebugSafety(this, false);
+    @setRuntimeSafety(false);
 
     asm volatile (
         \\         push   %%ecx
@@ -174,7 +174,7 @@ nakedcc fn _chkstk() align(4) {
 }
 
 nakedcc fn __chkstk() align(4) {
-    @setDebugSafety(this, false);
+    @setRuntimeSafety(false);
 
     asm volatile (
         \\        push   %%rcx
@@ -201,7 +201,7 @@ nakedcc fn __chkstk() align(4) {
 // This routine is windows specific
 // http://msdn.microsoft.com/en-us/library/ms648426.aspx
 nakedcc fn __chkstk_ms() align(4) {
-    @setDebugSafety(this, false);
+    @setRuntimeSafety(false);
 
     asm volatile (
         \\         push   %%ecx
@@ -225,7 +225,7 @@ nakedcc fn __chkstk_ms() align(4) {
 }
 
 nakedcc fn ___chkstk_ms() align(4) {
-    @setDebugSafety(this, false);
+    @setRuntimeSafety(false);
 
     asm volatile (
         \\        push   %%rcx
@@ -249,7 +249,7 @@ nakedcc fn ___chkstk_ms() align(4) {
 }
 
 extern fn __udivmodsi4(a: u32, b: u32, rem: &u32) -> u32 {
-    @setDebugSafety(this, is_test);
+    @setRuntimeSafety(is_test);
 
     const d = __udivsi3(a, b);
     *rem = u32(i32(a) -% (i32(d) * i32(b)));
@@ -258,7 +258,7 @@ extern fn __udivmodsi4(a: u32, b: u32, rem: &u32) -> u32 {
 
 
 extern fn __udivsi3(n: u32, d: u32) -> u32 {
-    @setDebugSafety(this, is_test);
+    @setRuntimeSafety(is_test);
 
     const n_uword_bits: c_uint = u32.bit_count;
     // special cases

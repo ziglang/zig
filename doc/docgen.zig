@@ -896,7 +896,7 @@ fn genHtml(allocator: &mem.Allocator, tokenizer: &Tokenizer, toc: &Toc, out: &io
                         }
                         if (mem.indexOf(u8, result.stderr, error_match) == null) {
                             warn("{}\nExpected to find '{}' in stderr", result.stderr, error_match);
-                            return parseError(tokenizer, code.source_token, "example did not have expected debug safety error message");
+                            return parseError(tokenizer, code.source_token, "example did not have expected runtime safety error message");
                         }
                         const escaped_stderr = try escapeHtml(allocator, result.stderr);
                         const colored_stderr = try termColor(allocator, escaped_stderr);

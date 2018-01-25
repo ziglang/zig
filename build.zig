@@ -116,7 +116,7 @@ pub fn build(b: &Builder) -> %void {
     test_step.dependOn(tests.addBuildExampleTests(b, test_filter));
     test_step.dependOn(tests.addCompileErrorTests(b, test_filter));
     test_step.dependOn(tests.addAssembleAndLinkTests(b, test_filter));
-    test_step.dependOn(tests.addDebugSafetyTests(b, test_filter));
+    test_step.dependOn(tests.addRuntimeSafetyTests(b, test_filter));
     test_step.dependOn(tests.addTranslateCTests(b, test_filter));
     test_step.dependOn(tests.addGenHTests(b, test_filter));
 }

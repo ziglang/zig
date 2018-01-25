@@ -1255,7 +1255,7 @@ enum BuiltinFnId {
     BuiltinFnIdTruncate,
     BuiltinFnIdIntType,
     BuiltinFnIdSetCold,
-    BuiltinFnIdSetDebugSafety,
+    BuiltinFnIdSetRuntimeSafety,
     BuiltinFnIdSetFloatMode,
     BuiltinFnIdTypeName,
     BuiltinFnIdCanImplicitCast,
@@ -1836,7 +1836,7 @@ enum IrInstructionId {
     IrInstructionIdToPtrType,
     IrInstructionIdPtrTypeChild,
     IrInstructionIdSetCold,
-    IrInstructionIdSetDebugSafety,
+    IrInstructionIdSetRuntimeSafety,
     IrInstructionIdSetFloatMode,
     IrInstructionIdArrayType,
     IrInstructionIdSliceType,
@@ -2214,11 +2214,10 @@ struct IrInstructionSetCold {
     IrInstruction *is_cold;
 };
 
-struct IrInstructionSetDebugSafety {
+struct IrInstructionSetRuntimeSafety {
     IrInstruction base;
 
-    IrInstruction *scope_value;
-    IrInstruction *debug_safety_on;
+    IrInstruction *safety_on;
 };
 
 struct IrInstructionSetFloatMode {

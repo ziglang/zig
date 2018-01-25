@@ -276,8 +276,8 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionSetCold *) {
     return IrInstructionIdSetCold;
 }
 
-static constexpr IrInstructionId ir_instruction_id(IrInstructionSetDebugSafety *) {
-    return IrInstructionIdSetDebugSafety;
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSetRuntimeSafety *) {
+    return IrInstructionIdSetRuntimeSafety;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionSetFloatMode *) {
@@ -1275,15 +1275,13 @@ static IrInstruction *ir_build_set_cold(IrBuilder *irb, Scope *scope, AstNode *s
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_set_debug_safety(IrBuilder *irb, Scope *scope, AstNode *source_node,
-        IrInstruction *scope_value, IrInstruction *debug_safety_on)
+static IrInstruction *ir_build_set_runtime_safety(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *safety_on)
 {
-    IrInstructionSetDebugSafety *instruction = ir_build_instruction<IrInstructionSetDebugSafety>(irb, scope, source_node);
-    instruction->scope_value = scope_value;
-    instruction->debug_safety_on = debug_safety_on;
+    IrInstructionSetRuntimeSafety *instruction = ir_build_instruction<IrInstructionSetRuntimeSafety>(irb, scope, source_node);
+    instruction->safety_on = safety_on;
 
-    ir_ref_instruction(scope_value, irb->current_basic_block);
-    ir_ref_instruction(debug_safety_on, irb->current_basic_block);
+    ir_ref_instruction(safety_on, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -3087,19 +3085,14 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
 
                 return ir_build_set_cold(irb, scope, node, arg0_value);
             }
-        case BuiltinFnIdSetDebugSafety:
+        case BuiltinFnIdSetRuntimeSafety:
             {
                 AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
                 IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
                 if (arg0_value == irb->codegen->invalid_instruction)
                     return arg0_value;
 
-                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
-                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
-                if (arg1_value == irb->codegen->invalid_instruction)
-                    return arg1_value;
-
-                return ir_build_set_debug_safety(irb, scope, node, arg0_value, arg1_value);
+                return ir_build_set_runtime_safety(irb, scope, node, arg0_value);
             }
         case BuiltinFnIdSetFloatMode:
             {
@@ -11607,72 +11600,60 @@ static TypeTableEntry *ir_analyze_instruction_set_cold(IrAnalyze *ira, IrInstruc
     ir_build_const_from(ira, &instruction->base);
     return ira->codegen->builtin_types.entry_void;
 }
-static TypeTableEntry *ir_analyze_instruction_set_debug_safety(IrAnalyze *ira,
-        IrInstructionSetDebugSafety *set_debug_safety_instruction)
+static TypeTableEntry *ir_analyze_instruction_set_runtime_safety(IrAnalyze *ira,
+        IrInstructionSetRuntimeSafety *set_runtime_safety_instruction)
 {
-    IrInstruction *target_instruction = set_debug_safety_instruction->scope_value->other;
-    TypeTableEntry *target_type = target_instruction->value.type;
-    if (type_is_invalid(target_type))
-        return ira->codegen->builtin_types.entry_invalid;
-    ConstExprValue *target_val = ir_resolve_const(ira, target_instruction, UndefBad);
-    if (!target_val)
-        return ira->codegen->builtin_types.entry_invalid;
-
     if (ira->new_irb.exec->is_inline) {
-        // ignore setDebugSafety when running functions at compile time
-        ir_build_const_from(ira, &set_debug_safety_instruction->base);
+        // ignore setRuntimeSafety when running functions at compile time
+        ir_build_const_from(ira, &set_runtime_safety_instruction->base);
         return ira->codegen->builtin_types.entry_void;
     }
 
     bool *safety_off_ptr;
     AstNode **safety_set_node_ptr;
-    if (target_type->id == TypeTableEntryIdBlock) {
-        ScopeBlock *block_scope = (ScopeBlock *)target_val->data.x_block;
-        safety_off_ptr = &block_scope->safety_off;
-        safety_set_node_ptr = &block_scope->safety_set_node;
-    } else if (target_type->id == TypeTableEntryIdFn) {
-        FnTableEntry *target_fn = target_val->data.x_fn.fn_entry;
-        assert(target_fn->def_scope);
-        safety_off_ptr = &target_fn->def_scope->safety_off;
-        safety_set_node_ptr = &target_fn->def_scope->safety_set_node;
-    } else if (target_type->id == TypeTableEntryIdMetaType) {
-        ScopeDecls *decls_scope;
-        TypeTableEntry *type_arg = target_val->data.x_type;
-        if (type_arg->id == TypeTableEntryIdStruct) {
-            decls_scope = type_arg->data.structure.decls_scope;
-        } else if (type_arg->id == TypeTableEntryIdEnum) {
-            decls_scope = type_arg->data.enumeration.decls_scope;
-        } else if (type_arg->id == TypeTableEntryIdUnion) {
-            decls_scope = type_arg->data.unionation.decls_scope;
+
+    Scope *scope = set_runtime_safety_instruction->base.scope;
+    while (scope != nullptr) {
+        if (scope->id == ScopeIdBlock) {
+            ScopeBlock *block_scope = (ScopeBlock *)scope;
+            safety_off_ptr = &block_scope->safety_off;
+            safety_set_node_ptr = &block_scope->safety_set_node;
+            break;
+        } else if (scope->id == ScopeIdFnDef) {
+            ScopeFnDef *def_scope = (ScopeFnDef *)scope;
+            FnTableEntry *target_fn = def_scope->fn_entry;
+            assert(target_fn->def_scope != nullptr);
+            safety_off_ptr = &target_fn->def_scope->safety_off;
+            safety_set_node_ptr = &target_fn->def_scope->safety_set_node;
+            break;
+        } else if (scope->id == ScopeIdDecls) {
+            ScopeDecls *decls_scope = (ScopeDecls *)scope;
+            safety_off_ptr = &decls_scope->safety_off;
+            safety_set_node_ptr = &decls_scope->safety_set_node;
+            break;
         } else {
-            ir_add_error_node(ira, target_instruction->source_node,
-                buf_sprintf("expected scope reference, found type '%s'", buf_ptr(&type_arg->name)));
-            return ira->codegen->builtin_types.entry_invalid;
+            scope = scope->parent;
+            continue;
         }
-        safety_off_ptr = &decls_scope->safety_off;
-        safety_set_node_ptr = &decls_scope->safety_set_node;
-    } else {
-        ir_add_error_node(ira, target_instruction->source_node,
-            buf_sprintf("expected scope reference, found type '%s'", buf_ptr(&target_type->name)));
-        return ira->codegen->builtin_types.entry_invalid;
     }
+    assert(scope != nullptr);
 
-    IrInstruction *debug_safety_on_value = set_debug_safety_instruction->debug_safety_on->other;
-    bool want_debug_safety;
-    if (!ir_resolve_bool(ira, debug_safety_on_value, &want_debug_safety))
+    IrInstruction *safety_on_value = set_runtime_safety_instruction->safety_on->other;
+    bool want_runtime_safety;
+    if (!ir_resolve_bool(ira, safety_on_value, &want_runtime_safety))
         return ira->codegen->builtin_types.entry_invalid;
 
-    AstNode *source_node = set_debug_safety_instruction->base.source_node;
+    AstNode *source_node = set_runtime_safety_instruction->base.source_node;
     if (*safety_set_node_ptr) {
         ErrorMsg *msg = ir_add_error_node(ira, source_node,
-                buf_sprintf("debug safety set twice for same scope"));
+                buf_sprintf("runtime safety set twice for same scope"));
         add_error_note(ira->codegen, msg, *safety_set_node_ptr, buf_sprintf("first set here"));
         return ira->codegen->builtin_types.entry_invalid;
     }
     *safety_set_node_ptr = source_node;
-    *safety_off_ptr = !want_debug_safety;
+    *safety_off_ptr = !want_runtime_safety;
 
-    ir_build_const_from(ira, &set_debug_safety_instruction->base);
+    ir_build_const_from(ira, &set_runtime_safety_instruction->base);
     return ira->codegen->builtin_types.entry_void;
 }
 
@@ -15293,8 +15274,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_ptr_type_child(ira, (IrInstructionPtrTypeChild *)instruction);
         case IrInstructionIdSetCold:
             return ir_analyze_instruction_set_cold(ira, (IrInstructionSetCold *)instruction);
-        case IrInstructionIdSetDebugSafety:
-            return ir_analyze_instruction_set_debug_safety(ira, (IrInstructionSetDebugSafety *)instruction);
+        case IrInstructionIdSetRuntimeSafety:
+            return ir_analyze_instruction_set_runtime_safety(ira, (IrInstructionSetRuntimeSafety *)instruction);
         case IrInstructionIdSetFloatMode:
             return ir_analyze_instruction_set_float_mode(ira, (IrInstructionSetFloatMode *)instruction);
         case IrInstructionIdSliceType:
@@ -15530,7 +15511,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdReturn:
         case IrInstructionIdUnreachable:
         case IrInstructionIdSetCold:
-        case IrInstructionIdSetDebugSafety:
+        case IrInstructionIdSetRuntimeSafety:
         case IrInstructionIdSetFloatMode:
         case IrInstructionIdImport:
         case IrInstructionIdCompileErr:

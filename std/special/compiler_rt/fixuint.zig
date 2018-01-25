@@ -2,7 +2,7 @@ const is_test = @import("builtin").is_test;
 const Log2Int = @import("../../math/index.zig").Log2Int;
 
 pub fn fixuint(comptime fp_t: type, comptime fixuint_t: type, a: fp_t) -> fixuint_t {
-    @setDebugSafety(this, is_test);
+    @setRuntimeSafety(is_test);
 
     const rep_t = switch (fp_t) {
         f32 => u32,
@@ -48,12 +48,12 @@ pub fn fixuint(comptime fp_t: type, comptime fixuint_t: type, a: fp_t) -> fixuin
     if (exponent < significandBits) {
         // TODO this is a workaround for the mysterious "integer cast truncated bits"
         // happening on the next line
-        @setDebugSafety(this, false);
+        @setRuntimeSafety(false);
         return fixuint_t(significand >> Log2Int(rep_t)(significandBits - exponent));
     } else {
         // TODO this is a workaround for the mysterious "integer cast truncated bits"
         // happening on the next line
-        @setDebugSafety(this, false);
+        @setRuntimeSafety(false);
         return fixuint_t(significand) << Log2Int(fixuint_t)(exponent - significandBits);
     }
 }

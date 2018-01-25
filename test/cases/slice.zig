@@ -17,7 +17,7 @@ test "slice child property" {
     assert(@typeOf(slice).Child == i32);
 }
 
-test "debug safety lets us slice from len..len" {
+test "runtime safety lets us slice from len..len" {
     var an_array = []u8{1, 2, 3};
     assert(mem.eql(u8, sliceFromLenToLen(an_array[0..], 3, 3), ""));
 }

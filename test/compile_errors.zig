@@ -1867,13 +1867,13 @@ pub fn addCases(cases: &tests.CompileErrorContext) {
     ,
         ".tmp_source.zig:3:20: error: cast from 'u16' to 'u8' truncates bits");
 
-    cases.add("@setDebugSafety twice for same scope",
+    cases.add("@setRuntimeSafety twice for same scope",
         \\export fn foo() {
-        \\    @setDebugSafety(this, false);
-        \\    @setDebugSafety(this, false);
+        \\    @setRuntimeSafety(false);
+        \\    @setRuntimeSafety(false);
         \\}
     ,
-        ".tmp_source.zig:3:5: error: debug safety set twice for same scope",
+        ".tmp_source.zig:3:5: error: runtime safety set twice for same scope",
         ".tmp_source.zig:2:5: note: first set here");
 
     cases.add("@setFloatMode twice for same scope",

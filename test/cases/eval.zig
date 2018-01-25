@@ -223,13 +223,13 @@ test "comptime iterate over fn ptr list" {
     assert(performFn('w', 99) == 99);
 }
 
-test "eval @setDebugSafety at compile-time" {
-    const result = comptime fnWithSetDebugSafety();
+test "eval @setRuntimeSafety at compile-time" {
+    const result = comptime fnWithSetRuntimeSafety();
     assert(result == 1234);
 }
 
-fn fnWithSetDebugSafety() -> i32{
-    @setDebugSafety(this, true);
+fn fnWithSetRuntimeSafety() -> i32{
+    @setRuntimeSafety(true);
     return 1234;
 }
 

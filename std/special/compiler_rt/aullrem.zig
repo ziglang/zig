@@ -1,5 +1,5 @@
 pub nakedcc fn _aullrem() {
-    @setDebugSafety(this, false);
+    @setRuntimeSafety(false);
     asm volatile (
         \\.intel_syntax noprefix
         \\

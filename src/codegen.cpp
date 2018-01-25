@@ -806,7 +806,7 @@ static bool ir_want_fast_math(CodeGen *g, IrInstruction *instruction) {
     return true;
 }
 
-static bool ir_want_debug_safety(CodeGen *g, IrInstruction *instruction) {
+static bool ir_want_runtime_safety(CodeGen *g, IrInstruction *instruction) {
     if (g->build_mode == BuildModeFastRelease)
         return false;
 
@@ -901,7 +901,7 @@ static void gen_panic(CodeGen *g, LLVMValueRef msg_arg, LLVMValueRef stack_trace
     LLVMBuildUnreachable(g->builder);
 }
 
-static void gen_debug_safety_crash(CodeGen *g, PanicMsgId msg_id) {
+static void gen_safety_crash(CodeGen *g, PanicMsgId msg_id) {
     gen_panic(g, get_panic_msg_ptr_val(g, msg_id), nullptr);
 }
 
@@ -1140,7 +1140,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     return fn_val;
 }
 
-static void gen_debug_safety_crash_for_err(CodeGen *g, LLVMValueRef err_val) {
+static void gen_safety_crash_for_err(CodeGen *g, LLVMValueRef err_val) {
     LLVMValueRef safety_crash_err_fn = get_safety_crash_err_fn(g);
     LLVMValueRef err_ret_trace_val = g->cur_err_ret_trace_val;
     if (err_ret_trace_val == nullptr) {
@@ -1179,7 +1179,7 @@ static void add_bounds_check(CodeGen *g, LLVMValueRef target_val,
     LLVMBuildCondBr(g->builder, lower_ok_val, lower_ok_block, bounds_check_fail_block);
 
     LLVMPositionBuilderAtEnd(g->builder, bounds_check_fail_block);
-    gen_debug_safety_crash(g, PanicMsgIdBoundsCheckFailure);
+    gen_safety_crash(g, PanicMsgIdBoundsCheckFailure);
 
     if (upper_value) {
         LLVMPositionBuilderAtEnd(g->builder, lower_ok_block);
@@ -1190,7 +1190,7 @@ static void add_bounds_check(CodeGen *g, LLVMValueRef target_val,
     LLVMPositionBuilderAtEnd(g->builder, ok_block);
 }
 
-static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_debug_safety, TypeTableEntry *actual_type,
+static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_runtime_safety, TypeTableEntry *actual_type,
         TypeTableEntry *wanted_type, LLVMValueRef expr_val)
 {
     assert(actual_type->id == wanted_type->id);
@@ -1209,7 +1209,7 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_debug_safety, Typ
 
     if (actual_bits >= wanted_bits && actual_type->id == TypeTableEntryIdInt &&
         !wanted_type->data.integral.is_signed && actual_type->data.integral.is_signed &&
-        want_debug_safety)
+        want_runtime_safety)
     {
         LLVMValueRef zero = LLVMConstNull(actual_type->type_ref);
         LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntSGE, expr_val, zero, "");
@@ -1219,7 +1219,7 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_debug_safety, Typ
         LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
 
         LLVMPositionBuilderAtEnd(g->builder, fail_block);
-        gen_debug_safety_crash(g, PanicMsgIdCastNegativeToUnsigned);
+        gen_safety_crash(g, PanicMsgIdCastNegativeToUnsigned);
 
         LLVMPositionBuilderAtEnd(g->builder, ok_block);
     }
@@ -1243,7 +1243,7 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_debug_safety, Typ
             return LLVMBuildFPTrunc(g->builder, expr_val, wanted_type->type_ref, "");
         } else if (actual_type->id == TypeTableEntryIdInt) {
             LLVMValueRef trunc_val = LLVMBuildTrunc(g->builder, expr_val, wanted_type->type_ref, "");
-            if (!want_debug_safety) {
+            if (!want_runtime_safety) {
                 return trunc_val;
             }
             LLVMValueRef orig_val;
@@ -1258,7 +1258,7 @@ static LLVMValueRef gen_widen_or_shorten(CodeGen *g, bool want_debug_safety, Typ
             LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
 
             LLVMPositionBuilderAtEnd(g->builder, fail_block);
-            gen_debug_safety_crash(g, PanicMsgIdCastTruncatedData);
+            gen_safety_crash(g, PanicMsgIdCastTruncatedData);
 
             LLVMPositionBuilderAtEnd(g->builder, ok_block);
             return trunc_val;
@@ -1286,7 +1286,7 @@ static LLVMValueRef gen_overflow_op(CodeGen *g, TypeTableEntry *type_entry, AddS
     LLVMBuildCondBr(g->builder, overflow_bit, fail_block, ok_block);
 
     LLVMPositionBuilderAtEnd(g->builder, fail_block);
-    gen_debug_safety_crash(g, PanicMsgIdIntegerOverflow);
+    gen_safety_crash(g, PanicMsgIdIntegerOverflow);
 
     LLVMPositionBuilderAtEnd(g->builder, ok_block);
     return result;
@@ -1494,7 +1494,7 @@ static LLVMValueRef gen_overflow_shl_op(CodeGen *g, TypeTableEntry *type_entry,
     LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
 
     LLVMPositionBuilderAtEnd(g->builder, fail_block);
-    gen_debug_safety_crash(g, PanicMsgIdShlOverflowedBits);
+    gen_safety_crash(g, PanicMsgIdShlOverflowedBits);
 
     LLVMPositionBuilderAtEnd(g->builder, ok_block);
     return result;
@@ -1519,7 +1519,7 @@ static LLVMValueRef gen_overflow_shr_op(CodeGen *g, TypeTableEntry *type_entry,
     LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
 
     LLVMPositionBuilderAtEnd(g->builder, fail_block);
-    gen_debug_safety_crash(g, PanicMsgIdShrOverflowedBits);
+    gen_safety_crash(g, PanicMsgIdShrOverflowedBits);
 
     LLVMPositionBuilderAtEnd(g->builder, ok_block);
     return result;
@@ -1565,14 +1565,14 @@ static LLVMValueRef bigint_to_llvm_const(LLVMTypeRef type_ref, BigInt *bigint) {
     }
 }
 
-static LLVMValueRef gen_div(CodeGen *g, bool want_debug_safety, bool want_fast_math,
+static LLVMValueRef gen_div(CodeGen *g, bool want_runtime_safety, bool want_fast_math,
         LLVMValueRef val1, LLVMValueRef val2,
         TypeTableEntry *type_entry, DivKind div_kind)
 {
     ZigLLVMSetFastMath(g->builder, want_fast_math);
 
     LLVMValueRef zero = LLVMConstNull(type_entry->type_ref);
-    if (want_debug_safety && (want_fast_math || type_entry->id != TypeTableEntryIdFloat)) {
+    if (want_runtime_safety && (want_fast_math || type_entry->id != TypeTableEntryIdFloat)) {
         LLVMValueRef is_zero_bit;
         if (type_entry->id == TypeTableEntryIdInt) {
             is_zero_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, val2, zero, "");
@@ -1586,7 +1586,7 @@ static LLVMValueRef gen_div(CodeGen *g, bool want_debug_safety, bool want_fast_m
         LLVMBuildCondBr(g->builder, is_zero_bit, div_zero_fail_block, div_zero_ok_block);
 
         LLVMPositionBuilderAtEnd(g->builder, div_zero_fail_block);
-        gen_debug_safety_crash(g, PanicMsgIdDivisionByZero);
+        gen_safety_crash(g, PanicMsgIdDivisionByZero);
 
         LLVMPositionBuilderAtEnd(g->builder, div_zero_ok_block);
 
@@ -1603,7 +1603,7 @@ static LLVMValueRef gen_div(CodeGen *g, bool want_debug_safety, bool want_fast_m
             LLVMBuildCondBr(g->builder, overflow_fail_bit, overflow_fail_block, overflow_ok_block);
 
             LLVMPositionBuilderAtEnd(g->builder, overflow_fail_block);
-            gen_debug_safety_crash(g, PanicMsgIdIntegerOverflow);
+            gen_safety_crash(g, PanicMsgIdIntegerOverflow);
 
             LLVMPositionBuilderAtEnd(g->builder, overflow_ok_block);
         }
@@ -1615,7 +1615,7 @@ static LLVMValueRef gen_div(CodeGen *g, bool want_debug_safety, bool want_fast_m
             case DivKindFloat:
                 return result;
             case DivKindExact:
-                if (want_debug_safety) {
+                if (want_runtime_safety) {
                     LLVMValueRef floored = gen_floor(g, result, type_entry);
                     LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivExactOk");
                     LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "DivExactFail");
@@ -1624,7 +1624,7 @@ static LLVMValueRef gen_div(CodeGen *g, bool want_debug_safety, bool want_fast_m
                     LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
 
                     LLVMPositionBuilderAtEnd(g->builder, fail_block);
-                    gen_debug_safety_crash(g, PanicMsgIdExactDivisionRemainder);
+                    gen_safety_crash(g, PanicMsgIdExactDivisionRemainder);
 
                     LLVMPositionBuilderAtEnd(g->builder, ok_block);
                 }
@@ -1672,7 +1672,7 @@ static LLVMValueRef gen_div(CodeGen *g, bool want_debug_safety, bool want_fast_m
                 return LLVMBuildUDiv(g->builder, val1, val2, "");
             }
         case DivKindExact:
-            if (want_debug_safety) {
+            if (want_runtime_safety) {
                 LLVMValueRef remainder_val;
                 if (type_entry->data.integral.is_signed) {
                     remainder_val = LLVMBuildSRem(g->builder, val1, val2, "");
@@ -1686,7 +1686,7 @@ static LLVMValueRef gen_div(CodeGen *g, bool want_debug_safety, bool want_fast_m
                 LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
 
                 LLVMPositionBuilderAtEnd(g->builder, fail_block);
-                gen_debug_safety_crash(g, PanicMsgIdExactDivisionRemainder);
+                gen_safety_crash(g, PanicMsgIdExactDivisionRemainder);
 
                 LLVMPositionBuilderAtEnd(g->builder, ok_block);
             }
@@ -1724,14 +1724,14 @@ enum RemKind {
     RemKindMod,
 };
 
-static LLVMValueRef gen_rem(CodeGen *g, bool want_debug_safety, bool want_fast_math,
+static LLVMValueRef gen_rem(CodeGen *g, bool want_runtime_safety, bool want_fast_math,
         LLVMValueRef val1, LLVMValueRef val2,
         TypeTableEntry *type_entry, RemKind rem_kind)
 {
     ZigLLVMSetFastMath(g->builder, want_fast_math);
 
     LLVMValueRef zero = LLVMConstNull(type_entry->type_ref);
-    if (want_debug_safety) {
+    if (want_runtime_safety) {
         LLVMValueRef is_zero_bit;
         if (type_entry->id == TypeTableEntryIdInt) {
             LLVMIntPredicate pred = type_entry->data.integral.is_signed ? LLVMIntSLE : LLVMIntEQ;
@@ -1746,7 +1746,7 @@ static LLVMValueRef gen_rem(CodeGen *g, bool want_debug_safety, bool want_fast_m
         LLVMBuildCondBr(g->builder, is_zero_bit, rem_zero_fail_block, rem_zero_ok_block);
 
         LLVMPositionBuilderAtEnd(g->builder, rem_zero_fail_block);
-        gen_debug_safety_crash(g, PanicMsgIdRemainderDivisionByZero);
+        gen_safety_crash(g, PanicMsgIdRemainderDivisionByZero);
 
         LLVMPositionBuilderAtEnd(g->builder, rem_zero_ok_block);
     }
@@ -1792,8 +1792,8 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
             op_id == IrBinOpBitShiftRightExact);
     TypeTableEntry *type_entry = op1->value.type;
 
-    bool want_debug_safety = bin_op_instruction->safety_check_on &&
-        ir_want_debug_safety(g, &bin_op_instruction->base);
+    bool want_runtime_safety = bin_op_instruction->safety_check_on &&
+        ir_want_runtime_safety(g, &bin_op_instruction->base);
 
     LLVMValueRef op1_value = ir_llvm_value(g, op1);
     LLVMValueRef op2_value = ir_llvm_value(g, op2);
@@ -1841,7 +1841,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
                 bool is_wrapping = (op_id == IrBinOpAddWrap);
                 if (is_wrapping) {
                     return LLVMBuildAdd(g->builder, op1_value, op2_value, "");
-                } else if (want_debug_safety) {
+                } else if (want_runtime_safety) {
                     return gen_overflow_op(g, type_entry, AddSubMulAdd, op1_value, op2_value);
                 } else if (type_entry->data.integral.is_signed) {
                     return LLVMBuildNSWAdd(g->builder, op1_value, op2_value, "");
@@ -1866,7 +1866,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
                 bool is_sloppy = (op_id == IrBinOpBitShiftLeftLossy);
                 if (is_sloppy) {
                     return LLVMBuildShl(g->builder, op1_value, op2_casted, "");
-                } else if (want_debug_safety) {
+                } else if (want_runtime_safety) {
                     return gen_overflow_shl_op(g, type_entry, op1_value, op2_casted);
                 } else if (type_entry->data.integral.is_signed) {
                     return ZigLLVMBuildNSWShl(g->builder, op1_value, op2_casted, "");
@@ -1887,7 +1887,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
                     } else {
                         return LLVMBuildLShr(g->builder, op1_value, op2_casted, "");
                     }
-                } else if (want_debug_safety) {
+                } else if (want_runtime_safety) {
                     return gen_overflow_shr_op(g, type_entry, op1_value, op2_casted);
                 } else if (type_entry->data.integral.is_signed) {
                     return ZigLLVMBuildAShrExact(g->builder, op1_value, op2_casted, "");
@@ -1904,7 +1904,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
                 bool is_wrapping = (op_id == IrBinOpSubWrap);
                 if (is_wrapping) {
                     return LLVMBuildSub(g->builder, op1_value, op2_value, "");
-                } else if (want_debug_safety) {
+                } else if (want_runtime_safety) {
                     return gen_overflow_op(g, type_entry, AddSubMulSub, op1_value, op2_value);
                 } else if (type_entry->data.integral.is_signed) {
                     return LLVMBuildNSWSub(g->builder, op1_value, op2_value, "");
@@ -1923,7 +1923,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
                 bool is_wrapping = (op_id == IrBinOpMultWrap);
                 if (is_wrapping) {
                     return LLVMBuildMul(g->builder, op1_value, op2_value, "");
-                } else if (want_debug_safety) {
+                } else if (want_runtime_safety) {
                     return gen_overflow_op(g, type_entry, AddSubMulMul, op1_value, op2_value);
                 } else if (type_entry->data.integral.is_signed) {
                     return LLVMBuildNSWMul(g->builder, op1_value, op2_value, "");
@@ -1934,22 +1934,22 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
                 zig_unreachable();
             }
         case IrBinOpDivUnspecified:
-            return gen_div(g, want_debug_safety, ir_want_fast_math(g, &bin_op_instruction->base),
+            return gen_div(g, want_runtime_safety, ir_want_fast_math(g, &bin_op_instruction->base),
                     op1_value, op2_value, type_entry, DivKindFloat);
         case IrBinOpDivExact:
-            return gen_div(g, want_debug_safety, ir_want_fast_math(g, &bin_op_instruction->base),
+            return gen_div(g, want_runtime_safety, ir_want_fast_math(g, &bin_op_instruction->base),
                     op1_value, op2_value, type_entry, DivKindExact);
         case IrBinOpDivTrunc:
-            return gen_div(g, want_debug_safety, ir_want_fast_math(g, &bin_op_instruction->base),
+            return gen_div(g, want_runtime_safety, ir_want_fast_math(g, &bin_op_instruction->base),
                     op1_value, op2_value, type_entry, DivKindTrunc);
         case IrBinOpDivFloor:
-            return gen_div(g, want_debug_safety, ir_want_fast_math(g, &bin_op_instruction->base),
+            return gen_div(g, want_runtime_safety, ir_want_fast_math(g, &bin_op_instruction->base),
                     op1_value, op2_value, type_entry, DivKindFloor);
         case IrBinOpRemRem:
-            return gen_rem(g, want_debug_safety, ir_want_fast_math(g, &bin_op_instruction->base),
+            return gen_rem(g, want_runtime_safety, ir_want_fast_math(g, &bin_op_instruction->base),
                     op1_value, op2_value, type_entry, RemKindRem);
         case IrBinOpRemMod:
-            return gen_rem(g, want_debug_safety, ir_want_fast_math(g, &bin_op_instruction->base),
+            return gen_rem(g, want_runtime_safety, ir_want_fast_math(g, &bin_op_instruction->base),
                     op1_value, op2_value, type_entry, RemKindMod);
     }
     zig_unreachable();
@@ -2007,7 +2007,7 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
                     new_len = LLVMBuildMul(g->builder, src_len, src_size_val, "");
                 } else if (src_size == 1) {
                     LLVMValueRef dest_size_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, dest_size, false);
-                    if (ir_want_debug_safety(g, &cast_instruction->base)) {
+                    if (ir_want_runtime_safety(g, &cast_instruction->base)) {
                         LLVMValueRef remainder_val = LLVMBuildURem(g->builder, src_len, dest_size_val, "");
                         LLVMValueRef zero = LLVMConstNull(g->builtin_types.entry_usize->type_ref);
                         LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, remainder_val, zero, "");
@@ -2016,7 +2016,7 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
                         LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
 
                         LLVMPositionBuilderAtEnd(g->builder, fail_block);
-                        gen_debug_safety_crash(g, PanicMsgIdSliceWidenRemainder);
+                        gen_safety_crash(g, PanicMsgIdSliceWidenRemainder);
 
                         LLVMPositionBuilderAtEnd(g->builder, ok_block);
                     }
@@ -2111,7 +2111,7 @@ static LLVMValueRef ir_render_widen_or_shorten(CodeGen *g, IrExecutable *executa
         int_type = actual_type;
     }
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
-    return gen_widen_or_shorten(g, ir_want_debug_safety(g, &instruction->base), int_type,
+    return gen_widen_or_shorten(g, ir_want_runtime_safety(g, &instruction->base), int_type,
             instruction->base.value.type, target_val);
 }
 
@@ -2133,7 +2133,7 @@ static LLVMValueRef ir_render_int_to_enum(CodeGen *g, IrExecutable *executable, 
     TypeTableEntry *tag_int_type = wanted_type->data.enumeration.tag_int_type;
 
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
-    return gen_widen_or_shorten(g, ir_want_debug_safety(g, &instruction->base),
+    return gen_widen_or_shorten(g, ir_want_runtime_safety(g, &instruction->base),
             instruction->target->value.type, tag_int_type, target_val);
 }
 
@@ -2147,7 +2147,7 @@ static LLVMValueRef ir_render_int_to_err(CodeGen *g, IrExecutable *executable, I
 
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
 
-    if (ir_want_debug_safety(g, &instruction->base)) {
+    if (ir_want_runtime_safety(g, &instruction->base)) {
         LLVMValueRef zero = LLVMConstNull(actual_type->type_ref);
         LLVMValueRef neq_zero_bit = LLVMBuildICmp(g->builder, LLVMIntNE, target_val, zero, "");
         LLVMValueRef ok_bit;
@@ -2171,7 +2171,7 @@ static LLVMValueRef ir_render_int_to_err(CodeGen *g, IrExecutable *executable, I
         LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
 
         LLVMPositionBuilderAtEnd(g->builder, fail_block);
-        gen_debug_safety_crash(g, PanicMsgIdInvalidErrorCode);
+        gen_safety_crash(g, PanicMsgIdInvalidErrorCode);
 
         LLVMPositionBuilderAtEnd(g->builder, ok_block);
     }
@@ -2188,11 +2188,11 @@ static LLVMValueRef ir_render_err_to_int(CodeGen *g, IrExecutable *executable, I
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
 
     if (actual_type->id == TypeTableEntryIdPureError) {
-        return gen_widen_or_shorten(g, ir_want_debug_safety(g, &instruction->base),
+        return gen_widen_or_shorten(g, ir_want_runtime_safety(g, &instruction->base),
             g->err_tag_type, wanted_type, target_val);
     } else if (actual_type->id == TypeTableEntryIdErrorUnion) {
         if (!type_has_bits(actual_type->data.error.child_type)) {
-            return gen_widen_or_shorten(g, ir_want_debug_safety(g, &instruction->base),
+            return gen_widen_or_shorten(g, ir_want_runtime_safety(g, &instruction->base),
                 g->err_tag_type, wanted_type, target_val);
         } else {
             zig_panic("TODO");
@@ -2205,8 +2205,8 @@ static LLVMValueRef ir_render_err_to_int(CodeGen *g, IrExecutable *executable, I
 static LLVMValueRef ir_render_unreachable(CodeGen *g, IrExecutable *executable,
         IrInstructionUnreachable *unreachable_instruction)
 {
-    if (ir_want_debug_safety(g, &unreachable_instruction->base)) {
-        gen_debug_safety_crash(g, PanicMsgIdUnreachable);
+    if (ir_want_runtime_safety(g, &unreachable_instruction->base)) {
+        gen_safety_crash(g, PanicMsgIdUnreachable);
     } else {
         LLVMBuildUnreachable(g->builder);
     }
@@ -2248,7 +2248,7 @@ static LLVMValueRef ir_render_un_op(CodeGen *g, IrExecutable *executable, IrInst
                 } else if (expr_type->id == TypeTableEntryIdInt) {
                     if (op_id == IrUnOpNegationWrap) {
                         return LLVMBuildNeg(g->builder, expr, "");
-                    } else if (ir_want_debug_safety(g, &un_op_instruction->base)) {
+                    } else if (ir_want_runtime_safety(g, &un_op_instruction->base)) {
                         LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(expr));
                         return gen_overflow_op(g, expr_type, AddSubMulSub, zero, expr);
                     } else if (expr_type->data.integral.is_signed) {
@@ -2317,7 +2317,7 @@ static LLVMValueRef ir_render_decl_var(CodeGen *g, IrExecutable *executable,
                 var->align_bytes, 0, 0);
         gen_assign_raw(g, var->value_ref, var_ptr_type, ir_llvm_value(g, init_value));
     } else {
-        bool want_safe = ir_want_debug_safety(g, &decl_var_instruction->base);
+        bool want_safe = ir_want_runtime_safety(g, &decl_var_instruction->base);
         if (want_safe) {
             TypeTableEntry *usize = g->builtin_types.entry_usize;
             uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, var->value->type->type_ref);
@@ -2409,7 +2409,7 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrI
     if (!type_has_bits(array_type))
         return nullptr;
 
-    bool safety_check_on = ir_want_debug_safety(g, &instruction->base) && instruction->safety_check_on;
+    bool safety_check_on = ir_want_runtime_safety(g, &instruction->base) && instruction->safety_check_on;
 
     if (array_type->id == TypeTableEntryIdArray) {
         if (safety_check_on) {
@@ -2593,7 +2593,7 @@ static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, IrExecutable *executab
         return bitcasted_union_field_ptr;
     }
 
-    if (ir_want_debug_safety(g, &instruction->base)) {
+    if (ir_want_runtime_safety(g, &instruction->base)) {
         LLVMValueRef tag_field_ptr = LLVMBuildStructGEP(g->builder, union_ptr, union_type->data.unionation.gen_tag_index, "");
         LLVMValueRef tag_value = gen_load_untyped(g, tag_field_ptr, 0, false, "");
 
@@ -2606,7 +2606,7 @@ static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, IrExecutable *executab
         LLVMBuildCondBr(g->builder, ok_val, ok_block, bad_block);
 
         LLVMPositionBuilderAtEnd(g->builder, bad_block);
-        gen_debug_safety_crash(g, PanicMsgIdBadUnionField);
+        gen_safety_crash(g, PanicMsgIdBadUnionField);
 
         LLVMPositionBuilderAtEnd(g->builder, ok_block);
     }
@@ -2776,14 +2776,14 @@ static LLVMValueRef ir_render_unwrap_maybe(CodeGen *g, IrExecutable *executable,
     TypeTableEntry *child_type = maybe_type->data.maybe.child_type;
     LLVMValueRef maybe_ptr = ir_llvm_value(g, instruction->value);
     LLVMValueRef maybe_handle = get_handle_value(g, maybe_ptr, maybe_type, ptr_type);
-    if (ir_want_debug_safety(g, &instruction->base) && instruction->safety_check_on) {
+    if (ir_want_runtime_safety(g, &instruction->base) && instruction->safety_check_on) {
         LLVMValueRef non_null_bit = gen_non_null_bit(g, maybe_type, maybe_handle);
         LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapMaybeOk");
         LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "UnwrapMaybeFail");
         LLVMBuildCondBr(g->builder, non_null_bit, ok_block, fail_block);
 
         LLVMPositionBuilderAtEnd(g->builder, fail_block);
-        gen_debug_safety_crash(g, PanicMsgIdUnwrapMaybeFail);
+        gen_safety_crash(g, PanicMsgIdUnwrapMaybeFail);
 
         LLVMPositionBuilderAtEnd(g->builder, ok_block);
     }
@@ -2913,7 +2913,7 @@ static LLVMValueRef ir_render_err_name(CodeGen *g, IrExecutable *executable, IrI
     }
 
     LLVMValueRef err_val = ir_llvm_value(g, instruction->value);
-    if (ir_want_debug_safety(g, &instruction->base)) {
+    if (ir_want_runtime_safety(g, &instruction->base)) {
         LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(err_val));
         LLVMValueRef end_val = LLVMConstInt(LLVMTypeOf(err_val), g->error_decls.length, false);
         add_bounds_check(g, err_val, LLVMIntNE, zero, LLVMIntULT, end_val);
@@ -2935,7 +2935,7 @@ static LLVMValueRef ir_render_enum_tag_name(CodeGen *g, IrExecutable *executable
 
     TypeTableEntry *tag_int_type = enum_type->data.enumeration.tag_int_type;
     LLVMValueRef enum_tag_value = ir_llvm_value(g, instruction->target);
-    if (ir_want_debug_safety(g, &instruction->base)) {
+    if (ir_want_runtime_safety(g, &instruction->base)) {
         size_t field_count = enum_type->data.enumeration.src_field_count;
 
         // if the field_count can't fit in the bits of the enum_type, then it can't possibly
@@ -2988,8 +2988,8 @@ static LLVMValueRef ir_render_align_cast(CodeGen *g, IrExecutable *executable, I
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
     assert(target_val);
 
-    bool want_debug_safety = ir_want_debug_safety(g, &instruction->base);
-    if (!want_debug_safety) {
+    bool want_runtime_safety = ir_want_runtime_safety(g, &instruction->base);
+    if (!want_runtime_safety) {
         return target_val;
     }
 
@@ -3038,7 +3038,7 @@ static LLVMValueRef ir_render_align_cast(CodeGen *g, IrExecutable *executable, I
     LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
 
     LLVMPositionBuilderAtEnd(g->builder, fail_block);
-    gen_debug_safety_crash(g, PanicMsgIdIncorrectAlignment);
+    gen_safety_crash(g, PanicMsgIdIncorrectAlignment);
 
     LLVMPositionBuilderAtEnd(g->builder, ok_block);
 
@@ -3176,7 +3176,7 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutable *executable, IrInst
 
     LLVMValueRef tmp_struct_ptr = instruction->tmp_ptr;
 
-    bool want_debug_safety = instruction->safety_check_on && ir_want_debug_safety(g, &instruction->base);
+    bool want_runtime_safety = instruction->safety_check_on && ir_want_runtime_safety(g, &instruction->base);
 
     if (array_type->id == TypeTableEntryIdArray) {
         LLVMValueRef start_val = ir_llvm_value(g, instruction->start);
@@ -3187,7 +3187,7 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutable *executable, IrInst
             end_val = LLVMConstInt(g->builtin_types.entry_usize->type_ref, array_type->data.array.len, false);
         }
 
-        if (want_debug_safety) {
+        if (want_runtime_safety) {
             add_bounds_check(g, start_val, LLVMIntEQ, nullptr, LLVMIntULE, end_val);
             if (instruction->end) {
                 LLVMValueRef array_end = LLVMConstInt(g->builtin_types.entry_usize->type_ref,
@@ -3198,7 +3198,7 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutable *executable, IrInst
         if (!type_has_bits(array_type)) {
             LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, tmp_struct_ptr, slice_len_index, "");
 
-            // TODO if debug safety is on, store 0xaaaaaaa in ptr field
+            // TODO if runtime safety is on, store 0xaaaaaaa in ptr field
             LLVMValueRef len_value = LLVMBuildNSWSub(g->builder, end_val, start_val, "");
             gen_store_untyped(g, len_value, len_field_ptr, 0, false);
             return tmp_struct_ptr;
@@ -3222,7 +3222,7 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutable *executable, IrInst
         LLVMValueRef start_val = ir_llvm_value(g, instruction->start);
         LLVMValueRef end_val = ir_llvm_value(g, instruction->end);
 
-        if (want_debug_safety) {
+        if (want_runtime_safety) {
             add_bounds_check(g, start_val, LLVMIntEQ, nullptr, LLVMIntULE, end_val);
         }
 
@@ -3246,7 +3246,7 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutable *executable, IrInst
         assert(len_index != SIZE_MAX);
 
         LLVMValueRef prev_end = nullptr;
-        if (!instruction->end || want_debug_safety) {
+        if (!instruction->end || want_runtime_safety) {
             LLVMValueRef src_len_ptr = LLVMBuildStructGEP(g->builder, array_ptr, (unsigned)len_index, "");
             prev_end = gen_load_untyped(g, src_len_ptr, 0, false, "");
         }
@@ -3259,7 +3259,7 @@ static LLVMValueRef ir_render_slice(CodeGen *g, IrExecutable *executable, IrInst
             end_val = prev_end;
         }
 
-        if (want_debug_safety) {
+        if (want_runtime_safety) {
             assert(prev_end);
             add_bounds_check(g, start_val, LLVMIntEQ, nullptr, LLVMIntULE, end_val);
             if (instruction->end) {
@@ -3432,7 +3432,7 @@ static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutable *execu
     LLVMValueRef err_union_ptr = ir_llvm_value(g, instruction->value);
     LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type, ptr_type);
 
-    if (ir_want_debug_safety(g, &instruction->base) && instruction->safety_check_on && g->error_decls.length > 1) {
+    if (ir_want_runtime_safety(g, &instruction->base) && instruction->safety_check_on && g->error_decls.length > 1) {
         LLVMValueRef err_val;
         if (type_has_bits(child_type)) {
             LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, err_union_handle, err_union_err_index, "");
@@ -3447,7 +3447,7 @@ static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutable *execu
         LLVMBuildCondBr(g->builder, cond_val, ok_block, err_block);
 
         LLVMPositionBuilderAtEnd(g->builder, err_block);
-        gen_debug_safety_crash_for_err(g, err_val);
+        gen_safety_crash_for_err(g, err_val);
 
         LLVMPositionBuilderAtEnd(g->builder, ok_block);
     }
@@ -3660,7 +3660,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdPtrTypeChild:
         case IrInstructionIdFieldPtr:
         case IrInstructionIdSetCold:
-        case IrInstructionIdSetDebugSafety:
+        case IrInstructionIdSetRuntimeSafety:
         case IrInstructionIdSetFloatMode:
         case IrInstructionIdArrayType:
         case IrInstructionIdSliceType:
@@ -5238,7 +5238,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdCompileLog, "compileLog", SIZE_MAX);
     create_builtin_fn(g, BuiltinFnIdIntType, "IntType", 2); // TODO rename to Int
     create_builtin_fn(g, BuiltinFnIdSetCold, "setCold", 1);
-    create_builtin_fn(g, BuiltinFnIdSetDebugSafety, "setDebugSafety", 2);
+    create_builtin_fn(g, BuiltinFnIdSetRuntimeSafety, "setRuntimeSafety", 1);
     create_builtin_fn(g, BuiltinFnIdSetFloatMode, "setFloatMode", 2);
     create_builtin_fn(g, BuiltinFnIdPanic, "panic", 1);
     create_builtin_fn(g, BuiltinFnIdPtrCast, "ptrCast", 2);

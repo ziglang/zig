@@ -33,7 +33,7 @@ pub const Instruction = struct {
         TypeOf,
         ToPtrType,
         PtrTypeChild,
-        SetDebugSafety,
+        SetRuntimeSafety,
         SetFloatMode,
         ArrayType,
         SliceType,

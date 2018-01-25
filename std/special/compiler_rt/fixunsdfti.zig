@@ -2,7 +2,7 @@ const fixuint = @import("fixuint.zig").fixuint;
 const builtin = @import("builtin");
 
 pub extern fn __fixunsdfti(a: f64) -> u128 {
-    @setDebugSafety(this, builtin.is_test);
+    @setRuntimeSafety(builtin.is_test);
     return fixuint(f64, u128, a);
 }
 

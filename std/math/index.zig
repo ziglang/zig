@@ -331,7 +331,7 @@ pub fn absInt(x: var) -> %@typeOf(x) {
     if (x == @minValue(@typeOf(x)))
         return error.Overflow;
     {
-        @setDebugSafety(this, false);
+        @setRuntimeSafety(false);
         return if (x < 0) -x else x;
     }
 }
@@ -350,7 +350,7 @@ pub const absFloat = @import("fabs.zig").fabs;
 error DivisionByZero;
 error Overflow;
 pub fn divTrunc(comptime T: type, numerator: T, denominator: T) -> %T {
-    @setDebugSafety(this, false);
+    @setRuntimeSafety(false);
     if (denominator == 0)
         return error.DivisionByZero;
     if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1)
@@ -375,7 +375,7 @@ fn testDivTrunc() {
 error DivisionByZero;
 error Overflow;
 pub fn divFloor(comptime T: type, numerator: T, denominator: T) -> %T {
-    @setDebugSafety(this, false);
+    @setRuntimeSafety(false);
     if (denominator == 0)
         return error.DivisionByZero;
     if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1)
@@ -401,7 +401,7 @@ error DivisionByZero;
 error Overflow;
 error UnexpectedRemainder;
 pub fn divExact(comptime T: type, numerator: T, denominator: T) -> %T {
-    @setDebugSafety(this, false);
+    @setRuntimeSafety(false);
     if (denominator == 0)
         return error.DivisionByZero;
     if (@typeId(T) == builtin.TypeId.Int and T.is_signed and numerator == @minValue(T) and denominator == -1)
@@ -431,7 +431,7 @@ fn testDivExact() {
 error DivisionByZero;
 error NegativeDenominator;
 pub fn mod(comptime T: type, numerator: T, denominator: T) -> %T {
-    @setDebugSafety(this, false);
+    @setRuntimeSafety(false);
     if (denominator == 0)
         return error.DivisionByZero;
     if (denominator < 0)
@@ -458,7 +458,7 @@ fn testMod() {
 error DivisionByZero;
 error NegativeDenominator;
 pub fn rem(comptime T: type, numerator: T, denominator: T) -> %T {
-    @setDebugSafety(this, false);
+    @setRuntimeSafety(false);
     if (denominator == 0)
         return error.DivisionByZero;
     if (denominator < 0)

@@ -17,7 +17,7 @@ const compare_output = @import("compare_output.zig");
 const build_examples = @import("build_examples.zig");
 const compile_errors = @import("compile_errors.zig");
 const assemble_and_link = @import("assemble_and_link.zig");
-const debug_safety = @import("debug_safety.zig");
+const runtime_safety = @import("runtime_safety.zig");
 const translate_c = @import("translate_c.zig");
 const gen_h = @import("gen_h.zig");
 
@@ -64,16 +64,16 @@ pub fn addCompareOutputTests(b: &build.Builder, test_filter: ?[]const u8) -> &bu
     return cases.step;
 }
 
-pub fn addDebugSafetyTests(b: &build.Builder, test_filter: ?[]const u8) -> &build.Step {
+pub fn addRuntimeSafetyTests(b: &build.Builder, test_filter: ?[]const u8) -> &build.Step {
     const cases = b.allocator.create(CompareOutputContext) catch unreachable;
     *cases = CompareOutputContext {
         .b = b,
-        .step = b.step("test-debug-safety", "Run the debug safety tests"),
+        .step = b.step("test-runtime-safety", "Run the runtime safety tests"),
         .test_index = 0,
         .test_filter = test_filter,
     };
 
-    debug_safety.addCases(cases);
+    runtime_safety.addCases(cases);
 
     return cases.step;
 }
@@ -192,7 +192,7 @@ pub const CompareOutputContext = struct {
     const Special = enum {
         None,
         Asm,
-        DebugSafety,
+        RuntimeSafety,
     };
 
     const TestCase = struct {
@@ -314,7 +314,7 @@ pub const CompareOutputContext = struct {
         }
     };
 
-    const DebugSafetyRunStep = struct {
+    const RuntimeSafetyRunStep = struct {
         step: build.Step,
         context: &CompareOutputContext,
         exe_path: []const u8,
@@ -322,23 +322,23 @@ pub const CompareOutputContext = struct {
         test_index: usize,
 
         pub fn create(context: &CompareOutputContext, exe_path: []const u8,
-            name: []const u8) -> &DebugSafetyRunStep
+            name: []const u8) -> &RuntimeSafetyRunStep
         {
             const allocator = context.b.allocator;
-            const ptr = allocator.create(DebugSafetyRunStep) catch unreachable;
-            *ptr = DebugSafetyRunStep {
+            const ptr = allocator.create(RuntimeSafetyRunStep) catch unreachable;
+            *ptr = RuntimeSafetyRunStep {
                 .context = context,
                 .exe_path = exe_path,
                 .name = name,
                 .test_index = context.test_index,
-                .step = build.Step.init("DebugSafetyRun", allocator, make),
+                .step = build.Step.init("RuntimeSafetyRun", allocator, make),
             };
             context.test_index += 1;
             return ptr;
         }
 
         fn make(step: &build.Step) -> %void {
-            const self = @fieldParentPtr(DebugSafetyRunStep, "step", step);
+            const self = @fieldParentPtr(RuntimeSafetyRunStep, "step", step);
             const b = self.context.b;
 
             const full_exe_path = b.pathFromRoot(self.exe_path);
@@ -420,8 +420,8 @@ pub const CompareOutputContext = struct {
         self.addCase(tc);
     }
 
-    pub fn addDebugSafety(self: &CompareOutputContext, name: []const u8, source: []const u8) {
-        const tc = self.createExtra(name, source, undefined, Special.DebugSafety);
+    pub fn addRuntimeSafety(self: &CompareOutputContext, name: []const u8, source: []const u8) {
+        const tc = self.createExtra(name, source, undefined, Special.RuntimeSafety);
         self.addCase(tc);
     }
 
@@ -481,7 +481,7 @@ pub const CompareOutputContext = struct {
                     self.step.dependOn(&run_and_cmp_output.step);
                 }
             },
-            Special.DebugSafety => {
+            Special.RuntimeSafety => {
                 const annotated_case_name = fmt.allocPrint(self.b.allocator, "safety {}", case.name) catch unreachable;
                 if (self.test_filter) |filter| {
                     if (mem.indexOf(u8, annotated_case_name, filter) == null)
@@ -499,7 +499,7 @@ pub const CompareOutputContext = struct {
                     exe.step.dependOn(&write_src.step);
                 }
 
-                const run_and_cmp_output = DebugSafetyRunStep.create(self, exe.getOutputPath(), annotated_case_name);
+                const run_and_cmp_output = RuntimeSafetyRunStep.create(self, exe.getOutputPath(), annotated_case_name);
                 run_and_cmp_output.step.dependOn(&exe.step);
 
                 self.step.dependOn(&run_and_cmp_output.step);

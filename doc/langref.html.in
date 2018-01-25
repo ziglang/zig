@@ -3090,7 +3090,7 @@ fn doAThing(nullable_foo: ?&Foo) {
       {#header_open|this#}
       <p>TODO: example of this referring to Self struct</p>
       <p>TODO: example of this referring to recursion function</p>
-      <p>TODO: example of this referring to basic block for @setDebugSafety</p>
+      <p>TODO: example of this referring to basic block for @setRuntimeSafety</p>
       {#header_close#}
       {#header_open|comptime#}
       <p>
@@ -4325,10 +4325,10 @@ test "call foo" {
       Tells the optimizer that a function is rarely called.
       </p>
       {#header_close#}
-      {#header_open|@setDebugSafety#}
-      <pre><code class="zig">@setDebugSafety(scope, safety_on: bool)</code></pre>
+      {#header_open|@setRuntimeSafety#}
+      <pre><code class="zig">@setRuntimeSafety(safety_on: bool)</code></pre>
       <p>
-      Sets whether debug safety checks are on for a given scope.
+      Sets whether runtime safety checks are on for the scope that contains the function call.
       </p>
 
       {#header_close#}
@@ -4595,7 +4595,7 @@ pub fn build(b: &Builder) -> %void {
       detected at compile-time, Zig emits an error. Most undefined behavior that
       cannot be detected at compile-time can be detected at runtime. In these cases,
       Zig has safety checks. Safety checks can be disabled on a per-block basis
-      with <code>@setDebugSafety</code>. The {#link|ReleaseFast#}
+      with <code>@setRuntimeSafety</code>. The {#link|ReleaseFast#}
       build mode disables all safety checks in order to facilitate optimizations.
       </p>
       <p>
@@ -5765,7 +5765,7 @@ hljs.registerLanguage("zig", function(t) {
         a = t.IR + "\\s*\\(",
         c = {
             keyword: "const align var extern stdcallcc nakedcc volatile export pub noalias inline struct packed enum union break return try catch test continue unreachable comptime and or asm defer errdefer if else switch while for fn use bool f32 f64 void type noreturn error i8 u8 i16 u16 i32 u32 i64 u64 isize usize i8w u8w i16w i32w u32w i64w u64w isizew usizew c_short c_ushort c_int c_uint c_long c_ulong c_longlong c_ulonglong",
-            built_in: "breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setDebugSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage setGlobalSection divTrunc divFloor enumTagName intToPtr ptrToInt panic canImplicitCast ptrCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchg fence divExact truncate",
+            built_in: "breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage setGlobalSection divTrunc divFloor enumTagName intToPtr ptrToInt panic canImplicitCast ptrCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchg fence divExact truncate",
             literal: "true false null undefined"
         },
         n = [e, t.CLCM, t.CBCM, s, r];
