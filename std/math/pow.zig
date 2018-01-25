@@ -27,7 +27,7 @@ const math = std.math;
 const assert = std.debug.assert;
 
 // This implementation is taken from the go stlib, musl is a bit more complex.
-pub fn pow(comptime T: type, x: T, y: T) -> T {
+pub fn pow(comptime T: type, x: T, y: T) T {
 
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
@@ -170,7 +170,7 @@ pub fn pow(comptime T: type, x: T, y: T) -> T {
     return math.scalbn(a1, ae);
 }
 
-fn isOddInteger(x: f64) -> bool {
+fn isOddInteger(x: f64) bool {
     const r = math.modf(x);
     return r.fpart == 0.0 and i64(r.ipart) & 1 == 1;
 }

@@ -1,7 +1,7 @@
 const __fixunssfsi = @import("fixunssfsi.zig").__fixunssfsi;
 const assert = @import("../../index.zig").debug.assert;
 
-fn test__fixunssfsi(a: f32, expected: u32) {
+fn test__fixunssfsi(a: f32, expected: u32) void {
     const x = __fixunssfsi(a);
     assert(x == expected);
 }

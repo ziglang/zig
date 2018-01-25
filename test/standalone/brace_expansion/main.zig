@@ -19,7 +19,7 @@ const Token = union(enum) {
 
 var global_allocator: &mem.Allocator = undefined;
 
-fn tokenize(input:[] const u8) -> %ArrayList(Token) {
+fn tokenize(input:[] const u8) %ArrayList(Token) {
     const State = enum {
         Start,
         Word,
@@ -71,7 +71,7 @@ const Node = union(enum) {
     Combine: []Node,
 };
 
-fn parse(tokens: &const ArrayList(Token), token_index: &usize) -> %Node {
+fn parse(tokens: &const ArrayList(Token), token_index: &usize) %Node {
     const first_token = tokens.items[*token_index];
     *token_index += 1;
 
@@ -107,7 +107,7 @@ fn parse(tokens: &const ArrayList(Token), token_index: &usize) -> %Node {
     }
 }
 
-fn expandString(input: []const u8, output: &Buffer) -> %void {
+fn expandString(input: []const u8, output: &Buffer) %void {
     const tokens = try tokenize(input);
     if (tokens.len == 1) {
         return output.resize(0);
@@ -135,7 +135,7 @@ fn expandString(input: []const u8, output: &Buffer) -> %void {
     }
 }
 
-fn expandNode(node: &const Node, output: &ArrayList(Buffer)) -> %void {
+fn expandNode(node: &const Node, output: &ArrayList(Buffer)) %void {
     assert(output.len == 0);
     switch (*node) {
         Node.Scalar => |scalar| {
@@ -172,7 +172,7 @@ fn expandNode(node: &const Node, output: &ArrayList(Buffer)) -> %void {
     }
 }
 
-pub fn main() -> %void {
+pub fn main() %void {
     var stdin_file = try io.getStdIn();
     var stdout_file = try io.getStdOut();
 
@@ -208,7 +208,7 @@ test "invalid inputs" {
     expectError("\n", error.InvalidInput);
 }
 
-fn expectError(test_input: []const u8, expected_err: error) {
+fn expectError(test_input: []const u8, expected_err: error) void {
     var output_buf = Buffer.initSize(global_allocator, 0) catch unreachable;
     defer output_buf.deinit();
 
@@ -242,7 +242,7 @@ test "valid inputs" {
     expectExpansion("a{b}", "ab");
 }
 
-fn expectExpansion(test_input: []const u8, expected_result: []const u8) {
+fn expectExpansion(test_input: []const u8, expected_result: []const u8) void {
     var result = Buffer.initSize(global_allocator, 0) catch unreachable;
     defer result.deinit();
 

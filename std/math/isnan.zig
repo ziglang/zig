@@ -2,7 +2,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn isNan(x: var) -> bool {
+pub fn isNan(x: var) bool {
     const T = @typeOf(x);
     switch (T) {
         f32 => {
@@ -21,7 +21,7 @@ pub fn isNan(x: var) -> bool {
 
 // Note: A signalling nan is identical to a standard right now by may have a different bit
 // representation in the future when required.
-pub fn isSignalNan(x: var) -> bool {
+pub fn isSignalNan(x: var) bool {
     return isNan(x);
 }
 

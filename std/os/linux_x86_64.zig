@@ -370,14 +370,14 @@ pub const F_GETOWN_EX = 16;
 
 pub const F_GETOWNER_UIDS = 17;
 
-pub fn syscall0(number: usize) -> usize {
+pub fn syscall0(number: usize) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize)
         : [number] "{rax}" (number)
         : "rcx", "r11");
 }
 
-pub fn syscall1(number: usize, arg1: usize) -> usize {
+pub fn syscall1(number: usize, arg1: usize) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize)
         : [number] "{rax}" (number),
@@ -385,7 +385,7 @@ pub fn syscall1(number: usize, arg1: usize) -> usize {
         : "rcx", "r11");
 }
 
-pub fn syscall2(number: usize, arg1: usize, arg2: usize) -> usize {
+pub fn syscall2(number: usize, arg1: usize, arg2: usize) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize)
         : [number] "{rax}" (number),
@@ -394,7 +394,7 @@ pub fn syscall2(number: usize, arg1: usize, arg2: usize) -> usize {
         : "rcx", "r11");
 }
 
-pub fn syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) -> usize {
+pub fn syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize)
         : [number] "{rax}" (number),
@@ -404,7 +404,7 @@ pub fn syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) -> usize {
         : "rcx", "r11");
 }
 
-pub fn syscall4(number: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize) -> usize {
+pub fn syscall4(number: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize)
         : [number] "{rax}" (number),
@@ -415,7 +415,7 @@ pub fn syscall4(number: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usiz
         : "rcx", "r11");
 }
 
-pub fn syscall5(number: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) -> usize {
+pub fn syscall5(number: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize)
         : [number] "{rax}" (number),
@@ -428,7 +428,7 @@ pub fn syscall5(number: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usiz
 }
 
 pub fn syscall6(number: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
-    arg5: usize, arg6: usize) -> usize
+    arg5: usize, arg6: usize) usize
 {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize)
@@ -442,7 +442,7 @@ pub fn syscall6(number: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usiz
         : "rcx", "r11");
 }
 
-pub nakedcc fn restore_rt() {
+pub nakedcc fn restore_rt() void {
     return asm volatile ("syscall"
         :
         : [number] "{rax}" (usize(SYS_rt_sigreturn))

@@ -3,7 +3,7 @@ const assert = @import("std").debug.assert;
 test "params" {
     assert(testParamsAdd(22, 11) == 33);
 }
-fn testParamsAdd(a: i32, b: i32) -> i32 {
+fn testParamsAdd(a: i32, b: i32) i32 {
     return a + b;
 }
 
@@ -11,7 +11,7 @@ fn testParamsAdd(a: i32, b: i32) -> i32 {
 test "local variables" {
     testLocVars(2);
 }
-fn testLocVars(b: i32) {
+fn testLocVars(b: i32) void {
     const a: i32 = 1;
     if (a + b != 3) unreachable;
 }
@@ -20,7 +20,7 @@ fn testLocVars(b: i32) {
 test "void parameters" {
     voidFun(1, void{}, 2, {});
 }
-fn voidFun(a: i32, b: void, c: i32, d: void) {
+fn voidFun(a: i32, b: void, c: i32, d: void) void {
     const v = b;
     const vv: void = if (a == 1) v else {};
     assert(a + c == 3);
@@ -56,10 +56,10 @@ test "call function with empty string" {
     acceptsString("");
 }
 
-fn acceptsString(foo: []u8) { }
+fn acceptsString(foo: []u8) void { }
 
 
-fn @"weird function name"() -> i32 {
+fn @"weird function name"() i32 {
     return 1234;
 }
 test "weird function name" {
@@ -70,9 +70,9 @@ test "implicit cast function unreachable return" {
     wantsFnWithVoid(fnWithUnreachable);
 }
 
-fn wantsFnWithVoid(f: fn()) { }
+fn wantsFnWithVoid(f: fn() void) void { }
 
-fn fnWithUnreachable() -> noreturn {
+fn fnWithUnreachable() noreturn {
     unreachable;
 }
 
@@ -83,14 +83,14 @@ test "function pointers" {
         assert(f() == u32(i) + 5);
     }
 }
-fn fn1() -> u32 {return 5;}
-fn fn2() -> u32 {return 6;}
-fn fn3() -> u32 {return 7;}
-fn fn4() -> u32 {return 8;}
+fn fn1() u32 {return 5;}
+fn fn2() u32 {return 6;}
+fn fn3() u32 {return 7;}
+fn fn4() u32 {return 8;}
 
 
 test "inline function call" {
     assert(@inlineCall(add, 3, 9) == 12);
 }
 
-fn add(a: i32, b: i32) -> i32 { return a + b; }
+fn add(a: i32, b: i32) i32 { return a + b; }

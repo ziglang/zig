@@ -9,7 +9,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn ceil(x: var) -> @typeOf(x) {
+pub fn ceil(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
         f32 => ceil32(x),
@@ -18,7 +18,7 @@ pub fn ceil(x: var) -> @typeOf(x) {
     };
 }
 
-fn ceil32(x: f32) -> f32 {
+fn ceil32(x: f32) f32 {
     var u = @bitCast(u32, x);
     var e = i32((u >> 23) & 0xFF) - 0x7F;
     var m: u32 = undefined;
@@ -51,7 +51,7 @@ fn ceil32(x: f32) -> f32 {
     }
 }
 
-fn ceil64(x: f64) -> f64 {
+fn ceil64(x: f64) f64 {
     const u = @bitCast(u64, x);
     const e = (u >> 52) & 0x7FF;
     var y: f64 = undefined;

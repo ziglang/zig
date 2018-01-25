@@ -16,7 +16,7 @@ const Num = enum {
     Two,
 };
 
-fn foo(c: bool, k: Num, c2: bool, b: []const u8) {
+fn foo(c: bool, k: Num, c2: bool, b: []const u8) void {
     switch (k) {
         Num.Two => {},
         Num.One => {
@@ -31,7 +31,7 @@ fn foo(c: bool, k: Num, c2: bool, b: []const u8) {
     }
 }
 
-fn a(x: []const u8) {
+fn a(x: []const u8) void {
     assert(mem.eql(u8, x, "aoeu"));
     ok = true;
 }

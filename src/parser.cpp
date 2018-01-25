@@ -84,11 +84,6 @@ static AstNode *ast_create_node(ParseContext *pc, NodeType type, Token *first_to
     return node;
 }
 
-static AstNode *ast_create_void_type_node(ParseContext *pc, Token *token) {
-    AstNode *node = ast_create_node(pc, NodeTypeSymbol, token);
-    node->data.symbol_expr.symbol = pc->void_buf;
-    return node;
-}
 
 static void parse_asm_template(ParseContext *pc, AstNode *node) {
     Buf *asm_template = node->data.asm_expr.asm_template;
@@ -2245,7 +2240,7 @@ static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mand
 }
 
 /*
-FnProto = option("nakedcc" | "stdcallcc" | "extern") "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") option("-&gt;" TypeExpr)
+FnProto = option("nakedcc" | "stdcallcc" | "extern") "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") TypeExpr
 */
 static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool mandatory, VisibMod visib_mod) {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -2320,12 +2315,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool m
         ast_eat_token(pc, token_index, TokenIdRParen);
         next_token = &pc->tokens->at(*token_index);
     }
-    if (next_token->id == TokenIdArrow) {
-        *token_index += 1;
-        node->data.fn_proto.return_type = ast_parse_type_expr(pc, token_index, false);
-    } else {
-        node->data.fn_proto.return_type = ast_create_void_type_node(pc, next_token);
-    }
+    node->data.fn_proto.return_type = ast_parse_type_expr(pc, token_index, true);
 
     return node;
 }

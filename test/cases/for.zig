@@ -22,7 +22,7 @@ test "for loop with pointer elem var" {
     mangleString(target[0..]);
     assert(mem.eql(u8, target, "bcdefgh"));
 }
-fn mangleString(s: []u8) {
+fn mangleString(s: []u8) void {
     for (s) |*c| {
         *c += 1;
     }
@@ -61,7 +61,7 @@ test "break from outer for loop" {
     comptime testBreakOuter();
 }
 
-fn testBreakOuter() {
+fn testBreakOuter() void {
     var array = "aoeu";
     var count: usize = 0;
     outer: for (array) |_| {
@@ -78,7 +78,7 @@ test "continue outer for loop" {
     comptime testContinueOuter();
 }
 
-fn testContinueOuter() {
+fn testContinueOuter() void {
     var array = "aoeu";
     var counter: usize = 0;
     outer: for (array) |_| {

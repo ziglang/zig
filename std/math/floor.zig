@@ -9,7 +9,7 @@ const assert = std.debug.assert;
 const std = @import("../index.zig");
 const math = std.math;
 
-pub fn floor(x: var) -> @typeOf(x) {
+pub fn floor(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
         f32 => floor32(x),
@@ -18,7 +18,7 @@ pub fn floor(x: var) -> @typeOf(x) {
     };
 }
 
-fn floor32(x: f32) -> f32 {
+fn floor32(x: f32) f32 {
     var u = @bitCast(u32, x);
     const e = i32((u >> 23) & 0xFF) - 0x7F;
     var m: u32 = undefined;
@@ -52,7 +52,7 @@ fn floor32(x: f32) -> f32 {
     }
 }
 
-fn floor64(x: f64) -> f64 {
+fn floor64(x: f64) f64 {
     const u = @bitCast(u64, x);
     const e = (u >> 52) & 0x7FF;
     var y: f64 = undefined;

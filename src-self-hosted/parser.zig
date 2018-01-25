@@ -20,14 +20,25 @@ pub const Parser = struct {
     put_back_tokens: [2]Token,
     put_back_count: usize,
     source_file_name: []const u8,
-    cleanup_root_node: ?&ast.NodeRoot,
+
+    pub const Tree = struct {
+        root_node: &ast.NodeRoot,
+
+        pub fn deinit(self: &const Tree) void {
+            // TODO free the whole arena
+        }
+    };
 
     // This memory contents are used only during a function call. It's used to repurpose memory;
-    // specifically so that freeAst can be guaranteed to succeed.
+    // we reuse the same bytes for the stack data structure used by parsing, tree rendering, and
+    // source rendering.
     const utility_bytes_align = @alignOf( union { a: RenderAstFrame, b: State, c: RenderState } );
     utility_bytes: []align(utility_bytes_align) u8,
 
-    pub fn init(tokenizer: &Tokenizer, allocator: &mem.Allocator, source_file_name: []const u8) -> Parser {
+    /// `allocator` should be an arena allocator. Parser never calls free on anything. After you're
+    /// done with a Parser, free the arena. After the arena is freed, no member functions of Parser
+    /// may be called.
+    pub fn init(tokenizer: &Tokenizer, allocator: &mem.Allocator, source_file_name: []const u8) Parser {
         return Parser {
             .allocator = allocator,
             .tokenizer = tokenizer,
@@ -35,12 +46,10 @@ pub const Parser = struct {
             .put_back_count = 0,
             .source_file_name = source_file_name,
             .utility_bytes = []align(utility_bytes_align) u8{},
-            .cleanup_root_node = null,
         };
     }
 
-    pub fn deinit(self: &Parser) {
-        assert(self.cleanup_root_node == null);
+    pub fn deinit(self: &Parser) void {
         self.allocator.free(self.utility_bytes);
     }
 
@@ -54,7 +63,7 @@ pub const Parser = struct {
         NullableField: &?&ast.Node,
         List: &ArrayList(&ast.Node),
 
-        pub fn store(self: &const DestPtr, value: &ast.Node) -> %void {
+        pub fn store(self: &const DestPtr, value: &ast.Node) %void {
             switch (*self) {
                 DestPtr.Field => |ptr| *ptr = value,
                 DestPtr.NullableField => |ptr| *ptr = value,
@@ -88,52 +97,16 @@ pub const Parser = struct {
         Statement: &ast.NodeBlock,
     };
 
-    pub fn freeAst(self: &Parser, root_node: &ast.NodeRoot) {
-        // utility_bytes is big enough to do this iteration since we were able to do
-        // the parsing in the first place
-        comptime assert(@sizeOf(State) >= @sizeOf(&ast.Node));
-
-        var stack = self.initUtilityArrayList(&ast.Node);
-        defer self.deinitUtilityArrayList(stack);
-
-        stack.append(&root_node.base) catch unreachable;
-        while (stack.popOrNull()) |node| {
-            var i: usize = 0;
-            while (node.iterate(i)) |child| : (i += 1) {
-                if (child.iterate(0) != null) {
-                    stack.append(child) catch unreachable;
-                } else {
-                    child.destroy(self.allocator);
-                }
-            }
-            node.destroy(self.allocator);
-        }
-    }
-
-    pub fn parse(self: &Parser) -> %&ast.NodeRoot {
-        const result = self.parseInner() catch |err| x: {
-            if (self.cleanup_root_node) |root_node| {
-                self.freeAst(root_node);
-            }
-            break :x err;
-        };
-        self.cleanup_root_node = null;
-        return result;
-    }
-
-    pub fn parseInner(self: &Parser) -> %&ast.NodeRoot {
+    /// Returns an AST tree, allocated with the parser's allocator.
+    /// Result should be freed with `freeAst` when done.
+    pub fn parse(self: &Parser) %Tree {
         var stack = self.initUtilityArrayList(State);
         defer self.deinitUtilityArrayList(stack);
 
-        const root_node = x: {
-            const root_node = try self.createRoot();
-            errdefer self.allocator.destroy(root_node);
-            // This stack append has to succeed for freeAst to work
-            try stack.append(State.TopLevel);
-            break :x root_node;
-        };
-        assert(self.cleanup_root_node == null);
-        self.cleanup_root_node = root_node;
+        const root_node = try self.createRoot();
+        // TODO  errdefer arena free root node
+
+        try stack.append(State.TopLevel);
 
         while (true) {
             //{
@@ -159,7 +132,7 @@ pub const Parser = struct {
                             stack.append(State { .TopLevelExtern = token }) catch unreachable;
                             continue;
                         },
-                        Token.Id.Eof => return root_node,
+                        Token.Id.Eof => return Tree {.root_node = root_node},
                         else => {
                             self.putBackToken(token);
                             // TODO shouldn't need this cast
@@ -439,15 +412,11 @@ pub const Parser = struct {
                     if (token.id == Token.Id.Keyword_align) {
                         @panic("TODO fn proto align");
                     }
-                    if (token.id == Token.Id.Arrow) {
-                        stack.append(State {
-                            .TypeExpr = DestPtr {.NullableField = &fn_proto.return_type},
-                        }) catch unreachable;
-                        continue;
-                    } else {
-                        self.putBackToken(token);
-                        continue;
-                    }
+                    self.putBackToken(token);
+                    stack.append(State {
+                        .TypeExpr = DestPtr {.Field = &fn_proto.return_type},
+                    }) catch unreachable;
+                    continue;
                 },
 
                 State.ParamDecl => |fn_proto| {
@@ -575,9 +544,8 @@ pub const Parser = struct {
         }
     }
 
-    fn createRoot(self: &Parser) -> %&ast.NodeRoot {
+    fn createRoot(self: &Parser) %&ast.NodeRoot {
         const node = try self.allocator.create(ast.NodeRoot);
-        errdefer self.allocator.destroy(node);
 
         *node = ast.NodeRoot {
             .base = ast.Node {.id = ast.Node.Id.Root},
@@ -587,10 +555,9 @@ pub const Parser = struct {
     }
 
     fn createVarDecl(self: &Parser, visib_token: &const ?Token, mut_token: &const Token, comptime_token: &const ?Token,
-        extern_token: &const ?Token) -> %&ast.NodeVarDecl
+        extern_token: &const ?Token) %&ast.NodeVarDecl
     {
         const node = try self.allocator.create(ast.NodeVarDecl);
-        errdefer self.allocator.destroy(node);
 
         *node = ast.NodeVarDecl {
             .base = ast.Node {.id = ast.Node.Id.VarDecl},
@@ -610,10 +577,9 @@ pub const Parser = struct {
     }
 
     fn createFnProto(self: &Parser, fn_token: &const Token, extern_token: &const ?Token,
-        cc_token: &const ?Token, visib_token: &const ?Token, inline_token: &const ?Token) -> %&ast.NodeFnProto
+        cc_token: &const ?Token, visib_token: &const ?Token, inline_token: &const ?Token) %&ast.NodeFnProto
     {
         const node = try self.allocator.create(ast.NodeFnProto);
-        errdefer self.allocator.destroy(node);
 
         *node = ast.NodeFnProto {
             .base = ast.Node {.id = ast.Node.Id.FnProto},
@@ -621,7 +587,7 @@ pub const Parser = struct {
             .name_token = null,
             .fn_token = *fn_token,
             .params = ArrayList(&ast.Node).init(self.allocator),
-            .return_type = null,
+            .return_type = undefined,
             .var_args_token = null,
             .extern_token = *extern_token,
             .inline_token = *inline_token,
@@ -633,9 +599,8 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createParamDecl(self: &Parser) -> %&ast.NodeParamDecl {
+    fn createParamDecl(self: &Parser) %&ast.NodeParamDecl {
         const node = try self.allocator.create(ast.NodeParamDecl);
-        errdefer self.allocator.destroy(node);
 
         *node = ast.NodeParamDecl {
             .base = ast.Node {.id = ast.Node.Id.ParamDecl},
@@ -648,9 +613,8 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createBlock(self: &Parser, begin_token: &const Token) -> %&ast.NodeBlock {
+    fn createBlock(self: &Parser, begin_token: &const Token) %&ast.NodeBlock {
         const node = try self.allocator.create(ast.NodeBlock);
-        errdefer self.allocator.destroy(node);
 
         *node = ast.NodeBlock {
             .base = ast.Node {.id = ast.Node.Id.Block},
@@ -661,9 +625,8 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createInfixOp(self: &Parser, op_token: &const Token, op: &const ast.NodeInfixOp.InfixOp) -> %&ast.NodeInfixOp {
+    fn createInfixOp(self: &Parser, op_token: &const Token, op: &const ast.NodeInfixOp.InfixOp) %&ast.NodeInfixOp {
         const node = try self.allocator.create(ast.NodeInfixOp);
-        errdefer self.allocator.destroy(node);
 
         *node = ast.NodeInfixOp {
             .base = ast.Node {.id = ast.Node.Id.InfixOp},
@@ -675,9 +638,8 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createPrefixOp(self: &Parser, op_token: &const Token, op: &const ast.NodePrefixOp.PrefixOp) -> %&ast.NodePrefixOp {
+    fn createPrefixOp(self: &Parser, op_token: &const Token, op: &const ast.NodePrefixOp.PrefixOp) %&ast.NodePrefixOp {
         const node = try self.allocator.create(ast.NodePrefixOp);
-        errdefer self.allocator.destroy(node);
 
         *node = ast.NodePrefixOp {
             .base = ast.Node {.id = ast.Node.Id.PrefixOp},
@@ -688,9 +650,8 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createIdentifier(self: &Parser, name_token: &const Token) -> %&ast.NodeIdentifier {
+    fn createIdentifier(self: &Parser, name_token: &const Token) %&ast.NodeIdentifier {
         const node = try self.allocator.create(ast.NodeIdentifier);
-        errdefer self.allocator.destroy(node);
 
         *node = ast.NodeIdentifier {
             .base = ast.Node {.id = ast.Node.Id.Identifier},
@@ -699,9 +660,8 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createIntegerLiteral(self: &Parser, token: &const Token) -> %&ast.NodeIntegerLiteral {
+    fn createIntegerLiteral(self: &Parser, token: &const Token) %&ast.NodeIntegerLiteral {
         const node = try self.allocator.create(ast.NodeIntegerLiteral);
-        errdefer self.allocator.destroy(node);
 
         *node = ast.NodeIntegerLiteral {
             .base = ast.Node {.id = ast.Node.Id.IntegerLiteral},
@@ -710,9 +670,8 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createFloatLiteral(self: &Parser, token: &const Token) -> %&ast.NodeFloatLiteral {
+    fn createFloatLiteral(self: &Parser, token: &const Token) %&ast.NodeFloatLiteral {
         const node = try self.allocator.create(ast.NodeFloatLiteral);
-        errdefer self.allocator.destroy(node);
 
         *node = ast.NodeFloatLiteral {
             .base = ast.Node {.id = ast.Node.Id.FloatLiteral},
@@ -721,40 +680,36 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createAttachIdentifier(self: &Parser, dest_ptr: &const DestPtr, name_token: &const Token) -> %&ast.NodeIdentifier {
+    fn createAttachIdentifier(self: &Parser, dest_ptr: &const DestPtr, name_token: &const Token) %&ast.NodeIdentifier {
         const node = try self.createIdentifier(name_token);
-        errdefer self.allocator.destroy(node);
         try dest_ptr.store(&node.base);
         return node;
     }
 
-    fn createAttachParamDecl(self: &Parser, list: &ArrayList(&ast.Node)) -> %&ast.NodeParamDecl {
+    fn createAttachParamDecl(self: &Parser, list: &ArrayList(&ast.Node)) %&ast.NodeParamDecl {
         const node = try self.createParamDecl();
-        errdefer self.allocator.destroy(node);
         try list.append(&node.base);
         return node;
     }
 
     fn createAttachFnProto(self: &Parser, list: &ArrayList(&ast.Node), fn_token: &const Token,
         extern_token: &const ?Token, cc_token: &const ?Token, visib_token: &const ?Token,
-        inline_token: &const ?Token) -> %&ast.NodeFnProto
+        inline_token: &const ?Token) %&ast.NodeFnProto
     {
         const node = try self.createFnProto(fn_token, extern_token, cc_token, visib_token, inline_token);
-        errdefer self.allocator.destroy(node);
         try list.append(&node.base);
         return node;
     }
 
     fn createAttachVarDecl(self: &Parser, list: &ArrayList(&ast.Node), visib_token: &const ?Token,
-        mut_token: &const Token, comptime_token: &const ?Token, extern_token: &const ?Token) -> %&ast.NodeVarDecl
+        mut_token: &const Token, comptime_token: &const ?Token, extern_token: &const ?Token) %&ast.NodeVarDecl
     {
         const node = try self.createVarDecl(visib_token, mut_token, comptime_token, extern_token);
-        errdefer self.allocator.destroy(node);
         try list.append(&node.base);
         return node;
     }
 
-    fn parseError(self: &Parser, token: &const Token, comptime fmt: []const u8, args: ...) -> error {
+    fn parseError(self: &Parser, token: &const Token, comptime fmt: []const u8, args: ...) error {
         const loc = self.tokenizer.getTokenLocation(token);
         warn("{}:{}:{}: error: " ++ fmt ++ "\n", self.source_file_name, loc.line + 1, loc.column + 1, args);
         warn("{}\n", self.tokenizer.buffer[loc.line_start..loc.line_end]);
@@ -775,24 +730,24 @@ pub const Parser = struct {
         return error.ParseError;
     }
 
-    fn expectToken(self: &Parser, token: &const Token, id: @TagType(Token.Id)) -> %void {
+    fn expectToken(self: &Parser, token: &const Token, id: @TagType(Token.Id)) %void {
         if (token.id != id) {
             return self.parseError(token, "expected {}, found {}", @tagName(id), @tagName(token.id));
         }
     }
 
-    fn eatToken(self: &Parser, id: @TagType(Token.Id)) -> %Token {
+    fn eatToken(self: &Parser, id: @TagType(Token.Id)) %Token {
         const token = self.getNextToken();
         try self.expectToken(token, id);
         return token;
     }
 
-    fn putBackToken(self: &Parser, token: &const Token) {
+    fn putBackToken(self: &Parser, token: &const Token) void {
         self.put_back_tokens[self.put_back_count] = *token;
         self.put_back_count += 1;
     }
 
-    fn getNextToken(self: &Parser) -> Token {
+    fn getNextToken(self: &Parser) Token {
         if (self.put_back_count != 0) {
             const put_back_index = self.put_back_count - 1;
             const put_back_token = self.put_back_tokens[put_back_index];
@@ -808,7 +763,7 @@ pub const Parser = struct {
         indent: usize,
     };
 
-    pub fn renderAst(self: &Parser, stream: &std.io.OutStream, root_node: &ast.NodeRoot) -> %void {
+    pub fn renderAst(self: &Parser, stream: &std.io.OutStream, root_node: &ast.NodeRoot) %void {
         var stack = self.initUtilityArrayList(RenderAstFrame);
         defer self.deinitUtilityArrayList(stack);
 
@@ -847,7 +802,7 @@ pub const Parser = struct {
         Indent: usize,
     };
 
-    pub fn renderSource(self: &Parser, stream: &std.io.OutStream, root_node: &ast.NodeRoot) -> %void {
+    pub fn renderSource(self: &Parser, stream: &std.io.OutStream, root_node: &ast.NodeRoot) %void {
         var stack = self.initUtilityArrayList(RenderState);
         defer self.deinitUtilityArrayList(stack);
 
@@ -1039,14 +994,12 @@ pub const Parser = struct {
                     if (fn_proto.align_expr != null) {
                         @panic("TODO");
                     }
-                    if (fn_proto.return_type) |return_type| {
-                        try stream.print(" -> ");
-                        if (fn_proto.body_node) |body_node| {
-                            try stack.append(RenderState { .Expression = body_node});
-                            try stack.append(RenderState { .Text = " "});
-                        }
-                        try stack.append(RenderState { .Expression = return_type});
+                    try stream.print(" ");
+                    if (fn_proto.body_node) |body_node| {
+                        try stack.append(RenderState { .Expression = body_node});
+                        try stack.append(RenderState { .Text = " "});
                     }
+                    try stack.append(RenderState { .Expression = fn_proto.return_type});
                 },
                 RenderState.Statement => |base| {
                     switch (base.id) {
@@ -1066,7 +1019,7 @@ pub const Parser = struct {
         }
     }
 
-    fn initUtilityArrayList(self: &Parser, comptime T: type) -> ArrayList(T) {
+    fn initUtilityArrayList(self: &Parser, comptime T: type) ArrayList(T) {
         const new_byte_count = self.utility_bytes.len - self.utility_bytes.len % @sizeOf(T);
         self.utility_bytes = self.allocator.alignedShrink(u8, utility_bytes_align, self.utility_bytes, new_byte_count);
         const typed_slice = ([]T)(self.utility_bytes);
@@ -1077,7 +1030,7 @@ pub const Parser = struct {
         };
     }
 
-    fn deinitUtilityArrayList(self: &Parser, list: var) {
+    fn deinitUtilityArrayList(self: &Parser, list: var) void {
         self.utility_bytes = ([]align(utility_bytes_align) u8)(list.items);
     }
 
@@ -1085,7 +1038,7 @@ pub const Parser = struct {
 
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
-fn testParse(source: []const u8, allocator: &mem.Allocator) -> %[]u8 {
+fn testParse(source: []const u8, allocator: &mem.Allocator) %[]u8 {
     var padded_source: [0x100]u8 = undefined;
     std.mem.copy(u8, padded_source[0..source.len], source);
     padded_source[source.len + 0] = '\n';
@@ -1096,30 +1049,34 @@ fn testParse(source: []const u8, allocator: &mem.Allocator) -> %[]u8 {
     var parser = Parser.init(&tokenizer, allocator, "(memory buffer)");
     defer parser.deinit();
 
-    const root_node = try parser.parse();
-    defer parser.freeAst(root_node);
+    const tree = try parser.parse();
+    defer tree.deinit();
 
     var buffer = try std.Buffer.initSize(allocator, 0);
     var buffer_out_stream = io.BufferOutStream.init(&buffer);
-    try parser.renderSource(&buffer_out_stream.stream, root_node);
+    try parser.renderSource(&buffer_out_stream.stream, tree.root_node);
     return buffer.toOwnedSlice();
 }
 
+error TestFailed;
+error NondeterministicMemoryUsage;
+error MemoryLeakDetected;
+
 // TODO test for memory leaks
 // TODO test for valid frees
-fn testCanonical(source: []const u8) {
+fn testCanonical(source: []const u8) %void {
     const needed_alloc_count = x: {
         // Try it once with unlimited memory, make sure it works
         var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
         var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, @maxValue(usize));
-        const result_source = testParse(source, &failing_allocator.allocator) catch @panic("test failed");
+        const result_source = try testParse(source, &failing_allocator.allocator);
         if (!mem.eql(u8, result_source, source)) {
             warn("\n====== expected this output: =========\n");
             warn("{}", source);
             warn("\n======== instead found this: =========\n");
             warn("{}", result_source);
             warn("\n======================================\n");
-            @panic("test failed");
+            return error.TestFailed;
         }
         failing_allocator.allocator.free(result_source);
         break :x failing_allocator.index;
@@ -1130,7 +1087,7 @@ fn testCanonical(source: []const u8) {
         var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
         var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, fail_index);
         if (testParse(source, &failing_allocator.allocator)) |_| {
-            @panic("non-deterministic memory usage");
+            return error.NondeterministicMemoryUsage;
         } else |err| {
             assert(err == error.OutOfMemory);
             // TODO make this pass
@@ -1139,19 +1096,19 @@ fn testCanonical(source: []const u8) {
             //        fail_index, needed_alloc_count,
             //        failing_allocator.allocated_bytes, failing_allocator.freed_bytes,
             //        failing_allocator.index, failing_allocator.deallocations);
-            //    @panic("memory leak detected");
+            //    return error.MemoryLeakDetected;
             //}
         }
     }
 }
 
 test "zig fmt" {
-    testCanonical(
-        \\extern fn puts(s: &const u8) -> c_int;
+    try testCanonical(
+        \\extern fn puts(s: &const u8) c_int;
         \\
     );
 
-    testCanonical(
+    try testCanonical(
         \\const a = b;
         \\pub const a = b;
         \\var a = b;
@@ -1163,44 +1120,44 @@ test "zig fmt" {
         \\
     );
 
-    testCanonical(
+    try testCanonical(
         \\extern var foo: c_int;
         \\
     );
 
-    testCanonical(
+    try testCanonical(
         \\var foo: c_int align(1);
         \\
     );
 
-    testCanonical(
-        \\fn main(argc: c_int, argv: &&u8) -> c_int {
+    try testCanonical(
+        \\fn main(argc: c_int, argv: &&u8) c_int {
         \\    const a = b;
         \\}
         \\
     );
 
-    testCanonical(
-        \\fn foo(argc: c_int, argv: &&u8) -> c_int {
+    try testCanonical(
+        \\fn foo(argc: c_int, argv: &&u8) c_int {
         \\    return 0;
         \\}
         \\
     );
 
-    testCanonical(
-        \\extern fn f1(s: &align(&u8) u8) -> c_int;
+    try testCanonical(
+        \\extern fn f1(s: &align(&u8) u8) c_int;
         \\
     );
 
-    testCanonical(
-        \\extern fn f1(s: &&align(1) &const &volatile u8) -> c_int;
-        \\extern fn f2(s: &align(1) const &align(1) volatile &const volatile u8) -> c_int;
-        \\extern fn f3(s: &align(1) const volatile u8) -> c_int;
+    try testCanonical(
+        \\extern fn f1(s: &&align(1) &const &volatile u8) c_int;
+        \\extern fn f2(s: &align(1) const &align(1) volatile &const volatile u8) c_int;
+        \\extern fn f3(s: &align(1) const volatile u8) c_int;
         \\
     );
 
-    testCanonical(
-        \\fn f1(a: bool, b: bool) -> bool {
+    try testCanonical(
+        \\fn f1(a: bool, b: bool) bool {
         \\    a != b;
         \\    return a == b;
         \\}

@@ -1,4 +1,4 @@
-pub nakedcc fn _aullrem() {
+pub nakedcc fn _aullrem() void {
     @setRuntimeSafety(false);
     asm volatile (
         \\.intel_syntax noprefix

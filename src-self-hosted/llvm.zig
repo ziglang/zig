@@ -7,7 +7,7 @@ pub const ModuleRef = removeNullability(c.LLVMModuleRef);
 pub const ContextRef = removeNullability(c.LLVMContextRef);
 pub const BuilderRef = removeNullability(c.LLVMBuilderRef);
 
-fn removeNullability(comptime T: type) -> type {
+fn removeNullability(comptime T: type) type {
     comptime assert(@typeId(T) == builtin.TypeId.Nullable);
     return T.Child;
 }

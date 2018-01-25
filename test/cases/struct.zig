@@ -2,7 +2,7 @@ const assert = @import("std").debug.assert;
 const builtin = @import("builtin");
 
 const StructWithNoFields = struct {
-    fn add(a: i32, b: i32) -> i32 { return a + b; }
+    fn add(a: i32, b: i32) i32 { return a + b; }
 };
 const empty_global_instance = StructWithNoFields {};
 
@@ -14,7 +14,7 @@ test "call struct static method" {
 test "return empty struct instance" {
     _ = returnEmptyStructInstance();
 }
-fn returnEmptyStructInstance() -> StructWithNoFields {
+fn returnEmptyStructInstance() StructWithNoFields {
     return empty_global_instance;
 }
 
@@ -54,10 +54,10 @@ const StructFoo = struct {
     b : bool,
     c : f32,
 };
-fn testFoo(foo: &const StructFoo) {
+fn testFoo(foo: &const StructFoo) void {
     assert(foo.b);
 }
-fn testMutation(foo: &StructFoo) {
+fn testMutation(foo: &StructFoo) void {
     foo.c = 100;
 }
 
@@ -95,7 +95,7 @@ test "struct byval assign" {
     assert(foo2.a == 1234);
 }
 
-fn structInitializer() {
+fn structInitializer() void {
     const val = Val { .x = 42 };
     assert(val.x == 42);
 }
@@ -106,12 +106,12 @@ test "fn call of struct field" {
 }
 
 const Foo = struct {
-    ptr: fn() -> i32,
+    ptr: fn() i32,
 };
 
-fn aFunc() -> i32 { return 13; }
+fn aFunc() i32 { return 13; }
 
-fn callStructField(foo: &const Foo) -> i32 {
+fn callStructField(foo: &const Foo) i32 {
     return foo.ptr();
 }
 
@@ -124,7 +124,7 @@ test "store member function in variable" {
 }
 const MemberFnTestFoo = struct {
     x: i32,
-    fn member(foo: &const MemberFnTestFoo) -> i32 { return foo.x; }
+    fn member(foo: &const MemberFnTestFoo) i32 { return foo.x; }
 };
 
 
@@ -140,7 +140,7 @@ test "member functions" {
 }
 const MemberFnRand = struct {
     seed: u32,
-    pub fn getSeed(r: &const MemberFnRand) -> u32 {
+    pub fn getSeed(r: &const MemberFnRand) u32 {
         return r.seed;
     }
 };
@@ -153,7 +153,7 @@ const Bar = struct {
     x: i32,
     y: i32,
 };
-fn makeBar(x: i32, y: i32) -> Bar {
+fn makeBar(x: i32, y: i32) Bar {
     return Bar {
         .x = x,
         .y = y,
@@ -165,7 +165,7 @@ test "empty struct method call" {
     assert(es.method() == 1234);
 }
 const EmptyStruct = struct {
-    fn method(es: &const EmptyStruct) -> i32 {
+    fn method(es: &const EmptyStruct) i32 {
         return 1234;
     }
 };
@@ -175,14 +175,14 @@ test "return empty struct from fn" {
     _ = testReturnEmptyStructFromFn();
 }
 const EmptyStruct2 = struct {};
-fn testReturnEmptyStructFromFn() -> EmptyStruct2 {
+fn testReturnEmptyStructFromFn() EmptyStruct2 {
     return EmptyStruct2 {};
 }
 
 test "pass slice of empty struct to fn" {
     assert(testPassSliceOfEmptyStructToFn([]EmptyStruct2{ EmptyStruct2{} }) == 1);
 }
-fn testPassSliceOfEmptyStructToFn(slice: []const EmptyStruct2) -> usize {
+fn testPassSliceOfEmptyStructToFn(slice: []const EmptyStruct2) usize {
     return slice.len;
 }
 
@@ -229,15 +229,15 @@ test "bit field access" {
     assert(data.b == 3);
 }
 
-fn getA(data: &const BitField1) -> u3 {
+fn getA(data: &const BitField1) u3 {
     return data.a;
 }
 
-fn getB(data: &const BitField1) -> u3 {
+fn getB(data: &const BitField1) u3 {
     return data.b;
 }
 
-fn getC(data: &const BitField1) -> u2 {
+fn getC(data: &const BitField1) u2 {
     return data.c;
 }
 

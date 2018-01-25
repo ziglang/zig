@@ -21,7 +21,7 @@ test "arrays" {
     assert(accumulator == 15);
     assert(getArrayLen(array) == 5);
 }
-fn getArrayLen(a: []const u32) -> usize {
+fn getArrayLen(a: []const u32) usize {
     return a.len;
 }
 

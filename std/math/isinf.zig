@@ -2,7 +2,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn isInf(x: var) -> bool {
+pub fn isInf(x: var) bool {
     const T = @typeOf(x);
     switch (T) {
         f32 => {
@@ -19,7 +19,7 @@ pub fn isInf(x: var) -> bool {
     }
 }
 
-pub fn isPositiveInf(x: var) -> bool {
+pub fn isPositiveInf(x: var) bool {
     const T = @typeOf(x);
     switch (T) {
         f32 => {
@@ -34,7 +34,7 @@ pub fn isPositiveInf(x: var) -> bool {
     }
 }
 
-pub fn isNegativeInf(x: var) -> bool {
+pub fn isNegativeInf(x: var) bool {
     const T = @typeOf(x);
     switch (T) {
         f32 => {

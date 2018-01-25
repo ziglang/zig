@@ -13,7 +13,7 @@ test "nullable if after an if in a switch prong of a switch with 2 prongs in an 
     foo(false, true);
 }
 
-fn foo(a: bool, b: bool) {
+fn foo(a: bool, b: bool) void {
     var prefix_op = PrefixOp { .AddrOf = Value { .align_expr = 1234 } };
     if (a) {
     } else {

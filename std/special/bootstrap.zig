@@ -20,11 +20,11 @@ comptime {
     }
 }
 
-extern fn zenMain() -> noreturn {
+extern fn zenMain() noreturn {
     std.os.posix.exit(callMain());
 }
 
-nakedcc fn _start() -> noreturn {
+nakedcc fn _start() noreturn {
     switch (builtin.arch) {
         builtin.Arch.x86_64 => {
             argc_ptr = asm("lea (%%rsp), %[argc]": [argc] "=r" (-> &usize));
@@ -39,20 +39,20 @@ nakedcc fn _start() -> noreturn {
     @noInlineCall(posixCallMainAndExit);
 }
 
-extern fn WinMainCRTStartup() -> noreturn {
+extern fn WinMainCRTStartup() noreturn {
     @setAlignStack(16);
 
     std.os.windows.ExitProcess(callMain());
 }
 
-fn posixCallMainAndExit() -> noreturn {
+fn posixCallMainAndExit() noreturn {
     const argc = *argc_ptr;
     const argv = @ptrCast(&&u8, &argc_ptr[1]);
     const envp = @ptrCast(&?&u8, &argv[argc + 1]);
     std.os.posix.exit(callMainWithArgs(argc, argv, envp));
 }
 
-fn callMainWithArgs(argc: usize, argv: &&u8, envp: &?&u8) -> u8 {
+fn callMainWithArgs(argc: usize, argv: &&u8, envp: &?&u8) u8 {
     std.os.ArgIteratorPosix.raw = argv[0..argc];
 
     var env_count: usize = 0;
@@ -62,11 +62,11 @@ fn callMainWithArgs(argc: usize, argv: &&u8, envp: &?&u8) -> u8 {
     return callMain();
 }
 
-extern fn main(c_argc: i32, c_argv: &&u8, c_envp: &?&u8) -> i32 {
+extern fn main(c_argc: i32, c_argv: &&u8, c_envp: &?&u8) i32 {
     return callMainWithArgs(usize(c_argc), c_argv, c_envp);
 }
 
-fn callMain() -> u8 {
+fn callMain() u8 {
     switch (@typeId(@typeOf(root.main).ReturnType)) {
         builtin.TypeId.NoReturn => {
             root.main();

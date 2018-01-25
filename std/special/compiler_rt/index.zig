@@ -74,7 +74,7 @@ const __udivmoddi4 = @import("udivmoddi4.zig").__udivmoddi4;
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.
-pub fn panic(msg: []const u8, error_return_trace: ?&builtin.StackTrace) -> noreturn {
+pub fn panic(msg: []const u8, error_return_trace: ?&builtin.StackTrace) noreturn {
     @setCold(true);
     if (is_test) {
         @import("std").debug.panic("{}", msg);
@@ -83,12 +83,12 @@ pub fn panic(msg: []const u8, error_return_trace: ?&builtin.StackTrace) -> noret
     }
 }
 
-extern fn __udivdi3(a: u64, b: u64) -> u64 {
+extern fn __udivdi3(a: u64, b: u64) u64 {
     @setRuntimeSafety(is_test);
     return __udivmoddi4(a, b, null);
 }
 
-extern fn __umoddi3(a: u64, b: u64) -> u64 {
+extern fn __umoddi3(a: u64, b: u64) u64 {
     @setRuntimeSafety(is_test);
 
     var r: u64 = undefined;
@@ -100,14 +100,14 @@ const AeabiUlDivModResult = extern struct {
     quot: u64,
     rem: u64,
 };
-extern fn __aeabi_uldivmod(numerator: u64, denominator: u64) -> AeabiUlDivModResult {
+extern fn __aeabi_uldivmod(numerator: u64, denominator: u64) AeabiUlDivModResult {
     @setRuntimeSafety(is_test);
     var result: AeabiUlDivModResult = undefined;
     result.quot = __udivmoddi4(numerator, denominator, &result.rem);
     return result;
 }
 
-fn isArmArch() -> bool {
+fn isArmArch() bool {
     return switch (builtin.arch) {
         builtin.Arch.armv8_2a,
         builtin.Arch.armv8_1a,
@@ -132,7 +132,7 @@ fn isArmArch() -> bool {
     };
 }
 
-nakedcc fn __aeabi_uidivmod() {
+nakedcc fn __aeabi_uidivmod() void {
     @setRuntimeSafety(false);
     asm volatile (
         \\ push    { lr }
@@ -149,7 +149,7 @@ nakedcc fn __aeabi_uidivmod() {
 // then decrement %esp by %eax.  Preserves all registers except %esp and flags.
 // This routine is windows specific
 // http://msdn.microsoft.com/en-us/library/ms648426.aspx
-nakedcc fn _chkstk() align(4) {
+nakedcc fn _chkstk() align(4) void {
     @setRuntimeSafety(false);
 
     asm volatile (
@@ -173,7 +173,7 @@ nakedcc fn _chkstk() align(4) {
     );
 }
 
-nakedcc fn __chkstk() align(4) {
+nakedcc fn __chkstk() align(4) void {
     @setRuntimeSafety(false);
 
     asm volatile (
@@ -200,7 +200,7 @@ nakedcc fn __chkstk() align(4) {
 // _chkstk routine
 // This routine is windows specific
 // http://msdn.microsoft.com/en-us/library/ms648426.aspx
-nakedcc fn __chkstk_ms() align(4) {
+nakedcc fn __chkstk_ms() align(4) void {
     @setRuntimeSafety(false);
 
     asm volatile (
@@ -224,7 +224,7 @@ nakedcc fn __chkstk_ms() align(4) {
     );
 }
 
-nakedcc fn ___chkstk_ms() align(4) {
+nakedcc fn ___chkstk_ms() align(4) void {
     @setRuntimeSafety(false);
 
     asm volatile (
@@ -248,7 +248,7 @@ nakedcc fn ___chkstk_ms() align(4) {
     );
 }
 
-extern fn __udivmodsi4(a: u32, b: u32, rem: &u32) -> u32 {
+extern fn __udivmodsi4(a: u32, b: u32, rem: &u32) u32 {
     @setRuntimeSafety(is_test);
 
     const d = __udivsi3(a, b);
@@ -257,7 +257,7 @@ extern fn __udivmodsi4(a: u32, b: u32, rem: &u32) -> u32 {
 }
 
 
-extern fn __udivsi3(n: u32, d: u32) -> u32 {
+extern fn __udivsi3(n: u32, d: u32) u32 {
     @setRuntimeSafety(is_test);
 
     const n_uword_bits: c_uint = u32.bit_count;
@@ -304,7 +304,7 @@ test "test_umoddi3" {
     test_one_umoddi3(0xFFFFFFFFFFFFFFFF, 2, 0x1);
 }
 
-fn test_one_umoddi3(a: u64, b: u64, expected_r: u64) {
+fn test_one_umoddi3(a: u64, b: u64, expected_r: u64) void {
     const r = __umoddi3(a, b);
     assert(r == expected_r);
 }
@@ -450,7 +450,7 @@ test "test_udivsi3" {
     }
 }
 
-fn test_one_udivsi3(a: u32, b: u32, expected_q: u32) {
+fn test_one_udivsi3(a: u32, b: u32, expected_q: u32) void {
     const q: u32 = __udivsi3(a, b);
     assert(q == expected_q);
 }

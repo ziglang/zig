@@ -918,9 +918,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     if (fn_type_id->alignment != 0) {
         buf_appendf(&fn_type->name, " align(%" PRIu32 ")", fn_type_id->alignment);
     }
-    if (fn_type_id->return_type->id != TypeTableEntryIdVoid) {
-        buf_appendf(&fn_type->name, " -> %s", buf_ptr(&fn_type_id->return_type->name));
-    }
+    buf_appendf(&fn_type->name, " %s", buf_ptr(&fn_type_id->return_type->name));
     skip_debug_info = skip_debug_info || !fn_type_id->return_type->di_type;
 
     // next, loop over the parameters again and compute debug information
@@ -1082,7 +1080,7 @@ TypeTableEntry *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
         const char *comma_str = (i == 0) ? "" : ",";
         buf_appendf(&fn_type->name, "%svar", comma_str);
     }
-    buf_appendf(&fn_type->name, ")->var");
+    buf_appendf(&fn_type->name, ")var");
 
     fn_type->data.fn.fn_type_id = *fn_type_id;
     fn_type->data.fn.is_generic = true;
@@ -2665,7 +2663,7 @@ static bool scope_is_root_decls(Scope *scope) {
 
 static void wrong_panic_prototype(CodeGen *g, AstNode *proto_node, TypeTableEntry *fn_type) {
     add_node_error(g, proto_node,
-            buf_sprintf("expected 'fn([]const u8, ?&builtin.StackTrace) -> unreachable', found '%s'",
+            buf_sprintf("expected 'fn([]const u8, ?&builtin.StackTrace) unreachable', found '%s'",
                 buf_ptr(&fn_type->name)));
 }
 

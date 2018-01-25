@@ -7,7 +7,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn atan(x: var) -> @typeOf(x) {
+pub fn atan(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
         f32 => atan32(x),
@@ -16,7 +16,7 @@ pub fn atan(x: var) -> @typeOf(x) {
     };
 }
 
-fn atan32(x_: f32) -> f32 {
+fn atan32(x_: f32) f32 {
     const atanhi = []const f32 {
         4.6364760399e-01, // atan(0.5)hi
         7.8539812565e-01, // atan(1.0)hi
@@ -108,7 +108,7 @@ fn atan32(x_: f32) -> f32 {
     }
 }
 
-fn atan64(x_: f64) -> f64 {
+fn atan64(x_: f64) f64 {
     const atanhi = []const f64 {
         4.63647609000806093515e-01, // atan(0.5)hi
         7.85398163397448278999e-01, // atan(1.0)hi

@@ -53,7 +53,7 @@ pub const Token = struct {
         KeywordId{.bytes="while", .id = Id.Keyword_while},
     };
 
-    fn getKeyword(bytes: []const u8) -> ?Id {
+    fn getKeyword(bytes: []const u8) ?Id {
         for (keywords) |kw| {
             if (mem.eql(u8, kw.bytes, bytes)) {
                 return kw.id;
@@ -146,7 +146,7 @@ pub const Tokenizer = struct {
         line_end: usize,
     };
 
-    pub fn getTokenLocation(self: &Tokenizer, token: &const Token) -> Location {
+    pub fn getTokenLocation(self: &Tokenizer, token: &const Token) Location {
         var loc = Location {
             .line = 0,
             .column = 0,
@@ -171,13 +171,13 @@ pub const Tokenizer = struct {
     }
 
     /// For debugging purposes
-    pub fn dump(self: &Tokenizer, token: &const Token) {
+    pub fn dump(self: &Tokenizer, token: &const Token) void {
         std.debug.warn("{} \"{}\"\n", @tagName(token.id), self.buffer[token.start..token.end]);
     }
 
     /// buffer must end with "\n\n\n". This is so that attempting to decode
     /// a the 3 trailing bytes of a 4-byte utf8 sequence is never a buffer overflow.
-    pub fn init(buffer: []const u8) -> Tokenizer {
+    pub fn init(buffer: []const u8) Tokenizer {
         std.debug.assert(buffer[buffer.len - 1] == '\n');
         std.debug.assert(buffer[buffer.len - 2] == '\n');
         std.debug.assert(buffer[buffer.len - 3] == '\n');
@@ -212,7 +212,7 @@ pub const Tokenizer = struct {
         Period2,
     };
 
-    pub fn next(self: &Tokenizer) -> Token {
+    pub fn next(self: &Tokenizer) Token {
         if (self.pending_invalid_token) |token| {
             self.pending_invalid_token = null;
             return token;
@@ -528,11 +528,11 @@ pub const Tokenizer = struct {
         return result;
     }
 
-    pub fn getTokenSlice(self: &const Tokenizer, token: &const Token) -> []const u8 {
+    pub fn getTokenSlice(self: &const Tokenizer, token: &const Token) []const u8 {
         return self.buffer[token.start..token.end];
     }
 
-    fn checkLiteralCharacter(self: &Tokenizer) {
+    fn checkLiteralCharacter(self: &Tokenizer) void {
         if (self.pending_invalid_token != null) return;
         const invalid_length = self.getInvalidCharacterLength();
         if (invalid_length == 0) return;
@@ -543,7 +543,7 @@ pub const Tokenizer = struct {
         };
     }
 
-    fn getInvalidCharacterLength(self: &Tokenizer) -> u3 {
+    fn getInvalidCharacterLength(self: &Tokenizer) u3 {
         const c0 = self.buffer[self.index];
         if (c0 < 0x80) {
             if (c0 < 0x20 or c0 == 0x7f) {
@@ -636,7 +636,7 @@ test "tokenizer - illegal unicode codepoints" {
     testTokenize("//\xe2\x80\xaa", []Token.Id{});
 }
 
-fn testTokenize(source: []const u8, expected_tokens: []const Token.Id) {
+fn testTokenize(source: []const u8, expected_tokens: []const Token.Id) void {
     // (test authors, just make this bigger if you need it)
     var padded_source: [0x100]u8 = undefined;
     std.mem.copy(u8, padded_source[0..source.len], source);

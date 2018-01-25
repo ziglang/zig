@@ -8,7 +8,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn asinh(x: var) -> @typeOf(x) {
+pub fn asinh(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
         f32 => asinh32(x),
@@ -18,7 +18,7 @@ pub fn asinh(x: var) -> @typeOf(x) {
 }
 
 // asinh(x) = sign(x) * log(|x| + sqrt(x * x + 1)) ~= x - x^3/6 + o(x^5)
-fn asinh32(x: f32) -> f32 {
+fn asinh32(x: f32) f32 {
     const u = @bitCast(u32, x);
     const i = u & 0x7FFFFFFF;
     const s = i >> 31;
@@ -50,7 +50,7 @@ fn asinh32(x: f32) -> f32 {
     return if (s != 0) -rx else rx;
 }
 
-fn asinh64(x: f64) -> f64 {
+fn asinh64(x: f64) f64 {
     const u = @bitCast(u64, x);
     const e = (u >> 52) & 0x7FF;
     const s = u >> 63;

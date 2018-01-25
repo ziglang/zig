@@ -8,7 +8,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn atanh(x: var) -> @typeOf(x) {
+pub fn atanh(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
         f32 => atanh_32(x),
@@ -18,7 +18,7 @@ pub fn atanh(x: var) -> @typeOf(x) {
 }
 
 // atanh(x) = log((1 + x) / (1 - x)) / 2 = log1p(2x / (1 - x)) / 2 ~= x + x^3 / 3 + o(x^5)
-fn atanh_32(x: f32) -> f32 {
+fn atanh_32(x: f32) f32 {
     const u = @bitCast(u32, x);
     const i = u & 0x7FFFFFFF;
     const s = u >> 31;
@@ -47,7 +47,7 @@ fn atanh_32(x: f32) -> f32 {
     return if (s != 0) -y else y;
 }
 
-fn atanh_64(x: f64) -> f64 {
+fn atanh_64(x: f64) f64 {
     const u = @bitCast(u64, x);
     const e = (u >> 52) & 0x7FF;
     const s = u >> 63;

@@ -17,8 +17,8 @@ test "module level assembly" {
     }
 }
 
-extern fn aoeu() -> i32;
+extern fn aoeu() i32;
 
-export fn derp() -> i32 {
+export fn derp() i32 {
     return 1234;
 }

@@ -5,7 +5,7 @@ const builtin = @import("builtin");
 
 // Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.
-pub fn panic(msg: []const u8, error_return_trace: ?&builtin.StackTrace) -> noreturn {
+pub fn panic(msg: []const u8, error_return_trace: ?&builtin.StackTrace) noreturn {
     if (builtin.is_test) {
         @setCold(true);
         @import("std").debug.panic("{}", msg);
@@ -17,7 +17,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?&builtin.StackTrace) -> noret
 // Note that memset does not return `dest`, like the libc API.
 // The semantics of memset is dictated by the corresponding
 // LLVM intrinsics, not by the libc API.
-export fn memset(dest: ?&u8, c: u8, n: usize) {
+export fn memset(dest: ?&u8, c: u8, n: usize) void {
     @setRuntimeSafety(false);
 
     var index: usize = 0;
@@ -28,7 +28,7 @@ export fn memset(dest: ?&u8, c: u8, n: usize) {
 // Note that memcpy does not return `dest`, like the libc API.
 // The semantics of memcpy is dictated by the corresponding
 // LLVM intrinsics, not by the libc API.
-export fn memcpy(noalias dest: ?&u8, noalias src: ?&const u8, n: usize) {
+export fn memcpy(noalias dest: ?&u8, noalias src: ?&const u8, n: usize) void {
     @setRuntimeSafety(false);
 
     var index: usize = 0;
@@ -41,23 +41,23 @@ comptime {
         @export("__stack_chk_fail", __stack_chk_fail, builtin.GlobalLinkage.Strong);
     }
 }
-extern fn __stack_chk_fail() -> noreturn {
+extern fn __stack_chk_fail() noreturn {
     @panic("stack smashing detected");
 }
 
 const math = @import("../math/index.zig");
 
-export fn fmodf(x: f32, y: f32) -> f32 { return generic_fmod(f32, x, y); }
-export fn fmod(x: f64, y: f64) -> f64 { return generic_fmod(f64, x, y); }
+export fn fmodf(x: f32, y: f32) f32 { return generic_fmod(f32, x, y); }
+export fn fmod(x: f64, y: f64) f64 { return generic_fmod(f64, x, y); }
 
 // TODO add intrinsics for these (and probably the double version too)
 // and have the math stuff use the intrinsic. same as @mod and @rem
-export fn floorf(x: f32) -> f32 { return math.floor(x); }
-export fn ceilf(x: f32) -> f32 { return math.ceil(x); }
-export fn floor(x: f64) -> f64 { return math.floor(x); }
-export fn ceil(x: f64) -> f64 { return math.ceil(x); }
+export fn floorf(x: f32) f32 { return math.floor(x); }
+export fn ceilf(x: f32) f32 { return math.ceil(x); }
+export fn floor(x: f64) f64 { return math.floor(x); }
+export fn ceil(x: f64) f64 { return math.ceil(x); }
 
-fn generic_fmod(comptime T: type, x: T, y: T) -> T {
+fn generic_fmod(comptime T: type, x: T, y: T) T {
     @setRuntimeSafety(false);
 
     const uint = @IntType(false, T.bit_count);
@@ -133,7 +133,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) -> T {
     return @bitCast(T, ux);
 }
 
-fn isNan(comptime T: type, bits: T) -> bool {
+fn isNan(comptime T: type, bits: T) bool {
     if (T == u32) {
         return (bits & 0x7fffffff) > 0x7f800000;
     } else if (T == u64) {

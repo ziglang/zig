@@ -7,7 +7,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn exp2(x: var) -> @typeOf(x) {
+pub fn exp2(x: var) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
         f32 => exp2_32(x),
@@ -35,7 +35,7 @@ const exp2ft = []const f64 {
     0x1.5ab07dd485429p+0,
 };
 
-fn exp2_32(x: f32) -> f32 {
+fn exp2_32(x: f32) f32 {
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
     const tblsiz = u32(exp2ft.len);
@@ -352,7 +352,7 @@ const exp2dt = []f64 {
     0x1.690f4b19e9471p+0, -0x1.9780p-45,
 };
 
-fn exp2_64(x: f64) -> f64 {
+fn exp2_64(x: f64) f64 {
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
     const tblsiz     = u32(exp2dt.len / 2);

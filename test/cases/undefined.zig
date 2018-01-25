@@ -1,7 +1,7 @@
 const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
-fn initStaticArray() -> [10]i32 {
+fn initStaticArray() [10]i32 {
     var array: [10]i32 = undefined;
     array[0] = 1;
     array[4] = 2;
@@ -27,12 +27,12 @@ test "init static array to undefined" {
 const Foo = struct {
     x: i32,
 
-    fn setFooXMethod(foo: &Foo) {
+    fn setFooXMethod(foo: &Foo) void {
         foo.x = 3;
     }
 };
 
-fn setFooX(foo: &Foo) {
+fn setFooX(foo: &Foo) void {
     foo.x = 2;
 }
 

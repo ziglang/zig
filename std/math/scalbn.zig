@@ -2,7 +2,7 @@ const std = @import("../index.zig");
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn scalbn(x: var, n: i32) -> @typeOf(x) {
+pub fn scalbn(x: var, n: i32) @typeOf(x) {
     const T = @typeOf(x);
     return switch (T) {
         f32 => scalbn32(x, n),
@@ -11,7 +11,7 @@ pub fn scalbn(x: var, n: i32) -> @typeOf(x) {
     };
 }
 
-fn scalbn32(x: f32, n_: i32) -> f32 {
+fn scalbn32(x: f32, n_: i32) f32 {
     var y = x;
     var n = n_;
 
@@ -41,7 +41,7 @@ fn scalbn32(x: f32, n_: i32) -> f32 {
     return y * @bitCast(f32, u);
 }
 
-fn scalbn64(x: f64, n_: i32) -> f64 {
+fn scalbn64(x: f64, n_: i32) f64 {
     var y = x;
     var n = n_;
 

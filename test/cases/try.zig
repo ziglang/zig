@@ -6,7 +6,7 @@ test "try on error union" {
 
 }
 
-fn tryOnErrorUnionImpl() {
+fn tryOnErrorUnionImpl() void {
     const x = if (returnsTen()) |val|
         val + 1
     else |err| switch (err) {
@@ -20,7 +20,7 @@ fn tryOnErrorUnionImpl() {
 error ItBroke;
 error NoMem;
 error CrappedOut;
-fn returnsTen() -> %i32 {
+fn returnsTen() %i32 {
     return 10;
 }
 
@@ -32,7 +32,7 @@ test "try without vars" {
     assert(result2 == 1);
 }
 
-fn failIfTrue(ok: bool) -> %void {
+fn failIfTrue(ok: bool) %void {
     if (ok) {
         return error.ItBroke;
     } else {

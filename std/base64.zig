@@ -11,7 +11,7 @@ pub const Base64Encoder = struct {
     pad_char: u8,
 
     /// a bunch of assertions, then simply pass the data right through.
-    pub fn init(alphabet_chars: []const u8, pad_char: u8) -> Base64Encoder {
+    pub fn init(alphabet_chars: []const u8, pad_char: u8) Base64Encoder {
         assert(alphabet_chars.len == 64);
         var char_in_alphabet = []bool{false} ** 256;
         for (alphabet_chars) |c| {
@@ -27,12 +27,12 @@ pub const Base64Encoder = struct {
     }
 
     /// ceil(source_len * 4/3)
-    pub fn calcSize(source_len: usize) -> usize {
+    pub fn calcSize(source_len: usize) usize {
         return @divTrunc(source_len + 2, 3) * 4;
     }
 
     /// dest.len must be what you get from ::calcSize.
-    pub fn encode(encoder: &const Base64Encoder, dest: []u8, source: []const u8) {
+    pub fn encode(encoder: &const Base64Encoder, dest: []u8, source: []const u8) void {
         assert(dest.len == Base64Encoder.calcSize(source.len));
 
         var i: usize = 0;
@@ -90,7 +90,7 @@ pub const Base64Decoder = struct {
     char_in_alphabet: [256]bool,
     pad_char: u8,
 
-    pub fn init(alphabet_chars: []const u8, pad_char: u8) -> Base64Decoder {
+    pub fn init(alphabet_chars: []const u8, pad_char: u8) Base64Decoder {
         assert(alphabet_chars.len == 64);
 
         var result = Base64Decoder{
@@ -111,7 +111,7 @@ pub const Base64Decoder = struct {
     }
 
     /// If the encoded buffer is detected to be invalid, returns error.InvalidPadding.
-    pub fn calcSize(decoder: &const Base64Decoder, source: []const u8) -> %usize {
+    pub fn calcSize(decoder: &const Base64Decoder, source: []const u8) %usize {
         if (source.len % 4 != 0) return error.InvalidPadding;
         return calcDecodedSizeExactUnsafe(source, decoder.pad_char);
     }
@@ -119,7 +119,7 @@ pub const Base64Decoder = struct {
     /// dest.len must be what you get from ::calcSize.
     /// invalid characters result in error.InvalidCharacter.
     /// invalid padding results in error.InvalidPadding.
-    pub fn decode(decoder: &const Base64Decoder, dest: []u8, source: []const u8) -> %void {
+    pub fn decode(decoder: &const Base64Decoder, dest: []u8, source: []const u8) %void {
         assert(dest.len == (decoder.calcSize(source) catch unreachable));
         assert(source.len % 4 == 0);
 
@@ -168,7 +168,7 @@ error OutputTooSmall;
 pub const Base64DecoderWithIgnore = struct {
     decoder: Base64Decoder,
     char_is_ignored: [256]bool,
-    pub fn init(alphabet_chars: []const u8, pad_char: u8, ignore_chars: []const u8) -> Base64DecoderWithIgnore {
+    pub fn init(alphabet_chars: []const u8, pad_char: u8, ignore_chars: []const u8) Base64DecoderWithIgnore {
         var result = Base64DecoderWithIgnore {
             .decoder = Base64Decoder.init(alphabet_chars, pad_char),
             .char_is_ignored = []bool{false} ** 256,
@@ -185,7 +185,7 @@ pub const Base64DecoderWithIgnore = struct {
     }
 
     /// If no characters end up being ignored or padding, this will be the exact decoded size.
-    pub fn calcSizeUpperBound(encoded_len: usize) -> %usize {
+    pub fn calcSizeUpperBound(encoded_len: usize) %usize {
         return @divTrunc(encoded_len, 4) * 3;
     }
 
@@ -193,7 +193,7 @@ pub const Base64DecoderWithIgnore = struct {
     /// Invalid padding results in error.InvalidPadding.
     /// Decoding more data than can fit in dest results in error.OutputTooSmall. See also ::calcSizeUpperBound.
     /// Returns the number of bytes writen to dest.
-    pub fn decode(decoder_with_ignore: &const Base64DecoderWithIgnore, dest: []u8, source: []const u8) -> %usize {
+    pub fn decode(decoder_with_ignore: &const Base64DecoderWithIgnore, dest: []u8, source: []const u8) %usize {
         const decoder = &decoder_with_ignore.decoder;
 
         var src_cursor: usize = 0;
@@ -293,7 +293,7 @@ pub const Base64DecoderUnsafe = struct {
     char_to_index: [256]u8,
     pad_char: u8,
 
-    pub fn init(alphabet_chars: []const u8, pad_char: u8) -> Base64DecoderUnsafe {
+    pub fn init(alphabet_chars: []const u8, pad_char: u8) Base64DecoderUnsafe {
         assert(alphabet_chars.len == 64);
         var result = Base64DecoderUnsafe {
             .char_to_index = undefined,
@@ -307,13 +307,13 @@ pub const Base64DecoderUnsafe = struct {
     }
 
     /// The source buffer must be valid.
-    pub fn calcSize(decoder: &const Base64DecoderUnsafe, source: []const u8) -> usize {
+    pub fn calcSize(decoder: &const Base64DecoderUnsafe, source: []const u8) usize {
         return calcDecodedSizeExactUnsafe(source, decoder.pad_char);
     }
 
     /// dest.len must be what you get from ::calcDecodedSizeExactUnsafe.
     /// invalid characters or padding will result in undefined values.
-    pub fn decode(decoder: &const Base64DecoderUnsafe, dest: []u8, source: []const u8) {
+    pub fn decode(decoder: &const Base64DecoderUnsafe, dest: []u8, source: []const u8) void {
         assert(dest.len == decoder.calcSize(source));
 
         var src_index: usize = 0;
@@ -359,7 +359,7 @@ pub const Base64DecoderUnsafe = struct {
     }
 };
 
-fn calcDecodedSizeExactUnsafe(source: []const u8, pad_char: u8) -> usize {
+fn calcDecodedSizeExactUnsafe(source: []const u8, pad_char: u8) usize {
     if (source.len == 0) return 0;
     var result = @divExact(source.len, 4) * 3;
     if (source[source.len - 1] == pad_char) {
@@ -378,7 +378,7 @@ test "base64" {
     comptime (testBase64() catch unreachable);
 }
 
-fn testBase64() -> %void {
+fn testBase64() %void {
     try testAllApis("",       "");
     try testAllApis("f",      "Zg==");
     try testAllApis("fo",     "Zm8=");
@@ -412,7 +412,7 @@ fn testBase64() -> %void {
     try testOutputTooSmallError("AAAAAA==");
 }
 
-fn testAllApis(expected_decoded: []const u8, expected_encoded: []const u8) -> %void {
+fn testAllApis(expected_decoded: []const u8, expected_encoded: []const u8) %void {
     // Base64Encoder
     {
         var buffer: [0x100]u8 = undefined;
@@ -449,7 +449,7 @@ fn testAllApis(expected_decoded: []const u8, expected_encoded: []const u8) -> %v
     }
 }
 
-fn testDecodeIgnoreSpace(expected_decoded: []const u8, encoded: []const u8) -> %void {
+fn testDecodeIgnoreSpace(expected_decoded: []const u8, encoded: []const u8) %void {
     const standard_decoder_ignore_space = Base64DecoderWithIgnore.init(
         standard_alphabet_chars, standard_pad_char, " ");
     var buffer: [0x100]u8 = undefined;
@@ -459,7 +459,7 @@ fn testDecodeIgnoreSpace(expected_decoded: []const u8, encoded: []const u8) -> %
 }
 
 error ExpectedError;
-fn testError(encoded: []const u8, expected_err: error) -> %void {
+fn testError(encoded: []const u8, expected_err: error) %void {
     const standard_decoder_ignore_space = Base64DecoderWithIgnore.init(
         standard_alphabet_chars, standard_pad_char, " ");
     var buffer: [0x100]u8 = undefined;
@@ -475,7 +475,7 @@ fn testError(encoded: []const u8, expected_err: error) -> %void {
     } else |err| if (err != expected_err) return err;
 }
 
-fn testOutputTooSmallError(encoded: []const u8) -> %void {
+fn testOutputTooSmallError(encoded: []const u8) %void {
     const standard_decoder_ignore_space = Base64DecoderWithIgnore.init(
         standard_alphabet_chars, standard_pad_char, " ");
     var buffer: [0x100]u8 = undefined;

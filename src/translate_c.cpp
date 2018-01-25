@@ -920,7 +920,7 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                     //     void foo(void) -> Foo;
                     // we want to keep the return type AST node.
                     if (is_c_void_type(proto_node->data.fn_proto.return_type)) {
-                        proto_node->data.fn_proto.return_type = nullptr;
+                        proto_node->data.fn_proto.return_type = trans_create_node_symbol_str(c, "void");
                     }
                 }
 
