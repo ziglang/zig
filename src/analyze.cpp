@@ -1376,6 +1376,10 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
     fn_type_id.return_type = (fn_proto->return_type == nullptr) ?
         g->builtin_types.entry_void : analyze_type_expr(g, child_scope, fn_proto->return_type);
 
+    if (type_is_invalid(fn_type_id.return_type)) {
+        return g->builtin_types.entry_invalid;
+    }
+
     if (fn_type_id.cc != CallingConventionUnspecified && !type_allowed_in_extern(g, fn_type_id.return_type)) {
         add_node_error(g, fn_proto->return_type,
                 buf_sprintf("return type '%s' not allowed in function with calling convention '%s'",
@@ -1386,7 +1390,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
 
     switch (fn_type_id.return_type->id) {
         case TypeTableEntryIdInvalid:
-            return g->builtin_types.entry_invalid;
+            zig_unreachable();
 
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
