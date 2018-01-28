@@ -1,27 +1,27 @@
 const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
-pub fn foo() -> %i32 {
-    const x = %return bar();
-    return x + 1
+pub fn foo() %i32 {
+    const x = try bar();
+    return x + 1;
 }
 
-pub fn bar() -> %i32 {
+pub fn bar() %i32 {
     return 13;
 }
 
-pub fn baz() -> %i32 {
-    const y = foo() %% 1234;
+pub fn baz() %i32 {
+    const y = foo() catch 1234;
     return y + 1;
 }
 
 test "error wrapping" {
-    assert(%%baz() == 15);
+    assert((baz() catch unreachable) == 15);
 }
 
 error ItBroke;
-fn gimmeItBroke() -> []const u8 {
-    @errorName(error.ItBroke)
+fn gimmeItBroke() []const u8 {
+    return @errorName(error.ItBroke);
 }
 
 test "@errorName" {
@@ -47,43 +47,39 @@ test "redefinition of error values allowed" {
 error AnError;
 error AnError;
 error SecondError;
-fn shouldBeNotEqual(a: error, b: error) {
-    if (a == b) unreachable
+fn shouldBeNotEqual(a: error, b: error) void {
+    if (a == b) unreachable;
 }
 
 
 test "error binary operator" {
-    const a = errBinaryOperatorG(true) %% 3;
-    const b = errBinaryOperatorG(false) %% 3;
+    const a = errBinaryOperatorG(true) catch 3;
+    const b = errBinaryOperatorG(false) catch 3;
     assert(a == 3);
     assert(b == 10);
 }
 error ItBroke;
-fn errBinaryOperatorG(x: bool) -> %isize {
-    if (x) {
-        error.ItBroke
-    } else {
-        isize(10)
-    }
+fn errBinaryOperatorG(x: bool) %isize {
+    return if (x) error.ItBroke else isize(10);
 }
 
 
 test "unwrap simple value from error" {
-    const i = %%unwrapSimpleValueFromErrorDo();
+    const i = unwrapSimpleValueFromErrorDo() catch unreachable;
     assert(i == 13);
 }
-fn unwrapSimpleValueFromErrorDo() -> %isize { 13 }
+fn unwrapSimpleValueFromErrorDo() %isize { return 13; }
 
 
 test "error return in assignment" {
-    %%doErrReturnInAssignment();
+    doErrReturnInAssignment() catch unreachable;
 }
 
-fn doErrReturnInAssignment() -> %void {
+fn doErrReturnInAssignment() %void {
     var x : i32 = undefined;
-    x = %return makeANonErr();
+    x = try makeANonErr();
 }
 
-fn makeANonErr() -> %i32 {
+fn makeANonErr() %i32 {
     return 1;
 }

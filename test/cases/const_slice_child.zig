@@ -13,15 +13,15 @@ test "const slice child" {
     bar(strs.len);
 }
 
-fn foo(args: [][]const u8) {
+fn foo(args: [][]const u8) void {
     assert(args.len == 3);
     assert(streql(args[0], "one"));
     assert(streql(args[1], "two"));
     assert(streql(args[2], "three"));
 }
 
-fn bar(argc: usize) {
-    const args = %%debug.global_allocator.alloc([]const u8, argc);
+fn bar(argc: usize) void {
+    const args = debug.global_allocator.alloc([]const u8, argc) catch unreachable;
     for (args) |_, i| {
         const ptr = argv[i];
         args[i] = ptr[0..strlen(ptr)];
@@ -29,13 +29,13 @@ fn bar(argc: usize) {
     foo(args);
 }
 
-fn strlen(ptr: &const u8) -> usize {
+fn strlen(ptr: &const u8) usize {
     var count: usize = 0;
     while (ptr[count] != 0) : (count += 1) {}
     return count;
 }
 
-fn streql(a: []const u8, b: []const u8) -> bool {
+fn streql(a: []const u8, b: []const u8) bool {
     if (a.len != b.len) return false;
     for (a) |item, index| {
         if (b[index] != item) return false;

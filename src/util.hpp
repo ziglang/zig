@@ -13,8 +13,6 @@
 #include <string.h>
 #include <assert.h>
 
-#include <new>
-
 #if defined(_MSC_VER)
 
 #include <intrin.h>  

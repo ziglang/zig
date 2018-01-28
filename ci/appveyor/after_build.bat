@@ -8,6 +8,7 @@ SET "RELEASEDIR=zig-%ZIGVERSION%"
 mkdir "%RELEASEDIR%"
 move build-msvc-release\bin\zig.exe "%RELEASEDIR%"
 move build-msvc-release\lib "%RELEASEDIR%"
+move zig-cache\langref.html "%RELEASEDIR%"
 
 SET "RELEASEZIP=zig-%ZIGVERSION%.zip"
 

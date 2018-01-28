@@ -3,28 +3,29 @@
 // - modf(+-inf) = +-inf, nan
 // - modf(nan)   = nan, nan
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
-fn modf_result(comptime T: type) -> type {
-    struct {
+fn modf_result(comptime T: type) type {
+    return struct {
         fpart: T,
         ipart: T,
-    }
+    };
 }
 pub const modf32_result = modf_result(f32);
 pub const modf64_result = modf_result(f64);
 
-pub fn modf(x: var) -> modf_result(@typeOf(x)) {
+pub fn modf(x: var) modf_result(@typeOf(x)) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(modf32, x),
-        f64 => @inlineCall(modf64, x),
+    return switch (T) {
+        f32 => modf32(x),
+        f64 => modf64(x),
         else => @compileError("modf not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
-fn modf32(x: f32) -> modf32_result {
+fn modf32(x: f32) modf32_result {
     var result: modf32_result = undefined;
 
     const u = @bitCast(u32, x);
@@ -66,10 +67,10 @@ fn modf32(x: f32) -> modf32_result {
     const uf = @bitCast(f32, u & ~mask);
     result.ipart = uf;
     result.fpart = x - uf;
-    result
+    return result;
 }
 
-fn modf64(x: f64) -> modf64_result {
+fn modf64(x: f64) modf64_result {
     var result: modf64_result = undefined;
 
     const u = @bitCast(u64, x);
@@ -110,7 +111,7 @@ fn modf64(x: f64) -> modf64_result {
     const uf = @bitCast(f64, u & ~mask);
     result.ipart = uf;
     result.fpart = x - uf;
-    result
+    return result;
 }
 
 test "math.modf" {

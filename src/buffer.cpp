@@ -67,9 +67,12 @@ bool buf_eql_buf(Buf *buf, Buf *other) {
 
 uint32_t buf_hash(Buf *buf) {
     assert(buf->list.length);
+    size_t interval = buf->list.length / 256;
+    if (interval == 0)
+        interval = 1;
     // FNV 32-bit hash
     uint32_t h = 2166136261;
-    for (size_t i = 0; i < buf_len(buf); i += 1) {
+    for (size_t i = 0; i < buf_len(buf); i += interval) {
         h = h ^ ((uint8_t)buf->list.at(i));
         h = h * 16777619;
     }

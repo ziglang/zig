@@ -4,19 +4,20 @@
 // - trunc(+-inf) = +-inf
 // - trunc(nan)   = nan
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
-pub fn trunc(x: var) -> @typeOf(x) {
+pub fn trunc(x: var) @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(trunc32, x),
-        f64 => @inlineCall(trunc64, x),
+    return switch (T) {
+        f32 => trunc32(x),
+        f64 => trunc64(x),
         else => @compileError("trunc not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
-fn trunc32(x: f32) -> f32 {
+fn trunc32(x: f32) f32 {
     const u = @bitCast(u32, x);
     var e = i32(((u >> 23) & 0xFF)) - 0x7F + 9;
     var m: u32 = undefined;
@@ -30,14 +31,14 @@ fn trunc32(x: f32) -> f32 {
 
     m = u32(@maxValue(u32)) >> u5(e);
     if (u & m == 0) {
-        x
+        return x;
     } else {
         math.forceEval(x + 0x1p120);
-        @bitCast(f32, u & ~m)
+        return @bitCast(f32, u & ~m);
     }
 }
 
-fn trunc64(x: f64) -> f64 {
+fn trunc64(x: f64) f64 {
     const u = @bitCast(u64, x);
     var e = i32(((u >> 52) & 0x7FF)) - 0x3FF + 12;
     var m: u64 = undefined;
@@ -51,10 +52,10 @@ fn trunc64(x: f64) -> f64 {
 
     m = u64(@maxValue(u64)) >> u6(e);
     if (u & m == 0) {
-        x
+        return x;
     } else {
         math.forceEval(x + 0x1p120);
-        @bitCast(f64, u & ~m)
+        return @bitCast(f64, u & ~m);
     }
 }
 

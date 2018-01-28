@@ -419,20 +419,20 @@ pub const F_GETOWN_EX = 16;
 
 pub const F_GETOWNER_UIDS = 17;
 
-pub inline fn syscall0(number: usize) -> usize {
+pub inline fn syscall0(number: usize) usize {
     asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize)
         : [number] "{eax}" (number))
 }
 
-pub inline fn syscall1(number: usize, arg1: usize) -> usize {
+pub inline fn syscall1(number: usize, arg1: usize) usize {
     asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize)
         : [number] "{eax}" (number),
             [arg1] "{ebx}" (arg1))
 }
 
-pub inline fn syscall2(number: usize, arg1: usize, arg2: usize) -> usize {
+pub inline fn syscall2(number: usize, arg1: usize, arg2: usize) usize {
     asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize)
         : [number] "{eax}" (number),
@@ -440,7 +440,7 @@ pub inline fn syscall2(number: usize, arg1: usize, arg2: usize) -> usize {
             [arg2] "{ecx}" (arg2))
 }
 
-pub inline fn syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) -> usize {
+pub inline fn syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) usize {
     asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize)
         : [number] "{eax}" (number),
@@ -449,7 +449,7 @@ pub inline fn syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) -> 
             [arg3] "{edx}" (arg3))
 }
 
-pub inline fn syscall4(number: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize) -> usize {
+pub inline fn syscall4(number: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
     asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize)
         : [number] "{eax}" (number),
@@ -486,7 +486,7 @@ pub inline fn syscall6(number: usize, arg1: usize, arg2: usize, arg3: usize,
             [arg6] "{ebp}" (arg6))
 }
 
-pub nakedcc fn restore() {
+pub nakedcc fn restore() void {
     asm volatile (
         \\popl %%eax
         \\movl $119, %%eax
@@ -496,19 +496,9 @@ pub nakedcc fn restore() {
         : "rcx", "r11")
 }
 
-pub nakedcc fn restore_rt() {
+pub nakedcc fn restore_rt() void {
     asm volatile ("int $0x80"
         :
         : [number] "{eax}" (usize(SYS_rt_sigreturn))
         : "rcx", "r11")
-}
-
-export struct msghdr {
-    msg_name: &u8,
-    msg_namelen: socklen_t,
-    msg_iov: &iovec,
-    msg_iovlen: i32,
-    msg_control: &u8,
-    msg_controllen: socklen_t,
-    msg_flags: i32,
 }

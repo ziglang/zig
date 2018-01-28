@@ -1,16 +1,17 @@
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
-pub fn isInf(x: var) -> bool {
+pub fn isInf(x: var) bool {
     const T = @typeOf(x);
     switch (T) {
         f32 => {
             const bits = @bitCast(u32, x);
-            bits & 0x7FFFFFFF == 0x7F800000
+            return bits & 0x7FFFFFFF == 0x7F800000;
         },
         f64 => {
             const bits = @bitCast(u64, x);
-            bits & (@maxValue(u64) >> 1) == (0x7FF << 52)
+            return bits & (@maxValue(u64) >> 1) == (0x7FF << 52);
         },
         else => {
             @compileError("isInf not implemented for " ++ @typeName(T));
@@ -18,14 +19,14 @@ pub fn isInf(x: var) -> bool {
     }
 }
 
-pub fn isPositiveInf(x: var) -> bool {
+pub fn isPositiveInf(x: var) bool {
     const T = @typeOf(x);
     switch (T) {
         f32 => {
-            @bitCast(u32, x) == 0x7F800000
+            return @bitCast(u32, x) == 0x7F800000;
         },
         f64 => {
-            @bitCast(u64, x) == 0x7FF << 52
+            return @bitCast(u64, x) == 0x7FF << 52;
         },
         else => {
             @compileError("isPositiveInf not implemented for " ++ @typeName(T));
@@ -33,14 +34,14 @@ pub fn isPositiveInf(x: var) -> bool {
     }
 }
 
-pub fn isNegativeInf(x: var) -> bool {
+pub fn isNegativeInf(x: var) bool {
     const T = @typeOf(x);
     switch (T) {
         f32 => {
-            @bitCast(u32, x) == 0xFF800000
+            return @bitCast(u32, x) == 0xFF800000;
         },
         f64 => {
-            @bitCast(u64, x) == 0xFFF << 52
+            return @bitCast(u64, x) == 0xFFF << 52;
         },
         else => {
             @compileError("isNegativeInf not implemented for " ++ @typeName(T));

@@ -68,7 +68,6 @@ static const char *prefix_op_str(PrefixOp prefix_op) {
         case PrefixOpDereference: return "*";
         case PrefixOpMaybe: return "?";
         case PrefixOpError: return "%";
-        case PrefixOpUnwrapError: return "%%";
         case PrefixOpUnwrapMaybe: return "??";
     }
     zig_unreachable();
@@ -78,7 +77,6 @@ static const char *visib_mod_string(VisibMod mod) {
     switch (mod) {
         case VisibModPub: return "pub ";
         case VisibModPrivate: return "";
-        case VisibModExport: return "export ";
     }
     zig_unreachable();
 }
@@ -86,7 +84,7 @@ static const char *visib_mod_string(VisibMod mod) {
 static const char *return_string(ReturnKind kind) {
     switch (kind) {
         case ReturnKindUnconditional: return "return";
-        case ReturnKindError: return "%return";
+        case ReturnKindError: return "try";
     }
     zig_unreachable();
 }
@@ -94,7 +92,7 @@ static const char *return_string(ReturnKind kind) {
 static const char *defer_string(ReturnKind kind) {
     switch (kind) {
         case ReturnKindUnconditional: return "defer";
-        case ReturnKindError: return "%defer";
+        case ReturnKindError: return "errdefer";
     }
     zig_unreachable();
 }
@@ -110,6 +108,10 @@ static const char *layout_string(ContainerLayout layout) {
 
 static const char *extern_string(bool is_extern) {
     return is_extern ? "extern " : "";
+}
+
+static const char *export_string(bool is_export) {
+    return is_export ? "export " : "";
 }
 
 //static const char *calling_convention_string(CallingConvention cc) {
@@ -212,10 +214,6 @@ static const char *node_type_str(NodeType node_type) {
             return "SwitchProng";
         case NodeTypeSwitchRange:
             return "SwitchRange";
-        case NodeTypeLabel:
-            return "Label";
-        case NodeTypeGoto:
-            return "Goto";
         case NodeTypeCompTime:
             return "CompTime";
         case NodeTypeBreak:
@@ -242,8 +240,8 @@ static const char *node_type_str(NodeType node_type) {
             return "ErrorType";
         case NodeTypeVarLiteral:
             return "VarLiteral";
-        case NodeTypeTryExpr:
-            return "TryExpr";
+        case NodeTypeIfErrorExpr:
+            return "IfErrorExpr";
         case NodeTypeTestExpr:
             return "TestExpr";
     }
@@ -388,7 +386,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
     switch (node->type) {
         case NodeTypeSwitchProng:
         case NodeTypeSwitchRange:
-        case NodeTypeLabel:
         case NodeTypeStructValueField:
             zig_unreachable();
         case NodeTypeRoot:
@@ -411,8 +408,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             {
                 const char *pub_str = visib_mod_string(node->data.fn_proto.visib_mod);
                 const char *extern_str = extern_string(node->data.fn_proto.is_extern);
+                const char *export_str = export_string(node->data.fn_proto.is_export);
                 const char *inline_str = inline_string(node->data.fn_proto.is_inline);
-                fprintf(ar->f, "%s%s%sfn", pub_str, inline_str, extern_str);
+                fprintf(ar->f, "%s%s%s%sfn", pub_str, inline_str, export_str, extern_str);
                 if (node->data.fn_proto.name != nullptr) {
                     fprintf(ar->f, " ");
                     print_symbol(ar, node->data.fn_proto.name);
@@ -440,12 +438,21 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     }
                 }
                 fprintf(ar->f, ")");
+                if (node->data.fn_proto.align_expr) {
+                    fprintf(ar->f, " align(");
+                    render_node_grouped(ar, node->data.fn_proto.align_expr);
+                    fprintf(ar->f, ")");
+                }
+                if (node->data.fn_proto.section_expr) {
+                    fprintf(ar->f, " section(");
+                    render_node_grouped(ar, node->data.fn_proto.section_expr);
+                    fprintf(ar->f, ")");
+                }
 
                 AstNode *return_type_node = node->data.fn_proto.return_type;
-                if (return_type_node != nullptr) {
-                    fprintf(ar->f, " -> ");
-                    render_node_grouped(ar, return_type_node);
-                }
+                assert(return_type_node != nullptr);
+                fprintf(ar->f, " ");
+                render_node_grouped(ar, return_type_node);
                 break;
             }
         case NodeTypeFnDef:
@@ -456,6 +463,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 break;
             }
         case NodeTypeBlock:
+            if (node->data.block.name != nullptr) {
+                fprintf(ar->f, "%s: ", buf_ptr(node->data.block.name));
+            }
             if (node->data.block.statements.length == 0) {
                 fprintf(ar->f, "{}");
                 break;
@@ -464,19 +474,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             ar->indent += ar->indent_size;
             for (size_t i = 0; i < node->data.block.statements.length; i += 1) {
                 AstNode *statement = node->data.block.statements.at(i);
-                if (statement->type == NodeTypeLabel) {
-                    ar->indent -= ar->indent_size;
-                    print_indent(ar);
-                    fprintf(ar->f, "%s:\n", buf_ptr(statement->data.label.name));
-                    ar->indent += ar->indent_size;
-                    continue;
-                }
                 print_indent(ar);
                 render_node_grouped(ar, statement);
-                if (!(i == node->data.block.statements.length - 1 &&
-                      node->data.block.last_statement_is_result_expression)) {
-                    fprintf(ar->f, ";");
-                }
+                fprintf(ar->f, ";");
                 fprintf(ar->f, "\n");
             }
             ar->indent -= ar->indent_size;
@@ -501,6 +501,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeBreak:
             {
                 fprintf(ar->f, "break");
+                if (node->data.break_expr.name != nullptr) {
+                    fprintf(ar->f, " :%s", buf_ptr(node->data.break_expr.name));
+                }
                 if (node->data.break_expr.expr) {
                     fprintf(ar->f, " ");
                     render_node_grouped(ar, node->data.break_expr.expr);
@@ -525,6 +528,16 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 if (node->data.variable_declaration.type) {
                     fprintf(ar->f, ": ");
                     render_node_grouped(ar, node->data.variable_declaration.type);
+                }
+                if (node->data.variable_declaration.align_expr) {
+                    fprintf(ar->f, "align(");
+                    render_node_grouped(ar, node->data.variable_declaration.align_expr);
+                    fprintf(ar->f, ") ");
+                }
+                if (node->data.variable_declaration.section_expr) {
+                    fprintf(ar->f, "section(");
+                    render_node_grouped(ar, node->data.variable_declaration.section_expr);
+                    fprintf(ar->f, ") ");
                 }
                 if (node->data.variable_declaration.expr) {
                     fprintf(ar->f, " = ");
@@ -584,12 +597,15 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 PrefixOp op = node->data.prefix_op_expr.prefix_op;
                 fprintf(ar->f, "%s", prefix_op_str(op));
 
-                render_node_ungrouped(ar, node->data.prefix_op_expr.primary_expr);
+                AstNode *child_node = node->data.prefix_op_expr.primary_expr;
+                bool new_grouped = child_node->type == NodeTypePrefixOpExpr || child_node->type == NodeTypeAddrOfExpr;
+                render_node_extra(ar, child_node, new_grouped);
                 if (!grouped) fprintf(ar->f, ")");
                 break;
             }
         case NodeTypeAddrOfExpr:
             {
+                if (!grouped) fprintf(ar->f, "(");
                 fprintf(ar->f, "&");
                 if (node->data.addr_of_expr.align_expr != nullptr) {
                     fprintf(ar->f, "align(");
@@ -617,6 +633,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 }
 
                 render_node_ungrouped(ar, node->data.addr_of_expr.op_expr);
+                if (!grouped) fprintf(ar->f, ")");
                 break;
             }
         case NodeTypeFnCallExpr:
@@ -625,7 +642,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     fprintf(ar->f, "@");
                 }
                 AstNode *fn_ref_node = node->data.fn_call_expr.fn_ref_expr;
-                bool grouped = (fn_ref_node->type != NodeTypePrefixOpExpr);
+                bool grouped = (fn_ref_node->type != NodeTypePrefixOpExpr && fn_ref_node->type != NodeTypeAddrOfExpr);
                 render_node_extra(ar, fn_ref_node, grouped);
                 fprintf(ar->f, "(");
                 for (size_t i = 0; i < node->data.fn_call_expr.params.length; i += 1) {
@@ -660,7 +677,20 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             {
                 const char *layout_str = layout_string(node->data.container_decl.layout);
                 const char *container_str = container_string(node->data.container_decl.kind);
-                fprintf(ar->f, "%s%s {\n", layout_str, container_str);
+                fprintf(ar->f, "%s%s", layout_str, container_str);
+                if (node->data.container_decl.auto_enum) {
+                    fprintf(ar->f, "(enum");
+                }
+                if (node->data.container_decl.init_arg_expr != nullptr) {
+                    fprintf(ar->f, "(");
+                    render_node_grouped(ar, node->data.container_decl.init_arg_expr);
+                    fprintf(ar->f, ")");
+                }
+                if (node->data.container_decl.auto_enum) {
+                    fprintf(ar->f, ")");
+                }
+
+                fprintf(ar->f, " {\n");
                 ar->indent += ar->indent_size;
                 for (size_t field_i = 0; field_i < node->data.container_decl.fields.length; field_i += 1) {
                     AstNode *field_node = node->data.container_decl.fields.at(field_i);
@@ -670,6 +700,10 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     if (field_node->data.struct_field.type != nullptr) {
                         fprintf(ar->f, ": ");
                         render_node_grouped(ar, field_node->data.struct_field.type);
+                    }
+                    if (field_node->data.struct_field.value != nullptr) {
+                        fprintf(ar->f, "= ");
+                        render_node_grouped(ar, field_node->data.struct_field.value);
                     }
                     fprintf(ar->f, ",\n");
                 }
@@ -783,6 +817,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             }
         case NodeTypeWhileExpr:
             {
+                if (node->data.while_expr.name != nullptr) {
+                    fprintf(ar->f, "%s: ", buf_ptr(node->data.while_expr.name));
+                }
                 const char *inline_str = node->data.while_expr.is_inline ? "inline " : "";
                 fprintf(ar->f, "%swhile (", inline_str);
                 render_node_grouped(ar, node->data.while_expr.condition);
@@ -833,23 +870,23 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 fprintf(ar->f, "null");
                 break;
             }
-        case NodeTypeTryExpr:
+        case NodeTypeIfErrorExpr:
             {
                 fprintf(ar->f, "if (");
-                render_node_grouped(ar, node->data.try_expr.target_node);
+                render_node_grouped(ar, node->data.if_err_expr.target_node);
                 fprintf(ar->f, ") ");
-                if (node->data.try_expr.var_symbol) {
-                    const char *ptr_str = node->data.try_expr.var_is_ptr ? "*" : "";
-                    const char *var_name = buf_ptr(node->data.try_expr.var_symbol);
+                if (node->data.if_err_expr.var_symbol) {
+                    const char *ptr_str = node->data.if_err_expr.var_is_ptr ? "*" : "";
+                    const char *var_name = buf_ptr(node->data.if_err_expr.var_symbol);
                     fprintf(ar->f, "|%s%s| ", ptr_str, var_name);
                 }
-                render_node_grouped(ar, node->data.try_expr.then_node);
-                if (node->data.try_expr.else_node) {
+                render_node_grouped(ar, node->data.if_err_expr.then_node);
+                if (node->data.if_err_expr.else_node) {
                     fprintf(ar->f, " else ");
-                    if (node->data.try_expr.err_symbol) {
-                        fprintf(ar->f, "|%s| ", buf_ptr(node->data.try_expr.err_symbol));
+                    if (node->data.if_err_expr.err_symbol) {
+                        fprintf(ar->f, "|%s| ", buf_ptr(node->data.if_err_expr.err_symbol));
                     }
-                    render_node_grouped(ar, node->data.try_expr.else_node);
+                    render_node_grouped(ar, node->data.if_err_expr.else_node);
                 }
                 break;
             }
@@ -912,11 +949,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 fprintf(ar->f, "}");
                 break;
             }
-        case NodeTypeGoto:
-            {
-                fprintf(ar->f, "goto %s", buf_ptr(node->data.goto_expr.name));
-                break;
-            }
         case NodeTypeCompTime:
             {
                 fprintf(ar->f, "comptime ");
@@ -925,6 +957,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             }
         case NodeTypeForExpr:
             {
+                if (node->data.for_expr.name != nullptr) {
+                    fprintf(ar->f, "%s: ", buf_ptr(node->data.for_expr.name));
+                }
                 const char *inline_str = node->data.for_expr.is_inline ? "inline " : "";
                 fprintf(ar->f, "%sfor (", inline_str);
                 render_node_grouped(ar, node->data.for_expr.array_expr);
@@ -950,6 +985,9 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeContinue:
             {
                 fprintf(ar->f, "continue");
+                if (node->data.continue_expr.name != nullptr) {
+                    fprintf(ar->f, " :%s", buf_ptr(node->data.continue_expr.name));
+                }
                 break;
             }
         case NodeTypeUnreachable:

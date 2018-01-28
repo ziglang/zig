@@ -22,8 +22,8 @@ test "reflection: function return type, var args, and param types" {
     }
 }
 
-fn dummy(a: bool, b: i32, c: f32) -> i32 { 1234 }
-fn dummy_varargs(args: ...) {}
+fn dummy(a: bool, b: i32, c: f32) i32 { return 1234; }
+fn dummy_varargs(args: ...) void {}
 
 test "reflection: struct member types and names" {
     comptime {
@@ -62,8 +62,8 @@ const Foo = struct {
     three: void,
 };
 
-const Bar = enum {
-    One,
+const Bar = union(enum) {
+    One: void,
     Two: i32,
     Three: bool,
     Four: f64,

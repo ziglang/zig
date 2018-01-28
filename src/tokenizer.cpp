@@ -111,13 +111,14 @@ static const struct ZigKeyword zig_keywords[] = {
     {"and", TokenIdKeywordAnd},
     {"asm", TokenIdKeywordAsm},
     {"break", TokenIdKeywordBreak},
-    {"coldcc", TokenIdKeywordColdCC},
+    {"catch", TokenIdKeywordCatch},
     {"comptime", TokenIdKeywordCompTime},
     {"const", TokenIdKeywordConst},
     {"continue", TokenIdKeywordContinue},
     {"defer", TokenIdKeywordDefer},
     {"else", TokenIdKeywordElse},
     {"enum", TokenIdKeywordEnum},
+    {"errdefer", TokenIdKeywordErrdefer},
     {"error", TokenIdKeywordError},
     {"export", TokenIdKeywordExport},
     {"extern", TokenIdKeywordExtern},
@@ -134,12 +135,14 @@ static const struct ZigKeyword zig_keywords[] = {
     {"packed", TokenIdKeywordPacked},
     {"pub", TokenIdKeywordPub},
     {"return", TokenIdKeywordReturn},
+    {"section", TokenIdKeywordSection},
     {"stdcallcc", TokenIdKeywordStdcallCC},
     {"struct", TokenIdKeywordStruct},
     {"switch", TokenIdKeywordSwitch},
     {"test", TokenIdKeywordTest},
     {"this", TokenIdKeywordThis},
     {"true", TokenIdKeywordTrue},
+    {"try", TokenIdKeywordTry},
     {"undefined", TokenIdKeywordUndefined},
     {"union", TokenIdKeywordUnion},
     {"unreachable", TokenIdKeywordUnreachable},
@@ -810,11 +813,6 @@ void tokenize(Buf *buf, Tokenization *out) {
                         break;
                     case '.':
                         set_token_id(&t, t.cur_tok, TokenIdPercentDot);
-                        end_token(&t);
-                        t.state = TokenizeStateStart;
-                        break;
-                    case '%':
-                        set_token_id(&t, t.cur_tok, TokenIdPercentPercent);
                         end_token(&t);
                         t.state = TokenizeStateStart;
                         break;
@@ -1510,13 +1508,14 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordAnd: return "and";
         case TokenIdKeywordAsm: return "asm";
         case TokenIdKeywordBreak: return "break";
-        case TokenIdKeywordColdCC: return "coldcc";
+        case TokenIdKeywordCatch: return "catch";
         case TokenIdKeywordCompTime: return "comptime";
         case TokenIdKeywordConst: return "const";
         case TokenIdKeywordContinue: return "continue";
         case TokenIdKeywordDefer: return "defer";
         case TokenIdKeywordElse: return "else";
         case TokenIdKeywordEnum: return "enum";
+        case TokenIdKeywordErrdefer: return "errdefer";
         case TokenIdKeywordError: return "error";
         case TokenIdKeywordExport: return "export";
         case TokenIdKeywordExtern: return "extern";
@@ -1533,12 +1532,14 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordPacked: return "packed";
         case TokenIdKeywordPub: return "pub";
         case TokenIdKeywordReturn: return "return";
+        case TokenIdKeywordSection: return "section";
         case TokenIdKeywordStdcallCC: return "stdcallcc";
         case TokenIdKeywordStruct: return "struct";
         case TokenIdKeywordSwitch: return "switch";
         case TokenIdKeywordTest: return "test";
         case TokenIdKeywordThis: return "this";
         case TokenIdKeywordTrue: return "true";
+        case TokenIdKeywordTry: return "try";
         case TokenIdKeywordUndefined: return "undefined";
         case TokenIdKeywordUnion: return "union";
         case TokenIdKeywordUnreachable: return "unreachable";
@@ -1558,7 +1559,6 @@ const char * token_name(TokenId id) {
         case TokenIdNumberSign: return "#";
         case TokenIdPercent: return "%";
         case TokenIdPercentDot: return "%.";
-        case TokenIdPercentPercent: return "%%";
         case TokenIdPlus: return "+";
         case TokenIdPlusEq: return "+=";
         case TokenIdPlusPercent: return "+%";

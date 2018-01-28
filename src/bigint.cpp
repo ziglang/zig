@@ -12,6 +12,9 @@
 #include "os.hpp"
 #include "softfloat.hpp"
 
+#include <limits>
+#include <algorithm>
+
 static void bigint_normalize(BigInt *dest) {
     const uint64_t *digits = bigint_ptr(dest);
 
@@ -539,7 +542,7 @@ void bigint_add(BigInt *dest, const BigInt *op1, const BigInt *op2) {
         dest->data.digits[i] = x;
         i += 1;
 
-        if (!found_digit)
+        if (!found_digit || i >= bigger_op->digit_count)
             break;
     }
     assert(overflow == 0);
@@ -670,19 +673,417 @@ void bigint_mul_wrap(BigInt *dest, const BigInt *op1, const BigInt *op2, size_t 
     bigint_truncate(dest, &unwrapped, bit_count, is_signed);
 }
 
+enum ZeroBehavior {
+  /// \brief The returned value is undefined.
+  ZB_Undefined,
+  /// \brief The returned value is numeric_limits<T>::max()
+  ZB_Max,
+  /// \brief The returned value is numeric_limits<T>::digits
+  ZB_Width
+};
+
+template <typename T, std::size_t SizeOfT> struct LeadingZerosCounter {
+  static std::size_t count(T Val, ZeroBehavior) {
+    if (!Val)
+      return std::numeric_limits<T>::digits;
+
+    // Bisection method.
+    std::size_t ZeroBits = 0;
+    for (T Shift = std::numeric_limits<T>::digits >> 1; Shift; Shift >>= 1) {
+      T Tmp = Val >> Shift;
+      if (Tmp)
+        Val = Tmp;
+      else
+        ZeroBits |= Shift;
+    }
+    return ZeroBits;
+  }
+};
+
+#if __GNUC__ >= 4 || defined(_MSC_VER)
+template <typename T> struct LeadingZerosCounter<T, 4> {
+  static std::size_t count(T Val, ZeroBehavior ZB) {
+    if (ZB != ZB_Undefined && Val == 0)
+      return 32;
+
+#if defined(_MSC_VER)
+    unsigned long Index;
+    _BitScanReverse(&Index, Val);
+    return Index ^ 31;
+#else
+    return __builtin_clz(Val);
+#endif
+  }
+};
+
+#if !defined(_MSC_VER) || defined(_M_X64)
+template <typename T> struct LeadingZerosCounter<T, 8> {
+  static std::size_t count(T Val, ZeroBehavior ZB) {
+    if (ZB != ZB_Undefined && Val == 0)
+      return 64;
+
+#if defined(_MSC_VER)
+    unsigned long Index;
+    _BitScanReverse64(&Index, Val);
+    return Index ^ 63;
+#else
+    return __builtin_clzll(Val);
+#endif
+  }
+};
+#endif
+#endif
+
+/// \brief Count number of 0's from the most significant bit to the least
+///   stopping at the first 1.
+///
+/// Only unsigned integral types are allowed.
+///
+/// \param ZB the behavior on an input of 0. Only ZB_Width and ZB_Undefined are
+///   valid arguments.
+template <typename T>
+std::size_t countLeadingZeros(T Val, ZeroBehavior ZB = ZB_Width) {
+  static_assert(std::numeric_limits<T>::is_integer &&
+                    !std::numeric_limits<T>::is_signed,
+                "Only unsigned integral types are allowed.");
+  return LeadingZerosCounter<T, sizeof(T)>::count(Val, ZB);
+}
+
+/// Make a 64-bit integer from a high / low pair of 32-bit integers.
+constexpr inline uint64_t Make_64(uint32_t High, uint32_t Low) {
+  return ((uint64_t)High << 32) | (uint64_t)Low;
+}
+
+/// Return the high 32 bits of a 64 bit value.
+constexpr inline uint32_t Hi_32(uint64_t Value) {
+  return static_cast<uint32_t>(Value >> 32);
+}
+
+/// Return the low 32 bits of a 64 bit value.
+constexpr inline uint32_t Lo_32(uint64_t Value) {
+  return static_cast<uint32_t>(Value);
+}
+
+/// Implementation of Knuth's Algorithm D (Division of nonnegative integers)
+/// from "Art of Computer Programming, Volume 2", section 4.3.1, p. 272. The
+/// variables here have the same names as in the algorithm. Comments explain
+/// the algorithm and any deviation from it.
+static void KnuthDiv(uint32_t *u, uint32_t *v, uint32_t *q, uint32_t* r,
+                     unsigned m, unsigned n)
+{
+    assert(u && "Must provide dividend");
+    assert(v && "Must provide divisor");
+    assert(q && "Must provide quotient");
+    assert(u != v && u != q && v != q && "Must use different memory");
+    assert(n>1 && "n must be > 1");
+
+    // b denotes the base of the number system. In our case b is 2^32.
+    const uint64_t b = uint64_t(1) << 32;
+
+    // D1. [Normalize.] Set d = b / (v[n-1] + 1) and multiply all the digits of
+    // u and v by d. Note that we have taken Knuth's advice here to use a power
+    // of 2 value for d such that d * v[n-1] >= b/2 (b is the base). A power of
+    // 2 allows us to shift instead of multiply and it is easy to determine the
+    // shift amount from the leading zeros.  We are basically normalizing the u
+    // and v so that its high bits are shifted to the top of v's range without
+    // overflow. Note that this can require an extra word in u so that u must
+    // be of length m+n+1.
+    unsigned shift = countLeadingZeros(v[n-1]);
+    uint32_t v_carry = 0;
+    uint32_t u_carry = 0;
+    if (shift) {
+        for (unsigned i = 0; i < m+n; ++i) {
+            uint32_t u_tmp = u[i] >> (32 - shift);
+            u[i] = (u[i] << shift) | u_carry;
+            u_carry = u_tmp;
+        }
+        for (unsigned i = 0; i < n; ++i) {
+            uint32_t v_tmp = v[i] >> (32 - shift);
+            v[i] = (v[i] << shift) | v_carry;
+            v_carry = v_tmp;
+        }
+    }
+    u[m+n] = u_carry;
+
+    // D2. [Initialize j.]  Set j to m. This is the loop counter over the places.
+    int j = m;
+    do {
+        // D3. [Calculate q'.].
+        //     Set qp = (u[j+n]*b + u[j+n-1]) / v[n-1]. (qp=qprime=q')
+        //     Set rp = (u[j+n]*b + u[j+n-1]) % v[n-1]. (rp=rprime=r')
+        // Now test if qp == b or qp*v[n-2] > b*rp + u[j+n-2]; if so, decrease
+        // qp by 1, increase rp by v[n-1], and repeat this test if rp < b. The test
+        // on v[n-2] determines at high speed most of the cases in which the trial
+        // value qp is one too large, and it eliminates all cases where qp is two
+        // too large.
+        uint64_t dividend = Make_64(u[j+n], u[j+n-1]);
+        uint64_t qp = dividend / v[n-1];
+        uint64_t rp = dividend % v[n-1];
+        if (qp == b || qp*v[n-2] > b*rp + u[j+n-2]) {
+            qp--;
+            rp += v[n-1];
+            if (rp < b && (qp == b || qp*v[n-2] > b*rp + u[j+n-2]))
+                qp--;
+        }
+
+        // D4. [Multiply and subtract.] Replace (u[j+n]u[j+n-1]...u[j]) with
+        // (u[j+n]u[j+n-1]..u[j]) - qp * (v[n-1]...v[1]v[0]). This computation
+        // consists of a simple multiplication by a one-place number, combined with
+        // a subtraction.
+        // The digits (u[j+n]...u[j]) should be kept positive; if the result of
+        // this step is actually negative, (u[j+n]...u[j]) should be left as the
+        // true value plus b**(n+1), namely as the b's complement of
+        // the true value, and a "borrow" to the left should be remembered.
+        int64_t borrow = 0;
+        for (unsigned i = 0; i < n; ++i) {
+            uint64_t p = uint64_t(qp) * uint64_t(v[i]);
+            int64_t subres = int64_t(u[j+i]) - borrow - Lo_32(p);
+            u[j+i] = Lo_32(subres);
+            borrow = Hi_32(p) - Hi_32(subres);
+        }
+        bool isNeg = u[j+n] < borrow;
+        u[j+n] -= Lo_32(borrow);
+
+        // D5. [Test remainder.] Set q[j] = qp. If the result of step D4 was
+        // negative, go to step D6; otherwise go on to step D7.
+        q[j] = Lo_32(qp);
+        if (isNeg) {
+            // D6. [Add back]. The probability that this step is necessary is very
+            // small, on the order of only 2/b. Make sure that test data accounts for
+            // this possibility. Decrease q[j] by 1
+            q[j]--;
+            // and add (0v[n-1]...v[1]v[0]) to (u[j+n]u[j+n-1]...u[j+1]u[j]).
+            // A carry will occur to the left of u[j+n], and it should be ignored
+            // since it cancels with the borrow that occurred in D4.
+            bool carry = false;
+            for (unsigned i = 0; i < n; i++) {
+                uint32_t limit = std::min(u[j+i],v[i]);
+                u[j+i] += v[i] + carry;
+                carry = u[j+i] < limit || (carry && u[j+i] == limit);
+            }
+            u[j+n] += carry;
+        }
+
+        // D7. [Loop on j.]  Decrease j by one. Now if j >= 0, go back to D3.
+    } while (--j >= 0);
+
+    // D8. [Unnormalize]. Now q[...] is the desired quotient, and the desired
+    // remainder may be obtained by dividing u[...] by d. If r is non-null we
+    // compute the remainder (urem uses this).
+    if (r) {
+        // The value d is expressed by the "shift" value above since we avoided
+        // multiplication by d by using a shift left. So, all we have to do is
+        // shift right here.
+        if (shift) {
+            uint32_t carry = 0;
+            for (int i = n-1; i >= 0; i--) {
+                r[i] = (u[i] >> shift) | carry;
+                carry = u[i] << (32 - shift);
+            }
+        } else {
+            for (int i = n-1; i >= 0; i--) {
+                r[i] = u[i];
+            }
+        }
+    }
+}
+
+// Implementation ported from LLVM/lib/Support/APInt.cpp
+static void bigint_unsigned_division(const BigInt *op1, const BigInt *op2, BigInt *Quotient, BigInt *Remainder) {
+    Cmp cmp = bigint_cmp(op1, op2);
+    if (cmp == CmpLT) {
+        if (Quotient != nullptr) {
+            bigint_init_unsigned(Quotient, 0);
+        }
+        if (Remainder != nullptr) {
+            bigint_init_bigint(Remainder, op1);
+        }
+        return;
+    }
+    if (cmp == CmpEQ) {
+        if (Quotient != nullptr) {
+            bigint_init_unsigned(Quotient, 1);
+        }
+        if (Remainder != nullptr) {
+            bigint_init_unsigned(Remainder, 0);
+        }
+        return;
+    }
+
+    const uint64_t *LHS = bigint_ptr(op1);
+    const uint64_t *RHS = bigint_ptr(op2);
+    unsigned lhsWords = op1->digit_count;
+    unsigned rhsWords = op2->digit_count;
+
+    // First, compose the values into an array of 32-bit words instead of
+    // 64-bit words. This is a necessity of both the "short division" algorithm
+    // and the Knuth "classical algorithm" which requires there to be native
+    // operations for +, -, and * on an m bit value with an m*2 bit result. We
+    // can't use 64-bit operands here because we don't have native results of
+    // 128-bits. Furthermore, casting the 64-bit values to 32-bit values won't
+    // work on large-endian machines.
+    unsigned n = rhsWords * 2;
+    unsigned m = (lhsWords * 2) - n;
+
+    // Allocate space for the temporary values we need either on the stack, if
+    // it will fit, or on the heap if it won't.
+    uint32_t SPACE[128];
+    uint32_t *U = nullptr;
+    uint32_t *V = nullptr;
+    uint32_t *Q = nullptr;
+    uint32_t *R = nullptr;
+    if ((Remainder?4:3)*n+2*m+1 <= 128) {
+        U = &SPACE[0];
+        V = &SPACE[m+n+1];
+        Q = &SPACE[(m+n+1) + n];
+        if (Remainder)
+            R = &SPACE[(m+n+1) + n + (m+n)];
+    } else {
+        U = new uint32_t[m + n + 1];
+        V = new uint32_t[n];
+        Q = new uint32_t[m+n];
+        if (Remainder)
+            R = new uint32_t[n];
+    }
+
+    // Initialize the dividend
+    memset(U, 0, (m+n+1)*sizeof(uint32_t));
+    for (unsigned i = 0; i < lhsWords; ++i) {
+        uint64_t tmp = LHS[i];
+        U[i * 2] = Lo_32(tmp);
+        U[i * 2 + 1] = Hi_32(tmp);
+    }
+    U[m+n] = 0; // this extra word is for "spill" in the Knuth algorithm.
+
+    // Initialize the divisor
+    memset(V, 0, (n)*sizeof(uint32_t));
+    for (unsigned i = 0; i < rhsWords; ++i) {
+        uint64_t tmp = RHS[i];
+        V[i * 2] = Lo_32(tmp);
+        V[i * 2 + 1] = Hi_32(tmp);
+    }
+
+    // initialize the quotient and remainder
+    memset(Q, 0, (m+n) * sizeof(uint32_t));
+    if (Remainder)
+        memset(R, 0, n * sizeof(uint32_t));
+
+    // Now, adjust m and n for the Knuth division. n is the number of words in
+    // the divisor. m is the number of words by which the dividend exceeds the
+    // divisor (i.e. m+n is the length of the dividend). These sizes must not
+    // contain any zero words or the Knuth algorithm fails.
+    for (unsigned i = n; i > 0 && V[i-1] == 0; i--) {
+        n--;
+        m++;
+    }
+    for (unsigned i = m+n; i > 0 && U[i-1] == 0; i--)
+        m--;
+
+    // If we're left with only a single word for the divisor, Knuth doesn't work
+    // so we implement the short division algorithm here. This is much simpler
+    // and faster because we are certain that we can divide a 64-bit quantity
+    // by a 32-bit quantity at hardware speed and short division is simply a
+    // series of such operations. This is just like doing short division but we
+    // are using base 2^32 instead of base 10.
+    assert(n != 0 && "Divide by zero?");
+    if (n == 1) {
+        uint32_t divisor = V[0];
+        uint32_t remainder = 0;
+        for (int i = m; i >= 0; i--) {
+            uint64_t partial_dividend = Make_64(remainder, U[i]);
+            if (partial_dividend == 0) {
+                Q[i] = 0;
+                remainder = 0;
+            } else if (partial_dividend < divisor) {
+                Q[i] = 0;
+                remainder = Lo_32(partial_dividend);
+            } else if (partial_dividend == divisor) {
+                Q[i] = 1;
+                remainder = 0;
+            } else {
+                Q[i] = Lo_32(partial_dividend / divisor);
+                remainder = Lo_32(partial_dividend - (Q[i] * divisor));
+            }
+        }
+        if (R)
+            R[0] = remainder;
+    } else {
+        // Now we're ready to invoke the Knuth classical divide algorithm. In this
+        // case n > 1.
+        KnuthDiv(U, V, Q, R, m, n);
+    }
+
+    // If the caller wants the quotient
+    if (Quotient) {
+        Quotient->is_negative = false;
+        Quotient->digit_count = lhsWords;
+        if (lhsWords == 1) {
+            Quotient->data.digit = Make_64(Q[1], Q[0]);
+        } else {
+            Quotient->data.digits = allocate<uint64_t>(lhsWords);
+            for (size_t i = 0; i < lhsWords; i += 1) {
+                Quotient->data.digits[i] = Make_64(Q[i*2+1], Q[i*2]);
+            }
+        }
+    }
+
+    // If the caller wants the remainder
+    if (Remainder) {
+        Remainder->is_negative = false;
+        Remainder->digit_count = rhsWords;
+        if (rhsWords == 1) {
+            Remainder->data.digit = Make_64(R[1], R[0]);
+        } else {
+            Remainder->data.digits = allocate<uint64_t>(rhsWords);
+            for (size_t i = 0; i < rhsWords; i += 1) {
+                Remainder->data.digits[i] = Make_64(R[i*2+1], R[i*2]);
+            }
+        }
+    }
+}
+
 void bigint_div_trunc(BigInt *dest, const BigInt *op1, const BigInt *op2) {
     assert(op2->digit_count != 0); // division by zero
     if (op1->digit_count == 0) {
         bigint_init_unsigned(dest, 0);
         return;
     }
-    if (op1->digit_count != 1 || op2->digit_count != 1) {
-        zig_panic("TODO bigint div_trunc with >1 digits");
-    }
     const uint64_t *op1_digits = bigint_ptr(op1);
     const uint64_t *op2_digits = bigint_ptr(op2);
-    dest->data.digit = op1_digits[0] / op2_digits[0];
-    dest->digit_count = 1;
+    if (op1->digit_count == 1 && op2->digit_count == 1) {
+        dest->data.digit = op1_digits[0] / op2_digits[0];
+        dest->digit_count = 1;
+        dest->is_negative = op1->is_negative != op2->is_negative;
+        bigint_normalize(dest);
+        return;
+    }
+    if (op2->digit_count == 1 && op2_digits[0] == 1) {
+        // X / 1 == X
+        bigint_init_bigint(dest, op1);
+        dest->is_negative = op1->is_negative != op2->is_negative;
+        bigint_normalize(dest);
+        return;
+    }
+
+    const BigInt *op1_positive;
+    BigInt op1_positive_data;
+    if (op1->is_negative) {
+        bigint_negate(&op1_positive_data, op1);
+        op1_positive = &op1_positive_data;
+    } else {
+        op1_positive = op1;
+    }
+
+    const BigInt *op2_positive;
+    BigInt op2_positive_data;
+    if (op2->is_negative) {
+        bigint_negate(&op2_positive_data, op2);
+        op2_positive = &op2_positive_data;
+    } else {
+        op2_positive = op2;
+    }
+
+    bigint_unsigned_division(op1_positive, op2_positive, dest, nullptr);
     dest->is_negative = op1->is_negative != op2->is_negative;
     bigint_normalize(dest);
 }
@@ -714,6 +1115,14 @@ void bigint_rem(BigInt *dest, const BigInt *op1, const BigInt *op2) {
     }
     const uint64_t *op1_digits = bigint_ptr(op1);
     const uint64_t *op2_digits = bigint_ptr(op2);
+
+    if (op1->digit_count == 1 && op2->digit_count == 1) {
+        dest->data.digit = op1_digits[0] % op2_digits[0];
+        dest->digit_count = 1;
+        dest->is_negative = op1->is_negative;
+        bigint_normalize(dest);
+        return;
+    }
     if (op2->digit_count == 2 && op2_digits[0] == 0 && op2_digits[1] == 1) {
         // special case this divisor
         bigint_init_unsigned(dest, op1_digits[0]);
@@ -721,11 +1130,32 @@ void bigint_rem(BigInt *dest, const BigInt *op1, const BigInt *op2) {
         bigint_normalize(dest);
         return;
     }
-    if (op1->digit_count != 1 || op2->digit_count != 1) {
-        zig_panic("TODO bigint rem with >1 digits");
+
+    if (op2->digit_count == 1 && op2_digits[0] == 1) {
+        // X % 1 == 0
+        bigint_init_unsigned(dest, 0);
+        return;
     }
-    dest->data.digit = op1_digits[0] % op2_digits[0];
-    dest->digit_count = 1;
+
+    const BigInt *op1_positive;
+    BigInt op1_positive_data;
+    if (op1->is_negative) {
+        bigint_negate(&op1_positive_data, op1);
+        op1_positive = &op1_positive_data;
+    } else {
+        op1_positive = op1;
+    }
+
+    const BigInt *op2_positive;
+    BigInt op2_positive_data;
+    if (op2->is_negative) {
+        bigint_negate(&op2_positive_data, op2);
+        op2_positive = &op2_positive_data;
+    } else {
+        op2_positive = op2;
+    }
+
+    bigint_unsigned_division(op1_positive, op2_positive, nullptr, dest);
     dest->is_negative = op1->is_negative;
     bigint_normalize(dest);
 }
@@ -841,6 +1271,12 @@ void bigint_and(BigInt *dest, const BigInt *op1, const BigInt *op2) {
 }
 
 void bigint_xor(BigInt *dest, const BigInt *op1, const BigInt *op2) {
+    if (op1->digit_count == 0) {
+        return bigint_init_bigint(dest, op2);
+    }
+    if (op2->digit_count == 0) {
+        return bigint_init_bigint(dest, op1);
+    }
     if (op1->is_negative || op2->is_negative) {
         // TODO this code path is untested
         size_t big_bit_count = max(bigint_bits_needed(op1), bigint_bits_needed(op2));
@@ -859,14 +1295,16 @@ void bigint_xor(BigInt *dest, const BigInt *op1, const BigInt *op2) {
         dest->is_negative = false;
         const uint64_t *op1_digits = bigint_ptr(op1);
         const uint64_t *op2_digits = bigint_ptr(op2);
+
+        assert(op1->digit_count > 0 && op2->digit_count > 0);
+        uint64_t first_digit = op1_digits[0] ^ op2_digits[0];
         if (op1->digit_count == 1 && op2->digit_count == 1) {
             dest->digit_count = 1;
-            dest->data.digit = op1_digits[0] ^ op2_digits[0];
+            dest->data.digit = first_digit;
             bigint_normalize(dest);
             return;
         }
         // TODO this code path is untested
-        uint64_t first_digit = dest->data.digit;
         dest->digit_count = max(op1->digit_count, op2->digit_count);
         dest->data.digits = allocate_nonzero<uint64_t>(dest->digit_count);
         dest->data.digits[0] = first_digit;
@@ -1223,4 +1661,36 @@ Cmp bigint_cmp_zero(const BigInt *op) {
         return CmpEQ;
     }
     return op->is_negative ? CmpLT : CmpGT;
+}
+
+uint32_t bigint_hash(BigInt x) {
+    if (x.digit_count == 0) {
+        return 0;
+    } else {
+        return bigint_ptr(&x)[0];
+    }
+}
+
+bool bigint_eql(BigInt a, BigInt b) {
+    return bigint_cmp(&a, &b) == CmpEQ;
+}
+
+void bigint_incr(BigInt *x) {
+    if (x->digit_count == 0) {
+        bigint_init_unsigned(x, 1);
+        return;
+    }
+    
+    if (x->digit_count == 1 && x->data.digit != UINT64_MAX) {
+        x->data.digit += 1;
+        return;
+    }
+
+    BigInt copy;
+    bigint_init_bigint(&copy, x);
+
+    BigInt one;
+    bigint_init_unsigned(&one, 1);
+
+    bigint_add(x, &copy, &one);
 }

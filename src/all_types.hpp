@@ -10,7 +10,7 @@
 
 #include "list.hpp"
 #include "buffer.hpp"
-#include "zig_llvm.hpp"
+#include "zig_llvm.h"
 #include "hash_map.hpp"
 #include "errmsg.hpp"
 #include "bigint.hpp"
@@ -26,7 +26,6 @@ struct ScopeFnDef;
 struct TypeTableEntry;
 struct VariableTableEntry;
 struct ErrorTableEntry;
-struct LabelTableEntry;
 struct BuiltinFnEntry;
 struct TypeStructField;
 struct CodeGen;
@@ -37,13 +36,8 @@ struct IrBasicBlock;
 struct ScopeDecls;
 struct ZigWindowsSDK;
 struct Tld;
-
-struct IrGotoItem {
-    AstNode *source_node;
-    IrBasicBlock *bb;
-    size_t instruction_index;
-    Scope *scope;
-};
+struct TldExport;
+struct IrAnalyze;
 
 struct IrExecutable {
     ZigList<IrBasicBlock *> basic_block_list;
@@ -53,14 +47,13 @@ struct IrExecutable {
     size_t *backward_branch_count;
     size_t backward_branch_quota;
     bool invalid;
-    ZigList<LabelTableEntry *> all_labels;
-    ZigList<IrGotoItem> goto_list;
     bool is_inline;
     FnTableEntry *fn_entry;
     Buf *c_import_buf;
     AstNode *source_node;
     IrExecutable *parent_exec;
     IrExecutable *source_exec;
+    IrAnalyze *analysis;
     Scope *begin_scope;
     ZigList<Tld *> tld_list;
 };
@@ -97,18 +90,13 @@ struct ConstParent {
     } data;
 };
 
-struct ConstEnumValue {
-    uint64_t tag;
-    ConstExprValue *payload;
-};
-
 struct ConstStructValue {
     ConstExprValue *fields;
     ConstParent parent;
 };
 
 struct ConstUnionValue {
-    uint64_t tag;
+    BigInt tag;
     ConstExprValue *payload;
     ConstParent parent;
 };
@@ -249,7 +237,7 @@ struct ConstExprValue {
         ConstExprValue *x_maybe;
         ConstErrValue x_err_union;
         ErrorTableEntry *x_pure_err;
-        ConstEnumValue x_enum;
+        BigInt x_enum_tag;
         ConstStructValue x_struct;
         ConstUnionValue x_union;
         ConstArrayValue x_array;
@@ -277,7 +265,6 @@ enum ReturnKnowledge {
 enum VisibMod {
     VisibModPrivate,
     VisibModPub,
-    VisibModExport,
 };
 
 enum GlobalLinkageId {
@@ -318,11 +305,8 @@ struct TldVar {
     Tld base;
 
     VariableTableEntry *var;
-    AstNode *set_global_section_node;
-    Buf *section_name;
-    AstNode *set_global_linkage_node;
-    GlobalLinkageId linkage;
     Buf *extern_lib_name;
+    Buf *section_name;
 };
 
 struct TldFn {
@@ -345,15 +329,14 @@ struct TldCompTime {
 
 struct TypeEnumField {
     Buf *name;
-    TypeTableEntry *type_entry;
-    uint32_t value;
-    uint32_t gen_index;
+    BigInt value;
+    uint32_t decl_index;
 };
 
 struct TypeUnionField {
     Buf *name;
+    TypeEnumField *enum_field;
     TypeTableEntry *type_entry;
-    uint32_t value;
     uint32_t gen_index;
 };
 
@@ -395,8 +378,6 @@ enum NodeType {
     NodeTypeSwitchExpr,
     NodeTypeSwitchProng,
     NodeTypeSwitchRange,
-    NodeTypeLabel,
-    NodeTypeGoto,
     NodeTypeCompTime,
     NodeTypeBreak,
     NodeTypeContinue,
@@ -408,7 +389,7 @@ enum NodeType {
     NodeTypeArrayType,
     NodeTypeErrorType,
     NodeTypeVarLiteral,
-    NodeTypeTryExpr,
+    NodeTypeIfErrorExpr,
     NodeTypeTestExpr,
 };
 
@@ -431,6 +412,7 @@ struct AstNodeFnProto {
     AstNode *return_type;
     bool is_var_args;
     bool is_extern;
+    bool is_export;
     bool is_inline;
     CallingConvention cc;
     AstNode *fn_def_node;
@@ -438,6 +420,8 @@ struct AstNodeFnProto {
     Buf *lib_name;
     // populated if the "align A" is present
     AstNode *align_expr;
+    // populated if the "section(S)" is present
+    AstNode *section_expr;
 };
 
 struct AstNodeFnDef {
@@ -458,8 +442,8 @@ struct AstNodeParamDecl {
 };
 
 struct AstNodeBlock {
+    Buf *name;
     ZigList<AstNode *> statements;
-    bool last_statement_is_result_expression;
 };
 
 enum ReturnKind {
@@ -486,15 +470,18 @@ struct AstNodeVariableDeclaration {
     VisibMod visib_mod;
     Buf *symbol;
     bool is_const;
-    bool is_inline;
+    bool is_comptime;
+    bool is_export;
     bool is_extern;
     // one or both of type and expr will be non null
     AstNode *type;
     AstNode *expr;
     // populated if this is an extern declaration
     Buf *lib_name;
-    // populated if the "align A" is present
+    // populated if the "align(A)" is present
     AstNode *align_expr;
+    // populated if the "section(S)" is present
+    AstNode *section_expr;
 };
 
 struct AstNodeErrorValueDecl {
@@ -559,7 +546,7 @@ struct AstNodeBinOpExpr {
     AstNode *op2;
 };
 
-struct AstNodeUnwrapErrorExpr {
+struct AstNodeCatchExpr {
     AstNode *op1;
     AstNode *symbol; // can be null
     AstNode *op2;
@@ -607,7 +594,6 @@ enum PrefixOp {
     PrefixOpDereference,
     PrefixOpMaybe,
     PrefixOpError,
-    PrefixOpUnwrapError,
     PrefixOpUnwrapMaybe,
 };
 
@@ -665,6 +651,7 @@ struct AstNodeTestExpr {
 };
 
 struct AstNodeWhileExpr {
+    Buf *name;
     AstNode *condition;
     Buf *var_symbol;
     bool var_is_ptr;
@@ -676,6 +663,7 @@ struct AstNodeWhileExpr {
 };
 
 struct AstNodeForExpr {
+    Buf *name;
     AstNode *array_expr;
     AstNode *elem_node; // always a symbol
     AstNode *index_node; // always a symbol, might be null
@@ -705,11 +693,6 @@ struct AstNodeSwitchRange {
 
 struct AstNodeLabel {
     Buf *name;
-};
-
-struct AstNodeGoto {
-    Buf *name;
-    bool is_inline;
 };
 
 struct AstNodeCompTime {
@@ -773,13 +756,15 @@ struct AstNodeContainerDecl {
     ZigList<AstNode *> fields;
     ZigList<AstNode *> decls;
     ContainerLayout layout;
-    AstNode *init_arg_expr; // enum(T) or struct(endianness)
+    AstNode *init_arg_expr; // enum(T), struct(endianness), or union(T), or union(enum(T))
+    bool auto_enum; // union(enum)
 };
 
 struct AstNodeStructField {
     VisibMod visib_mod;
     Buf *name;
     AstNode *type;
+    AstNode *value;
 };
 
 struct AstNodeStringLiteral {
@@ -837,11 +822,14 @@ struct AstNodeBoolLiteral {
 };
 
 struct AstNodeBreakExpr {
+    Buf *name;
     AstNode *expr; // may be null
 };
 
 struct AstNodeContinueExpr {
+    Buf *name;
 };
+
 struct AstNodeUnreachableExpr {
 };
 
@@ -871,7 +859,7 @@ struct AstNode {
         AstNodeErrorValueDecl error_value_decl;
         AstNodeTestDecl test_decl;
         AstNodeBinOpExpr bin_op_expr;
-        AstNodeUnwrapErrorExpr unwrap_err_expr;
+        AstNodeCatchExpr unwrap_err_expr;
         AstNodePrefixOpExpr prefix_op_expr;
         AstNodeAddrOfExpr addr_of_expr;
         AstNodeFnCallExpr fn_call_expr;
@@ -879,7 +867,7 @@ struct AstNode {
         AstNodeSliceExpr slice_expr;
         AstNodeUse use;
         AstNodeIfBoolExpr if_bool_expr;
-        AstNodeTryExpr try_expr;
+        AstNodeTryExpr if_err_expr;
         AstNodeTestExpr test_expr;
         AstNodeWhileExpr while_expr;
         AstNodeForExpr for_expr;
@@ -887,7 +875,6 @@ struct AstNode {
         AstNodeSwitchProng switch_prong;
         AstNodeSwitchRange switch_range;
         AstNodeLabel label;
-        AstNodeGoto goto_expr;
         AstNodeCompTime comptime_expr;
         AstNodeAsmExpr asm_expr;
         AstNodeFieldAccessExpr field_access_expr;
@@ -1009,12 +996,9 @@ struct TypeTableEntryEnum {
     AstNode *decl_node;
     ContainerLayout layout;
     uint32_t src_field_count;
-    // number of fields in the union. 0 if enum with no payload
-    uint32_t gen_field_count;
     TypeEnumField *fields;
     bool is_invalid; // true if any fields are invalid
-    TypeTableEntry *tag_type;
-    LLVMTypeRef union_type_ref;
+    TypeTableEntry *tag_int_type;
 
     ScopeDecls *decls_scope;
 
@@ -1026,18 +1010,7 @@ struct TypeTableEntryEnum {
 
     bool zero_bits_loop_flag;
     bool zero_bits_known;
-    uint32_t abi_alignment; // also figured out with zero_bits pass
 
-    size_t gen_union_index;
-    size_t gen_tag_index;
-
-    uint32_t union_size_bytes;
-    TypeTableEntry *most_aligned_union_member;
-};
-
-struct TypeTableEntryEnumTag {
-    TypeTableEntry *enum_type;
-    TypeTableEntry *int_type;
     bool generate_name_table;
     LLVMValueRef name_table;
 };
@@ -1052,7 +1025,7 @@ struct TypeTableEntryUnion {
     uint32_t gen_field_count;
     TypeUnionField *fields;
     bool is_invalid; // true if any fields are invalid
-    TypeTableEntry *tag_type;
+    TypeTableEntry *tag_type; // always an enum or null
     LLVMTypeRef union_type_ref;
 
     ScopeDecls *decls_scope;
@@ -1117,7 +1090,6 @@ enum TypeTableEntryId {
     TypeTableEntryIdErrorUnion,
     TypeTableEntryIdPureError,
     TypeTableEntryIdEnum,
-    TypeTableEntryIdEnumTag,
     TypeTableEntryIdUnion,
     TypeTableEntryIdFn,
     TypeTableEntryIdNamespace,
@@ -1136,6 +1108,7 @@ struct TypeTableEntry {
 
     bool zero_bits;
     bool is_copyable;
+    bool gen_h_loop_flag;
 
     union {
         TypeTableEntryPointer pointer;
@@ -1146,7 +1119,6 @@ struct TypeTableEntry {
         TypeTableEntryMaybe maybe;
         TypeTableEntryError error;
         TypeTableEntryEnum enumeration;
-        TypeTableEntryEnumTag enum_tag;
         TypeTableEntryUnion unionation;
         TypeTableEntryFn fn;
         TypeTableEntryBoundFn bound_fn;
@@ -1197,6 +1169,11 @@ enum FnInline {
     FnInlineNever,
 };
 
+struct FnExport {
+    Buf name;
+    GlobalLinkageId linkage;
+};
+
 struct FnTableEntry {
     LLVMValueRef llvm_value;
     const char *llvm_name;
@@ -1224,12 +1201,15 @@ struct FnTableEntry {
     ZigList<IrInstruction *> alloca_list;
     ZigList<VariableTableEntry *> variable_list;
 
-    AstNode *set_global_section_node;
     Buf *section_name;
-    AstNode *set_global_linkage_node;
-    GlobalLinkageId linkage;
     AstNode *set_alignstack_node;
     uint32_t alignstack_value;
+
+    AstNode *set_cold_node;
+    bool is_cold;
+
+    ZigList<FnExport> export_list;
+    bool calls_errorable_function;
 };
 
 uint32_t fn_table_entry_hash(FnTableEntry*);
@@ -1274,21 +1254,22 @@ enum BuiltinFnId {
     BuiltinFnIdMod,
     BuiltinFnIdTruncate,
     BuiltinFnIdIntType,
-    BuiltinFnIdSetDebugSafety,
+    BuiltinFnIdSetCold,
+    BuiltinFnIdSetRuntimeSafety,
     BuiltinFnIdSetFloatMode,
     BuiltinFnIdTypeName,
     BuiltinFnIdCanImplicitCast,
-    BuiltinFnIdSetGlobalSection,
-    BuiltinFnIdSetGlobalLinkage,
     BuiltinFnIdPanic,
     BuiltinFnIdPtrCast,
     BuiltinFnIdBitCast,
     BuiltinFnIdIntToPtr,
     BuiltinFnIdPtrToInt,
-    BuiltinFnIdEnumTagName,
+    BuiltinFnIdTagName,
+    BuiltinFnIdTagType,
     BuiltinFnIdFieldParentPtr,
     BuiltinFnIdOffsetOf,
     BuiltinFnIdInlineCall,
+    BuiltinFnIdNoInlineCall,
     BuiltinFnIdTypeId,
     BuiltinFnIdShlExact,
     BuiltinFnIdShrExact,
@@ -1297,6 +1278,8 @@ enum BuiltinFnId {
     BuiltinFnIdOpaqueType,
     BuiltinFnIdSetAlignStack,
     BuiltinFnIdArgType,
+    BuiltinFnIdExport,
+    BuiltinFnIdErrorReturnTrace,
 };
 
 struct BuiltinFnEntry {
@@ -1443,8 +1426,9 @@ struct CodeGen {
     HashMap<GenericFnTypeId *, FnTableEntry *, generic_fn_type_id_hash, generic_fn_type_id_eql> generic_table;
     HashMap<Scope *, IrInstruction *, fn_eval_hash, fn_eval_eql> memoized_fn_eval_table;
     HashMap<ZigLLVMFnKey, LLVMValueRef, zig_llvm_fn_key_hash, zig_llvm_fn_key_eql> llvm_fn_table;
-    HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> exported_symbol_names;
+    HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> exported_symbol_names;
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_prototypes;
+    HashMap<Buf *, ConstExprValue *, buf_hash, buf_eql_buf> string_literals_table;
 
 
     ZigList<ImportTableEntry *> import_queue;
@@ -1458,7 +1442,7 @@ struct CodeGen {
 
     struct {
         TypeTableEntry *entry_bool;
-        TypeTableEntry *entry_int[2][11]; // [signed,unsigned][2,3,4,5,6,7,8,16,32,64,128]
+        TypeTableEntry *entry_int[2][12]; // [signed,unsigned][2,3,4,5,6,7,8,16,29,32,64,128]
         TypeTableEntry *entry_c_int[CIntTypeCount];
         TypeTableEntry *entry_c_longdouble;
         TypeTableEntry *entry_c_void;
@@ -1521,6 +1505,7 @@ struct CodeGen {
     Buf triple_str;
     BuildMode build_mode;
     bool is_test_build;
+    bool have_err_ret_tracing;
     uint32_t target_os_index;
     uint32_t target_arch_index;
     uint32_t target_environ_index;
@@ -1553,6 +1538,7 @@ struct CodeGen {
     FnTableEntry *panic_fn;
     LLVMValueRef cur_ret_ptr;
     LLVMValueRef cur_fn_val;
+    LLVMValueRef cur_err_ret_trace_val;
     bool c_want_stdint;
     bool c_want_stdbool;
     AstNode *root_export_decl;
@@ -1595,6 +1581,8 @@ struct CodeGen {
     size_t largest_err_name_len;
     LLVMValueRef safety_crash_err_fn;
 
+    LLVMValueRef return_err_fn;
+
     IrInstruction *invalid_instruction;
     ConstExprValue const_void_val;
 
@@ -1618,6 +1606,8 @@ struct CodeGen {
     ZigList<AstNode *> tld_ref_source_node_stack;
 
     TypeTableEntry *align_amt_type;
+    TypeTableEntry *stack_trace_type;
+    TypeTableEntry *ptr_to_stack_trace_type;
 };
 
 enum VarLinkage {
@@ -1643,6 +1633,7 @@ struct VariableTableEntry {
     LLVMValueRef param_value_ref;
     bool shadowable;
     size_t mem_slot_index;
+    IrExecutable *owner_exec;
     size_t ref_count;
     VarLinkage linkage;
     IrInstruction *decl_instruction;
@@ -1656,12 +1647,6 @@ struct ErrorTableEntry {
     // If we generate a constant error name value for this error, we memoize it here.
     // The type of this is array
     ConstExprValue *cached_error_name_val;
-};
-
-struct LabelTableEntry {
-    AstNode *decl_node;
-    IrBasicBlock *bb;
-    bool used;
 };
 
 enum ScopeId {
@@ -1707,7 +1692,12 @@ struct ScopeDecls {
 struct ScopeBlock {
     Scope base;
 
-    HashMap<Buf *, LabelTableEntry *, buf_hash, buf_eql_buf> label_table;
+    Buf *name;
+    IrBasicBlock *end_block;
+    IrInstruction *is_comptime;
+    ZigList<IrInstruction *> *incoming_values;
+    ZigList<IrBasicBlock *> *incoming_blocks;
+
     bool safety_off;
     AstNode *safety_set_node;
     bool fast_math_off;
@@ -1753,6 +1743,7 @@ struct ScopeCImport {
 struct ScopeLoop {
     Scope base;
 
+    Buf *name;
     IrBasicBlock *break_block;
     IrBasicBlock *continue_block;
     IrInstruction *is_comptime;
@@ -1829,7 +1820,6 @@ enum IrInstructionId {
     IrInstructionIdStorePtr,
     IrInstructionIdFieldPtr,
     IrInstructionIdStructFieldPtr,
-    IrInstructionIdEnumFieldPtr,
     IrInstructionIdUnionFieldPtr,
     IrInstructionIdElemPtr,
     IrInstructionIdVarPtr,
@@ -1845,7 +1835,8 @@ enum IrInstructionId {
     IrInstructionIdTypeOf,
     IrInstructionIdToPtrType,
     IrInstructionIdPtrTypeChild,
-    IrInstructionIdSetDebugSafety,
+    IrInstructionIdSetCold,
+    IrInstructionIdSetRuntimeSafety,
     IrInstructionIdSetFloatMode,
     IrInstructionIdArrayType,
     IrInstructionIdSliceType,
@@ -1854,7 +1845,7 @@ enum IrInstructionId {
     IrInstructionIdTestNonNull,
     IrInstructionIdUnwrapMaybe,
     IrInstructionIdMaybeWrap,
-    IrInstructionIdEnumTag,
+    IrInstructionIdUnionTag,
     IrInstructionIdClz,
     IrInstructionIdCtz,
     IrInstructionIdImport,
@@ -1893,7 +1884,6 @@ enum IrInstructionId {
     IrInstructionIdErrWrapPayload,
     IrInstructionIdFnProto,
     IrInstructionIdTestComptime,
-    IrInstructionIdInitEnum,
     IrInstructionIdPtrCast,
     IrInstructionIdBitCast,
     IrInstructionIdWidenOrShorten,
@@ -1906,11 +1896,10 @@ enum IrInstructionId {
     IrInstructionIdCheckStatementIsVoid,
     IrInstructionIdTypeName,
     IrInstructionIdCanImplicitCast,
-    IrInstructionIdSetGlobalSection,
-    IrInstructionIdSetGlobalLinkage,
     IrInstructionIdDeclRef,
     IrInstructionIdPanic,
-    IrInstructionIdEnumTagName,
+    IrInstructionIdTagName,
+    IrInstructionIdTagType,
     IrInstructionIdFieldParentPtr,
     IrInstructionIdOffsetOf,
     IrInstructionIdTypeId,
@@ -1920,6 +1909,8 @@ enum IrInstructionId {
     IrInstructionIdOpaqueType,
     IrInstructionIdSetAlignStack,
     IrInstructionIdArgType,
+    IrInstructionIdExport,
+    IrInstructionIdErrorReturnTrace,
 };
 
 struct IrInstruction {
@@ -2088,14 +2079,6 @@ struct IrInstructionStructFieldPtr {
     bool is_const;
 };
 
-struct IrInstructionEnumFieldPtr {
-    IrInstruction base;
-
-    IrInstruction *enum_ptr;
-    TypeEnumField *field;
-    bool is_const;
-};
-
 struct IrInstructionUnionFieldPtr {
     IrInstruction base;
 
@@ -2130,7 +2113,7 @@ struct IrInstructionCall {
     IrInstruction **args;
     bool is_comptime;
     LLVMValueRef tmp_ptr;
-    bool is_inline;
+    FnInline fn_inline;
 };
 
 struct IrInstructionConst {
@@ -2225,11 +2208,16 @@ struct IrInstructionPtrTypeChild {
     IrInstruction *value;
 };
 
-struct IrInstructionSetDebugSafety {
+struct IrInstructionSetCold {
     IrInstruction base;
 
-    IrInstruction *scope_value;
-    IrInstruction *debug_safety_on;
+    IrInstruction *is_cold;
+};
+
+struct IrInstructionSetRuntimeSafety {
+    IrInstruction base;
+
+    IrInstruction *safety_on;
 };
 
 struct IrInstructionSetFloatMode {
@@ -2299,7 +2287,7 @@ struct IrInstructionClz {
     IrInstruction *value;
 };
 
-struct IrInstructionEnumTag {
+struct IrInstructionUnionTag {
     IrInstruction base;
 
     IrInstruction *value;
@@ -2569,15 +2557,6 @@ struct IrInstructionTestComptime {
     IrInstruction *value;
 };
 
-struct IrInstructionInitEnum {
-    IrInstruction base;
-
-    TypeTableEntry *enum_type;
-    TypeEnumField *field;
-    IrInstruction *init_value;
-    LLVMValueRef tmp_ptr;
-};
-
 struct IrInstructionPtrCast {
     IrInstruction base;
 
@@ -2662,20 +2641,6 @@ struct IrInstructionCanImplicitCast {
     IrInstruction *target_value;
 };
 
-struct IrInstructionSetGlobalSection {
-    IrInstruction base;
-
-    Tld *tld;
-    IrInstruction *value;
-};
-
-struct IrInstructionSetGlobalLinkage {
-    IrInstruction base;
-
-    Tld *tld;
-    IrInstruction *value;
-};
-
 struct IrInstructionDeclRef {
     IrInstruction base;
 
@@ -2689,7 +2654,13 @@ struct IrInstructionPanic {
     IrInstruction *msg;
 };
 
-struct IrInstructionEnumTagName {
+struct IrInstructionTagName {
+    IrInstruction base;
+
+    IrInstruction *target;
+};
+
+struct IrInstructionTagType {
     IrInstruction base;
 
     IrInstruction *target;
@@ -2756,6 +2727,18 @@ struct IrInstructionArgType {
 
     IrInstruction *fn_type;
     IrInstruction *arg_index;
+};
+
+struct IrInstructionExport {
+    IrInstruction base;
+
+    IrInstruction *name;
+    IrInstruction *linkage;
+    IrInstruction *target;
+};
+
+struct IrInstructionErrorReturnTrace {
+    IrInstruction base;
 };
 
 static const size_t slice_ptr_index = 0;

@@ -3,10 +3,11 @@
 
 const builtin = @import("builtin");
 
-// Avoid dragging in the debug safety mechanisms into this .o file,
+// Avoid dragging in the runtime safety mechanisms into this .o file,
 // unless we're trying to test this file.
-pub coldcc fn panic(msg: []const u8) -> noreturn {
+pub fn panic(msg: []const u8, error_return_trace: ?&builtin.StackTrace) noreturn {
     if (builtin.is_test) {
+        @setCold(true);
         @import("std").debug.panic("{}", msg);
     } else {
         unreachable;
@@ -16,8 +17,8 @@ pub coldcc fn panic(msg: []const u8) -> noreturn {
 // Note that memset does not return `dest`, like the libc API.
 // The semantics of memset is dictated by the corresponding
 // LLVM intrinsics, not by the libc API.
-export fn memset(dest: ?&u8, c: u8, n: usize) {
-    @setDebugSafety(this, false);
+export fn memset(dest: ?&u8, c: u8, n: usize) void {
+    @setRuntimeSafety(false);
 
     var index: usize = 0;
     while (index != n) : (index += 1)
@@ -27,36 +28,37 @@ export fn memset(dest: ?&u8, c: u8, n: usize) {
 // Note that memcpy does not return `dest`, like the libc API.
 // The semantics of memcpy is dictated by the corresponding
 // LLVM intrinsics, not by the libc API.
-export fn memcpy(noalias dest: ?&u8, noalias src: ?&const u8, n: usize) {
-    @setDebugSafety(this, false);
+export fn memcpy(noalias dest: ?&u8, noalias src: ?&const u8, n: usize) void {
+    @setRuntimeSafety(false);
 
     var index: usize = 0;
     while (index != n) : (index += 1)
         (??dest)[index] = (??src)[index];
 }
 
-export fn __stack_chk_fail() -> noreturn {
-    if (builtin.mode == builtin.Mode.ReleaseFast or builtin.os == builtin.Os.windows) {
-        @setGlobalLinkage(__stack_chk_fail, builtin.GlobalLinkage.Internal);
-        unreachable;
+comptime {
+    if (builtin.mode != builtin.Mode.ReleaseFast and builtin.os != builtin.Os.windows) {
+        @export("__stack_chk_fail", __stack_chk_fail, builtin.GlobalLinkage.Strong);
     }
+}
+extern fn __stack_chk_fail() noreturn {
     @panic("stack smashing detected");
 }
 
 const math = @import("../math/index.zig");
 
-export fn fmodf(x: f32, y: f32) -> f32 { generic_fmod(f32, x, y) }
-export fn fmod(x: f64, y: f64) -> f64 { generic_fmod(f64, x, y) }
+export fn fmodf(x: f32, y: f32) f32 { return generic_fmod(f32, x, y); }
+export fn fmod(x: f64, y: f64) f64 { return generic_fmod(f64, x, y); }
 
 // TODO add intrinsics for these (and probably the double version too)
 // and have the math stuff use the intrinsic. same as @mod and @rem
-export fn floorf(x: f32) -> f32 { math.floor(x) }
-export fn ceilf(x: f32) -> f32 { math.ceil(x) }
-export fn floor(x: f64) -> f64 { math.floor(x) }
-export fn ceil(x: f64) -> f64 { math.ceil(x) }
+export fn floorf(x: f32) f32 { return math.floor(x); }
+export fn ceilf(x: f32) f32 { return math.ceil(x); }
+export fn floor(x: f64) f64 { return math.floor(x); }
+export fn ceil(x: f64) f64 { return math.ceil(x); }
 
-fn generic_fmod(comptime T: type, x: T, y: T) -> T {
-    @setDebugSafety(this, false);
+fn generic_fmod(comptime T: type, x: T, y: T) T {
+    @setRuntimeSafety(false);
 
     const uint = @IntType(false, T.bit_count);
     const log2uint = math.Log2Int(uint);
@@ -83,7 +85,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) -> T {
     // normalize x and y
     if (ex == 0) {
         i = ux << exp_bits;
-        while (i >> bits_minus_1 == 0) : ({ex -= 1; i <<= 1}) {}
+        while (i >> bits_minus_1 == 0) : (b: {ex -= 1; break :b i <<= 1;}) {}
         ux <<= log2uint(@bitCast(u32, -ex + 1));
     } else {
         ux &= @maxValue(uint) >> exp_bits;
@@ -91,7 +93,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) -> T {
     }
     if (ey == 0) {
         i = uy << exp_bits;
-        while (i >> bits_minus_1 == 0) : ({ey -= 1; i <<= 1}) {}
+        while (i >> bits_minus_1 == 0) : (b: {ey -= 1; break :b i <<= 1;}) {}
         uy <<= log2uint(@bitCast(u32, -ey + 1));
     } else {
         uy &= @maxValue(uint) >> exp_bits;
@@ -114,7 +116,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) -> T {
             return 0 * x;
         ux = i;
     }
-    while (ux >> digits == 0) : ({ux <<= 1; ex -= 1}) {}
+    while (ux >> digits == 0) : (b: {ux <<= 1; break :b ex -= 1;}) {}
 
     // scale result up
     if (ex > 0) {
@@ -131,7 +133,7 @@ fn generic_fmod(comptime T: type, x: T, y: T) -> T {
     return @bitCast(T, ux);
 }
 
-fn isNan(comptime T: type, bits: T) -> bool {
+fn isNan(comptime T: type, bits: T) bool {
     if (T == u32) {
         return (bits & 0x7fffffff) > 0x7f800000;
     } else if (T == u64) {

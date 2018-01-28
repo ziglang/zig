@@ -8,7 +8,7 @@
 #ifndef ZIG_TARGET_HPP
 #define ZIG_TARGET_HPP
 
-#include <zig_llvm.hpp>
+#include <zig_llvm.h>
 
 struct Buf;
 
@@ -17,10 +17,45 @@ struct ArchType {
     ZigLLVM_SubArchType sub_arch;
 };
 
+enum Os {
+    OsFreestanding,
+    OsAnanas,
+    OsCloudABI,
+    OsDragonFly,
+    OsFreeBSD,
+    OsFuchsia,
+    OsIOS,
+    OsKFreeBSD,
+    OsLinux,
+    OsLv2,        // PS3
+    OsMacOSX,
+    OsNetBSD,
+    OsOpenBSD,
+    OsSolaris,
+    OsWindows,
+    OsHaiku,
+    OsMinix,
+    OsRTEMS,
+    OsNaCl,       // Native Client
+    OsCNK,        // BG/P Compute-Node Kernel
+    OsBitrig,
+    OsAIX,
+    OsCUDA,       // NVIDIA CUDA
+    OsNVCL,       // NVIDIA OpenCL
+    OsAMDHSA,     // AMD HSA Runtime
+    OsPS4,
+    OsELFIAMCU,
+    OsTvOS,       // Apple tvOS
+    OsWatchOS,    // Apple watchOS
+    OsMesa3D,
+    OsContiki,
+    OsZen,
+};
+
 struct ZigTarget {
     ArchType arch;
     ZigLLVM_VendorType vendor;
-    ZigLLVM_OSType os;
+    Os os;
     ZigLLVM_EnvironmentType env_type;
     ZigLLVM_ObjectFormatType oformat;
 };
@@ -46,8 +81,8 @@ size_t target_vendor_count(void);
 ZigLLVM_VendorType get_target_vendor(size_t index);
 
 size_t target_os_count(void);
-ZigLLVM_OSType get_target_os(size_t index);
-const char *get_target_os_name(ZigLLVM_OSType os_type);
+Os get_target_os(size_t index);
+const char *get_target_os_name(Os os_type);
 
 size_t target_environ_count(void);
 ZigLLVM_EnvironmentType get_target_environ(size_t index);
@@ -61,7 +96,7 @@ void get_native_target(ZigTarget *target);
 void get_unknown_target(ZigTarget *target);
 
 int parse_target_arch(const char *str, ArchType *arch);
-int parse_target_os(const char *str, ZigLLVM_OSType *os);
+int parse_target_os(const char *str, Os *os);
 int parse_target_environ(const char *str, ZigLLVM_EnvironmentType *env_type);
 
 void init_all_targets(void);

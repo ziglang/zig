@@ -3,19 +3,20 @@
 // - atan(+-0)   = +-0
 // - atan(+-inf) = +-pi/2
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
-pub fn atan(x: var) -> @typeOf(x) {
+pub fn atan(x: var) @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(atan32, x),
-        f64 => @inlineCall(atan64, x),
+    return switch (T) {
+        f32 => atan32(x),
+        f64 => atan64(x),
         else => @compileError("atan not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
-fn atan32(x_: f32) -> f32 {
+fn atan32(x_: f32) f32 {
     const atanhi = []const f32 {
         4.6364760399e-01, // atan(0.5)hi
         7.8539812565e-01, // atan(1.0)hi
@@ -99,15 +100,15 @@ fn atan32(x_: f32) -> f32 {
     const s1 = z * (aT[0] + w * (aT[2] + w * aT[4]));
     const s2 = w * (aT[1] + w * aT[3]);
 
-    if (id == null) {
-        x - x * (s1 + s2)
+    if (id) |id_value| {
+        const zz = atanhi[id_value] - ((x * (s1 + s2) - atanlo[id_value]) - x);
+        return if (sign != 0) -zz else zz;
     } else {
-        const zz = atanhi[??id] - ((x * (s1 + s2) - atanlo[??id]) - x);
-        if (sign != 0) -zz else zz
+        return x - x * (s1 + s2);
     }
 }
 
-fn atan64(x_: f64) -> f64 {
+fn atan64(x_: f64) f64 {
     const atanhi = []const f64 {
         4.63647609000806093515e-01, // atan(0.5)hi
         7.85398163397448278999e-01, // atan(1.0)hi
@@ -198,16 +199,16 @@ fn atan64(x_: f64) -> f64 {
     const s1 = z * (aT[0] + w * (aT[2] + w * (aT[4] + w * (aT[6] + w * (aT[8] + w * aT[10])))));
     const s2 = w * (aT[1] + w * (aT[3] + w * (aT[5] + w * (aT[7] + w * aT[9]))));
 
-    if (id == null) {
-        x - x * (s1 + s2)
+    if (id) |id_value| {
+        const zz = atanhi[id_value] - ((x * (s1 + s2) - atanlo[id_value]) - x);
+        return if (sign != 0) -zz else zz;
     } else {
-        const zz = atanhi[??id] - ((x * (s1 + s2) - atanlo[??id]) - x);
-        if (sign != 0) -zz else zz
+        return x - x * (s1 + s2);
     }
 }
 
 test "math.atan" {
-    assert(atan(f32(0.2)) == atan32(0.2));
+    assert(@bitCast(u32, atan(f32(0.2))) == @bitCast(u32, atan32(0.2)));
     assert(atan(f64(0.2)) == atan64(0.2));
 }
 

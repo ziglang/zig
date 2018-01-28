@@ -5,18 +5,19 @@
 // - hypot(nan, y)    = nan
 // - hypot(x, nan)    = nan
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
-pub fn hypot(comptime T: type, x: T, y: T) -> T {
-    switch (T) {
-        f32 => @inlineCall(hypot32, x, y),
-        f64 => @inlineCall(hypot64, x, y),
+pub fn hypot(comptime T: type, x: T, y: T) T {
+    return switch (T) {
+        f32 => hypot32(x, y),
+        f64 => hypot64(x, y),
         else => @compileError("hypot not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
-fn hypot32(x: f32, y: f32) -> f32 {
+fn hypot32(x: f32, y: f32) f32 {
     var ux = @bitCast(u32, x);
     var uy = @bitCast(u32, y);
 
@@ -48,10 +49,10 @@ fn hypot32(x: f32, y: f32) -> f32 {
         yy *= 0x1.0p-90;
     }
 
-    z * math.sqrt(f32(f64(x) * x + f64(y) * y))
+    return z * math.sqrt(f32(f64(x) * x + f64(y) * y));
 }
 
-fn sq(hi: &f64, lo: &f64, x: f64) {
+fn sq(hi: &f64, lo: &f64, x: f64) void {
     const split: f64 = 0x1.0p27 + 1.0;
     const xc = x * split;
     const xh = x - xc + xc;
@@ -60,7 +61,7 @@ fn sq(hi: &f64, lo: &f64, x: f64) {
     *lo = xh * xh - *hi + 2 * xh * xl + xl * xl;
 }
 
-fn hypot64(x: f64, y: f64) -> f64 {
+fn hypot64(x: f64, y: f64) f64 {
     var ux = @bitCast(u64, x);
     var uy = @bitCast(u64, y);
 
@@ -109,7 +110,7 @@ fn hypot64(x: f64, y: f64) -> f64 {
     sq(&hx, &lx, x);
     sq(&hy, &ly, y);
 
-    z * math.sqrt(ly + lx + hy + hx)
+    return z * math.sqrt(ly + lx + hy + hx);
 }
 
 test "math.hypot" {

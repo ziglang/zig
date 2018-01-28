@@ -4,11 +4,11 @@ const builtin = @import("builtin");
 const test_fn_list = builtin.__zig_test_fn_slice;
 const warn = std.debug.warn;
 
-pub fn main() -> %void {
+pub fn main() %void {
     for (test_fn_list) |test_fn, i| {
         warn("Test {}/{} {}...", i + 1, test_fn_list.len, test_fn.name);
 
-        test_fn.func();
+        try test_fn.func();
 
         warn("OK\n");
     }

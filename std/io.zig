@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const Os = builtin.Os;
 const system = switch(builtin.os) {
     Os.linux => @import("os/linux.zig"),
-    Os.darwin, Os.macosx, Os.ios => @import("os/darwin.zig"),
+    Os.macosx, Os.ios => @import("os/darwin.zig"),
     Os.windows => @import("os/windows/index.zig"),
     else => @compileError("Unsupported OS"),
 };
@@ -48,37 +48,35 @@ error PathNotFound;
 error OutOfMemory;
 error Unseekable;
 error EndOfFile;
+error FilePosLargerThanPointerRange;
 
-pub fn getStdErr() -> %File {
-    const handle = if (is_windows) {
-        %return os.windowsGetStdHandle(system.STD_ERROR_HANDLE)
-    } else if (is_posix) {
+pub fn getStdErr() %File {
+    const handle = if (is_windows)
+        try os.windowsGetStdHandle(system.STD_ERROR_HANDLE)
+    else if (is_posix)
         system.STDERR_FILENO
-    } else {
-        unreachable
-    };
+    else
+        unreachable;
     return File.openHandle(handle);
 }
 
-pub fn getStdOut() -> %File {
-    const handle = if (is_windows) {
-        %return os.windowsGetStdHandle(system.STD_OUTPUT_HANDLE)
-    } else if (is_posix) {
+pub fn getStdOut() %File {
+    const handle = if (is_windows)
+        try os.windowsGetStdHandle(system.STD_OUTPUT_HANDLE)
+    else if (is_posix)
         system.STDOUT_FILENO
-    } else {
-        unreachable
-    };
+    else
+        unreachable;
     return File.openHandle(handle);
 }
 
-pub fn getStdIn() -> %File {
-    const handle = if (is_windows) {
-        %return os.windowsGetStdHandle(system.STD_INPUT_HANDLE)
-    } else if (is_posix) {
+pub fn getStdIn() %File {
+    const handle = if (is_windows)
+        try os.windowsGetStdHandle(system.STD_INPUT_HANDLE)
+    else if (is_posix)
         system.STDIN_FILENO
-    } else {
-        unreachable
-    };
+    else
+        unreachable;
     return File.openHandle(handle);
 }
 
@@ -87,7 +85,7 @@ pub const FileInStream = struct {
     file: &File,
     stream: InStream,
 
-    pub fn init(file: &File) -> FileInStream {
+    pub fn init(file: &File) FileInStream {
         return FileInStream {
             .file = file,
             .stream = InStream {
@@ -96,7 +94,7 @@ pub const FileInStream = struct {
         };
     }
 
-    fn readFn(in_stream: &InStream, buffer: []u8) -> %usize {
+    fn readFn(in_stream: &InStream, buffer: []u8) %usize {
         const self = @fieldParentPtr(FileInStream, "stream", in_stream);
         return self.file.read(buffer);
     }
@@ -107,7 +105,7 @@ pub const FileOutStream = struct {
     file: &File,
     stream: OutStream,
 
-    pub fn init(file: &File) -> FileOutStream {
+    pub fn init(file: &File) FileOutStream {
         return FileOutStream {
             .file = file,
             .stream = OutStream {
@@ -116,7 +114,7 @@ pub const FileOutStream = struct {
         };
     }
 
-    fn writeFn(out_stream: &OutStream, bytes: []const u8) -> %void {
+    fn writeFn(out_stream: &OutStream, bytes: []const u8) %void {
         const self = @fieldParentPtr(FileOutStream, "stream", out_stream);
         return self.file.write(bytes);
     }
@@ -131,13 +129,13 @@ pub const File = struct {
     /// size buffer is too small, and the provided allocator is null, error.NameTooLong is returned.
     /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
     /// Call close to clean up.
-    pub fn openRead(path: []const u8, allocator: ?&mem.Allocator) -> %File {
+    pub fn openRead(path: []const u8, allocator: ?&mem.Allocator) %File {
         if (is_posix) {
             const flags = system.O_LARGEFILE|system.O_RDONLY;
-            const fd = %return os.posixOpen(path, flags, 0, allocator);
+            const fd = try os.posixOpen(path, flags, 0, allocator);
             return openHandle(fd);
         } else if (is_windows) {
-            const handle = %return os.windowsOpen(path, system.GENERIC_READ, system.FILE_SHARE_READ,
+            const handle = try os.windowsOpen(path, system.GENERIC_READ, system.FILE_SHARE_READ,
                 system.OPEN_EXISTING, system.FILE_ATTRIBUTE_NORMAL, allocator);
             return openHandle(handle);
         } else {
@@ -146,7 +144,7 @@ pub const File = struct {
     }
 
     /// Calls `openWriteMode` with 0o666 for the mode.
-    pub fn openWrite(path: []const u8, allocator: ?&mem.Allocator) -> %File {
+    pub fn openWrite(path: []const u8, allocator: ?&mem.Allocator) %File {
         return openWriteMode(path, 0o666, allocator);
 
     }
@@ -156,13 +154,13 @@ pub const File = struct {
     /// size buffer is too small, and the provided allocator is null, error.NameTooLong is returned.
     /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
     /// Call close to clean up.
-    pub fn openWriteMode(path: []const u8, mode: usize, allocator: ?&mem.Allocator) -> %File {
+    pub fn openWriteMode(path: []const u8, mode: usize, allocator: ?&mem.Allocator) %File {
         if (is_posix) {
             const flags = system.O_LARGEFILE|system.O_WRONLY|system.O_CREAT|system.O_CLOEXEC|system.O_TRUNC;
-            const fd = %return os.posixOpen(path, flags, mode, allocator);
+            const fd = try os.posixOpen(path, flags, mode, allocator);
             return openHandle(fd);
         } else if (is_windows) {
-            const handle = %return os.windowsOpen(path, system.GENERIC_WRITE,
+            const handle = try os.windowsOpen(path, system.GENERIC_WRITE,
                 system.FILE_SHARE_WRITE|system.FILE_SHARE_READ|system.FILE_SHARE_DELETE,
                 system.CREATE_ALWAYS, system.FILE_ATTRIBUTE_NORMAL, allocator);
             return openHandle(handle);
@@ -172,7 +170,7 @@ pub const File = struct {
 
     }
 
-    pub fn openHandle(handle: os.FileHandle) -> File {
+    pub fn openHandle(handle: os.FileHandle) File {
         return File {
             .handle = handle,
         };
@@ -181,19 +179,19 @@ pub const File = struct {
 
     /// Upon success, the stream is in an uninitialized state. To continue using it,
     /// you must use the open() function.
-    pub fn close(self: &File) {
+    pub fn close(self: &File) void {
         os.close(self.handle);
         self.handle = undefined;
     }
 
     /// Calls `os.isTty` on `self.handle`.
-    pub fn isTty(self: &File) -> bool {
+    pub fn isTty(self: &File) bool {
         return os.isTty(self.handle);
     }
 
-    pub fn seekForward(self: &File, amount: isize) -> %void {
+    pub fn seekForward(self: &File, amount: isize) %void {
         switch (builtin.os) {
-            Os.linux, Os.darwin => {
+            Os.linux, Os.macosx, Os.ios => {
                 const result = system.lseek(self.handle, amount, system.SEEK_CUR);
                 const err = system.getErrno(result);
                 if (err > 0) {
@@ -207,14 +205,24 @@ pub const File = struct {
                     };
                 }
             },
+            Os.windows => {
+                if (system.SetFilePointerEx(self.handle, amount, null, system.FILE_CURRENT) == 0) {
+                    const err = system.GetLastError();
+                    return switch (err) {
+                        system.ERROR.INVALID_PARAMETER => error.BadFd,
+                        else => os.unexpectedErrorWindows(err),
+                    };
+                }
+            },
             else => @compileError("unsupported OS"),
         }
     }
 
-    pub fn seekTo(self: &File, pos: usize) -> %void {
+    pub fn seekTo(self: &File, pos: usize) %void {
         switch (builtin.os) {
-            Os.linux, Os.darwin => {
-                const result = system.lseek(self.handle, @bitCast(isize, pos), system.SEEK_SET);
+            Os.linux, Os.macosx, Os.ios => {
+                const ipos = try math.cast(isize, pos);
+                const result = system.lseek(self.handle, ipos, system.SEEK_SET);
                 const err = system.getErrno(result);
                 if (err > 0) {
                     return switch (err) {
@@ -227,13 +235,23 @@ pub const File = struct {
                     };
                 }
             },
-            else => @compileError("unsupported OS"),
+            Os.windows => {
+                const ipos = try math.cast(isize, pos);
+                if (system.SetFilePointerEx(self.handle, ipos, null, system.FILE_BEGIN) == 0) {
+                    const err = system.GetLastError();
+                    return switch (err) {
+                        system.ERROR.INVALID_PARAMETER => error.BadFd,
+                        else => os.unexpectedErrorWindows(err),
+                    };
+                }
+            },
+            else => @compileError("unsupported OS: " ++ @tagName(builtin.os)),
         }
     }
 
-    pub fn getPos(self: &File) -> %usize {
+    pub fn getPos(self: &File) %usize {
         switch (builtin.os) {
-            Os.linux, Os.darwin => {
+            Os.linux, Os.macosx, Os.ios => {
                 const result = system.lseek(self.handle, 0, system.SEEK_CUR);
                 const err = system.getErrno(result);
                 if (err > 0) {
@@ -248,20 +266,39 @@ pub const File = struct {
                 }
                 return result;
             },
+            Os.windows => {
+                var pos : system.LARGE_INTEGER = undefined;
+                if (system.SetFilePointerEx(self.handle, 0, &pos, system.FILE_CURRENT) == 0) {
+                    const err = system.GetLastError();
+                    return switch (err) {
+                        system.ERROR.INVALID_PARAMETER => error.BadFd,
+                        else => os.unexpectedErrorWindows(err),
+                    };
+                }
+
+                assert(pos >= 0);
+                if (@sizeOf(@typeOf(pos)) > @sizeOf(usize)) {
+                    if (pos > @maxValue(usize)) {
+                        return error.FilePosLargerThanPointerRange;
+                    }
+                }
+
+                return usize(pos);
+            },
             else => @compileError("unsupported OS"),
         }
     }
 
-    pub fn getEndPos(self: &File) -> %usize {
+    pub fn getEndPos(self: &File) %usize {
         if (is_posix) {
             var stat: system.Stat = undefined;
             const err = system.getErrno(system.fstat(self.handle, &stat));
             if (err > 0) {
                 return switch (err) {
                     system.EBADF => error.BadFd,
-                    system.ENOMEM => error.OutOfMemory,
+                    system.ENOMEM => error.SystemResources,
                     else => os.unexpectedErrorPosix(err),
-                }
+                };
             }
 
             return usize(stat.size);
@@ -281,7 +318,7 @@ pub const File = struct {
         }
     }
 
-    pub fn read(self: &File, buffer: []u8) -> %usize {
+    pub fn read(self: &File, buffer: []u8) %usize {
         if (is_posix) {
             var index: usize = 0;
             while (index < buffer.len) {
@@ -323,11 +360,11 @@ pub const File = struct {
         }
     }
 
-    fn write(self: &File, bytes: []const u8) -> %void {
+    fn write(self: &File, bytes: []const u8) %void {
         if (is_posix) {
-            %return os.posixWrite(self.handle, bytes);
+            try os.posixWrite(self.handle, bytes);
         } else if (is_windows) {
-            %return os.windowsWrite(self.handle, bytes);
+            try os.windowsWrite(self.handle, bytes);
         } else {
             @compileError("Unsupported OS");
         }
@@ -341,18 +378,18 @@ pub const InStream = struct {
     /// Return the number of bytes read. If the number read is smaller than buf.len, it
     /// means the stream reached the end. Reaching the end of a stream is not an error
     /// condition.
-    readFn: fn(self: &InStream, buffer: []u8) -> %usize,
+    readFn: fn(self: &InStream, buffer: []u8) %usize,
 
     /// Replaces `buffer` contents by reading from the stream until it is finished.
     /// If `buffer.len()` would exceed `max_size`, `error.StreamTooLong` is returned and
     /// the contents read from the stream are lost.
-    pub fn readAllBuffer(self: &InStream, buffer: &Buffer, max_size: usize) -> %void {
-        %return buffer.resize(0);
+    pub fn readAllBuffer(self: &InStream, buffer: &Buffer, max_size: usize) %void {
+        try buffer.resize(0);
 
         var actual_buf_len: usize = 0;
         while (true) {
             const dest_slice = buffer.toSlice()[actual_buf_len..];
-            const bytes_read = %return self.readFn(self, dest_slice);
+            const bytes_read = try self.readFn(self, dest_slice);
             actual_buf_len += bytes_read;
 
             if (bytes_read != dest_slice.len) {
@@ -363,7 +400,7 @@ pub const InStream = struct {
             const new_buf_size = math.min(max_size, actual_buf_len + os.page_size);
             if (new_buf_size == actual_buf_len)
                 return error.StreamTooLong;
-            %return buffer.resize(new_buf_size);
+            try buffer.resize(new_buf_size);
         }
     }
 
@@ -371,11 +408,11 @@ pub const InStream = struct {
     /// memory would be greater than `max_size`, returns `error.StreamTooLong`.
     /// Caller owns returned memory.
     /// If this function returns an error, the contents from the stream read so far are lost.
-    pub fn readAllAlloc(self: &InStream, allocator: &mem.Allocator, max_size: usize) -> %[]u8 {
+    pub fn readAllAlloc(self: &InStream, allocator: &mem.Allocator, max_size: usize) %[]u8 {
         var buf = Buffer.initNull(allocator);
         defer buf.deinit();
 
-        %return self.readAllBuffer(&buf, max_size);
+        try self.readAllBuffer(&buf, max_size);
         return buf.toOwnedSlice();
     }
 
@@ -383,11 +420,11 @@ pub const InStream = struct {
     /// Does not include the delimiter in the result.
     /// If `buffer.len()` would exceed `max_size`, `error.StreamTooLong` is returned and the contents
     /// read from the stream so far are lost.
-    pub fn readUntilDelimiterBuffer(self: &InStream, buffer: &Buffer, delimiter: u8, max_size: usize) -> %void {
-        %return buf.resize(0);
+    pub fn readUntilDelimiterBuffer(self: &InStream, buffer: &Buffer, delimiter: u8, max_size: usize) %void {
+        try buf.resize(0);
 
         while (true) {
-            var byte: u8 = %return self.readByte();
+            var byte: u8 = try self.readByte();
 
             if (byte == delimiter) {
                 return;
@@ -397,7 +434,7 @@ pub const InStream = struct {
                 return error.StreamTooLong;
             }
 
-            %return buf.appendByte(byte);
+            try buf.appendByte(byte);
         }
     }
 
@@ -406,80 +443,88 @@ pub const InStream = struct {
     /// Caller owns returned memory.
     /// If this function returns an error, the contents from the stream read so far are lost.
     pub fn readUntilDelimiterAlloc(self: &InStream, allocator: &mem.Allocator,
-        delimiter: u8, max_size: usize) -> %[]u8
+        delimiter: u8, max_size: usize) %[]u8
     {
         var buf = Buffer.initNull(allocator);
         defer buf.deinit();
 
-        %return self.readUntilDelimiterBuffer(self, &buf, delimiter, max_size);
+        try self.readUntilDelimiterBuffer(self, &buf, delimiter, max_size);
         return buf.toOwnedSlice();
     }
 
     /// Returns the number of bytes read. If the number read is smaller than buf.len, it
     /// means the stream reached the end. Reaching the end of a stream is not an error
     /// condition.
-    pub fn read(self: &InStream, buffer: []u8) -> %usize {
+    pub fn read(self: &InStream, buffer: []u8) %usize {
         return self.readFn(self, buffer);
     }
 
     /// Same as `read` but end of stream returns `error.EndOfStream`.
-    pub fn readNoEof(self: &InStream, buf: []u8) -> %void {
-        const amt_read = %return self.read(buf);
+    pub fn readNoEof(self: &InStream, buf: []u8) %void {
+        const amt_read = try self.read(buf);
         if (amt_read < buf.len) return error.EndOfStream;
     }
 
     /// Reads 1 byte from the stream or returns `error.EndOfStream`.
-    pub fn readByte(self: &InStream) -> %u8 {
+    pub fn readByte(self: &InStream) %u8 {
         var result: [1]u8 = undefined;
-        %return self.readNoEof(result[0..]);
+        try self.readNoEof(result[0..]);
         return result[0];
     }
 
     /// Same as `readByte` except the returned byte is signed.
-    pub fn readByteSigned(self: &InStream) -> %i8 {
-        return @bitCast(i8, %return self.readByte());
+    pub fn readByteSigned(self: &InStream) %i8 {
+        return @bitCast(i8, try self.readByte());
     }
 
-    pub fn readIntLe(self: &InStream, comptime T: type) -> %T {
-        return self.readInt(false, T);
+    pub fn readIntLe(self: &InStream, comptime T: type) %T {
+        return self.readInt(builtin.Endian.Little, T);
     }
 
-    pub fn readIntBe(self: &InStream, comptime T: type) -> %T {
-        return self.readInt(true, T);
+    pub fn readIntBe(self: &InStream, comptime T: type) %T {
+        return self.readInt(builtin.Endian.Big, T);
     }
 
-    pub fn readInt(self: &InStream, is_be: bool, comptime T: type) -> %T {
+    pub fn readInt(self: &InStream, endian: builtin.Endian, comptime T: type) %T {
         var bytes: [@sizeOf(T)]u8 = undefined;
-        %return self.readNoEof(bytes[0..]);
-        return mem.readInt(bytes, T, is_be);
+        try self.readNoEof(bytes[0..]);
+        return mem.readInt(bytes, T, endian);
     }
 
-    pub fn readVarInt(self: &InStream, is_be: bool, comptime T: type, size: usize) -> %T {
+    pub fn readVarInt(self: &InStream, endian: builtin.Endian, comptime T: type, size: usize) %T {
         assert(size <= @sizeOf(T));
         assert(size <= 8);
         var input_buf: [8]u8 = undefined;
         const input_slice = input_buf[0..size];
-        %return self.readNoEof(input_slice);
-        return mem.readInt(input_slice, T, is_be);
+        try self.readNoEof(input_slice);
+        return mem.readInt(input_slice, T, endian);
     }
 
 
 };
 
 pub const OutStream = struct {
-    writeFn: fn(self: &OutStream, bytes: []const u8) -> %void,
+    writeFn: fn(self: &OutStream, bytes: []const u8) %void,
 
-    pub fn print(self: &OutStream, comptime format: []const u8, args: ...) -> %void {
+    pub fn print(self: &OutStream, comptime format: []const u8, args: ...) %void {
         return std.fmt.format(self, self.writeFn, format, args);
     }
 
-    pub fn write(self: &OutStream, bytes: []const u8) -> %void {
+    pub fn write(self: &OutStream, bytes: []const u8) %void {
         return self.writeFn(self, bytes);
     }
 
-    pub fn writeByte(self: &OutStream, byte: u8) -> %void {
+    pub fn writeByte(self: &OutStream, byte: u8) %void {
         const slice = (&byte)[0..1];
         return self.writeFn(self, slice);
+    }
+
+    pub fn writeByteNTimes(self: &OutStream, byte: u8, n: usize) %void {
+        const slice = (&byte)[0..1];
+        var i: usize = 0;
+        while (i < n) : (i += 1) {
+            try self.writeFn(self, slice);
+        }
     }
 };
 
@@ -487,15 +532,34 @@ pub const OutStream = struct {
 /// a fixed size buffer of size `std.os.max_noalloc_path_len` is an attempted solution. If the fixed
 /// size buffer is too small, and the provided allocator is null, `error.NameTooLong` is returned.
 /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
-pub fn writeFile(path: []const u8, data: []const u8, allocator: ?&mem.Allocator) -> %void {
-    var file = %return File.openWrite(path, allocator);
+pub fn writeFile(path: []const u8, data: []const u8, allocator: ?&mem.Allocator) %void {
+    var file = try File.openWrite(path, allocator);
     defer file.close();
-    %return file.write(data);
+    try file.write(data);
+}
+
+/// On success, caller owns returned buffer.
+pub fn readFileAlloc(path: []const u8, allocator: &mem.Allocator) %[]u8 {
+    return readFileAllocExtra(path, allocator, 0);
+}
+/// On success, caller owns returned buffer.
+/// Allocates extra_len extra bytes at the end of the file buffer, which are uninitialized.
+pub fn readFileAllocExtra(path: []const u8, allocator: &mem.Allocator, extra_len: usize) %[]u8 {
+    var file = try File.openRead(path, allocator);
+    defer file.close();
+
+    const size = try file.getEndPos();
+    const buf = try allocator.alloc(u8, size + extra_len);
+    errdefer allocator.free(buf);
+
+    var adapter = FileInStream.init(&file);
+    try adapter.stream.readNoEof(buf[0..size]);
+    return buf;
 }
 
 pub const BufferedInStream = BufferedInStreamCustom(os.page_size);
 
-pub fn BufferedInStreamCustom(comptime buffer_size: usize) -> type {
+pub fn BufferedInStreamCustom(comptime buffer_size: usize) type {
     return struct {
         const Self = this;
 
@@ -507,7 +571,7 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize) -> type {
         start_index: usize,
         end_index: usize,
 
-        pub fn init(unbuffered_in_stream: &InStream) -> Self {
+        pub fn init(unbuffered_in_stream: &InStream) Self {
             return Self {
                 .unbuffered_in_stream = unbuffered_in_stream,
                 .buffer = undefined,
@@ -525,7 +589,7 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize) -> type {
             };
         }
 
-        fn readFn(in_stream: &InStream, dest: []u8) -> %usize {
+        fn readFn(in_stream: &InStream, dest: []u8) %usize {
             const self = @fieldParentPtr(Self, "stream", in_stream);
 
             var dest_index: usize = 0;
@@ -541,11 +605,11 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize) -> type {
                         // we can read more data from the unbuffered stream
                         if (dest_space < buffer_size) {
                             self.start_index = 0;
-                            self.end_index = %return self.unbuffered_in_stream.read(self.buffer[0..]);
+                            self.end_index = try self.unbuffered_in_stream.read(self.buffer[0..]);
                         } else {
                             // asking for so much data that buffering is actually less efficient.
                             // forward the request directly to the unbuffered stream
-                            const amt_read = %return self.unbuffered_in_stream.read(dest[dest_index..]);
+                            const amt_read = try self.unbuffered_in_stream.read(dest[dest_index..]);
                             return dest_index + amt_read;
                         }
                     } else {
@@ -566,7 +630,7 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize) -> type {
 
 pub const BufferedOutStream = BufferedOutStreamCustom(os.page_size);
 
-pub fn BufferedOutStreamCustom(comptime buffer_size: usize) -> type {
+pub fn BufferedOutStreamCustom(comptime buffer_size: usize) type {
     return struct {
         const Self = this;
 
@@ -577,7 +641,7 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize) -> type {
         buffer: [buffer_size]u8,
         index: usize,
 
-        pub fn init(unbuffered_out_stream: &OutStream) -> Self {
+        pub fn init(unbuffered_out_stream: &OutStream) Self {
             return Self {
                 .unbuffered_out_stream = unbuffered_out_stream,
                 .buffer = undefined,
@@ -588,19 +652,19 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize) -> type {
             };
         }
 
-        pub fn flush(self: &Self) -> %void {
+        pub fn flush(self: &Self) %void {
             if (self.index == 0)
                 return;
 
-            %return self.unbuffered_out_stream.write(self.buffer[0..self.index]);
+            try self.unbuffered_out_stream.write(self.buffer[0..self.index]);
             self.index = 0;
         }
 
-        fn writeFn(out_stream: &OutStream, bytes: []const u8) -> %void {
+        fn writeFn(out_stream: &OutStream, bytes: []const u8) %void {
             const self = @fieldParentPtr(Self, "stream", out_stream);
 
             if (bytes.len >= self.buffer.len) {
-                %return self.flush();
+                try self.flush();
                 return self.unbuffered_out_stream.write(bytes);
             }
             var src_index: usize = 0;
@@ -612,10 +676,31 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize) -> type {
                 self.index += copy_amt;
                 assert(self.index <= self.buffer.len);
                 if (self.index == self.buffer.len) {
-                    %return self.flush();
+                    try self.flush();
                 }
                 src_index += copy_amt;
             }
         }
     };
 }
+
+/// Implementation of OutStream trait for Buffer
+pub const BufferOutStream = struct {
+    buffer: &Buffer,
+    stream: OutStream,
+
+    pub fn init(buffer: &Buffer) BufferOutStream {
+        return BufferOutStream {
+            .buffer = buffer,
+            .stream = OutStream {
+                .writeFn = writeFn,
+            },
+        };
+    }
+
+    fn writeFn(out_stream: &OutStream, bytes: []const u8) %void {
+        const self = @fieldParentPtr(BufferOutStream, "stream", out_stream);
+        return self.buffer.append(bytes);
+    }
+};
+

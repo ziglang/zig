@@ -1,9 +1,10 @@
-const math = @import("index.zig");
+const std = @import("../index.zig");
+const math = std.math;
 const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
-const assert = @import("../debug.zig").assert;
+const assert = std.debug.assert;
 
-pub fn log(comptime T: type, base: T, x: T) -> T {
+pub fn log(comptime T: type, base: T, x: T) T {
     if (base == 2) {
         return math.log2(x);
     } else if (base == 10) {
@@ -29,7 +30,7 @@ pub fn log(comptime T: type, base: T, x: T) -> T {
                 f32 => return f32(math.ln(f64(x)) / math.ln(f64(base))),
                 f64 => return math.ln(x) / math.ln(f64(base)),
                 else => @compileError("log not implemented for " ++ @typeName(T)),
-            };
+            }
         },
 
         else => {
@@ -55,11 +56,6 @@ test "math.log float" {
 }
 
 test "math.log float_special" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     assert(log(f32, 2, 0.2301974) == math.log2(f32(0.2301974)));
     assert(log(f32, 10, 0.2301974) == math.log10(f32(0.2301974)));
 

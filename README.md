@@ -5,8 +5,6 @@ clarity.
 
 [ziglang.org](http://ziglang.org)
 
-[Documentation](http://ziglang.org/documentation/master/)
-
 ## Feature Highlights
 
  * Small, simple language. Focus on debugging your application rather than
@@ -26,7 +24,7 @@ clarity.
    always compiled against statically in source form. Compile units do not
    depend on libc unless explicitly linked.
  * Nullable type instead of null pointers.
- * Tagged union type instead of raw unions.
+ * Safe unions, tagged unions, and C ABI compatible unions.
  * Generics so that one can write efficient data structures that work for any
    data type.
  * No header files required. Top level declarations are entirely
@@ -35,7 +33,7 @@ clarity.
  * Partial compile-time function evaluation with eliminates the need for
    a preprocessor or macros.
  * The binaries produced by Zig have complete debugging information so you can,
-   for example, use GDB to debug your software.
+   for example, use GDB or MSVC to debug your software.
  * Built-in unit tests with `zig test`.
  * Friendly toward package maintainers. Reproducible build, bootstrapping
    process carefully documented. Issues filed by package maintainers are
@@ -54,7 +52,7 @@ that counts as "freestanding" for the purposes of this table.
 
 |             | freestanding | linux   | macosx  | windows | other   |
 |-------------|--------------|---------|---------|---------|---------|
-|i386         | OK           | planned | OK      | OK      | planned |
+|i386         | OK           | planned | OK      | planned | planned |
 |x86_64       | OK           | OK      | OK      | OK      | planned |
 |arm          | OK           | planned | planned | N/A     | planned |
 |aarch64      | OK           | planned | planned | planned | planned |
@@ -78,10 +76,10 @@ that counts as "freestanding" for the purposes of this table.
 
 ### Wanted: Windows Developers
 
-Help get the tests passing on Windows, flesh out the standard library for
-Windows, streamline Zig installation and distribution for Windows. Work with
-LLVM and LLD teams to improve PDB/CodeView/MSVC debugging. Implement stack traces
-for Windows in the MinGW environment and the MSVC environment.
+Flesh out the standard library for Windows, streamline Zig installation and
+distribution for Windows. Work with LLVM and LLD teams to improve
+PDB/CodeView/MSVC debugging. Implement stack traces for Windows in the MinGW
+environment and the MSVC environment.
 
 ### Wanted: MacOS and iOS Developers
 
@@ -119,31 +117,25 @@ libc. Create demo games using Zig.
 [![Build Status](https://travis-ci.org/zig-lang/zig.svg?branch=master)](https://travis-ci.org/zig-lang/zig)
 [![Build status](https://ci.appveyor.com/api/projects/status/4t80mk2dmucrc38i/branch/master?svg=true)](https://ci.appveyor.com/project/andrewrk/zig-d3l86/branch/master)
 
-### Dependencies
+### Stage 1: Build Zig from C++ Source Code
 
-#### Build Dependencies
-
-These compile tools must be available on your system and are used to build
-the Zig compiler itself:
+#### Dependencies
 
 ##### POSIX
 
- * gcc >= 5.0.0 or clang >= 3.6.0
  * cmake >= 2.8.5
+ * gcc >= 5.0.0 or clang >= 3.6.0
+ * LLVM, Clang, LLD libraries == 5.0.1, compiled with the same gcc or clang version above
 
 ##### Windows
 
+ * cmake >= 2.8.5
  * Microsoft Visual Studio 2015
+ * LLVM, Clang, LLD libraries == 5.0.1, compiled with the same MSVC version above
 
-#### Library Dependencies
+#### Instructions
 
-These libraries must be installed on your system, with the development files
-available. The Zig compiler links against them. You have to use the same
-compiler for these libraries as you do to compile Zig.
-
- * LLVM, Clang, and LLD libraries == 5.x
-
-### Debug / Development Build
+##### POSIX
 
 If you have gcc or clang installed, you can find out what `ZIG_LIBC_LIB_DIR`,
 `ZIG_LIBC_STATIC_LIB_DIR`, and `ZIG_LIBC_INCLUDE_DIR` should be set to
@@ -158,12 +150,12 @@ make install
 ./zig build --build-file ../build.zig test
 ```
 
-#### MacOS
+##### MacOS
 
 `ZIG_LIBC_LIB_DIR` and `ZIG_LIBC_STATIC_LIB_DIR` are unused.
 
 ```
-brew install llvm@5
+brew install cmake llvm@5
 brew outdated llvm@5 || brew upgrade llvm@5
 mkdir build
 cd build
@@ -172,41 +164,37 @@ make install
 ./zig build --build-file ../build.zig test
 ```
 
-#### Windows
+##### Windows
 
 See https://github.com/zig-lang/zig/wiki/Building-Zig-on-Windows
 
-### Release / Install Build
+### Stage 2: Build Self-Hosted Zig from Zig Source Code
 
-Once installed, `ZIG_LIBC_LIB_DIR` and `ZIG_LIBC_INCLUDE_DIR` can be overridden
-by the `--libc-lib-dir` and `--libc-include-dir` parameters to the zig binary.
+*Note: Stage 2 compiler is not complete. Beta users of Zig should use the
+Stage 1 compiler for now.*
+
+Dependencies are the same as Stage 1, except now you have a working zig compiler.
 
 ```
-mkdir build
-cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release -DZIG_LIBC_LIB_DIR=/some/path -DZIG_LIBC_INCLUDE_DIR=/some/path -DZIG_LIBC_STATIC_INCLUDE_DIR=/some/path
-make
-sudo make install
+bin/zig build --build-file ../build.zig --prefix $(pwd)/stage2 install
 ```
 
-### Test Coverage
+This produces `./stage2/bin/zig` which can be used for testing and development.
+Once it is feature complete, it will be used to build stage 3 - the final compiler
+binary.
 
-To see test coverage in Zig, configure with `-DZIG_TEST_COVERAGE=ON` as an
-additional parameter to the Debug build.
+### Stage 3: Rebuild Self-Hosted Zig Using the Self-Hosted Compiler
 
-You must have `lcov` installed and available.
+This is the actual compiler binary that we will install to the system.
 
-Then `make coverage`.
+#### Debug / Development Build
 
-With GCC you will get a nice HTML view of the coverage data. With clang,
-the last step will fail, but you can execute
-`llvm-cov gcov $(find CMakeFiles/ -name "*.gcda")` and then inspect the
-produced .gcov files.
+```
+./stage2/bin/zig build --build-file ../build.zig --prefix $(pwd)/stage3 install
+```
 
-### Related Projects
+#### Release / Install Build
 
- * [zig-mode](https://github.com/AndreaOrru/zig-mode) - Emacs integration
- * [zig.vim](https://github.com/zig-lang/zig.vim) - Vim configuration files
- * [vscode-zig](https://github.com/zig-lang/vscode-zig) - Visual Studio Code extension
- * [zig-compiler-completions](https://github.com/tiehuis/zig-compiler-completions) - bash and zsh completions for the zig compiler
- * [NppExtension](https://github.com/ice1000/NppExtension) - Notepad++ syntax highlighting
+```
+./stage2/bin/zig build --build-file ../build.zig install -Drelease-fast
+```

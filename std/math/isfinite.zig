@@ -1,16 +1,17 @@
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
-pub fn isFinite(x: var) -> bool {
+pub fn isFinite(x: var) bool {
     const T = @typeOf(x);
     switch (T) {
         f32 => {
             const bits = @bitCast(u32, x);
-            bits & 0x7FFFFFFF < 0x7F800000
+            return bits & 0x7FFFFFFF < 0x7F800000;
         },
         f64 => {
             const bits = @bitCast(u64, x);
-            bits & (@maxValue(u64) >> 1) < (0x7FF << 52)
+            return bits & (@maxValue(u64) >> 1) < (0x7FF << 52);
         },
         else => {
             @compileError("isFinite not implemented for " ++ @typeName(T));

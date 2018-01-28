@@ -2,19 +2,20 @@
 //
 // - acos(x)   = nan if x < -1 or x > 1
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
-pub fn acos(x: var) -> @typeOf(x) {
+pub fn acos(x: var) @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(acos32, x),
-        f64 => @inlineCall(acos64, x),
+    return switch (T) {
+        f32 => acos32(x),
+        f64 => acos64(x),
         else => @compileError("acos not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
-fn r32(z: f32) -> f32 {
+fn r32(z: f32) f32 {
     const pS0 =  1.6666586697e-01;
     const pS1 = -4.2743422091e-02;
     const pS2 = -8.6563630030e-03;
@@ -22,10 +23,10 @@ fn r32(z: f32) -> f32 {
 
     const p = z * (pS0 + z * (pS1 + z * pS2));
     const q = 1.0 + z * qS1;
-    p / q
+    return p / q;
 }
 
-fn acos32(x: f32) -> f32 {
+fn acos32(x: f32) f32 {
     const pio2_hi = 1.5707962513e+00;
     const pio2_lo = 7.5497894159e-08;
 
@@ -38,7 +39,7 @@ fn acos32(x: f32) -> f32 {
             if (hx >> 31 != 0) {
                 return 2.0 * pio2_hi + 0x1.0p-120;
             } else {
-                return 0;
+                return 0.0;
             }
         } else {
             return math.nan(f32);
@@ -69,10 +70,10 @@ fn acos32(x: f32) -> f32 {
     const df = @bitCast(f32, jx & 0xFFFFF000);
     const c = (z - df * df) / (s + df);
     const w = r32(z) * s + c;
-    2 * (df + w)
+    return 2 * (df + w);
 }
 
-fn r64(z: f64) -> f64 {
+fn r64(z: f64) f64 {
     const pS0: f64 =  1.66666666666666657415e-01;
     const pS1: f64 = -3.25565818622400915405e-01;
     const pS2: f64 =  2.01212532134862925881e-01;
@@ -86,10 +87,10 @@ fn r64(z: f64) -> f64 {
 
     const p = z * (pS0 + z * (pS1 + z * (pS2 + z * (pS3 + z * (pS4 + z * pS5)))));
     const q = 1.0 + z * (qS1 + z * (qS2 + z * (qS3 + z * qS4)));
-    p / q
+    return p / q;
 }
 
-fn acos64(x: f64) -> f64 {
+fn acos64(x: f64) f64 {
     const pio2_hi: f64 = 1.57079632679489655800e+00;
     const pio2_lo: f64 = 6.12323399573676603587e-17;
 
@@ -138,7 +139,7 @@ fn acos64(x: f64) -> f64 {
     const df = @bitCast(f64, jx & 0xFFFFFFFF00000000);
     const c = (z - df * df) / (s + df);
     const w = r64(z) * s + c;
-    2 * (df + w)
+    return 2 * (df + w);
 }
 
 test "math.acos" {

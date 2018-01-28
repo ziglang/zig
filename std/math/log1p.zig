@@ -6,19 +6,20 @@
 // - log1p(x)     = nan if x < -1
 // - log1p(nan)   = nan
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
-pub fn log1p(x: var) -> @typeOf(x) {
+pub fn log1p(x: var) @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(log1p_32, x),
-        f64 => @inlineCall(log1p_64, x),
+    return switch (T) {
+        f32 => log1p_32(x),
+        f64 => log1p_64(x),
         else => @compileError("log1p not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
-fn log1p_32(x: f32) -> f32 {
+fn log1p_32(x: f32) f32 {
     const ln2_hi = 6.9313812256e-01;
     const ln2_lo = 9.0580006145e-06;
     const Lg1: f32 = 0xaaaaaa.0p-24;
@@ -91,10 +92,10 @@ fn log1p_32(x: f32) -> f32 {
     const hfsq = 0.5 * f * f;
     const dk = f32(k);
 
-    s * (hfsq + R) + (dk * ln2_lo + c) - hfsq + f + dk * ln2_hi
+    return s * (hfsq + R) + (dk * ln2_lo + c) - hfsq + f + dk * ln2_hi;
 }
 
-fn log1p_64(x: f64) -> f64 {
+fn log1p_64(x: f64) f64 {
     const ln2_hi: f64 = 6.93147180369123816490e-01;
     const ln2_lo: f64 = 1.90821492927058770002e-10;
     const Lg1: f64 = 6.666666666666735130e-01;
@@ -172,7 +173,7 @@ fn log1p_64(x: f64) -> f64 {
     const R = t2 + t1;
     const dk = f64(k);
 
-    s * (hfsq + R) + (dk * ln2_lo + c) - hfsq + f + dk * ln2_hi
+    return s * (hfsq + R) + (dk * ln2_lo + c) - hfsq + f + dk * ln2_hi;
 }
 
 test "math.log1p" {

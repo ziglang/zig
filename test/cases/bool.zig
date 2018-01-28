@@ -13,7 +13,7 @@ test "cast bool to int" {
     nonConstCastBoolToInt(t, f);
 }
 
-fn nonConstCastBoolToInt(t: bool, f: bool) {
+fn nonConstCastBoolToInt(t: bool, f: bool) void {
     assert(i32(t) == i32(1));
     assert(i32(f) == i32(0));
 }
@@ -21,8 +21,8 @@ fn nonConstCastBoolToInt(t: bool, f: bool) {
 test "bool cmp" {
     assert(testBoolCmp(true, false) == false);
 }
-fn testBoolCmp(a: bool, b: bool) -> bool {
-    a == b
+fn testBoolCmp(a: bool, b: bool) bool {
+    return a == b;
 }
 
 const global_f = false;

@@ -2,7 +2,7 @@ const assert = @import("std").debug.assert;
 const builtin = @import("builtin");
 
 const StructWithNoFields = struct {
-    fn add(a: i32, b: i32) -> i32 { a + b }
+    fn add(a: i32, b: i32) i32 { return a + b; }
 };
 const empty_global_instance = StructWithNoFields {};
 
@@ -14,7 +14,7 @@ test "call struct static method" {
 test "return empty struct instance" {
     _ = returnEmptyStructInstance();
 }
-fn returnEmptyStructInstance() -> StructWithNoFields {
+fn returnEmptyStructInstance() StructWithNoFields {
     return empty_global_instance;
 }
 
@@ -54,10 +54,10 @@ const StructFoo = struct {
     b : bool,
     c : f32,
 };
-fn testFoo(foo: &const StructFoo) {
+fn testFoo(foo: &const StructFoo) void {
     assert(foo.b);
 }
-fn testMutation(foo: &StructFoo) {
+fn testMutation(foo: &StructFoo) void {
     foo.c = 100;
 }
 
@@ -95,7 +95,7 @@ test "struct byval assign" {
     assert(foo2.a == 1234);
 }
 
-fn structInitializer() {
+fn structInitializer() void {
     const val = Val { .x = 42 };
     assert(val.x == 42);
 }
@@ -106,12 +106,12 @@ test "fn call of struct field" {
 }
 
 const Foo = struct {
-    ptr: fn() -> i32,
+    ptr: fn() i32,
 };
 
-fn aFunc() -> i32 { 13 }
+fn aFunc() i32 { return 13; }
 
-fn callStructField(foo: &const Foo) -> i32 {
+fn callStructField(foo: &const Foo) i32 {
     return foo.ptr();
 }
 
@@ -124,7 +124,7 @@ test "store member function in variable" {
 }
 const MemberFnTestFoo = struct {
     x: i32,
-    fn member(foo: &const MemberFnTestFoo) -> i32 { foo.x }
+    fn member(foo: &const MemberFnTestFoo) i32 { return foo.x; }
 };
 
 
@@ -140,8 +140,8 @@ test "member functions" {
 }
 const MemberFnRand = struct {
     seed: u32,
-    pub fn getSeed(r: &const MemberFnRand) -> u32 {
-        r.seed
+    pub fn getSeed(r: &const MemberFnRand) u32 {
+        return r.seed;
     }
 };
 
@@ -153,11 +153,11 @@ const Bar = struct {
     x: i32,
     y: i32,
 };
-fn makeBar(x: i32, y: i32) -> Bar {
-    Bar {
+fn makeBar(x: i32, y: i32) Bar {
+    return Bar {
         .x = x,
         .y = y,
-    }
+    };
 }
 
 test "empty struct method call" {
@@ -165,8 +165,8 @@ test "empty struct method call" {
     assert(es.method() == 1234);
 }
 const EmptyStruct = struct {
-    fn method(es: &const EmptyStruct) -> i32 {
-        1234
+    fn method(es: &const EmptyStruct) i32 {
+        return 1234;
     }
 };
 
@@ -175,15 +175,15 @@ test "return empty struct from fn" {
     _ = testReturnEmptyStructFromFn();
 }
 const EmptyStruct2 = struct {};
-fn testReturnEmptyStructFromFn() -> EmptyStruct2 {
-    EmptyStruct2 {}
+fn testReturnEmptyStructFromFn() EmptyStruct2 {
+    return EmptyStruct2 {};
 }
 
 test "pass slice of empty struct to fn" {
     assert(testPassSliceOfEmptyStructToFn([]EmptyStruct2{ EmptyStruct2{} }) == 1);
 }
-fn testPassSliceOfEmptyStructToFn(slice: []const EmptyStruct2) -> usize {
-    slice.len
+fn testPassSliceOfEmptyStructToFn(slice: []const EmptyStruct2) usize {
+    return slice.len;
 }
 
 const APackedStruct = packed struct {
@@ -229,15 +229,15 @@ test "bit field access" {
     assert(data.b == 3);
 }
 
-fn getA(data: &const BitField1) -> u3 {
+fn getA(data: &const BitField1) u3 {
     return data.a;
 }
 
-fn getB(data: &const BitField1) -> u3 {
+fn getB(data: &const BitField1) u3 {
     return data.b;
 }
 
-fn getC(data: &const BitField1) -> u2 {
+fn getC(data: &const BitField1) u2 {
     return data.c;
 }
 
@@ -379,3 +379,42 @@ const Nibbles = packed struct {
     x: u4,
     y: u4,
 };
+
+const Bitfields = packed struct {
+    f1: u16,
+    f2: u16,
+    f3: u8,
+    f4: u8,
+    f5: u4,
+    f6: u4,
+    f7: u8,
+};
+
+test "native bit field understands endianness" {
+    var all: u64 = 0x7765443322221111;
+    var bytes: [8]u8 = undefined;
+    @memcpy(&bytes[0], @ptrCast(&u8, &all), 8);
+    var bitfields = *@ptrCast(&Bitfields, &bytes[0]);
+
+    assert(bitfields.f1 == 0x1111);
+    assert(bitfields.f2 == 0x2222);
+    assert(bitfields.f3 == 0x33);
+    assert(bitfields.f4 == 0x44);
+    assert(bitfields.f5 == 0x5);
+    assert(bitfields.f6 == 0x6);
+    assert(bitfields.f7 == 0x77);
+}
+
+test "align 1 field before self referential align 8 field as slice return type" {
+    const result = alloc(Expr);
+    assert(result.len == 0);
+}
+
+const Expr = union(enum) {
+    Literal: u8,
+    Question: &Expr,
+};
+
+fn alloc(comptime T: type) []T {
+    return []T{};
+}

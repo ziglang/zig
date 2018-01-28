@@ -1,16 +1,17 @@
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
-pub fn isNormal(x: var) -> bool {
+pub fn isNormal(x: var) bool {
     const T = @typeOf(x);
     switch (T) {
         f32 => {
             const bits = @bitCast(u32, x);
-            (bits + 0x00800000) & 0x7FFFFFFF >= 0x01000000
+            return (bits + 0x00800000) & 0x7FFFFFFF >= 0x01000000;
         },
         f64 => {
             const bits = @bitCast(u64, x);
-            (bits + (1 << 52)) & (@maxValue(u64) >> 1) >= (1 << 53)
+            return (bits + (1 << 52)) & (@maxValue(u64) >> 1) >= (1 << 53);
         },
         else => {
             @compileError("isNormal not implemented for " ++ @typeName(T));

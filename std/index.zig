@@ -1,7 +1,9 @@
 pub const ArrayList = @import("array_list.zig").ArrayList;
+pub const AlignedArrayList = @import("array_list.zig").AlignedArrayList;
 pub const BufMap = @import("buf_map.zig").BufMap;
 pub const BufSet = @import("buf_set.zig").BufSet;
 pub const Buffer = @import("buffer.zig").Buffer;
+pub const BufferOutStream = @import("buffer.zig").BufferOutStream;
 pub const HashMap = @import("hash_map.zig").HashMap;
 pub const LinkedList = @import("linked_list.zig").LinkedList;
 pub const MemoryPool = @import("mem_pool.zig").MemoryPool;
@@ -10,8 +12,9 @@ pub const SimpleServer = @import("simple_server.zig").SimpleServer;
 pub const base64 = @import("base64.zig");
 pub const build = @import("build.zig");
 pub const c = @import("c/index.zig");
+pub const crypto = @import("crypto/index.zig");
 pub const cstr = @import("cstr.zig");
-pub const debug = @import("debug.zig");
+pub const debug = @import("debug/index.zig");
 pub const dwarf = @import("dwarf.zig");
 pub const elf = @import("elf.zig");
 pub const empty_import = @import("empty.zig");
@@ -26,21 +29,23 @@ pub const net = @import("net.zig");
 pub const os = @import("os/index.zig");
 pub const rand = @import("rand.zig");
 pub const sort = @import("sort.zig");
+pub const unicode = @import("unicode.zig");
 
 test "std" {
     // run tests from these
-    _ = @import("array_list.zig").ArrayList;
-    _ = @import("buf_map.zig").BufMap;
-    _ = @import("buf_set.zig").BufSet;
-    _ = @import("buffer.zig").Buffer;
-    _ = @import("hash_map.zig").HashMap;
-    _ = @import("linked_list.zig").LinkedList;
+    _ = @import("array_list.zig");
+    _ = @import("buf_map.zig");
+    _ = @import("buf_set.zig");
+    _ = @import("buffer.zig");
+    _ = @import("hash_map.zig");
+    _ = @import("linked_list.zig");
 
     _ = @import("base64.zig");
     _ = @import("build.zig");
     _ = @import("c/index.zig");
+    _ = @import("crypto/index.zig");
     _ = @import("cstr.zig");
-    _ = @import("debug.zig");
+    _ = @import("debug/index.zig");
     _ = @import("dwarf.zig");
     _ = @import("elf.zig");
     _ = @import("empty.zig");
@@ -54,4 +59,5 @@ test "std" {
     _ = @import("os/index.zig");
     _ = @import("rand.zig");
     _ = @import("sort.zig");
+    _ = @import("unicode.zig");
 }

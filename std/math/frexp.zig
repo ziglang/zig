@@ -4,28 +4,29 @@
 // - frexp(+-inf) = +-inf, 0
 // - frexp(nan)   = nan, undefined
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
-fn frexp_result(comptime T: type) -> type {
-    struct {
+fn frexp_result(comptime T: type) type {
+    return struct {
         significand: T,
         exponent: i32,
-    }
+    };
 }
 pub const frexp32_result = frexp_result(f32);
 pub const frexp64_result = frexp_result(f64);
 
-pub fn frexp(x: var) -> frexp_result(@typeOf(x)) {
+pub fn frexp(x: var) frexp_result(@typeOf(x)) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(frexp32, x),
-        f64 => @inlineCall(frexp64, x),
+    return switch (T) {
+        f32 => frexp32(x),
+        f64 => frexp64(x),
         else => @compileError("frexp not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
-fn frexp32(x: f32) -> frexp32_result {
+fn frexp32(x: f32) frexp32_result {
     var result: frexp32_result = undefined;
 
     var y = @bitCast(u32, x);
@@ -59,10 +60,10 @@ fn frexp32(x: f32) -> frexp32_result {
     y &= 0x807FFFFF;
     y |= 0x3F000000;
     result.significand = @bitCast(f32, y);
-    result
+    return result;
 }
 
-fn frexp64(x: f64) -> frexp64_result {
+fn frexp64(x: f64) frexp64_result {
     var result: frexp64_result = undefined;
 
     var y = @bitCast(u64, x);
@@ -96,7 +97,7 @@ fn frexp64(x: f64) -> frexp64_result {
     y &= 0x800FFFFFFFFFFFFF;
     y |= 0x3FE0000000000000;
     result.significand = @bitCast(f64, y);
-    result
+    return result;
 }
 
 test "math.frexp" {

@@ -5,23 +5,24 @@
 // - cosh(nan)   = nan
 
 const builtin = @import("builtin");
-const math = @import("index.zig");
+const std = @import("../index.zig");
+const math = std.math;
 const expo2 = @import("expo2.zig").expo2;
-const assert = @import("../debug.zig").assert;
+const assert = std.debug.assert;
 
-pub fn cosh(x: var) -> @typeOf(x) {
+pub fn cosh(x: var) @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(cosh32, x),
-        f64 => @inlineCall(cosh64, x),
+    return switch (T) {
+        f32 => cosh32(x),
+        f64 => cosh64(x),
         else => @compileError("cosh not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 // cosh(x) = (exp(x) + 1 / exp(x)) / 2
 //         = 1 + 0.5 * (exp(x) - 1) * (exp(x) - 1) / exp(x)
 //         = 1 + (x * x) / 2 + o(x^4)
-fn cosh32(x: f32) -> f32 {
+fn cosh32(x: f32) f32 {
     const u = @bitCast(u32, x);
     const ux = u & 0x7FFFFFFF;
     const ax = @bitCast(f32, ux);
@@ -43,10 +44,10 @@ fn cosh32(x: f32) -> f32 {
     }
 
     // |x| > log(FLT_MAX) or nan
-    expo2(ax)
+    return expo2(ax);
 }
 
-fn cosh64(x: f64) -> f64 {
+fn cosh64(x: f64) f64 {
     const u = @bitCast(u64, x);
     const w = u32(u >> 32);
     const ax = @bitCast(f64, u & (@maxValue(u64) >> 1));
@@ -76,15 +77,10 @@ fn cosh64(x: f64) -> f64 {
     }
 
     // |x| > log(CBL_MAX) or nan
-    expo2(ax)
+    return expo2(ax);
 }
 
 test "math.cosh" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     assert(cosh(f32(1.5)) == cosh32(1.5));
     assert(cosh(f64(1.5)) == cosh64(1.5));
 }

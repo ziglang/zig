@@ -438,11 +438,11 @@ const Slab = struct {
     exp: i32,
 };
 
-fn slab(str: []const u8, exp: i32) -> Slab {
-    Slab {
+fn slab(str: []const u8, exp: i32) Slab {
+    return Slab {
         .str = str,
         .exp = exp,
-    }
+    };
 }
 
 pub const enum3_data = []Slab {

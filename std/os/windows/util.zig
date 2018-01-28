@@ -10,23 +10,23 @@ error WaitAbandoned;
 error WaitTimeOut;
 error Unexpected;
 
-pub fn windowsWaitSingle(handle: windows.HANDLE, milliseconds: windows.DWORD) -> %void {
+pub fn windowsWaitSingle(handle: windows.HANDLE, milliseconds: windows.DWORD) %void {
     const result = windows.WaitForSingleObject(handle, milliseconds);
     return switch (result) {
         windows.WAIT_ABANDONED => error.WaitAbandoned,
         windows.WAIT_OBJECT_0 => {},
         windows.WAIT_TIMEOUT => error.WaitTimeOut,
-        windows.WAIT_FAILED => {
+        windows.WAIT_FAILED => x: {
             const err = windows.GetLastError();
-            switch (err) {
+            break :x switch (err) {
                 else => os.unexpectedErrorWindows(err),
-            }
+            };
         },
         else => error.Unexpected,
     };
 }
 
-pub fn windowsClose(handle: windows.HANDLE) {
+pub fn windowsClose(handle: windows.HANDLE) void {
     assert(windows.CloseHandle(handle) != 0);
 }
 
@@ -35,7 +35,7 @@ error OperationAborted;
 error IoPending;
 error BrokenPipe;
 
-pub fn windowsWrite(handle: windows.HANDLE, bytes: []const u8) -> %void {
+pub fn windowsWrite(handle: windows.HANDLE, bytes: []const u8) %void {
     if (windows.WriteFile(handle, @ptrCast(&const c_void, bytes.ptr), u32(bytes.len), null, null) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
@@ -50,7 +50,7 @@ pub fn windowsWrite(handle: windows.HANDLE, bytes: []const u8) -> %void {
     }
 }
 
-pub fn windowsIsTty(handle: windows.HANDLE) -> bool {
+pub fn windowsIsTty(handle: windows.HANDLE) bool {
     if (windowsIsCygwinPty(handle))
         return true;
 
@@ -58,7 +58,7 @@ pub fn windowsIsTty(handle: windows.HANDLE) -> bool {
     return windows.GetConsoleMode(handle, &out) != 0;
 }
 
-pub fn windowsIsCygwinPty(handle: windows.HANDLE) -> bool {
+pub fn windowsIsCygwinPty(handle: windows.HANDLE) bool {
     const size = @sizeOf(windows.FILE_NAME_INFO);
     var name_info_bytes align(@alignOf(windows.FILE_NAME_INFO)) = []u8{0} ** (size + windows.MAX_PATH);
 
@@ -83,7 +83,7 @@ error PipeBusy;
 /// size buffer is too small, and the provided allocator is null, ::error.NameTooLong is returned.
 /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
 pub fn windowsOpen(file_path: []const u8, desired_access: windows.DWORD, share_mode: windows.DWORD,
-    creation_disposition: windows.DWORD, flags_and_attrs: windows.DWORD, allocator: ?&mem.Allocator) -> %windows.HANDLE
+    creation_disposition: windows.DWORD, flags_and_attrs: windows.DWORD, allocator: ?&mem.Allocator) %windows.HANDLE
 {
     var stack_buf: [os.max_noalloc_path_len]u8 = undefined;
     var path0: []u8 = undefined;
@@ -93,7 +93,7 @@ pub fn windowsOpen(file_path: []const u8, desired_access: windows.DWORD, share_m
     if (file_path.len < stack_buf.len) {
         path0 = stack_buf[0..file_path.len + 1];
     } else if (allocator) |a| {
-        path0 = %return a.alloc(u8, file_path.len + 1);
+        path0 = try a.alloc(u8, file_path.len + 1);
         need_free = true;
     } else {
         return error.NameTooLong;
@@ -120,9 +120,9 @@ pub fn windowsOpen(file_path: []const u8, desired_access: windows.DWORD, share_m
 }
 
 /// Caller must free result.
-pub fn createWindowsEnvBlock(allocator: &mem.Allocator, env_map: &const BufMap) -> %[]u8 {
+pub fn createWindowsEnvBlock(allocator: &mem.Allocator, env_map: &const BufMap) %[]u8 {
     // count bytes needed
-    const bytes_needed = {
+    const bytes_needed = x: {
         var bytes_needed: usize = 1; // 1 for the final null byte
         var it = env_map.iterator();
         while (it.next()) |pair| {
@@ -130,10 +130,10 @@ pub fn createWindowsEnvBlock(allocator: &mem.Allocator, env_map: &const BufMap) 
             // +1 for null byte
             bytes_needed += pair.key.len + pair.value.len + 2;
         }
-        bytes_needed
+        break :x bytes_needed;
     };
-    const result = %return allocator.alloc(u8, bytes_needed);
-    %defer allocator.free(result);
+    const result = try allocator.alloc(u8, bytes_needed);
+    errdefer allocator.free(result);
 
     var it = env_map.iterator();
     var i: usize = 0;
@@ -152,13 +152,13 @@ pub fn createWindowsEnvBlock(allocator: &mem.Allocator, env_map: &const BufMap) 
 }
 
 error DllNotFound;
-pub fn windowsLoadDll(allocator: &mem.Allocator, dll_path: []const u8) -> %windows.HMODULE {
-    const padded_buff = %return cstr.addNullByte(allocator, dll_path);
+pub fn windowsLoadDll(allocator: &mem.Allocator, dll_path: []const u8) %windows.HMODULE {
+    const padded_buff = try cstr.addNullByte(allocator, dll_path);
     defer allocator.free(padded_buff);
     return windows.LoadLibraryA(padded_buff.ptr) ?? error.DllNotFound;
 }
 
-pub fn windowsUnloadDll(hModule: windows.HMODULE) {
+pub fn windowsUnloadDll(hModule: windows.HMODULE) void {
     assert(windows.FreeLibrary(hModule)!= 0);
 }
 
@@ -166,7 +166,7 @@ pub fn windowsUnloadDll(hModule: windows.HMODULE) {
 test "InvalidDll" {
     const DllName = "asdf.dll";
     const allocator = std.debug.global_allocator;
-    const handle = os.windowsLoadDll(allocator, DllName) %%  |err| {
+    const handle = os.windowsLoadDll(allocator, DllName) catch  |err| {
         assert(err == error.DllNotFound);
         return;
     };

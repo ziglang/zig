@@ -5,16 +5,17 @@
 // - tan(nan)   = nan
 
 const builtin = @import("builtin");
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
-pub fn tan(x: var) -> @typeOf(x) {
+pub fn tan(x: var) @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(tan32, x),
-        f64 => @inlineCall(tan64, x),
+    return switch (T) {
+        f32 => tan32(x),
+        f64 => tan64(x),
         else => @compileError("tan not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 const Tp0 = -1.30936939181383777646E4;
@@ -29,7 +30,7 @@ const Tq4 = -5.38695755929454629881E7;
 // NOTE: This is taken from the go stdlib. The musl implementation is much more complex.
 //
 // This may have slight differences on some edge cases and may need to replaced if so.
-fn tan32(x_: f32) -> f32 {
+fn tan32(x_: f32) f32 {
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
     const pi4a = 7.85398125648498535156e-1;
@@ -62,11 +63,11 @@ fn tan32(x_: f32) -> f32 {
     const z = ((x - y * pi4a) - y * pi4b) - y * pi4c;
     const w = z * z;
 
-    var r = {
+    var r = r: {
         if (w > 1e-14) {
-            z + z * (w * ((Tp0 * w + Tp1) * w + Tp2) / ((((w + Tq1) * w + Tq2) * w + Tq3) * w + Tq4))
+            break :r z + z * (w * ((Tp0 * w + Tp1) * w + Tp2) / ((((w + Tq1) * w + Tq2) * w + Tq3) * w + Tq4));
         } else {
-            z
+            break :r z;
         }
     };
 
@@ -77,10 +78,10 @@ fn tan32(x_: f32) -> f32 {
         r = -r;
     }
 
-    r
+    return r;
 }
 
-fn tan64(x_: f64) -> f64 {
+fn tan64(x_: f64) f64 {
     const pi4a = 7.85398125648498535156e-1;
     const pi4b = 3.77489470793079817668E-8;
     const pi4c = 2.69515142907905952645E-15;
@@ -111,11 +112,11 @@ fn tan64(x_: f64) -> f64 {
     const z = ((x - y * pi4a) - y * pi4b) - y * pi4c;
     const w = z * z;
 
-    var r = {
+    var r = r: {
         if (w > 1e-14) {
-            z + z * (w * ((Tp0 * w + Tp1) * w + Tp2) / ((((w + Tq1) * w + Tq2) * w + Tq3) * w + Tq4))
+            break :r z + z * (w * ((Tp0 * w + Tp1) * w + Tp2) / ((((w + Tq1) * w + Tq2) * w + Tq3) * w + Tq4));
         } else {
-            z
+            break :r z;
         }
     };
 
@@ -126,7 +127,7 @@ fn tan64(x_: f64) -> f64 {
         r = -r;
     }
 
-    r
+    return r;
 }
 
 test "math.tan" {
@@ -135,11 +136,6 @@ test "math.tan" {
 }
 
 test "math.tan32" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     const epsilon = 0.000001;
 
     assert(math.approxEq(f32, tan32(0.0), 0.0, epsilon));

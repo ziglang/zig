@@ -3,16 +3,17 @@
 // - exp2(+inf) = +inf
 // - exp2(nan)  = nan
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
-pub fn exp2(x: var) -> @typeOf(x) {
+pub fn exp2(x: var) @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(exp2_32, x),
-        f64 => @inlineCall(exp2_64, x),
+    return switch (T) {
+        f32 => exp2_32(x),
+        f64 => exp2_64(x),
         else => @compileError("exp2 not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 const exp2ft = []const f64 {
@@ -34,7 +35,7 @@ const exp2ft = []const f64 {
     0x1.5ab07dd485429p+0,
 };
 
-fn exp2_32(x: f32) -> f32 {
+fn exp2_32(x: f32) f32 {
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
     const tblsiz = u32(exp2ft.len);
@@ -88,7 +89,7 @@ fn exp2_32(x: f32) -> f32 {
     var r: f64 = exp2ft[i0];
     const t: f64 = r * z;
     r = r + t * (P1 + z * P2) + t * (z * z) * (P3 + z * P4);
-    f32(r * uk)
+    return f32(r * uk);
 }
 
 const exp2dt = []f64 {
@@ -351,7 +352,7 @@ const exp2dt = []f64 {
     0x1.690f4b19e9471p+0, -0x1.9780p-45,
 };
 
-fn exp2_64(x: f64) -> f64 {
+fn exp2_64(x: f64) f64 {
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
     const tblsiz     = u32(exp2dt.len / 2);
@@ -414,7 +415,7 @@ fn exp2_64(x: f64) -> f64 {
     z -= exp2dt[2 * i0 + 1];
     const r = t + t * z * (P1 + z * (P2 + z * (P3 + z * (P4 + z * P5))));
 
-    math.scalbn(r, ik)
+    return math.scalbn(r, ik);
 }
 
 test "math.exp2" {

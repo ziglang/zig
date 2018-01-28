@@ -1,29 +1,30 @@
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
-pub fn fma(comptime T: type, x: T, y: T, z: T) -> T {
-    switch (T) {
-        f32 => @inlineCall(fma32, x, y, z),
-        f64 => @inlineCall(fma64, x, y ,z),
+pub fn fma(comptime T: type, x: T, y: T, z: T) T {
+    return switch (T) {
+        f32 => fma32(x, y, z),
+        f64 => fma64(x, y ,z),
         else => @compileError("fma not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
-fn fma32(x: f32, y: f32, z: f32) -> f32 {
+fn fma32(x: f32, y: f32, z: f32) f32 {
     const xy = f64(x) * y;
     const xy_z = xy + z;
     const u = @bitCast(u64, xy_z);
     const e = (u >> 52) & 0x7FF;
 
     if ((u & 0x1FFFFFFF) != 0x10000000 or e == 0x7FF or xy_z - xy == z) {
-        f32(xy_z)
+        return f32(xy_z);
     } else {
         // TODO: Handle inexact case with double-rounding
-        f32(xy_z)
+        return f32(xy_z);
     }
 }
 
-fn fma64(x: f64, y: f64, z: f64) -> f64 {
+fn fma64(x: f64, y: f64, z: f64) f64 {
     if (!math.isFinite(x) or !math.isFinite(y)) {
         return x * y + z;
     }
@@ -64,23 +65,23 @@ fn fma64(x: f64, y: f64, z: f64) -> f64 {
 
     const adj = add_adjusted(r.lo, xy.lo);
     if (spread + math.ilogb(r.hi) > -1023) {
-        math.scalbn(r.hi + adj, spread)
+        return math.scalbn(r.hi + adj, spread);
     } else {
-        add_and_denorm(r.hi, adj, spread)
+        return add_and_denorm(r.hi, adj, spread);
     }
 }
 
 const dd = struct { hi: f64, lo: f64, };
 
-fn dd_add(a: f64, b: f64) -> dd {
+fn dd_add(a: f64, b: f64) dd {
     var ret: dd = undefined;
     ret.hi = a + b;
     const s = ret.hi - a;
     ret.lo = (a - (ret.hi - s)) + (b - s);
-    ret
+    return ret;
 }
 
-fn dd_mul(a: f64, b: f64) -> dd {
+fn dd_mul(a: f64, b: f64) dd {
     var ret: dd = undefined;
     const split: f64 = 0x1.0p27 + 1.0;
 
@@ -99,10 +100,10 @@ fn dd_mul(a: f64, b: f64) -> dd {
 
     ret.hi = p + q;
     ret.lo = p - ret.hi + q + la * lb;
-    ret
+    return ret;
 }
 
-fn add_adjusted(a: f64, b: f64) -> f64 {
+fn add_adjusted(a: f64, b: f64) f64 {
     var sum = dd_add(a, b);
     if (sum.lo != 0) {
         var uhii = @bitCast(u64, sum.hi);
@@ -113,10 +114,10 @@ fn add_adjusted(a: f64, b: f64) -> f64 {
             sum.hi = @bitCast(f64, uhii);
         }
     }
-    sum.hi
+    return sum.hi;
 }
 
-fn add_and_denorm(a: f64, b: f64, scale: i32) -> f64 {
+fn add_and_denorm(a: f64, b: f64, scale: i32) f64 {
     var sum = dd_add(a, b);
     if (sum.lo != 0) {
         var uhii = @bitCast(u64, sum.hi);
@@ -127,7 +128,7 @@ fn add_and_denorm(a: f64, b: f64, scale: i32) -> f64 {
             sum.hi = @bitCast(f64, uhii);
         }
     }
-    math.scalbn(sum.hi, scale)
+    return math.scalbn(sum.hi, scale);
 }
 
 test "math.fma" {

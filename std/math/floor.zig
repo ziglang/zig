@@ -5,19 +5,20 @@
 // - floor(nan)   = nan
 
 const builtin = @import("builtin");
-const assert = @import("../debug.zig").assert;
-const math = @import("index.zig");
+const assert = std.debug.assert;
+const std = @import("../index.zig");
+const math = std.math;
 
-pub fn floor(x: var) -> @typeOf(x) {
+pub fn floor(x: var) @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(floor32, x),
-        f64 => @inlineCall(floor64, x),
+    return switch (T) {
+        f32 => floor32(x),
+        f64 => floor64(x),
         else => @compileError("floor not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
-fn floor32(x: f32) -> f32 {
+fn floor32(x: f32) f32 {
     var u = @bitCast(u32, x);
     const e = i32((u >> 23) & 0xFF) - 0x7F;
     var m: u32 = undefined;
@@ -40,18 +41,18 @@ fn floor32(x: f32) -> f32 {
         if (u >> 31 != 0) {
             u += m;
         }
-        @bitCast(f32, u & ~m)
+        return @bitCast(f32, u & ~m);
     } else {
         math.forceEval(x + 0x1.0p120);
         if (u >> 31 == 0) {
-            return 0.0; // Compiler requires return
+            return 0.0;
         } else {
-            -1.0
+            return -1.0;
         }
     }
 }
 
-fn floor64(x: f64) -> f64 {
+fn floor64(x: f64) f64 {
     const u = @bitCast(u64, x);
     const e = (u >> 52) & 0x7FF;
     var y: f64 = undefined;
@@ -71,14 +72,14 @@ fn floor64(x: f64) -> f64 {
     if (e <= 0x3FF-1) {
         math.forceEval(y);
         if (u >> 63 != 0) {
-            return -1.0;    // Compiler requires return.
+            return -1.0;
         } else {
-            0.0
+            return 0.0;
         }
     } else if (y > 0) {
-        x + y - 1
+        return x + y - 1;
     } else {
-        x + y
+        return x + y;
     }
 }
 

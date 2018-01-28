@@ -4,16 +4,17 @@
 // - cos(nan)   = nan
 
 const builtin = @import("builtin");
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
-pub fn cos(x: var) -> @typeOf(x) {
+pub fn cos(x: var) @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(cos32, x),
-        f64 => @inlineCall(cos64, x),
+    return switch (T) {
+        f32 => cos32(x),
+        f64 => cos64(x),
         else => @compileError("cos not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 // sin polynomial coefficients
@@ -35,7 +36,7 @@ const C5 =  4.16666666666665929218E-2;
 // NOTE: This is taken from the go stdlib. The musl implementation is much more complex.
 //
 // This may have slight differences on some edge cases and may need to replaced if so.
-fn cos32(x_: f32) -> f32 {
+fn cos32(x_: f32) f32 {
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
     const pi4a = 7.85398125648498535156e-1;
@@ -73,22 +74,22 @@ fn cos32(x_: f32) -> f32 {
     const z = ((x - y * pi4a) - y * pi4b) - y * pi4c;
     const w = z * z;
 
-    const r = {
+    const r = r: {
         if (j == 1 or j == 2) {
-            z + z * w * (S5 + w * (S4 + w * (S3 + w * (S2 + w * (S1 + w * S0)))))
+            break :r z + z * w * (S5 + w * (S4 + w * (S3 + w * (S2 + w * (S1 + w * S0)))));
         } else {
-            1.0 - 0.5 * w + w * w * (C5 + w * (C4 + w * (C3 + w * (C2 + w * (C1 + w * C0)))))
+            break :r 1.0 - 0.5 * w + w * w * (C5 + w * (C4 + w * (C3 + w * (C2 + w * (C1 + w * C0)))));
         }
     };
 
     if (sign) {
-        -r
+        return -r;
     } else {
-        r
+        return r;
     }
 }
 
-fn cos64(x_: f64) -> f64 {
+fn cos64(x_: f64) f64 {
     const pi4a = 7.85398125648498535156e-1;
     const pi4b = 3.77489470793079817668E-8;
     const pi4c = 2.69515142907905952645E-15;
@@ -124,18 +125,18 @@ fn cos64(x_: f64) -> f64 {
     const z = ((x - y * pi4a) - y * pi4b) - y * pi4c;
     const w = z * z;
 
-    const r = {
+    const r = r: {
         if (j == 1 or j == 2) {
-            z + z * w * (S5 + w * (S4 + w * (S3 + w * (S2 + w * (S1 + w * S0)))))
+            break :r z + z * w * (S5 + w * (S4 + w * (S3 + w * (S2 + w * (S1 + w * S0)))));
         } else {
-            1.0 - 0.5 * w + w * w * (C5 + w * (C4 + w * (C3 + w * (C2 + w * (C1 + w * C0)))))
+            break :r 1.0 - 0.5 * w + w * w * (C5 + w * (C4 + w * (C3 + w * (C2 + w * (C1 + w * C0)))));
         }
     };
 
     if (sign) {
-        -r
+        return -r;
     } else {
-        r
+        return r;
     }
 }
 
@@ -145,11 +146,6 @@ test "math.cos" {
 }
 
 test "math.cos32" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     const epsilon = 0.000001;
 
     assert(math.approxEq(f32, cos32(0.0), 1.0, epsilon));

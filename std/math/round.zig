@@ -5,19 +5,20 @@
 // - round(nan)   = nan
 
 const builtin = @import("builtin");
-const assert = @import("../debug.zig").assert;
-const math = @import("index.zig");
+const assert = std.debug.assert;
+const std = @import("../index.zig");
+const math = std.math;
 
-pub fn round(x: var) -> @typeOf(x) {
+pub fn round(x: var) @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(round32, x),
-        f64 => @inlineCall(round64, x),
+    return switch (T) {
+        f32 => round32(x),
+        f64 => round64(x),
         else => @compileError("round not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
-fn round32(x_: f32) -> f32 {
+fn round32(x_: f32) f32 {
     var x = x_;
     const u = @bitCast(u32, x);
     const e = (u >> 23) & 0xFF;
@@ -48,13 +49,13 @@ fn round32(x_: f32) -> f32 {
     }
 
     if (u >> 31 != 0) {
-        -y
+        return -y;
     } else {
-        y
+        return y;
     }
 }
 
-fn round64(x_: f64) -> f64 {
+fn round64(x_: f64) f64 {
     var x = x_;
     const u = @bitCast(u64, x);
     const e = (u >> 52) & 0x7FF;
@@ -85,9 +86,9 @@ fn round64(x_: f64) -> f64 {
     }
 
     if (u >> 63 != 0) {
-        -y
+        return -y;
     } else {
-        y
+        return y;
     }
 }
 
@@ -97,11 +98,6 @@ test "math.round" {
 }
 
 test "math.round32" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     assert(round32(1.3) == 1.0);
     assert(round32(-1.3) == -1.0);
     assert(round32(0.2) == 0.0);

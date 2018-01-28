@@ -5,16 +5,17 @@
 // - log10(x)     = nan if x < 0
 // - log10(nan)   = nan
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
 
-pub fn log10(x: var) -> @typeOf(x) {
+pub fn log10(x: var) @typeOf(x) {
     const T = @typeOf(x);
     switch (@typeId(T)) {
         TypeId.FloatLiteral => {
-            return @typeOf(1.0)(log10_64(x))
+            return @typeOf(1.0)(log10_64(x));
         },
         TypeId.Float => {
             return switch (T) {
@@ -33,7 +34,7 @@ pub fn log10(x: var) -> @typeOf(x) {
     }
 }
 
-pub fn log10_32(x_: f32) -> f32 {
+pub fn log10_32(x_: f32) f32 {
     const ivln10hi: f32  =  4.3432617188e-01;
     const ivln10lo: f32  = -3.1689971365e-05;
     const log10_2hi: f32 =  3.0102920532e-01;
@@ -90,10 +91,10 @@ pub fn log10_32(x_: f32) -> f32 {
     const lo = f - hi - hfsq + s * (hfsq + R);
     const dk = f32(k);
 
-    dk * log10_2lo + (lo + hi) * ivln10lo + lo * ivln10hi + hi * ivln10hi + dk * log10_2hi
+    return dk * log10_2lo + (lo + hi) * ivln10lo + lo * ivln10hi + hi * ivln10hi + dk * log10_2hi;
 }
 
-pub fn log10_64(x_: f64) -> f64 {
+pub fn log10_64(x_: f64) f64 {
     const ivln10hi: f64  = 4.34294481878168880939e-01;
     const ivln10lo: f64  = 2.50829467116452752298e-11;
     const log10_2hi: f64 = 3.01029995663611771306e-01;
@@ -124,7 +125,7 @@ pub fn log10_64(x_: f64) -> f64 {
         // subnormal, scale x
         k -= 54;
         x *= 0x1.0p54;
-        hx = u32(@bitCast(u64, x) >> 32)
+        hx = u32(@bitCast(u64, x) >> 32);
     }
     else if (hx >= 0x7FF00000) {
         return x;
@@ -167,15 +168,10 @@ pub fn log10_64(x_: f64) -> f64 {
     val_lo += (y - ww) + val_hi;
     val_hi = ww;
 
-    val_lo + val_hi
+    return val_lo + val_hi;
 }
 
 test "math.log10" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     assert(log10(f32(0.2)) == log10_32(0.2));
     assert(log10(f64(0.2)) == log10_64(0.2));
 }

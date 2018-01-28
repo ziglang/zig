@@ -4,11 +4,20 @@
 // have to be added in the compiler.
 
 const builtin = @import("builtin");
+const std = @import("std");
 
-pub coldcc fn panic(msg: []const u8) -> noreturn {
-    if (builtin.os == builtin.Os.freestanding) {
-        while (true) {}
-    } else {
-        @import("std").debug.panic("{}", msg);
+pub fn panic(msg: []const u8, error_return_trace: ?&builtin.StackTrace) noreturn {
+    @setCold(true);
+    switch (builtin.os) {
+        // TODO: fix panic in zen.
+        builtin.Os.freestanding, builtin.Os.zen => {
+            while (true) {}
+        },
+        else => {
+            if (error_return_trace) |trace| {
+                @import("std").debug.panicWithTrace(trace, "{}", msg);
+            }
+            @import("std").debug.panic("{}", msg);
+        },
     }
 }

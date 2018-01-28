@@ -390,17 +390,15 @@ static int os_exec_process_posix(const char *exe, ZigList<const char *> &args,
 
 #if defined(ZIG_OS_WINDOWS)
 
-/*
-static void win32_panic(const char *str) {
-    DWORD err = GetLastError();
-    LPSTR messageBuffer = nullptr;
-    FormatMessageA(
-        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-        NULL, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&messageBuffer, 0, NULL);
-    zig_panic(str, messageBuffer);
-    LocalFree(messageBuffer);
-}
-*/
+//static void win32_panic(const char *str) {
+//    DWORD err = GetLastError();
+//    LPSTR messageBuffer = nullptr;
+//    FormatMessageA(
+//        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+//        NULL, err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPSTR)&messageBuffer, 0, NULL);
+//    zig_panic(str, messageBuffer);
+//    LocalFree(messageBuffer);
+//}
 
 static int os_exec_process_windows(const char *exe, ZigList<const char *> &args,
         Termination *term, Buf *out_stderr, Buf *out_stdout)
@@ -794,9 +792,18 @@ int os_delete_file(Buf *path) {
 }
 
 int os_rename(Buf *src_path, Buf *dest_path) {
+    if (buf_eql_buf(src_path, dest_path)) {
+        return 0;
+    }
+#if defined(ZIG_OS_WINDOWS)
+    if (!MoveFileExA(buf_ptr(src_path), buf_ptr(dest_path), MOVEFILE_REPLACE_EXISTING)) {
+        return ErrorFileSystem;
+    }
+#else
     if (rename(buf_ptr(src_path), buf_ptr(dest_path)) == -1) {
         return ErrorFileSystem;
     }
+#endif
     return 0;
 }
 
@@ -931,6 +938,7 @@ int os_self_exe_path(Buf *out_path) {
 #define VT_GREEN "\x1b[32;1m"
 #define VT_CYAN "\x1b[36;1m"
 #define VT_WHITE "\x1b[37;1m"
+#define VT_BOLD "\x1b[0;1m"
 #define VT_RESET "\x1b[0m"
 
 static void set_color_posix(TermColor color) {
@@ -946,6 +954,9 @@ static void set_color_posix(TermColor color) {
             break;
         case TermColorWhite:
             fprintf(stderr, VT_WHITE);
+            break;
+        case TermColorBold:
+            fprintf(stderr, VT_BOLD);
             break;
         case TermColorReset:
             fprintf(stderr, VT_RESET);
@@ -989,6 +1000,7 @@ void os_stderr_set_color(TermColor color) {
             SetConsoleTextAttribute(stderr_handle, FOREGROUND_GREEN|FOREGROUND_BLUE|FOREGROUND_INTENSITY);
             break;
         case TermColorWhite:
+        case TermColorBold:
             SetConsoleTextAttribute(stderr_handle,
                 FOREGROUND_RED|FOREGROUND_GREEN|FOREGROUND_BLUE|FOREGROUND_INTENSITY);
             break;
@@ -1050,6 +1062,11 @@ int os_find_windows_sdk(ZigWindowsSDK **out_sdk) {
             if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
                 int c0 = 0, c1 = 0, c2 = 0, c3 = 0;
                 sscanf(ffd.cFileName, "%d.%d.%d.%d", &c0, &c1, &c2, &c3);
+                if (c0 == 10 && c1 == 0 && c2 == 10240 && c3 == 0) {
+                    // Microsoft released 26624 as 10240 accidentally.
+                    // https://developer.microsoft.com/en-us/windows/downloads/sdk-archive
+                    c2 = 26624;
+                }
                 if ((c0 > v0) || (c1 > v1) || (c2 > v2) || (c3 > v3)) {
                     v0 = c0, v1 = c1, v2 = c2, v3 = c3;
                     buf_init_from_str(&result_sdk->version10, ffd.cFileName);

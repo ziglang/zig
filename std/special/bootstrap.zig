@@ -5,20 +5,26 @@ const root = @import("@root");
 const std = @import("std");
 const builtin = @import("builtin");
 
-const is_windows = builtin.os == builtin.Os.windows;
-const want_main_symbol = builtin.link_libc;
-const want_start_symbol = !want_main_symbol and !is_windows;
-const want_WinMainCRTStartup = is_windows and !builtin.link_libc;
-
 var argc_ptr: &usize = undefined;
 
-
-export nakedcc fn _start() -> noreturn {
-    if (!want_start_symbol) {
-        @setGlobalLinkage(_start, builtin.GlobalLinkage.Internal);
-        unreachable;
+comptime {
+    const strong_linkage = builtin.GlobalLinkage.Strong;
+    if (builtin.link_libc) {
+        @export("main", main, strong_linkage);
+    } else if (builtin.os == builtin.Os.zen) {
+        @export("main", zenMain, strong_linkage);
+    } else if (builtin.os == builtin.Os.windows) {
+        @export("WinMainCRTStartup", WinMainCRTStartup, strong_linkage);
+    } else {
+        @export("_start", _start, strong_linkage);
     }
+}
 
+extern fn zenMain() noreturn {
+    std.os.posix.exit(callMain());
+}
+
+nakedcc fn _start() noreturn {
     switch (builtin.arch) {
         builtin.Arch.x86_64 => {
             argc_ptr = asm("lea (%%rsp), %[argc]": [argc] "=r" (-> &usize));
@@ -28,47 +34,63 @@ export nakedcc fn _start() -> noreturn {
         },
         else => @compileError("unsupported arch"),
     }
-    posixCallMainAndExit()
+    // If LLVM inlines stack variables into _start, they will overwrite
+    // the command line argument data.
+    @noInlineCall(posixCallMainAndExit);
 }
 
-export fn WinMainCRTStartup() -> noreturn {
-    if (!want_WinMainCRTStartup) {
-        @setGlobalLinkage(WinMainCRTStartup, builtin.GlobalLinkage.Internal);
-        unreachable;
-    }
+extern fn WinMainCRTStartup() noreturn {
     @setAlignStack(16);
 
-    std.debug.user_main_fn = root.main;
-    root.main() %% std.os.windows.ExitProcess(1);
-    std.os.windows.ExitProcess(0);
+    std.os.windows.ExitProcess(callMain());
 }
 
-fn posixCallMainAndExit() -> noreturn {
+fn posixCallMainAndExit() noreturn {
     const argc = *argc_ptr;
     const argv = @ptrCast(&&u8, &argc_ptr[1]);
     const envp = @ptrCast(&?&u8, &argv[argc + 1]);
-    callMain(argc, argv, envp) %% std.os.posix.exit(1);
-    std.os.posix.exit(0);
+    std.os.posix.exit(callMainWithArgs(argc, argv, envp));
 }
 
-fn callMain(argc: usize, argv: &&u8, envp: &?&u8) -> %void {
+fn callMainWithArgs(argc: usize, argv: &&u8, envp: &?&u8) u8 {
     std.os.ArgIteratorPosix.raw = argv[0..argc];
 
     var env_count: usize = 0;
     while (envp[env_count] != null) : (env_count += 1) {}
     std.os.posix_environ_raw = @ptrCast(&&u8, envp)[0..env_count];
 
-    std.debug.user_main_fn = root.main;
-
-    return root.main();
+    return callMain();
 }
 
-export fn main(c_argc: i32, c_argv: &&u8, c_envp: &?&u8) -> i32 {
-    if (!want_main_symbol) {
-        @setGlobalLinkage(main, builtin.GlobalLinkage.Internal);
-        unreachable;
-    }
+extern fn main(c_argc: i32, c_argv: &&u8, c_envp: &?&u8) i32 {
+    return callMainWithArgs(usize(c_argc), c_argv, c_envp);
+}
 
-    callMain(usize(c_argc), c_argv, c_envp) %% return 1;
-    return 0;
+fn callMain() u8 {
+    switch (@typeId(@typeOf(root.main).ReturnType)) {
+        builtin.TypeId.NoReturn => {
+            root.main();
+        },
+        builtin.TypeId.Void => {
+            root.main();
+            return 0;
+        },
+        builtin.TypeId.Int => {
+            if (@typeOf(root.main).ReturnType.bit_count != 8) {
+                @compileError("expected return type of main to be 'u8', 'noreturn', 'void', or '%void'");
+            }
+            return root.main();
+        },
+        builtin.TypeId.ErrorUnion => {
+            root.main() catch |err| {
+                std.debug.warn("error: {}\n", @errorName(err));
+                if (@errorReturnTrace()) |trace| {
+                    std.debug.dumpStackTrace(trace);
+                }
+                return 1;
+            };
+            return 0;
+        },
+        else => @compileError("expected return type of main to be 'u8', 'noreturn', 'void', or '%void'"),
+    }
 }

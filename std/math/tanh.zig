@@ -5,23 +5,24 @@
 // - sinh(nan)   = nan
 
 const builtin = @import("builtin");
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 const expo2 = @import("expo2.zig").expo2;
 
-pub fn tanh(x: var) -> @typeOf(x) {
+pub fn tanh(x: var) @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(tanh32, x),
-        f64 => @inlineCall(tanh64, x),
+    return switch (T) {
+        f32 => tanh32(x),
+        f64 => tanh64(x),
         else => @compileError("tanh not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 // tanh(x) = (exp(x) - exp(-x)) / (exp(x) + exp(-x))
 //         = (exp(2x) - 1) / (exp(2x) - 1 + 2)
 //         = (1 - exp(-2x)) / (exp(-2x) - 1 + 2)
-fn tanh32(x: f32) -> f32 {
+fn tanh32(x: f32) f32 {
     const u = @bitCast(u32, x);
     const ux = u & 0x7FFFFFFF;
     const ax = @bitCast(f32, ux);
@@ -59,13 +60,13 @@ fn tanh32(x: f32) -> f32 {
     }
 
     if (u >> 31 != 0) {
-        -t
+        return -t;
     } else {
-        t
+        return t;
     }
 }
 
-fn tanh64(x: f64) -> f64 {
+fn tanh64(x: f64) f64 {
     const u = @bitCast(u64, x);
     const w = u32(u >> 32);
     const ax = @bitCast(f64, u & (@maxValue(u64) >> 1));
@@ -104,18 +105,13 @@ fn tanh64(x: f64) -> f64 {
     }
 
     if (u >> 63 != 0) {
-        -t
+        return -t;
     } else {
-        t
+        return t;
     }
 }
 
 test "math.tanh" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     assert(tanh(f32(1.5)) == tanh32(1.5));
     assert(tanh(f64(1.5)) == tanh64(1.5));
 }

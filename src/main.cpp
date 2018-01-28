@@ -120,7 +120,7 @@ static int print_target_list(FILE *f) {
     fprintf(f, "\nOperating Systems:\n");
     size_t os_count = target_os_count();
     for (size_t i = 0; i < os_count; i += 1) {
-        ZigLLVM_OSType os_type = get_target_os(i);
+        Os os_type = get_target_os(i);
         const char *native_str = (native.os == os_type) ? " (native)" : "";
         fprintf(f, "  %s%s\n", get_target_os_name(os_type), native_str);
     }
@@ -266,6 +266,19 @@ static void add_package(CodeGen *g, CliPkg *cli_pkg, PackageTableEntry *pkg) {
 }
 
 int main(int argc, char **argv) {
+    if (argc == 2 && strcmp(argv[1], "BUILD_INFO") == 0) {
+        printf("%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n",
+                ZIG_CMAKE_BINARY_DIR,
+                ZIG_CXX_COMPILER,
+                ZIG_LLVM_CONFIG_EXE,
+                ZIG_LLD_INCLUDE_PATH,
+                ZIG_LLD_LIBRARIES,
+                ZIG_STD_FILES,
+                ZIG_C_HEADER_FILES,
+                ZIG_DIA_GUIDS_LIB);
+        return 0;
+    }
+
     os_init();
 
     char *arg0 = argv[0];
@@ -449,7 +462,7 @@ int main(int argc, char **argv) {
         Termination term;
         os_spawn_process(buf_ptr(path_to_build_exe), args, &term);
         if (term.how != TerminationIdClean || term.code != 0) {
-            fprintf(stderr, "\nBuild failed. Use the following command to reproduce the failure:\n");
+            fprintf(stderr, "\nBuild failed. The following command failed:\n");
             fprintf(stderr, "%s", buf_ptr(path_to_build_exe));
             for (size_t i = 0; i < args.length; i += 1) {
                 fprintf(stderr, " %s", args.at(i));

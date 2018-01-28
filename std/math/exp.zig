@@ -3,19 +3,20 @@
 // - exp(+inf) = +inf
 // - exp(nan)  = nan
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
-pub fn exp(x: var) -> @typeOf(x) {
+pub fn exp(x: var) @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(exp32, x),
-        f64 => @inlineCall(exp64, x),
+    return switch (T) {
+        f32 => exp32(x),
+        f64 => exp64(x),
         else => @compileError("exp not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
-fn exp32(x_: f32) -> f32 {
+fn exp32(x_: f32) f32 {
     const half = []f32 { 0.5, -0.5 };
     const ln2hi = 6.9314575195e-1;
     const ln2lo = 1.4286067653e-6;
@@ -86,13 +87,13 @@ fn exp32(x_: f32) -> f32 {
     const y = 1 + (x * c / (2 - c) - lo + hi);
 
     if (k == 0) {
-        y
+        return y;
     } else {
-        math.scalbn(y, k)
+        return math.scalbn(y, k);
     }
 }
 
-fn exp64(x_: f64) -> f64 {
+fn exp64(x_: f64) f64 {
     const half = []const f64 { 0.5, -0.5 };
     const ln2hi: f64 = 6.93147180369123816490e-01;
     const ln2lo: f64 = 1.90821492927058770002e-10;
@@ -172,9 +173,9 @@ fn exp64(x_: f64) -> f64 {
     const y = 1 + (x * c / (2 - c) - lo + hi);
 
     if (k == 0) {
-        y
+        return y;
     } else {
-        math.scalbn(y, k)
+        return math.scalbn(y, k);
     }
 }
 

@@ -23,40 +23,101 @@
 
 using namespace clang;
 
-struct MacroSymbol {
-    Buf *name;
-    Buf *value;
-};
-
 struct Alias {
     Buf *new_name;
     Buf *canon_name;
+};
+
+enum TransScopeId {
+    TransScopeIdSwitch,
+    TransScopeIdVar,
+    TransScopeIdBlock,
+    TransScopeIdRoot,
+    TransScopeIdWhile,
+};
+
+struct TransScope {
+    TransScopeId id;
+    TransScope *parent;
+};
+
+struct TransScopeSwitch {
+    TransScope base;
+    AstNode *switch_node;
+    uint32_t case_index;
+    bool found_default;
+    Buf *end_label_name;
+};
+
+struct TransScopeVar {
+    TransScope base;
+    Buf *c_name;
+    Buf *zig_name;
+};
+
+struct TransScopeBlock {
+    TransScope base;
+    AstNode *node;
+};
+
+struct TransScopeRoot {
+    TransScope base;
+};
+
+struct TransScopeWhile {
+    TransScope base;
+    AstNode *node;
 };
 
 struct Context {
     ImportTableEntry *import;
     ZigList<ErrorMsg *> *errors;
     VisibMod visib_mod;
-    VisibMod export_visib_mod;
+    bool want_export;
     AstNode *root;
     HashMap<const void *, AstNode *, ptr_hash, ptr_eq> decl_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> macro_table;
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> global_table;
     SourceManager *source_manager;
     ZigList<Alias> aliases;
-    ZigList<MacroSymbol> macro_symbols;
     AstNode *source_node;
     bool warnings_on;
 
     CodeGen *codegen;
     ASTContext *ctx;
 
+    TransScopeRoot *global_scope;
     HashMap<Buf *, bool, buf_hash, buf_eql_buf> ptr_params;
 };
+
+enum ResultUsed {
+    ResultUsedNo,
+    ResultUsedYes,
+};
+
+enum TransLRValue {
+    TransLValue,
+    TransRValue,
+};
+
+static TransScopeRoot *trans_scope_root_create(Context *c);
+static TransScopeWhile *trans_scope_while_create(Context *c, TransScope *parent_scope);
+static TransScopeBlock *trans_scope_block_create(Context *c, TransScope *parent_scope);
+static TransScopeVar *trans_scope_var_create(Context *c, TransScope *parent_scope, Buf *wanted_name);
+
+static TransScopeBlock *trans_scope_block_find(TransScope *scope);
 
 static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl);
 static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl);
 static AstNode *resolve_typedef_decl(Context *c, const TypedefNameDecl *typedef_decl);
+
+static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
+        ResultUsed result_used, TransLRValue lrval,
+        AstNode **out_node, TransScope **out_child_scope,
+        TransScope **out_node_scope);
+static TransScope *trans_stmt(Context *c, TransScope *scope, const Stmt *stmt, AstNode **out_node);
+static AstNode *trans_expr(Context *c, ResultUsed result_used, TransScope *scope, const Expr *expr, TransLRValue lrval);
+static AstNode *trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc);
 
 
 ATTRIBUTE_PRINTF(3, 4)
@@ -70,7 +131,7 @@ static void emit_warning(Context *c, const SourceLocation &sl, const char *forma
     Buf *msg = buf_vprintf(format, ap);
     va_end(ap);
 
-    StringRef filename = c->source_manager->getFilename(sl);
+    StringRef filename = c->source_manager->getFilename(c->source_manager->getSpellingLoc(sl));
     const char *filename_bytes = (const char *)filename.bytes_begin();
     Buf *path;
     if (filename_bytes) {
@@ -89,11 +150,46 @@ static void add_global_weak_alias(Context *c, Buf *new_name, Buf *canon_name) {
     alias->canon_name = canon_name;
 }
 
+static Buf *trans_lookup_zig_symbol(Context *c, TransScope *scope, Buf *c_symbol_name) {
+    while (scope != nullptr) {
+        if (scope->id == TransScopeIdVar) {
+            TransScopeVar *var_scope = (TransScopeVar *)scope;
+            if (buf_eql_buf(var_scope->c_name, c_symbol_name)) {
+                return var_scope->zig_name;
+            }
+        }
+        scope = scope->parent;
+    }
+    return c_symbol_name;
+}
+
 static AstNode * trans_create_node(Context *c, NodeType id) {
     AstNode *node = allocate<AstNode>(1);
     node->type = id;
     node->owner = c->import;
     // TODO line/column. mapping to C file??
+    return node;
+}
+
+static AstNode *trans_create_node_break(Context *c, Buf *label_name, AstNode *value_node) {
+    AstNode *node = trans_create_node(c, NodeTypeBreak);
+    node->data.break_expr.name = label_name;
+    node->data.break_expr.expr = value_node;
+    return node;
+}
+
+static AstNode *trans_create_node_return(Context *c, AstNode *value_node) {
+    AstNode *node = trans_create_node(c, NodeTypeReturnExpr);
+    node->data.return_expr.kind = ReturnKindUnconditional;
+    node->data.return_expr.expr = value_node;
+    return node;
+}
+
+static AstNode *trans_create_node_if(Context *c, AstNode *cond_node, AstNode *then_node, AstNode *else_node) {
+    AstNode *node = trans_create_node(c, NodeTypeIfBoolExpr);
+    node->data.if_bool_expr.condition = cond_node;
+    node->data.if_bool_expr.then_block = then_node;
+    node->data.if_bool_expr.else_node = else_node;
     return node;
 }
 
@@ -165,8 +261,8 @@ static AstNode *trans_create_node_bin_op(Context *c, AstNode *lhs_node, BinOpTyp
     return node;
 }
 
-static AstNode *maybe_suppress_result(Context *c, bool result_used, AstNode *node) {
-    if (result_used) return node;
+static AstNode *maybe_suppress_result(Context *c, ResultUsed result_used, AstNode *node) {
+    if (result_used == ResultUsedYes) return node;
     return trans_create_node_bin_op(c,
         trans_create_node_symbol_str(c, "_"),
         BinOpTypeAssign,
@@ -179,6 +275,12 @@ static AstNode *trans_create_node_addr_of(Context *c, bool is_const, bool is_vol
     node->data.addr_of_expr.is_volatile = is_volatile;
     node->data.addr_of_expr.op_expr = child_node;
     return node;
+}
+
+static AstNode *trans_create_node_bool(Context *c, bool value) {
+    AstNode *bool_node = trans_create_node(c, NodeTypeBoolLiteral);
+    bool_node->data.bool_literal.value = value;
+    return bool_node;
 }
 
 static AstNode *trans_create_node_str_lit_c(Context *c, Buf *buf) {
@@ -252,8 +354,7 @@ static AstNode *trans_create_node_var_decl_local(Context *c, bool is_const, Buf 
     return trans_create_node_var_decl(c, VisibModPrivate, is_const, var_name, type_node, init_node);
 }
 
-
-static AstNode *trans_create_node_inline_fn(Context *c, Buf *fn_name, Buf *var_name, AstNode *src_proto_node) {
+static AstNode *trans_create_node_inline_fn(Context *c, Buf *fn_name, AstNode *ref_node, AstNode *src_proto_node) {
     AstNode *fn_def = trans_create_node(c, NodeTypeFnDef);
     AstNode *fn_proto = trans_create_node(c, NodeTypeFnProto);
     fn_proto->data.fn_proto.visib_mod = c->visib_mod;
@@ -264,7 +365,7 @@ static AstNode *trans_create_node_inline_fn(Context *c, Buf *fn_name, Buf *var_n
     fn_def->data.fn_def.fn_proto = fn_proto;
     fn_proto->data.fn_proto.fn_def_node = fn_def;
 
-    AstNode *unwrap_node = trans_create_node_prefix_op(c, PrefixOpUnwrapMaybe, trans_create_node_symbol(c, var_name));
+    AstNode *unwrap_node = trans_create_node_prefix_op(c, PrefixOpUnwrapMaybe, ref_node);
     AstNode *fn_call_node = trans_create_node(c, NodeTypeFnCallExpr);
     fn_call_node->data.fn_call_expr.fn_ref_expr = unwrap_node;
 
@@ -285,8 +386,7 @@ static AstNode *trans_create_node_inline_fn(Context *c, Buf *fn_name, Buf *var_n
 
     AstNode *block = trans_create_node(c, NodeTypeBlock);
     block->data.block.statements.resize(1);
-    block->data.block.statements.items[0] = fn_call_node;
-    block->data.block.last_statement_is_result_expression = true;
+    block->data.block.statements.items[0] = trans_create_node_return(c, fn_call_node);
 
     fn_def->data.fn_def.body = block;
     return fn_def;
@@ -307,6 +407,9 @@ static AstNode *get_global(Context *c, Buf *name) {
         auto entry = c->macro_table.maybe_get(name);
         if (entry)
             return entry->value;
+    }
+    if (c->codegen->primitive_type_table.maybe_get(name) != nullptr) {
+        return trans_create_node_symbol(c, name);
     }
     return nullptr;
 }
@@ -341,7 +444,9 @@ static AstNode *trans_create_node_apint(Context *c, const llvm::APSInt &aps_int)
 
 }
 
-static AstNode *trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc);
+static const Type *qual_type_canon(QualType qt) {
+    return qt.getCanonicalType().getTypePtr();
+}
 
 static QualType get_expr_qual_type(Context *c, const Expr *expr) {
     // String literals in C are `char *` but they should really be `const char *`.
@@ -365,10 +470,7 @@ static AstNode *get_expr_type(Context *c, const Expr *expr) {
     return trans_qual_type(c, get_expr_qual_type(c, expr), expr->getLocStart());
 }
 
-static bool expr_types_equal(Context *c, const Expr *expr1, const Expr *expr2) {
-    QualType t1 = get_expr_qual_type(c, expr1);
-    QualType t2 = get_expr_qual_type(c, expr2);
-
+static bool qual_types_equal(QualType t1, QualType t2) {
     if (t1.isConstQualified() != t2.isConstQualified()) {
         return false;
     }
@@ -385,26 +487,27 @@ static bool is_c_void_type(AstNode *node) {
     return (node->type == NodeTypeSymbol && buf_eql_str(node->data.symbol_expr.symbol, "c_void"));
 }
 
-static AstNode* trans_c_cast(Context *c, const SourceLocation &source_location, const QualType &qt, AstNode *expr) {
-    // TODO: maybe widen to increase size
-    // TODO: maybe bitcast to change sign
-    // TODO: maybe truncate to reduce size
-    return trans_create_node_fn_call_1(c, trans_qual_type(c, qt, source_location), expr);
+static bool expr_types_equal(Context *c, const Expr *expr1, const Expr *expr2) {
+    QualType t1 = get_expr_qual_type(c, expr1);
+    QualType t2 = get_expr_qual_type(c, expr2);
+
+    return qual_types_equal(t1, t2);
 }
 
-static bool qual_type_is_fn_ptr(Context *c, const QualType &qt) {
-    const Type *ty = qt.getTypePtr();
+static bool qual_type_is_ptr(QualType qt) {
+    const Type *ty = qual_type_canon(qt);
+    return ty->getTypeClass() == Type::Pointer;
+}
+
+static bool qual_type_is_fn_ptr(Context *c, QualType qt) {
+    const Type *ty = qual_type_canon(qt);
     if (ty->getTypeClass() != Type::Pointer) {
         return false;
     }
     const PointerType *pointer_ty = static_cast<const PointerType*>(ty);
     QualType child_qt = pointer_ty->getPointeeType();
     const Type *child_ty = child_qt.getTypePtr();
-    if (child_ty->getTypeClass() != Type::Paren) {
-        return false;
-    }
-    const ParenType *paren_ty = static_cast<const ParenType *>(child_ty);
-    return paren_ty->getInnerType().getTypePtr()->getTypeClass() == Type::FunctionProto;
+    return child_ty->getTypeClass() == Type::FunctionProto;
 }
 
 static uint32_t qual_type_int_bit_width(Context *c, const QualType &qt, const SourceLocation &source_loc) {
@@ -497,17 +600,26 @@ static bool qual_type_child_is_fn_proto(const QualType &qt) {
     return false;
 }
 
-static QualType resolve_any_typedef(Context *c, QualType qt) {
-    const Type * ty = qt.getTypePtr();
-    if (ty->getTypeClass() != Type::Typedef)
-        return qt;
-    const TypedefType *typedef_ty = static_cast<const TypedefType*>(ty);
-    const TypedefNameDecl *typedef_decl = typedef_ty->getDecl();
-    return typedef_decl->getUnderlyingType();
+static AstNode* trans_c_cast(Context *c, const SourceLocation &source_location, QualType dest_type,
+        QualType src_type, AstNode *expr)
+{
+    if (qual_types_equal(dest_type, src_type)) {
+        return expr;
+    }
+    if (qual_type_is_ptr(dest_type) && qual_type_is_ptr(src_type)) {
+        AstNode *ptr_cast_node = trans_create_node_builtin_fn_call_str(c, "ptrCast");
+        ptr_cast_node->data.fn_call_expr.params.append(trans_qual_type(c, dest_type, source_location));
+        ptr_cast_node->data.fn_call_expr.params.append(expr);
+        return ptr_cast_node;
+    }
+    // TODO: maybe widen to increase size
+    // TODO: maybe bitcast to change sign
+    // TODO: maybe truncate to reduce size
+    return trans_create_node_fn_call_1(c, trans_qual_type(c, dest_type, source_location), expr);
 }
 
 static bool c_is_signed_integer(Context *c, QualType qt) {
-    const Type *c_type = resolve_any_typedef(c, qt).getTypePtr();
+    const Type *c_type = qual_type_canon(qt);
     if (c_type->getTypeClass() != Type::Builtin)
         return false;
     const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(c_type);
@@ -526,7 +638,7 @@ static bool c_is_signed_integer(Context *c, QualType qt) {
 }
 
 static bool c_is_unsigned_integer(Context *c, QualType qt) {
-    const Type *c_type = resolve_any_typedef(c, qt).getTypePtr();
+    const Type *c_type = qual_type_canon(qt);
     if (c_type->getTypeClass() != Type::Builtin)
         return false;
     const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(c_type);
@@ -544,6 +656,14 @@ static bool c_is_unsigned_integer(Context *c, QualType qt) {
         default: 
             return false;
     }
+}
+
+static bool c_is_builtin_type(Context *c, QualType qt, BuiltinType::Kind kind) {
+    const Type *c_type = qual_type_canon(qt);
+    if (c_type->getTypeClass() != Type::Builtin)
+        return false;
+    const BuiltinType *builtin_ty = static_cast<const BuiltinType*>(c_type);
+    return builtin_ty->getKind() == kind;
 }
 
 static bool c_is_float(Context *c, QualType qt) {
@@ -571,18 +691,6 @@ static bool qual_type_has_wrapping_overflow(Context *c, QualType qt) {
         // unsigned integer overflow wraps around.
         return true;
     }
-}
-
-enum TransLRValue {
-    TransLValue,
-    TransRValue,
-};
-
-static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *stmt, TransLRValue lrval);
-static AstNode *const skip_add_to_block_node = (AstNode *) 0x2;
-
-static AstNode *trans_expr(Context *c, bool result_used, AstNode *block, Expr *expr, TransLRValue lrval) {
-    return trans_stmt(c, result_used, block, expr, lrval);
 }
 
 static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &source_loc) {
@@ -806,8 +914,13 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                         return nullptr;
                     }
                     // convert c_void to actual void (only for return type)
+                    // we do want to look at the AstNode instead of QualType, because
+                    // if they do something like:
+                    //     typedef Foo void;
+                    //     void foo(void) -> Foo;
+                    // we want to keep the return type AST node.
                     if (is_c_void_type(proto_node->data.fn_proto.return_type)) {
-                        proto_node->data.fn_proto.return_type = nullptr;
+                        proto_node->data.fn_proto.return_type = trans_create_node_symbol_str(c, "void");
                     }
                 }
 
@@ -878,11 +991,23 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                 const AttributedType *attributed_ty = static_cast<const AttributedType *>(ty);
                 return trans_qual_type(c, attributed_ty->getEquivalentType(), source_loc);
             }
+        case Type::IncompleteArray:
+            {
+                const IncompleteArrayType *incomplete_array_ty = static_cast<const IncompleteArrayType *>(ty);
+                QualType child_qt = incomplete_array_ty->getElementType();
+                AstNode *child_type_node = trans_qual_type(c, child_qt, source_loc);
+                if (child_type_node == nullptr) {
+                    emit_warning(c, source_loc, "unresolved array element type");
+                    return nullptr;
+                }
+                AstNode *pointer_node = trans_create_node_addr_of(c, child_qt.isConstQualified(),
+                        child_qt.isVolatileQualified(), child_type_node);
+                return pointer_node;
+            }
         case Type::BlockPointer:
         case Type::LValueReference:
         case Type::RValueReference:
         case Type::MemberPointer:
-        case Type::IncompleteArray:
         case Type::VariableArray:
         case Type::DependentSizedArray:
         case Type::DependentSizedExtVector:
@@ -922,32 +1047,47 @@ static AstNode *trans_qual_type(Context *c, QualType qt, const SourceLocation &s
     return trans_type(c, qt.getTypePtr(), source_loc);
 }
 
-static AstNode *trans_compound_stmt(Context *c, AstNode *parent, CompoundStmt *stmt) {
-    AstNode *child_block = trans_create_node(c, NodeTypeBlock);
-    for (CompoundStmt::body_iterator it = stmt->body_begin(), end_it = stmt->body_end(); it != end_it; ++it) {
-        AstNode *child_node = trans_stmt(c, false, child_block, *it, TransRValue);
-        if (child_node == nullptr)
-            return nullptr;
-        if (child_node != skip_add_to_block_node)
-            child_block->data.block.statements.append(child_node);
+static int trans_compound_stmt_inline(Context *c, TransScope *scope, const CompoundStmt *stmt,
+        AstNode *block_node, TransScope **out_node_scope)
+{
+    assert(block_node->type == NodeTypeBlock);
+    for (CompoundStmt::const_body_iterator it = stmt->body_begin(), end_it = stmt->body_end(); it != end_it; ++it) {
+        AstNode *child_node;
+        scope = trans_stmt(c, scope, *it, &child_node);
+        if (scope == nullptr)
+            return ErrorUnexpected;
+        if (child_node != nullptr)
+            block_node->data.block.statements.append(child_node);
     }
-    return child_block;
+    if (out_node_scope != nullptr) {
+        *out_node_scope = scope;
+    }
+    return ErrorNone;
 }
 
-static AstNode *trans_return_stmt(Context *c, AstNode *block, ReturnStmt *stmt) {
-    Expr *value_expr = stmt->getRetValue();
+static AstNode *trans_compound_stmt(Context *c, TransScope *scope, const CompoundStmt *stmt,
+        TransScope **out_node_scope)
+{
+    TransScopeBlock *child_scope_block = trans_scope_block_create(c, scope);
+    if (trans_compound_stmt_inline(c, &child_scope_block->base, stmt, child_scope_block->node, out_node_scope))
+        return nullptr;
+    return child_scope_block->node;
+}
+
+static AstNode *trans_return_stmt(Context *c, TransScope *scope, const ReturnStmt *stmt) {
+    const Expr *value_expr = stmt->getRetValue();
     if (value_expr == nullptr) {
         return trans_create_node(c, NodeTypeReturnExpr);
     } else {
         AstNode *return_node = trans_create_node(c, NodeTypeReturnExpr);
-        return_node->data.return_expr.expr = trans_expr(c, true, block, value_expr, TransRValue);
+        return_node->data.return_expr.expr = trans_expr(c, ResultUsedYes, scope, value_expr, TransRValue);
         if (return_node->data.return_expr.expr == nullptr)
             return nullptr;
         return return_node;
     }
 }
 
-static AstNode *trans_integer_literal(Context *c, IntegerLiteral *stmt) {
+static AstNode *trans_integer_literal(Context *c, const IntegerLiteral *stmt) {
     llvm::APSInt result;
     if (!stmt->EvaluateAsInt(result, *c->ctx)) {
         emit_warning(c, stmt->getLocStart(), "invalid integer literal");
@@ -956,54 +1096,56 @@ static AstNode *trans_integer_literal(Context *c, IntegerLiteral *stmt) {
     return trans_create_node_apint(c, result);
 }
 
-static AstNode *trans_conditional_operator(Context *c, bool result_used, AstNode *block, ConditionalOperator *stmt) {
+static AstNode *trans_conditional_operator(Context *c, ResultUsed result_used, TransScope *scope,
+        const ConditionalOperator *stmt)
+{
     AstNode *node = trans_create_node(c, NodeTypeIfBoolExpr);
 
     Expr *cond_expr = stmt->getCond();
     Expr *true_expr = stmt->getTrueExpr();
     Expr *false_expr = stmt->getFalseExpr();
 
-    node->data.if_bool_expr.condition = trans_expr(c, true, block, cond_expr, TransRValue);
+    node->data.if_bool_expr.condition = trans_expr(c, ResultUsedYes, scope, cond_expr, TransRValue);
     if (node->data.if_bool_expr.condition == nullptr)
         return nullptr;
 
-    node->data.if_bool_expr.then_block = trans_expr(c, result_used, block, true_expr, TransRValue);
+    node->data.if_bool_expr.then_block = trans_expr(c, result_used, scope, true_expr, TransRValue);
     if (node->data.if_bool_expr.then_block == nullptr)
         return nullptr;
 
-    node->data.if_bool_expr.else_node = trans_expr(c, result_used, block, false_expr, TransRValue);
+    node->data.if_bool_expr.else_node = trans_expr(c, result_used, scope, false_expr, TransRValue);
     if (node->data.if_bool_expr.else_node == nullptr)
         return nullptr;
 
     return maybe_suppress_result(c, result_used, node);
 }
 
-static AstNode *trans_create_bin_op(Context *c, AstNode *block, Expr *lhs, BinOpType bin_op, Expr *rhs) {
+static AstNode *trans_create_bin_op(Context *c, TransScope *scope, Expr *lhs, BinOpType bin_op, Expr *rhs) {
     AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
     node->data.bin_op_expr.bin_op = bin_op;
 
-    node->data.bin_op_expr.op1 = trans_expr(c, true, block, lhs, TransRValue);
+    node->data.bin_op_expr.op1 = trans_expr(c, ResultUsedYes, scope, lhs, TransRValue);
     if (node->data.bin_op_expr.op1 == nullptr)
         return nullptr;
 
-    node->data.bin_op_expr.op2 = trans_expr(c, true, block, rhs, TransRValue);
+    node->data.bin_op_expr.op2 = trans_expr(c, ResultUsedYes, scope, rhs, TransRValue);
     if (node->data.bin_op_expr.op2 == nullptr)
         return nullptr;
 
     return node;
 }
 
-static AstNode *trans_create_assign(Context *c, bool result_used, AstNode *block, Expr *lhs, Expr *rhs) {
-    if (!result_used) {
+static AstNode *trans_create_assign(Context *c, ResultUsed result_used, TransScope *scope, Expr *lhs, Expr *rhs) {
+    if (result_used == ResultUsedNo) {
         // common case
         AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
         node->data.bin_op_expr.bin_op = BinOpTypeAssign;
 
-        node->data.bin_op_expr.op1 = trans_expr(c, true, block, lhs, TransLValue);
+        node->data.bin_op_expr.op1 = trans_expr(c, ResultUsedYes, scope, lhs, TransLValue);
         if (node->data.bin_op_expr.op1 == nullptr)
             return nullptr;
 
-        node->data.bin_op_expr.op2 = trans_expr(c, true, block, rhs, TransRValue);
+        node->data.bin_op_expr.op2 = trans_expr(c, ResultUsedYes, scope, rhs, TransRValue);
         if (node->data.bin_op_expr.op2 == nullptr)
             return nullptr;
 
@@ -1011,53 +1153,57 @@ static AstNode *trans_create_assign(Context *c, bool result_used, AstNode *block
     } else {
         // worst case
         // c: lhs = rhs
-        // zig: {
+        // zig: x: {
         // zig:     const _tmp = rhs;
         // zig:     lhs = _tmp;
-        // zig:     _tmp
+        // zig:     break :x _tmp
         // zig: }
 
-        AstNode *child_block = trans_create_node(c, NodeTypeBlock);
+        TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
+        Buf *label_name = buf_create_from_str("x");
+        child_scope->node->data.block.name = label_name;
 
         // const _tmp = rhs;
-        AstNode *rhs_node = trans_expr(c, true, child_block, rhs, TransRValue);
+        AstNode *rhs_node = trans_expr(c, ResultUsedYes, &child_scope->base, rhs, TransRValue);
         if (rhs_node == nullptr) return nullptr;
         // TODO: avoid name collisions with generated variable names
         Buf* tmp_var_name = buf_create_from_str("_tmp");
         AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr, rhs_node);
-        child_block->data.block.statements.append(tmp_var_decl);
+        child_scope->node->data.block.statements.append(tmp_var_decl);
 
         // lhs = _tmp;
-        AstNode *lhs_node = trans_expr(c, true, child_block, lhs, TransLValue);
+        AstNode *lhs_node = trans_expr(c, ResultUsedYes, &child_scope->base, lhs, TransLValue);
         if (lhs_node == nullptr) return nullptr;
-        child_block->data.block.statements.append(
+        child_scope->node->data.block.statements.append(
             trans_create_node_bin_op(c, lhs_node, BinOpTypeAssign,
                 trans_create_node_symbol(c, tmp_var_name)));
 
-        // _tmp
-        child_block->data.block.statements.append(trans_create_node_symbol(c, tmp_var_name));
-        child_block->data.block.last_statement_is_result_expression = true;
+        // break :x _tmp
+        AstNode *tmp_symbol_node = trans_create_node_symbol(c, tmp_var_name);
+        child_scope->node->data.block.statements.append(trans_create_node_break(c, label_name, tmp_symbol_node));
 
-        return child_block;
+        return child_scope->node;
     }
 }
 
-static AstNode *trans_create_shift_op(Context *c, AstNode *block, QualType result_type, Expr *lhs_expr, BinOpType bin_op, Expr *rhs_expr) {
+static AstNode *trans_create_shift_op(Context *c, TransScope *scope, QualType result_type,
+        Expr *lhs_expr, BinOpType bin_op, Expr *rhs_expr)
+{
     const SourceLocation &rhs_location = rhs_expr->getLocStart();
     AstNode *rhs_type = qual_type_to_log2_int_ref(c, result_type, rhs_location);
     // lhs >> u5(rh)
 
-    AstNode *lhs = trans_expr(c, true, block, lhs_expr, TransLValue);
+    AstNode *lhs = trans_expr(c, ResultUsedYes, scope, lhs_expr, TransLValue);
     if (lhs == nullptr) return nullptr;
 
-    AstNode *rhs = trans_expr(c, true, block, rhs_expr, TransRValue);
+    AstNode *rhs = trans_expr(c, ResultUsedYes, scope, rhs_expr, TransRValue);
     if (rhs == nullptr) return nullptr;
     AstNode *coerced_rhs = trans_create_node_fn_call_1(c, rhs_type, rhs);
 
     return trans_create_node_bin_op(c, lhs, bin_op, coerced_rhs);
 }
 
-static AstNode *trans_binary_operator(Context *c, bool result_used, AstNode *block, BinaryOperator *stmt) {
+static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransScope *scope, const BinaryOperator *stmt) {
     switch (stmt->getOpcode()) {
         case BO_PtrMemD:
             emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_PtrMemD");
@@ -1066,20 +1212,20 @@ static AstNode *trans_binary_operator(Context *c, bool result_used, AstNode *blo
             emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_PtrMemI");
             return nullptr;
         case BO_Mul:
-            return trans_create_bin_op(c, block, stmt->getLHS(),
+            return trans_create_bin_op(c, scope, stmt->getLHS(),
                 qual_type_has_wrapping_overflow(c, stmt->getType()) ? BinOpTypeMultWrap : BinOpTypeMult,
                 stmt->getRHS());
         case BO_Div:
             if (qual_type_has_wrapping_overflow(c, stmt->getType())) {
                 // unsigned/float division uses the operator
-                return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeDiv, stmt->getRHS());
+                return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeDiv, stmt->getRHS());
             } else {
                 // signed integer division uses @divTrunc
                 AstNode *fn_call = trans_create_node_builtin_fn_call_str(c, "divTrunc");
-                AstNode *lhs = trans_expr(c, true, block, stmt->getLHS(), TransLValue);
+                AstNode *lhs = trans_expr(c, ResultUsedYes, scope, stmt->getLHS(), TransLValue);
                 if (lhs == nullptr) return nullptr;
                 fn_call->data.fn_call_expr.params.append(lhs);
-                AstNode *rhs = trans_expr(c, true, block, stmt->getRHS(), TransLValue);
+                AstNode *rhs = trans_expr(c, ResultUsedYes, scope, stmt->getRHS(), TransLValue);
                 if (rhs == nullptr) return nullptr;
                 fn_call->data.fn_call_expr.params.append(rhs);
                 return fn_call;
@@ -1087,66 +1233,71 @@ static AstNode *trans_binary_operator(Context *c, bool result_used, AstNode *blo
         case BO_Rem:
             if (qual_type_has_wrapping_overflow(c, stmt->getType())) {
                 // unsigned/float division uses the operator
-                return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeMod, stmt->getRHS());
+                return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeMod, stmt->getRHS());
             } else {
                 // signed integer division uses @rem
                 AstNode *fn_call = trans_create_node_builtin_fn_call_str(c, "rem");
-                AstNode *lhs = trans_expr(c, true, block, stmt->getLHS(), TransLValue);
+                AstNode *lhs = trans_expr(c, ResultUsedYes, scope, stmt->getLHS(), TransLValue);
                 if (lhs == nullptr) return nullptr;
                 fn_call->data.fn_call_expr.params.append(lhs);
-                AstNode *rhs = trans_expr(c, true, block, stmt->getRHS(), TransLValue);
+                AstNode *rhs = trans_expr(c, ResultUsedYes, scope, stmt->getRHS(), TransLValue);
                 if (rhs == nullptr) return nullptr;
                 fn_call->data.fn_call_expr.params.append(rhs);
                 return fn_call;
             }
         case BO_Add:
-            return trans_create_bin_op(c, block, stmt->getLHS(),
+            return trans_create_bin_op(c, scope, stmt->getLHS(),
                 qual_type_has_wrapping_overflow(c, stmt->getType()) ? BinOpTypeAddWrap : BinOpTypeAdd,
                 stmt->getRHS());
         case BO_Sub:
-            return trans_create_bin_op(c, block, stmt->getLHS(),
+            return trans_create_bin_op(c, scope, stmt->getLHS(),
                 qual_type_has_wrapping_overflow(c, stmt->getType()) ? BinOpTypeSubWrap : BinOpTypeSub,
                 stmt->getRHS());
         case BO_Shl:
-            return trans_create_shift_op(c, block, stmt->getType(), stmt->getLHS(), BinOpTypeBitShiftLeft, stmt->getRHS());
+            return trans_create_shift_op(c, scope, stmt->getType(), stmt->getLHS(), BinOpTypeBitShiftLeft, stmt->getRHS());
         case BO_Shr:
-            return trans_create_shift_op(c, block, stmt->getType(), stmt->getLHS(), BinOpTypeBitShiftRight, stmt->getRHS());
+            return trans_create_shift_op(c, scope, stmt->getType(), stmt->getLHS(), BinOpTypeBitShiftRight, stmt->getRHS());
         case BO_LT:
-            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeCmpLessThan, stmt->getRHS());
+            return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpLessThan, stmt->getRHS());
         case BO_GT:
-            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeCmpGreaterThan, stmt->getRHS());
+            return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpGreaterThan, stmt->getRHS());
         case BO_LE:
-            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeCmpLessOrEq, stmt->getRHS());
+            return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpLessOrEq, stmt->getRHS());
         case BO_GE:
-            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeCmpGreaterOrEq, stmt->getRHS());
+            return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpGreaterOrEq, stmt->getRHS());
         case BO_EQ:
-            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeCmpEq, stmt->getRHS());
+            return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpEq, stmt->getRHS());
         case BO_NE:
-            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeCmpNotEq, stmt->getRHS());
+            return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeCmpNotEq, stmt->getRHS());
         case BO_And:
-            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeBinAnd, stmt->getRHS());
+            return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeBinAnd, stmt->getRHS());
         case BO_Xor:
-            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeBinXor, stmt->getRHS());
+            return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeBinXor, stmt->getRHS());
         case BO_Or:
-            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeBinOr, stmt->getRHS());
+            return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeBinOr, stmt->getRHS());
         case BO_LAnd:
-            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeBoolAnd, stmt->getRHS());
+            return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeBoolAnd, stmt->getRHS());
         case BO_LOr:
             // TODO: int vs bool
-            return trans_create_bin_op(c, block, stmt->getLHS(), BinOpTypeBoolOr, stmt->getRHS());
+            return trans_create_bin_op(c, scope, stmt->getLHS(), BinOpTypeBoolOr, stmt->getRHS());
         case BO_Assign:
-            return trans_create_assign(c, result_used, block, stmt->getLHS(), stmt->getRHS());
+            return trans_create_assign(c, result_used, scope, stmt->getLHS(), stmt->getRHS());
         case BO_Comma:
             {
-                block = trans_create_node(c, NodeTypeBlock);
-                AstNode *lhs = trans_expr(c, false, block, stmt->getLHS(), TransRValue);
-                if (lhs == nullptr) return nullptr;
-                block->data.block.statements.append(maybe_suppress_result(c, false, lhs));
-                AstNode *rhs = trans_expr(c, result_used, block, stmt->getRHS(), TransRValue);
-                if (rhs == nullptr) return nullptr;
-                block->data.block.statements.append(maybe_suppress_result(c, result_used, rhs));
-                block->data.block.last_statement_is_result_expression = true;
-                return block;
+                TransScopeBlock *scope_block = trans_scope_block_create(c, scope);
+                Buf *label_name = buf_create_from_str("x");
+                scope_block->node->data.block.name = label_name;
+
+                AstNode *lhs = trans_expr(c, ResultUsedNo, &scope_block->base, stmt->getLHS(), TransRValue);
+                if (lhs == nullptr)
+                    return nullptr;
+                scope_block->node->data.block.statements.append(maybe_suppress_result(c, ResultUsedNo, lhs));
+
+                AstNode *rhs = trans_expr(c, result_used, &scope_block->base, stmt->getRHS(), TransRValue);
+                if (rhs == nullptr)
+                    return nullptr;
+                scope_block->node->data.block.statements.append(trans_create_node_break(c, label_name, maybe_suppress_result(c, result_used, rhs)));
+                return scope_block->node;
             }
         case BO_MulAssign:
         case BO_DivAssign:
@@ -1164,18 +1315,20 @@ static AstNode *trans_binary_operator(Context *c, bool result_used, AstNode *blo
     zig_unreachable();
 }
 
-static AstNode *trans_create_compound_assign_shift(Context *c, bool result_used, AstNode *block, CompoundAssignOperator *stmt, BinOpType assign_op, BinOpType bin_op) {
+static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result_used, TransScope *scope,
+        const CompoundAssignOperator *stmt, BinOpType assign_op, BinOpType bin_op)
+{
     const SourceLocation &rhs_location = stmt->getRHS()->getLocStart();
     AstNode *rhs_type = qual_type_to_log2_int_ref(c, stmt->getComputationLHSType(), rhs_location);
 
     bool use_intermediate_casts = stmt->getComputationLHSType().getTypePtr() != stmt->getComputationResultType().getTypePtr();
-    if (!use_intermediate_casts && !result_used) {
+    if (!use_intermediate_casts && result_used == ResultUsedNo) {
         // simple common case, where the C and Zig are identical:
         // lhs >>= rhs
-        AstNode *lhs = trans_expr(c, true, block, stmt->getLHS(), TransLValue);
+        AstNode *lhs = trans_expr(c, ResultUsedYes, scope, stmt->getLHS(), TransLValue);
         if (lhs == nullptr) return nullptr;
 
-        AstNode *rhs = trans_expr(c, true, block, stmt->getRHS(), TransRValue);
+        AstNode *rhs = trans_expr(c, ResultUsedYes, scope, stmt->getRHS(), TransRValue);
         if (rhs == nullptr) return nullptr;
         AstNode *coerced_rhs = trans_create_node_fn_call_1(c, rhs_type, rhs);
 
@@ -1183,89 +1336,104 @@ static AstNode *trans_create_compound_assign_shift(Context *c, bool result_used,
     } else {
         // need more complexity. worst case, this looks like this:
         // c:   lhs >>= rhs
-        // zig: {
+        // zig: x: {
         // zig:     const _ref = &lhs;
         // zig:     *_ref = result_type(operation_type(*_ref) >> u5(rhs));
-        // zig:     *_ref
+        // zig:     break :x *_ref
         // zig: }
         // where u5 is the appropriate type
 
-        AstNode *child_block = trans_create_node(c, NodeTypeBlock);
+        TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
+        Buf *label_name = buf_create_from_str("x");
+        child_scope->node->data.block.name = label_name;
 
         // const _ref = &lhs;
-        AstNode *lhs = trans_expr(c, true, child_block, stmt->getLHS(), TransLValue);
+        AstNode *lhs = trans_expr(c, ResultUsedYes, &child_scope->base, stmt->getLHS(), TransLValue);
         if (lhs == nullptr) return nullptr;
         AstNode *addr_of_lhs = trans_create_node_addr_of(c, false, false, lhs);
         // TODO: avoid name collisions with generated variable names
         Buf* tmp_var_name = buf_create_from_str("_ref");
         AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr, addr_of_lhs);
-        child_block->data.block.statements.append(tmp_var_decl);
+        child_scope->node->data.block.statements.append(tmp_var_decl);
 
         // *_ref = result_type(operation_type(*_ref) >> u5(rhs));
 
-        AstNode *rhs = trans_expr(c, true, child_block, stmt->getRHS(), TransRValue);
+        AstNode *rhs = trans_expr(c, ResultUsedYes, &child_scope->base, stmt->getRHS(), TransRValue);
         if (rhs == nullptr) return nullptr;
         AstNode *coerced_rhs = trans_create_node_fn_call_1(c, rhs_type, rhs);
 
+        // operation_type(*_ref)
+        AstNode *operation_type_cast = trans_c_cast(c, rhs_location,
+            stmt->getComputationLHSType(),
+            stmt->getLHS()->getType(),
+            trans_create_node_prefix_op(c, PrefixOpDereference,
+                trans_create_node_symbol(c, tmp_var_name)));
+
+        // result_type(... >> u5(rhs))
+        AstNode *result_type_cast = trans_c_cast(c, rhs_location,
+            stmt->getComputationResultType(),
+            stmt->getComputationLHSType(),
+            trans_create_node_bin_op(c,
+                operation_type_cast,
+                bin_op,
+                coerced_rhs));
+
+        // *_ref = ...
         AstNode *assign_statement = trans_create_node_bin_op(c,
             trans_create_node_prefix_op(c, PrefixOpDereference,
                 trans_create_node_symbol(c, tmp_var_name)),
-            BinOpTypeAssign,
-            trans_c_cast(c, rhs_location,
-                stmt->getComputationResultType(),
-                trans_create_node_bin_op(c,
-                    trans_c_cast(c, rhs_location,
-                        stmt->getComputationLHSType(),
-                        trans_create_node_prefix_op(c, PrefixOpDereference,
-                            trans_create_node_symbol(c, tmp_var_name))),
-                    bin_op,
-                    coerced_rhs)));
-        child_block->data.block.statements.append(assign_statement);
+            BinOpTypeAssign, result_type_cast);
 
-        if (result_used) {
-            // *_ref
-            child_block->data.block.statements.append(
-                trans_create_node_prefix_op(c, PrefixOpDereference,
-                    trans_create_node_symbol(c, tmp_var_name)));
-            child_block->data.block.last_statement_is_result_expression = true;
+        child_scope->node->data.block.statements.append(assign_statement);
+
+        if (result_used == ResultUsedYes) {
+            // break :x *_ref
+            child_scope->node->data.block.statements.append(
+                trans_create_node_break(c, label_name, 
+                    trans_create_node_prefix_op(c, PrefixOpDereference,
+                        trans_create_node_symbol(c, tmp_var_name))));
         }
 
-        return child_block;
+        return child_scope->node;
     }
 }
 
-static AstNode *trans_create_compound_assign(Context *c, bool result_used, AstNode *block, CompoundAssignOperator *stmt, BinOpType assign_op, BinOpType bin_op) {
-    if (!result_used) {
+static AstNode *trans_create_compound_assign(Context *c, ResultUsed result_used, TransScope *scope,
+        const CompoundAssignOperator *stmt, BinOpType assign_op, BinOpType bin_op)
+{
+    if (result_used == ResultUsedNo) {
         // simple common case, where the C and Zig are identical:
         // lhs += rhs
-        AstNode *lhs = trans_expr(c, true, block, stmt->getLHS(), TransLValue);
+        AstNode *lhs = trans_expr(c, ResultUsedYes, scope, stmt->getLHS(), TransLValue);
         if (lhs == nullptr) return nullptr;
-        AstNode *rhs = trans_expr(c, true, block, stmt->getRHS(), TransRValue);
+        AstNode *rhs = trans_expr(c, ResultUsedYes, scope, stmt->getRHS(), TransRValue);
         if (rhs == nullptr) return nullptr;
         return trans_create_node_bin_op(c, lhs, assign_op, rhs);
     } else {
         // need more complexity. worst case, this looks like this:
         // c:   lhs += rhs
-        // zig: {
+        // zig: x: {
         // zig:     const _ref = &lhs;
         // zig:     *_ref = *_ref + rhs;
-        // zig:     *_ref
+        // zig:     break :x *_ref
         // zig: }
 
-        AstNode *child_block = trans_create_node(c, NodeTypeBlock);
+        TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
+        Buf *label_name = buf_create_from_str("x");
+        child_scope->node->data.block.name = label_name;
 
         // const _ref = &lhs;
-        AstNode *lhs = trans_expr(c, true, child_block, stmt->getLHS(), TransLValue);
+        AstNode *lhs = trans_expr(c, ResultUsedYes, &child_scope->base, stmt->getLHS(), TransLValue);
         if (lhs == nullptr) return nullptr;
         AstNode *addr_of_lhs = trans_create_node_addr_of(c, false, false, lhs);
         // TODO: avoid name collisions with generated variable names
         Buf* tmp_var_name = buf_create_from_str("_ref");
         AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr, addr_of_lhs);
-        child_block->data.block.statements.append(tmp_var_decl);
+        child_scope->node->data.block.statements.append(tmp_var_decl);
 
         // *_ref = *_ref + rhs;
 
-        AstNode *rhs = trans_expr(c, true, child_block, stmt->getRHS(), TransRValue);
+        AstNode *rhs = trans_expr(c, ResultUsedYes, &child_scope->base, stmt->getRHS(), TransRValue);
         if (rhs == nullptr) return nullptr;
 
         AstNode *assign_statement = trans_create_node_bin_op(c,
@@ -1277,26 +1445,28 @@ static AstNode *trans_create_compound_assign(Context *c, bool result_used, AstNo
                     trans_create_node_symbol(c, tmp_var_name)),
                 bin_op,
                 rhs));
-        child_block->data.block.statements.append(assign_statement);
+        child_scope->node->data.block.statements.append(assign_statement);
 
-        // *_ref
-        child_block->data.block.statements.append(
-            trans_create_node_prefix_op(c, PrefixOpDereference,
-                trans_create_node_symbol(c, tmp_var_name)));
-        child_block->data.block.last_statement_is_result_expression = true;
+        // break :x *_ref
+        child_scope->node->data.block.statements.append(
+            trans_create_node_break(c, label_name,
+                trans_create_node_prefix_op(c, PrefixOpDereference,
+                    trans_create_node_symbol(c, tmp_var_name))));
 
-        return child_block;
+        return child_scope->node;
     }
 }
 
 
-static AstNode *trans_compound_assign_operator(Context *c, bool result_used, AstNode *block, CompoundAssignOperator *stmt) {
+static AstNode *trans_compound_assign_operator(Context *c, ResultUsed result_used, TransScope *scope,
+        const CompoundAssignOperator *stmt)
+{
     switch (stmt->getOpcode()) {
         case BO_MulAssign:
             if (qual_type_has_wrapping_overflow(c, stmt->getType()))
-                return trans_create_compound_assign(c, result_used, block, stmt, BinOpTypeAssignTimesWrap, BinOpTypeMultWrap);
+                return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignTimesWrap, BinOpTypeMultWrap);
             else
-                return trans_create_compound_assign(c, result_used, block, stmt, BinOpTypeAssignTimes, BinOpTypeMult);
+                return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignTimes, BinOpTypeMult);
         case BO_DivAssign:
             emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_DivAssign");
             return nullptr;
@@ -1305,24 +1475,24 @@ static AstNode *trans_compound_assign_operator(Context *c, bool result_used, Ast
             return nullptr;
         case BO_AddAssign:
             if (qual_type_has_wrapping_overflow(c, stmt->getType()))
-                return trans_create_compound_assign(c, result_used, block, stmt, BinOpTypeAssignPlusWrap, BinOpTypeAddWrap);
+                return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignPlusWrap, BinOpTypeAddWrap);
             else
-                return trans_create_compound_assign(c, result_used, block, stmt, BinOpTypeAssignPlus, BinOpTypeAdd);
+                return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignPlus, BinOpTypeAdd);
         case BO_SubAssign:
             if (qual_type_has_wrapping_overflow(c, stmt->getType()))
-                return trans_create_compound_assign(c, result_used, block, stmt, BinOpTypeAssignMinusWrap, BinOpTypeSubWrap);
+                return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignMinusWrap, BinOpTypeSubWrap);
             else
-                return trans_create_compound_assign(c, result_used, block, stmt, BinOpTypeAssignMinus, BinOpTypeSub);
+                return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignMinus, BinOpTypeSub);
         case BO_ShlAssign:
-            return trans_create_compound_assign_shift(c, result_used, block, stmt, BinOpTypeAssignBitShiftLeft, BinOpTypeBitShiftLeft);
+            return trans_create_compound_assign_shift(c, result_used, scope, stmt, BinOpTypeAssignBitShiftLeft, BinOpTypeBitShiftLeft);
         case BO_ShrAssign:
-            return trans_create_compound_assign_shift(c, result_used, block, stmt, BinOpTypeAssignBitShiftRight, BinOpTypeBitShiftRight);
+            return trans_create_compound_assign_shift(c, result_used, scope, stmt, BinOpTypeAssignBitShiftRight, BinOpTypeBitShiftRight);
         case BO_AndAssign:
-            return trans_create_compound_assign(c, result_used, block, stmt, BinOpTypeAssignBitAnd, BinOpTypeBinAnd);
+            return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignBitAnd, BinOpTypeBinAnd);
         case BO_XorAssign:
-            return trans_create_compound_assign(c, result_used, block, stmt, BinOpTypeAssignBitXor, BinOpTypeBinXor);
+            return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignBitXor, BinOpTypeBinXor);
         case BO_OrAssign:
-            return trans_create_compound_assign(c, result_used, block, stmt, BinOpTypeAssignBitOr, BinOpTypeBinOr);
+            return trans_create_compound_assign(c, result_used, scope, stmt, BinOpTypeAssignBitOr, BinOpTypeBinOr);
         case BO_PtrMemD:
         case BO_PtrMemI:
         case BO_Assign:
@@ -1351,28 +1521,29 @@ static AstNode *trans_compound_assign_operator(Context *c, bool result_used, Ast
     zig_unreachable();
 }
 
-static AstNode *trans_implicit_cast_expr(Context *c, AstNode *block, ImplicitCastExpr *stmt) {
+static AstNode *trans_implicit_cast_expr(Context *c, TransScope *scope, const ImplicitCastExpr *stmt) {
     switch (stmt->getCastKind()) {
         case CK_LValueToRValue:
-            return trans_expr(c, true, block, stmt->getSubExpr(), TransRValue);
+            return trans_expr(c, ResultUsedYes, scope, stmt->getSubExpr(), TransRValue);
         case CK_IntegralCast:
             {
-                AstNode *target_node = trans_expr(c, true, block, stmt->getSubExpr(), TransRValue);
+                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, stmt->getSubExpr(), TransRValue);
                 if (target_node == nullptr)
                     return nullptr;
-                return trans_c_cast(c, stmt->getExprLoc(), stmt->getType(), target_node);
+                return trans_c_cast(c, stmt->getExprLoc(), stmt->getType(),
+                        stmt->getSubExpr()->getType(), target_node);
             }
         case CK_FunctionToPointerDecay:
         case CK_ArrayToPointerDecay:
             {
-                AstNode *target_node = trans_expr(c, true, block, stmt->getSubExpr(), TransRValue);
+                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, stmt->getSubExpr(), TransRValue);
                 if (target_node == nullptr)
                     return nullptr;
                 return target_node;
             }
         case CK_BitCast:
             {
-                AstNode *target_node = trans_expr(c, true, block, stmt->getSubExpr(), TransRValue);
+                AstNode *target_node = trans_expr(c, ResultUsedYes, scope, stmt->getSubExpr(), TransRValue);
                 if (target_node == nullptr)
                     return nullptr;
 
@@ -1549,52 +1720,57 @@ static AstNode *trans_implicit_cast_expr(Context *c, AstNode *block, ImplicitCas
     zig_unreachable();
 }
 
-static AstNode *trans_decl_ref_expr(Context *c, DeclRefExpr *stmt, TransLRValue lrval) {
-    ValueDecl *value_decl = stmt->getDecl();
-    Buf *symbol_name = buf_create_from_str(decl_name(value_decl));
+static AstNode *trans_decl_ref_expr(Context *c, TransScope *scope, const DeclRefExpr *stmt, TransLRValue lrval) {
+    const ValueDecl *value_decl = stmt->getDecl();
+    Buf *c_symbol_name = buf_create_from_str(decl_name(value_decl));
+    Buf *zig_symbol_name = trans_lookup_zig_symbol(c, scope, c_symbol_name);
     if (lrval == TransLValue) {
-        c->ptr_params.put(symbol_name, true);
+        c->ptr_params.put(zig_symbol_name, true);
     }
-    return trans_create_node_symbol(c, symbol_name);
+    return trans_create_node_symbol(c, zig_symbol_name);
 }
 
-static AstNode *trans_create_post_crement(Context *c, bool result_used, AstNode *block, UnaryOperator *stmt, BinOpType assign_op) {
+static AstNode *trans_create_post_crement(Context *c, ResultUsed result_used, TransScope *scope,
+        const UnaryOperator *stmt, BinOpType assign_op)
+{
     Expr *op_expr = stmt->getSubExpr();
 
-    if (!result_used) {
+    if (result_used == ResultUsedNo) {
         // common case
         // c: expr++
         // zig: expr += 1
         return trans_create_node_bin_op(c,
-            trans_expr(c, true, block, op_expr, TransLValue),
+            trans_expr(c, ResultUsedYes, scope, op_expr, TransLValue),
             assign_op,
             trans_create_node_unsigned(c, 1));
     }
     // worst case
     // c: expr++
-    // zig: {
+    // zig: x: {
     // zig:     const _ref = &expr;
     // zig:     const _tmp = *_ref;
     // zig:     *_ref += 1;
-    // zig:     _tmp
+    // zig:     break :x _tmp
     // zig: }
-    AstNode *child_block = trans_create_node(c, NodeTypeBlock);
+    TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
+    Buf *label_name = buf_create_from_str("x");
+    child_scope->node->data.block.name = label_name;
 
     // const _ref = &expr;
-    AstNode *expr = trans_expr(c, true, child_block, op_expr, TransLValue);
+    AstNode *expr = trans_expr(c, ResultUsedYes, &child_scope->base, op_expr, TransLValue);
     if (expr == nullptr) return nullptr;
     AstNode *addr_of_expr = trans_create_node_addr_of(c, false, false, expr);
     // TODO: avoid name collisions with generated variable names
     Buf* ref_var_name = buf_create_from_str("_ref");
     AstNode *ref_var_decl = trans_create_node_var_decl_local(c, true, ref_var_name, nullptr, addr_of_expr);
-    child_block->data.block.statements.append(ref_var_decl);
+    child_scope->node->data.block.statements.append(ref_var_decl);
 
     // const _tmp = *_ref;
     Buf* tmp_var_name = buf_create_from_str("_tmp");
     AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr,
         trans_create_node_prefix_op(c, PrefixOpDereference,
             trans_create_node_symbol(c, ref_var_name)));
-    child_block->data.block.statements.append(tmp_var_decl);
+    child_scope->node->data.block.statements.append(tmp_var_decl);
 
     // *_ref += 1;
     AstNode *assign_statement = trans_create_node_bin_op(c,
@@ -1602,44 +1778,47 @@ static AstNode *trans_create_post_crement(Context *c, bool result_used, AstNode 
             trans_create_node_symbol(c, ref_var_name)),
         assign_op,
         trans_create_node_unsigned(c, 1));
-    child_block->data.block.statements.append(assign_statement);
+    child_scope->node->data.block.statements.append(assign_statement);
 
-    // _tmp
-    child_block->data.block.statements.append(trans_create_node_symbol(c, tmp_var_name));
-    child_block->data.block.last_statement_is_result_expression = true;
+    // break :x _tmp
+    child_scope->node->data.block.statements.append(trans_create_node_break(c, label_name, trans_create_node_symbol(c, tmp_var_name)));
 
-    return child_block;
+    return child_scope->node;
 }
 
-static AstNode *trans_create_pre_crement(Context *c, bool result_used, AstNode *block, UnaryOperator *stmt, BinOpType assign_op) {
+static AstNode *trans_create_pre_crement(Context *c, ResultUsed result_used, TransScope *scope,
+        const UnaryOperator *stmt, BinOpType assign_op)
+{
     Expr *op_expr = stmt->getSubExpr();
 
-    if (!result_used) {
+    if (result_used == ResultUsedNo) {
         // common case
         // c: ++expr
         // zig: expr += 1
         return trans_create_node_bin_op(c,
-            trans_expr(c, true, block, op_expr, TransLValue),
+            trans_expr(c, ResultUsedYes, scope, op_expr, TransLValue),
             assign_op,
             trans_create_node_unsigned(c, 1));
     }
     // worst case
     // c: ++expr
-    // zig: {
+    // zig: x: {
     // zig:     const _ref = &expr;
     // zig:     *_ref += 1;
-    // zig:     *_ref
+    // zig:     break :x *_ref
     // zig: }
-    AstNode *child_block = trans_create_node(c, NodeTypeBlock);
+    TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
+    Buf *label_name = buf_create_from_str("x");
+    child_scope->node->data.block.name = label_name;
 
     // const _ref = &expr;
-    AstNode *expr = trans_expr(c, true, child_block, op_expr, TransLValue);
+    AstNode *expr = trans_expr(c, ResultUsedYes, &child_scope->base, op_expr, TransLValue);
     if (expr == nullptr) return nullptr;
     AstNode *addr_of_expr = trans_create_node_addr_of(c, false, false, expr);
     // TODO: avoid name collisions with generated variable names
     Buf* ref_var_name = buf_create_from_str("_ref");
     AstNode *ref_var_decl = trans_create_node_var_decl_local(c, true, ref_var_name, nullptr, addr_of_expr);
-    child_block->data.block.statements.append(ref_var_decl);
+    child_scope->node->data.block.statements.append(ref_var_decl);
 
     // *_ref += 1;
     AstNode *assign_statement = trans_create_node_bin_op(c,
@@ -1647,49 +1826,48 @@ static AstNode *trans_create_pre_crement(Context *c, bool result_used, AstNode *
             trans_create_node_symbol(c, ref_var_name)),
         assign_op,
         trans_create_node_unsigned(c, 1));
-    child_block->data.block.statements.append(assign_statement);
+    child_scope->node->data.block.statements.append(assign_statement);
 
-    // *_ref
+    // break :x *_ref
     AstNode *deref_expr = trans_create_node_prefix_op(c, PrefixOpDereference,
             trans_create_node_symbol(c, ref_var_name));
-    child_block->data.block.statements.append(deref_expr);
-    child_block->data.block.last_statement_is_result_expression = true;
+    child_scope->node->data.block.statements.append(trans_create_node_break(c, label_name, deref_expr));
 
-    return child_block;
+    return child_scope->node;
 }
 
-static AstNode *trans_unary_operator(Context *c, bool result_used, AstNode *block, UnaryOperator *stmt) {
+static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransScope *scope, const UnaryOperator *stmt) {
     switch (stmt->getOpcode()) {
         case UO_PostInc:
             if (qual_type_has_wrapping_overflow(c, stmt->getType()))
-                return trans_create_post_crement(c, result_used, block, stmt, BinOpTypeAssignPlusWrap);
+                return trans_create_post_crement(c, result_used, scope, stmt, BinOpTypeAssignPlusWrap);
             else
-                return trans_create_post_crement(c, result_used, block, stmt, BinOpTypeAssignPlus);
+                return trans_create_post_crement(c, result_used, scope, stmt, BinOpTypeAssignPlus);
         case UO_PostDec:
             if (qual_type_has_wrapping_overflow(c, stmt->getType()))
-                return trans_create_post_crement(c, result_used, block, stmt, BinOpTypeAssignMinusWrap);
+                return trans_create_post_crement(c, result_used, scope, stmt, BinOpTypeAssignMinusWrap);
             else
-                return trans_create_post_crement(c, result_used, block, stmt, BinOpTypeAssignMinus);
+                return trans_create_post_crement(c, result_used, scope, stmt, BinOpTypeAssignMinus);
         case UO_PreInc:
             if (qual_type_has_wrapping_overflow(c, stmt->getType()))
-                return trans_create_pre_crement(c, result_used, block, stmt, BinOpTypeAssignPlusWrap);
+                return trans_create_pre_crement(c, result_used, scope, stmt, BinOpTypeAssignPlusWrap);
             else
-                return trans_create_pre_crement(c, result_used, block, stmt, BinOpTypeAssignPlus);
+                return trans_create_pre_crement(c, result_used, scope, stmt, BinOpTypeAssignPlus);
         case UO_PreDec:
             if (qual_type_has_wrapping_overflow(c, stmt->getType()))
-                return trans_create_pre_crement(c, result_used, block, stmt, BinOpTypeAssignMinusWrap);
+                return trans_create_pre_crement(c, result_used, scope, stmt, BinOpTypeAssignMinusWrap);
             else
-                return trans_create_pre_crement(c, result_used, block, stmt, BinOpTypeAssignMinus);
+                return trans_create_pre_crement(c, result_used, scope, stmt, BinOpTypeAssignMinus);
         case UO_AddrOf:
             {
-                AstNode *value_node = trans_expr(c, result_used, block, stmt->getSubExpr(), TransLValue);
+                AstNode *value_node = trans_expr(c, result_used, scope, stmt->getSubExpr(), TransLValue);
                 if (value_node == nullptr)
                     return value_node;
                 return trans_create_node_addr_of(c, false, false, value_node);
             }
         case UO_Deref:
             {
-                AstNode *value_node = trans_expr(c, result_used, block, stmt->getSubExpr(), TransRValue);
+                AstNode *value_node = trans_expr(c, result_used, scope, stmt->getSubExpr(), TransRValue);
                 if (value_node == nullptr)
                     return nullptr;
                 bool is_fn_ptr = qual_type_is_fn_ptr(c, stmt->getSubExpr()->getType());
@@ -1708,7 +1886,7 @@ static AstNode *trans_unary_operator(Context *c, bool result_used, AstNode *bloc
                     AstNode *node = trans_create_node(c, NodeTypePrefixOpExpr);
                     node->data.prefix_op_expr.prefix_op = PrefixOpNegation;
 
-                    node->data.prefix_op_expr.primary_expr = trans_expr(c, true, block, op_expr, TransRValue);
+                    node->data.prefix_op_expr.primary_expr = trans_expr(c, ResultUsedYes, scope, op_expr, TransRValue);
                     if (node->data.prefix_op_expr.primary_expr == nullptr)
                         return nullptr;
 
@@ -1718,7 +1896,7 @@ static AstNode *trans_unary_operator(Context *c, bool result_used, AstNode *bloc
                     AstNode *node = trans_create_node(c, NodeTypeBinOpExpr);
                     node->data.bin_op_expr.op1 = trans_create_node_unsigned(c, 0);
 
-                    node->data.bin_op_expr.op2 = trans_expr(c, true, block, op_expr, TransRValue);
+                    node->data.bin_op_expr.op2 = trans_expr(c, ResultUsedYes, scope, op_expr, TransRValue);
                     if (node->data.bin_op_expr.op2 == nullptr)
                         return nullptr;
 
@@ -1730,8 +1908,13 @@ static AstNode *trans_unary_operator(Context *c, bool result_used, AstNode *bloc
                 }
             }
         case UO_Not:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_Not");
-            return nullptr;
+            {
+                Expr *op_expr = stmt->getSubExpr();
+                AstNode *sub_node = trans_expr(c, ResultUsedYes, scope, op_expr, TransRValue);
+                if (sub_node == nullptr)
+                    return nullptr;
+                return trans_create_node_prefix_op(c, PrefixOpBinNot, sub_node);
+            }
         case UO_LNot:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_LNot");
             return nullptr;
@@ -1751,7 +1934,15 @@ static AstNode *trans_unary_operator(Context *c, bool result_used, AstNode *bloc
     zig_unreachable();
 }
 
-static AstNode *trans_local_declaration(Context *c, AstNode *block, DeclStmt *stmt) {
+static int trans_local_declaration(Context *c, TransScope *scope, const DeclStmt *stmt,
+        AstNode **out_node, TransScope **out_scope)
+{
+    // declarations are added via the scope
+    *out_node = nullptr;
+
+    TransScopeBlock *scope_block = trans_scope_block_find(scope);
+    assert(scope_block != nullptr);
+
     for (auto iter = stmt->decl_begin(); iter != stmt->decl_end(); iter++) {
         Decl *decl = *iter;
         switch (decl->getKind()) {
@@ -1760,294 +1951,389 @@ static AstNode *trans_local_declaration(Context *c, AstNode *block, DeclStmt *st
                 QualType qual_type = var_decl->getTypeSourceInfo()->getType();
                 AstNode *init_node = nullptr;
                 if (var_decl->hasInit()) {
-                    init_node = trans_expr(c, true, block, var_decl->getInit(), TransRValue);
+                    init_node = trans_expr(c, ResultUsedYes, scope, var_decl->getInit(), TransRValue);
                     if (init_node == nullptr)
-                        return nullptr;
+                        return ErrorUnexpected;
 
+                } else {
+                    init_node = trans_create_node(c, NodeTypeUndefinedLiteral);
                 }
                 AstNode *type_node = trans_qual_type(c, qual_type, stmt->getLocStart());
                 if (type_node == nullptr)
-                    return nullptr;
+                    return ErrorUnexpected;
 
-                Buf *symbol_name = buf_create_from_str(decl_name(var_decl));
+                Buf *c_symbol_name = buf_create_from_str(decl_name(var_decl));
+
+                TransScopeVar *var_scope = trans_scope_var_create(c, scope, c_symbol_name);
+                scope = &var_scope->base;
 
                 AstNode *node = trans_create_node_var_decl_local(c, qual_type.isConstQualified(),
-                        symbol_name, type_node, init_node);
-                block->data.block.statements.append(node);
+                        var_scope->zig_name, type_node, init_node);
+
+                scope_block->node->data.block.statements.append(node);
                 continue;
             }
             case Decl::AccessSpec:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind AccessSpec");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Block:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Block");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Captured:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Captured");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ClassScopeFunctionSpecialization:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ClassScopeFunctionSpecialization");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Empty:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Empty");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Export:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Export");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ExternCContext:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ExternCContext");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::FileScopeAsm:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind FileScopeAsm");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Friend:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Friend");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::FriendTemplate:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind FriendTemplate");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Import:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Import");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::LinkageSpec:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind LinkageSpec");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Label:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Label");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Namespace:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Namespace");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::NamespaceAlias:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind NamespaceAlias");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCCompatibleAlias:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCCompatibleAlias");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCCategory:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCCategory");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCCategoryImpl:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCCategoryImpl");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCImplementation:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCImplementation");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCInterface:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCInterface");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCProtocol:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCProtocol");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCMethod:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCMethod");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCProperty:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCProperty");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::BuiltinTemplate:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind BuiltinTemplate");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ClassTemplate:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ClassTemplate");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::FunctionTemplate:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind FunctionTemplate");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::TypeAliasTemplate:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TypeAliasTemplate");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::VarTemplate:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind VarTemplate");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::TemplateTemplateParm:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TemplateTemplateParm");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Enum:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Enum");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Record:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Record");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::CXXRecord:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXRecord");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ClassTemplateSpecialization:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ClassTemplateSpecialization");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ClassTemplatePartialSpecialization:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ClassTemplatePartialSpecialization");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::TemplateTypeParm:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TemplateTypeParm");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCTypeParam:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCTypeParam");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::TypeAlias:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TypeAlias");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Typedef:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Typedef");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::UnresolvedUsingTypename:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UnresolvedUsingTypename");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Using:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Using");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::UsingDirective:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UsingDirective");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::UsingPack:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UsingPack");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::UsingShadow:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UsingShadow");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ConstructorUsingShadow:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ConstructorUsingShadow");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Binding:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Binding");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Field:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Field");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCAtDefsField:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCAtDefsField");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCIvar:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCIvar");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Function:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Function");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::CXXDeductionGuide:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXDeductionGuide");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::CXXMethod:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXMethod");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::CXXConstructor:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXConstructor");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::CXXConversion:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXConversion");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::CXXDestructor:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind CXXDestructor");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::MSProperty:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind MSProperty");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::NonTypeTemplateParm:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind NonTypeTemplateParm");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::Decomposition:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind Decomposition");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ImplicitParam:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ImplicitParam");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::OMPCapturedExpr:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind OMPCapturedExpr");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ParmVar:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ParmVar");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::VarTemplateSpecialization:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind VarTemplateSpecialization");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::VarTemplatePartialSpecialization:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind VarTemplatePartialSpecialization");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::EnumConstant:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind EnumConstant");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::IndirectField:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind IndirectField");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::OMPDeclareReduction:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind OMPDeclareReduction");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::UnresolvedUsingValue:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind UnresolvedUsingValue");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::OMPThreadPrivate:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind OMPThreadPrivate");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::ObjCPropertyImpl:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind ObjCPropertyImpl");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::PragmaComment:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind PragmaComment");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::PragmaDetectMismatch:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind PragmaDetectMismatch");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::StaticAssert:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind StaticAssert");
-                return nullptr;
+                return ErrorUnexpected;
             case Decl::TranslationUnit:
                 emit_warning(c, stmt->getLocStart(), "TODO handle decl kind TranslationUnit");
-                return nullptr;
+                return ErrorUnexpected;
         }
         zig_unreachable();
     }
 
-    // declarations were already added
-    return skip_add_to_block_node;
+    *out_scope = scope;
+    return ErrorNone;
 }
 
-static AstNode *trans_while_loop(Context *c, AstNode *block, WhileStmt *stmt) {
-    AstNode *while_node = trans_create_node(c, NodeTypeWhileExpr);
+static AstNode *trans_while_loop(Context *c, TransScope *scope, const WhileStmt *stmt) {
+    TransScopeWhile *while_scope = trans_scope_while_create(c, scope);
 
-    while_node->data.while_expr.condition = trans_expr(c, true, block, stmt->getCond(), TransRValue);
-    if (while_node->data.while_expr.condition == nullptr)
+    while_scope->node->data.while_expr.condition = trans_expr(c, ResultUsedYes, scope, stmt->getCond(), TransRValue);
+    if (while_scope->node->data.while_expr.condition == nullptr)
         return nullptr;
 
-    while_node->data.while_expr.body = trans_stmt(c, false, block, stmt->getBody(), TransRValue);
-    if (while_node->data.while_expr.body == nullptr)
+    TransScope *body_scope = trans_stmt(c, &while_scope->base, stmt->getBody(),
+            &while_scope->node->data.while_expr.body);
+    if (body_scope == nullptr) 
         return nullptr;
 
-    return while_node;
+    return while_scope->node;
 }
 
-static AstNode *trans_if_statement(Context *c, AstNode *block, IfStmt *stmt) {
+static AstNode *trans_if_statement(Context *c, TransScope *scope, const IfStmt *stmt) {
     // if (c) t
     // if (c) t else e
     AstNode *if_node = trans_create_node(c, NodeTypeIfBoolExpr);
 
-    // TODO: condition != 0
-    AstNode *condition_node = trans_expr(c, true, block, stmt->getCond(), TransRValue);
-    if (condition_node == nullptr)
-        return nullptr;
-    if_node->data.if_bool_expr.condition = condition_node;
-
-    if_node->data.if_bool_expr.then_block = trans_stmt(c, false, block, stmt->getThen(), TransRValue);
-    if (if_node->data.if_bool_expr.then_block == nullptr)
+    TransScope *then_scope = trans_stmt(c, scope, stmt->getThen(), &if_node->data.if_bool_expr.then_block);
+    if (then_scope == nullptr)
         return nullptr;
 
     if (stmt->getElse() != nullptr) {
-        if_node->data.if_bool_expr.else_node = trans_stmt(c, false, block, stmt->getElse(), TransRValue);
-        if (if_node->data.if_bool_expr.else_node == nullptr)
+        TransScope *else_scope = trans_stmt(c, scope, stmt->getElse(), &if_node->data.if_bool_expr.else_node);
+        if (else_scope == nullptr)
             return nullptr;
     }
 
-    return if_node;
+    AstNode *condition_node = trans_expr(c, ResultUsedYes, scope, stmt->getCond(), TransRValue);
+    if (condition_node == nullptr)
+        return nullptr;
+
+    switch (condition_node->type) {
+        case NodeTypeBinOpExpr:
+            switch (condition_node->data.bin_op_expr.bin_op) {
+                case BinOpTypeBoolOr:
+                case BinOpTypeBoolAnd:
+                case BinOpTypeCmpEq:
+                case BinOpTypeCmpNotEq:
+                case BinOpTypeCmpLessThan:
+                case BinOpTypeCmpGreaterThan:
+                case BinOpTypeCmpLessOrEq:
+                case BinOpTypeCmpGreaterOrEq:
+                    if_node->data.if_bool_expr.condition = condition_node;
+                    return if_node;
+                default:
+                    goto convert_to_bitcast;
+            }
+
+        case NodeTypePrefixOpExpr:
+            switch (condition_node->data.prefix_op_expr.prefix_op) {
+                case PrefixOpBoolNot:
+                    if_node->data.if_bool_expr.condition = condition_node;
+                    return if_node;
+                default:
+                    goto convert_to_bitcast;
+            }
+
+        case NodeTypeBoolLiteral:
+            if_node->data.if_bool_expr.condition = condition_node;
+            return if_node;
+
+        default: {
+        // In Zig, float, int and pointer does not work in if statements.
+        // To make it work, we bitcast any value we get to an int of the right size
+        // and comp it to 0
+        // TODO: This doesn't work for pointers, as they become nullable on
+        //       translate
+        // c: if (cond) { }
+        // zig: {
+        // zig:     const _tmp = cond;
+        // zig:     if (@bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0) { }
+        // zig: }
+        convert_to_bitcast:
+            TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
+
+            // const _tmp = cond;
+            // TODO: avoid name collisions with generated variable names
+            Buf* tmp_var_name = buf_create_from_str("_tmp");
+            AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr, condition_node);
+            child_scope->node->data.block.statements.append(tmp_var_decl);
+
+            // @sizeOf(@typeOf(_tmp)) * 8
+            AstNode *typeof_tmp = trans_create_node_builtin_fn_call_str(c, "typeOf");
+            typeof_tmp->data.fn_call_expr.params.append(trans_create_node_symbol(c, tmp_var_name));
+            AstNode *sizeof_tmp = trans_create_node_builtin_fn_call_str(c, "sizeOf");
+            sizeof_tmp->data.fn_call_expr.params.append(typeof_tmp);
+            AstNode *sizeof_tmp_in_bits = trans_create_node_bin_op(
+                c, sizeof_tmp, BinOpTypeMult,
+                trans_create_node_unsigned_negative(c, 8, false));
+
+            // @IntType(false, @sizeOf(@typeOf(_tmp)) * 8)
+            AstNode *int_type = trans_create_node_builtin_fn_call_str(c, "IntType");
+            int_type->data.fn_call_expr.params.append(trans_create_node_bool(c, false));
+            int_type->data.fn_call_expr.params.append(sizeof_tmp_in_bits);
+
+            // @bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp)
+            AstNode *bit_cast = trans_create_node_builtin_fn_call_str(c, "bitCast");
+            bit_cast->data.fn_call_expr.params.append(int_type);
+            bit_cast->data.fn_call_expr.params.append(trans_create_node_symbol(c, tmp_var_name));
+
+            // if (@bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0) { }
+            AstNode *not_eql_zero = trans_create_node_bin_op(c, bit_cast, BinOpTypeCmpNotEq, trans_create_node_unsigned_negative(c, 0, false));
+            if_node->data.if_bool_expr.condition = not_eql_zero;
+            child_scope->node->data.block.statements.append(if_node);
+
+            return child_scope->node;
+        }
+    }
 }
 
-static AstNode *trans_call_expr(Context *c, bool result_used, AstNode *block, CallExpr *stmt) {
+static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *scope, const CallExpr *stmt) {
     AstNode *node = trans_create_node(c, NodeTypeFnCallExpr);
 
-    AstNode *callee_raw_node = trans_expr(c, true, block, stmt->getCallee(), TransRValue);
+    AstNode *callee_raw_node = trans_expr(c, ResultUsedYes, scope, stmt->getCallee(), TransRValue);
     if (callee_raw_node == nullptr)
         return nullptr;
 
-    AstNode *callee_node;
+    AstNode *callee_node = nullptr;
     if (qual_type_is_fn_ptr(c, stmt->getCallee()->getType())) {
-        callee_node = trans_create_node_prefix_op(c, PrefixOpUnwrapMaybe, callee_raw_node);
+        if (stmt->getCallee()->getStmtClass() == Stmt::ImplicitCastExprClass) {
+            const ImplicitCastExpr *implicit_cast = static_cast<const ImplicitCastExpr *>(stmt->getCallee());
+            if (implicit_cast->getCastKind() == CK_FunctionToPointerDecay) {
+                if (implicit_cast->getSubExpr()->getStmtClass() == Stmt::DeclRefExprClass) {
+                    const DeclRefExpr *decl_ref = static_cast<const DeclRefExpr *>(implicit_cast->getSubExpr());
+                    const Decl *decl = decl_ref->getFoundDecl();
+                    if (decl->getKind() == Decl::Function) {
+                        callee_node = callee_raw_node;
+                    }
+                }
+            }
+        }
+        if (callee_node == nullptr) {
+            callee_node = trans_create_node_prefix_op(c, PrefixOpUnwrapMaybe, callee_raw_node);
+        }
     } else {
         callee_node = callee_raw_node;
     }
@@ -2055,9 +2341,9 @@ static AstNode *trans_call_expr(Context *c, bool result_used, AstNode *block, Ca
     node->data.fn_call_expr.fn_ref_expr = callee_node;
 
     unsigned num_args = stmt->getNumArgs();
-    Expr **args = stmt->getArgs();
+    const Expr * const* args = stmt->getArgs();
     for (unsigned i = 0; i < num_args; i += 1) {
-        AstNode *arg_node = trans_expr(c, true, block, args[i], TransRValue);
+        AstNode *arg_node = trans_expr(c, ResultUsedYes, scope, args[i], TransRValue);
         if (arg_node == nullptr)
             return nullptr;
 
@@ -2067,8 +2353,8 @@ static AstNode *trans_call_expr(Context *c, bool result_used, AstNode *block, Ca
     return node;
 }
 
-static AstNode *trans_member_expr(Context *c, AstNode *block, MemberExpr *stmt) {
-    AstNode *container_node = trans_expr(c, true, block, stmt->getBase(), TransRValue);
+static AstNode *trans_member_expr(Context *c, TransScope *scope, const MemberExpr *stmt) {
+    AstNode *container_node = trans_expr(c, ResultUsedYes, scope, stmt->getBase(), TransRValue);
     if (container_node == nullptr)
         return nullptr;
 
@@ -2082,12 +2368,12 @@ static AstNode *trans_member_expr(Context *c, AstNode *block, MemberExpr *stmt) 
     return node;
 }
 
-static AstNode *trans_array_subscript_expr(Context *c, AstNode *block, ArraySubscriptExpr *stmt) {
-    AstNode *container_node = trans_expr(c, true, block, stmt->getBase(), TransRValue);
+static AstNode *trans_array_subscript_expr(Context *c, TransScope *scope, const ArraySubscriptExpr *stmt) {
+    AstNode *container_node = trans_expr(c, ResultUsedYes, scope, stmt->getBase(), TransRValue);
     if (container_node == nullptr)
         return nullptr;
 
-    AstNode *idx_node = trans_expr(c, true, block, stmt->getIdx(), TransRValue);
+    AstNode *idx_node = trans_expr(c, ResultUsedYes, scope, stmt->getIdx(), TransRValue);
     if (idx_node == nullptr)
         return nullptr;
 
@@ -2098,17 +2384,19 @@ static AstNode *trans_array_subscript_expr(Context *c, AstNode *block, ArraySubs
     return node;
 }
 
-static AstNode *trans_c_style_cast_expr(Context *c, bool result_used, AstNode *block,
-        CStyleCastExpr *stmt, TransLRValue lrvalue)
+static AstNode *trans_c_style_cast_expr(Context *c, ResultUsed result_used, TransScope *scope,
+        const CStyleCastExpr *stmt, TransLRValue lrvalue)
 {
-    AstNode *sub_expr_node = trans_expr(c, result_used, block, stmt->getSubExpr(), lrvalue);
+    AstNode *sub_expr_node = trans_expr(c, result_used, scope, stmt->getSubExpr(), lrvalue);
     if (sub_expr_node == nullptr)
         return nullptr;
 
-    return trans_c_cast(c, stmt->getLocStart(), stmt->getType(), sub_expr_node);
+    return trans_c_cast(c, stmt->getLocStart(), stmt->getType(), stmt->getSubExpr()->getType(), sub_expr_node);
 }
 
-static AstNode *trans_unary_expr_or_type_trait_expr(Context *c, AstNode *block, UnaryExprOrTypeTraitExpr *stmt) {
+static AstNode *trans_unary_expr_or_type_trait_expr(Context *c, TransScope *scope,
+        const UnaryExprOrTypeTraitExpr *stmt)
+{
     AstNode *type_node = trans_qual_type(c, stmt->getTypeOfArgument(), stmt->getLocStart());
     if (type_node == nullptr)
         return nullptr;
@@ -2118,14 +2406,13 @@ static AstNode *trans_unary_expr_or_type_trait_expr(Context *c, AstNode *block, 
     return node;
 }
 
-static AstNode *trans_do_loop(Context *c, AstNode *block, DoStmt *stmt) {
-    AstNode *while_node = trans_create_node(c, NodeTypeWhileExpr);
+static AstNode *trans_do_loop(Context *c, TransScope *parent_scope, const DoStmt *stmt) {
+    TransScopeWhile *while_scope = trans_scope_while_create(c, parent_scope);
 
-    AstNode *true_node = trans_create_node(c, NodeTypeBoolLiteral);
-    true_node->data.bool_literal.value = true;
-    while_node->data.while_expr.condition = true_node;
+    while_scope->node->data.while_expr.condition = trans_create_node_bool(c, true);
 
     AstNode *body_node;
+    TransScope *child_scope;
     if (stmt->getBody()->getStmtClass() == Stmt::CompoundStmtClass) {
         // there's already a block in C, so we'll append our condition to it.
         // c: do {
@@ -2137,8 +2424,13 @@ static AstNode *trans_do_loop(Context *c, AstNode *block, DoStmt *stmt) {
         // zig:   b;
         // zig:   if (!cond) break;
         // zig: }
-        body_node = trans_stmt(c, false, block, stmt->getBody(), TransRValue);
-        if (body_node == nullptr) return nullptr;
+
+        // We call the low level function so that we can set child_scope to the scope of the generated block.
+        if (trans_stmt_extra(c, &while_scope->base, stmt->getBody(), ResultUsedNo, TransRValue, &body_node,
+            nullptr, &child_scope))
+        {
+            return nullptr;
+        }
         assert(body_node->type == NodeTypeBlock);
     } else {
         // the C statement is without a block, so we need to create a block to contain it.
@@ -2149,71 +2441,82 @@ static AstNode *trans_do_loop(Context *c, AstNode *block, DoStmt *stmt) {
         // zig:   a;
         // zig:   if (!cond) break;
         // zig: }
-        body_node = trans_create_node(c, NodeTypeBlock);
-        AstNode *child_statement = trans_stmt(c, false, body_node, stmt->getBody(), TransRValue);
-        if (child_statement == nullptr) return nullptr;
+        TransScopeBlock *child_block_scope = trans_scope_block_create(c, &while_scope->base);
+        body_node = child_block_scope->node;
+        AstNode *child_statement;
+        child_scope = trans_stmt(c, &child_block_scope->base, stmt->getBody(), &child_statement);
+        if (child_scope == nullptr) return nullptr;
         body_node->data.block.statements.append(child_statement);
     }
 
     // if (!cond) break;
-    AstNode *condition_node = trans_expr(c, true, body_node, stmt->getCond(), TransRValue);
+    AstNode *condition_node = trans_expr(c, ResultUsedYes, child_scope, stmt->getCond(), TransRValue);
     if (condition_node == nullptr) return nullptr;
     AstNode *terminator_node = trans_create_node(c, NodeTypeIfBoolExpr);
     terminator_node->data.if_bool_expr.condition = trans_create_node_prefix_op(c, PrefixOpBoolNot, condition_node);
     terminator_node->data.if_bool_expr.then_block = trans_create_node(c, NodeTypeBreak);
+
     body_node->data.block.statements.append(terminator_node);
 
-    while_node->data.while_expr.body = body_node;
+    while_scope->node->data.while_expr.body = body_node;
 
-    return while_node;
+    return while_scope->node;
 }
 
-static AstNode *trans_for_loop(Context *c, AstNode *block, ForStmt *stmt) {
+static AstNode *trans_for_loop(Context *c, TransScope *parent_scope, const ForStmt *stmt) {
     AstNode *loop_block_node;
-    AstNode *while_node = trans_create_node(c, NodeTypeWhileExpr);
-    Stmt *init_stmt = stmt->getInit();
+    TransScopeWhile *while_scope;
+    TransScope *cond_scope;
+    const Stmt *init_stmt = stmt->getInit();
     if (init_stmt == nullptr) {
-        loop_block_node = while_node;
+        while_scope = trans_scope_while_create(c, parent_scope);
+        loop_block_node = while_scope->node;
+        cond_scope = parent_scope;
     } else {
-        loop_block_node = trans_create_node(c, NodeTypeBlock);
+        TransScopeBlock *child_scope = trans_scope_block_create(c, parent_scope);
+        loop_block_node = child_scope->node;
 
-        AstNode *vars_node = trans_stmt(c, false, loop_block_node, init_stmt, TransRValue);
-        if (vars_node == nullptr)
+        AstNode *vars_node;
+        cond_scope = trans_stmt(c, &child_scope->base, init_stmt, &vars_node);
+        if (cond_scope == nullptr)
             return nullptr;
-        if (vars_node != skip_add_to_block_node)
-            loop_block_node->data.block.statements.append(vars_node);
+        if (vars_node != nullptr)
+            child_scope->node->data.block.statements.append(vars_node);
 
-        loop_block_node->data.block.statements.append(while_node);
+        while_scope = trans_scope_while_create(c, cond_scope);
+
+        child_scope->node->data.block.statements.append(while_scope->node);
     }
 
-    Stmt *cond_stmt = stmt->getCond();
+    const Stmt *cond_stmt = stmt->getCond();
     if (cond_stmt == nullptr) {
-        AstNode *true_node = trans_create_node(c, NodeTypeBoolLiteral);
-        true_node->data.bool_literal.value = true;
-        while_node->data.while_expr.condition = true_node;
+        while_scope->node->data.while_expr.condition = trans_create_node_bool(c, true);
     } else {
-        while_node->data.while_expr.condition = trans_stmt(c, false, loop_block_node, cond_stmt, TransRValue);
-        if (while_node->data.while_expr.condition == nullptr)
+        TransScope *end_cond_scope = trans_stmt(c, cond_scope, cond_stmt,
+                &while_scope->node->data.while_expr.condition);
+        if (end_cond_scope == nullptr)
             return nullptr;
     }
 
-    Stmt *inc_stmt = stmt->getInc();
+    const Stmt *inc_stmt = stmt->getInc();
     if (inc_stmt != nullptr) {
-        AstNode *inc_node = trans_stmt(c, false, loop_block_node, inc_stmt, TransRValue);
-        if (inc_node == nullptr)
+        AstNode *inc_node;
+        TransScope *inc_scope = trans_stmt(c, cond_scope, inc_stmt, &inc_node);
+        if (inc_scope == nullptr)
             return nullptr;
-        while_node->data.while_expr.continue_expr = inc_node;
+        while_scope->node->data.while_expr.continue_expr = inc_node;
     }
 
-    AstNode *child_statement = trans_stmt(c, false, loop_block_node, stmt->getBody(), TransRValue);
-    if (child_statement == nullptr)
+    AstNode *body_statement;
+    TransScope *body_scope = trans_stmt(c, &while_scope->base, stmt->getBody(), &body_statement);
+    if (body_scope == nullptr)
         return nullptr;
-    while_node->data.while_expr.body = child_statement;
+    while_scope->node->data.while_expr.body = body_statement;
 
     return loop_block_node;
 }
 
-static AstNode *trans_string_literal(Context *c, AstNode *block, StringLiteral *stmt) {
+static AstNode *trans_string_literal(Context *c, TransScope *scope, const StringLiteral *stmt) {
     switch (stmt->getKind()) {
         case StringLiteral::Ascii:
         case StringLiteral::UTF8:
@@ -2231,581 +2534,648 @@ static AstNode *trans_string_literal(Context *c, AstNode *block, StringLiteral *
     zig_unreachable();
 }
 
-static AstNode *trans_break_stmt(Context *c, AstNode *block, BreakStmt *stmt) {
-    return trans_create_node(c, NodeTypeBreak);
+static AstNode *trans_break_stmt(Context *c, TransScope *scope, const BreakStmt *stmt) {
+    TransScope *cur_scope = scope;
+    while (cur_scope != nullptr) {
+        if (cur_scope->id == TransScopeIdWhile) {
+            return trans_create_node(c, NodeTypeBreak);
+        } else if (cur_scope->id == TransScopeIdSwitch) {
+            zig_panic("TODO");
+        }
+        cur_scope = cur_scope->parent;
+    }
+    zig_unreachable();
 }
 
-static AstNode *trans_continue_stmt(Context *c, AstNode *block, ContinueStmt *stmt) {
+static AstNode *trans_continue_stmt(Context *c, TransScope *scope, const ContinueStmt *stmt) {
     return trans_create_node(c, NodeTypeContinue);
 }
 
-static AstNode *trans_stmt(Context *c, bool result_used, AstNode *block, Stmt *stmt, TransLRValue lrvalue) {
+static int wrap_stmt(AstNode **out_node, TransScope **out_scope, TransScope *in_scope, AstNode *result_node) {
+    if (result_node == nullptr)
+        return ErrorUnexpected;
+    *out_node = result_node;
+    if (out_scope != nullptr)
+        *out_scope = in_scope;
+    return ErrorNone;
+}
+
+static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
+        ResultUsed result_used, TransLRValue lrvalue,
+        AstNode **out_node, TransScope **out_child_scope,
+        TransScope **out_node_scope)
+{
     Stmt::StmtClass sc = stmt->getStmtClass();
     switch (sc) {
         case Stmt::ReturnStmtClass:
-            return trans_return_stmt(c, block, (ReturnStmt *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_return_stmt(c, scope, (const ReturnStmt *)stmt));
         case Stmt::CompoundStmtClass:
-            return trans_compound_stmt(c, block, (CompoundStmt *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_compound_stmt(c, scope, (const CompoundStmt *)stmt, out_node_scope));
         case Stmt::IntegerLiteralClass:
-            return trans_integer_literal(c, (IntegerLiteral *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_integer_literal(c, (const IntegerLiteral *)stmt));
         case Stmt::ConditionalOperatorClass:
-            return trans_conditional_operator(c, result_used, block, (ConditionalOperator *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_conditional_operator(c, result_used, scope, (const ConditionalOperator *)stmt));
         case Stmt::BinaryOperatorClass:
-            return trans_binary_operator(c, result_used, block, (BinaryOperator *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_binary_operator(c, result_used, scope, (const BinaryOperator *)stmt));
         case Stmt::CompoundAssignOperatorClass:
-            return trans_compound_assign_operator(c, result_used, block, (CompoundAssignOperator *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_compound_assign_operator(c, result_used, scope, (const CompoundAssignOperator *)stmt));
         case Stmt::ImplicitCastExprClass:
-            return trans_implicit_cast_expr(c, block, (ImplicitCastExpr *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_implicit_cast_expr(c, scope, (const ImplicitCastExpr *)stmt));
         case Stmt::DeclRefExprClass:
-            return trans_decl_ref_expr(c, (DeclRefExpr *)stmt, lrvalue);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_decl_ref_expr(c, scope, (const DeclRefExpr *)stmt, lrvalue));
         case Stmt::UnaryOperatorClass:
-            return trans_unary_operator(c, result_used, block, (UnaryOperator *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_unary_operator(c, result_used, scope, (const UnaryOperator *)stmt));
         case Stmt::DeclStmtClass:
-            return trans_local_declaration(c, block, (DeclStmt *)stmt);
+            return trans_local_declaration(c, scope, (const DeclStmt *)stmt, out_node, out_child_scope);
         case Stmt::WhileStmtClass:
-            return trans_while_loop(c, block, (WhileStmt *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_while_loop(c, scope, (const WhileStmt *)stmt));
         case Stmt::IfStmtClass:
-            return trans_if_statement(c, block, (IfStmt *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_if_statement(c, scope, (const IfStmt *)stmt));
         case Stmt::CallExprClass:
-            return trans_call_expr(c, result_used, block, (CallExpr *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_call_expr(c, result_used, scope, (const CallExpr *)stmt));
         case Stmt::NullStmtClass:
-            return skip_add_to_block_node;
+            *out_node = nullptr;
+            *out_child_scope = scope;
+            return ErrorNone;
         case Stmt::MemberExprClass:
-            return trans_member_expr(c, block, (MemberExpr *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_member_expr(c, scope, (const MemberExpr *)stmt));
         case Stmt::ArraySubscriptExprClass:
-            return trans_array_subscript_expr(c, block, (ArraySubscriptExpr *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_array_subscript_expr(c, scope, (const ArraySubscriptExpr *)stmt));
         case Stmt::CStyleCastExprClass:
-            return trans_c_style_cast_expr(c, result_used, block, (CStyleCastExpr *)stmt, lrvalue);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_c_style_cast_expr(c, result_used, scope, (const CStyleCastExpr *)stmt, lrvalue));
         case Stmt::UnaryExprOrTypeTraitExprClass:
-            return trans_unary_expr_or_type_trait_expr(c, block, (UnaryExprOrTypeTraitExpr *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_unary_expr_or_type_trait_expr(c, scope, (const UnaryExprOrTypeTraitExpr *)stmt));
         case Stmt::DoStmtClass:
-            return trans_do_loop(c, block, (DoStmt *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_do_loop(c, scope, (const DoStmt *)stmt));
         case Stmt::ForStmtClass:
-            return trans_for_loop(c, block, (ForStmt *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_for_loop(c, scope, (const ForStmt *)stmt));
         case Stmt::StringLiteralClass:
-            return trans_string_literal(c, block, (StringLiteral *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_string_literal(c, scope, (const StringLiteral *)stmt));
         case Stmt::BreakStmtClass:
-            return trans_break_stmt(c, block, (BreakStmt *)stmt);
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_break_stmt(c, scope, (const BreakStmt *)stmt));
         case Stmt::ContinueStmtClass:
-            return trans_continue_stmt(c, block, (ContinueStmt *)stmt);
-        case Stmt::CaseStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C CaseStmtClass");
-            return nullptr;
-        case Stmt::DefaultStmtClass:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C DefaultStmtClass");
-            return nullptr;
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_continue_stmt(c, scope, (const ContinueStmt *)stmt));
+        case Stmt::ParenExprClass:
+            return wrap_stmt(out_node, out_child_scope, scope,
+                    trans_expr(c, result_used, scope, ((const ParenExpr*)stmt)->getSubExpr(), lrvalue));
         case Stmt::SwitchStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SwitchStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
+        case Stmt::CaseStmtClass:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C CaseStmtClass");
+            return ErrorUnexpected;
+        case Stmt::DefaultStmtClass:
+            emit_warning(c, stmt->getLocStart(), "TODO handle C DefaultStmtClass");
+            return ErrorUnexpected;
         case Stmt::NoStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C NoStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::GCCAsmStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C GCCAsmStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::MSAsmStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C MSAsmStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::AttributedStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C AttributedStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXCatchStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXCatchStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXForRangeStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXForRangeStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXTryStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXTryStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CapturedStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CapturedStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CoreturnStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CoreturnStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CoroutineBodyStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CoroutineBodyStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::BinaryConditionalOperatorClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C BinaryConditionalOperatorClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::AddrLabelExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C AddrLabelExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ArrayInitIndexExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ArrayInitIndexExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ArrayInitLoopExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ArrayInitLoopExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ArrayTypeTraitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ArrayTypeTraitExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::AsTypeExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C AsTypeExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::AtomicExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C AtomicExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::BlockExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C BlockExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXBindTemporaryExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXBindTemporaryExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXBoolLiteralExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXBoolLiteralExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXConstructExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXConstructExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXTemporaryObjectExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXTemporaryObjectExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXDefaultArgExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDefaultArgExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXDefaultInitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDefaultInitExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXDeleteExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDeleteExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXDependentScopeMemberExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDependentScopeMemberExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXFoldExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXFoldExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXInheritedCtorInitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXInheritedCtorInitExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXNewExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXNewExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXNoexceptExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXNoexceptExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXNullPtrLiteralExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXNullPtrLiteralExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXPseudoDestructorExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXPseudoDestructorExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXScalarValueInitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXScalarValueInitExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXStdInitializerListExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXStdInitializerListExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXThisExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXThisExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXThrowExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXThrowExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXTypeidExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXTypeidExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXUnresolvedConstructExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXUnresolvedConstructExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXUuidofExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXUuidofExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CUDAKernelCallExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CUDAKernelCallExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXMemberCallExprClass:
-            (void)result_used;
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXMemberCallExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXOperatorCallExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXOperatorCallExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::UserDefinedLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C UserDefinedLiteralClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXFunctionalCastExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXFunctionalCastExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXConstCastExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXConstCastExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXDynamicCastExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXDynamicCastExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXReinterpretCastExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXReinterpretCastExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CXXStaticCastExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CXXStaticCastExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCBridgedCastExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCBridgedCastExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CharacterLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CharacterLiteralClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ChooseExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ChooseExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CompoundLiteralExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CompoundLiteralExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ConvertVectorExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ConvertVectorExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CoawaitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CoawaitExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::CoyieldExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C CoyieldExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::DependentCoawaitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C DependentCoawaitExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::DependentScopeDeclRefExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C DependentScopeDeclRefExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::DesignatedInitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C DesignatedInitExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::DesignatedInitUpdateExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C DesignatedInitUpdateExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ExprWithCleanupsClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ExprWithCleanupsClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ExpressionTraitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ExpressionTraitExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ExtVectorElementExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ExtVectorElementExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::FloatingLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C FloatingLiteralClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::FunctionParmPackExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C FunctionParmPackExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::GNUNullExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C GNUNullExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::GenericSelectionExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C GenericSelectionExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ImaginaryLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ImaginaryLiteralClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ImplicitValueInitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ImplicitValueInitExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::InitListExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C InitListExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::LambdaExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C LambdaExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::MSPropertyRefExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C MSPropertyRefExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::MSPropertySubscriptExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C MSPropertySubscriptExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::MaterializeTemporaryExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C MaterializeTemporaryExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::NoInitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C NoInitExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPArraySectionExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPArraySectionExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCArrayLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCArrayLiteralClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCAvailabilityCheckExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAvailabilityCheckExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCBoolLiteralExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCBoolLiteralExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCBoxedExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCBoxedExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCDictionaryLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCDictionaryLiteralClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCEncodeExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCEncodeExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCIndirectCopyRestoreExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCIndirectCopyRestoreExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCIsaExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCIsaExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCIvarRefExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCIvarRefExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCMessageExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCMessageExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCPropertyRefExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCPropertyRefExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCProtocolExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCProtocolExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCSelectorExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCSelectorExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCStringLiteralClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCStringLiteralClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCSubscriptRefExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCSubscriptRefExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OffsetOfExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OffsetOfExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OpaqueValueExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OpaqueValueExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::UnresolvedLookupExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C UnresolvedLookupExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::UnresolvedMemberExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C UnresolvedMemberExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::PackExpansionExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C PackExpansionExprClass");
-            return nullptr;
-        case Stmt::ParenExprClass:
-            return trans_expr(c, result_used, block, ((ParenExpr*)stmt)->getSubExpr(), lrvalue);
+            return ErrorUnexpected;
         case Stmt::ParenListExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ParenListExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::PredefinedExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C PredefinedExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::PseudoObjectExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C PseudoObjectExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ShuffleVectorExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ShuffleVectorExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::SizeOfPackExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SizeOfPackExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::StmtExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C StmtExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::SubstNonTypeTemplateParmExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SubstNonTypeTemplateParmExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::SubstNonTypeTemplateParmPackExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SubstNonTypeTemplateParmPackExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::TypeTraitExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C TypeTraitExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::TypoExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C TypoExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::VAArgExprClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C VAArgExprClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::GotoStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C GotoStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::IndirectGotoStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C IndirectGotoStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::LabelStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C LabelStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::MSDependentExistsStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C MSDependentExistsStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPAtomicDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPAtomicDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPBarrierDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPBarrierDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPCancelDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPCancelDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPCancellationPointDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPCancellationPointDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPCriticalDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPCriticalDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPFlushDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPFlushDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPDistributeDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPDistributeDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPDistributeParallelForDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPDistributeParallelForDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPDistributeParallelForSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPDistributeParallelForSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPDistributeSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPDistributeSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPForDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPForDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPForSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPForSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPParallelForDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPParallelForDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPParallelForSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPParallelForSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetParallelForSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetParallelForSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetTeamsDistributeDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDistributeDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetTeamsDistributeParallelForDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDistributeParallelForDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetTeamsDistributeParallelForSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDistributeParallelForSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetTeamsDistributeSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDistributeSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTaskLoopDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskLoopDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTaskLoopSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskLoopSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTeamsDistributeDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDistributeDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTeamsDistributeParallelForDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDistributeParallelForDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTeamsDistributeParallelForSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDistributeParallelForSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTeamsDistributeSimdDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDistributeSimdDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPMasterDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPMasterDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPOrderedDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPOrderedDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPParallelDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPParallelDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPParallelSectionsDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPParallelSectionsDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPSectionDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPSectionDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPSectionsDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPSectionsDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPSingleDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPSingleDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetDataDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetDataDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetEnterDataDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetEnterDataDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetExitDataDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetExitDataDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetParallelDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetParallelDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetParallelForDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetParallelForDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetTeamsDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetTeamsDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTargetUpdateDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTargetUpdateDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTaskDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTaskgroupDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskgroupDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTaskwaitDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskwaitDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTaskyieldDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTaskyieldDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::OMPTeamsDirectiveClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C OMPTeamsDirectiveClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCAtCatchStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtCatchStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCAtFinallyStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtFinallyStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCAtSynchronizedStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtSynchronizedStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCAtThrowStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtThrowStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCAtTryStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAtTryStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCAutoreleasePoolStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCAutoreleasePoolStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::ObjCForCollectionStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C ObjCForCollectionStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::SEHExceptStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SEHExceptStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::SEHFinallyStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SEHFinallyStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::SEHLeaveStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SEHLeaveStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
         case Stmt::SEHTryStmtClass:
             emit_warning(c, stmt->getLocStart(), "TODO handle C SEHTryStmtClass");
-            return nullptr;
+            return ErrorUnexpected;
     }
     zig_unreachable();
+}
+
+// Returns null if there was an error
+static AstNode *trans_expr(Context *c, ResultUsed result_used, TransScope *scope, const Expr *expr,
+        TransLRValue lrval)
+{
+    AstNode *result_node;
+    TransScope *result_scope;
+    if (trans_stmt_extra(c, scope, expr, result_used, lrval, &result_node, &result_scope, nullptr)) {
+        return nullptr;
+    }
+    return result_node;
+}
+
+// Statements have no result and no concept of L or R value.
+// Returns child scope, or null if there was an error
+static TransScope *trans_stmt(Context *c, TransScope *scope, const Stmt *stmt, AstNode **out_node) {
+    TransScope *child_scope;
+    if (trans_stmt_extra(c, scope, stmt, ResultUsedNo, TransRValue, out_node, &child_scope, nullptr)) {
+        return nullptr;
+    }
+    return child_scope;
 }
 
 static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
@@ -2827,7 +3197,8 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
 
     StorageClass sc = fn_decl->getStorageClass();
     if (sc == SC_None) {
-        proto_node->data.fn_proto.visib_mod = fn_decl->hasBody() ? c->export_visib_mod : c->visib_mod;
+        proto_node->data.fn_proto.visib_mod = c->visib_mod;
+        proto_node->data.fn_proto.is_export = fn_decl->hasBody() ? c->want_export : false;
     } else if (sc == SC_Extern || sc == SC_Static) {
         proto_node->data.fn_proto.visib_mod = c->visib_mod;
     } else if (sc == SC_PrivateExtern) {
@@ -2838,10 +3209,13 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
         return;
     }
 
+    TransScope *scope = &c->global_scope->base;
+
     for (size_t i = 0; i < proto_node->data.fn_proto.params.length; i += 1) {
         AstNode *param_node = proto_node->data.fn_proto.params.at(i);
         const ParmVarDecl *param = fn_decl->getParamDecl(i);
         const char *name = decl_name(param);
+
         Buf *proto_param_name;
         if (strlen(name) != 0) {
             proto_param_name = buf_create_from_str(name);
@@ -2851,7 +3225,11 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
                 proto_param_name = buf_sprintf("arg%" ZIG_PRI_usize "", i);
             }
         }
-        param_node->data.param_decl.name = proto_param_name;
+
+        TransScopeVar *scope_var = trans_scope_var_create(c, scope, proto_param_name);
+        scope = &scope_var->base;
+
+        param_node->data.param_decl.name = scope_var->zig_name;
     }
 
     if (!fn_decl->hasBody()) {
@@ -2863,16 +3241,17 @@ static void visit_fn_decl(Context *c, const FunctionDecl *fn_decl) {
     // actual function definition with body
     c->ptr_params.clear();
     Stmt *body = fn_decl->getBody();
-    AstNode *actual_body_node = trans_stmt(c, false, nullptr, body, TransRValue);
-    assert(actual_body_node != skip_add_to_block_node);
-    if (actual_body_node == nullptr) {
+    AstNode *actual_body_node;
+    TransScope *result_scope = trans_stmt(c, scope, body, &actual_body_node);
+    if (result_scope == nullptr) {
         emit_warning(c, fn_decl->getLocation(), "unable to translate function");
         return;
     }
+    assert(actual_body_node != nullptr);
+    assert(actual_body_node->type == NodeTypeBlock);
 
     // it worked
 
-    assert(actual_body_node->type == NodeTypeBlock);
     AstNode *body_node_with_param_inits = trans_create_node(c, NodeTypeBlock);
 
     for (size_t i = 0; i < proto_node->data.fn_proto.params.length; i += 1) {
@@ -3010,7 +3389,14 @@ static AstNode *resolve_enum_decl(Context *c, const EnumDecl *enum_decl) {
         AstNode *enum_node = trans_create_node(c, NodeTypeContainerDecl);
         enum_node->data.container_decl.kind = ContainerKindEnum;
         enum_node->data.container_decl.layout = ContainerLayoutExtern;
-        enum_node->data.container_decl.init_arg_expr = tag_int_type;
+        // TODO only emit this tag type if the enum tag type is not the default.
+        // I don't know what the default is, need to figure out how clang is deciding.
+        // it appears to at least be different across gcc/msvc
+        if (!c_is_builtin_type(c, enum_decl->getIntegerType(), BuiltinType::UInt) &&
+            !c_is_builtin_type(c, enum_decl->getIntegerType(), BuiltinType::Int))
+        {
+            enum_node->data.container_decl.init_arg_expr = tag_int_type;
+        }
 
         enum_node->data.container_decl.fields.resize(field_count);
         uint32_t i = 0;
@@ -3109,7 +3495,6 @@ static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
     }
 
     const char *raw_name = decl_name(record_decl);
-
     const char *container_kind_name;
     ContainerKind container_kind;
     if (record_decl->isUnion()) {
@@ -3197,6 +3582,93 @@ static AstNode *resolve_record_decl(Context *c, const RecordDecl *record_decl) {
     }
 }
 
+static AstNode *trans_ap_value(Context *c, APValue *ap_value, QualType qt, const SourceLocation &source_loc) {
+    switch (ap_value->getKind()) {
+        case APValue::Int:
+            return trans_create_node_apint(c, ap_value->getInt());
+        case APValue::Uninitialized:
+            return trans_create_node(c, NodeTypeUndefinedLiteral);
+        case APValue::Array: {
+            emit_warning(c, source_loc, "TODO add a test case for this code");
+
+            unsigned init_count = ap_value->getArrayInitializedElts();
+            unsigned all_count = ap_value->getArraySize();
+            unsigned leftover_count = all_count - init_count;
+            AstNode *init_node = trans_create_node(c, NodeTypeContainerInitExpr);
+            AstNode *arr_type_node = trans_qual_type(c, qt, source_loc);
+            init_node->data.container_init_expr.type = arr_type_node;
+            init_node->data.container_init_expr.kind = ContainerInitKindArray;
+
+            QualType child_qt = qt.getTypePtr()->getLocallyUnqualifiedSingleStepDesugaredType();
+
+            for (size_t i = 0; i < init_count; i += 1) {
+                APValue &elem_ap_val = ap_value->getArrayInitializedElt(i);
+                AstNode *elem_node = trans_ap_value(c, &elem_ap_val, child_qt, source_loc);
+                if (elem_node == nullptr)
+                    return nullptr;
+                init_node->data.container_init_expr.entries.append(elem_node);
+            }
+            if (leftover_count == 0) {
+                return init_node;
+            }
+
+            APValue &filler_ap_val = ap_value->getArrayFiller();
+            AstNode *filler_node = trans_ap_value(c, &filler_ap_val, child_qt, source_loc);
+            if (filler_node == nullptr)
+                return nullptr;
+
+            AstNode *filler_arr_1 = trans_create_node(c, NodeTypeContainerInitExpr);
+            init_node->data.container_init_expr.type = arr_type_node;
+            init_node->data.container_init_expr.kind = ContainerInitKindArray;
+            init_node->data.container_init_expr.entries.append(filler_node);
+
+            AstNode *rhs_node;
+            if (leftover_count == 1) {
+                rhs_node = filler_arr_1;
+            } else {
+                AstNode *amt_node = trans_create_node_unsigned(c, leftover_count);
+                rhs_node = trans_create_node_bin_op(c, filler_arr_1, BinOpTypeArrayMult, amt_node);
+            }
+
+            return trans_create_node_bin_op(c, init_node, BinOpTypeArrayCat, rhs_node);
+        }
+        case APValue::LValue: {
+            const APValue::LValueBase lval_base = ap_value->getLValueBase();
+            if (const Expr *expr = lval_base.dyn_cast<const Expr *>()) {
+                return trans_expr(c, ResultUsedYes, &c->global_scope->base, expr, TransRValue);
+            }
+            //const ValueDecl *value_decl = lval_base.get<const ValueDecl *>();
+            emit_warning(c, source_loc, "TODO handle initializer LValue ValueDecl");
+            return nullptr;
+        }
+        case APValue::Float:
+            emit_warning(c, source_loc, "unsupported initializer value kind: Float");
+            return nullptr;
+        case APValue::ComplexInt:
+            emit_warning(c, source_loc, "unsupported initializer value kind: ComplexInt");
+            return nullptr;
+        case APValue::ComplexFloat:
+            emit_warning(c, source_loc, "unsupported initializer value kind: ComplexFloat");
+            return nullptr;
+        case APValue::Vector:
+            emit_warning(c, source_loc, "unsupported initializer value kind: Vector");
+            return nullptr;
+        case APValue::Struct:
+            emit_warning(c, source_loc, "unsupported initializer value kind: Struct");
+            return nullptr;
+        case APValue::Union:
+            emit_warning(c, source_loc, "unsupported initializer value kind: Union");
+            return nullptr;
+        case APValue::MemberPointer:
+            emit_warning(c, source_loc, "unsupported initializer value kind: MemberPointer");
+            return nullptr;
+        case APValue::AddrLabelDiff:
+            emit_warning(c, source_loc, "unsupported initializer value kind: AddrLabelDiff");
+            return nullptr;
+    }
+    zig_unreachable();
+}
+
 static void visit_var_decl(Context *c, const VarDecl *var_decl) {
     Buf *name = buf_create_from_str(decl_name(var_decl));
 
@@ -3233,27 +3705,9 @@ static void visit_var_decl(Context *c, const VarDecl *var_decl) {
                         "ignoring variable '%s' - unable to evaluate initializer", buf_ptr(name));
                 return;
             }
-            switch (ap_value->getKind()) {
-                case APValue::Int:
-                    init_node = trans_create_node_apint(c, ap_value->getInt());
-                    break;
-                case APValue::Uninitialized:
-                    init_node = trans_create_node(c, NodeTypeUndefinedLiteral);
-                    break;
-                case APValue::Float:
-                case APValue::ComplexInt:
-                case APValue::ComplexFloat:
-                case APValue::LValue:
-                case APValue::Vector:
-                case APValue::Array:
-                case APValue::Struct:
-                case APValue::Union:
-                case APValue::MemberPointer:
-                case APValue::AddrLabelDiff:
-                    emit_warning(c, var_decl->getLocation(),
-                            "ignoring variable '%s' - unrecognized initializer value kind", buf_ptr(name));
-                    return;
-            }
+            init_node = trans_ap_value(c, ap_value, qt, var_decl->getLocation());
+            if (init_node == nullptr)
+                return;
         } else {
             init_node = trans_create_node(c, NodeTypeUndefinedLiteral);
         }
@@ -3301,18 +3755,163 @@ static bool decl_visitor(void *context, const Decl *decl) {
     return true;
 }
 
-static bool name_exists(Context *c, Buf *name) {
+static bool name_exists_global(Context *c, Buf *name) {
     return get_global(c, name) != nullptr;
+}
+
+static bool name_exists_scope(Context *c, Buf *name, TransScope *scope) {
+    while (scope != nullptr) {
+        if (scope->id == TransScopeIdVar) {
+            TransScopeVar *var_scope = (TransScopeVar *)scope;
+            if (buf_eql_buf(name, var_scope->zig_name)) {
+                return true;
+            }
+        }
+        scope = scope->parent;
+    }
+    return name_exists_global(c, name);
+}
+
+static Buf *get_unique_name(Context *c, Buf *name, TransScope *scope) {
+    Buf *proposed_name = name;
+    int count = 0;
+    while (name_exists_scope(c, proposed_name, scope)) {
+        if (proposed_name == name) {
+            proposed_name = buf_alloc();
+        }
+        buf_resize(proposed_name, 0);
+        buf_appendf(proposed_name, "%s_%d", buf_ptr(name), count);
+        count += 1;
+    }
+    return proposed_name;
+}
+
+static TransScopeRoot *trans_scope_root_create(Context *c) {
+    TransScopeRoot *result = allocate<TransScopeRoot>(1);
+    result->base.id = TransScopeIdRoot;
+    return result;
+}
+
+static TransScopeWhile *trans_scope_while_create(Context *c, TransScope *parent_scope) {
+    TransScopeWhile *result = allocate<TransScopeWhile>(1);
+    result->base.id = TransScopeIdWhile;
+    result->base.parent = parent_scope;
+    result->node = trans_create_node(c, NodeTypeWhileExpr);
+    return result;
+}
+
+static TransScopeBlock *trans_scope_block_create(Context *c, TransScope *parent_scope) {
+    TransScopeBlock *result = allocate<TransScopeBlock>(1);
+    result->base.id = TransScopeIdBlock;
+    result->base.parent = parent_scope;
+    result->node = trans_create_node(c, NodeTypeBlock);
+    return result;
+}
+
+static TransScopeVar *trans_scope_var_create(Context *c, TransScope *parent_scope, Buf *wanted_name) {
+    TransScopeVar *result = allocate<TransScopeVar>(1);
+    result->base.id = TransScopeIdVar;
+    result->base.parent = parent_scope;
+    result->c_name = wanted_name;
+    result->zig_name = get_unique_name(c, wanted_name, parent_scope);
+    return result;
+}
+
+static TransScopeBlock *trans_scope_block_find(TransScope *scope) {
+    while (scope != nullptr) {
+        if (scope->id == TransScopeIdBlock) {
+            return (TransScopeBlock *)scope;
+        }
+        scope = scope->parent;
+    }
+    return nullptr;
 }
 
 static void render_aliases(Context *c) {
     for (size_t i = 0; i < c->aliases.length; i += 1) {
         Alias *alias = &c->aliases.at(i);
-        if (name_exists(c, alias->new_name))
+        if (name_exists_global(c, alias->new_name))
             continue;
 
         add_global_var(c, alias->new_name, trans_create_node_symbol(c, alias->canon_name));
     }
+}
+
+static AstNode *trans_lookup_ast_container_typeof(Context *c, AstNode *ref_node);
+
+static AstNode *trans_lookup_ast_container(Context *c, AstNode *type_node) {
+    if (type_node == nullptr) {
+        return nullptr;
+    } else if (type_node->type == NodeTypeContainerDecl) {
+        return type_node;
+    } else if (type_node->type == NodeTypePrefixOpExpr) {
+        return type_node;
+    } else if (type_node->type == NodeTypeSymbol) {
+        AstNode *existing_node = get_global(c, type_node->data.symbol_expr.symbol);
+        if (existing_node == nullptr)
+            return nullptr;
+        if (existing_node->type != NodeTypeVariableDeclaration)
+            return nullptr;
+        return trans_lookup_ast_container(c, existing_node->data.variable_declaration.expr);
+    } else if (type_node->type == NodeTypeFieldAccessExpr) {
+        AstNode *container_node = trans_lookup_ast_container_typeof(c, type_node->data.field_access_expr.struct_expr);
+        if (container_node == nullptr)
+            return nullptr;
+        if (container_node->type != NodeTypeContainerDecl)
+            return container_node;
+
+        for (size_t i = 0; i < container_node->data.container_decl.fields.length; i += 1) {
+            AstNode *field_node = container_node->data.container_decl.fields.items[i];
+            if (buf_eql_buf(field_node->data.struct_field.name, type_node->data.field_access_expr.field_name)) {
+                return trans_lookup_ast_container(c, field_node->data.struct_field.type);
+            }
+        }
+        return nullptr;
+    } else {
+        return nullptr;
+    }
+}
+
+static AstNode *trans_lookup_ast_container_typeof(Context *c, AstNode *ref_node) {
+    if (ref_node->type == NodeTypeSymbol) {
+        AstNode *existing_node = get_global(c, ref_node->data.symbol_expr.symbol);
+        if (existing_node == nullptr)
+            return nullptr;
+        if (existing_node->type != NodeTypeVariableDeclaration)
+            return nullptr;
+        return trans_lookup_ast_container(c, existing_node->data.variable_declaration.type);
+    } else if (ref_node->type == NodeTypeFieldAccessExpr) {
+        AstNode *container_node = trans_lookup_ast_container_typeof(c, ref_node->data.field_access_expr.struct_expr);
+        if (container_node == nullptr)
+            return nullptr;
+        if (container_node->type != NodeTypeContainerDecl)
+            return container_node;
+        for (size_t i = 0; i < container_node->data.container_decl.fields.length; i += 1) {
+            AstNode *field_node = container_node->data.container_decl.fields.items[i];
+            if (buf_eql_buf(field_node->data.struct_field.name, ref_node->data.field_access_expr.field_name)) {
+                return trans_lookup_ast_container(c, field_node->data.struct_field.type);
+            }
+        }
+        return nullptr;
+    } else {
+        return nullptr;
+    }
+}
+
+static AstNode *trans_lookup_ast_maybe_fn(Context *c, AstNode *ref_node) {
+    AstNode *prefix_node = trans_lookup_ast_container_typeof(c, ref_node);
+    if (prefix_node == nullptr)
+        return nullptr;
+    if (prefix_node->type != NodeTypePrefixOpExpr)
+        return nullptr;
+    if (prefix_node->data.prefix_op_expr.prefix_op != PrefixOpMaybe)
+        return nullptr;
+
+    AstNode *fn_proto_node = prefix_node->data.prefix_op_expr.primary_expr;
+    if (fn_proto_node->type != NodeTypeFnProto)
+        return nullptr;
+
+    return fn_proto_node;
 }
 
 static void render_macros(Context *c) {
@@ -3322,14 +3921,25 @@ static void render_macros(Context *c) {
         if (!entry)
             break;
 
+        AstNode *proto_node;
         AstNode *value_node = entry->value;
         if (value_node->type == NodeTypeFnDef) {
             add_top_level_decl(c, value_node->data.fn_def.fn_proto->data.fn_proto.name, value_node);
+        } else if ((proto_node = trans_lookup_ast_maybe_fn(c, value_node))) {
+            // If a macro aliases a global variable which is a function pointer, we conclude that
+            // the macro is intended to represent a function that assumes the function pointer
+            // variable is non-null and calls it.
+            AstNode *inline_fn_node = trans_create_node_inline_fn(c, entry->key, value_node, proto_node);
+            add_top_level_decl(c, entry->key, inline_fn_node);
         } else {
             add_global_var(c, entry->key, value_node);
         }
     }
 }
+
+static AstNode *parse_ctok_primary_expr(Context *c, CTokenize *ctok, size_t *tok_i);
+static AstNode *parse_ctok_expr(Context *c, CTokenize *ctok, size_t *tok_i);
+static AstNode *parse_ctok_prefix_op_expr(Context *c, CTokenize *ctok, size_t *tok_i);
 
 static AstNode *parse_ctok_num_lit(Context *c, CTokenize *ctok, size_t *tok_i, bool negate) {
     CTok *tok = &ctok->tokens.at(*tok_i);
@@ -3358,7 +3968,7 @@ static AstNode *parse_ctok_num_lit(Context *c, CTokenize *ctok, size_t *tok_i, b
     return nullptr;
 }
 
-static AstNode *parse_ctok(Context *c, CTokenize *ctok, size_t *tok_i) {
+static AstNode *parse_ctok_primary_expr(Context *c, CTokenize *ctok, size_t *tok_i) {
     CTok *tok = &ctok->tokens.at(*tok_i);
     switch (tok->id) {
         case CTokIdCharLit:
@@ -3382,21 +3992,122 @@ static AstNode *parse_ctok(Context *c, CTokenize *ctok, size_t *tok_i) {
         case CTokIdLParen:
             {
                 *tok_i += 1;
-                AstNode *inner_node = parse_ctok(c, ctok, tok_i);
+                AstNode *inner_node = parse_ctok_expr(c, ctok, tok_i);
+                if (inner_node == nullptr) {
+                    return nullptr;
+                }
 
                 CTok *next_tok = &ctok->tokens.at(*tok_i);
-                if (next_tok->id != CTokIdRParen) {
+                if (next_tok->id == CTokIdRParen) {
+                    *tok_i += 1;
+                    return inner_node;
+                }
+
+                AstNode *node_to_cast = parse_ctok_expr(c, ctok, tok_i);
+                if (node_to_cast == nullptr) {
+                    return nullptr;
+                }
+
+                CTok *next_tok2 = &ctok->tokens.at(*tok_i);
+                if (next_tok2->id != CTokIdRParen) {
                     return nullptr;
                 }
                 *tok_i += 1;
-                return inner_node;
+
+
+                //if (@typeId(@typeOf(x)) == @import("builtin").TypeId.Pointer)
+                //    @ptrCast(dest, x)
+                //else if (@typeId(@typeOf(x)) == @import("builtin").TypeId.Integer)
+                //    @intToPtr(dest, x)
+                //else
+                //    (dest)(x)
+
+                AstNode *import_builtin = trans_create_node_builtin_fn_call_str(c, "import");
+                import_builtin->data.fn_call_expr.params.append(trans_create_node_str_lit_non_c(c, buf_create_from_str("builtin")));
+                AstNode *typeid_type = trans_create_node_field_access_str(c, import_builtin, "TypeId");
+                AstNode *typeid_pointer = trans_create_node_field_access_str(c, typeid_type, "Pointer");
+                AstNode *typeid_integer = trans_create_node_field_access_str(c, typeid_type, "Int");
+                AstNode *typeof_x = trans_create_node_builtin_fn_call_str(c, "typeOf");
+                typeof_x->data.fn_call_expr.params.append(node_to_cast);
+                AstNode *typeid_value = trans_create_node_builtin_fn_call_str(c, "typeId");
+                typeid_value->data.fn_call_expr.params.append(typeof_x);
+
+                AstNode *outer_if_cond = trans_create_node_bin_op(c, typeid_value, BinOpTypeCmpEq, typeid_pointer);
+                AstNode *inner_if_cond = trans_create_node_bin_op(c, typeid_value, BinOpTypeCmpEq, typeid_integer);
+                AstNode *inner_if_then = trans_create_node_builtin_fn_call_str(c, "intToPtr");
+                inner_if_then->data.fn_call_expr.params.append(inner_node);
+                inner_if_then->data.fn_call_expr.params.append(node_to_cast);
+                AstNode *inner_if_else = trans_create_node_cast(c, inner_node, node_to_cast);
+                AstNode *inner_if = trans_create_node_if(c, inner_if_cond, inner_if_then, inner_if_else);
+                AstNode *outer_if_then = trans_create_node_builtin_fn_call_str(c, "ptrCast");
+                outer_if_then->data.fn_call_expr.params.append(inner_node);
+                outer_if_then->data.fn_call_expr.params.append(node_to_cast);
+                return trans_create_node_if(c, outer_if_cond, outer_if_then, inner_if);
             }
+        case CTokIdDot:
         case CTokIdEOF:
         case CTokIdRParen:
+        case CTokIdAsterisk:
+        case CTokIdBang:
+        case CTokIdTilde:
             // not able to make sense of this
             return nullptr;
     }
     zig_unreachable();
+}
+
+static AstNode *parse_ctok_expr(Context *c, CTokenize *ctok, size_t *tok_i) {
+    return parse_ctok_prefix_op_expr(c, ctok, tok_i);
+}
+
+static AstNode *parse_ctok_suffix_op_expr(Context *c, CTokenize *ctok, size_t *tok_i) {
+    AstNode *node = parse_ctok_primary_expr(c, ctok, tok_i);
+    if (node == nullptr)
+        return nullptr;
+
+    while (true) {
+        CTok *first_tok = &ctok->tokens.at(*tok_i);
+        if (first_tok->id == CTokIdDot) {
+            *tok_i += 1;
+
+            CTok *name_tok = &ctok->tokens.at(*tok_i);
+            if (name_tok->id != CTokIdSymbol) {
+                return nullptr;
+            }
+            *tok_i += 1;
+
+            node = trans_create_node_field_access(c, node, buf_create_from_buf(&name_tok->data.symbol));
+        } else if (first_tok->id == CTokIdAsterisk) {
+            *tok_i += 1;
+
+            node = trans_create_node_addr_of(c, false, false, node);
+        } else {
+            return node;
+        }
+    }
+}
+
+static PrefixOp ctok_to_prefix_op(CTok *token) {
+    switch (token->id) {
+        case CTokIdBang: return PrefixOpBoolNot;
+        case CTokIdMinus: return PrefixOpNegation;
+        case CTokIdTilde: return PrefixOpBinNot;
+        case CTokIdAsterisk: return PrefixOpDereference;
+        default: return PrefixOpInvalid;
+    }
+}
+static AstNode *parse_ctok_prefix_op_expr(Context *c, CTokenize *ctok, size_t *tok_i) {
+    CTok *op_tok = &ctok->tokens.at(*tok_i);
+    PrefixOp prefix_op = ctok_to_prefix_op(op_tok);
+    if (prefix_op == PrefixOpInvalid) {
+        return parse_ctok_suffix_op_expr(c, ctok, tok_i);
+    }
+    *tok_i += 1;
+
+    AstNode *prefix_op_expr = parse_ctok_prefix_op_expr(c, ctok, tok_i);
+    if (prefix_op_expr == nullptr)
+        return nullptr;
+    return trans_create_node_prefix_op(c, prefix_op, prefix_op_expr);
 }
 
 static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *char_ptr) {
@@ -3411,7 +4122,7 @@ static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *ch
     assert(name_tok->id == CTokIdSymbol && buf_eql_buf(&name_tok->data.symbol, name));
     tok_i += 1;
 
-    AstNode *result_node = parse_ctok(c, ctok, &tok_i);
+    AstNode *result_node = parse_ctok_suffix_op_expr(c, ctok, &tok_i);
     if (result_node == nullptr) {
         return;
     }
@@ -3426,40 +4137,8 @@ static void process_macro(Context *c, CTokenize *ctok, Buf *name, const char *ch
         if (buf_eql_buf(name, symbol_name)) {
             return;
         }
-        c->macro_symbols.append({name, symbol_name});
-    } else {
-        c->macro_table.put(name, result_node);
     }
-}
-
-static void process_symbol_macros(Context *c) {
-    for (size_t i = 0; i < c->macro_symbols.length; i += 1) {
-        MacroSymbol ms = c->macro_symbols.at(i);
-
-        // Check if this macro aliases another top level declaration
-        AstNode *existing_node = get_global(c, ms.value);
-        if (!existing_node || name_exists(c, ms.name))
-            continue;
-
-        // If a macro aliases a global variable which is a function pointer, we conclude that
-        // the macro is intended to represent a function that assumes the function pointer
-        // variable is non-null and calls it.
-        if (existing_node->type == NodeTypeVariableDeclaration) {
-            AstNode *var_type = existing_node->data.variable_declaration.type;
-            if (var_type != nullptr && var_type->type == NodeTypePrefixOpExpr &&
-                var_type->data.prefix_op_expr.prefix_op == PrefixOpMaybe)
-            {
-                AstNode *fn_proto_node = var_type->data.prefix_op_expr.primary_expr;
-                if (fn_proto_node->type == NodeTypeFnProto) {
-                    AstNode *inline_fn_node = trans_create_node_inline_fn(c, ms.name, ms.value, fn_proto_node);
-                    c->macro_table.put(ms.name, inline_fn_node);
-                    continue;
-                }
-            }
-        }
-
-        add_global_var(c, ms.name, trans_create_node_symbol(c, ms.value));
-    }
+    c->macro_table.put(name, result_node);
 }
 
 static void process_preprocessor_entities(Context *c, ASTUnit &unit) {
@@ -3487,7 +4166,7 @@ static void process_preprocessor_entities(Context *c, ASTUnit &unit) {
                         continue;
                     }
                     Buf *name = buf_create_from_str(raw_name);
-                    if (name_exists(c, name)) {
+                    if (name_exists_global(c, name)) {
                         continue;
                     }
 
@@ -3524,10 +4203,10 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     c->errors = errors;
     if (buf_ends_with_str(buf_create_from_str(target_file), ".h")) {
         c->visib_mod = VisibModPub;
-        c->export_visib_mod = VisibModPub;
+        c->want_export = false;
     } else {
         c->visib_mod = VisibModPub;
-        c->export_visib_mod = VisibModExport;
+        c->want_export = true;
     }
     c->decl_table.init(8);
     c->macro_table.init(8);
@@ -3535,6 +4214,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
     c->ptr_params.init(8);
     c->codegen = codegen;
     c->source_node = source_node;
+    c->global_scope = trans_scope_root_create(c);
 
     ZigList<const char *> clang_argv = {0};
 
@@ -3665,7 +4345,7 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
             }
         }
 
-        return 0;
+        return ErrorCCompileErrors;
     }
 
     c->ctx = &ast_unit->getASTContext();
@@ -3676,7 +4356,6 @@ int parse_h_file(ImportTableEntry *import, ZigList<ErrorMsg *> *errors, const ch
 
     process_preprocessor_entities(c, *ast_unit);
 
-    process_symbol_macros(c);
     render_macros(c);
     render_aliases(c);
 

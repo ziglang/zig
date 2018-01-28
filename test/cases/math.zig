@@ -4,7 +4,7 @@ test "division" {
     testDivision();
     comptime testDivision();
 }
-fn testDivision() {
+fn testDivision() void {
     assert(div(u32, 13, 3) == 4);
     assert(div(f32, 1.0, 2.0) == 0.5);
 
@@ -26,18 +26,41 @@ fn testDivision() {
     assert(divTrunc(i32, -5, 3) == -1);
     assert(divTrunc(f32, 5.0, 3.0) == 1.0);
     assert(divTrunc(f32, -5.0, 3.0) == -1.0);
+
+    comptime {
+        assert(
+            1194735857077236777412821811143690633098347576 %
+            508740759824825164163191790951174292733114988 ==
+            177254337427586449086438229241342047632117600);
+        assert(@rem(-1194735857077236777412821811143690633098347576,
+            508740759824825164163191790951174292733114988) ==
+            -177254337427586449086438229241342047632117600);
+        assert(1194735857077236777412821811143690633098347576 /
+            508740759824825164163191790951174292733114988 ==
+            2);
+        assert(@divTrunc(-1194735857077236777412821811143690633098347576,
+            508740759824825164163191790951174292733114988) ==
+            -2);
+        assert(@divTrunc(1194735857077236777412821811143690633098347576,
+            -508740759824825164163191790951174292733114988) ==
+            -2);
+        assert(@divTrunc(-1194735857077236777412821811143690633098347576,
+            -508740759824825164163191790951174292733114988) ==
+            2);
+        assert(4126227191251978491697987544882340798050766755606969681711 % 10 == 1);
+    }
 }
-fn div(comptime T: type, a: T, b: T) -> T {
-    a / b
+fn div(comptime T: type, a: T, b: T) T {
+    return a / b;
 }
-fn divExact(comptime T: type, a: T, b: T) -> T {
-    @divExact(a, b)
+fn divExact(comptime T: type, a: T, b: T) T {
+    return @divExact(a, b);
 }
-fn divFloor(comptime T: type, a: T, b: T) -> T {
-    @divFloor(a, b)
+fn divFloor(comptime T: type, a: T, b: T) T {
+    return @divFloor(a, b);
 }
-fn divTrunc(comptime T: type, a: T, b: T) -> T {
-    @divTrunc(a, b)
+fn divTrunc(comptime T: type, a: T, b: T) T {
+    return @divTrunc(a, b);
 }
 
 test "@addWithOverflow" {
@@ -62,7 +85,7 @@ test "@clz" {
     comptime testClz();
 }
 
-fn testClz() {
+fn testClz() void {
     assert(clz(u8(0b00001010)) == 4);
     assert(clz(u8(0b10001010)) == 0);
     assert(clz(u8(0b00000000)) == 8);
@@ -70,8 +93,8 @@ fn testClz() {
     assert(clz(u128(0x10000000000000000)) == 63);
 }
 
-fn clz(x: var) -> usize {
-    @clz(x)
+fn clz(x: var) usize {
+    return @clz(x);
 }
 
 test "@ctz" {
@@ -79,14 +102,14 @@ test "@ctz" {
     comptime testCtz();
 }
 
-fn testCtz() {
+fn testCtz() void {
     assert(ctz(u8(0b10100000)) == 5);
     assert(ctz(u8(0b10001010)) == 1);
     assert(ctz(u8(0b00000000)) == 8);
 }
 
-fn ctz(x: var) -> usize {
-    @ctz(x)
+fn ctz(x: var) usize {
+    return @ctz(x);
 }
 
 test "assignment operators" {
@@ -109,7 +132,7 @@ test "three expr in a row" {
     testThreeExprInARow(false, true);
     comptime testThreeExprInARow(false, true);
 }
-fn testThreeExprInARow(f: bool, t: bool) {
+fn testThreeExprInARow(f: bool, t: bool) void {
     assertFalse(f or f or f);
     assertFalse(t and t and f);
     assertFalse(1 | 2 | 4 != 7);
@@ -123,7 +146,7 @@ fn testThreeExprInARow(f: bool, t: bool) {
     assertFalse(!!false);
     assertFalse(i32(7) != --(i32(7)));
 }
-fn assertFalse(b: bool) {
+fn assertFalse(b: bool) void {
     assert(!b);
 }
 
@@ -142,7 +165,7 @@ test "unsigned wrapping" {
     testUnsignedWrappingEval(@maxValue(u32));
     comptime testUnsignedWrappingEval(@maxValue(u32));
 }
-fn testUnsignedWrappingEval(x: u32) {
+fn testUnsignedWrappingEval(x: u32) void {
     const zero = x +% 1;
     assert(zero == 0);
     const orig = zero -% 1;
@@ -153,7 +176,7 @@ test "signed wrapping" {
     testSignedWrappingEval(@maxValue(i32));
     comptime testSignedWrappingEval(@maxValue(i32));
 }
-fn testSignedWrappingEval(x: i32) {
+fn testSignedWrappingEval(x: i32) void {
     const min_val = x +% 1;
     assert(min_val == @minValue(i32));
     const max_val = min_val -% 1;
@@ -164,7 +187,7 @@ test "negation wrapping" {
     testNegationWrappingEval(@minValue(i16));
     comptime testNegationWrappingEval(@minValue(i16));
 }
-fn testNegationWrappingEval(x: i16) {
+fn testNegationWrappingEval(x: i16) void {
     assert(x == -32768);
     const neg = -%x;
     assert(neg == -32768);
@@ -174,16 +197,16 @@ test "unsigned 64-bit division" {
     test_u64_div();
     comptime test_u64_div();
 }
-fn test_u64_div() {
+fn test_u64_div() void {
     const result = divWithResult(1152921504606846976, 34359738365);
     assert(result.quotient == 33554432);
     assert(result.remainder == 100663296);
 }
-fn divWithResult(a: u64, b: u64) -> DivResult {
-    DivResult {
+fn divWithResult(a: u64, b: u64) DivResult {
+    return DivResult {
         .quotient = a / b,
         .remainder = a % b,
-    }
+    };
 }
 const DivResult = struct {
     quotient: u64,
@@ -191,12 +214,12 @@ const DivResult = struct {
 };
 
 test "binary not" {
-    assert(comptime {~u16(0b1010101010101010) == 0b0101010101010101});
-    assert(comptime {~u64(2147483647) == 18446744071562067968});
+    assert(comptime x: {break :x ~u16(0b1010101010101010) == 0b0101010101010101;});
+    assert(comptime x: {break :x ~u64(2147483647) == 18446744071562067968;});
     testBinaryNot(0b1010101010101010);
 }
 
-fn testBinaryNot(x: u16) {
+fn testBinaryNot(x: u16) void {
     assert(~x == 0b0101010101010101);
 }
 
@@ -227,7 +250,7 @@ test "float equality" {
     comptime testFloatEqualityImpl(x, y);
 }
 
-fn testFloatEqualityImpl(x: f64, y: f64) {
+fn testFloatEqualityImpl(x: f64, y: f64) void {
     const y2 = x + 1.0;
     assert(y == y2);
 }
@@ -262,7 +285,7 @@ test "truncating shift left" {
     testShlTrunc(@maxValue(u16));
     comptime testShlTrunc(@maxValue(u16));
 }
-fn testShlTrunc(x: u16) {
+fn testShlTrunc(x: u16) void {
     const shifted = x << 1;
     assert(shifted == 65534);
 }
@@ -271,7 +294,7 @@ test "truncating shift right" {
     testShrTrunc(@maxValue(u16));
     comptime testShrTrunc(@maxValue(u16));
 }
-fn testShrTrunc(x: u16) {
+fn testShrTrunc(x: u16) void {
     const shifted = x >> 1;
     assert(shifted == 32767);
 }
@@ -280,7 +303,7 @@ test "exact shift left" {
     testShlExact(0b00110101);
     comptime testShlExact(0b00110101);
 }
-fn testShlExact(x: u8) {
+fn testShlExact(x: u8) void {
     const shifted = @shlExact(x, 2);
     assert(shifted == 0b11010100);
 }
@@ -289,7 +312,7 @@ test "exact shift right" {
     testShrExact(0b10110100);
     comptime testShrExact(0b10110100);
 }
-fn testShrExact(x: u8) {
+fn testShrExact(x: u8) void {
     const shifted = @shrExact(x, 2);
     assert(shifted == 0b00101101);
 }
@@ -326,14 +349,40 @@ test "big number shifting" {
     }
 }
 
+test "xor" {
+    test_xor();
+    comptime test_xor();
+}
+
+fn test_xor() void {
+    assert(0xFF ^ 0x00 == 0xFF);
+    assert(0xF0 ^ 0x0F == 0xFF);
+    assert(0xFF ^ 0xF0 == 0x0F);
+    assert(0xFF ^ 0x0F == 0xF0);
+    assert(0xFF ^ 0xFF == 0x00);
+}
+
+test "big number xor" {
+    comptime {
+        assert(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF ^ 0x00000000000000000000000000000000 == 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF);
+        assert(0xFFFFFFFFFFFFFFFF0000000000000000 ^ 0x0000000000000000FFFFFFFFFFFFFFFF == 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF);
+        assert(0xFFFFFFFFFFFFFFFF0000000000000000 ^ 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF == 0x0000000000000000FFFFFFFFFFFFFFFF);
+        assert(0x0000000000000000FFFFFFFFFFFFFFFF ^ 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF == 0xFFFFFFFFFFFFFFFF0000000000000000);
+        assert(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF ^ 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF == 0x00000000000000000000000000000000);
+        assert(0xFFFFFFFF00000000FFFFFFFF00000000 ^ 0x00000000FFFFFFFF00000000FFFFFFFF == 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF);
+        assert(0xFFFFFFFF00000000FFFFFFFF00000000 ^ 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF == 0x00000000FFFFFFFF00000000FFFFFFFF);
+        assert(0x00000000FFFFFFFF00000000FFFFFFFF ^ 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF == 0xFFFFFFFF00000000FFFFFFFF00000000);
+    }
+}
+
 test "f128" {
     test_f128();
     comptime test_f128();
 }
 
-fn make_f128(x: f128) -> f128 { x }
+fn make_f128(x: f128) f128 { return x; }
 
-fn test_f128() {
+fn test_f128() void {
     assert(@sizeOf(f128) == 16);
     assert(make_f128(1.0) == 1.0);
     assert(make_f128(1.0) != 1.1);
@@ -343,6 +392,6 @@ fn test_f128() {
     should_not_be_zero(1.0);
 }
 
-fn should_not_be_zero(x: f128) {
+fn should_not_be_zero(x: f128) void {
     assert(x != 0.0);
 }

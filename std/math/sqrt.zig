@@ -5,19 +5,52 @@
 // - sqrt(x)     = nan if x < 0
 // - sqrt(nan)   = nan
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
+const builtin = @import("builtin");
+const TypeId = builtin.TypeId;
 
-pub fn sqrt(x: var) -> @typeOf(x) {
+pub fn sqrt(x: var) (if (@typeId(@typeOf(x)) == TypeId.Int) @IntType(false, @typeOf(x).bit_count / 2) else @typeOf(x)) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(sqrt32, x),
-        f64 => @inlineCall(sqrt64, x),
+    switch (@typeId(T)) {
+        TypeId.FloatLiteral => {
+            return T(sqrt64(x));
+        },
+        TypeId.Float => {
+            switch (T) {
+                f32 => {
+                    switch (builtin.arch) {
+                        builtin.Arch.x86_64 => return @import("x86_64/sqrt.zig").sqrt32(x),
+                        else => return sqrt32(x),
+                    }
+                },
+                f64 => {
+                    switch (builtin.arch) {
+                        builtin.Arch.x86_64 => return @import("x86_64/sqrt.zig").sqrt64(x),
+                        else => return sqrt64(x),
+                    }
+                },
+                else => @compileError("sqrt not implemented for " ++ @typeName(T)),
+            }
+        },
+        TypeId.IntLiteral => comptime {
+            if (x > @maxValue(u128)) {
+                @compileError("sqrt not implemented for comptime_int greater than 128 bits");
+            }
+            if (x < 0) {
+                @compileError("sqrt on negative number");
+            }
+            return T(sqrt_int(u128, x));
+        },
+        TypeId.Int => {
+            return sqrt_int(T, x);
+        },
         else => @compileError("sqrt not implemented for " ++ @typeName(T)),
     }
 }
 
-fn sqrt32(x: f32) -> f32 {
+fn sqrt32(x: f32) f32 {
     const tiny: f32 = 1.0e-30;
     const sign: i32 = @bitCast(i32, u32(0x80000000));
     var ix: i32 = @bitCast(i32, x);
@@ -42,7 +75,7 @@ fn sqrt32(x: f32) -> f32 {
         // subnormal
         var i: i32 = 0;
         while (ix & 0x00800000 == 0) : (i += 1) {
-            ix <<= 1
+            ix <<= 1;
         }
         m -= i - 1;
     }
@@ -90,13 +123,13 @@ fn sqrt32(x: f32) -> f32 {
 
     ix = (q >> 1) + 0x3f000000;
     ix += m << 23;
-    @bitCast(f32, ix)
+    return @bitCast(f32, ix);
 }
 
 // NOTE: The original code is full of implicit signed -> unsigned assumptions and u32 wraparound
 // behaviour. Most intermediate i32 values are changed to u32 where appropriate but there are
 // potentially some edge cases remaining that are not handled in the same way.
-fn sqrt64(x: f64) -> f64 {
+fn sqrt64(x: f64) f64 {
     const tiny: f64 = 1.0e-300;
     const sign: u32 = 0x80000000;
     const u = @bitCast(u64, x);
@@ -131,7 +164,7 @@ fn sqrt64(x: f64) -> f64 {
         // subnormal
         var i: u32 = 0;
         while (ix0 & 0x00100000 == 0) : (i += 1) {
-            ix0 <<= 1
+            ix0 <<= 1;
         }
         m -= i32(i) - 1;
         ix0 |= ix1 >> u5(32 - i);
@@ -223,7 +256,7 @@ fn sqrt64(x: f64) -> f64 {
     iix0 = iix0 +% (m << 20);
 
     const uz = (u64(iix0) << 32) | ix1;
-    @bitCast(f64, uz)
+    return @bitCast(f64, uz);
 }
 
 test "math.sqrt" {
@@ -273,4 +306,36 @@ test "math.sqrt64.special" {
     assert(sqrt64(-0.0) == -0.0);
     assert(math.isNan(sqrt64(-1.0)));
     assert(math.isNan(sqrt64(math.nan(f64))));
+}
+
+fn sqrt_int(comptime T: type, value: T) @IntType(false, T.bit_count / 2) {
+    var op = value;
+    var res: T = 0;
+    var one: T = 1 << (T.bit_count - 2);
+
+    // "one" starts at the highest power of four <= than the argument.
+    while (one > op) {
+        one >>= 2;
+    }
+
+    while (one != 0) {
+        if (op >= res + one) {
+            op -= res + one;
+            res += 2 * one;
+        }
+        res >>= 1;
+        one >>= 2;
+    }
+
+    const ResultType = @IntType(false, T.bit_count / 2);
+    return ResultType(res);
+}
+
+test "math.sqrt_int" {
+    assert(sqrt_int(u32, 3) == 1);
+    assert(sqrt_int(u32, 4) == 2);
+    assert(sqrt_int(u32, 5) == 2);
+    assert(sqrt_int(u32, 8) == 2);
+    assert(sqrt_int(u32, 9) == 3);
+    assert(sqrt_int(u32, 10) == 3);
 }

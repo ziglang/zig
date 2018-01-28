@@ -11,7 +11,7 @@
 #include "list.hpp"
 #include "buffer.hpp"
 #include "error.hpp"
-#include "zig_llvm.hpp"
+#include "zig_llvm.h"
 
 #include <stdio.h>
 #include <inttypes.h>
@@ -21,6 +21,7 @@ enum TermColor {
     TermColorGreen,
     TermColorCyan,
     TermColorWhite,
+    TermColorBold,
     TermColorReset,
 };
 

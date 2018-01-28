@@ -20,11 +20,9 @@ const infRep = exponentMask;
 
 const builtin = @import("builtin");
 const is_test = builtin.is_test;
-const linkage = @import("index.zig").linkage;
 
-export fn __letf2(a: f128, b: f128) -> c_int {
-    @setDebugSafety(this, is_test);
-    @setGlobalLinkage(__letf2, linkage);
+pub extern fn __letf2(a: f128, b: f128) c_int {
+    @setRuntimeSafety(is_test);
 
     const aInt = @bitCast(rep_t, a);
     const bInt = @bitCast(rep_t, b);
@@ -40,35 +38,25 @@ export fn __letf2(a: f128, b: f128) -> c_int {
 
     // If at least one of a and b is positive, we get the same result comparing
     // a and b as signed integers as we would with a floating-point compare.
-    return if ((aInt & bInt) >= 0) {
-        if (aInt < bInt) {
+    return if ((aInt & bInt) >= 0)
+        if (aInt < bInt)
             LE_LESS
-        } else if (aInt == bInt) {
+        else if (aInt == bInt)
             LE_EQUAL
-        } else {
+        else
             LE_GREATER
-        }
-    } else {
+    else
         // Otherwise, both are negative, so we need to flip the sense of the
         // comparison to get the correct result.  (This assumes a twos- or ones-
         // complement integer representation; if integers are represented in a
         // sign-magnitude representation, then this flip is incorrect).
-        if (aInt > bInt) {
+        if (aInt > bInt)
             LE_LESS
-        } else if (aInt == bInt) {
+        else if (aInt == bInt)
             LE_EQUAL
-        } else {
+        else
             LE_GREATER
-        }
-    };
-}
-
-// Alias for libgcc compatibility
-// TODO https://github.com/zig-lang/zig/issues/420
-export fn __cmptf2(a: f128, b: f128) -> c_int {
-    @setGlobalLinkage(__cmptf2, linkage);
-    @setDebugSafety(this, is_test);
-    return __letf2(a, b);
+    ;
 }
 
 // TODO https://github.com/zig-lang/zig/issues/305
@@ -78,9 +66,8 @@ const GE_EQUAL = c_int(0);
 const GE_GREATER = c_int(1);
 const GE_UNORDERED = c_int(-1); // Note: different from LE_UNORDERED
 
-export fn __getf2(a: f128, b: f128) -> c_int {
-    @setGlobalLinkage(__getf2, linkage);
-    @setDebugSafety(this, is_test);
+pub extern fn __getf2(a: f128, b: f128) c_int {
+    @setRuntimeSafety(is_test);
 
     const aInt = @bitCast(srep_t, a);
     const bInt = @bitCast(srep_t, b);
@@ -89,57 +76,27 @@ export fn __getf2(a: f128, b: f128) -> c_int {
 
     if (aAbs > infRep or bAbs > infRep) return GE_UNORDERED;
     if ((aAbs | bAbs) == 0) return GE_EQUAL;
-    return if ((aInt & bInt) >= 0) {
-        if (aInt < bInt) {
+    return if ((aInt & bInt) >= 0)
+        if (aInt < bInt)
             GE_LESS
-        } else if (aInt == bInt) {
+        else if (aInt == bInt)
             GE_EQUAL
-        } else {
+        else
             GE_GREATER
-        }
-    } else {
-        if (aInt > bInt) {
+    else
+        if (aInt > bInt)
             GE_LESS
-        } else if (aInt == bInt) {
+        else if (aInt == bInt)
             GE_EQUAL
-        } else {
+        else
             GE_GREATER
-        }
-    };
+    ;
 }
 
-export fn __unordtf2(a: f128, b: f128) -> c_int {
-    @setGlobalLinkage(__unordtf2, linkage);
-    @setDebugSafety(this, is_test);
+pub extern fn __unordtf2(a: f128, b: f128) c_int {
+    @setRuntimeSafety(is_test);
 
     const aAbs = @bitCast(rep_t, a) & absMask;
     const bAbs = @bitCast(rep_t, b) & absMask;
     return c_int(aAbs > infRep or bAbs > infRep);
-}
-
-// The following are alternative names for the preceding routines.
-// TODO use aliases https://github.com/zig-lang/zig/issues/462
-
-export fn __eqtf2(a: f128, b: f128) -> c_int {
-    @setGlobalLinkage(__eqtf2, linkage);
-    @setDebugSafety(this, is_test);
-    return __letf2(a, b);
-}
-
-export fn __lttf2(a: f128, b: f128) -> c_int {
-    @setGlobalLinkage(__lttf2, linkage);
-    @setDebugSafety(this, is_test);
-    return __letf2(a, b);
-}
-
-export fn __netf2(a: f128, b: f128) -> c_int {
-    @setGlobalLinkage(__netf2, linkage);
-    @setDebugSafety(this, is_test);
-    return __letf2(a, b);
-}
-
-export fn __gttf2(a: f128, b: f128) -> c_int {
-    @setGlobalLinkage(__gttf2, linkage);
-    @setDebugSafety(this, is_test);
-    return __getf2(a, b);
 }

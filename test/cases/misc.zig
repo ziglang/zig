@@ -6,14 +6,17 @@ const builtin = @import("builtin");
 // normal comment
 /// this is a documentation comment
 /// doc comment line 2
-fn emptyFunctionWithComments() {}
+fn emptyFunctionWithComments() void {}
 
 test "empty function with comments" {
     emptyFunctionWithComments();
 }
 
-export fn disabledExternFn() {
-    @setGlobalLinkage(disabledExternFn, builtin.GlobalLinkage.Internal);
+comptime {
+    @export("disabledExternFn", disabledExternFn, builtin.GlobalLinkage.Internal);
+}
+
+extern fn disabledExternFn() void {
 }
 
 test "call disabled extern fn" {
@@ -101,23 +104,23 @@ test "short circuit" {
     comptime testShortCircuit(false, true);
 }
 
-fn testShortCircuit(f: bool, t: bool) {
+fn testShortCircuit(f: bool, t: bool) void {
     var hit_1 = f;
     var hit_2 = f;
     var hit_3 = f;
     var hit_4 = f;
 
-    if (t or {assert(f); f}) {
+    if (t or x: {assert(f); break :x f;}) {
         hit_1 = t;
     }
-    if (f or { hit_2 = t; f }) {
+    if (f or x: { hit_2 = t; break :x f; }) {
         assert(f);
     }
 
-    if (t and { hit_3 = t; f }) {
+    if (t and x: { hit_3 = t; break :x f; }) {
         assert(f);
     }
-    if (f and {assert(f); f}) {
+    if (f and x: {assert(f); break :x f;}) {
         assert(f);
     } else {
         hit_4 = t;
@@ -131,12 +134,12 @@ fn testShortCircuit(f: bool, t: bool) {
 test "truncate" {
     assert(testTruncate(0x10fd) == 0xfd);
 }
-fn testTruncate(x: u32) -> u8 {
-    @truncate(u8, x)
+fn testTruncate(x: u32) u8 {
+    return @truncate(u8, x);
 }
 
-fn first4KeysOfHomeRow() -> []const u8 {
-    "aoeu"
+fn first4KeysOfHomeRow() []const u8 {
+    return "aoeu";
 }
 
 test "return string from function" {
@@ -164,7 +167,7 @@ test "memcpy and memset intrinsics" {
 }
 
 test "builtin static eval" {
-    const x : i32 = comptime {1 + 2 + 3};
+    const x : i32 = comptime x: {break :x 1 + 2 + 3;};
     assert(x == comptime 6);
 }
 
@@ -187,10 +190,10 @@ test "slicing" {
 
 test "constant equal function pointers" {
     const alias = emptyFn;
-    assert(comptime {emptyFn == alias});
+    assert(comptime x: {break :x emptyFn == alias;});
 }
 
-fn emptyFn() {}
+fn emptyFn() void {}
 
 
 test "hex escape" {
@@ -255,14 +258,14 @@ test "explicit cast maybe pointers" {
 }
 
 test "generic malloc free" {
-    const a = %%memAlloc(u8, 10);
+    const a = memAlloc(u8, 10) catch unreachable;
     memFree(u8, a);
 }
 const some_mem : [100]u8 = undefined;
-fn memAlloc(comptime T: type, n: usize) -> %[]T {
+fn memAlloc(comptime T: type, n: usize) %[]T {
     return @ptrCast(&T, &some_mem[0])[0..n];
 }
-fn memFree(comptime T: type, memory: []T) { }
+fn memFree(comptime T: type, memory: []T) void { }
 
 
 test "cast undefined" {
@@ -270,22 +273,22 @@ test "cast undefined" {
     const slice = ([]const u8)(array);
     testCastUndefined(slice);
 }
-fn testCastUndefined(x: []const u8) {}
+fn testCastUndefined(x: []const u8) void {}
 
 
 test "cast small unsigned to larger signed" {
     assert(castSmallUnsignedToLargerSigned1(200) == i16(200));
     assert(castSmallUnsignedToLargerSigned2(9999) == i64(9999));
 }
-fn castSmallUnsignedToLargerSigned1(x: u8) -> i16 { x }
-fn castSmallUnsignedToLargerSigned2(x: u16) -> i64 { x }
+fn castSmallUnsignedToLargerSigned1(x: u8) i16 { return x; }
+fn castSmallUnsignedToLargerSigned2(x: u16) i64 { return x; }
 
 
 test "implicit cast after unreachable" {
     assert(outer() == 1234);
 }
-fn inner() -> i32 { 1234 }
-fn outer() -> i64 {
+fn inner() i32 { return 1234; }
+fn outer() i64 {
     return inner();
 }
 
@@ -304,11 +307,11 @@ test "call result of if else expression" {
     assert(mem.eql(u8, f2(true), "a"));
     assert(mem.eql(u8, f2(false), "b"));
 }
-fn f2(x: bool) -> []const u8 {
+fn f2(x: bool) []const u8 {
     return (if (x) fA else fB)();
 }
-fn fA() -> []const u8 { "a" }
-fn fB() -> []const u8 { "b" }
+fn fA() []const u8 { return "a"; }
+fn fB() []const u8 { return "b"; }
 
 
 test "const expression eval handling of variables" {
@@ -324,8 +327,8 @@ test "constant enum initialization with differing sizes" {
     test3_1(test3_foo);
     test3_2(test3_bar);
 }
-const Test3Foo = enum {
-    One,
+const Test3Foo = union(enum) {
+    One: void,
     Two: f32,
     Three: Test3Point,
 };
@@ -333,9 +336,9 @@ const Test3Point = struct {
     x: i32,
     y: i32,
 };
-const test3_foo = Test3Foo.Three{Test3Point {.x = 3, .y = 4}};
-const test3_bar = Test3Foo.Two{13};
-fn test3_1(f: &const Test3Foo) {
+const test3_foo = Test3Foo { .Three = Test3Point {.x = 3, .y = 4}};
+const test3_bar = Test3Foo { .Two = 13};
+fn test3_1(f: &const Test3Foo) void {
     switch (*f) {
         Test3Foo.Three => |pt| {
             assert(pt.x == 3);
@@ -344,7 +347,7 @@ fn test3_1(f: &const Test3Foo) {
         else => unreachable,
     }
 }
-fn test3_2(f: &const Test3Foo) {
+fn test3_2(f: &const Test3Foo) void {
     switch (*f) {
         Test3Foo.Two => |x| {
             assert(x == 13);
@@ -364,7 +367,7 @@ const single_quote = '\'';
 test "take address of parameter" {
     testTakeAddressOfParameter(12.34);
 }
-fn testTakeAddressOfParameter(f: f32) {
+fn testTakeAddressOfParameter(f: f32) void {
     const f_ptr = &f;
     assert(*f_ptr == 12.34);
 }
@@ -375,8 +378,8 @@ test "pointer comparison" {
     const b = &a;
     assert(ptrEql(b, b));
 }
-fn ptrEql(a: &const []const u8, b: &const []const u8) -> bool {
-    a == b
+fn ptrEql(a: &const []const u8, b: &const []const u8) bool {
+    return a == b;
 }
 
 
@@ -414,14 +417,14 @@ test "cast slice to u8 slice" {
 }
 
 test "pointer to void return type" {
-    %%testPointerToVoidReturnType();
+    testPointerToVoidReturnType() catch unreachable;
 }
-fn testPointerToVoidReturnType() -> %void {
+fn testPointerToVoidReturnType() %void {
     const a = testPointerToVoidReturnType2();
     return *a;
 }
 const test_pointer_to_void_return_type_x = void{};
-fn testPointerToVoidReturnType2() -> &const void {
+fn testPointerToVoidReturnType2() &const void {
     return &test_pointer_to_void_return_type_x;
 }
 
@@ -441,7 +444,7 @@ test "array 2D const double ptr" {
     testArray2DConstDoublePtr(&rect_2d_vertexes[0][0]);
 }
 
-fn testArray2DConstDoublePtr(ptr: &const f32) {
+fn testArray2DConstDoublePtr(ptr: &const f32) void {
     assert(ptr[0] == 1.0);
     assert(ptr[1] == 2.0);
 }
@@ -449,7 +452,8 @@ fn testArray2DConstDoublePtr(ptr: &const f32) {
 const Tid = builtin.TypeId;
 const AStruct = struct { x: i32, };
 const AnEnum = enum { One, Two, };
-const AnEnumWithPayload = enum { One: i32, Two, };
+const AUnionEnum = union(enum) { One: i32, Two: void, };
+const AUnion = union { One: void, Two: void };
 
 test "@typeId" {
     comptime {
@@ -474,11 +478,12 @@ test "@typeId" {
         assert(@typeId(%i32) == Tid.ErrorUnion);
         assert(@typeId(error) == Tid.Error);
         assert(@typeId(AnEnum) == Tid.Enum);
-        assert(@typeId(@typeOf(AnEnumWithPayload.One)) == Tid.EnumTag);
-        // TODO  union
-        assert(@typeId(fn()) == Tid.Fn);
+        assert(@typeId(@typeOf(AUnionEnum.One)) == Tid.Enum);
+        assert(@typeId(AUnionEnum) == Tid.Union);
+        assert(@typeId(AUnion) == Tid.Union);
+        assert(@typeId(fn()void) == Tid.Fn);
         assert(@typeId(@typeOf(builtin)) == Tid.Namespace);
-        assert(@typeId(@typeOf({this})) == Tid.Block);
+        assert(@typeId(@typeOf(x: {break :x this;})) == Tid.Block);
         // TODO bound fn
         // TODO arg tuple
         // TODO opaque
@@ -502,7 +507,7 @@ test "@typeName" {
 
 test "volatile load and store" {
     var number: i32 = 1234;
-    const ptr = &volatile number;
+    const ptr = (&volatile i32)(&number);
     *ptr += 1;
     assert(*ptr == 1235);
 }
@@ -531,7 +536,7 @@ var global_ptr = &gdt[0];
 // can't really run this test but we can make sure it has no compile error
 // and generates code
 const vram = @intToPtr(&volatile u8, 0x20000000)[0..0x8000];
-export fn writeToVRam() {
+export fn writeToVRam() void {
     vram[0] = 'X';
 }
 
@@ -551,7 +556,64 @@ test "variable is allowed to be a pointer to an opaque type" {
     var x: i32 = 1234;
     _ = hereIsAnOpaqueType(@ptrCast(&OpaqueA, &x));
 }
-fn hereIsAnOpaqueType(ptr: &OpaqueA) -> &OpaqueA {
+fn hereIsAnOpaqueType(ptr: &OpaqueA) &OpaqueA {
     var a = ptr;
     return a;
+}
+
+test "comptime if inside runtime while which unconditionally breaks" {
+    testComptimeIfInsideRuntimeWhileWhichUnconditionallyBreaks(true);
+    comptime testComptimeIfInsideRuntimeWhileWhichUnconditionallyBreaks(true);
+}
+fn testComptimeIfInsideRuntimeWhileWhichUnconditionallyBreaks(cond: bool) void {
+    while (cond) {
+        if (false) { }
+        break;
+    }
+}
+
+test "implicit comptime while" {
+    while (false) {
+        @compileError("bad");
+    }
+}
+
+test "struct inside function" {
+    testStructInFn();
+    comptime testStructInFn();
+}
+
+fn testStructInFn() void {
+    const BlockKind = u32;
+
+    const Block = struct {
+        kind: BlockKind,
+    };
+
+    var block = Block { .kind = 1234 };
+
+    block.kind += 1;
+
+    assert(block.kind == 1235);
+}
+
+fn fnThatClosesOverLocalConst() type {
+    const c = 1;
+    return struct {
+        fn g() i32 { return c; }
+    };
+}
+
+test "function closes over local const" {
+    const x = fnThatClosesOverLocalConst().g();
+    assert(x == 1);
+}
+
+test "cold function" {
+    thisIsAColdFn();
+    comptime thisIsAColdFn();
+}
+
+fn thisIsAColdFn() void {
+    @setCold(true);
 }

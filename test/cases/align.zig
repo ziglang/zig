@@ -10,14 +10,14 @@ test "global variable alignment" {
     assert(@typeOf(slice) == []align(4) u8);
 }
 
-fn derp() align(@sizeOf(usize) * 2) -> i32 { 1234 }
-fn noop1() align(1) {}
-fn noop4() align(4) {}
+fn derp() align(@sizeOf(usize) * 2) i32 { return 1234; }
+fn noop1() align(1) void {}
+fn noop4() align(4) void {}
 
 test "function alignment" {
     assert(derp() == 1234);
-    assert(@typeOf(noop1) == fn() align(1));
-    assert(@typeOf(noop4) == fn() align(4));
+    assert(@typeOf(noop1) == fn() align(1) void);
+    assert(@typeOf(noop4) == fn() align(4) void);
     noop1();
     noop4();
 }
@@ -53,19 +53,19 @@ test "implicitly decreasing pointer alignment" {
     assert(addUnaligned(&a, &b) == 7);
 }
 
-fn addUnaligned(a: &align(1) const u32, b: &align(1) const u32) -> u32 { *a + *b }
+fn addUnaligned(a: &align(1) const u32, b: &align(1) const u32) u32 { return *a + *b; }
 
 test "implicitly decreasing slice alignment" {
     const a: u32 align(4) = 3;
     const b: u32 align(8) = 4;
     assert(addUnalignedSlice((&a)[0..1], (&b)[0..1]) == 7);
 }
-fn addUnalignedSlice(a: []align(1) const u32, b: []align(1) const u32) -> u32 { a[0] + b[0] }
+fn addUnalignedSlice(a: []align(1) const u32, b: []align(1) const u32) u32 { return a[0] + b[0]; }
 
 test "specifying alignment allows pointer cast" {
     testBytesAlign(0x33);
 }
-fn testBytesAlign(b: u8) {
+fn testBytesAlign(b: u8) void {
     var bytes align(4) = []u8{b, b, b, b};
     const ptr = @ptrCast(&u32, &bytes[0]);
     assert(*ptr == 0x33333333);
@@ -74,7 +74,7 @@ fn testBytesAlign(b: u8) {
 test "specifying alignment allows slice cast" {
     testBytesAlignSlice(0x33);
 }
-fn testBytesAlignSlice(b: u8) {
+fn testBytesAlignSlice(b: u8) void {
     var bytes align(4) = []u8{b, b, b, b};
     const slice = ([]u32)(bytes[0..]);
     assert(slice[0] == 0x33333333);
@@ -85,10 +85,10 @@ test "@alignCast pointers" {
     expectsOnly1(&x);
     assert(x == 2);
 }
-fn expectsOnly1(x: &align(1) u32) {
+fn expectsOnly1(x: &align(1) u32) void {
     expects4(@alignCast(4, x));
 }
-fn expects4(x: &align(4) u32) {
+fn expects4(x: &align(4) u32) void {
     *x += 1;
 }
 
@@ -98,10 +98,10 @@ test "@alignCast slices" {
     sliceExpectsOnly1(slice);
     assert(slice[0] == 2);
 }
-fn sliceExpectsOnly1(slice: []align(1) u32) {
+fn sliceExpectsOnly1(slice: []align(1) u32) void {
     sliceExpects4(@alignCast(4, slice));
 }
-fn sliceExpects4(slice: []align(4) u32) {
+fn sliceExpects4(slice: []align(4) u32) void {
     slice[0] += 1;
 }
 
@@ -111,24 +111,24 @@ test "implicitly decreasing fn alignment" {
     testImplicitlyDecreaseFnAlign(alignedBig, 5678);
 }
 
-fn testImplicitlyDecreaseFnAlign(ptr: fn () align(1) -> i32, answer: i32) {
+fn testImplicitlyDecreaseFnAlign(ptr: fn () align(1) i32, answer: i32) void {
     assert(ptr() == answer);
 }
 
-fn alignedSmall() align(8) -> i32 { 1234 }
-fn alignedBig() align(16) -> i32 { 5678 }
+fn alignedSmall() align(8) i32 { return 1234; }
+fn alignedBig() align(16) i32 { return 5678; }
 
 
 test "@alignCast functions" {
     assert(fnExpectsOnly1(simple4) == 0x19);
 }
-fn fnExpectsOnly1(ptr: fn()align(1) -> i32) -> i32 {
-    fnExpects4(@alignCast(4, ptr))
+fn fnExpectsOnly1(ptr: fn()align(1) i32) i32 {
+    return fnExpects4(@alignCast(4, ptr));
 }
-fn fnExpects4(ptr: fn()align(4) -> i32) -> i32 {
-    ptr()
+fn fnExpects4(ptr: fn()align(4) i32) i32 {
+    return ptr();
 }
-fn simple4() align(4) -> i32 { 0x19 }
+fn simple4() align(4) i32 { return 0x19; }
 
 
 test "generic function with align param" {
@@ -137,7 +137,7 @@ test "generic function with align param" {
     assert(whyWouldYouEverDoThis(8) == 0x1);
 }
 
-fn whyWouldYouEverDoThis(comptime align_bytes: u8) align(align_bytes) -> u8 { 0x1 }
+fn whyWouldYouEverDoThis(comptime align_bytes: u8) align(align_bytes) u8 { return 0x1; }
 
 
 test "@ptrCast preserves alignment of bigger source" {
@@ -175,10 +175,10 @@ test "compile-time known array index has best alignment possible" {
     testIndex2(&array[0], 2, &u8);
     testIndex2(&array[0], 3, &u8);
 }
-fn testIndex(smaller: &align(2) u32, index: usize, comptime T: type) {
+fn testIndex(smaller: &align(2) u32, index: usize, comptime T: type) void {
     assert(@typeOf(&smaller[index]) == T);
 }
-fn testIndex2(ptr: &align(4) u8, index: usize, comptime T: type) {
+fn testIndex2(ptr: &align(4) u8, index: usize, comptime T: type) void {
     assert(@typeOf(&ptr[index]) == T);
 }
 
@@ -187,7 +187,7 @@ test "alignstack" {
     assert(fnWithAlignedStack() == 1234);
 }
 
-fn fnWithAlignedStack() -> i32 {
+fn fnWithAlignedStack() i32 {
     @setAlignStack(256);
     return 1234;
 }

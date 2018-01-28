@@ -2,8 +2,8 @@ const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
 test "enum type" {
-    const foo1 = Foo.One {13};
-    const foo2 = Foo.Two { Point { .x = 1234, .y = 5678, }};
+    const foo1 = Foo{ .One = 13};
+    const foo2 = Foo{. Two = Point { .x = 1234, .y = 5678, }};
     const bar = Bar.B;
 
     assert(bar == Bar.B);
@@ -24,12 +24,12 @@ const Point = struct {
     x: u64,
     y: u64,
 };
-const Foo = enum {
+const Foo = union(enum) {
     One: i32,
     Two: Point,
     Three: void,
 };
-const FooNoVoid = enum {
+const FooNoVoid = union(enum) {
     One: i32,
     Two: Point,
 };
@@ -40,34 +40,34 @@ const Bar = enum {
     D,
 };
 
-fn returnAnInt(x: i32) -> Foo {
-    Foo.One { x }
+fn returnAnInt(x: i32) Foo {
+    return Foo { .One = x };
 }
 
 
 test "constant enum with payload" {
-    var empty = AnEnumWithPayload.Empty;
-    var full = AnEnumWithPayload.Full {13};
+    var empty = AnEnumWithPayload {.Empty = {}};
+    var full = AnEnumWithPayload {.Full = 13};
     shouldBeEmpty(empty);
     shouldBeNotEmpty(full);
 }
 
-fn shouldBeEmpty(x: &const AnEnumWithPayload) {
+fn shouldBeEmpty(x: &const AnEnumWithPayload) void {
     switch (*x) {
         AnEnumWithPayload.Empty => {},
         else => unreachable,
     }
 }
 
-fn shouldBeNotEmpty(x: &const AnEnumWithPayload) {
+fn shouldBeNotEmpty(x: &const AnEnumWithPayload) void {
     switch (*x) {
         AnEnumWithPayload.Empty => unreachable,
         else => {},
     }
 }
 
-const AnEnumWithPayload = enum {
-    Empty,
+const AnEnumWithPayload = union(enum) {
+    Empty: void,
     Full: i32,
 };
 
@@ -89,16 +89,16 @@ test "enum to int" {
     shouldEqual(Number.Four, 4);
 }
 
-fn shouldEqual(n: Number, expected: usize) {
-    assert(usize(n) == expected);
+fn shouldEqual(n: Number, expected: u3) void {
+    assert(u3(n) == expected);
 }
 
 
 test "int to enum" {
     testIntToEnumEval(3);
 }
-fn testIntToEnumEval(x: i32) {
-    assert(IntToEnumNumber(x) == IntToEnumNumber.Three);
+fn testIntToEnumEval(x: i32) void {
+    assert(IntToEnumNumber(u3(x)) == IntToEnumNumber.Three);
 }
 const IntToEnumNumber = enum {
     Zero,
@@ -109,13 +109,13 @@ const IntToEnumNumber = enum {
 };
 
 
-test "@enumTagName" {
+test "@tagName" {
     assert(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
     comptime assert(mem.eql(u8, testEnumTagNameBare(BareNumber.Three), "Three"));
 }
 
-fn testEnumTagNameBare(n: BareNumber) -> []const u8 {
-    return @enumTagName(n);
+fn testEnumTagNameBare(n: BareNumber) []const u8 {
+    return @tagName(n);
 }
 
 const BareNumber = enum {
@@ -132,12 +132,11 @@ test "enum alignment" {
     }
 }
 
-const AlignTestEnum = enum {
+const AlignTestEnum = union(enum) {
     A: [9]u8,
     B: u64,
 };
 
-const ValueCount0 = enum {};
 const ValueCount1 = enum { I0 };
 const ValueCount2 = enum { I0, I1 };
 const ValueCount256 = enum {
@@ -183,10 +182,208 @@ const ValueCount257 = enum {
 
 test "enum sizes" {
     comptime {
-        assert(@sizeOf(ValueCount0) == 0);
         assert(@sizeOf(ValueCount1) == 0);
         assert(@sizeOf(ValueCount2) == 1);
         assert(@sizeOf(ValueCount256) == 1);
         assert(@sizeOf(ValueCount257) == 2);
     }
+}
+
+const Small2 = enum (u2) {
+    One,
+    Two,
+};
+const Small = enum (u2) {
+    One,
+    Two,
+    Three,
+    Four,
+};
+
+test "set enum tag type" {
+    {
+        var x = Small.One;
+        x = Small.Two;
+        comptime assert(@TagType(Small) == u2);
+    }
+    {
+        var x = Small2.One;
+        x = Small2.Two;
+        comptime assert(@TagType(Small2) == u2);
+    }
+}
+
+
+const A = enum (u3) {
+    One,
+    Two,
+    Three,
+    Four,
+    One2,
+    Two2,
+    Three2,
+    Four2,
+};
+
+const B = enum (u3) {
+    One3,
+    Two3,
+    Three3,
+    Four3,
+    One23,
+    Two23,
+    Three23,
+    Four23,
+};
+
+const C = enum (u2) {
+    One4,
+    Two4,
+    Three4,
+    Four4,
+};
+
+const BitFieldOfEnums = packed struct {
+    a: A,
+    b: B,
+    c: C,
+};
+
+const bit_field_1 = BitFieldOfEnums {
+    .a = A.Two,
+    .b = B.Three3,
+    .c = C.Four4,
+};
+
+test "bit field access with enum fields" {
+    var data = bit_field_1;
+    assert(getA(&data) == A.Two);
+    assert(getB(&data) == B.Three3);
+    assert(getC(&data) == C.Four4);
+    comptime assert(@sizeOf(BitFieldOfEnums) == 1);
+
+    data.b = B.Four3;
+    assert(data.b == B.Four3);
+
+    data.a = A.Three;
+    assert(data.a == A.Three);
+    assert(data.b == B.Four3);
+}
+
+fn getA(data: &const BitFieldOfEnums) A {
+    return data.a;
+}
+
+fn getB(data: &const BitFieldOfEnums) B {
+    return data.b;
+}
+
+fn getC(data: &const BitFieldOfEnums) C {
+    return data.c;
+}
+
+test "casting enum to its tag type" {
+    testCastEnumToTagType(Small2.Two);
+    comptime testCastEnumToTagType(Small2.Two);
+}
+
+fn testCastEnumToTagType(value: Small2) void {
+    assert(u2(value) == 1);
+}
+
+const MultipleChoice = enum(u32) {
+    A = 20,
+    B = 40,
+    C = 60,
+    D = 1000,
+};
+
+test "enum with specified tag values" {
+    testEnumWithSpecifiedTagValues(MultipleChoice.C);
+    comptime testEnumWithSpecifiedTagValues(MultipleChoice.C);
+}
+
+fn testEnumWithSpecifiedTagValues(x: MultipleChoice) void {
+    assert(u32(x) == 60);
+    assert(1234 == switch (x) {
+        MultipleChoice.A => 1,
+        MultipleChoice.B => 2,
+        MultipleChoice.C => u32(1234),
+        MultipleChoice.D => 4,
+    });
+}
+
+const MultipleChoice2 = enum(u32) {
+    Unspecified1,
+    A = 20,
+    Unspecified2,
+    B = 40,
+    Unspecified3,
+    C = 60,
+    Unspecified4,
+    D = 1000,
+    Unspecified5,
+};
+
+test "enum with specified and unspecified tag values" {
+    testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
+    comptime testEnumWithSpecifiedAndUnspecifiedTagValues(MultipleChoice2.D);
+}
+
+fn testEnumWithSpecifiedAndUnspecifiedTagValues(x: MultipleChoice2) void {
+    assert(u32(x) == 1000);
+    assert(1234 == switch (x) {
+        MultipleChoice2.A => 1,
+        MultipleChoice2.B => 2,
+        MultipleChoice2.C => 3,
+        MultipleChoice2.D => u32(1234),
+        MultipleChoice2.Unspecified1 => 5,
+        MultipleChoice2.Unspecified2 => 6,
+        MultipleChoice2.Unspecified3 => 7,
+        MultipleChoice2.Unspecified4 => 8,
+        MultipleChoice2.Unspecified5 => 9,
+    });
+}
+
+test "cast integer literal to enum" {
+    assert(MultipleChoice2(0) == MultipleChoice2.Unspecified1);
+    assert(MultipleChoice2(40) == MultipleChoice2.B);
+}
+
+const EnumWithOneMember = enum {
+    Eof,
+};
+
+fn doALoopThing(id: EnumWithOneMember) void {
+    while (true) {
+        if (id == EnumWithOneMember.Eof) {
+            break;
+        }
+        @compileError("above if condition should be comptime");
+    }
+}
+
+test "comparison operator on enum with one member is comptime known" {
+    doALoopThing(EnumWithOneMember.Eof);
+}
+
+const State = enum {
+    Start,
+};
+test "switch on enum with one member is comptime known" {
+    var state = State.Start;
+    switch (state) {
+        State.Start => return,
+    }
+    @compileError("analysis should not reach here");
+}
+
+const EnumWithTagValues = enum(u4) {
+    A = 1 << 0,
+    B = 1 << 1,
+    C = 1 << 2,
+    D = 1 << 3,
+};
+test "enum with tag values don't require parens" {
+    assert(u4(EnumWithTagValues.C) == 0b0100);
 }

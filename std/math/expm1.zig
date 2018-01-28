@@ -4,19 +4,22 @@
 // - expm1(-inf) = -1
 // - expm1(nan)  = nan
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const builtin = @import("builtin");
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
-pub fn expm1(x: var) -> @typeOf(x) {
+pub fn expm1(x: var) @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(expm1_32, x),
-        f64 => @inlineCall(expm1_64, x),
+    return switch (T) {
+        f32 => expm1_32(x),
+        f64 => expm1_64(x),
         else => @compileError("exp1m not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
-fn expm1_32(x_: f32) -> f32 {
+fn expm1_32(x_: f32) f32 {
+    @setFloatMode(this, builtin.FloatMode.Strict);
     const o_threshold: f32 = 8.8721679688e+01;
     const ln2_hi: f32      = 6.9313812256e-01;
     const ln2_lo: f32      = 9.0580006145e-06;
@@ -121,7 +124,7 @@ fn expm1_32(x_: f32) -> f32 {
         }
     }
 
-    const twopk = @bitCast(f32, u32((0x7F + k) << 23));
+    const twopk = @bitCast(f32, u32((0x7F +% k) << 23));
 
     if (k < 0 or k > 56) {
         var y = x - e + 1.0;
@@ -134,7 +137,7 @@ fn expm1_32(x_: f32) -> f32 {
         return y - 1.0;
     }
 
-    const uf = @bitCast(f32, u32(0x7F - k) << 23);
+    const uf = @bitCast(f32, u32(0x7F -% k) << 23);
     if (k < 23) {
         return (x - e + (1 - uf)) * twopk;
     } else {
@@ -142,7 +145,8 @@ fn expm1_32(x_: f32) -> f32 {
     }
 }
 
-fn expm1_64(x_: f64) -> f64 {
+fn expm1_64(x_: f64) f64 {
+    @setFloatMode(this, builtin.FloatMode.Strict);
     const o_threshold: f64 = 7.09782712893383973096e+02;
     const ln2_hi: f64      = 6.93147180369123816490e-01;
     const ln2_lo: f64      = 1.90821492927058770002e-10;
@@ -250,7 +254,7 @@ fn expm1_64(x_: f64) -> f64 {
         }
     }
 
-    const twopk = @bitCast(f64, u64(0x3FF + k) << 52);
+    const twopk = @bitCast(f64, u64(0x3FF +% k) << 52);
 
     if (k < 0 or k > 56) {
         var y = x - e + 1.0;
@@ -263,7 +267,7 @@ fn expm1_64(x_: f64) -> f64 {
         return y - 1.0;
     }
 
-    const uf = @bitCast(f64, u64(0x3FF - k) << 52);
+    const uf = @bitCast(f64, u64(0x3FF -% k) << 52);
     if (k < 20) {
         return (x - e + (1 - uf)) * twopk;
     } else {

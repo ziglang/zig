@@ -5,23 +5,24 @@
 // - sinh(nan)   = nan
 
 const builtin = @import("builtin");
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 const expo2 = @import("expo2.zig").expo2;
 
-pub fn sinh(x: var) -> @typeOf(x) {
+pub fn sinh(x: var) @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(sinh32, x),
-        f64 => @inlineCall(sinh64, x),
+    return switch (T) {
+        f32 => sinh32(x),
+        f64 => sinh64(x),
         else => @compileError("sinh not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 // sinh(x) = (exp(x) - 1 / exp(x)) / 2
 //         = (exp(x) - 1 + (exp(x) - 1) / exp(x)) / 2
 //         = x + x^3 / 6 + o(x^5)
-fn sinh32(x: f32) -> f32 {
+fn sinh32(x: f32) f32 {
     const u = @bitCast(u32, x);
     const ux = u & 0x7FFFFFFF;
     const ax = @bitCast(f32, ux);
@@ -49,10 +50,10 @@ fn sinh32(x: f32) -> f32 {
     }
 
     // |x| > log(FLT_MAX) or nan
-    2 * h * expo2(ax)
+    return 2 * h * expo2(ax);
 }
 
-fn sinh64(x: f64) -> f64 {
+fn sinh64(x: f64) f64 {
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
     const u = @bitCast(u64, x);
@@ -83,15 +84,10 @@ fn sinh64(x: f64) -> f64 {
     }
 
     // |x| > log(DBL_MAX) or nan
-    2 * h * expo2(ax)
+    return 2 * h * expo2(ax);
 }
 
 test "math.sinh" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     assert(sinh(f32(1.5)) == sinh32(1.5));
     assert(sinh(f64(1.5)) == sinh64(1.5));
 }

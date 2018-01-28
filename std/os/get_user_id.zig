@@ -9,9 +9,9 @@ pub const UserInfo = struct {
 };
 
 /// POSIX function which gets a uid from username.
-pub fn getUserInfo(name: []const u8) -> %UserInfo {
+pub fn getUserInfo(name: []const u8) %UserInfo {
     return switch (builtin.os) {
-        Os.linux, Os.darwin, Os.macosx, Os.ios => posixGetUserInfo(name),
+        Os.linux, Os.macosx, Os.ios => posixGetUserInfo(name),
         else => @compileError("Unsupported OS"),
     };
 }
@@ -30,8 +30,8 @@ error CorruptPasswordFile;
 // TODO this reads /etc/passwd. But sometimes the user/id mapping is in something else
 // like NIS, AD, etc. See `man nss` or look at an strace for `id myuser`.
 
-pub fn posixGetUserInfo(name: []const u8) -> %UserInfo {
-    var in_stream = %return io.InStream.open("/etc/passwd", null);
+pub fn posixGetUserInfo(name: []const u8) %UserInfo {
+    var in_stream = try io.InStream.open("/etc/passwd", null);
     defer in_stream.close();
 
     var buf: [os.page_size]u8 = undefined;
@@ -41,7 +41,7 @@ pub fn posixGetUserInfo(name: []const u8) -> %UserInfo {
     var gid: u32 = 0;
 
     while (true) {
-        const amt_read = %return in_stream.read(buf[0..]);
+        const amt_read = try in_stream.read(buf[0..]);
         for (buf[0..amt_read]) |byte| {
             switch (state) {
                 State.Start => switch (byte) {

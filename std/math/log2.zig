@@ -5,16 +5,17 @@
 // - log2(x)     = nan if x < 0
 // - log2(nan)   = nan
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 const TypeId = builtin.TypeId;
 
-pub fn log2(x: var) -> @typeOf(x) {
+pub fn log2(x: var) @typeOf(x) {
     const T = @typeOf(x);
     switch (@typeId(T)) {
         TypeId.FloatLiteral => {
-            return @typeOf(1.0)(log2_64(x))
+            return @typeOf(1.0)(log2_64(x));
         },
         TypeId.Float => {
             return switch (T) {
@@ -26,7 +27,7 @@ pub fn log2(x: var) -> @typeOf(x) {
         TypeId.IntLiteral => comptime {
             var result = 0;
             var x_shifted = x;
-            while ({x_shifted >>= 1; x_shifted != 0}) : (result += 1) {}
+            while (b: {x_shifted >>= 1; break :b x_shifted != 0;}) : (result += 1) {}
             return result;
         },
         TypeId.Int => {
@@ -36,12 +37,12 @@ pub fn log2(x: var) -> @typeOf(x) {
     }
 }
 
-pub fn log2_int(comptime T: type, x: T) -> T {
+pub fn log2_int(comptime T: type, x: T) T {
     assert(x != 0);
     return T.bit_count - 1 - T(@clz(x));
 }
 
-pub fn log2_32(x_: f32) -> f32 {
+pub fn log2_32(x_: f32) f32 {
     const ivln2hi: f32 =  1.4428710938e+00;
     const ivln2lo: f32 = -1.7605285393e-04;
     const Lg1: f32 = 0xaaaaaa.0p-24;
@@ -94,10 +95,10 @@ pub fn log2_32(x_: f32) -> f32 {
     u &= 0xFFFFF000;
     hi = @bitCast(f32, u);
     const lo = f - hi - hfsq + s * (hfsq + R);
-    (lo + hi) * ivln2lo + lo * ivln2hi + hi * ivln2hi + f32(k)
+    return (lo + hi) * ivln2lo + lo * ivln2hi + hi * ivln2hi + f32(k);
 }
 
-pub fn log2_64(x_: f64) -> f64 {
+pub fn log2_64(x_: f64) f64 {
     const ivln2hi: f64 = 1.44269504072144627571e+00;
     const ivln2lo: f64 = 1.67517131648865118353e-10;
     const Lg1: f64 = 6.666666666666735130e-01;
@@ -165,15 +166,10 @@ pub fn log2_64(x_: f64) -> f64 {
     val_lo += (y - ww) + val_hi;
     val_hi = ww;
 
-    val_lo + val_hi
+    return val_lo + val_hi;
 }
 
 test "math.log2" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
     assert(log2(f32(0.2)) == log2_32(0.2));
     assert(log2(f64(0.2)) == log2_64(0.2));
 }

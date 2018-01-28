@@ -4,20 +4,21 @@
 // - asinh(+-inf) = +-inf
 // - asinh(nan)   = nan
 
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
-pub fn asinh(x: var) -> @typeOf(x) {
+pub fn asinh(x: var) @typeOf(x) {
     const T = @typeOf(x);
-    switch (T) {
-        f32 => @inlineCall(asinh32, x),
-        f64 => @inlineCall(asinh64, x),
+    return switch (T) {
+        f32 => asinh32(x),
+        f64 => asinh64(x),
         else => @compileError("asinh not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 // asinh(x) = sign(x) * log(|x| + sqrt(x * x + 1)) ~= x - x^3/6 + o(x^5)
-fn asinh32(x: f32) -> f32 {
+fn asinh32(x: f32) f32 {
     const u = @bitCast(u32, x);
     const i = u & 0x7FFFFFFF;
     const s = i >> 31;
@@ -46,10 +47,10 @@ fn asinh32(x: f32) -> f32 {
         math.forceEval(x + 0x1.0p120);
     }
 
-    if (s != 0) -rx else rx
+    return if (s != 0) -rx else rx;
 }
 
-fn asinh64(x: f64) -> f64 {
+fn asinh64(x: f64) f64 {
     const u = @bitCast(u64, x);
     const e = (u >> 52) & 0x7FF;
     const s = u >> 63;
@@ -77,7 +78,7 @@ fn asinh64(x: f64) -> f64 {
         math.forceEval(x + 0x1.0p120);
     }
 
-    if (s != 0) -rx else rx
+    return if (s != 0) -rx else rx;
 }
 
 test "math.asinh" {

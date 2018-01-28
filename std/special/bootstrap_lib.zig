@@ -2,8 +2,12 @@
 
 const std = @import("std");
 
-export stdcallcc fn _DllMainCRTStartup(hinstDLL: std.os.windows.HINSTANCE, fdwReason: std.os.windows.DWORD,
-    lpReserved: std.os.windows.LPVOID) -> std.os.windows.BOOL
+comptime {
+    @export("_DllMainCRTStartup", _DllMainCRTStartup);
+}
+
+stdcallcc fn _DllMainCRTStartup(hinstDLL: std.os.windows.HINSTANCE, fdwReason: std.os.windows.DWORD,
+    lpReserved: std.os.windows.LPVOID) std.os.windows.BOOL
 {
     return std.os.windows.TRUE;
 }

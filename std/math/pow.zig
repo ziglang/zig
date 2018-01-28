@@ -22,11 +22,12 @@
 //  pow(x, y)      = nan for finite x < 0 and finite non-integer y
 
 const builtin = @import("builtin");
-const math = @import("index.zig");
-const assert = @import("../debug.zig").assert;
+const std = @import("../index.zig");
+const math = std.math;
+const assert = std.debug.assert;
 
 // This implementation is taken from the go stlib, musl is a bit more complex.
-pub fn pow(comptime T: type, x: T, y: T) -> T {
+pub fn pow(comptime T: type, x: T, y: T) T {
 
     @setFloatMode(this, @import("builtin").FloatMode.Strict);
 
@@ -166,21 +167,15 @@ pub fn pow(comptime T: type, x: T, y: T) -> T {
         ae = -ae;
     }
 
-    math.scalbn(a1, ae)
+    return math.scalbn(a1, ae);
 }
 
-fn isOddInteger(x: f64) -> bool {
+fn isOddInteger(x: f64) bool {
     const r = math.modf(x);
-    r.fpart == 0.0 and i64(r.ipart) & 1 == 1
+    return r.fpart == 0.0 and i64(r.ipart) & 1 == 1;
 }
 
 test "math.pow" {
-    if (builtin.os == builtin.Os.windows and builtin.arch == builtin.Arch.i386) {
-        // TODO get this test passing
-        // https://github.com/zig-lang/zig/issues/537
-        return;
-    }
-
     const epsilon = 0.000001;
 
     assert(math.approxEq(f32, pow(f32, 0.0, 3.3), 0.0, epsilon));
