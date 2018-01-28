@@ -1,5 +1,5 @@
 const builtin = @import("builtin");
-const debug = @import("debug.zig");
+const debug = @import("debug/index.zig");
 const assert = debug.assert;
 const ll = @import("linked_list.zig");
 const mem = @import("mem.zig");
@@ -30,43 +30,47 @@ pub const GpAlloc = struct {
         size_class: usize
     };
 
-    fn get_size_class(self: &Self, size: usize) -> ?usize {
+    fn get_size_class(self: &Self, size: usize) ?usize {
         for (SIZE_CLASSES) |size_class, i| {
             if (size_class >= size) {
                 return i;
             }
         }
 
-        null
+        return null;
     }
 
     // XXX: is there a way to make separate comptime and non-ct versions of
     // this?
-    fn get_pool(self: &Self, size: usize) -> ?&mp.RawMemoryPool {
+    fn get_pool(self: &Self, size: usize) ?&mp.RawMemoryPool {
         const size_class = self.get_size_class(size) ?? null;
-        &self.pools[size_class]
+        return &self.pools[size_class];
     }
 
-    fn raw_alloc(self: &mem.Allocator, n: usize) -> %[]u8 {
+    fn raw_alloc(self: &mem.Allocator, n: usize) %[]u8 {
         // XXX: mmap
-        error.Unsupported
+        return error.Unsupported;
     }
 
-    fn raw_free(self: &mem.Allocator, bytes: []u8) -> void {
+    fn raw_free(self: &mem.Allocator, bytes: []u8) void {
         // XXX: munmap
     }
 
-    fn alloc(allocator: &mem.Allocator, n: usize, alignment: usize) -> %[]u8 {
+    fn alloc(allocator: &mem.Allocator, n: usize, alignment: u29) %[]u8 {
         var self = @fieldParentPtr(GpAlloc, "allocator", allocator);
+        return self.alloc_impl(n, alignment);
+    }
 
+    // This is mainly split out for testing purposes
+    fn alloc_impl(self: &Self, n: usize, alignment: u29) %[]u8 {
         // XXX: if this request is too big for any of the pre-defined pools then
         // just create a separate buffer juts for it
         var size_class = self.get_size_class(n) ?? {
-            return raw_alloc(allocator, n);
+            return raw_alloc(&self.allocator, n);
         };
 
         var pool = &self.pools[size_class];
-        const mem_base = %return pool.alloc();
+        const mem_base = try pool.alloc();
 
         // XXX: account for alignment
 
@@ -78,14 +82,14 @@ pub const GpAlloc = struct {
         // return a pointer to the payload data immediately following the
         // allocator metadata
         const payload_base = @intToPtr(&u8, mem_base + @sizeOf(AllocMd));
-        payload_base[0..n]
+        return payload_base[0..n];
     }
 
-    fn realloc(allocator: &mem.Allocator, old_mem: []u8, new_size: usize, alignment: usize) -> %[]u8 {
-        error.Unsupported
+    fn realloc(allocator: &mem.Allocator, old_mem: []u8, new_size: usize, alignment: u29) %[]u8 {
+        return error.Unsupported;
     }
 
-    fn free(allocator: &mem.Allocator, bytes: []u8) -> void {
+    fn free(allocator: &mem.Allocator, bytes: []u8) void {
         var self = @fieldParentPtr(GpAlloc, "allocator", allocator);
         var payload = @ptrToInt(bytes.ptr);
         const size_class = self.get_size_class(bytes.len) ?? {
@@ -99,12 +103,12 @@ pub const GpAlloc = struct {
         }
 
         var pool = &self.pools[size_class];
-        pool.free(@ptrToInt(md))
+        pool.free(@ptrToInt(md));
     }
 
     // XXX: allow user to configure maximum memory usage at creation time
     // XXX: provide option to grow pools on demand
-    pub fn init() -> %Self {
+    pub fn init() %Self {
         const undef_pool: mp.RawMemoryPool = undefined;
         var res = Self {
             .allocator = mem.Allocator{
@@ -117,14 +121,14 @@ pub const GpAlloc = struct {
 
         const pool_base: usize = @ptrToInt(&res.pools);
         for (SIZE_CLASSES) |size_class, i| {
-            res.pools[i] = %return mp.RawMemoryPool.init(
+            res.pools[i] = try mp.RawMemoryPool.init(
                 size_class + @sizeOf(AllocMd), POOL_COUNTS);
-            %defer {
-                res.pools[i].deinit() %% {}
+            errdefer {
+                res.pools[i].deinit() %% {};
             }
         }
 
-        res
+        return res;
     }
 };
 
@@ -133,10 +137,114 @@ const TestStruct = struct {
     bar: u32
 };
 
-test "basic_alloc" {
-    var allocator = %%GpAlloc.init();
+const TestAllocation = struct {
+    start: usize,
+    len: usize
+};
 
-    var obj: []TestStruct = %%allocator.allocator.alloc(TestStruct, 4);
+// allocate and free a bunch of memory over and over and make sure that we never
+// hand out overlapping chunks
+test "no_overlap" {
+    const rand = @import("rand.zig");
 
-    obj[0].foo = 5;
+    var gp_allocator = GpAlloc.init() catch unreachable;
+    var allocator = &gp_allocator.allocator;
+    const N_ALLOC: usize = 4096;
+
+    const base_allocation = TestAllocation {
+        .start = 0,
+        .len = 0
+    };
+
+
+    var i: usize = 0;
+    var n_active: usize = 0;
+    var r = rand.Rand.init(12345);
+    const N_ROUNDS: usize = 4096 * 1024;
+    const ITEM_SIZES = []usize { 10, 123, 456, 789};
+
+    const AllocAction = enum {
+        Alloc,
+        Free
+    };
+
+    // XXX: use a tree or something here once we have one in the stdlib
+    var allocations = []TestAllocation { base_allocation } ** N_ALLOC;
+
+    while (i < N_ROUNDS) : (i += 1) {
+        const action = switch (n_active) {
+            0 => AllocAction.Alloc,
+            N_ALLOC => AllocAction.Free,
+            else => if (r.range(usize, 0, 10) < 7)
+                AllocAction.Alloc
+            else
+                AllocAction.Free
+        };
+
+        switch (action) {
+            AllocAction.Alloc => {
+                const item_size = r.choose(usize, ITEM_SIZES[0..]);
+                const item = gp_allocator.alloc_impl(item_size, 1) catch unreachable;
+
+                assert(item.len == item_size);
+
+                var j: usize = 0;
+                var alloc_stored = false;
+                while (j < N_ALLOC) : (j += 1) {
+                    var allocation = &allocations[j];
+                    const new_start = @ptrToInt(item.ptr);
+                    const new_end = new_start + item.len;
+                    if (allocation.start == 0) {
+                        if (!alloc_stored) {
+                            allocation.start = new_start;
+                            allocation.len = item.len;
+                            alloc_stored = true;
+                        }
+                    } else {
+                        const old_start = allocation.start;
+                        const old_end = old_start + allocation.len;
+
+                        if (new_start < old_start) {
+                            assert(new_end <= old_start);
+                        } else if (new_start > old_start) {
+                            assert(new_start >= old_end);
+                        } else {
+                            assert(false);
+                        }
+                    }
+                }
+
+                assert(alloc_stored);
+                n_active += 1;
+            },
+            AllocAction.Free => {
+                assert(n_active > 0);
+                const free_index = r.range(usize, 0, n_active);
+                
+                var j: usize = 0;
+                var allocs_seen: usize = 0;
+                while (j < N_ALLOC) : (j += 1) {
+                    var allocation = &allocations[j];
+
+                    if (allocation.start == 0) {
+                        continue;
+                    }
+
+                    if (allocs_seen == free_index) {
+                        var slice_start = @intToPtr(&u8, allocation.start);
+                        var slice = slice_start[0..allocation.len];
+                        gp_allocator.allocator.free(slice);
+                        *allocation = base_allocation;
+                        break;
+                    }
+
+                    allocs_seen += 1;
+                } else {
+                    assert(false);
+                }
+
+                n_active -= 1;
+            }
+        }
+    }
 }

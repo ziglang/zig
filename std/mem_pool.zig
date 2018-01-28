@@ -3,18 +3,16 @@ const ll = @import("linked_list.zig");
 const mem = @import("mem.zig");
 const linux = @import("os/linux.zig");
 
-fn raw_alloc_linux(bytes: usize) -> %usize {
+fn raw_alloc_linux(bytes: usize) %usize {
     const ret = linux.mmap(null, bytes, linux.PROT_READ | linux.PROT_WRITE,
         linux.MAP_SHARED | linux.MAP_ANONYMOUS, -1, 0);
     const err = linux.getErrno(ret);
 
-    switch (err) {
+    return switch (err) {
         0 => ret,
         linux.ENOMEM => error.OutOfMemory,
-        else => {
-            error.Unexpected
-        }
-    }
+        else => error.Unexpected
+    };
 }
 
 const raw_alloc = switch (builtin.os) {
@@ -33,11 +31,11 @@ pub const RawMemoryPool = struct {
         linkage: ll.LinkedList(void).Node
     };
 
-    pub fn init(obj_size: usize, n: usize) -> %Self {
+    pub fn init(obj_size: usize, n: usize) %Self {
         // XXX: best way to check for overflow here?
         const node_size = obj_size + @sizeOf(MemNode);
         const total_size = node_size * n;
-        const raw_mem = %return raw_alloc(total_size);
+        const raw_mem = try raw_alloc(total_size);
 
         var pool = Self {
             .free_list = ll.LinkedList(void).init(),
@@ -54,46 +52,46 @@ pub const RawMemoryPool = struct {
             pool.free_list.append(&node.linkage);
         }
 
-        pool
+        return pool;
     }
 
-    pub fn deinit(pool: &Self) -> %void {
+    pub fn deinit(pool: &Self) %void {
         // XXX: unmap memory
     }
 
-    pub fn alloc(pool: &Self) -> %usize {
+    pub fn alloc(pool: &Self) %usize {
         var node = pool.free_list.pop() ?? return error.OutOfMemory;
-        @ptrToInt(node) + @sizeOf(ll.LinkedList(void).Node)
+        return @ptrToInt(node) + @sizeOf(ll.LinkedList(void).Node);
     }
 
-    pub fn free(pool: &Self, item: usize) -> void {
+    pub fn free(pool: &Self, item: usize) void {
         var node = @intToPtr(&ll.LinkedList(void).Node,
             item - @sizeOf(ll.LinkedList(void).Node));
         pool.free_list.append(node);
     }
 };
 
-pub fn MemoryPool(comptime T: type) -> type {
+pub fn MemoryPool(comptime T: type) type {
     // XXX: replace below usages of LinkedList(T) with this
     //const free_list_t = ll.LinkedList(T);
 
-    struct {
+    return struct {
         raw_pool: RawMemoryPool,
 
         const Self = this;
 
-        pub fn init(n: usize) -> %Self {
-            Self {
-                .raw_pool = %return RawMemoryPool.init(@sizeOf(T), n)
-            }
+        pub fn init(n: usize) %Self {
+            return Self {
+                .raw_pool = try RawMemoryPool.init(@sizeOf(T), n)
+            };
         }
 
-        pub fn alloc(pool: &Self) -> %&T {
-            @intToPtr(&T, %return pool.raw_pool.alloc())
+        pub fn alloc(pool: &Self) %&T {
+            return @intToPtr(&T, try pool.raw_pool.alloc());
         }
 
-        pub fn free(pool: &Self, item: &T) -> void {
-            pool.raw_pool.free(@ptrToInt(item))
+        pub fn free(pool: &Self, item: &T) void {
+            pool.raw_pool.free(@ptrToInt(item));
         }
-    }
+    };
 }
