@@ -4,6 +4,7 @@ const assert = debug.assert;
 const ll = @import("linked_list.zig");
 const mem = @import("mem.zig");
 const mp = @import("mem_pool.zig");
+const rand = @import("rand.zig");
 
 error Unsupported;
 
@@ -12,8 +13,8 @@ error Unsupported;
 // generates the type instead of being a global list
 const SIZE_CLASSES = []usize { 8, 64, 1024, 4096 };
 
-// XXX: smae deal with configurability
-const POOL_COUNTS: usize = 1024;
+// XXX: same deal with configurability
+const POOL_COUNTS: usize = 16 * 1024;
 
 pub const GpAlloc = struct {
     allocator: mem.Allocator,
@@ -70,6 +71,7 @@ pub const GpAlloc = struct {
         };
 
         var pool = &self.pools[size_class];
+
         const mem_base = try pool.alloc();
 
         // XXX: account for alignment
@@ -142,14 +144,52 @@ const TestAllocation = struct {
     len: usize
 };
 
+const N_ALLOC: usize = 4096;
+const N_ROUNDS: usize = N_ALLOC * 2;
+
+test "memory_available" {
+    var gp_allocator = GpAlloc.init() catch unreachable;
+    var allocator = &gp_allocator.allocator;
+
+    // pick a fixed size so we always draw from the same size class
+    const Foo = struct {
+        data: [2468]u8
+    };
+
+    var last_alloc: []Foo = undefined;
+    var i: usize = 0;
+
+    // we should be able to allocate each of the items in the size pool
+    while (i < POOL_COUNTS) : (i += 1) {
+        last_alloc = allocator.alloc(Foo, 1) catch unreachable;
+    }
+
+    // the next allocation should fail because the size pool is empty
+    var empty_alloc = allocator.alloc(Foo, 1);
+    if (empty_alloc) |val| {
+        unreachable;
+    } else |err| {
+        assert(err == error.OutOfMemory);
+    }
+
+    // after freeing one of the allocated items, we should be able to allocate
+    // new ones again
+    allocator.free(last_alloc);
+    last_alloc = allocator.alloc(Foo, 1) catch unreachable;
+
+    empty_alloc = allocator.alloc(Foo, 1);
+    if (empty_alloc) |val| {
+        unreachable;
+    } else |err| {
+        assert(err == error.OutOfMemory);
+    }
+}
+
 // allocate and free a bunch of memory over and over and make sure that we never
 // hand out overlapping chunks
 test "no_overlap" {
-    const rand = @import("rand.zig");
-
     var gp_allocator = GpAlloc.init() catch unreachable;
     var allocator = &gp_allocator.allocator;
-    const N_ALLOC: usize = 4096;
 
     const base_allocation = TestAllocation {
         .start = 0,
@@ -160,7 +200,6 @@ test "no_overlap" {
     var i: usize = 0;
     var n_active: usize = 0;
     var r = rand.Rand.init(12345);
-    const N_ROUNDS: usize = 4096 * 1024;
     const ITEM_SIZES = []usize { 10, 123, 456, 789};
 
     const AllocAction = enum {
@@ -233,7 +272,7 @@ test "no_overlap" {
                     if (allocs_seen == free_index) {
                         var slice_start = @intToPtr(&u8, allocation.start);
                         var slice = slice_start[0..allocation.len];
-                        gp_allocator.allocator.free(slice);
+                        allocator.free(slice);
                         *allocation = base_allocation;
                         break;
                     }
