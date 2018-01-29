@@ -5,12 +5,12 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\export fn foo() boid {}
     , ".tmp_source.zig:1:17: error: use of undeclared identifier 'boid'");
 
-    cases.add("function with non-extern enum parameter",
+    cases.add("function with non-extern non-packed enum parameter",
         \\const Foo = enum { A, B, C };
         \\export fn entry(foo: Foo) void { }
     , ".tmp_source.zig:2:22: error: parameter of type 'Foo' not allowed in function with calling convention 'ccc'");
 
-    cases.add("function with non-extern struct parameter",
+    cases.add("function with non-extern non-packed struct parameter",
         \\const Foo = struct {
         \\    A: i32,
         \\    B: f32,
@@ -19,7 +19,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\export fn entry(foo: Foo) void { }
     , ".tmp_source.zig:6:22: error: parameter of type 'Foo' not allowed in function with calling convention 'ccc'");
 
-    cases.add("function with non-extern union parameter",
+    cases.add("function with non-extern non-packed union parameter",
         \\const Foo = union {
         \\    A: i32,
         \\    B: f32,

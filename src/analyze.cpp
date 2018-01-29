@@ -1242,16 +1242,16 @@ static bool type_allowed_in_extern(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdPointer:
             return type_allowed_in_extern(g, type_entry->data.pointer.child_type);
         case TypeTableEntryIdStruct:
-            return type_entry->data.structure.layout == ContainerLayoutExtern;
+            return type_entry->data.structure.layout == ContainerLayoutExtern || type_entry->data.structure.layout == ContainerLayoutPacked;
         case TypeTableEntryIdMaybe:
             {
                 TypeTableEntry *child_type = type_entry->data.maybe.child_type;
                 return child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn;
             }
         case TypeTableEntryIdEnum:
-            return type_entry->data.enumeration.layout == ContainerLayoutExtern;
+            return type_entry->data.enumeration.layout == ContainerLayoutExtern || type_entry->data.enumeration.layout == ContainerLayoutPacked;
         case TypeTableEntryIdUnion:
-            return type_entry->data.unionation.layout == ContainerLayoutExtern;
+            return type_entry->data.unionation.layout == ContainerLayoutExtern || type_entry->data.unionation.layout == ContainerLayoutPacked;
     }
     zig_unreachable();
 }
