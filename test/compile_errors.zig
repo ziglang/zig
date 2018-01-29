@@ -1,6 +1,16 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("calling function with naked calling convention",
+        \\export fn entry() void {
+        \\    foo();
+        \\}
+        \\nakedcc fn foo() void { }
+    ,
+        ".tmp_source.zig:2:5: error: unable to call function with naked calling convention",
+        ".tmp_source.zig:4:9: note: declared here");
+
+
     cases.add("function with invalid return type",
         \\export fn foo() boid {}
     , ".tmp_source.zig:1:17: error: use of undeclared identifier 'boid'");

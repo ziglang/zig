@@ -9837,6 +9837,15 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
     AstNode *fn_proto_node = fn_entry ? fn_entry->proto_node : nullptr;;
 
+    if (fn_type_id->cc == CallingConventionNaked) {
+        ErrorMsg *msg = ir_add_error(ira, fn_ref, buf_sprintf("unable to call function with naked calling convention"));
+        if (fn_proto_node) {
+            add_error_note(ira->codegen, msg, fn_proto_node, buf_sprintf("declared here"));
+        }
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+
     if (fn_type_id->is_var_args) {
         if (call_param_count < src_param_count) {
             ErrorMsg *msg = ir_add_error_node(ira, source_node,
