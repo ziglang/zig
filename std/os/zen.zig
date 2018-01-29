@@ -42,7 +42,7 @@ pub fn map(v_addr: usize, p_addr: usize, size: usize, writable: bool) bool {
     return syscall4(SYS_map, v_addr, p_addr, size, usize(writable)) != 0;
 }
 
-pub fn createThread(function: fn()) u16 {
+pub fn createThread(function: fn()void) u16 {
     return u16(syscall1(SYS_createThread, @ptrToInt(function)));
 }
 
