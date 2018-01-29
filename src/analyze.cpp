@@ -362,8 +362,10 @@ TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type
     } else {
         assert(bit_offset == 0);
         parent_pointer = &child_type->pointer_parent[(is_const ? 1 : 0)];
-        if (*parent_pointer)
+        if (*parent_pointer) {
+            assert((*parent_pointer)->data.pointer.alignment == byte_alignment);
             return *parent_pointer;
+        }
     }
 
     type_ensure_zero_bits_known(g, child_type);
@@ -1240,16 +1242,16 @@ static bool type_allowed_in_extern(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdPointer:
             return type_allowed_in_extern(g, type_entry->data.pointer.child_type);
         case TypeTableEntryIdStruct:
-            return type_entry->data.structure.layout == ContainerLayoutExtern;
+            return type_entry->data.structure.layout == ContainerLayoutExtern || type_entry->data.structure.layout == ContainerLayoutPacked;
         case TypeTableEntryIdMaybe:
             {
                 TypeTableEntry *child_type = type_entry->data.maybe.child_type;
                 return child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn;
             }
         case TypeTableEntryIdEnum:
-            return type_entry->data.enumeration.layout == ContainerLayoutExtern;
+            return type_entry->data.enumeration.layout == ContainerLayoutExtern || type_entry->data.enumeration.layout == ContainerLayoutPacked;
         case TypeTableEntryIdUnion:
-            return type_entry->data.unionation.layout == ContainerLayoutExtern;
+            return type_entry->data.unionation.layout == ContainerLayoutExtern || type_entry->data.unionation.layout == ContainerLayoutPacked;
     }
     zig_unreachable();
 }
@@ -1376,6 +1378,10 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
     fn_type_id.return_type = (fn_proto->return_type == nullptr) ?
         g->builtin_types.entry_void : analyze_type_expr(g, child_scope, fn_proto->return_type);
 
+    if (type_is_invalid(fn_type_id.return_type)) {
+        return g->builtin_types.entry_invalid;
+    }
+
     if (fn_type_id.cc != CallingConventionUnspecified && !type_allowed_in_extern(g, fn_type_id.return_type)) {
         add_node_error(g, fn_proto->return_type,
                 buf_sprintf("return type '%s' not allowed in function with calling convention '%s'",
@@ -1386,7 +1392,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
 
     switch (fn_type_id.return_type->id) {
         case TypeTableEntryIdInvalid:
-            return g->builtin_types.entry_invalid;
+            zig_unreachable();
 
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
@@ -2352,6 +2358,7 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
     bool create_enum_type = decl_node->data.container_decl.auto_enum || (enum_type_node == nullptr && want_safety);
     bool *covered_enum_fields;
     ZigLLVMDIEnumerator **di_enumerators;
+    uint32_t abi_alignment_so_far;
     if (create_enum_type) {
         occupied_tag_values.init(field_count);
 
@@ -2373,7 +2380,7 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
         } else {
             tag_int_type = get_smallest_unsigned_int_type(g, field_count - 1);
         }
-        union_type->data.unionation.abi_alignment = get_abi_alignment(g, tag_int_type);
+        abi_alignment_so_far = get_abi_alignment(g, tag_int_type);
 
         tag_type = new_type_table_entry(TypeTableEntryIdEnum);
         buf_resize(&tag_type->name, 0);
@@ -2404,9 +2411,10 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
         }
         tag_type = enum_type;
         covered_enum_fields = allocate<bool>(enum_type->data.enumeration.src_field_count);
-        union_type->data.unionation.abi_alignment = get_abi_alignment(g, enum_type);
+        abi_alignment_so_far = get_abi_alignment(g, enum_type);
     } else {
         tag_type = nullptr;
+        abi_alignment_so_far = 0;
     }
     union_type->data.unionation.tag_type = tag_type;
 
@@ -2504,11 +2512,13 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
         uint32_t field_align_bytes = get_abi_alignment(g, field_type);
         if (field_align_bytes > biggest_align_bytes) {
             biggest_align_bytes = field_align_bytes;
-            if (biggest_align_bytes > union_type->data.unionation.abi_alignment) {
-                union_type->data.unionation.abi_alignment = biggest_align_bytes;
+            if (biggest_align_bytes > abi_alignment_so_far) {
+                abi_alignment_so_far = biggest_align_bytes;
             }
         }
     }
+
+    union_type->data.unionation.abi_alignment = abi_alignment_so_far;
 
     if (union_type->data.unionation.is_invalid)
         return;

@@ -404,3 +404,17 @@ test "native bit field understands endianness" {
     assert(bitfields.f6 == 0x6);
     assert(bitfields.f7 == 0x77);
 }
+
+test "align 1 field before self referential align 8 field as slice return type" {
+    const result = alloc(Expr);
+    assert(result.len == 0);
+}
+
+const Expr = union(enum) {
+    Literal: u8,
+    Question: &Expr,
+};
+
+fn alloc(comptime T: type) []T {
+    return []T{};
+}
