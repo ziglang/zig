@@ -633,19 +633,26 @@ TypeTableEntry *get_array_type(CodeGen *g, TypeTableEntry *child_type, uint64_t 
 
 static void slice_type_common_init(CodeGen *g, TypeTableEntry *pointer_type, TypeTableEntry *entry) {
     unsigned element_count = 2;
+    Buf *ptr_field_name = buf_create_from_str("ptr");
+    Buf *len_field_name = buf_create_from_str("len");
+
     entry->data.structure.layout = ContainerLayoutAuto;
     entry->data.structure.is_slice = true;
     entry->data.structure.src_field_count = element_count;
     entry->data.structure.gen_field_count = element_count;
     entry->data.structure.fields = allocate<TypeStructField>(element_count);
-    entry->data.structure.fields[slice_ptr_index].name = buf_create_from_str("ptr");
+    entry->data.structure.fields_by_name.init(element_count);
+    entry->data.structure.fields[slice_ptr_index].name = ptr_field_name;
     entry->data.structure.fields[slice_ptr_index].type_entry = pointer_type;
     entry->data.structure.fields[slice_ptr_index].src_index = slice_ptr_index;
     entry->data.structure.fields[slice_ptr_index].gen_index = 0;
-    entry->data.structure.fields[slice_len_index].name = buf_create_from_str("len");
+    entry->data.structure.fields[slice_len_index].name = len_field_name;
     entry->data.structure.fields[slice_len_index].type_entry = g->builtin_types.entry_usize;
     entry->data.structure.fields[slice_len_index].src_index = slice_len_index;
     entry->data.structure.fields[slice_len_index].gen_index = 1;
+
+    entry->data.structure.fields_by_name.put(ptr_field_name, &entry->data.structure.fields[slice_ptr_index]);
+    entry->data.structure.fields_by_name.put(len_field_name, &entry->data.structure.fields[slice_len_index]);
 
     assert(type_has_zero_bits_known(pointer_type->data.pointer.child_type));
     if (pointer_type->data.pointer.child_type->zero_bits) {
@@ -1555,6 +1562,7 @@ TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *f
     struct_type->data.structure.zero_bits_known = true;
     struct_type->data.structure.complete = true;
     struct_type->data.structure.fields = allocate<TypeStructField>(field_count);
+    struct_type->data.structure.fields_by_name.init(field_count);
 
     ZigLLVMDIType **di_element_types = allocate<ZigLLVMDIType*>(field_count);
     LLVMTypeRef *element_types = allocate<LLVMTypeRef>(field_count);
@@ -1566,6 +1574,9 @@ TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *f
         field->type_entry = field_types[i];
         field->src_index = i;
         field->gen_index = i;
+
+        auto prev_entry = struct_type->data.structure.fields_by_name.put_unique(field->name, field);
+        assert(prev_entry == nullptr);
     }
 
     struct_type->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), type_name);
@@ -2102,6 +2113,7 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
 
     enum_type->data.enumeration.src_field_count = field_count;
     enum_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
+    enum_type->data.enumeration.fields_by_name.init(field_count);
 
     Scope *scope = &enum_type->data.enumeration.decls_scope->base;
 
@@ -2139,12 +2151,22 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
         TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[field_i];
         type_enum_field->name = field_node->data.struct_field.name;
         type_enum_field->decl_index = field_i;
+        type_enum_field->decl_node = field_node;
 
         if (field_node->data.struct_field.type != nullptr) {
             ErrorMsg *msg = add_node_error(g, field_node->data.struct_field.type,
                 buf_sprintf("structs and unions, not enums, support field types"));
             add_error_note(g, msg, decl_node,
                     buf_sprintf("consider 'union(enum)' here"));
+        }
+
+        auto field_entry = enum_type->data.enumeration.fields_by_name.put_unique(type_enum_field->name, type_enum_field);
+        if (field_entry != nullptr) {
+            ErrorMsg *msg = add_node_error(g, field_node,
+                buf_sprintf("duplicate enum field: '%s'", buf_ptr(type_enum_field->name)));
+            add_error_note(g, msg, field_entry->value->decl_node, buf_sprintf("other field here"));
+            enum_type->data.enumeration.is_invalid = true;
+            continue;
         }
 
         AstNode *tag_value = field_node->data.struct_field.value;
@@ -2242,6 +2264,7 @@ static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type) {
     size_t field_count = decl_node->data.container_decl.fields.length;
     struct_type->data.structure.src_field_count = (uint32_t)field_count;
     struct_type->data.structure.fields = allocate<TypeStructField>(field_count);
+    struct_type->data.structure.fields_by_name.init(field_count);
 
     Scope *scope = &struct_type->data.structure.decls_scope->base;
 
@@ -2250,9 +2273,19 @@ static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type) {
         AstNode *field_node = decl_node->data.container_decl.fields.at(i);
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
         type_struct_field->name = field_node->data.struct_field.name;
+        type_struct_field->decl_node = field_node;
 
         if (field_node->data.struct_field.type == nullptr) {
             add_node_error(g, field_node, buf_sprintf("struct field missing type"));
+            struct_type->data.structure.is_invalid = true;
+            continue;
+        }
+
+        auto field_entry = struct_type->data.structure.fields_by_name.put_unique(type_struct_field->name, type_struct_field);
+        if (field_entry != nullptr) {
+            ErrorMsg *msg = add_node_error(g, field_node,
+                buf_sprintf("duplicate struct field: '%s'", buf_ptr(type_struct_field->name)));
+            add_error_note(g, msg, field_entry->value->decl_node, buf_sprintf("other field here"));
             struct_type->data.structure.is_invalid = true;
             continue;
         }
@@ -2344,6 +2377,7 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
     }
     union_type->data.unionation.src_field_count = field_count;
     union_type->data.unionation.fields = allocate<TypeUnionField>(field_count);
+    union_type->data.unionation.fields_by_name.init(field_count);
 
     uint32_t biggest_align_bytes = 0;
 
@@ -2395,6 +2429,7 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
         tag_type->data.enumeration.layout = ContainerLayoutAuto;
         tag_type->data.enumeration.src_field_count = field_count;
         tag_type->data.enumeration.fields = allocate<TypeEnumField>(field_count);
+        tag_type->data.enumeration.fields_by_name.init(field_count);
         tag_type->data.enumeration.decls_scope = union_type->data.unionation.decls_scope;
         tag_type->data.enumeration.complete = true;
     } else if (enum_type_node != nullptr) {
@@ -2424,6 +2459,16 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
         Buf *field_name = field_node->data.struct_field.name;
         TypeUnionField *union_field = &union_type->data.unionation.fields[i];
         union_field->name = field_node->data.struct_field.name;
+        union_field->decl_node = field_node;
+
+        auto field_entry = union_type->data.unionation.fields_by_name.put_unique(union_field->name, union_field);
+        if (field_entry != nullptr) {
+            ErrorMsg *msg = add_node_error(g, field_node,
+                buf_sprintf("duplicate union field: '%s'", buf_ptr(union_field->name)));
+            add_error_note(g, msg, field_entry->value->decl_node, buf_sprintf("other field here"));
+            union_type->data.unionation.is_invalid = true;
+            continue;
+        }
 
         TypeTableEntry *field_type;
         if (field_node->data.struct_field.type == nullptr) {
@@ -2456,6 +2501,10 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
             union_field->enum_field = &tag_type->data.enumeration.fields[i];
             union_field->enum_field->name = field_name;
             union_field->enum_field->decl_index = i;
+            union_field->enum_field->decl_node = field_node;
+
+            auto prev_entry = tag_type->data.enumeration.fields_by_name.put_unique(union_field->enum_field->name, union_field->enum_field);
+            assert(prev_entry == nullptr); // caught by union de-duplicator above
 
             AstNode *tag_value = field_node->data.struct_field.value;
             // In this first pass we resolve explicit tag values.
@@ -3499,37 +3548,35 @@ FnTableEntry *scope_get_fn_if_root(Scope *scope) {
 }
 
 TypeEnumField *find_enum_type_field(TypeTableEntry *enum_type, Buf *name) {
-    for (uint32_t i = 0; i < enum_type->data.enumeration.src_field_count; i += 1) {
-        TypeEnumField *type_enum_field = &enum_type->data.enumeration.fields[i];
-        if (buf_eql_buf(type_enum_field->name, name)) {
-            return type_enum_field;
-        }
-    }
-    return nullptr;
+    assert(enum_type->id == TypeTableEntryIdEnum);
+    if (enum_type->data.enumeration.src_field_count == 0)
+        return nullptr;
+    auto entry = enum_type->data.enumeration.fields_by_name.maybe_get(name);
+    if (entry == nullptr)
+        return nullptr;
+    return entry->value;
 }
 
 TypeStructField *find_struct_type_field(TypeTableEntry *type_entry, Buf *name) {
     assert(type_entry->id == TypeTableEntryIdStruct);
     assert(type_entry->data.structure.complete);
-    for (uint32_t i = 0; i < type_entry->data.structure.src_field_count; i += 1) {
-        TypeStructField *field = &type_entry->data.structure.fields[i];
-        if (buf_eql_buf(field->name, name)) {
-            return field;
-        }
-    }
-    return nullptr;
+    if (type_entry->data.structure.src_field_count == 0)
+        return nullptr;
+    auto entry = type_entry->data.structure.fields_by_name.maybe_get(name);
+    if (entry == nullptr)
+        return nullptr;
+    return entry->value;
 }
 
 TypeUnionField *find_union_type_field(TypeTableEntry *type_entry, Buf *name) {
     assert(type_entry->id == TypeTableEntryIdUnion);
     assert(type_entry->data.unionation.zero_bits_known);
-    for (uint32_t i = 0; i < type_entry->data.unionation.src_field_count; i += 1) {
-        TypeUnionField *field = &type_entry->data.unionation.fields[i];
-        if (buf_eql_buf(field->enum_field->name, name)) {
-            return field;
-        }
-    }
-    return nullptr;
+    if (type_entry->data.unionation.src_field_count == 0)
+        return nullptr;
+    auto entry = type_entry->data.unionation.fields_by_name.maybe_get(name);
+    if (entry == nullptr)
+        return nullptr;
+    return entry->value;
 }
 
 TypeUnionField *find_union_field_by_tag(TypeTableEntry *type_entry, const BigInt *tag) {

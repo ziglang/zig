@@ -1,6 +1,43 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("duplicate struct field",
+        \\const Foo = struct {
+        \\    Bar: i32,
+        \\    Bar: usize,
+        \\};
+        \\export fn entry() void {
+        \\    const a: Foo = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: duplicate struct field: 'Bar'",
+        ".tmp_source.zig:2:5: note: other field here");
+
+    cases.add("duplicate union field",
+        \\const Foo = union {
+        \\    Bar: i32,
+        \\    Bar: usize,
+        \\};
+        \\export fn entry() void {
+        \\    const a: Foo = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: duplicate union field: 'Bar'",
+        ".tmp_source.zig:2:5: note: other field here");
+
+    cases.add("duplicate enum field",
+        \\const Foo = enum {
+        \\    Bar,
+        \\    Bar,
+        \\};
+        \\
+        \\export fn entry() void {
+        \\    const a: Foo = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: duplicate enum field: 'Bar'",
+        ".tmp_source.zig:2:5: note: other field here");
+
     cases.add("calling function with naked calling convention",
         \\export fn entry() void {
         \\    foo();
@@ -9,7 +46,6 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
     ,
         ".tmp_source.zig:2:5: error: unable to call function with naked calling convention",
         ".tmp_source.zig:4:9: note: declared here");
-
 
     cases.add("function with invalid return type",
         \\export fn foo() boid {}
