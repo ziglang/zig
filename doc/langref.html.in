@@ -61,11 +61,6 @@
           padding: 1em;
           padding-left: 24em;
         }
-        .page-title {
-          /* half-size since h1 */
-          padding-left: 12em;
-          margin-bottom: 2em;
-        }
       }
       /* Mobile */
       @media screen and (max-width: 56.25em) {
@@ -79,7 +74,6 @@
     </style>
   </head>
   <body>
-    <h1 class="page-title">Zig Documentation</h1>
     <div id="nav">
       <h3>Index</h3>
       {#nav#}
