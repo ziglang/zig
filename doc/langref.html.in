@@ -36,25 +36,53 @@
       code {
         font-size: 12pt;
       }
-      @media screen and (min-width: 28.75em) {
+      pre > code {
+        display: block;
+        overflow: auto;
+      }
+      .table-wrapper {
+        width: 100%;
+        overflow-y: auto;
+      }
+      /* Desktop */
+      @media screen and (min-width: 56.25em) {
         #nav {
           width: 20em;
           height: 100%;
-          overflow-y: scroll;
           position: fixed;
+          overflow-y: scroll;
           left: 0;
           top: 0;
+          padding-left: 1em;
         }
         #contents {
-          max-width: 50em;
+          max-width: 60em;
           padding-left: 22em;
+          padding: 1em;
+          padding-left: 24em;
+        }
+        .page-title {
+          /* half-size since h1 */
+          padding-left: 12em;
+          margin-bottom: 2em;
+        }
+      }
+      /* Mobile */
+      @media screen and (max-width: 56.25em) {
+        body, code {
+          font-size: small;
+        }
+        #nav {
+          border-bottom: 1px solid grey;
         }
       }
     </style>
   </head>
   <body>
+    <h1 class="page-title">Zig Documentation</h1>
     <div id="nav">
-        {#nav#}
+      <h3>Index</h3>
+      {#nav#}
     </div>
     <div id="contents">
       {#header_open|Introduction#}
@@ -173,6 +201,7 @@ pub fn main() %void {
 }
       {#code_end#}
       {#header_open|Primitive Types#}
+      <div class="table-wrapper">
       <table>
         <tr>
           <th>
@@ -398,9 +427,11 @@ pub fn main() %void {
           <td>an error code</td>
         </tr>
       </table>
+      </div>
       {#see_also|Integers|Floats|void|Errors#}
       {#header_close#}
       {#header_open|Primitive Values#}
+      <div class="table-wrapper">
       <table>
         <tr>
           <th>
@@ -427,6 +458,7 @@ pub fn main() %void {
           <td>refers to the thing in immediate scope</td>
         </tr>
       </table>
+      </div>
       {#see_also|Nullables|this#}
       {#header_close#}
       {#header_open|String Literals#}
@@ -451,6 +483,7 @@ test "string literals" {
       {#code_end#}
       {#see_also|Arrays|Zig Test#}
       {#header_open|Escape Sequences#}
+      <div class="table-wrapper">
       <table>
         <tr>
           <th>
@@ -497,6 +530,7 @@ test "string literals" {
           <td>hexadecimal 24-bit Unicode character code UTF-8 encoded (6 digits)</td>
         </tr>
       </table>
+      </div>
       <p>Note that the maximum valid Unicode point is <code>0x10ffff</code>.</p>
       {#header_close#}
       {#header_open|Multiline String Literals#}
@@ -674,6 +708,7 @@ pub fn main() %void {
       {#header_close#}
       {#header_open|Operators#}
       {#header_open|Table of Operators#}
+      <div class="table-wrapper">
       <table>
         <tr>
           <th>
@@ -1246,6 +1281,7 @@ const ptr = &amp;x;
           </td>
         </tr>
       </table>
+      </div>
       {#header_close#}
       {#header_open|Precedence#}
       <pre><code>x() x[] x.y
