@@ -1,6 +1,13 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("use invalid number literal as array index",
+        \\var v = 25;
+        \\export fn entry() void {
+        \\    var arr: [v]u8 = undefined;
+        \\}
+    , ".tmp_source.zig:1:1: error: unable to infer variable type");
+
     cases.add("duplicate struct field",
         \\const Foo = struct {
         \\    Bar: i32,
