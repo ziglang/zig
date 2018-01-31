@@ -2785,6 +2785,16 @@ test "implicitly cast to const pointer" {
       use the C calling convention may pass structs and unions by value.
       </p>
       {#header_close#}
+      {#header_open|Function Reflection#}
+      {#code_begin|test#}
+const assert = @import("std").debug.assert;
+
+test "fn reflection" {
+    assert(@typeOf(assert).ReturnType == void);
+    assert(@typeOf(assert).is_var_args == false);
+}
+      {#code_end#}
+      {#header_close#}
       {#header_close#}
       {#header_open|Errors#}
       <p>
@@ -2998,6 +3008,31 @@ fn createFoo(param: i32) %Foo {
         </li>
       </ul>
       {#see_also|defer|if|switch#}
+      {#header_open|Error Union Type#}
+      <p>An error union is created by putting a <code>%</code> in front of a type.
+      You can use compile-time reflection to access the child type of an error union:</p>
+      {#code_begin|test#}
+const assert = @import("std").debug.assert;
+
+error SomeError;
+
+test "error union" {
+    var foo: %i32 = undefined;
+
+    // Implicitly cast from child type of an error union:
+    foo = 1234;
+
+    // Implicitly cast from an error set:
+    foo = error.SomeError;
+
+    // Use compile-time reflection to access the child type of an error union:
+    comptime assert(@typeOf(foo).Child == i32);
+}
+      {#code_end#}
+      {#header_close#}
+      {#header_open|Error Set Type#}
+      <p>TODO</p>
+      {#header_close#}
       {#header_close#}
       {#header_open|Nullables#}
       <p>
@@ -3099,6 +3134,24 @@ fn doAThing(nullable_foo: ?&Foo) void {
       The optimizer can sometimes make better decisions knowing that pointer arguments
       cannot be null.
       </p>
+      {#header_open|Nullable Type#}
+      <p>A nullable is created by putting <code>?</code> in front of a type. You can use compile-time
+      reflection to access the child type of a nullable:</p>
+      {#code_begin|test#}
+const assert = @import("std").debug.assert;
+
+test "nullable type" {
+    // Declare a nullable and implicitly cast from null:
+    var foo: ?i32 = null;
+
+    // Implicitly cast from child type of a nullable
+    foo = 1234;
+
+    // Use compile-time reflection to access the child type of the nullable:
+    comptime assert(@typeOf(foo).Child == i32);
+}
+      {#code_end#}
+      {#header_close#}
       {#header_close#}
       {#header_open|Casting#}
       <p>TODO: explain implicit vs explicit casting</p>
@@ -5730,9 +5783,6 @@ ContainerDecl = option("extern" | "packed")
         <li>Minimize energy spent on coding style.</li>
         <li>Together we serve end users.</li>
       </ul>
-      {#header_close#}
-      {#header_open|TODO#}
-      <p>TODO: document changes from a31b23c46ba2a8c28df01adc1aa0b4d878b9a5cf (compile time reflection additions)</p>
       {#header_close#}
     </div>
     <script>
