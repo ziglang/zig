@@ -1281,7 +1281,7 @@ const ptr = &amp;x;
       <pre><code>x() x[] x.y
 !x -x -%x ~x *x &amp;x ?x %x ??x
 x{}
-* / % ** *%
+! * / % ** *%
 + - ++ +% -%
 &lt;&lt; &gt;&gt;
 &amp;
@@ -5566,13 +5566,11 @@ fn readU32Be() u32 {}
       {#header_open|Grammar#}
       <pre><code class="nohighlight">Root = many(TopLevelItem) EOF
 
-TopLevelItem = ErrorValueDecl | CompTimeExpression(Block) | TopLevelDecl | TestDecl
+TopLevelItem = CompTimeExpression(Block) | TopLevelDecl | TestDecl
 
 TestDecl = "test" String Block
 
 TopLevelDecl = option("pub") (FnDef | ExternDecl | GlobalVarDecl | UseDecl)
-
-ErrorValueDecl = "error" Symbol ";"
 
 GlobalVarDecl = option("export") VariableDeclaration ";"
 
@@ -5588,7 +5586,7 @@ UseDecl = "use" Expression ";"
 
 ExternDecl = "extern" option(String) (FnProto | VariableDeclaration) ";"
 
-FnProto = option("nakedcc" | "stdcallcc" | "extern") "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") TypeExpr
+FnProto = option("nakedcc" | "stdcallcc" | "extern") "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") option("!") TypeExpr
 
 FnDef = option("inline" | "export") FnProto Block
 
@@ -5682,7 +5680,7 @@ MultiplyExpression = CurlySuffixExpression MultiplyOperator MultiplyExpression |
 
 CurlySuffixExpression = TypeExpr option(ContainerInitExpression)
 
-MultiplyOperator = "*" | "/" | "%" | "**" | "*%"
+MultiplyOperator = "!" | "*" | "/" | "%" | "**" | "*%"
 
 PrefixOpExpression = PrefixOp PrefixOpExpression | SuffixOpExpression
 
@@ -5702,15 +5700,17 @@ ContainerInitBody = list(StructLiteralField, ",") | list(Expression, ",")
 
 StructLiteralField = "." Symbol "=" Expression
 
-PrefixOp = "!" | "-" | "~" | "*" | ("&amp;" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "%" | "??" | "-%" | "try"
+PrefixOp = "!" | "-" | "~" | "*" | ("&amp;" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "??" | "-%" | "try"
 
-PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ("error" "." Symbol) | ContainerDecl | ("continue" option(":" Symbol))
+PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ContainerDecl | ("continue" option(":" Symbol)) | ErrorSetDecl
 
 ArrayType : "[" option(Expression) "]" option("align" "(" Expression option(":" Integer ":" Integer) ")")) option("const") option("volatile") TypeExpr
 
 GroupedExpression = "(" Expression ")"
 
 KeywordLiteral = "true" | "false" | "null" | "undefined" | "error" | "this" | "unreachable"
+
+ErrorSetDecl = "error" "{" list(Symbol, ",") "}"
 
 ContainerDecl = option("extern" | "packed")
   ("struct" option(GroupedExpression) | "union" option("enum" option(GroupedExpression) | GroupedExpression) | ("enum" option(GroupedExpression)))

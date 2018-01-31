@@ -437,6 +437,10 @@ unsigned ZigLLVMTag_DW_structure_type(void) {
     return dwarf::DW_TAG_structure_type;
 }
 
+unsigned ZigLLVMTag_DW_enumeration_type(void) {
+    return dwarf::DW_TAG_enumeration_type;
+}
+
 unsigned ZigLLVMTag_DW_union_type(void) {
     return dwarf::DW_TAG_union_type;
 }

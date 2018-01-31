@@ -224,7 +224,7 @@ bool type_is_complete(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
@@ -260,7 +260,7 @@ bool type_has_zero_bits_known(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
@@ -514,29 +514,39 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
     }
 }
 
-TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type) {
-    if (child_type->error_parent)
-        return child_type->error_parent;
+TypeTableEntry *get_error_union_type(CodeGen *g, TypeTableEntry *err_set_type, TypeTableEntry *payload_type) {
+    assert(err_set_type->id == TypeTableEntryIdErrorSet);
+
+    TypeId type_id = {};
+    type_id.id = TypeTableEntryIdErrorUnion;
+    type_id.data.error_union.err_set_type = err_set_type;
+    type_id.data.error_union.payload_type = payload_type;
+
+    auto existing_entry = g->type_table.maybe_get(type_id);
+    if (existing_entry) {
+        return existing_entry->value;
+    }
 
     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdErrorUnion);
     entry->is_copyable = true;
-    assert(child_type->type_ref);
-    assert(child_type->di_type);
-    ensure_complete_type(g, child_type);
+    assert(payload_type->type_ref);
+    assert(payload_type->di_type);
+    ensure_complete_type(g, payload_type);
 
     buf_resize(&entry->name, 0);
-    buf_appendf(&entry->name, "%%%s", buf_ptr(&child_type->name));
+    buf_appendf(&entry->name, "%s!%s", buf_ptr(&err_set_type->name), buf_ptr(&payload_type->name));
 
-    entry->data.error.child_type = child_type;
+    entry->data.error_union.err_set_type = err_set_type;
+    entry->data.error_union.payload_type = payload_type;
 
-    if (!type_has_bits(child_type)) {
-        entry->type_ref = g->err_tag_type->type_ref;
-        entry->di_type = g->err_tag_type->di_type;
+    if (!type_has_bits(payload_type)) {
+        entry->type_ref = err_set_type->type_ref;
+        entry->di_type = err_set_type->di_type;
 
     } else {
         LLVMTypeRef elem_types[] = {
-            g->err_tag_type->type_ref,
-            child_type->type_ref,
+            err_set_type->type_ref,
+            payload_type->type_ref,
         };
         entry->type_ref = LLVMStructType(elem_types, 2, false);
 
@@ -547,12 +557,12 @@ TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type) {
             ZigLLVMTag_DW_structure_type(), buf_ptr(&entry->name),
             compile_unit_scope, di_file, line);
 
-        uint64_t tag_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, g->err_tag_type->type_ref);
-        uint64_t tag_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, g->err_tag_type->type_ref);
+        uint64_t tag_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, err_set_type->type_ref);
+        uint64_t tag_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, err_set_type->type_ref);
         uint64_t tag_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref, err_union_err_index);
 
-        uint64_t value_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, child_type->type_ref);
-        uint64_t value_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, child_type->type_ref);
+        uint64_t value_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, payload_type->type_ref);
+        uint64_t value_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, payload_type->type_ref);
         uint64_t value_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref,
                 err_union_payload_index);
 
@@ -565,13 +575,13 @@ TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type) {
                     tag_debug_size_in_bits,
                     tag_debug_align_in_bits,
                     tag_offset_in_bits,
-                    0, child_type->di_type),
+                    0, err_set_type->di_type),
             ZigLLVMCreateDebugMemberType(g->dbuilder, ZigLLVMTypeToScope(entry->di_type),
                     "value", di_file, line,
                     value_debug_size_in_bits,
                     value_debug_align_in_bits,
                     value_offset_in_bits,
-                    0, child_type->di_type),
+                    0, payload_type->di_type),
         };
 
         ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
@@ -587,7 +597,7 @@ TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type) {
         entry->di_type = replacement_di_type;
     }
 
-    child_type->error_parent = entry;
+    g->type_table.put(type_id, entry);
     return entry;
 }
 
@@ -937,7 +947,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             handle_is_ptr(fn_type_id->return_type);
         bool prefix_arg_error_return_trace = g->have_err_ret_tracing &&
             (fn_type_id->return_type->id == TypeTableEntryIdErrorUnion || 
-            fn_type_id->return_type->id == TypeTableEntryIdPureError);
+            fn_type_id->return_type->id == TypeTableEntryIdErrorSet);
         // +1 for maybe making the first argument the return value
         // +1 for maybe last argument the error return trace
         LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(2 + fn_type_id->param_count);
@@ -1177,7 +1187,7 @@ static bool type_allowed_in_packed_struct(TypeTableEntry *type_entry) {
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
@@ -1218,7 +1228,7 @@ static bool type_allowed_in_extern(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
@@ -1263,7 +1273,23 @@ static bool type_allowed_in_extern(CodeGen *g, TypeTableEntry *type_entry) {
     zig_unreachable();
 }
 
-static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_scope) {
+static TypeTableEntry *get_auto_err_set_type(CodeGen *g, FnTableEntry *fn_entry) {
+    TypeTableEntry *err_set_type = new_type_table_entry(TypeTableEntryIdErrorSet);
+    buf_resize(&err_set_type->name, 0);
+    buf_appendf(&err_set_type->name, "%s.errors", buf_ptr(&fn_entry->symbol_name));
+    err_set_type->is_copyable = true;
+    err_set_type->type_ref = g->builtin_types.entry_global_error_set->type_ref;
+    err_set_type->di_type = g->builtin_types.entry_global_error_set->di_type;
+    err_set_type->data.error_set.err_count = 0;
+    err_set_type->data.error_set.errors = nullptr;
+    err_set_type->data.error_set.infer_fn = fn_entry;
+
+    g->error_di_types.append(&err_set_type->di_type);
+
+    return err_set_type;
+}
+
+static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_scope, FnTableEntry *fn_entry) {
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
@@ -1359,7 +1385,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             case TypeTableEntryIdStruct:
             case TypeTableEntryIdMaybe:
             case TypeTableEntryIdErrorUnion:
-            case TypeTableEntryIdPureError:
+            case TypeTableEntryIdErrorSet:
             case TypeTableEntryIdEnum:
             case TypeTableEntryIdUnion:
             case TypeTableEntryIdFn:
@@ -1382,8 +1408,13 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         }
     }
 
-    fn_type_id.return_type = (fn_proto->return_type == nullptr) ?
-        g->builtin_types.entry_void : analyze_type_expr(g, child_scope, fn_proto->return_type);
+    TypeTableEntry *specified_return_type = analyze_type_expr(g, child_scope, fn_proto->return_type);
+    if (fn_proto->auto_err_set) {
+        TypeTableEntry *inferred_err_set_type = get_auto_err_set_type(g, fn_entry);
+        fn_type_id.return_type = get_error_union_type(g, inferred_err_set_type, specified_return_type);
+    } else {
+        fn_type_id.return_type = specified_return_type;
+    }
 
     if (type_is_invalid(fn_type_id.return_type)) {
         return g->builtin_types.entry_invalid;
@@ -1434,7 +1465,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
@@ -2756,7 +2787,8 @@ TypeTableEntry *get_test_fn_type(CodeGen *g) {
         return g->test_fn_type;
 
     FnTypeId fn_type_id = {0};
-    fn_type_id.return_type = get_error_type(g,  g->builtin_types.entry_void);
+    fn_type_id.return_type = get_error_union_type(g, g->builtin_types.entry_global_error_set,
+            g->builtin_types.entry_void);
     g->test_fn_type = get_fn_type(g, &fn_type_id);
     return g->test_fn_type;
 }
@@ -2824,7 +2856,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
 
         Scope *child_scope = fn_table_entry->fndef_scope ? &fn_table_entry->fndef_scope->base : tld_fn->base.parent_scope;
 
-        fn_table_entry->type_entry = analyze_fn_type(g, source_node, child_scope);
+        fn_table_entry->type_entry = analyze_fn_type(g, source_node, child_scope, fn_table_entry);
 
         if (fn_proto->section_expr != nullptr) {
             if (fn_table_entry->body_node == nullptr) {
@@ -2949,29 +2981,6 @@ static void preview_test_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope
     g->resolve_queue.append(&tld_fn->base);
 }
 
-static void preview_error_value_decl(CodeGen *g, AstNode *node) {
-    assert(node->type == NodeTypeErrorValueDecl);
-
-    ErrorTableEntry *err = allocate<ErrorTableEntry>(1);
-
-    err->decl_node = node;
-    buf_init_from_buf(&err->name, node->data.error_value_decl.name);
-
-    auto existing_entry = g->error_table.maybe_get(&err->name);
-    if (existing_entry) {
-        // duplicate error definitions allowed and they get the same value
-        err->value = existing_entry->value->value;
-    } else {
-        size_t error_value_count = g->error_decls.length;
-        assert((uint32_t)error_value_count < (((uint32_t)1) << (uint32_t)g->err_tag_type->data.integral.bit_count));
-        err->value = (uint32_t)error_value_count;
-        g->error_decls.append(node);
-        g->error_table.put(&err->name, err);
-    }
-
-    node->data.error_value_decl.err = err;
-}
-
 static void preview_comptime_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope) {
     assert(node->type == NodeTypeCompTime);
 
@@ -3045,10 +3054,6 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
                 import->use_decls.append(node);
                 break;
             }
-        case NodeTypeErrorValueDecl:
-            // error value declarations do not depend on other top level decls
-            preview_error_value_decl(g, node);
-            break;
         case NodeTypeTestDecl:
             preview_test_decl(g, node, decls_scope);
             break;
@@ -3097,6 +3102,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeVarLiteral:
         case NodeTypeIfErrorExpr:
         case NodeTypeTestExpr:
+        case NodeTypeErrorSetDecl:
             zig_unreachable();
     }
 }
@@ -3147,7 +3153,7 @@ TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEnt
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
@@ -3403,13 +3409,16 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
                 actual_type->data.maybe.child_type);
     }
 
-    // error
+    // error union
     if (expected_type->id == TypeTableEntryIdErrorUnion &&
         actual_type->id == TypeTableEntryIdErrorUnion)
     {
         return types_match_const_cast_only(
-                expected_type->data.error.child_type,
-                actual_type->data.error.child_type);
+                expected_type->data.error_union.payload_type,
+                actual_type->data.error_union.payload_type) &&
+            types_match_const_cast_only(
+                expected_type->data.error_union.err_set_type,
+                actual_type->data.error_union.err_set_type);
     }
 
     // fn
@@ -3625,7 +3634,7 @@ static bool is_container(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
@@ -3673,7 +3682,7 @@ void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
@@ -3774,12 +3783,34 @@ void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_typ
             &fn_table_entry->analyzed_executable, fn_type_id->return_type, return_type_node);
     fn_table_entry->implicit_return_type = block_return_type;
 
-    if (block_return_type->id == TypeTableEntryIdInvalid ||
-        fn_table_entry->analyzed_executable.invalid)
-    {
+    if (type_is_invalid(block_return_type) || fn_table_entry->analyzed_executable.invalid) {
         assert(g->errors.length > 0);
         fn_table_entry->anal_state = FnAnalStateInvalid;
         return;
+    }
+
+    if (fn_type_id->return_type->id == TypeTableEntryIdErrorUnion) {
+        TypeTableEntry *return_err_set_type = fn_type_id->return_type->data.error_union.err_set_type;
+        if (return_err_set_type->data.error_set.infer_fn != nullptr) {
+            TypeTableEntry *inferred_err_set_type;
+            if (fn_table_entry->implicit_return_type->id == TypeTableEntryIdErrorSet) {
+                inferred_err_set_type = fn_table_entry->implicit_return_type;
+            } else if (fn_table_entry->implicit_return_type->id == TypeTableEntryIdErrorUnion) {
+                inferred_err_set_type = fn_table_entry->implicit_return_type->data.error_union.err_set_type;
+            } else {
+                add_node_error(g, return_type_node,
+                        buf_sprintf("function with inferred error set must return at least one possible error"));
+                fn_table_entry->anal_state = FnAnalStateInvalid;
+                return;
+            }
+
+            return_err_set_type->data.error_set.infer_fn = nullptr;
+            return_err_set_type->data.error_set.err_count = inferred_err_set_type->data.error_set.err_count;
+            return_err_set_type->data.error_set.errors = allocate<ErrorTableEntry *>(inferred_err_set_type->data.error_set.err_count);
+            for (uint32_t i = 0; i < inferred_err_set_type->data.error_set.err_count; i += 1) {
+                return_err_set_type->data.error_set.errors[i] = inferred_err_set_type->data.error_set.errors[i];
+            }
+        }
     }
 
     if (g->verbose_ir) {
@@ -3791,7 +3822,7 @@ void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_typ
     fn_table_entry->anal_state = FnAnalStateComplete;
 }
 
-static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
+void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
     assert(fn_table_entry->anal_state != FnAnalStateProbing);
     if (fn_table_entry->anal_state != FnAnalStateReady)
         return;
@@ -4022,7 +4053,8 @@ void semantic_analyze(CodeGen *g) {
         for (; g->resolve_queue_index < g->resolve_queue.length; g->resolve_queue_index += 1) {
             Tld *tld = g->resolve_queue.at(g->resolve_queue_index);
             bool pointer_only = false;
-            resolve_top_level_decl(g, tld, pointer_only, nullptr);
+            AstNode *source_node = nullptr;
+            resolve_top_level_decl(g, tld, pointer_only, source_node);
         }
 
         for (; g->fn_defs_index < g->fn_defs.length; g->fn_defs_index += 1) {
@@ -4114,7 +4146,7 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
         case TypeTableEntryIdInt:
         case TypeTableEntryIdFloat:
         case TypeTableEntryIdPointer:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdEnum:
              return false;
@@ -4122,7 +4154,7 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
         case TypeTableEntryIdStruct:
              return type_has_bits(type_entry);
         case TypeTableEntryIdErrorUnion:
-             return type_has_bits(type_entry->data.error.child_type);
+             return type_has_bits(type_entry->data.error_union.payload_type);
         case TypeTableEntryIdMaybe:
              return type_has_bits(type_entry->data.maybe.child_type) &&
                     type_entry->data.maybe.child_type->id != TypeTableEntryIdPointer &&
@@ -4386,9 +4418,9 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
         case TypeTableEntryIdErrorUnion:
             // TODO better hashing algorithm
             return 3415065496;
-        case TypeTableEntryIdPureError:
-            // TODO better hashing algorithm
-            return 2630160122;
+        case TypeTableEntryIdErrorSet:
+            assert(const_val->data.x_err_set != nullptr);
+            return const_val->data.x_err_set->value ^ 2630160122;
         case TypeTableEntryIdFn:
             return 4133894920 ^ hash_ptr(const_val->data.x_fn.fn_entry);
         case TypeTableEntryIdNamespace:
@@ -4515,7 +4547,7 @@ bool type_requires_comptime(TypeTableEntry *type_entry) {
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdEnum:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdBool:
         case TypeTableEntryIdInt:
@@ -4894,8 +4926,8 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
             return a->data.x_type == b->data.x_type;
         case TypeTableEntryIdVoid:
             return true;
-        case TypeTableEntryIdPureError:
-            return a->data.x_pure_err == b->data.x_pure_err;
+        case TypeTableEntryIdErrorSet:
+            return a->data.x_err_set->value == b->data.x_err_set->value;
         case TypeTableEntryIdFn:
             return a->data.x_fn.fn_entry == b->data.x_fn.fn_entry;
         case TypeTableEntryIdBool:
@@ -5256,9 +5288,9 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
                 buf_appendf(buf, "(union %s constant)", buf_ptr(&type_entry->name));
                 return;
             }
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
             {
-                buf_appendf(buf, "(pure error constant)");
+                buf_appendf(buf, "%s.%s", buf_ptr(&type_entry->name), buf_ptr(&const_val->data.x_err_set->name));
                 return;
             }
         case TypeTableEntryIdArgTuple:
@@ -5319,8 +5351,7 @@ uint32_t type_id_hash(TypeId x) {
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdMaybe:
-        case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
@@ -5329,6 +5360,8 @@ uint32_t type_id_hash(TypeId x) {
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
             zig_unreachable();
+        case TypeTableEntryIdErrorUnion:
+            return hash_ptr(x.data.error_union.err_set_type) ^ hash_ptr(x.data.error_union.payload_type);
         case TypeTableEntryIdPointer:
             return hash_ptr(x.data.pointer.child_type) +
                 (x.data.pointer.is_const ? (uint32_t)2749109194 : (uint32_t)4047371087) +
@@ -5363,8 +5396,7 @@ bool type_id_eql(TypeId a, TypeId b) {
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdMaybe:
-        case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
@@ -5374,6 +5406,10 @@ bool type_id_eql(TypeId a, TypeId b) {
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
             zig_unreachable();
+        case TypeTableEntryIdErrorUnion:
+            return a.data.error_union.err_set_type == b.data.error_union.err_set_type &&
+                a.data.error_union.payload_type == b.data.error_union.payload_type;
+
         case TypeTableEntryIdPointer:
             return a.data.pointer.child_type == b.data.pointer.child_type &&
                 a.data.pointer.is_const == b.data.pointer.is_const &&
@@ -5478,7 +5514,7 @@ static const TypeTableEntryId all_type_ids[] = {
     TypeTableEntryIdNullLit,
     TypeTableEntryIdMaybe,
     TypeTableEntryIdErrorUnion,
-    TypeTableEntryIdPureError,
+    TypeTableEntryIdErrorSet,
     TypeTableEntryIdEnum,
     TypeTableEntryIdUnion,
     TypeTableEntryIdFn,
@@ -5533,7 +5569,7 @@ size_t type_id_index(TypeTableEntryId id) {
             return 13;
         case TypeTableEntryIdErrorUnion:
             return 14;
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
             return 15;
         case TypeTableEntryIdEnum:
             return 16;
@@ -5590,8 +5626,8 @@ const char *type_id_name(TypeTableEntryId id) {
             return "Nullable";
         case TypeTableEntryIdErrorUnion:
             return "ErrorUnion";
-        case TypeTableEntryIdPureError:
-            return "Error";
+        case TypeTableEntryIdErrorSet:
+            return "ErrorSet";
         case TypeTableEntryIdEnum:
             return "Enum";
         case TypeTableEntryIdUnion:

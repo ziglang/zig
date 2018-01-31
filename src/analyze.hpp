@@ -30,7 +30,7 @@ TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *ptr_type);
 TypeTableEntry *get_partial_container_type(CodeGen *g, Scope *scope, ContainerKind kind,
         AstNode *decl_node, const char *name, ContainerLayout layout);
 TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x);
-TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type);
+TypeTableEntry *get_error_union_type(CodeGen *g, TypeTableEntry *err_set_type, TypeTableEntry *payload_type);
 TypeTableEntry *get_bound_fn_type(CodeGen *g, FnTableEntry *fn_entry);
 TypeTableEntry *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, const char *name);
 TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *field_names[],
@@ -46,7 +46,6 @@ bool type_has_bits(TypeTableEntry *type_entry);
 ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *abs_full_path, Buf *source_code);
 
 
-// TODO move these over, these used to be static
 bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *actual_type);
 VariableTableEntry *find_variable(CodeGen *g, Scope *orig_context, Buf *name);
 Tld *find_decl(CodeGen *g, Scope *scope, Buf *name);
@@ -188,6 +187,7 @@ void add_fn_export(CodeGen *g, FnTableEntry *fn_table_entry, Buf *symbol_name, G
 
 ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name);
 TypeTableEntry *get_ptr_to_stack_trace_type(CodeGen *g);
+void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry);
 
 
 #endif
