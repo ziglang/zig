@@ -372,10 +372,10 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\export fn entry() void { _ = a(); }
     , ".tmp_source.zig:1:8: error: use of undeclared identifier 'bogus'");
 
-    cases.add("pointer to unreachable",
+    cases.add("pointer to noreturn",
         \\fn a() &noreturn {}
         \\export fn entry() void { _ = a(); }
-    , ".tmp_source.zig:1:9: error: pointer to unreachable not allowed");
+    , ".tmp_source.zig:1:9: error: pointer to noreturn not allowed");
 
     cases.add("unreachable code",
         \\export fn a() void {

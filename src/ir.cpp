@@ -7009,7 +7009,7 @@ static IrInstruction *ir_get_const_ptr(IrAnalyze *ira, IrInstruction *instructio
     if (pointee_type->id == TypeTableEntryIdMetaType) {
         TypeTableEntry *type_entry = pointee->data.x_type;
         if (type_entry->id == TypeTableEntryIdUnreachable) {
-            ir_add_error(ira, instruction, buf_sprintf("pointer to unreachable not allowed"));
+            ir_add_error(ira, instruction, buf_sprintf("pointer to noreturn not allowed"));
             return ira->codegen->invalid_instruction;
         }
 
