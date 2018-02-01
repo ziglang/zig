@@ -28,7 +28,7 @@ pub const FailingAllocator = struct {
         };
     }
 
-    fn alloc(allocator: &mem.Allocator, n: usize, alignment: u29) %[]u8 {
+    fn alloc(allocator: &mem.Allocator, n: usize, alignment: u29) ![]u8 {
         const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
         if (self.index == self.fail_index) {
             return error.OutOfMemory;
@@ -39,7 +39,7 @@ pub const FailingAllocator = struct {
         return result;
     }
 
-    fn realloc(allocator: &mem.Allocator, old_mem: []u8, new_size: usize, alignment: u29) %[]u8 {
+    fn realloc(allocator: &mem.Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
         const self = @fieldParentPtr(FailingAllocator, "allocator", allocator);
         if (new_size <= old_mem.len) {
             self.freed_bytes += old_mem.len - new_size;

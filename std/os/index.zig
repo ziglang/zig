@@ -1470,8 +1470,6 @@ test "std.os" {
 }
 
 
-error Unexpected;
-
 // TODO make this a build variable that you can set
 const unexpected_error_tracing = false;
 

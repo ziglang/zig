@@ -13,10 +13,6 @@ const builtin = @import("builtin");
 const Os = builtin.Os;
 const LinkedList = std.LinkedList;
 
-error PermissionDenied;
-error ProcessNotFound;
-error InvalidName;
-
 var children_nodes = LinkedList(&ChildProcess).init();
 
 const is_windows = builtin.os == Os.windows;
@@ -74,7 +70,7 @@ pub const ChildProcess = struct {
 
     /// First argument in argv is the executable.
     /// On success must call deinit.
-    pub fn init(argv: []const []const u8, allocator: &mem.Allocator) %&ChildProcess {
+    pub fn init(argv: []const []const u8, allocator: &mem.Allocator) !&ChildProcess {
         const child = try allocator.create(ChildProcess);
         errdefer allocator.destroy(child);
 
@@ -103,7 +99,7 @@ pub const ChildProcess = struct {
         return child;
     }
 
-    pub fn setUserName(self: &ChildProcess, name: []const u8) %void {
+    pub fn setUserName(self: &ChildProcess, name: []const u8) !void {
         const user_info = try os.getUserInfo(name);
         self.uid = user_info.uid;
         self.gid = user_info.gid;
@@ -111,7 +107,7 @@ pub const ChildProcess = struct {
 
     /// onTerm can be called before `spawn` returns.
     /// On success must call `kill` or `wait`.
-    pub fn spawn(self: &ChildProcess) %void {
+    pub fn spawn(self: &ChildProcess) !void {
         if (is_windows) {
             return self.spawnWindows();
         } else {
@@ -119,13 +115,13 @@ pub const ChildProcess = struct {
         }
     }
 
-    pub fn spawnAndWait(self: &ChildProcess) %Term {
+    pub fn spawnAndWait(self: &ChildProcess) !Term {
         try self.spawn();
         return self.wait();
     }
 
     /// Forcibly terminates child process and then cleans up all resources.
-    pub fn kill(self: &ChildProcess) %Term {
+    pub fn kill(self: &ChildProcess) !Term {
         if (is_windows) {
             return self.killWindows(1);
         } else {
@@ -133,7 +129,7 @@ pub const ChildProcess = struct {
         }
     }
 
-    pub fn killWindows(self: &ChildProcess, exit_code: windows.UINT) %Term {
+    pub fn killWindows(self: &ChildProcess, exit_code: windows.UINT) !Term {
         if (self.term) |term| {
             self.cleanupStreams();
             return term;
@@ -149,7 +145,7 @@ pub const ChildProcess = struct {
         return ??self.term;
     }
 
-    pub fn killPosix(self: &ChildProcess) %Term {
+    pub fn killPosix(self: &ChildProcess) !Term {
         block_SIGCHLD();
         defer restore_SIGCHLD();
 
@@ -172,7 +168,7 @@ pub const ChildProcess = struct {
     }
 
     /// Blocks until child process terminates and then cleans up all resources.
-    pub fn wait(self: &ChildProcess) %Term {
+    pub fn wait(self: &ChildProcess) !Term {
         if (is_windows) {
             return self.waitWindows();
         } else {
@@ -220,7 +216,7 @@ pub const ChildProcess = struct {
         };
     }
 
-    fn waitWindows(self: &ChildProcess) %Term {
+    fn waitWindows(self: &ChildProcess) !Term {
         if (self.term) |term| {
             self.cleanupStreams();
             return term;
@@ -230,7 +226,7 @@ pub const ChildProcess = struct {
         return ??self.term;
     }
 
-    fn waitPosix(self: &ChildProcess) %Term {
+    fn waitPosix(self: &ChildProcess) !Term {
         block_SIGCHLD();
         defer restore_SIGCHLD();
 
@@ -247,7 +243,7 @@ pub const ChildProcess = struct {
         self.allocator.destroy(self);
     }
 
-    fn waitUnwrappedWindows(self: &ChildProcess) %void {
+    fn waitUnwrappedWindows(self: &ChildProcess) !void {
         const result = os.windowsWaitSingle(self.handle, windows.INFINITE);
 
         self.term = (%Term)(x: {
@@ -295,7 +291,7 @@ pub const ChildProcess = struct {
         if (self.stderr) |*stderr| { stderr.close(); self.stderr = null; }
     }
 
-    fn cleanupAfterWait(self: &ChildProcess, status: i32) %Term {
+    fn cleanupAfterWait(self: &ChildProcess, status: i32) !Term {
         children_nodes.remove(&self.llnode);
 
         defer {
@@ -331,7 +327,7 @@ pub const ChildProcess = struct {
         ;
     }
 
-    fn spawnPosix(self: &ChildProcess) %void {
+    fn spawnPosix(self: &ChildProcess) !void {
         // TODO atomically set a flag saying that we already did this
         install_SIGCHLD_handler();
 
@@ -440,7 +436,7 @@ pub const ChildProcess = struct {
         if (self.stderr_behavior == StdIo.Pipe) { os.close(stderr_pipe[1]); }
     }
 
-    fn spawnWindows(self: &ChildProcess) %void {
+    fn spawnWindows(self: &ChildProcess) !void {
         const saAttr = windows.SECURITY_ATTRIBUTES {
             .nLength = @sizeOf(windows.SECURITY_ATTRIBUTES),
             .bInheritHandle = windows.TRUE,
@@ -623,7 +619,7 @@ pub const ChildProcess = struct {
         if (self.stdout_behavior == StdIo.Pipe) { os.close(??g_hChildStd_OUT_Wr); }
     }
 
-    fn setUpChildIo(stdio: StdIo, pipe_fd: i32, std_fileno: i32, dev_null_fd: i32) %void {
+    fn setUpChildIo(stdio: StdIo, pipe_fd: i32, std_fileno: i32, dev_null_fd: i32) !void {
         switch (stdio) {
             StdIo.Pipe => try os.posixDup2(pipe_fd, std_fileno),
             StdIo.Close => os.close(std_fileno),
@@ -655,7 +651,7 @@ fn windowsCreateProcess(app_name: &u8, cmd_line: &u8, envp_ptr: ?&u8, cwd_ptr: ?
 
 /// Caller must dealloc.
 /// Guarantees a null byte at result[result.len].
-fn windowsCreateCommandLine(allocator: &mem.Allocator, argv: []const []const u8) %[]u8 {
+fn windowsCreateCommandLine(allocator: &mem.Allocator, argv: []const []const u8) ![]u8 {
     var buf = try Buffer.initSize(allocator, 0);
     defer buf.deinit();
 
@@ -700,7 +696,7 @@ fn windowsDestroyPipe(rd: ?windows.HANDLE, wr: ?windows.HANDLE) void {
 // a namespace field lookup
 const SECURITY_ATTRIBUTES = windows.SECURITY_ATTRIBUTES;
 
-fn windowsMakePipe(rd: &windows.HANDLE, wr: &windows.HANDLE, sattr: &const SECURITY_ATTRIBUTES) %void {
+fn windowsMakePipe(rd: &windows.HANDLE, wr: &windows.HANDLE, sattr: &const SECURITY_ATTRIBUTES) !void {
     if (windows.CreatePipe(rd, wr, sattr, 0) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
@@ -709,7 +705,7 @@ fn windowsMakePipe(rd: &windows.HANDLE, wr: &windows.HANDLE, sattr: &const SECUR
     }
 }
 
-fn windowsSetHandleInfo(h: windows.HANDLE, mask: windows.DWORD, flags: windows.DWORD) %void {
+fn windowsSetHandleInfo(h: windows.HANDLE, mask: windows.DWORD, flags: windows.DWORD) !void {
     if (windows.SetHandleInformation(h, mask, flags) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
@@ -718,7 +714,7 @@ fn windowsSetHandleInfo(h: windows.HANDLE, mask: windows.DWORD, flags: windows.D
     }
 }
 
-fn windowsMakePipeIn(rd: &?windows.HANDLE, wr: &?windows.HANDLE, sattr: &const SECURITY_ATTRIBUTES) %void {
+fn windowsMakePipeIn(rd: &?windows.HANDLE, wr: &?windows.HANDLE, sattr: &const SECURITY_ATTRIBUTES) !void {
     var rd_h: windows.HANDLE = undefined;
     var wr_h: windows.HANDLE = undefined;
     try windowsMakePipe(&rd_h, &wr_h, sattr);
@@ -728,7 +724,7 @@ fn windowsMakePipeIn(rd: &?windows.HANDLE, wr: &?windows.HANDLE, sattr: &const S
     *wr = wr_h;
 }
 
-fn windowsMakePipeOut(rd: &?windows.HANDLE, wr: &?windows.HANDLE, sattr: &const SECURITY_ATTRIBUTES) %void {
+fn windowsMakePipeOut(rd: &?windows.HANDLE, wr: &?windows.HANDLE, sattr: &const SECURITY_ATTRIBUTES) !void {
     var rd_h: windows.HANDLE = undefined;
     var wr_h: windows.HANDLE = undefined;
     try windowsMakePipe(&rd_h, &wr_h, sattr);
@@ -738,7 +734,7 @@ fn windowsMakePipeOut(rd: &?windows.HANDLE, wr: &?windows.HANDLE, sattr: &const 
     *wr = wr_h;
 }
 
-fn makePipe() %[2]i32 {
+fn makePipe() ![2]i32 {
     var fds: [2]i32 = undefined;
     const err = posix.getErrno(posix.pipe(&fds));
     if (err > 0) {
@@ -764,13 +760,13 @@ fn forkChildErrReport(fd: i32, err: error) noreturn {
 
 const ErrInt = @IntType(false, @sizeOf(error) * 8);
 
-fn writeIntFd(fd: i32, value: ErrInt) %void {
+fn writeIntFd(fd: i32, value: ErrInt) !void {
     var bytes: [@sizeOf(ErrInt)]u8 = undefined;
     mem.writeInt(bytes[0..], value, builtin.endian);
     os.posixWrite(fd, bytes[0..]) catch return error.SystemResources;
 }
 
-fn readIntFd(fd: i32) %ErrInt {
+fn readIntFd(fd: i32) !ErrInt {
     var bytes: [@sizeOf(ErrInt)]u8 = undefined;
     os.posixRead(fd, bytes[0..]) catch return error.SystemResources;
     return mem.readInt(bytes[0..], ErrInt, builtin.endian);

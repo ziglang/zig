@@ -9,8 +9,6 @@ const c = std.c;
 
 const Allocator = mem.Allocator;
 
-error OutOfMemory;
-
 pub const c_allocator = &c_allocator_state;
 var c_allocator_state = Allocator {
     .allocFn = cAlloc,
@@ -18,14 +16,14 @@ var c_allocator_state = Allocator {
     .freeFn = cFree,
 };
 
-fn cAlloc(self: &Allocator, n: usize, alignment: u29) %[]u8 {
+fn cAlloc(self: &Allocator, n: usize, alignment: u29) ![]u8 {
     return if (c.malloc(usize(n))) |buf|
         @ptrCast(&u8, buf)[0..n]
     else
         error.OutOfMemory;
 }
 
-fn cRealloc(self: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) %[]u8 {
+fn cRealloc(self: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
     const old_ptr = @ptrCast(&c_void, old_mem.ptr);
     if (c.realloc(old_ptr, new_size)) |buf| {
         return @ptrCast(&u8, buf)[0..new_size];
@@ -47,7 +45,7 @@ pub const IncrementingAllocator = struct {
     end_index: usize,
     heap_handle: if (builtin.os == Os.windows) os.windows.HANDLE else void,
 
-    fn init(capacity: usize) %IncrementingAllocator {
+    fn init(capacity: usize) !IncrementingAllocator {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios => {
                 const p = os.posix;
@@ -105,7 +103,7 @@ pub const IncrementingAllocator = struct {
         return self.bytes.len - self.end_index;
     }
 
-    fn alloc(allocator: &Allocator, n: usize, alignment: u29) %[]u8 {
+    fn alloc(allocator: &Allocator, n: usize, alignment: u29) ![]u8 {
         const self = @fieldParentPtr(IncrementingAllocator, "allocator", allocator);
         const addr = @ptrToInt(&self.bytes[self.end_index]);
         const rem = @rem(addr, alignment);
@@ -120,7 +118,7 @@ pub const IncrementingAllocator = struct {
         return result;
     }
 
-    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) %[]u8 {
+    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
         if (new_size <= old_mem.len) {
             return old_mem[0..new_size];
         } else {

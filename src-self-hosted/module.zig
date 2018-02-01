@@ -198,7 +198,7 @@ pub const Module = struct {
         self.allocator.destroy(self);
     }
 
-    pub fn build(self: &Module) %void {
+    pub fn build(self: &Module) !void {
         if (self.llvm_argv.len != 0) {
             var c_compatible_args = try std.cstr.NullTerminated2DArray.fromSlices(self.allocator,
                 [][]const []const u8 { [][]const u8{"zig (LLVM option parsing)"}, self.llvm_argv, });
@@ -263,11 +263,11 @@ pub const Module = struct {
         
     }
 
-    pub fn link(self: &Module, out_file: ?[]const u8) %void {
+    pub fn link(self: &Module, out_file: ?[]const u8) !void {
         warn("TODO link");
     }
 
-    pub fn addLinkLib(self: &Module, name: []const u8, provided_explicitly: bool) %&LinkLib {
+    pub fn addLinkLib(self: &Module, name: []const u8, provided_explicitly: bool) !&LinkLib {
         const is_libc = mem.eql(u8, name, "c");
 
         if (is_libc) {
@@ -297,7 +297,7 @@ pub const Module = struct {
     }
 };
 
-fn printError(comptime format: []const u8, args: ...) %void {
+fn printError(comptime format: []const u8, args: ...) !void {
     var stderr_file = try std.io.getStdErr();
     var stderr_file_out_stream = std.io.FileOutStream.init(&stderr_file);
     const out_stream = &stderr_file_out_stream.stream;

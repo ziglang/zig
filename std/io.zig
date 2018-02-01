@@ -26,31 +26,7 @@ test "import io tests" {
     }
 }
 
-/// The function received invalid input at runtime. An Invalid error means a
-/// bug in the program that called the function.
-error Invalid;
-
-error DiskQuota;
-error FileTooBig;
-error Io;
-error NoSpaceLeft;
-error BadPerm;
-error BrokenPipe;
-error BadFd;
-error IsDir;
-error NotDir;
-error SymLinkLoop;
-error ProcessFdQuotaExceeded;
-error SystemFdQuotaExceeded;
-error NameTooLong;
-error NoDevice;
-error PathNotFound;
-error OutOfMemory;
-error Unseekable;
-error EndOfFile;
-error FilePosLargerThanPointerRange;
-
-pub fn getStdErr() %File {
+pub fn getStdErr() !File {
     const handle = if (is_windows)
         try os.windowsGetStdHandle(system.STD_ERROR_HANDLE)
     else if (is_posix)
@@ -60,7 +36,7 @@ pub fn getStdErr() %File {
     return File.openHandle(handle);
 }
 
-pub fn getStdOut() %File {
+pub fn getStdOut() !File {
     const handle = if (is_windows)
         try os.windowsGetStdHandle(system.STD_OUTPUT_HANDLE)
     else if (is_posix)
@@ -70,7 +46,7 @@ pub fn getStdOut() %File {
     return File.openHandle(handle);
 }
 
-pub fn getStdIn() %File {
+pub fn getStdIn() !File {
     const handle = if (is_windows)
         try os.windowsGetStdHandle(system.STD_INPUT_HANDLE)
     else if (is_posix)
@@ -94,7 +70,7 @@ pub const FileInStream = struct {
         };
     }
 
-    fn readFn(in_stream: &InStream, buffer: []u8) %usize {
+    fn readFn(in_stream: &InStream, buffer: []u8) !usize {
         const self = @fieldParentPtr(FileInStream, "stream", in_stream);
         return self.file.read(buffer);
     }
@@ -114,7 +90,7 @@ pub const FileOutStream = struct {
         };
     }
 
-    fn writeFn(out_stream: &OutStream, bytes: []const u8) %void {
+    fn writeFn(out_stream: &OutStream, bytes: []const u8) !void {
         const self = @fieldParentPtr(FileOutStream, "stream", out_stream);
         return self.file.write(bytes);
     }
@@ -129,7 +105,7 @@ pub const File = struct {
     /// size buffer is too small, and the provided allocator is null, error.NameTooLong is returned.
     /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
     /// Call close to clean up.
-    pub fn openRead(path: []const u8, allocator: ?&mem.Allocator) %File {
+    pub fn openRead(path: []const u8, allocator: ?&mem.Allocator) !File {
         if (is_posix) {
             const flags = system.O_LARGEFILE|system.O_RDONLY;
             const fd = try os.posixOpen(path, flags, 0, allocator);
@@ -144,7 +120,7 @@ pub const File = struct {
     }
 
     /// Calls `openWriteMode` with 0o666 for the mode.
-    pub fn openWrite(path: []const u8, allocator: ?&mem.Allocator) %File {
+    pub fn openWrite(path: []const u8, allocator: ?&mem.Allocator) !File {
         return openWriteMode(path, 0o666, allocator);
 
     }
@@ -154,7 +130,7 @@ pub const File = struct {
     /// size buffer is too small, and the provided allocator is null, error.NameTooLong is returned.
     /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
     /// Call close to clean up.
-    pub fn openWriteMode(path: []const u8, mode: usize, allocator: ?&mem.Allocator) %File {
+    pub fn openWriteMode(path: []const u8, mode: usize, allocator: ?&mem.Allocator) !File {
         if (is_posix) {
             const flags = system.O_LARGEFILE|system.O_WRONLY|system.O_CREAT|system.O_CLOEXEC|system.O_TRUNC;
             const fd = try os.posixOpen(path, flags, mode, allocator);
@@ -189,7 +165,7 @@ pub const File = struct {
         return os.isTty(self.handle);
     }
 
-    pub fn seekForward(self: &File, amount: isize) %void {
+    pub fn seekForward(self: &File, amount: isize) !void {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios => {
                 const result = system.lseek(self.handle, amount, system.SEEK_CUR);
@@ -218,7 +194,7 @@ pub const File = struct {
         }
     }
 
-    pub fn seekTo(self: &File, pos: usize) %void {
+    pub fn seekTo(self: &File, pos: usize) !void {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios => {
                 const ipos = try math.cast(isize, pos);
@@ -249,7 +225,7 @@ pub const File = struct {
         }
     }
 
-    pub fn getPos(self: &File) %usize {
+    pub fn getPos(self: &File) !usize {
         switch (builtin.os) {
             Os.linux, Os.macosx, Os.ios => {
                 const result = system.lseek(self.handle, 0, system.SEEK_CUR);
@@ -289,7 +265,7 @@ pub const File = struct {
         }
     }
 
-    pub fn getEndPos(self: &File) %usize {
+    pub fn getEndPos(self: &File) !usize {
         if (is_posix) {
             var stat: system.Stat = undefined;
             const err = system.getErrno(system.fstat(self.handle, &stat));
@@ -318,7 +294,7 @@ pub const File = struct {
         }
     }
 
-    pub fn read(self: &File, buffer: []u8) %usize {
+    pub fn read(self: &File, buffer: []u8) !usize {
         if (is_posix) {
             var index: usize = 0;
             while (index < buffer.len) {
@@ -360,7 +336,7 @@ pub const File = struct {
         }
     }
 
-    fn write(self: &File, bytes: []const u8) %void {
+    fn write(self: &File, bytes: []const u8) !void {
         if (is_posix) {
             try os.posixWrite(self.handle, bytes);
         } else if (is_windows) {
@@ -371,19 +347,16 @@ pub const File = struct {
     }
 };
 
-error StreamTooLong;
-error EndOfStream;
-
 pub const InStream = struct {
     /// Return the number of bytes read. If the number read is smaller than buf.len, it
     /// means the stream reached the end. Reaching the end of a stream is not an error
     /// condition.
-    readFn: fn(self: &InStream, buffer: []u8) %usize,
+    readFn: fn(self: &InStream, buffer: []u8) !usize,
 
     /// Replaces `buffer` contents by reading from the stream until it is finished.
     /// If `buffer.len()` would exceed `max_size`, `error.StreamTooLong` is returned and
     /// the contents read from the stream are lost.
-    pub fn readAllBuffer(self: &InStream, buffer: &Buffer, max_size: usize) %void {
+    pub fn readAllBuffer(self: &InStream, buffer: &Buffer, max_size: usize) !void {
         try buffer.resize(0);
 
         var actual_buf_len: usize = 0;
@@ -408,7 +381,7 @@ pub const InStream = struct {
     /// memory would be greater than `max_size`, returns `error.StreamTooLong`.
     /// Caller owns returned memory.
     /// If this function returns an error, the contents from the stream read so far are lost.
-    pub fn readAllAlloc(self: &InStream, allocator: &mem.Allocator, max_size: usize) %[]u8 {
+    pub fn readAllAlloc(self: &InStream, allocator: &mem.Allocator, max_size: usize) ![]u8 {
         var buf = Buffer.initNull(allocator);
         defer buf.deinit();
 
@@ -420,7 +393,7 @@ pub const InStream = struct {
     /// Does not include the delimiter in the result.
     /// If `buffer.len()` would exceed `max_size`, `error.StreamTooLong` is returned and the contents
     /// read from the stream so far are lost.
-    pub fn readUntilDelimiterBuffer(self: &InStream, buffer: &Buffer, delimiter: u8, max_size: usize) %void {
+    pub fn readUntilDelimiterBuffer(self: &InStream, buffer: &Buffer, delimiter: u8, max_size: usize) !void {
         try buf.resize(0);
 
         while (true) {
@@ -443,7 +416,7 @@ pub const InStream = struct {
     /// Caller owns returned memory.
     /// If this function returns an error, the contents from the stream read so far are lost.
     pub fn readUntilDelimiterAlloc(self: &InStream, allocator: &mem.Allocator,
-        delimiter: u8, max_size: usize) %[]u8
+        delimiter: u8, max_size: usize) ![]u8
     {
         var buf = Buffer.initNull(allocator);
         defer buf.deinit();
@@ -455,43 +428,43 @@ pub const InStream = struct {
     /// Returns the number of bytes read. If the number read is smaller than buf.len, it
     /// means the stream reached the end. Reaching the end of a stream is not an error
     /// condition.
-    pub fn read(self: &InStream, buffer: []u8) %usize {
+    pub fn read(self: &InStream, buffer: []u8) !usize {
         return self.readFn(self, buffer);
     }
 
     /// Same as `read` but end of stream returns `error.EndOfStream`.
-    pub fn readNoEof(self: &InStream, buf: []u8) %void {
+    pub fn readNoEof(self: &InStream, buf: []u8) !void {
         const amt_read = try self.read(buf);
         if (amt_read < buf.len) return error.EndOfStream;
     }
 
     /// Reads 1 byte from the stream or returns `error.EndOfStream`.
-    pub fn readByte(self: &InStream) %u8 {
+    pub fn readByte(self: &InStream) !u8 {
         var result: [1]u8 = undefined;
         try self.readNoEof(result[0..]);
         return result[0];
     }
 
     /// Same as `readByte` except the returned byte is signed.
-    pub fn readByteSigned(self: &InStream) %i8 {
+    pub fn readByteSigned(self: &InStream) !i8 {
         return @bitCast(i8, try self.readByte());
     }
 
-    pub fn readIntLe(self: &InStream, comptime T: type) %T {
+    pub fn readIntLe(self: &InStream, comptime T: type) !T {
         return self.readInt(builtin.Endian.Little, T);
     }
 
-    pub fn readIntBe(self: &InStream, comptime T: type) %T {
+    pub fn readIntBe(self: &InStream, comptime T: type) !T {
         return self.readInt(builtin.Endian.Big, T);
     }
 
-    pub fn readInt(self: &InStream, endian: builtin.Endian, comptime T: type) %T {
+    pub fn readInt(self: &InStream, endian: builtin.Endian, comptime T: type) !T {
         var bytes: [@sizeOf(T)]u8 = undefined;
         try self.readNoEof(bytes[0..]);
         return mem.readInt(bytes, T, endian);
     }
 
-    pub fn readVarInt(self: &InStream, endian: builtin.Endian, comptime T: type, size: usize) %T {
+    pub fn readVarInt(self: &InStream, endian: builtin.Endian, comptime T: type, size: usize) !T {
         assert(size <= @sizeOf(T));
         assert(size <= 8);
         var input_buf: [8]u8 = undefined;
@@ -504,22 +477,23 @@ pub const InStream = struct {
 };
 
 pub const OutStream = struct {
-    writeFn: fn(self: &OutStream, bytes: []const u8) %void,
+    // TODO allow specifying the error set
+    writeFn: fn(self: &OutStream, bytes: []const u8) error!void,
 
-    pub fn print(self: &OutStream, comptime format: []const u8, args: ...) %void {
-        return std.fmt.format(self, self.writeFn, format, args);
+    pub fn print(self: &OutStream, comptime format: []const u8, args: ...) !void {
+        return std.fmt.format(self, error, self.writeFn, format, args);
     }
 
-    pub fn write(self: &OutStream, bytes: []const u8) %void {
+    pub fn write(self: &OutStream, bytes: []const u8) !void {
         return self.writeFn(self, bytes);
     }
 
-    pub fn writeByte(self: &OutStream, byte: u8) %void {
+    pub fn writeByte(self: &OutStream, byte: u8) !void {
         const slice = (&byte)[0..1];
         return self.writeFn(self, slice);
     }
 
-    pub fn writeByteNTimes(self: &OutStream, byte: u8, n: usize) %void {
+    pub fn writeByteNTimes(self: &OutStream, byte: u8, n: usize) !void {
         const slice = (&byte)[0..1];
         var i: usize = 0;
         while (i < n) : (i += 1) {
@@ -532,19 +506,19 @@ pub const OutStream = struct {
 /// a fixed size buffer of size `std.os.max_noalloc_path_len` is an attempted solution. If the fixed
 /// size buffer is too small, and the provided allocator is null, `error.NameTooLong` is returned.
 /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
-pub fn writeFile(path: []const u8, data: []const u8, allocator: ?&mem.Allocator) %void {
+pub fn writeFile(path: []const u8, data: []const u8, allocator: ?&mem.Allocator) !void {
     var file = try File.openWrite(path, allocator);
     defer file.close();
     try file.write(data);
 }
 
 /// On success, caller owns returned buffer.
-pub fn readFileAlloc(path: []const u8, allocator: &mem.Allocator) %[]u8 {
+pub fn readFileAlloc(path: []const u8, allocator: &mem.Allocator) ![]u8 {
     return readFileAllocExtra(path, allocator, 0);
 }
 /// On success, caller owns returned buffer.
 /// Allocates extra_len extra bytes at the end of the file buffer, which are uninitialized.
-pub fn readFileAllocExtra(path: []const u8, allocator: &mem.Allocator, extra_len: usize) %[]u8 {
+pub fn readFileAllocExtra(path: []const u8, allocator: &mem.Allocator, extra_len: usize) ![]u8 {
     var file = try File.openRead(path, allocator);
     defer file.close();
 
@@ -589,7 +563,7 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize) type {
             };
         }
 
-        fn readFn(in_stream: &InStream, dest: []u8) %usize {
+        fn readFn(in_stream: &InStream, dest: []u8) !usize {
             const self = @fieldParentPtr(Self, "stream", in_stream);
 
             var dest_index: usize = 0;
@@ -652,7 +626,7 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize) type {
             };
         }
 
-        pub fn flush(self: &Self) %void {
+        pub fn flush(self: &Self) !void {
             if (self.index == 0)
                 return;
 
@@ -660,7 +634,7 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize) type {
             self.index = 0;
         }
 
-        fn writeFn(out_stream: &OutStream, bytes: []const u8) %void {
+        fn writeFn(out_stream: &OutStream, bytes: []const u8) !void {
             const self = @fieldParentPtr(Self, "stream", out_stream);
 
             if (bytes.len >= self.buffer.len) {
@@ -698,7 +672,7 @@ pub const BufferOutStream = struct {
         };
     }
 
-    fn writeFn(out_stream: &OutStream, bytes: []const u8) %void {
+    fn writeFn(out_stream: &OutStream, bytes: []const u8) !void {
         const self = @fieldParentPtr(BufferOutStream, "stream", out_stream);
         return self.buffer.append(bytes);
     }

@@ -241,7 +241,28 @@ static Token *ast_eat_token(ParseContext *pc, size_t *token_index, TokenId token
 }
 
 /*
-TypeExpr = PrefixOpExpression | "var"
+ErrorSetExpr = (PrefixOpExpression "!" PrefixOpExpression) | PrefixOpExpression
+*/
+static AstNode *ast_parse_error_set_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
+    AstNode *prefix_op_expr = ast_parse_prefix_op_expr(pc, token_index, mandatory);
+    if (!prefix_op_expr) {
+        return nullptr;
+    }
+    Token *token = &pc->tokens->at(*token_index);
+    if (token->id == TokenIdBang) {
+        *token_index += 1;
+        AstNode *node = ast_create_node(pc, NodeTypeBinOpExpr, token);
+        node->data.bin_op_expr.op1 = prefix_op_expr;
+        node->data.bin_op_expr.bin_op = BinOpTypeErrorUnion;
+        node->data.bin_op_expr.op2 = ast_parse_prefix_op_expr(pc, token_index, true);
+        return node;
+    } else {
+        return prefix_op_expr;
+    }
+}
+
+/*
+TypeExpr = ErrorSetExpr | "var"
 */
 static AstNode *ast_parse_type_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -250,7 +271,7 @@ static AstNode *ast_parse_type_expr(ParseContext *pc, size_t *token_index, bool 
         *token_index += 1;
         return node;
     } else {
-        return ast_parse_prefix_op_expr(pc, token_index, mandatory);
+        return ast_parse_error_set_expr(pc, token_index, mandatory);
     }
 }
 
@@ -2346,10 +2367,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool m
             node->data.fn_proto.return_type = ast_create_node(pc, NodeTypeErrorType, next_token);
             return node;
         }
-
-        return node;
-    }
-    if (next_token->id == TokenIdBang) {
+    } else if (next_token->id == TokenIdBang) {
         *token_index += 1;
         node->data.fn_proto.auto_err_set = true;
         next_token = &pc->tokens->at(*token_index);

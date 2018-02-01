@@ -32,7 +32,6 @@ fn funcWithConstPtrPtr(x: &const &i32) void {
     **x += 1;
 }
 
-error ItBroke;
 test "explicit cast from integer to error type" {
     testCastIntToErr(error.ItBroke);
     comptime testCastIntToErr(error.ItBroke);
@@ -110,11 +109,11 @@ test "return null from fn() %?&T" {
     const b = returnNullLitFromMaybeTypeErrorRef();
     assert((try a) == null and (try b) == null);
 }
-fn returnNullFromMaybeTypeErrorRef() %?&A {
+fn returnNullFromMaybeTypeErrorRef() !?&A {
     const a: ?&A = null;
     return a;
 }
-fn returnNullLitFromMaybeTypeErrorRef() %?&A {
+fn returnNullLitFromMaybeTypeErrorRef() !?&A {
     return null;
 }
 
@@ -170,7 +169,7 @@ fn testCastZeroArrayToErrSliceMut() void {
     assert((gimmeErrOrSlice() catch unreachable).len == 0);
 }
 
-fn gimmeErrOrSlice() %[]u8 {
+fn gimmeErrOrSlice() ![]u8 {
     return []u8{};
 }
 
@@ -188,7 +187,7 @@ test "peer type resolution: [0]u8, []const u8, and %[]u8" {
         assert((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
     }
 }
-fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) %[]u8 {
+fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) ![]u8 {
     if (a) {
         return []u8{};
     }
@@ -238,14 +237,13 @@ test "peer type resolution: error and [N]T" {
     comptime assert(mem.eql(u8, try testPeerErrorAndArray2(1), "OKK"));
 }
 
-error BadValue;
-//fn testPeerErrorAndArray(x: u8) %[]const u8 {
+//fn testPeerErrorAndArray(x: u8) ![]const u8 {
 //    return switch (x) {
 //        0x00 => "OK",
 //        else => error.BadValue,
 //    };
 //}
-fn testPeerErrorAndArray2(x: u8) %[]const u8 {
+fn testPeerErrorAndArray2(x: u8) ![]const u8 {
     return switch (x) {
         0x00 => "OK",
         0x01 => "OKK",

@@ -5598,7 +5598,9 @@ Block = option(Symbol ":") "{" many(Statement) "}"
 
 Statement = LocalVarDecl ";" | Defer(Block) | Defer(Expression) ";" | BlockExpression(Block) | Expression ";" | ";"
 
-TypeExpr = PrefixOpExpression | "var"
+TypeExpr = ErrorSetExpr | "var"
+
+ErrorSetExpr = (PrefixOpExpression "!" PrefixOpExpression) | PrefixOpExpression
 
 BlockOrExpression = Block | Expression
 
@@ -5680,7 +5682,7 @@ MultiplyExpression = CurlySuffixExpression MultiplyOperator MultiplyExpression |
 
 CurlySuffixExpression = TypeExpr option(ContainerInitExpression)
 
-MultiplyOperator = "!" | "*" | "/" | "%" | "**" | "*%"
+MultiplyOperator = "*" | "/" | "%" | "**" | "*%"
 
 PrefixOpExpression = PrefixOp PrefixOpExpression | SuffixOpExpression
 

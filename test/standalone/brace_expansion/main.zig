@@ -6,9 +6,6 @@ const assert = debug.assert;
 const Buffer = std.Buffer;
 const ArrayList = std.ArrayList;
 
-error InvalidInput;
-error OutOfMem;
-
 const Token = union(enum) {
     Word: []const u8,
     OpenBrace,
@@ -19,7 +16,7 @@ const Token = union(enum) {
 
 var global_allocator: &mem.Allocator = undefined;
 
-fn tokenize(input:[] const u8) %ArrayList(Token) {
+fn tokenize(input:[] const u8) !ArrayList(Token) {
     const State = enum {
         Start,
         Word,
@@ -71,7 +68,7 @@ const Node = union(enum) {
     Combine: []Node,
 };
 
-fn parse(tokens: &const ArrayList(Token), token_index: &usize) %Node {
+fn parse(tokens: &const ArrayList(Token), token_index: &usize) !Node {
     const first_token = tokens.items[*token_index];
     *token_index += 1;
 
@@ -107,7 +104,7 @@ fn parse(tokens: &const ArrayList(Token), token_index: &usize) %Node {
     }
 }
 
-fn expandString(input: []const u8, output: &Buffer) %void {
+fn expandString(input: []const u8, output: &Buffer) !void {
     const tokens = try tokenize(input);
     if (tokens.len == 1) {
         return output.resize(0);
@@ -135,7 +132,7 @@ fn expandString(input: []const u8, output: &Buffer) %void {
     }
 }
 
-fn expandNode(node: &const Node, output: &ArrayList(Buffer)) %void {
+fn expandNode(node: &const Node, output: &ArrayList(Buffer)) !void {
     assert(output.len == 0);
     switch (*node) {
         Node.Scalar => |scalar| {
@@ -172,7 +169,7 @@ fn expandNode(node: &const Node, output: &ArrayList(Buffer)) %void {
     }
 }
 
-pub fn main() %void {
+pub fn main() !void {
     var stdin_file = try io.getStdIn();
     var stdout_file = try io.getStdOut();
 

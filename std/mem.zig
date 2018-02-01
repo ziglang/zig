@@ -4,13 +4,13 @@ const assert = debug.assert;
 const math = std.math;
 const builtin = @import("builtin");
 
-error OutOfMemory;
-
 pub const Allocator = struct {
+    const Errors = error {OutOfMemory};
+
     /// Allocate byte_count bytes and return them in a slice, with the
     /// slice's pointer aligned at least to alignment bytes.
     /// The returned newly allocated memory is undefined.
-    allocFn: fn (self: &Allocator, byte_count: usize, alignment: u29) %[]u8,
+    allocFn: fn (self: &Allocator, byte_count: usize, alignment: u29) Errors![]u8,
 
     /// If `new_byte_count > old_mem.len`:
     /// * `old_mem.len` is the same as what was returned from allocFn or reallocFn.
@@ -21,12 +21,12 @@ pub const Allocator = struct {
     /// * alignment <= alignment of old_mem.ptr
     ///
     /// The returned newly allocated memory is undefined.
-    reallocFn: fn (self: &Allocator, old_mem: []u8, new_byte_count: usize, alignment: u29) %[]u8,
+    reallocFn: fn (self: &Allocator, old_mem: []u8, new_byte_count: usize, alignment: u29) Errors![]u8,
 
     /// Guaranteed: `old_mem.len` is the same as what was returned from `allocFn` or `reallocFn`
     freeFn: fn (self: &Allocator, old_mem: []u8) void,
 
-    fn create(self: &Allocator, comptime T: type) %&T {
+    fn create(self: &Allocator, comptime T: type) !&T {
         const slice = try self.alloc(T, 1);
         return &slice[0];
     }
@@ -35,7 +35,7 @@ pub const Allocator = struct {
         self.free(ptr[0..1]);
     }
 
-    fn alloc(self: &Allocator, comptime T: type, n: usize) %[]T {
+    fn alloc(self: &Allocator, comptime T: type, n: usize) ![]T {
         return self.alignedAlloc(T, @alignOf(T), n);
     }
 
@@ -51,7 +51,7 @@ pub const Allocator = struct {
         return ([]align(alignment) T)(@alignCast(alignment, byte_slice));
     }
 
-    fn realloc(self: &Allocator, comptime T: type, old_mem: []T, n: usize) %[]T {
+    fn realloc(self: &Allocator, comptime T: type, old_mem: []T, n: usize) ![]T {
         return self.alignedRealloc(T, @alignOf(T), @alignCast(@alignOf(T), old_mem), n);
     }
 
@@ -123,7 +123,7 @@ pub const FixedBufferAllocator = struct {
         };
     }
 
-    fn alloc(allocator: &Allocator, n: usize, alignment: u29) %[]u8 {
+    fn alloc(allocator: &Allocator, n: usize, alignment: u29) ![]u8 {
         const self = @fieldParentPtr(FixedBufferAllocator, "allocator", allocator);
         const addr = @ptrToInt(&self.buffer[self.end_index]);
         const rem = @rem(addr, alignment);
@@ -138,7 +138,7 @@ pub const FixedBufferAllocator = struct {
         return result;
     }
 
-    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) %[]u8 {
+    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
         if (new_size <= old_mem.len) {
             return old_mem[0..new_size];
         } else {
@@ -197,7 +197,7 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
 }
 
 /// Copies ::m to newly allocated memory. Caller is responsible to free it.
-pub fn dupe(allocator: &Allocator, comptime T: type, m: []const T) %[]T {
+pub fn dupe(allocator: &Allocator, comptime T: type, m: []const T) ![]T {
     const new_buf = try allocator.alloc(T, m.len);
     copy(T, new_buf, m);
     return new_buf;
@@ -428,7 +428,7 @@ const SplitIterator = struct {
 
 /// Naively combines a series of strings with a separator.
 /// Allocates memory for the result, which must be freed by the caller.
-pub fn join(allocator: &Allocator, sep: u8, strings: ...) %[]u8 {
+pub fn join(allocator: &Allocator, sep: u8, strings: ...) ![]u8 {
     comptime assert(strings.len >= 1);
     var total_strings_len: usize = strings.len; // 1 sep per string
     {

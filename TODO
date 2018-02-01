@@ -1,0 +1,5 @@
+sed -i 's/\(\bfn .*) \)%\(.*{\)$/\1!\2/g' $(find .. -name "*.zig")
+
+comptime assert(error{} ! i32 == i32);
+
+

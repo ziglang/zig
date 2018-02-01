@@ -516,6 +516,7 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
 
 TypeTableEntry *get_error_union_type(CodeGen *g, TypeTableEntry *err_set_type, TypeTableEntry *payload_type) {
     assert(err_set_type->id == TypeTableEntryIdErrorSet);
+    assert(!type_is_invalid(payload_type));
 
     TypeId type_id = {};
     type_id.id = TypeTableEntryIdErrorUnion;
@@ -1409,15 +1410,16 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
     }
 
     TypeTableEntry *specified_return_type = analyze_type_expr(g, child_scope, fn_proto->return_type);
+    if (type_is_invalid(specified_return_type)) {
+        fn_type_id.return_type = g->builtin_types.entry_invalid;
+        return g->builtin_types.entry_invalid;
+    }
+
     if (fn_proto->auto_err_set) {
         TypeTableEntry *inferred_err_set_type = get_auto_err_set_type(g, fn_entry);
         fn_type_id.return_type = get_error_union_type(g, inferred_err_set_type, specified_return_type);
     } else {
         fn_type_id.return_type = specified_return_type;
-    }
-
-    if (type_is_invalid(fn_type_id.return_type)) {
-        return g->builtin_types.entry_invalid;
     }
 
     if (fn_type_id.cc != CallingConventionUnspecified && !type_allowed_in_extern(g, fn_type_id.return_type)) {

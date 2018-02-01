@@ -15,13 +15,6 @@ const BufSet = std.BufSet;
 const BufMap = std.BufMap;
 const fmt_lib = std.fmt;
 
-error ExtraArg;
-error UncleanExit;
-error InvalidStepName;
-error DependencyLoopDetected;
-error NoCompilerFound;
-error NeedAnObject;
-
 pub const Builder = struct {
     uninstall_tls: TopLevelStep,
     install_tls: TopLevelStep,
@@ -242,7 +235,7 @@ pub const Builder = struct {
         self.lib_paths.append(path) catch unreachable;
     }
 
-    pub fn make(self: &Builder, step_names: []const []const u8) %void {
+    pub fn make(self: &Builder, step_names: []const []const u8) !void {
         var wanted_steps = ArrayList(&Step).init(self.allocator);
         defer wanted_steps.deinit();
 
@@ -278,7 +271,7 @@ pub const Builder = struct {
         return &self.uninstall_tls.step;
     }
 
-    fn makeUninstall(uninstall_step: &Step) %void {
+    fn makeUninstall(uninstall_step: &Step) !void {
         const uninstall_tls = @fieldParentPtr(TopLevelStep, "step", uninstall_step);
         const self = @fieldParentPtr(Builder, "uninstall_tls", uninstall_tls);
 
@@ -292,7 +285,7 @@ pub const Builder = struct {
         // TODO remove empty directories
     }
 
-    fn makeOneStep(self: &Builder, s: &Step) %void {
+    fn makeOneStep(self: &Builder, s: &Step) !void {
         if (s.loop_flag) {
             warn("Dependency loop detected:\n  {}\n", s.name);
             return error.DependencyLoopDetected;
@@ -313,7 +306,7 @@ pub const Builder = struct {
         try s.make();
     }
 
-    fn getTopLevelStepByName(self: &Builder, name: []const u8) %&Step {
+    fn getTopLevelStepByName(self: &Builder, name: []const u8) !&Step {
         for (self.top_level_steps.toSliceConst()) |top_level_step| {
             if (mem.eql(u8, top_level_step.step.name, name)) {
                 return &top_level_step.step;
@@ -548,7 +541,7 @@ pub const Builder = struct {
         return self.invalid_user_input;
     }
 
-    fn spawnChild(self: &Builder, argv: []const []const u8) %void {
+    fn spawnChild(self: &Builder, argv: []const []const u8) !void {
         return self.spawnChildEnvMap(null, &self.env_map, argv);
     }
 
@@ -595,7 +588,7 @@ pub const Builder = struct {
         }
     }
 
-    pub fn makePath(self: &Builder, path: []const u8) %void {
+    pub fn makePath(self: &Builder, path: []const u8) !void {
         os.makePath(self.allocator, self.pathFromRoot(path)) catch |err| {
             warn("Unable to create path {}: {}\n", path, @errorName(err));
             return err;
@@ -630,11 +623,11 @@ pub const Builder = struct {
         self.installed_files.append(full_path) catch unreachable;
     }
 
-    fn copyFile(self: &Builder, source_path: []const u8, dest_path: []const u8) %void {
+    fn copyFile(self: &Builder, source_path: []const u8, dest_path: []const u8) !void {
         return self.copyFileMode(source_path, dest_path, 0o666);
     }
 
-    fn copyFileMode(self: &Builder, source_path: []const u8, dest_path: []const u8, mode: usize) %void {
+    fn copyFileMode(self: &Builder, source_path: []const u8, dest_path: []const u8, mode: usize) !void {
         if (self.verbose) {
             warn("cp {} {}\n", source_path, dest_path);
         }
@@ -672,7 +665,7 @@ pub const Builder = struct {
         }
     }
 
-    pub fn findProgram(self: &Builder, names: []const []const u8, paths: []const []const u8) %[]const u8 {
+    pub fn findProgram(self: &Builder, names: []const []const u8, paths: []const []const u8) ![]const u8 {
         // TODO report error for ambiguous situations
         const exe_extension = (Target { .Native = {}}).exeFileExt();
         for (self.search_prefixes.toSliceConst()) |search_prefix| {
@@ -721,7 +714,7 @@ pub const Builder = struct {
         return error.FileNotFound;
     }
 
-    pub fn exec(self: &Builder, argv: []const []const u8) %[]u8 {
+    pub fn exec(self: &Builder, argv: []const []const u8) ![]u8 {
         const max_output_size = 100 * 1024;
         const result = try os.ChildProcess.exec(self.allocator, argv, null, null, max_output_size);
         switch (result.term) {
@@ -1180,12 +1173,12 @@ pub const LibExeObjStep = struct {
         self.disable_libc = disable;
     }
 
-    fn make(step: &Step) %void {
+    fn make(step: &Step) !void {
         const self = @fieldParentPtr(LibExeObjStep, "step", step);
         return if (self.is_zig) self.makeZig() else self.makeC();
     }
 
-    fn makeZig(self: &LibExeObjStep) %void {
+    fn makeZig(self: &LibExeObjStep) !void {
         const builder = self.builder;
 
         assert(self.is_zig);
@@ -1396,7 +1389,7 @@ pub const LibExeObjStep = struct {
         }
     }
 
-    fn makeC(self: &LibExeObjStep) %void {
+    fn makeC(self: &LibExeObjStep) !void {
         const builder = self.builder;
 
         const cc = builder.getCCExe();
@@ -1687,7 +1680,7 @@ pub const TestStep = struct {
         self.exec_cmd_args = args;
     }
 
-    fn make(step: &Step) %void {
+    fn make(step: &Step) !void {
         const self = @fieldParentPtr(TestStep, "step", step);
         const builder = self.builder;
 
@@ -1796,7 +1789,7 @@ pub const CommandStep = struct {
         return self;
     }
 
-    fn make(step: &Step) %void {
+    fn make(step: &Step) !void {
         const self = @fieldParentPtr(CommandStep, "step", step);
 
         const cwd = if (self.cwd) |cwd| self.builder.pathFromRoot(cwd) else self.builder.build_root;
@@ -1836,7 +1829,7 @@ const InstallArtifactStep = struct {
         return self;
     }
 
-    fn make(step: &Step) %void {
+    fn make(step: &Step) !void {
         const self = @fieldParentPtr(Self, "step", step);
         const builder = self.builder;
 
@@ -1868,7 +1861,7 @@ pub const InstallFileStep = struct {
         };
     }
 
-    fn make(step: &Step) %void {
+    fn make(step: &Step) !void {
         const self = @fieldParentPtr(InstallFileStep, "step", step);
         try self.builder.copyFile(self.src_path, self.dest_path);
     }
@@ -1889,7 +1882,7 @@ pub const WriteFileStep = struct {
         };
     }
 
-    fn make(step: &Step) %void {
+    fn make(step: &Step) !void {
         const self = @fieldParentPtr(WriteFileStep, "step", step);
         const full_path = self.builder.pathFromRoot(self.file_path);
         const full_path_dir = os.path.dirname(full_path);
@@ -1917,7 +1910,7 @@ pub const LogStep = struct {
         };
     }
 
-    fn make(step: &Step) %void {
+    fn make(step: &Step) !void {
         const self = @fieldParentPtr(LogStep, "step", step);
         warn("{}", self.data);
     }
@@ -1936,7 +1929,7 @@ pub const RemoveDirStep = struct {
         };
     }
 
-    fn make(step: &Step) %void {
+    fn make(step: &Step) !void {
         const self = @fieldParentPtr(RemoveDirStep, "step", step);
 
         const full_path = self.builder.pathFromRoot(self.dir_path);
@@ -1967,7 +1960,7 @@ pub const Step = struct {
         return init(name, allocator, makeNoOp);
     }
 
-    pub fn make(self: &Step) %void {
+    pub fn make(self: &Step) !void {
         if (self.done_flag)
             return;
 

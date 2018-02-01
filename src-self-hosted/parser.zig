@@ -63,7 +63,7 @@ pub const Parser = struct {
         NullableField: &?&ast.Node,
         List: &ArrayList(&ast.Node),
 
-        pub fn store(self: &const DestPtr, value: &ast.Node) %void {
+        pub fn store(self: &const DestPtr, value: &ast.Node) !void {
             switch (*self) {
                 DestPtr.Field => |ptr| *ptr = value,
                 DestPtr.NullableField => |ptr| *ptr = value,
@@ -99,7 +99,7 @@ pub const Parser = struct {
 
     /// Returns an AST tree, allocated with the parser's allocator.
     /// Result should be freed with `freeAst` when done.
-    pub fn parse(self: &Parser) %Tree {
+    pub fn parse(self: &Parser) !Tree {
         var stack = self.initUtilityArrayList(State);
         defer self.deinitUtilityArrayList(stack);
 
@@ -544,7 +544,7 @@ pub const Parser = struct {
         }
     }
 
-    fn createRoot(self: &Parser) %&ast.NodeRoot {
+    fn createRoot(self: &Parser) !&ast.NodeRoot {
         const node = try self.allocator.create(ast.NodeRoot);
 
         *node = ast.NodeRoot {
@@ -599,7 +599,7 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createParamDecl(self: &Parser) %&ast.NodeParamDecl {
+    fn createParamDecl(self: &Parser) !&ast.NodeParamDecl {
         const node = try self.allocator.create(ast.NodeParamDecl);
 
         *node = ast.NodeParamDecl {
@@ -613,7 +613,7 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createBlock(self: &Parser, begin_token: &const Token) %&ast.NodeBlock {
+    fn createBlock(self: &Parser, begin_token: &const Token) !&ast.NodeBlock {
         const node = try self.allocator.create(ast.NodeBlock);
 
         *node = ast.NodeBlock {
@@ -625,7 +625,7 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createInfixOp(self: &Parser, op_token: &const Token, op: &const ast.NodeInfixOp.InfixOp) %&ast.NodeInfixOp {
+    fn createInfixOp(self: &Parser, op_token: &const Token, op: &const ast.NodeInfixOp.InfixOp) !&ast.NodeInfixOp {
         const node = try self.allocator.create(ast.NodeInfixOp);
 
         *node = ast.NodeInfixOp {
@@ -638,7 +638,7 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createPrefixOp(self: &Parser, op_token: &const Token, op: &const ast.NodePrefixOp.PrefixOp) %&ast.NodePrefixOp {
+    fn createPrefixOp(self: &Parser, op_token: &const Token, op: &const ast.NodePrefixOp.PrefixOp) !&ast.NodePrefixOp {
         const node = try self.allocator.create(ast.NodePrefixOp);
 
         *node = ast.NodePrefixOp {
@@ -650,7 +650,7 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createIdentifier(self: &Parser, name_token: &const Token) %&ast.NodeIdentifier {
+    fn createIdentifier(self: &Parser, name_token: &const Token) !&ast.NodeIdentifier {
         const node = try self.allocator.create(ast.NodeIdentifier);
 
         *node = ast.NodeIdentifier {
@@ -660,7 +660,7 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createIntegerLiteral(self: &Parser, token: &const Token) %&ast.NodeIntegerLiteral {
+    fn createIntegerLiteral(self: &Parser, token: &const Token) !&ast.NodeIntegerLiteral {
         const node = try self.allocator.create(ast.NodeIntegerLiteral);
 
         *node = ast.NodeIntegerLiteral {
@@ -670,7 +670,7 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createFloatLiteral(self: &Parser, token: &const Token) %&ast.NodeFloatLiteral {
+    fn createFloatLiteral(self: &Parser, token: &const Token) !&ast.NodeFloatLiteral {
         const node = try self.allocator.create(ast.NodeFloatLiteral);
 
         *node = ast.NodeFloatLiteral {
@@ -680,13 +680,13 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createAttachIdentifier(self: &Parser, dest_ptr: &const DestPtr, name_token: &const Token) %&ast.NodeIdentifier {
+    fn createAttachIdentifier(self: &Parser, dest_ptr: &const DestPtr, name_token: &const Token) !&ast.NodeIdentifier {
         const node = try self.createIdentifier(name_token);
         try dest_ptr.store(&node.base);
         return node;
     }
 
-    fn createAttachParamDecl(self: &Parser, list: &ArrayList(&ast.Node)) %&ast.NodeParamDecl {
+    fn createAttachParamDecl(self: &Parser, list: &ArrayList(&ast.Node)) !&ast.NodeParamDecl {
         const node = try self.createParamDecl();
         try list.append(&node.base);
         return node;
@@ -730,13 +730,13 @@ pub const Parser = struct {
         return error.ParseError;
     }
 
-    fn expectToken(self: &Parser, token: &const Token, id: @TagType(Token.Id)) %void {
+    fn expectToken(self: &Parser, token: &const Token, id: @TagType(Token.Id)) !void {
         if (token.id != id) {
             return self.parseError(token, "expected {}, found {}", @tagName(id), @tagName(token.id));
         }
     }
 
-    fn eatToken(self: &Parser, id: @TagType(Token.Id)) %Token {
+    fn eatToken(self: &Parser, id: @TagType(Token.Id)) !Token {
         const token = self.getNextToken();
         try self.expectToken(token, id);
         return token;
@@ -763,7 +763,7 @@ pub const Parser = struct {
         indent: usize,
     };
 
-    pub fn renderAst(self: &Parser, stream: &std.io.OutStream, root_node: &ast.NodeRoot) %void {
+    pub fn renderAst(self: &Parser, stream: &std.io.OutStream, root_node: &ast.NodeRoot) !void {
         var stack = self.initUtilityArrayList(RenderAstFrame);
         defer self.deinitUtilityArrayList(stack);
 
@@ -802,7 +802,7 @@ pub const Parser = struct {
         Indent: usize,
     };
 
-    pub fn renderSource(self: &Parser, stream: &std.io.OutStream, root_node: &ast.NodeRoot) %void {
+    pub fn renderSource(self: &Parser, stream: &std.io.OutStream, root_node: &ast.NodeRoot) !void {
         var stack = self.initUtilityArrayList(RenderState);
         defer self.deinitUtilityArrayList(stack);
 
@@ -1038,7 +1038,7 @@ pub const Parser = struct {
 
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
-fn testParse(source: []const u8, allocator: &mem.Allocator) %[]u8 {
+fn testParse(source: []const u8, allocator: &mem.Allocator) ![]u8 {
     var padded_source: [0x100]u8 = undefined;
     std.mem.copy(u8, padded_source[0..source.len], source);
     padded_source[source.len + 0] = '\n';
@@ -1064,7 +1064,7 @@ error MemoryLeakDetected;
 
 // TODO test for memory leaks
 // TODO test for valid frees
-fn testCanonical(source: []const u8) %void {
+fn testCanonical(source: []const u8) !void {
     const needed_alloc_count = x: {
         // Try it once with unlimited memory, make sure it works
         var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);

@@ -1383,7 +1383,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
     , ".tmp_source.zig:6:13: error: cannot assign to constant");
 
     cases.add("return from defer expression",
-        \\pub fn testTrickyDefer() %void {
+        \\pub fn testTrickyDefer() !void {
         \\    defer canFail() catch {};
         \\
         \\    defer try canFail();
@@ -1970,7 +1970,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\fn foo1(args: ...) void {}
         \\fn foo2(args: ...) void {}
         \\
-        \\pub fn main() %void {
+        \\pub fn main() !void {
         \\    foos[0]();
         \\}
     ,
@@ -1982,7 +1982,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\fn foo1(arg: var) void {}
         \\fn foo2(arg: var) void {}
         \\
-        \\pub fn main() %void {
+        \\pub fn main() !void {
         \\    foos[0](true);
         \\}
     ,

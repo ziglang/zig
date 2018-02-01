@@ -191,30 +191,26 @@ test "math.max" {
     assert(max(i32(-1), i32(2)) == 2);
 }
 
-error Overflow;
-pub fn mul(comptime T: type, a: T, b: T) %T {
+pub fn mul(comptime T: type, a: T, b: T) !T {
     var answer: T = undefined;
     return if (@mulWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
-error Overflow;
-pub fn add(comptime T: type, a: T, b: T) %T {
+pub fn add(comptime T: type, a: T, b: T) !T {
     var answer: T = undefined;
     return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
-error Overflow;
-pub fn sub(comptime T: type, a: T, b: T) %T {
+pub fn sub(comptime T: type, a: T, b: T) !T {
     var answer: T = undefined;
     return if (@subWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
-pub fn negate(x: var) %@typeOf(x) {
+pub fn negate(x: var) !@typeOf(x) {
     return sub(@typeOf(x), 0, x);
 }
 
-error Overflow;
-pub fn shlExact(comptime T: type, a: T, shift_amt: Log2Int(T)) %T {
+pub fn shlExact(comptime T: type, a: T, shift_amt: Log2Int(T)) !T {
     var answer: T = undefined;
     return if (@shlWithOverflow(T, a, shift_amt, &answer)) error.Overflow else answer;
 }
@@ -323,8 +319,7 @@ fn testOverflow() void {
 }
 
 
-error Overflow;
-pub fn absInt(x: var) %@typeOf(x) {
+pub fn absInt(x: var) !@typeOf(x) {
     const T = @typeOf(x);
     comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer to absInt
     comptime assert(T.is_signed); // must pass a signed integer to absInt
@@ -347,9 +342,7 @@ fn testAbsInt() void {
 
 pub const absFloat = @import("fabs.zig").fabs;
 
-error DivisionByZero;
-error Overflow;
-pub fn divTrunc(comptime T: type, numerator: T, denominator: T) %T {
+pub fn divTrunc(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0)
         return error.DivisionByZero;
@@ -372,9 +365,7 @@ fn testDivTrunc() void {
     assert((divTrunc(f32, -5.0, 3.0) catch unreachable) == -1.0);
 }
 
-error DivisionByZero;
-error Overflow;
-pub fn divFloor(comptime T: type, numerator: T, denominator: T) %T {
+pub fn divFloor(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0)
         return error.DivisionByZero;
@@ -397,10 +388,7 @@ fn testDivFloor() void {
     assert((divFloor(f32, -5.0, 3.0) catch unreachable) == -2.0);
 }
 
-error DivisionByZero;
-error Overflow;
-error UnexpectedRemainder;
-pub fn divExact(comptime T: type, numerator: T, denominator: T) %T {
+pub fn divExact(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0)
         return error.DivisionByZero;
@@ -428,9 +416,7 @@ fn testDivExact() void {
     if (divExact(f32, 5.0, 2.0)) |_| unreachable else |err| assert(err == error.UnexpectedRemainder);
 }
 
-error DivisionByZero;
-error NegativeDenominator;
-pub fn mod(comptime T: type, numerator: T, denominator: T) %T {
+pub fn mod(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0)
         return error.DivisionByZero;
@@ -455,9 +441,7 @@ fn testMod() void {
     if (mod(f32, 10, 0)) |_| unreachable else |err| assert(err == error.DivisionByZero);
 }
 
-error DivisionByZero;
-error NegativeDenominator;
-pub fn rem(comptime T: type, numerator: T, denominator: T) %T {
+pub fn rem(comptime T: type, numerator: T, denominator: T) !T {
     @setRuntimeSafety(false);
     if (denominator == 0)
         return error.DivisionByZero;
@@ -505,8 +489,7 @@ test "math.absCast" {
 
 /// Returns the negation of the integer parameter.
 /// Result is a signed integer.
-error Overflow;
-pub fn negateCast(x: var) %@IntType(true, @typeOf(x).bit_count) {
+pub fn negateCast(x: var) !@IntType(true, @typeOf(x).bit_count) {
     if (@typeOf(x).is_signed)
         return negate(x);
 
@@ -532,8 +515,7 @@ test "math.negateCast" {
 
 /// Cast an integer to a different integer type. If the value doesn't fit, 
 /// return an error.
-error Overflow;
-pub fn cast(comptime T: type, x: var) %T {
+pub fn cast(comptime T: type, x: var) !T {
     comptime assert(@typeId(T) == builtin.TypeId.Int); // must pass an integer
     if (x > @maxValue(T)) {
         return error.Overflow;

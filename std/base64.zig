@@ -79,8 +79,6 @@ pub const Base64Encoder = struct {
 };
 
 pub const standard_decoder = Base64Decoder.init(standard_alphabet_chars, standard_pad_char);
-error InvalidPadding;
-error InvalidCharacter;
 
 pub const Base64Decoder = struct {
     /// e.g. 'A' => 0.
@@ -111,7 +109,7 @@ pub const Base64Decoder = struct {
     }
 
     /// If the encoded buffer is detected to be invalid, returns error.InvalidPadding.
-    pub fn calcSize(decoder: &const Base64Decoder, source: []const u8) %usize {
+    pub fn calcSize(decoder: &const Base64Decoder, source: []const u8) !usize {
         if (source.len % 4 != 0) return error.InvalidPadding;
         return calcDecodedSizeExactUnsafe(source, decoder.pad_char);
     }
@@ -119,7 +117,7 @@ pub const Base64Decoder = struct {
     /// dest.len must be what you get from ::calcSize.
     /// invalid characters result in error.InvalidCharacter.
     /// invalid padding results in error.InvalidPadding.
-    pub fn decode(decoder: &const Base64Decoder, dest: []u8, source: []const u8) %void {
+    pub fn decode(decoder: &const Base64Decoder, dest: []u8, source: []const u8) !void {
         assert(dest.len == (decoder.calcSize(source) catch unreachable));
         assert(source.len % 4 == 0);
 
@@ -163,8 +161,6 @@ pub const Base64Decoder = struct {
     }
 };
 
-error OutputTooSmall;
-
 pub const Base64DecoderWithIgnore = struct {
     decoder: Base64Decoder,
     char_is_ignored: [256]bool,
@@ -185,7 +181,7 @@ pub const Base64DecoderWithIgnore = struct {
     }
 
     /// If no characters end up being ignored or padding, this will be the exact decoded size.
-    pub fn calcSizeUpperBound(encoded_len: usize) %usize {
+    pub fn calcSizeUpperBound(encoded_len: usize) !usize {
         return @divTrunc(encoded_len, 4) * 3;
     }
 
@@ -193,7 +189,7 @@ pub const Base64DecoderWithIgnore = struct {
     /// Invalid padding results in error.InvalidPadding.
     /// Decoding more data than can fit in dest results in error.OutputTooSmall. See also ::calcSizeUpperBound.
     /// Returns the number of bytes writen to dest.
-    pub fn decode(decoder_with_ignore: &const Base64DecoderWithIgnore, dest: []u8, source: []const u8) %usize {
+    pub fn decode(decoder_with_ignore: &const Base64DecoderWithIgnore, dest: []u8, source: []const u8) !usize {
         const decoder = &decoder_with_ignore.decoder;
 
         var src_cursor: usize = 0;
@@ -378,7 +374,7 @@ test "base64" {
     comptime (testBase64() catch unreachable);
 }
 
-fn testBase64() %void {
+fn testBase64() !void {
     try testAllApis("",       "");
     try testAllApis("f",      "Zg==");
     try testAllApis("fo",     "Zm8=");
@@ -412,7 +408,7 @@ fn testBase64() %void {
     try testOutputTooSmallError("AAAAAA==");
 }
 
-fn testAllApis(expected_decoded: []const u8, expected_encoded: []const u8) %void {
+fn testAllApis(expected_decoded: []const u8, expected_encoded: []const u8) !void {
     // Base64Encoder
     {
         var buffer: [0x100]u8 = undefined;
@@ -449,7 +445,7 @@ fn testAllApis(expected_decoded: []const u8, expected_encoded: []const u8) %void
     }
 }
 
-fn testDecodeIgnoreSpace(expected_decoded: []const u8, encoded: []const u8) %void {
+fn testDecodeIgnoreSpace(expected_decoded: []const u8, encoded: []const u8) !void {
     const standard_decoder_ignore_space = Base64DecoderWithIgnore.init(
         standard_alphabet_chars, standard_pad_char, " ");
     var buffer: [0x100]u8 = undefined;
@@ -458,8 +454,7 @@ fn testDecodeIgnoreSpace(expected_decoded: []const u8, encoded: []const u8) %voi
     assert(mem.eql(u8, decoded[0..written], expected_decoded));
 }
 
-error ExpectedError;
-fn testError(encoded: []const u8, expected_err: error) %void {
+fn testError(encoded: []const u8, expected_err: error) !void {
     const standard_decoder_ignore_space = Base64DecoderWithIgnore.init(
         standard_alphabet_chars, standard_pad_char, " ");
     var buffer: [0x100]u8 = undefined;
@@ -475,7 +470,7 @@ fn testError(encoded: []const u8, expected_err: error) %void {
     } else |err| if (err != expected_err) return err;
 }
 
-fn testOutputTooSmallError(encoded: []const u8) %void {
+fn testOutputTooSmallError(encoded: []const u8) !void {
     const standard_decoder_ignore_space = Base64DecoderWithIgnore.init(
         standard_alphabet_chars, standard_pad_char, " ");
     var buffer: [0x100]u8 = undefined;

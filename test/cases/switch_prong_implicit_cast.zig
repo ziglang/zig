@@ -5,9 +5,7 @@ const FormValue = union(enum) {
     Two: bool,
 };
 
-error Whatever;
-
-fn foo(id: u64) %FormValue {
+fn foo(id: u64) !FormValue {
     return switch (id) {
         2 => FormValue { .Two = true },
         1 => FormValue { .One = {} },

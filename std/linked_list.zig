@@ -190,7 +190,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         ///
         /// Returns:
         ///     A pointer to the new node.
-        pub fn allocateNode(list: &Self, allocator: &Allocator) %&Node {
+        pub fn allocateNode(list: &Self, allocator: &Allocator) !&Node {
             comptime assert(!isIntrusive());
             return allocator.create(Node);
         }
@@ -213,7 +213,7 @@ fn BaseLinkedList(comptime T: type, comptime ParentType: type, comptime field_na
         ///
         /// Returns:
         ///     A pointer to the new node.
-        pub fn createNode(list: &Self, data: &const T, allocator: &Allocator) %&Node {
+        pub fn createNode(list: &Self, data: &const T, allocator: &Allocator) !&Node {
             comptime assert(!isIntrusive());
             var node = try list.allocateNode(allocator);
             *node = Node.init(data);

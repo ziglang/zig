@@ -6,11 +6,7 @@ const mem = std.mem;
 const BufMap = std.BufMap;
 const cstr = std.cstr;
 
-error WaitAbandoned;
-error WaitTimeOut;
-error Unexpected;
-
-pub fn windowsWaitSingle(handle: windows.HANDLE, milliseconds: windows.DWORD) %void {
+pub fn windowsWaitSingle(handle: windows.HANDLE, milliseconds: windows.DWORD) !void {
     const result = windows.WaitForSingleObject(handle, milliseconds);
     return switch (result) {
         windows.WAIT_ABANDONED => error.WaitAbandoned,
@@ -30,12 +26,7 @@ pub fn windowsClose(handle: windows.HANDLE) void {
     assert(windows.CloseHandle(handle) != 0);
 }
 
-error SystemResources;
-error OperationAborted;
-error IoPending;
-error BrokenPipe;
-
-pub fn windowsWrite(handle: windows.HANDLE, bytes: []const u8) %void {
+pub fn windowsWrite(handle: windows.HANDLE, bytes: []const u8) !void {
     if (windows.WriteFile(handle, @ptrCast(&const c_void, bytes.ptr), u32(bytes.len), null, null) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
@@ -74,9 +65,6 @@ pub fn windowsIsCygwinPty(handle: windows.HANDLE) bool {
     return mem.indexOf(u16, name_wide, []u16{'m','s','y','s','-'}) != null or
            mem.indexOf(u16, name_wide, []u16{'-','p','t','y'}) != null;
 }
-
-error SharingViolation;
-error PipeBusy;
 
 /// `file_path` may need to be copied in memory to add a null terminating byte. In this case
 /// a fixed size buffer of size ::max_noalloc_path_len is an attempted solution. If the fixed
@@ -120,7 +108,7 @@ pub fn windowsOpen(file_path: []const u8, desired_access: windows.DWORD, share_m
 }
 
 /// Caller must free result.
-pub fn createWindowsEnvBlock(allocator: &mem.Allocator, env_map: &const BufMap) %[]u8 {
+pub fn createWindowsEnvBlock(allocator: &mem.Allocator, env_map: &const BufMap) ![]u8 {
     // count bytes needed
     const bytes_needed = x: {
         var bytes_needed: usize = 1; // 1 for the final null byte
@@ -151,8 +139,7 @@ pub fn createWindowsEnvBlock(allocator: &mem.Allocator, env_map: &const BufMap) 
     return result;
 }
 
-error DllNotFound;
-pub fn windowsLoadDll(allocator: &mem.Allocator, dll_path: []const u8) %windows.HMODULE {
+pub fn windowsLoadDll(allocator: &mem.Allocator, dll_path: []const u8) !windows.HMODULE {
     const padded_buff = try cstr.addNullByte(allocator, dll_path);
     defer allocator.free(padded_buff);
     return windows.LoadLibraryA(padded_buff.ptr) ?? error.DllNotFound;

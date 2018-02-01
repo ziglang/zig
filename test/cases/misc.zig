@@ -262,7 +262,7 @@ test "generic malloc free" {
     memFree(u8, a);
 }
 const some_mem : [100]u8 = undefined;
-fn memAlloc(comptime T: type, n: usize) %[]T {
+fn memAlloc(comptime T: type, n: usize) ![]T {
     return @ptrCast(&T, &some_mem[0])[0..n];
 }
 fn memFree(comptime T: type, memory: []T) void { }
@@ -419,7 +419,7 @@ test "cast slice to u8 slice" {
 test "pointer to void return type" {
     testPointerToVoidReturnType() catch unreachable;
 }
-fn testPointerToVoidReturnType() %void {
+fn testPointerToVoidReturnType() !void {
     const a = testPointerToVoidReturnType2();
     return *a;
 }
