@@ -3887,6 +3887,17 @@ comptime {
       <code>@cInclude</code>, <code>@cDefine</code>, and <code>@cUndef</code> work
       within this expression, appending to a temporary buffer which is then parsed as C code.
       </p>
+      <p>
+      Usually you should only have one <code>@cImport</code> in your entire application, because it saves the compiler
+      from invoking clang multiple times, and prevents inline functions from being duplicated.
+      </p>
+      <p>
+      Reasons for having multiple <code>@cImport</code> expressions would be:
+      </p>
+      <ul>
+        <li>To avoid a symbol collision, for example if foo.h and bar.h both <code>#define CONNECTION_COUNT</code></li>
+        <li>To analyze the C code with different preprocessor defines</li>
+      </ul>
       {#see_also|Import from C Header File|@cInclude|@cDefine|@cUndef#}
       {#header_close#}
       {#header_open|@cInclude#}
