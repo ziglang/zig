@@ -220,7 +220,7 @@ pub fn formatValue(value: var, context: var, comptime Errors: type, output: fn(@
                 return formatValue(err, context, Errors, output);
             }
         },
-        builtin.TypeId.Error => {
+        builtin.TypeId.ErrorSet => {
             try output(context, "error.");
             return output(context, @errorName(value));
         },

@@ -2,4 +2,5 @@ sed -i 's/\(\bfn .*) \)%\(.*{\)$/\1!\2/g' $(find .. -name "*.zig")
 
 comptime assert(error{} ! i32 == i32);
 
-
+// TODO this is an explicit cast and should actually coerce the type
+   erorr set casting

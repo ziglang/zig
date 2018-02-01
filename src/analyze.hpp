@@ -46,7 +46,7 @@ bool type_has_bits(TypeTableEntry *type_entry);
 ImportTableEntry *add_source_file(CodeGen *g, PackageTableEntry *package, Buf *abs_full_path, Buf *source_code);
 
 
-bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *actual_type);
+bool types_match_const_cast_only(CodeGen *g, TypeTableEntry *expected_type, TypeTableEntry *actual_type);
 VariableTableEntry *find_variable(CodeGen *g, Scope *orig_context, Buf *name);
 Tld *find_decl(CodeGen *g, Scope *scope, Buf *name);
 void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only, AstNode *source_node);
@@ -189,5 +189,6 @@ ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name);
 TypeTableEntry *get_ptr_to_stack_trace_type(CodeGen *g);
 void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry);
 
+TypeTableEntry *get_auto_err_set_type(CodeGen *g, FnTableEntry *fn_entry);
 
 #endif

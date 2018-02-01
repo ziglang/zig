@@ -40,7 +40,7 @@ pub const Allocator = struct {
     }
 
     fn alignedAlloc(self: &Allocator, comptime T: type, comptime alignment: u29,
-        n: usize) %[]align(alignment) T
+        n: usize) ![]align(alignment) T
     {
         const byte_count = try math.mul(usize, @sizeOf(T), n);
         const byte_slice = try self.allocFn(self, byte_count, alignment);
@@ -56,7 +56,7 @@ pub const Allocator = struct {
     }
 
     fn alignedRealloc(self: &Allocator, comptime T: type, comptime alignment: u29,
-        old_mem: []align(alignment) T, n: usize) %[]align(alignment) T
+        old_mem: []align(alignment) T, n: usize) ![]align(alignment) T
     {
         if (old_mem.len == 0) {
             return self.alloc(T, n);

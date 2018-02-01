@@ -26,7 +26,9 @@ test "import io tests" {
     }
 }
 
-pub fn getStdErr() !File {
+const GetStdIoErrs = os.WindowsGetStdHandleErrs;
+
+pub fn getStdErr() GetStdIoErrs!File {
     const handle = if (is_windows)
         try os.windowsGetStdHandle(system.STD_ERROR_HANDLE)
     else if (is_posix)
@@ -36,7 +38,7 @@ pub fn getStdErr() !File {
     return File.openHandle(handle);
 }
 
-pub fn getStdOut() !File {
+pub fn getStdOut() GetStdIoErrs!File {
     const handle = if (is_windows)
         try os.windowsGetStdHandle(system.STD_OUTPUT_HANDLE)
     else if (is_posix)
@@ -46,7 +48,7 @@ pub fn getStdOut() !File {
     return File.openHandle(handle);
 }
 
-pub fn getStdIn() !File {
+pub fn getStdIn() GetStdIoErrs!File {
     const handle = if (is_windows)
         try os.windowsGetStdHandle(system.STD_INPUT_HANDLE)
     else if (is_posix)

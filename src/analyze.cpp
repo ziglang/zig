@@ -1274,7 +1274,7 @@ static bool type_allowed_in_extern(CodeGen *g, TypeTableEntry *type_entry) {
     zig_unreachable();
 }
 
-static TypeTableEntry *get_auto_err_set_type(CodeGen *g, FnTableEntry *fn_entry) {
+TypeTableEntry *get_auto_err_set_type(CodeGen *g, FnTableEntry *fn_entry) {
     TypeTableEntry *err_set_type = new_type_table_entry(TypeTableEntryIdErrorSet);
     buf_resize(&err_set_type->name, 0);
     buf_appendf(&err_set_type->name, "%s.errors", buf_ptr(&fn_entry->symbol_name));
@@ -3366,7 +3366,7 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only, AstNode *so
     g->tld_ref_source_node_stack.pop();
 }
 
-bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *actual_type) {
+bool types_match_const_cast_only(CodeGen *g, TypeTableEntry *expected_type, TypeTableEntry *actual_type) {
     if (expected_type == actual_type)
         return true;
 
@@ -3379,7 +3379,7 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
         actual_type->data.pointer.unaligned_bit_count == expected_type->data.pointer.unaligned_bit_count &&
         actual_type->data.pointer.alignment >= expected_type->data.pointer.alignment)
     {
-        return types_match_const_cast_only(expected_type->data.pointer.child_type,
+        return types_match_const_cast_only(g, expected_type->data.pointer.child_type,
                 actual_type->data.pointer.child_type);
     }
 
@@ -3397,7 +3397,7 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
             actual_ptr_type->data.pointer.unaligned_bit_count == expected_ptr_type->data.pointer.unaligned_bit_count &&
             actual_ptr_type->data.pointer.alignment >= expected_ptr_type->data.pointer.alignment)
         {
-            return types_match_const_cast_only(expected_ptr_type->data.pointer.child_type,
+            return types_match_const_cast_only(g, expected_ptr_type->data.pointer.child_type,
                     actual_ptr_type->data.pointer.child_type);
         }
     }
@@ -3406,7 +3406,7 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
     if (expected_type->id == TypeTableEntryIdMaybe &&
         actual_type->id == TypeTableEntryIdMaybe)
     {
-        return types_match_const_cast_only(
+        return types_match_const_cast_only(g,
                 expected_type->data.maybe.child_type,
                 actual_type->data.maybe.child_type);
     }
@@ -3415,12 +3415,41 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
     if (expected_type->id == TypeTableEntryIdErrorUnion &&
         actual_type->id == TypeTableEntryIdErrorUnion)
     {
-        return types_match_const_cast_only(
+        return types_match_const_cast_only(g,
                 expected_type->data.error_union.payload_type,
                 actual_type->data.error_union.payload_type) &&
-            types_match_const_cast_only(
+            types_match_const_cast_only(g,
                 expected_type->data.error_union.err_set_type,
                 actual_type->data.error_union.err_set_type);
+    }
+
+    // error set
+    if (expected_type->id == TypeTableEntryIdErrorSet &&
+        actual_type->id == TypeTableEntryIdErrorSet)
+    {
+        TypeTableEntry *contained_set = actual_type;
+        TypeTableEntry *container_set = expected_type;
+
+        if (container_set == g->builtin_types.entry_global_error_set ||
+            container_set->data.error_set.infer_fn != nullptr)
+        {
+            return true;
+        }
+
+        ErrorTableEntry **errors = allocate<ErrorTableEntry *>(g->errors_by_index.length);
+        for (uint32_t i = 0; i < container_set->data.error_set.err_count; i += 1) {
+            ErrorTableEntry *error_entry = container_set->data.error_set.errors[i];
+            errors[error_entry->value] = error_entry;
+        }
+        for (uint32_t i = 0; i < contained_set->data.error_set.err_count; i += 1) {
+            ErrorTableEntry *contained_error_entry = contained_set->data.error_set.errors[i];
+            ErrorTableEntry *error_entry = errors[contained_error_entry->value];
+            if (error_entry == nullptr) {
+                return false;
+            }
+        }
+        free(errors);
+        return true;
     }
 
     // fn
@@ -3441,7 +3470,7 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
         }
         if (!expected_type->data.fn.is_generic &&
             actual_type->data.fn.fn_type_id.return_type->id != TypeTableEntryIdUnreachable &&
-            !types_match_const_cast_only(
+            !types_match_const_cast_only(g,
                 expected_type->data.fn.fn_type_id.return_type,
                 actual_type->data.fn.fn_type_id.return_type))
         {
@@ -3460,7 +3489,7 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
             FnTypeParamInfo *actual_param_info = &actual_type->data.fn.fn_type_id.param_info[i];
             FnTypeParamInfo *expected_param_info = &expected_type->data.fn.fn_type_id.param_info[i];
 
-            if (!types_match_const_cast_only(actual_param_info->type, expected_param_info->type)) {
+            if (!types_match_const_cast_only(g, actual_param_info->type, expected_param_info->type)) {
                 return false;
             }
 

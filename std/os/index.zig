@@ -1158,7 +1158,12 @@ pub fn posix_setregid(rgid: u32, egid: u32) !void {
     };
 }
 
-pub fn windowsGetStdHandle(handle_id: windows.DWORD) !windows.HANDLE {
+pub const WindowsGetStdHandleErrs = error {
+    NoStdHandles,
+    Unexpected,
+};
+
+pub fn windowsGetStdHandle(handle_id: windows.DWORD) WindowsGetStdHandleErrs!windows.HANDLE {
     if (windows.GetStdHandle(handle_id)) |handle| {
         if (handle == windows.INVALID_HANDLE_VALUE) {
             const err = windows.GetLastError();
