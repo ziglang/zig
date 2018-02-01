@@ -134,16 +134,6 @@ pub fn main() void {
       </p>
       {#see_also|Values|@import|Errors|Root Source File#}
       {#header_close#}
-      {#header_open|Source Encoding#}
-      <p>Zig source code is encoded in UTF-8. An invalid UTF-8 byte sequence results in a compile error.</p>
-      <p>Throughout all zig source code (including in comments), some codepoints are never allowed:</p>
-      <ul>
-        <li>Ascii control characters, except for U+000a (LF): U+0000 - U+0009, U+000b - U+0001f, U+007f. (Note that Windows line endings (CRLF) are not allowed, and hard tabs are not allowed.)</li>
-        <li>Non-Ascii Unicode line endings: U+0085 (NEL), U+2028 (LS), U+2029 (PS).</li>
-      </ul>
-      <p>The codepoint U+000a (LF) (which is encoded as the single-byte value 0x0a) is the line terminator character. This character always terminates a line of zig source code (except possbly the last line of the file).</p>
-      <p>For some discussion on the rationale behind these design decisions, see <a href="https://github.com/zig-lang/zig/issues/663">issue #663</a></p>
-      {#header_close#}
       {#header_open|Values#}
       {#code_begin|exe|values#}
 const std = @import("std");
@@ -5626,6 +5616,16 @@ fn readU32Be() u32 {}
       See the Zig Standard Library for more examples.
       </p>
       {#header_close#}
+      {#header_close#}
+      {#header_open|Source Encoding#}
+      <p>Zig source code is encoded in UTF-8. An invalid UTF-8 byte sequence results in a compile error.</p>
+      <p>Throughout all zig source code (including in comments), some codepoints are never allowed:</p>
+      <ul>
+        <li>Ascii control characters, except for U+000a (LF): U+0000 - U+0009, U+000b - U+0001f, U+007f. (Note that Windows line endings (CRLF) are not allowed, and hard tabs are not allowed.)</li>
+        <li>Non-Ascii Unicode line endings: U+0085 (NEL), U+2028 (LS), U+2029 (PS).</li>
+      </ul>
+      <p>The codepoint U+000a (LF) (which is encoded as the single-byte value 0x0a) is the line terminator character. This character always terminates a line of zig source code (except possbly the last line of the file).</p>
+      <p>For some discussion on the rationale behind these design decisions, see <a href="https://github.com/zig-lang/zig/issues/663">issue #663</a></p>
       {#header_close#}
       {#header_open|Grammar#}
       <pre><code class="nohighlight">Root = many(TopLevelItem) EOF
