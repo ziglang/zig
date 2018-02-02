@@ -214,6 +214,8 @@ struct ConstCastErrSetMismatch {
     ZigList<ErrorTableEntry *> missing_errors;
 };
 
+struct ConstCastOnly;
+
 struct ConstCastArg {
     size_t arg_index;
     ConstCastOnly *child;
@@ -238,6 +240,6 @@ struct ConstCastOnly {
     } data;
 };
 
-bool types_match_const_cast_only(CodeGen *g, TypeTableEntry *expected_type, TypeTableEntry *actual_type);
+ConstCastOnly types_match_const_cast_only(CodeGen *g, TypeTableEntry *expected_type, TypeTableEntry *actual_type);
 
 #endif

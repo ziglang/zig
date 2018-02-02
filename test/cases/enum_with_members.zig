@@ -6,7 +6,7 @@ const ET = union(enum) {
     SINT: i32,
     UINT: u32,
 
-    pub fn print(a: &const ET, buf: []u8) !usize {
+    pub fn print(a: &const ET, buf: []u8) error!usize {
         return switch (*a) {
             ET.SINT => |x| fmt.formatIntBuf(buf, x, 10, false, 0),
             ET.UINT => |x| fmt.formatIntBuf(buf, x, 10, false, 0),

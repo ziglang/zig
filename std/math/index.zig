@@ -191,17 +191,17 @@ test "math.max" {
     assert(max(i32(-1), i32(2)) == 2);
 }
 
-pub fn mul(comptime T: type, a: T, b: T) !T {
+pub fn mul(comptime T: type, a: T, b: T) (error{Overflow}!T) {
     var answer: T = undefined;
     return if (@mulWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
-pub fn add(comptime T: type, a: T, b: T) !T {
+pub fn add(comptime T: type, a: T, b: T) (error{Overflow}!T) {
     var answer: T = undefined;
     return if (@addWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }
 
-pub fn sub(comptime T: type, a: T, b: T) !T {
+pub fn sub(comptime T: type, a: T, b: T) (error{Overflow}!T) {
     var answer: T = undefined;
     return if (@subWithOverflow(T, a, b, &answer)) error.Overflow else answer;
 }

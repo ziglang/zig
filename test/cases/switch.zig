@@ -225,7 +225,7 @@ fn switchWithUnreachable(x: i32) i32 {
     return 10;
 }
 
-fn return_a_number() !i32 {
+fn return_a_number() error!i32 {
     return 1;
 }
 

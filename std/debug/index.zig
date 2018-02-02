@@ -209,8 +209,7 @@ fn printSourceAtAddress(debug_info: &ElfStackTrace, out_stream: &io.OutStream, a
                 try out_stream.write(GREEN ++ "^" ++ RESET ++ "\n");
             }
         } else |err| switch (err) {
-            error.EndOfFile, error.PathNotFound => {},
-            else => return err,
+            error.EndOfFile => {},
         }
     } else |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => {

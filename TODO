@@ -1,6 +1,15 @@
-sed -i 's/\(\bfn .*) \)%\(.*{\)$/\1!\2/g' $(find .. -name "*.zig")
+sed -i 's/\(\bfn .*) \)%\(.*{\)$/\1!\2/g' $(find . -name "*.zig")
 
-comptime assert(error{} ! i32 == i32);
+the literal translation of `%T` to this new code is `error!T`.
+however this would not take advantage of error sets. It's
+recommended to generally have all your functions which return possible
+errors to use error set inference, like this:
+
+fn foo() !void {
+
+}
+
+then you can return void, or any error, and the error set is inferred.
 
 // TODO this is an explicit cast and should actually coerce the type
    erorr set casting

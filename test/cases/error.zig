@@ -1,16 +1,16 @@
 const assert = @import("std").debug.assert;
 const mem = @import("std").mem;
 
-pub fn foo() !i32 {
+pub fn foo() error!i32 {
     const x = try bar();
     return x + 1;
 }
 
-pub fn bar() !i32 {
+pub fn bar() error!i32 {
     return 13;
 }
 
-pub fn baz() !i32 {
+pub fn baz() error!i32 {
     const y = foo() catch 1234;
     return y + 1;
 }
@@ -50,7 +50,7 @@ test "error binary operator" {
     assert(a == 3);
     assert(b == 10);
 }
-fn errBinaryOperatorG(x: bool) !isize {
+fn errBinaryOperatorG(x: bool) error!isize {
     return if (x) error.ItBroke else isize(10);
 }
 
@@ -59,18 +59,18 @@ test "unwrap simple value from error" {
     const i = unwrapSimpleValueFromErrorDo() catch unreachable;
     assert(i == 13);
 }
-fn unwrapSimpleValueFromErrorDo() %isize { return 13; }
+fn unwrapSimpleValueFromErrorDo() error!isize { return 13; }
 
 
 test "error return in assignment" {
     doErrReturnInAssignment() catch unreachable;
 }
 
-fn doErrReturnInAssignment() !void {
+fn doErrReturnInAssignment() error!void {
     var x : i32 = undefined;
     x = try makeANonErr();
 }
 
-fn makeANonErr() !i32 {
+fn makeANonErr() error!i32 {
     return 1;
 }

@@ -3367,7 +3367,7 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only, AstNode *so
 }
 
 ConstCastOnly types_match_const_cast_only(CodeGen *g, TypeTableEntry *expected_type, TypeTableEntry *actual_type) {
-    ConstCastOnly result = {0};
+    ConstCastOnly result = {};
     result.id = ConstCastResultIdOk;
 
     if (expected_type == actual_type)
@@ -3465,7 +3465,7 @@ ConstCastOnly types_match_const_cast_only(CodeGen *g, TypeTableEntry *expected_t
                 if (result.id == ConstCastResultIdOk) {
                     result.id = ConstCastResultIdErrSet;
                 }
-                result.data.error_set.errors.append(contained_error_entry);
+                result.data.error_set.missing_errors.append(contained_error_entry);
             }
         }
         free(errors);

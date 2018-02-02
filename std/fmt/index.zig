@@ -195,7 +195,7 @@ pub fn formatValue(value: var, context: var, comptime Errors: type, output: fn(@
     const T = @typeOf(value);
     switch (@typeId(T)) {
         builtin.TypeId.Int => {
-            return formatInt(value, 10, false, 0, context, output);
+            return formatInt(value, 10, false, 0, context, Errors, output);
         },
         builtin.TypeId.Float => {
             return formatFloat(value, context, output);
@@ -290,7 +290,7 @@ pub fn formatFloat(value: var, context: var, comptime Errors: type, output: fn(@
 
     if (float_decimal.exp != 1) {
         try output(context, "e");
-        try formatInt(float_decimal.exp - 1, 10, false, 0, context, output);
+        try formatInt(float_decimal.exp - 1, 10, false, 0, context, Errors, output);
     }
 }
 
@@ -336,12 +336,12 @@ pub fn formatFloatDecimal(value: var, precision: usize, context: var, comptime E
 
 
 pub fn formatInt(value: var, base: u8, uppercase: bool, width: usize,
-    context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8)errors!void) errors!void
+    context: var, comptime Errors: type, output: fn(@typeOf(context), []const u8)Errors!void) Errors!void
 {
     if (@typeOf(value).is_signed) {
-        return formatIntSigned(value, base, uppercase, width, context, output);
+        return formatIntSigned(value, base, uppercase, width, context, Errors, output);
     } else {
-        return formatIntUnsigned(value, base, uppercase, width, context, output);
+        return formatIntUnsigned(value, base, uppercase, width, context, Errors, output);
     }
 }
 
@@ -354,15 +354,15 @@ fn formatIntSigned(value: var, base: u8, uppercase: bool, width: usize,
         try output(context, (&minus_sign)[0..1]);
         const new_value = uint(-(value + 1)) + 1;
         const new_width = if (width == 0) 0 else (width - 1);
-        return formatIntUnsigned(new_value, base, uppercase, new_width, context, output);
+        return formatIntUnsigned(new_value, base, uppercase, new_width, context, Errors, output);
     } else if (width == 0) {
-        return formatIntUnsigned(uint(value), base, uppercase, width, context, output);
+        return formatIntUnsigned(uint(value), base, uppercase, width, context, Errors, output);
     } else {
         const plus_sign: u8 = '+';
         try output(context, (&plus_sign)[0..1]);
         const new_value = uint(value);
         const new_width = if (width == 0) 0 else (width - 1);
-        return formatIntUnsigned(new_value, base, uppercase, new_width, context, output);
+        return formatIntUnsigned(new_value, base, uppercase, new_width, context, Errors, output);
     }
 }
 
@@ -410,7 +410,7 @@ pub fn formatIntBuf(out_buf: []u8, value: var, base: u8, uppercase: bool, width:
         .out_buf = out_buf,
         .index = 0,
     };
-    formatInt(value, base, uppercase, width, &context, formatIntCallback) catch unreachable;
+    formatInt(value, base, uppercase, width, &context, error{}, formatIntCallback) catch unreachable;
     return context.index;
 }
 const FormatIntBuf = struct {
@@ -446,7 +446,14 @@ test "fmt.parseInt" {
     assert(if (parseInt(u8, "256", 10)) |_| false else |err| err == error.Overflow);
 }
 
-pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) !T {
+const ParseUnsignedError = error {
+    /// The result cannot fit in the type specified
+    Overflow,
+    /// The input had a byte that was not a digit
+    InvalidCharacter,
+};
+
+pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) ParseUnsignedError!T {
     var x: T = 0;
 
     for (buf) |c| {
@@ -458,16 +465,16 @@ pub fn parseUnsigned(comptime T: type, buf: []const u8, radix: u8) !T {
     return x;
 }
 
-fn charToDigit(c: u8, radix: u8) !u8 {
+fn charToDigit(c: u8, radix: u8) (error{InvalidCharacter}!u8) {
     const value = switch (c) {
         '0' ... '9' => c - '0',
         'A' ... 'Z' => c - 'A' + 10,
         'a' ... 'z' => c - 'a' + 10,
-        else => return error.InvalidChar,
+        else => return error.InvalidCharacter,
     };
 
     if (value >= radix)
-        return error.InvalidChar;
+        return error.InvalidCharacter;
 
     return value;
 }

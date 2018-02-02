@@ -17,7 +17,7 @@ fn tryOnErrorUnionImpl() void {
     assert(x == 11);
 }
 
-fn returnsTen() !i32 {
+fn returnsTen() error!i32 {
     return 10;
 }
 
@@ -29,7 +29,7 @@ test "try without vars" {
     assert(result2 == 1);
 }
 
-fn failIfTrue(ok: bool) !void {
+fn failIfTrue(ok: bool) error!void {
     if (ok) {
         return error.ItBroke;
     } else {
