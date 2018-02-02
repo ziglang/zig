@@ -1277,7 +1277,7 @@ static bool type_allowed_in_extern(CodeGen *g, TypeTableEntry *type_entry) {
 TypeTableEntry *get_auto_err_set_type(CodeGen *g, FnTableEntry *fn_entry) {
     TypeTableEntry *err_set_type = new_type_table_entry(TypeTableEntryIdErrorSet);
     buf_resize(&err_set_type->name, 0);
-    buf_appendf(&err_set_type->name, "%s.errors", buf_ptr(&fn_entry->symbol_name));
+    buf_appendf(&err_set_type->name, "@typeOf(%s).ReturnType.ErrorSet", buf_ptr(&fn_entry->symbol_name));
     err_set_type->is_copyable = true;
     err_set_type->type_ref = g->builtin_types.entry_global_error_set->type_ref;
     err_set_type->di_type = g->builtin_types.entry_global_error_set->di_type;

@@ -498,12 +498,12 @@ pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: ...) ![]u8 {
 
 pub fn allocPrint(allocator: &mem.Allocator, comptime fmt: []const u8, args: ...) ![]u8 {
     var size: usize = 0;
-    format(&size, error{}, countSize, fmt, args);
+    format(&size, error{}, countSize, fmt, args) catch |err| switch (err) {};
     const buf = try allocator.alloc(u8, size);
     return bufPrint(buf, fmt, args);
 }
 
-fn countSize(size: &usize, bytes: []const u8) void {
+fn countSize(size: &usize, bytes: []const u8) !void {
     *size += bytes.len;
 }
 

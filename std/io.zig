@@ -350,10 +350,11 @@ pub const File = struct {
 };
 
 pub const InStream = struct {
+    // TODO allow specifying the error set
     /// Return the number of bytes read. If the number read is smaller than buf.len, it
     /// means the stream reached the end. Reaching the end of a stream is not an error
     /// condition.
-    readFn: fn(self: &InStream, buffer: []u8) !usize,
+    readFn: fn(self: &InStream, buffer: []u8) error!usize,
 
     /// Replaces `buffer` contents by reading from the stream until it is finished.
     /// If `buffer.len()` would exceed `max_size`, `error.StreamTooLong` is returned and

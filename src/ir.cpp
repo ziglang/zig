@@ -5380,12 +5380,61 @@ static IrInstruction *ir_gen_container_decl(IrBuilder *irb, Scope *parent_scope,
     return ir_build_const_type(irb, parent_scope, node, container_type);
 }
 
+// errors should be populated with set1's values
+static TypeTableEntry *get_error_set_union(CodeGen *g, ErrorTableEntry **errors, TypeTableEntry *set1, TypeTableEntry *set2) {
+    assert(set1->id == TypeTableEntryIdErrorSet);
+    assert(set2->id == TypeTableEntryIdErrorSet);
+
+    TypeTableEntry *err_set_type = new_type_table_entry(TypeTableEntryIdErrorSet);
+    buf_resize(&err_set_type->name, 0);
+    buf_appendf(&err_set_type->name, "error{");
+
+    uint32_t count = set1->data.error_set.err_count;
+    for (uint32_t i = 0; i < set2->data.error_set.err_count; i += 1) {
+        ErrorTableEntry *error_entry = set2->data.error_set.errors[i];
+        if (errors[error_entry->value] == nullptr) {
+            count += 1;
+        }
+    }
+
+    err_set_type->is_copyable = true;
+    err_set_type->type_ref = g->builtin_types.entry_global_error_set->type_ref;
+    err_set_type->di_type = g->builtin_types.entry_global_error_set->di_type;
+    err_set_type->data.error_set.err_count = count;
+    err_set_type->data.error_set.errors = allocate<ErrorTableEntry *>(count);
+
+    for (uint32_t i = 0; i < set1->data.error_set.err_count; i += 1) {
+        ErrorTableEntry *error_entry = set1->data.error_set.errors[i];
+        buf_appendf(&err_set_type->name, "%s,", buf_ptr(&error_entry->name));
+        err_set_type->data.error_set.errors[i] = error_entry;
+    }
+
+    uint32_t index = set1->data.error_set.err_count;
+    for (uint32_t i = 0; i < set2->data.error_set.err_count; i += 1) {
+        ErrorTableEntry *error_entry = set2->data.error_set.errors[i];
+        if (errors[error_entry->value] == nullptr) {
+            errors[error_entry->value] = error_entry;
+            buf_appendf(&err_set_type->name, "%s,", buf_ptr(&error_entry->name));
+            err_set_type->data.error_set.errors[index] = error_entry;
+            index += 1;
+        }
+    }
+    assert(index == count);
+
+    buf_appendf(&err_set_type->name, "}");
+
+    g->error_di_types.append(&err_set_type->di_type);
+
+    return err_set_type;
+
+}
+
 static TypeTableEntry *make_err_set_with_one_item(CodeGen *g, Scope *parent_scope, AstNode *node,
         ErrorTableEntry *err_entry)
 {
     TypeTableEntry *err_set_type = new_type_table_entry(TypeTableEntryIdErrorSet);
     buf_resize(&err_set_type->name, 0);
-    buf_appendf(&err_set_type->name, "@typeOf(error.%s)", buf_ptr(&err_entry->name));
+    buf_appendf(&err_set_type->name, "error{%s}", buf_ptr(&err_entry->name));
     err_set_type->is_copyable = true;
     err_set_type->type_ref = g->builtin_types.entry_global_error_set->type_ref;
     err_set_type->di_type = g->builtin_types.entry_global_error_set->di_type;
@@ -6656,7 +6705,6 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                 }
                 // if err_set_type is a superset of cur_type, keep err_set_type.
                 // if cur_type is a superset of err_set_type, switch err_set_type to cur_type
-                // otherwise emit a compile error
                 bool prev_is_superset = true;
                 for (uint32_t i = 0; i < cur_type->data.error_set.err_count; i += 1) {
                     ErrorTableEntry *contained_error_entry = cur_type->data.error_set.errors[i];
@@ -6689,12 +6737,16 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                     }
                 }
                 if (cur_is_superset) {
-                    err_set_type = cur_inst->value.type;
+                    err_set_type = cur_type;
                     prev_inst = cur_inst;
                     continue;
                 }
+
+                // neither of them are supersets. so we invent a new error set type that is a union of both of them
+                err_set_type = get_error_set_union(ira->codegen, errors, cur_type, err_set_type);
+                continue;
             } else if (cur_type->id == TypeTableEntryIdErrorUnion) {
-                // err_set_type must be a subset of cur_type's error set
+                // test if err_set_type is a subset of cur_type's error set
                 // unset everything in errors
                 for (uint32_t i = 0; i < err_set_type->data.error_set.err_count; i += 1) {
                     ErrorTableEntry *error_entry = err_set_type->data.error_set.errors[i];
@@ -6719,6 +6771,11 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                     prev_inst = cur_inst;
                     continue;
                 }
+
+                // not a subset. invent new error set type, union of both of them
+                err_set_type = get_error_set_union(ira->codegen, errors, cur_err_set_type, err_set_type);
+                prev_inst = cur_inst;
+                continue;
             } else {
                 prev_inst = cur_inst;
                 continue;
@@ -6746,7 +6803,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                 continue;
             }
             if (prev_type->id == TypeTableEntryIdErrorUnion) {
-                // the cur type error set must be a subset
+                // check if the cur type error set must be a subset
                 bool prev_is_superset = true;
                 for (uint32_t i = 0; i < cur_type->data.error_set.err_count; i += 1) {
                     ErrorTableEntry *contained_error_entry = cur_type->data.error_set.errors[i];
@@ -6759,6 +6816,9 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                 if (prev_is_superset) {
                     continue;
                 }
+                // not a subset. invent new error set type, union of both of them
+                err_set_type = get_error_set_union(ira->codegen, errors, err_set_type, cur_type);
+                continue;
             }
         }
 
@@ -6927,21 +6987,25 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         } else {
             return slice_type;
         }
-    } else if (err_set_type != nullptr && prev_inst->value.type->id != TypeTableEntryIdErrorSet) {
-        if (prev_inst->value.type->id == TypeTableEntryIdNumLitInt ||
-            prev_inst->value.type->id == TypeTableEntryIdNumLitFloat)
-        {
-            ir_add_error_node(ira, source_node,
-                buf_sprintf("unable to make error union out of number literal"));
-            return ira->codegen->builtin_types.entry_invalid;
-        } else if (prev_inst->value.type->id == TypeTableEntryIdNullLit) {
-            ir_add_error_node(ira, source_node,
-                buf_sprintf("unable to make error union out of null literal"));
-            return ira->codegen->builtin_types.entry_invalid;
-        } else if (prev_inst->value.type->id == TypeTableEntryIdErrorUnion) {
-            return prev_inst->value.type;
+    } else if (err_set_type != nullptr) {
+        if (prev_inst->value.type->id == TypeTableEntryIdErrorSet) {
+            return err_set_type;
         } else {
-            return get_error_union_type(ira->codegen, err_set_type, prev_inst->value.type);
+            if (prev_inst->value.type->id == TypeTableEntryIdNumLitInt ||
+                prev_inst->value.type->id == TypeTableEntryIdNumLitFloat)
+            {
+                ir_add_error_node(ira, source_node,
+                    buf_sprintf("unable to make error union out of number literal"));
+                return ira->codegen->builtin_types.entry_invalid;
+            } else if (prev_inst->value.type->id == TypeTableEntryIdNullLit) {
+                ir_add_error_node(ira, source_node,
+                    buf_sprintf("unable to make error union out of null literal"));
+                return ira->codegen->builtin_types.entry_invalid;
+            } else if (prev_inst->value.type->id == TypeTableEntryIdErrorUnion) {
+                return prev_inst->value.type;
+            } else {
+                return get_error_union_type(ira->codegen, err_set_type, prev_inst->value.type);
+            }
         }
     } else if (any_are_null && prev_inst->value.type->id != TypeTableEntryIdNullLit) {
         if (prev_inst->value.type->id == TypeTableEntryIdNumLitInt ||
