@@ -172,17 +172,17 @@ else()
         COMPILE_FLAGS ${ZIG_LLD_COMPILE_FLAGS}
         LINK_FLAGS " "
     )
-    target_include_directories(embedded_lld_lib PUBLIC
+    target_include_directories(embedded_lld_lib PRIVATE
         "${CMAKE_SOURCE_DIR}/deps/lld/include"
         "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt"
     )
-    target_include_directories(embedded_lld_elf PUBLIC
+    target_include_directories(embedded_lld_elf PRIVATE
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF"
         "${CMAKE_SOURCE_DIR}/deps/lld/include"
         "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt/ELF"
         "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt"
     )
-    target_include_directories(embedded_lld_coff PUBLIC
+    target_include_directories(embedded_lld_coff PRIVATE
         "${CMAKE_SOURCE_DIR}/deps/lld/COFF"
         "${CMAKE_SOURCE_DIR}/deps/lld/include"
         "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt/COFF"
