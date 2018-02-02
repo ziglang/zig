@@ -6428,6 +6428,9 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
         return ImplicitCastMatchResultYes;
     }
 
+    // if we got here with error sets, make an error showing the incompatibilities
+    if (expected_typek
+
     // implicit conversion from anything to var
     if (expected_type->id == TypeTableEntryIdVar) {
         return ImplicitCastMatchResultYes;
@@ -6801,9 +6804,8 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                     errors[error_entry->value] = error_entry;
                 }
                 continue;
-            }
-            if (prev_type->id == TypeTableEntryIdErrorUnion) {
-                // check if the cur type error set must be a subset
+            } else {
+                // check if the cur type error set is a subset
                 bool prev_is_superset = true;
                 for (uint32_t i = 0; i < cur_type->data.error_set.err_count; i += 1) {
                     ErrorTableEntry *contained_error_entry = cur_type->data.error_set.errors[i];
@@ -8471,7 +8473,7 @@ static IrInstruction *ir_implicit_cast(IrAnalyze *ira, IrInstruction *value, Typ
     ImplicitCastMatchResult result = ir_types_match_with_implicit_cast(ira, expected_type, value->value.type, value);
     switch (result) {
         case ImplicitCastMatchResultNo:
-            ir_add_error(ira, value,
+            ErrorMsg *msg = ir_add_error(ira, value,
                 buf_sprintf("expected type '%s', found '%s'",
                     buf_ptr(&expected_type->name),
                     buf_ptr(&value->value.type->name)));
