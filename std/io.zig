@@ -102,12 +102,14 @@ pub const File = struct {
     /// The OS-specific file descriptor or file handle.
     handle: os.FileHandle,
 
+    const OpenError = os.WindowsOpenError || os.PosixOpenError;
+
     /// `path` may need to be copied in memory to add a null terminating byte. In this case
     /// a fixed size buffer of size std.os.max_noalloc_path_len is an attempted solution. If the fixed
     /// size buffer is too small, and the provided allocator is null, error.NameTooLong is returned.
     /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
     /// Call close to clean up.
-    pub fn openRead(path: []const u8, allocator: ?&mem.Allocator) !File {
+    pub fn openRead(path: []const u8, allocator: ?&mem.Allocator) OpenError!File {
         if (is_posix) {
             const flags = system.O_LARGEFILE|system.O_RDONLY;
             const fd = try os.posixOpen(path, flags, 0, allocator);
@@ -338,7 +340,9 @@ pub const File = struct {
         }
     }
 
-    fn write(self: &File, bytes: []const u8) !void {
+    const WriteError = os.WindowsWriteError || os.PosixWriteError;
+
+    fn write(self: &File, bytes: []const u8) WriteError!void {
         if (is_posix) {
             try os.posixWrite(self.handle, bytes);
         } else if (is_windows) {

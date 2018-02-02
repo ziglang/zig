@@ -13,3 +13,15 @@ then you can return void, or any error, and the error set is inferred.
 
 // TODO this is an explicit cast and should actually coerce the type
    erorr set casting
+
+
+test err should be comptime if error set has 0 members
+
+comptime calling fn with inferred error set should give empty error set but still you can use try
+
+comptime err to int of empty err set and of size 1 err set
+
+comptime test for err
+
+
+undefined in infer error 

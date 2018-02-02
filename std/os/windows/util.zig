@@ -26,16 +26,25 @@ pub fn windowsClose(handle: windows.HANDLE) void {
     assert(windows.CloseHandle(handle) != 0);
 }
 
-pub fn windowsWrite(handle: windows.HANDLE, bytes: []const u8) !void {
+pub const WriteError = error {
+    SystemResources,
+    OperationAborted,
+    SystemResources,
+    IoPending,
+    BrokenPipe,
+    Unexpected,
+};
+
+pub fn windowsWrite(handle: windows.HANDLE, bytes: []const u8) WriteError!void {
     if (windows.WriteFile(handle, @ptrCast(&const c_void, bytes.ptr), u32(bytes.len), null, null) == 0) {
         const err = windows.GetLastError();
         return switch (err) {
-            windows.ERROR.INVALID_USER_BUFFER => error.SystemResources,
-            windows.ERROR.NOT_ENOUGH_MEMORY => error.SystemResources,
-            windows.ERROR.OPERATION_ABORTED => error.OperationAborted,
-            windows.ERROR.NOT_ENOUGH_QUOTA => error.SystemResources,
-            windows.ERROR.IO_PENDING => error.IoPending,
-            windows.ERROR.BROKEN_PIPE => error.BrokenPipe,
+            windows.ERROR.INVALID_USER_BUFFER => WriteError.SystemResources,
+            windows.ERROR.NOT_ENOUGH_MEMORY => WriteError.SystemResources,
+            windows.ERROR.OPERATION_ABORTED => WriteError.OperationAborted,
+            windows.ERROR.NOT_ENOUGH_QUOTA => WriteError.SystemResources,
+            windows.ERROR.IO_PENDING => WriteError.IoPending,
+            windows.ERROR.BROKEN_PIPE => WriteError.BrokenPipe,
             else => os.unexpectedErrorWindows(err),
         };
     }
@@ -66,12 +75,22 @@ pub fn windowsIsCygwinPty(handle: windows.HANDLE) bool {
            mem.indexOf(u16, name_wide, []u16{'-','p','t','y'}) != null;
 }
 
+pub const OpenError = error {
+    SharingViolation,
+    PathAlreadyExists,
+    FileNotFound,
+    AccessDenied,
+    PipeBusy,
+    Unexpected,
+};
+
 /// `file_path` may need to be copied in memory to add a null terminating byte. In this case
 /// a fixed size buffer of size ::max_noalloc_path_len is an attempted solution. If the fixed
 /// size buffer is too small, and the provided allocator is null, ::error.NameTooLong is returned.
 /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
 pub fn windowsOpen(file_path: []const u8, desired_access: windows.DWORD, share_mode: windows.DWORD,
-    creation_disposition: windows.DWORD, flags_and_attrs: windows.DWORD, allocator: ?&mem.Allocator) %windows.HANDLE
+    creation_disposition: windows.DWORD, flags_and_attrs: windows.DWORD, allocator: ?&mem.Allocator)
+    OpenError!windows.HANDLE
 {
     var stack_buf: [os.max_noalloc_path_len]u8 = undefined;
     var path0: []u8 = undefined;
@@ -95,11 +114,11 @@ pub fn windowsOpen(file_path: []const u8, desired_access: windows.DWORD, share_m
     if (result == windows.INVALID_HANDLE_VALUE) {
         const err = windows.GetLastError();
         return switch (err) {
-            windows.ERROR.SHARING_VIOLATION => error.SharingViolation,
-            windows.ERROR.ALREADY_EXISTS, windows.ERROR.FILE_EXISTS => error.PathAlreadyExists,
-            windows.ERROR.FILE_NOT_FOUND => error.FileNotFound,
-            windows.ERROR.ACCESS_DENIED => error.AccessDenied,
-            windows.ERROR.PIPE_BUSY => error.PipeBusy,
+            windows.ERROR.SHARING_VIOLATION => OpenError.SharingViolation,
+            windows.ERROR.ALREADY_EXISTS, windows.ERROR.FILE_EXISTS => OpenError.PathAlreadyExists,
+            windows.ERROR.FILE_NOT_FOUND => OpenError.FileNotFound,
+            windows.ERROR.ACCESS_DENIED => OpenError.AccessDenied,
+            windows.ERROR.PIPE_BUSY => OpenError.PipeBusy,
             else => os.unexpectedErrorWindows(err),
         };
     }

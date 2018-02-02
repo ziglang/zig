@@ -5,12 +5,12 @@ const math = std.math;
 const builtin = @import("builtin");
 
 pub const Allocator = struct {
-    const Errors = error {OutOfMemory};
+    const Error = error {OutOfMemory};
 
     /// Allocate byte_count bytes and return them in a slice, with the
     /// slice's pointer aligned at least to alignment bytes.
     /// The returned newly allocated memory is undefined.
-    allocFn: fn (self: &Allocator, byte_count: usize, alignment: u29) Errors![]u8,
+    allocFn: fn (self: &Allocator, byte_count: usize, alignment: u29) Error![]u8,
 
     /// If `new_byte_count > old_mem.len`:
     /// * `old_mem.len` is the same as what was returned from allocFn or reallocFn.
@@ -21,7 +21,7 @@ pub const Allocator = struct {
     /// * alignment <= alignment of old_mem.ptr
     ///
     /// The returned newly allocated memory is undefined.
-    reallocFn: fn (self: &Allocator, old_mem: []u8, new_byte_count: usize, alignment: u29) Errors![]u8,
+    reallocFn: fn (self: &Allocator, old_mem: []u8, new_byte_count: usize, alignment: u29) Error![]u8,
 
     /// Guaranteed: `old_mem.len` is the same as what was returned from `allocFn` or `reallocFn`
     freeFn: fn (self: &Allocator, old_mem: []u8) void,
@@ -42,7 +42,7 @@ pub const Allocator = struct {
     fn alignedAlloc(self: &Allocator, comptime T: type, comptime alignment: u29,
         n: usize) ![]align(alignment) T
     {
-        const byte_count = try math.mul(usize, @sizeOf(T), n);
+        const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
         const byte_slice = try self.allocFn(self, byte_count, alignment);
         // This loop should get optimized out in ReleaseFast mode
         for (byte_slice) |*byte| {
@@ -63,7 +63,7 @@ pub const Allocator = struct {
         }
 
         const old_byte_slice = ([]u8)(old_mem);
-        const byte_count = try math.mul(usize, @sizeOf(T), n);
+        const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
         const byte_slice = try self.reallocFn(self, old_byte_slice, byte_count, alignment);
         // This loop should get optimized out in ReleaseFast mode
         for (byte_slice[old_byte_slice.len..]) |*byte| {

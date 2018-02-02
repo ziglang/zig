@@ -510,8 +510,7 @@ enum BinOpType {
     BinOpTypeAssignBitAnd,
     BinOpTypeAssignBitXor,
     BinOpTypeAssignBitOr,
-    BinOpTypeAssignBoolAnd,
-    BinOpTypeAssignBoolOr,
+    BinOpTypeAssignMergeErrorSets,
     BinOpTypeBoolOr,
     BinOpTypeBoolAnd,
     BinOpTypeCmpEq,
@@ -537,6 +536,7 @@ enum BinOpType {
     BinOpTypeArrayCat,
     BinOpTypeArrayMult,
     BinOpTypeErrorUnion,
+    BinOpTypeMergeErrorSets,
 };
 
 struct AstNodeBinOpExpr {
@@ -2054,6 +2054,7 @@ enum IrBinOp {
     IrBinOpRemMod,
     IrBinOpArrayCat,
     IrBinOpArrayMult,
+    IrBinOpMergeErrorSets,
 };
 
 struct IrInstructionBinOp {

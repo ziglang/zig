@@ -49,12 +49,12 @@ static const char *bin_op_str(BinOpType bin_op) {
         case BinOpTypeAssignBitAnd:           return "&=";
         case BinOpTypeAssignBitXor:           return "^=";
         case BinOpTypeAssignBitOr:            return "|=";
-        case BinOpTypeAssignBoolAnd:          return "&&=";
-        case BinOpTypeAssignBoolOr:           return "||=";
+        case BinOpTypeAssignMergeErrorSets:   return "||=";
         case BinOpTypeUnwrapMaybe:            return "??";
         case BinOpTypeArrayCat:               return "++";
         case BinOpTypeArrayMult:              return "**";
         case BinOpTypeErrorUnion:             return "!";
+        case BinOpTypeMergeErrorSets:         return "||";
     }
     zig_unreachable();
 }

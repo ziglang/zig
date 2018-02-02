@@ -530,7 +530,6 @@ TypeTableEntry *get_error_union_type(CodeGen *g, TypeTableEntry *err_set_type, T
 
     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdErrorUnion);
     entry->is_copyable = true;
-    assert(payload_type->type_ref);
     assert(payload_type->di_type);
     ensure_complete_type(g, payload_type);
 
@@ -541,9 +540,16 @@ TypeTableEntry *get_error_union_type(CodeGen *g, TypeTableEntry *err_set_type, T
     entry->data.error_union.payload_type = payload_type;
 
     if (!type_has_bits(payload_type)) {
-        entry->type_ref = err_set_type->type_ref;
-        entry->di_type = err_set_type->di_type;
-
+        if (type_has_bits(err_set_type)) {
+            entry->type_ref = err_set_type->type_ref;
+            entry->di_type = err_set_type->di_type;
+        } else {
+            entry->zero_bits = true;
+            entry->di_type = g->builtin_types.entry_void->di_type;
+        }
+    } else if (!type_has_bits(err_set_type)) {
+        entry->type_ref = payload_type->type_ref;
+        entry->di_type = payload_type->di_type;
     } else {
         LLVMTypeRef elem_types[] = {
             err_set_type->type_ref,
@@ -3841,6 +3847,27 @@ void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entry, Vari
     }
 }
 
+static bool analyze_resolve_inferred_error_set(CodeGen *g, TypeTableEntry *err_set_type, AstNode *source_node) {
+    FnTableEntry *infer_fn = err_set_type->data.error_set.infer_fn;
+    if (infer_fn != nullptr) {
+        if (infer_fn->anal_state == FnAnalStateInvalid) {
+            return false;
+        } else if (infer_fn->anal_state == FnAnalStateReady) {
+            analyze_fn_body(g, infer_fn);
+            if (err_set_type->data.error_set.infer_fn != nullptr) {
+                assert(g->errors.length != 0);
+                return false;
+            }
+        } else {
+            add_node_error(g, source_node,
+                buf_sprintf("cannot resolve inferred error set '%s': function '%s' not fully analyzed yet",
+                    buf_ptr(&err_set_type->name), buf_ptr(&err_set_type->data.error_set.infer_fn->symbol_name)));
+            return false;
+        }
+    }
+    return true;
+}
+
 void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_type_node) {
     TypeTableEntry *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);
@@ -3869,6 +3896,13 @@ void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_typ
                         buf_sprintf("function with inferred error set must return at least one possible error"));
                 fn_table_entry->anal_state = FnAnalStateInvalid;
                 return;
+            }
+
+            if (inferred_err_set_type->data.error_set.infer_fn != nullptr) {
+                if (!analyze_resolve_inferred_error_set(g, inferred_err_set_type, return_type_node)) {
+                    fn_table_entry->anal_state = FnAnalStateInvalid;
+                    return;
+                }
             }
 
             return_err_set_type->data.error_set.infer_fn = nullptr;

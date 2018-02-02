@@ -38,6 +38,9 @@ pub const windowsLoadDll = windows_util.windowsLoadDll;
 pub const windowsUnloadDll = windows_util.windowsUnloadDll; 
 pub const createWindowsEnvBlock = windows_util.createWindowsEnvBlock;
 
+pub const WindowsOpenError = windows_util.OpenError;
+pub const WindowsWriteError = windows_util.WriteError;
+
 pub const FileHandle = if (is_windows) windows.HANDLE else i32;
 
 const debug = std.debug;
@@ -188,8 +191,21 @@ pub fn posixRead(fd: i32, buf: []u8) !void {
     }
 }
 
+pub const PosixWriteError = error {
+    WouldBlock,
+    FileClosed,
+    DestinationAddressRequired,
+    DiskQuota,
+    FileTooBig,
+    InputOutput,
+    NoSpaceLeft,
+    AccessDenied,
+    BrokenPipe,
+    Unexpected,
+};
+
 /// Calls POSIX write, and keeps trying if it gets interrupted.
-pub fn posixWrite(fd: i32, bytes: []const u8) !void {
+pub fn posixWrite(fd: i32, bytes: []const u8) PosixWriteError!void {
     while (true) {
         const write_ret = posix.write(fd, bytes.ptr, bytes.len);
         const write_err = posix.getErrno(write_ret);
@@ -197,15 +213,15 @@ pub fn posixWrite(fd: i32, bytes: []const u8) !void {
             return switch (write_err) {
                 posix.EINTR  => continue,
                 posix.EINVAL, posix.EFAULT => unreachable,
-                posix.EAGAIN => error.WouldBlock,
-                posix.EBADF => error.FileClosed,
-                posix.EDESTADDRREQ => error.DestinationAddressRequired,
-                posix.EDQUOT => error.DiskQuota,
-                posix.EFBIG  => error.FileTooBig,
-                posix.EIO    => error.InputOutput,
-                posix.ENOSPC => error.NoSpaceLeft,
-                posix.EPERM  => error.AccessDenied,
-                posix.EPIPE  => error.BrokenPipe,
+                posix.EAGAIN => PosixWriteError.WouldBlock,
+                posix.EBADF => PosixWriteError.FileClosed,
+                posix.EDESTADDRREQ => PosixWriteError.DestinationAddressRequired,
+                posix.EDQUOT => PosixWriteError.DiskQuota,
+                posix.EFBIG  => PosixWriteError.FileTooBig,
+                posix.EIO    => PosixWriteError.InputOutput,
+                posix.ENOSPC => PosixWriteError.NoSpaceLeft,
+                posix.EPERM  => PosixWriteError.AccessDenied,
+                posix.EPIPE  => PosixWriteError.BrokenPipe,
                 else         => unexpectedErrorPosix(write_err),
             };
         }
@@ -213,13 +229,32 @@ pub fn posixWrite(fd: i32, bytes: []const u8) !void {
     }
 }
 
+pub const PosixOpenError = error {
+    OutOfMemory,
+    AccessDenied,
+    FileTooBig,
+    IsDir,
+    SymLinkLoop,
+    ProcessFdQuotaExceeded,
+    NameTooLong,
+    SystemFdQuotaExceeded,
+    NoDevice,
+    PathNotFound,
+    SystemResources,
+    NoSpaceLeft,
+    NotDir,
+    AccessDenied,
+    PathAlreadyExists,
+    Unexpected,
+};
+
 /// ::file_path may need to be copied in memory to add a null terminating byte. In this case
 /// a fixed size buffer of size ::max_noalloc_path_len is an attempted solution. If the fixed
 /// size buffer is too small, and the provided allocator is null, ::error.NameTooLong is returned.
 /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
 /// Calls POSIX open, keeps trying if it gets interrupted, and translates
 /// the return value into zig errors.
-pub fn posixOpen(file_path: []const u8, flags: u32, perm: usize, allocator: ?&Allocator) !i32 {
+pub fn posixOpen(file_path: []const u8, flags: u32, perm: usize, allocator: ?&Allocator) PosixOpenError!i32 {
     var stack_buf: [max_noalloc_path_len]u8 = undefined;
     var path0: []u8 = undefined;
     var need_free = false;
@@ -247,20 +282,20 @@ pub fn posixOpen(file_path: []const u8, flags: u32, perm: usize, allocator: ?&Al
 
                 posix.EFAULT => unreachable,
                 posix.EINVAL => unreachable,
-                posix.EACCES => error.AccessDenied,
-                posix.EFBIG, posix.EOVERFLOW => error.FileTooBig,
-                posix.EISDIR => error.IsDir,
-                posix.ELOOP => error.SymLinkLoop,
-                posix.EMFILE => error.ProcessFdQuotaExceeded,
-                posix.ENAMETOOLONG => error.NameTooLong,
-                posix.ENFILE => error.SystemFdQuotaExceeded,
-                posix.ENODEV => error.NoDevice,
-                posix.ENOENT => error.PathNotFound,
-                posix.ENOMEM => error.SystemResources,
-                posix.ENOSPC => error.NoSpaceLeft,
-                posix.ENOTDIR => error.NotDir,
-                posix.EPERM => error.AccessDenied,
-                posix.EEXIST => error.PathAlreadyExists,
+                posix.EACCES => PosixOpenError.AccessDenied,
+                posix.EFBIG, posix.EOVERFLOW => PosixOpenError.FileTooBig,
+                posix.EISDIR => PosixOpenError.IsDir,
+                posix.ELOOP => PosixOpenError.SymLinkLoop,
+                posix.EMFILE => PosixOpenError.ProcessFdQuotaExceeded,
+                posix.ENAMETOOLONG => PosixOpenError.NameTooLong,
+                posix.ENFILE => PosixOpenError.SystemFdQuotaExceeded,
+                posix.ENODEV => PosixOpenError.NoDevice,
+                posix.ENOENT => PosixOpenError.PathNotFound,
+                posix.ENOMEM => PosixOpenError.SystemResources,
+                posix.ENOSPC => PosixOpenError.NoSpaceLeft,
+                posix.ENOTDIR => PosixOpenError.NotDir,
+                posix.EPERM => PosixOpenError.AccessDenied,
+                posix.EEXIST => PosixOpenError.PathAlreadyExists,
                 else => unexpectedErrorPosix(err),
             };
         }

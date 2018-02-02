@@ -1799,6 +1799,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
         case IrBinOpArrayCat:
         case IrBinOpArrayMult:
         case IrBinOpRemUnspecified:
+        case IrBinOpMergeErrorSets:
             zig_unreachable();
         case IrBinOpBoolOr:
             return LLVMBuildOr(g->builder, op1_value, op2_value, "");
@@ -2188,6 +2189,9 @@ static LLVMValueRef ir_render_err_to_int(CodeGen *g, IrExecutable *executable, I
         return gen_widen_or_shorten(g, ir_want_runtime_safety(g, &instruction->base),
             g->err_tag_type, wanted_type, target_val);
     } else if (actual_type->id == TypeTableEntryIdErrorUnion) {
+        // this should have been a compile time constant
+        assert(type_has_bits(actual_type->data.error_union.err_set_type));
+
         if (!type_has_bits(actual_type->data.error_union.payload_type)) {
             return gen_widen_or_shorten(g, ir_want_runtime_safety(g, &instruction->base),
                 g->err_tag_type, wanted_type, target_val);
@@ -3428,6 +3432,10 @@ static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutable *execu
     LLVMValueRef err_union_ptr = ir_llvm_value(g, instruction->value);
     LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type, ptr_type);
 
+    if (!type_has_bits(err_union_type->data.error_union.err_set_type)) {
+        return err_union_handle;
+    }
+
     if (ir_want_runtime_safety(g, &instruction->base) && instruction->safety_check_on && g->errors_by_index.length > 1) {
         LLVMValueRef err_val;
         if (type_has_bits(payload_type)) {
@@ -3490,9 +3498,11 @@ static LLVMValueRef ir_render_err_wrap_code(CodeGen *g, IrExecutable *executable
     assert(wanted_type->id == TypeTableEntryIdErrorUnion);
 
     TypeTableEntry *payload_type = wanted_type->data.error_union.payload_type;
+    TypeTableEntry *err_set_type = wanted_type->data.error_union.err_set_type;
+
     LLVMValueRef err_val = ir_llvm_value(g, instruction->value);
 
-    if (!type_has_bits(payload_type))
+    if (!type_has_bits(payload_type) || !type_has_bits(err_set_type))
         return err_val;
 
     assert(instruction->tmp_ptr);
@@ -3509,6 +3519,11 @@ static LLVMValueRef ir_render_err_wrap_payload(CodeGen *g, IrExecutable *executa
     assert(wanted_type->id == TypeTableEntryIdErrorUnion);
 
     TypeTableEntry *payload_type = wanted_type->data.error_union.payload_type;
+    TypeTableEntry *err_set_type = wanted_type->data.error_union.err_set_type;
+
+    if (!type_has_bits(err_set_type)) {
+        return ir_llvm_value(g, instruction->value);
+    }
 
     LLVMValueRef ok_err_val = LLVMConstNull(g->err_tag_type->type_ref);
 
@@ -4328,9 +4343,14 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
         case TypeTableEntryIdErrorUnion:
             {
                 TypeTableEntry *payload_type = type_entry->data.error_union.payload_type;
+                TypeTableEntry *err_set_type = type_entry->data.error_union.err_set_type;
                 if (!type_has_bits(payload_type)) {
+                    assert(type_has_bits(err_set_type));
                     uint64_t value = const_val->data.x_err_union.err ? const_val->data.x_err_union.err->value : 0;
                     return LLVMConstInt(g->err_tag_type->type_ref, value, false);
+                } else if (!type_has_bits(err_set_type)) {
+                    assert(type_has_bits(payload_type));
+                    return gen_const_val(g, const_val->data.x_err_union.payload);
                 } else {
                     LLVMValueRef err_tag_value;
                     LLVMValueRef err_payload_value;

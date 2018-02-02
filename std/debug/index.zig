@@ -210,6 +210,7 @@ fn printSourceAtAddress(debug_info: &ElfStackTrace, out_stream: &io.OutStream, a
             }
         } else |err| switch (err) {
             error.EndOfFile => {},
+            else => return err,
         }
     } else |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => {

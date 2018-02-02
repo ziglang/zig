@@ -1088,12 +1088,13 @@ static BinOpType tok_to_mult_op(Token *token) {
         case TokenIdSlash:          return BinOpTypeDiv;
         case TokenIdPercent:        return BinOpTypeMod;
         case TokenIdBang:           return BinOpTypeErrorUnion;
+        case TokenIdBarBar:         return BinOpTypeMergeErrorSets;
         default:                    return BinOpTypeInvalid;
     }
 }
 
 /*
-MultiplyOperator = "!" | "*" | "/" | "%" | "**" | "*%"
+MultiplyOperator = "||" | "*" | "/" | "%" | "**" | "*%"
 */
 static BinOpType ast_parse_mult_op(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
