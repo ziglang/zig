@@ -181,7 +181,7 @@ pub const Base64DecoderWithIgnore = struct {
     }
 
     /// If no characters end up being ignored or padding, this will be the exact decoded size.
-    pub fn calcSizeUpperBound(encoded_len: usize) !usize {
+    pub fn calcSizeUpperBound(encoded_len: usize) usize {
         return @divTrunc(encoded_len, 4) * 3;
     }
 
@@ -430,7 +430,7 @@ fn testAllApis(expected_decoded: []const u8, expected_encoded: []const u8) !void
         const standard_decoder_ignore_nothing = Base64DecoderWithIgnore.init(
             standard_alphabet_chars, standard_pad_char, "");
         var buffer: [0x100]u8 = undefined;
-        var decoded = buffer[0..try Base64DecoderWithIgnore.calcSizeUpperBound(expected_encoded.len)];
+        var decoded = buffer[0..Base64DecoderWithIgnore.calcSizeUpperBound(expected_encoded.len)];
         var written = try standard_decoder_ignore_nothing.decode(decoded, expected_encoded);
         assert(written <= decoded.len);
         assert(mem.eql(u8, decoded[0..written], expected_decoded));
@@ -449,7 +449,7 @@ fn testDecodeIgnoreSpace(expected_decoded: []const u8, encoded: []const u8) !voi
     const standard_decoder_ignore_space = Base64DecoderWithIgnore.init(
         standard_alphabet_chars, standard_pad_char, " ");
     var buffer: [0x100]u8 = undefined;
-    var decoded = buffer[0..try Base64DecoderWithIgnore.calcSizeUpperBound(encoded.len)];
+    var decoded = buffer[0..Base64DecoderWithIgnore.calcSizeUpperBound(encoded.len)];
     var written = try standard_decoder_ignore_space.decode(decoded, encoded);
     assert(mem.eql(u8, decoded[0..written], expected_decoded));
 }

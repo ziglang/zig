@@ -28,7 +28,7 @@ pub const ChildProcess = struct {
     pub stdout: ?io.File,
     pub stderr: ?io.File,
 
-    pub term: ?%Term,
+    pub term: ?SpawnError!Term,
 
     pub argv: []const []const u8,
 
@@ -53,6 +53,10 @@ pub const ChildProcess = struct {
 
     err_pipe: if (is_windows) void else [2]i32,
     llnode: if (is_windows) void else LinkedList(&ChildProcess).Node,
+
+    pub const SpawnError = error {
+
+    };
 
     pub const Term = union(enum) {
         Exited: i32,
@@ -185,7 +189,7 @@ pub const ChildProcess = struct {
     /// Spawns a child process, waits for it, collecting stdout and stderr, and then returns.
     /// If it succeeds, the caller owns result.stdout and result.stderr memory.
     pub fn exec(allocator: &mem.Allocator, argv: []const []const u8, cwd: ?[]const u8,
-        env_map: ?&const BufMap, max_output_size: usize) %ExecResult
+        env_map: ?&const BufMap, max_output_size: usize) !ExecResult
     {
         const child = try ChildProcess.init(argv, allocator);
         defer child.deinit();
@@ -246,7 +250,7 @@ pub const ChildProcess = struct {
     fn waitUnwrappedWindows(self: &ChildProcess) !void {
         const result = os.windowsWaitSingle(self.handle, windows.INFINITE);
 
-        self.term = (%Term)(x: {
+        self.term = (SpawnError!Term)(x: {
             var exit_code: windows.DWORD = undefined;
             if (windows.GetExitCodeProcess(self.handle, &exit_code) == 0) {
                 break :x Term { .Unknown = 0 };
@@ -631,7 +635,7 @@ pub const ChildProcess = struct {
 };
 
 fn windowsCreateProcess(app_name: &u8, cmd_line: &u8, envp_ptr: ?&u8, cwd_ptr: ?&u8,
-    lpStartupInfo: &windows.STARTUPINFOA, lpProcessInformation: &windows.PROCESS_INFORMATION) %void
+    lpStartupInfo: &windows.STARTUPINFOA, lpProcessInformation: &windows.PROCESS_INFORMATION) !void
 {
     if (windows.CreateProcessA(app_name, cmd_line, null, null, windows.TRUE, 0,
         @ptrCast(?&c_void, envp_ptr), cwd_ptr, lpStartupInfo, lpProcessInformation) == 0)

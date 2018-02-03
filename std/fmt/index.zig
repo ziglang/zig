@@ -198,7 +198,7 @@ pub fn formatValue(value: var, context: var, comptime Errors: type, output: fn(@
             return formatInt(value, 10, false, 0, context, Errors, output);
         },
         builtin.TypeId.Float => {
-            return formatFloat(value, context, output);
+            return formatFloat(value, context, Errors, output);
         },
         builtin.TypeId.Void => {
             return output(context, "void");
@@ -417,7 +417,7 @@ const FormatIntBuf = struct {
     out_buf: []u8,
     index: usize,
 };
-fn formatIntCallback(context: &FormatIntBuf, bytes: []const u8) !void {
+fn formatIntCallback(context: &FormatIntBuf, bytes: []const u8) (error{}!void) {
     mem.copy(u8, context.out_buf[context.index..], bytes);
     context.index += bytes.len;
 }
@@ -499,7 +499,7 @@ fn bufPrintWrite(context: &BufPrintContext, bytes: []const u8) !void {
 
 pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: ...) ![]u8 {
     var context = BufPrintContext { .remaining = buf, };
-    try format(&context, bufPrintWrite, fmt, args);
+    try format(&context, error{BufferTooSmall}, bufPrintWrite, fmt, args);
     return buf[0..buf.len - context.remaining.len];
 }
 

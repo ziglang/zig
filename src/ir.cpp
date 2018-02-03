@@ -10123,6 +10123,13 @@ static TypeTableEntry *ir_analyze_instruction_error_union(IrAnalyze *ira,
     if (type_is_invalid(payload_type))
         return ira->codegen->builtin_types.entry_invalid;
 
+    if (err_set_type->id != TypeTableEntryIdErrorSet) {
+        ir_add_error(ira, instruction->err_set->other,
+            buf_sprintf("expected error set type, found type '%s'",
+                buf_ptr(&err_set_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
     TypeTableEntry *result_type = get_error_union_type(ira->codegen, err_set_type, payload_type);
 
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
@@ -10412,9 +10419,17 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         }
 
         AstNode *return_type_node = fn_proto_node->data.fn_proto.return_type;
-        TypeTableEntry *return_type = analyze_type_expr(ira->codegen, exec_scope, return_type_node);
-        if (type_is_invalid(return_type))
+        TypeTableEntry *specified_return_type = analyze_type_expr(ira->codegen, exec_scope, return_type_node);
+        if (type_is_invalid(specified_return_type))
             return ira->codegen->builtin_types.entry_invalid;
+        TypeTableEntry *return_type;
+        TypeTableEntry *inferred_err_set_type = nullptr;
+        if (fn_proto_node->data.fn_proto.auto_err_set) {
+            inferred_err_set_type = get_auto_err_set_type(ira->codegen, fn_entry);
+            return_type = get_error_union_type(ira->codegen, inferred_err_set_type, specified_return_type);
+        } else {
+            return_type = specified_return_type;
+        }
 
         IrInstruction *result;
 
@@ -10427,6 +10442,18 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             result = ir_eval_const_value(ira->codegen, exec_scope, body_node, return_type,
                 ira->new_irb.exec->backward_branch_count, ira->new_irb.exec->backward_branch_quota, fn_entry,
                 nullptr, call_instruction->base.source_node, nullptr, ira->new_irb.exec);
+
+            if (inferred_err_set_type != nullptr) {
+                inferred_err_set_type->data.error_set.infer_fn = nullptr;
+                if (result->value.type->id == TypeTableEntryIdErrorUnion) {
+                    TypeTableEntry *fn_inferred_err_set_type = result->value.type->data.error_union.err_set_type;
+                    inferred_err_set_type->data.error_set.err_count = fn_inferred_err_set_type->data.error_set.err_count;
+                    inferred_err_set_type->data.error_set.errors = fn_inferred_err_set_type->data.error_set.errors;
+                } else if (result->value.type->id == TypeTableEntryIdErrorSet) {
+                    inferred_err_set_type->data.error_set.err_count = result->value.type->data.error_set.err_count;
+                    inferred_err_set_type->data.error_set.errors = result->value.type->data.error_set.errors;
+                }
+            }
 
             ira->codegen->memoized_fn_eval_table.put(exec_scope, result);
 

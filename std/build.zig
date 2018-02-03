@@ -554,7 +554,7 @@ pub const Builder = struct {
     }
 
     fn spawnChildEnvMap(self: &Builder, cwd: ?[]const u8, env_map: &const BufMap,
-        argv: []const []const u8) %void
+        argv: []const []const u8) !void
     {
         if (self.verbose) {
             printCmd(cwd, argv);
@@ -1942,12 +1942,12 @@ pub const RemoveDirStep = struct {
 
 pub const Step = struct {
     name: []const u8,
-    makeFn: fn(self: &Step) %void,
+    makeFn: fn(self: &Step) error!void,
     dependencies: ArrayList(&Step),
     loop_flag: bool,
     done_flag: bool,
 
-    pub fn init(name: []const u8, allocator: &Allocator, makeFn: fn (&Step)%void) Step {
+    pub fn init(name: []const u8, allocator: &Allocator, makeFn: fn (&Step)error!void) Step {
         return Step {
             .name = name,
             .makeFn = makeFn,
@@ -1972,11 +1972,11 @@ pub const Step = struct {
         self.dependencies.append(other) catch unreachable;
     }
 
-    fn makeNoOp(self: &Step) %void {}
+    fn makeNoOp(self: &Step) (error{}!void) {}
 };
 
 fn doAtomicSymLinks(allocator: &Allocator, output_path: []const u8, filename_major_only: []const u8,
-    filename_name_only: []const u8) %void
+    filename_name_only: []const u8) !void
 {
     const out_dir = os.path.dirname(output_path);
     const out_basename = os.path.basename(output_path);

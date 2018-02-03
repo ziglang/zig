@@ -1072,7 +1072,7 @@ pub fn changeCurDir(allocator: &Allocator, dir_path: []const u8) !void {
 }
 
 /// Read value of a symbolic link.
-pub fn readLink(allocator: &Allocator, pathname: []const u8) ![]u8 {
+pub fn readLink(allocator: &Allocator, pathname: []const u8) error![]u8 {
     const path_buf = try allocator.alloc(u8, pathname.len + 1);
     defer allocator.free(path_buf);
 
@@ -1267,7 +1267,7 @@ pub const ArgIteratorWindows = struct {
     }
 
     /// You must free the returned memory when done.
-    pub fn next(self: &ArgIteratorWindows, allocator: &Allocator) ?internalNext.errors![]u8 {
+    pub fn next(self: &ArgIteratorWindows, allocator: &Allocator) ?(@typeOf(internalNext).ReturnType.ErrorSet![]u8) {
         // march forward over whitespace
         while (true) : (self.index += 1) {
             const byte = self.cmd_line[self.index];
