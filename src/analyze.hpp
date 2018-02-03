@@ -56,6 +56,7 @@ TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEnt
 TypeTableEntry *container_ref_type(TypeTableEntry *type_entry);
 bool type_is_complete(TypeTableEntry *type_entry);
 bool type_is_invalid(TypeTableEntry *type_entry);
+bool type_is_global_error_set(TypeTableEntry *err_set_type);
 bool type_has_zero_bits_known(TypeTableEntry *type_entry);
 void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry);
 ScopeDecls *get_container_scope(TypeTableEntry *type_entry);
@@ -189,57 +190,5 @@ TypeTableEntry *get_ptr_to_stack_trace_type(CodeGen *g);
 void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry);
 
 TypeTableEntry *get_auto_err_set_type(CodeGen *g, FnTableEntry *fn_entry);
-
-enum ConstCastResultId {
-    ConstCastResultIdOk,
-    ConstCastResultIdErrSet,
-    ConstCastResultIdPointerChild,
-    ConstCastResultIdSliceChild,
-    ConstCastResultIdNullableChild,
-    ConstCastResultIdErrorUnionPayload,
-    ConstCastResultIdErrorUnionErrorSet,
-    ConstCastResultIdFnAlign,
-    ConstCastResultIdFnCC,
-    ConstCastResultIdFnVarArgs,
-    ConstCastResultIdFnIsGeneric,
-    ConstCastResultIdFnReturnType,
-    ConstCastResultIdFnArgCount,
-    ConstCastResultIdFnGenericArgCount,
-    ConstCastResultIdFnArg,
-    ConstCastResultIdFnArgNoAlias,
-    ConstCastResultIdType,
-};
-
-struct ConstCastErrSetMismatch {
-    ZigList<ErrorTableEntry *> missing_errors;
-};
-
-struct ConstCastOnly;
-
-struct ConstCastArg {
-    size_t arg_index;
-    ConstCastOnly *child;
-};
-
-struct ConstCastArgNoAlias {
-    size_t arg_index;
-};
-
-struct ConstCastOnly {
-    ConstCastResultId id;
-    union {
-        ConstCastErrSetMismatch error_set;
-        ConstCastOnly *pointer_child;
-        ConstCastOnly *slice_child;
-        ConstCastOnly *nullable_child;
-        ConstCastOnly *error_union_payload;
-        ConstCastOnly *error_union_error_set;
-        ConstCastOnly *return_type;
-        ConstCastArg fn_arg;
-        ConstCastArgNoAlias arg_no_alias;
-    } data;
-};
-
-ConstCastOnly types_match_const_cast_only(CodeGen *g, TypeTableEntry *expected_type, TypeTableEntry *actual_type);
 
 #endif

@@ -26,6 +26,4 @@ comptime test for err
 
 undefined in infer error 
 
-change readlink back to inferred error
-
 syntax -  ?a!b  should be ?(a!b) but it's (?a)!b

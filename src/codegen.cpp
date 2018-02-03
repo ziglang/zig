@@ -5216,6 +5216,7 @@ static void define_builtin_types(CodeGen *g) {
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdErrorSet);
         buf_init_from_str(&entry->name, "error");
+        entry->data.error_set.err_count = UINT32_MAX;
 
         // TODO allow overriding this type and keep track of max value and emit an
         // error if there are too many errors declared

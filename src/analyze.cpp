@@ -3372,180 +3372,6 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only, AstNode *so
     g->tld_ref_source_node_stack.pop();
 }
 
-ConstCastOnly types_match_const_cast_only(CodeGen *g, TypeTableEntry *expected_type, TypeTableEntry *actual_type) {
-    ConstCastOnly result = {};
-    result.id = ConstCastResultIdOk;
-
-    if (expected_type == actual_type)
-        return result;
-
-    // pointer const
-    if (expected_type->id == TypeTableEntryIdPointer &&
-        actual_type->id == TypeTableEntryIdPointer &&
-        (!actual_type->data.pointer.is_const || expected_type->data.pointer.is_const) &&
-        (!actual_type->data.pointer.is_volatile || expected_type->data.pointer.is_volatile) &&
-        actual_type->data.pointer.bit_offset == expected_type->data.pointer.bit_offset &&
-        actual_type->data.pointer.unaligned_bit_count == expected_type->data.pointer.unaligned_bit_count &&
-        actual_type->data.pointer.alignment >= expected_type->data.pointer.alignment)
-    {
-        ConstCastOnly child = types_match_const_cast_only(g, expected_type->data.pointer.child_type, actual_type->data.pointer.child_type);
-        if (child.id != ConstCastResultIdOk) {
-            result.id = ConstCastResultIdPointerChild;
-            result.data.pointer_child = allocate_nonzero<ConstCastOnly>(1);
-            *result.data.pointer_child = child;
-        }
-        return result;
-    }
-
-    // slice const
-    if (expected_type->id == TypeTableEntryIdStruct && actual_type->id == TypeTableEntryIdStruct &&
-        expected_type->data.structure.is_slice && actual_type->data.structure.is_slice)
-    {
-        TypeTableEntry *actual_ptr_type = actual_type->data.structure.fields[slice_ptr_index].type_entry;
-        TypeTableEntry *expected_ptr_type = expected_type->data.structure.fields[slice_ptr_index].type_entry;
-        if ((!actual_ptr_type->data.pointer.is_const || expected_ptr_type->data.pointer.is_const) &&
-            (!actual_ptr_type->data.pointer.is_volatile || expected_ptr_type->data.pointer.is_volatile) &&
-            actual_ptr_type->data.pointer.bit_offset == expected_ptr_type->data.pointer.bit_offset &&
-            actual_ptr_type->data.pointer.unaligned_bit_count == expected_ptr_type->data.pointer.unaligned_bit_count &&
-            actual_ptr_type->data.pointer.alignment >= expected_ptr_type->data.pointer.alignment)
-        {
-            ConstCastOnly child = types_match_const_cast_only(g, expected_ptr_type->data.pointer.child_type,
-                    actual_ptr_type->data.pointer.child_type);
-            if (child.id != ConstCastResultIdOk) {
-                result.id = ConstCastResultIdSliceChild;
-                result.data.slice_child = allocate_nonzero<ConstCastOnly>(1);
-                *result.data.slice_child = child;
-            }
-            return result;
-        }
-    }
-
-    // maybe
-    if (expected_type->id == TypeTableEntryIdMaybe && actual_type->id == TypeTableEntryIdMaybe) {
-        ConstCastOnly child = types_match_const_cast_only(g, expected_type->data.maybe.child_type, actual_type->data.maybe.child_type);
-        if (child.id != ConstCastResultIdOk) {
-            result.id = ConstCastResultIdNullableChild;
-            result.data.nullable_child = allocate_nonzero<ConstCastOnly>(1);
-            *result.data.nullable_child = child;
-        }
-        return result;
-    }
-
-    // error union
-    if (expected_type->id == TypeTableEntryIdErrorUnion && actual_type->id == TypeTableEntryIdErrorUnion) {
-        ConstCastOnly payload_child = types_match_const_cast_only(g, expected_type->data.error_union.payload_type, actual_type->data.error_union.payload_type);
-        if (payload_child.id != ConstCastResultIdOk) {
-            result.id = ConstCastResultIdErrorUnionPayload;
-            result.data.error_union_payload = allocate_nonzero<ConstCastOnly>(1);
-            *result.data.error_union_payload = payload_child;
-            return result;
-        }
-        ConstCastOnly error_set_child = types_match_const_cast_only(g, expected_type->data.error_union.err_set_type, actual_type->data.error_union.err_set_type);
-        if (error_set_child.id != ConstCastResultIdOk) {
-            result.id = ConstCastResultIdErrorUnionErrorSet;
-            result.data.error_union_error_set = allocate_nonzero<ConstCastOnly>(1);
-            *result.data.error_union_error_set = error_set_child;
-            return result;
-        }
-        return result;
-    }
-
-    // error set
-    if (expected_type->id == TypeTableEntryIdErrorSet && actual_type->id == TypeTableEntryIdErrorSet) {
-        TypeTableEntry *contained_set = actual_type;
-        TypeTableEntry *container_set = expected_type;
-
-        if (container_set == g->builtin_types.entry_global_error_set || container_set->data.error_set.infer_fn != nullptr) {
-            return result;
-        }
-
-        ErrorTableEntry **errors = allocate<ErrorTableEntry *>(g->errors_by_index.length);
-        for (uint32_t i = 0; i < container_set->data.error_set.err_count; i += 1) {
-            ErrorTableEntry *error_entry = container_set->data.error_set.errors[i];
-            errors[error_entry->value] = error_entry;
-        }
-        for (uint32_t i = 0; i < contained_set->data.error_set.err_count; i += 1) {
-            ErrorTableEntry *contained_error_entry = contained_set->data.error_set.errors[i];
-            ErrorTableEntry *error_entry = errors[contained_error_entry->value];
-            if (error_entry == nullptr) {
-                if (result.id == ConstCastResultIdOk) {
-                    result.id = ConstCastResultIdErrSet;
-                }
-                result.data.error_set.missing_errors.append(contained_error_entry);
-            }
-        }
-        free(errors);
-        return result;
-    }
-
-    // fn
-    if (expected_type->id == TypeTableEntryIdFn &&
-        actual_type->id == TypeTableEntryIdFn)
-    {
-        if (expected_type->data.fn.fn_type_id.alignment > actual_type->data.fn.fn_type_id.alignment) {
-            result.id = ConstCastResultIdFnAlign;
-            return result;
-        }
-        if (expected_type->data.fn.fn_type_id.cc != actual_type->data.fn.fn_type_id.cc) {
-            result.id = ConstCastResultIdFnCC;
-            return result;
-        }
-        if (expected_type->data.fn.fn_type_id.is_var_args != actual_type->data.fn.fn_type_id.is_var_args) {
-            result.id = ConstCastResultIdFnVarArgs;
-            return result;
-        }
-        if (expected_type->data.fn.is_generic != actual_type->data.fn.is_generic) {
-            result.id = ConstCastResultIdFnIsGeneric;
-            return result;
-        }
-        if (!expected_type->data.fn.is_generic &&
-            actual_type->data.fn.fn_type_id.return_type->id != TypeTableEntryIdUnreachable)
-        {
-            ConstCastOnly child = types_match_const_cast_only(g, expected_type->data.fn.fn_type_id.return_type, actual_type->data.fn.fn_type_id.return_type);
-            if (child.id != ConstCastResultIdOk) {
-                result.id = ConstCastResultIdFnReturnType;
-                result.data.return_type = allocate_nonzero<ConstCastOnly>(1);
-                *result.data.return_type = child;
-            }
-            return result;
-        }
-        if (expected_type->data.fn.fn_type_id.param_count != actual_type->data.fn.fn_type_id.param_count) {
-            result.id = ConstCastResultIdFnArgCount;
-            return result;
-        }
-        if (expected_type->data.fn.fn_type_id.next_param_index != actual_type->data.fn.fn_type_id.next_param_index) {
-            result.id = ConstCastResultIdFnGenericArgCount;
-            return result;
-        }
-        assert(expected_type->data.fn.is_generic ||
-                expected_type->data.fn.fn_type_id.next_param_index  == expected_type->data.fn.fn_type_id.param_count);
-        for (size_t i = 0; i < expected_type->data.fn.fn_type_id.next_param_index; i += 1) {
-            // note it's reversed for parameters
-            FnTypeParamInfo *actual_param_info = &actual_type->data.fn.fn_type_id.param_info[i];
-            FnTypeParamInfo *expected_param_info = &expected_type->data.fn.fn_type_id.param_info[i];
-
-            ConstCastOnly arg_child = types_match_const_cast_only(g, actual_param_info->type, expected_param_info->type);
-            if (arg_child.id != ConstCastResultIdOk) {
-                result.id = ConstCastResultIdFnArg;
-                result.data.fn_arg.arg_index = i;
-                result.data.fn_arg.child = allocate_nonzero<ConstCastOnly>(1);
-                *result.data.fn_arg.child = arg_child;
-                return result;
-            }
-
-            if (expected_param_info->is_noalias != actual_param_info->is_noalias) {
-                result.id = ConstCastResultIdFnArgNoAlias;
-                result.data.arg_no_alias.arg_index = i;
-                return result;
-            }
-        }
-        return result;
-    }
-
-    result.id = ConstCastResultIdType;
-    return result;
-}
-
 Tld *find_decl(CodeGen *g, Scope *scope, Buf *name) {
     // we must resolve all the use decls
     ImportTableEntry *import = get_scope_import(scope);
@@ -3906,10 +3732,16 @@ void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_typ
             }
 
             return_err_set_type->data.error_set.infer_fn = nullptr;
-            return_err_set_type->data.error_set.err_count = inferred_err_set_type->data.error_set.err_count;
-            return_err_set_type->data.error_set.errors = allocate<ErrorTableEntry *>(inferred_err_set_type->data.error_set.err_count);
-            for (uint32_t i = 0; i < inferred_err_set_type->data.error_set.err_count; i += 1) {
-                return_err_set_type->data.error_set.errors[i] = inferred_err_set_type->data.error_set.errors[i];
+            if (type_is_global_error_set(inferred_err_set_type)) {
+                return_err_set_type->data.error_set.err_count = UINT32_MAX;
+            } else {
+                return_err_set_type->data.error_set.err_count = inferred_err_set_type->data.error_set.err_count;
+                if (inferred_err_set_type->data.error_set.err_count > 0) {
+                    return_err_set_type->data.error_set.errors = allocate<ErrorTableEntry *>(inferred_err_set_type->data.error_set.err_count);
+                    for (uint32_t i = 0; i < inferred_err_set_type->data.error_set.err_count; i += 1) {
+                        return_err_set_type->data.error_set.errors[i] = inferred_err_set_type->data.error_set.errors[i];
+                    }
+                }
             }
         }
     }
@@ -5833,3 +5665,8 @@ ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
     return var_value;
 }
 
+bool type_is_global_error_set(TypeTableEntry *err_set_type) {
+    assert(err_set_type->id == TypeTableEntryIdErrorSet);
+    assert(err_set_type->data.error_set.infer_fn == nullptr);
+    return err_set_type->data.error_set.err_count == UINT32_MAX;
+}

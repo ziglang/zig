@@ -1072,7 +1072,7 @@ pub fn changeCurDir(allocator: &Allocator, dir_path: []const u8) !void {
 }
 
 /// Read value of a symbolic link.
-pub fn readLink(allocator: &Allocator, pathname: []const u8) error![]u8 {
+pub fn readLink(allocator: &Allocator, pathname: []const u8) ![]u8 {
     const path_buf = try allocator.alloc(u8, pathname.len + 1);
     defer allocator.free(path_buf);
 
