@@ -28,7 +28,7 @@ pub const ChildProcess = struct {
     pub stdout: ?io.File,
     pub stderr: ?io.File,
 
-    pub term: ?SpawnError!Term,
+    pub term: ?(SpawnError!Term),
 
     pub argv: []const []const u8,
 

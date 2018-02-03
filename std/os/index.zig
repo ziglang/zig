@@ -1515,7 +1515,7 @@ const unexpected_error_tracing = false;
 
 /// Call this when you made a syscall or something that sets errno
 /// and you get an unexpected error.
-pub fn unexpectedErrorPosix(errno: usize) error {
+pub fn unexpectedErrorPosix(errno: usize) (error{Unexpected}) {
     if (unexpected_error_tracing) {
         debug.warn("unexpected errno: {}\n", errno);
         debug.dumpStackTrace();
@@ -1525,7 +1525,7 @@ pub fn unexpectedErrorPosix(errno: usize) error {
 
 /// Call this when you made a windows DLL call or something that does SetLastError
 /// and you get an unexpected error.
-pub fn unexpectedErrorWindows(err: windows.DWORD) error {
+pub fn unexpectedErrorWindows(err: windows.DWORD) (error{Unexpected}) {
     if (unexpected_error_tracing) {
         debug.warn("unexpected GetLastError(): {}\n", err);
         debug.dumpStackTrace();

@@ -6577,11 +6577,11 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
         TypeTableEntry *contained_set = actual_type;
         TypeTableEntry *container_set = expected_type;
 
-        if (!resolve_inferred_error_set(ira, container_set, source_node)) {
-            result.id = ConstCastResultIdUnresolvedInferredErrSet;
+        // if the container set is inferred, then this will always work.
+        if (container_set->data.error_set.infer_fn != nullptr) {
             return result;
         }
-
+        // if the container set is the global one, it will always work.
         if (type_is_global_error_set(container_set)) {
             return result;
         }
