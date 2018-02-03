@@ -78,17 +78,8 @@ error WouldBlock;
 pub fn getRandomBytes(buf: []u8) %void {
     switch (builtin.os) {
         Os.linux => while (true) {
-            // TODO check libc version and potentially call c.getrandom.
-            // See #397
-            const err = posix.getErrno(posix.getrandom(buf.ptr, buf.len, 0));
-            if (err > 0) {
-                return switch (err) {
-                    posix.EINVAL => unreachable,
-                    posix.EFAULT => unreachable,
-                    posix.EINTR  => continue,
-                    else         => unexpectedErrorPosix(err),
-                };
-            }
+            const err = posix.getErrno(posix.getRandomBytes(buf));
+            if (err > 0) return unexpectedErrorPosix(err);
             return;
         },
         Os.macosx, Os.ios => {
