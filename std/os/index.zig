@@ -6,7 +6,7 @@ const os = this;
 
 pub const windows = @import("windows/index.zig");
 pub const darwin = @import("darwin.zig");
-pub const linux = @import("linux.zig");
+pub const linux = @import("linux/index.zig");
 pub const zen = @import("zen.zig");
 pub const posix = switch(builtin.os) {
     Os.linux => linux,
@@ -78,13 +78,28 @@ error WouldBlock;
 pub fn getRandomBytes(buf: []u8) %void {
     switch (builtin.os) {
         Os.linux => while (true) {
-            const err = posix.getErrno(posix.getRandomBytes(buf));
-            if (err > 0) return unexpectedErrorPosix(err);
+            // TODO check libc version and potentially call c.getrandom.
+            // See #397
+            const err = posix.getErrno(posix.getrandom(buf.ptr, buf.len, 0));
+            if (err > 0) {
+                switch (err) {
+                    posix.EINVAL => unreachable,
+                    posix.EFAULT => unreachable,
+                    posix.EINTR  => continue,
+                    posix.ENOSYS => {
+                        const fd = try posixOpenC(c"/dev/urandom", posix.O_RDONLY|posix.O_CLOEXEC, 0);
+                        defer close(fd);
+
+                        try posixRead(fd, buf);
+                        return;
+                    },
+                    else => return unexpectedErrorPosix(err),
+                }
+            }
             return;
         },
         Os.macosx, Os.ios => {
-            const fd = try posixOpen("/dev/urandom", posix.O_RDONLY|posix.O_CLOEXEC,
-                0, null);
+            const fd = try posixOpenC(c"/dev/urandom", posix.O_RDONLY|posix.O_CLOEXEC, 0);
             defer close(fd);
 
             try posixRead(fd, buf);
@@ -253,8 +268,12 @@ pub fn posixOpen(file_path: []const u8, flags: u32, perm: usize, allocator: ?&Al
     mem.copy(u8, path0, file_path);
     path0[file_path.len] = 0;
 
+    return posixOpenC(path0.ptr, flags, perm);
+}
+
+pub fn posixOpenC(file_path: &const u8, flags: u32, perm: usize) %i32 {
     while (true) {
-        const result = posix.open(path0.ptr, flags, perm);
+        const result = posix.open(file_path, flags, perm);
         const err = posix.getErrno(result);
         if (err > 0) {
             return switch (err) {
@@ -1486,10 +1505,10 @@ test "std.os" {
     _ = @import("darwin_errno.zig");
     _ = @import("darwin.zig");
     _ = @import("get_user_id.zig");
-    _ = @import("linux_errno.zig");
+    _ = @import("linux/errno.zig");
     //_ = @import("linux_i386.zig");
-    _ = @import("linux_x86_64.zig");
-    _ = @import("linux.zig");
+    _ = @import("linux/x86_64.zig");
+    _ = @import("linux/index.zig");
     _ = @import("path.zig");
     _ = @import("windows/index.zig");
 }

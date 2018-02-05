@@ -1,13 +1,12 @@
-const std = @import("../index.zig");
+const std = @import("../../index.zig");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
 const arch = switch (builtin.arch) {
-    builtin.Arch.x86_64 => @import("linux_x86_64.zig"),
-    builtin.Arch.i386 => @import("linux_i386.zig"),
+    builtin.Arch.x86_64 => @import("x86_64.zig"),
+    builtin.Arch.i386 => @import("i386.zig"),
     else => @compileError("unsupported arch"),
 };
-pub use @import("linux_errno.zig");
-pub use @import("linux_random.zig");
+pub use @import("errno.zig");
 
 pub const PATH_MAX = 4096;
 
@@ -788,10 +787,10 @@ pub fn timerfd_settime(fd: i32, flags: u32, new_value: &const itimerspec, old_va
     return arch.syscall4(arch.SYS_timerfd_settime, usize(fd), usize(flags), @ptrToInt(new_value), @ptrToInt(old_value));
 }
 
-test "import linux_test" {
+test "import linux test" {
     // TODO lazy analysis should prevent this test from being compiled on windows, but
     // it is still compiled on windows
     if (builtin.os == builtin.Os.linux) {
-        _ = @import("linux_test.zig");
+        _ = @import("test.zig");
     }
 }

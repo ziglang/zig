@@ -6193,6 +6193,15 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
     if (other_type->id == TypeTableEntryIdFloat) {
         return true;
     } else if (other_type->id == TypeTableEntryIdInt && const_val_is_int) {
+        if (!other_type->data.integral.is_signed && const_val->data.x_bigint.is_negative) {
+            Buf *val_buf = buf_alloc();
+            bigint_append_buf(val_buf, &const_val->data.x_bigint, 10);
+            ir_add_error(ira, instruction,
+                buf_sprintf("cannot cast negative value %s to unsigned integer type '%s'",
+                    buf_ptr(val_buf),
+                    buf_ptr(&other_type->name)));
+            return false;
+        }
         if (bigint_fits_in_bits(&const_val->data.x_bigint, other_type->data.integral.bit_count,
                     other_type->data.integral.is_signed))
         {
@@ -6205,6 +6214,15 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
         if (const_val_fits_in_num_lit(const_val, child_type)) {
             return true;
         } else if (child_type->id == TypeTableEntryIdInt && const_val_is_int) {
+            if (!child_type->data.integral.is_signed && const_val->data.x_bigint.is_negative) {
+                Buf *val_buf = buf_alloc();
+                bigint_append_buf(val_buf, &const_val->data.x_bigint, 10);
+                ir_add_error(ira, instruction,
+                    buf_sprintf("cannot cast negative value %s to unsigned integer type '%s'",
+                        buf_ptr(val_buf),
+                        buf_ptr(&child_type->name)));
+                return false;
+            }
             if (bigint_fits_in_bits(&const_val->data.x_bigint,
                         child_type->data.integral.bit_count,
                         child_type->data.integral.is_signed))

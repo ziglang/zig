@@ -1,6 +1,12 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("cast negative integer literal to usize",
+        \\export fn entry() void {
+        \\    const x = usize(-10);
+        \\}
+    , ".tmp_source.zig:2:21: error: cannot cast negative value -10 to unsigned integer type 'usize'");
+
     cases.add("use invalid number literal as array index",
         \\var v = 25;
         \\export fn entry() void {
