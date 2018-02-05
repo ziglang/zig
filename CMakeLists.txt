@@ -441,6 +441,7 @@ set(ZIG_STD_FILES
     "os/index.zig"
     "os/linux.zig"
     "os/linux_errno.zig"
+    "os/linux_random.zig"
     "os/linux_i386.zig"
     "os/linux_x86_64.zig"
     "os/path.zig"

@@ -7,6 +7,7 @@ const arch = switch (builtin.arch) {
     else => @compileError("unsupported arch"),
 };
 pub use @import("linux_errno.zig");
+pub use @import("linux_random.zig");
 
 pub const PATH_MAX = 4096;
 
