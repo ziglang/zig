@@ -6491,6 +6491,60 @@ static bool resolve_inferred_error_set(IrAnalyze *ira, TypeTableEntry *err_set_t
     return true;
 }
 
+static TypeTableEntry *get_error_set_intersection(IrAnalyze *ira, TypeTableEntry *set1, TypeTableEntry *set2,
+        AstNode *source_node)
+{
+    assert(set1->id == TypeTableEntryIdErrorSet);
+    assert(set2->id == TypeTableEntryIdErrorSet);
+
+    if (!resolve_inferred_error_set(ira, set1, source_node)) {
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+    if (!resolve_inferred_error_set(ira, set2, source_node)) {
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+    if (type_is_global_error_set(set1)) {
+        return set2;
+    }
+    if (type_is_global_error_set(set2)) {
+        return set1;
+    }
+    ErrorTableEntry **errors = allocate<ErrorTableEntry *>(ira->codegen->errors_by_index.length);
+    for (uint32_t i = 0; i < set1->data.error_set.err_count; i += 1) {
+        ErrorTableEntry *error_entry = set1->data.error_set.errors[i];
+        errors[error_entry->value] = error_entry;
+    }
+    ZigList<ErrorTableEntry *> intersection_list = {};
+
+    TypeTableEntry *err_set_type = new_type_table_entry(TypeTableEntryIdErrorSet);
+    buf_resize(&err_set_type->name, 0);
+    buf_appendf(&err_set_type->name, "error{");
+
+    for (uint32_t i = 0; i < set2->data.error_set.err_count; i += 1) {
+        ErrorTableEntry *error_entry = set2->data.error_set.errors[i];
+        ErrorTableEntry *existing_entry = errors[error_entry->value];
+        if (existing_entry != nullptr) {
+            intersection_list.append(existing_entry);
+            buf_appendf(&err_set_type->name, "%s,", buf_ptr(&existing_entry->name));
+        }
+    }
+    free(errors);
+
+    err_set_type->is_copyable = true;
+    err_set_type->type_ref = ira->codegen->builtin_types.entry_global_error_set->type_ref;
+    err_set_type->di_type = ira->codegen->builtin_types.entry_global_error_set->di_type;
+    err_set_type->data.error_set.err_count = intersection_list.length;
+    err_set_type->data.error_set.errors = intersection_list.items;
+    err_set_type->zero_bits = intersection_list.length == 0;
+
+    buf_appendf(&err_set_type->name, "}");
+
+    ira->codegen->error_di_types.append(&err_set_type->di_type);
+
+    return err_set_type;
+}
+
+
 static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry *expected_type,
         TypeTableEntry *actual_type, AstNode *source_node)
 {
@@ -7313,7 +7367,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                     buf_sprintf("unable to make error union out of null literal"));
                 return ira->codegen->builtin_types.entry_invalid;
             } else if (prev_inst->value.type->id == TypeTableEntryIdErrorUnion) {
-                return prev_inst->value.type;
+                return get_error_union_type(ira->codegen, err_set_type, prev_inst->value.type->data.error_union.payload_type);
             } else {
                 return get_error_union_type(ira->codegen, err_set_type, prev_inst->value.type);
             }
@@ -9147,6 +9201,7 @@ static bool resolve_cmp_op_id(IrBinOp op_id, Cmp cmp) {
 static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp *bin_op_instruction) {
     IrInstruction *op1 = bin_op_instruction->op1->other;
     IrInstruction *op2 = bin_op_instruction->op2->other;
+    AstNode *source_node = bin_op_instruction->base.source_node;
 
     IrBinOp op_id = bin_op_instruction->op_id;
     bool is_equality_cmp = (op_id == IrBinOpCmpEq || op_id == IrBinOpCmpNotEq);
@@ -9179,7 +9234,7 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
         }
 
         IrInstruction *is_non_null = ir_build_test_nonnull(&ira->new_irb, bin_op_instruction->base.scope,
-            bin_op_instruction->base.source_node, maybe_op);
+            source_node, maybe_op);
         is_non_null->value.type = ira->codegen->builtin_types.entry_bool;
 
         if (op_id == IrBinOpCmpEq) {
@@ -9190,8 +9245,69 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
         return ira->codegen->builtin_types.entry_bool;
     }
 
+    if (op1->value.type->id == TypeTableEntryIdErrorSet && op2->value.type->id == TypeTableEntryIdErrorSet) {
+        if (!is_equality_cmp) {
+            ir_add_error_node(ira, source_node, buf_sprintf("operator not allowed for errors"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        TypeTableEntry *intersect_type = get_error_set_intersection(ira, op1->value.type, op2->value.type, source_node);
+        if (type_is_invalid(intersect_type)) {
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+
+        if (!resolve_inferred_error_set(ira, intersect_type, source_node)) {
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+
+        if (!type_is_global_error_set(intersect_type)) {
+            if (intersect_type->data.error_set.err_count == 0) {
+                ir_add_error_node(ira, source_node,
+                    buf_sprintf("error sets '%s' and '%s' have no common errors",
+                        buf_ptr(&op1->value.type->name), buf_ptr(&op2->value.type->name)));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+            if (op1->value.type->data.error_set.err_count == 1 && op2->value.type->data.error_set.err_count == 1) {
+                bool are_equal = true;
+                bool answer;
+                if (op_id == IrBinOpCmpEq) {
+                    answer = are_equal;
+                } else if (op_id == IrBinOpCmpNotEq) {
+                    answer = !are_equal;
+                } else {
+                    zig_unreachable();
+                }
+                ConstExprValue *out_val = ir_build_const_from(ira, &bin_op_instruction->base);
+                out_val->data.x_bool = answer;
+                return ira->codegen->builtin_types.entry_bool;
+            }
+        }
+
+        ConstExprValue *op1_val = &op1->value;
+        ConstExprValue *op2_val = &op2->value;
+        if (value_is_comptime(op1_val) && value_is_comptime(op2_val)) {
+            bool answer;
+            bool are_equal = op1_val->data.x_err_set->value == op2_val->data.x_err_set->value;
+            if (op_id == IrBinOpCmpEq) {
+                answer = are_equal;
+            } else if (op_id == IrBinOpCmpNotEq) {
+                answer = !are_equal;
+            } else {
+                zig_unreachable();
+            }
+
+            ConstExprValue *out_val = ir_build_const_from(ira, &bin_op_instruction->base);
+            out_val->data.x_bool = answer;
+            return ira->codegen->builtin_types.entry_bool;
+        }
+
+        ir_build_bin_op_from(&ira->new_irb, &bin_op_instruction->base, op_id,
+                op1, op2, bin_op_instruction->safety_check_on);
+
+        return ira->codegen->builtin_types.entry_bool;
+    }
+
     IrInstruction *instructions[] = {op1, op2};
-    TypeTableEntry *resolved_type = ir_resolve_peer_types(ira, bin_op_instruction->base.source_node, instructions, 2);
+    TypeTableEntry *resolved_type = ir_resolve_peer_types(ira, source_node, instructions, 2);
     if (type_is_invalid(resolved_type))
         return resolved_type;
     type_ensure_zero_bits_known(ira->codegen, resolved_type);
@@ -9199,7 +9315,6 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
         return resolved_type;
 
 
-    AstNode *source_node = bin_op_instruction->base.source_node;
     switch (resolved_type->id) {
         case TypeTableEntryIdInvalid:
             zig_unreachable(); // handled above
@@ -11347,6 +11462,9 @@ static TypeTableEntry *ir_analyze_instruction_phi(IrAnalyze *ira, IrInstructionP
         IrInstruction *branch_instruction = predecessor->instruction_list.pop();
         ir_set_cursor_at_end(&ira->new_irb, predecessor);
         IrInstruction *casted_value = ir_implicit_cast(ira, new_value, resolved_type);
+        if (casted_value == ira->codegen->invalid_instruction) {
+            return ira->codegen->builtin_types.entry_invalid;
+        }
         new_incoming_values.items[i] = casted_value;
         predecessor->instruction_list.append(branch_instruction);
 
