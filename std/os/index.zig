@@ -189,10 +189,15 @@ pub fn close(handle: FileHandle) void {
 
 /// Calls POSIX read, and keeps trying if it gets interrupted.
 pub fn posixRead(fd: i32, buf: []u8) %void {
+    // Linux can return EINVAL when read amount is > 0x7ffff000
+    // See https://github.com/zig-lang/zig/pull/743#issuecomment-363158274
+    const max_buf_len = 0x7ffff000;
+
     var index: usize = 0;
     while (index < buf.len) {
-        const amt_written = posix.read(fd, &buf[index], buf.len - index);
-        const err = posix.getErrno(amt_written);
+        const want_to_read = math.min(buf.len - index, usize(max_buf_len));
+        const rc = posix.read(fd, &buf[index], want_to_read);
+        const err = posix.getErrno(rc);
         if (err > 0) {
             return switch (err) {
                 posix.EINTR => continue,
@@ -205,7 +210,7 @@ pub fn posixRead(fd: i32, buf: []u8) %void {
                 else => unexpectedErrorPosix(err),
             };
         }
-        index += amt_written;
+        index += rc;
     }
 }
 
