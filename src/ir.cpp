@@ -6753,11 +6753,26 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
     }
 
     // if we got here with error sets, make an error showing the incompatibilities
+    ZigList<ErrorTableEntry *> *missing_errors = nullptr;
     if (const_cast_result.id == ConstCastResultIdErrSet) {
+        missing_errors = &const_cast_result.data.error_set.missing_errors;
+    }
+    if (const_cast_result.id == ConstCastResultIdErrorUnionErrorSet) {
+        if (const_cast_result.data.error_union_error_set->id == ConstCastResultIdErrSet) {
+            missing_errors = &const_cast_result.data.error_union_error_set->data.error_set.missing_errors;
+        } else if (const_cast_result.data.error_union_error_set->id == ConstCastResultIdErrSetGlobal) {
+            ErrorMsg *msg = ir_add_error(ira, value,
+                buf_sprintf("expected '%s', found '%s'", buf_ptr(&expected_type->name), buf_ptr(&actual_type->name)));
+            add_error_note(ira->codegen, msg, value->source_node,
+                buf_sprintf("unable to cast global error set into smaller set"));
+            return ImplicitCastMatchResultReportedError;
+        }
+    }
+    if (missing_errors != nullptr) {
         ErrorMsg *msg = ir_add_error(ira, value,
             buf_sprintf("expected '%s', found '%s'", buf_ptr(&expected_type->name), buf_ptr(&actual_type->name)));
-        for (size_t i = 0; i < const_cast_result.data.error_set.missing_errors.length; i += 1) {
-            ErrorTableEntry *error_entry = const_cast_result.data.error_set.missing_errors.at(i);
+        for (size_t i = 0; i < missing_errors->length; i += 1) {
+            ErrorTableEntry *error_entry = missing_errors->at(i);
             add_error_note(ira->codegen, msg, error_entry->decl_node,
                 buf_sprintf("'error.%s' not a member of destination error set", buf_ptr(&error_entry->name)));
         }
@@ -7183,6 +7198,84 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                 // not a subset. invent new error set type, union of both of them
                 err_set_type = get_error_set_union(ira->codegen, errors, err_set_type, cur_type);
                 assert(errors != nullptr);
+                continue;
+            }
+        }
+
+        if (prev_type->id == TypeTableEntryIdErrorUnion && cur_type->id == TypeTableEntryIdErrorUnion) {
+            TypeTableEntry *prev_payload_type = prev_type->data.error_union.payload_type;
+            TypeTableEntry *cur_payload_type = cur_type->data.error_union.payload_type;
+
+            bool const_cast_prev = types_match_const_cast_only(ira, prev_payload_type, cur_payload_type,
+                    source_node).id == ConstCastResultIdOk;
+            bool const_cast_cur = types_match_const_cast_only(ira, cur_payload_type, prev_payload_type,
+                    source_node).id == ConstCastResultIdOk;
+
+            if (const_cast_prev || const_cast_cur) {
+                if (const_cast_cur) {
+                    prev_inst = cur_inst;
+                }
+
+                TypeTableEntry *prev_err_set_type = prev_type->data.error_union.err_set_type;
+                TypeTableEntry *cur_err_set_type = cur_type->data.error_union.err_set_type;
+
+                if (!resolve_inferred_error_set(ira, prev_err_set_type, cur_inst->source_node)) {
+                    return ira->codegen->builtin_types.entry_invalid;
+                }
+
+                if (!resolve_inferred_error_set(ira, cur_err_set_type, cur_inst->source_node)) {
+                    return ira->codegen->builtin_types.entry_invalid;
+                }
+
+                if (type_is_global_error_set(prev_err_set_type) || type_is_global_error_set(cur_err_set_type)) {
+                    err_set_type = ira->codegen->builtin_types.entry_global_error_set;
+                    continue;
+                }
+
+                if (err_set_type == nullptr) {
+                    err_set_type = prev_err_set_type;
+                    errors = allocate<ErrorTableEntry *>(ira->codegen->errors_by_index.length);
+                    for (uint32_t i = 0; i < prev_err_set_type->data.error_set.err_count; i += 1) {
+                        ErrorTableEntry *error_entry = prev_err_set_type->data.error_set.errors[i];
+                        errors[error_entry->value] = error_entry;
+                    }
+                }
+                bool prev_is_superset = true;
+                for (uint32_t i = 0; i < cur_err_set_type->data.error_set.err_count; i += 1) {
+                    ErrorTableEntry *contained_error_entry = cur_err_set_type->data.error_set.errors[i];
+                    ErrorTableEntry *error_entry = errors[contained_error_entry->value];
+                    if (error_entry == nullptr) {
+                        prev_is_superset = false;
+                        break;
+                    }
+                }
+                if (prev_is_superset) {
+                    continue;
+                }
+                // unset all the errors
+                for (uint32_t i = 0; i < prev_err_set_type->data.error_set.err_count; i += 1) {
+                    ErrorTableEntry *error_entry = prev_err_set_type->data.error_set.errors[i];
+                    errors[error_entry->value] = nullptr;
+                }
+                for (uint32_t i = 0; i < cur_err_set_type->data.error_set.err_count; i += 1) {
+                    ErrorTableEntry *error_entry = cur_err_set_type->data.error_set.errors[i];
+                    errors[error_entry->value] = error_entry;
+                }
+                bool cur_is_superset = true;
+                for (uint32_t i = 0; i < prev_err_set_type->data.error_set.err_count; i += 1) {
+                    ErrorTableEntry *contained_error_entry = prev_err_set_type->data.error_set.errors[i];
+                    ErrorTableEntry *error_entry = errors[contained_error_entry->value];
+                    if (error_entry == nullptr) {
+                        cur_is_superset = false;
+                        break;
+                    }
+                }
+                if (cur_is_superset) {
+                    err_set_type = cur_err_set_type;
+                    continue;
+                }
+
+                err_set_type = get_error_set_union(ira->codegen, errors, cur_err_set_type, prev_err_set_type);
                 continue;
             }
         }

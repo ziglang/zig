@@ -594,7 +594,11 @@ fn parseFormValueRef(allocator: &mem.Allocator, in_stream: &io.InStream, comptim
     return parseFormValueRefLen(allocator, in_stream, block_len);
 }
 
-fn parseFormValue(allocator: &mem.Allocator, in_stream: &io.InStream, form_id: u64, is_64: bool) !FormValue {
+const ParseFormValueError = error {};
+
+fn parseFormValue(allocator: &mem.Allocator, in_stream: &io.InStream, form_id: u64, is_64: bool)
+    ParseFormValueError!FormValue
+{
     return switch (form_id) {
         DW.FORM_addr => FormValue { .Address = try parseFormValueTargetAddrSize(in_stream) },
         DW.FORM_block1 => parseFormValueBlock(allocator, in_stream, 1),
