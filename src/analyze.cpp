@@ -5609,17 +5609,6 @@ LinkLib *add_link_lib(CodeGen *g, Buf *name) {
     return link_lib;
 }
 
-void add_link_lib_symbol(CodeGen *g, Buf *lib_name, Buf *symbol_name) {
-    LinkLib *link_lib = add_link_lib(g, lib_name);
-    for (size_t i = 0; i < link_lib->symbols.length; i += 1) {
-        Buf *existing_symbol_name = link_lib->symbols.at(i);
-        if (buf_eql_buf(existing_symbol_name, symbol_name)) {
-            return;
-        }
-    }
-    link_lib->symbols.append(symbol_name);
-}
-
 uint32_t get_abi_alignment(CodeGen *g, TypeTableEntry *type_entry) {
     type_ensure_zero_bits_known(g, type_entry);
     if (type_entry->zero_bits) return 0;

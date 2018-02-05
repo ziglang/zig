@@ -253,6 +253,10 @@ LinkLib *codegen_add_link_lib(CodeGen *g, Buf *name) {
     return add_link_lib(g, name);
 }
 
+void codegen_add_forbidden_lib(CodeGen *codegen, Buf *lib) {
+    codegen->forbidden_libs.append(lib);
+}
+
 void codegen_add_framework(CodeGen *g, const char *framework) {
     g->darwin_frameworks.append(buf_create_from_str(framework));
 }
@@ -6311,3 +6315,4 @@ PackageTableEntry *codegen_create_package(CodeGen *g, const char *root_src_dir, 
     }
     return pkg;
 }
+

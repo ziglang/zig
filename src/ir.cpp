@@ -11762,6 +11762,25 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
     }
 }
 
+static void add_link_lib_symbol(IrAnalyze *ira, Buf *lib_name, Buf *symbol_name, AstNode *source_node) {
+    LinkLib *link_lib = add_link_lib(ira->codegen, lib_name);
+    for (size_t i = 0; i < link_lib->symbols.length; i += 1) {
+        Buf *existing_symbol_name = link_lib->symbols.at(i);
+        if (buf_eql_buf(existing_symbol_name, symbol_name)) {
+            return;
+        }
+    }
+    for (size_t i = 0; i < ira->codegen->forbidden_libs.length; i += 1) {
+        Buf *forbidden_lib_name = ira->codegen->forbidden_libs.at(i);
+        if (buf_eql_buf(lib_name, forbidden_lib_name)) {
+            ir_add_error_node(ira, source_node,
+                buf_sprintf("linking against forbidden library '%s'", buf_ptr(symbol_name)));
+        }
+    }
+    link_lib->symbols.append(symbol_name);
+}
+
+
 static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source_instruction, Tld *tld) {
     bool pointer_only = false;
     resolve_top_level_decl(ira->codegen, tld, pointer_only, source_instruction->source_node);
@@ -11777,7 +11796,7 @@ static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source
             TldVar *tld_var = (TldVar *)tld;
             VariableTableEntry *var = tld_var->var;
             if (tld_var->extern_lib_name != nullptr) {
-                add_link_lib_symbol(ira->codegen, tld_var->extern_lib_name, &var->name);
+                add_link_lib_symbol(ira, tld_var->extern_lib_name, &var->name, source_instruction->source_node);
             }
 
             return ir_analyze_var_ptr(ira, source_instruction, var, false, false);
@@ -11799,7 +11818,7 @@ static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source
             const_val->data.x_fn.fn_entry = fn_entry;
 
             if (tld_fn->extern_lib_name != nullptr) {
-                add_link_lib_symbol(ira->codegen, tld_fn->extern_lib_name, &fn_entry->symbol_name);
+                add_link_lib_symbol(ira, tld_fn->extern_lib_name, &fn_entry->symbol_name, source_instruction->source_node);
             }
 
             bool ptr_is_const = true;
@@ -15839,7 +15858,7 @@ static TypeTableEntry *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
                 return ira->codegen->builtin_types.entry_invalid;
 
             if (tld_var->extern_lib_name != nullptr) {
-                add_link_lib_symbol(ira->codegen, tld_var->extern_lib_name, &var->name);
+                add_link_lib_symbol(ira, tld_var->extern_lib_name, &var->name, instruction->base.source_node);
             }
 
             if (lval.is_ptr) {
@@ -15858,7 +15877,7 @@ static TypeTableEntry *ir_analyze_instruction_decl_ref(IrAnalyze *ira,
             assert(fn_entry->type_entry);
 
             if (tld_fn->extern_lib_name != nullptr) {
-                add_link_lib_symbol(ira->codegen, tld_fn->extern_lib_name, &fn_entry->symbol_name);
+                add_link_lib_symbol(ira, tld_fn->extern_lib_name, &fn_entry->symbol_name, instruction->base.source_node);
             }
 
             IrInstruction *ref_instruction = ir_create_const_fn(&ira->new_irb, instruction->base.scope,

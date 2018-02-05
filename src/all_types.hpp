@@ -1631,6 +1631,8 @@ struct CodeGen {
     TypeTableEntry *ptr_to_stack_trace_type;
 
     ZigList<ZigLLVMDIType **> error_di_types;
+
+    ZigList<Buf *> forbidden_libs;
 };
 
 enum VarLinkage {

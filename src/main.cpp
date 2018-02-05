@@ -66,6 +66,7 @@ static int usage(const char *arg0) {
         "  --msvc-lib-dir [path]        (windows) directory where vcruntime.lib resides\n"
         "  --kernel32-lib-dir [path]    (windows) directory where kernel32.lib resides\n"
         "  --library [lib]              link against lib\n"
+        "  --forbid-library [lib]       make it an error to link against lib\n"
         "  --library-path [dir]         add a directory to the library search path\n"
         "  --linker-script [path]       use a custom linker script\n"
         "  --object [obj]               add object file to build\n"
@@ -309,6 +310,7 @@ int main(int argc, char **argv) {
     ZigList<const char *> llvm_argv = {0};
     ZigList<const char *> lib_dirs = {0};
     ZigList<const char *> link_libs = {0};
+    ZigList<const char *> forbidden_link_libs = {0};
     ZigList<const char *> frameworks = {0};
     int err;
     const char *target_arch = nullptr;
@@ -592,6 +594,8 @@ int main(int argc, char **argv) {
                     lib_dirs.append(argv[i]);
                 } else if (strcmp(arg, "--library") == 0) {
                     link_libs.append(argv[i]);
+                } else if (strcmp(arg, "--forbid-library") == 0) {
+                    forbidden_link_libs.append(argv[i]);
                 } else if (strcmp(arg, "--object") == 0) {
                     objects.append(argv[i]);
                 } else if (strcmp(arg, "--assembly") == 0) {
@@ -803,6 +807,10 @@ int main(int argc, char **argv) {
             for (size_t i = 0; i < link_libs.length; i += 1) {
                 LinkLib *link_lib = codegen_add_link_lib(g, buf_create_from_str(link_libs.at(i)));
                 link_lib->provided_explicitly = true;
+            }
+            for (size_t i = 0; i < forbidden_link_libs.length; i += 1) {
+                Buf *forbidden_link_lib = buf_create_from_str(forbidden_link_libs.at(i));
+                codegen_add_forbidden_lib(g, forbidden_link_lib);
             }
             for (size_t i = 0; i < frameworks.length; i += 1) {
                 codegen_add_framework(g, frameworks.at(i));
