@@ -264,7 +264,7 @@ pub fn openSelfDebugInfo(allocator: &mem.Allocator) !&ElfStackTrace {
     }
 }
 
-fn printLineFromFile(allocator: &mem.Allocator, out_stream: &io.OutStream, line_info: &const LineInfo) !void {
+fn printLineFromFile(allocator: &mem.Allocator, out_stream: var, line_info: &const LineInfo) !void {
     var f = try io.File.openRead(line_info.file_name, allocator);
     defer f.close();
     // TODO fstat and make sure that the file has the correct size
@@ -1054,7 +1054,7 @@ fn readULeb128(in_stream: var) !u64 {
     }
 }
 
-fn readILeb128(in_stream: &io.InStream) !i64 {
+fn readILeb128(in_stream: var) !i64 {
     var result: i64 = 0;
     var shift: usize = 0;
 

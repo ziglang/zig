@@ -1790,7 +1790,8 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
 
     assert(op1->value.type == op2->value.type || op_id == IrBinOpBitShiftLeftLossy ||
             op_id == IrBinOpBitShiftLeftExact || op_id == IrBinOpBitShiftRightLossy ||
-            op_id == IrBinOpBitShiftRightExact);
+            op_id == IrBinOpBitShiftRightExact ||
+            (op1->value.type->id == TypeTableEntryIdErrorSet && op2->value.type->id == TypeTableEntryIdErrorSet));
     TypeTableEntry *type_entry = op1->value.type;
 
     bool want_runtime_safety = bin_op_instruction->safety_check_on &&

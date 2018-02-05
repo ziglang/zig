@@ -7258,8 +7258,8 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                     continue;
                 }
                 // unset all the errors
-                for (uint32_t i = 0; i < prev_err_set_type->data.error_set.err_count; i += 1) {
-                    ErrorTableEntry *error_entry = prev_err_set_type->data.error_set.errors[i];
+                for (uint32_t i = 0; i < err_set_type->data.error_set.err_count; i += 1) {
+                    ErrorTableEntry *error_entry = err_set_type->data.error_set.errors[i];
                     errors[error_entry->value] = nullptr;
                 }
                 for (uint32_t i = 0; i < cur_err_set_type->data.error_set.err_count; i += 1) {
@@ -7320,6 +7320,19 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         if (cur_type->id == TypeTableEntryIdErrorUnion &&
                 types_match_const_cast_only(ira, cur_type->data.error_union.payload_type, prev_type, source_node).id == ConstCastResultIdOk)
         {
+            if (err_set_type != nullptr) {
+                TypeTableEntry *cur_err_set_type = cur_type->data.error_union.err_set_type;
+                if (!resolve_inferred_error_set(ira, cur_err_set_type, cur_inst->source_node)) {
+                    return ira->codegen->builtin_types.entry_invalid;
+                }
+                if (type_is_global_error_set(cur_err_set_type) || type_is_global_error_set(err_set_type)) {
+                    err_set_type = ira->codegen->builtin_types.entry_global_error_set;
+                    prev_inst = cur_inst;
+                    continue;
+                }
+
+                err_set_type = get_error_set_union(ira->codegen, errors, err_set_type, cur_err_set_type);
+            }
             prev_inst = cur_inst;
             continue;
         }
