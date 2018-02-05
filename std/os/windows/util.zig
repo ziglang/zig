@@ -1,4 +1,5 @@
 const std = @import("../../index.zig");
+const builtin = @import("builtin");
 const os = std.os;
 const windows = std.os.windows;
 const assert = std.debug.assert;
@@ -170,6 +171,8 @@ pub fn windowsUnloadDll(hModule: windows.HMODULE) void {
 
 
 test "InvalidDll" {
+    if (builtin.os != builtin.Os.windows) return;
+
     const DllName = "asdf.dll";
     const allocator = std.debug.global_allocator;
     const handle = os.windowsLoadDll(allocator, DllName) catch  |err| {
