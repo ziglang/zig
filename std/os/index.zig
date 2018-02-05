@@ -225,9 +225,15 @@ error BrokenPipe;
 
 /// Calls POSIX write, and keeps trying if it gets interrupted.
 pub fn posixWrite(fd: i32, bytes: []const u8) %void {
-    while (true) {
-        const write_ret = posix.write(fd, bytes.ptr, bytes.len);
-        const write_err = posix.getErrno(write_ret);
+    // Linux can return EINVAL when write amount is > 0x7ffff000
+    // See https://github.com/zig-lang/zig/pull/743#issuecomment-363165856
+    const max_bytes_len = 0x7ffff000;
+
+    var index: usize = 0;
+    while (index < bytes.len) {
+        const amt_to_write = math.min(bytes.len - index, usize(max_bytes_len));
+        const rc = posix.write(fd, &bytes[index], amt_to_write);
+        const write_err = posix.getErrno(rc);
         if (write_err > 0) {
             return switch (write_err) {
                 posix.EINTR  => continue,
@@ -244,7 +250,7 @@ pub fn posixWrite(fd: i32, bytes: []const u8) %void {
                 else         => unexpectedErrorPosix(write_err),
             };
         }
-        return;
+        index += rc;
     }
 }
 
