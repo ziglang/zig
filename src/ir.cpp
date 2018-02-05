@@ -7174,32 +7174,37 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                 return ira->codegen->builtin_types.entry_invalid;
             }
             if (err_set_type == nullptr) {
-                err_set_type = cur_type;
+                if (prev_type->id == TypeTableEntryIdErrorUnion) {
+                    err_set_type = prev_type->data.error_union.err_set_type;
+                } else {
+                    err_set_type = cur_type;
+                }
                 errors = allocate<ErrorTableEntry *>(ira->codegen->errors_by_index.length);
                 for (uint32_t i = 0; i < err_set_type->data.error_set.err_count; i += 1) {
                     ErrorTableEntry *error_entry = err_set_type->data.error_set.errors[i];
                     errors[error_entry->value] = error_entry;
                 }
-                continue;
-            } else {
-                // check if the cur type error set is a subset
-                bool prev_is_superset = true;
-                for (uint32_t i = 0; i < cur_type->data.error_set.err_count; i += 1) {
-                    ErrorTableEntry *contained_error_entry = cur_type->data.error_set.errors[i];
-                    ErrorTableEntry *error_entry = errors[contained_error_entry->value];
-                    if (error_entry == nullptr) {
-                        prev_is_superset = false;
-                        break;
-                    }
-                }
-                if (prev_is_superset) {
+                if (err_set_type == cur_type) {
                     continue;
                 }
-                // not a subset. invent new error set type, union of both of them
-                err_set_type = get_error_set_union(ira->codegen, errors, err_set_type, cur_type);
-                assert(errors != nullptr);
+            }
+            // check if the cur type error set is a subset
+            bool prev_is_superset = true;
+            for (uint32_t i = 0; i < cur_type->data.error_set.err_count; i += 1) {
+                ErrorTableEntry *contained_error_entry = cur_type->data.error_set.errors[i];
+                ErrorTableEntry *error_entry = errors[contained_error_entry->value];
+                if (error_entry == nullptr) {
+                    prev_is_superset = false;
+                    break;
+                }
+            }
+            if (prev_is_superset) {
                 continue;
             }
+            // not a subset. invent new error set type, union of both of them
+            err_set_type = get_error_set_union(ira->codegen, errors, err_set_type, cur_type);
+            assert(errors != nullptr);
+            continue;
         }
 
         if (prev_type->id == TypeTableEntryIdErrorUnion && cur_type->id == TypeTableEntryIdErrorUnion) {
