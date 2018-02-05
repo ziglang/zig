@@ -9361,6 +9361,24 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
             ir_add_error_node(ira, source_node, buf_sprintf("operator not allowed for errors"));
             return ira->codegen->builtin_types.entry_invalid;
         }
+        // exception if one of the operators has the type of the empty error set, we allow the comparison
+        // (and make it comptime known)
+        // this is a function which is evaluated at comptime and returns an inferred error set will have an empty
+        // error set.
+        if (op1->value.type->data.error_set.err_count == 0 || op2->value.type->data.error_set.err_count == 0) {
+            bool are_equal = false;
+            bool answer;
+            if (op_id == IrBinOpCmpEq) {
+                answer = are_equal;
+            } else if (op_id == IrBinOpCmpNotEq) {
+                answer = !are_equal;
+            } else {
+                zig_unreachable();
+            }
+            ConstExprValue *out_val = ir_build_const_from(ira, &bin_op_instruction->base);
+            out_val->data.x_bool = answer;
+            return ira->codegen->builtin_types.entry_bool;
+        }
         TypeTableEntry *intersect_type = get_error_set_intersection(ira, op1->value.type, op2->value.type, source_node);
         if (type_is_invalid(intersect_type)) {
             return ira->codegen->builtin_types.entry_invalid;
@@ -15352,7 +15370,7 @@ static TypeTableEntry *ir_analyze_instruction_unwrap_err_payload(IrAnalyze *ira,
                 ErrorTableEntry *err = err_union_val->data.x_err_union.err;
                 if (err != nullptr) {
                     ir_add_error(ira, &instruction->base,
-                        buf_sprintf("unable to unwrap error '%s'", buf_ptr(&err->name)));
+                        buf_sprintf("caught unexpected error '%s'", buf_ptr(&err->name)));
                     return ira->codegen->builtin_types.entry_invalid;
                 }
 

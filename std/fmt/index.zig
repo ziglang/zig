@@ -439,9 +439,9 @@ pub fn parseInt(comptime T: type, buf: []const u8, radix: u8) !T {
 test "fmt.parseInt" {
     assert((parseInt(i32, "-10", 10) catch unreachable) == -10);
     assert((parseInt(i32, "+10", 10) catch unreachable) == 10);
-    assert(if (parseInt(i32, " 10", 10)) |_| false else |err| err == error.InvalidChar);
-    assert(if (parseInt(i32, "10 ", 10)) |_| false else |err| err == error.InvalidChar);
-    assert(if (parseInt(u32, "-10", 10)) |_| false else |err| err == error.InvalidChar);
+    assert(if (parseInt(i32, " 10", 10)) |_| false else |err| err == error.InvalidCharacter);
+    assert(if (parseInt(i32, "10 ", 10)) |_| false else |err| err == error.InvalidCharacter);
+    assert(if (parseInt(u32, "-10", 10)) |_| false else |err| err == error.InvalidCharacter);
     assert((parseInt(u8, "255", 10) catch unreachable) == 255);
     assert(if (parseInt(u8, "256", 10)) |_| false else |err| err == error.Overflow);
 }
@@ -538,7 +538,7 @@ fn bufPrintIntToSlice(buf: []u8, value: var, base: u8, uppercase: bool, width: u
 
 test "parse u64 digit too big" {
     _ = parseUnsigned(u64, "123a", 10) catch |err| {
-        if (err == error.InvalidChar) return;
+        if (err == error.InvalidCharacter) return;
         unreachable;
     };
     unreachable;

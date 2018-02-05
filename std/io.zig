@@ -550,21 +550,24 @@ pub fn readFileAllocExtra(path: []const u8, allocator: &mem.Allocator, extra_len
     return buf;
 }
 
-pub const BufferedInStream = BufferedInStreamCustom(os.page_size);
+pub fn BufferedInStream(comptime Error: type) type {
+    return BufferedInStreamCustom(os.page_size, Error);
+}
 
-pub fn BufferedInStreamCustom(comptime buffer_size: usize) type {
+pub fn BufferedInStreamCustom(comptime buffer_size: usize, comptime Error: type) type {
     return struct {
         const Self = this;
+        const Stream = InStream(Error); 
 
-        pub stream: InStream,
+        pub stream: Stream,
 
-        unbuffered_in_stream: &InStream,
+        unbuffered_in_stream: &Stream,
 
         buffer: [buffer_size]u8,
         start_index: usize,
         end_index: usize,
 
-        pub fn init(unbuffered_in_stream: &InStream) Self {
+        pub fn init(unbuffered_in_stream: &Stream) Self {
             return Self {
                 .unbuffered_in_stream = unbuffered_in_stream,
                 .buffer = undefined,
@@ -576,13 +579,13 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize) type {
                 .start_index = buffer_size,
                 .end_index = buffer_size,
 
-                .stream = InStream {
+                .stream = Stream {
                     .readFn = readFn,
                 },
             };
         }
 
-        fn readFn(in_stream: &InStream, dest: []u8) !usize {
+        fn readFn(in_stream: &Stream, dest: []u8) !usize {
             const self = @fieldParentPtr(Self, "stream", in_stream);
 
             var dest_index: usize = 0;
@@ -621,25 +624,28 @@ pub fn BufferedInStreamCustom(comptime buffer_size: usize) type {
     };
 }
 
-pub const BufferedOutStream = BufferedOutStreamCustom(os.page_size);
+pub fn BufferedOutStream(comptime Error: type) type {
+    return BufferedOutStreamCustom(os.page_size, Error);
+}
 
-pub fn BufferedOutStreamCustom(comptime buffer_size: usize) type {
+pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime Error: type) type {
     return struct {
         const Self = this;
+        const Stream = OutStream(Error);
 
-        pub stream: OutStream,
+        pub stream: Stream,
 
-        unbuffered_out_stream: &OutStream,
+        unbuffered_out_stream: &Stream,
 
         buffer: [buffer_size]u8,
         index: usize,
 
-        pub fn init(unbuffered_out_stream: &OutStream) Self {
+        pub fn init(unbuffered_out_stream: &Stream) Self {
             return Self {
                 .unbuffered_out_stream = unbuffered_out_stream,
                 .buffer = undefined,
                 .index = 0,
-                .stream = OutStream {
+                .stream = Stream {
                     .writeFn = writeFn,
                 },
             };
@@ -653,7 +659,7 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize) type {
             self.index = 0;
         }
 
-        fn writeFn(out_stream: &OutStream, bytes: []const u8) !void {
+        fn writeFn(out_stream: &Stream, bytes: []const u8) !void {
             const self = @fieldParentPtr(Self, "stream", out_stream);
 
             if (bytes.len >= self.buffer.len) {
@@ -680,7 +686,10 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize) type {
 /// Implementation of OutStream trait for Buffer
 pub const BufferOutStream = struct {
     buffer: &Buffer,
-    stream: OutStream,
+    stream: Stream,
+
+    pub const Error = error{OutOfMemory};
+    pub const Stream = OutStream(Error);
 
     pub fn init(buffer: &Buffer) BufferOutStream {
         return BufferOutStream {
