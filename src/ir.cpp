@@ -6369,10 +6369,7 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
     }
 
     // implicit [N]T to []const T
-    if (expected_type->id == TypeTableEntryIdStruct &&
-        expected_type->data.structure.is_slice &&
-        actual_type->id == TypeTableEntryIdArray)
-    {
+    if (is_slice(expected_type) && actual_type->id == TypeTableEntryIdArray) {
         TypeTableEntry *ptr_type = expected_type->data.structure.fields[slice_ptr_index].type_entry;
         assert(ptr_type->id == TypeTableEntryIdPointer);
 
@@ -6384,8 +6381,7 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
     }
 
     // implicit &const [N]T to []const T
-    if (expected_type->id == TypeTableEntryIdStruct &&
-        expected_type->data.structure.is_slice &&
+    if (is_slice(expected_type) &&
         actual_type->id == TypeTableEntryIdPointer &&
         actual_type->data.pointer.is_const &&
         actual_type->data.pointer.child_type->id == TypeTableEntryIdArray)

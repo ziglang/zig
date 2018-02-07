@@ -3380,11 +3380,7 @@ bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *
     }
 
     // slice const
-    if (expected_type->id == TypeTableEntryIdStruct &&
-        actual_type->id == TypeTableEntryIdStruct &&
-        expected_type->data.structure.is_slice &&
-        actual_type->data.structure.is_slice)
-    {
+    if (is_slice(expected_type) && is_slice(actual_type)) {
         TypeTableEntry *actual_ptr_type = actual_type->data.structure.fields[slice_ptr_index].type_entry;
         TypeTableEntry *expected_ptr_type = expected_type->data.structure.fields[slice_ptr_index].type_entry;
         if ((!actual_ptr_type->data.pointer.is_const || expected_ptr_type->data.pointer.is_const) &&
