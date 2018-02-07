@@ -1556,9 +1556,19 @@ pub fn openSelfExe() %io.File {
             return io.File.openRead("/proc/self/exe", null);
         },
         Os.macosx, Os.ios => {
-            @panic("TODO: openSelfExe on Darwin");
+            var fixed_buffer_mem: [darwin.PATH_MAX]u8 = undefined;
+            var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+            const self_exe_path = try selfExePath(&fixed_allocator.allocator);
+            return io.File.openRead(self_exe_path, null);
         },
         else => @compileError("Unsupported OS"),
+    }
+}
+
+test "openSelfExe" {
+    switch (builtin.os) {
+        Os.linux, Os.macosx, Os.ios => (try openSelfExe()).close(),
+        else => return,  // Unsupported OS.
     }
 }
 
