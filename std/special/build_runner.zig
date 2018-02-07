@@ -149,6 +149,7 @@ fn usage(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) 
         \\
         \\General Options:
         \\  --help                 Print this help and exit
+        \\  --init                 Generate a build.zig template
         \\  --verbose              Print commands before executing them
         \\  --prefix [path]        Override default install prefix
         \\  --search-prefix [path] Add a path to look for binaries, libraries, headers
