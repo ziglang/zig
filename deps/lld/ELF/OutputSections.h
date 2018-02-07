@@ -49,7 +49,7 @@ public:
 
   static bool classof(const BaseCommand *C);
 
-  uint64_t getLMA() const { return Addr + LMAOffset; }
+  uint64_t getLMA() const { return PtLoad ? Addr + PtLoad->LMAOffset : Addr; }
   template <typename ELFT> void writeHeaderTo(typename ELFT::Shdr *SHdr);
 
   unsigned SectionIndex;
@@ -78,7 +78,6 @@ public:
 
   // The following fields correspond to Elf_Shdr members.
   uint64_t Offset = 0;
-  uint64_t LMAOffset = 0;
   uint64_t Addr = 0;
   uint32_t ShName = 0;
 
@@ -89,6 +88,7 @@ public:
 
   // The following members are normally only used in linker scripts.
   MemoryRegion *MemRegion = nullptr;
+  MemoryRegion *LMARegion = nullptr;
   Expr AddrExpr;
   Expr AlignExpr;
   Expr LMAExpr;
@@ -99,6 +99,7 @@ public:
   ConstraintKind Constraint = ConstraintKind::NoConstraint;
   std::string Location;
   std::string MemoryRegionName;
+  std::string LMARegionName;
   bool Noload = false;
 
   template <class ELFT> void finalize();

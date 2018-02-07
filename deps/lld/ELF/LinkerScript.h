@@ -118,11 +118,17 @@ enum class ConstraintKind { NoConstraint, ReadOnly, ReadWrite };
 // target memory. Instances of the struct are created by parsing the
 // MEMORY command.
 struct MemoryRegion {
+  MemoryRegion(StringRef Name, uint64_t Origin, uint64_t Length, uint32_t Flags,
+               uint32_t NegFlags)
+      : Name(Name), Origin(Origin), Length(Length), Flags(Flags),
+        NegFlags(NegFlags) {}
+
   std::string Name;
   uint64_t Origin;
   uint64_t Length;
   uint32_t Flags;
   uint32_t NegFlags;
+  uint64_t CurPos = 0;
 };
 
 // This struct represents one section match pattern in SECTIONS() command.
@@ -200,8 +206,8 @@ class LinkerScript final {
     uint64_t ThreadBssOffset = 0;
     OutputSection *OutSec = nullptr;
     MemoryRegion *MemRegion = nullptr;
-    llvm::DenseMap<const MemoryRegion *, uint64_t> MemRegionOffset;
-    std::function<uint64_t()> LMAOffset;
+    MemoryRegion *LMARegion = nullptr;
+    uint64_t LMAOffset = 0;
   };
 
   llvm::DenseMap<StringRef, OutputSection *> NameToOutputSection;

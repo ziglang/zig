@@ -202,6 +202,8 @@ def no_gnu_unique: F<"no-gnu-unique">,
 def no_merge_exidx_entries: F<"no-merge-exidx-entries">,
   HelpText<"Disable merging .ARM.exidx entries">;
 
+def no_pie: F<"no-pie">, HelpText<"Do not create a position independent executable">;
+
 def no_threads: F<"no-threads">,
   HelpText<"Do not run the linker multi-threaded">;
 
@@ -210,8 +212,6 @@ def no_whole_archive: F<"no-whole-archive">,
 
 def noinhibit_exec: F<"noinhibit-exec">,
   HelpText<"Retain the executable output file whenever it is still usable">;
-
-def nopie: F<"nopie">, HelpText<"Do not create a position independent executable">;
 
 def no_omagic: Flag<["--"], "no-omagic">, MetaVarName<"<magic>">,
   HelpText<"Do not set the text data sections to be writable">;

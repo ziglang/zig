@@ -856,6 +856,14 @@ template <class ELFT> void SharedFile<ELFT>::parseRest() {
       continue;
     }
 
+    if (Config->EMachine == EM_MIPS) {
+      // FIXME: MIPS BFD linker puts _gp_disp symbol into DSO files
+      // and incorrectly assigns VER_NDX_LOCAL to this section global
+      // symbol. Here is a workaround for this bug.
+      if (Versym && VersymIndex == VER_NDX_LOCAL && Name == "_gp_disp")
+        continue;
+    }
+
     const Elf_Verdef *Ver = nullptr;
     if (VersymIndex != VER_NDX_GLOBAL) {
       if (VersymIndex >= Verdefs.size() || VersymIndex == VER_NDX_LOCAL) {

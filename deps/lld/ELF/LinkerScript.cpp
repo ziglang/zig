@@ -589,8 +589,12 @@ void LinkerScript::output(InputSection *S) {
 
   // If there is a memory region associated with this input section, then
   // place the section in that region and update the region index.
+  if (Ctx->LMARegion)
+    Ctx->LMARegion->CurPos += Pos - Before;
+  // FIXME: should we also produce overflow errors for LMARegion?
+
   if (Ctx->MemRegion) {
-    uint64_t &CurOffset = Ctx->MemRegionOffset[Ctx->MemRegion];
+    uint64_t &CurOffset = Ctx->MemRegion->CurPos;
     CurOffset += Pos - Before;
     uint64_t CurSize = CurOffset - Ctx->MemRegion->Origin;
     if (CurSize > Ctx->MemRegion->Length) {
@@ -608,13 +612,6 @@ void LinkerScript::switchTo(OutputSection *Sec) {
 
   Ctx->OutSec = Sec;
   Ctx->OutSec->Addr = advance(0, Ctx->OutSec->Alignment);
-
-  // If neither AT nor AT> is specified for an allocatable section, the linker
-  // will set the LMA such that the difference between VMA and LMA for the
-  // section is the same as the preceding output section in the same region
-  // https://sourceware.org/binutils/docs-2.20/ld/Output-Section-LMA.html
-  if (Ctx->LMAOffset)
-    Ctx->OutSec->LMAOffset = Ctx->LMAOffset();
 }
 
 // This function searches for a memory region to place the given output
@@ -624,9 +621,8 @@ MemoryRegion *LinkerScript::findMemoryRegion(OutputSection *Sec) {
   // If a memory region name was specified in the output section command,
   // then try to find that region first.
   if (!Sec->MemoryRegionName.empty()) {
-    auto It = MemoryRegions.find(Sec->MemoryRegionName);
-    if (It != MemoryRegions.end())
-      return It->second;
+    if (MemoryRegion *M = MemoryRegions.lookup(Sec->MemoryRegionName))
+      return M;
     error("memory region '" + Sec->MemoryRegionName + "' not declared");
     return nullptr;
   }
@@ -659,15 +655,24 @@ void LinkerScript::assignOffsets(OutputSection *Sec) {
     setDot(Sec->AddrExpr, Sec->Location, false);
 
   Ctx->MemRegion = Sec->MemRegion;
+  Ctx->LMARegion = Sec->LMARegion;
   if (Ctx->MemRegion)
-    Dot = Ctx->MemRegionOffset[Ctx->MemRegion];
-
-  if (Sec->LMAExpr) {
-    uint64_t D = Dot;
-    Ctx->LMAOffset = [=] { return Sec->LMAExpr().getValue() - D; };
-  }
+    Dot = Ctx->MemRegion->CurPos;
 
   switchTo(Sec);
+
+  if (Sec->LMAExpr)
+    Ctx->LMAOffset = Sec->LMAExpr().getValue() - Dot;
+
+  if (MemoryRegion *MR = Sec->LMARegion)
+    Ctx->LMAOffset = MR->CurPos - Dot;
+
+  // If neither AT nor AT> is specified for an allocatable section, the linker
+  // will set the LMA such that the difference between VMA and LMA for the
+  // section is the same as the preceding output section in the same region
+  // https://sourceware.org/binutils/docs-2.20/ld/Output-Section-LMA.html
+  if (PhdrEntry *L = Ctx->OutSec->PtLoad)
+    L->LMAOffset = Ctx->LMAOffset;
 
   // The Size previously denoted how many InputSections had been added to this
   // section, and was used for sorting SHF_LINK_ORDER sections. Reset it to
@@ -689,7 +694,9 @@ void LinkerScript::assignOffsets(OutputSection *Sec) {
       Cmd->Offset = Dot - Ctx->OutSec->Addr;
       Dot += Cmd->Size;
       if (Ctx->MemRegion)
-        Ctx->MemRegionOffset[Ctx->MemRegion] += Cmd->Size;
+        Ctx->MemRegion->CurPos += Cmd->Size;
+      if (Ctx->LMARegion)
+        Ctx->LMARegion->CurPos += Cmd->Size;
       Ctx->OutSec->Size = Dot - Ctx->OutSec->Addr;
       continue;
     }
@@ -788,6 +795,12 @@ void LinkerScript::adjustSectionsAfterSorting() {
     if (auto *Sec = dyn_cast<OutputSection>(Base)) {
       if (!Sec->Live)
         continue;
+      if (!Sec->LMARegionName.empty()) {
+        if (MemoryRegion *M = MemoryRegions.lookup(Sec->LMARegionName))
+          Sec->LMARegion = M;
+        else
+          error("memory region '" + Sec->LMARegionName + "' not declared");
+      }
       Sec->MemRegion = findMemoryRegion(Sec);
       // Handle align (e.g. ".foo : ALIGN(16) { ... }").
       if (Sec->AlignExpr)
@@ -878,8 +891,8 @@ void LinkerScript::allocateHeaders(std::vector<PhdrEntry *> &Phdrs) {
 
 LinkerScript::AddressState::AddressState() {
   for (auto &MRI : Script->MemoryRegions) {
-    const MemoryRegion *MR = MRI.second;
-    MemRegionOffset[MR] = MR->Origin;
+    MemoryRegion *MR = MRI.second;
+    MR->CurPos = MR->Origin;
   }
 }
 
