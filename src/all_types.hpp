@@ -331,12 +331,14 @@ struct TypeEnumField {
     Buf *name;
     BigInt value;
     uint32_t decl_index;
+    AstNode *decl_node;
 };
 
 struct TypeUnionField {
     Buf *name;
     TypeEnumField *enum_field;
     TypeTableEntry *type_entry;
+    AstNode *decl_node;
     uint32_t gen_index;
 };
 
@@ -961,6 +963,7 @@ struct TypeStructField {
     size_t packed_bits_offset;
     size_t packed_bits_size;
     size_t unaligned_bit_count;
+    AstNode *decl_node;
 };
 struct TypeTableEntryStruct {
     AstNode *decl_node;
@@ -982,6 +985,8 @@ struct TypeTableEntryStruct {
     bool zero_bits_loop_flag;
     bool zero_bits_known;
     uint32_t abi_alignment; // also figured out with zero_bits pass
+
+    HashMap<Buf *, TypeStructField *, buf_hash, buf_eql_buf> fields_by_name;
 };
 
 struct TypeTableEntryMaybe {
@@ -1013,6 +1018,8 @@ struct TypeTableEntryEnum {
 
     bool generate_name_table;
     LLVMValueRef name_table;
+
+    HashMap<Buf *, TypeEnumField *, buf_hash, buf_eql_buf> fields_by_name;
 };
 
 uint32_t type_ptr_hash(const TypeTableEntry *ptr);
@@ -1045,6 +1052,8 @@ struct TypeTableEntryUnion {
 
     uint32_t union_size_bytes;
     TypeTableEntry *most_aligned_union_member;
+
+    HashMap<Buf *, TypeUnionField *, buf_hash, buf_eql_buf> fields_by_name;
 };
 
 struct FnGenParamInfo {

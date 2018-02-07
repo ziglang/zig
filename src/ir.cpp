@@ -6193,6 +6193,15 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
     if (other_type->id == TypeTableEntryIdFloat) {
         return true;
     } else if (other_type->id == TypeTableEntryIdInt && const_val_is_int) {
+        if (!other_type->data.integral.is_signed && const_val->data.x_bigint.is_negative) {
+            Buf *val_buf = buf_alloc();
+            bigint_append_buf(val_buf, &const_val->data.x_bigint, 10);
+            ir_add_error(ira, instruction,
+                buf_sprintf("cannot cast negative value %s to unsigned integer type '%s'",
+                    buf_ptr(val_buf),
+                    buf_ptr(&other_type->name)));
+            return false;
+        }
         if (bigint_fits_in_bits(&const_val->data.x_bigint, other_type->data.integral.bit_count,
                     other_type->data.integral.is_signed))
         {
@@ -6205,6 +6214,15 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
         if (const_val_fits_in_num_lit(const_val, child_type)) {
             return true;
         } else if (child_type->id == TypeTableEntryIdInt && const_val_is_int) {
+            if (!child_type->data.integral.is_signed && const_val->data.x_bigint.is_negative) {
+                Buf *val_buf = buf_alloc();
+                bigint_append_buf(val_buf, &const_val->data.x_bigint, 10);
+                ir_add_error(ira, instruction,
+                    buf_sprintf("cannot cast negative value %s to unsigned integer type '%s'",
+                        buf_ptr(val_buf),
+                        buf_ptr(&child_type->name)));
+                return false;
+            }
             if (bigint_fits_in_bits(&const_val->data.x_bigint,
                         child_type->data.integral.bit_count,
                         child_type->data.integral.is_signed))
@@ -6351,10 +6369,7 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
     }
 
     // implicit [N]T to []const T
-    if (expected_type->id == TypeTableEntryIdStruct &&
-        expected_type->data.structure.is_slice &&
-        actual_type->id == TypeTableEntryIdArray)
-    {
+    if (is_slice(expected_type) && actual_type->id == TypeTableEntryIdArray) {
         TypeTableEntry *ptr_type = expected_type->data.structure.fields[slice_ptr_index].type_entry;
         assert(ptr_type->id == TypeTableEntryIdPointer);
 
@@ -6366,8 +6381,7 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
     }
 
     // implicit &const [N]T to []const T
-    if (expected_type->id == TypeTableEntryIdStruct &&
-        expected_type->data.structure.is_slice &&
+    if (is_slice(expected_type) &&
         actual_type->id == TypeTableEntryIdPointer &&
         actual_type->data.pointer.is_const &&
         actual_type->data.pointer.child_type->id == TypeTableEntryIdArray)
@@ -7009,7 +7023,7 @@ static IrInstruction *ir_get_const_ptr(IrAnalyze *ira, IrInstruction *instructio
     if (pointee_type->id == TypeTableEntryIdMetaType) {
         TypeTableEntry *type_entry = pointee->data.x_type;
         if (type_entry->id == TypeTableEntryIdUnreachable) {
-            ir_add_error(ira, instruction, buf_sprintf("pointer to unreachable not allowed"));
+            ir_add_error(ira, instruction, buf_sprintf("pointer to noreturn not allowed"));
             return ira->codegen->invalid_instruction;
         }
 
@@ -9836,6 +9850,15 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
     AstNode *source_node = call_instruction->base.source_node;
 
     AstNode *fn_proto_node = fn_entry ? fn_entry->proto_node : nullptr;;
+
+    if (fn_type_id->cc == CallingConventionNaked) {
+        ErrorMsg *msg = ir_add_error(ira, fn_ref, buf_sprintf("unable to call function with naked calling convention"));
+        if (fn_proto_node) {
+            add_error_note(ira->codegen, msg, fn_proto_node, buf_sprintf("declared here"));
+        }
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
 
     if (fn_type_id->is_var_args) {
         if (call_param_count < src_param_count) {

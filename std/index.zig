@@ -6,6 +6,7 @@ pub const Buffer = @import("buffer.zig").Buffer;
 pub const BufferOutStream = @import("buffer.zig").BufferOutStream;
 pub const HashMap = @import("hash_map.zig").HashMap;
 pub const LinkedList = @import("linked_list.zig").LinkedList;
+pub const IntrusiveLinkedList = @import("linked_list.zig").IntrusiveLinkedList;
 
 pub const base64 = @import("base64.zig");
 pub const build = @import("build.zig");

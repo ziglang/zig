@@ -201,29 +201,29 @@ else()
         COMPILE_FLAGS ${ZIG_LLD_COMPILE_FLAGS}
         LINK_FLAGS " "
     )
-    target_include_directories(embedded_lld_lib PUBLIC
+    target_include_directories(embedded_lld_lib PRIVATE
         "${CMAKE_SOURCE_DIR}/deps/lld/include"
         "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt"
     )
-    target_include_directories(embedded_lld_elf PUBLIC
+    target_include_directories(embedded_lld_elf PRIVATE
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF"
         "${CMAKE_SOURCE_DIR}/deps/lld/include"
         "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt/ELF"
         "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt"
     )
-    target_include_directories(embedded_lld_coff PUBLIC
+    target_include_directories(embedded_lld_coff PRIVATE
         "${CMAKE_SOURCE_DIR}/deps/lld/COFF"
         "${CMAKE_SOURCE_DIR}/deps/lld/include"
         "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt/COFF"
         "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt"
     )
-    target_include_directories(embedded_lld_mingw PUBLIC
+    target_include_directories(embedded_lld_mingw PRIVATE
         "${CMAKE_SOURCE_DIR}/deps/lld/MinGW"
         "${CMAKE_SOURCE_DIR}/deps/lld/include"
         "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt/MinGW"
         "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt"
     )
-    target_include_directories(embedded_lld_wasm PUBLIC
+    target_include_directories(embedded_lld_wasm PRIVATE
         "${CMAKE_SOURCE_DIR}/deps/lld/wasm"
         "${CMAKE_SOURCE_DIR}/deps/lld/include"
         "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt/wasm"
@@ -482,10 +482,10 @@ set(ZIG_STD_FILES
     "os/darwin_errno.zig"
     "os/get_user_id.zig"
     "os/index.zig"
-    "os/linux.zig"
-    "os/linux_errno.zig"
-    "os/linux_i386.zig"
-    "os/linux_x86_64.zig"
+    "os/linux/index.zig"
+    "os/linux/errno.zig"
+    "os/linux/i386.zig"
+    "os/linux/x86_64.zig"
     "os/path.zig"
     "os/windows/error.zig"
     "os/windows/index.zig"

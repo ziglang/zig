@@ -6,7 +6,7 @@ const os = this;
 
 pub const windows = @import("windows/index.zig");
 pub const darwin = @import("darwin.zig");
-pub const linux = @import("linux.zig");
+pub const linux = @import("linux/index.zig");
 pub const zen = @import("zen.zig");
 pub const posix = switch(builtin.os) {
     Os.linux => linux,
@@ -82,18 +82,24 @@ pub fn getRandomBytes(buf: []u8) %void {
             // See #397
             const err = posix.getErrno(posix.getrandom(buf.ptr, buf.len, 0));
             if (err > 0) {
-                return switch (err) {
+                switch (err) {
                     posix.EINVAL => unreachable,
                     posix.EFAULT => unreachable,
                     posix.EINTR  => continue,
-                    else         => unexpectedErrorPosix(err),
-                };
+                    posix.ENOSYS => {
+                        const fd = try posixOpenC(c"/dev/urandom", posix.O_RDONLY|posix.O_CLOEXEC, 0);
+                        defer close(fd);
+
+                        try posixRead(fd, buf);
+                        return;
+                    },
+                    else => return unexpectedErrorPosix(err),
+                }
             }
             return;
         },
         Os.macosx, Os.ios => {
-            const fd = try posixOpen("/dev/urandom", posix.O_RDONLY|posix.O_CLOEXEC,
-                0, null);
+            const fd = try posixOpenC(c"/dev/urandom", posix.O_RDONLY|posix.O_CLOEXEC, 0);
             defer close(fd);
 
             try posixRead(fd, buf);
@@ -183,10 +189,15 @@ pub fn close(handle: FileHandle) void {
 
 /// Calls POSIX read, and keeps trying if it gets interrupted.
 pub fn posixRead(fd: i32, buf: []u8) %void {
+    // Linux can return EINVAL when read amount is > 0x7ffff000
+    // See https://github.com/zig-lang/zig/pull/743#issuecomment-363158274
+    const max_buf_len = 0x7ffff000;
+
     var index: usize = 0;
     while (index < buf.len) {
-        const amt_written = posix.read(fd, &buf[index], buf.len - index);
-        const err = posix.getErrno(amt_written);
+        const want_to_read = math.min(buf.len - index, usize(max_buf_len));
+        const rc = posix.read(fd, &buf[index], want_to_read);
+        const err = posix.getErrno(rc);
         if (err > 0) {
             return switch (err) {
                 posix.EINTR => continue,
@@ -199,7 +210,7 @@ pub fn posixRead(fd: i32, buf: []u8) %void {
                 else => unexpectedErrorPosix(err),
             };
         }
-        index += amt_written;
+        index += rc;
     }
 }
 
@@ -214,9 +225,15 @@ error BrokenPipe;
 
 /// Calls POSIX write, and keeps trying if it gets interrupted.
 pub fn posixWrite(fd: i32, bytes: []const u8) %void {
-    while (true) {
-        const write_ret = posix.write(fd, bytes.ptr, bytes.len);
-        const write_err = posix.getErrno(write_ret);
+    // Linux can return EINVAL when write amount is > 0x7ffff000
+    // See https://github.com/zig-lang/zig/pull/743#issuecomment-363165856
+    const max_bytes_len = 0x7ffff000;
+
+    var index: usize = 0;
+    while (index < bytes.len) {
+        const amt_to_write = math.min(bytes.len - index, usize(max_bytes_len));
+        const rc = posix.write(fd, &bytes[index], amt_to_write);
+        const write_err = posix.getErrno(rc);
         if (write_err > 0) {
             return switch (write_err) {
                 posix.EINTR  => continue,
@@ -233,7 +250,7 @@ pub fn posixWrite(fd: i32, bytes: []const u8) %void {
                 else         => unexpectedErrorPosix(write_err),
             };
         }
-        return;
+        index += rc;
     }
 }
 
@@ -262,8 +279,12 @@ pub fn posixOpen(file_path: []const u8, flags: u32, perm: usize, allocator: ?&Al
     mem.copy(u8, path0, file_path);
     path0[file_path.len] = 0;
 
+    return posixOpenC(path0.ptr, flags, perm);
+}
+
+pub fn posixOpenC(file_path: &const u8, flags: u32, perm: usize) %i32 {
     while (true) {
-        const result = posix.open(path0.ptr, flags, perm);
+        const result = posix.open(file_path, flags, perm);
         const err = posix.getErrno(result);
         if (err > 0) {
             return switch (err) {
@@ -1495,10 +1516,10 @@ test "std.os" {
     _ = @import("darwin_errno.zig");
     _ = @import("darwin.zig");
     _ = @import("get_user_id.zig");
-    _ = @import("linux_errno.zig");
+    _ = @import("linux/errno.zig");
     //_ = @import("linux_i386.zig");
-    _ = @import("linux_x86_64.zig");
-    _ = @import("linux.zig");
+    _ = @import("linux/x86_64.zig");
+    _ = @import("linux/index.zig");
     _ = @import("path.zig");
     _ = @import("windows/index.zig");
 }

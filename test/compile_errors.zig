@@ -1,6 +1,65 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("cast negative integer literal to usize",
+        \\export fn entry() void {
+        \\    const x = usize(-10);
+        \\}
+    , ".tmp_source.zig:2:21: error: cannot cast negative value -10 to unsigned integer type 'usize'");
+
+    cases.add("use invalid number literal as array index",
+        \\var v = 25;
+        \\export fn entry() void {
+        \\    var arr: [v]u8 = undefined;
+        \\}
+    , ".tmp_source.zig:1:1: error: unable to infer variable type");
+
+    cases.add("duplicate struct field",
+        \\const Foo = struct {
+        \\    Bar: i32,
+        \\    Bar: usize,
+        \\};
+        \\export fn entry() void {
+        \\    const a: Foo = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: duplicate struct field: 'Bar'",
+        ".tmp_source.zig:2:5: note: other field here");
+
+    cases.add("duplicate union field",
+        \\const Foo = union {
+        \\    Bar: i32,
+        \\    Bar: usize,
+        \\};
+        \\export fn entry() void {
+        \\    const a: Foo = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: duplicate union field: 'Bar'",
+        ".tmp_source.zig:2:5: note: other field here");
+
+    cases.add("duplicate enum field",
+        \\const Foo = enum {
+        \\    Bar,
+        \\    Bar,
+        \\};
+        \\
+        \\export fn entry() void {
+        \\    const a: Foo = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: duplicate enum field: 'Bar'",
+        ".tmp_source.zig:2:5: note: other field here");
+
+    cases.add("calling function with naked calling convention",
+        \\export fn entry() void {
+        \\    foo();
+        \\}
+        \\nakedcc fn foo() void { }
+    ,
+        ".tmp_source.zig:2:5: error: unable to call function with naked calling convention",
+        ".tmp_source.zig:4:9: note: declared here");
+
     cases.add("function with invalid return type",
         \\export fn foo() boid {}
     , ".tmp_source.zig:1:17: error: use of undeclared identifier 'boid'");
@@ -326,10 +385,10 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\export fn entry() void { _ = a(); }
     , ".tmp_source.zig:1:8: error: use of undeclared identifier 'bogus'");
 
-    cases.add("pointer to unreachable",
+    cases.add("pointer to noreturn",
         \\fn a() &noreturn {}
         \\export fn entry() void { _ = a(); }
-    , ".tmp_source.zig:1:9: error: pointer to unreachable not allowed");
+    , ".tmp_source.zig:1:9: error: pointer to noreturn not allowed");
 
     cases.add("unreachable code",
         \\export fn a() void {
