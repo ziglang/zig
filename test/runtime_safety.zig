@@ -5,7 +5,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\pub fn main() !void {
+        \\pub fn main() void {
         \\    @panic("oh no");
         \\}
     );
@@ -14,7 +14,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\pub fn main() !void {
+        \\pub fn main() void {
         \\    const a = []i32{1, 2, 3, 4};
         \\    baz(bar(a));
         \\}
@@ -28,7 +28,6 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\error Whatever;
         \\pub fn main() !void {
         \\    const x = add(65530, 10);
         \\    if (x == 0) return error.Whatever;
@@ -42,7 +41,6 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\error Whatever;
         \\pub fn main() !void {
         \\    const x = sub(10, 20);
         \\    if (x == 0) return error.Whatever;
@@ -56,7 +54,6 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\error Whatever;
         \\pub fn main() !void {
         \\    const x = mul(300, 6000);
         \\    if (x == 0) return error.Whatever;
@@ -70,7 +67,6 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\error Whatever;
         \\pub fn main() !void {
         \\    const x = neg(-32768);
         \\    if (x == 32767) return error.Whatever;
@@ -84,7 +80,6 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\error Whatever;
         \\pub fn main() !void {
         \\    const x = div(-32768, -1);
         \\    if (x == 32767) return error.Whatever;
@@ -98,7 +93,6 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\error Whatever;
         \\pub fn main() !void {
         \\    const x = shl(-16385, 1);
         \\    if (x == 0) return error.Whatever;
@@ -112,7 +106,6 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\error Whatever;
         \\pub fn main() !void {
         \\    const x = shl(0b0010111111111111, 3);
         \\    if (x == 0) return error.Whatever;
@@ -126,7 +119,6 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\error Whatever;
         \\pub fn main() !void {
         \\    const x = shr(-16385, 1);
         \\    if (x == 0) return error.Whatever;
@@ -140,7 +132,6 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\error Whatever;
         \\pub fn main() !void {
         \\    const x = shr(0b0010111111111111, 3);
         \\    if (x == 0) return error.Whatever;
@@ -154,8 +145,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\error Whatever;
-        \\pub fn main() !void {
+        \\pub fn main() void {
         \\    const x = div0(999, 0);
         \\}
         \\fn div0(a: i32, b: i32) i32 {
@@ -167,7 +157,6 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\error Whatever;
         \\pub fn main() !void {
         \\    const x = divExact(10, 3);
         \\    if (x == 0) return error.Whatever;
@@ -181,7 +170,6 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\error Whatever;
         \\pub fn main() !void {
         \\    const x = widenSlice([]u8{1, 2, 3, 4, 5});
         \\    if (x.len == 0) return error.Whatever;
@@ -195,7 +183,6 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\error Whatever;
         \\pub fn main() !void {
         \\    const x = shorten_cast(200);
         \\    if (x == 0) return error.Whatever;
@@ -209,7 +196,6 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\error Whatever;
         \\pub fn main() !void {
         \\    const x = unsigned_cast(-10);
         \\    if (x == 0) return error.Whatever;
@@ -226,8 +212,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\    }
         \\    @import("std").os.exit(0); // test failed
         \\}
-        \\error Whatever;
-        \\pub fn main() !void {
+        \\pub fn main() void {
         \\    bar() catch unreachable;
         \\}
         \\fn bar() !void {
@@ -239,7 +224,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\pub fn main() !void {
+        \\pub fn main() void {
         \\    _ = bar(9999);
         \\}
         \\fn bar(x: u32) error {
@@ -251,7 +236,6 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
-        \\error Wrong;
         \\pub fn main() !void {
         \\    var array align(4) = []u32{0x11111111, 0x11111111};
         \\    const bytes = ([]u8)(array[0..]);
@@ -274,7 +258,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\    int: u32,
         \\};
         \\
-        \\pub fn main() !void {
+        \\pub fn main() void {
         \\    var f = Foo { .int = 42 };
         \\    bar(&f);
         \\}
