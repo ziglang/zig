@@ -12308,7 +12308,7 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
                 if (!resolve_inferred_error_set(ira, child_type, field_ptr_instruction->base.source_node)) {
                     return ira->codegen->builtin_types.entry_invalid;
                 }
-                ErrorTableEntry *err_entry = find_err_table_entry(child_type, field_name);
+                err_entry = find_err_table_entry(child_type, field_name);
                 if (err_entry == nullptr) {
                     ir_add_error(ira, &field_ptr_instruction->base,
                         buf_sprintf("no error named '%s' in '%s'", buf_ptr(field_name), buf_ptr(&child_type->name)));

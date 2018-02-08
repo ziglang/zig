@@ -108,3 +108,18 @@ fn testErrorSetType() void {
         error.FileNotFound => unreachable,
     }
 }
+
+
+test "explicit error set cast" {
+    testExplicitErrorSetCast(Set1.A);
+    comptime testExplicitErrorSetCast(Set1.A);
+}
+
+const Set1 = error{A, B};
+const Set2 = error{A, C};
+
+fn testExplicitErrorSetCast(set1: Set1) void {
+    var x = Set2(set1);
+    var y = Set1(x);
+    assert(y == error.A);
+}
