@@ -9361,6 +9361,15 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
             ir_add_error_node(ira, source_node, buf_sprintf("operator not allowed for errors"));
             return ira->codegen->builtin_types.entry_invalid;
         }
+        TypeTableEntry *intersect_type = get_error_set_intersection(ira, op1->value.type, op2->value.type, source_node);
+        if (type_is_invalid(intersect_type)) {
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+
+        if (!resolve_inferred_error_set(ira, intersect_type, source_node)) {
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+
         // exception if one of the operators has the type of the empty error set, we allow the comparison
         // (and make it comptime known)
         // this is a function which is evaluated at comptime and returns an inferred error set will have an empty
@@ -9378,14 +9387,6 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
             ConstExprValue *out_val = ir_build_const_from(ira, &bin_op_instruction->base);
             out_val->data.x_bool = answer;
             return ira->codegen->builtin_types.entry_bool;
-        }
-        TypeTableEntry *intersect_type = get_error_set_intersection(ira, op1->value.type, op2->value.type, source_node);
-        if (type_is_invalid(intersect_type)) {
-            return ira->codegen->builtin_types.entry_invalid;
-        }
-
-        if (!resolve_inferred_error_set(ira, intersect_type, source_node)) {
-            return ira->codegen->builtin_types.entry_invalid;
         }
 
         if (!type_is_global_error_set(intersect_type)) {
@@ -10940,6 +10941,11 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             if (inferred_err_set_type != nullptr) {
                 inferred_err_set_type->data.error_set.infer_fn = nullptr;
                 if (result->value.type->id == TypeTableEntryIdErrorUnion) {
+                    if (result->value.data.x_err_union.err != nullptr) {
+                        inferred_err_set_type->data.error_set.err_count = 1;
+                        inferred_err_set_type->data.error_set.errors = allocate<ErrorTableEntry *>(1);
+                        inferred_err_set_type->data.error_set.errors[0] = result->value.data.x_err_union.err;
+                    }
                     TypeTableEntry *fn_inferred_err_set_type = result->value.type->data.error_union.err_set_type;
                     inferred_err_set_type->data.error_set.err_count = fn_inferred_err_set_type->data.error_set.err_count;
                     inferred_err_set_type->data.error_set.errors = fn_inferred_err_set_type->data.error_set.errors;
