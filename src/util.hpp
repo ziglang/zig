@@ -92,19 +92,22 @@ static inline void safe_memcpy(T *dest, const T *src, size_t count) {
 }
 
 template<typename T>
+static inline T *reallocate(T *old, size_t old_count, size_t new_count) {
+    T *ptr = reinterpret_cast<T*>(realloc(old, new_count * sizeof(T)));
+    if (!ptr)
+        zig_panic("allocation failed");
+    if (new_count > old_count) {
+        memset(&ptr[old_count], 0, (new_count - old_count) * sizeof(T));
+    }
+    return ptr;
+}
+
+template<typename T>
 static inline T *reallocate_nonzero(T *old, size_t old_count, size_t new_count) {
-#ifdef NDEBUG
     T *ptr = reinterpret_cast<T*>(realloc(old, new_count * sizeof(T)));
     if (!ptr)
         zig_panic("allocation failed");
     return ptr;
-#else
-    // manually assign every element to trigger compile error for non-copyable structs
-    T *ptr = allocate_nonzero<T>(new_count);
-    safe_memcpy(ptr, old, old_count);
-    free(old);
-    return ptr;
-#endif
 }
 
 template <typename T, size_t n>

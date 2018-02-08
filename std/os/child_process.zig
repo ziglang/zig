@@ -55,7 +55,22 @@ pub const ChildProcess = struct {
     llnode: if (is_windows) void else LinkedList(&ChildProcess).Node,
 
     pub const SpawnError = error {
-
+        ProcessFdQuotaExceeded,
+        Unexpected,
+        NotDir,
+        SystemResources,
+        FileNotFound,
+        NameTooLong,
+        SymLinkLoop,
+        FileSystem,
+        OutOfMemory,
+        AccessDenied,
+        PermissionDenied,
+        InvalidUserId,
+        ResourceLimitReached,
+        InvalidExe,
+        IsDir,
+        FileBusy,
     };
 
     pub const Term = union(enum) {
@@ -313,7 +328,7 @@ pub const ChildProcess = struct {
         // Here we potentially return the fork child's error
         // from the parent pid.
         if (err_int != @maxValue(ErrInt)) {
-            return error(err_int);
+            return SpawnError(err_int);
         }
 
         return statusToTerm(status);
@@ -757,7 +772,7 @@ fn destroyPipe(pipe: &const [2]i32) void {
 
 // Child of fork calls this to report an error to the fork parent.
 // Then the child exits.
-fn forkChildErrReport(fd: i32, err: error) noreturn {
+fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
     _ = writeIntFd(fd, ErrInt(err));
     posix.exit(1);
 }

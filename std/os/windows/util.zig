@@ -30,7 +30,6 @@ pub fn windowsClose(handle: windows.HANDLE) void {
 pub const WriteError = error {
     SystemResources,
     OperationAborted,
-    SystemResources,
     IoPending,
     BrokenPipe,
     Unexpected,
@@ -83,6 +82,8 @@ pub const OpenError = error {
     AccessDenied,
     PipeBusy,
     Unexpected,
+    OutOfMemory,
+    NameTooLong,
 };
 
 /// `file_path` may need to be copied in memory to add a null terminating byte. In this case

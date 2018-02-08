@@ -68,7 +68,12 @@ const Node = union(enum) {
     Combine: []Node,
 };
 
-fn parse(tokens: &const ArrayList(Token), token_index: &usize) !Node {
+const ParseError = error {
+    InvalidInput,
+    OutOfMemory,
+};
+
+fn parse(tokens: &const ArrayList(Token), token_index: &usize) ParseError!Node {
     const first_token = tokens.items[*token_index];
     *token_index += 1;
 
@@ -132,7 +137,11 @@ fn expandString(input: []const u8, output: &Buffer) !void {
     }
 }
 
-fn expandNode(node: &const Node, output: &ArrayList(Buffer)) !void {
+const ExpandNodeError = error {
+    OutOfMemory,
+};
+
+fn expandNode(node: &const Node, output: &ArrayList(Buffer)) ExpandNodeError!void {
     assert(output.len == 0);
     switch (*node) {
         Node.Scalar => |scalar| {

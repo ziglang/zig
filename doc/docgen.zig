@@ -42,7 +42,7 @@ pub fn main() !void {
     const input_file_bytes = try file_in_stream.stream.readAllAlloc(allocator, max_doc_file_size);
 
     var file_out_stream = io.FileOutStream.init(&out_file);
-    var buffered_out_stream = io.BufferedOutStream.init(&file_out_stream.stream);
+    var buffered_out_stream = io.BufferedOutStream(io.FileOutStream.Error).init(&file_out_stream.stream);
 
     var tokenizer = Tokenizer.init(in_file_name, input_file_bytes);
     var toc = try genToc(allocator, &tokenizer);
@@ -217,8 +217,6 @@ const Tokenizer = struct {
         return loc;
     }
 };
-
-error ParseError;
 
 fn parseError(tokenizer: &Tokenizer, token: &const Token, comptime fmt: []const u8, args: ...) error {
     const loc = tokenizer.getTokenLocation(token);
@@ -596,8 +594,6 @@ const TermState = enum {
     ExpectEnd,
 };
 
-error UnsupportedEscape;
-
 test "term color" {
     const input_bytes = "A\x1b[32;1mgreen\x1b[0mB";
     const result = try termColor(std.debug.global_allocator, input_bytes);
@@ -684,9 +680,7 @@ fn termColor(allocator: &mem.Allocator, input: []const u8) ![]u8 {
     return buf.toOwnedSlice();
 }
 
-error ExampleFailedToCompile;
-
-fn genHtml(allocator: &mem.Allocator, tokenizer: &Tokenizer, toc: &Toc, out: &io.OutStream, zig_exe: []const u8) !void {
+fn genHtml(allocator: &mem.Allocator, tokenizer: &Tokenizer, toc: &Toc, out: var, zig_exe: []const u8) !void {
     var code_progress_index: usize = 0;
     for (toc.nodes) |node| {
         switch (node) {
@@ -973,9 +967,6 @@ fn genHtml(allocator: &mem.Allocator, tokenizer: &Tokenizer, toc: &Toc, out: &io
     }
 
 }
-
-error ChildCrashed;
-error ChildExitError;
 
 fn exec(allocator: &mem.Allocator, args: []const []const u8) !os.ChildProcess.ExecResult {
     const result = try os.ChildProcess.exec(allocator, args, null, null, max_doc_file_size);

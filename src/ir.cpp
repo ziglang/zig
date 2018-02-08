@@ -5442,6 +5442,10 @@ static TypeTableEntry *get_error_set_union(CodeGen *g, ErrorTableEntry **errors,
     buf_resize(&err_set_type->name, 0);
     buf_appendf(&err_set_type->name, "error{");
 
+    for (uint32_t i = 0, count = set1->data.error_set.err_count; i < count; i += 1) {
+        assert(errors[set1->data.error_set.errors[i]->value] == set1->data.error_set.errors[i]);
+    }
+
     uint32_t count = set1->data.error_set.err_count;
     for (uint32_t i = 0; i < set2->data.error_set.err_count; i += 1) {
         ErrorTableEntry *error_entry = set2->data.error_set.errors[i];
@@ -5523,6 +5527,8 @@ static IrInstruction *ir_gen_err_set_decl(IrBuilder *irb, Scope *parent_scope, A
         err_set_type->data.error_set.errors = allocate<ErrorTableEntry *>(err_count);
     }
 
+    ErrorTableEntry **errors = allocate<ErrorTableEntry *>(irb->codegen->errors_by_index.length + err_count);
+
     for (uint32_t i = 0; i < err_count; i += 1) {
         AstNode *symbol_node = node->data.err_set_decl.decls.at(i);
         assert(symbol_node->type == NodeTypeSymbol);
@@ -5543,7 +5549,16 @@ static IrInstruction *ir_gen_err_set_decl(IrBuilder *irb, Scope *parent_scope, A
                 buf_ptr(err_name), error_value_count));
         }
         err_set_type->data.error_set.errors[i] = err;
+
+        ErrorTableEntry *prev_err = errors[err->value];
+        if (prev_err != nullptr) {
+            ErrorMsg *msg = add_node_error(irb->codegen, err->decl_node, buf_sprintf("duplicate error: '%s'", buf_ptr(&err->name)));
+            add_error_note(irb->codegen, msg, prev_err->decl_node, buf_sprintf("other error here"));
+            return irb->codegen->invalid_instruction;
+        }
+        errors[err->value] = err;
     }
+    free(errors);
     return ir_build_const_type(irb, parent_scope, node, err_set_type);
 }
 
@@ -6512,6 +6527,7 @@ static TypeTableEntry *get_error_set_intersection(IrAnalyze *ira, TypeTableEntry
     ErrorTableEntry **errors = allocate<ErrorTableEntry *>(ira->codegen->errors_by_index.length);
     for (uint32_t i = 0; i < set1->data.error_set.err_count; i += 1) {
         ErrorTableEntry *error_entry = set1->data.error_set.errors[i];
+        assert(errors[error_entry->value] == nullptr);
         errors[error_entry->value] = error_entry;
     }
     ZigList<ErrorTableEntry *> intersection_list = {};
@@ -6653,6 +6669,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
         ErrorTableEntry **errors = allocate<ErrorTableEntry *>(g->errors_by_index.length);
         for (uint32_t i = 0; i < container_set->data.error_set.err_count; i += 1) {
             ErrorTableEntry *error_entry = container_set->data.error_set.errors[i];
+            assert(errors[error_entry->value] == nullptr);
             errors[error_entry->value] = error_entry;
         }
         for (uint32_t i = 0; i < contained_set->data.error_set.err_count; i += 1) {
@@ -6767,6 +6784,12 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
                 buf_sprintf("unable to cast global error set into smaller set"));
             return ImplicitCastMatchResultReportedError;
         }
+    } else if (const_cast_result.id == ConstCastResultIdErrSetGlobal) {
+        ErrorMsg *msg = ir_add_error(ira, value,
+            buf_sprintf("expected '%s', found '%s'", buf_ptr(&expected_type->name), buf_ptr(&actual_type->name)));
+        add_error_note(ira->codegen, msg, value->source_node,
+            buf_sprintf("unable to cast global error set into smaller set"));
+        return ImplicitCastMatchResultReportedError;
     }
     if (missing_errors != nullptr) {
         ErrorMsg *msg = ir_add_error(ira, value,
@@ -6995,6 +7018,12 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
     return ImplicitCastMatchResultNo;
 }
 
+static void update_errors_helper(CodeGen *g, ErrorTableEntry ***errors, size_t *errors_count) {
+    size_t old_errors_count = *errors_count;
+    *errors_count = g->errors_by_index.length;
+    *errors = reallocate(*errors, old_errors_count, *errors_count);
+}
+
 static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_node, IrInstruction **instructions, size_t instruction_count) {
     assert(instruction_count >= 1);
     IrInstruction *prev_inst = instructions[0];
@@ -7002,6 +7031,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
         return ira->codegen->builtin_types.entry_invalid;
     }
     ErrorTableEntry **errors = nullptr;
+    size_t errors_count = 0;
     TypeTableEntry *err_set_type = nullptr;
     if (prev_inst->value.type->id == TypeTableEntryIdErrorSet) {
         if (type_is_global_error_set(prev_inst->value.type)) {
@@ -7011,9 +7041,11 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             if (!resolve_inferred_error_set(ira, err_set_type, prev_inst->source_node)) {
                 return ira->codegen->builtin_types.entry_invalid;
             }
-            errors = allocate<ErrorTableEntry *>(ira->codegen->errors_by_index.length);
+            update_errors_helper(ira->codegen, &errors, &errors_count);
+
             for (uint32_t i = 0; i < err_set_type->data.error_set.err_count; i += 1) {
                 ErrorTableEntry *error_entry = err_set_type->data.error_set.errors[i];
+                assert(errors[error_entry->value] == nullptr);
                 errors[error_entry->value] = error_entry;
             }
         }
@@ -7064,6 +7096,9 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                     continue;
                 }
 
+                // number of declared errors might have increased now
+                update_errors_helper(ira->codegen, &errors, &errors_count);
+
                 // if err_set_type is a superset of cur_type, keep err_set_type.
                 // if cur_type is a superset of err_set_type, switch err_set_type to cur_type
                 bool prev_is_superset = true;
@@ -7084,8 +7119,12 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                     ErrorTableEntry *error_entry = err_set_type->data.error_set.errors[i];
                     errors[error_entry->value] = nullptr;
                 }
+                for (uint32_t i = 0, count = ira->codegen->errors_by_index.length; i < count; i += 1) {
+                    assert(errors[i] == nullptr);
+                }
                 for (uint32_t i = 0; i < cur_type->data.error_set.err_count; i += 1) {
                     ErrorTableEntry *error_entry = cur_type->data.error_set.errors[i];
+                    assert(errors[error_entry->value] == nullptr);
                     errors[error_entry->value] = error_entry;
                 }
                 bool cur_is_superset = true;
@@ -7122,14 +7161,21 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                     prev_inst = cur_inst;
                     continue;
                 }
+
+                update_errors_helper(ira->codegen, &errors, &errors_count);
+
                 // test if err_set_type is a subset of cur_type's error set
                 // unset everything in errors
                 for (uint32_t i = 0; i < err_set_type->data.error_set.err_count; i += 1) {
                     ErrorTableEntry *error_entry = err_set_type->data.error_set.errors[i];
                     errors[error_entry->value] = nullptr;
                 }
+                for (uint32_t i = 0, count = ira->codegen->errors_by_index.length; i < count; i += 1) {
+                    assert(errors[i] == nullptr);
+                }
                 for (uint32_t i = 0; i < cur_err_set_type->data.error_set.err_count; i += 1) {
                     ErrorTableEntry *error_entry = cur_err_set_type->data.error_set.errors[i];
+                    assert(errors[error_entry->value] == nullptr);
                     errors[error_entry->value] = error_entry;
                 }
                 bool cur_is_superset = true;
@@ -7173,15 +7219,18 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
             if (!resolve_inferred_error_set(ira, cur_type, cur_inst->source_node)) {
                 return ira->codegen->builtin_types.entry_invalid;
             }
+
+            update_errors_helper(ira->codegen, &errors, &errors_count);
+
             if (err_set_type == nullptr) {
                 if (prev_type->id == TypeTableEntryIdErrorUnion) {
                     err_set_type = prev_type->data.error_union.err_set_type;
                 } else {
                     err_set_type = cur_type;
                 }
-                errors = allocate<ErrorTableEntry *>(ira->codegen->errors_by_index.length);
                 for (uint32_t i = 0; i < err_set_type->data.error_set.err_count; i += 1) {
                     ErrorTableEntry *error_entry = err_set_type->data.error_set.errors[i];
+                    assert(errors[error_entry->value] == nullptr);
                     errors[error_entry->value] = error_entry;
                 }
                 if (err_set_type == cur_type) {
@@ -7237,11 +7286,13 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                     continue;
                 }
 
+                update_errors_helper(ira->codegen, &errors, &errors_count);
+
                 if (err_set_type == nullptr) {
                     err_set_type = prev_err_set_type;
-                    errors = allocate<ErrorTableEntry *>(ira->codegen->errors_by_index.length);
                     for (uint32_t i = 0; i < prev_err_set_type->data.error_set.err_count; i += 1) {
                         ErrorTableEntry *error_entry = prev_err_set_type->data.error_set.errors[i];
+                        assert(errors[error_entry->value] == nullptr);
                         errors[error_entry->value] = error_entry;
                     }
                 }
@@ -7262,8 +7313,12 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                     ErrorTableEntry *error_entry = err_set_type->data.error_set.errors[i];
                     errors[error_entry->value] = nullptr;
                 }
+                for (uint32_t i = 0, count = ira->codegen->errors_by_index.length; i < count; i += 1) {
+                    assert(errors[i] == nullptr);
+                }
                 for (uint32_t i = 0; i < cur_err_set_type->data.error_set.err_count; i += 1) {
                     ErrorTableEntry *error_entry = cur_err_set_type->data.error_set.errors[i];
+                    assert(errors[error_entry->value] == nullptr);
                     errors[error_entry->value] = error_entry;
                 }
                 bool cur_is_superset = true;
@@ -7330,6 +7385,8 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                     prev_inst = cur_inst;
                     continue;
                 }
+
+                update_errors_helper(ira->codegen, &errors, &errors_count);
 
                 err_set_type = get_error_set_union(ira->codegen, errors, err_set_type, cur_err_set_type);
             }
@@ -8000,6 +8057,7 @@ static IrInstruction *ir_analyze_err_set_cast(IrAnalyze *ira, IrInstruction *sou
         ErrorTableEntry **errors = allocate<ErrorTableEntry *>(ira->codegen->errors_by_index.length);
         for (uint32_t i = 0; i < container_set->data.error_set.err_count; i += 1) {
             ErrorTableEntry *error_entry = container_set->data.error_set.errors[i];
+            assert(errors[error_entry->value] == nullptr);
             errors[error_entry->value] = error_entry;
         }
         ErrorMsg *err_msg = nullptr;
@@ -10212,8 +10270,9 @@ static TypeTableEntry *ir_analyze_merge_error_sets(IrAnalyze *ira, IrInstruction
     }
 
     ErrorTableEntry **errors = allocate<ErrorTableEntry *>(ira->codegen->errors_by_index.length);
-    for (uint32_t i = 0; i < op1_type->data.error_set.err_count; i += 1) {
+    for (uint32_t i = 0, count = op1_type->data.error_set.err_count; i < count; i += 1) {
         ErrorTableEntry *error_entry = op1_type->data.error_set.errors[i];
+        assert(errors[error_entry->value] == nullptr);
         errors[error_entry->value] = error_entry;
     }
     TypeTableEntry *result_type = get_error_set_union(ira->codegen, errors, op1_type, op2_type);
@@ -14987,6 +15046,15 @@ static TypeTableEntry *ir_analyze_instruction_member_count(IrAnalyze *ira, IrIns
         result = container_type->data.structure.src_field_count;
     } else if (container_type->id == TypeTableEntryIdUnion) {
         result = container_type->data.unionation.src_field_count;
+    } else if (container_type->id == TypeTableEntryIdErrorSet) {
+        if (!resolve_inferred_error_set(ira, container_type, instruction->base.source_node)) {
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        if (type_is_global_error_set(container_type)) {
+            ir_add_error(ira, &instruction->base, buf_sprintf("global error set member count not available at comptime"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        result = container_type->data.error_set.err_count;
     } else {
         ir_add_error(ira, &instruction->base, buf_sprintf("no value count available for type '%s'", buf_ptr(&container_type->name)));
         return ira->codegen->builtin_types.entry_invalid;

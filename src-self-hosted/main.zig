@@ -14,10 +14,6 @@ const builtin = @import("builtin");
 const ArrayList = std.ArrayList;
 const c = @import("c.zig");
 
-error InvalidCommandLineArguments;
-error ZigLibDirNotFound;
-error ZigInstallationNotFound;
-
 const default_zig_cache_name = "zig-cache";
 
 pub fn main() !void {
@@ -472,7 +468,7 @@ pub fn main2() !void {
     }
 }
 
-fn printUsage(stream: &io.OutStream) !void {
+fn printUsage(stream: var) !void {
     try stream.write(
         \\Usage: zig [command] [options]
         \\

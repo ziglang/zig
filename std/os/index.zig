@@ -243,7 +243,6 @@ pub const PosixOpenError = error {
     SystemResources,
     NoSpaceLeft,
     NotDir,
-    AccessDenied,
     PathAlreadyExists,
     Unexpected,
 };
@@ -411,7 +410,19 @@ pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap,
     return posixExecveErrnoToErr(err);
 }
 
-fn posixExecveErrnoToErr(err: usize) error {
+pub const PosixExecveError = error {
+    SystemResources,
+    AccessDenied,
+    InvalidExe,
+    FileSystem,
+    IsDir,
+    FileNotFound,
+    NotDir,
+    FileBusy,
+    Unexpected,
+};
+
+fn posixExecveErrnoToErr(err: usize) PosixExecveError {
     assert(err > 0);
     return switch (err) {
         posix.EFAULT => unreachable,
@@ -904,24 +915,68 @@ pub fn deleteDir(allocator: &Allocator, dir_path: []const u8) !void {
 /// removes it. If it cannot be removed because it is a non-empty directory,
 /// this function recursively removes its entries and then tries again.
 // TODO non-recursive implementation
-pub fn deleteTree(allocator: &Allocator, full_path: []const u8) !void {
+const DeleteTreeError = error {
+    OutOfMemory,
+    AccessDenied,
+    FileTooBig,
+    IsDir,
+    SymLinkLoop,
+    ProcessFdQuotaExceeded,
+    NameTooLong,
+    SystemFdQuotaExceeded,
+    NoDevice,
+    PathNotFound,
+    SystemResources,
+    NoSpaceLeft,
+    PathAlreadyExists,
+    ReadOnlyFileSystem,
+    NotDir,
+    FileNotFound,
+    FileSystem,
+    FileBusy,
+    DirNotEmpty,
+    Unexpected,
+};
+pub fn deleteTree(allocator: &Allocator, full_path: []const u8) DeleteTreeError!void {
     start_over: while (true) {
         // First, try deleting the item as a file. This way we don't follow sym links.
         if (deleteFile(allocator, full_path)) {
             return;
-        } else |err| {
-            if (err == error.FileNotFound)
-                return;
-            if (err != error.IsDir)
-                return err;
+        } else |err| switch (err) {
+            error.FileNotFound => return,
+            error.IsDir => {},
+
+            error.OutOfMemory,
+            error.AccessDenied,
+            error.SymLinkLoop,
+            error.NameTooLong,
+            error.SystemResources,
+            error.ReadOnlyFileSystem,
+            error.NotDir,
+            error.FileSystem,
+            error.FileBusy,
+            error.Unexpected
+                => return err,
         }
         {
-            var dir = Dir.open(allocator, full_path) catch |err| {
-                if (err == error.FileNotFound)
-                    return;
-                if (err == error.NotDir)
-                    continue :start_over;
-                return err;
+            var dir = Dir.open(allocator, full_path) catch |err| switch (err) {
+                error.NotDir => continue :start_over,
+
+                error.OutOfMemory,
+                error.AccessDenied,
+                error.FileTooBig,
+                error.IsDir,
+                error.SymLinkLoop,
+                error.ProcessFdQuotaExceeded,
+                error.NameTooLong,
+                error.SystemFdQuotaExceeded,
+                error.NoDevice,
+                error.PathNotFound,
+                error.SystemResources,
+                error.NoSpaceLeft,
+                error.PathAlreadyExists,
+                error.Unexpected
+                    => return err,
             };
             defer dir.close();
 
@@ -1252,6 +1307,8 @@ pub const ArgIteratorWindows = struct {
     quote_count: usize,
     seen_quote_count: usize,
 
+    pub const NextError = error{OutOfMemory};
+
     pub fn init() ArgIteratorWindows {
         return initWithCmdLine(windows.GetCommandLineA());
     }
@@ -1267,7 +1324,7 @@ pub const ArgIteratorWindows = struct {
     }
 
     /// You must free the returned memory when done.
-    pub fn next(self: &ArgIteratorWindows, allocator: &Allocator) ?(@typeOf(internalNext).ReturnType.ErrorSet![]u8) {
+    pub fn next(self: &ArgIteratorWindows, allocator: &Allocator) ?(NextError![]u8) {
         // march forward over whitespace
         while (true) : (self.index += 1) {
             const byte = self.cmd_line[self.index];
@@ -1320,7 +1377,7 @@ pub const ArgIteratorWindows = struct {
         }
     }
 
-    fn internalNext(self: &ArgIteratorWindows, allocator: &Allocator) ![]u8 {
+    fn internalNext(self: &ArgIteratorWindows, allocator: &Allocator) NextError![]u8 {
         var buf = try Buffer.initSize(allocator, 0);
         defer buf.deinit();
 
@@ -1394,16 +1451,20 @@ pub const ArgIteratorWindows = struct {
 };
 
 pub const ArgIterator = struct {
-    inner: if (builtin.os == Os.windows) ArgIteratorWindows else ArgIteratorPosix,
+    const InnerType = if (builtin.os == Os.windows) ArgIteratorWindows else ArgIteratorPosix;
+
+    inner: InnerType,
 
     pub fn init() ArgIterator {
         return ArgIterator {
-            .inner = if (builtin.os == Os.windows) ArgIteratorWindows.init() else ArgIteratorPosix.init(),
+            .inner = InnerType.init(),
         };
     }
+
+    pub const NextError = ArgIteratorWindows.NextError;
     
     /// You must free the returned memory when done.
-    pub fn next(self: &ArgIterator, allocator: &Allocator) ?![]u8 {
+    pub fn next(self: &ArgIterator, allocator: &Allocator) ?(NextError![]u8) {
         if (builtin.os == Os.windows) {
             return self.inner.next(allocator);
         } else {

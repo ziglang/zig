@@ -110,7 +110,7 @@ pub const Module = struct {
     };
 
     pub fn create(allocator: &mem.Allocator, name: []const u8, root_src_path: ?[]const u8, target: &const Target,
-        kind: Kind, build_mode: builtin.Mode, zig_lib_dir: []const u8, cache_dir: []const u8) %&Module
+        kind: Kind, build_mode: builtin.Mode, zig_lib_dir: []const u8, cache_dir: []const u8) !&Module
     {
         var name_buffer = try Buffer.init(allocator, name);
         errdefer name_buffer.deinit();
@@ -265,6 +265,7 @@ pub const Module = struct {
 
     pub fn link(self: &Module, out_file: ?[]const u8) !void {
         warn("TODO link");
+        return error.Todo;
     }
 
     pub fn addLinkLib(self: &Module, name: []const u8, provided_explicitly: bool) !&LinkLib {

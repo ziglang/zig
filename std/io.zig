@@ -694,13 +694,13 @@ pub const BufferOutStream = struct {
     pub fn init(buffer: &Buffer) BufferOutStream {
         return BufferOutStream {
             .buffer = buffer,
-            .stream = OutStream {
+            .stream = Stream {
                 .writeFn = writeFn,
             },
         };
     }
 
-    fn writeFn(out_stream: &OutStream, bytes: []const u8) !void {
+    fn writeFn(out_stream: &Stream, bytes: []const u8) !void {
         const self = @fieldParentPtr(BufferOutStream, "stream", out_stream);
         return self.buffer.append(bytes);
     }

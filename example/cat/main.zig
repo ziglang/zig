@@ -61,7 +61,7 @@ fn cat_file(stdout: &io.File, file: &io.File) !void {
     }
 }
 
-fn unwrapArg(arg: %[]u8) ![]u8 {
+fn unwrapArg(arg: error![]u8) ![]u8 {
     return arg catch |err| {
         warn("Unable to parse command line: {}\n", err);
         return err;

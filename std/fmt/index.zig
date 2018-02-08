@@ -510,7 +510,7 @@ pub fn allocPrint(allocator: &mem.Allocator, comptime fmt: []const u8, args: ...
     return bufPrint(buf, fmt, args);
 }
 
-fn countSize(size: &usize, bytes: []const u8) !void {
+fn countSize(size: &usize, bytes: []const u8) (error{}!void) {
     *size += bytes.len;
 }
 

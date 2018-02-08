@@ -1,6 +1,25 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("@memberCount of error",
+        \\comptime {
+        \\    _ = @memberCount(error);
+        \\}
+    ,
+        ".tmp_source.zig:2:9: error: global error set member count not available at comptime");
+
+    cases.add("duplicate error value in error set",
+        \\const Foo = error {
+        \\    Bar,
+        \\    Bar,
+        \\};
+        \\export fn entry() void {
+        \\    const a: Foo = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: duplicate error: 'Bar'",
+        ".tmp_source.zig:2:5: note: other error here");
+
     cases.add("duplicate struct field",
         \\const Foo = struct {
         \\    Bar: i32,
@@ -99,12 +118,12 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
 
     cases.add("wrong return type for main",
         \\pub fn main() f32 { }
-    , "error: expected return type of main to be 'u8', 'noreturn', 'void', or '%void'");
+    , "error: expected return type of main to be 'u8', 'noreturn', 'void', or '!void'");
 
     cases.add("double ?? on main return value",
         \\pub fn main() ??void {
         \\}
-    , "error: expected return type of main to be 'u8', 'noreturn', 'void', or '%void'");
+    , "error: expected return type of main to be 'u8', 'noreturn', 'void', or '!void'");
 
     cases.add("bad identifier in function with struct defined inside function which references local const",
         \\export fn entry() void {
@@ -1160,7 +1179,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\export fn f() void {
         \\    try something();
         \\}
-        \\fn something() %void { }
+        \\fn something() error!void { }
     ,
             ".tmp_source.zig:2:5: error: expected type 'void', found 'error'");
 
@@ -1251,7 +1270,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
     , ".tmp_source.zig:3:11: error: cannot assign to constant");
 
     cases.add("main function with bogus args type",
-        \\pub fn main(args: [][]bogus) %void {}
+        \\pub fn main(args: [][]bogus) !void {}
     , ".tmp_source.zig:1:23: error: use of undeclared identifier 'bogus'");
 
     cases.add("for loop missing element param",
@@ -1391,7 +1410,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\    const a = maybeInt() ?? return;
         \\}
         \\
-        \\fn canFail() %void { }
+        \\fn canFail() error!void { }
         \\
         \\pub fn maybeInt() ?i32 {
         \\    return 0;
@@ -1521,7 +1540,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\export fn foo() void {
         \\    bar() catch unreachable;
         \\}
-        \\fn bar() %i32 { return 0; }
+        \\fn bar() error!i32 { return 0; }
     , ".tmp_source.zig:2:11: error: expression value is ignored");
 
     cases.add("ignored statement value",
@@ -1552,7 +1571,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\export fn foo() void {
         \\    defer bar();
         \\}
-        \\fn bar() %i32 { return 0; }
+        \\fn bar() error!i32 { return 0; }
     , ".tmp_source.zig:2:14: error: expression value is ignored");
 
     cases.add("dereference an array",
@@ -1619,13 +1638,12 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
     , ".tmp_source.zig:2:21: error: expected pointer, found 'usize'");
 
     cases.add("too many error values to cast to small integer",
-        \\error A; error B; error C; error D; error E; error F; error G; error H;
-        \\const u2 = @IntType(false, 2);
-        \\fn foo(e: error) u2 {
+        \\const Error = error { A, B, C, D, E, F, G, H };
+        \\fn foo(e: Error) u2 {
         \\    return u2(e);
         \\}
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
-    , ".tmp_source.zig:4:14: error: too many error values to fit in 'u2'");
+    , ".tmp_source.zig:3:14: error: too many error values to fit in 'u2'");
 
     cases.add("asm at compile time",
         \\comptime {
@@ -1808,9 +1826,9 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\export fn foo() void {
         \\    while (bar()) {}
         \\}
-        \\fn bar() %i32 { return 1; }
+        \\fn bar() error!i32 { return 1; }
     ,
-        ".tmp_source.zig:2:15: error: expected type 'bool', found '%i32'");
+        ".tmp_source.zig:2:15: error: expected type 'bool', found 'error!i32'");
 
     cases.add("while expected nullable, got bool",
         \\export fn foo() void {
@@ -1824,9 +1842,9 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\export fn foo() void {
         \\    while (bar()) |x| {}
         \\}
-        \\fn bar() %i32 { return 1; }
+        \\fn bar() error!i32 { return 1; }
     ,
-        ".tmp_source.zig:2:15: error: expected nullable type, found '%i32'");
+        ".tmp_source.zig:2:15: error: expected nullable type, found 'error!i32'");
 
     cases.add("while expected error union, got bool",
         \\export fn foo() void {

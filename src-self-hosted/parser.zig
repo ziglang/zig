@@ -12,8 +12,6 @@ const io = std.io;
 // get rid of this
 const warn = std.debug.warn;
 
-error ParseError;
-
 pub const Parser = struct {
     allocator: &mem.Allocator,
     tokenizer: &Tokenizer,
@@ -555,7 +553,7 @@ pub const Parser = struct {
     }
 
     fn createVarDecl(self: &Parser, visib_token: &const ?Token, mut_token: &const Token, comptime_token: &const ?Token,
-        extern_token: &const ?Token) %&ast.NodeVarDecl
+        extern_token: &const ?Token) !&ast.NodeVarDecl
     {
         const node = try self.allocator.create(ast.NodeVarDecl);
 
@@ -577,7 +575,7 @@ pub const Parser = struct {
     }
 
     fn createFnProto(self: &Parser, fn_token: &const Token, extern_token: &const ?Token,
-        cc_token: &const ?Token, visib_token: &const ?Token, inline_token: &const ?Token) %&ast.NodeFnProto
+        cc_token: &const ?Token, visib_token: &const ?Token, inline_token: &const ?Token) !&ast.NodeFnProto
     {
         const node = try self.allocator.create(ast.NodeFnProto);
 
@@ -694,7 +692,7 @@ pub const Parser = struct {
 
     fn createAttachFnProto(self: &Parser, list: &ArrayList(&ast.Node), fn_token: &const Token,
         extern_token: &const ?Token, cc_token: &const ?Token, visib_token: &const ?Token,
-        inline_token: &const ?Token) %&ast.NodeFnProto
+        inline_token: &const ?Token) !&ast.NodeFnProto
     {
         const node = try self.createFnProto(fn_token, extern_token, cc_token, visib_token, inline_token);
         try list.append(&node.base);
@@ -702,7 +700,7 @@ pub const Parser = struct {
     }
 
     fn createAttachVarDecl(self: &Parser, list: &ArrayList(&ast.Node), visib_token: &const ?Token,
-        mut_token: &const Token, comptime_token: &const ?Token, extern_token: &const ?Token) %&ast.NodeVarDecl
+        mut_token: &const Token, comptime_token: &const ?Token, extern_token: &const ?Token) !&ast.NodeVarDecl
     {
         const node = try self.createVarDecl(visib_token, mut_token, comptime_token, extern_token);
         try list.append(&node.base);
@@ -763,7 +761,7 @@ pub const Parser = struct {
         indent: usize,
     };
 
-    pub fn renderAst(self: &Parser, stream: &std.io.OutStream, root_node: &ast.NodeRoot) !void {
+    pub fn renderAst(self: &Parser, stream: var, root_node: &ast.NodeRoot) !void {
         var stack = self.initUtilityArrayList(RenderAstFrame);
         defer self.deinitUtilityArrayList(stack);
 
@@ -802,7 +800,7 @@ pub const Parser = struct {
         Indent: usize,
     };
 
-    pub fn renderSource(self: &Parser, stream: &std.io.OutStream, root_node: &ast.NodeRoot) !void {
+    pub fn renderSource(self: &Parser, stream: var, root_node: &ast.NodeRoot) !void {
         var stack = self.initUtilityArrayList(RenderState);
         defer self.deinitUtilityArrayList(stack);
 
@@ -1057,10 +1055,6 @@ fn testParse(source: []const u8, allocator: &mem.Allocator) ![]u8 {
     try parser.renderSource(&buffer_out_stream.stream, tree.root_node);
     return buffer.toOwnedSlice();
 }
-
-error TestFailed;
-error NondeterministicMemoryUsage;
-error MemoryLeakDetected;
 
 // TODO test for memory leaks
 // TODO test for valid frees
