@@ -560,6 +560,7 @@ enum CastOp {
     CastOpResizeSlice,
     CastOpBytesToSlice,
     CastOpNumLitToConcrete,
+    CastOpErrSet,
 };
 
 struct AstNodeFnCallExpr {

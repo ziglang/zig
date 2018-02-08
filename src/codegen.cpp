@@ -2081,6 +2081,9 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
             assert(wanted_type->id == TypeTableEntryIdInt);
             assert(actual_type->id == TypeTableEntryIdBool);
             return LLVMBuildZExt(g->builder, expr_val, wanted_type->type_ref, "");
+        case CastOpErrSet:
+            // TODO runtime safety for error casting
+            return expr_val;
     }
     zig_unreachable();
 }

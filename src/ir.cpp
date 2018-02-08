@@ -7584,6 +7584,8 @@ static void eval_const_expr_implicit_cast(CastOp cast_op,
     switch (cast_op) {
         case CastOpNoCast:
             zig_unreachable();
+        case CastOpErrSet:
+            zig_panic("TODO");
         case CastOpNoop:
             {
                 copy_const_val(const_val, other_val, other_val->special == ConstValSpecialStatic);
@@ -8039,52 +8041,35 @@ static IrInstruction *ir_analyze_err_wrap_payload(IrAnalyze *ira, IrInstruction 
     return result;
 }
 
-// TODO this is an explicit cast and should actually coerce the type
 static IrInstruction *ir_analyze_err_set_cast(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value,
         TypeTableEntry *wanted_type)
 {
-    TypeTableEntry *contained_set = value->value.type;
-    TypeTableEntry *container_set = wanted_type;
-    
-    assert(contained_set->id == TypeTableEntryIdErrorSet);
-    assert(container_set->id == TypeTableEntryIdErrorSet);
-
-    zig_panic("TODO explicit error set cast");
-
-    if (container_set->data.error_set.infer_fn == nullptr &&
-        !type_is_global_error_set(container_set))
-    {
-        ErrorTableEntry **errors = allocate<ErrorTableEntry *>(ira->codegen->errors_by_index.length);
-        for (uint32_t i = 0; i < container_set->data.error_set.err_count; i += 1) {
-            ErrorTableEntry *error_entry = container_set->data.error_set.errors[i];
-            assert(errors[error_entry->value] == nullptr);
-            errors[error_entry->value] = error_entry;
-        }
-        ErrorMsg *err_msg = nullptr;
-        for (uint32_t i = 0; i < contained_set->data.error_set.err_count; i += 1) {
-            ErrorTableEntry *contained_error_entry = contained_set->data.error_set.errors[i];
-            ErrorTableEntry *error_entry = errors[contained_error_entry->value];
-            if (error_entry == nullptr) {
-                if (err_msg == nullptr) {
-                    err_msg = ir_add_error(ira, source_instr,
-                        buf_sprintf("invalid cast of error set '%s' to error set '%s'",
-                            buf_ptr(&contained_set->name), buf_ptr(&container_set->name)));
-                }
-                add_error_note(ira->codegen, err_msg, contained_error_entry->decl_node,
-                    buf_sprintf("'%s.%s' not present in '%s'", buf_ptr(&contained_set->name),
-                        buf_ptr(&contained_error_entry->name), buf_ptr(&container_set->name)));
-            }
-        }
-        free(errors);
-        if (err_msg != nullptr) {
-            return ira->codegen->invalid_instruction;
-        }
-    }
+    assert(value->value.type->id == TypeTableEntryIdErrorSet);
+    assert(wanted_type->id == TypeTableEntryIdErrorSet);
 
     if (instr_is_comptime(value)) {
         ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
         if (!val)
             return ira->codegen->invalid_instruction;
+
+        if (!resolve_inferred_error_set(ira, wanted_type, source_instr->source_node)) {
+            return ira->codegen->invalid_instruction;
+        }
+        if (!type_is_global_error_set(wanted_type)) {
+            bool subset = false;
+            for (uint32_t i = 0, count = wanted_type->data.error_set.err_count; i < count; i += 1) {
+                if (wanted_type->data.error_set.errors[i]->value == val->data.x_err_set->value) {
+                    subset = true;
+                    break;
+                }
+            }
+            if (!subset) {
+                ir_add_error(ira, source_instr,
+                    buf_sprintf("error.%s not a member of error set '%s'",
+                        buf_ptr(&val->data.x_err_set->name), buf_ptr(&wanted_type->name)));
+                return ira->codegen->invalid_instruction;
+            }
+        }
 
         IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(&ira->new_irb,
                 source_instr->scope, source_instr->source_node);
@@ -8094,7 +8079,7 @@ static IrInstruction *ir_analyze_err_set_cast(IrAnalyze *ira, IrInstruction *sou
         return &const_instruction->base;
     }
 
-    IrInstruction *result = ir_build_cast(&ira->new_irb, source_instr->scope, source_instr->source_node, wanted_type, value, CastOpNoop);
+    IrInstruction *result = ir_build_cast(&ira->new_irb, source_instr->scope, source_instr->source_node, wanted_type, value, CastOpErrSet);
     result->value.type = wanted_type;
     return result;
 }
