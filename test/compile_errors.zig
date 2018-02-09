@@ -1,6 +1,38 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("implicit cast of error set not a subset",
+        \\const Set1 = error{A, B};
+        \\const Set2 = error{A, C};
+        \\export fn entry() void {
+        \\    foo(Set1.B);
+        \\}
+        \\fn foo(set1: Set1) void {
+        \\    var x: Set2 = set1;
+        \\}
+    ,
+        ".tmp_source.zig:7:19: error: expected 'Set2', found 'Set1'",
+        ".tmp_source.zig:1:23: note: 'error.B' not a member of destination error set");
+
+    cases.add("int to err global invalid number",
+        \\const Set1 = error{A, B};
+        \\comptime {
+        \\    var x: usize = 3;
+        \\    var y = error(x);
+        \\}
+    ,
+        ".tmp_source.zig:4:18: error: integer value 3 represents no error");
+
+    cases.add("int to err non global invalid number",
+        \\const Set1 = error{A, B};
+        \\const Set2 = error{A, C};
+        \\comptime {
+        \\    var x = usize(Set1.B);
+        \\    var y = Set2(x);
+        \\}
+    ,
+        ".tmp_source.zig:5:17: error: integer value 2 represents no error in 'Set2'");
+
     cases.add("@memberCount of error",
         \\comptime {
         \\    _ = @memberCount(error);

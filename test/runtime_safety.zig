@@ -220,7 +220,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\}
     );
 
-    cases.addRuntimeSafety("cast integer to error and no code matches",
+    cases.addRuntimeSafety("cast integer to global error and no code matches",
         \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
         \\    @import("std").os.exit(126);
         \\}
@@ -229,6 +229,20 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\}
         \\fn bar(x: u32) error {
         \\    return error(x);
+        \\}
+    );
+
+    cases.addRuntimeSafety("cast integer to non-global error set and no match",
+        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
+        \\    @import("std").os.exit(126);
+        \\}
+        \\const Set1 = error{A, B};
+        \\const Set2 = error{A, C};
+        \\pub fn main() void {
+        \\    _ = foo(Set1.B);
+        \\}
+        \\fn foo(set1: Set1) Set2 {
+        \\    return Set2(set1);
         \\}
     );
 

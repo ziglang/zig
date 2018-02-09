@@ -8505,19 +8505,49 @@ static IrInstruction *ir_analyze_int_to_err(IrAnalyze *ira, IrInstruction *sourc
         IrInstruction *result = ir_create_const(&ira->new_irb, source_instr->scope,
                 source_instr->source_node, wanted_type);
 
-        BigInt err_count;
-        bigint_init_unsigned(&err_count, ira->codegen->errors_by_index.length);
-        if (bigint_cmp_zero(&val->data.x_bigint) == CmpEQ || bigint_cmp(&val->data.x_bigint, &err_count) != CmpLT) {
-            Buf *val_buf = buf_alloc();
-            bigint_append_buf(val_buf, &val->data.x_bigint, 10);
-            ir_add_error(ira, source_instr,
-                buf_sprintf("integer value %s represents no error", buf_ptr(val_buf)));
+        if (!resolve_inferred_error_set(ira, wanted_type, source_instr->source_node)) {
             return ira->codegen->invalid_instruction;
         }
 
-        size_t index = bigint_as_unsigned(&val->data.x_bigint);
-        result->value.data.x_err_set = ira->codegen->errors_by_index.at(index);
-        return result;
+        if (type_is_global_error_set(wanted_type)) {
+            BigInt err_count;
+            bigint_init_unsigned(&err_count, ira->codegen->errors_by_index.length);
+
+            if (bigint_cmp_zero(&val->data.x_bigint) == CmpEQ || bigint_cmp(&val->data.x_bigint, &err_count) != CmpLT) {
+                Buf *val_buf = buf_alloc();
+                bigint_append_buf(val_buf, &val->data.x_bigint, 10);
+                ir_add_error(ira, source_instr,
+                    buf_sprintf("integer value %s represents no error", buf_ptr(val_buf)));
+                return ira->codegen->invalid_instruction;
+            }
+
+            size_t index = bigint_as_unsigned(&val->data.x_bigint);
+            result->value.data.x_err_set = ira->codegen->errors_by_index.at(index);
+            return result;
+        } else {
+            ErrorTableEntry *err = nullptr;
+            BigInt err_int;
+
+            for (uint32_t i = 0, count = wanted_type->data.error_set.err_count; i < count; i += 1) {
+                ErrorTableEntry *this_err = wanted_type->data.error_set.errors[i];
+                bigint_init_unsigned(&err_int, this_err->value);
+                if (bigint_cmp(&val->data.x_bigint, &err_int) == CmpEQ) {
+                    err = this_err;
+                    break;
+                }
+            }
+
+            if (err == nullptr) {
+                Buf *val_buf = buf_alloc();
+                bigint_append_buf(val_buf, &val->data.x_bigint, 10);
+                ir_add_error(ira, source_instr,
+                    buf_sprintf("integer value %s represents no error in '%s'", buf_ptr(val_buf), buf_ptr(&wanted_type->name)));
+                return ira->codegen->invalid_instruction;
+            }
+
+            result->value.data.x_err_set = err;
+            return result;
+        }
     }
 
     IrInstruction *result = ir_build_int_to_err(&ira->new_irb, source_instr->scope, source_instr->source_node, target);

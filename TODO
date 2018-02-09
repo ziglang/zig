@@ -17,10 +17,6 @@ you can get the compiler to tell you the possible errors for an inferred error s
 
 foo() catch |err| switch (err) {};
 
-// TODO this is an explicit cast and should actually coerce the type
-   erorr set casting
-   // add a runtime safety check
-
 
 test err should be comptime if error set has 0 members
 

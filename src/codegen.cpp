@@ -1958,6 +1958,54 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, IrExecutable *executable,
     zig_unreachable();
 }
 
+static void add_error_range_check(CodeGen *g, TypeTableEntry *err_set_type, TypeTableEntry *int_type, LLVMValueRef target_val) {
+    assert(err_set_type->id == TypeTableEntryIdErrorSet);
+
+    if (type_is_global_error_set(err_set_type)) {
+        LLVMValueRef zero = LLVMConstNull(int_type->type_ref);
+        LLVMValueRef neq_zero_bit = LLVMBuildICmp(g->builder, LLVMIntNE, target_val, zero, "");
+        LLVMValueRef ok_bit;
+
+        BigInt biggest_possible_err_val = {0};
+        eval_min_max_value_int(g, int_type, &biggest_possible_err_val, true);
+
+        if (bigint_fits_in_bits(&biggest_possible_err_val, 64, false) &&
+            bigint_as_unsigned(&biggest_possible_err_val) < g->errors_by_index.length)
+        {
+            ok_bit = neq_zero_bit;
+        } else {
+            LLVMValueRef error_value_count = LLVMConstInt(int_type->type_ref, g->errors_by_index.length, false);
+            LLVMValueRef in_bounds_bit = LLVMBuildICmp(g->builder, LLVMIntULT, target_val, error_value_count, "");
+            ok_bit = LLVMBuildAnd(g->builder, neq_zero_bit, in_bounds_bit, "");
+        }
+
+        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "IntToErrOk");
+        LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "IntToErrFail");
+
+        LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
+
+        LLVMPositionBuilderAtEnd(g->builder, fail_block);
+        gen_safety_crash(g, PanicMsgIdInvalidErrorCode);
+
+        LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    } else {
+        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "IntToErrOk");
+        LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "IntToErrFail");
+
+        uint32_t err_count = err_set_type->data.error_set.err_count;
+        LLVMValueRef switch_instr = LLVMBuildSwitch(g->builder, target_val, fail_block, err_count);
+        for (uint32_t i = 0; i < err_count; i += 1) {
+            LLVMValueRef case_value = LLVMConstInt(g->err_tag_type->type_ref, err_set_type->data.error_set.errors[i]->value, false);
+            LLVMAddCase(switch_instr, case_value, ok_block);
+        }
+
+        LLVMPositionBuilderAtEnd(g->builder, fail_block);
+        gen_safety_crash(g, PanicMsgIdInvalidErrorCode);
+
+        LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    }
+}
+
 static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
         IrInstructionCast *cast_instruction)
 {
@@ -2082,7 +2130,9 @@ static LLVMValueRef ir_render_cast(CodeGen *g, IrExecutable *executable,
             assert(actual_type->id == TypeTableEntryIdBool);
             return LLVMBuildZExt(g->builder, expr_val, wanted_type->type_ref, "");
         case CastOpErrSet:
-            // TODO runtime safety for error casting
+            if (ir_want_runtime_safety(g, &cast_instruction->base)) {
+                add_error_range_check(g, wanted_type, g->err_tag_type, expr_val);
+            }
             return expr_val;
     }
     zig_unreachable();
@@ -2154,32 +2204,7 @@ static LLVMValueRef ir_render_int_to_err(CodeGen *g, IrExecutable *executable, I
     LLVMValueRef target_val = ir_llvm_value(g, instruction->target);
 
     if (ir_want_runtime_safety(g, &instruction->base)) {
-        LLVMValueRef zero = LLVMConstNull(actual_type->type_ref);
-        LLVMValueRef neq_zero_bit = LLVMBuildICmp(g->builder, LLVMIntNE, target_val, zero, "");
-        LLVMValueRef ok_bit;
-
-        BigInt biggest_possible_err_val = {0};
-        eval_min_max_value_int(g, actual_type, &biggest_possible_err_val, true);
-
-        if (bigint_fits_in_bits(&biggest_possible_err_val, 64, false) &&
-            bigint_as_unsigned(&biggest_possible_err_val) < g->errors_by_index.length)
-        {
-            ok_bit = neq_zero_bit;
-        } else {
-            LLVMValueRef error_value_count = LLVMConstInt(actual_type->type_ref, g->errors_by_index.length, false);
-            LLVMValueRef in_bounds_bit = LLVMBuildICmp(g->builder, LLVMIntULT, target_val, error_value_count, "");
-            ok_bit = LLVMBuildAnd(g->builder, neq_zero_bit, in_bounds_bit, "");
-        }
-
-        LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(g->cur_fn_val, "IntToErrOk");
-        LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(g->cur_fn_val, "IntToErrFail");
-
-        LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
-
-        LLVMPositionBuilderAtEnd(g->builder, fail_block);
-        gen_safety_crash(g, PanicMsgIdInvalidErrorCode);
-
-        LLVMPositionBuilderAtEnd(g->builder, ok_block);
+        add_error_range_check(g, wanted_type, actual_type, target_val);
     }
 
     return gen_widen_or_shorten(g, false, actual_type, g->err_tag_type, target_val);
