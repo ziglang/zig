@@ -1,6 +1,157 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("inferred error set with no returned error",
+        \\export fn entry() void {
+        \\    foo() catch unreachable;
+        \\}
+        \\fn foo() !void {
+        \\}
+    ,
+        ".tmp_source.zig:4:11: error: function with inferred error set must return at least one possible error");
+
+    cases.add("error not handled in switch",
+        \\export fn entry() void {
+        \\    foo(452) catch |err| switch (err) {
+        \\        error.Foo => {},
+        \\    };
+        \\}
+        \\fn foo(x: i32) !void {
+        \\    switch (x) {
+        \\        0 ... 10 => return error.Foo,
+        \\        11 ... 20 => return error.Bar,
+        \\        21 ... 30 => return error.Baz,
+        \\        else => {},
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:2:26: error: error.Baz not handled in switch",
+        ".tmp_source.zig:2:26: error: error.Bar not handled in switch");
+
+    cases.add("duplicate error in switch",
+        \\export fn entry() void {
+        \\    foo(452) catch |err| switch (err) {
+        \\        error.Foo => {},
+        \\        error.Bar => {},
+        \\        error.Foo => {},
+        \\        else => {},
+        \\    };
+        \\}
+        \\fn foo(x: i32) !void {
+        \\    switch (x) {
+        \\        0 ... 10 => return error.Foo,
+        \\        11 ... 20 => return error.Bar,
+        \\        else => {},
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:5:14: error: duplicate switch value: '@typeOf(foo).ReturnType.ErrorSet.Foo'",
+        ".tmp_source.zig:3:14: note: other value is here");
+
+    cases.add("range operator in switch used on error set",
+        \\export fn entry() void {
+        \\    try foo(452) catch |err| switch (err) {
+        \\        error.A ... error.B => {},
+        \\        else => {},
+        \\    };
+        \\}
+        \\fn foo(x: i32) !void {
+        \\    switch (x) {
+        \\        0 ... 10 => return error.Foo,
+        \\        11 ... 20 => return error.Bar,
+        \\        else => {},
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:3:17: error: operator not allowed for errors");
+
+    cases.add("inferring error set of function pointer",
+        \\comptime {
+        \\    const z: ?fn()!void = null;
+        \\}
+    ,
+        ".tmp_source.zig:2:15: error: inferring error set of return type valid only for function definitions");
+
+    cases.add("access non-existent member of error set",
+        \\const Foo = error{A};
+        \\comptime {
+        \\    const z = Foo.Bar;
+        \\}
+    ,
+        ".tmp_source.zig:3:18: error: no error named 'Bar' in 'Foo'");
+
+    cases.add("error union operator with non error set LHS",
+        \\comptime {
+        \\    const z = i32!i32;
+        \\}
+    ,
+        ".tmp_source.zig:2:15: error: expected error set type, found type 'i32'");
+
+    cases.add("error equality but sets have no common members",
+        \\const Set1 = error{A, C};
+        \\const Set2 = error{B, D};
+        \\export fn entry() void {
+        \\    foo(Set1.A);
+        \\}
+        \\fn foo(x: Set1) void {
+        \\    if (x == Set2.B) {
+        \\
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:7:11: error: error sets 'Set1' and 'Set2' have no common errors");
+
+    cases.add("only equality binary operator allowed for error sets",
+        \\comptime {
+        \\    const z = error.A > error.B;
+        \\}
+    ,
+        ".tmp_source.zig:2:23: error: operator not allowed for errors");
+
+    cases.add("explicit error set cast known at comptime violates error sets",
+        \\const Set1 = error {A, B};
+        \\const Set2 = error {A, C};
+        \\comptime {
+        \\    var x = Set1.B;
+        \\    var y = Set2(x);
+        \\}
+    ,
+        ".tmp_source.zig:5:17: error: error.B not a member of error set 'Set2'");
+
+    cases.add("cast error union of global error set to error union of smaller error set",
+        \\const SmallErrorSet = error{A};
+        \\export fn entry() void {
+        \\    var x: SmallErrorSet!i32 = foo();
+        \\}
+        \\fn foo() error!i32 {
+        \\    return error.B;
+        \\}
+    ,
+        ".tmp_source.zig:3:35: error: expected 'SmallErrorSet!i32', found 'error!i32'",
+        ".tmp_source.zig:3:35: note: unable to cast global error set into smaller set");
+
+    cases.add("cast global error set to error set",
+        \\const SmallErrorSet = error{A};
+        \\export fn entry() void {
+        \\    var x: SmallErrorSet = foo();
+        \\}
+        \\fn foo() error {
+        \\    return error.B;
+        \\}
+    ,
+        ".tmp_source.zig:3:31: error: expected 'SmallErrorSet', found 'error'",
+        ".tmp_source.zig:3:31: note: unable to cast global error set into smaller set");
+
+    cases.add("recursive inferred error set",
+        \\export fn entry() void {
+        \\    foo() catch unreachable;
+        \\}
+        \\fn foo() !void {
+        \\    try foo();
+        \\}
+    ,
+        ".tmp_source.zig:5:5: error: cannot resolve inferred error set '@typeOf(foo).ReturnType.ErrorSet': function 'foo' not fully analyzed yet");
+
     cases.add("implicit cast of error set not a subset",
         \\const Set1 = error{A, B};
         \\const Set2 = error{A, C};
