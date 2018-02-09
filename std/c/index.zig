@@ -20,7 +20,7 @@ pub extern "c" fn open(path: &const u8, oflag: c_int, ...) c_int;
 pub extern "c" fn raise(sig: c_int) c_int;
 pub extern "c" fn read(fd: c_int, buf: &c_void, nbyte: usize) isize;
 pub extern "c" fn stat(noalias path: &const u8, noalias buf: &Stat) c_int;
-pub extern "c" fn write(fd: c_int, buf: &const c_void, nbyte: usize) c_int;
+pub extern "c" fn write(fd: c_int, buf: &const c_void, nbyte: usize) isize;
 pub extern "c" fn mmap(addr: ?&c_void, len: usize, prot: c_int, flags: c_int,
     fd: c_int, offset: isize) ?&c_void;
 pub extern "c" fn munmap(addr: &c_void, len: usize) c_int;
