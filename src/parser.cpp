@@ -1041,7 +1041,7 @@ static AstNode *ast_parse_addr_of(ParseContext *pc, size_t *token_index) {
 }
 
 /*
-PrefixOpExpression : PrefixOp PrefixOpExpression | SuffixOpExpression
+PrefixOpExpression = PrefixOp ErrorSetExpr | SuffixOpExpression
 PrefixOp = "!" | "-" | "~" | "*" | ("&" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "??" | "-%" | "try"
 */
 static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
@@ -1072,7 +1072,7 @@ static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, size_t *token_index, 
         node->column += 1;
     }
 
-    AstNode *prefix_op_expr = ast_parse_prefix_op_expr(pc, token_index, true);
+    AstNode *prefix_op_expr = ast_parse_error_set_expr(pc, token_index, true);
     node->data.prefix_op_expr.primary_expr = prefix_op_expr;
     node->data.prefix_op_expr.prefix_op = prefix_op;
 

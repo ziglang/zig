@@ -2,15 +2,9 @@ comptime calling fn with inferred error set should give empty error set but stil
 
 comptime err to int of empty err set and of size 1 err set
 
-comptime test for err
-
 
 undefined in infer error 
 
-syntax -  ?a!b  should be ?(a!b) but it's (?a)!b
-
 syntax - (error{}!void) as the return type
 
-
-passing a fn()error{}!T to a fn()error!T should be a compile error, they're not compatible
 

@@ -5743,7 +5743,7 @@ CurlySuffixExpression = TypeExpr option(ContainerInitExpression)
 
 MultiplyOperator = "||" | "*" | "/" | "%" | "**" | "*%"
 
-PrefixOpExpression = PrefixOp PrefixOpExpression | SuffixOpExpression
+PrefixOpExpression = PrefixOp ErrorSetExpr | SuffixOpExpression
 
 SuffixOpExpression = PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
 
