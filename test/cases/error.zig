@@ -150,3 +150,28 @@ fn testErrToIntWithOnePossibleValue(x: error{A}, comptime value: u32) void {
         @compileError("bad");
     }
 }
+
+test "error union peer type resolution" {
+    testErrorUnionPeerTypeResolution(1);
+    comptime testErrorUnionPeerTypeResolution(1);
+}
+
+fn testErrorUnionPeerTypeResolution(x: i32) void {
+    const y = switch (x) {
+        1 => bar_1(),
+        2 => baz_1(),
+        else => quux_1(),
+    };
+}
+
+fn bar_1() error {
+    return error.A;
+}
+
+fn baz_1() !i32 {
+    return error.B;
+}
+
+fn quux_1() !i32 {
+    return error.C;
+}

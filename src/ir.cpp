@@ -7279,7 +7279,7 @@ static TypeTableEntry *ir_resolve_peer_types(IrAnalyze *ira, AstNode *source_nod
                     prev_inst = cur_inst;
                 }
 
-                TypeTableEntry *prev_err_set_type = prev_type->data.error_union.err_set_type;
+                TypeTableEntry *prev_err_set_type = (err_set_type == nullptr) ? prev_type->data.error_union.err_set_type : err_set_type;
                 TypeTableEntry *cur_err_set_type = cur_type->data.error_union.err_set_type;
 
                 if (!resolve_inferred_error_set(ira, prev_err_set_type, cur_inst->source_node)) {
