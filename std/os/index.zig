@@ -15,7 +15,6 @@ pub const posix = switch(builtin.os) {
     else => @compileError("Unsupported OS"),
 };
 
-pub const max_noalloc_path_len = 1024;
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
 pub const path = @import("path.zig");
 
@@ -265,32 +264,14 @@ pub const PosixOpenError = error {
     Unexpected,
 };
 
-/// ::file_path may need to be copied in memory to add a null terminating byte. In this case
-/// a fixed size buffer of size ::max_noalloc_path_len is an attempted solution. If the fixed
-/// size buffer is too small, and the provided allocator is null, ::error.NameTooLong is returned.
-/// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
+/// ::file_path needs to be copied in memory to add a null terminating byte.
 /// Calls POSIX open, keeps trying if it gets interrupted, and translates
 /// the return value into zig errors.
-pub fn posixOpen(file_path: []const u8, flags: u32, perm: usize, allocator: ?&Allocator) PosixOpenError!i32 {
-    var stack_buf: [max_noalloc_path_len]u8 = undefined;
-    var path0: []u8 = undefined;
-    var need_free = false;
+pub fn posixOpen(allocator: &Allocator, file_path: []const u8, flags: u32, perm: usize) PosixOpenError!i32 {
+    const path_with_null = try cstr.addNullByte(allocator, file_path);
+    defer allocator.free(path_with_null);
 
-    if (file_path.len < stack_buf.len) {
-        path0 = stack_buf[0..file_path.len + 1];
-    } else if (allocator) |a| {
-        path0 = try a.alloc(u8, file_path.len + 1);
-        need_free = true;
-    } else {
-        return error.NameTooLong;
-    }
-    defer if (need_free) {
-        (??allocator).free(path0);
-    };
-    mem.copy(u8, path0, file_path);
-    path0[file_path.len] = 0;
-
-    return posixOpenC(path0.ptr, flags, perm);
+    return posixOpenC(path_with_null.ptr, flags, perm);
 }
 
 pub fn posixOpenC(file_path: &const u8, flags: u32, perm: usize) !i32 {
@@ -784,11 +765,11 @@ pub fn copyFileMode(allocator: &Allocator, source_path: []const u8, dest_path: [
     try getRandomBytes(rand_buf[0..]);
     b64_fs_encoder.encode(tmp_path[dest_path.len..], rand_buf);
 
-    var out_file = try io.File.openWriteMode(tmp_path, mode, allocator);
+    var out_file = try io.File.openWriteMode(allocator, tmp_path, mode);
     defer out_file.close();
     errdefer _ = deleteFile(allocator, tmp_path);
 
-    var in_file = try io.File.openRead(source_path, allocator);
+    var in_file = try io.File.openRead(allocator, source_path);
     defer in_file.close();
 
     var buf: [page_size]u8 = undefined;
@@ -1074,7 +1055,7 @@ pub const Dir = struct {
     };
 
     pub fn open(allocator: &Allocator, dir_path: []const u8) !Dir {
-        const fd = try posixOpen(dir_path, posix.O_RDONLY|posix.O_DIRECTORY|posix.O_CLOEXEC, 0, allocator);
+        const fd = try posixOpen(allocator, dir_path, posix.O_RDONLY|posix.O_DIRECTORY|posix.O_CLOEXEC, 0);
         return Dir {
             .allocator = allocator,
             .fd = fd,
@@ -1642,13 +1623,16 @@ pub fn unexpectedErrorWindows(err: windows.DWORD) (error{Unexpected}) {
 pub fn openSelfExe() !io.File {
     switch (builtin.os) {
         Os.linux => {
-            return io.File.openRead("/proc/self/exe", null);
+            const proc_file_path = "/proc/self/exe";
+            var fixed_buffer_mem: [proc_file_path.len + 1]u8 = undefined;
+            var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+            return io.File.openRead(&fixed_allocator.allocator, proc_file_path);
         },
         Os.macosx, Os.ios => {
-            var fixed_buffer_mem: [darwin.PATH_MAX]u8 = undefined;
+            var fixed_buffer_mem: [darwin.PATH_MAX * 2]u8 = undefined;
             var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
             const self_exe_path = try selfExePath(&fixed_allocator.allocator);
-            return io.File.openRead(self_exe_path, null);
+            return io.File.openRead(&fixed_allocator.allocator, self_exe_path);
         },
         else => @compileError("Unsupported OS"),
     }

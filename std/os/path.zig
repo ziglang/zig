@@ -1161,7 +1161,7 @@ pub fn real(allocator: &Allocator, pathname: []const u8) ![]u8 {
             return allocator.shrink(u8, result_buf, cstr.len(result_buf.ptr));
         },
         Os.linux => {
-            const fd = try os.posixOpen(pathname, posix.O_PATH|posix.O_NONBLOCK|posix.O_CLOEXEC, 0, allocator);
+            const fd = try os.posixOpen(allocator, pathname, posix.O_PATH|posix.O_NONBLOCK|posix.O_CLOEXEC, 0);
             defer os.close(fd);
 
             var buf: ["/proc/self/fd/-2147483648".len]u8 = undefined;

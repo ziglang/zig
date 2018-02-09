@@ -1049,7 +1049,7 @@ pub const GenHContext = struct {
             warn("Test {}/{} {}...", self.test_index+1, self.context.test_index, self.name);
 
             const full_h_path = b.pathFromRoot(self.h_path);
-            const actual_h = try io.readFileAlloc(full_h_path, b.allocator);
+            const actual_h = try io.readFileAlloc(b.allocator, full_h_path);
 
             for (self.case.expected_lines.toSliceConst()) |expected_line| {
                 if (mem.indexOf(u8, actual_h, expected_line) == null) {

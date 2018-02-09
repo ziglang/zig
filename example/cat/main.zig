@@ -20,7 +20,7 @@ pub fn main() !void {
         } else if (arg[0] == '-') {
             return usage(exe);
         } else {
-            var file = io.File.openRead(arg, null) catch |err| {
+            var file = io.File.openRead(allocator, arg) catch |err| {
                 warn("Unable to open file: {}\n", @errorName(err));
                 return err;
             };

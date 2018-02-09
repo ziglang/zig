@@ -213,7 +213,7 @@ pub const Module = struct {
         };
         errdefer self.allocator.free(root_src_real_path);
 
-        const source_code = io.readFileAllocExtra(root_src_real_path, self.allocator, 3) catch |err| {
+        const source_code = io.readFileAllocExtra(self.allocator, root_src_real_path, 3) catch |err| {
             try printError("unable to open '{}': {}", root_src_real_path, err);
             return err;
         };

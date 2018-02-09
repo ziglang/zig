@@ -16,15 +16,6 @@ const c = @import("c.zig");
 
 const default_zig_cache_name = "zig-cache";
 
-pub fn main() !void {
-    main2() catch |err| {
-        if (err != error.InvalidCommandLineArguments) {
-            warn("{}\n", @errorName(err));
-        }
-        return err;
-    };
-}
-
 const Cmd = enum {
     None,
     Build,
@@ -35,20 +26,24 @@ const Cmd = enum {
     Targets,
 };
 
-fn badArgs(comptime format: []const u8, args: ...) error {
-    var stderr = try io.getStdErr();
+fn badArgs(comptime format: []const u8, args: ...) noreturn {
+    var stderr = io.getStdErr() catch std.os.exit(1);
     var stderr_stream_adapter = io.FileOutStream.init(&stderr);
     const stderr_stream = &stderr_stream_adapter.stream;
-    try stderr_stream.print(format ++ "\n\n", args);
-    try printUsage(&stderr_stream_adapter.stream);
-    return error.InvalidCommandLineArguments;
+    stderr_stream.print(format ++ "\n\n", args) catch std.os.exit(1);
+    printUsage(&stderr_stream_adapter.stream) catch std.os.exit(1);
+    std.os.exit(1);
 }
 
-pub fn main2() !void {
+pub fn main() !void {
     const allocator = std.heap.c_allocator;
 
     const args = try os.argsAlloc(allocator);
     defer os.argsFree(allocator, args);
+
+    if (args.len >= 2 and mem.eql(u8, args[1], "fmt")) {
+        return fmtMain(allocator, args[2..]);
+    }
 
     var cmd = Cmd.None;
     var build_kind: Module.Kind = undefined;
@@ -169,7 +164,7 @@ pub fn main2() !void {
             } else if (mem.eql(u8, arg, "--pkg-end")) {
                 @panic("TODO --pkg-end");
             } else if (arg_i + 1 >= args.len) {
-                return badArgs("expected another argument after {}", arg);
+                badArgs("expected another argument after {}", arg);
             } else {
                 arg_i += 1;
                 if (mem.eql(u8, arg, "--output")) {
@@ -184,7 +179,7 @@ pub fn main2() !void {
                     } else if (mem.eql(u8, args[arg_i], "off")) {
                         color = ErrColor.Off;
                     } else {
-                        return badArgs("--color options are 'auto', 'on', or 'off'");
+                        badArgs("--color options are 'auto', 'on', or 'off'");
                     }
                 } else if (mem.eql(u8, arg, "--emit")) {
                     if (mem.eql(u8, args[arg_i], "asm")) {
@@ -194,7 +189,7 @@ pub fn main2() !void {
                     } else if (mem.eql(u8, args[arg_i], "llvm-ir")) {
                         emit_file_type = Emit.LlvmIr;
                     } else {
-                        return badArgs("--emit options are 'asm', 'bin', or 'llvm-ir'");
+                        badArgs("--emit options are 'asm', 'bin', or 'llvm-ir'");
                     }
                 } else if (mem.eql(u8, arg, "--name")) {
                     out_name_arg = args[arg_i];
@@ -262,7 +257,7 @@ pub fn main2() !void {
                 } else if (mem.eql(u8, arg, "--test-cmd")) {
                     @panic("TODO --test-cmd");
                 } else {
-                    return badArgs("invalid argument: {}", arg);
+                    badArgs("invalid argument: {}", arg);
                 }
             }
         } else if (cmd == Cmd.None) {
@@ -285,18 +280,18 @@ pub fn main2() !void {
                 cmd = Cmd.Test;
                 build_kind = Module.Kind.Exe;
             } else {
-                return badArgs("unrecognized command: {}", arg);
+                badArgs("unrecognized command: {}", arg);
             }
         } else switch (cmd) {
             Cmd.Build, Cmd.TranslateC, Cmd.Test => {
                 if (in_file_arg == null) {
                     in_file_arg = arg;
                 } else {
-                    return badArgs("unexpected extra parameter: {}", arg);
+                    badArgs("unexpected extra parameter: {}", arg);
                 }
             },
             Cmd.Version, Cmd.Zen, Cmd.Targets => {
-                return badArgs("unexpected extra parameter: {}", arg);
+                badArgs("unexpected extra parameter: {}", arg);
             },
             Cmd.None => unreachable,
         }
@@ -333,15 +328,15 @@ pub fn main2() !void {
 //    }
 
     switch (cmd) {
-        Cmd.None => return badArgs("expected command"),
+        Cmd.None => badArgs("expected command"),
         Cmd.Zen => return printZen(),
         Cmd.Build, Cmd.Test, Cmd.TranslateC => {
             if (cmd == Cmd.Build and in_file_arg == null and objects.len == 0 and asm_files.len == 0) {
-                return badArgs("expected source file argument or at least one --object or --assembly argument");
+                badArgs("expected source file argument or at least one --object or --assembly argument");
             } else if ((cmd == Cmd.TranslateC or cmd == Cmd.Test) and in_file_arg == null) {
-                return badArgs("expected source file argument");
+                badArgs("expected source file argument");
             } else if (cmd == Cmd.Build and build_kind == Module.Kind.Obj and objects.len != 0) {
-                return badArgs("When building an object file, --object arguments are invalid");
+                badArgs("When building an object file, --object arguments are invalid");
             }
 
             const root_name = switch (cmd) {
@@ -351,9 +346,9 @@ pub fn main2() !void {
                     } else if (in_file_arg) |in_file_path| {
                         const basename = os.path.basename(in_file_path);
                         var it = mem.split(basename, ".");
-                        break :x it.next() ?? return badArgs("file name cannot be empty");
+                        break :x it.next() ?? badArgs("file name cannot be empty");
                     } else {
-                        return badArgs("--name [name] not provided and unable to infer");
+                        badArgs("--name [name] not provided and unable to infer");
                     }
                 },
                 Cmd.Test => "test",
@@ -428,7 +423,7 @@ pub fn main2() !void {
             module.linker_rdynamic = rdynamic;
 
             if (mmacosx_version_min != null and mios_version_min != null) {
-                return badArgs("-mmacosx-version-min and -mios-version-min options not allowed together");
+                badArgs("-mmacosx-version-min and -mios-version-min options not allowed together");
             }
 
             if (mmacosx_version_min) |ver| {
@@ -477,6 +472,7 @@ fn printUsage(stream: var) !void {
         \\  build-exe [source]           create executable from source or object files
         \\  build-lib [source]           create library from source or object files
         \\  build-obj [source]           create object from source or assembly
+        \\  fmt [file]                   parse file and render in canonical zig format
         \\  translate-c [source]         convert c code to zig code
         \\  targets                      list available compilation targets
         \\  test [source]                create and run a test build
@@ -564,6 +560,15 @@ fn printZen() !void {
     );
 }
 
+fn fmtMain(allocator: &mem.Allocator, file_paths: []const []const u8) !void {
+    for (file_paths) |file_path| {
+        var file = try io.File.openRead(allocator, file_path);
+        defer file.close();
+
+        warn("opened {} (todo tokenize and parse and render)\n", file_path);
+    }
+}
+
 /// Caller must free result
 fn resolveZigLibDir(allocator: &mem.Allocator, zig_install_prefix_arg: ?[]const u8) ![]u8 {
     if (zig_install_prefix_arg) |zig_install_prefix| {
@@ -588,7 +593,7 @@ fn testZigInstallPrefix(allocator: &mem.Allocator, test_path: []const u8) ![]u8 
     const test_index_file = try os.path.join(allocator, test_zig_dir, "std", "index.zig");
     defer allocator.free(test_index_file);
 
-    var file = try io.File.openRead(test_index_file, allocator);
+    var file = try io.File.openRead(allocator, test_index_file);
     file.close();
 
     return test_zig_dir;

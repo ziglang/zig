@@ -1890,7 +1890,7 @@ pub const WriteFileStep = struct {
             warn("unable to make path {}: {}\n", full_path_dir, @errorName(err));
             return err;
         };
-        io.writeFile(full_path, self.data, self.builder.allocator) catch |err| {
+        io.writeFile(self.builder.allocator, full_path, self.data) catch |err| {
             warn("unable to write {}: {}\n", full_path, @errorName(err));
             return err;
         };

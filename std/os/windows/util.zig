@@ -89,34 +89,17 @@ pub const OpenError = error {
     PipeBusy,
     Unexpected,
     OutOfMemory,
-    NameTooLong,
 };
 
-/// `file_path` may need to be copied in memory to add a null terminating byte. In this case
-/// a fixed size buffer of size ::max_noalloc_path_len is an attempted solution. If the fixed
-/// size buffer is too small, and the provided allocator is null, ::error.NameTooLong is returned.
-/// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
-pub fn windowsOpen(file_path: []const u8, desired_access: windows.DWORD, share_mode: windows.DWORD,
-    creation_disposition: windows.DWORD, flags_and_attrs: windows.DWORD, allocator: ?&mem.Allocator)
+/// `file_path` needs to be copied in memory to add a null terminating byte, hence the allocator.
+pub fn windowsOpen(allocator: &mem.Allocator, file_path: []const u8, desired_access: windows.DWORD, share_mode: windows.DWORD,
+    creation_disposition: windows.DWORD, flags_and_attrs: windows.DWORD)
     OpenError!windows.HANDLE
 {
-    var stack_buf: [os.max_noalloc_path_len]u8 = undefined;
-    var path0: []u8 = undefined;
-    var need_free = false;
-    defer if (need_free) (??allocator).free(path0);
+    const path_with_null = try cstr.addNullByte(allocator, file_path);
+    defer allocator.free(path_with_null);
 
-    if (file_path.len < stack_buf.len) {
-        path0 = stack_buf[0..file_path.len + 1];
-    } else if (allocator) |a| {
-        path0 = try a.alloc(u8, file_path.len + 1);
-        need_free = true;
-    } else {
-        return error.NameTooLong;
-    }
-    mem.copy(u8, path0, file_path);
-    path0[file_path.len] = 0;
-
-    const result = windows.CreateFileA(path0.ptr, desired_access, share_mode, null, creation_disposition,
+    const result = windows.CreateFileA(path_with_null.ptr, desired_access, share_mode, null, creation_disposition,
         flags_and_attrs, null);
 
     if (result == windows.INVALID_HANDLE_VALUE) {

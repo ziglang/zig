@@ -39,8 +39,7 @@ fn testCStrFnsImpl() void {
     assert(len(c"123456789") == 9);
 }
 
-/// Returns a mutable slice with exactly the same size which is guaranteed to
-/// have a null byte after it.
+/// Returns a mutable slice with 1 more byte of length which is a null byte.
 /// Caller owns the returned memory.
 pub fn addNullByte(allocator: &mem.Allocator, slice: []const u8) ![]u8 {
     const result = try allocator.alloc(u8, slice.len + 1);

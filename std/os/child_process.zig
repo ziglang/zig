@@ -360,11 +360,14 @@ pub const ChildProcess = struct {
         errdefer if (self.stderr_behavior == StdIo.Pipe) { destroyPipe(stderr_pipe); };
 
         const any_ignore = (self.stdin_behavior == StdIo.Ignore or self.stdout_behavior == StdIo.Ignore or self.stderr_behavior == StdIo.Ignore);
-        const dev_null_fd = if (any_ignore)
-            try os.posixOpen("/dev/null", posix.O_RDWR, 0, null)
-        else
-            undefined
-        ;
+        const dev_null_fd = if (any_ignore) blk: {
+            const dev_null_path = "/dev/null";
+            var fixed_buffer_mem: [dev_null_path.len + 1]u8 = undefined;
+            var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+            break :blk try os.posixOpen(&fixed_allocator.allocator, "/dev/null", posix.O_RDWR, 0);
+        } else blk: {
+            break :blk undefined;
+        };
         defer { if (any_ignore) os.close(dev_null_fd); }
 
         var env_map_owned: BufMap = undefined;
@@ -466,12 +469,15 @@ pub const ChildProcess = struct {
             self.stdout_behavior == StdIo.Ignore or
             self.stderr_behavior == StdIo.Ignore);
 
-        const nul_handle = if (any_ignore)
-            try os.windowsOpen("NUL", windows.GENERIC_READ, windows.FILE_SHARE_READ,
-                windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, null)
-        else
-            undefined
-        ;
+        const nul_handle = if (any_ignore) blk: {
+            const nul_file_path = "NUL";
+            var fixed_buffer_mem: [nul_file_path.len + 1]u8 = undefined;
+            var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+            break :blk try os.windowsOpen(&fixed_allocator.allocator, "NUL", windows.GENERIC_READ, windows.FILE_SHARE_READ,
+                windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL);
+        } else blk: {
+            break :blk undefined;
+        };
         defer { if (any_ignore) os.close(nul_handle); }
         if (any_ignore) {
             try windowsSetHandleInfo(nul_handle, windows.HANDLE_FLAG_INHERIT, 0);

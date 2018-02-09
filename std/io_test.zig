@@ -13,7 +13,7 @@ test "write a file, read it, then delete it" {
     rng.fillBytes(data[0..]);
     const tmp_file_name = "temp_test_file.txt";
     {
-        var file = try io.File.openWrite(tmp_file_name, allocator);
+        var file = try io.File.openWrite(allocator, tmp_file_name);
         defer file.close();
 
         var file_out_stream = io.FileOutStream.init(&file);
@@ -25,7 +25,7 @@ test "write a file, read it, then delete it" {
         try buf_stream.flush();
     }
     {
-        var file = try io.File.openRead(tmp_file_name, allocator);
+        var file = try io.File.openRead(allocator, tmp_file_name);
         defer file.close();
 
         const file_size = try file.getEndPos();

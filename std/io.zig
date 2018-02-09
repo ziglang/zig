@@ -110,19 +110,16 @@ pub const File = struct {
 
     const OpenError = os.WindowsOpenError || os.PosixOpenError;
 
-    /// `path` may need to be copied in memory to add a null terminating byte. In this case
-    /// a fixed size buffer of size std.os.max_noalloc_path_len is an attempted solution. If the fixed
-    /// size buffer is too small, and the provided allocator is null, error.NameTooLong is returned.
-    /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
+    /// `path` needs to be copied in memory to add a null terminating byte, hence the allocator.
     /// Call close to clean up.
-    pub fn openRead(path: []const u8, allocator: ?&mem.Allocator) OpenError!File {
+    pub fn openRead(allocator: &mem.Allocator, path: []const u8) OpenError!File {
         if (is_posix) {
             const flags = system.O_LARGEFILE|system.O_RDONLY;
-            const fd = try os.posixOpen(path, flags, 0, allocator);
+            const fd = try os.posixOpen(allocator, path, flags, 0);
             return openHandle(fd);
         } else if (is_windows) {
-            const handle = try os.windowsOpen(path, system.GENERIC_READ, system.FILE_SHARE_READ,
-                system.OPEN_EXISTING, system.FILE_ATTRIBUTE_NORMAL, allocator);
+            const handle = try os.windowsOpen(allocator, path, system.GENERIC_READ, system.FILE_SHARE_READ,
+                system.OPEN_EXISTING, system.FILE_ATTRIBUTE_NORMAL);
             return openHandle(handle);
         } else {
             unreachable;
@@ -130,25 +127,22 @@ pub const File = struct {
     }
 
     /// Calls `openWriteMode` with 0o666 for the mode.
-    pub fn openWrite(path: []const u8, allocator: ?&mem.Allocator) !File {
-        return openWriteMode(path, 0o666, allocator);
+    pub fn openWrite(allocator: &mem.Allocator, path: []const u8) !File {
+        return openWriteMode(allocator, path, 0o666);
 
     }
 
-    /// `path` may need to be copied in memory to add a null terminating byte. In this case
-    /// a fixed size buffer of size std.os.max_noalloc_path_len is an attempted solution. If the fixed
-    /// size buffer is too small, and the provided allocator is null, error.NameTooLong is returned.
-    /// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
+    /// `path` needs to be copied in memory to add a null terminating byte, hence the allocator.
     /// Call close to clean up.
-    pub fn openWriteMode(path: []const u8, mode: usize, allocator: ?&mem.Allocator) !File {
+    pub fn openWriteMode(allocator: &mem.Allocator, path: []const u8, mode: usize) !File {
         if (is_posix) {
             const flags = system.O_LARGEFILE|system.O_WRONLY|system.O_CREAT|system.O_CLOEXEC|system.O_TRUNC;
-            const fd = try os.posixOpen(path, flags, mode, allocator);
+            const fd = try os.posixOpen(allocator, path, flags, mode);
             return openHandle(fd);
         } else if (is_windows) {
-            const handle = try os.windowsOpen(path, system.GENERIC_WRITE,
+            const handle = try os.windowsOpen(allocator, path, system.GENERIC_WRITE,
                 system.FILE_SHARE_WRITE|system.FILE_SHARE_READ|system.FILE_SHARE_DELETE,
-                system.CREATE_ALWAYS, system.FILE_ATTRIBUTE_NORMAL, allocator);
+                system.CREATE_ALWAYS, system.FILE_ATTRIBUTE_NORMAL);
             return openHandle(handle);
         } else {
             unreachable;
@@ -521,24 +515,21 @@ pub fn OutStream(comptime Error: type) type {
     };
 }
 
-/// `path` may need to be copied in memory to add a null terminating byte. In this case
-/// a fixed size buffer of size `std.os.max_noalloc_path_len` is an attempted solution. If the fixed
-/// size buffer is too small, and the provided allocator is null, `error.NameTooLong` is returned.
-/// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
-pub fn writeFile(path: []const u8, data: []const u8, allocator: ?&mem.Allocator) !void {
-    var file = try File.openWrite(path, allocator);
+/// `path` needs to be copied in memory to add a null terminating byte, hence the allocator.
+pub fn writeFile(allocator: &mem.Allocator, path: []const u8, data: []const u8) !void {
+    var file = try File.openWrite(allocator, path);
     defer file.close();
     try file.write(data);
 }
 
 /// On success, caller owns returned buffer.
-pub fn readFileAlloc(path: []const u8, allocator: &mem.Allocator) ![]u8 {
-    return readFileAllocExtra(path, allocator, 0);
+pub fn readFileAlloc(allocator: &mem.Allocator, path: []const u8) ![]u8 {
+    return readFileAllocExtra(allocator, path, 0);
 }
 /// On success, caller owns returned buffer.
 /// Allocates extra_len extra bytes at the end of the file buffer, which are uninitialized.
-pub fn readFileAllocExtra(path: []const u8, allocator: &mem.Allocator, extra_len: usize) ![]u8 {
-    var file = try File.openRead(path, allocator);
+pub fn readFileAllocExtra(allocator: &mem.Allocator, path: []const u8, extra_len: usize) ![]u8 {
+    var file = try File.openRead(allocator, path);
     defer file.close();
 
     const size = try file.getEndPos();

@@ -78,7 +78,6 @@ pub fn build(b: &Builder) !void {
     exe.linkSystemLibrary("c");
 
     b.default_step.dependOn(&exe.step);
-    b.default_step.dependOn(docs_step);
 
     const skip_self_hosted = b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") ?? false;
     if (!skip_self_hosted) {
