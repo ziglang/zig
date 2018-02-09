@@ -15663,13 +15663,19 @@ static TypeTableEntry *ir_analyze_instruction_check_switch_prongs(IrAnalyze *ira
             field_prev_uses[start_index] = start_value->source_node;
         }
         if (!instruction->have_else_prong) {
-            for (uint32_t i = 0; i < switch_type->data.error_set.err_count; i += 1) {
-                ErrorTableEntry *err_entry = switch_type->data.error_set.errors[i];
+            if (type_is_global_error_set(switch_type)) {
+                ir_add_error(ira, &instruction->base,
+                    buf_sprintf("else prong required when switching on type 'error'"));
+                return ira->codegen->builtin_types.entry_invalid;
+            } else {
+                for (uint32_t i = 0; i < switch_type->data.error_set.err_count; i += 1) {
+                    ErrorTableEntry *err_entry = switch_type->data.error_set.errors[i];
 
-                AstNode *prev_node = field_prev_uses[err_entry->value];
-                if (prev_node == nullptr) {
-                    ir_add_error(ira, &instruction->base,
-                        buf_sprintf("error.%s not handled in switch", buf_ptr(&err_entry->name)));
+                    AstNode *prev_node = field_prev_uses[err_entry->value];
+                    if (prev_node == nullptr) {
+                        ir_add_error(ira, &instruction->base,
+                            buf_sprintf("error.%s not handled in switch", buf_ptr(&err_entry->name)));
+                    }
                 }
             }
         }

@@ -1,6 +1,18 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("no else prong on switch on global error set",
+        \\export fn entry() void {
+        \\    foo(error.A);
+        \\}
+        \\fn foo(a: error) void {
+        \\    switch (a) {
+        \\        error.A => {},
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:5:5: error: else prong required when switching on type 'error'");
+
     cases.add("inferred error set with no returned error",
         \\export fn entry() void {
         \\    foo() catch unreachable;

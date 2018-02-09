@@ -499,7 +499,7 @@ pub fn OutStream(comptime Error: type) type {
         writeFn: fn(self: &Self, bytes: []const u8) Error!void,
 
         pub fn print(self: &Self, comptime format: []const u8, args: ...) !void {
-            return std.fmt.format(self, error, self.writeFn, format, args);
+            return std.fmt.format(self, Error, self.writeFn, format, args);
         }
 
         pub fn write(self: &Self, bytes: []const u8) !void {

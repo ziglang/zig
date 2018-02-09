@@ -133,7 +133,6 @@ pub const Parser = struct {
                         Token.Id.Eof => return Tree {.root_node = root_node},
                         else => {
                             self.putBackToken(token);
-                            // TODO shouldn't need this cast
                             stack.append(State { .TopLevelExtern = null }) catch unreachable;
                             continue;
                         },
@@ -707,7 +706,7 @@ pub const Parser = struct {
         return node;
     }
 
-    fn parseError(self: &Parser, token: &const Token, comptime fmt: []const u8, args: ...) error {
+    fn parseError(self: &Parser, token: &const Token, comptime fmt: []const u8, args: ...) (error{ParseError}) {
         const loc = self.tokenizer.getTokenLocation(token);
         warn("{}:{}:{}: error: " ++ fmt ++ "\n", self.source_file_name, loc.line + 1, loc.column + 1, args);
         warn("{}\n", self.tokenizer.buffer[loc.line_start..loc.line_end]);
@@ -1082,16 +1081,18 @@ fn testCanonical(source: []const u8) !void {
         var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, fail_index);
         if (testParse(source, &failing_allocator.allocator)) |_| {
             return error.NondeterministicMemoryUsage;
-        } else |err| {
-            assert(err == error.OutOfMemory);
-            // TODO make this pass
-            //if (failing_allocator.allocated_bytes != failing_allocator.freed_bytes) {
-            //    warn("\nfail_index: {}/{}\nallocated bytes: {}\nfreed bytes: {}\nallocations: {}\ndeallocations: {}\n",
-            //        fail_index, needed_alloc_count,
-            //        failing_allocator.allocated_bytes, failing_allocator.freed_bytes,
-            //        failing_allocator.index, failing_allocator.deallocations);
-            //    return error.MemoryLeakDetected;
-            //}
+        } else |err| switch (err) {
+            error.OutOfMemory => {
+                // TODO make this pass
+                //if (failing_allocator.allocated_bytes != failing_allocator.freed_bytes) {
+                //    warn("\nfail_index: {}/{}\nallocated bytes: {}\nfreed bytes: {}\nallocations: {}\ndeallocations: {}\n",
+                //        fail_index, needed_alloc_count,
+                //        failing_allocator.allocated_bytes, failing_allocator.freed_bytes,
+                //        failing_allocator.index, failing_allocator.deallocations);
+                //    return error.MemoryLeakDetected;
+                //}
+            },
+            error.ParseError => @panic("test failed"),
         }
     }
 }
