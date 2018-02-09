@@ -720,7 +720,7 @@ pub fn accept4(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t, flags:
 // error SystemResources;
 // error Io;
 // 
-// pub fn if_nametoindex(name: []u8) %u32 {
+// pub fn if_nametoindex(name: []u8) !u32 {
 //     var ifr: ifreq = undefined;
 // 
 //     if (name.len >= ifr.ifr_name.len) {

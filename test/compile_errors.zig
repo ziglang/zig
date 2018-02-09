@@ -1,6 +1,208 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("inferred error set with no returned error",
+        \\export fn entry() void {
+        \\    foo() catch unreachable;
+        \\}
+        \\fn foo() !void {
+        \\}
+    ,
+        ".tmp_source.zig:4:11: error: function with inferred error set must return at least one possible error");
+
+    cases.add("error not handled in switch",
+        \\export fn entry() void {
+        \\    foo(452) catch |err| switch (err) {
+        \\        error.Foo => {},
+        \\    };
+        \\}
+        \\fn foo(x: i32) !void {
+        \\    switch (x) {
+        \\        0 ... 10 => return error.Foo,
+        \\        11 ... 20 => return error.Bar,
+        \\        21 ... 30 => return error.Baz,
+        \\        else => {},
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:2:26: error: error.Baz not handled in switch",
+        ".tmp_source.zig:2:26: error: error.Bar not handled in switch");
+
+    cases.add("duplicate error in switch",
+        \\export fn entry() void {
+        \\    foo(452) catch |err| switch (err) {
+        \\        error.Foo => {},
+        \\        error.Bar => {},
+        \\        error.Foo => {},
+        \\        else => {},
+        \\    };
+        \\}
+        \\fn foo(x: i32) !void {
+        \\    switch (x) {
+        \\        0 ... 10 => return error.Foo,
+        \\        11 ... 20 => return error.Bar,
+        \\        else => {},
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:5:14: error: duplicate switch value: '@typeOf(foo).ReturnType.ErrorSet.Foo'",
+        ".tmp_source.zig:3:14: note: other value is here");
+
+    cases.add("range operator in switch used on error set",
+        \\export fn entry() void {
+        \\    try foo(452) catch |err| switch (err) {
+        \\        error.A ... error.B => {},
+        \\        else => {},
+        \\    };
+        \\}
+        \\fn foo(x: i32) !void {
+        \\    switch (x) {
+        \\        0 ... 10 => return error.Foo,
+        \\        11 ... 20 => return error.Bar,
+        \\        else => {},
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:3:17: error: operator not allowed for errors");
+
+    cases.add("inferring error set of function pointer",
+        \\comptime {
+        \\    const z: ?fn()!void = null;
+        \\}
+    ,
+        ".tmp_source.zig:2:15: error: inferring error set of return type valid only for function definitions");
+
+    cases.add("access non-existent member of error set",
+        \\const Foo = error{A};
+        \\comptime {
+        \\    const z = Foo.Bar;
+        \\}
+    ,
+        ".tmp_source.zig:3:18: error: no error named 'Bar' in 'Foo'");
+
+    cases.add("error union operator with non error set LHS",
+        \\comptime {
+        \\    const z = i32!i32;
+        \\}
+    ,
+        ".tmp_source.zig:2:15: error: expected error set type, found type 'i32'");
+
+    cases.add("error equality but sets have no common members",
+        \\const Set1 = error{A, C};
+        \\const Set2 = error{B, D};
+        \\export fn entry() void {
+        \\    foo(Set1.A);
+        \\}
+        \\fn foo(x: Set1) void {
+        \\    if (x == Set2.B) {
+        \\
+        \\    }
+        \\}
+    ,
+        ".tmp_source.zig:7:11: error: error sets 'Set1' and 'Set2' have no common errors");
+
+    cases.add("only equality binary operator allowed for error sets",
+        \\comptime {
+        \\    const z = error.A > error.B;
+        \\}
+    ,
+        ".tmp_source.zig:2:23: error: operator not allowed for errors");
+
+    cases.add("explicit error set cast known at comptime violates error sets",
+        \\const Set1 = error {A, B};
+        \\const Set2 = error {A, C};
+        \\comptime {
+        \\    var x = Set1.B;
+        \\    var y = Set2(x);
+        \\}
+    ,
+        ".tmp_source.zig:5:17: error: error.B not a member of error set 'Set2'");
+
+    cases.add("cast error union of global error set to error union of smaller error set",
+        \\const SmallErrorSet = error{A};
+        \\export fn entry() void {
+        \\    var x: SmallErrorSet!i32 = foo();
+        \\}
+        \\fn foo() error!i32 {
+        \\    return error.B;
+        \\}
+    ,
+        ".tmp_source.zig:3:35: error: expected 'SmallErrorSet!i32', found 'error!i32'",
+        ".tmp_source.zig:3:35: note: unable to cast global error set into smaller set");
+
+    cases.add("cast global error set to error set",
+        \\const SmallErrorSet = error{A};
+        \\export fn entry() void {
+        \\    var x: SmallErrorSet = foo();
+        \\}
+        \\fn foo() error {
+        \\    return error.B;
+        \\}
+    ,
+        ".tmp_source.zig:3:31: error: expected 'SmallErrorSet', found 'error'",
+        ".tmp_source.zig:3:31: note: unable to cast global error set into smaller set");
+
+    cases.add("recursive inferred error set",
+        \\export fn entry() void {
+        \\    foo() catch unreachable;
+        \\}
+        \\fn foo() !void {
+        \\    try foo();
+        \\}
+    ,
+        ".tmp_source.zig:5:5: error: cannot resolve inferred error set '@typeOf(foo).ReturnType.ErrorSet': function 'foo' not fully analyzed yet");
+
+    cases.add("implicit cast of error set not a subset",
+        \\const Set1 = error{A, B};
+        \\const Set2 = error{A, C};
+        \\export fn entry() void {
+        \\    foo(Set1.B);
+        \\}
+        \\fn foo(set1: Set1) void {
+        \\    var x: Set2 = set1;
+        \\}
+    ,
+        ".tmp_source.zig:7:19: error: expected 'Set2', found 'Set1'",
+        ".tmp_source.zig:1:23: note: 'error.B' not a member of destination error set");
+
+    cases.add("int to err global invalid number",
+        \\const Set1 = error{A, B};
+        \\comptime {
+        \\    var x: usize = 3;
+        \\    var y = error(x);
+        \\}
+    ,
+        ".tmp_source.zig:4:18: error: integer value 3 represents no error");
+
+    cases.add("int to err non global invalid number",
+        \\const Set1 = error{A, B};
+        \\const Set2 = error{A, C};
+        \\comptime {
+        \\    var x = usize(Set1.B);
+        \\    var y = Set2(x);
+        \\}
+    ,
+        ".tmp_source.zig:5:17: error: integer value 2 represents no error in 'Set2'");
+
+    cases.add("@memberCount of error",
+        \\comptime {
+        \\    _ = @memberCount(error);
+        \\}
+    ,
+        ".tmp_source.zig:2:9: error: global error set member count not available at comptime");
+
+    cases.add("duplicate error value in error set",
+        \\const Foo = error {
+        \\    Bar,
+        \\    Bar,
+        \\};
+        \\export fn entry() void {
+        \\    const a: Foo = undefined;
+        \\}
+    ,
+        ".tmp_source.zig:3:5: error: duplicate error: 'Bar'",
+        ".tmp_source.zig:2:5: note: other error here");
+
     cases.add("cast negative integer literal to usize",
         \\export fn entry() void {
         \\    const x = usize(-10);
@@ -112,12 +314,12 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
 
     cases.add("wrong return type for main",
         \\pub fn main() f32 { }
-    , "error: expected return type of main to be 'u8', 'noreturn', 'void', or '%void'");
+    , "error: expected return type of main to be 'u8', 'noreturn', 'void', or '!void'");
 
     cases.add("double ?? on main return value",
         \\pub fn main() ??void {
         \\}
-    , "error: expected return type of main to be 'u8', 'noreturn', 'void', or '%void'");
+    , "error: expected return type of main to be 'u8', 'noreturn', 'void', or '!void'");
 
     cases.add("bad identifier in function with struct defined inside function which references local const",
         \\export fn entry() void {
@@ -1173,7 +1375,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\export fn f() void {
         \\    try something();
         \\}
-        \\fn something() %void { }
+        \\fn something() error!void { }
     ,
             ".tmp_source.zig:2:5: error: expected type 'void', found 'error'");
 
@@ -1264,7 +1466,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
     , ".tmp_source.zig:3:11: error: cannot assign to constant");
 
     cases.add("main function with bogus args type",
-        \\pub fn main(args: [][]bogus) %void {}
+        \\pub fn main(args: [][]bogus) !void {}
     , ".tmp_source.zig:1:23: error: use of undeclared identifier 'bogus'");
 
     cases.add("for loop missing element param",
@@ -1396,7 +1598,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
     , ".tmp_source.zig:6:13: error: cannot assign to constant");
 
     cases.add("return from defer expression",
-        \\pub fn testTrickyDefer() %void {
+        \\pub fn testTrickyDefer() !void {
         \\    defer canFail() catch {};
         \\
         \\    defer try canFail();
@@ -1404,7 +1606,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\    const a = maybeInt() ?? return;
         \\}
         \\
-        \\fn canFail() %void { }
+        \\fn canFail() error!void { }
         \\
         \\pub fn maybeInt() ?i32 {
         \\    return 0;
@@ -1534,7 +1736,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\export fn foo() void {
         \\    bar() catch unreachable;
         \\}
-        \\fn bar() %i32 { return 0; }
+        \\fn bar() error!i32 { return 0; }
     , ".tmp_source.zig:2:11: error: expression value is ignored");
 
     cases.add("ignored statement value",
@@ -1565,7 +1767,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\export fn foo() void {
         \\    defer bar();
         \\}
-        \\fn bar() %i32 { return 0; }
+        \\fn bar() error!i32 { return 0; }
     , ".tmp_source.zig:2:14: error: expression value is ignored");
 
     cases.add("dereference an array",
@@ -1632,13 +1834,12 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
     , ".tmp_source.zig:2:21: error: expected pointer, found 'usize'");
 
     cases.add("too many error values to cast to small integer",
-        \\error A; error B; error C; error D; error E; error F; error G; error H;
-        \\const u2 = @IntType(false, 2);
-        \\fn foo(e: error) u2 {
+        \\const Error = error { A, B, C, D, E, F, G, H };
+        \\fn foo(e: Error) u2 {
         \\    return u2(e);
         \\}
         \\export fn entry() usize { return @sizeOf(@typeOf(foo)); }
-    , ".tmp_source.zig:4:14: error: too many error values to fit in 'u2'");
+    , ".tmp_source.zig:3:14: error: too many error values to fit in 'u2'");
 
     cases.add("asm at compile time",
         \\comptime {
@@ -1821,9 +2022,9 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\export fn foo() void {
         \\    while (bar()) {}
         \\}
-        \\fn bar() %i32 { return 1; }
+        \\fn bar() error!i32 { return 1; }
     ,
-        ".tmp_source.zig:2:15: error: expected type 'bool', found '%i32'");
+        ".tmp_source.zig:2:15: error: expected type 'bool', found 'error!i32'");
 
     cases.add("while expected nullable, got bool",
         \\export fn foo() void {
@@ -1837,9 +2038,9 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\export fn foo() void {
         \\    while (bar()) |x| {}
         \\}
-        \\fn bar() %i32 { return 1; }
+        \\fn bar() error!i32 { return 1; }
     ,
-        ".tmp_source.zig:2:15: error: expected nullable type, found '%i32'");
+        ".tmp_source.zig:2:15: error: expected nullable type, found 'error!i32'");
 
     cases.add("while expected error union, got bool",
         \\export fn foo() void {
@@ -1983,7 +2184,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\fn foo1(args: ...) void {}
         \\fn foo2(args: ...) void {}
         \\
-        \\pub fn main() %void {
+        \\pub fn main() !void {
         \\    foos[0]();
         \\}
     ,
@@ -1995,7 +2196,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\fn foo1(arg: var) void {}
         \\fn foo2(arg: var) void {}
         \\
-        \\pub fn main() %void {
+        \\pub fn main() !void {
         \\    foos[0](true);
         \\}
     ,

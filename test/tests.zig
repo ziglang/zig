@@ -45,9 +45,6 @@ const test_targets = []TestTarget {
     },
 };
 
-error TestFailed;
-error CompilationIncorrectlySucceeded;
-
 const max_stdout_size = 1 * 1024 * 1024; // 1 MB
 
 pub fn addCompareOutputTests(b: &build.Builder, test_filter: ?[]const u8) &build.Step {
@@ -248,7 +245,7 @@ pub const CompareOutputContext = struct {
             return ptr;
         }
 
-        fn make(step: &build.Step) %void {
+        fn make(step: &build.Step) !void {
             const self = @fieldParentPtr(RunCompareOutputStep, "step", step);
             const b = self.context.b;
 
@@ -337,7 +334,7 @@ pub const CompareOutputContext = struct {
             return ptr;
         }
 
-        fn make(step: &build.Step) %void {
+        fn make(step: &build.Step) !void {
             const self = @fieldParentPtr(RuntimeSafetyRunStep, "step", step);
             const b = self.context.b;
 
@@ -563,7 +560,7 @@ pub const CompileErrorContext = struct {
             return ptr;
         }
 
-        fn make(step: &build.Step) %void {
+        fn make(step: &build.Step) !void {
             const self = @fieldParentPtr(CompileCmpOutputStep, "step", step);
             const b = self.context.b;
 
@@ -847,7 +844,7 @@ pub const TranslateCContext = struct {
             return ptr;
         }
 
-        fn make(step: &build.Step) %void {
+        fn make(step: &build.Step) !void {
             const self = @fieldParentPtr(TranslateCCmpOutputStep, "step", step);
             const b = self.context.b;
 
@@ -1045,7 +1042,7 @@ pub const GenHContext = struct {
             return ptr;
         }
 
-        fn make(step: &build.Step) %void {
+        fn make(step: &build.Step) !void {
             const self = @fieldParentPtr(GenHCmpOutputStep, "step", step);
             const b = self.context.b;
 

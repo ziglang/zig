@@ -5,19 +5,10 @@ const endian = std.endian;
 
 // TODO don't trust this file, it bit rotted. start over
 
-error SigInterrupt;
-error Io;
-error TimedOut;
-error ConnectionReset;
-error ConnectionRefused;
-error OutOfMemory;
-error NotSocket;
-error BadFd;
-
 const Connection = struct {
     socket_fd: i32,
 
-    pub fn send(c: Connection, buf: []const u8) %usize {
+    pub fn send(c: Connection, buf: []const u8) !usize {
         const send_ret = linux.sendto(c.socket_fd, buf.ptr, buf.len, 0, null, 0);
         const send_err = linux.getErrno(send_ret);
         switch (send_err) {
@@ -31,7 +22,7 @@ const Connection = struct {
         }
     }
 
-    pub fn recv(c: Connection, buf: []u8) %[]u8 {
+    pub fn recv(c: Connection, buf: []u8) ![]u8 {
         const recv_ret = linux.recvfrom(c.socket_fd, buf.ptr, buf.len, 0, null, null);
         const recv_err = linux.getErrno(recv_ret);
         switch (recv_err) {
@@ -48,7 +39,7 @@ const Connection = struct {
         }
     }
 
-    pub fn close(c: Connection) %void {
+    pub fn close(c: Connection) !void {
         switch (linux.getErrno(linux.close(c.socket_fd))) {
             0 => return,
             linux.EBADF => unreachable,
@@ -66,7 +57,7 @@ const Address = struct {
     sort_key: i32,
 };
 
-pub fn lookup(hostname: []const u8, out_addrs: []Address) %[]Address {
+pub fn lookup(hostname: []const u8, out_addrs: []Address) ![]Address {
     if (hostname.len == 0) {
 
         unreachable; // TODO
@@ -75,7 +66,7 @@ pub fn lookup(hostname: []const u8, out_addrs: []Address) %[]Address {
     unreachable; // TODO
 }
 
-pub fn connectAddr(addr: &Address, port: u16) %Connection {
+pub fn connectAddr(addr: &Address, port: u16) !Connection {
     const socket_ret = linux.socket(addr.family, linux.SOCK_STREAM, linux.PROTO_tcp);
     const socket_err = linux.getErrno(socket_ret);
     if (socket_err > 0) {
@@ -118,7 +109,7 @@ pub fn connectAddr(addr: &Address, port: u16) %Connection {
     };
 }
 
-pub fn connect(hostname: []const u8, port: u16) %Connection {
+pub fn connect(hostname: []const u8, port: u16) !Connection {
     var addrs_buf: [1]Address = undefined;
     const addrs_slice = try lookup(hostname, addrs_buf[0..]);
     const main_addr = &addrs_slice[0];
@@ -126,9 +117,7 @@ pub fn connect(hostname: []const u8, port: u16) %Connection {
     return connectAddr(main_addr, port);
 }
 
-error InvalidIpLiteral;
-
-pub fn parseIpLiteral(buf: []const u8) %Address {
+pub fn parseIpLiteral(buf: []const u8) !Address {
 
     return error.InvalidIpLiteral;
 }
@@ -146,12 +135,7 @@ fn hexDigit(c: u8) u8 {
     }
 }
 
-error InvalidChar;
-error Overflow;
-error JunkAtEnd;
-error Incomplete;
-
-fn parseIp6(buf: []const u8) %Address {
+fn parseIp6(buf: []const u8) !Address {
     var result: Address = undefined;
     result.family = linux.AF_INET6;
     result.scope_id = 0;
@@ -232,7 +216,7 @@ fn parseIp6(buf: []const u8) %Address {
     return error.Incomplete;
 }
 
-fn parseIp4(buf: []const u8) %u32 {
+fn parseIp4(buf: []const u8) !u32 {
     var result: u32 = undefined;
     const out_ptr = ([]u8)((&result)[0..1]);
 

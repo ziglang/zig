@@ -12,7 +12,7 @@ const exe_ext = std.build.Target(std.build.Target.Native).exeFileExt();
 const obj_ext = std.build.Target(std.build.Target.Native).oFileExt();
 const tmp_dir_name = "docgen_tmp";
 
-pub fn main() %void {
+pub fn main() !void {
     // TODO use a more general purpose allocator here
     var inc_allocator = try std.heap.IncrementingAllocator.init(max_doc_file_size);
     defer inc_allocator.deinit();
@@ -42,7 +42,7 @@ pub fn main() %void {
     const input_file_bytes = try file_in_stream.stream.readAllAlloc(allocator, max_doc_file_size);
 
     var file_out_stream = io.FileOutStream.init(&out_file);
-    var buffered_out_stream = io.BufferedOutStream.init(&file_out_stream.stream);
+    var buffered_out_stream = io.BufferedOutStream(io.FileOutStream.Error).init(&file_out_stream.stream);
 
     var tokenizer = Tokenizer.init(in_file_name, input_file_bytes);
     var toc = try genToc(allocator, &tokenizer);
@@ -218,8 +218,6 @@ const Tokenizer = struct {
     }
 };
 
-error ParseError;
-
 fn parseError(tokenizer: &Tokenizer, token: &const Token, comptime fmt: []const u8, args: ...) error {
     const loc = tokenizer.getTokenLocation(token);
     warn("{}:{}:{}: error: " ++ fmt ++ "\n", tokenizer.source_file_name, loc.line + 1, loc.column + 1, args);
@@ -243,13 +241,13 @@ fn parseError(tokenizer: &Tokenizer, token: &const Token, comptime fmt: []const 
     return error.ParseError;
 }
 
-fn assertToken(tokenizer: &Tokenizer, token: &const Token, id: Token.Id) %void {
+fn assertToken(tokenizer: &Tokenizer, token: &const Token, id: Token.Id) !void {
     if (token.id != id) {
         return parseError(tokenizer, token, "expected {}, found {}", @tagName(id), @tagName(token.id));
     }
 }
 
-fn eatToken(tokenizer: &Tokenizer, id: Token.Id) %Token {
+fn eatToken(tokenizer: &Tokenizer, id: Token.Id) !Token {
     const token = tokenizer.next();
     try assertToken(tokenizer, token, id);
     return token;
@@ -316,7 +314,7 @@ const Action = enum {
     Close,
 };
 
-fn genToc(allocator: &mem.Allocator, tokenizer: &Tokenizer) %Toc {
+fn genToc(allocator: &mem.Allocator, tokenizer: &Tokenizer) !Toc {
     var urls = std.HashMap([]const u8, Token, mem.hash_slice_u8, mem.eql_slice_u8).init(allocator);
     errdefer urls.deinit();
 
@@ -540,7 +538,7 @@ fn genToc(allocator: &mem.Allocator, tokenizer: &Tokenizer) %Toc {
     };
 }
 
-fn urlize(allocator: &mem.Allocator, input: []const u8) %[]u8 {
+fn urlize(allocator: &mem.Allocator, input: []const u8) ![]u8 {
     var buf = try std.Buffer.initSize(allocator, 0);
     defer buf.deinit();
 
@@ -560,7 +558,7 @@ fn urlize(allocator: &mem.Allocator, input: []const u8) %[]u8 {
     return buf.toOwnedSlice();
 }
 
-fn escapeHtml(allocator: &mem.Allocator, input: []const u8) %[]u8 {
+fn escapeHtml(allocator: &mem.Allocator, input: []const u8) ![]u8 {
     var buf = try std.Buffer.initSize(allocator, 0);
     defer buf.deinit();
 
@@ -596,15 +594,13 @@ const TermState = enum {
     ExpectEnd,
 };
 
-error UnsupportedEscape;
-
 test "term color" {
     const input_bytes = "A\x1b[32;1mgreen\x1b[0mB";
     const result = try termColor(std.debug.global_allocator, input_bytes);
     assert(mem.eql(u8, result, "A<span class=\"t32\">green</span>B"));
 }
 
-fn termColor(allocator: &mem.Allocator, input: []const u8) %[]u8 {
+fn termColor(allocator: &mem.Allocator, input: []const u8) ![]u8 {
     var buf = try std.Buffer.initSize(allocator, 0);
     defer buf.deinit();
 
@@ -684,9 +680,7 @@ fn termColor(allocator: &mem.Allocator, input: []const u8) %[]u8 {
     return buf.toOwnedSlice();
 }
 
-error ExampleFailedToCompile;
-
-fn genHtml(allocator: &mem.Allocator, tokenizer: &Tokenizer, toc: &Toc, out: &io.OutStream, zig_exe: []const u8) %void {
+fn genHtml(allocator: &mem.Allocator, tokenizer: &Tokenizer, toc: &Toc, out: var, zig_exe: []const u8) !void {
     var code_progress_index: usize = 0;
     for (toc.nodes) |node| {
         switch (node) {
@@ -974,10 +968,7 @@ fn genHtml(allocator: &mem.Allocator, tokenizer: &Tokenizer, toc: &Toc, out: &io
 
 }
 
-error ChildCrashed;
-error ChildExitError;
-
-fn exec(allocator: &mem.Allocator, args: []const []const u8) %os.ChildProcess.ExecResult {
+fn exec(allocator: &mem.Allocator, args: []const []const u8) !os.ChildProcess.ExecResult {
     const result = try os.ChildProcess.exec(allocator, args, null, null, max_doc_file_size);
     switch (result.term) {
         os.ChildProcess.Term.Exited => |exit_code| {

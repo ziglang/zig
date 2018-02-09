@@ -17,6 +17,8 @@ enum TokenId {
     TokenIdArrow,
     TokenIdAtSign,
     TokenIdBang,
+    TokenIdBarBar,
+    TokenIdBarBarEq,
     TokenIdBinOr,
     TokenIdBinXor,
     TokenIdBitAndEq,

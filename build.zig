@@ -10,7 +10,7 @@ const ArrayList = std.ArrayList;
 const Buffer = std.Buffer;
 const io = std.io;
 
-pub fn build(b: &Builder) %void {
+pub fn build(b: &Builder) !void {
     const mode = b.standardReleaseOptions();
 
     var docgen_exe = b.addExecutable("docgen", "doc/docgen.zig");
@@ -149,7 +149,7 @@ const LibraryDep = struct {
     includes: ArrayList([]const u8),
 };
 
-fn findLLVM(b: &Builder, llvm_config_exe: []const u8) %LibraryDep {
+fn findLLVM(b: &Builder, llvm_config_exe: []const u8) !LibraryDep {
     const libs_output = try b.exec([][]const u8{llvm_config_exe, "--libs", "--system-libs"});
     const includes_output = try b.exec([][]const u8{llvm_config_exe, "--includedir"});
     const libdir_output = try b.exec([][]const u8{llvm_config_exe, "--libdir"});

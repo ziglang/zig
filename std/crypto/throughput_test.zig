@@ -18,7 +18,7 @@ const c = @cImport({
 
 const Mb = 1024 * 1024;
 
-pub fn main() %void {
+pub fn main() !void {
     var stdout_file = try std.io.getStdOut();
     var stdout_out_stream = std.io.FileOutStream.init(&stdout_file);
     const stdout = &stdout_out_stream.stream;
