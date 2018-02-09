@@ -2857,6 +2857,8 @@ test "parse u64" {
       Notice the return type is <code>!u64</code>. This means that the function
       either returns an unsigned 64 bit integer, or an error. We left off the error set
       to the left of the <code>!</code>, so the error set is inferred.
+      Use <code>error!u64</code> for functions that can logically fail
+      but in practice have no errors to infer.
       </p>
       <p>
       Within the function definition, you can see some return statements that return
