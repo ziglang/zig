@@ -622,8 +622,3 @@ fn findZigLibDir(allocator: &mem.Allocator) ![]u8 {
 
     return error.FileNotFound;
 }
-
-test "import tests" {
-    _ = @import("tokenizer.zig");
-    _ = @import("parser.zig");
-}

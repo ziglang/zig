@@ -477,6 +477,10 @@ set(ZIG_STD_FILES
     "special/panic.zig"
     "special/test_runner.zig"
     "unicode.zig"
+    "zig/ast.zig"
+    "zig/index.zig"
+    "zig/parser.zig"
+    "zig/tokenizer.zig"
 )
 
 set(ZIG_C_HEADER_FILES

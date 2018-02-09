@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../index.zig");
 const mem = std.mem;
 
 pub const Token = struct {

@@ -1,10 +1,10 @@
-const std = @import("std");
+const std = @import("../index.zig");
 const assert = std.debug.assert;
 const ArrayList = std.ArrayList;
 const mem = std.mem;
-const ast = @import("ast.zig");
-const Tokenizer = @import("tokenizer.zig").Tokenizer;
-const Token = @import("tokenizer.zig").Token;
+const ast = std.zig.ast;
+const Tokenizer = std.zig.Tokenizer;
+const Token = std.zig.Token;
 const builtin = @import("builtin");
 const io = std.io;
 

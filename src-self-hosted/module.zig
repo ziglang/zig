@@ -8,9 +8,9 @@ const c = @import("c.zig");
 const builtin = @import("builtin");
 const Target = @import("target.zig").Target;
 const warn = std.debug.warn;
-const Tokenizer = @import("tokenizer.zig").Tokenizer;
-const Token = @import("tokenizer.zig").Token;
-const Parser = @import("parser.zig").Parser;
+const Tokenizer = std.zig.Tokenizer;
+const Token = std.zig.Token;
+const Parser = std.zig.Parser;
 const ArrayList = std.ArrayList;
 
 pub const Module = struct {
