@@ -123,3 +123,14 @@ fn testExplicitErrorSetCast(set1: Set1) void {
     var y = Set1(x);
     assert(y == error.A);
 }
+
+test "comptime test error for empty error set" {
+    testComptimeTestErrorEmptySet(1234);
+    comptime testComptimeTestErrorEmptySet(1234);
+}
+
+const EmptyErrorSet = error {};
+
+fn testComptimeTestErrorEmptySet(x: EmptyErrorSet!i32) void {
+    if (x) |v| assert(v == 1234) else |err| @compileError("bad");
+}

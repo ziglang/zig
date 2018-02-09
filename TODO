@@ -1,25 +1,3 @@
-sed -i 's/\(\bfn .*) \)%\(.*{\)$/\1!\2/g' $(find . -name "*.zig")
-
-
-the literal translation of `%T` to this new code is `error!T`.
-however this would not take advantage of error sets. It's
-recommended to generally have all your functions which return possible
-errors to use error set inference, like this:
-
-fn foo() !void {
-
-}
-
-then you can return void, or any error, and the error set is inferred.
-
-
-you can get the compiler to tell you the possible errors for an inferred error set like this:
-
-foo() catch |err| switch (err) {};
-
-
-test err should be comptime if error set has 0 members
-
 comptime calling fn with inferred error set should give empty error set but still you can use try
 
 comptime err to int of empty err set and of size 1 err set
@@ -35,3 +13,4 @@ syntax - (error{}!void) as the return type
 
 
 passing a fn()error{}!T to a fn()error!T should be a compile error, they're not compatible
+

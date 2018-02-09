@@ -4800,12 +4800,8 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
     IrBasicBlock *else_block = ir_create_basic_block(irb, scope, "TryElse");
     IrBasicBlock *endif_block = ir_create_basic_block(irb, scope, "TryEnd");
 
-    IrInstruction *is_comptime;
-    if (ir_should_inline(irb->exec, scope)) {
-        is_comptime = ir_build_const_bool(irb, scope, node, true);
-    } else {
-        is_comptime = ir_build_test_comptime(irb, scope, node, is_err);
-    }
+    bool force_comptime = ir_should_inline(irb->exec, scope);
+    IrInstruction *is_comptime = force_comptime ? ir_build_const_bool(irb, scope, node, true) : ir_build_test_comptime(irb, scope, node, is_err);
     ir_build_cond_br(irb, scope, node, is_err, else_block, ok_block, is_comptime);
 
     ir_set_cursor_at_end_and_append_block(irb, ok_block);
@@ -4814,8 +4810,9 @@ static IrInstruction *ir_gen_if_err_expr(IrBuilder *irb, Scope *scope, AstNode *
     if (var_symbol) {
         IrInstruction *var_type = nullptr;
         bool is_shadowable = false;
+        IrInstruction *var_is_comptime = force_comptime ? ir_build_const_bool(irb, scope, node, true) : ir_build_test_comptime(irb, scope, node, err_val);
         VariableTableEntry *var = ir_create_var(irb, node, scope,
-                var_symbol, var_is_const, var_is_const, is_shadowable, is_comptime);
+                var_symbol, var_is_const, var_is_const, is_shadowable, var_is_comptime);
 
         IrInstruction *var_ptr_value = ir_build_unwrap_err_payload(irb, scope, node, err_val_ptr, false);
         IrInstruction *var_value = var_is_ptr ? var_ptr_value : ir_build_load_ptr(irb, scope, node, var_ptr_value);
