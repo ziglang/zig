@@ -7,7 +7,13 @@ const mem = std.mem;
 const BufMap = std.BufMap;
 const cstr = std.cstr;
 
-pub fn windowsWaitSingle(handle: windows.HANDLE, milliseconds: windows.DWORD) !void {
+pub const WaitError = error {
+    WaitAbandoned,
+    WaitTimeOut,
+    Unexpected,
+};
+
+pub fn windowsWaitSingle(handle: windows.HANDLE, milliseconds: windows.DWORD) WaitError!void {
     const result = windows.WaitForSingleObject(handle, milliseconds);
     return switch (result) {
         windows.WAIT_ABANDONED => error.WaitAbandoned,

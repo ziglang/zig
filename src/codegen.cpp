@@ -4622,6 +4622,8 @@ static void validate_inline_fns(CodeGen *g) {
 static void do_code_gen(CodeGen *g) {
     assert(!g->errors.length);
 
+    codegen_add_time_event(g, "Code Generation");
+
     {
         // create debug type for error sets
         assert(g->err_enumerators.length == g->errors_by_index.length);
@@ -4643,8 +4645,6 @@ static void do_code_gen(CodeGen *g) {
             *di_type_ptr = err_set_di_type;
         }
     }
-
-    codegen_add_time_event(g, "Code Generation");
 
     generate_error_name_table(g);
     generate_enum_name_tables(g);

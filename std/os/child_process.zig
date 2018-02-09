@@ -160,7 +160,7 @@ pub const ChildProcess = struct {
                 else => os.unexpectedErrorWindows(err),
             };
         }
-        self.waitUnwrappedWindows();
+        try self.waitUnwrappedWindows();
         return ??self.term;
     }
 

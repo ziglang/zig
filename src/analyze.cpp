@@ -543,6 +543,7 @@ TypeTableEntry *get_error_union_type(CodeGen *g, TypeTableEntry *err_set_type, T
         if (type_has_bits(err_set_type)) {
             entry->type_ref = err_set_type->type_ref;
             entry->di_type = err_set_type->di_type;
+            g->error_di_types.append(&entry->di_type);
         } else {
             entry->zero_bits = true;
             entry->di_type = g->builtin_types.entry_void->di_type;

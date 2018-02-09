@@ -38,6 +38,7 @@ pub const windowsLoadDll = windows_util.windowsLoadDll;
 pub const windowsUnloadDll = windows_util.windowsUnloadDll; 
 pub const createWindowsEnvBlock = windows_util.createWindowsEnvBlock;
 
+pub const WindowsWaitError = windows_util.WaitError;
 pub const WindowsOpenError = windows_util.OpenError;
 pub const WindowsWriteError = windows_util.WriteError;
 
@@ -605,7 +606,9 @@ test "os.getCwd" {
     _ = getCwd(debug.global_allocator);
 }
 
-pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) !void {
+pub const SymLinkError = PosixSymLinkError || WindowsSymLinkError;
+
+pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) SymLinkError!void {
     if (is_windows) {
         return symLinkWindows(allocator, existing_path, new_path);
     } else {
@@ -613,7 +616,12 @@ pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []con
     }
 }
 
-pub fn symLinkWindows(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) !void {
+pub const WindowsSymLinkError = error {
+    OutOfMemory,
+    Unexpected,
+};
+
+pub fn symLinkWindows(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) WindowsSymLinkError!void {
     const existing_with_null = try cstr.addNullByte(allocator, existing_path);
     defer allocator.free(existing_with_null);
     const new_with_null = try cstr.addNullByte(allocator, new_path);
@@ -627,7 +635,23 @@ pub fn symLinkWindows(allocator: &Allocator, existing_path: []const u8, new_path
     }
 }
 
-pub fn symLinkPosix(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) !void {
+pub const PosixSymLinkError = error {
+    OutOfMemory,
+    AccessDenied,
+    DiskQuota,
+    PathAlreadyExists,
+    FileSystem,
+    SymLinkLoop,
+    NameTooLong,
+    FileNotFound,
+    SystemResources,
+    NoSpaceLeft,
+    ReadOnlyFileSystem,
+    NotDir,
+    Unexpected,
+};
+
+pub fn symLinkPosix(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) PosixSymLinkError!void {
     const full_buf = try allocator.alloc(u8, existing_path.len + new_path.len + 2);
     defer allocator.free(full_buf);
 
