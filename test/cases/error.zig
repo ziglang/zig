@@ -140,3 +140,13 @@ test "syntax: nullable operator in front of error union operator" {
         assert(?error!i32 == ?(error!i32));
     }
 }
+
+test "comptime err to int of error set with only 1 possible value" {
+    testErrToIntWithOnePossibleValue(error.A, u32(error.A));
+    comptime testErrToIntWithOnePossibleValue(error.A, u32(error.A));
+}
+fn testErrToIntWithOnePossibleValue(x: error{A}, comptime value: u32) void {
+    if (u32(x) != value) {
+        @compileError("bad");
+    }
+}
