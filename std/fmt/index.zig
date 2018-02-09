@@ -228,7 +228,7 @@ pub fn formatValue(value: var, context: var, comptime Errors: type, output: fn(@
             if (@typeId(T.Child) == builtin.TypeId.Array and T.Child.Child == u8) {
                 return output(context, (*value)[0..]);
             } else {
-                @compileError("Unable to format type '" ++ @typeName(T) ++ "'");
+                return format(context, Errors, output, "{}@{x}", @typeName(T.Child), @ptrToInt(value));
             }
         },
         else => if (@canImplicitCast([]const u8, value)) {
@@ -550,6 +550,12 @@ test "parse unsigned comptime" {
     }
 }
 
+// Dummy field because of https://github.com/zig-lang/zig/issues/557.
+// At top level because of https://github.com/zig-lang/zig/issues/675.
+const Struct = struct {
+    unused: u8,
+};
+
 test "fmt.format" {
     {
         var buf1: [32]u8 = undefined;
@@ -580,6 +586,14 @@ test "fmt.format" {
         const value: u3 = 0b101;
         const result = try bufPrint(buf1[0..], "u3: {}\n", value);
         assert(mem.eql(u8, result, "u3: 5\n"));
+    }
+    {
+        var buf1: [32]u8 = undefined;
+        const value = Struct {
+            .unused = 42,
+        };
+        const result = try bufPrint(buf1[0..], "pointer: {}\n", &value);
+        assert(mem.startsWith(u8, result, "pointer: Struct@"));
     }
 
     // TODO get these tests passing in release modes

@@ -20,6 +20,19 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         ".tmp_source.zig:3:5: error: duplicate error: 'Bar'",
         ".tmp_source.zig:2:5: note: other error here");
 
+    cases.add("cast negative integer literal to usize",
+        \\export fn entry() void {
+        \\    const x = usize(-10);
+        \\}
+    , ".tmp_source.zig:2:21: error: cannot cast negative value -10 to unsigned integer type 'usize'");
+
+    cases.add("use invalid number literal as array index",
+        \\var v = 25;
+        \\export fn entry() void {
+        \\    var arr: [v]u8 = undefined;
+        \\}
+    , ".tmp_source.zig:1:1: error: unable to infer variable type");
+
     cases.add("duplicate struct field",
         \\const Foo = struct {
         \\    Bar: i32,

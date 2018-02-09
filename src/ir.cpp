@@ -6408,6 +6408,15 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
     if (other_type->id == TypeTableEntryIdFloat) {
         return true;
     } else if (other_type->id == TypeTableEntryIdInt && const_val_is_int) {
+        if (!other_type->data.integral.is_signed && const_val->data.x_bigint.is_negative) {
+            Buf *val_buf = buf_alloc();
+            bigint_append_buf(val_buf, &const_val->data.x_bigint, 10);
+            ir_add_error(ira, instruction,
+                buf_sprintf("cannot cast negative value %s to unsigned integer type '%s'",
+                    buf_ptr(val_buf),
+                    buf_ptr(&other_type->name)));
+            return false;
+        }
         if (bigint_fits_in_bits(&const_val->data.x_bigint, other_type->data.integral.bit_count,
                     other_type->data.integral.is_signed))
         {
@@ -6420,6 +6429,15 @@ static bool ir_num_lit_fits_in_other_type(IrAnalyze *ira, IrInstruction *instruc
         if (const_val_fits_in_num_lit(const_val, child_type)) {
             return true;
         } else if (child_type->id == TypeTableEntryIdInt && const_val_is_int) {
+            if (!child_type->data.integral.is_signed && const_val->data.x_bigint.is_negative) {
+                Buf *val_buf = buf_alloc();
+                bigint_append_buf(val_buf, &const_val->data.x_bigint, 10);
+                ir_add_error(ira, instruction,
+                    buf_sprintf("cannot cast negative value %s to unsigned integer type '%s'",
+                        buf_ptr(val_buf),
+                        buf_ptr(&child_type->name)));
+                return false;
+            }
             if (bigint_fits_in_bits(&const_val->data.x_bigint,
                         child_type->data.integral.bit_count,
                         child_type->data.integral.is_signed))
@@ -6590,9 +6608,7 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
     }
 
     // slice const
-    if (expected_type->id == TypeTableEntryIdStruct && actual_type->id == TypeTableEntryIdStruct &&
-        expected_type->data.structure.is_slice && actual_type->data.structure.is_slice)
-    {
+    if (is_slice(expected_type) && is_slice(actual_type)) {
         TypeTableEntry *actual_ptr_type = actual_type->data.structure.fields[slice_ptr_index].type_entry;
         TypeTableEntry *expected_ptr_type = expected_type->data.structure.fields[slice_ptr_index].type_entry;
         if ((!actual_ptr_type->data.pointer.is_const || expected_ptr_type->data.pointer.is_const) &&
@@ -6872,10 +6888,7 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
     }
 
     // implicit [N]T to []const T
-    if (expected_type->id == TypeTableEntryIdStruct &&
-        expected_type->data.structure.is_slice &&
-        actual_type->id == TypeTableEntryIdArray)
-    {
+    if (is_slice(expected_type) && actual_type->id == TypeTableEntryIdArray) {
         TypeTableEntry *ptr_type = expected_type->data.structure.fields[slice_ptr_index].type_entry;
         assert(ptr_type->id == TypeTableEntryIdPointer);
 
@@ -6887,8 +6900,7 @@ static ImplicitCastMatchResult ir_types_match_with_implicit_cast(IrAnalyze *ira,
     }
 
     // implicit &const [N]T to []const T
-    if (expected_type->id == TypeTableEntryIdStruct &&
-        expected_type->data.structure.is_slice &&
+    if (is_slice(expected_type) &&
         actual_type->id == TypeTableEntryIdPointer &&
         actual_type->data.pointer.is_const &&
         actual_type->data.pointer.child_type->id == TypeTableEntryIdArray)

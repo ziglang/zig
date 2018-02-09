@@ -134,16 +134,6 @@ pub fn main() void {
       </p>
       {#see_also|Values|@import|Errors|Root Source File#}
       {#header_close#}
-      {#header_open|Source Encoding#}
-      <p>Zig source code is encoded in UTF-8. An invalid UTF-8 byte sequence results in a compile error.</p>
-      <p>Throughout all zig source code (including in comments), some codepoints are never allowed:</p>
-      <ul>
-        <li>Ascii control characters, except for U+000a (LF): U+0000 - U+0009, U+000b - U+0001f, U+007f. (Note that Windows line endings (CRLF) are not allowed, and hard tabs are not allowed.)</li>
-        <li>Non-Ascii Unicode line endings: U+0085 (NEL), U+2028 (LS), U+2029 (PS).</li>
-      </ul>
-      <p>The codepoint U+000a (LF) (which is encoded as the single-byte value 0x0a) is the line terminator character. This character always terminates a line of zig source code (except possbly the last line of the file).</p>
-      <p>For some discussion on the rationale behind these design decisions, see <a href="https://github.com/zig-lang/zig/issues/663">issue #663</a></p>
-      {#header_close#}
       {#header_open|Values#}
       {#code_begin|exe|values#}
 const std = @import("std");
@@ -2780,6 +2770,16 @@ test "implicitly cast to const pointer" {
       use the C calling convention may pass structs and unions by value.
       </p>
       {#header_close#}
+      {#header_open|Function Reflection#}
+      {#code_begin|test#}
+const assert = @import("std").debug.assert;
+
+test "fn reflection" {
+    assert(@typeOf(assert).ReturnType == void);
+    assert(@typeOf(assert).is_var_args == false);
+}
+      {#code_end#}
+      {#header_close#}
       {#header_close#}
       {#header_open|Errors#}
       <p>
@@ -2986,6 +2986,32 @@ fn createFoo(param: i32) !Foo {
         </li>
       </ul>
       {#see_also|defer|if|switch#}
+      {#header_open|Error Union Type#}
+      <p>An error union is created with the <code>!</code> binary operator.
+      You can use compile-time reflection to access the child type of an error union:</p>
+      {#code_begin|test#}
+const assert = @import("std").debug.assert;
+
+test "error union" {
+    var foo: error!i32 = undefined;
+
+    // Implicitly cast from child type of an error union:
+    foo = 1234;
+
+    // Implicitly cast from an error set:
+    foo = error.SomeError;
+
+    // Use compile-time reflection to access the payload type of an error union:
+    comptime assert(@typeOf(foo).Payload == i32);
+
+    // Use compile-time reflection to access the error set type of an error union:
+    comptime assert(@typeOf(foo).ErrorSet == error);
+}
+      {#code_end#}
+      {#header_close#}
+      {#header_open|Error Set Type#}
+      <p>TODO</p>
+      {#header_close#}
       {#header_close#}
       {#header_open|Nullables#}
       <p>
@@ -3087,6 +3113,24 @@ fn doAThing(nullable_foo: ?&Foo) void {
       The optimizer can sometimes make better decisions knowing that pointer arguments
       cannot be null.
       </p>
+      {#header_open|Nullable Type#}
+      <p>A nullable is created by putting <code>?</code> in front of a type. You can use compile-time
+      reflection to access the child type of a nullable:</p>
+      {#code_begin|test#}
+const assert = @import("std").debug.assert;
+
+test "nullable type" {
+    // Declare a nullable and implicitly cast from null:
+    var foo: ?i32 = null;
+
+    // Implicitly cast from child type of a nullable
+    foo = 1234;
+
+    // Use compile-time reflection to access the child type of the nullable:
+    comptime assert(@typeOf(foo).Child == i32);
+}
+      {#code_end#}
+      {#header_close#}
       {#header_close#}
       {#header_open|Casting#}
       <p>TODO: explain implicit vs explicit casting</p>
@@ -3822,6 +3866,17 @@ comptime {
       <code>@cInclude</code>, <code>@cDefine</code>, and <code>@cUndef</code> work
       within this expression, appending to a temporary buffer which is then parsed as C code.
       </p>
+      <p>
+      Usually you should only have one <code>@cImport</code> in your entire application, because it saves the compiler
+      from invoking clang multiple times, and prevents inline functions from being duplicated.
+      </p>
+      <p>
+      Reasons for having multiple <code>@cImport</code> expressions would be:
+      </p>
+      <ul>
+        <li>To avoid a symbol collision, for example if foo.h and bar.h both <code>#define CONNECTION_COUNT</code></li>
+        <li>To analyze the C code with different preprocessor defines</li>
+      </ul>
       {#see_also|Import from C Header File|@cInclude|@cDefine|@cUndef#}
       {#header_close#}
       {#header_open|@cInclude#}
@@ -4151,17 +4206,28 @@ fn add(a: i32, b: i32) i32 { return a + b; }
       {#header_open|@memberCount#}
       <pre><code class="zig">@memberCount(comptime T: type) -&gt; (number literal)</code></pre>
       <p>
-      This function returns the number of enum values in an enum type.
+      This function returns the number of members in a struct, enum, or union type.
       </p>
       <p>
       The result is a compile time constant.
       </p>
+      <p>
+      It does not include functions, variables, or constants.
+      </p>
       {#header_close#}
       {#header_open|@memberName#}
-      <p>TODO</p>
+      <pre><code class="zig">@memberName(comptime T: type, comptime index: usize) -&gt; [N]u8</code></pre>
+      <p>Returns the field name of a struct, union, or enum.</p>
+      <p>
+      The result is a compile time constant.
+      </p>
+      <p>
+      It does not include functions, variables, or constants.
+      </p>
       {#header_close#}
       {#header_open|@memberType#}
-      <p>TODO</p>
+      <pre><code class="zig">@memberType(comptime T: type, comptime index: usize) -&gt; type</code></pre>
+      <p>Returns the field type of a struct or union.</p>
       {#header_close#}
       {#header_open|@memcpy#}
       <pre><code class="zig">@memcpy(noalias dest: &u8, noalias source: &const u8, byte_count: usize)</code></pre>
@@ -5546,6 +5612,16 @@ fn readU32Be() u32 {}
       </p>
       {#header_close#}
       {#header_close#}
+      {#header_open|Source Encoding#}
+      <p>Zig source code is encoded in UTF-8. An invalid UTF-8 byte sequence results in a compile error.</p>
+      <p>Throughout all zig source code (including in comments), some codepoints are never allowed:</p>
+      <ul>
+        <li>Ascii control characters, except for U+000a (LF): U+0000 - U+0009, U+000b - U+0001f, U+007f. (Note that Windows line endings (CRLF) are not allowed, and hard tabs are not allowed.)</li>
+        <li>Non-Ascii Unicode line endings: U+0085 (NEL), U+2028 (LS), U+2029 (PS).</li>
+      </ul>
+      <p>The codepoint U+000a (LF) (which is encoded as the single-byte value 0x0a) is the line terminator character. This character always terminates a line of zig source code (except possbly the last line of the file).</p>
+      <p>For some discussion on the rationale behind these design decisions, see <a href="https://github.com/zig-lang/zig/issues/663">issue #663</a></p>
+      {#header_close#}
       {#header_open|Grammar#}
       <pre><code class="nohighlight">Root = many(TopLevelItem) EOF
 
@@ -5716,9 +5792,6 @@ ContainerDecl = option("extern" | "packed")
         <li>Together we serve end users.</li>
       </ul>
       {#header_close#}
-      {#header_open|TODO#}
-      <p>TODO: document changes from a31b23c46ba2a8c28df01adc1aa0b4d878b9a5cf (compile time reflection additions)</p>
-      {#header_close#}
     </div>
     <script>
 /*! highlight.js v9.12.0 | BSD3 License | git.io/hljslicense */
@@ -5780,7 +5853,7 @@ hljs.registerLanguage("zig", function(t) {
         a = t.IR + "\\s*\\(",
         c = {
             keyword: "const align var extern stdcallcc nakedcc volatile export pub noalias inline struct packed enum union break return try catch test continue unreachable comptime and or asm defer errdefer if else switch while for fn use bool f32 f64 void type noreturn error i8 u8 i16 u16 i32 u32 i64 u64 isize usize i8w u8w i16w i32w u32w i64w u64w isizew usizew c_short c_ushort c_int c_uint c_long c_ulong c_longlong c_ulonglong",
-            built_in: "breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage setGlobalSection divTrunc divFloor enumTagName intToPtr ptrToInt panic canImplicitCast ptrCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchg fence divExact truncate",
+            built_in: "breakpoint returnAddress frameAddress fieldParentPtr setFloatMode IntType OpaqueType compileError compileLog setCold setRuntimeSafety setEvalBranchQuota offsetOf memcpy inlineCall setGlobalLinkage setGlobalSection divTrunc divFloor enumTagName intToPtr ptrToInt panic canImplicitCast ptrCast bitCast rem mod memset sizeOf alignOf alignCast maxValue minValue memberCount memberName memberType typeOf addWithOverflow subWithOverflow mulWithOverflow shlWithOverflow shlExact shrExact cInclude cDefine cUndef ctz clz import cImport errorName embedFile cmpxchg fence divExact truncate",
             literal: "true false null undefined"
         },
         n = [e, t.CLCM, t.CBCM, s, r];

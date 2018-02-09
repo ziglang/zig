@@ -3309,6 +3309,10 @@ static void resolve_decl_var(CodeGen *g, TldVar *tld_var) {
             is_const, init_val, &tld_var->base);
     tld_var->var->linkage = linkage;
 
+    if (implicit_type != nullptr && type_is_invalid(implicit_type)) {
+        tld_var->var->value->type = g->builtin_types.entry_invalid;
+    }
+
     if (var_decl->align_expr != nullptr) {
         if (!analyze_const_align(g, tld_var->base.parent_scope, var_decl->align_expr, &tld_var->var->align_bytes)) {
             tld_var->var->value->type = g->builtin_types.entry_invalid;
