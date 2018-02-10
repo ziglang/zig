@@ -175,12 +175,7 @@ pub const Tokenizer = struct {
         std.debug.warn("{} \"{}\"\n", @tagName(token.id), self.buffer[token.start..token.end]);
     }
 
-    /// buffer must end with "\n\n\n". This is so that attempting to decode
-    /// a the 3 trailing bytes of a 4-byte utf8 sequence is never a buffer overflow.
     pub fn init(buffer: []const u8) Tokenizer {
-        std.debug.assert(buffer[buffer.len - 1] == '\n');
-        std.debug.assert(buffer[buffer.len - 2] == '\n');
-        std.debug.assert(buffer[buffer.len - 3] == '\n');
         return Tokenizer {
             .buffer = buffer,
             .index = 0,
@@ -556,8 +551,9 @@ pub const Tokenizer = struct {
         } else {
             // check utf8-encoded character.
             const length = std.unicode.utf8ByteSequenceLength(c0) catch return 1;
-            // the last 3 bytes in the buffer are guaranteed to be '\n',
-            // which means we don't need to do any bounds checking here.
+            if (self.index + length >= self.buffer.len) {
+                return u3(self.buffer.len - self.index);
+            }
             const bytes = self.buffer[self.index..self.index + length];
             switch (length) {
                 2 => {

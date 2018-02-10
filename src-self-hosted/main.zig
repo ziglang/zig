@@ -565,6 +565,15 @@ fn fmtMain(allocator: &mem.Allocator, file_paths: []const []const u8) !void {
         var file = try io.File.openRead(allocator, file_path);
         defer file.close();
 
+        const source_code = io.readFileAlloc(allocator, file_path) catch |err| {
+            warn("unable to open '{}': {}", file_path, err);
+            continue;
+        };
+        defer allocator.free(source_code);
+
+        var tokenizer = std.zig.Tokenizer.init(source_code);
+        var parser = std.zig.Parser.init(&tokenizer, allocator, file_path);
+        defer parser.deinit();
         warn("opened {} (todo tokenize and parse and render)\n", file_path);
     }
 }

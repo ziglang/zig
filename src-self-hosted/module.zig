@@ -213,14 +213,11 @@ pub const Module = struct {
         };
         errdefer self.allocator.free(root_src_real_path);
 
-        const source_code = io.readFileAllocExtra(self.allocator, root_src_real_path, 3) catch |err| {
+        const source_code = io.readFileAlloc(self.allocator, root_src_real_path) catch |err| {
             try printError("unable to open '{}': {}", root_src_real_path, err);
             return err;
         };
         errdefer self.allocator.free(source_code);
-        source_code[source_code.len - 3] = '\n';
-        source_code[source_code.len - 2] = '\n';
-        source_code[source_code.len - 1] = '\n';
 
         warn("====input:====\n");
 
