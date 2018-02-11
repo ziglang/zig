@@ -285,27 +285,27 @@ pub fn posixOpenC(file_path: &const u8, flags: u32, perm: usize) !i32 {
         const result = posix.open(file_path, flags, perm);
         const err = posix.getErrno(result);
         if (err > 0) {
-            return switch (err) {
+            switch (err) {
                 posix.EINTR => continue,
 
                 posix.EFAULT => unreachable,
                 posix.EINVAL => unreachable,
-                posix.EACCES => PosixOpenError.AccessDenied,
-                posix.EFBIG, posix.EOVERFLOW => PosixOpenError.FileTooBig,
-                posix.EISDIR => PosixOpenError.IsDir,
-                posix.ELOOP => PosixOpenError.SymLinkLoop,
-                posix.EMFILE => PosixOpenError.ProcessFdQuotaExceeded,
-                posix.ENAMETOOLONG => PosixOpenError.NameTooLong,
-                posix.ENFILE => PosixOpenError.SystemFdQuotaExceeded,
-                posix.ENODEV => PosixOpenError.NoDevice,
-                posix.ENOENT => PosixOpenError.PathNotFound,
-                posix.ENOMEM => PosixOpenError.SystemResources,
-                posix.ENOSPC => PosixOpenError.NoSpaceLeft,
-                posix.ENOTDIR => PosixOpenError.NotDir,
-                posix.EPERM => PosixOpenError.AccessDenied,
-                posix.EEXIST => PosixOpenError.PathAlreadyExists,
-                else => unexpectedErrorPosix(err),
-            };
+                posix.EACCES => return PosixOpenError.AccessDenied,
+                posix.EFBIG, posix.EOVERFLOW => return PosixOpenError.FileTooBig,
+                posix.EISDIR => return PosixOpenError.IsDir,
+                posix.ELOOP => return PosixOpenError.SymLinkLoop,
+                posix.EMFILE => return PosixOpenError.ProcessFdQuotaExceeded,
+                posix.ENAMETOOLONG => return PosixOpenError.NameTooLong,
+                posix.ENFILE => return PosixOpenError.SystemFdQuotaExceeded,
+                posix.ENODEV => return PosixOpenError.NoDevice,
+                posix.ENOENT => return PosixOpenError.PathNotFound,
+                posix.ENOMEM => return PosixOpenError.SystemResources,
+                posix.ENOSPC => return PosixOpenError.NoSpaceLeft,
+                posix.ENOTDIR => return PosixOpenError.NotDir,
+                posix.EPERM => return PosixOpenError.AccessDenied,
+                posix.EEXIST => return PosixOpenError.PathAlreadyExists,
+                else => return unexpectedErrorPosix(err),
+            }
         }
         return i32(result);
     }
