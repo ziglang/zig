@@ -20,7 +20,7 @@ pub fn main() !void {
         } else if (arg[0] == '-') {
             return usage(exe);
         } else {
-            var file = io.File.openRead(allocator, arg) catch |err| {
+            var file = os.File.openRead(allocator, arg) catch |err| {
                 warn("Unable to open file: {}\n", @errorName(err));
                 return err;
             };
@@ -41,7 +41,7 @@ fn usage(exe: []const u8) !void {
     return error.Invalid;
 }
 
-fn cat_file(stdout: &io.File, file: &io.File) !void {
+fn cat_file(stdout: &os.File, file: &os.File) !void {
     var buf: [1024 * 4]u8 = undefined;
 
     while (true) {

@@ -24,9 +24,9 @@ pub const ChildProcess = struct {
 
     pub allocator: &mem.Allocator,
 
-    pub stdin: ?io.File,
-    pub stdout: ?io.File,
-    pub stderr: ?io.File,
+    pub stdin: ?os.File,
+    pub stdout: ?os.File,
+    pub stderr: ?os.File,
 
     pub term: ?(SpawnError!Term),
 
@@ -428,17 +428,17 @@ pub const ChildProcess = struct {
         // we are the parent
         const pid = i32(pid_result);
         if (self.stdin_behavior == StdIo.Pipe) {
-            self.stdin = io.File.openHandle(stdin_pipe[1]);
+            self.stdin = os.File.openHandle(stdin_pipe[1]);
         } else {
             self.stdin = null;
         }
         if (self.stdout_behavior == StdIo.Pipe) {
-            self.stdout = io.File.openHandle(stdout_pipe[0]);
+            self.stdout = os.File.openHandle(stdout_pipe[0]);
         } else {
             self.stdout = null;
         }
         if (self.stderr_behavior == StdIo.Pipe) {
-            self.stderr = io.File.openHandle(stderr_pipe[0]);
+            self.stderr = os.File.openHandle(stderr_pipe[0]);
         } else {
             self.stderr = null;
         }
@@ -620,17 +620,17 @@ pub const ChildProcess = struct {
         };
 
         if (g_hChildStd_IN_Wr) |h| {
-            self.stdin = io.File.openHandle(h);
+            self.stdin = os.File.openHandle(h);
         } else {
             self.stdin = null;
         }
         if (g_hChildStd_OUT_Rd) |h| {
-            self.stdout = io.File.openHandle(h);
+            self.stdout = os.File.openHandle(h);
         } else {
             self.stdout = null;
         }
         if (g_hChildStd_ERR_Rd) |h| {
-            self.stderr = io.File.openHandle(h);
+            self.stderr = os.File.openHandle(h);
         } else {
             self.stderr = null;
         }

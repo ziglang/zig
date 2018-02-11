@@ -17,10 +17,16 @@ pub const posix = switch(builtin.os) {
 
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
 pub const path = @import("path.zig");
+pub const File = @import("file.zig").File;
 
-pub const line_sep = switch (builtin.os) {
-    Os.windows => "\r\n",
-    else => "\n",
+pub const FileMode = switch (builtin.os) {
+    Os.windows => void,
+    else => u32,
+};
+
+pub const default_file_mode = switch (builtin.os) {
+    Os.windows => {},
+    else => 0o666,
 };
 
 pub const page_size = 4 * 1024;
@@ -672,27 +678,27 @@ const b64_fs_encoder = base64.Base64Encoder.init(
 pub fn atomicSymLink(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) !void {
     if (symLink(allocator, existing_path, new_path)) {
         return;
-    } else |err| {
-        if (err != error.PathAlreadyExists) {
-            return err;
-        }
+    } else |err| switch (err) {
+        error.PathAlreadyExists => {},
+        else => return err, // TODO zig should know this set does not include PathAlreadyExists
     }
 
+    const dirname = os.path.dirname(new_path);
+
     var rand_buf: [12]u8 = undefined;
-    const tmp_path = try allocator.alloc(u8, new_path.len + base64.Base64Encoder.calcSize(rand_buf.len));
+    const tmp_path = try allocator.alloc(u8, dirname.len + 1 + base64.Base64Encoder.calcSize(rand_buf.len));
     defer allocator.free(tmp_path);
-    mem.copy(u8, tmp_path[0..], new_path);
+    mem.copy(u8, tmp_path[0..], dirname);
+    tmp_path[dirname.len] = os.path.sep;
     while (true) {
         try getRandomBytes(rand_buf[0..]);
-        b64_fs_encoder.encode(tmp_path[new_path.len..], rand_buf);
+        b64_fs_encoder.encode(tmp_path[dirname.len + 1 ..], rand_buf);
+
         if (symLink(allocator, existing_path, tmp_path)) {
             return rename(allocator, tmp_path, new_path);
-        } else |err| {
-            if (err == error.PathAlreadyExists) {
-                continue;
-            } else {
-                return err;
-            }
+        } else |err| switch (err) {
+            error.PathAlreadyExists => continue,
+            else => return err, // TODO zig should know this set does not include PathAlreadyExists
         }
     }
 
@@ -750,36 +756,107 @@ pub fn deleteFilePosix(allocator: &Allocator, file_path: []const u8) !void {
     }
 }
 
-/// Calls ::copyFileMode with 0o666 for the mode.
+/// Guaranteed to be atomic. However until https://patchwork.kernel.org/patch/9636735/ is
+/// merged and readily available,
+/// there is a possibility of power loss or application termination leaving temporary files present
+/// in the same directory as dest_path.
+/// Destination file will have the same mode as the source file.
 pub fn copyFile(allocator: &Allocator, source_path: []const u8, dest_path: []const u8) !void {
-    return copyFileMode(allocator, source_path, dest_path, 0o666);
-}
-
-// TODO instead of accepting a mode argument, use the mode from fstat'ing the source path once open
-/// Guaranteed to be atomic.
-pub fn copyFileMode(allocator: &Allocator, source_path: []const u8, dest_path: []const u8, mode: usize) !void {
-    var rand_buf: [12]u8 = undefined;
-    const tmp_path = try allocator.alloc(u8, dest_path.len + base64.Base64Encoder.calcSize(rand_buf.len));
-    defer allocator.free(tmp_path);
-    mem.copy(u8, tmp_path[0..], dest_path);
-    try getRandomBytes(rand_buf[0..]);
-    b64_fs_encoder.encode(tmp_path[dest_path.len..], rand_buf);
-
-    var out_file = try io.File.openWriteMode(allocator, tmp_path, mode);
-    defer out_file.close();
-    errdefer _ = deleteFile(allocator, tmp_path);
-
-    var in_file = try io.File.openRead(allocator, source_path);
+    var in_file = try os.File.openRead(allocator, source_path);
     defer in_file.close();
+
+    const mode = try in_file.mode();
+
+    var atomic_file = try AtomicFile.init(allocator, dest_path, mode);
+    defer atomic_file.deinit();
 
     var buf: [page_size]u8 = undefined;
     while (true) {
         const amt = try in_file.read(buf[0..]);
-        try out_file.write(buf[0..amt]);
-        if (amt != buf.len)
-            return rename(allocator, tmp_path, dest_path);
+        try atomic_file.file.write(buf[0..amt]);
+        if (amt != buf.len) {
+            return atomic_file.finish();
+        }
     }
 }
+
+/// Guaranteed to be atomic. However until https://patchwork.kernel.org/patch/9636735/ is
+/// merged and readily available,
+/// there is a possibility of power loss or application termination leaving temporary files present
+pub fn copyFileMode(allocator: &Allocator, source_path: []const u8, dest_path: []const u8, mode: FileMode) !void {
+    var in_file = try os.File.openRead(allocator, source_path);
+    defer in_file.close();
+
+    var atomic_file = try AtomicFile.init(allocator, dest_path, mode);
+    defer atomic_file.deinit();
+
+    var buf: [page_size]u8 = undefined;
+    while (true) {
+        const amt = try in_file.read(buf[0..]);
+        try atomic_file.file.write(buf[0..amt]);
+        if (amt != buf.len) {
+            return atomic_file.finish();
+        }
+    }
+}
+
+pub const AtomicFile = struct {
+    allocator: &Allocator,
+    file: os.File,
+    tmp_path: []u8,
+    dest_path: []const u8,
+    finished: bool,
+
+    /// dest_path must remain valid for the lifetime of AtomicFile
+    /// call finish to atomically replace dest_path with contents
+    pub fn init(allocator: &Allocator, dest_path: []const u8, mode: FileMode) !AtomicFile {
+        const dirname = os.path.dirname(dest_path);
+
+        var rand_buf: [12]u8 = undefined;
+        const tmp_path = try allocator.alloc(u8, dirname.len + 1 + base64.Base64Encoder.calcSize(rand_buf.len));
+        errdefer allocator.free(tmp_path);
+        mem.copy(u8, tmp_path[0..], dirname);
+        tmp_path[dirname.len] = os.path.sep;
+
+        while (true) {
+            try getRandomBytes(rand_buf[0..]);
+            b64_fs_encoder.encode(tmp_path[dirname.len + 1 ..], rand_buf);
+
+            const file = os.File.openWriteNoClobber(allocator, tmp_path, mode) catch |err| switch (err) {
+                error.PathAlreadyExists => continue,
+                // TODO zig should figure out that this error set does not include PathAlreadyExists since
+                // it is handled in the above switch
+                else => return err,
+            };
+
+            return AtomicFile {
+                .allocator = allocator,
+                .file = file,
+                .tmp_path = tmp_path,
+                .dest_path = dest_path,
+                .finished = false,
+            };
+        }
+    }
+
+    /// always call deinit, even after successful finish()
+    pub fn deinit(self: &AtomicFile) void {
+        if (!self.finished) {
+            self.file.close();
+            deleteFile(self.allocator, self.tmp_path) catch {};
+            self.allocator.free(self.tmp_path);
+            self.finished = true;
+        }
+    }
+
+    pub fn finish(self: &AtomicFile) !void {
+        assert(!self.finished);
+        self.file.close();
+        try rename(self.allocator, self.tmp_path, self.dest_path);
+        self.allocator.free(self.tmp_path);
+        self.finished = true;
+    }
+};
 
 pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8) !void {
     const full_buf = try allocator.alloc(u8, old_path.len + new_path.len + 2);
@@ -1620,19 +1697,19 @@ pub fn unexpectedErrorWindows(err: windows.DWORD) (error{Unexpected}) {
     return error.Unexpected;
 }
 
-pub fn openSelfExe() !io.File {
+pub fn openSelfExe() !os.File {
     switch (builtin.os) {
         Os.linux => {
             const proc_file_path = "/proc/self/exe";
             var fixed_buffer_mem: [proc_file_path.len + 1]u8 = undefined;
             var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
-            return io.File.openRead(&fixed_allocator.allocator, proc_file_path);
+            return os.File.openRead(&fixed_allocator.allocator, proc_file_path);
         },
         Os.macosx, Os.ios => {
             var fixed_buffer_mem: [darwin.PATH_MAX * 2]u8 = undefined;
             var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
             const self_exe_path = try selfExePath(&fixed_allocator.allocator);
-            return io.File.openRead(&fixed_allocator.allocator, self_exe_path);
+            return os.File.openRead(&fixed_allocator.allocator, self_exe_path);
         },
         else => @compileError("Unsupported OS"),
     }

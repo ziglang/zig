@@ -31,10 +31,10 @@ pub fn main() !void {
     const out_file_name = try (args_it.next(allocator) ?? @panic("expected output arg"));
     defer allocator.free(out_file_name);
 
-    var in_file = try io.File.openRead(allocator, in_file_name);
+    var in_file = try os.File.openRead(allocator, in_file_name);
     defer in_file.close();
 
-    var out_file = try io.File.openWrite(allocator, out_file_name);
+    var out_file = try os.File.openWrite(allocator, out_file_name);
     defer out_file.close();
 
     var file_in_stream = io.FileInStream.init(&in_file);

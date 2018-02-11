@@ -1,7 +1,14 @@
 const std = @import("index.zig");
+const builtin = @import("builtin");
 const debug = std.debug;
 const mem = std.mem;
 const assert = debug.assert;
+
+pub const line_sep = switch (builtin.os) {
+    builtin.Os.windows => "\r\n",
+    else => "\n",
+};
+
 
 pub fn len(ptr: &const u8) usize {
     var count: usize = 0;

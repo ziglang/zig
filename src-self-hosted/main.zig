@@ -562,7 +562,7 @@ fn printZen() !void {
 
 fn fmtMain(allocator: &mem.Allocator, file_paths: []const []const u8) !void {
     for (file_paths) |file_path| {
-        var file = try io.File.openRead(allocator, file_path);
+        var file = try os.File.openRead(allocator, file_path);
         defer file.close();
 
         const source_code = io.readFileAlloc(allocator, file_path) catch |err| {
@@ -574,7 +574,14 @@ fn fmtMain(allocator: &mem.Allocator, file_paths: []const []const u8) !void {
         var tokenizer = std.zig.Tokenizer.init(source_code);
         var parser = std.zig.Parser.init(&tokenizer, allocator, file_path);
         defer parser.deinit();
-        warn("opened {} (todo tokenize and parse and render)\n", file_path);
+
+        const tree = try parser.parse();
+        defer tree.deinit();
+
+        const baf = try io.BufferedAtomicFile.create(allocator, file_path);
+        defer baf.destroy();
+
+        try parser.renderSource(baf.stream(), tree.root_node);
     }
 }
 
@@ -602,7 +609,7 @@ fn testZigInstallPrefix(allocator: &mem.Allocator, test_path: []const u8) ![]u8 
     const test_index_file = try os.path.join(allocator, test_zig_dir, "std", "index.zig");
     defer allocator.free(test_index_file);
 
-    var file = try io.File.openRead(allocator, test_index_file);
+    var file = try os.File.openRead(allocator, test_index_file);
     file.close();
 
     return test_zig_dir;

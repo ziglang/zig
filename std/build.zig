@@ -624,10 +624,10 @@ pub const Builder = struct {
     }
 
     fn copyFile(self: &Builder, source_path: []const u8, dest_path: []const u8) !void {
-        return self.copyFileMode(source_path, dest_path, 0o666);
+        return self.copyFileMode(source_path, dest_path, os.default_file_mode);
     }
 
-    fn copyFileMode(self: &Builder, source_path: []const u8, dest_path: []const u8, mode: usize) !void {
+    fn copyFileMode(self: &Builder, source_path: []const u8, dest_path: []const u8, mode: os.FileMode) !void {
         if (self.verbose) {
             warn("cp {} {}\n", source_path, dest_path);
         }
@@ -1833,10 +1833,13 @@ const InstallArtifactStep = struct {
         const self = @fieldParentPtr(Self, "step", step);
         const builder = self.builder;
 
-        const mode = switch (self.artifact.kind) {
-            LibExeObjStep.Kind.Obj => unreachable,
-            LibExeObjStep.Kind.Exe => usize(0o755),
-            LibExeObjStep.Kind.Lib => if (self.artifact.static) usize(0o666) else usize(0o755),
+        const mode = switch (builtin.os) {
+            builtin.Os.windows => {},
+            else => switch (self.artifact.kind) {
+                LibExeObjStep.Kind.Obj => unreachable,
+                LibExeObjStep.Kind.Exe => u32(0o755),
+                LibExeObjStep.Kind.Lib => if (self.artifact.static) u32(0o666) else u32(0o755),
+            },
         };
         try builder.copyFileMode(self.artifact.getOutputPath(), self.dest_file, mode);
         if (self.artifact.kind == LibExeObjStep.Kind.Lib and !self.artifact.static) {

@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("index.zig");
 const io = std.io;
+const os = std.os;
 const math = std.math;
 const mem = std.mem;
 const debug = std.debug;
@@ -63,7 +64,7 @@ pub const SectionHeader = struct {
 };
 
 pub const Elf = struct {
-    in_file: &io.File,
+    in_file: &os.File,
     auto_close_stream: bool,
     is_64: bool,
     endian: builtin.Endian,
@@ -76,7 +77,7 @@ pub const Elf = struct {
     string_section: &SectionHeader,
     section_headers: []SectionHeader,
     allocator: &mem.Allocator,
-    prealloc_file: io.File,
+    prealloc_file: os.File,
 
     /// Call close when done.
     pub fn openPath(elf: &Elf, allocator: &mem.Allocator, path: []const u8) !void {
@@ -86,7 +87,7 @@ pub const Elf = struct {
     }
 
     /// Call close when done.
-    pub fn openFile(elf: &Elf, allocator: &mem.Allocator, file: &io.File) !void {
+    pub fn openFile(elf: &Elf, allocator: &mem.Allocator, file: &os.File) !void {
         elf.allocator = allocator;
         elf.in_file = file;
         elf.auto_close_stream = false;

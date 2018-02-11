@@ -1,12 +1,6 @@
 const std = @import("index.zig");
 const builtin = @import("builtin");
 const Os = builtin.Os;
-const system = switch(builtin.os) {
-    Os.linux => @import("os/linux/index.zig"),
-    Os.macosx, Os.ios => @import("os/darwin.zig"),
-    Os.windows => @import("os/windows/index.zig"),
-    else => @compileError("Unsupported OS"),
-};
 const c = std.c;
 
 const math = std.math;
@@ -16,23 +10,18 @@ const os = std.os;
 const mem = std.mem;
 const Buffer = std.Buffer;
 const fmt = std.fmt;
+const File = std.os.File;
 
 const is_posix = builtin.os != builtin.Os.windows;
 const is_windows = builtin.os == builtin.Os.windows;
-
-test "import io tests" {
-    comptime {
-        _ = @import("io_test.zig");
-    }
-}
 
 const GetStdIoErrs = os.WindowsGetStdHandleErrs;
 
 pub fn getStdErr() GetStdIoErrs!File {
     const handle = if (is_windows)
-        try os.windowsGetStdHandle(system.STD_ERROR_HANDLE)
+        try os.windowsGetStdHandle(os.windows.STD_ERROR_HANDLE)
     else if (is_posix)
-        system.STDERR_FILENO
+        os.posix.STDERR_FILENO
     else
         unreachable;
     return File.openHandle(handle);
@@ -40,9 +29,9 @@ pub fn getStdErr() GetStdIoErrs!File {
 
 pub fn getStdOut() GetStdIoErrs!File {
     const handle = if (is_windows)
-        try os.windowsGetStdHandle(system.STD_OUTPUT_HANDLE)
+        try os.windowsGetStdHandle(os.windows.STD_OUTPUT_HANDLE)
     else if (is_posix)
-        system.STDOUT_FILENO
+        os.posix.STDOUT_FILENO
     else
         unreachable;
     return File.openHandle(handle);
@@ -50,9 +39,9 @@ pub fn getStdOut() GetStdIoErrs!File {
 
 pub fn getStdIn() GetStdIoErrs!File {
     const handle = if (is_windows)
-        try os.windowsGetStdHandle(system.STD_INPUT_HANDLE)
+        try os.windowsGetStdHandle(os.windows.STD_INPUT_HANDLE)
     else if (is_posix)
-        system.STDIN_FILENO
+        os.posix.STDIN_FILENO
     else
         unreachable;
     return File.openHandle(handle);
@@ -104,260 +93,10 @@ pub const FileOutStream = struct {
     }
 };
 
-pub const File = struct {
-    /// The OS-specific file descriptor or file handle.
-    handle: os.FileHandle,
-
-    const OpenError = os.WindowsOpenError || os.PosixOpenError;
-
-    /// `path` needs to be copied in memory to add a null terminating byte, hence the allocator.
-    /// Call close to clean up.
-    pub fn openRead(allocator: &mem.Allocator, path: []const u8) OpenError!File {
-        if (is_posix) {
-            const flags = system.O_LARGEFILE|system.O_RDONLY;
-            const fd = try os.posixOpen(allocator, path, flags, 0);
-            return openHandle(fd);
-        } else if (is_windows) {
-            const handle = try os.windowsOpen(allocator, path, system.GENERIC_READ, system.FILE_SHARE_READ,
-                system.OPEN_EXISTING, system.FILE_ATTRIBUTE_NORMAL);
-            return openHandle(handle);
-        } else {
-            unreachable;
-        }
-    }
-
-    /// Calls `openWriteMode` with 0o666 for the mode.
-    pub fn openWrite(allocator: &mem.Allocator, path: []const u8) !File {
-        return openWriteMode(allocator, path, 0o666);
-
-    }
-
-    /// `path` needs to be copied in memory to add a null terminating byte, hence the allocator.
-    /// Call close to clean up.
-    pub fn openWriteMode(allocator: &mem.Allocator, path: []const u8, mode: usize) !File {
-        if (is_posix) {
-            const flags = system.O_LARGEFILE|system.O_WRONLY|system.O_CREAT|system.O_CLOEXEC|system.O_TRUNC;
-            const fd = try os.posixOpen(allocator, path, flags, mode);
-            return openHandle(fd);
-        } else if (is_windows) {
-            const handle = try os.windowsOpen(allocator, path, system.GENERIC_WRITE,
-                system.FILE_SHARE_WRITE|system.FILE_SHARE_READ|system.FILE_SHARE_DELETE,
-                system.CREATE_ALWAYS, system.FILE_ATTRIBUTE_NORMAL);
-            return openHandle(handle);
-        } else {
-            unreachable;
-        }
-
-    }
-
-    pub fn openHandle(handle: os.FileHandle) File {
-        return File {
-            .handle = handle,
-        };
-    }
-
-
-    /// Upon success, the stream is in an uninitialized state. To continue using it,
-    /// you must use the open() function.
-    pub fn close(self: &File) void {
-        os.close(self.handle);
-        self.handle = undefined;
-    }
-
-    /// Calls `os.isTty` on `self.handle`.
-    pub fn isTty(self: &File) bool {
-        return os.isTty(self.handle);
-    }
-
-    pub fn seekForward(self: &File, amount: isize) !void {
-        switch (builtin.os) {
-            Os.linux, Os.macosx, Os.ios => {
-                const result = system.lseek(self.handle, amount, system.SEEK_CUR);
-                const err = system.getErrno(result);
-                if (err > 0) {
-                    return switch (err) {
-                        system.EBADF => error.BadFd,
-                        system.EINVAL => error.Unseekable,
-                        system.EOVERFLOW => error.Unseekable,
-                        system.ESPIPE => error.Unseekable,
-                        system.ENXIO => error.Unseekable,
-                        else => os.unexpectedErrorPosix(err),
-                    };
-                }
-            },
-            Os.windows => {
-                if (system.SetFilePointerEx(self.handle, amount, null, system.FILE_CURRENT) == 0) {
-                    const err = system.GetLastError();
-                    return switch (err) {
-                        system.ERROR.INVALID_PARAMETER => error.BadFd,
-                        else => os.unexpectedErrorWindows(err),
-                    };
-                }
-            },
-            else => @compileError("unsupported OS"),
-        }
-    }
-
-    pub fn seekTo(self: &File, pos: usize) !void {
-        switch (builtin.os) {
-            Os.linux, Os.macosx, Os.ios => {
-                const ipos = try math.cast(isize, pos);
-                const result = system.lseek(self.handle, ipos, system.SEEK_SET);
-                const err = system.getErrno(result);
-                if (err > 0) {
-                    return switch (err) {
-                        system.EBADF => error.BadFd,
-                        system.EINVAL => error.Unseekable,
-                        system.EOVERFLOW => error.Unseekable,
-                        system.ESPIPE => error.Unseekable,
-                        system.ENXIO => error.Unseekable,
-                        else => os.unexpectedErrorPosix(err),
-                    };
-                }
-            },
-            Os.windows => {
-                const ipos = try math.cast(isize, pos);
-                if (system.SetFilePointerEx(self.handle, ipos, null, system.FILE_BEGIN) == 0) {
-                    const err = system.GetLastError();
-                    return switch (err) {
-                        system.ERROR.INVALID_PARAMETER => error.BadFd,
-                        else => os.unexpectedErrorWindows(err),
-                    };
-                }
-            },
-            else => @compileError("unsupported OS: " ++ @tagName(builtin.os)),
-        }
-    }
-
-    pub fn getPos(self: &File) !usize {
-        switch (builtin.os) {
-            Os.linux, Os.macosx, Os.ios => {
-                const result = system.lseek(self.handle, 0, system.SEEK_CUR);
-                const err = system.getErrno(result);
-                if (err > 0) {
-                    return switch (err) {
-                        system.EBADF => error.BadFd,
-                        system.EINVAL => error.Unseekable,
-                        system.EOVERFLOW => error.Unseekable,
-                        system.ESPIPE => error.Unseekable,
-                        system.ENXIO => error.Unseekable,
-                        else => os.unexpectedErrorPosix(err),
-                    };
-                }
-                return result;
-            },
-            Os.windows => {
-                var pos : system.LARGE_INTEGER = undefined;
-                if (system.SetFilePointerEx(self.handle, 0, &pos, system.FILE_CURRENT) == 0) {
-                    const err = system.GetLastError();
-                    return switch (err) {
-                        system.ERROR.INVALID_PARAMETER => error.BadFd,
-                        else => os.unexpectedErrorWindows(err),
-                    };
-                }
-
-                assert(pos >= 0);
-                if (@sizeOf(@typeOf(pos)) > @sizeOf(usize)) {
-                    if (pos > @maxValue(usize)) {
-                        return error.FilePosLargerThanPointerRange;
-                    }
-                }
-
-                return usize(pos);
-            },
-            else => @compileError("unsupported OS"),
-        }
-    }
-
-    pub fn getEndPos(self: &File) !usize {
-        if (is_posix) {
-            var stat: system.Stat = undefined;
-            const err = system.getErrno(system.fstat(self.handle, &stat));
-            if (err > 0) {
-                return switch (err) {
-                    system.EBADF => error.BadFd,
-                    system.ENOMEM => error.SystemResources,
-                    else => os.unexpectedErrorPosix(err),
-                };
-            }
-
-            return usize(stat.size);
-        } else if (is_windows) {
-            var file_size: system.LARGE_INTEGER = undefined;
-            if (system.GetFileSizeEx(self.handle, &file_size) == 0) {
-                const err = system.GetLastError();
-                return switch (err) {
-                    else => os.unexpectedErrorWindows(err),
-                };
-            }
-            if (file_size < 0)
-                return error.Overflow;
-            return math.cast(usize, u64(file_size));
-        } else {
-            unreachable;
-        }
-    }
-
-    pub const ReadError = error {};
-
-    pub fn read(self: &File, buffer: []u8) !usize {
-        if (is_posix) {
-            var index: usize = 0;
-            while (index < buffer.len) {
-                const amt_read = system.read(self.handle, &buffer[index], buffer.len - index);
-                const read_err = system.getErrno(amt_read);
-                if (read_err > 0) {
-                    switch (read_err) {
-                        system.EINTR  => continue,
-                        system.EINVAL => unreachable,
-                        system.EFAULT => unreachable,
-                        system.EBADF  => return error.BadFd,
-                        system.EIO    => return error.Io,
-                        else          => return os.unexpectedErrorPosix(read_err),
-                    }
-                }
-                if (amt_read == 0) return index;
-                index += amt_read;
-            }
-            return index;
-        } else if (is_windows) {
-            var index: usize = 0;
-            while (index < buffer.len) {
-                const want_read_count = system.DWORD(math.min(system.DWORD(@maxValue(system.DWORD)), buffer.len - index));
-                var amt_read: system.DWORD = undefined;
-                if (system.ReadFile(self.handle, @ptrCast(&c_void, &buffer[index]), want_read_count, &amt_read, null) == 0) {
-                    const err = system.GetLastError();
-                    return switch (err) {
-                        system.ERROR.OPERATION_ABORTED => continue,
-                        system.ERROR.BROKEN_PIPE => return index,
-                        else => os.unexpectedErrorWindows(err),
-                    };
-                }
-                if (amt_read == 0) return index;
-                index += amt_read;
-            }
-            return index;
-        } else {
-            unreachable;
-        }
-    }
-
-    pub const WriteError = os.WindowsWriteError || os.PosixWriteError;
-
-    fn write(self: &File, bytes: []const u8) WriteError!void {
-        if (is_posix) {
-            try os.posixWrite(self.handle, bytes);
-        } else if (is_windows) {
-            try os.windowsWrite(self.handle, bytes);
-        } else {
-            @compileError("Unsupported OS");
-        }
-    }
-};
-
-pub fn InStream(comptime Error: type) type {
+pub fn InStream(comptime ReadError: type) type {
     return struct {
         const Self = this;
+        pub const Error = ReadError;
 
         /// Return the number of bytes read. If the number read is smaller than buf.len, it
         /// means the stream reached the end. Reaching the end of a stream is not an error
@@ -486,9 +225,10 @@ pub fn InStream(comptime Error: type) type {
     };
 }
 
-pub fn OutStream(comptime Error: type) type {
+pub fn OutStream(comptime WriteError: type) type {
     return struct {
         const Self = this;
+        pub const Error = WriteError;
 
         writeFn: fn(self: &Self, bytes: []const u8) Error!void,
 
@@ -614,10 +354,11 @@ pub fn BufferedOutStream(comptime Error: type) type {
     return BufferedOutStreamCustom(os.page_size, Error);
 }
 
-pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime Error: type) type {
+pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime OutStreamError: type) type {
     return struct {
         const Self = this;
-        const Stream = OutStream(Error);
+        pub const Stream = OutStream(Error);
+        pub const Error = OutStreamError;
 
         pub stream: Stream,
 
@@ -638,9 +379,6 @@ pub fn BufferedOutStreamCustom(comptime buffer_size: usize, comptime Error: type
         }
 
         pub fn flush(self: &Self) !void {
-            if (self.index == 0)
-                return;
-
             try self.unbuffered_out_stream.write(self.buffer[0..self.index]);
             self.index = 0;
         }
@@ -691,4 +429,52 @@ pub const BufferOutStream = struct {
         return self.buffer.append(bytes);
     }
 };
+
+
+pub const BufferedAtomicFile = struct {
+    atomic_file: os.AtomicFile,
+    file_stream: FileOutStream,
+    buffered_stream: BufferedOutStream(FileOutStream.Error),
+
+    pub fn create(allocator: &mem.Allocator, dest_path: []const u8) !&BufferedAtomicFile {
+        // TODO with well defined copy elision we don't need this allocation
+        var self = try allocator.create(BufferedAtomicFile);
+        errdefer allocator.destroy(self);
+
+        *self = BufferedAtomicFile {
+            .atomic_file = undefined,
+            .file_stream = undefined,
+            .buffered_stream = undefined,
+        };
+
+        self.atomic_file = try os.AtomicFile.init(allocator, dest_path, os.default_file_mode);
+        errdefer self.atomic_file.deinit();
+
+        self.file_stream = FileOutStream.init(&self.atomic_file.file);
+        self.buffered_stream = BufferedOutStream(FileOutStream.Error).init(&self.file_stream.stream);
+        return self;
+    }
+
+    /// always call destroy, even after successful finish()
+    pub fn destroy(self: &BufferedAtomicFile) void {
+        const allocator = self.atomic_file.allocator;
+        self.atomic_file.deinit();
+        allocator.destroy(self);
+    }
+
+    pub fn finish(self: &BufferedAtomicFile) !void {
+        try self.buffered_stream.flush();
+        try self.atomic_file.finish();
+    }
+
+    pub fn stream(self: &BufferedAtomicFile) &OutStream(FileOutStream.Error) {
+        return &self.buffered_stream.stream;
+    }
+};
+
+test "import io tests" {
+    comptime {
+        _ = @import("io_test.zig");
+    }
+}
 

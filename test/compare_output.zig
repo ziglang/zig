@@ -1,4 +1,6 @@
-const os = @import("std").os;
+const builtin = @import("builtin");
+const std = @import("std");
+const os = std.os;
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompareOutputContext) void {
@@ -8,7 +10,7 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\    _ = c.puts(c"Hello, world!");
         \\    return 0;
         \\}
-    , "Hello, world!" ++ os.line_sep);
+    , "Hello, world!" ++ std.cstr.line_sep);
 
     cases.addCase(x: {
         var tc = cases.create("multiple files with private function",

@@ -13,7 +13,7 @@ pub const FailingAllocator = @import("failing_allocator.zig").FailingAllocator;
 /// Tries to write to stderr, unbuffered, and ignores any error returned.
 /// Does not append a newline.
 /// TODO atomic/multithread support
-var stderr_file: io.File = undefined;
+var stderr_file: os.File = undefined;
 var stderr_file_out_stream: io.FileOutStream = undefined;
 var stderr_stream: ?&io.OutStream(io.FileOutStream.Error) = null;
 pub fn warn(comptime fmt: []const u8, args: ...) void {
@@ -265,7 +265,7 @@ pub fn openSelfDebugInfo(allocator: &mem.Allocator) !&ElfStackTrace {
 }
 
 fn printLineFromFile(allocator: &mem.Allocator, out_stream: var, line_info: &const LineInfo) !void {
-    var f = try io.File.openRead(allocator, line_info.file_name);
+    var f = try os.File.openRead(allocator, line_info.file_name);
     defer f.close();
     // TODO fstat and make sure that the file has the correct size
 
@@ -298,7 +298,7 @@ fn printLineFromFile(allocator: &mem.Allocator, out_stream: var, line_info: &con
 }
 
 pub const ElfStackTrace = struct {
-    self_exe_file: io.File,
+    self_exe_file: os.File,
     elf: elf.Elf,
     debug_info: &elf.SectionHeader,
     debug_abbrev: &elf.SectionHeader,
