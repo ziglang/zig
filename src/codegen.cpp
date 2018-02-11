@@ -283,9 +283,9 @@ void codegen_set_linker_script(CodeGen *g, const char *linker_script) {
 }
 
 
-static void render_const_val(CodeGen *g, ConstExprValue *const_val);
+static void render_const_val(CodeGen *g, ConstExprValue *const_val, const char *name);
 static void render_const_val_global(CodeGen *g, ConstExprValue *const_val, const char *name);
-static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val);
+static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const char *name);
 static void generate_error_name_table(CodeGen *g);
 
 static void addLLVMAttr(LLVMValueRef val, LLVMAttributeIndex attr_index, const char *attr_name) {
@@ -874,7 +874,7 @@ static LLVMValueRef get_panic_msg_ptr_val(CodeGen *g, PanicMsgId msg_id) {
         ConstExprValue *array_val = create_const_str_lit(g, buf_msg);
         init_const_slice(g, val, array_val, 0, buf_len(buf_msg), true);
 
-        render_const_val(g, val);
+        render_const_val(g, val, "");
         render_const_val_global(g, val, "");
 
         assert(val->global_refs->llvm_global);
@@ -1413,7 +1413,7 @@ static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstruction *instruction) {
     if (!instruction->llvm_value) {
         assert(instruction->value.special != ConstValSpecialRuntime);
         assert(instruction->value.type);
-        render_const_val(g, &instruction->value);
+        render_const_val(g, &instruction->value, "");
         // we might have to do some pointer casting here due to the way union
         // values are rendered with a type other than the one we expect
         if (handle_is_ptr(instruction->value.type)) {
@@ -3892,7 +3892,7 @@ static LLVMValueRef gen_const_ptr_union_recursive(CodeGen *g, ConstExprValue *ar
 static LLVMValueRef gen_parent_ptr(CodeGen *g, ConstExprValue *val, ConstParent *parent) {
     switch (parent->id) {
         case ConstParentIdNone:
-            render_const_val(g, val);
+            render_const_val(g, val, "");
             render_const_val_global(g, val, "");
             return val->global_refs->llvm_global;
         case ConstParentIdStruct:
@@ -3991,17 +3991,17 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Con
         case TypeTableEntryIdEnum:
             {
                 assert(type_entry->data.enumeration.decl_node->data.container_decl.init_arg_expr != nullptr);
-                LLVMValueRef int_val = gen_const_val(g, const_val);
+                LLVMValueRef int_val = gen_const_val(g, const_val, "");
                 return LLVMConstZExt(int_val, big_int_type_ref);
             }
         case TypeTableEntryIdInt:
             {
-                LLVMValueRef int_val = gen_const_val(g, const_val);
+                LLVMValueRef int_val = gen_const_val(g, const_val, "");
                 return LLVMConstZExt(int_val, big_int_type_ref);
             }
         case TypeTableEntryIdFloat:
             {
-                LLVMValueRef float_val = gen_const_val(g, const_val);
+                LLVMValueRef float_val = gen_const_val(g, const_val, "");
                 LLVMValueRef int_val = LLVMConstFPToUI(float_val,
                         LLVMIntType((unsigned)type_entry->data.floating.bit_count));
                 return LLVMConstZExt(int_val, big_int_type_ref);
@@ -4010,7 +4010,7 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Con
         case TypeTableEntryIdFn:
         case TypeTableEntryIdMaybe:
             {
-                LLVMValueRef ptr_val = gen_const_val(g, const_val);
+                LLVMValueRef ptr_val = gen_const_val(g, const_val, "");
                 LLVMValueRef ptr_size_int_val = LLVMConstPtrToInt(ptr_val, g->builtin_types.entry_usize->type_ref);
                 return LLVMConstZExt(ptr_size_int_val, big_int_type_ref);
             }
@@ -4055,7 +4055,7 @@ static bool is_llvm_value_unnamed_type(TypeTableEntry *type_entry, LLVMValueRef 
     return LLVMTypeOf(val) != type_entry->type_ref;
 }
 
-static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
+static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const char *name) {
     TypeTableEntry *type_entry = const_val->type;
     assert(!type_entry->zero_bits);
 
@@ -4108,7 +4108,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                     child_type->id == TypeTableEntryIdFn)
                 {
                     if (const_val->data.x_maybe) {
-                        return gen_const_val(g, const_val->data.x_maybe);
+                        return gen_const_val(g, const_val->data.x_maybe, "");
                     } else {
                         return LLVMConstNull(child_type->type_ref);
                     }
@@ -4117,7 +4117,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                     LLVMValueRef maybe_val;
                     bool make_unnamed_struct;
                     if (const_val->data.x_maybe) {
-                        child_val = gen_const_val(g, const_val->data.x_maybe);
+                        child_val = gen_const_val(g, const_val->data.x_maybe, "");
                         maybe_val = LLVMConstAllOnes(LLVMInt1Type());
 
                         make_unnamed_struct = is_llvm_value_unnamed_type(const_val->type, child_val);
@@ -4161,7 +4161,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
 
                         if (src_field_index + 1 == src_field_index_end) {
                             ConstExprValue *field_val = &const_val->data.x_struct.fields[src_field_index];
-                            LLVMValueRef val = gen_const_val(g, field_val);
+                            LLVMValueRef val = gen_const_val(g, field_val, "");
                             fields[type_struct_field->gen_index] = val;
                             make_unnamed_struct = make_unnamed_struct || is_llvm_value_unnamed_type(field_val->type, val);
                         } else {
@@ -4201,7 +4201,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                             continue;
                         }
                         ConstExprValue *field_val = &const_val->data.x_struct.fields[i];
-                        LLVMValueRef val = gen_const_val(g, field_val);
+                        LLVMValueRef val = gen_const_val(g, field_val, "");
                         fields[type_struct_field->gen_index] = val;
                         make_unnamed_struct = make_unnamed_struct || is_llvm_value_unnamed_type(field_val->type, val);
                     }
@@ -4225,7 +4225,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                 bool make_unnamed_struct = false;
                 for (uint64_t i = 0; i < len; i += 1) {
                     ConstExprValue *elem_value = &const_val->data.x_array.s_none.elements[i];
-                    LLVMValueRef val = gen_const_val(g, elem_value);
+                    LLVMValueRef val = gen_const_val(g, elem_value, "");
                     values[i] = val;
                     make_unnamed_struct = make_unnamed_struct || is_llvm_value_unnamed_type(elem_value->type, val);
                 }
@@ -4260,7 +4260,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                 } else {
                     uint64_t field_type_bytes = LLVMStoreSizeOfType(g->target_data_ref, payload_value->type->type_ref);
                     uint64_t pad_bytes = type_entry->data.unionation.union_size_bytes - field_type_bytes;
-                    LLVMValueRef correctly_typed_value = gen_const_val(g, payload_value);
+                    LLVMValueRef correctly_typed_value = gen_const_val(g, payload_value, "");
                     make_unnamed_struct = is_llvm_value_unnamed_type(payload_value->type, correctly_typed_value) ||
                         payload_value->type != type_entry->data.unionation.most_aligned_union_member;
 
@@ -4305,7 +4305,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
             return fn_llvm_value(g, const_val->data.x_fn.fn_entry);
         case TypeTableEntryIdPointer:
             {
-                render_const_val_global(g, const_val, "");
+                render_const_val_global(g, const_val, name);
                 switch (const_val->data.x_ptr.special) {
                     case ConstPtrSpecialInvalid:
                     case ConstPtrSpecialDiscard:
@@ -4313,7 +4313,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                     case ConstPtrSpecialRef:
                         {
                             ConstExprValue *pointee = const_val->data.x_ptr.data.ref.pointee;
-                            render_const_val(g, pointee);
+                            render_const_val(g, pointee, "");
                             render_const_val_global(g, pointee, "");
                             ConstExprValue *other_val = pointee;
                             const_val->global_refs->llvm_value = LLVMConstBitCast(other_val->global_refs->llvm_global, const_val->type->type_ref);
@@ -4383,7 +4383,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                     return LLVMConstInt(g->err_tag_type->type_ref, value, false);
                 } else if (!type_has_bits(err_set_type)) {
                     assert(type_has_bits(payload_type));
-                    return gen_const_val(g, const_val->data.x_err_union.payload);
+                    return gen_const_val(g, const_val->data.x_err_union.payload, "");
                 } else {
                     LLVMValueRef err_tag_value;
                     LLVMValueRef err_payload_value;
@@ -4395,7 +4395,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
                     } else {
                         err_tag_value = LLVMConstNull(g->err_tag_type->type_ref);
                         ConstExprValue *payload_val = const_val->data.x_err_union.payload;
-                        err_payload_value = gen_const_val(g, payload_val);
+                        err_payload_value = gen_const_val(g, payload_val, "");
                         make_unnamed_struct = is_llvm_value_unnamed_type(payload_val->type, err_payload_value);
                     }
                     LLVMValueRef fields[] = {
@@ -4430,11 +4430,11 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val) {
     zig_unreachable();
 }
 
-static void render_const_val(CodeGen *g, ConstExprValue *const_val) {
+static void render_const_val(CodeGen *g, ConstExprValue *const_val, const char *name) {
     if (!const_val->global_refs)
         const_val->global_refs = allocate<ConstGlobalRefs>(1);
     if (!const_val->global_refs->llvm_value)
-        const_val->global_refs->llvm_value = gen_const_val(g, const_val);
+        const_val->global_refs->llvm_value = gen_const_val(g, const_val, name);
 
     if (const_val->global_refs->llvm_global)
         LLVMSetInitializer(const_val->global_refs->llvm_global, const_val->global_refs->llvm_value);
@@ -4663,7 +4663,7 @@ static void do_code_gen(CodeGen *g) {
             coerced_value.special = ConstValSpecialStatic;
             coerced_value.type = var_type;
             coerced_value.data.x_f128 = bigfloat_to_f128(&const_val->data.x_bigfloat);
-            LLVMValueRef init_val = gen_const_val(g, &coerced_value);
+            LLVMValueRef init_val = gen_const_val(g, &coerced_value, "");
             gen_global_var(g, var, init_val, var_type);
             continue;
         }
@@ -4697,8 +4697,9 @@ static void do_code_gen(CodeGen *g) {
             LLVMSetAlignment(global_value, var->align_bytes);
         } else {
             bool exported = (var->linkage == VarLinkageExport);
-            render_const_val(g, var->value);
-            render_const_val_global(g, var->value, buf_ptr(get_mangled_name(g, &var->name, exported)));
+            const char *mangled_name = buf_ptr(get_mangled_name(g, &var->name, exported));
+            render_const_val(g, var->value, mangled_name);
+            render_const_val_global(g, var->value, mangled_name);
             global_value = var->value->global_refs->llvm_global;
 
             if (exported) {

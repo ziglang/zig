@@ -8,3 +8,6 @@ export fn decode_base_64(dest_ptr: &u8, dest_len: usize, source_ptr: &const u8, 
     base64_decoder.decode(dest[0..decoded_size], src);
     return decoded_size;
 }
+
+var x: c_int = 1234;
+export var x_ptr = &x;
