@@ -232,7 +232,7 @@ pub const ArenaAllocator = struct {
         var cur_node = if (self.buffer_list.last) |last_node| last_node else try self.createNode(0, n + alignment);
         while (true) {
             const cur_buf = cur_node.data[@sizeOf(BufNode)..];
-            const addr = @ptrToInt(&cur_buf[self.end_index]);
+            const addr = @ptrToInt(cur_buf.ptr) + self.end_index;
             const rem = @rem(addr, alignment);
             const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
             const adjusted_index = self.end_index + march_forward_bytes;
