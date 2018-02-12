@@ -1078,5 +1078,5 @@ fn readILeb128(in_stream: var) !i64 {
 }
 
 pub const global_allocator = &global_fixed_allocator.allocator;
-var global_fixed_allocator = mem.FixedBufferAllocator.init(global_allocator_mem[0..]);
+var global_fixed_allocator = std.heap.FixedBufferAllocator.init(global_allocator_mem[0..]);
 var global_allocator_mem: [100 * 1024]u8 = undefined;

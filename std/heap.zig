@@ -39,74 +39,6 @@ fn cFree(self: &Allocator, old_mem: []u8) void {
     c.free(old_ptr);
 }
 
-/// Use this allocator when you want to allocate completely up front and guarantee that individual
-/// allocations will never make syscalls.
-pub const IncrementingAllocator = struct {
-    allocator: Allocator,
-    bytes: []u8,
-    end_index: usize,
-    direct_allocator: DirectAllocator,
-
-    pub fn init(capacity: usize) !IncrementingAllocator {
-        var direct_allocator = DirectAllocator.init();
-        const bytes = try direct_allocator.allocator.alloc(u8, capacity);
-        errdefer direct_allocator.allocator.free(bytes);
-
-        return IncrementingAllocator {
-            .allocator = Allocator {
-                .allocFn = alloc,
-                .reallocFn = realloc,
-                .freeFn = free,
-            },
-            .bytes = bytes,
-            .direct_allocator = direct_allocator,
-            .end_index = 0,
-        };
-    }
-
-    pub fn deinit(self: &IncrementingAllocator) void {
-        self.direct_allocator.allocator.free(self.bytes);
-        self.direct_allocator.deinit();
-    }
-
-    fn reset(self: &IncrementingAllocator) void {
-        self.end_index = 0;
-    }
-
-    fn bytesLeft(self: &const IncrementingAllocator) usize {
-        return self.bytes.len - self.end_index;
-    }
-
-    fn alloc(allocator: &Allocator, n: usize, alignment: u29) ![]u8 {
-        const self = @fieldParentPtr(IncrementingAllocator, "allocator", allocator);
-        const addr = @ptrToInt(&self.bytes[self.end_index]);
-        const rem = @rem(addr, alignment);
-        const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
-        const adjusted_index = self.end_index + march_forward_bytes;
-        const new_end_index = adjusted_index + n;
-        if (new_end_index > self.bytes.len) {
-            return error.OutOfMemory;
-        }
-        const result = self.bytes[adjusted_index .. new_end_index];
-        self.end_index = new_end_index;
-        return result;
-    }
-
-    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
-        if (new_size <= old_mem.len) {
-            return old_mem[0..new_size];
-        } else {
-            const result = try alloc(allocator, new_size, alignment);
-            mem.copy(u8, result, old_mem);
-            return result;
-        }
-    }
-
-    fn free(allocator: &Allocator, bytes: []u8) void {
-        // Do nothing. That's the point of an incrementing allocator.
-    }
-};
-
 /// This allocator makes a syscall directly for every allocation and free.
 pub const DirectAllocator = struct {
     allocator: Allocator,
@@ -327,6 +259,52 @@ pub const ArenaAllocator = struct {
     fn free(allocator: &Allocator, bytes: []u8) void { }
 };
 
+pub const FixedBufferAllocator = struct {
+    allocator: Allocator,
+    end_index: usize,
+    buffer: []u8,
+
+    pub fn init(buffer: []u8) FixedBufferAllocator {
+        return FixedBufferAllocator {
+            .allocator = Allocator {
+                .allocFn = alloc,
+                .reallocFn = realloc,
+                .freeFn = free,
+            },
+            .buffer = buffer,
+            .end_index = 0,
+        };
+    }
+
+    fn alloc(allocator: &Allocator, n: usize, alignment: u29) ![]u8 {
+        const self = @fieldParentPtr(FixedBufferAllocator, "allocator", allocator);
+        const addr = @ptrToInt(&self.buffer[self.end_index]);
+        const rem = @rem(addr, alignment);
+        const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
+        const adjusted_index = self.end_index + march_forward_bytes;
+        const new_end_index = adjusted_index + n;
+        if (new_end_index > self.buffer.len) {
+            return error.OutOfMemory;
+        }
+        const result = self.buffer[adjusted_index .. new_end_index];
+        self.end_index = new_end_index;
+
+        return result;
+    }
+
+    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
+        if (new_size <= old_mem.len) {
+            return old_mem[0..new_size];
+        } else {
+            const result = try alloc(allocator, new_size, alignment);
+            mem.copy(u8, result, old_mem);
+            return result;
+        }
+    }
+
+    fn free(allocator: &Allocator, bytes: []u8) void { }
+};
+
 
 
 test "c_allocator" {
@@ -335,26 +313,6 @@ test "c_allocator" {
         defer c_allocator.free(slice);
         slice = c_allocator.realloc(u8, slice, 100) catch return;
     }
-}
-
-test "IncrementingAllocator" {
-    const total_bytes = 10 * 1024 * 1024;
-    var inc_allocator = try IncrementingAllocator.init(total_bytes);
-    defer inc_allocator.deinit();
-
-    const allocator = &inc_allocator.allocator;
-    const slice = try allocator.alloc(&i32, 100);
-
-    for (slice) |*item, i| {
-        *item = try allocator.create(i32);
-        **item = i32(i);
-    }
-
-    assert(inc_allocator.bytesLeft() == total_bytes - @sizeOf(i32) * 100 - @sizeOf(usize) * 100);
-
-    inc_allocator.reset();
-
-    assert(inc_allocator.bytesLeft() == total_bytes);
 }
 
 test "DirectAllocator" {
@@ -373,6 +331,13 @@ test "ArenaAllocator" {
     defer arena_allocator.deinit();
 
     try testAllocator(&arena_allocator.allocator);
+}
+
+var test_fixed_buffer_allocator_memory: [30000 * @sizeOf(usize)]u8 = undefined;
+test "FixedBufferAllocator" {
+    var fixed_buffer_allocator = FixedBufferAllocator.init(test_fixed_buffer_allocator_memory[0..]);
+
+    try testAllocator(&fixed_buffer_allocator.allocator);
 }
 
 fn testAllocator(allocator: &mem.Allocator) !void {

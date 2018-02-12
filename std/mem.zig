@@ -111,51 +111,6 @@ pub const Allocator = struct {
     }
 };
 
-pub const FixedBufferAllocator = struct {
-    allocator: Allocator,
-    end_index: usize,
-    buffer: []u8,
-
-    pub fn init(buffer: []u8) FixedBufferAllocator {
-        return FixedBufferAllocator {
-            .allocator = Allocator {
-                .allocFn = alloc,
-                .reallocFn = realloc,
-                .freeFn = free,
-            },
-            .buffer = buffer,
-            .end_index = 0,
-        };
-    }
-
-    fn alloc(allocator: &Allocator, n: usize, alignment: u29) ![]u8 {
-        const self = @fieldParentPtr(FixedBufferAllocator, "allocator", allocator);
-        const addr = @ptrToInt(&self.buffer[self.end_index]);
-        const rem = @rem(addr, alignment);
-        const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
-        const adjusted_index = self.end_index + march_forward_bytes;
-        const new_end_index = adjusted_index + n;
-        if (new_end_index > self.buffer.len) {
-            return error.OutOfMemory;
-        }
-        const result = self.buffer[adjusted_index .. new_end_index];
-        self.end_index = new_end_index;
-        return result;
-    }
-
-    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
-        if (new_size <= old_mem.len) {
-            return old_mem[0..new_size];
-        } else {
-            const result = try alloc(allocator, new_size, alignment);
-            copy(u8, result, old_mem);
-            return result;
-        }
-    }
-
-    fn free(allocator: &Allocator, bytes: []u8) void { }
-};
-
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 pub fn copy(comptime T: type, dest: []T, source: []const T) void {

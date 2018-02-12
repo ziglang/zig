@@ -1060,7 +1060,7 @@ fn testParse(source: []const u8, allocator: &mem.Allocator) ![]u8 {
 fn testCanonical(source: []const u8) !void {
     const needed_alloc_count = x: {
         // Try it once with unlimited memory, make sure it works
-        var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+        var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
         var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, @maxValue(usize));
         const result_source = try testParse(source, &failing_allocator.allocator);
         if (!mem.eql(u8, result_source, source)) {
@@ -1077,7 +1077,7 @@ fn testCanonical(source: []const u8) !void {
 
     var fail_index: usize = 0;
     while (fail_index < needed_alloc_count) : (fail_index += 1) {
-        var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+        var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
         var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, fail_index);
         if (testParse(source, &failing_allocator.allocator)) |_| {
             return error.NondeterministicMemoryUsage;
