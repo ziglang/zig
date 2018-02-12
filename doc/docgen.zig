@@ -13,10 +13,13 @@ const obj_ext = std.build.Target(std.build.Target.Native).oFileExt();
 const tmp_dir_name = "docgen_tmp";
 
 pub fn main() !void {
-    // TODO use a more general purpose allocator here
-    var inc_allocator = try std.heap.IncrementingAllocator.init(max_doc_file_size);
-    defer inc_allocator.deinit();
-    const allocator = &inc_allocator.allocator;
+    var direct_allocator = std.heap.DirectAllocator.init();
+    defer direct_allocator.deinit();
+
+    var arena = std.heap.ArenaAllocator.init(&direct_allocator.allocator);
+    defer arena.deinit();
+
+    const allocator = &arena.allocator;
 
     var args_it = os.args();
 

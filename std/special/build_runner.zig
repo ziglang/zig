@@ -12,11 +12,17 @@ const warn = std.debug.warn;
 pub fn main() !void {
     var arg_it = os.args();
 
-    // TODO use a more general purpose allocator here
-    var inc_allocator = try std.heap.IncrementingAllocator.init(40 * 1024 * 1024);
-    defer inc_allocator.deinit();
+    // Here we use an ArenaAllocator backed by a DirectAllocator because a build is a short-lived,
+    // one shot program. We don't need to waste time freeing memory and finding places to squish
+    // bytes into. So we free everything all at once at the very end.
 
-    const allocator = &inc_allocator.allocator;
+    var direct_allocator = std.heap.DirectAllocator.init();
+    defer direct_allocator.deinit();
+
+    var arena = std.heap.ArenaAllocator.init(&direct_allocator.allocator);
+    defer arena.deinit();
+
+    const allocator = &arena.allocator;
 
 
     // skip my own exe name

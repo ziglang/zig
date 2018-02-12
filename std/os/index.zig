@@ -1702,12 +1702,12 @@ pub fn openSelfExe() !os.File {
         Os.linux => {
             const proc_file_path = "/proc/self/exe";
             var fixed_buffer_mem: [proc_file_path.len + 1]u8 = undefined;
-            var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+            var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
             return os.File.openRead(&fixed_allocator.allocator, proc_file_path);
         },
         Os.macosx, Os.ios => {
             var fixed_buffer_mem: [darwin.PATH_MAX * 2]u8 = undefined;
-            var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+            var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
             const self_exe_path = try selfExePath(&fixed_allocator.allocator);
             return os.File.openRead(&fixed_allocator.allocator, self_exe_path);
         },

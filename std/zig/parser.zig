@@ -13,7 +13,7 @@ const io = std.io;
 const warn = std.debug.warn;
 
 pub const Parser = struct {
-    allocator: &mem.Allocator,
+    util_allocator: &mem.Allocator,
     tokenizer: &Tokenizer,
     put_back_tokens: [2]Token,
     put_back_count: usize,
@@ -21,9 +21,10 @@ pub const Parser = struct {
 
     pub const Tree = struct {
         root_node: &ast.NodeRoot,
+        arena_allocator: std.heap.ArenaAllocator,
 
-        pub fn deinit(self: &const Tree) void {
-            // TODO free the whole arena
+        pub fn deinit(self: &Tree) void {
+            self.arena_allocator.deinit();
         }
     };
 
@@ -33,12 +34,10 @@ pub const Parser = struct {
     const utility_bytes_align = @alignOf( union { a: RenderAstFrame, b: State, c: RenderState } );
     utility_bytes: []align(utility_bytes_align) u8,
 
-    /// `allocator` should be an arena allocator. Parser never calls free on anything. After you're
-    /// done with a Parser, free the arena. After the arena is freed, no member functions of Parser
-    /// may be called.
+    /// allocator must outlive the returned Parser and all the parse trees you create with it.
     pub fn init(tokenizer: &Tokenizer, allocator: &mem.Allocator, source_file_name: []const u8) Parser {
         return Parser {
-            .allocator = allocator,
+            .util_allocator = allocator,
             .tokenizer = tokenizer,
             .put_back_tokens = undefined,
             .put_back_count = 0,
@@ -48,7 +47,7 @@ pub const Parser = struct {
     }
 
     pub fn deinit(self: &Parser) void {
-        self.allocator.free(self.utility_bytes);
+        self.util_allocator.free(self.utility_bytes);
     }
 
     const TopLevelDeclCtx = struct {
@@ -101,8 +100,11 @@ pub const Parser = struct {
         var stack = self.initUtilityArrayList(State);
         defer self.deinitUtilityArrayList(stack);
 
-        const root_node = try self.createRoot();
-        // TODO  errdefer arena free root node
+        var arena_allocator = std.heap.ArenaAllocator.init(self.util_allocator);
+        errdefer arena_allocator.deinit();
+
+        const arena = &arena_allocator.allocator;
+        const root_node = try self.createRoot(arena);
 
         try stack.append(State.TopLevel);
 
@@ -130,7 +132,7 @@ pub const Parser = struct {
                             stack.append(State { .TopLevelExtern = token }) catch unreachable;
                             continue;
                         },
-                        Token.Id.Eof => return Tree {.root_node = root_node},
+                        Token.Id.Eof => return Tree {.root_node = root_node, .arena_allocator = arena_allocator},
                         else => {
                             self.putBackToken(token);
                             stack.append(State { .TopLevelExtern = null }) catch unreachable;
@@ -164,7 +166,7 @@ pub const Parser = struct {
                         Token.Id.Keyword_var, Token.Id.Keyword_const => {
                             stack.append(State.TopLevel) catch unreachable;
                             // TODO shouldn't need these casts
-                            const var_decl_node = try self.createAttachVarDecl(&root_node.decls, ctx.visib_token,
+                            const var_decl_node = try self.createAttachVarDecl(arena, &root_node.decls, ctx.visib_token,
                                 token, (?Token)(null), ctx.extern_token);
                             try stack.append(State { .VarDecl = var_decl_node });
                             continue;
@@ -172,7 +174,7 @@ pub const Parser = struct {
                         Token.Id.Keyword_fn => {
                             stack.append(State.TopLevel) catch unreachable;
                             // TODO shouldn't need these casts
-                            const fn_proto = try self.createAttachFnProto(&root_node.decls, token,
+                            const fn_proto = try self.createAttachFnProto(arena, &root_node.decls, token,
                                 ctx.extern_token, (?Token)(null), (?Token)(null), (?Token)(null));
                             try stack.append(State { .FnDef = fn_proto });
                             try stack.append(State { .FnProto = fn_proto });
@@ -185,7 +187,7 @@ pub const Parser = struct {
                             stack.append(State.TopLevel) catch unreachable;
                             const fn_token = try self.eatToken(Token.Id.Keyword_fn);
                             // TODO shouldn't need this cast
-                            const fn_proto = try self.createAttachFnProto(&root_node.decls, fn_token,
+                            const fn_proto = try self.createAttachFnProto(arena, &root_node.decls, fn_token,
                                 ctx.extern_token, (?Token)(token), (?Token)(null), (?Token)(null));
                             try stack.append(State { .FnDef = fn_proto });
                             try stack.append(State { .FnProto = fn_proto });
@@ -253,13 +255,13 @@ pub const Parser = struct {
                     const token = self.getNextToken();
                     switch (token.id) {
                         Token.Id.Keyword_return => {
-                            try stack.append(State { .PrefixOp = try self.createPrefixOp(token,
+                            try stack.append(State { .PrefixOp = try self.createPrefixOp(arena, token,
                                 ast.NodePrefixOp.PrefixOp.Return) });
                             try stack.append(State.ExpectOperand);
                             continue;
                         },
                         Token.Id.Ampersand => {
-                            const prefix_op = try self.createPrefixOp(token, ast.NodePrefixOp.PrefixOp{
+                            const prefix_op = try self.createPrefixOp(arena, token, ast.NodePrefixOp.PrefixOp{
                                 .AddrOf = ast.NodePrefixOp.AddrOfInfo {
                                     .align_expr = null,
                                     .bit_offset_start_token = null,
@@ -275,21 +277,21 @@ pub const Parser = struct {
                         },
                         Token.Id.Identifier => {
                             try stack.append(State {
-                                .Operand = &(try self.createIdentifier(token)).base
+                                .Operand = &(try self.createIdentifier(arena, token)).base
                             });
                             try stack.append(State.AfterOperand);
                             continue;
                         },
                         Token.Id.IntegerLiteral => {
                             try stack.append(State {
-                                .Operand = &(try self.createIntegerLiteral(token)).base
+                                .Operand = &(try self.createIntegerLiteral(arena, token)).base
                             });
                             try stack.append(State.AfterOperand);
                             continue;
                         },
                         Token.Id.FloatLiteral => {
                             try stack.append(State {
-                                .Operand = &(try self.createFloatLiteral(token)).base
+                                .Operand = &(try self.createFloatLiteral(arena, token)).base
                             });
                             try stack.append(State.AfterOperand);
                             continue;
@@ -306,14 +308,14 @@ pub const Parser = struct {
                     switch (token.id) {
                         Token.Id.EqualEqual => {
                             try stack.append(State {
-                                .InfixOp = try self.createInfixOp(token, ast.NodeInfixOp.InfixOp.EqualEqual)
+                                .InfixOp = try self.createInfixOp(arena, token, ast.NodeInfixOp.InfixOp.EqualEqual)
                             });
                             try stack.append(State.ExpectOperand);
                             continue;
                         },
                         Token.Id.BangEqual => {
                             try stack.append(State {
-                                .InfixOp = try self.createInfixOp(token, ast.NodeInfixOp.InfixOp.BangEqual)
+                                .InfixOp = try self.createInfixOp(arena, token, ast.NodeInfixOp.InfixOp.BangEqual)
                             });
                             try stack.append(State.ExpectOperand);
                             continue;
@@ -421,7 +423,7 @@ pub const Parser = struct {
                     if (token.id == Token.Id.RParen) {
                         continue;
                     }
-                    const param_decl = try self.createAttachParamDecl(&fn_proto.params);
+                    const param_decl = try self.createAttachParamDecl(arena, &fn_proto.params);
                     if (token.id == Token.Id.Keyword_comptime) {
                         param_decl.comptime_token = token;
                         token = self.getNextToken();
@@ -470,7 +472,7 @@ pub const Parser = struct {
                     const token = self.getNextToken();
                     switch(token.id) {
                         Token.Id.LBrace => {
-                            const block = try self.createBlock(token);
+                            const block = try self.createBlock(arena, token);
                             fn_proto.body_node = &block.base;
                             stack.append(State { .Block = block }) catch unreachable;
                             continue;
@@ -504,7 +506,7 @@ pub const Parser = struct {
                             const mut_token = self.getNextToken();
                             if (mut_token.id == Token.Id.Keyword_var or mut_token.id == Token.Id.Keyword_const) {
                                 // TODO shouldn't need these casts
-                                const var_decl = try self.createAttachVarDecl(&block.statements, (?Token)(null),
+                                const var_decl = try self.createAttachVarDecl(arena, &block.statements, (?Token)(null),
                                     mut_token, (?Token)(comptime_token), (?Token)(null));
                                 try stack.append(State { .VarDecl = var_decl });
                                 continue;
@@ -518,7 +520,7 @@ pub const Parser = struct {
                         const mut_token = self.getNextToken();
                         if (mut_token.id == Token.Id.Keyword_var or mut_token.id == Token.Id.Keyword_const) {
                             // TODO shouldn't need these casts
-                            const var_decl = try self.createAttachVarDecl(&block.statements, (?Token)(null),
+                            const var_decl = try self.createAttachVarDecl(arena, &block.statements, (?Token)(null),
                                 mut_token, (?Token)(null), (?Token)(null));
                             try stack.append(State { .VarDecl = var_decl });
                             continue;
@@ -541,20 +543,20 @@ pub const Parser = struct {
         }
     }
 
-    fn createRoot(self: &Parser) !&ast.NodeRoot {
-        const node = try self.allocator.create(ast.NodeRoot);
+    fn createRoot(self: &Parser, arena: &mem.Allocator) !&ast.NodeRoot {
+        const node = try arena.create(ast.NodeRoot);
 
         *node = ast.NodeRoot {
             .base = ast.Node {.id = ast.Node.Id.Root},
-            .decls = ArrayList(&ast.Node).init(self.allocator),
+            .decls = ArrayList(&ast.Node).init(arena),
         };
         return node;
     }
 
-    fn createVarDecl(self: &Parser, visib_token: &const ?Token, mut_token: &const Token, comptime_token: &const ?Token,
-        extern_token: &const ?Token) !&ast.NodeVarDecl
+    fn createVarDecl(self: &Parser, arena: &mem.Allocator, visib_token: &const ?Token, mut_token: &const Token,
+        comptime_token: &const ?Token, extern_token: &const ?Token) !&ast.NodeVarDecl
     {
-        const node = try self.allocator.create(ast.NodeVarDecl);
+        const node = try arena.create(ast.NodeVarDecl);
 
         *node = ast.NodeVarDecl {
             .base = ast.Node {.id = ast.Node.Id.VarDecl},
@@ -573,17 +575,17 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createFnProto(self: &Parser, fn_token: &const Token, extern_token: &const ?Token,
+    fn createFnProto(self: &Parser, arena: &mem.Allocator, fn_token: &const Token, extern_token: &const ?Token,
         cc_token: &const ?Token, visib_token: &const ?Token, inline_token: &const ?Token) !&ast.NodeFnProto
     {
-        const node = try self.allocator.create(ast.NodeFnProto);
+        const node = try arena.create(ast.NodeFnProto);
 
         *node = ast.NodeFnProto {
             .base = ast.Node {.id = ast.Node.Id.FnProto},
             .visib_token = *visib_token,
             .name_token = null,
             .fn_token = *fn_token,
-            .params = ArrayList(&ast.Node).init(self.allocator),
+            .params = ArrayList(&ast.Node).init(arena),
             .return_type = undefined,
             .var_args_token = null,
             .extern_token = *extern_token,
@@ -596,8 +598,8 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createParamDecl(self: &Parser) !&ast.NodeParamDecl {
-        const node = try self.allocator.create(ast.NodeParamDecl);
+    fn createParamDecl(self: &Parser, arena: &mem.Allocator) !&ast.NodeParamDecl {
+        const node = try arena.create(ast.NodeParamDecl);
 
         *node = ast.NodeParamDecl {
             .base = ast.Node {.id = ast.Node.Id.ParamDecl},
@@ -610,20 +612,20 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createBlock(self: &Parser, begin_token: &const Token) !&ast.NodeBlock {
-        const node = try self.allocator.create(ast.NodeBlock);
+    fn createBlock(self: &Parser, arena: &mem.Allocator, begin_token: &const Token) !&ast.NodeBlock {
+        const node = try arena.create(ast.NodeBlock);
 
         *node = ast.NodeBlock {
             .base = ast.Node {.id = ast.Node.Id.Block},
             .begin_token = *begin_token,
             .end_token = undefined,
-            .statements = ArrayList(&ast.Node).init(self.allocator),
+            .statements = ArrayList(&ast.Node).init(arena),
         };
         return node;
     }
 
-    fn createInfixOp(self: &Parser, op_token: &const Token, op: &const ast.NodeInfixOp.InfixOp) !&ast.NodeInfixOp {
-        const node = try self.allocator.create(ast.NodeInfixOp);
+    fn createInfixOp(self: &Parser, arena: &mem.Allocator, op_token: &const Token, op: &const ast.NodeInfixOp.InfixOp) !&ast.NodeInfixOp {
+        const node = try arena.create(ast.NodeInfixOp);
 
         *node = ast.NodeInfixOp {
             .base = ast.Node {.id = ast.Node.Id.InfixOp},
@@ -635,8 +637,8 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createPrefixOp(self: &Parser, op_token: &const Token, op: &const ast.NodePrefixOp.PrefixOp) !&ast.NodePrefixOp {
-        const node = try self.allocator.create(ast.NodePrefixOp);
+    fn createPrefixOp(self: &Parser, arena: &mem.Allocator, op_token: &const Token, op: &const ast.NodePrefixOp.PrefixOp) !&ast.NodePrefixOp {
+        const node = try arena.create(ast.NodePrefixOp);
 
         *node = ast.NodePrefixOp {
             .base = ast.Node {.id = ast.Node.Id.PrefixOp},
@@ -647,8 +649,8 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createIdentifier(self: &Parser, name_token: &const Token) !&ast.NodeIdentifier {
-        const node = try self.allocator.create(ast.NodeIdentifier);
+    fn createIdentifier(self: &Parser, arena: &mem.Allocator, name_token: &const Token) !&ast.NodeIdentifier {
+        const node = try arena.create(ast.NodeIdentifier);
 
         *node = ast.NodeIdentifier {
             .base = ast.Node {.id = ast.Node.Id.Identifier},
@@ -657,8 +659,8 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createIntegerLiteral(self: &Parser, token: &const Token) !&ast.NodeIntegerLiteral {
-        const node = try self.allocator.create(ast.NodeIntegerLiteral);
+    fn createIntegerLiteral(self: &Parser, arena: &mem.Allocator, token: &const Token) !&ast.NodeIntegerLiteral {
+        const node = try arena.create(ast.NodeIntegerLiteral);
 
         *node = ast.NodeIntegerLiteral {
             .base = ast.Node {.id = ast.Node.Id.IntegerLiteral},
@@ -667,8 +669,8 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createFloatLiteral(self: &Parser, token: &const Token) !&ast.NodeFloatLiteral {
-        const node = try self.allocator.create(ast.NodeFloatLiteral);
+    fn createFloatLiteral(self: &Parser, arena: &mem.Allocator, token: &const Token) !&ast.NodeFloatLiteral {
+        const node = try arena.create(ast.NodeFloatLiteral);
 
         *node = ast.NodeFloatLiteral {
             .base = ast.Node {.id = ast.Node.Id.FloatLiteral},
@@ -677,31 +679,32 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createAttachIdentifier(self: &Parser, dest_ptr: &const DestPtr, name_token: &const Token) !&ast.NodeIdentifier {
-        const node = try self.createIdentifier(name_token);
+    fn createAttachIdentifier(self: &Parser, arena: &mem.Allocator, dest_ptr: &const DestPtr, name_token: &const Token) !&ast.NodeIdentifier {
+        const node = try self.createIdentifier(arena, name_token);
         try dest_ptr.store(&node.base);
         return node;
     }
 
-    fn createAttachParamDecl(self: &Parser, list: &ArrayList(&ast.Node)) !&ast.NodeParamDecl {
-        const node = try self.createParamDecl();
+    fn createAttachParamDecl(self: &Parser, arena: &mem.Allocator, list: &ArrayList(&ast.Node)) !&ast.NodeParamDecl {
+        const node = try self.createParamDecl(arena);
         try list.append(&node.base);
         return node;
     }
 
-    fn createAttachFnProto(self: &Parser, list: &ArrayList(&ast.Node), fn_token: &const Token,
+    fn createAttachFnProto(self: &Parser, arena: &mem.Allocator, list: &ArrayList(&ast.Node), fn_token: &const Token,
         extern_token: &const ?Token, cc_token: &const ?Token, visib_token: &const ?Token,
         inline_token: &const ?Token) !&ast.NodeFnProto
     {
-        const node = try self.createFnProto(fn_token, extern_token, cc_token, visib_token, inline_token);
+        const node = try self.createFnProto(arena, fn_token, extern_token, cc_token, visib_token, inline_token);
         try list.append(&node.base);
         return node;
     }
 
-    fn createAttachVarDecl(self: &Parser, list: &ArrayList(&ast.Node), visib_token: &const ?Token,
-        mut_token: &const Token, comptime_token: &const ?Token, extern_token: &const ?Token) !&ast.NodeVarDecl
+    fn createAttachVarDecl(self: &Parser, arena: &mem.Allocator, list: &ArrayList(&ast.Node),
+        visib_token: &const ?Token, mut_token: &const Token, comptime_token: &const ?Token,
+        extern_token: &const ?Token) !&ast.NodeVarDecl
     {
-        const node = try self.createVarDecl(visib_token, mut_token, comptime_token, extern_token);
+        const node = try self.createVarDecl(arena, visib_token, mut_token, comptime_token, extern_token);
         try list.append(&node.base);
         return node;
     }
@@ -1018,10 +1021,10 @@ pub const Parser = struct {
 
     fn initUtilityArrayList(self: &Parser, comptime T: type) ArrayList(T) {
         const new_byte_count = self.utility_bytes.len - self.utility_bytes.len % @sizeOf(T);
-        self.utility_bytes = self.allocator.alignedShrink(u8, utility_bytes_align, self.utility_bytes, new_byte_count);
+        self.utility_bytes = self.util_allocator.alignedShrink(u8, utility_bytes_align, self.utility_bytes, new_byte_count);
         const typed_slice = ([]T)(self.utility_bytes);
         return ArrayList(T) {
-            .allocator = self.allocator,
+            .allocator = self.util_allocator,
             .items = typed_slice,
             .len = 0,
         };
@@ -1043,7 +1046,7 @@ fn testParse(source: []const u8, allocator: &mem.Allocator) ![]u8 {
     var parser = Parser.init(&tokenizer, allocator, "(memory buffer)");
     defer parser.deinit();
 
-    const tree = try parser.parse();
+    var tree = try parser.parse();
     defer tree.deinit();
 
     var buffer = try std.Buffer.initSize(allocator, 0);
@@ -1057,7 +1060,7 @@ fn testParse(source: []const u8, allocator: &mem.Allocator) ![]u8 {
 fn testCanonical(source: []const u8) !void {
     const needed_alloc_count = x: {
         // Try it once with unlimited memory, make sure it works
-        var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+        var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
         var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, @maxValue(usize));
         const result_source = try testParse(source, &failing_allocator.allocator);
         if (!mem.eql(u8, result_source, source)) {
@@ -1074,7 +1077,7 @@ fn testCanonical(source: []const u8) !void {
 
     var fail_index: usize = 0;
     while (fail_index < needed_alloc_count) : (fail_index += 1) {
-        var fixed_allocator = mem.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+        var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
         var failing_allocator = std.debug.FailingAllocator.init(&fixed_allocator.allocator, fail_index);
         if (testParse(source, &failing_allocator.allocator)) |_| {
             return error.NondeterministicMemoryUsage;

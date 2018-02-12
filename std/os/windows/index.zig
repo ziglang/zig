@@ -22,7 +22,7 @@ pub extern "kernel32" stdcallcc fn CreatePipe(hReadPipe: &HANDLE, hWritePipe: &H
 
 pub extern "kernel32" stdcallcc fn CreateProcessA(lpApplicationName: ?LPCSTR, lpCommandLine: LPSTR,
     lpProcessAttributes: ?&SECURITY_ATTRIBUTES, lpThreadAttributes: ?&SECURITY_ATTRIBUTES, bInheritHandles: BOOL,
-    dwCreationFlags: DWORD, lpEnvironment: ?LPVOID, lpCurrentDirectory: ?LPCSTR, lpStartupInfo: &STARTUPINFOA,
+    dwCreationFlags: DWORD, lpEnvironment: ?&c_void, lpCurrentDirectory: ?LPCSTR, lpStartupInfo: &STARTUPINFOA,
     lpProcessInformation: &PROCESS_INFORMATION) BOOL;
 
 pub extern "kernel32" stdcallcc fn CreateSymbolicLinkA(lpSymlinkFileName: LPCSTR, lpTargetFileName: LPCSTR,
@@ -61,16 +61,24 @@ pub extern "kernel32" stdcallcc fn GetFinalPathNameByHandleA(hFile: HANDLE, lpsz
 
 pub extern "kernel32" stdcallcc fn GetProcessHeap() ?HANDLE;
 
+pub extern "kernel32" stdcallcc fn HeapCreate(flOptions: DWORD, dwInitialSize: SIZE_T, dwMaximumSize: SIZE_T) ?HANDLE;
+pub extern "kernel32" stdcallcc fn HeapDestroy(hHeap: HANDLE) BOOL;
+pub extern "kernel32" stdcallcc fn HeapReAlloc(hHeap: HANDLE, dwFlags: DWORD, lpMem: &c_void, dwBytes: SIZE_T) ?&c_void;
+pub extern "kernel32" stdcallcc fn HeapSize(hHeap: HANDLE, dwFlags: DWORD, lpMem: &const c_void) SIZE_T;
+pub extern "kernel32" stdcallcc fn HeapValidate(hHeap: HANDLE, dwFlags: DWORD, lpMem: &const c_void) BOOL;
+pub extern "kernel32" stdcallcc fn HeapCompact(hHeap: HANDLE, dwFlags: DWORD) SIZE_T;
+pub extern "kernel32" stdcallcc fn HeapSummary(hHeap: HANDLE, dwFlags: DWORD, lpSummary: LPHEAP_SUMMARY) BOOL;
+
 pub extern "kernel32" stdcallcc fn GetStdHandle(in_nStdHandle: DWORD) ?HANDLE;
 
-pub extern "kernel32" stdcallcc fn HeapAlloc(hHeap: HANDLE, dwFlags: DWORD, dwBytes: SIZE_T) ?LPVOID;
+pub extern "kernel32" stdcallcc fn HeapAlloc(hHeap: HANDLE, dwFlags: DWORD, dwBytes: SIZE_T) ?&c_void;
 
-pub extern "kernel32" stdcallcc fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: LPVOID) BOOL;
+pub extern "kernel32" stdcallcc fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: &c_void) BOOL;
 
 pub extern "kernel32" stdcallcc fn MoveFileExA(lpExistingFileName: LPCSTR, lpNewFileName: LPCSTR,
     dwFlags: DWORD) BOOL;
 
-pub extern "kernel32" stdcallcc fn ReadFile(in_hFile: HANDLE, out_lpBuffer: LPVOID,
+pub extern "kernel32" stdcallcc fn ReadFile(in_hFile: HANDLE, out_lpBuffer: &c_void,
     in_nNumberOfBytesToRead: DWORD, out_lpNumberOfBytesRead: &DWORD,
     in_out_lpOverlapped: ?&OVERLAPPED) BOOL;
 
@@ -201,7 +209,7 @@ pub const VOLUME_NAME_NT = 0x2;
 
 pub const SECURITY_ATTRIBUTES = extern struct {
     nLength: DWORD,
-    lpSecurityDescriptor: ?LPVOID,
+    lpSecurityDescriptor: ?&c_void,
     bInheritHandle: BOOL,
 };
 pub const PSECURITY_ATTRIBUTES = &SECURITY_ATTRIBUTES;
@@ -296,3 +304,7 @@ pub const MOVEFILE_WRITE_THROUGH = 8;
 pub const FILE_BEGIN = 0;
 pub const FILE_CURRENT = 1;
 pub const FILE_END = 2;
+
+pub const HEAP_CREATE_ENABLE_EXECUTE = 0x00040000;
+pub const HEAP_GENERATE_EXCEPTIONS = 0x00000004;
+pub const HEAP_NO_SERIALIZE = 0x00000001;
