@@ -130,6 +130,8 @@ static const char *ir_bin_op_id_str(IrBinOp op_id) {
             return "++";
         case IrBinOpArrayMult:
             return "**";
+        case IrBinOpMergeErrorSets:
+            return "||";
     }
     zig_unreachable();
 }
@@ -148,8 +150,6 @@ static const char *ir_un_op_id_str(IrUnOp op_id) {
             return "*";
         case IrUnOpMaybe:
             return "?";
-        case IrUnOpError:
-            return "%";
     }
     zig_unreachable();
 }
@@ -1004,6 +1004,11 @@ static void ir_print_error_return_trace(IrPrint *irp, IrInstructionErrorReturnTr
     fprintf(irp->f, "@errorReturnTrace()");
 }
 
+static void ir_print_error_union(IrPrint *irp, IrInstructionErrorUnion *instruction) {
+    ir_print_other_instruction(irp, instruction->err_set);
+    fprintf(irp->f, "!");
+    ir_print_other_instruction(irp, instruction->payload);
+}
 
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
@@ -1321,6 +1326,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdErrorReturnTrace:
             ir_print_error_return_trace(irp, (IrInstructionErrorReturnTrace *)instruction);
+            break;
+        case IrInstructionIdErrorUnion:
+            ir_print_error_union(irp, (IrInstructionErrorUnion *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

@@ -10,7 +10,7 @@ const ArrayList = std.ArrayList;
 const Buffer = std.Buffer;
 const io = std.io;
 
-pub fn build(b: &Builder) %void {
+pub fn build(b: &Builder) !void {
     const mode = b.standardReleaseOptions();
 
     var docgen_exe = b.addExecutable("docgen", "doc/docgen.zig");
@@ -78,7 +78,6 @@ pub fn build(b: &Builder) %void {
     exe.linkSystemLibrary("c");
 
     b.default_step.dependOn(&exe.step);
-    b.default_step.dependOn(docs_step);
 
     const skip_self_hosted = b.option(bool, "skip-self-hosted", "Main test suite skips building self hosted compiler") ?? false;
     if (!skip_self_hosted) {
@@ -106,10 +105,6 @@ pub fn build(b: &Builder) %void {
 
     test_step.dependOn(tests.addPkgTests(b, test_filter,
         "std/special/compiler_rt/index.zig", "compiler-rt", "Run the compiler_rt tests",
-        with_lldb));
-
-    test_step.dependOn(tests.addPkgTests(b, test_filter,
-        "src-self-hosted/main.zig", "fmt", "Run the fmt tests",
         with_lldb));
 
     test_step.dependOn(tests.addCompareOutputTests(b, test_filter));
@@ -149,7 +144,7 @@ const LibraryDep = struct {
     includes: ArrayList([]const u8),
 };
 
-fn findLLVM(b: &Builder, llvm_config_exe: []const u8) %LibraryDep {
+fn findLLVM(b: &Builder, llvm_config_exe: []const u8) !LibraryDep {
     const libs_output = try b.exec([][]const u8{llvm_config_exe, "--libs", "--system-libs"});
     const includes_output = try b.exec([][]const u8{llvm_config_exe, "--includedir"});
     const libdir_output = try b.exec([][]const u8{llvm_config_exe, "--libdir"});

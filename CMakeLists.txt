@@ -480,11 +480,12 @@ set(ZIG_STD_FILES
     "os/child_process.zig"
     "os/darwin.zig"
     "os/darwin_errno.zig"
+    "os/file.zig"
     "os/get_user_id.zig"
     "os/index.zig"
-    "os/linux/index.zig"
     "os/linux/errno.zig"
     "os/linux/i386.zig"
+    "os/linux/index.zig"
     "os/linux/x86_64.zig"
     "os/path.zig"
     "os/windows/error.zig"
@@ -520,6 +521,10 @@ set(ZIG_STD_FILES
     "special/panic.zig"
     "special/test_runner.zig"
     "unicode.zig"
+    "zig/ast.zig"
+    "zig/index.zig"
+    "zig/parser.zig"
+    "zig/tokenizer.zig"
 )
 
 set(ZIG_C_HEADER_FILES

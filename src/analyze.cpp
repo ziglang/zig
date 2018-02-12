@@ -224,7 +224,7 @@ bool type_is_complete(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
@@ -260,7 +260,7 @@ bool type_has_zero_bits_known(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
@@ -514,29 +514,47 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
     }
 }
 
-TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type) {
-    if (child_type->error_parent)
-        return child_type->error_parent;
+TypeTableEntry *get_error_union_type(CodeGen *g, TypeTableEntry *err_set_type, TypeTableEntry *payload_type) {
+    assert(err_set_type->id == TypeTableEntryIdErrorSet);
+    assert(!type_is_invalid(payload_type));
+
+    TypeId type_id = {};
+    type_id.id = TypeTableEntryIdErrorUnion;
+    type_id.data.error_union.err_set_type = err_set_type;
+    type_id.data.error_union.payload_type = payload_type;
+
+    auto existing_entry = g->type_table.maybe_get(type_id);
+    if (existing_entry) {
+        return existing_entry->value;
+    }
 
     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdErrorUnion);
     entry->is_copyable = true;
-    assert(child_type->type_ref);
-    assert(child_type->di_type);
-    ensure_complete_type(g, child_type);
+    assert(payload_type->di_type);
+    ensure_complete_type(g, payload_type);
 
     buf_resize(&entry->name, 0);
-    buf_appendf(&entry->name, "%%%s", buf_ptr(&child_type->name));
+    buf_appendf(&entry->name, "%s!%s", buf_ptr(&err_set_type->name), buf_ptr(&payload_type->name));
 
-    entry->data.error.child_type = child_type;
+    entry->data.error_union.err_set_type = err_set_type;
+    entry->data.error_union.payload_type = payload_type;
 
-    if (!type_has_bits(child_type)) {
-        entry->type_ref = g->err_tag_type->type_ref;
-        entry->di_type = g->err_tag_type->di_type;
-
+    if (!type_has_bits(payload_type)) {
+        if (type_has_bits(err_set_type)) {
+            entry->type_ref = err_set_type->type_ref;
+            entry->di_type = err_set_type->di_type;
+            g->error_di_types.append(&entry->di_type);
+        } else {
+            entry->zero_bits = true;
+            entry->di_type = g->builtin_types.entry_void->di_type;
+        }
+    } else if (!type_has_bits(err_set_type)) {
+        entry->type_ref = payload_type->type_ref;
+        entry->di_type = payload_type->di_type;
     } else {
         LLVMTypeRef elem_types[] = {
-            g->err_tag_type->type_ref,
-            child_type->type_ref,
+            err_set_type->type_ref,
+            payload_type->type_ref,
         };
         entry->type_ref = LLVMStructType(elem_types, 2, false);
 
@@ -547,12 +565,12 @@ TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type) {
             ZigLLVMTag_DW_structure_type(), buf_ptr(&entry->name),
             compile_unit_scope, di_file, line);
 
-        uint64_t tag_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, g->err_tag_type->type_ref);
-        uint64_t tag_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, g->err_tag_type->type_ref);
+        uint64_t tag_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, err_set_type->type_ref);
+        uint64_t tag_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, err_set_type->type_ref);
         uint64_t tag_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref, err_union_err_index);
 
-        uint64_t value_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, child_type->type_ref);
-        uint64_t value_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, child_type->type_ref);
+        uint64_t value_debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, payload_type->type_ref);
+        uint64_t value_debug_align_in_bits = 8*LLVMABISizeOfType(g->target_data_ref, payload_type->type_ref);
         uint64_t value_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, entry->type_ref,
                 err_union_payload_index);
 
@@ -565,13 +583,13 @@ TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type) {
                     tag_debug_size_in_bits,
                     tag_debug_align_in_bits,
                     tag_offset_in_bits,
-                    0, child_type->di_type),
+                    0, err_set_type->di_type),
             ZigLLVMCreateDebugMemberType(g->dbuilder, ZigLLVMTypeToScope(entry->di_type),
                     "value", di_file, line,
                     value_debug_size_in_bits,
                     value_debug_align_in_bits,
                     value_offset_in_bits,
-                    0, child_type->di_type),
+                    0, payload_type->di_type),
         };
 
         ZigLLVMDIType *replacement_di_type = ZigLLVMCreateDebugStructType(g->dbuilder,
@@ -587,7 +605,7 @@ TypeTableEntry *get_error_type(CodeGen *g, TypeTableEntry *child_type) {
         entry->di_type = replacement_di_type;
     }
 
-    child_type->error_parent = entry;
+    g->type_table.put(type_id, entry);
     return entry;
 }
 
@@ -937,7 +955,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             handle_is_ptr(fn_type_id->return_type);
         bool prefix_arg_error_return_trace = g->have_err_ret_tracing &&
             (fn_type_id->return_type->id == TypeTableEntryIdErrorUnion || 
-            fn_type_id->return_type->id == TypeTableEntryIdPureError);
+            fn_type_id->return_type->id == TypeTableEntryIdErrorSet);
         // +1 for maybe making the first argument the return value
         // +1 for maybe last argument the error return trace
         LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(2 + fn_type_id->param_count);
@@ -1177,7 +1195,7 @@ static bool type_allowed_in_packed_struct(TypeTableEntry *type_entry) {
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
@@ -1218,7 +1236,7 @@ static bool type_allowed_in_extern(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
@@ -1263,7 +1281,23 @@ static bool type_allowed_in_extern(CodeGen *g, TypeTableEntry *type_entry) {
     zig_unreachable();
 }
 
-static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_scope) {
+TypeTableEntry *get_auto_err_set_type(CodeGen *g, FnTableEntry *fn_entry) {
+    TypeTableEntry *err_set_type = new_type_table_entry(TypeTableEntryIdErrorSet);
+    buf_resize(&err_set_type->name, 0);
+    buf_appendf(&err_set_type->name, "@typeOf(%s).ReturnType.ErrorSet", buf_ptr(&fn_entry->symbol_name));
+    err_set_type->is_copyable = true;
+    err_set_type->type_ref = g->builtin_types.entry_global_error_set->type_ref;
+    err_set_type->di_type = g->builtin_types.entry_global_error_set->di_type;
+    err_set_type->data.error_set.err_count = 0;
+    err_set_type->data.error_set.errors = nullptr;
+    err_set_type->data.error_set.infer_fn = fn_entry;
+
+    g->error_di_types.append(&err_set_type->di_type);
+
+    return err_set_type;
+}
+
+static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *child_scope, FnTableEntry *fn_entry) {
     assert(proto_node->type == NodeTypeFnProto);
     AstNodeFnProto *fn_proto = &proto_node->data.fn_proto;
 
@@ -1359,7 +1393,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             case TypeTableEntryIdStruct:
             case TypeTableEntryIdMaybe:
             case TypeTableEntryIdErrorUnion:
-            case TypeTableEntryIdPureError:
+            case TypeTableEntryIdErrorSet:
             case TypeTableEntryIdEnum:
             case TypeTableEntryIdUnion:
             case TypeTableEntryIdFn:
@@ -1382,11 +1416,17 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         }
     }
 
-    fn_type_id.return_type = (fn_proto->return_type == nullptr) ?
-        g->builtin_types.entry_void : analyze_type_expr(g, child_scope, fn_proto->return_type);
-
-    if (type_is_invalid(fn_type_id.return_type)) {
+    TypeTableEntry *specified_return_type = analyze_type_expr(g, child_scope, fn_proto->return_type);
+    if (type_is_invalid(specified_return_type)) {
+        fn_type_id.return_type = g->builtin_types.entry_invalid;
         return g->builtin_types.entry_invalid;
+    }
+
+    if (fn_proto->auto_err_set) {
+        TypeTableEntry *inferred_err_set_type = get_auto_err_set_type(g, fn_entry);
+        fn_type_id.return_type = get_error_union_type(g, inferred_err_set_type, specified_return_type);
+    } else {
+        fn_type_id.return_type = specified_return_type;
     }
 
     if (fn_type_id.cc != CallingConventionUnspecified && !type_allowed_in_extern(g, fn_type_id.return_type)) {
@@ -1434,7 +1474,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
@@ -2756,7 +2796,8 @@ TypeTableEntry *get_test_fn_type(CodeGen *g) {
         return g->test_fn_type;
 
     FnTypeId fn_type_id = {0};
-    fn_type_id.return_type = get_error_type(g,  g->builtin_types.entry_void);
+    fn_type_id.return_type = get_error_union_type(g, g->builtin_types.entry_global_error_set,
+            g->builtin_types.entry_void);
     g->test_fn_type = get_fn_type(g, &fn_type_id);
     return g->test_fn_type;
 }
@@ -2824,7 +2865,7 @@ static void resolve_decl_fn(CodeGen *g, TldFn *tld_fn) {
 
         Scope *child_scope = fn_table_entry->fndef_scope ? &fn_table_entry->fndef_scope->base : tld_fn->base.parent_scope;
 
-        fn_table_entry->type_entry = analyze_fn_type(g, source_node, child_scope);
+        fn_table_entry->type_entry = analyze_fn_type(g, source_node, child_scope, fn_table_entry);
 
         if (fn_proto->section_expr != nullptr) {
             if (fn_table_entry->body_node == nullptr) {
@@ -2949,29 +2990,6 @@ static void preview_test_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope
     g->resolve_queue.append(&tld_fn->base);
 }
 
-static void preview_error_value_decl(CodeGen *g, AstNode *node) {
-    assert(node->type == NodeTypeErrorValueDecl);
-
-    ErrorTableEntry *err = allocate<ErrorTableEntry>(1);
-
-    err->decl_node = node;
-    buf_init_from_buf(&err->name, node->data.error_value_decl.name);
-
-    auto existing_entry = g->error_table.maybe_get(&err->name);
-    if (existing_entry) {
-        // duplicate error definitions allowed and they get the same value
-        err->value = existing_entry->value->value;
-    } else {
-        size_t error_value_count = g->error_decls.length;
-        assert((uint32_t)error_value_count < (((uint32_t)1) << (uint32_t)g->err_tag_type->data.integral.bit_count));
-        err->value = (uint32_t)error_value_count;
-        g->error_decls.append(node);
-        g->error_table.put(&err->name, err);
-    }
-
-    node->data.error_value_decl.err = err;
-}
-
 static void preview_comptime_decl(CodeGen *g, AstNode *node, ScopeDecls *decls_scope) {
     assert(node->type == NodeTypeCompTime);
 
@@ -3045,10 +3063,6 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
                 import->use_decls.append(node);
                 break;
             }
-        case NodeTypeErrorValueDecl:
-            // error value declarations do not depend on other top level decls
-            preview_error_value_decl(g, node);
-            break;
         case NodeTypeTestDecl:
             preview_test_decl(g, node, decls_scope);
             break;
@@ -3097,6 +3111,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeVarLiteral:
         case NodeTypeIfErrorExpr:
         case NodeTypeTestExpr:
+        case NodeTypeErrorSetDecl:
             zig_unreachable();
     }
 }
@@ -3147,7 +3162,7 @@ TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEnt
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
@@ -3362,108 +3377,6 @@ void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only, AstNode *so
     g->tld_ref_source_node_stack.pop();
 }
 
-bool types_match_const_cast_only(TypeTableEntry *expected_type, TypeTableEntry *actual_type) {
-    if (expected_type == actual_type)
-        return true;
-
-    // pointer const
-    if (expected_type->id == TypeTableEntryIdPointer &&
-        actual_type->id == TypeTableEntryIdPointer &&
-        (!actual_type->data.pointer.is_const || expected_type->data.pointer.is_const) &&
-        (!actual_type->data.pointer.is_volatile || expected_type->data.pointer.is_volatile) &&
-        actual_type->data.pointer.bit_offset == expected_type->data.pointer.bit_offset &&
-        actual_type->data.pointer.unaligned_bit_count == expected_type->data.pointer.unaligned_bit_count &&
-        actual_type->data.pointer.alignment >= expected_type->data.pointer.alignment)
-    {
-        return types_match_const_cast_only(expected_type->data.pointer.child_type,
-                actual_type->data.pointer.child_type);
-    }
-
-    // slice const
-    if (is_slice(expected_type) && is_slice(actual_type)) {
-        TypeTableEntry *actual_ptr_type = actual_type->data.structure.fields[slice_ptr_index].type_entry;
-        TypeTableEntry *expected_ptr_type = expected_type->data.structure.fields[slice_ptr_index].type_entry;
-        if ((!actual_ptr_type->data.pointer.is_const || expected_ptr_type->data.pointer.is_const) &&
-            (!actual_ptr_type->data.pointer.is_volatile || expected_ptr_type->data.pointer.is_volatile) &&
-            actual_ptr_type->data.pointer.bit_offset == expected_ptr_type->data.pointer.bit_offset &&
-            actual_ptr_type->data.pointer.unaligned_bit_count == expected_ptr_type->data.pointer.unaligned_bit_count &&
-            actual_ptr_type->data.pointer.alignment >= expected_ptr_type->data.pointer.alignment)
-        {
-            return types_match_const_cast_only(expected_ptr_type->data.pointer.child_type,
-                    actual_ptr_type->data.pointer.child_type);
-        }
-    }
-
-    // maybe
-    if (expected_type->id == TypeTableEntryIdMaybe &&
-        actual_type->id == TypeTableEntryIdMaybe)
-    {
-        return types_match_const_cast_only(
-                expected_type->data.maybe.child_type,
-                actual_type->data.maybe.child_type);
-    }
-
-    // error
-    if (expected_type->id == TypeTableEntryIdErrorUnion &&
-        actual_type->id == TypeTableEntryIdErrorUnion)
-    {
-        return types_match_const_cast_only(
-                expected_type->data.error.child_type,
-                actual_type->data.error.child_type);
-    }
-
-    // fn
-    if (expected_type->id == TypeTableEntryIdFn &&
-        actual_type->id == TypeTableEntryIdFn)
-    {
-        if (expected_type->data.fn.fn_type_id.alignment > actual_type->data.fn.fn_type_id.alignment) {
-            return false;
-        }
-        if (expected_type->data.fn.fn_type_id.cc != actual_type->data.fn.fn_type_id.cc) {
-            return false;
-        }
-        if (expected_type->data.fn.fn_type_id.is_var_args != actual_type->data.fn.fn_type_id.is_var_args) {
-            return false;
-        }
-        if (expected_type->data.fn.is_generic != actual_type->data.fn.is_generic) {
-            return false;
-        }
-        if (!expected_type->data.fn.is_generic &&
-            actual_type->data.fn.fn_type_id.return_type->id != TypeTableEntryIdUnreachable &&
-            !types_match_const_cast_only(
-                expected_type->data.fn.fn_type_id.return_type,
-                actual_type->data.fn.fn_type_id.return_type))
-        {
-            return false;
-        }
-        if (expected_type->data.fn.fn_type_id.param_count != actual_type->data.fn.fn_type_id.param_count) {
-            return false;
-        }
-        if (expected_type->data.fn.fn_type_id.next_param_index != actual_type->data.fn.fn_type_id.next_param_index) {
-            return false;
-        }
-        assert(expected_type->data.fn.is_generic ||
-                expected_type->data.fn.fn_type_id.next_param_index  == expected_type->data.fn.fn_type_id.param_count);
-        for (size_t i = 0; i < expected_type->data.fn.fn_type_id.next_param_index; i += 1) {
-            // note it's reversed for parameters
-            FnTypeParamInfo *actual_param_info = &actual_type->data.fn.fn_type_id.param_info[i];
-            FnTypeParamInfo *expected_param_info = &expected_type->data.fn.fn_type_id.param_info[i];
-
-            if (!types_match_const_cast_only(actual_param_info->type, expected_param_info->type)) {
-                return false;
-            }
-
-            if (expected_param_info->is_noalias != actual_param_info->is_noalias) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-
-    return false;
-}
-
 Tld *find_decl(CodeGen *g, Scope *scope, Buf *name) {
     // we must resolve all the use decls
     ImportTableEntry *import = get_scope_import(scope);
@@ -3625,7 +3538,7 @@ static bool is_container(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
@@ -3673,7 +3586,7 @@ void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
@@ -3765,6 +3678,27 @@ void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entry, Vari
     }
 }
 
+static bool analyze_resolve_inferred_error_set(CodeGen *g, TypeTableEntry *err_set_type, AstNode *source_node) {
+    FnTableEntry *infer_fn = err_set_type->data.error_set.infer_fn;
+    if (infer_fn != nullptr) {
+        if (infer_fn->anal_state == FnAnalStateInvalid) {
+            return false;
+        } else if (infer_fn->anal_state == FnAnalStateReady) {
+            analyze_fn_body(g, infer_fn);
+            if (err_set_type->data.error_set.infer_fn != nullptr) {
+                assert(g->errors.length != 0);
+                return false;
+            }
+        } else {
+            add_node_error(g, source_node,
+                buf_sprintf("cannot resolve inferred error set '%s': function '%s' not fully analyzed yet",
+                    buf_ptr(&err_set_type->name), buf_ptr(&err_set_type->data.error_set.infer_fn->symbol_name)));
+            return false;
+        }
+    }
+    return true;
+}
+
 void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_type_node) {
     TypeTableEntry *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);
@@ -3774,12 +3708,47 @@ void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_typ
             &fn_table_entry->analyzed_executable, fn_type_id->return_type, return_type_node);
     fn_table_entry->implicit_return_type = block_return_type;
 
-    if (block_return_type->id == TypeTableEntryIdInvalid ||
-        fn_table_entry->analyzed_executable.invalid)
-    {
+    if (type_is_invalid(block_return_type) || fn_table_entry->analyzed_executable.invalid) {
         assert(g->errors.length > 0);
         fn_table_entry->anal_state = FnAnalStateInvalid;
         return;
+    }
+
+    if (fn_type_id->return_type->id == TypeTableEntryIdErrorUnion) {
+        TypeTableEntry *return_err_set_type = fn_type_id->return_type->data.error_union.err_set_type;
+        if (return_err_set_type->data.error_set.infer_fn != nullptr) {
+            TypeTableEntry *inferred_err_set_type;
+            if (fn_table_entry->implicit_return_type->id == TypeTableEntryIdErrorSet) {
+                inferred_err_set_type = fn_table_entry->implicit_return_type;
+            } else if (fn_table_entry->implicit_return_type->id == TypeTableEntryIdErrorUnion) {
+                inferred_err_set_type = fn_table_entry->implicit_return_type->data.error_union.err_set_type;
+            } else {
+                add_node_error(g, return_type_node,
+                        buf_sprintf("function with inferred error set must return at least one possible error"));
+                fn_table_entry->anal_state = FnAnalStateInvalid;
+                return;
+            }
+
+            if (inferred_err_set_type->data.error_set.infer_fn != nullptr) {
+                if (!analyze_resolve_inferred_error_set(g, inferred_err_set_type, return_type_node)) {
+                    fn_table_entry->anal_state = FnAnalStateInvalid;
+                    return;
+                }
+            }
+
+            return_err_set_type->data.error_set.infer_fn = nullptr;
+            if (type_is_global_error_set(inferred_err_set_type)) {
+                return_err_set_type->data.error_set.err_count = UINT32_MAX;
+            } else {
+                return_err_set_type->data.error_set.err_count = inferred_err_set_type->data.error_set.err_count;
+                if (inferred_err_set_type->data.error_set.err_count > 0) {
+                    return_err_set_type->data.error_set.errors = allocate<ErrorTableEntry *>(inferred_err_set_type->data.error_set.err_count);
+                    for (uint32_t i = 0; i < inferred_err_set_type->data.error_set.err_count; i += 1) {
+                        return_err_set_type->data.error_set.errors[i] = inferred_err_set_type->data.error_set.errors[i];
+                    }
+                }
+            }
+        }
     }
 
     if (g->verbose_ir) {
@@ -3791,7 +3760,7 @@ void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_typ
     fn_table_entry->anal_state = FnAnalStateComplete;
 }
 
-static void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
+void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry) {
     assert(fn_table_entry->anal_state != FnAnalStateProbing);
     if (fn_table_entry->anal_state != FnAnalStateReady)
         return;
@@ -4022,7 +3991,8 @@ void semantic_analyze(CodeGen *g) {
         for (; g->resolve_queue_index < g->resolve_queue.length; g->resolve_queue_index += 1) {
             Tld *tld = g->resolve_queue.at(g->resolve_queue_index);
             bool pointer_only = false;
-            resolve_top_level_decl(g, tld, pointer_only, nullptr);
+            AstNode *source_node = nullptr;
+            resolve_top_level_decl(g, tld, pointer_only, source_node);
         }
 
         for (; g->fn_defs_index < g->fn_defs.length; g->fn_defs_index += 1) {
@@ -4114,7 +4084,7 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
         case TypeTableEntryIdInt:
         case TypeTableEntryIdFloat:
         case TypeTableEntryIdPointer:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdEnum:
              return false;
@@ -4122,7 +4092,7 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
         case TypeTableEntryIdStruct:
              return type_has_bits(type_entry);
         case TypeTableEntryIdErrorUnion:
-             return type_has_bits(type_entry->data.error.child_type);
+             return type_has_bits(type_entry->data.error_union.payload_type);
         case TypeTableEntryIdMaybe:
              return type_has_bits(type_entry->data.maybe.child_type) &&
                     type_entry->data.maybe.child_type->id != TypeTableEntryIdPointer &&
@@ -4386,9 +4356,9 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
         case TypeTableEntryIdErrorUnion:
             // TODO better hashing algorithm
             return 3415065496;
-        case TypeTableEntryIdPureError:
-            // TODO better hashing algorithm
-            return 2630160122;
+        case TypeTableEntryIdErrorSet:
+            assert(const_val->data.x_err_set != nullptr);
+            return const_val->data.x_err_set->value ^ 2630160122;
         case TypeTableEntryIdFn:
             return 4133894920 ^ hash_ptr(const_val->data.x_fn.fn_entry);
         case TypeTableEntryIdNamespace:
@@ -4515,7 +4485,7 @@ bool type_requires_comptime(TypeTableEntry *type_entry) {
         case TypeTableEntryIdMaybe:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdEnum:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdBool:
         case TypeTableEntryIdInt:
@@ -4894,8 +4864,8 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
             return a->data.x_type == b->data.x_type;
         case TypeTableEntryIdVoid:
             return true;
-        case TypeTableEntryIdPureError:
-            return a->data.x_pure_err == b->data.x_pure_err;
+        case TypeTableEntryIdErrorSet:
+            return a->data.x_err_set->value == b->data.x_err_set->value;
         case TypeTableEntryIdFn:
             return a->data.x_fn.fn_entry == b->data.x_fn.fn_entry;
         case TypeTableEntryIdBool:
@@ -5256,9 +5226,9 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
                 buf_appendf(buf, "(union %s constant)", buf_ptr(&type_entry->name));
                 return;
             }
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
             {
-                buf_appendf(buf, "(pure error constant)");
+                buf_appendf(buf, "%s.%s", buf_ptr(&type_entry->name), buf_ptr(&const_val->data.x_err_set->name));
                 return;
             }
         case TypeTableEntryIdArgTuple:
@@ -5319,8 +5289,7 @@ uint32_t type_id_hash(TypeId x) {
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdMaybe:
-        case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
@@ -5329,6 +5298,8 @@ uint32_t type_id_hash(TypeId x) {
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
             zig_unreachable();
+        case TypeTableEntryIdErrorUnion:
+            return hash_ptr(x.data.error_union.err_set_type) ^ hash_ptr(x.data.error_union.payload_type);
         case TypeTableEntryIdPointer:
             return hash_ptr(x.data.pointer.child_type) +
                 (x.data.pointer.is_const ? (uint32_t)2749109194 : (uint32_t)4047371087) +
@@ -5363,8 +5334,7 @@ bool type_id_eql(TypeId a, TypeId b) {
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdMaybe:
-        case TypeTableEntryIdErrorUnion:
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
@@ -5374,6 +5344,10 @@ bool type_id_eql(TypeId a, TypeId b) {
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
             zig_unreachable();
+        case TypeTableEntryIdErrorUnion:
+            return a.data.error_union.err_set_type == b.data.error_union.err_set_type &&
+                a.data.error_union.payload_type == b.data.error_union.payload_type;
+
         case TypeTableEntryIdPointer:
             return a.data.pointer.child_type == b.data.pointer.child_type &&
                 a.data.pointer.is_const == b.data.pointer.is_const &&
@@ -5478,7 +5452,7 @@ static const TypeTableEntryId all_type_ids[] = {
     TypeTableEntryIdNullLit,
     TypeTableEntryIdMaybe,
     TypeTableEntryIdErrorUnion,
-    TypeTableEntryIdPureError,
+    TypeTableEntryIdErrorSet,
     TypeTableEntryIdEnum,
     TypeTableEntryIdUnion,
     TypeTableEntryIdFn,
@@ -5533,7 +5507,7 @@ size_t type_id_index(TypeTableEntryId id) {
             return 13;
         case TypeTableEntryIdErrorUnion:
             return 14;
-        case TypeTableEntryIdPureError:
+        case TypeTableEntryIdErrorSet:
             return 15;
         case TypeTableEntryIdEnum:
             return 16;
@@ -5590,8 +5564,8 @@ const char *type_id_name(TypeTableEntryId id) {
             return "Nullable";
         case TypeTableEntryIdErrorUnion:
             return "ErrorUnion";
-        case TypeTableEntryIdPureError:
-            return "Error";
+        case TypeTableEntryIdErrorSet:
+            return "ErrorSet";
         case TypeTableEntryIdEnum:
             return "Enum";
         case TypeTableEntryIdUnion:
@@ -5640,17 +5614,6 @@ LinkLib *add_link_lib(CodeGen *g, Buf *name) {
     return link_lib;
 }
 
-void add_link_lib_symbol(CodeGen *g, Buf *lib_name, Buf *symbol_name) {
-    LinkLib *link_lib = add_link_lib(g, lib_name);
-    for (size_t i = 0; i < link_lib->symbols.length; i += 1) {
-        Buf *existing_symbol_name = link_lib->symbols.at(i);
-        if (buf_eql_buf(existing_symbol_name, symbol_name)) {
-            return;
-        }
-    }
-    link_lib->symbols.append(symbol_name);
-}
-
 uint32_t get_abi_alignment(CodeGen *g, TypeTableEntry *type_entry) {
     type_ensure_zero_bits_known(g, type_entry);
     if (type_entry->zero_bits) return 0;
@@ -5696,3 +5659,8 @@ ConstExprValue *get_builtin_value(CodeGen *codegen, const char *name) {
     return var_value;
 }
 
+bool type_is_global_error_set(TypeTableEntry *err_set_type) {
+    assert(err_set_type->id == TypeTableEntryIdErrorSet);
+    assert(err_set_type->data.error_set.infer_fn == nullptr);
+    return err_set_type->data.error_set.err_count == UINT32_MAX;
+}

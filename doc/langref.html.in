@@ -108,7 +108,7 @@
       {#code_begin|exe|hello#}
 const std = @import("std");
 
-pub fn main() %void {
+pub fn main() !void {
     // If this program is run without stdout attached, exit with an error.
     var stdout_file = try std.io.getStdOut();
     // If this program encounters pipe failure when printing to stdout, exit
@@ -129,8 +129,8 @@ pub fn main() void {
 }
       {#code_end#}
       <p>
-      Note that we also left off the <code class="zig">%</code> from the return type.
-      In Zig, if your main function cannot fail, you may use the <code class="zig">void</code> return type.
+      Note that we also left off the <code class="zig">!</code> from the return type.
+      In Zig, if your main function cannot fail, you must use the <code class="zig">void</code> return type.
       </p>
       {#see_also|Values|@import|Errors|Root Source File#}
       {#header_close#}
@@ -141,10 +141,7 @@ const warn = std.debug.warn;
 const os = std.os;
 const assert = std.debug.assert;
 
-// error declaration, makes `error.ArgNotFound` available
-error ArgNotFound;
-
-pub fn main() %void {
+pub fn main() void {
     // integers
     const one_plus_one: i32 = 1 + 1;
     warn("1 + 1 = {}\n", one_plus_one);
@@ -173,7 +170,7 @@ pub fn main() %void {
         @typeName(@typeOf(nullable_value)), nullable_value);
 
     // error union
-    var number_or_error: %i32 = error.ArgNotFound;
+    var number_or_error: error!i32 = error.ArgNotFound;
 
     warn("\nerror union 1\ntype: {}\nvalue: {}\n",
         @typeName(@typeOf(number_or_error)), number_or_error);
@@ -681,7 +678,7 @@ const warn = @import("std").debug.warn;
 extern fn foo_strict(x: f64) f64;
 extern fn foo_optimized(x: f64) f64;
 
-pub fn main() %void {
+pub fn main() void {
     const x = 0.001;
     warn("optimized = {}\n", foo_optimized(x));
     warn("strict = {}\n", foo_strict(x));
@@ -1036,7 +1033,7 @@ a catch |err| b</code></pre></td>
             <code>err</code> is the <code>error</code> and is in scope of the expression <code>b</code>.
           </td>
           <td>
-            <pre><code class="zig">const value: %u32 = null;
+            <pre><code class="zig">const value: error!u32 = error.Broken;
 const unwrapped = value catch 1234;
 unwrapped == 1234</code></pre>
           </td>
@@ -1269,9 +1266,10 @@ const ptr = &amp;x;
       {#header_close#}
       {#header_open|Precedence#}
       <pre><code>x() x[] x.y
-!x -x -%x ~x *x &amp;x ?x %x ??x
+a!b
+!x -x -%x ~x *x &amp;x ?x ??x
 x{}
-* / % ** *%
+! * / % ** *%
 + - ++ +% -%
 &lt;&lt; &gt;&gt;
 &amp;
@@ -2268,8 +2266,8 @@ fn eventuallyNullSequence() ?u32 {
         break :blk numbers_left;
     };
 }
-error ReachedZero;
-fn eventuallyErrorSequence() %u32 {
+
+fn eventuallyErrorSequence() error!u32 {
     return if (numbers_left == 0) error.ReachedZero else blk: {
         numbers_left -= 1;
         break :blk numbers_left;
@@ -2398,7 +2396,7 @@ fn typeNameLength(comptime T: type) usize {
 // If expressions have three uses, corresponding to the three types:
 // * bool
 // * ?T
-// * %T
+// * error!T
 
 const assert = @import("std").debug.assert;
 
@@ -2459,20 +2457,18 @@ test "if nullable" {
     }
 }
 
-error BadValue;
-error LessBadValue;
 test "if error union" {
     // If expressions test for errors.
     // Note the |err| capture on the else.
 
-    const a: %u32 = 0;
+    const a: error!u32 = 0;
     if (a) |value| {
         assert(value == 0);
     } else |err| {
         unreachable;
     }
 
-    const b: %u32 = error.BadValue;
+    const b: error!u32 = error.BadValue;
     if (b) |value| {
         unreachable;
     } else |err| {
@@ -2490,7 +2486,7 @@ test "if error union" {
     }
 
     // Access the value by reference using a pointer capture.
-    var c: %u32 = 3;
+    var c: error!u32 = 3;
     if (c) |*value| {
         *value = 9;
     } else |err| {
@@ -2558,8 +2554,7 @@ test "defer unwinding" {
 //
 // This is especially useful in allowing a function to clean up properly
 // on error, and replaces goto error handling tactics as seen in c.
-error DeferError;
-fn deferErrorExample(is_error: bool) %void {
+fn deferErrorExample(is_error: bool) !void {
     warn("\nstart of function\n");
 
     // This will always be executed on exit
@@ -2668,7 +2663,7 @@ test "foo" {
     assert(value == 1234);
 }
 
-fn bar() %u32 {
+fn bar() error!u32 {
     return 1234;
 }
 
@@ -2791,13 +2786,8 @@ test "fn reflection" {
       One of the distinguishing features of Zig is its exception handling strategy.
       </p>
       <p>
-      Among the top level declarations available is the error value declaration:
+      TODO rewrite the errors section to take into account error sets
       </p>
-      {#code_begin|syntax#}
-error FileNotFound;
-error OutOfMemory;
-error UnexpectedToken;
-      {#code_end#}
       <p>
       These error values are assigned an unsigned integer value greater than 0 at
       compile time. You are allowed to declare the same error value more than once,
@@ -2809,26 +2799,23 @@ error UnexpectedToken;
       </p>
       <p>
       Each error value across the entire compilation unit gets a unique integer,
-      and this determines the size of the pure error type.
+      and this determines the size of the error set type.
       </p>
       <p>
-      The pure error type is one of the error values, and in the same way that pointers
-      cannot be null, a pure error is always an error.
+      The error set type is one of the error values, and in the same way that pointers
+      cannot be null, a error set instance is always an error.
       </p>
       {#code_begin|syntax#}const pure_error = error.FileNotFound;{#code_end#}
       <p>
-      Most of the time you will not find yourself using a pure error type. Instead,
-      likely you will be using the error union type. This is when you take a normal type,
-      and prefix it with the <code>%</code> operator.
+      Most of the time you will not find yourself using an error set type. Instead,
+      likely you will be using the error union type. This is when you take an error set
+      and a normal type, and create an error union with the <code>!</code> binary operator.
       </p>
       <p>
       Here is a function to parse a string into a 64-bit integer:
       </p>
       {#code_begin|test#}
-error InvalidChar;
-error Overflow;
-
-pub fn parseU64(buf: []const u8, radix: u8) %u64 {
+pub fn parseU64(buf: []const u8, radix: u8) !u64 {
     var x: u64 = 0;
 
     for (buf) |c| {
@@ -2867,13 +2854,14 @@ test "parse u64" {
 }
       {#code_end#}
       <p>
-      Notice the return type is <code>%u64</code>. This means that the function
-      either returns an unsigned 64 bit integer, or an error.
+      Notice the return type is <code>!u64</code>. This means that the function
+      either returns an unsigned 64 bit integer, or an error. We left off the error set
+      to the left of the <code>!</code>, so the error set is inferred.
       </p>
       <p>
       Within the function definition, you can see some return statements that return
-      a pure error, and at the bottom a return statement that returns a <code>u64</code>.
-      Both types implicitly cast to <code>%u64</code>.
+      an error, and at the bottom a return statement that returns a <code>u64</code>.
+      Both types implicitly cast to <code>error!u64</code>.
       </p>
       <p>
       What it looks like to use this function varies depending on what you're
@@ -2900,7 +2888,7 @@ fn doAThing(str: []u8) void {
       <p>Let's say you wanted to return the error if you got one, otherwise continue with the
       function logic:</p>
       {#code_begin|syntax#}
-fn doAThing(str: []u8) %void {
+fn doAThing(str: []u8) !void {
     const number = parseU64(str, 10) catch |err| return err;
     // ...
 }
@@ -2909,7 +2897,7 @@ fn doAThing(str: []u8) %void {
         There is a shortcut for this. The <code>try</code> expression:
       </p>
       {#code_begin|syntax#}
-fn doAThing(str: []u8) %void {
+fn doAThing(str: []u8) !void {
     const number = try parseU64(str, 10);
     // ...
 }
@@ -2959,7 +2947,7 @@ fn doAThing(str: []u8) void {
       Example:
       </p>
       {#code_begin|syntax#}
-fn createFoo(param: i32) %Foo {
+fn createFoo(param: i32) !Foo {
     const foo = try tryToAllocateFoo();
     // now we have allocated foo. we need to free it if the function fails.
     // but we want to return it if the function succeeds.
@@ -2999,15 +2987,13 @@ fn createFoo(param: i32) %Foo {
       </ul>
       {#see_also|defer|if|switch#}
       {#header_open|Error Union Type#}
-      <p>An error union is created by putting a <code>%</code> in front of a type.
+      <p>An error union is created with the <code>!</code> binary operator.
       You can use compile-time reflection to access the child type of an error union:</p>
       {#code_begin|test#}
 const assert = @import("std").debug.assert;
 
-error SomeError;
-
 test "error union" {
-    var foo: %i32 = undefined;
+    var foo: error!i32 = undefined;
 
     // Implicitly cast from child type of an error union:
     foo = 1234;
@@ -3015,8 +3001,11 @@ test "error union" {
     // Implicitly cast from an error set:
     foo = error.SomeError;
 
-    // Use compile-time reflection to access the child type of an error union:
-    comptime assert(@typeOf(foo).Child == i32);
+    // Use compile-time reflection to access the payload type of an error union:
+    comptime assert(@typeOf(foo).Payload == i32);
+
+    // Use compile-time reflection to access the error set type of an error union:
+    comptime assert(@typeOf(foo).ErrorSet == error);
 }
       {#code_end#}
       {#header_close#}
@@ -3610,7 +3599,7 @@ pub fn main() void {
 
       {#code_begin|syntax#}
 /// Calls print and then flushes the buffer.
-pub fn printf(self: &OutStream, comptime format: []const u8, args: ...) %void {
+pub fn printf(self: &OutStream, comptime format: []const u8, args: ...) error!void {
     const State = enum {
         Start,
         OpenBrace,
@@ -3682,7 +3671,7 @@ pub fn printf(self: &OutStream, comptime format: []const u8, args: ...) %void {
       and emits a function that actually looks like this:
       </p>
       {#code_begin|syntax#}
-pub fn printf(self: &OutStream, arg0: i32, arg1: []const u8) %void {
+pub fn printf(self: &OutStream, arg0: i32, arg1: []const u8) !void {
     try self.write("here is a string: '");
     try self.printValue(arg0);
     try self.write("' here is a number: ");
@@ -3696,7 +3685,7 @@ pub fn printf(self: &OutStream, arg0: i32, arg1: []const u8) %void {
       on the type:
       </p>
       {#code_begin|syntax#}
-pub fn printValue(self: &OutStream, value: var) %void {
+pub fn printValue(self: &OutStream, value: var) !void {
     const T = @typeOf(value);
     if (@isInteger(T)) {
         return self.printInt(T, value);
@@ -4647,7 +4636,7 @@ pub const TypeId = enum {
       {#code_begin|syntax#}
 const Builder = @import("std").build.Builder;
 
-pub fn build(b: &Builder) %void {
+pub fn build(b: &Builder) void {
     const exe = b.addExecutable("example", "example.zig");
     exe.setBuildMode(b.standardReleaseOptions());
     b.default_step.dependOn(&exe.step);
@@ -4789,7 +4778,7 @@ comptime {
       {#code_begin|exe_err#}
 const math = @import("std").math;
 const warn = @import("std").debug.warn;
-pub fn main() %void {
+pub fn main() !void {
     var byte: u8 = 255;
 
     byte = if (math.add(u8, byte, 1)) |result| result else |err| {
@@ -4817,7 +4806,7 @@ pub fn main() %void {
       </p>
       {#code_begin|exe#}
 const warn = @import("std").debug.warn;
-pub fn main() %void {
+pub fn main() void {
     var byte: u8 = 255;
 
     var result: u8 = undefined;
@@ -4926,14 +4915,12 @@ pub fn main() void {
       {#header_close#}
       {#header_open|Attempt to Unwrap Error#}
       <p>At compile-time:</p>
-      {#code_begin|test_err|unable to unwrap error 'UnableToReturnNumber'#}
+      {#code_begin|test_err|caught unexpected error 'UnableToReturnNumber'#}
 comptime {
     const number = getNumberOrFail() catch unreachable;
 }
 
-error UnableToReturnNumber;
-
-fn getNumberOrFail() %i32 {
+fn getNumberOrFail() !i32 {
     return error.UnableToReturnNumber;
 }
       {#code_end#}
@@ -4953,9 +4940,7 @@ pub fn main() void {
     }
 }
 
-error UnableToReturnNumber;
-
-fn getNumberOrFail() %i32 {
+fn getNumberOrFail() !i32 {
     return error.UnableToReturnNumber;
 }
       {#code_end#}
@@ -4963,7 +4948,6 @@ fn getNumberOrFail() %i32 {
       {#header_open|Invalid Error Code#}
       <p>At compile-time:</p>
       {#code_begin|test_err|integer value 11 represents no error#}
-error AnError;
 comptime {
     const err = error.AnError;
     const number = u32(err) + 10;
@@ -5363,7 +5347,7 @@ int main(int argc, char **argv) {
       {#code_begin|syntax#}
 const Builder = @import("std").build.Builder;
 
-pub fn build(b: &Builder) %void {
+pub fn build(b: &Builder) void {
     const obj = b.addObject("base64", "base64.zig");
 
     const exe = b.addCExecutable("test");
@@ -5641,13 +5625,11 @@ fn readU32Be() u32 {}
       {#header_open|Grammar#}
       <pre><code class="nohighlight">Root = many(TopLevelItem) EOF
 
-TopLevelItem = ErrorValueDecl | CompTimeExpression(Block) | TopLevelDecl | TestDecl
+TopLevelItem = CompTimeExpression(Block) | TopLevelDecl | TestDecl
 
 TestDecl = "test" String Block
 
 TopLevelDecl = option("pub") (FnDef | ExternDecl | GlobalVarDecl | UseDecl)
-
-ErrorValueDecl = "error" Symbol ";"
 
 GlobalVarDecl = option("export") VariableDeclaration ";"
 
@@ -5663,7 +5645,7 @@ UseDecl = "use" Expression ";"
 
 ExternDecl = "extern" option(String) (FnProto | VariableDeclaration) ";"
 
-FnProto = option("nakedcc" | "stdcallcc" | "extern") "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") TypeExpr
+FnProto = option("nakedcc" | "stdcallcc" | "extern") "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") option("!") TypeExpr
 
 FnDef = option("inline" | "export") FnProto Block
 
@@ -5675,7 +5657,9 @@ Block = option(Symbol ":") "{" many(Statement) "}"
 
 Statement = LocalVarDecl ";" | Defer(Block) | Defer(Expression) ";" | BlockExpression(Block) | Expression ";" | ";"
 
-TypeExpr = PrefixOpExpression | "var"
+TypeExpr = ErrorSetExpr | "var"
+
+ErrorSetExpr = (PrefixOpExpression "!" PrefixOpExpression) | PrefixOpExpression
 
 BlockOrExpression = Block | Expression
 
@@ -5757,9 +5741,9 @@ MultiplyExpression = CurlySuffixExpression MultiplyOperator MultiplyExpression |
 
 CurlySuffixExpression = TypeExpr option(ContainerInitExpression)
 
-MultiplyOperator = "*" | "/" | "%" | "**" | "*%"
+MultiplyOperator = "||" | "*" | "/" | "%" | "**" | "*%"
 
-PrefixOpExpression = PrefixOp PrefixOpExpression | SuffixOpExpression
+PrefixOpExpression = PrefixOp ErrorSetExpr | SuffixOpExpression
 
 SuffixOpExpression = PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
 
@@ -5777,15 +5761,17 @@ ContainerInitBody = list(StructLiteralField, ",") | list(Expression, ",")
 
 StructLiteralField = "." Symbol "=" Expression
 
-PrefixOp = "!" | "-" | "~" | "*" | ("&amp;" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "%" | "??" | "-%" | "try"
+PrefixOp = "!" | "-" | "~" | "*" | ("&amp;" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "??" | "-%" | "try"
 
-PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ("error" "." Symbol) | ContainerDecl | ("continue" option(":" Symbol))
+PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ContainerDecl | ("continue" option(":" Symbol)) | ErrorSetDecl
 
 ArrayType : "[" option(Expression) "]" option("align" "(" Expression option(":" Integer ":" Integer) ")")) option("const") option("volatile") TypeExpr
 
 GroupedExpression = "(" Expression ")"
 
 KeywordLiteral = "true" | "false" | "null" | "undefined" | "error" | "this" | "unreachable"
+
+ErrorSetDecl = "error" "{" list(Symbol, ",") "}"
 
 ContainerDecl = option("extern" | "packed")
   ("struct" option(GroupedExpression) | "union" option("enum" option(GroupedExpression) | GroupedExpression) | ("enum" option(GroupedExpression)))

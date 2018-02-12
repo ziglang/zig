@@ -1,7 +1,7 @@
-const std = @import("std");
+const std = @import("../index.zig");
 const assert = std.debug.assert;
 const ArrayList = std.ArrayList;
-const Token = @import("tokenizer.zig").Token;
+const Token = std.zig.Token;
 const mem = std.mem;
 
 pub const Node = struct {

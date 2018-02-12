@@ -12,14 +12,14 @@ pub const Buffer = struct {
     list: ArrayList(u8),
 
     /// Must deinitialize with deinit.
-    pub fn init(allocator: &Allocator, m: []const u8) %Buffer {
+    pub fn init(allocator: &Allocator, m: []const u8) !Buffer {
         var self = try initSize(allocator, m.len);
         mem.copy(u8, self.list.items, m);
         return self;
     }
 
     /// Must deinitialize with deinit.
-    pub fn initSize(allocator: &Allocator, size: usize) %Buffer {
+    pub fn initSize(allocator: &Allocator, size: usize) !Buffer {
         var self = initNull(allocator);
         try self.resize(size);
         return self;
@@ -37,7 +37,7 @@ pub const Buffer = struct {
     }
 
     /// Must deinitialize with deinit.
-    pub fn initFromBuffer(buffer: &const Buffer) %Buffer {
+    pub fn initFromBuffer(buffer: &const Buffer) !Buffer {
         return Buffer.init(buffer.list.allocator, buffer.toSliceConst());
     }
 
@@ -80,7 +80,7 @@ pub const Buffer = struct {
         self.list.items[self.len()] = 0;
     }
 
-    pub fn resize(self: &Buffer, new_len: usize) %void {
+    pub fn resize(self: &Buffer, new_len: usize) !void {
         try self.list.resize(new_len + 1);
         self.list.items[self.len()] = 0;
     }
@@ -93,24 +93,24 @@ pub const Buffer = struct {
         return self.list.len - 1;
     }
 
-    pub fn append(self: &Buffer, m: []const u8) %void {
+    pub fn append(self: &Buffer, m: []const u8) !void {
         const old_len = self.len();
         try self.resize(old_len + m.len);
         mem.copy(u8, self.list.toSlice()[old_len..], m);
     }
 
     // TODO: remove, use OutStream for this
-    pub fn appendFormat(self: &Buffer, comptime format: []const u8, args: ...) %void {
+    pub fn appendFormat(self: &Buffer, comptime format: []const u8, args: ...) !void {
         return fmt.format(self, append, format, args);
     }
 
     // TODO: remove, use OutStream for this
-    pub fn appendByte(self: &Buffer, byte: u8) %void {
+    pub fn appendByte(self: &Buffer, byte: u8) !void {
         return self.appendByteNTimes(byte, 1);
     }
 
     // TODO: remove, use OutStream for this
-    pub fn appendByteNTimes(self: &Buffer, byte: u8, count: usize) %void {
+    pub fn appendByteNTimes(self: &Buffer, byte: u8, count: usize) !void {
         var prev_size: usize = self.len();
         const new_size = prev_size + count;
         try self.resize(new_size);
@@ -137,7 +137,7 @@ pub const Buffer = struct {
         return mem.eql(u8, self.list.items[start..l], m);
     }
 
-    pub fn replaceContents(self: &const Buffer, m: []const u8) %void {
+    pub fn replaceContents(self: &const Buffer, m: []const u8) !void {
         try self.resize(m.len);
         mem.copy(u8, self.list.toSlice(), m);
     }

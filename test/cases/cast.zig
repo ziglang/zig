@@ -32,7 +32,6 @@ fn funcWithConstPtrPtr(x: &const &i32) void {
     **x += 1;
 }
 
-error ItBroke;
 test "explicit cast from integer to error type" {
     testCastIntToErr(error.ItBroke);
     comptime testCastIntToErr(error.ItBroke);
@@ -75,7 +74,7 @@ test "string literal to &const []const u8" {
     assert(mem.eql(u8, *x, "hello"));
 }
 
-test "implicitly cast from T to %?T" {
+test "implicitly cast from T to error!?T" {
     castToMaybeTypeError(1);
     comptime castToMaybeTypeError(1);
 }
@@ -84,37 +83,37 @@ const A = struct {
 };
 fn castToMaybeTypeError(z: i32) void {
     const x = i32(1);
-    const y: %?i32 = x;
+    const y: error!?i32 = x;
     assert(??(try y) == 1);
 
     const f = z;
-    const g: %?i32 = f;
+    const g: error!?i32 = f;
 
     const a = A{ .a = z };
-    const b: %?A = a;
+    const b: error!?A = a;
     assert((??(b catch unreachable)).a == 1);
 }
 
-test "implicitly cast from int to %?T" {
+test "implicitly cast from int to error!?T" {
     implicitIntLitToMaybe();
     comptime implicitIntLitToMaybe();
 }
 fn implicitIntLitToMaybe() void {
     const f: ?i32 = 1;
-    const g: %?i32 = 1;
+    const g: error!?i32 = 1;
 }
 
 
-test "return null from fn() %?&T" {
+test "return null from fn() error!?&T" {
     const a = returnNullFromMaybeTypeErrorRef();
     const b = returnNullLitFromMaybeTypeErrorRef();
     assert((try a) == null and (try b) == null);
 }
-fn returnNullFromMaybeTypeErrorRef() %?&A {
+fn returnNullFromMaybeTypeErrorRef() error!?&A {
     const a: ?&A = null;
     return a;
 }
-fn returnNullLitFromMaybeTypeErrorRef() %?&A {
+fn returnNullLitFromMaybeTypeErrorRef() error!?&A {
     return null;
 }
 
@@ -161,7 +160,7 @@ fn castToMaybeSlice() ?[]const u8 {
 }
 
 
-test "implicitly cast from [0]T to %[]T" {
+test "implicitly cast from [0]T to error![]T" {
     testCastZeroArrayToErrSliceMut();
     comptime testCastZeroArrayToErrSliceMut();
 }
@@ -170,11 +169,11 @@ fn testCastZeroArrayToErrSliceMut() void {
     assert((gimmeErrOrSlice() catch unreachable).len == 0);
 }
 
-fn gimmeErrOrSlice() %[]u8 {
+fn gimmeErrOrSlice() error![]u8 {
     return []u8{};
 }
 
-test "peer type resolution: [0]u8, []const u8, and %[]u8" {
+test "peer type resolution: [0]u8, []const u8, and error![]u8" {
     {
         var data = "hi";
         const slice = data[0..];
@@ -188,7 +187,7 @@ test "peer type resolution: [0]u8, []const u8, and %[]u8" {
         assert((try peerTypeEmptyArrayAndSliceAndError(false, slice)).len == 1);
     }
 }
-fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) %[]u8 {
+fn peerTypeEmptyArrayAndSliceAndError(a: bool, slice: []u8) error![]u8 {
     if (a) {
         return []u8{};
     }
@@ -230,7 +229,7 @@ fn foo(args: ...) void {
 
 
 test "peer type resolution: error and [N]T" {
-    // TODO: implicit %T to %U where T can implicitly cast to U
+    // TODO: implicit error!T to error!U where T can implicitly cast to U
     //assert(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
     //comptime assert(mem.eql(u8, try testPeerErrorAndArray(0), "OK"));
 
@@ -238,14 +237,13 @@ test "peer type resolution: error and [N]T" {
     comptime assert(mem.eql(u8, try testPeerErrorAndArray2(1), "OKK"));
 }
 
-error BadValue;
-//fn testPeerErrorAndArray(x: u8) %[]const u8 {
+//fn testPeerErrorAndArray(x: u8) error![]const u8 {
 //    return switch (x) {
 //        0x00 => "OK",
 //        else => error.BadValue,
 //    };
 //}
-fn testPeerErrorAndArray2(x: u8) %[]const u8 {
+fn testPeerErrorAndArray2(x: u8) error![]const u8 {
     return switch (x) {
         0x00 => "OK",
         0x01 => "OKK",

@@ -133,6 +133,7 @@ ZIG_EXTERN_C unsigned ZigLLVMEncoding_DW_ATE_signed_char(void);
 ZIG_EXTERN_C unsigned ZigLLVMLang_DW_LANG_C99(void);
 ZIG_EXTERN_C unsigned ZigLLVMTag_DW_variable(void);
 ZIG_EXTERN_C unsigned ZigLLVMTag_DW_structure_type(void);
+ZIG_EXTERN_C unsigned ZigLLVMTag_DW_enumeration_type(void);
 ZIG_EXTERN_C unsigned ZigLLVMTag_DW_union_type(void);
 
 ZIG_EXTERN_C struct ZigLLVMDIBuilder *ZigLLVMCreateDIBuilder(LLVMModuleRef module, bool allow_unresolved);
