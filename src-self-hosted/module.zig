@@ -241,7 +241,7 @@ pub const Module = struct {
         var parser = Parser.init(&tokenizer, self.allocator, root_src_real_path);
         defer parser.deinit();
 
-        const tree = try parser.parse();
+        var tree = try parser.parse();
         defer tree.deinit();
 
         var stderr_file = try std.io.getStdErr();

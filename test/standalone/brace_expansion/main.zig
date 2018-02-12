@@ -182,10 +182,13 @@ pub fn main() !void {
     var stdin_file = try io.getStdIn();
     var stdout_file = try io.getStdOut();
 
-    var inc_allocator = try std.heap.IncrementingAllocator.init(2 * 1024 * 1024);
-    defer inc_allocator.deinit();
+    var direct_allocator = std.heap.DirectAllocator.init();
+    defer direct_allocator.deinit();
 
-    global_allocator = &inc_allocator.allocator;
+    var arena = std.heap.ArenaAllocator.init(&direct_allocator.allocator);
+    defer arena.deinit();
+
+    global_allocator = &arena.allocator;
 
     var stdin_buf = try Buffer.initSize(global_allocator, 0);
     defer stdin_buf.deinit();

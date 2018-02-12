@@ -575,7 +575,7 @@ fn fmtMain(allocator: &mem.Allocator, file_paths: []const []const u8) !void {
         var parser = std.zig.Parser.init(&tokenizer, allocator, file_path);
         defer parser.deinit();
 
-        const tree = try parser.parse();
+        var tree = try parser.parse();
         defer tree.deinit();
 
         const baf = try io.BufferedAtomicFile.create(allocator, file_path);

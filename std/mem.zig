@@ -44,6 +44,7 @@ pub const Allocator = struct {
     {
         const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
         const byte_slice = try self.allocFn(self, byte_count, alignment);
+        assert(byte_slice.len == byte_count);
         // This loop should get optimized out in ReleaseFast mode
         for (byte_slice) |*byte| {
             *byte = undefined;
@@ -65,9 +66,12 @@ pub const Allocator = struct {
         const old_byte_slice = ([]u8)(old_mem);
         const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
         const byte_slice = try self.reallocFn(self, old_byte_slice, byte_count, alignment);
-        // This loop should get optimized out in ReleaseFast mode
-        for (byte_slice[old_byte_slice.len..]) |*byte| {
-            *byte = undefined;
+        assert(byte_slice.len == byte_count);
+        if (n > old_mem.len) {
+            // This loop should get optimized out in ReleaseFast mode
+            for (byte_slice[old_byte_slice.len..]) |*byte| {
+                *byte = undefined;
+            }
         }
         return ([]T)(@alignCast(alignment, byte_slice));
     }
@@ -94,6 +98,7 @@ pub const Allocator = struct {
         const byte_count = @sizeOf(T) * n;
 
         const byte_slice = self.reallocFn(self, ([]u8)(old_mem), byte_count, alignment) catch unreachable;
+        assert(byte_slice.len == byte_count);
         return ([]align(alignment) T)(@alignCast(alignment, byte_slice));
     }
 
@@ -150,7 +155,6 @@ pub const FixedBufferAllocator = struct {
 
     fn free(allocator: &Allocator, bytes: []u8) void { }
 };
-
 
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
