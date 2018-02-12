@@ -168,6 +168,10 @@ fn findLLVM(b: &Builder, llvm_config_exe: []const u8) !LibraryDep {
                 }
             }
         }
+        // workaround for advapi32.lib missing from output
+        if (builtin.os == builtin.Os.windows) {
+            try result.system_libs.append("advapi32.lib");
+        }
     }
     {
         var it = mem.split(includes_output, " \r\n");
