@@ -17,7 +17,8 @@ var c_allocator_state = Allocator {
 };
 
 fn cAlloc(self: &Allocator, n: usize, alignment: u29) ![]u8 {
-    return if (c.aligned_alloc(alignment, n)) |buf|
+    assert(alignment <= @alignOf(c_longdouble));
+    return if (c.malloc(n)) |buf|
         @ptrCast(&u8, buf)[0..n]
     else
         error.OutOfMemory;
