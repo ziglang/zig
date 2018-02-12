@@ -1050,13 +1050,13 @@ fn testParse(source: []const u8, allocator: &mem.Allocator) ![]u8 {
     defer tree.deinit();
 
     var buffer = try std.Buffer.initSize(allocator, 0);
+    errdefer buffer.deinit();
+
     var buffer_out_stream = io.BufferOutStream.init(&buffer);
     try parser.renderSource(&buffer_out_stream.stream, tree.root_node);
     return buffer.toOwnedSlice();
 }
 
-// TODO test for memory leaks
-// TODO test for valid frees
 fn testCanonical(source: []const u8) !void {
     const needed_alloc_count = x: {
         // Try it once with unlimited memory, make sure it works
@@ -1083,14 +1083,13 @@ fn testCanonical(source: []const u8) !void {
             return error.NondeterministicMemoryUsage;
         } else |err| switch (err) {
             error.OutOfMemory => {
-                // TODO make this pass
-                //if (failing_allocator.allocated_bytes != failing_allocator.freed_bytes) {
-                //    warn("\nfail_index: {}/{}\nallocated bytes: {}\nfreed bytes: {}\nallocations: {}\ndeallocations: {}\n",
-                //        fail_index, needed_alloc_count,
-                //        failing_allocator.allocated_bytes, failing_allocator.freed_bytes,
-                //        failing_allocator.index, failing_allocator.deallocations);
-                //    return error.MemoryLeakDetected;
-                //}
+                if (failing_allocator.allocated_bytes != failing_allocator.freed_bytes) {
+                    warn("\nfail_index: {}/{}\nallocated bytes: {}\nfreed bytes: {}\nallocations: {}\ndeallocations: {}\n",
+                        fail_index, needed_alloc_count,
+                        failing_allocator.allocated_bytes, failing_allocator.freed_bytes,
+                        failing_allocator.index, failing_allocator.deallocations);
+                    return error.MemoryLeakDetected;
+                }
             },
             error.ParseError => @panic("test failed"),
         }
