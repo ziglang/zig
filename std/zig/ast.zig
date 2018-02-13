@@ -18,6 +18,7 @@ pub const Node = struct {
         PrefixOp,
         IntegerLiteral,
         FloatLiteral,
+        BuiltinCall,
     };
 
     pub fn iterate(base: &Node, index: usize) ?&Node {
@@ -32,21 +33,7 @@ pub const Node = struct {
             Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).iterate(index),
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).iterate(index),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).iterate(index),
-        };
-    }
-
-    pub fn destroy(base: &Node, allocator: &mem.Allocator) void {
-        return switch (base.id) {
-            Id.Root => allocator.destroy(@fieldParentPtr(NodeRoot, "base", base)),
-            Id.VarDecl => allocator.destroy(@fieldParentPtr(NodeVarDecl, "base", base)),
-            Id.Identifier => allocator.destroy(@fieldParentPtr(NodeIdentifier, "base", base)),
-            Id.FnProto => allocator.destroy(@fieldParentPtr(NodeFnProto, "base", base)),
-            Id.ParamDecl => allocator.destroy(@fieldParentPtr(NodeParamDecl, "base", base)),
-            Id.Block => allocator.destroy(@fieldParentPtr(NodeBlock, "base", base)),
-            Id.InfixOp => allocator.destroy(@fieldParentPtr(NodeInfixOp, "base", base)),
-            Id.PrefixOp => allocator.destroy(@fieldParentPtr(NodePrefixOp, "base", base)),
-            Id.IntegerLiteral => allocator.destroy(@fieldParentPtr(NodeIntegerLiteral, "base", base)),
-            Id.FloatLiteral => allocator.destroy(@fieldParentPtr(NodeFloatLiteral, "base", base)),
+            Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).iterate(index),
         };
     }
 };
@@ -266,6 +253,21 @@ pub const NodeFloatLiteral = struct {
     token: Token,
 
     pub fn iterate(self: &NodeFloatLiteral, index: usize) ?&Node {
+        return null;
+    }
+};
+
+pub const NodeBuiltinCall = struct {
+    base: Node,
+    builtin_token: Token,
+    params: ArrayList(&Node),
+
+    pub fn iterate(self: &NodeBuiltinCall, index: usize) ?&Node {
+        var i = index;
+
+        if (i < self.params.len) return self.params.at(i);
+        i -= self.params.len;
+
         return null;
     }
 };

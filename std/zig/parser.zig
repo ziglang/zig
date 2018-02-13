@@ -95,7 +95,8 @@ pub const Parser = struct {
     };
 
     /// Returns an AST tree, allocated with the parser's allocator.
-    /// Result should be freed with `freeAst` when done.
+    /// Result should be freed with tree.deinit() when there are
+    /// no more references to any AST nodes of the tree.
     pub fn parse(self: &Parser) !Tree {
         var stack = self.initUtilityArrayList(State);
         defer self.deinitUtilityArrayList(stack);
