@@ -72,6 +72,8 @@ pub const Token = struct {
         Eof,
         Builtin,
         Bang,
+        Pipe,
+        PipeEqual,
         Equal,
         EqualEqual,
         BangEqual,
@@ -193,6 +195,7 @@ pub const Tokenizer = struct {
         StringLiteralBackslash,
         Equal,
         Bang,
+        Pipe,
         Minus,
         Slash,
         LineComment,
@@ -247,6 +250,9 @@ pub const Tokenizer = struct {
                     },
                     '!' => {
                         state = State.Bang;
+                    },
+                    '|' => {
+                        state = State.Pipe;
                     },
                     '(' => {
                         result.id = Token.Id.LParen;
@@ -394,6 +400,18 @@ pub const Tokenizer = struct {
                     },
                 },
 
+                State.Pipe => switch (c) {
+                    '=' => {
+                        result.id = Token.Id.PipeEqual;
+                        self.index += 1;
+                        break;
+                    },
+                    else => {
+                        result.id = Token.Id.Pipe;
+                        break;
+                    },
+                },
+
                 State.Equal => switch (c) {
                     '=' => {
                         result.id = Token.Id.EqualEqual;
@@ -525,9 +543,7 @@ pub const Tokenizer = struct {
                     else => break,
                 },
             }
-        }
-        result.end = self.index;
-        if (self.index == self.buffer.len) {
+        } else if (self.index == self.buffer.len) {
             switch (state) {
                 State.Start,
                 State.C,
@@ -578,6 +594,9 @@ pub const Tokenizer = struct {
                 State.Period2 => {
                     result.id = Token.Id.Ellipsis2;
                 },
+                State.Pipe => {
+                    result.id = Token.Id.Pipe;
+                },
             }
         }
         if (result.id == Token.Id.Eof) {
@@ -587,6 +606,7 @@ pub const Tokenizer = struct {
             }
         }
 
+        result.end = self.index;
         return result;
     }
 
@@ -714,6 +734,13 @@ test "tokenizer - string identifier and builtin fns" {
             Token.Id.Semicolon,
         }
     );
+}
+
+test "tokenizer - pipe and then invalid" {
+    testTokenize("||=", []Token.Id{
+        Token.Id.Pipe,
+        Token.Id.PipeEqual,
+    });
 }
 
 fn testTokenize(source: []const u8, expected_tokens: []const Token.Id) void {
