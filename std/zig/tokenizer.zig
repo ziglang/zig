@@ -68,6 +68,7 @@ pub const Token = struct {
         Invalid,
         Identifier,
         StringLiteral: StrLitKind,
+        StringIdentifier,
         Eof,
         Builtin,
         Bang,
@@ -205,6 +206,7 @@ pub const Tokenizer = struct {
         Ampersand,
         Period,
         Period2,
+        SawAtSign,
     };
 
     pub fn next(self: &Tokenizer) Token {
@@ -238,8 +240,7 @@ pub const Tokenizer = struct {
                         result.id = Token.Id.Identifier;
                     },
                     '@' => {
-                        state = State.Builtin;
-                        result.id = Token.Id.Builtin;
+                        state = State.SawAtSign;
                     },
                     '=' => {
                         state = State.Equal;
@@ -313,6 +314,20 @@ pub const Tokenizer = struct {
                         break;
                     },
                 },
+
+                State.SawAtSign => switch (c) {
+                    '"' => {
+                        result.id = Token.Id.StringIdentifier;
+                        state = State.StringLiteral;
+                    },
+                    else => {
+                        // reinterpret as a builtin
+                        self.index -= 1;
+                        state = State.Builtin;
+                        result.id = Token.Id.Builtin;
+                    },
+                },
+
                 State.Ampersand => switch (c) {
                     '=' => {
                         result.id = Token.Id.AmpersandEqual;
@@ -512,7 +527,59 @@ pub const Tokenizer = struct {
             }
         }
         result.end = self.index;
+        if (self.index == self.buffer.len) {
+            switch (state) {
+                State.Start,
+                State.C,
+                State.IntegerLiteral,
+                State.IntegerLiteralWithRadix,
+                State.FloatFraction,
+                State.FloatExponentNumber,
+                State.StringLiteral, // find this error later
+                State.Builtin => {},
 
+                State.Identifier => {
+                    if (Token.getKeyword(self.buffer[result.start..self.index])) |id| {
+                        result.id = id;
+                    }
+                },
+                State.LineComment => {
+                    result.id = Token.Id.Eof;
+                },
+
+                State.NumberDot,
+                State.FloatExponentUnsigned,
+                State.SawAtSign,
+                State.StringLiteralBackslash => {
+                    result.id = Token.Id.Invalid;
+                },
+
+                State.Equal => {
+                    result.id = Token.Id.Equal;
+                },
+                State.Bang => {
+                    result.id = Token.Id.Bang;
+                },
+                State.Minus => {
+                    result.id = Token.Id.Minus;
+                },
+                State.Slash => {
+                    result.id = Token.Id.Slash;
+                },
+                State.Zero => {
+                    result.id = Token.Id.IntegerLiteral;
+                },
+                State.Ampersand => {
+                    result.id = Token.Id.Ampersand;
+                },
+                State.Period => {
+                    result.id = Token.Id.Period;
+                },
+                State.Period2 => {
+                    result.id = Token.Id.Ellipsis2;
+                },
+            }
+        }
         if (result.id == Token.Id.Eof) {
             if (self.pending_invalid_token) |token| {
                 self.pending_invalid_token = null;
@@ -551,7 +618,7 @@ pub const Tokenizer = struct {
         } else {
             // check utf8-encoded character.
             const length = std.unicode.utf8ByteSequenceLength(c0) catch return 1;
-            if (self.index + length >= self.buffer.len) {
+            if (self.index + length > self.buffer.len) {
                 return u3(self.buffer.len - self.index);
             }
             const bytes = self.buffer[self.index..self.index + length];
@@ -632,15 +699,25 @@ test "tokenizer - illegal unicode codepoints" {
     testTokenize("//\xe2\x80\xaa", []Token.Id{});
 }
 
-fn testTokenize(source: []const u8, expected_tokens: []const Token.Id) void {
-    // (test authors, just make this bigger if you need it)
-    var padded_source: [0x100]u8 = undefined;
-    std.mem.copy(u8, padded_source[0..source.len], source);
-    padded_source[source.len + 0] = '\n';
-    padded_source[source.len + 1] = '\n';
-    padded_source[source.len + 2] = '\n';
+test "tokenizer - string identifier and builtin fns" {
+    testTokenize(
+        \\const @"if" = @import("std");
+    ,
+        []Token.Id{
+            Token.Id.Keyword_const,
+            Token.Id.StringIdentifier,
+            Token.Id.Equal,
+            Token.Id.Builtin,
+            Token.Id.LParen,
+            Token.Id {.StringLiteral = Token.StrLitKind.Normal},
+            Token.Id.RParen,
+            Token.Id.Semicolon,
+        }
+    );
+}
 
-    var tokenizer = Tokenizer.init(padded_source[0..source.len + 3]);
+fn testTokenize(source: []const u8, expected_tokens: []const Token.Id) void {
+    var tokenizer = Tokenizer.init(source);
     for (expected_tokens) |expected_token_id| {
         const token = tokenizer.next();
         std.debug.assert(@TagType(Token.Id)(token.id) == @TagType(Token.Id)(expected_token_id));
@@ -651,5 +728,6 @@ fn testTokenize(source: []const u8, expected_tokens: []const Token.Id) void {
             else => {},
         }
     }
-    std.debug.assert(tokenizer.next().id == Token.Id.Eof);
+    const last_token = tokenizer.next();
+    std.debug.assert(last_token.id == Token.Id.Eof);
 }
