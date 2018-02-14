@@ -102,7 +102,7 @@ pub const NodeFnProto = struct {
     fn_token: Token,
     name_token: ?Token,
     params: ArrayList(&Node),
-    return_type: &Node,
+    return_type: ReturnType,
     var_args_token: ?Token,
     extern_token: ?Token,
     inline_token: ?Token,
@@ -110,6 +110,12 @@ pub const NodeFnProto = struct {
     body_node: ?&Node,
     lib_name: ?&Node, // populated if this is an extern declaration
     align_expr: ?&Node, // populated if align(A) is present
+
+    pub const ReturnType = union(enum) {
+        Explicit: &Node,
+        Infer,
+        InferErrorSet: &Node,
+    };
 
     pub fn iterate(self: &NodeFnProto, index: usize) ?&Node {
         var i = index;
@@ -119,8 +125,18 @@ pub const NodeFnProto = struct {
             i -= 1;
         }
 
-        if (i < 1) return self.return_type;
-        i -= 1;
+        switch (self.return_type) {
+            // TODO allow this and next prong to share bodies since the types are the same
+            ReturnType.Explicit => |node| {
+                if (i < 1) return node;
+                i -= 1;
+            },
+            ReturnType.InferErrorSet => |node| {
+                if (i < 1) return node;
+                i -= 1;
+            },
+            ReturnType.Infer => {},
+        }
 
         if (self.align_expr) |align_expr| {
             if (i < 1) return align_expr;
