@@ -92,6 +92,8 @@ pub const Parser = struct {
         FnDef: &ast.NodeFnProto,
         Block: &ast.NodeBlock,
         Statement: &ast.NodeBlock,
+        ExprListItemOrEnd: &ArrayList(&ast.Node),
+        ExprListCommaOrEnd: &ArrayList(&ast.Node),
     };
 
     /// Returns an AST tree, allocated with the parser's allocator.
@@ -297,6 +299,21 @@ pub const Parser = struct {
                             try stack.append(State.AfterOperand);
                             continue;
                         },
+                        Token.Id.Builtin => {
+                            const node = try arena.create(ast.NodeBuiltinCall);
+                            *node = ast.NodeBuiltinCall {
+                                .base = ast.Node {.id = ast.Node.Id.BuiltinCall},
+                                .builtin_token = token,
+                                .params = ArrayList(&ast.Node).init(arena),
+                            };
+                            try stack.append(State {
+                                .Operand = &node.base
+                            });
+                            try stack.append(State.AfterOperand);
+                            try stack.append(State {.ExprListItemOrEnd = &node.params });
+                            try stack.append(State {.ExpectToken = Token.Id.LParen });
+                            continue;
+                        },
                         else => return self.parseError(token, "expected primary expression, found {}", @tagName(token.id)),
                     }
                 },
@@ -349,6 +366,29 @@ pub const Parser = struct {
                             }
                             continue;
                         },
+                    }
+                },
+
+                State.ExprListItemOrEnd => |params| {
+                    var token = self.getNextToken();
+                    switch (token.id) {
+                        Token.Id.RParen => continue,
+                        else => {
+                            self.putBackToken(token);
+                            stack.append(State { .ExprListCommaOrEnd = params }) catch unreachable;
+                            try stack.append(State { .Expression = DestPtr{.List = params} });
+                        },
+                    }
+                },
+
+                State.ExprListCommaOrEnd => |params| {
+                    var token = self.getNextToken();
+                    switch (token.id) {
+                        Token.Id.Comma => {
+                            stack.append(State { .ExprListItemOrEnd = params }) catch unreachable;
+                        },
+                        Token.Id.RParen => continue,
+                        else => return self.parseError(token, "expected ',' or ')', found {}", @tagName(token.id)),
                     }
                 },
 
@@ -539,8 +579,6 @@ pub const Parser = struct {
                 State.PrefixOp => unreachable,
                 State.Operand => unreachable,
             }
-            @import("std").debug.panic("{}", @tagName(state));
-            //unreachable;
         }
     }
 
@@ -988,6 +1026,10 @@ pub const Parser = struct {
                         const float_literal = @fieldParentPtr(ast.NodeFloatLiteral, "base", base);
                         try stream.print("{}", self.tokenizer.getTokenSlice(float_literal.token));
                     },
+                    ast.Node.Id.BuiltinCall => {
+                        const builtin_call = @fieldParentPtr(ast.NodeBuiltinCall, "base", base);
+                        try stream.print("{}()", self.tokenizer.getTokenSlice(builtin_call.builtin_token));
+                    },
                     else => unreachable,
                 },
                 RenderState.FnProtoRParen => |fn_proto| {
@@ -1098,6 +1140,11 @@ fn testCanonical(source: []const u8) !void {
 }
 
 test "zig fmt" {
+    try testCanonical(
+        \\const std = @import();
+        \\
+    );
+
     try testCanonical(
         \\extern fn puts(s: &const u8) c_int;
         \\
