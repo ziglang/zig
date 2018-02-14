@@ -1,6 +1,19 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("type checking function pointers",
+        \\fn a(b: fn (&const u8) void) void {
+        \\    b('a');
+        \\}
+        \\fn c(d: u8) void {
+        \\    @import("std").debug.warn("{c}\n", d);
+        \\}
+        \\export fn entry() void {
+        \\    a(c);
+        \\}
+    ,
+        ".tmp_source.zig:8:7: error: expected type 'fn(&const u8) void', found 'fn(u8) void'");
+
     cases.add("no else prong on switch on global error set",
         \\export fn entry() void {
         \\    foo(error.A);

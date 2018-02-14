@@ -6727,8 +6727,8 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
                 result.id = ConstCastResultIdFnReturnType;
                 result.data.return_type = allocate_nonzero<ConstCastOnly>(1);
                 *result.data.return_type = child;
+                return result;
             }
-            return result;
         }
         if (expected_type->data.fn.fn_type_id.param_count != actual_type->data.fn.fn_type_id.param_count) {
             result.id = ConstCastResultIdFnArgCount;
