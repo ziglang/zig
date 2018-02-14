@@ -18,6 +18,7 @@ pub const Node = struct {
         PrefixOp,
         IntegerLiteral,
         FloatLiteral,
+        StringLiteral,
         BuiltinCall,
     };
 
@@ -33,6 +34,7 @@ pub const Node = struct {
             Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).iterate(index),
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).iterate(index),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).iterate(index),
+            Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).iterate(index),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).iterate(index),
         };
     }
@@ -268,6 +270,15 @@ pub const NodeBuiltinCall = struct {
         if (i < self.params.len) return self.params.at(i);
         i -= self.params.len;
 
+        return null;
+    }
+};
+
+pub const NodeStringLiteral = struct {
+    base: Node,
+    token: Token,
+
+    pub fn iterate(self: &NodeStringLiteral) ?&Node {
         return null;
     }
 };

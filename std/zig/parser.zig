@@ -314,6 +314,18 @@ pub const Parser = struct {
                             try stack.append(State {.ExpectToken = Token.Id.LParen });
                             continue;
                         },
+                        Token.Id.StringLiteral => {
+                            const node = try arena.create(ast.NodeStringLiteral);
+                            *node = ast.NodeStringLiteral {
+                                .base = ast.Node {.id = ast.Node.Id.StringLiteral},
+                                .token = token,
+                            };
+                            try stack.append(State {
+                                .Operand = &node.base
+                            });
+                            try stack.append(State.AfterOperand);
+                            continue;
+                        },
                         else => return self.parseError(token, "expected primary expression, found {}", @tagName(token.id)),
                     }
                 },
@@ -1026,11 +1038,28 @@ pub const Parser = struct {
                         const float_literal = @fieldParentPtr(ast.NodeFloatLiteral, "base", base);
                         try stream.print("{}", self.tokenizer.getTokenSlice(float_literal.token));
                     },
+                    ast.Node.Id.StringLiteral => {
+                        const string_literal = @fieldParentPtr(ast.NodeStringLiteral, "base", base);
+                        try stream.print("{}", self.tokenizer.getTokenSlice(string_literal.token));
+                    },
                     ast.Node.Id.BuiltinCall => {
                         const builtin_call = @fieldParentPtr(ast.NodeBuiltinCall, "base", base);
-                        try stream.print("{}()", self.tokenizer.getTokenSlice(builtin_call.builtin_token));
+                        try stream.print("{}(", self.tokenizer.getTokenSlice(builtin_call.builtin_token));
+                        try stack.append(RenderState { .Text = ")"});
+                        var i = builtin_call.params.len;
+                        while (i != 0) {
+                            i -= 1;
+                            const param_node = builtin_call.params.at(i);
+                            try stack.append(RenderState { .Expression = param_node});
+                            if (i != 0) {
+                                try stack.append(RenderState { .Text = ", " });
+                            }
+                        }
                     },
-                    else => unreachable,
+                    ast.Node.Id.Root,
+                    ast.Node.Id.VarDecl,
+                    ast.Node.Id.FnProto,
+                    ast.Node.Id.ParamDecl => unreachable,
                 },
                 RenderState.FnProtoRParen => |fn_proto| {
                     try stream.print(")");
@@ -1141,6 +1170,7 @@ fn testCanonical(source: []const u8) !void {
 
 test "zig fmt" {
     try testCanonical(
+        \\const std = @import("std");
         \\const std = @import();
         \\
     );
