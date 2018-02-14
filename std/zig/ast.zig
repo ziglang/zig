@@ -278,7 +278,7 @@ pub const NodeStringLiteral = struct {
     base: Node,
     token: Token,
 
-    pub fn iterate(self: &NodeStringLiteral) ?&Node {
+    pub fn iterate(self: &NodeStringLiteral, index: usize) ?&Node {
         return null;
     }
 };
