@@ -35,6 +35,7 @@ comptime {
     _ = @import("cases/slice.zig");
     _ = @import("cases/struct.zig");
     _ = @import("cases/struct_contains_slice_of_itself.zig");
+    _ = @import("cases/struct_contains_null_ptr_itself.zig");
     _ = @import("cases/switch.zig");
     _ = @import("cases/switch_prong_err_enum.zig");
     _ = @import("cases/switch_prong_implicit_cast.zig");

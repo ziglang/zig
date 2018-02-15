@@ -2278,17 +2278,16 @@ static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type) {
         return;
 
     if (struct_type->data.structure.zero_bits_loop_flag) {
-        // If we get here it's due to recursion. From this we conclude that the struct is
-        // not zero bits, and if abi_alignment == 0 we further conclude that the first field
-        // is a pointer to this very struct, or a function pointer with parameters that
-        // reference such a type.
+        // If we get here it's due to recursion. This is a design flaw in the compiler,
+        // we should be able to still figure out alignment, but here we give up and say that
+        // the alignment is pointer width, then assert that the first field is within that
+        // alignment
         struct_type->data.structure.zero_bits_known = true;
         if (struct_type->data.structure.abi_alignment == 0) {
             if (struct_type->data.structure.layout == ContainerLayoutPacked) {
                 struct_type->data.structure.abi_alignment = 1;
             } else {
-                struct_type->data.structure.abi_alignment = LLVMABIAlignmentOfType(g->target_data_ref,
-                        LLVMPointerType(LLVMInt8Type(), 0));
+                struct_type->data.structure.abi_alignment = LLVMABIAlignmentOfType(g->target_data_ref, LLVMPointerType(LLVMInt8Type(), 0));
             }
         }
         return;
@@ -2352,11 +2351,17 @@ static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type) {
         if (gen_field_index == 0) {
             if (struct_type->data.structure.layout == ContainerLayoutPacked) {
                 struct_type->data.structure.abi_alignment = 1;
-            } else {
+            } else if (struct_type->data.structure.abi_alignment == 0) {
                 // Alignment of structs is the alignment of the first field, for now.
                 // TODO change this when we re-order struct fields (issue #168)
                 struct_type->data.structure.abi_alignment = get_abi_alignment(g, field_type);
                 assert(struct_type->data.structure.abi_alignment != 0);
+            } else {
+                // due to a design flaw in the compiler we assumed that alignment was
+                // pointer width, so we assert that this wasn't violated.
+                if (get_abi_alignment(g, field_type) > struct_type->data.structure.abi_alignment) {
+                    zig_panic("compiler design flaw: incorrect alignment assumption");
+                }
             }
         }
 
