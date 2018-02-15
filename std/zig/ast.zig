@@ -6,6 +6,7 @@ const mem = std.mem;
 
 pub const Node = struct {
     id: Id,
+    comment: ?&NodeLineComment,
 
     pub const Id = enum {
         Root,
@@ -20,6 +21,7 @@ pub const Node = struct {
         FloatLiteral,
         StringLiteral,
         BuiltinCall,
+        LineComment,
     };
 
     pub fn iterate(base: &Node, index: usize) ?&Node {
@@ -36,6 +38,7 @@ pub const Node = struct {
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).iterate(index),
             Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).iterate(index),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).iterate(index),
+            Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).iterate(index),
         };
     }
 
@@ -53,6 +56,7 @@ pub const Node = struct {
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).firstToken(),
             Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).firstToken(),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).firstToken(),
+            Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).firstToken(),
         };
     }
 
@@ -70,6 +74,7 @@ pub const Node = struct {
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).lastToken(),
             Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).lastToken(),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).lastToken(),
+            Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).lastToken(),
         };
     }
 };
@@ -452,5 +457,22 @@ pub const NodeStringLiteral = struct {
 
     pub fn lastToken(self: &NodeStringLiteral) Token {
         return self.token;
+    }
+};
+
+pub const NodeLineComment = struct {
+    base: Node,
+    lines: ArrayList(Token),
+
+    pub fn iterate(self: &NodeLineComment, index: usize) ?&Node {
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeLineComment) Token {
+        return self.lines.at(0);
+    }
+
+    pub fn lastToken(self: &NodeLineComment) Token {
+        return self.lines.at(self.lines.len - 1);
     }
 };

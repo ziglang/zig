@@ -18,6 +18,7 @@ pub const Parser = struct {
     put_back_tokens: [2]Token,
     put_back_count: usize,
     source_file_name: []const u8,
+    pending_line_comment_node: ?&ast.NodeLineComment,
 
     pub const Tree = struct {
         root_node: &ast.NodeRoot,
@@ -43,6 +44,7 @@ pub const Parser = struct {
             .put_back_count = 0,
             .source_file_name = source_file_name,
             .utility_bytes = []align(utility_bytes_align) u8{},
+            .pending_line_comment_node = null,
         };
     }
 
@@ -130,6 +132,33 @@ pub const Parser = struct {
             //    }
             //    warn("\n");
             //}
+
+            // look for line comments
+            while (true) {
+                const token = self.getNextToken();
+                if (token.id == Token.Id.LineComment) {
+                    const node = blk: {
+                        if (self.pending_line_comment_node) |comment_node| {
+                            break :blk comment_node;
+                        } else {
+                            const comment_node = try arena.create(ast.NodeLineComment);
+                            *comment_node = ast.NodeLineComment {
+                                .base = ast.Node {
+                                    .id = ast.Node.Id.LineComment,
+                                    .comment = null,
+                                },
+                                .lines = ArrayList(Token).init(arena),
+                            };
+                            self.pending_line_comment_node = comment_node;
+                            break :blk comment_node;
+                        }
+                    };
+                    try node.lines.append(token);
+                    continue;
+                }
+                self.putBackToken(token);
+                break;
+            }
 
             // This gives us 1 free append that can't fail
             const state = stack.pop();
@@ -329,7 +358,7 @@ pub const Parser = struct {
                         Token.Id.Builtin => {
                             const node = try arena.create(ast.NodeBuiltinCall);
                             *node = ast.NodeBuiltinCall {
-                                .base = ast.Node {.id = ast.Node.Id.BuiltinCall},
+                                .base = self.initNode(ast.Node.Id.BuiltinCall),
                                 .builtin_token = token,
                                 .params = ArrayList(&ast.Node).init(arena),
                                 .rparen_token = undefined,
@@ -350,7 +379,7 @@ pub const Parser = struct {
                         Token.Id.StringLiteral => {
                             const node = try arena.create(ast.NodeStringLiteral);
                             *node = ast.NodeStringLiteral {
-                                .base = ast.Node {.id = ast.Node.Id.StringLiteral},
+                                .base = self.initNode(ast.Node.Id.StringLiteral),
                                 .token = token,
                             };
                             try stack.append(State {
@@ -359,6 +388,7 @@ pub const Parser = struct {
                             try stack.append(State.AfterOperand);
                             continue;
                         },
+
                         else => return self.parseError(token, "expected primary expression, found {}", @tagName(token.id)),
                     }
                 },
@@ -660,11 +690,19 @@ pub const Parser = struct {
         }
     }
 
+    fn initNode(self: &Parser, id: ast.Node.Id) ast.Node {
+        if (self.pending_line_comment_node) |comment_node| {
+            self.pending_line_comment_node = null;
+            return ast.Node {.id = id, .comment = comment_node};
+        }
+        return ast.Node {.id = id, .comment = null };
+    }
+
     fn createRoot(self: &Parser, arena: &mem.Allocator) !&ast.NodeRoot {
         const node = try arena.create(ast.NodeRoot);
 
         *node = ast.NodeRoot {
-            .base = ast.Node {.id = ast.Node.Id.Root},
+            .base = self.initNode(ast.Node.Id.Root),
             .decls = ArrayList(&ast.Node).init(arena),
             // initialized when we get the eof token
             .eof_token = undefined,
@@ -678,7 +716,7 @@ pub const Parser = struct {
         const node = try arena.create(ast.NodeVarDecl);
 
         *node = ast.NodeVarDecl {
-            .base = ast.Node {.id = ast.Node.Id.VarDecl},
+            .base = self.initNode(ast.Node.Id.VarDecl),
             .visib_token = *visib_token,
             .mut_token = *mut_token,
             .comptime_token = *comptime_token,
@@ -701,7 +739,7 @@ pub const Parser = struct {
         const node = try arena.create(ast.NodeFnProto);
 
         *node = ast.NodeFnProto {
-            .base = ast.Node {.id = ast.Node.Id.FnProto},
+            .base = self.initNode(ast.Node.Id.FnProto),
             .visib_token = *visib_token,
             .name_token = null,
             .fn_token = *fn_token,
@@ -722,7 +760,7 @@ pub const Parser = struct {
         const node = try arena.create(ast.NodeParamDecl);
 
         *node = ast.NodeParamDecl {
-            .base = ast.Node {.id = ast.Node.Id.ParamDecl},
+            .base = self.initNode(ast.Node.Id.ParamDecl),
             .comptime_token = null,
             .noalias_token = null,
             .name_token = null,
@@ -736,7 +774,7 @@ pub const Parser = struct {
         const node = try arena.create(ast.NodeBlock);
 
         *node = ast.NodeBlock {
-            .base = ast.Node {.id = ast.Node.Id.Block},
+            .base = self.initNode(ast.Node.Id.Block),
             .begin_token = *begin_token,
             .end_token = undefined,
             .statements = ArrayList(&ast.Node).init(arena),
@@ -748,7 +786,7 @@ pub const Parser = struct {
         const node = try arena.create(ast.NodeInfixOp);
 
         *node = ast.NodeInfixOp {
-            .base = ast.Node {.id = ast.Node.Id.InfixOp},
+            .base = self.initNode(ast.Node.Id.InfixOp),
             .op_token = *op_token,
             .lhs = undefined,
             .op = *op,
@@ -761,7 +799,7 @@ pub const Parser = struct {
         const node = try arena.create(ast.NodePrefixOp);
 
         *node = ast.NodePrefixOp {
-            .base = ast.Node {.id = ast.Node.Id.PrefixOp},
+            .base = self.initNode(ast.Node.Id.PrefixOp),
             .op_token = *op_token,
             .op = *op,
             .rhs = undefined,
@@ -773,7 +811,7 @@ pub const Parser = struct {
         const node = try arena.create(ast.NodeIdentifier);
 
         *node = ast.NodeIdentifier {
-            .base = ast.Node {.id = ast.Node.Id.Identifier},
+            .base = self.initNode(ast.Node.Id.Identifier),
             .name_token = *name_token,
         };
         return node;
@@ -783,7 +821,7 @@ pub const Parser = struct {
         const node = try arena.create(ast.NodeIntegerLiteral);
 
         *node = ast.NodeIntegerLiteral {
-            .base = ast.Node {.id = ast.Node.Id.IntegerLiteral},
+            .base = self.initNode(ast.Node.Id.IntegerLiteral),
             .token = *token,
         };
         return node;
@@ -793,7 +831,7 @@ pub const Parser = struct {
         const node = try arena.create(ast.NodeFloatLiteral);
 
         *node = ast.NodeFloatLiteral {
-            .base = ast.Node {.id = ast.Node.Id.FloatLiteral},
+            .base = self.initNode(ast.Node.Id.FloatLiteral),
             .token = *token,
         };
         return node;
@@ -1158,9 +1196,11 @@ pub const Parser = struct {
                             }
                         }
                     },
+                    ast.Node.Id.FnProto => @panic("TODO fn proto in an expression"),
+                    ast.Node.Id.LineComment => @panic("TODO render line comment in an expression"),
+
                     ast.Node.Id.Root,
                     ast.Node.Id.VarDecl,
-                    ast.Node.Id.FnProto,
                     ast.Node.Id.ParamDecl => unreachable,
                 },
                 RenderState.FnProtoRParen => |fn_proto| {
@@ -1187,6 +1227,12 @@ pub const Parser = struct {
                     }
                 },
                 RenderState.Statement => |base| {
+                    if (base.comment) |comment| {
+                        for (comment.lines.toSliceConst()) |line_token| {
+                            try stream.print("{}\n", self.tokenizer.getTokenSlice(line_token));
+                            try stream.writeByteNTimes(' ', indent);
+                        }
+                    }
                     switch (base.id) {
                         ast.Node.Id.VarDecl => {
                             const var_decl = @fieldParentPtr(ast.NodeVarDecl, "base", base);
@@ -1279,6 +1325,17 @@ fn testCanonical(source: []const u8) !void {
 }
 
 test "zig fmt" {
+    try testCanonical(
+        \\const std = @import("std");
+        \\
+        \\pub fn main() !void {
+        \\    // If this program is run without stdout attached, exit with an error.
+        \\    // another comment
+        \\    var stdout_file = try std.io.getStdOut;
+        \\}
+        \\
+    );
+
     try testCanonical(
         \\const std = @import("std");
         \\
