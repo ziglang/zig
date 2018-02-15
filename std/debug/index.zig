@@ -47,7 +47,7 @@ pub fn getSelfDebugInfo() !&ElfStackTrace {
 pub fn dumpCurrentStackTrace() void {
     const stderr = getStderrStream() catch return;
     const debug_info = getSelfDebugInfo() catch |err| {
-        stderr.print("Unable to open debug info: {}\n", @errorName(err)) catch return;
+        stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", @errorName(err)) catch return;
         return;
     };
     defer debug_info.close();
@@ -61,7 +61,7 @@ pub fn dumpCurrentStackTrace() void {
 pub fn dumpStackTrace(stack_trace: &const builtin.StackTrace) void {
     const stderr = getStderrStream() catch return;
     const debug_info = getSelfDebugInfo() catch |err| {
-        stderr.print("Unable to open debug info: {}\n", @errorName(err)) catch return;
+        stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", @errorName(err)) catch return;
         return;
     };
     defer debug_info.close();
