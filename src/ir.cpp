@@ -9975,15 +9975,18 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
                         ok = bigint_cmp(&rem_result, &mod_result) == CmpEQ;
                     }
                 } else {
-                    if (float_cmp_zero(&op2->value) == CmpEQ) {
+                    IrInstruction *casted_op2 = ir_implicit_cast(ira, op2, resolved_type);
+                    if (casted_op2 == ira->codegen->invalid_instruction)
+                        return ira->codegen->builtin_types.entry_invalid;
+                    if (float_cmp_zero(&casted_op2->value) == CmpEQ) {
                         // the division by zero error will be caught later, but we don't
                         // have a remainder function ambiguity problem
                         ok = true;
                     } else {
                         ConstExprValue rem_result;
                         ConstExprValue mod_result;
-                        float_rem(&rem_result, &op1->value, &op2->value);
-                        float_mod(&mod_result, &op1->value, &op2->value);
+                        float_rem(&rem_result, &op1->value, &casted_op2->value);
+                        float_mod(&mod_result, &op1->value, &casted_op2->value);
                         ok = float_cmp(&rem_result, &mod_result) == CmpEQ;
                     }
                 }
