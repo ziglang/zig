@@ -8183,7 +8183,7 @@ static IrInstruction *ir_get_ref(IrAnalyze *ira, IrInstruction *source_instructi
     }
 
     if (instr_is_comptime(value)) {
-        ConstExprValue *val = ir_resolve_const(ira, value, UndefBad);
+        ConstExprValue *val = ir_resolve_const(ira, value, UndefOk);
         if (!val)
             return ira->codegen->invalid_instruction;
         bool final_is_const = (value->value.type->id == TypeTableEntryIdMetaType) ? is_const : true;
@@ -14931,6 +14931,7 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
         ConstExprValue *parent_ptr;
         size_t abs_offset;
         size_t rel_end;
+        bool ptr_is_undef = false;
         if (array_type->id == TypeTableEntryIdArray) {
             array_val = const_ptr_pointee(ira->codegen, &ptr_ptr->value);
             abs_offset = 0;
@@ -14938,7 +14939,12 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
             parent_ptr = nullptr;
         } else if (array_type->id == TypeTableEntryIdPointer) {
             parent_ptr = const_ptr_pointee(ira->codegen, &ptr_ptr->value);
-            switch (parent_ptr->data.x_ptr.special) {
+            if (parent_ptr->special == ConstValSpecialUndef) {
+                array_val = nullptr;
+                abs_offset = 0;
+                rel_end = SIZE_MAX;
+                ptr_is_undef = true;
+            } else switch (parent_ptr->data.x_ptr.special) {
                 case ConstPtrSpecialInvalid:
                 case ConstPtrSpecialDiscard:
                     zig_unreachable();
@@ -14992,7 +14998,7 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
         }
 
         uint64_t start_scalar = bigint_as_unsigned(&casted_start->value.data.x_bigint);
-        if (start_scalar > rel_end) {
+        if (!ptr_is_undef && start_scalar > rel_end) {
             ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds slice"));
             return ira->codegen->builtin_types.entry_invalid;
         }
@@ -15003,12 +15009,18 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
         } else {
             end_scalar = rel_end;
         }
-        if (end_scalar > rel_end) {
-            ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds slice"));
-            return ira->codegen->builtin_types.entry_invalid;
+        if (!ptr_is_undef) {
+            if (end_scalar > rel_end) {
+                ir_add_error(ira, &instruction->base, buf_sprintf("out of bounds slice"));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
+            if (start_scalar > end_scalar) {
+                ir_add_error(ira, &instruction->base, buf_sprintf("slice start is greater than end"));
+                return ira->codegen->builtin_types.entry_invalid;
+            }
         }
-        if (start_scalar > end_scalar) {
-            ir_add_error(ira, &instruction->base, buf_sprintf("slice start is greater than end"));
+        if (ptr_is_undef && start_scalar != end_scalar) {
+            ir_add_error(ira, &instruction->base, buf_sprintf("non-zero length slice of undefined pointer"));
             return ira->codegen->builtin_types.entry_invalid;
         }
 
@@ -15024,25 +15036,27 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
             if (array_type->id == TypeTableEntryIdArray) {
                 ptr_val->data.x_ptr.mut = ptr_ptr->value.data.x_ptr.mut;
             }
-        } else {
-            switch (parent_ptr->data.x_ptr.special) {
-                case ConstPtrSpecialInvalid:
-                case ConstPtrSpecialDiscard:
-                    zig_unreachable();
-                case ConstPtrSpecialRef:
-                    init_const_ptr_ref(ira->codegen, ptr_val,
-                            parent_ptr->data.x_ptr.data.ref.pointee, slice_is_const(return_type));
-                    break;
-                case ConstPtrSpecialBaseArray:
-                    zig_unreachable();
-                case ConstPtrSpecialBaseStruct:
-                    zig_panic("TODO");
-                case ConstPtrSpecialHardCodedAddr:
-                    init_const_ptr_hard_coded_addr(ira->codegen, ptr_val,
-                        parent_ptr->type->data.pointer.child_type,
-                        parent_ptr->data.x_ptr.data.hard_coded_addr.addr + start_scalar,
-                        slice_is_const(return_type));
-            }
+        } else if (ptr_is_undef) {
+            ptr_val->type = get_pointer_to_type(ira->codegen, parent_ptr->type->data.pointer.child_type,
+                    slice_is_const(return_type));
+            ptr_val->special = ConstValSpecialUndef;
+        } else switch (parent_ptr->data.x_ptr.special) {
+            case ConstPtrSpecialInvalid:
+            case ConstPtrSpecialDiscard:
+                zig_unreachable();
+            case ConstPtrSpecialRef:
+                init_const_ptr_ref(ira->codegen, ptr_val,
+                        parent_ptr->data.x_ptr.data.ref.pointee, slice_is_const(return_type));
+                break;
+            case ConstPtrSpecialBaseArray:
+                zig_unreachable();
+            case ConstPtrSpecialBaseStruct:
+                zig_panic("TODO");
+            case ConstPtrSpecialHardCodedAddr:
+                init_const_ptr_hard_coded_addr(ira->codegen, ptr_val,
+                    parent_ptr->type->data.pointer.child_type,
+                    parent_ptr->data.x_ptr.data.hard_coded_addr.addr + start_scalar,
+                    slice_is_const(return_type));
         }
 
         ConstExprValue *len_val = &out_val->data.x_struct.fields[slice_len_index];

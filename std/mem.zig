@@ -42,6 +42,9 @@ pub const Allocator = struct {
     fn alignedAlloc(self: &Allocator, comptime T: type, comptime alignment: u29,
         n: usize) ![]align(alignment) T
     {
+        if (n == 0) {
+            return (&align(alignment) T)(undefined)[0..0];
+        }
         const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
         const byte_slice = try self.allocFn(self, byte_count, alignment);
         assert(byte_slice.len == byte_count);
@@ -61,6 +64,10 @@ pub const Allocator = struct {
     {
         if (old_mem.len == 0) {
             return self.alloc(T, n);
+        }
+        if (n == 0) {
+            self.free(old_mem);
+            return (&align(alignment) T)(undefined)[0..0];
         }
 
         const old_byte_slice = ([]u8)(old_mem);

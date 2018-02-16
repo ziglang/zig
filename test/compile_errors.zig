@@ -1,6 +1,13 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("comptime slice of undefined pointer non-zero len",
+        \\export fn entry() void {
+        \\    const slice = (&i32)(undefined)[0..1];
+        \\}
+    ,
+        ".tmp_source.zig:2:36: error: non-zero length slice of undefined pointer");
+
     cases.add("type checking function pointers",
         \\fn a(b: fn (&const u8) void) void {
         \\    b('a');
