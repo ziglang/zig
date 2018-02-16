@@ -4373,6 +4373,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                         }
                 }
             }
+            zig_unreachable();
         case TypeTableEntryIdErrorUnion:
             {
                 TypeTableEntry *payload_type = type_entry->data.error_union.payload_type;
