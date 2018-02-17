@@ -329,6 +329,8 @@ pub const TIOCGPKT = 0x80045438;
 pub const TIOCGPTLCK = 0x80045439;
 pub const TIOCGEXCL = 0x80045440;
 
+pub const EPOLL_CLOEXEC = O_CLOEXEC;
+
 pub const EPOLL_CTL_ADD = 1;
 pub const EPOLL_CTL_DEL = 2;
 pub const EPOLL_CTL_MOD = 3;
@@ -751,22 +753,31 @@ pub fn fstat(fd: i32, stat_buf: &Stat) usize {
     return arch.syscall2(arch.SYS_fstat, usize(fd), @ptrToInt(stat_buf));
 }
 
-pub const epoll_data = u64;
+pub const epoll_data = extern union {
+    ptr: usize,
+    fd: i32,
+    @"u32": u32,
+    @"u64": u64,
+};
 
 pub const epoll_event = extern struct {
     events: u32,
-    data: epoll_data
+    data: epoll_data,
 };
 
 pub fn epoll_create() usize {
-    return arch.syscall1(arch.SYS_epoll_create, usize(1));
+    return epoll_create1(0);
+}
+
+pub fn epoll_create1(flags: usize) usize {
+    return arch.syscall1(arch.SYS_epoll_create1, flags);
 }
 
 pub fn epoll_ctl(epoll_fd: i32, op: i32, fd: i32, ev: &epoll_event) usize {
     return arch.syscall4(arch.SYS_epoll_ctl, usize(epoll_fd), usize(op), usize(fd), @ptrToInt(ev));
 }
 
-pub fn epoll_wait(epoll_fd: i32, events: &epoll_event, maxevents: i32, timeout: i32) usize {
+pub fn epoll_wait(epoll_fd: i32, events: &epoll_event, maxevents: u32, timeout: i32) usize {
     return arch.syscall4(arch.SYS_epoll_wait, usize(epoll_fd), @ptrToInt(events), usize(maxevents), usize(timeout));
 }
 
