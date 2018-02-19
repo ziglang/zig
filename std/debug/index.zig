@@ -239,6 +239,7 @@ pub fn openSelfDebugInfo(allocator: &mem.Allocator) !&ElfStackTrace {
     switch (builtin.object_format) {
         builtin.ObjectFormat.elf => {
             const st = try allocator.create(ElfStackTrace);
+            errdefer allocator.destroy(st);
             *st = ElfStackTrace {
                 .self_exe_file = undefined,
                 .elf = undefined,
