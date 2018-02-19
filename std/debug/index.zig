@@ -5,6 +5,7 @@ const io = std.io;
 const os = std.os;
 const elf = std.elf;
 const DW = std.dwarf;
+const macho = std.macho;
 const ArrayList = std.ArrayList;
 const builtin = @import("builtin");
 
@@ -180,43 +181,57 @@ pub fn writeCurrentStackTrace(out_stream: var, allocator: &mem.Allocator,
 }
 
 fn printSourceAtAddress(debug_info: &ElfStackTrace, out_stream: var, address: usize) !void {
-    if (builtin.os == builtin.Os.windows) {
-        return error.UnsupportedDebugInfo;
-    }
     // TODO we really should be able to convert @sizeOf(usize) * 2 to a string literal
     // at compile time. I'll call it issue #313
     const ptr_hex = if (@sizeOf(usize) == 4) "0x{x8}" else "0x{x16}";
 
-    const compile_unit = findCompileUnit(debug_info, address) catch {
-        try out_stream.print("???:?:?: " ++ DIM ++ ptr_hex ++ " in ??? (???)" ++ RESET ++ "\n    ???\n\n",
-            address);
-        return;
-    };
-    const compile_unit_name = try compile_unit.die.getAttrString(debug_info, DW.AT_name);
-    if (getLineNumberInfo(debug_info, compile_unit, address - 1)) |line_info| {
-        defer line_info.deinit();
-        try out_stream.print(WHITE ++ "{}:{}:{}" ++ RESET ++ ": " ++
-            DIM ++ ptr_hex ++ " in ??? ({})" ++ RESET ++ "\n",
-            line_info.file_name, line_info.line, line_info.column,
-            address, compile_unit_name);
-        if (printLineFromFile(debug_info.allocator(), out_stream, line_info)) {
-            if (line_info.column == 0) {
-                try out_stream.write("\n");
-            } else {
-                {var col_i: usize = 1; while (col_i < line_info.column) : (col_i += 1) {
-                    try out_stream.writeByte(' ');
-                }}
-                try out_stream.write(GREEN ++ "^" ++ RESET ++ "\n");
-            }
-        } else |err| switch (err) {
-            error.EndOfFile => {},
-            else => return err,
-        }
-    } else |err| switch (err) {
-        error.MissingDebugInfo, error.InvalidDebugInfo => {
-            try out_stream.print(ptr_hex ++ " in ??? ({})\n", address, compile_unit_name);
+    switch (builtin.os) {
+        builtin.Os.windows => return error.UnsupportedDebugInfo,
+        builtin.Os.macosx => {
+            // TODO(bnoordhuis) It's theoretically possible to obtain the
+            // compilation unit from the symbtab but it's not that useful
+            // in practice because the compiler dumps everything in a single
+            // object file.  Future improvement: use external dSYM data when
+            // available.
+            const unknown = macho.Symbol { .name = "???", .address = address };
+            const symbol = debug_info.symbol_table.search(address) ?? &unknown;
+            try out_stream.print(WHITE ++ "{}" ++ RESET ++ ": " ++
+                DIM ++ ptr_hex ++ " in ??? (???)" ++ RESET ++ "\n",
+                symbol.name, address);
         },
-        else => return err,
+        else => {
+            const compile_unit = findCompileUnit(debug_info, address) catch {
+                try out_stream.print("???:?:?: " ++ DIM ++ ptr_hex ++ " in ??? (???)" ++ RESET ++ "\n    ???\n\n",
+                    address);
+                return;
+            };
+            const compile_unit_name = try compile_unit.die.getAttrString(debug_info, DW.AT_name);
+            if (getLineNumberInfo(debug_info, compile_unit, address - 1)) |line_info| {
+                defer line_info.deinit();
+                try out_stream.print(WHITE ++ "{}:{}:{}" ++ RESET ++ ": " ++
+                    DIM ++ ptr_hex ++ " in ??? ({})" ++ RESET ++ "\n",
+                    line_info.file_name, line_info.line, line_info.column,
+                    address, compile_unit_name);
+                if (printLineFromFile(debug_info.allocator(), out_stream, line_info)) {
+                    if (line_info.column == 0) {
+                        try out_stream.write("\n");
+                    } else {
+                        {var col_i: usize = 1; while (col_i < line_info.column) : (col_i += 1) {
+                            try out_stream.writeByte(' ');
+                        }}
+                        try out_stream.write(GREEN ++ "^" ++ RESET ++ "\n");
+                    }
+                } else |err| switch (err) {
+                    error.EndOfFile => {},
+                    else => return err,
+                }
+            } else |err| switch (err) {
+                error.MissingDebugInfo, error.InvalidDebugInfo => {
+                    try out_stream.print(ptr_hex ++ " in ??? ({})\n", address, compile_unit_name);
+                },
+                else => return err,
+            }
+        },
     }
 }
 
@@ -249,11 +264,21 @@ pub fn openSelfDebugInfo(allocator: &mem.Allocator) !&ElfStackTrace {
             try scanAllCompileUnits(st);
             return st;
         },
+        builtin.ObjectFormat.macho => {
+            var exe_file = try os.openSelfExe();
+            defer exe_file.close();
+
+            const st = try allocator.create(ElfStackTrace);
+            errdefer allocator.destroy(st);
+
+            *st = ElfStackTrace {
+                .symbol_table = try macho.loadSymbols(allocator, &io.FileInStream.init(&exe_file)),
+            };
+
+            return st;
+        },
         builtin.ObjectFormat.coff => {
             return error.TodoSupportCoffDebugInfo;
-        },
-        builtin.ObjectFormat.macho => {
-            return error.TodoSupportMachoDebugInfo;
         },
         builtin.ObjectFormat.wasm => {
             return error.TodoSupportCOFFDebugInfo;
@@ -297,31 +322,40 @@ fn printLineFromFile(allocator: &mem.Allocator, out_stream: var, line_info: &con
     }
 }
 
-pub const ElfStackTrace = struct {
-    self_exe_file: os.File,
-    elf: elf.Elf,
-    debug_info: &elf.SectionHeader,
-    debug_abbrev: &elf.SectionHeader,
-    debug_str: &elf.SectionHeader,
-    debug_line: &elf.SectionHeader,
-    debug_ranges: ?&elf.SectionHeader,
-    abbrev_table_list: ArrayList(AbbrevTableHeader),
-    compile_unit_list: ArrayList(CompileUnit),
+pub const ElfStackTrace = switch (builtin.os) {
+    builtin.Os.macosx => struct {
+        symbol_table: macho.SymbolTable,
 
-    pub fn allocator(self: &const ElfStackTrace) &mem.Allocator {
-        return self.abbrev_table_list.allocator;
-    }
+        pub fn close(self: &ElfStackTrace) void {
+            self.symbol_table.deinit();
+        }
+    },
+    else => struct {
+        self_exe_file: os.File,
+        elf: elf.Elf,
+        debug_info: &elf.SectionHeader,
+        debug_abbrev: &elf.SectionHeader,
+        debug_str: &elf.SectionHeader,
+        debug_line: &elf.SectionHeader,
+        debug_ranges: ?&elf.SectionHeader,
+        abbrev_table_list: ArrayList(AbbrevTableHeader),
+        compile_unit_list: ArrayList(CompileUnit),
 
-    pub fn readString(self: &ElfStackTrace) ![]u8 {
-        var in_file_stream = io.FileInStream.init(&self.self_exe_file);
-        const in_stream = &in_file_stream.stream;
-        return readStringRaw(self.allocator(), in_stream);
-    }
+        pub fn allocator(self: &const ElfStackTrace) &mem.Allocator {
+            return self.abbrev_table_list.allocator;
+        }
 
-    pub fn close(self: &ElfStackTrace) void {
-        self.self_exe_file.close();
-        self.elf.close();
-    }
+        pub fn readString(self: &ElfStackTrace) ![]u8 {
+            var in_file_stream = io.FileInStream.init(&self.self_exe_file);
+            const in_stream = &in_file_stream.stream;
+            return readStringRaw(self.allocator(), in_stream);
+        }
+
+        pub fn close(self: &ElfStackTrace) void {
+            self.self_exe_file.close();
+            self.elf.close();
+        }
+    },
 };
 
 const PcRange = struct {
