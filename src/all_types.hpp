@@ -406,6 +406,7 @@ enum CallingConvention {
     CallingConventionCold,
     CallingConventionNaked,
     CallingConventionStdcall,
+    CallingConventionAsync,
 };
 
 struct AstNodeFnProto {
@@ -2152,6 +2153,8 @@ struct IrInstructionCall {
     bool is_comptime;
     LLVMValueRef tmp_ptr;
     FnInline fn_inline;
+    bool is_async;
+    IrInstruction *async_allocator;
 };
 
 struct IrInstructionConst {

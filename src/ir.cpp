@@ -986,7 +986,7 @@ static IrInstruction *ir_build_union_field_ptr_from(IrBuilder *irb, IrInstructio
 
 static IrInstruction *ir_build_call(IrBuilder *irb, Scope *scope, AstNode *source_node,
         FnTableEntry *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
-        bool is_comptime, FnInline fn_inline)
+        bool is_comptime, FnInline fn_inline, bool is_async, IrInstruction *async_allocator)
 {
     IrInstructionCall *call_instruction = ir_build_instruction<IrInstructionCall>(irb, scope, source_node);
     call_instruction->fn_entry = fn_entry;
@@ -995,21 +995,25 @@ static IrInstruction *ir_build_call(IrBuilder *irb, Scope *scope, AstNode *sourc
     call_instruction->fn_inline = fn_inline;
     call_instruction->args = args;
     call_instruction->arg_count = arg_count;
+    call_instruction->is_async = is_async;
+    call_instruction->async_allocator = async_allocator;
 
     if (fn_ref)
         ir_ref_instruction(fn_ref, irb->current_basic_block);
     for (size_t i = 0; i < arg_count; i += 1)
         ir_ref_instruction(args[i], irb->current_basic_block);
+    if (async_allocator)
+        ir_ref_instruction(async_allocator, irb->current_basic_block);
 
     return &call_instruction->base;
 }
 
 static IrInstruction *ir_build_call_from(IrBuilder *irb, IrInstruction *old_instruction,
         FnTableEntry *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
-        bool is_comptime, FnInline fn_inline)
+        bool is_comptime, FnInline fn_inline, bool is_async, IrInstruction *async_allocator)
 {
     IrInstruction *new_instruction = ir_build_call(irb, old_instruction->scope,
-            old_instruction->source_node, fn_entry, fn_ref, arg_count, args, is_comptime, fn_inline);
+            old_instruction->source_node, fn_entry, fn_ref, arg_count, args, is_comptime, fn_inline, is_async, async_allocator);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
 }
@@ -3754,7 +3758,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 }
                 FnInline fn_inline = (builtin_fn->id == BuiltinFnIdInlineCall) ? FnInlineAlways : FnInlineNever;
 
-                return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, fn_inline);
+                return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, fn_inline, false, nullptr);
             }
         case BuiltinFnIdTypeId:
             {
@@ -3888,11 +3892,17 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
             return args[i];
     }
 
-    if (node->data.fn_call_expr.is_async) {
-        zig_panic("TODO ir_gen_fn_call for async fn calls");
+    bool is_async = node->data.fn_call_expr.is_async;
+    IrInstruction *async_allocator = nullptr;
+    if (is_async) {
+        if (node->data.fn_call_expr.async_allocator) {
+            async_allocator = ir_gen_node(irb, node->data.fn_call_expr.async_allocator, scope);
+            if (async_allocator == irb->codegen->invalid_instruction)
+                return async_allocator;
+        }
     }
 
-    return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, FnInlineAuto);
+    return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, FnInlineAuto, is_async, async_allocator);
 }
 
 static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
@@ -10584,6 +10594,11 @@ static TypeTableEntry *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructi
                         buf_sprintf("exported function must specify calling convention"));
                     add_error_note(ira->codegen, msg, fn_entry->proto_node, buf_sprintf("declared here"));
                 } break;
+                case CallingConventionAsync: {
+                    ErrorMsg *msg = ir_add_error(ira, target,
+                        buf_sprintf("exported function cannot be async"));
+                    add_error_note(ira->codegen, msg, fn_entry->proto_node, buf_sprintf("declared here"));
+                } break;
                 case CallingConventionC:
                 case CallingConventionNaked:
                 case CallingConventionCold:
@@ -10963,6 +10978,13 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         }
         return ira->codegen->builtin_types.entry_invalid;
     }
+    if (fn_type_id->cc == CallingConventionAsync && !call_instruction->is_async) {
+        ErrorMsg *msg = ir_add_error(ira, fn_ref, buf_sprintf("must use async keyword to call async function"));
+        if (fn_proto_node) {
+            add_error_note(ira->codegen, msg, fn_proto_node, buf_sprintf("declared here"));
+        }
+        return ira->codegen->builtin_types.entry_invalid;
+    }
 
 
     if (fn_type_id->is_var_args) {
@@ -11258,7 +11280,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
         size_t impl_param_count = impl_fn->type_entry->data.fn.fn_type_id.param_count;
         IrInstruction *new_call_instruction = ir_build_call_from(&ira->new_irb, &call_instruction->base,
-                impl_fn, nullptr, impl_param_count, casted_args, false, fn_inline);
+                impl_fn, nullptr, impl_param_count, casted_args, false, fn_inline, false, nullptr);
 
         TypeTableEntry *return_type = impl_fn->type_entry->data.fn.fn_type_id.return_type;
         ir_add_alloca(ira, new_call_instruction, return_type);
@@ -11324,12 +11346,16 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
     assert(next_arg_index == call_param_count);
 
+    if (call_instruction->is_async) {
+        zig_panic("TODO handle async fn call");
+    }
+
     TypeTableEntry *return_type = fn_type_id->return_type;
     if (type_is_invalid(return_type))
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *new_call_instruction = ir_build_call_from(&ira->new_irb, &call_instruction->base,
-            fn_entry, fn_ref, call_param_count, casted_args, false, fn_inline);
+            fn_entry, fn_ref, call_param_count, casted_args, false, fn_inline, false, nullptr);
 
     ir_add_alloca(ira, new_call_instruction, return_type);
     return ir_finish_anal(ira, return_type);
@@ -16491,7 +16517,10 @@ static TypeTableEntry *ir_analyze_instruction_tag_type(IrAnalyze *ira, IrInstruc
 }
 
 static TypeTableEntry *ir_analyze_instruction_cancel(IrAnalyze *ira, IrInstructionCancel *instruction) {
-    IrInstruction *casted_target = ir_implicit_cast(ira, instruction->target->other, ira->codegen->builtin_types.entry_promise);
+    IrInstruction *target_inst = instruction->target->other;
+    if (type_is_invalid(target_inst->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+    IrInstruction *casted_target = ir_implicit_cast(ira, target_inst, ira->codegen->builtin_types.entry_promise);
     if (type_is_invalid(casted_target->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 

@@ -884,6 +884,7 @@ static const char *calling_convention_name(CallingConvention cc) {
         case CallingConventionCold: return "coldcc";
         case CallingConventionNaked: return "nakedcc";
         case CallingConventionStdcall: return "stdcallcc";
+        case CallingConventionAsync: return "async";
     }
     zig_unreachable();
 }
@@ -895,6 +896,7 @@ static const char *calling_convention_fn_type_str(CallingConvention cc) {
         case CallingConventionCold: return "coldcc ";
         case CallingConventionNaked: return "nakedcc ";
         case CallingConventionStdcall: return "stdcallcc ";
+        case CallingConventionAsync: return "async ";
     }
     zig_unreachable();
 }

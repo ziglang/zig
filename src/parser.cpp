@@ -2333,7 +2333,7 @@ static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mand
 }
 
 /*
-FnProto = option("nakedcc" | "stdcallcc" | "extern") "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") option("!") TypeExpr
+FnProto = option("nakedcc" | "stdcallcc" | "extern" | "async") "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") option("!") TypeExpr
 */
 static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool mandatory, VisibMod visib_mod) {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -2345,6 +2345,10 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool m
         *token_index += 1;
         fn_token = ast_eat_token(pc, token_index, TokenIdKeywordFn);
         cc = CallingConventionNaked;
+    } else if (first_token->id == TokenIdKeywordAsync) {
+        *token_index += 1;
+        fn_token = ast_eat_token(pc, token_index, TokenIdKeywordFn);
+        cc = CallingConventionAsync;
     } else if (first_token->id == TokenIdKeywordStdcallCC) {
         *token_index += 1;
         fn_token = ast_eat_token(pc, token_index, TokenIdKeywordFn);

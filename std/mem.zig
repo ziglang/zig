@@ -124,7 +124,7 @@ pub const Allocator = struct {
             return self.allocator.allocFn(self.allocator, byte_count, alignment);
         }
 
-        fn free(self: &const AsyncAllocator, old_mem: []u8) {
+        fn free(self: &const AsyncAllocator, old_mem: []u8) void {
             return self.allocator.freeFn(self.allocator, old_mem);
         }
     };

@@ -381,6 +381,8 @@ static LLVMCallConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
             } else {
                 return LLVMCCallConv;
             }
+        case CallingConventionAsync:
+            return LLVMFastCallConv;
     }
     zig_unreachable();
 }
