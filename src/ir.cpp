@@ -9589,6 +9589,7 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdPromise:
             if (!is_equality_cmp) {
                 ir_add_error_node(ira, source_node,
                     buf_sprintf("operator not allowed for type '%s'", buf_ptr(&resolved_type->name)));
@@ -10418,6 +10419,7 @@ static VarClassRequired get_var_class_required(TypeTableEntry *type_entry) {
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdFn:
+        case TypeTableEntryIdPromise:
             return VarClassRequiredAny;
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
@@ -10688,6 +10690,7 @@ static TypeTableEntry *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructi
                 case TypeTableEntryIdBoundFn:
                 case TypeTableEntryIdArgTuple:
                 case TypeTableEntryIdOpaque:
+                case TypeTableEntryIdPromise:
                     ir_add_error(ira, target,
                         buf_sprintf("invalid export target '%s'", buf_ptr(&type_value->name)));
                     break;
@@ -10712,6 +10715,7 @@ static TypeTableEntry *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructi
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdPromise:
             ir_add_error(ira, target,
                     buf_sprintf("invalid export target type '%s'", buf_ptr(&target->value.type->name)));
             break;
@@ -11481,6 +11485,7 @@ static TypeTableEntry *ir_analyze_maybe(IrAnalyze *ira, IrInstructionUnOp *un_op
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdPromise:
             {
                 ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base);
                 out_val->data.x_type = get_maybe_type(ira->codegen, type_entry);
@@ -12710,6 +12715,7 @@ static TypeTableEntry *ir_analyze_instruction_typeof(IrAnalyze *ira, IrInstructi
         case TypeTableEntryIdFn:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdPromise:
             {
                 ConstExprValue *out_val = ir_build_const_from(ira, &typeof_instruction->base);
                 out_val->data.x_type = type_entry;
@@ -12977,6 +12983,7 @@ static TypeTableEntry *ir_analyze_instruction_slice_type(IrAnalyze *ira,
         case TypeTableEntryIdFn:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdPromise:
             {
                 type_ensure_zero_bits_known(ira->codegen, child_type);
                 TypeTableEntry *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, child_type,
@@ -13085,6 +13092,7 @@ static TypeTableEntry *ir_analyze_instruction_array_type(IrAnalyze *ira,
         case TypeTableEntryIdFn:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdPromise:
             {
                 TypeTableEntry *result_type = get_array_type(ira->codegen, child_type, size);
                 ConstExprValue *out_val = ir_build_const_from(ira, &array_type_instruction->base);
@@ -13136,6 +13144,7 @@ static TypeTableEntry *ir_analyze_instruction_size_of(IrAnalyze *ira,
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
+        case TypeTableEntryIdPromise:
             {
                 uint64_t size_in_bytes = type_size(ira->codegen, type_entry);
                 ConstExprValue *out_val = ir_build_const_from(ira, &size_of_instruction->base);
@@ -13465,6 +13474,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdPointer:
+        case TypeTableEntryIdPromise:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdErrorSet:
@@ -14053,6 +14063,7 @@ static TypeTableEntry *ir_analyze_min_max(IrAnalyze *ira, IrInstruction *source_
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdPointer:
+        case TypeTableEntryIdPromise:
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdNumLitFloat:
@@ -15313,6 +15324,7 @@ static TypeTableEntry *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstruc
         case TypeTableEntryIdInt:
         case TypeTableEntryIdFloat:
         case TypeTableEntryIdPointer:
+        case TypeTableEntryIdPromise:
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdMaybe:
@@ -16008,6 +16020,7 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
         case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdPromise:
             zig_unreachable();
         case TypeTableEntryIdVoid:
             return;
@@ -16075,6 +16088,7 @@ static void buf_read_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue 
         case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdPromise:
             zig_unreachable();
         case TypeTableEntryIdVoid:
             return;

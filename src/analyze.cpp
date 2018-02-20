@@ -230,6 +230,7 @@ bool type_is_complete(TypeTableEntry *type_entry) {
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdPromise:
             return true;
     }
     zig_unreachable();
@@ -267,6 +268,7 @@ bool type_has_zero_bits_known(TypeTableEntry *type_entry) {
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdPromise:
             return true;
     }
     zig_unreachable();
@@ -337,6 +339,32 @@ static bool is_slice(TypeTableEntry *type) {
 
 TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x) {
     return get_int_type(g, false, bits_needed_for_unsigned(x));
+}
+
+TypeTableEntry *get_promise_type(CodeGen *g, TypeTableEntry *result_type) {
+    if (result_type != nullptr && result_type->promise_parent != nullptr) {
+        return result_type->promise_parent;
+    } else if (result_type == nullptr && g->builtin_types.entry_promise != nullptr) {
+        return g->builtin_types.entry_promise;
+    }
+
+    TypeTableEntry *u8_ptr_type = get_pointer_to_type(g, g->builtin_types.entry_u8, false);
+    TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdPromise);
+    entry->type_ref = u8_ptr_type->type_ref;
+    entry->zero_bits = false;
+    entry->data.promise.result_type = result_type;
+    buf_init_from_str(&entry->name, "promise");
+    if (result_type != nullptr) {
+        buf_appendf(&entry->name, "->%s", buf_ptr(&result_type->name));
+    }
+    entry->di_type = u8_ptr_type->di_type;
+
+    if (result_type != nullptr) {
+        result_type->promise_parent = entry;
+    } else if (result_type == nullptr) {
+        g->builtin_types.entry_promise = entry;
+    }
+    return entry;
 }
 
 TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type, bool is_const,
@@ -1203,6 +1231,7 @@ static bool type_allowed_in_packed_struct(TypeTableEntry *type_entry) {
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdPromise:
             return false;
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdBool:
@@ -1243,6 +1272,7 @@ static bool type_allowed_in_extern(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdPromise:
             return false;
         case TypeTableEntryIdOpaque:
         case TypeTableEntryIdUnreachable:
@@ -1383,7 +1413,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             case TypeTableEntryIdBoundFn:
             case TypeTableEntryIdMetaType:
                 add_node_error(g, param_node->data.param_decl.type,
-                    buf_sprintf("parameter of type '%s' must be declared inline",
+                    buf_sprintf("parameter of type '%s' must be declared comptime",
                     buf_ptr(&type_entry->name)));
                 return g->builtin_types.entry_invalid;
             case TypeTableEntryIdVoid:
@@ -1399,6 +1429,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             case TypeTableEntryIdEnum:
             case TypeTableEntryIdUnion:
             case TypeTableEntryIdFn:
+            case TypeTableEntryIdPromise:
                 ensure_complete_type(g, type_entry);
                 if (fn_type_id.cc == CallingConventionUnspecified && !type_is_copyable(g, type_entry)) {
                     add_node_error(g, param_node->data.param_decl.type,
@@ -1480,6 +1511,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
+        case TypeTableEntryIdPromise:
             break;
     }
 
@@ -3175,6 +3207,7 @@ TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEnt
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdPromise:
             return type_entry;
     }
     zig_unreachable();
@@ -3553,6 +3586,7 @@ static bool is_container(TypeTableEntry *type_entry) {
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdPromise:
             return false;
     }
     zig_unreachable();
@@ -3603,6 +3637,7 @@ void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdVar:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdPromise:
             zig_unreachable();
     }
 }
@@ -4095,6 +4130,7 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
         case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdEnum:
+        case TypeTableEntryIdPromise:
              return false;
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
@@ -4342,6 +4378,9 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
                 }
                 zig_unreachable();
             }
+        case TypeTableEntryIdPromise:
+            // TODO better hashing algorithm
+            return 223048345;
         case TypeTableEntryIdUndefLit:
             return 162837799;
         case TypeTableEntryIdNullLit:
@@ -4501,6 +4540,7 @@ bool type_requires_comptime(TypeTableEntry *type_entry) {
         case TypeTableEntryIdPointer:
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdPromise:
             return false;
     }
     zig_unreachable();
@@ -4970,6 +5010,7 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdVar:
+        case TypeTableEntryIdPromise:
             zig_unreachable();
     }
     zig_unreachable();
@@ -5244,6 +5285,8 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
                 buf_appendf(buf, "(args value)");
                 return;
             }
+        case TypeTableEntryIdPromise:
+            zig_unreachable();
     }
     zig_unreachable();
 }
@@ -5305,6 +5348,7 @@ uint32_t type_id_hash(TypeId x) {
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdPromise:
             zig_unreachable();
         case TypeTableEntryIdErrorUnion:
             return hash_ptr(x.data.error_union.err_set_type) ^ hash_ptr(x.data.error_union.payload_type);
@@ -5342,6 +5386,7 @@ bool type_id_eql(TypeId a, TypeId b) {
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdPromise:
         case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
@@ -5469,6 +5514,7 @@ static const TypeTableEntryId all_type_ids[] = {
     TypeTableEntryIdBoundFn,
     TypeTableEntryIdArgTuple,
     TypeTableEntryIdOpaque,
+    TypeTableEntryIdPromise,
 };
 
 TypeTableEntryId type_id_at_index(size_t index) {
@@ -5533,6 +5579,8 @@ size_t type_id_index(TypeTableEntryId id) {
             return 22;
         case TypeTableEntryIdOpaque:
             return 23;
+        case TypeTableEntryIdPromise:
+            return 24;
     }
     zig_unreachable();
 }
@@ -5590,6 +5638,8 @@ const char *type_id_name(TypeTableEntryId id) {
             return "ArgTuple";
         case TypeTableEntryIdOpaque:
             return "Opaque";
+        case TypeTableEntryIdPromise:
+            return "Promise";
     }
     zig_unreachable();
 }

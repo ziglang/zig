@@ -1096,6 +1096,11 @@ struct TypeTableEntryBoundFn {
     TypeTableEntry *fn_type;
 };
 
+struct TypeTableEntryPromise {
+    // null if `promise` instead of `promise->T`
+    TypeTableEntry *result_type;
+};
+
 enum TypeTableEntryId {
     TypeTableEntryIdInvalid,
     TypeTableEntryIdVar,
@@ -1123,6 +1128,7 @@ enum TypeTableEntryId {
     TypeTableEntryIdBoundFn,
     TypeTableEntryIdArgTuple,
     TypeTableEntryIdOpaque,
+    TypeTableEntryIdPromise,
 };
 
 struct TypeTableEntry {
@@ -1149,11 +1155,13 @@ struct TypeTableEntry {
         TypeTableEntryUnion unionation;
         TypeTableEntryFn fn;
         TypeTableEntryBoundFn bound_fn;
+        TypeTableEntryPromise promise;
     } data;
 
     // use these fields to make sure we don't duplicate type table entries for the same type
     TypeTableEntry *pointer_parent[2]; // [0 - mut, 1 - const]
     TypeTableEntry *maybe_parent;
+    TypeTableEntry *promise_parent;
     // If we generate a constant name value for this type, we memoize it here.
     // The type of this is array
     ConstExprValue *cached_const_name_val;

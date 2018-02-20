@@ -4017,6 +4017,7 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Con
         case TypeTableEntryIdPointer:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdPromise:
             {
                 LLVMValueRef ptr_val = gen_const_val(g, const_val, "");
                 LLVMValueRef ptr_size_int_val = LLVMConstPtrToInt(ptr_val, g->builtin_types.entry_usize->type_ref);
@@ -4434,6 +4435,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
         case TypeTableEntryIdVar:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdPromise:
             zig_unreachable();
 
     }
@@ -5280,13 +5282,7 @@ static void define_builtin_types(CodeGen *g) {
         g->primitive_type_table.put(&entry->name, entry);
     }
     {
-        TypeTableEntry *u8_ptr_type = get_pointer_to_type(g, g->builtin_types.entry_u8, false);
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdVoid);
-        entry->type_ref = u8_ptr_type->type_ref;
-        entry->zero_bits = false;
-        buf_init_from_str(&entry->name, "promise");
-        entry->di_type = u8_ptr_type->di_type;
-        g->builtin_types.entry_promise = entry;
+        TypeTableEntry *entry = get_promise_type(g, nullptr);
         g->primitive_type_table.put(&entry->name, entry);
     }
 
@@ -5916,6 +5912,7 @@ static void prepend_c_type_to_decl_list(CodeGen *g, GenH *gen_h, TypeTableEntry 
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdErrorSet:
+        case TypeTableEntryIdPromise:
             zig_unreachable();
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdUnreachable:
@@ -6102,6 +6099,7 @@ static void get_c_type(CodeGen *g, GenH *gen_h, TypeTableEntry *type_entry, Buf 
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdVar:
         case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdPromise:
             zig_unreachable();
     }
 }
@@ -6262,6 +6260,7 @@ static void gen_h_file(CodeGen *g) {
             case TypeTableEntryIdArgTuple:
             case TypeTableEntryIdMaybe:
             case TypeTableEntryIdFn:
+            case TypeTableEntryIdPromise:
                 zig_unreachable();
             case TypeTableEntryIdEnum:
                 assert(type_entry->data.enumeration.layout == ContainerLayoutExtern);
