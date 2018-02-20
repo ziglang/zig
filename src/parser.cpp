@@ -920,7 +920,7 @@ static AstNode *ast_parse_curly_suffix_expr(ParseContext *pc, size_t *token_inde
 }
 
 /*
-SuffixOpExpression = PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
+SuffixOpExpression = ("async" option("(" Expression ")") PrimaryExpression FnCallExpression) | PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
 FnCallExpression : token(LParen) list(Expression, token(Comma)) token(RParen)
 ArrayAccessExpression : token(LBracket) Expression token(RBracket)
 SliceExpression = "[" Expression ".." option(Expression) "]"
@@ -928,9 +928,34 @@ FieldAccessExpression : token(Dot) token(Symbol)
 StructLiteralField : token(Dot) token(Symbol) token(Eq) Expression
 */
 static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
-    AstNode *primary_expr = ast_parse_primary_expr(pc, token_index, mandatory);
-    if (!primary_expr)
-        return nullptr;
+    AstNode *primary_expr;
+
+    Token *async_token = &pc->tokens->at(*token_index);
+    if (async_token->id == TokenIdKeywordAsync) {
+        *token_index += 1;
+
+        AstNode *allocator_expr_node = nullptr;
+        Token *async_lparen_tok = &pc->tokens->at(*token_index);
+        if (async_lparen_tok->id == TokenIdLParen) {
+            *token_index += 1;
+            allocator_expr_node = ast_parse_expression(pc, token_index, true);
+            ast_eat_token(pc, token_index, TokenIdRParen);
+        }
+
+        AstNode *fn_ref_expr_node = ast_parse_primary_expr(pc, token_index, true);
+        Token *lparen_tok = ast_eat_token(pc, token_index, TokenIdLParen);
+        AstNode *node = ast_create_node(pc, NodeTypeFnCallExpr, lparen_tok);
+        node->data.fn_call_expr.is_async = true;
+        node->data.fn_call_expr.async_allocator = allocator_expr_node;
+        node->data.fn_call_expr.fn_ref_expr = fn_ref_expr_node;
+        ast_parse_fn_call_param_list(pc, token_index, &node->data.fn_call_expr.params);
+
+        primary_expr = node;
+    } else {
+        primary_expr = ast_parse_primary_expr(pc, token_index, mandatory);
+        if (!primary_expr)
+            return nullptr;
+    }
 
     while (true) {
         Token *first_token = &pc->tokens->at(*token_index);
@@ -1531,6 +1556,24 @@ static AstNode *ast_parse_break_expr(ParseContext *pc, size_t *token_index) {
     }
 
     node->data.break_expr.expr = ast_parse_expression(pc, token_index, false);
+
+    return node;
+}
+
+/*
+CancelExpression = "cancel" Expression;
+*/
+static AstNode *ast_parse_cancel_expr(ParseContext *pc, size_t *token_index) {
+    Token *token = &pc->tokens->at(*token_index);
+
+    if (token->id != TokenIdKeywordCancel) {
+        return nullptr;
+    }
+    *token_index += 1;
+
+    AstNode *node = ast_create_node(pc, NodeTypeCancel, token);
+
+    node->data.cancel_expr.expr = ast_parse_expression(pc, token_index, false);
 
     return node;
 }
@@ -2159,7 +2202,7 @@ static AstNode *ast_parse_block_or_expression(ParseContext *pc, size_t *token_in
 }
 
 /*
-Expression = TryExpression | ReturnExpression | BreakExpression | AssignmentExpression
+Expression = TryExpression | ReturnExpression | BreakExpression | AssignmentExpression | CancelExpression
 */
 static AstNode *ast_parse_expression(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -2175,6 +2218,10 @@ static AstNode *ast_parse_expression(ParseContext *pc, size_t *token_index, bool
     AstNode *break_expr = ast_parse_break_expr(pc, token_index);
     if (break_expr)
         return break_expr;
+
+    AstNode *cancel_expr = ast_parse_cancel_expr(pc, token_index);
+    if (cancel_expr)
+        return cancel_expr;
 
     AstNode *ass_expr = ast_parse_ass_expr(pc, token_index, false);
     if (ass_expr)
@@ -2809,6 +2856,7 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
         case NodeTypeFnCallExpr:
             visit_field(&node->data.fn_call_expr.fn_ref_expr, visit, context);
             visit_node_list(&node->data.fn_call_expr.params, visit, context);
+            visit_field(&node->data.fn_call_expr.async_allocator, visit, context);
             break;
         case NodeTypeArrayAccessExpr:
             visit_field(&node->data.array_access_expr.array_ref_expr, visit, context);
@@ -2930,6 +2978,9 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             break;
         case NodeTypeErrorSetDecl:
             visit_node_list(&node->data.err_set_decl.decls, visit, context);
+            break;
+        case NodeTypeCancel:
+            visit_field(&node->data.cancel_expr.expr, visit, context);
             break;
     }
 }

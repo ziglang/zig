@@ -3088,6 +3088,10 @@ static LLVMValueRef ir_render_error_return_trace(CodeGen *g, IrExecutable *execu
     return g->cur_err_ret_trace_val;
 }
 
+static LLVMValueRef ir_render_cancel(CodeGen *g, IrExecutable *executable, IrInstructionCancel *instruction) {
+    zig_panic("TODO ir_render_cancel");
+}
+
 static LLVMAtomicOrdering to_LLVMAtomicOrdering(AtomicOrder atomic_order) {
     switch (atomic_order) {
         case AtomicOrderUnordered: return LLVMAtomicOrderingUnordered;
@@ -3862,6 +3866,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_align_cast(g, executable, (IrInstructionAlignCast *)instruction);
         case IrInstructionIdErrorReturnTrace:
             return ir_render_error_return_trace(g, executable, (IrInstructionErrorReturnTrace *)instruction);
+        case IrInstructionIdCancel:
+            return ir_render_cancel(g, executable, (IrInstructionCancel *)instruction);
     }
     zig_unreachable();
 }
@@ -5269,6 +5275,16 @@ static void define_builtin_types(CodeGen *g) {
         g->err_enumerators.append(ZigLLVMCreateDebugEnumerator(g->dbuilder, "(none)", 0));
         g->errors_by_index.append(nullptr);
 
+        g->primitive_type_table.put(&entry->name, entry);
+    }
+    {
+        TypeTableEntry *u8_ptr_type = get_pointer_to_type(g, g->builtin_types.entry_u8, false);
+        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdVoid);
+        entry->type_ref = u8_ptr_type->type_ref;
+        entry->zero_bits = false;
+        buf_init_from_str(&entry->name, "promise");
+        entry->di_type = u8_ptr_type->di_type;
+        g->builtin_types.entry_promise = entry;
         g->primitive_type_table.put(&entry->name, entry);
     }
 

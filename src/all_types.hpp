@@ -393,6 +393,7 @@ enum NodeType {
     NodeTypeIfErrorExpr,
     NodeTypeTestExpr,
     NodeTypeErrorSetDecl,
+    NodeTypeCancel,
 };
 
 struct AstNodeRoot {
@@ -567,6 +568,8 @@ struct AstNodeFnCallExpr {
     AstNode *fn_ref_expr;
     ZigList<AstNode *> params;
     bool is_builtin;
+    bool is_async;
+    AstNode *async_allocator;
 };
 
 struct AstNodeArrayAccessExpr {
@@ -829,6 +832,10 @@ struct AstNodeBreakExpr {
     AstNode *expr; // may be null
 };
 
+struct AstNodeCancelExpr {
+    AstNode *expr;
+};
+
 struct AstNodeContinueExpr {
     Buf *name;
 };
@@ -900,6 +907,7 @@ struct AstNode {
         AstNodeErrorType error_type;
         AstNodeVarLiteral var_literal;
         AstNodeErrorSetDecl err_set_decl;
+        AstNodeCancelExpr cancel_expr;
     } data;
 };
 
@@ -1495,6 +1503,7 @@ struct CodeGen {
         TypeTableEntry *entry_var;
         TypeTableEntry *entry_global_error_set;
         TypeTableEntry *entry_arg_tuple;
+        TypeTableEntry *entry_promise;
     } builtin_types;
 
     EmitFileType emit_file_type;
@@ -1939,6 +1948,7 @@ enum IrInstructionId {
     IrInstructionIdExport,
     IrInstructionIdErrorReturnTrace,
     IrInstructionIdErrorUnion,
+    IrInstructionIdCancel,
 };
 
 struct IrInstruction {
@@ -2774,6 +2784,12 @@ struct IrInstructionErrorUnion {
 
     IrInstruction *err_set;
     IrInstruction *payload;
+};
+
+struct IrInstructionCancel {
+    IrInstruction base;
+
+    IrInstruction *target;
 };
 
 static const size_t slice_ptr_index = 0;

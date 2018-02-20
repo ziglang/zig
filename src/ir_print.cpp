@@ -1010,6 +1010,11 @@ static void ir_print_error_union(IrPrint *irp, IrInstructionErrorUnion *instruct
     ir_print_other_instruction(irp, instruction->payload);
 }
 
+static void ir_print_cancel(IrPrint *irp, IrInstructionCancel *instruction) {
+    fprintf(irp->f, "cancel ");
+    ir_print_other_instruction(irp, instruction->target);
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1329,6 +1334,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdErrorUnion:
             ir_print_error_union(irp, (IrInstructionErrorUnion *)instruction);
+            break;
+        case IrInstructionIdCancel:
+            ir_print_cancel(irp, (IrInstructionCancel *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

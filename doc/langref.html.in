@@ -5663,7 +5663,7 @@ ErrorSetExpr = (PrefixOpExpression "!" PrefixOpExpression) | PrefixOpExpression
 
 BlockOrExpression = Block | Expression
 
-Expression = TryExpression | ReturnExpression | BreakExpression | AssignmentExpression
+Expression = TryExpression | ReturnExpression | BreakExpression | AssignmentExpression | CancelExpression
 
 AsmExpression = "asm" option("volatile") "(" String option(AsmOutput) ")"
 
@@ -5707,6 +5707,8 @@ TryExpression = "try" Expression
 
 BreakExpression = "break" option(":" Symbol) option(Expression)
 
+CancelExpression = "cancel" Expression;
+
 Defer(body) = ("defer" | "deferror") body
 
 IfExpression(body) = "if" "(" Expression ")" body option("else" BlockExpression(body))
@@ -5745,7 +5747,7 @@ MultiplyOperator = "||" | "*" | "/" | "%" | "**" | "*%"
 
 PrefixOpExpression = PrefixOp ErrorSetExpr | SuffixOpExpression
 
-SuffixOpExpression = PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
+SuffixOpExpression = ("async" option("(" Expression ")") PrimaryExpression FnCallExpression) | PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
 
 FieldAccessExpression = "." Symbol
 

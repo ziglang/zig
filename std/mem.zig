@@ -116,6 +116,22 @@ pub const Allocator = struct {
         const non_const_ptr = @intToPtr(&u8, @ptrToInt(bytes.ptr));
         self.freeFn(self, non_const_ptr[0..bytes.len]);
     }
+
+    pub const AsyncAllocator = struct {
+        allocator: &Allocator,
+
+        fn alloc(self: &const AsyncAllocator, byte_count: usize, alignment: u29) Error![]u8 {
+            return self.allocator.allocFn(self.allocator, byte_count, alignment);
+        }
+
+        fn free(self: &const AsyncAllocator, old_mem: []u8) {
+            return self.allocator.freeFn(self.allocator, old_mem);
+        }
+    };
+
+    fn toAsync(self: &Allocator) AsyncAllocator {
+        return AsyncAllocator { .allocator = self };
+    }
 };
 
 /// Copy all of source into dest at position 0.

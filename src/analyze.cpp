@@ -3117,6 +3117,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeIfErrorExpr:
         case NodeTypeTestExpr:
         case NodeTypeErrorSetDecl:
+        case NodeTypeCancel:
             zig_unreachable();
     }
 }

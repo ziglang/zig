@@ -244,6 +244,8 @@ static const char *node_type_str(NodeType node_type) {
             return "TestExpr";
         case NodeTypeErrorSetDecl:
             return "ErrorSetDecl";
+        case NodeTypeCancel:
+            return "Cancel";
     }
     zig_unreachable();
 }
@@ -1035,6 +1037,12 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 ar->indent -= ar->indent_size;
                 print_indent(ar);
                 fprintf(ar->f, "}");
+                break;
+            }
+        case NodeTypeCancel:
+            {
+                fprintf(ar->f, "cancel ");
+                render_node_grouped(ar, node->data.cancel_expr.expr);
                 break;
             }
         case NodeTypeFnDecl:

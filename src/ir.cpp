@@ -637,6 +637,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionErrorUnion *) {
     return IrInstructionIdErrorUnion;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCancel *) {
+    return IrInstructionIdCancel;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -2396,6 +2400,17 @@ static IrInstruction *ir_build_error_union(IrBuilder *irb, Scope *scope, AstNode
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_cancel(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *target)
+{
+    IrInstructionCancel *instruction = ir_build_instruction<IrInstructionCancel>(irb, scope, source_node);
+    instruction->target = target;
+
+    ir_ref_instruction(target, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope, size_t *results) {
     results[ReturnKindUnconditional] = 0;
     results[ReturnKindError] = 0;
@@ -3871,6 +3886,10 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
         args[i] = ir_gen_node(irb, arg_node, scope);
         if (args[i] == irb->codegen->invalid_instruction)
             return args[i];
+    }
+
+    if (node->data.fn_call_expr.is_async) {
+        zig_panic("TODO ir_gen_fn_call for async fn calls");
     }
 
     return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, FnInlineAuto);
@@ -5598,6 +5617,16 @@ static IrInstruction *ir_gen_fn_proto(IrBuilder *irb, Scope *parent_scope, AstNo
     return ir_build_fn_proto(irb, parent_scope, node, param_types, align_value, return_type, is_var_args);
 }
 
+static IrInstruction *ir_gen_cancel(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
+    assert(node->type == NodeTypeCancel);
+
+    IrInstruction *target_inst = ir_gen_node(irb, node->data.cancel_expr.expr, parent_scope);
+    if (target_inst == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+
+    return ir_build_cancel(irb, parent_scope, node, target_inst);
+}
+
 static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scope,
         LVal lval)
 {
@@ -5694,6 +5723,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_fn_proto(irb, scope, node), lval);
         case NodeTypeErrorSetDecl:
             return ir_lval_wrap(irb, scope, ir_gen_err_set_decl(irb, scope, node), lval);
+        case NodeTypeCancel:
+            return ir_lval_wrap(irb, scope, ir_gen_cancel(irb, scope, node), lval);
     }
     zig_unreachable();
 }
@@ -16459,6 +16490,17 @@ static TypeTableEntry *ir_analyze_instruction_tag_type(IrAnalyze *ira, IrInstruc
     }
 }
 
+static TypeTableEntry *ir_analyze_instruction_cancel(IrAnalyze *ira, IrInstructionCancel *instruction) {
+    IrInstruction *casted_target = ir_implicit_cast(ira, instruction->target->other, ira->codegen->builtin_types.entry_promise);
+    if (type_is_invalid(casted_target->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *result = ir_build_cancel(&ira->new_irb, instruction->base.scope, instruction->base.source_node, casted_target);
+    result->value.type = casted_target->value.type;
+    ir_link_new_instruction(result, &instruction->base);
+    return result->value.type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -16661,6 +16703,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_error_return_trace(ira, (IrInstructionErrorReturnTrace *)instruction);
         case IrInstructionIdErrorUnion:
             return ir_analyze_instruction_error_union(ira, (IrInstructionErrorUnion *)instruction);
+        case IrInstructionIdCancel:
+            return ir_analyze_instruction_cancel(ira, (IrInstructionCancel *)instruction);
     }
     zig_unreachable();
 }
@@ -16774,7 +16818,9 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdPtrTypeOf:
         case IrInstructionIdSetAlignStack:
         case IrInstructionIdExport:
+        case IrInstructionIdCancel:
             return true;
+
         case IrInstructionIdPhi:
         case IrInstructionIdUnOp:
         case IrInstructionIdBinOp:
