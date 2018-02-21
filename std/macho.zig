@@ -88,7 +88,7 @@ pub fn loadSymbols(allocator: &mem.Allocator, in: &io.FileInStream) !SymbolTable
     try file.seekTo(0);
 
     var hdr: MachHeader64 = undefined;
-    try readNoEof(in, &hdr);
+    try readOneNoEof(in, MachHeader64, &hdr);
     if (hdr.magic != MH_MAGIC_64) return error.MissingDebugInfo;
     const is_pie = MH_PIE == (hdr.flags & MH_PIE);
 
@@ -97,7 +97,7 @@ pub fn loadSymbols(allocator: &mem.Allocator, in: &io.FileInStream) !SymbolTable
     while (ncmd != 0) : (ncmd -= 1) {
         try file.seekTo(pos);
         var lc: LoadCommand = undefined;
-        try readNoEof(in, &lc);
+        try readOneNoEof(in, LoadCommand, &lc);
         if (lc.cmd == LC_SYMTAB) break;
         pos += lc.cmdsize;
     } else {
@@ -105,12 +105,12 @@ pub fn loadSymbols(allocator: &mem.Allocator, in: &io.FileInStream) !SymbolTable
     }
 
     var cmd: SymtabCommand = undefined;
-    try readNoEof(in, &cmd);
+    try readOneNoEof(in, SymtabCommand, &cmd);
 
     try file.seekTo(cmd.symoff);
     var syms = try allocator.alloc(Nlist64, cmd.nsyms);
     defer allocator.free(syms);
-    try readNoEof(in, syms);
+    try readNoEof(in, Nlist64, syms);
 
     try file.seekTo(cmd.stroff);
     var strings = try allocator.alloc(u8, cmd.strsize);
@@ -158,18 +158,11 @@ pub fn loadSymbols(allocator: &mem.Allocator, in: &io.FileInStream) !SymbolTable
     };
 }
 
-fn readNoEof(in: &io.FileInStream, sink: var) !void {
-    if (@typeOf(sink) == []Nlist64) {
-        const T = @typeOf(sink[0]);
-        const len = @sizeOf(T) * sink.len;
-        const bytes = @ptrCast(&u8, &sink[0]);
-        return in.stream.readNoEof(bytes[0..len]);
-    } else {
-        const T = @typeOf(*sink);
-        const len = @sizeOf(T);
-        const bytes = @ptrCast(&u8, sink);
-        return in.stream.readNoEof(bytes[0..len]);
-    }
+fn readNoEof(in: &io.FileInStream, comptime T: type, result: []T) !void {
+    return in.stream.readNoEof(([]u8)(result));
+}
+fn readOneNoEof(in: &io.FileInStream, comptime T: type, result: &T) !void {
+    return readNoEof(in, T, result[0..1]);
 }
 
 fn isSymbol(sym: &const Nlist64) bool {
