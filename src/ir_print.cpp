@@ -198,6 +198,15 @@ static void ir_print_cast(IrPrint *irp, IrInstructionCast *cast_instruction) {
 }
 
 static void ir_print_call(IrPrint *irp, IrInstructionCall *call_instruction) {
+    if (call_instruction->is_async) {
+        fprintf(irp->f, "async");
+        if (call_instruction->async_allocator != nullptr) {
+            fprintf(irp->f, "(");
+            ir_print_other_instruction(irp, call_instruction->async_allocator);
+            fprintf(irp->f, ")");
+        }
+        fprintf(irp->f, " ");
+    }
     if (call_instruction->fn_entry) {
         fprintf(irp->f, "%s", buf_ptr(&call_instruction->fn_entry->symbol_name));
     } else {
@@ -1015,6 +1024,10 @@ static void ir_print_cancel(IrPrint *irp, IrInstructionCancel *instruction) {
     ir_print_other_instruction(irp, instruction->target);
 }
 
+static void ir_print_get_implicit_allocator(IrPrint *irp, IrInstructionGetImplicitAllocator *instruction) {
+    fprintf(irp->f, "@getImplicitAllocator()");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1337,6 +1350,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdCancel:
             ir_print_cancel(irp, (IrInstructionCancel *)instruction);
+            break;
+        case IrInstructionIdGetImplicitAllocator:
+            ir_print_get_implicit_allocator(irp, (IrInstructionGetImplicitAllocator *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

@@ -954,8 +954,13 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
 
     // populate the name of the type
     buf_resize(&fn_type->name, 0);
-    const char *cc_str = calling_convention_fn_type_str(fn_type->data.fn.fn_type_id.cc);
-    buf_appendf(&fn_type->name, "%sfn(", cc_str);
+    if (fn_type->data.fn.fn_type_id.cc == CallingConventionAsync) {
+        buf_appendf(&fn_type->name, "async(%s) ", buf_ptr(&fn_type_id->async_allocator_type->name));
+    } else {
+        const char *cc_str = calling_convention_fn_type_str(fn_type->data.fn.fn_type_id.cc);
+        buf_appendf(&fn_type->name, "%s", cc_str);
+    }
+    buf_appendf(&fn_type->name, "fn(");
     for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
         FnTypeParamInfo *param_info = &fn_type_id->param_info[i];
 
@@ -1126,7 +1131,16 @@ TypeTableEntry *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
 TypeTableEntry *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     TypeTableEntry *fn_type = new_type_table_entry(TypeTableEntryIdFn);
     fn_type->is_copyable = false;
-    buf_init_from_str(&fn_type->name, "fn(");
+    buf_resize(&fn_type->name, 0);
+    if (fn_type->data.fn.fn_type_id.cc == CallingConventionAsync) {
+        const char *async_allocator_type_str = (fn_type->data.fn.fn_type_id.async_allocator_type == nullptr) ?
+            "var" : buf_ptr(&fn_type_id->async_allocator_type->name);
+        buf_appendf(&fn_type->name, "async(%s) ", async_allocator_type_str);
+    } else {
+        const char *cc_str = calling_convention_fn_type_str(fn_type->data.fn.fn_type_id.cc);
+        buf_appendf(&fn_type->name, "%s", cc_str);
+    }
+    buf_appendf(&fn_type->name, "fn(");
     size_t i = 0;
     for (; i < fn_type_id->next_param_index; i += 1) {
         const char *comma_str = (i == 0) ? "" : ",";
@@ -1513,6 +1527,16 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         case TypeTableEntryIdFn:
         case TypeTableEntryIdPromise:
             break;
+    }
+
+    if (fn_type_id.cc == CallingConventionAsync) {
+        if (fn_proto->async_allocator_type == nullptr) {
+            return get_generic_fn_type(g, &fn_type_id);
+        }
+        fn_type_id.async_allocator_type = analyze_type_expr(g, child_scope, fn_proto->async_allocator_type);
+        if (type_is_invalid(fn_type_id.async_allocator_type)) {
+            return g->builtin_types.entry_invalid;
+        }
     }
 
     return get_fn_type(g, &fn_type_id);
@@ -3676,7 +3700,7 @@ AstNode *get_param_decl_node(FnTableEntry *fn_entry, size_t index) {
         return nullptr;
 }
 
-void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entry, VariableTableEntry **arg_vars) {
+static void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entry, VariableTableEntry **arg_vars) {
     TypeTableEntry *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
@@ -4242,6 +4266,7 @@ uint32_t fn_type_id_hash(FnTypeId *id) {
     result += ((uint32_t)(id->cc)) * (uint32_t)3349388391;
     result += id->is_var_args ? (uint32_t)1931444534 : 0;
     result += hash_ptr(id->return_type);
+    result += hash_ptr(id->async_allocator_type);
     result += id->alignment * 0xd3b3f3e2;
     for (size_t i = 0; i < id->param_count; i += 1) {
         FnTypeParamInfo *info = &id->param_info[i];
@@ -4256,7 +4281,8 @@ bool fn_type_id_eql(FnTypeId *a, FnTypeId *b) {
         a->return_type != b->return_type ||
         a->is_var_args != b->is_var_args ||
         a->param_count != b->param_count ||
-        a->alignment != b->alignment)
+        a->alignment != b->alignment ||
+        a->async_allocator_type != b->async_allocator_type)
     {
         return false;
     }

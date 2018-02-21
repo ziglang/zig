@@ -65,6 +65,7 @@ enum ConstCastResultId {
     ConstCastResultIdFnArgNoAlias,
     ConstCastResultIdType,
     ConstCastResultIdUnresolvedInferredErrSet,
+    ConstCastResultIdAsyncAllocatorType,
 };
 
 struct ConstCastErrSetMismatch {
@@ -92,6 +93,7 @@ struct ConstCastOnly {
         ConstCastOnly *error_union_payload;
         ConstCastOnly *error_union_error_set;
         ConstCastOnly *return_type;
+        ConstCastOnly *async_allocator_type;
         ConstCastArg fn_arg;
         ConstCastArgNoAlias arg_no_alias;
     } data;
@@ -104,6 +106,8 @@ static TypeTableEntry *ir_analyze_instruction(IrAnalyze *ira, IrInstruction *ins
 static IrInstruction *ir_implicit_cast(IrAnalyze *ira, IrInstruction *value, TypeTableEntry *expected_type);
 static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruction, IrInstruction *ptr);
 static ErrorMsg *exec_add_error_node(CodeGen *codegen, IrExecutable *exec, AstNode *source_node, Buf *msg);
+static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_name,
+    IrInstruction *source_instr, IrInstruction *container_ptr, TypeTableEntry *container_type);
 
 ConstExprValue *const_ptr_pointee(CodeGen *g, ConstExprValue *const_val) {
     assert(const_val->type->id == TypeTableEntryIdPointer);
@@ -641,6 +645,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionCancel *) {
     return IrInstructionIdCancel;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionGetImplicitAllocator *) {
+    return IrInstructionIdGetImplicitAllocator;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -952,15 +960,6 @@ static IrInstruction *ir_build_struct_field_ptr(IrBuilder *irb, Scope *scope, As
     ir_ref_instruction(struct_ptr, irb->current_basic_block);
 
     return &instruction->base;
-}
-
-static IrInstruction *ir_build_struct_field_ptr_from(IrBuilder *irb, IrInstruction *old_instruction,
-    IrInstruction *struct_ptr, TypeStructField *type_struct_field)
-{
-    IrInstruction *new_instruction = ir_build_struct_field_ptr(irb, old_instruction->scope,
-            old_instruction->source_node, struct_ptr, type_struct_field);
-    ir_link_new_instruction(new_instruction, old_instruction);
-    return new_instruction;
 }
 
 static IrInstruction *ir_build_union_field_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node,
@@ -2411,6 +2410,12 @@ static IrInstruction *ir_build_cancel(IrBuilder *irb, Scope *scope, AstNode *sou
     instruction->target = target;
 
     ir_ref_instruction(target, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_get_implicit_allocator(IrBuilder *irb, Scope *scope, AstNode *source_node) {
+    IrInstructionGetImplicitAllocator *instruction = ir_build_instruction<IrInstructionGetImplicitAllocator>(irb, scope, source_node);
 
     return &instruction->base;
 }
@@ -6740,6 +6745,12 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
         return result;
     }
 
+    if (expected_type == ira->codegen->builtin_types.entry_promise &&
+        actual_type->id == TypeTableEntryIdPromise)
+    {
+        return result;
+    }
+
     // fn
     if (expected_type->id == TypeTableEntryIdFn &&
         actual_type->id == TypeTableEntryIdFn)
@@ -6768,6 +6779,16 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
                 result.id = ConstCastResultIdFnReturnType;
                 result.data.return_type = allocate_nonzero<ConstCastOnly>(1);
                 *result.data.return_type = child;
+                return result;
+            }
+        }
+        if (!expected_type->data.fn.is_generic && expected_type->data.fn.fn_type_id.cc == CallingConventionAsync) {
+            ConstCastOnly child = types_match_const_cast_only(ira, actual_type->data.fn.fn_type_id.async_allocator_type,
+                    expected_type->data.fn.fn_type_id.async_allocator_type, source_node);
+            if (child.id != ConstCastResultIdOk) {
+                result.id = ConstCastResultIdAsyncAllocatorType;
+                result.data.async_allocator_type = allocate_nonzero<ConstCastOnly>(1);
+                *result.data.async_allocator_type = child;
                 return result;
             }
         }
@@ -10768,6 +10789,58 @@ static TypeTableEntry *ir_analyze_instruction_error_union(IrAnalyze *ira,
     return ira->codegen->builtin_types.entry_type;
 }
 
+IrInstruction *ir_get_implicit_allocator(IrAnalyze *ira, IrInstruction *source_instr, FnTableEntry *parent_fn_entry) {
+    FnTypeId *parent_fn_type = &parent_fn_entry->type_entry->data.fn.fn_type_id;
+    if (parent_fn_type->cc != CallingConventionAsync) {
+        ir_add_error(ira, source_instr, buf_sprintf("async function call from non-async caller requires allocator parameter"));
+        return ira->codegen->invalid_instruction;
+    }
+
+    assert(parent_fn_type->async_allocator_type != nullptr);
+    IrInstruction *result = ir_build_get_implicit_allocator(&ira->new_irb, source_instr->scope, source_instr->source_node);
+    result->value.type = parent_fn_type->async_allocator_type;
+    return result;
+}
+
+static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCall *call_instruction, FnTableEntry *fn_entry, TypeTableEntry *fn_type,
+    IrInstruction *fn_ref, IrInstruction **casted_args, size_t arg_count, IrInstruction *async_allocator_inst)
+{
+    Buf *alloc_field_name = buf_create_from_str("allocFn");
+    //Buf *free_field_name = buf_create_from_str("freeFn");
+    assert(async_allocator_inst->value.type->id == TypeTableEntryIdPointer);
+    TypeTableEntry *container_type = async_allocator_inst->value.type->data.pointer.child_type;
+    IrInstruction *field_ptr_inst = ir_analyze_container_field_ptr(ira, alloc_field_name, &call_instruction->base,
+            async_allocator_inst, container_type);
+    if (type_is_invalid(field_ptr_inst->value.type)) {
+        return ira->codegen->invalid_instruction;
+    }
+    TypeTableEntry *ptr_to_alloc_fn_type = field_ptr_inst->value.type;
+    assert(ptr_to_alloc_fn_type->id == TypeTableEntryIdPointer);
+
+    TypeTableEntry *alloc_fn_type = ptr_to_alloc_fn_type->data.pointer.child_type;
+    if (alloc_fn_type->id != TypeTableEntryIdFn) {
+        ir_add_error(ira, &call_instruction->base,
+                buf_sprintf("expected allocation function, found '%s'", buf_ptr(&alloc_fn_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    TypeTableEntry *alloc_fn_return_type = alloc_fn_type->data.fn.fn_type_id.return_type;
+    if (alloc_fn_return_type->id != TypeTableEntryIdErrorUnion) {
+        ir_add_error(ira, fn_ref,
+            buf_sprintf("expected allocation function to return error union, but it returns '%s'", buf_ptr(&alloc_fn_return_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+    TypeTableEntry *alloc_fn_error_set_type = alloc_fn_return_type->data.error_union.err_set_type;
+    TypeTableEntry *return_type = fn_type->data.fn.fn_type_id.return_type;
+    TypeTableEntry *promise_type = get_promise_type(ira->codegen, return_type);
+    TypeTableEntry *async_return_type = get_error_union_type(ira->codegen, alloc_fn_error_set_type, promise_type);
+
+    IrInstruction *result = ir_build_call(&ira->new_irb, call_instruction->base.scope, call_instruction->base.source_node,
+        fn_entry, fn_ref, arg_count, casted_args, false, FnInlineAuto, true, async_allocator_inst);
+    result->value.type = async_return_type;
+    return result;
+}
+
 static bool ir_analyze_fn_call_inline_arg(IrAnalyze *ira, AstNode *fn_proto_node,
     IrInstruction *arg, Scope **exec_scope, size_t *next_proto_i)
 {
@@ -10989,6 +11062,13 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         }
         return ira->codegen->builtin_types.entry_invalid;
     }
+    if (fn_type_id->cc != CallingConventionAsync && call_instruction->is_async) {
+        ErrorMsg *msg = ir_add_error(ira, fn_ref, buf_sprintf("cannot use async keyword to call non-async function"));
+        if (fn_proto_node) {
+            add_error_note(ira->codegen, msg, fn_proto_node, buf_sprintf("declared here"));
+        }
+        return ira->codegen->builtin_types.entry_invalid;
+    }
 
 
     if (fn_type_id->is_var_args) {
@@ -11113,6 +11193,11 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         if (!fn_entry) {
             ir_add_error(ira, call_instruction->fn_ref,
                 buf_sprintf("calling a generic function requires compile-time known function value"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        if (call_instruction->is_async && fn_type_id->is_var_args) {
+            ir_add_error(ira, call_instruction->fn_ref,
+                buf_sprintf("compiler bug: TODO: implement var args async functions. https://github.com/zig-lang/zig/issues/557"));
             return ira->codegen->builtin_types.entry_invalid;
         }
 
@@ -11263,6 +11348,35 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
                 return ir_analyze_fn_call(ira, call_instruction, fn_entry, fn_type, fn_ref, first_arg_ptr, true, FnInlineAuto);
             }
         }
+        IrInstruction *async_allocator_inst = nullptr;
+        if (call_instruction->is_async) {
+            AstNode *async_allocator_type_node = fn_proto_node->data.fn_proto.async_allocator_type;
+            if (async_allocator_type_node != nullptr) {
+                TypeTableEntry *async_allocator_type = analyze_type_expr(ira->codegen, impl_fn->child_scope, async_allocator_type_node);
+                if (type_is_invalid(async_allocator_type))
+                    return ira->codegen->builtin_types.entry_invalid;
+                inst_fn_type_id.async_allocator_type = async_allocator_type;
+            }
+            IrInstruction *uncasted_async_allocator_inst;
+            if (call_instruction->async_allocator == nullptr) {
+                uncasted_async_allocator_inst = ir_get_implicit_allocator(ira, &call_instruction->base, parent_fn_entry);
+                if (type_is_invalid(uncasted_async_allocator_inst->value.type))
+                    return ira->codegen->builtin_types.entry_invalid;
+            } else {
+                uncasted_async_allocator_inst = call_instruction->async_allocator->other;
+                if (type_is_invalid(uncasted_async_allocator_inst->value.type))
+                    return ira->codegen->builtin_types.entry_invalid;
+            }
+            if (inst_fn_type_id.async_allocator_type == nullptr) {
+                IrInstruction *casted_inst = ir_implicit_byval_const_ref_cast(ira, uncasted_async_allocator_inst);
+                if (type_is_invalid(casted_inst->value.type))
+                    return ira->codegen->builtin_types.entry_invalid;
+                inst_fn_type_id.async_allocator_type = casted_inst->value.type;
+            }
+            async_allocator_inst = ir_implicit_cast(ira, uncasted_async_allocator_inst, inst_fn_type_id.async_allocator_type);
+            if (type_is_invalid(async_allocator_inst->value.type))
+                return ira->codegen->builtin_types.entry_invalid;
+        }
 
         auto existing_entry = ira->codegen->generic_table.put_unique(generic_id, impl_fn);
         if (existing_entry) {
@@ -11282,16 +11396,23 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             ira->codegen->fn_defs.append(impl_fn);
         }
 
-        size_t impl_param_count = impl_fn->type_entry->data.fn.fn_type_id.param_count;
-        IrInstruction *new_call_instruction = ir_build_call_from(&ira->new_irb, &call_instruction->base,
-                impl_fn, nullptr, impl_param_count, casted_args, false, fn_inline, false, nullptr);
-
         TypeTableEntry *return_type = impl_fn->type_entry->data.fn.fn_type_id.return_type;
-        ir_add_alloca(ira, new_call_instruction, return_type);
-
         if (return_type->id == TypeTableEntryIdErrorSet || return_type->id == TypeTableEntryIdErrorUnion) {
             parent_fn_entry->calls_errorable_function = true;
         }
+
+        size_t impl_param_count = impl_fn->type_entry->data.fn.fn_type_id.param_count;
+        if (call_instruction->is_async) {
+            IrInstruction *result = ir_analyze_async_call(ira, call_instruction, impl_fn, impl_fn->type_entry, fn_ref, casted_args, impl_param_count, async_allocator_inst);
+            ir_link_new_instruction(result, &call_instruction->base);
+            return ir_finish_anal(ira, result->value.type);
+        }
+
+        IrInstruction *new_call_instruction = ir_build_call_from(&ira->new_irb, &call_instruction->base,
+                impl_fn, nullptr, impl_param_count, casted_args, false, fn_inline,
+                call_instruction->is_async, async_allocator_inst);
+
+        ir_add_alloca(ira, new_call_instruction, return_type);
 
         return ir_finish_anal(ira, return_type);
     }
@@ -11350,13 +11471,30 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
     assert(next_arg_index == call_param_count);
 
-    if (call_instruction->is_async) {
-        zig_panic("TODO handle async fn call");
-    }
-
     TypeTableEntry *return_type = fn_type_id->return_type;
     if (type_is_invalid(return_type))
         return ira->codegen->builtin_types.entry_invalid;
+
+    if (call_instruction->is_async) {
+        IrInstruction *uncasted_async_allocator_inst;
+        if (call_instruction->async_allocator == nullptr) {
+            uncasted_async_allocator_inst = ir_get_implicit_allocator(ira, &call_instruction->base, parent_fn_entry);
+            if (type_is_invalid(uncasted_async_allocator_inst->value.type))
+                return ira->codegen->builtin_types.entry_invalid;
+        } else {
+            uncasted_async_allocator_inst = call_instruction->async_allocator->other;
+            if (type_is_invalid(uncasted_async_allocator_inst->value.type))
+                return ira->codegen->builtin_types.entry_invalid;
+        }
+        IrInstruction *async_allocator_inst = ir_implicit_cast(ira, uncasted_async_allocator_inst, fn_type_id->async_allocator_type);
+        if (type_is_invalid(async_allocator_inst->value.type))
+            return ira->codegen->builtin_types.entry_invalid;
+
+        IrInstruction *result = ir_analyze_async_call(ira, call_instruction, fn_entry, fn_type, fn_ref, casted_args, call_param_count, async_allocator_inst);
+        ir_link_new_instruction(result, &call_instruction->base);
+        return ir_finish_anal(ira, result->value.type);
+    }
+
 
     IrInstruction *new_call_instruction = ir_build_call_from(&ira->new_irb, &call_instruction->base,
             fn_entry, fn_ref, call_param_count, casted_args, false, fn_inline, false, nullptr);
@@ -12054,8 +12192,8 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
     return return_type;
 }
 
-static TypeTableEntry *ir_analyze_container_member_access_inner(IrAnalyze *ira,
-    TypeTableEntry *bare_struct_type, Buf *field_name, IrInstructionFieldPtr *field_ptr_instruction,
+static IrInstruction *ir_analyze_container_member_access_inner(IrAnalyze *ira,
+    TypeTableEntry *bare_struct_type, Buf *field_name, IrInstruction *source_instr,
     IrInstruction *container_ptr, TypeTableEntry *container_type)
 {
     if (!is_slice(bare_struct_type)) {
@@ -12063,17 +12201,17 @@ static TypeTableEntry *ir_analyze_container_member_access_inner(IrAnalyze *ira,
         auto entry = container_scope->decl_table.maybe_get(field_name);
         Tld *tld = entry ? entry->value : nullptr;
         if (tld && tld->id == TldIdFn) {
-            resolve_top_level_decl(ira->codegen, tld, false, field_ptr_instruction->base.source_node);
+            resolve_top_level_decl(ira->codegen, tld, false, source_instr->source_node);
             if (tld->resolution == TldResolutionInvalid)
-                return ira->codegen->builtin_types.entry_invalid;
+                return ira->codegen->invalid_instruction;
             TldFn *tld_fn = (TldFn *)tld;
             FnTableEntry *fn_entry = tld_fn->fn_entry;
             if (type_is_invalid(fn_entry->type_entry))
-                return ira->codegen->builtin_types.entry_invalid;
+                return ira->codegen->invalid_instruction;
 
-            IrInstruction *bound_fn_value = ir_build_const_bound_fn(&ira->new_irb, field_ptr_instruction->base.scope,
-                field_ptr_instruction->base.source_node, fn_entry, container_ptr);
-            return ir_analyze_ref(ira, &field_ptr_instruction->base, bound_fn_value, true, false);
+            IrInstruction *bound_fn_value = ir_build_const_bound_fn(&ira->new_irb, source_instr->scope,
+                source_instr->source_node, fn_entry, container_ptr);
+            return ir_get_ref(ira, source_instr, bound_fn_value, true, false);
         }
     }
     const char *prefix_name;
@@ -12088,19 +12226,19 @@ static TypeTableEntry *ir_analyze_container_member_access_inner(IrAnalyze *ira,
     } else {
         prefix_name = "";
     }
-    ir_add_error_node(ira, field_ptr_instruction->base.source_node,
+    ir_add_error_node(ira, source_instr->source_node,
         buf_sprintf("no member named '%s' in %s'%s'", buf_ptr(field_name), prefix_name, buf_ptr(&bare_struct_type->name)));
-    return ira->codegen->builtin_types.entry_invalid;
+    return ira->codegen->invalid_instruction;
 }
 
 
-static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_name,
-    IrInstructionFieldPtr *field_ptr_instruction, IrInstruction *container_ptr, TypeTableEntry *container_type)
+static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_name,
+    IrInstruction *source_instr, IrInstruction *container_ptr, TypeTableEntry *container_type)
 {
     TypeTableEntry *bare_type = container_ref_type(container_type);
     ensure_complete_type(ira->codegen, bare_type);
     if (type_is_invalid(bare_type))
-        return ira->codegen->builtin_types.entry_invalid;
+        return ira->codegen->invalid_instruction;
 
     assert(container_ptr->value.type->id == TypeTableEntryIdPointer);
     bool is_const = container_ptr->value.type->data.pointer.is_const;
@@ -12117,46 +12255,51 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
             if (instr_is_comptime(container_ptr)) {
                 ConstExprValue *ptr_val = ir_resolve_const(ira, container_ptr, UndefBad);
                 if (!ptr_val)
-                    return ira->codegen->builtin_types.entry_invalid;
+                    return ira->codegen->invalid_instruction;
 
                 if (ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
                     ConstExprValue *struct_val = const_ptr_pointee(ira->codegen, ptr_val);
                     if (type_is_invalid(struct_val->type))
-                        return ira->codegen->builtin_types.entry_invalid;
+                        return ira->codegen->invalid_instruction;
                     ConstExprValue *field_val = &struct_val->data.x_struct.fields[field->src_index];
                     TypeTableEntry *ptr_type = get_pointer_to_type_extra(ira->codegen, field_val->type,
                             is_const, is_volatile, align_bytes,
                             (uint32_t)(ptr_bit_offset + field->packed_bits_offset),
                             (uint32_t)unaligned_bit_count_for_result_type);
-                    ConstExprValue *const_val = ir_build_const_from(ira, &field_ptr_instruction->base);
+                    IrInstruction *result = ir_get_const(ira, source_instr);
+                    ConstExprValue *const_val = &result->value;
                     const_val->data.x_ptr.special = ConstPtrSpecialBaseStruct;
                     const_val->data.x_ptr.mut = container_ptr->value.data.x_ptr.mut;
                     const_val->data.x_ptr.data.base_struct.struct_val = struct_val;
                     const_val->data.x_ptr.data.base_struct.field_index = field->src_index;
-                    return ptr_type;
+                    const_val->type = ptr_type;
+                    return result;
                 }
             }
-            ir_build_struct_field_ptr_from(&ira->new_irb, &field_ptr_instruction->base, container_ptr, field);
-            return get_pointer_to_type_extra(ira->codegen, field->type_entry, is_const, is_volatile,
+            IrInstruction *result = ir_build_struct_field_ptr(&ira->new_irb, source_instr->scope, source_instr->source_node,
+                    container_ptr, field);
+            result->value.type = get_pointer_to_type_extra(ira->codegen, field->type_entry, is_const, is_volatile,
                     align_bytes,
                     (uint32_t)(ptr_bit_offset + field->packed_bits_offset),
                     (uint32_t)unaligned_bit_count_for_result_type);
+            return result;
         } else {
             return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
-                field_ptr_instruction, container_ptr, container_type);
+                source_instr, container_ptr, container_type);
         }
     } else if (bare_type->id == TypeTableEntryIdEnum) {
         return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
-            field_ptr_instruction, container_ptr, container_type);
+            source_instr, container_ptr, container_type);
     } else if (bare_type->id == TypeTableEntryIdUnion) {
         TypeUnionField *field = find_union_type_field(bare_type, field_name);
         if (field) {
-            ir_build_union_field_ptr_from(&ira->new_irb, &field_ptr_instruction->base, container_ptr, field);
-            return get_pointer_to_type_extra(ira->codegen, field->type_entry, is_const, is_volatile,
+            IrInstruction *result = ir_build_union_field_ptr(&ira->new_irb, source_instr->scope, source_instr->source_node, container_ptr, field);
+            result->value.type = get_pointer_to_type_extra(ira->codegen, field->type_entry, is_const, is_volatile,
                     get_abi_alignment(ira->codegen, field->type_entry), 0, 0);
+            return result;
         } else {
             return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
-                field_ptr_instruction, container_ptr, container_type);
+                source_instr, container_ptr, container_type);
         }
     } else {
         zig_unreachable();
@@ -12266,9 +12409,13 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
         if (container_type->id == TypeTableEntryIdPointer) {
             TypeTableEntry *bare_type = container_ref_type(container_type);
             IrInstruction *container_child = ir_get_deref(ira, &field_ptr_instruction->base, container_ptr);
-            return ir_analyze_container_field_ptr(ira, field_name, field_ptr_instruction, container_child, bare_type);
+            IrInstruction *result = ir_analyze_container_field_ptr(ira, field_name, &field_ptr_instruction->base, container_child, bare_type);
+            ir_link_new_instruction(result, &field_ptr_instruction->base);
+            return result->value.type;
         } else {
-            return ir_analyze_container_field_ptr(ira, field_name, field_ptr_instruction, container_ptr, container_type);
+            IrInstruction *result = ir_analyze_container_field_ptr(ira, field_name, &field_ptr_instruction->base, container_ptr, container_type);
+            ir_link_new_instruction(result, &field_ptr_instruction->base);
+            return result->value.type;
         }
     } else if (container_type->id == TypeTableEntryIdArray) {
         if (buf_eql_str(field_name, "len")) {
@@ -16539,7 +16686,8 @@ static TypeTableEntry *ir_analyze_instruction_cancel(IrAnalyze *ira, IrInstructi
         return ira->codegen->builtin_types.entry_invalid;
 
     IrInstruction *result = ir_build_cancel(&ira->new_irb, instruction->base.scope, instruction->base.source_node, casted_target);
-    result->value.type = casted_target->value.type;
+    result->value.type = ira->codegen->builtin_types.entry_void;
+    result->value.special = ConstValSpecialStatic;
     ir_link_new_instruction(result, &instruction->base);
     return result->value.type;
 }
@@ -16559,6 +16707,7 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
         case IrInstructionIdErrWrapCode:
         case IrInstructionIdErrWrapPayload:
         case IrInstructionIdCast:
+        case IrInstructionIdGetImplicitAllocator:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_analyze_instruction_return(ira, (IrInstructionReturn *)instruction);
@@ -16936,7 +17085,9 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdTagType:
         case IrInstructionIdErrorReturnTrace:
         case IrInstructionIdErrorUnion:
+        case IrInstructionIdGetImplicitAllocator:
             return false;
+
         case IrInstructionIdAsm:
             {
                 IrInstructionAsm *asm_instruction = (IrInstructionAsm *)instruction;

@@ -2333,7 +2333,7 @@ static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mand
 }
 
 /*
-FnProto = option("nakedcc" | "stdcallcc" | "extern" | "async") "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") option("!") TypeExpr
+FnProto = option("nakedcc" | "stdcallcc" | "extern" | ("async" option("(" Expression ")"))) "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") option("!") TypeExpr
 */
 static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool mandatory, VisibMod visib_mod) {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -2341,12 +2341,18 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool m
 
     CallingConvention cc;
     bool is_extern = false;
+    AstNode *async_allocator_type_node = nullptr;
     if (first_token->id == TokenIdKeywordNakedCC) {
         *token_index += 1;
         fn_token = ast_eat_token(pc, token_index, TokenIdKeywordFn);
         cc = CallingConventionNaked;
     } else if (first_token->id == TokenIdKeywordAsync) {
         *token_index += 1;
+        Token *next_token = &pc->tokens->at(*token_index);
+        if (next_token->id == TokenIdLParen) {
+            async_allocator_type_node = ast_parse_type_expr(pc, token_index, true);
+            ast_eat_token(pc, token_index, TokenIdRParen);
+        }
         fn_token = ast_eat_token(pc, token_index, TokenIdKeywordFn);
         cc = CallingConventionAsync;
     } else if (first_token->id == TokenIdKeywordStdcallCC) {
@@ -2383,6 +2389,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool m
     node->data.fn_proto.visib_mod = visib_mod;
     node->data.fn_proto.cc = cc;
     node->data.fn_proto.is_extern = is_extern;
+    node->data.fn_proto.async_allocator_type = async_allocator_type_node;
 
     Token *fn_name = &pc->tokens->at(*token_index);
 
@@ -2798,6 +2805,7 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_node_list(&node->data.fn_proto.params, visit, context);
             visit_field(&node->data.fn_proto.align_expr, visit, context);
             visit_field(&node->data.fn_proto.section_expr, visit, context);
+            visit_field(&node->data.fn_proto.async_allocator_type, visit, context);
             break;
         case NodeTypeFnDef:
             visit_field(&node->data.fn_def.fn_proto, visit, context);

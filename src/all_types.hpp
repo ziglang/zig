@@ -428,6 +428,7 @@ struct AstNodeFnProto {
     AstNode *section_expr;
 
     bool auto_err_set;
+    AstNode *async_allocator_type;
 };
 
 struct AstNodeFnDef {
@@ -935,6 +936,7 @@ struct FnTypeId {
     bool is_var_args;
     CallingConvention cc;
     uint32_t alignment;
+    TypeTableEntry *async_allocator_type;
 };
 
 uint32_t fn_type_id_hash(FnTypeId*);
@@ -1958,6 +1960,7 @@ enum IrInstructionId {
     IrInstructionIdErrorReturnTrace,
     IrInstructionIdErrorUnion,
     IrInstructionIdCancel,
+    IrInstructionIdGetImplicitAllocator,
 };
 
 struct IrInstruction {
@@ -2801,6 +2804,10 @@ struct IrInstructionCancel {
     IrInstruction base;
 
     IrInstruction *target;
+};
+
+struct IrInstructionGetImplicitAllocator {
+    IrInstruction base;
 };
 
 static const size_t slice_ptr_index = 0;

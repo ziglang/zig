@@ -2521,6 +2521,10 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     }
 
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
+    if (fn_type_id->cc == CallingConventionAsync) {
+        zig_panic("TODO codegen async function call");
+    }
+
     TypeTableEntry *src_return_type = fn_type_id->return_type;
     bool ret_has_bits = type_has_bits(src_return_type);
     bool first_arg_ret = ret_has_bits && handle_is_ptr(src_return_type);
@@ -3092,6 +3096,10 @@ static LLVMValueRef ir_render_error_return_trace(CodeGen *g, IrExecutable *execu
 
 static LLVMValueRef ir_render_cancel(CodeGen *g, IrExecutable *executable, IrInstructionCancel *instruction) {
     zig_panic("TODO ir_render_cancel");
+}
+
+static LLVMValueRef ir_render_get_implicit_allocator(CodeGen *g, IrExecutable *executable, IrInstructionGetImplicitAllocator *instruction) {
+    zig_panic("TODO ir_render_get_implicit_allocator");
 }
 
 static LLVMAtomicOrdering to_LLVMAtomicOrdering(AtomicOrder atomic_order) {
@@ -3752,6 +3760,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdExport:
         case IrInstructionIdErrorUnion:
             zig_unreachable();
+
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
         case IrInstructionIdDeclVar:
@@ -3870,6 +3879,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_error_return_trace(g, executable, (IrInstructionErrorReturnTrace *)instruction);
         case IrInstructionIdCancel:
             return ir_render_cancel(g, executable, (IrInstructionCancel *)instruction);
+        case IrInstructionIdGetImplicitAllocator:
+            return ir_render_get_implicit_allocator(g, executable, (IrInstructionGetImplicitAllocator *)instruction);
     }
     zig_unreachable();
 }

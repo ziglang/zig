@@ -5645,7 +5645,7 @@ UseDecl = "use" Expression ";"
 
 ExternDecl = "extern" option(String) (FnProto | VariableDeclaration) ";"
 
-FnProto = option("nakedcc" | "stdcallcc" | "extern" | "async") "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") option("!") TypeExpr
+FnProto = option("nakedcc" | "stdcallcc" | "extern" | ("async" option("(" Expression ")"))) "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") option("!") TypeExpr
 
 FnDef = option("inline" | "export") FnProto Block
 
