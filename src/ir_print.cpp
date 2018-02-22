@@ -839,6 +839,8 @@ static void ir_print_ptr_to_int(IrPrint *irp, IrInstructionPtrToInt *instruction
 
 static void ir_print_int_to_ptr(IrPrint *irp, IrInstructionIntToPtr *instruction) {
     fprintf(irp->f, "@intToPtr(");
+    ir_print_other_instruction(irp, instruction->dest_type);
+    fprintf(irp->f, ",");
     ir_print_other_instruction(irp, instruction->target);
     fprintf(irp->f, ")");
 }

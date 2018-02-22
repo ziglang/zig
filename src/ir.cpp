@@ -5884,7 +5884,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         IrInstruction **incoming_values = allocate<IrInstruction *>(2);
         incoming_blocks[0] = entry_block;
         incoming_values[0] = null_ptr;
-        incoming_blocks[1] = dyn_alloc_block;
+        incoming_blocks[1] = alloc_ok_block;
         incoming_values[1] = coro_mem_ptr;
         IrInstruction *coro_mem = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
         irb->exec->coro_handle = ir_build_coro_begin(irb, scope, node, coro_id, coro_mem);
@@ -10897,7 +10897,13 @@ static TypeTableEntry *ir_analyze_instruction_error_union(IrAnalyze *ira,
     return ira->codegen->builtin_types.entry_type;
 }
 
-IrInstruction *ir_get_implicit_allocator(IrAnalyze *ira, IrInstruction *source_instr, FnTableEntry *parent_fn_entry) {
+IrInstruction *ir_get_implicit_allocator(IrAnalyze *ira, IrInstruction *source_instr) {
+    FnTableEntry *parent_fn_entry = exec_fn_entry(ira->new_irb.exec);
+    if (parent_fn_entry == nullptr) {
+        ir_add_error(ira, source_instr, buf_sprintf("no implicit allocator available"));
+        return ira->codegen->invalid_instruction;
+    }
+
     FnTypeId *parent_fn_type = &parent_fn_entry->type_entry->data.fn.fn_type_id;
     if (parent_fn_type->cc != CallingConventionAsync) {
         ir_add_error(ira, source_instr, buf_sprintf("async function call from non-async caller requires allocator parameter"));
@@ -11467,7 +11473,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             }
             IrInstruction *uncasted_async_allocator_inst;
             if (call_instruction->async_allocator == nullptr) {
-                uncasted_async_allocator_inst = ir_get_implicit_allocator(ira, &call_instruction->base, parent_fn_entry);
+                uncasted_async_allocator_inst = ir_get_implicit_allocator(ira, &call_instruction->base);
                 if (type_is_invalid(uncasted_async_allocator_inst->value.type))
                     return ira->codegen->builtin_types.entry_invalid;
             } else {
@@ -11586,7 +11592,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
     if (call_instruction->is_async) {
         IrInstruction *uncasted_async_allocator_inst;
         if (call_instruction->async_allocator == nullptr) {
-            uncasted_async_allocator_inst = ir_get_implicit_allocator(ira, &call_instruction->base, parent_fn_entry);
+            uncasted_async_allocator_inst = ir_get_implicit_allocator(ira, &call_instruction->base);
             if (type_is_invalid(uncasted_async_allocator_inst->value.type))
                 return ira->codegen->builtin_types.entry_invalid;
         } else {
@@ -16816,6 +16822,11 @@ static TypeTableEntry *ir_analyze_instruction_coro_begin(IrAnalyze *ira, IrInstr
     zig_panic("TODO ir_analyze_instruction_coro_begin");
 }
 
+static TypeTableEntry *ir_analyze_instruction_get_implicit_allocator(IrAnalyze *ira, IrInstructionGetImplicitAllocator *instruction) {
+    IrInstruction *result = ir_get_implicit_allocator(ira, &instruction->base);
+    return result->value.type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -16831,7 +16842,6 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
         case IrInstructionIdErrWrapCode:
         case IrInstructionIdErrWrapPayload:
         case IrInstructionIdCast:
-        case IrInstructionIdGetImplicitAllocator:
             zig_unreachable();
         case IrInstructionIdReturn:
             return ir_analyze_instruction_return(ira, (IrInstructionReturn *)instruction);
@@ -17029,6 +17039,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_coro_size(ira, (IrInstructionCoroSize *)instruction);
         case IrInstructionIdCoroBegin:
             return ir_analyze_instruction_coro_begin(ira, (IrInstructionCoroBegin *)instruction);
+        case IrInstructionIdGetImplicitAllocator:
+            return ir_analyze_instruction_get_implicit_allocator(ira, (IrInstructionGetImplicitAllocator *)instruction);
     }
     zig_unreachable();
 }
