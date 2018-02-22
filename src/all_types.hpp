@@ -1490,6 +1490,7 @@ struct CodeGen {
         TypeTableEntry *entry_u8;
         TypeTableEntry *entry_u16;
         TypeTableEntry *entry_u32;
+        TypeTableEntry *entry_u29;
         TypeTableEntry *entry_u64;
         TypeTableEntry *entry_u128;
         TypeTableEntry *entry_i8;
@@ -1966,6 +1967,7 @@ enum IrInstructionId {
     IrInstructionIdCoroAlloc,
     IrInstructionIdCoroSize,
     IrInstructionIdCoroBegin,
+    IrInstructionIdCoroAllocFail,
 };
 
 struct IrInstruction {
@@ -2834,6 +2836,12 @@ struct IrInstructionCoroBegin {
 
     IrInstruction *coro_id;
     IrInstruction *coro_mem_ptr;
+};
+
+struct IrInstructionCoroAllocFail {
+    IrInstruction base;
+
+    IrInstruction *err_val;
 };
 
 static const size_t slice_ptr_index = 0;

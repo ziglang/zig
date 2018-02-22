@@ -3712,6 +3712,9 @@ static LLVMValueRef ir_render_coro_begin(CodeGen *g, IrExecutable *executable, I
     zig_panic("TODO ir_render_coro_begin");
 }
 
+static LLVMValueRef ir_render_coro_alloc_fail(CodeGen *g, IrExecutable *executable, IrInstructionCoroAllocFail *instruction) {
+    zig_panic("TODO ir_render_coro_alloc_fail");
+}
 
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
@@ -3906,6 +3909,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_coro_size(g, executable, (IrInstructionCoroSize *)instruction);
         case IrInstructionIdCoroBegin:
             return ir_render_coro_begin(g, executable, (IrInstructionCoroBegin *)instruction);
+        case IrInstructionIdCoroAllocFail:
+            return ir_render_coro_alloc_fail(g, executable, (IrInstructionCoroAllocFail *)instruction);
     }
     zig_unreachable();
 }
@@ -5282,6 +5287,7 @@ static void define_builtin_types(CodeGen *g) {
 
     g->builtin_types.entry_u8 = get_int_type(g, false, 8);
     g->builtin_types.entry_u16 = get_int_type(g, false, 16);
+    g->builtin_types.entry_u29 = get_int_type(g, false, 29);
     g->builtin_types.entry_u32 = get_int_type(g, false, 32);
     g->builtin_types.entry_u64 = get_int_type(g, false, 64);
     g->builtin_types.entry_u128 = get_int_type(g, false, 128);

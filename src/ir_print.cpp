@@ -1052,6 +1052,12 @@ static void ir_print_coro_begin(IrPrint *irp, IrInstructionCoroBegin *instructio
     fprintf(irp->f, ")");
 }
 
+static void ir_print_coro_alloc_fail(IrPrint *irp, IrInstructionCoroAllocFail *instruction) {
+    fprintf(irp->f, "@coroAllocFail(");
+    ir_print_other_instruction(irp, instruction->err_val);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1389,6 +1395,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdCoroBegin:
             ir_print_coro_begin(irp, (IrInstructionCoroBegin *)instruction);
+            break;
+        case IrInstructionIdCoroAllocFail:
+            ir_print_coro_alloc_fail(irp, (IrInstructionCoroAllocFail *)instruction);
             break;
     }
     fprintf(irp->f, "\n");
