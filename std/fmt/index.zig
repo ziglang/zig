@@ -550,12 +550,6 @@ test "parse unsigned comptime" {
     }
 }
 
-// Dummy field because of https://github.com/zig-lang/zig/issues/557.
-// At top level because of https://github.com/zig-lang/zig/issues/675.
-const Struct = struct {
-    unused: u8,
-};
-
 test "fmt.format" {
     {
         var buf1: [32]u8 = undefined;
@@ -588,6 +582,10 @@ test "fmt.format" {
         assert(mem.eql(u8, result, "u3: 5\n"));
     }
     {
+        // Dummy field because of https://github.com/zig-lang/zig/issues/557.
+        const Struct = struct {
+            unused: u8,
+        };
         var buf1: [32]u8 = undefined;
         const value = Struct {
             .unused = 42,
