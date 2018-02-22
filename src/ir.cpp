@@ -4172,7 +4172,13 @@ static IrInstruction *ir_gen_var_decl(IrBuilder *irb, Scope *scope, AstNode *nod
             buf_sprintf("cannot set section of local variable '%s'", buf_ptr(variable_declaration->symbol)));
     }
 
+    // Temporarily set the name of the IrExecutable to the VariableDeclaration
+    // so that the struct or enum from the init expression inherits the name.
+    Buf *old_exec_name = irb->exec->name;
+    irb->exec->name = variable_declaration->symbol;
     IrInstruction *init_value = ir_gen_node(irb, variable_declaration->expr, scope);
+    irb->exec->name = old_exec_name;
+
     if (init_value == irb->codegen->invalid_instruction)
         return init_value;
 
