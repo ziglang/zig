@@ -16807,11 +16807,22 @@ static TypeTableEntry *ir_analyze_instruction_cancel(IrAnalyze *ira, IrInstructi
 }
 
 static TypeTableEntry *ir_analyze_instruction_coro_id(IrAnalyze *ira, IrInstructionCoroId *instruction) {
-    zig_panic("TODO ir_analyze_instruction_coro_id");
+    IrInstruction *result = ir_build_coro_id(&ira->new_irb, instruction->base.scope, instruction->base.source_node);
+    ir_link_new_instruction(result, &instruction->base);
+    result->value.type = ira->codegen->builtin_types.entry_usize;
+    return result->value.type;
 }
 
 static TypeTableEntry *ir_analyze_instruction_coro_alloc(IrAnalyze *ira, IrInstructionCoroAlloc *instruction) {
-    zig_panic("TODO ir_analyze_instruction_coro_alloc");
+    IrInstruction *coro_id = instruction->coro_id->other;
+    if (type_is_invalid(coro_id->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *result = ir_build_coro_alloc(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
+            coro_id);
+    ir_link_new_instruction(result, &instruction->base);
+    result->value.type = ira->codegen->builtin_types.entry_bool;
+    return result->value.type;
 }
 
 static TypeTableEntry *ir_analyze_instruction_coro_size(IrAnalyze *ira, IrInstructionCoroSize *instruction) {
