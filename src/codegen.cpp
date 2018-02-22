@@ -3696,6 +3696,23 @@ static LLVMValueRef ir_render_panic(CodeGen *g, IrExecutable *executable, IrInst
     return nullptr;
 }
 
+static LLVMValueRef ir_render_coro_id(CodeGen *g, IrExecutable *executable, IrInstructionCoroId *instruction) {
+    zig_panic("TODO ir_render_coro_id");
+}
+
+static LLVMValueRef ir_render_coro_alloc(CodeGen *g, IrExecutable *executable, IrInstructionCoroAlloc *instruction) {
+    zig_panic("TODO ir_render_coro_alloc");
+}
+
+static LLVMValueRef ir_render_coro_size(CodeGen *g, IrExecutable *executable, IrInstructionCoroSize *instruction) {
+    zig_panic("TODO ir_render_coro_size");
+}
+
+static LLVMValueRef ir_render_coro_begin(CodeGen *g, IrExecutable *executable, IrInstructionCoroBegin *instruction) {
+    zig_panic("TODO ir_render_coro_begin");
+}
+
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -3881,12 +3898,21 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_cancel(g, executable, (IrInstructionCancel *)instruction);
         case IrInstructionIdGetImplicitAllocator:
             return ir_render_get_implicit_allocator(g, executable, (IrInstructionGetImplicitAllocator *)instruction);
+        case IrInstructionIdCoroId:
+            return ir_render_coro_id(g, executable, (IrInstructionCoroId *)instruction);
+        case IrInstructionIdCoroAlloc:
+            return ir_render_coro_alloc(g, executable, (IrInstructionCoroAlloc *)instruction);
+        case IrInstructionIdCoroSize:
+            return ir_render_coro_size(g, executable, (IrInstructionCoroSize *)instruction);
+        case IrInstructionIdCoroBegin:
+            return ir_render_coro_begin(g, executable, (IrInstructionCoroBegin *)instruction);
     }
     zig_unreachable();
 }
 
 static void ir_render(CodeGen *g, FnTableEntry *fn_entry) {
     assert(fn_entry);
+
     IrExecutable *executable = &fn_entry->analyzed_executable;
     assert(executable->basic_block_list.length > 0);
     for (size_t block_i = 0; block_i < executable->basic_block_list.length; block_i += 1) {

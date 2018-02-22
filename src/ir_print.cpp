@@ -1028,6 +1028,28 @@ static void ir_print_get_implicit_allocator(IrPrint *irp, IrInstructionGetImplic
     fprintf(irp->f, "@getImplicitAllocator()");
 }
 
+static void ir_print_coro_id(IrPrint *irp, IrInstructionCoroId *instruction) {
+    fprintf(irp->f, "@coroId()");
+}
+
+static void ir_print_coro_alloc(IrPrint *irp, IrInstructionCoroAlloc *instruction) {
+    fprintf(irp->f, "@coroAlloc(");
+    ir_print_other_instruction(irp, instruction->coro_id);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_coro_size(IrPrint *irp, IrInstructionCoroSize *instruction) {
+    fprintf(irp->f, "@coroSize()");
+}
+
+static void ir_print_coro_begin(IrPrint *irp, IrInstructionCoroBegin *instruction) {
+    fprintf(irp->f, "@coroBegin(");
+    ir_print_other_instruction(irp, instruction->coro_id);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->coro_mem_ptr);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1353,6 +1375,18 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdGetImplicitAllocator:
             ir_print_get_implicit_allocator(irp, (IrInstructionGetImplicitAllocator *)instruction);
+            break;
+        case IrInstructionIdCoroId:
+            ir_print_coro_id(irp, (IrInstructionCoroId *)instruction);
+            break;
+        case IrInstructionIdCoroAlloc:
+            ir_print_coro_alloc(irp, (IrInstructionCoroAlloc *)instruction);
+            break;
+        case IrInstructionIdCoroSize:
+            ir_print_coro_size(irp, (IrInstructionCoroSize *)instruction);
+            break;
+        case IrInstructionIdCoroBegin:
+            ir_print_coro_begin(irp, (IrInstructionCoroBegin *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

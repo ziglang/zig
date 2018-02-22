@@ -56,6 +56,7 @@ struct IrExecutable {
     IrAnalyze *analysis;
     Scope *begin_scope;
     ZigList<Tld *> tld_list;
+    IrInstruction *coro_handle;
 };
 
 enum OutType {
@@ -1961,6 +1962,10 @@ enum IrInstructionId {
     IrInstructionIdErrorUnion,
     IrInstructionIdCancel,
     IrInstructionIdGetImplicitAllocator,
+    IrInstructionIdCoroId,
+    IrInstructionIdCoroAlloc,
+    IrInstructionIdCoroSize,
+    IrInstructionIdCoroBegin,
 };
 
 struct IrInstruction {
@@ -2808,6 +2813,27 @@ struct IrInstructionCancel {
 
 struct IrInstructionGetImplicitAllocator {
     IrInstruction base;
+};
+
+struct IrInstructionCoroId {
+    IrInstruction base;
+};
+
+struct IrInstructionCoroAlloc {
+    IrInstruction base;
+
+    IrInstruction *coro_id;
+};
+
+struct IrInstructionCoroSize {
+    IrInstruction base;
+};
+
+struct IrInstructionCoroBegin {
+    IrInstruction base;
+
+    IrInstruction *coro_id;
+    IrInstruction *coro_mem_ptr;
 };
 
 static const size_t slice_ptr_index = 0;
