@@ -66,7 +66,6 @@ enum TokenId {
     TokenIdKeywordFalse,
     TokenIdKeywordFn,
     TokenIdKeywordFor,
-    TokenIdKeywordGoto,
     TokenIdKeywordIf,
     TokenIdKeywordInline,
     TokenIdKeywordNakedCC,

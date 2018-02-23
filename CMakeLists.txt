@@ -429,6 +429,7 @@ set(ZIG_STD_FILES
     "index.zig"
     "io.zig"
     "linked_list.zig"
+    "macho.zig"
     "math/acos.zig"
     "math/acosh.zig"
     "math/asin.zig"

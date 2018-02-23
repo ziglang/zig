@@ -499,10 +499,27 @@ test "@canImplicitCast" {
 }
 
 test "@typeName" {
+    const Struct = struct {
+    };
+    const Union = union {
+        unused: u8,
+    };
+    const Enum = enum {
+        Unused,
+    };
     comptime {
         assert(mem.eql(u8, @typeName(i64), "i64"));
         assert(mem.eql(u8, @typeName(&usize), "&usize"));
+        // https://github.com/zig-lang/zig/issues/675
+        assert(mem.eql(u8, @typeName(TypeFromFn(u8)), "TypeFromFn(u8)"));
+        assert(mem.eql(u8, @typeName(Struct), "Struct"));
+        assert(mem.eql(u8, @typeName(Union), "Union"));
+        assert(mem.eql(u8, @typeName(Enum), "Enum"));
     }
+}
+
+fn TypeFromFn(comptime T: type) type {
+    return struct {};
 }
 
 test "volatile load and store" {

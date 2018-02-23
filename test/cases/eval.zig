@@ -388,3 +388,10 @@ test "string literal used as comptime slice is memoized" {
     comptime assert(TypeWithCompTimeSlice(a).Node == TypeWithCompTimeSlice(b).Node);
     comptime assert(TypeWithCompTimeSlice("link").Node == TypeWithCompTimeSlice("link").Node);
 }
+
+test "comptime slice of undefined pointer of length 0" {
+    const slice1 = (&i32)(undefined)[0..0];
+    assert(slice1.len == 0);
+    const slice2 = (&i32)(undefined)[100..100];
+    assert(slice2.len == 0);
+}

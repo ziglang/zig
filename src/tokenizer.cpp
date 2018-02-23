@@ -125,7 +125,6 @@ static const struct ZigKeyword zig_keywords[] = {
     {"false", TokenIdKeywordFalse},
     {"fn", TokenIdKeywordFn},
     {"for", TokenIdKeywordFor},
-    {"goto", TokenIdKeywordGoto},
     {"if", TokenIdKeywordIf},
     {"inline", TokenIdKeywordInline},
     {"nakedcc", TokenIdKeywordNakedCC},
@@ -1542,7 +1541,6 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordFalse: return "false";
         case TokenIdKeywordFn: return "fn";
         case TokenIdKeywordFor: return "for";
-        case TokenIdKeywordGoto: return "goto";
         case TokenIdKeywordIf: return "if";
         case TokenIdKeywordInline: return "inline";
         case TokenIdKeywordNakedCC: return "nakedcc";

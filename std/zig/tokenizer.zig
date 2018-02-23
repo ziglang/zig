@@ -5,6 +5,8 @@ pub const Token = struct {
     id: Id,
     start: usize,
     end: usize,
+    line: usize,
+    column: usize,
 
     const KeywordId = struct {
         bytes: []const u8,
@@ -16,6 +18,7 @@ pub const Token = struct {
         KeywordId{.bytes="and", .id = Id.Keyword_and},
         KeywordId{.bytes="asm", .id = Id.Keyword_asm},
         KeywordId{.bytes="break", .id = Id.Keyword_break},
+        KeywordId{.bytes="catch", .id = Id.Keyword_catch},
         KeywordId{.bytes="comptime", .id = Id.Keyword_comptime},
         KeywordId{.bytes="const", .id = Id.Keyword_const},
         KeywordId{.bytes="continue", .id = Id.Keyword_continue},
@@ -28,7 +31,6 @@ pub const Token = struct {
         KeywordId{.bytes="false", .id = Id.Keyword_false},
         KeywordId{.bytes="fn", .id = Id.Keyword_fn},
         KeywordId{.bytes="for", .id = Id.Keyword_for},
-        KeywordId{.bytes="goto", .id = Id.Keyword_goto},
         KeywordId{.bytes="if", .id = Id.Keyword_if},
         KeywordId{.bytes="inline", .id = Id.Keyword_inline},
         KeywordId{.bytes="nakedcc", .id = Id.Keyword_nakedcc},
@@ -38,12 +40,14 @@ pub const Token = struct {
         KeywordId{.bytes="packed", .id = Id.Keyword_packed},
         KeywordId{.bytes="pub", .id = Id.Keyword_pub},
         KeywordId{.bytes="return", .id = Id.Keyword_return},
+        KeywordId{.bytes="section", .id = Id.Keyword_section},
         KeywordId{.bytes="stdcallcc", .id = Id.Keyword_stdcallcc},
         KeywordId{.bytes="struct", .id = Id.Keyword_struct},
         KeywordId{.bytes="switch", .id = Id.Keyword_switch},
         KeywordId{.bytes="test", .id = Id.Keyword_test},
         KeywordId{.bytes="this", .id = Id.Keyword_this},
         KeywordId{.bytes="true", .id = Id.Keyword_true},
+        KeywordId{.bytes="try", .id = Id.Keyword_try},
         KeywordId{.bytes="undefined", .id = Id.Keyword_undefined},
         KeywordId{.bytes="union", .id = Id.Keyword_union},
         KeywordId{.bytes="unreachable", .id = Id.Keyword_unreachable},
@@ -95,10 +99,12 @@ pub const Token = struct {
         AmpersandEqual,
         IntegerLiteral,
         FloatLiteral,
+        LineComment,
         Keyword_align,
         Keyword_and,
         Keyword_asm,
         Keyword_break,
+        Keyword_catch,
         Keyword_comptime,
         Keyword_const,
         Keyword_continue,
@@ -111,7 +117,6 @@ pub const Token = struct {
         Keyword_false,
         Keyword_fn,
         Keyword_for,
-        Keyword_goto,
         Keyword_if,
         Keyword_inline,
         Keyword_nakedcc,
@@ -121,12 +126,14 @@ pub const Token = struct {
         Keyword_packed,
         Keyword_pub,
         Keyword_return,
+        Keyword_section,
         Keyword_stdcallcc,
         Keyword_struct,
         Keyword_switch,
         Keyword_test,
         Keyword_this,
         Keyword_true,
+        Keyword_try,
         Keyword_undefined,
         Keyword_union,
         Keyword_unreachable,
@@ -140,21 +147,19 @@ pub const Token = struct {
 pub const Tokenizer = struct {
     buffer: []const u8,
     index: usize,
+    line: usize,
+    column: usize,
     pending_invalid_token: ?Token,
 
-    pub const Location = struct {
-        line: usize,
-        column: usize,
+    pub const LineLocation = struct {
         line_start: usize,
         line_end: usize,
     };
 
-    pub fn getTokenLocation(self: &Tokenizer, token: &const Token) Location {
-        var loc = Location {
-            .line = 0,
-            .column = 0,
+    pub fn getTokenLocation(self: &Tokenizer, token: &const Token) LineLocation {
+        var loc = LineLocation {
             .line_start = 0,
-            .line_end = 0,
+            .line_end = self.buffer.len,
         };
         for (self.buffer) |c, i| {
             if (i == token.start) {
@@ -163,11 +168,7 @@ pub const Tokenizer = struct {
                 return loc;
             }
             if (c == '\n') {
-                loc.line += 1;
-                loc.column = 0;
                 loc.line_start = i + 1;
-            } else {
-                loc.column += 1;
             }
         }
         return loc;
@@ -182,6 +183,8 @@ pub const Tokenizer = struct {
         return Tokenizer {
             .buffer = buffer,
             .index = 0,
+            .line = 0,
+            .column = 0,
             .pending_invalid_token = null,
         };
     }
@@ -222,13 +225,21 @@ pub const Tokenizer = struct {
             .id = Token.Id.Eof,
             .start = self.index,
             .end = undefined,
+            .line = self.line,
+            .column = self.column,
         };
-        while (self.index < self.buffer.len) : (self.index += 1) {
+        while (self.index < self.buffer.len) {
             const c = self.buffer[self.index];
             switch (state) {
                 State.Start => switch (c) {
-                    ' ', '\n' => {
+                    ' ' => {
                         result.start = self.index + 1;
+                        result.column += 1;
+                    },
+                    '\n' => {
+                        result.start = self.index + 1;
+                        result.line += 1;
+                        result.column = 0;
                     },
                     'c' => {
                         state = State.C;
@@ -460,7 +471,7 @@ pub const Tokenizer = struct {
 
                 State.Slash => switch (c) {
                     '/' => {
-                        result.id = undefined;
+                        result.id = Token.Id.LineComment;
                         state = State.LineComment;
                     },
                     else => {
@@ -469,14 +480,7 @@ pub const Tokenizer = struct {
                     },
                 },
                 State.LineComment => switch (c) {
-                    '\n' => {
-                        state = State.Start;
-                        result = Token {
-                            .id = Token.Id.Eof,
-                            .start = self.index + 1,
-                            .end = undefined,
-                        };
-                    },
+                    '\n' => break,
                     else => self.checkLiteralCharacter(),
                 },
                 State.Zero => switch (c) {
@@ -542,6 +546,14 @@ pub const Tokenizer = struct {
                     '0'...'9', 'a'...'f', 'A'...'F' => {},
                     else => break,
                 },
+            }
+
+            self.index += 1;
+            if (c == '\n') {
+                self.line += 1;
+                self.column = 0;
+            } else {
+                self.column += 1;
             }
         } else if (self.index == self.buffer.len) {
             switch (state) {
@@ -622,6 +634,8 @@ pub const Tokenizer = struct {
             .id = Token.Id.Invalid,
             .start = self.index,
             .end = self.index + invalid_length,
+            .line = self.line,
+            .column = self.column,
         };
     }
 
