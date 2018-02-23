@@ -16470,12 +16470,12 @@ static TypeTableEntry *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, IrInstruc
     if (type_is_invalid(src_type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (!type_is_codegen_pointer(src_type)) {
+    if (get_codegen_ptr_type(src_type) == nullptr) {
         ir_add_error(ira, ptr, buf_sprintf("expected pointer, found '%s'", buf_ptr(&src_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    if (!type_is_codegen_pointer(dest_type)) {
+    if (get_codegen_ptr_type(dest_type) == nullptr) {
         ir_add_error(ira, dest_type_value,
                 buf_sprintf("expected pointer, found '%s'", buf_ptr(&dest_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
@@ -16662,9 +16662,9 @@ static TypeTableEntry *ir_analyze_instruction_bit_cast(IrAnalyze *ira, IrInstruc
     ensure_complete_type(ira->codegen, dest_type);
     ensure_complete_type(ira->codegen, src_type);
 
-    if (type_is_codegen_pointer(src_type)) {
+    if (get_codegen_ptr_type(src_type) != nullptr) {
         ir_add_error(ira, value,
-            buf_sprintf("unable to @bitCast from type '%s'", buf_ptr(&src_type->name)));
+            buf_sprintf("unable to @bitCast from pointer type '%s'", buf_ptr(&src_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
 
@@ -16689,9 +16689,9 @@ static TypeTableEntry *ir_analyze_instruction_bit_cast(IrAnalyze *ira, IrInstruc
             break;
     }
 
-    if (type_is_codegen_pointer(dest_type)) {
+    if (get_codegen_ptr_type(dest_type) != nullptr) {
         ir_add_error(ira, dest_type_value,
-                buf_sprintf("unable to @bitCast to type '%s'", buf_ptr(&dest_type->name)));
+                buf_sprintf("unable to @bitCast to pointer type '%s'", buf_ptr(&dest_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
 
@@ -16752,7 +16752,7 @@ static TypeTableEntry *ir_analyze_instruction_int_to_ptr(IrAnalyze *ira, IrInstr
     if (type_is_invalid(dest_type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (!type_is_codegen_pointer(dest_type)) {
+    if (get_codegen_ptr_type(dest_type) == nullptr) {
         ir_add_error(ira, dest_type_value, buf_sprintf("expected pointer, found '%s'", buf_ptr(&dest_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
@@ -16858,9 +16858,7 @@ static TypeTableEntry *ir_analyze_instruction_ptr_to_int(IrAnalyze *ira, IrInstr
 
     TypeTableEntry *usize = ira->codegen->builtin_types.entry_usize;
 
-    if (!(type_is_codegen_pointer(target->value.type) || (target->value.type->id == TypeTableEntryIdMaybe &&
-        type_is_codegen_pointer(target->value.type->data.maybe.child_type))))
-    {
+    if (get_codegen_ptr_type(target->value.type) == nullptr) {
         ir_add_error(ira, target,
                 buf_sprintf("expected pointer, found '%s'", buf_ptr(&target->value.type->name)));
         return ira->codegen->builtin_types.entry_invalid;

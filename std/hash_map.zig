@@ -235,7 +235,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
     };
 }
 
-test "basicHashMapTest" {
+test "basic hash map usage" {
     var map = HashMap(i32, i32, hash_i32, eql_i32).init(debug.global_allocator);
     defer map.deinit();
 

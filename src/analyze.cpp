@@ -3679,7 +3679,7 @@ TypeTableEntry *get_codegen_ptr_type(TypeTableEntry *type) {
 }
 
 bool type_is_codegen_pointer(TypeTableEntry *type) {
-    return get_codegen_ptr_type(type) != nullptr;
+    return get_codegen_ptr_type(type) == type;
 }
 
 uint32_t get_ptr_align(TypeTableEntry *type) {
@@ -3688,6 +3688,8 @@ uint32_t get_ptr_align(TypeTableEntry *type) {
         return ptr_type->data.pointer.alignment;
     } else if (ptr_type->id == TypeTableEntryIdFn) {
         return (ptr_type->data.fn.fn_type_id.alignment == 0) ? 1 : ptr_type->data.fn.fn_type_id.alignment;
+    } else if (ptr_type->id == TypeTableEntryIdPromise) {
+        return 1;
     } else {
         zig_unreachable();
     }
@@ -3723,7 +3725,7 @@ static void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entr
         TypeTableEntry *param_type = param_info->type;
         bool is_noalias = param_info->is_noalias;
 
-        if (is_noalias && !type_is_codegen_pointer(param_type)) {
+        if (is_noalias && get_codegen_ptr_type(param_type) == nullptr) {
             add_node_error(g, param_decl_node, buf_sprintf("noalias on non-pointer parameter"));
         }
 
