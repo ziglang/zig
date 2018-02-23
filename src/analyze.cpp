@@ -475,9 +475,7 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
         if (child_type->zero_bits) {
             entry->type_ref = LLVMInt1Type();
             entry->di_type = g->builtin_types.entry_bool->di_type;
-        } else if (child_type->id == TypeTableEntryIdPointer ||
-            child_type->id == TypeTableEntryIdFn)
-        {
+        } else if (type_is_codegen_pointer(child_type)) {
             // this is an optimization but also is necessary for calling C
             // functions where all pointers are maybe pointers
             // function types are technically pointers
@@ -1262,7 +1260,7 @@ static bool type_allowed_in_packed_struct(TypeTableEntry *type_entry) {
         case TypeTableEntryIdMaybe:
             {
                 TypeTableEntry *child_type = type_entry->data.maybe.child_type;
-                return child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn;
+                return type_is_codegen_pointer(child_type);
             }
         case TypeTableEntryIdEnum:
             return type_entry->data.enumeration.decl_node->data.container_decl.init_arg_expr != nullptr;
@@ -1672,6 +1670,8 @@ TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *f
         field->type_entry = field_types[i];
         field->src_index = i;
         field->gen_index = i;
+
+        assert(type_has_bits(field->type_entry));
 
         auto prev_entry = struct_type->data.structure.fields_by_name.put_unique(field->name, field);
         assert(prev_entry == nullptr);
@@ -3669,9 +3669,11 @@ void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry) {
 TypeTableEntry *get_codegen_ptr_type(TypeTableEntry *type) {
     if (type->id == TypeTableEntryIdPointer) return type;
     if (type->id == TypeTableEntryIdFn) return type;
+    if (type->id == TypeTableEntryIdPromise) return type;
     if (type->id == TypeTableEntryIdMaybe) {
         if (type->data.maybe.child_type->id == TypeTableEntryIdPointer) return type->data.maybe.child_type;
         if (type->data.maybe.child_type->id == TypeTableEntryIdFn) return type->data.maybe.child_type;
+        if (type->data.maybe.child_type->id == TypeTableEntryIdPromise) return type->data.maybe.child_type;
     }
     return nullptr;
 }

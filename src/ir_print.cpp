@@ -1031,7 +1031,9 @@ static void ir_print_get_implicit_allocator(IrPrint *irp, IrInstructionGetImplic
 }
 
 static void ir_print_coro_id(IrPrint *irp, IrInstructionCoroId *instruction) {
-    fprintf(irp->f, "@coroId()");
+    fprintf(irp->f, "@coroId(");
+    ir_print_other_instruction(irp, instruction->promise_ptr);
+    fprintf(irp->f, ")");
 }
 
 static void ir_print_coro_alloc(IrPrint *irp, IrInstructionCoroAlloc *instruction) {
@@ -1055,6 +1057,36 @@ static void ir_print_coro_begin(IrPrint *irp, IrInstructionCoroBegin *instructio
 static void ir_print_coro_alloc_fail(IrPrint *irp, IrInstructionCoroAllocFail *instruction) {
     fprintf(irp->f, "@coroAllocFail(");
     ir_print_other_instruction(irp, instruction->err_val);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_coro_suspend(IrPrint *irp, IrInstructionCoroSuspend *instruction) {
+    fprintf(irp->f, "@coroSuspend(");
+    if (instruction->save_point != nullptr) {
+        ir_print_other_instruction(irp, instruction->save_point);
+    } else {
+        fprintf(irp->f, "null");
+    }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->is_final);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_coro_end(IrPrint *irp, IrInstructionCoroEnd *instruction) {
+    fprintf(irp->f, "@coroEnd()");
+}
+
+static void ir_print_coro_free(IrPrint *irp, IrInstructionCoroFree *instruction) {
+    fprintf(irp->f, "@coroFree(");
+    ir_print_other_instruction(irp, instruction->coro_id);
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->coro_handle);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_coro_resume(IrPrint *irp, IrInstructionCoroResume *instruction) {
+    fprintf(irp->f, "@coroResume(");
+    ir_print_other_instruction(irp, instruction->awaiter_handle);
     fprintf(irp->f, ")");
 }
 
@@ -1398,6 +1430,18 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdCoroAllocFail:
             ir_print_coro_alloc_fail(irp, (IrInstructionCoroAllocFail *)instruction);
+            break;
+        case IrInstructionIdCoroSuspend:
+            ir_print_coro_suspend(irp, (IrInstructionCoroSuspend *)instruction);
+            break;
+        case IrInstructionIdCoroEnd:
+            ir_print_coro_end(irp, (IrInstructionCoroEnd *)instruction);
+            break;
+        case IrInstructionIdCoroFree:
+            ir_print_coro_free(irp, (IrInstructionCoroFree *)instruction);
+            break;
+        case IrInstructionIdCoroResume:
+            ir_print_coro_resume(irp, (IrInstructionCoroResume *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

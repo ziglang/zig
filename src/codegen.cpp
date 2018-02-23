@@ -542,7 +542,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
 
     if (!type_has_bits(return_type)) {
         // nothing to do
-    } else if (return_type->id == TypeTableEntryIdPointer || return_type->id == TypeTableEntryIdFn) {
+    } else if (type_is_codegen_pointer(return_type)) {
         addLLVMAttr(fn_table_entry->llvm_value, 0, "nonnull");
     } else if (handle_is_ptr(return_type) &&
             calling_convention_does_first_arg_return(fn_type->data.fn.fn_type_id.cc))
@@ -2789,7 +2789,7 @@ static LLVMValueRef gen_non_null_bit(CodeGen *g, TypeTableEntry *maybe_type, LLV
     if (child_type->zero_bits) {
         return maybe_handle;
     } else {
-        bool maybe_is_ptr = (child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn);
+        bool maybe_is_ptr = type_is_codegen_pointer(child_type);
         if (maybe_is_ptr) {
             return LLVMBuildICmp(g->builder, LLVMIntNE, maybe_handle, LLVMConstNull(maybe_type->type_ref), "");
         } else {
@@ -2829,7 +2829,7 @@ static LLVMValueRef ir_render_unwrap_maybe(CodeGen *g, IrExecutable *executable,
     if (child_type->zero_bits) {
         return nullptr;
     } else {
-        bool maybe_is_ptr = (child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn);
+        bool maybe_is_ptr = type_is_codegen_pointer(child_type);
         if (maybe_is_ptr) {
             return maybe_ptr;
         } else {
@@ -3052,6 +3052,10 @@ static LLVMValueRef ir_render_align_cast(CodeGen *g, IrExecutable *executable, I
     {
         align_bytes = target_type->data.maybe.child_type->data.fn.fn_type_id.alignment;
         ptr_val = target_val;
+    } else if (target_type->id == TypeTableEntryIdMaybe &&
+            target_type->data.maybe.child_type->id == TypeTableEntryIdPromise)
+    {
+        zig_panic("TODO audit this function");
     } else if (target_type->id == TypeTableEntryIdStruct && target_type->data.structure.is_slice) {
         TypeTableEntry *slice_ptr_type = target_type->data.structure.fields[slice_ptr_index].type_entry;
         align_bytes = slice_ptr_type->data.pointer.alignment;
@@ -3522,9 +3526,7 @@ static LLVMValueRef ir_render_maybe_wrap(CodeGen *g, IrExecutable *executable, I
     }
 
     LLVMValueRef payload_val = ir_llvm_value(g, instruction->value);
-    if (child_type->id == TypeTableEntryIdPointer ||
-        child_type->id == TypeTableEntryIdFn)
-    {
+    if (type_is_codegen_pointer(child_type)) {
         return payload_val;
     }
 
@@ -3714,6 +3716,22 @@ static LLVMValueRef ir_render_coro_begin(CodeGen *g, IrExecutable *executable, I
 
 static LLVMValueRef ir_render_coro_alloc_fail(CodeGen *g, IrExecutable *executable, IrInstructionCoroAllocFail *instruction) {
     zig_panic("TODO ir_render_coro_alloc_fail");
+}
+
+static LLVMValueRef ir_render_coro_suspend(CodeGen *g, IrExecutable *executable, IrInstructionCoroSuspend *instruction) {
+    zig_panic("TODO ir_render_coro_suspend");
+}
+
+static LLVMValueRef ir_render_coro_end(CodeGen *g, IrExecutable *executable, IrInstructionCoroEnd *instruction) {
+    zig_panic("TODO ir_render_coro_end");
+}
+
+static LLVMValueRef ir_render_coro_free(CodeGen *g, IrExecutable *executable, IrInstructionCoroFree *instruction) {
+    zig_panic("TODO ir_render_coro_free");
+}
+
+static LLVMValueRef ir_render_coro_resume(CodeGen *g, IrExecutable *executable, IrInstructionCoroResume *instruction) {
+    zig_panic("TODO ir_render_coro_resume");
 }
 
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
@@ -3911,6 +3929,14 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_coro_begin(g, executable, (IrInstructionCoroBegin *)instruction);
         case IrInstructionIdCoroAllocFail:
             return ir_render_coro_alloc_fail(g, executable, (IrInstructionCoroAllocFail *)instruction);
+        case IrInstructionIdCoroSuspend:
+            return ir_render_coro_suspend(g, executable, (IrInstructionCoroSuspend *)instruction);
+        case IrInstructionIdCoroEnd:
+            return ir_render_coro_end(g, executable, (IrInstructionCoroEnd *)instruction);
+        case IrInstructionIdCoroFree:
+            return ir_render_coro_free(g, executable, (IrInstructionCoroFree *)instruction);
+        case IrInstructionIdCoroResume:
+            return ir_render_coro_resume(g, executable, (IrInstructionCoroResume *)instruction);
     }
     zig_unreachable();
 }
@@ -4155,9 +4181,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                 TypeTableEntry *child_type = type_entry->data.maybe.child_type;
                 if (child_type->zero_bits) {
                     return LLVMConstInt(LLVMInt1Type(), const_val->data.x_maybe ? 1 : 0, false);
-                } else if (child_type->id == TypeTableEntryIdPointer ||
-                    child_type->id == TypeTableEntryIdFn)
-                {
+                } else if (type_is_codegen_pointer(child_type)) {
                     if (const_val->data.x_maybe) {
                         return gen_const_val(g, const_val->data.x_maybe, "");
                     } else {
@@ -6085,9 +6109,7 @@ static void get_c_type(CodeGen *g, GenH *gen_h, TypeTableEntry *type_entry, Buf 
                 if (child_type->zero_bits) {
                     buf_init_from_str(out_buf, "bool");
                     return;
-                } else if (child_type->id == TypeTableEntryIdPointer ||
-                    child_type->id == TypeTableEntryIdFn)
-                {
+                } else if (type_is_codegen_pointer(child_type)) {
                     return get_c_type(g, gen_h, child_type, out_buf);
                 } else {
                     zig_unreachable();

@@ -56,7 +56,13 @@ struct IrExecutable {
     IrAnalyze *analysis;
     Scope *begin_scope;
     ZigList<Tld *> tld_list;
+
     IrInstruction *coro_handle;
+    IrInstruction *coro_awaiter_field_ptr;
+    IrInstruction *coro_result_ptr_field_ptr;
+    IrInstruction *implicit_allocator_ptr;
+    IrBasicBlock *coro_early_final;
+    IrBasicBlock *coro_normal_final;
 };
 
 enum OutType {
@@ -1968,6 +1974,10 @@ enum IrInstructionId {
     IrInstructionIdCoroSize,
     IrInstructionIdCoroBegin,
     IrInstructionIdCoroAllocFail,
+    IrInstructionIdCoroSuspend,
+    IrInstructionIdCoroEnd,
+    IrInstructionIdCoroFree,
+    IrInstructionIdCoroResume,
 };
 
 struct IrInstruction {
@@ -2819,6 +2829,8 @@ struct IrInstructionGetImplicitAllocator {
 
 struct IrInstructionCoroId {
     IrInstruction base;
+
+    IrInstruction *promise_ptr;
 };
 
 struct IrInstructionCoroAlloc {
@@ -2842,6 +2854,30 @@ struct IrInstructionCoroAllocFail {
     IrInstruction base;
 
     IrInstruction *err_val;
+};
+
+struct IrInstructionCoroSuspend {
+    IrInstruction base;
+
+    IrInstruction *save_point;
+    IrInstruction *is_final;
+};
+
+struct IrInstructionCoroEnd {
+    IrInstruction base;
+};
+
+struct IrInstructionCoroFree {
+    IrInstruction base;
+
+    IrInstruction *coro_id;
+    IrInstruction *coro_handle;
+};
+
+struct IrInstructionCoroResume {
+    IrInstruction base;
+
+    IrInstruction *awaiter_handle;
 };
 
 static const size_t slice_ptr_index = 0;
