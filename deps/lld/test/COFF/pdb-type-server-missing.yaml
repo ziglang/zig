@@ -1,13 +1,10 @@
 # This is an object compiled with /Zi (see the LF_TYPESERVER2 record) without an
 # adjacent type server PDB. Test that LLD fails gracefully on it.
 
-# FIXME: Ideally we'd do what MSVC does, which is to warn and drop all debug
-# info in the object with the missing PDB.
-
 # RUN: yaml2obj %s -o %t.obj
-# RUN: not lld-link %t.obj -out:%t.exe -debug -pdb:%t.pdb -nodefaultlib -entry:main 2>&1 | FileCheck %s
+# RUN: lld-link %t.obj -out:%t.exe -debug -pdb:%t.pdb -nodefaultlib -entry:main 2>&1 | FileCheck %s
 
-# CHECK: error: Type server PDB was not found
+# CHECK: warning: Type server PDB for {{.*}}.obj is invalid, ignoring debug info.
 
 --- !COFF
 header:

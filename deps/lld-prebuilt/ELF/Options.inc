@@ -230,8 +230,6 @@ OPTION(prefix_2, "no-merge-exidx-entries", no_merge_exidx_entries, Flag, INVALID
 OPTION(prefix_2, "no-mmap-output-file", no_mmap_output_file, Flag, INVALID, INVALID, nullptr, 0, 0, nullptr, nullptr, nullptr)
 OPTION(prefix_3, "no-omagic", no_omagic, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Do not set the text data sections to be writable", "<magic>", nullptr)
-OPTION(prefix_2, "no-pie", no_pie, Flag, INVALID, INVALID, nullptr, 0, 0,
-       "Do not create a position independent executable", nullptr, nullptr)
 OPTION(prefix_2, "no-print-gc-sections", no_print_gc_sections, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Do not list removed unused sections", nullptr, nullptr)
 OPTION(prefix_2, "no-rosegment", no_rosegment, Flag, INVALID, INVALID, nullptr, 0, 0,
@@ -249,6 +247,8 @@ OPTION(prefix_2, "no-whole-archive", no_whole_archive, Flag, INVALID, INVALID, n
 OPTION(prefix_2, "noinhibit-exec", noinhibit_exec, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Retain the executable output file whenever it is still usable", nullptr, nullptr)
 OPTION(prefix_2, "non_shared", alias_Bstatic_non_shared, Flag, INVALID, Bstatic, nullptr, 0, 0, nullptr, nullptr, nullptr)
+OPTION(prefix_2, "nopie", nopie, Flag, INVALID, INVALID, nullptr, 0, 0,
+       "Do not create a position independent executable", nullptr, nullptr)
 OPTION(prefix_2, "nostdlib", nostdlib, Flag, INVALID, INVALID, nullptr, 0, 0,
        "Only search directories specified on the command line", nullptr, nullptr)
 OPTION(prefix_1, "N", alias_omagic, Flag, INVALID, omagic, nullptr, 0, 0, nullptr, nullptr, nullptr)
