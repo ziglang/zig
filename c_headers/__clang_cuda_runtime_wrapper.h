@@ -270,12 +270,18 @@ static inline __device__ void __brkpt(int __c) { __brkpt(); }
 // include guard from math.h wrapper from libstdc++. We have to undo the header
 // guard temporarily to get the definitions we need.
 #pragma push_macro("_GLIBCXX_MATH_H")
+#pragma push_macro("_LIBCPP_VERSION")
 #if CUDA_VERSION >= 9000
 #undef _GLIBCXX_MATH_H
+// We also need to undo another guard that checks for libc++ 3.8+
+#ifdef _LIBCPP_VERSION
+#define _LIBCPP_VERSION 3700
+#endif
 #endif
 
 #include "math_functions.hpp"
 #pragma pop_macro("_GLIBCXX_MATH_H")
+#pragma pop_macro("_LIBCPP_VERSION")
 #pragma pop_macro("__GNUC__")
 #pragma pop_macro("signbit")
 

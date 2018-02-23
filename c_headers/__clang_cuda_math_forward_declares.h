@@ -149,9 +149,6 @@ __DEVICE__ double nearbyint(double);
 __DEVICE__ float nearbyint(float);
 __DEVICE__ double nextafter(double, double);
 __DEVICE__ float nextafter(float, float);
-__DEVICE__ double nexttoward(double, double);
-__DEVICE__ float nexttoward(float, double);
-__DEVICE__ float nexttowardf(float, double);
 __DEVICE__ double pow(double, double);
 __DEVICE__ double pow(double, int);
 __DEVICE__ float pow(float, float);
@@ -184,6 +181,10 @@ __DEVICE__ double tgamma(double);
 __DEVICE__ float tgamma(float);
 __DEVICE__ double trunc(double);
 __DEVICE__ float trunc(float);
+
+// Notably missing above is nexttoward, which we don't define on
+// the device side because libdevice doesn't give us an implementation, and we
+// don't want to be in the business of writing one ourselves.
 
 // We need to define these overloads in exactly the namespace our standard
 // library uses (including the right inline namespace), otherwise they won't be
@@ -255,7 +256,6 @@ using ::nan;
 using ::nanf;
 using ::nearbyint;
 using ::nextafter;
-using ::nexttoward;
 using ::pow;
 using ::remainder;
 using ::remquo;

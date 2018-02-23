@@ -80,7 +80,7 @@ min(const __T &__a, const __T &__b, __Cmp __cmp) {
 template <class __T>
 inline __device__ const __T &
 min(const __T &__a, const __T &__b) {
-  return __a < __b ? __b : __a;
+  return __a < __b ? __a : __b;
 }
 
 #ifdef _LIBCPP_END_NAMESPACE_STD

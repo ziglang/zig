@@ -1,6 +1,5 @@
-/*===---- stdbool.h - Standard header for booleans -------------------------===
+/*===------------ vpclmulqdqintrin.h - VPCLMULQDQ intrinsics ---------------===
  *
- * Copyright (c) 2008 Eli Friedman
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,26 +21,22 @@
  *
  *===-----------------------------------------------------------------------===
  */
-
-#ifndef __STDBOOL_H
-#define __STDBOOL_H
-
-/* Don't define bool, true, and false in C++, except as a GNU extension. */
-#ifndef __cplusplus
-#define bool _Bool
-#define true 1
-#define false 0
-#elif defined(__GNUC__) && !defined(__STRICT_ANSI__)
-/* Define _Bool as a GNU extension. */
-#define _Bool bool
-#if __cplusplus < 201103L
-/* For C++98, define bool, false, true as a GNU extension. */
-#define bool  bool
-#define false false
-#define true  true
-#endif
+#ifndef __IMMINTRIN_H
+#error "Never use <vpclmulqdqintrin.h> directly; include <immintrin.h> instead."
 #endif
 
-#define __bool_true_false_are_defined 1
+#ifndef __VPCLMULQDQINTRIN_H
+#define __VPCLMULQDQINTRIN_H
 
-#endif /* __STDBOOL_H */
+#define _mm256_clmulepi64_epi128(A, B, I) __extension__ ({    \
+  (__m256i)__builtin_ia32_pclmulqdq256((__v4di)(__m256i)(A),  \
+                                       (__v4di)(__m256i)(B),  \
+                                       (char)(I)); })
+
+#define _mm512_clmulepi64_epi128(A, B, I) __extension__ ({    \
+  (__m512i)__builtin_ia32_pclmulqdq512((__v8di)(__m512i)(A),  \
+                                       (__v8di)(__m512i)(B),  \
+                                       (char)(I)); })
+
+#endif // __VPCLMULQDQINTRIN_H
+

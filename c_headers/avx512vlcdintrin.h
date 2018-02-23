@@ -33,26 +33,26 @@
 
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_broadcastmb_epi64 (__mmask8 __A)
-{
-  return (__m128i) __builtin_ia32_broadcastmb128 (__A);
+{ 
+  return (__m128i) _mm_set1_epi64x((long long) __A);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_broadcastmb_epi64 (__mmask8 __A)
 {
-  return (__m256i) __builtin_ia32_broadcastmb256 (__A);
+  return (__m256i) _mm256_set1_epi64x((long long)__A);
 }
 
 static __inline__ __m128i __DEFAULT_FN_ATTRS
 _mm_broadcastmw_epi32 (__mmask16 __A)
 {
-  return (__m128i) __builtin_ia32_broadcastmw128 (__A);
+  return (__m128i) _mm_set1_epi32((int)__A);
 }
 
 static __inline__ __m256i __DEFAULT_FN_ATTRS
 _mm256_broadcastmw_epi32 (__mmask16 __A)
 {
-  return (__m256i) __builtin_ia32_broadcastmw256 (__A);
+  return (__m256i) _mm256_set1_epi32((int)__A);
 }
 
 

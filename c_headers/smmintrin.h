@@ -648,7 +648,7 @@ _mm_mul_epi32 (__m128i __V1, __m128i __V2)
 ///    input vectors are used as an input for dot product; otherwise that input
 ///    is treated as zero. Bits [1:0] determine which elements of the result
 ///    will receive a copy of the final dot product, with bit [0] corresponding
-///    to the lowest element and bit [3] corresponding to the highest element of
+///    to the lowest element and bit [1] corresponding to the highest element of
 ///    each [2 x double] vector. If a bit is set, the dot product is returned in
 ///    the corresponding element; otherwise that element is set to zero.
 #define _mm_dp_pd(X, Y, M) __extension__ ({\
@@ -866,8 +866,8 @@ _mm_max_epu32 (__m128i __V1, __m128i __V2)
 ///      11: Copies the selected bits from \a Y to result bits [127:96]. \n
 ///    Bits[3:0]: If any of these bits are set, the corresponding result
 ///    element is cleared.
-/// \returns A 128-bit vector of [4 x float] containing the copied single-
-///    precision floating point elements from the operands.
+/// \returns A 128-bit vector of [4 x float] containing the copied
+///    single-precision floating point elements from the operands.
 #define _mm_insert_ps(X, Y, N) __builtin_ia32_insertps128((X), (Y), (N))
 
 /// \brief Extracts a 32-bit integer from a 128-bit vector of [4 x float] and
