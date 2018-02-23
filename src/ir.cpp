@@ -8817,16 +8817,29 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
 
     // explicit cast from child type of maybe type to maybe type
     if (wanted_type->id == TypeTableEntryIdMaybe) {
-        if (types_match_const_cast_only(ira, wanted_type->data.maybe.child_type, actual_type, source_node).id == ConstCastResultIdOk) {
+        TypeTableEntry *wanted_child_type = wanted_type->data.maybe.child_type;
+        if (types_match_const_cast_only(ira, wanted_child_type, actual_type, source_node).id == ConstCastResultIdOk) {
             return ir_analyze_maybe_wrap(ira, source_instr, value, wanted_type);
         } else if (actual_type->id == TypeTableEntryIdNumLitInt ||
                    actual_type->id == TypeTableEntryIdNumLitFloat)
         {
-            if (ir_num_lit_fits_in_other_type(ira, value, wanted_type->data.maybe.child_type, true)) {
+            if (ir_num_lit_fits_in_other_type(ira, value, wanted_child_type, true)) {
                 return ir_analyze_maybe_wrap(ira, source_instr, value, wanted_type);
             } else {
                 return ira->codegen->invalid_instruction;
             }
+        } else if (wanted_child_type->id == TypeTableEntryIdPointer &&
+                   wanted_child_type->data.pointer.is_const &&
+                   is_container(actual_type)) {
+            IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_child_type, value);
+            if (type_is_invalid(cast1->value.type))
+                return ira->codegen->invalid_instruction;
+
+            IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
+            if (type_is_invalid(cast2->value.type))
+                return ira->codegen->invalid_instruction;
+
+            return cast2;
         }
     }
 
