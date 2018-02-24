@@ -6,6 +6,8 @@ pub const Buffer = @import("buffer.zig").Buffer;
 pub const BufferOutStream = @import("buffer.zig").BufferOutStream;
 pub const HashMap = @import("hash_map.zig").HashMap;
 pub const LinkedList = @import("linked_list.zig").LinkedList;
+pub const MemoryPool = @import("mem_pool.zig").MemoryPool;
+pub const SimpleServer = @import("simple_server.zig").SimpleServer;
 pub const IntrusiveLinkedList = @import("linked_list.zig").IntrusiveLinkedList;
 
 pub const base64 = @import("base64.zig");
@@ -18,6 +20,7 @@ pub const dwarf = @import("dwarf.zig");
 pub const elf = @import("elf.zig");
 pub const empty_import = @import("empty.zig");
 pub const endian = @import("endian.zig");
+pub const event = @import("event/event.zig");
 pub const fmt = @import("fmt/index.zig");
 pub const heap = @import("heap.zig");
 pub const io = @import("io.zig");
