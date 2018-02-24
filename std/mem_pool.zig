@@ -1,9 +1,9 @@
 const builtin = @import("builtin");
 const ll = @import("linked_list.zig");
 const mem = @import("mem.zig");
-const linux = @import("os/linux.zig");
+const linux = @import("os/linux/index.zig");
 
-fn raw_alloc_linux(bytes: usize) %usize {
+fn raw_alloc_linux(bytes: usize) !usize {
     const ret = linux.mmap(null, bytes, linux.PROT_READ | linux.PROT_WRITE,
         linux.MAP_SHARED | linux.MAP_ANONYMOUS, -1, 0);
     const err = linux.getErrno(ret);
@@ -31,7 +31,7 @@ pub const RawMemoryPool = struct {
         linkage: ll.LinkedList(void).Node
     };
 
-    pub fn init(obj_size: usize, n: usize) %Self {
+    pub fn init(obj_size: usize, n: usize) !Self {
         // XXX: best way to check for overflow here?
         const node_size = obj_size + @sizeOf(MemNode);
         const total_size = node_size * n;
@@ -55,11 +55,11 @@ pub const RawMemoryPool = struct {
         return pool;
     }
 
-    pub fn deinit(pool: &Self) %void {
+    pub fn deinit(pool: &Self) !void {
         // XXX: unmap memory
     }
 
-    pub fn alloc(pool: &Self) %usize {
+    pub fn alloc(pool: &Self) !usize {
         var node = pool.free_list.pop() ?? return error.OutOfMemory;
         return @ptrToInt(node) + @sizeOf(ll.LinkedList(void).Node);
     }
@@ -80,13 +80,13 @@ pub fn MemoryPool(comptime T: type) type {
 
         const Self = this;
 
-        pub fn init(n: usize) %Self {
+        pub fn init(n: usize) !Self {
             return Self {
                 .raw_pool = try RawMemoryPool.init(@sizeOf(T), n)
             };
         }
 
-        pub fn alloc(pool: &Self) %&T {
+        pub fn alloc(pool: &Self) !&T {
             return @intToPtr(&T, try pool.raw_pool.alloc());
         }
 

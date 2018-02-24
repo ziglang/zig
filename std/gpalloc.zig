@@ -6,8 +6,6 @@ const mem = @import("mem.zig");
 const mp = @import("mem_pool.zig");
 const rand = @import("rand.zig");
 
-error Unsupported;
-
 // XXX: make reasonable values for these
 // XXX: make the size class list a comptime argument to a function that
 // generates the type instead of being a global list
@@ -52,7 +50,7 @@ pub const GpAlloc = struct {
         return &self.pools[size_class];
     }
 
-    fn raw_alloc(self: &mem.Allocator, n: usize) %[]u8 {
+    fn raw_alloc(self: &mem.Allocator, n: usize) ![]u8 {
         // XXX: mmap
         return error.Unsupported;
     }
@@ -61,13 +59,14 @@ pub const GpAlloc = struct {
         // XXX: munmap
     }
 
-    fn alloc(allocator: &mem.Allocator, n: usize, alignment: u29) %[]u8 {
+    fn alloc(allocator: &mem.Allocator, n: usize,
+            alignment: u29) mem.Allocator.Error![]u8 {
         var self = @fieldParentPtr(GpAlloc, "allocator", allocator);
         return self.alloc_impl(n, alignment);
     }
 
     // This is mainly split out for testing purposes
-    fn alloc_impl(self: &Self, n: usize, alignment: u29) %[]u8 {
+    fn alloc_impl(self: &Self, n: usize, alignment: u29) ![]u8 {
         // XXX: if this request is too big for any of the pre-defined pools then
         // just create a separate buffer juts for it
         var size_class = self.get_size_class(n) ?? {
@@ -91,8 +90,9 @@ pub const GpAlloc = struct {
         return payload_base[0..n];
     }
 
-    fn realloc(allocator: &mem.Allocator, old_mem: []u8, new_size: usize, alignment: u29) %[]u8 {
-        return error.Unsupported;
+    fn realloc(allocator: &mem.Allocator, old_mem: []u8, new_size: usize,
+            alignment: u29) mem.Allocator.Error![]u8 {
+        return error.OutOfMemory;
     }
 
     fn free(allocator: &mem.Allocator, bytes: []u8) void {
@@ -114,9 +114,9 @@ pub const GpAlloc = struct {
 
     // XXX: allow user to configure maximum memory usage at creation time
     // XXX: provide option to grow pools on demand
-    pub fn init(size_classes: []const usize, pool_counts: usize) %Self {
+    pub fn init(size_classes: []const usize, pool_counts: usize) !Self {
         if (size_classes.len > MAX_SIZE_CLASSES) {
-            return error.Unsupported;
+            return error.OutOfMemory;
         }
 
         const undef_pool: mp.RawMemoryPool = undefined;
@@ -137,14 +137,14 @@ pub const GpAlloc = struct {
             res.pools[i] = try mp.RawMemoryPool.init(
                 size_class + @sizeOf(AllocMd),pool_counts);
             errdefer {
-                res.pools[i].deinit() %% {};
+                res.pools[i].deinit() catch unreachable;
             }
         }
 
         return res;
     }
 
-    pub fn default() %Self {
+    pub fn default() !Self {
         return Self.init(DEFAULT_SIZE_CLASSES[0..DEFAULT_SIZE_CLASSES.len],
             DEFAULT_POOL_COUNTS);
     }

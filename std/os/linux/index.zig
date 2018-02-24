@@ -787,7 +787,7 @@ pub const epoll_data = extern union {
     @"u64": u64,
 };
 
-pub const epoll_event = packed struct {
+pub const epoll_event = extern struct {
     events: u32,
     data: epoll_data,
 };

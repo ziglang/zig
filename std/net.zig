@@ -5,18 +5,6 @@ const warn = @import("debug.zig").warn;
 const endian = @import("endian.zig");
 const mem = @import("mem.zig");
 
-error SigInterrupt;
-error Io;
-error TimedOut;
-error ConnectionReset;
-error ConnectionRefused;
-error OutOfMemory;
-error NotSocket;
-error BadFd;
-error UnsupportedOption;
-error AddressInUse;
-error AccessDenied;
-
 pub const ControlProtocol = enum {
     TCP,
     UDP
@@ -97,7 +85,7 @@ pub fn lookup(hostname: []const u8) !Address {
     return addr;
 }
 
-fn createSocket(addr: &const Address, protocol: ControlProtocol) %i32 {
+fn createSocket(addr: &const Address, protocol: ControlProtocol) !i32 {
     const type_arg = switch (protocol) {
         ControlProtocol.TCP => i32(linux.SOCK_STREAM),
         ControlProtocol.UDP => i32(linux.SOCK_DGRAM),
@@ -117,7 +105,7 @@ fn createSocket(addr: &const Address, protocol: ControlProtocol) %i32 {
     return i32(socket_ret);
 }
 
-pub fn connectAddr(addr: &const Address, port: u16, protocol: ControlProtocol) %Connection {
+pub fn connectAddr(addr: &const Address, port: u16, protocol: ControlProtocol) !Connection {
     const socket_fd = try createSocket(addr, protocol);
 
     const connect_ret = if (addr.family == linux.AF_INET) x: {
@@ -190,12 +178,10 @@ pub fn bindAddr(addr: &const Address, port: u16, protocol: ControlProtocol) !Con
     };
 }
 
-pub fn bind(hostname: []const u8, port: u16, protocol: ControlProtocol) %Connection {
+pub fn bind(hostname: []const u8, port: u16, protocol: ControlProtocol) !Connection {
     const addr = try lookup(hostname);
     return bindAddr(&addr, port, protocol);
 }
-
-error InvalidIpLiteral;
 
 pub fn parseIpLiteral(buf: []const u8) !Address {
     return error.InvalidIpLiteral;
