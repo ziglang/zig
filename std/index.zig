@@ -8,6 +8,7 @@ pub const HashMap = @import("hash_map.zig").HashMap;
 pub const LinkedList = @import("linked_list.zig").LinkedList;
 pub const MemoryPool = @import("mem_pool.zig").MemoryPool;
 pub const SimpleServer = @import("simple_server.zig").SimpleServer;
+pub const IntrusiveLinkedList = @import("linked_list.zig").IntrusiveLinkedList;
 
 pub const base64 = @import("base64.zig");
 pub const build = @import("build.zig");
@@ -23,6 +24,7 @@ pub const event = @import("event/event.zig");
 pub const fmt = @import("fmt/index.zig");
 pub const heap = @import("heap.zig");
 pub const io = @import("io.zig");
+pub const macho = @import("macho.zig");
 pub const math = @import("math/index.zig");
 pub const mem = @import("mem.zig");
 pub const net = @import("net.zig");
@@ -30,6 +32,7 @@ pub const os = @import("os/index.zig");
 pub const rand = @import("rand.zig");
 pub const sort = @import("sort.zig");
 pub const unicode = @import("unicode.zig");
+pub const zig = @import("zig/index.zig");
 
 test "std" {
     // run tests from these
@@ -52,6 +55,7 @@ test "std" {
     _ = @import("endian.zig");
     _ = @import("fmt/index.zig");
     _ = @import("io.zig");
+    _ = @import("macho.zig");
     _ = @import("math/index.zig");
     _ = @import("mem.zig");
     _ = @import("heap.zig");
@@ -60,4 +64,5 @@ test "std" {
     _ = @import("rand.zig");
     _ = @import("sort.zig");
     _ = @import("unicode.zig");
+    _ = @import("zig/index.zig");
 }

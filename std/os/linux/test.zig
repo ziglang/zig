@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../../index.zig");
 const linux = std.os.linux;
 const assert = std.debug.assert;
 
@@ -25,7 +25,7 @@ test "timer" {
 
     var event = linux.epoll_event {
         .events = linux.EPOLLIN | linux.EPOLLOUT | linux.EPOLLET,
-        .data = 0
+        .data = linux.epoll_data { .ptr = 0 },
     };
 
     err = linux.epoll_ctl(i32(epoll_fd), linux.EPOLL_CTL_ADD, i32(timer_fd), &event);

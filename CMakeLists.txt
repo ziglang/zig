@@ -172,17 +172,17 @@ else()
         COMPILE_FLAGS ${ZIG_LLD_COMPILE_FLAGS}
         LINK_FLAGS " "
     )
-    target_include_directories(embedded_lld_lib PUBLIC
+    target_include_directories(embedded_lld_lib PRIVATE
         "${CMAKE_SOURCE_DIR}/deps/lld/include"
         "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt"
     )
-    target_include_directories(embedded_lld_elf PUBLIC
+    target_include_directories(embedded_lld_elf PRIVATE
         "${CMAKE_SOURCE_DIR}/deps/lld/ELF"
         "${CMAKE_SOURCE_DIR}/deps/lld/include"
         "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt/ELF"
         "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt"
     )
-    target_include_directories(embedded_lld_coff PUBLIC
+    target_include_directories(embedded_lld_coff PRIVATE
         "${CMAKE_SOURCE_DIR}/deps/lld/COFF"
         "${CMAKE_SOURCE_DIR}/deps/lld/include"
         "${CMAKE_SOURCE_DIR}/deps/lld-prebuilt/COFF"
@@ -386,6 +386,7 @@ set(ZIG_STD_FILES
     "index.zig"
     "io.zig"
     "linked_list.zig"
+    "macho.zig"
     "math/acos.zig"
     "math/acosh.zig"
     "math/asin.zig"
@@ -437,12 +438,13 @@ set(ZIG_STD_FILES
     "os/child_process.zig"
     "os/darwin.zig"
     "os/darwin_errno.zig"
+    "os/file.zig"
     "os/get_user_id.zig"
     "os/index.zig"
-    "os/linux.zig"
-    "os/linux_errno.zig"
-    "os/linux_i386.zig"
-    "os/linux_x86_64.zig"
+    "os/linux/errno.zig"
+    "os/linux/i386.zig"
+    "os/linux/index.zig"
+    "os/linux/x86_64.zig"
     "os/path.zig"
     "os/windows/error.zig"
     "os/windows/index.zig"
@@ -477,6 +479,10 @@ set(ZIG_STD_FILES
     "special/panic.zig"
     "special/test_runner.zig"
     "unicode.zig"
+    "zig/ast.zig"
+    "zig/index.zig"
+    "zig/parser.zig"
+    "zig/tokenizer.zig"
 )
 
 set(ZIG_C_HEADER_FILES

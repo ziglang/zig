@@ -40,6 +40,10 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type{
             return l.items[0..l.len];
         }
 
+        pub fn at(l: &const Self, n: usize) T {
+            return l.toSliceConst()[n];
+        }
+
         /// ArrayList takes ownership of the passed in slice. The slice must have been
         /// allocated with `allocator`.
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
@@ -59,18 +63,34 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type{
             return result;
         }
 
-        pub fn append(l: &Self, item: &const T) %void {
+        pub fn insert(l: &Self, n: usize, item: &const T) !void {
+            try l.ensureCapacity(l.len + 1);
+            l.len += 1;
+
+            mem.copy(T, l.items[n+1..l.len], l.items[n..l.len-1]);
+            l.items[n] = *item;
+        }
+
+        pub fn insertSlice(l: &Self, n: usize, items: []align(A) const T) !void {
+            try l.ensureCapacity(l.len + items.len);
+            l.len += items.len;
+
+            mem.copy(T, l.items[n+items.len..l.len], l.items[n..l.len-items.len]);
+            mem.copy(T, l.items[n..n+items.len], items);
+        }
+
+        pub fn append(l: &Self, item: &const T) !void {
             const new_item_ptr = try l.addOne();
             *new_item_ptr = *item;
         }
 
-        pub fn appendSlice(l: &Self, items: []align(A) const T) %void {
+        pub fn appendSlice(l: &Self, items: []align(A) const T) !void {
             try l.ensureCapacity(l.len + items.len);
             mem.copy(T, l.items[l.len..], items);
             l.len += items.len;
         }
 
-        pub fn resize(l: &Self, new_len: usize) %void {
+        pub fn resize(l: &Self, new_len: usize) !void {
             try l.ensureCapacity(new_len);
             l.len = new_len;
         }
@@ -80,7 +100,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type{
             l.len = new_len;
         }
 
-        pub fn ensureCapacity(l: &Self, new_capacity: usize) %void {
+        pub fn ensureCapacity(l: &Self, new_capacity: usize) !void {
             var better_capacity = l.items.len;
             if (better_capacity >= new_capacity) return;
             while (true) {
@@ -90,7 +110,7 @@ pub fn AlignedArrayList(comptime T: type, comptime A: u29) type{
             l.items = try l.allocator.alignedRealloc(T, A, l.items, better_capacity);
         }
 
-        pub fn addOne(l: &Self) %&T {
+        pub fn addOne(l: &Self) !&T {
             const new_length = l.len + 1;
             try l.ensureCapacity(new_length);
             const result = &l.items[l.len];
@@ -135,4 +155,23 @@ test "basic ArrayList test" {
 
     list.appendSlice([]const i32 {}) catch unreachable;
     assert(list.len == 9);
+}
+
+test "insert ArrayList test" {
+    var list = ArrayList(i32).init(debug.global_allocator);
+    defer list.deinit();
+
+    try list.append(1);
+    try list.insert(0, 5);
+    assert(list.items[0] == 5);
+    assert(list.items[1] == 1);
+
+    try list.insertSlice(1, []const i32 { 9, 8 });
+    assert(list.items[0] == 5);
+    assert(list.items[1] == 9);
+    assert(list.items[2] == 8);
+
+    const items = []const i32 { 1 };
+    try list.insertSlice(0, items[0..0]);
+    assert(list.items[0] == 5);
 }

@@ -395,3 +395,10 @@ fn test_f128() void {
 fn should_not_be_zero(x: f128) void {
     assert(x != 0.0);
 }
+
+test "comptime float rem int" {
+    comptime {
+        var x = f32(1) % 2;
+        assert(x == 1.0);
+    }
+}

@@ -25,7 +25,7 @@ pub const ControlProtocol = enum {
 const Connection = struct {
     socket_fd: i32,
 
-    pub fn send(c: Connection, buf: []const u8) %usize {
+    pub fn send(c: Connection, buf: []const u8) !usize {
         const send_ret = linux.sendto(c.socket_fd, buf.ptr, buf.len, 0, null, 0);
         const send_err = linux.getErrno(send_ret);
         switch (send_err) {
@@ -39,7 +39,7 @@ const Connection = struct {
         }
     }
 
-    pub fn recv(c: Connection, buf: []u8) %[]u8 {
+    pub fn recv(c: Connection, buf: []u8) ![]u8 {
         const recv_ret = linux.recvfrom(c.socket_fd, buf.ptr, buf.len, 0, null, null);
         const recv_err = linux.getErrno(recv_ret);
         switch (recv_err) {
@@ -56,15 +56,13 @@ const Connection = struct {
         }
     }
 
-    pub fn close(c: Connection) %void {
-        while (true) {
-            switch (linux.getErrno(linux.close(c.socket_fd))) {
-                0 => return,
-                linux.EBADF => unreachable,
-                linux.EINTR => continue,
-                linux.EIO => return error.Io,
-                else => return error.Unexpected,
-            }
+    pub fn close(c: Connection) !void {
+        switch (linux.getErrno(linux.close(c.socket_fd))) {
+            0 => return,
+            linux.EBADF => unreachable,
+            linux.EINTR => return error.SigInterrupt,
+            linux.EIO => return error.Io,
+            else => return error.Unexpected,
         }
     }
 };
@@ -76,7 +74,7 @@ const Address = struct {
     sort_key: i32,
 };
 
-pub fn lookup(hostname: []const u8) %Address {
+pub fn lookup(hostname: []const u8) !Address {
     // TODO: support other address names
     // TODO: support ipv6
     // TODO: support multiple output values
@@ -156,12 +154,12 @@ pub fn connectAddr(addr: &const Address, port: u16, protocol: ControlProtocol) %
     };
 }
 
-pub fn connect(hostname: []const u8, port: u16, protocol: ControlProtocol) %Connection {
+pub fn connect(hostname: []const u8, port: u16, protocol: ControlProtocol) !Connection {
     const addr = try lookup(hostname);
     return connectAddr(&addr, port, protocol);
 }
 
-pub fn bindAddr(addr: &const Address, port: u16, protocol: ControlProtocol) %Connection {
+pub fn bindAddr(addr: &const Address, port: u16, protocol: ControlProtocol) !Connection {
     const socket_fd = try createSocket(addr, protocol);
 
     const bind_ret = if (addr.family == linux.AF_INET) val: {
@@ -199,7 +197,7 @@ pub fn bind(hostname: []const u8, port: u16, protocol: ControlProtocol) %Connect
 
 error InvalidIpLiteral;
 
-pub fn parseIpLiteral(buf: []const u8) %Address {
+pub fn parseIpLiteral(buf: []const u8) !Address {
     return error.InvalidIpLiteral;
 }
 
@@ -216,12 +214,7 @@ fn hexDigit(c: u8) u8 {
     }
 }
 
-error InvalidChar;
-error Overflow;
-error JunkAtEnd;
-error Incomplete;
-
-fn parseIp6(buf: []const u8) %Address {
+fn parseIp6(buf: []const u8) !Address {
     var result: Address = undefined;
     result.family = linux.AF_INET6;
     result.scope_id = 0;
@@ -302,7 +295,7 @@ fn parseIp6(buf: []const u8) %Address {
     return error.Incomplete;
 }
 
-fn parseIp4(buf: []const u8) %u32 {
+fn parseIp4(buf: []const u8) !u32 {
     var result: u32 = undefined;
     const out_ptr = ([]u8)((&result)[0..1]);
 

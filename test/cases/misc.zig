@@ -262,7 +262,7 @@ test "generic malloc free" {
     memFree(u8, a);
 }
 const some_mem : [100]u8 = undefined;
-fn memAlloc(comptime T: type, n: usize) %[]T {
+fn memAlloc(comptime T: type, n: usize) error![]T {
     return @ptrCast(&T, &some_mem[0])[0..n];
 }
 fn memFree(comptime T: type, memory: []T) void { }
@@ -419,7 +419,7 @@ test "cast slice to u8 slice" {
 test "pointer to void return type" {
     testPointerToVoidReturnType() catch unreachable;
 }
-fn testPointerToVoidReturnType() %void {
+fn testPointerToVoidReturnType() error!void {
     const a = testPointerToVoidReturnType2();
     return *a;
 }
@@ -475,8 +475,8 @@ test "@typeId" {
         assert(@typeId(@typeOf(undefined)) == Tid.UndefinedLiteral);
         assert(@typeId(@typeOf(null)) == Tid.NullLiteral);
         assert(@typeId(?i32) == Tid.Nullable);
-        assert(@typeId(%i32) == Tid.ErrorUnion);
-        assert(@typeId(error) == Tid.Error);
+        assert(@typeId(error!i32) == Tid.ErrorUnion);
+        assert(@typeId(error) == Tid.ErrorSet);
         assert(@typeId(AnEnum) == Tid.Enum);
         assert(@typeId(@typeOf(AUnionEnum.One)) == Tid.Enum);
         assert(@typeId(AUnionEnum) == Tid.Union);
@@ -499,10 +499,27 @@ test "@canImplicitCast" {
 }
 
 test "@typeName" {
+    const Struct = struct {
+    };
+    const Union = union {
+        unused: u8,
+    };
+    const Enum = enum {
+        Unused,
+    };
     comptime {
         assert(mem.eql(u8, @typeName(i64), "i64"));
         assert(mem.eql(u8, @typeName(&usize), "&usize"));
+        // https://github.com/zig-lang/zig/issues/675
+        assert(mem.eql(u8, @typeName(TypeFromFn(u8)), "TypeFromFn(u8)"));
+        assert(mem.eql(u8, @typeName(Struct), "Struct"));
+        assert(mem.eql(u8, @typeName(Union), "Union"));
+        assert(mem.eql(u8, @typeName(Enum), "Enum"));
     }
+}
+
+fn TypeFromFn(comptime T: type) type {
+    return struct {};
 }
 
 test "volatile load and store" {
@@ -616,4 +633,20 @@ test "cold function" {
 
 fn thisIsAColdFn() void {
     @setCold(true);
+}
+
+
+const PackedStruct = packed struct { a: u8, b: u8, };
+const PackedUnion = packed union { a: u8, b: u32, };
+const PackedEnum = packed enum { A, B, };
+
+test "packed struct, enum, union parameters in extern function" {
+    testPackedStuff(
+        PackedStruct{.a = 1, .b = 2},
+        PackedUnion{.a = 1},
+        PackedEnum.A,
+    );
+}
+
+export fn testPackedStuff(a: &const PackedStruct, b: &const PackedUnion, c: PackedEnum) void {
 }

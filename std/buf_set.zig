@@ -24,7 +24,7 @@ pub const BufSet = struct {
         self.hash_map.deinit();
     }
 
-    pub fn put(self: &BufSet, key: []const u8) %void {
+    pub fn put(self: &BufSet, key: []const u8) !void {
         if (self.hash_map.get(key) == null) {
             const key_copy = try self.copy(key);
             errdefer self.free(key_copy);
@@ -55,7 +55,7 @@ pub const BufSet = struct {
         self.hash_map.allocator.free(mut_value);
     }
 
-    fn copy(self: &BufSet, value: []const u8) %[]const u8 {
+    fn copy(self: &BufSet, value: []const u8) ![]const u8 {
         const result = try self.hash_map.allocator.alloc(u8, value.len);
         mem.copy(u8, result, value);
         return result;

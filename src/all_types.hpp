@@ -236,7 +236,7 @@ struct ConstExprValue {
         TypeTableEntry *x_type;
         ConstExprValue *x_maybe;
         ConstErrValue x_err_union;
-        ErrorTableEntry *x_pure_err;
+        ErrorTableEntry *x_err_set;
         BigInt x_enum_tag;
         ConstStructValue x_struct;
         ConstUnionValue x_union;
@@ -331,12 +331,14 @@ struct TypeEnumField {
     Buf *name;
     BigInt value;
     uint32_t decl_index;
+    AstNode *decl_node;
 };
 
 struct TypeUnionField {
     Buf *name;
     TypeEnumField *enum_field;
     TypeTableEntry *type_entry;
+    AstNode *decl_node;
     uint32_t gen_index;
 };
 
@@ -351,7 +353,6 @@ enum NodeType {
     NodeTypeReturnExpr,
     NodeTypeDefer,
     NodeTypeVariableDeclaration,
-    NodeTypeErrorValueDecl,
     NodeTypeTestDecl,
     NodeTypeBinOpExpr,
     NodeTypeUnwrapErrorExpr,
@@ -391,6 +392,7 @@ enum NodeType {
     NodeTypeVarLiteral,
     NodeTypeIfErrorExpr,
     NodeTypeTestExpr,
+    NodeTypeErrorSetDecl,
 };
 
 struct AstNodeRoot {
@@ -422,6 +424,8 @@ struct AstNodeFnProto {
     AstNode *align_expr;
     // populated if the "section(S)" is present
     AstNode *section_expr;
+
+    bool auto_err_set;
 };
 
 struct AstNodeFnDef {
@@ -484,12 +488,6 @@ struct AstNodeVariableDeclaration {
     AstNode *section_expr;
 };
 
-struct AstNodeErrorValueDecl {
-    Buf *name;
-
-    ErrorTableEntry *err;
-};
-
 struct AstNodeTestDecl {
     Buf *name;
 
@@ -512,8 +510,7 @@ enum BinOpType {
     BinOpTypeAssignBitAnd,
     BinOpTypeAssignBitXor,
     BinOpTypeAssignBitOr,
-    BinOpTypeAssignBoolAnd,
-    BinOpTypeAssignBoolOr,
+    BinOpTypeAssignMergeErrorSets,
     BinOpTypeBoolOr,
     BinOpTypeBoolAnd,
     BinOpTypeCmpEq,
@@ -538,6 +535,8 @@ enum BinOpType {
     BinOpTypeUnwrapMaybe,
     BinOpTypeArrayCat,
     BinOpTypeArrayMult,
+    BinOpTypeErrorUnion,
+    BinOpTypeMergeErrorSets,
 };
 
 struct AstNodeBinOpExpr {
@@ -561,6 +560,7 @@ enum CastOp {
     CastOpResizeSlice,
     CastOpBytesToSlice,
     CastOpNumLitToConcrete,
+    CastOpErrSet,
 };
 
 struct AstNodeFnCallExpr {
@@ -593,7 +593,6 @@ enum PrefixOp {
     PrefixOpNegationWrap,
     PrefixOpDereference,
     PrefixOpMaybe,
-    PrefixOpError,
     PrefixOpUnwrapMaybe,
 };
 
@@ -760,6 +759,10 @@ struct AstNodeContainerDecl {
     bool auto_enum; // union(enum)
 };
 
+struct AstNodeErrorSetDecl {
+    ZigList<AstNode *> decls;
+};
+
 struct AstNodeStructField {
     VisibMod visib_mod;
     Buf *name;
@@ -856,7 +859,6 @@ struct AstNode {
         AstNodeReturnExpr return_expr;
         AstNodeDefer defer;
         AstNodeVariableDeclaration variable_declaration;
-        AstNodeErrorValueDecl error_value_decl;
         AstNodeTestDecl test_decl;
         AstNodeBinOpExpr bin_op_expr;
         AstNodeCatchExpr unwrap_err_expr;
@@ -897,6 +899,7 @@ struct AstNode {
         AstNodeArrayType array_type;
         AstNodeErrorType error_type;
         AstNodeVarLiteral var_literal;
+        AstNodeErrorSetDecl err_set_decl;
     } data;
 };
 
@@ -961,6 +964,7 @@ struct TypeStructField {
     size_t packed_bits_offset;
     size_t packed_bits_size;
     size_t unaligned_bit_count;
+    AstNode *decl_node;
 };
 struct TypeTableEntryStruct {
     AstNode *decl_node;
@@ -982,14 +986,23 @@ struct TypeTableEntryStruct {
     bool zero_bits_loop_flag;
     bool zero_bits_known;
     uint32_t abi_alignment; // also figured out with zero_bits pass
+
+    HashMap<Buf *, TypeStructField *, buf_hash, buf_eql_buf> fields_by_name;
 };
 
 struct TypeTableEntryMaybe {
     TypeTableEntry *child_type;
 };
 
-struct TypeTableEntryError {
-    TypeTableEntry *child_type;
+struct TypeTableEntryErrorUnion {
+    TypeTableEntry *err_set_type;
+    TypeTableEntry *payload_type;
+};
+
+struct TypeTableEntryErrorSet {
+    uint32_t err_count;
+    ErrorTableEntry **errors;
+    FnTableEntry *infer_fn;
 };
 
 struct TypeTableEntryEnum {
@@ -1013,6 +1026,8 @@ struct TypeTableEntryEnum {
 
     bool generate_name_table;
     LLVMValueRef name_table;
+
+    HashMap<Buf *, TypeEnumField *, buf_hash, buf_eql_buf> fields_by_name;
 };
 
 uint32_t type_ptr_hash(const TypeTableEntry *ptr);
@@ -1045,6 +1060,8 @@ struct TypeTableEntryUnion {
 
     uint32_t union_size_bytes;
     TypeTableEntry *most_aligned_union_member;
+
+    HashMap<Buf *, TypeUnionField *, buf_hash, buf_eql_buf> fields_by_name;
 };
 
 struct FnGenParamInfo {
@@ -1088,7 +1105,7 @@ enum TypeTableEntryId {
     TypeTableEntryIdNullLit,
     TypeTableEntryIdMaybe,
     TypeTableEntryIdErrorUnion,
-    TypeTableEntryIdPureError,
+    TypeTableEntryIdErrorSet,
     TypeTableEntryIdEnum,
     TypeTableEntryIdUnion,
     TypeTableEntryIdFn,
@@ -1117,7 +1134,8 @@ struct TypeTableEntry {
         TypeTableEntryArray array;
         TypeTableEntryStruct structure;
         TypeTableEntryMaybe maybe;
-        TypeTableEntryError error;
+        TypeTableEntryErrorUnion error_union;
+        TypeTableEntryErrorSet error_set;
         TypeTableEntryEnum enumeration;
         TypeTableEntryUnion unionation;
         TypeTableEntryFn fn;
@@ -1127,7 +1145,6 @@ struct TypeTableEntry {
     // use these fields to make sure we don't duplicate type table entries for the same type
     TypeTableEntry *pointer_parent[2]; // [0 - mut, 1 - const]
     TypeTableEntry *maybe_parent;
-    TypeTableEntry *error_parent;
     // If we generate a constant name value for this type, we memoize it here.
     // The type of this is array
     ConstExprValue *cached_const_name_val;
@@ -1331,6 +1348,10 @@ struct TypeId {
             bool is_signed;
             uint32_t bit_count;
         } integer;
+        struct {
+            TypeTableEntry *err_set_type;
+            TypeTableEntry *payload_type;
+        } error_union;
     } data;
 };
 
@@ -1472,7 +1493,7 @@ struct CodeGen {
         TypeTableEntry *entry_undef;
         TypeTableEntry *entry_null;
         TypeTableEntry *entry_var;
-        TypeTableEntry *entry_pure_error;
+        TypeTableEntry *entry_global_error_set;
         TypeTableEntry *entry_arg_tuple;
     } builtin_types;
 
@@ -1561,7 +1582,6 @@ struct CodeGen {
     LLVMValueRef return_address_fn_val;
     LLVMValueRef frame_address_fn_val;
     bool error_during_imports;
-    TypeTableEntry *err_tag_type;
 
     const char **clang_argv;
     size_t clang_argv_len;
@@ -1575,7 +1595,9 @@ struct CodeGen {
 
     bool each_lib_rpath;
 
-    ZigList<AstNode *> error_decls;
+    TypeTableEntry *err_tag_type;
+    ZigList<ZigLLVMDIEnumerator *> err_enumerators;
+    ZigList<ErrorTableEntry *> errors_by_index;
     bool generate_error_name_table;
     LLVMValueRef err_name_table;
     size_t largest_err_name_len;
@@ -1608,6 +1630,10 @@ struct CodeGen {
     TypeTableEntry *align_amt_type;
     TypeTableEntry *stack_trace_type;
     TypeTableEntry *ptr_to_stack_trace_type;
+
+    ZigList<ZigLLVMDIType **> error_di_types;
+
+    ZigList<Buf *> forbidden_libs;
 };
 
 enum VarLinkage {
@@ -1644,6 +1670,7 @@ struct ErrorTableEntry {
     Buf name;
     uint32_t value;
     AstNode *decl_node;
+    TypeTableEntry *set_with_only_this_in_it;
     // If we generate a constant error name value for this error, we memoize it here.
     // The type of this is array
     ConstExprValue *cached_error_name_val;
@@ -1911,6 +1938,7 @@ enum IrInstructionId {
     IrInstructionIdArgType,
     IrInstructionIdExport,
     IrInstructionIdErrorReturnTrace,
+    IrInstructionIdErrorUnion,
 };
 
 struct IrInstruction {
@@ -1987,7 +2015,6 @@ enum IrUnOp {
     IrUnOpNegation,
     IrUnOpNegationWrap,
     IrUnOpDereference,
-    IrUnOpError,
     IrUnOpMaybe,
 };
 
@@ -2030,6 +2057,7 @@ enum IrBinOp {
     IrBinOpRemMod,
     IrBinOpArrayCat,
     IrBinOpArrayMult,
+    IrBinOpMergeErrorSets,
 };
 
 struct IrInstructionBinOp {
@@ -2739,6 +2767,13 @@ struct IrInstructionExport {
 
 struct IrInstructionErrorReturnTrace {
     IrInstruction base;
+};
+
+struct IrInstructionErrorUnion {
+    IrInstruction base;
+
+    IrInstruction *err_set;
+    IrInstruction *payload;
 };
 
 static const size_t slice_ptr_index = 0;

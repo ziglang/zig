@@ -36,6 +36,7 @@ void codegen_set_kernel32_lib_dir(CodeGen *codegen, Buf *kernel32_lib_dir);
 void codegen_set_dynamic_linker(CodeGen *g, Buf *dynamic_linker);
 void codegen_set_windows_subsystem(CodeGen *g, bool mwindows, bool mconsole);
 void codegen_add_lib_dir(CodeGen *codegen, const char *dir);
+void codegen_add_forbidden_lib(CodeGen *codegen, Buf *lib);
 LinkLib *codegen_add_link_lib(CodeGen *codegen, Buf *lib);
 void codegen_add_framework(CodeGen *codegen, const char *name);
 void codegen_add_rpath(CodeGen *codegen, const char *name);

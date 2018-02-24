@@ -3,9 +3,7 @@ const assert = @import("std").debug.assert;
 var result: [3]u8 = undefined;
 var index: usize = undefined;
 
-error FalseNotAllowed;
-
-fn runSomeErrorDefers(x: bool) %bool {
+fn runSomeErrorDefers(x: bool) !bool {
     index = 0;
     defer {result[index] = 'a'; index += 1;}
     errdefer {result[index] = 'b'; index += 1;}

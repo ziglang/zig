@@ -1,12 +1,11 @@
 const builtin = @import("builtin");
 const std = @import("index.zig");
 const io = std.io;
+const os = std.os;
 const math = std.math;
 const mem = std.mem;
 const debug = std.debug;
 const InStream = std.stream.InStream;
-
-error InvalidFormat;
 
 pub const SHT_NULL = 0;
 pub const SHT_PROGBITS = 1;
@@ -65,7 +64,7 @@ pub const SectionHeader = struct {
 };
 
 pub const Elf = struct {
-    in_file: &io.File,
+    in_file: &os.File,
     auto_close_stream: bool,
     is_64: bool,
     endian: builtin.Endian,
@@ -78,17 +77,17 @@ pub const Elf = struct {
     string_section: &SectionHeader,
     section_headers: []SectionHeader,
     allocator: &mem.Allocator,
-    prealloc_file: io.File,
+    prealloc_file: os.File,
 
     /// Call close when done.
-    pub fn openPath(elf: &Elf, allocator: &mem.Allocator, path: []const u8) %void {
+    pub fn openPath(elf: &Elf, allocator: &mem.Allocator, path: []const u8) !void {
         try elf.prealloc_file.open(path);
         try elf.openFile(allocator, &elf.prealloc_file);
         elf.auto_close_stream = true;
     }
 
     /// Call close when done.
-    pub fn openFile(elf: &Elf, allocator: &mem.Allocator, file: &io.File) %void {
+    pub fn openFile(elf: &Elf, allocator: &mem.Allocator, file: &os.File) !void {
         elf.allocator = allocator;
         elf.in_file = file;
         elf.auto_close_stream = false;
@@ -239,7 +238,7 @@ pub const Elf = struct {
             elf.in_file.close();
     }
 
-    pub fn findSection(elf: &Elf, name: []const u8) %?&SectionHeader {
+    pub fn findSection(elf: &Elf, name: []const u8) !?&SectionHeader {
         var file_stream = io.FileInStream.init(elf.in_file);
         const in = &file_stream.stream;
 
@@ -263,7 +262,7 @@ pub const Elf = struct {
         return null;
     }
 
-    pub fn seekToSection(elf: &Elf, elf_section: &SectionHeader) %void {
+    pub fn seekToSection(elf: &Elf, elf_section: &SectionHeader) !void {
         try elf.in_file.seekTo(elf_section.offset);
     }
 };

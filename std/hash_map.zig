@@ -80,7 +80,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
         }
 
         /// Returns the value that was already there.
-        pub fn put(hm: &Self, key: K, value: &const V) %?V {
+        pub fn put(hm: &Self, key: K, value: &const V) !?V {
             if (hm.entries.len == 0) {
                 try hm.initCapacity(16);
             }
@@ -151,7 +151,7 @@ pub fn HashMap(comptime K: type, comptime V: type,
             };
         }
 
-        fn initCapacity(hm: &Self, capacity: usize) %void {
+        fn initCapacity(hm: &Self, capacity: usize) !void {
             hm.entries = try hm.allocator.alloc(Entry, capacity);
             hm.size = 0;
             hm.max_distance_from_start_index = 0;

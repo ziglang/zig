@@ -1,7 +1,14 @@
 const std = @import("index.zig");
+const builtin = @import("builtin");
 const debug = std.debug;
 const mem = std.mem;
 const assert = debug.assert;
+
+pub const line_sep = switch (builtin.os) {
+    builtin.Os.windows => "\r\n",
+    else => "\n",
+};
+
 
 pub fn len(ptr: &const u8) usize {
     var count: usize = 0;
@@ -39,10 +46,9 @@ fn testCStrFnsImpl() void {
     assert(len(c"123456789") == 9);
 }
 
-/// Returns a mutable slice with exactly the same size which is guaranteed to
-/// have a null byte after it.
+/// Returns a mutable slice with 1 more byte of length which is a null byte.
 /// Caller owns the returned memory.
-pub fn addNullByte(allocator: &mem.Allocator, slice: []const u8) %[]u8 {
+pub fn addNullByte(allocator: &mem.Allocator, slice: []const u8) ![]u8 {
     const result = try allocator.alloc(u8, slice.len + 1);
     mem.copy(u8, result, slice);
     result[slice.len] = 0;
@@ -56,7 +62,7 @@ pub const NullTerminated2DArray = struct {
 
     /// Takes N lists of strings, concatenates the lists together, and adds a null terminator
     /// Caller must deinit result
-    pub fn fromSlices(allocator: &mem.Allocator, slices: []const []const []const u8) %NullTerminated2DArray {
+    pub fn fromSlices(allocator: &mem.Allocator, slices: []const []const []const u8) !NullTerminated2DArray {
         var new_len: usize = 1; // 1 for the list null
         var byte_count: usize = 0;
         for (slices) |slice| {

@@ -6,7 +6,7 @@ const os = this;
 
 pub const windows = @import("windows/index.zig");
 pub const darwin = @import("darwin.zig");
-pub const linux = @import("linux.zig");
+pub const linux = @import("linux/index.zig");
 pub const zen = @import("zen.zig");
 pub const posix = switch(builtin.os) {
     Os.linux => linux,
@@ -15,13 +15,18 @@ pub const posix = switch(builtin.os) {
     else => @compileError("Unsupported OS"),
 };
 
-pub const max_noalloc_path_len = 1024;
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
 pub const path = @import("path.zig");
+pub const File = @import("file.zig").File;
 
-pub const line_sep = switch (builtin.os) {
-    Os.windows => "\r\n",
-    else => "\n",
+pub const FileMode = switch (builtin.os) {
+    Os.windows => void,
+    else => u32,
+};
+
+pub const default_file_mode = switch (builtin.os) {
+    Os.windows => {},
+    else => 0o666,
 };
 
 pub const page_size = 4 * 1024;
@@ -37,6 +42,10 @@ pub const windowsOpen = windows_util.windowsOpen;
 pub const windowsLoadDll = windows_util.windowsLoadDll;
 pub const windowsUnloadDll = windows_util.windowsUnloadDll; 
 pub const createWindowsEnvBlock = windows_util.createWindowsEnvBlock;
+
+pub const WindowsWaitError = windows_util.WaitError;
+pub const WindowsOpenError = windows_util.OpenError;
+pub const WindowsWriteError = windows_util.WriteError;
 
 pub const FileHandle = if (is_windows) windows.HANDLE else i32;
 
@@ -57,43 +66,34 @@ const ArrayList = std.ArrayList;
 const Buffer = std.Buffer;
 const math = std.math;
 
-error SystemResources;
-error AccessDenied;
-error InvalidExe;
-error FileSystem;
-error IsDir;
-error FileNotFound;
-error FileBusy;
-error PathAlreadyExists;
-error SymLinkLoop;
-error ReadOnlyFileSystem;
-error LinkQuotaExceeded;
-error RenameAcrossMountPoints;
-error DirNotEmpty;
-error WouldBlock;
-
 /// Fills `buf` with random bytes. If linking against libc, this calls the
 /// appropriate OS-specific library call. Otherwise it uses the zig standard
 /// library implementation.
-pub fn getRandomBytes(buf: []u8) %void {
+pub fn getRandomBytes(buf: []u8) !void {
     switch (builtin.os) {
         Os.linux => while (true) {
             // TODO check libc version and potentially call c.getrandom.
             // See #397
             const err = posix.getErrno(posix.getrandom(buf.ptr, buf.len, 0));
             if (err > 0) {
-                return switch (err) {
+                switch (err) {
                     posix.EINVAL => unreachable,
                     posix.EFAULT => unreachable,
                     posix.EINTR  => continue,
-                    else         => unexpectedErrorPosix(err),
-                };
+                    posix.ENOSYS => {
+                        const fd = try posixOpenC(c"/dev/urandom", posix.O_RDONLY|posix.O_CLOEXEC, 0);
+                        defer close(fd);
+
+                        try posixRead(fd, buf);
+                        return;
+                    },
+                    else => return unexpectedErrorPosix(err),
+                }
             }
             return;
         },
         Os.macosx, Os.ios => {
-            const fd = try posixOpen("/dev/urandom", posix.O_RDONLY|posix.O_CLOEXEC,
-                0, null);
+            const fd = try posixOpenC(c"/dev/urandom", posix.O_RDONLY|posix.O_CLOEXEC, 0);
             defer close(fd);
 
             try posixRead(fd, buf);
@@ -182,11 +182,16 @@ pub fn close(handle: FileHandle) void {
 }
 
 /// Calls POSIX read, and keeps trying if it gets interrupted.
-pub fn posixRead(fd: i32, buf: []u8) %void {
+pub fn posixRead(fd: i32, buf: []u8) !void {
+    // Linux can return EINVAL when read amount is > 0x7ffff000
+    // See https://github.com/zig-lang/zig/pull/743#issuecomment-363158274
+    const max_buf_len = 0x7ffff000;
+
     var index: usize = 0;
     while (index < buf.len) {
-        const amt_written = posix.read(fd, &buf[index], buf.len - index);
-        const err = posix.getErrno(amt_written);
+        const want_to_read = math.min(buf.len - index, usize(max_buf_len));
+        const rc = posix.read(fd, &buf[index], want_to_read);
+        const err = posix.getErrno(rc);
         if (err > 0) {
             return switch (err) {
                 posix.EINTR => continue,
@@ -199,100 +204,114 @@ pub fn posixRead(fd: i32, buf: []u8) %void {
                 else => unexpectedErrorPosix(err),
             };
         }
-        index += amt_written;
+        index += rc;
     }
 }
 
-error WouldBlock;
-error FileClosed;
-error DestinationAddressRequired;
-error DiskQuota;
-error FileTooBig;
-error InputOutput;
-error NoSpaceLeft;
-error BrokenPipe;
+pub const PosixWriteError = error {
+    WouldBlock,
+    FileClosed,
+    DestinationAddressRequired,
+    DiskQuota,
+    FileTooBig,
+    InputOutput,
+    NoSpaceLeft,
+    AccessDenied,
+    BrokenPipe,
+    Unexpected,
+};
 
 /// Calls POSIX write, and keeps trying if it gets interrupted.
-pub fn posixWrite(fd: i32, bytes: []const u8) %void {
-    while (true) {
-        const write_ret = posix.write(fd, bytes.ptr, bytes.len);
-        const write_err = posix.getErrno(write_ret);
+pub fn posixWrite(fd: i32, bytes: []const u8) !void {
+    // Linux can return EINVAL when write amount is > 0x7ffff000
+    // See https://github.com/zig-lang/zig/pull/743#issuecomment-363165856
+    const max_bytes_len = 0x7ffff000;
+
+    var index: usize = 0;
+    while (index < bytes.len) {
+        const amt_to_write = math.min(bytes.len - index, usize(max_bytes_len));
+        const rc = posix.write(fd, &bytes[index], amt_to_write);
+        const write_err = posix.getErrno(rc);
         if (write_err > 0) {
             return switch (write_err) {
                 posix.EINTR  => continue,
                 posix.EINVAL, posix.EFAULT => unreachable,
-                posix.EAGAIN => error.WouldBlock,
-                posix.EBADF => error.FileClosed,
-                posix.EDESTADDRREQ => error.DestinationAddressRequired,
-                posix.EDQUOT => error.DiskQuota,
-                posix.EFBIG  => error.FileTooBig,
-                posix.EIO    => error.InputOutput,
-                posix.ENOSPC => error.NoSpaceLeft,
-                posix.EPERM  => error.AccessDenied,
-                posix.EPIPE  => error.BrokenPipe,
+                posix.EAGAIN => PosixWriteError.WouldBlock,
+                posix.EBADF => PosixWriteError.FileClosed,
+                posix.EDESTADDRREQ => PosixWriteError.DestinationAddressRequired,
+                posix.EDQUOT => PosixWriteError.DiskQuota,
+                posix.EFBIG  => PosixWriteError.FileTooBig,
+                posix.EIO    => PosixWriteError.InputOutput,
+                posix.ENOSPC => PosixWriteError.NoSpaceLeft,
+                posix.EPERM  => PosixWriteError.AccessDenied,
+                posix.EPIPE  => PosixWriteError.BrokenPipe,
                 else         => unexpectedErrorPosix(write_err),
             };
         }
-        return;
+        index += rc;
     }
 }
 
-/// ::file_path may need to be copied in memory to add a null terminating byte. In this case
-/// a fixed size buffer of size ::max_noalloc_path_len is an attempted solution. If the fixed
-/// size buffer is too small, and the provided allocator is null, ::error.NameTooLong is returned.
-/// otherwise if the fixed size buffer is too small, allocator is used to obtain the needed memory.
+pub const PosixOpenError = error {
+    OutOfMemory,
+    AccessDenied,
+    FileTooBig,
+    IsDir,
+    SymLinkLoop,
+    ProcessFdQuotaExceeded,
+    NameTooLong,
+    SystemFdQuotaExceeded,
+    NoDevice,
+    PathNotFound,
+    SystemResources,
+    NoSpaceLeft,
+    NotDir,
+    PathAlreadyExists,
+    Unexpected,
+};
+
+/// ::file_path needs to be copied in memory to add a null terminating byte.
 /// Calls POSIX open, keeps trying if it gets interrupted, and translates
 /// the return value into zig errors.
-pub fn posixOpen(file_path: []const u8, flags: u32, perm: usize, allocator: ?&Allocator) %i32 {
-    var stack_buf: [max_noalloc_path_len]u8 = undefined;
-    var path0: []u8 = undefined;
-    var need_free = false;
+pub fn posixOpen(allocator: &Allocator, file_path: []const u8, flags: u32, perm: usize) PosixOpenError!i32 {
+    const path_with_null = try cstr.addNullByte(allocator, file_path);
+    defer allocator.free(path_with_null);
 
-    if (file_path.len < stack_buf.len) {
-        path0 = stack_buf[0..file_path.len + 1];
-    } else if (allocator) |a| {
-        path0 = try a.alloc(u8, file_path.len + 1);
-        need_free = true;
-    } else {
-        return error.NameTooLong;
-    }
-    defer if (need_free) {
-        (??allocator).free(path0);
-    };
-    mem.copy(u8, path0, file_path);
-    path0[file_path.len] = 0;
+    return posixOpenC(path_with_null.ptr, flags, perm);
+}
 
+pub fn posixOpenC(file_path: &const u8, flags: u32, perm: usize) !i32 {
     while (true) {
-        const result = posix.open(path0.ptr, flags, perm);
+        const result = posix.open(file_path, flags, perm);
         const err = posix.getErrno(result);
         if (err > 0) {
-            return switch (err) {
+            switch (err) {
                 posix.EINTR => continue,
 
                 posix.EFAULT => unreachable,
                 posix.EINVAL => unreachable,
-                posix.EACCES => error.AccessDenied,
-                posix.EFBIG, posix.EOVERFLOW => error.FileTooBig,
-                posix.EISDIR => error.IsDir,
-                posix.ELOOP => error.SymLinkLoop,
-                posix.EMFILE => error.ProcessFdQuotaExceeded,
-                posix.ENAMETOOLONG => error.NameTooLong,
-                posix.ENFILE => error.SystemFdQuotaExceeded,
-                posix.ENODEV => error.NoDevice,
-                posix.ENOENT => error.PathNotFound,
-                posix.ENOMEM => error.SystemResources,
-                posix.ENOSPC => error.NoSpaceLeft,
-                posix.ENOTDIR => error.NotDir,
-                posix.EPERM => error.AccessDenied,
-                posix.EEXIST => error.PathAlreadyExists,
-                else => unexpectedErrorPosix(err),
-            };
+                posix.EACCES => return PosixOpenError.AccessDenied,
+                posix.EFBIG, posix.EOVERFLOW => return PosixOpenError.FileTooBig,
+                posix.EISDIR => return PosixOpenError.IsDir,
+                posix.ELOOP => return PosixOpenError.SymLinkLoop,
+                posix.EMFILE => return PosixOpenError.ProcessFdQuotaExceeded,
+                posix.ENAMETOOLONG => return PosixOpenError.NameTooLong,
+                posix.ENFILE => return PosixOpenError.SystemFdQuotaExceeded,
+                posix.ENODEV => return PosixOpenError.NoDevice,
+                posix.ENOENT => return PosixOpenError.PathNotFound,
+                posix.ENOMEM => return PosixOpenError.SystemResources,
+                posix.ENOSPC => return PosixOpenError.NoSpaceLeft,
+                posix.ENOTDIR => return PosixOpenError.NotDir,
+                posix.EPERM => return PosixOpenError.AccessDenied,
+                posix.EEXIST => return PosixOpenError.PathAlreadyExists,
+                else => return unexpectedErrorPosix(err),
+            }
         }
         return i32(result);
     }
 }
 
-pub fn posixDup2(old_fd: i32, new_fd: i32) %void {
+pub fn posixDup2(old_fd: i32, new_fd: i32) !void {
     while (true) {
         const err = posix.getErrno(posix.dup2(old_fd, new_fd));
         if (err > 0) {
@@ -307,7 +326,7 @@ pub fn posixDup2(old_fd: i32, new_fd: i32) %void {
     }
 }
 
-pub fn createNullDelimitedEnvMap(allocator: &Allocator, env_map: &const BufMap) %[]?&u8 {
+pub fn createNullDelimitedEnvMap(allocator: &Allocator, env_map: &const BufMap) ![]?&u8 {
     const envp_count = env_map.count();
     const envp_buf = try allocator.alloc(?&u8, envp_count + 1);
     mem.set(?&u8, envp_buf, null);
@@ -344,7 +363,7 @@ pub fn freeNullDelimitedEnvMap(allocator: &Allocator, envp_buf: []?&u8) void {
 /// `argv[0]` is the executable path.
 /// This function also uses the PATH environment variable to get the full path to the executable.
 pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap,
-    allocator: &Allocator) %void
+    allocator: &Allocator) !void
 {
     const argv_buf = try allocator.alloc(?&u8, argv.len + 1);
     mem.set(?&u8, argv_buf, null);
@@ -400,7 +419,19 @@ pub fn posixExecve(argv: []const []const u8, env_map: &const BufMap,
     return posixExecveErrnoToErr(err);
 }
 
-fn posixExecveErrnoToErr(err: usize) error {
+pub const PosixExecveError = error {
+    SystemResources,
+    AccessDenied,
+    InvalidExe,
+    FileSystem,
+    IsDir,
+    FileNotFound,
+    NotDir,
+    FileBusy,
+    Unexpected,
+};
+
+fn posixExecveErrnoToErr(err: usize) PosixExecveError {
     assert(err > 0);
     return switch (err) {
         posix.EFAULT => unreachable,
@@ -419,7 +450,7 @@ fn posixExecveErrnoToErr(err: usize) error {
 pub var posix_environ_raw: []&u8 = undefined;
 
 /// Caller must free result when done.
-pub fn getEnvMap(allocator: &Allocator) %BufMap {
+pub fn getEnvMap(allocator: &Allocator) !BufMap {
     var result = BufMap.init(allocator);
     errdefer result.deinit();
 
@@ -480,10 +511,8 @@ pub fn getEnvPosix(key: []const u8) ?[]const u8 {
     return null;
 }
 
-error EnvironmentVariableNotFound;
-
 /// Caller must free returned memory.
-pub fn getEnvVarOwned(allocator: &mem.Allocator, key: []const u8) %[]u8 {
+pub fn getEnvVarOwned(allocator: &mem.Allocator, key: []const u8) ![]u8 {
     if (is_windows) {
         const key_with_null = try cstr.addNullByte(allocator, key);
         defer allocator.free(key_with_null);
@@ -517,7 +546,7 @@ pub fn getEnvVarOwned(allocator: &mem.Allocator, key: []const u8) %[]u8 {
 }
 
 /// Caller must free the returned memory.
-pub fn getCwd(allocator: &Allocator) %[]u8 {
+pub fn getCwd(allocator: &Allocator) ![]u8 {
     switch (builtin.os) {
         Os.windows => {
             var buf = try allocator.alloc(u8, 256);
@@ -564,7 +593,9 @@ test "os.getCwd" {
     _ = getCwd(debug.global_allocator);
 }
 
-pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) %void {
+pub const SymLinkError = PosixSymLinkError || WindowsSymLinkError;
+
+pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) SymLinkError!void {
     if (is_windows) {
         return symLinkWindows(allocator, existing_path, new_path);
     } else {
@@ -572,7 +603,12 @@ pub fn symLink(allocator: &Allocator, existing_path: []const u8, new_path: []con
     }
 }
 
-pub fn symLinkWindows(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) %void {
+pub const WindowsSymLinkError = error {
+    OutOfMemory,
+    Unexpected,
+};
+
+pub fn symLinkWindows(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) WindowsSymLinkError!void {
     const existing_with_null = try cstr.addNullByte(allocator, existing_path);
     defer allocator.free(existing_with_null);
     const new_with_null = try cstr.addNullByte(allocator, new_path);
@@ -586,7 +622,23 @@ pub fn symLinkWindows(allocator: &Allocator, existing_path: []const u8, new_path
     }
 }
 
-pub fn symLinkPosix(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) %void {
+pub const PosixSymLinkError = error {
+    OutOfMemory,
+    AccessDenied,
+    DiskQuota,
+    PathAlreadyExists,
+    FileSystem,
+    SymLinkLoop,
+    NameTooLong,
+    FileNotFound,
+    SystemResources,
+    NoSpaceLeft,
+    ReadOnlyFileSystem,
+    NotDir,
+    Unexpected,
+};
+
+pub fn symLinkPosix(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) PosixSymLinkError!void {
     const full_buf = try allocator.alloc(u8, existing_path.len + new_path.len + 2);
     defer allocator.free(full_buf);
 
@@ -623,36 +675,36 @@ const b64_fs_encoder = base64.Base64Encoder.init(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_",
     base64.standard_pad_char);
 
-pub fn atomicSymLink(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) %void {
+pub fn atomicSymLink(allocator: &Allocator, existing_path: []const u8, new_path: []const u8) !void {
     if (symLink(allocator, existing_path, new_path)) {
         return;
-    } else |err| {
-        if (err != error.PathAlreadyExists) {
-            return err;
-        }
+    } else |err| switch (err) {
+        error.PathAlreadyExists => {},
+        else => return err, // TODO zig should know this set does not include PathAlreadyExists
     }
 
+    const dirname = os.path.dirname(new_path);
+
     var rand_buf: [12]u8 = undefined;
-    const tmp_path = try allocator.alloc(u8, new_path.len + base64.Base64Encoder.calcSize(rand_buf.len));
+    const tmp_path = try allocator.alloc(u8, dirname.len + 1 + base64.Base64Encoder.calcSize(rand_buf.len));
     defer allocator.free(tmp_path);
-    mem.copy(u8, tmp_path[0..], new_path);
+    mem.copy(u8, tmp_path[0..], dirname);
+    tmp_path[dirname.len] = os.path.sep;
     while (true) {
         try getRandomBytes(rand_buf[0..]);
-        b64_fs_encoder.encode(tmp_path[new_path.len..], rand_buf);
+        b64_fs_encoder.encode(tmp_path[dirname.len + 1 ..], rand_buf);
+
         if (symLink(allocator, existing_path, tmp_path)) {
             return rename(allocator, tmp_path, new_path);
-        } else |err| {
-            if (err == error.PathAlreadyExists) {
-                continue;
-            } else {
-                return err;
-            }
+        } else |err| switch (err) {
+            error.PathAlreadyExists => continue,
+            else => return err, // TODO zig should know this set does not include PathAlreadyExists
         }
     }
 
 }
 
-pub fn deleteFile(allocator: &Allocator, file_path: []const u8) %void {
+pub fn deleteFile(allocator: &Allocator, file_path: []const u8) !void {
     if (builtin.os == Os.windows) {
         return deleteFileWindows(allocator, file_path);
     } else {
@@ -660,10 +712,7 @@ pub fn deleteFile(allocator: &Allocator, file_path: []const u8) %void {
     }
 }
 
-error FileNotFound;
-error AccessDenied;
-
-pub fn deleteFileWindows(allocator: &Allocator, file_path: []const u8) %void {
+pub fn deleteFileWindows(allocator: &Allocator, file_path: []const u8) !void {
     const buf = try allocator.alloc(u8, file_path.len + 1);
     defer allocator.free(buf);
 
@@ -681,7 +730,7 @@ pub fn deleteFileWindows(allocator: &Allocator, file_path: []const u8) %void {
     }
 }
 
-pub fn deleteFilePosix(allocator: &Allocator, file_path: []const u8) %void {
+pub fn deleteFilePosix(allocator: &Allocator, file_path: []const u8) !void {
     const buf = try allocator.alloc(u8, file_path.len + 1);
     defer allocator.free(buf);
 
@@ -707,38 +756,109 @@ pub fn deleteFilePosix(allocator: &Allocator, file_path: []const u8) %void {
     }
 }
 
-/// Calls ::copyFileMode with 0o666 for the mode.
-pub fn copyFile(allocator: &Allocator, source_path: []const u8, dest_path: []const u8) %void {
-    return copyFileMode(allocator, source_path, dest_path, 0o666);
-}
-
-// TODO instead of accepting a mode argument, use the mode from fstat'ing the source path once open
-/// Guaranteed to be atomic.
-pub fn copyFileMode(allocator: &Allocator, source_path: []const u8, dest_path: []const u8, mode: usize) %void {
-    var rand_buf: [12]u8 = undefined;
-    const tmp_path = try allocator.alloc(u8, dest_path.len + base64.Base64Encoder.calcSize(rand_buf.len));
-    defer allocator.free(tmp_path);
-    mem.copy(u8, tmp_path[0..], dest_path);
-    try getRandomBytes(rand_buf[0..]);
-    b64_fs_encoder.encode(tmp_path[dest_path.len..], rand_buf);
-
-    var out_file = try io.File.openWriteMode(tmp_path, mode, allocator);
-    defer out_file.close();
-    errdefer _ = deleteFile(allocator, tmp_path);
-
-    var in_file = try io.File.openRead(source_path, allocator);
+/// Guaranteed to be atomic. However until https://patchwork.kernel.org/patch/9636735/ is
+/// merged and readily available,
+/// there is a possibility of power loss or application termination leaving temporary files present
+/// in the same directory as dest_path.
+/// Destination file will have the same mode as the source file.
+pub fn copyFile(allocator: &Allocator, source_path: []const u8, dest_path: []const u8) !void {
+    var in_file = try os.File.openRead(allocator, source_path);
     defer in_file.close();
+
+    const mode = try in_file.mode();
+
+    var atomic_file = try AtomicFile.init(allocator, dest_path, mode);
+    defer atomic_file.deinit();
 
     var buf: [page_size]u8 = undefined;
     while (true) {
         const amt = try in_file.read(buf[0..]);
-        try out_file.write(buf[0..amt]);
-        if (amt != buf.len)
-            return rename(allocator, tmp_path, dest_path);
+        try atomic_file.file.write(buf[0..amt]);
+        if (amt != buf.len) {
+            return atomic_file.finish();
+        }
     }
 }
 
-pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8) %void {
+/// Guaranteed to be atomic. However until https://patchwork.kernel.org/patch/9636735/ is
+/// merged and readily available,
+/// there is a possibility of power loss or application termination leaving temporary files present
+pub fn copyFileMode(allocator: &Allocator, source_path: []const u8, dest_path: []const u8, mode: FileMode) !void {
+    var in_file = try os.File.openRead(allocator, source_path);
+    defer in_file.close();
+
+    var atomic_file = try AtomicFile.init(allocator, dest_path, mode);
+    defer atomic_file.deinit();
+
+    var buf: [page_size]u8 = undefined;
+    while (true) {
+        const amt = try in_file.read(buf[0..]);
+        try atomic_file.file.write(buf[0..amt]);
+        if (amt != buf.len) {
+            return atomic_file.finish();
+        }
+    }
+}
+
+pub const AtomicFile = struct {
+    allocator: &Allocator,
+    file: os.File,
+    tmp_path: []u8,
+    dest_path: []const u8,
+    finished: bool,
+
+    /// dest_path must remain valid for the lifetime of AtomicFile
+    /// call finish to atomically replace dest_path with contents
+    pub fn init(allocator: &Allocator, dest_path: []const u8, mode: FileMode) !AtomicFile {
+        const dirname = os.path.dirname(dest_path);
+
+        var rand_buf: [12]u8 = undefined;
+        const tmp_path = try allocator.alloc(u8, dirname.len + 1 + base64.Base64Encoder.calcSize(rand_buf.len));
+        errdefer allocator.free(tmp_path);
+        mem.copy(u8, tmp_path[0..], dirname);
+        tmp_path[dirname.len] = os.path.sep;
+
+        while (true) {
+            try getRandomBytes(rand_buf[0..]);
+            b64_fs_encoder.encode(tmp_path[dirname.len + 1 ..], rand_buf);
+
+            const file = os.File.openWriteNoClobber(allocator, tmp_path, mode) catch |err| switch (err) {
+                error.PathAlreadyExists => continue,
+                // TODO zig should figure out that this error set does not include PathAlreadyExists since
+                // it is handled in the above switch
+                else => return err,
+            };
+
+            return AtomicFile {
+                .allocator = allocator,
+                .file = file,
+                .tmp_path = tmp_path,
+                .dest_path = dest_path,
+                .finished = false,
+            };
+        }
+    }
+
+    /// always call deinit, even after successful finish()
+    pub fn deinit(self: &AtomicFile) void {
+        if (!self.finished) {
+            self.file.close();
+            deleteFile(self.allocator, self.tmp_path) catch {};
+            self.allocator.free(self.tmp_path);
+            self.finished = true;
+        }
+    }
+
+    pub fn finish(self: &AtomicFile) !void {
+        assert(!self.finished);
+        self.file.close();
+        try rename(self.allocator, self.tmp_path, self.dest_path);
+        self.allocator.free(self.tmp_path);
+        self.finished = true;
+    }
+};
+
+pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8) !void {
     const full_buf = try allocator.alloc(u8, old_path.len + new_path.len + 2);
     defer allocator.free(full_buf);
 
@@ -783,7 +903,7 @@ pub fn rename(allocator: &Allocator, old_path: []const u8, new_path: []const u8)
     }
 }
 
-pub fn makeDir(allocator: &Allocator, dir_path: []const u8) %void {
+pub fn makeDir(allocator: &Allocator, dir_path: []const u8) !void {
     if (is_windows) {
         return makeDirWindows(allocator, dir_path);
     } else {
@@ -791,7 +911,7 @@ pub fn makeDir(allocator: &Allocator, dir_path: []const u8) %void {
     }
 }
 
-pub fn makeDirWindows(allocator: &Allocator, dir_path: []const u8) %void {
+pub fn makeDirWindows(allocator: &Allocator, dir_path: []const u8) !void {
     const path_buf = try cstr.addNullByte(allocator, dir_path);
     defer allocator.free(path_buf);
 
@@ -805,7 +925,7 @@ pub fn makeDirWindows(allocator: &Allocator, dir_path: []const u8) %void {
     }
 }
 
-pub fn makeDirPosix(allocator: &Allocator, dir_path: []const u8) %void {
+pub fn makeDirPosix(allocator: &Allocator, dir_path: []const u8) !void {
     const path_buf = try cstr.addNullByte(allocator, dir_path);
     defer allocator.free(path_buf);
 
@@ -831,7 +951,7 @@ pub fn makeDirPosix(allocator: &Allocator, dir_path: []const u8) %void {
 
 /// Calls makeDir recursively to make an entire path. Returns success if the path
 /// already exists and is a directory.
-pub fn makePath(allocator: &Allocator, full_path: []const u8) %void {
+pub fn makePath(allocator: &Allocator, full_path: []const u8) !void {
     const resolved_path = try path.resolve(allocator, full_path);
     defer allocator.free(resolved_path);
 
@@ -869,7 +989,7 @@ pub fn makePath(allocator: &Allocator, full_path: []const u8) %void {
 
 /// Returns ::error.DirNotEmpty if the directory is not empty.
 /// To delete a directory recursively, see ::deleteTree
-pub fn deleteDir(allocator: &Allocator, dir_path: []const u8) %void {
+pub fn deleteDir(allocator: &Allocator, dir_path: []const u8) !void {
     const path_buf = try allocator.alloc(u8, dir_path.len + 1);
     defer allocator.free(path_buf);
 
@@ -898,24 +1018,68 @@ pub fn deleteDir(allocator: &Allocator, dir_path: []const u8) %void {
 /// removes it. If it cannot be removed because it is a non-empty directory,
 /// this function recursively removes its entries and then tries again.
 // TODO non-recursive implementation
-pub fn deleteTree(allocator: &Allocator, full_path: []const u8) %void {
+const DeleteTreeError = error {
+    OutOfMemory,
+    AccessDenied,
+    FileTooBig,
+    IsDir,
+    SymLinkLoop,
+    ProcessFdQuotaExceeded,
+    NameTooLong,
+    SystemFdQuotaExceeded,
+    NoDevice,
+    PathNotFound,
+    SystemResources,
+    NoSpaceLeft,
+    PathAlreadyExists,
+    ReadOnlyFileSystem,
+    NotDir,
+    FileNotFound,
+    FileSystem,
+    FileBusy,
+    DirNotEmpty,
+    Unexpected,
+};
+pub fn deleteTree(allocator: &Allocator, full_path: []const u8) DeleteTreeError!void {
     start_over: while (true) {
         // First, try deleting the item as a file. This way we don't follow sym links.
         if (deleteFile(allocator, full_path)) {
             return;
-        } else |err| {
-            if (err == error.FileNotFound)
-                return;
-            if (err != error.IsDir)
-                return err;
+        } else |err| switch (err) {
+            error.FileNotFound => return,
+            error.IsDir => {},
+
+            error.OutOfMemory,
+            error.AccessDenied,
+            error.SymLinkLoop,
+            error.NameTooLong,
+            error.SystemResources,
+            error.ReadOnlyFileSystem,
+            error.NotDir,
+            error.FileSystem,
+            error.FileBusy,
+            error.Unexpected
+                => return err,
         }
         {
-            var dir = Dir.open(allocator, full_path) catch |err| {
-                if (err == error.FileNotFound)
-                    return;
-                if (err == error.NotDir)
-                    continue :start_over;
-                return err;
+            var dir = Dir.open(allocator, full_path) catch |err| switch (err) {
+                error.NotDir => continue :start_over,
+
+                error.OutOfMemory,
+                error.AccessDenied,
+                error.FileTooBig,
+                error.IsDir,
+                error.SymLinkLoop,
+                error.ProcessFdQuotaExceeded,
+                error.NameTooLong,
+                error.SystemFdQuotaExceeded,
+                error.NoDevice,
+                error.PathNotFound,
+                error.SystemResources,
+                error.NoSpaceLeft,
+                error.PathAlreadyExists,
+                error.Unexpected
+                    => return err,
             };
             defer dir.close();
 
@@ -967,8 +1131,8 @@ pub const Dir = struct {
         };
     };
 
-    pub fn open(allocator: &Allocator, dir_path: []const u8) %Dir {
-        const fd = try posixOpen(dir_path, posix.O_RDONLY|posix.O_DIRECTORY|posix.O_CLOEXEC, 0, allocator);
+    pub fn open(allocator: &Allocator, dir_path: []const u8) !Dir {
+        const fd = try posixOpen(allocator, dir_path, posix.O_RDONLY|posix.O_DIRECTORY|posix.O_CLOEXEC, 0);
         return Dir {
             .allocator = allocator,
             .fd = fd,
@@ -985,7 +1149,7 @@ pub const Dir = struct {
 
     /// Memory such as file names referenced in this returned entry becomes invalid
     /// with subsequent calls to next, as well as when this ::Dir is deinitialized.
-    pub fn next(self: &Dir) %?Entry {
+    pub fn next(self: &Dir) !?Entry {
         start_over: while (true) {
             if (self.index >= self.end_index) {
                 if (self.buf.len == 0) {
@@ -1042,7 +1206,7 @@ pub const Dir = struct {
     }
 };
 
-pub fn changeCurDir(allocator: &Allocator, dir_path: []const u8) %void {
+pub fn changeCurDir(allocator: &Allocator, dir_path: []const u8) !void {
     const path_buf = try allocator.alloc(u8, dir_path.len + 1);
     defer allocator.free(path_buf);
 
@@ -1066,7 +1230,7 @@ pub fn changeCurDir(allocator: &Allocator, dir_path: []const u8) %void {
 }
 
 /// Read value of a symbolic link.
-pub fn readLink(allocator: &Allocator, pathname: []const u8) %[]u8 {
+pub fn readLink(allocator: &Allocator, pathname: []const u8) ![]u8 {
     const path_buf = try allocator.alloc(u8, pathname.len + 1);
     defer allocator.free(path_buf);
 
@@ -1143,11 +1307,7 @@ test "os.sleep" {
     sleep(0, 1);
 }
 
-error ResourceLimitReached;
-error InvalidUserId;
-error PermissionDenied;
-
-pub fn posix_setuid(uid: u32) %void {
+pub fn posix_setuid(uid: u32) !void {
     const err = posix.getErrno(posix.setuid(uid));
     if (err == 0) return;
     return switch (err) {
@@ -1158,7 +1318,7 @@ pub fn posix_setuid(uid: u32) %void {
     };
 }
 
-pub fn posix_setreuid(ruid: u32, euid: u32) %void {
+pub fn posix_setreuid(ruid: u32, euid: u32) !void {
     const err = posix.getErrno(posix.setreuid(ruid, euid));
     if (err == 0) return;
     return switch (err) {
@@ -1169,7 +1329,7 @@ pub fn posix_setreuid(ruid: u32, euid: u32) %void {
     };
 }
 
-pub fn posix_setgid(gid: u32) %void {
+pub fn posix_setgid(gid: u32) !void {
     const err = posix.getErrno(posix.setgid(gid));
     if (err == 0) return;
     return switch (err) {
@@ -1180,7 +1340,7 @@ pub fn posix_setgid(gid: u32) %void {
     };
 }
 
-pub fn posix_setregid(rgid: u32, egid: u32) %void {
+pub fn posix_setregid(rgid: u32, egid: u32) !void {
     const err = posix.getErrno(posix.setregid(rgid, egid));
     if (err == 0) return;
     return switch (err) {
@@ -1191,8 +1351,12 @@ pub fn posix_setregid(rgid: u32, egid: u32) %void {
     };
 }
 
-error NoStdHandles;
-pub fn windowsGetStdHandle(handle_id: windows.DWORD) %windows.HANDLE {
+pub const WindowsGetStdHandleErrs = error {
+    NoStdHandles,
+    Unexpected,
+};
+
+pub fn windowsGetStdHandle(handle_id: windows.DWORD) WindowsGetStdHandleErrs!windows.HANDLE {
     if (windows.GetStdHandle(handle_id)) |handle| {
         if (handle == windows.INVALID_HANDLE_VALUE) {
             const err = windows.GetLastError();
@@ -1246,6 +1410,8 @@ pub const ArgIteratorWindows = struct {
     quote_count: usize,
     seen_quote_count: usize,
 
+    pub const NextError = error{OutOfMemory};
+
     pub fn init() ArgIteratorWindows {
         return initWithCmdLine(windows.GetCommandLineA());
     }
@@ -1261,7 +1427,7 @@ pub const ArgIteratorWindows = struct {
     }
 
     /// You must free the returned memory when done.
-    pub fn next(self: &ArgIteratorWindows, allocator: &Allocator) ?%[]u8 {
+    pub fn next(self: &ArgIteratorWindows, allocator: &Allocator) ?(NextError![]u8) {
         // march forward over whitespace
         while (true) : (self.index += 1) {
             const byte = self.cmd_line[self.index];
@@ -1314,7 +1480,7 @@ pub const ArgIteratorWindows = struct {
         }
     }
 
-    fn internalNext(self: &ArgIteratorWindows, allocator: &Allocator) %[]u8 {
+    fn internalNext(self: &ArgIteratorWindows, allocator: &Allocator) NextError![]u8 {
         var buf = try Buffer.initSize(allocator, 0);
         defer buf.deinit();
 
@@ -1358,7 +1524,7 @@ pub const ArgIteratorWindows = struct {
         }
     }
 
-    fn emitBackslashes(self: &ArgIteratorWindows, buf: &Buffer, emit_count: usize) %void {
+    fn emitBackslashes(self: &ArgIteratorWindows, buf: &Buffer, emit_count: usize) !void {
         var i: usize = 0;
         while (i < emit_count) : (i += 1) {
             try buf.appendByte('\\');
@@ -1388,16 +1554,20 @@ pub const ArgIteratorWindows = struct {
 };
 
 pub const ArgIterator = struct {
-    inner: if (builtin.os == Os.windows) ArgIteratorWindows else ArgIteratorPosix,
+    const InnerType = if (builtin.os == Os.windows) ArgIteratorWindows else ArgIteratorPosix;
+
+    inner: InnerType,
 
     pub fn init() ArgIterator {
         return ArgIterator {
-            .inner = if (builtin.os == Os.windows) ArgIteratorWindows.init() else ArgIteratorPosix.init(),
+            .inner = InnerType.init(),
         };
     }
+
+    pub const NextError = ArgIteratorWindows.NextError;
     
     /// You must free the returned memory when done.
-    pub fn next(self: &ArgIterator, allocator: &Allocator) ?%[]u8 {
+    pub fn next(self: &ArgIterator, allocator: &Allocator) ?(NextError![]u8) {
         if (builtin.os == Os.windows) {
             return self.inner.next(allocator);
         } else {
@@ -1422,7 +1592,7 @@ pub fn args() ArgIterator {
 }
 
 /// Caller must call freeArgs on result.
-pub fn argsAlloc(allocator: &mem.Allocator) %[]const []u8 {
+pub fn argsAlloc(allocator: &mem.Allocator) ![]const []u8 {
     // TODO refactor to only make 1 allocation.
     var it = args();
     var contents = try Buffer.initSize(allocator, 0);
@@ -1495,23 +1665,21 @@ test "std.os" {
     _ = @import("darwin_errno.zig");
     _ = @import("darwin.zig");
     _ = @import("get_user_id.zig");
-    _ = @import("linux_errno.zig");
+    _ = @import("linux/errno.zig");
     //_ = @import("linux_i386.zig");
-    _ = @import("linux_x86_64.zig");
-    _ = @import("linux.zig");
+    _ = @import("linux/x86_64.zig");
+    _ = @import("linux/index.zig");
     _ = @import("path.zig");
     _ = @import("windows/index.zig");
 }
 
-
-error Unexpected;
 
 // TODO make this a build variable that you can set
 const unexpected_error_tracing = false;
 
 /// Call this when you made a syscall or something that sets errno
 /// and you get an unexpected error.
-pub fn unexpectedErrorPosix(errno: usize) error {
+pub fn unexpectedErrorPosix(errno: usize) (error{Unexpected}) {
     if (unexpected_error_tracing) {
         debug.warn("unexpected errno: {}\n", errno);
         debug.dumpStackTrace();
@@ -1521,7 +1689,7 @@ pub fn unexpectedErrorPosix(errno: usize) error {
 
 /// Call this when you made a windows DLL call or something that does SetLastError
 /// and you get an unexpected error.
-pub fn unexpectedErrorWindows(err: windows.DWORD) error {
+pub fn unexpectedErrorWindows(err: windows.DWORD) (error{Unexpected}) {
     if (unexpected_error_tracing) {
         debug.warn("unexpected GetLastError(): {}\n", err);
         debug.dumpStackTrace();
@@ -1529,15 +1697,28 @@ pub fn unexpectedErrorWindows(err: windows.DWORD) error {
     return error.Unexpected;
 }
 
-pub fn openSelfExe() %io.File {
+pub fn openSelfExe() !os.File {
     switch (builtin.os) {
         Os.linux => {
-            return io.File.openRead("/proc/self/exe", null);
+            const proc_file_path = "/proc/self/exe";
+            var fixed_buffer_mem: [proc_file_path.len + 1]u8 = undefined;
+            var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+            return os.File.openRead(&fixed_allocator.allocator, proc_file_path);
         },
         Os.macosx, Os.ios => {
-            @panic("TODO: openSelfExe on Darwin");
+            var fixed_buffer_mem: [darwin.PATH_MAX * 2]u8 = undefined;
+            var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+            const self_exe_path = try selfExePath(&fixed_allocator.allocator);
+            return os.File.openRead(&fixed_allocator.allocator, self_exe_path);
         },
         else => @compileError("Unsupported OS"),
+    }
+}
+
+test "openSelfExe" {
+    switch (builtin.os) {
+        Os.linux, Os.macosx, Os.ios => (try openSelfExe()).close(),
+        else => return,  // Unsupported OS.
     }
 }
 
@@ -1547,7 +1728,7 @@ pub fn openSelfExe() %io.File {
 /// This function may return an error if the current executable
 /// was deleted after spawning.
 /// Caller owns returned memory.
-pub fn selfExePath(allocator: &mem.Allocator) %[]u8 {
+pub fn selfExePath(allocator: &mem.Allocator) ![]u8 {
     switch (builtin.os) {
         Os.linux => {
             // If the currently executing binary has been deleted,
@@ -1590,7 +1771,7 @@ pub fn selfExePath(allocator: &mem.Allocator) %[]u8 {
 
 /// Get the directory path that contains the current executable.
 /// Caller owns returned memory.
-pub fn selfExeDirPath(allocator: &mem.Allocator) %[]u8 {
+pub fn selfExeDirPath(allocator: &mem.Allocator) ![]u8 {
     switch (builtin.os) {
         Os.linux => {
             // If the currently executing binary has been deleted,

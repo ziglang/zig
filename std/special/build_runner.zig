@@ -1,5 +1,6 @@
 const root = @import("@build");
 const std = @import("std");
+const builtin = @import("builtin");
 const io = std.io;
 const fmt = std.fmt;
 const os = std.os;
@@ -8,16 +9,20 @@ const mem = std.mem;
 const ArrayList = std.ArrayList;
 const warn = std.debug.warn;
 
-error InvalidArgs;
-
-pub fn main() %void {
+pub fn main() !void {
     var arg_it = os.args();
 
-    // TODO use a more general purpose allocator here
-    var inc_allocator = try std.heap.IncrementingAllocator.init(40 * 1024 * 1024);
-    defer inc_allocator.deinit();
+    // Here we use an ArenaAllocator backed by a DirectAllocator because a build is a short-lived,
+    // one shot program. We don't need to waste time freeing memory and finding places to squish
+    // bytes into. So we free everything all at once at the very end.
 
-    const allocator = &inc_allocator.allocator;
+    var direct_allocator = std.heap.DirectAllocator.init();
+    defer direct_allocator.deinit();
+
+    var arena = std.heap.ArenaAllocator.init(&direct_allocator.allocator);
+    defer arena.deinit();
+
+    const allocator = &arena.allocator;
 
 
     // skip my own exe name
@@ -45,14 +50,14 @@ pub fn main() %void {
 
     var stderr_file = io.getStdErr();
     var stderr_file_stream: io.FileOutStream = undefined;
-    var stderr_stream: %&io.OutStream = if (stderr_file) |*f| x: {
+    var stderr_stream = if (stderr_file) |*f| x: {
         stderr_file_stream = io.FileOutStream.init(f);
         break :x &stderr_file_stream.stream;
     } else |err| err;
 
     var stdout_file = io.getStdOut();
     var stdout_file_stream: io.FileOutStream = undefined;
-    var stdout_stream: %&io.OutStream = if (stdout_file) |*f| x: {
+    var stdout_stream = if (stdout_file) |*f| x: {
         stdout_file_stream = io.FileOutStream.init(f);
         break :x &stdout_file_stream.stream;
     } else |err| err;
@@ -112,7 +117,7 @@ pub fn main() %void {
     }
 
     builder.setInstallPrefix(prefix);
-    try root.build(&builder);
+    try runBuild(&builder);
 
     if (builder.validateUserInputDidItFail())
         return usageAndErr(&builder, true, try stderr_stream);
@@ -125,11 +130,19 @@ pub fn main() %void {
     };
 }
 
-fn usage(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) %void {
+fn runBuild(builder: &Builder) error!void {
+    switch (@typeId(@typeOf(root.build).ReturnType)) {
+        builtin.TypeId.Void => root.build(builder),
+        builtin.TypeId.ErrorUnion => try root.build(builder),
+        else => @compileError("expected return type of build to be 'void' or '!void'"),
+    }
+}
+
+fn usage(builder: &Builder, already_ran_build: bool, out_stream: var) !void {
     // run the build script to collect the options
     if (!already_ran_build) {
         builder.setInstallPrefix(null);
-        try root.build(builder);
+        try runBuild(builder);
     }
 
     // This usage text has to be synchronized with src/main.cpp
@@ -149,6 +162,7 @@ fn usage(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) 
         \\
         \\General Options:
         \\  --help                 Print this help and exit
+        \\  --init                 Generate a build.zig template
         \\  --verbose              Print commands before executing them
         \\  --prefix [path]        Override default install prefix
         \\  --search-prefix [path] Add a path to look for binaries, libraries, headers
@@ -183,12 +197,14 @@ fn usage(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) 
     );
 }
 
-fn usageAndErr(builder: &Builder, already_ran_build: bool, out_stream: &io.OutStream) error {
+fn usageAndErr(builder: &Builder, already_ran_build: bool, out_stream: var) error {
     usage(builder, already_ran_build, out_stream) catch {};
     return error.InvalidArgs;
 }
 
-fn unwrapArg(arg: %[]u8) %[]u8 {
+const UnwrapArgError = error {OutOfMemory};
+
+fn unwrapArg(arg: UnwrapArgError![]u8) UnwrapArgError![]u8 {
     return arg catch |err| {
         warn("Unable to parse command line: {}\n", err);
         return err;

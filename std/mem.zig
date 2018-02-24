@@ -4,13 +4,13 @@ const assert = debug.assert;
 const math = std.math;
 const builtin = @import("builtin");
 
-error OutOfMemory;
-
 pub const Allocator = struct {
+    const Error = error {OutOfMemory};
+
     /// Allocate byte_count bytes and return them in a slice, with the
     /// slice's pointer aligned at least to alignment bytes.
     /// The returned newly allocated memory is undefined.
-    allocFn: fn (self: &Allocator, byte_count: usize, alignment: u29) %[]u8,
+    allocFn: fn (self: &Allocator, byte_count: usize, alignment: u29) Error![]u8,
 
     /// If `new_byte_count > old_mem.len`:
     /// * `old_mem.len` is the same as what was returned from allocFn or reallocFn.
@@ -21,12 +21,12 @@ pub const Allocator = struct {
     /// * alignment <= alignment of old_mem.ptr
     ///
     /// The returned newly allocated memory is undefined.
-    reallocFn: fn (self: &Allocator, old_mem: []u8, new_byte_count: usize, alignment: u29) %[]u8,
+    reallocFn: fn (self: &Allocator, old_mem: []u8, new_byte_count: usize, alignment: u29) Error![]u8,
 
     /// Guaranteed: `old_mem.len` is the same as what was returned from `allocFn` or `reallocFn`
     freeFn: fn (self: &Allocator, old_mem: []u8) void,
 
-    fn create(self: &Allocator, comptime T: type) %&T {
+    fn create(self: &Allocator, comptime T: type) !&T {
         const slice = try self.alloc(T, 1);
         return &slice[0];
     }
@@ -35,15 +35,19 @@ pub const Allocator = struct {
         self.free(ptr[0..1]);
     }
 
-    fn alloc(self: &Allocator, comptime T: type, n: usize) %[]T {
+    fn alloc(self: &Allocator, comptime T: type, n: usize) ![]T {
         return self.alignedAlloc(T, @alignOf(T), n);
     }
 
     fn alignedAlloc(self: &Allocator, comptime T: type, comptime alignment: u29,
-        n: usize) %[]align(alignment) T
+        n: usize) ![]align(alignment) T
     {
-        const byte_count = try math.mul(usize, @sizeOf(T), n);
+        if (n == 0) {
+            return (&align(alignment) T)(undefined)[0..0];
+        }
+        const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
         const byte_slice = try self.allocFn(self, byte_count, alignment);
+        assert(byte_slice.len == byte_count);
         // This loop should get optimized out in ReleaseFast mode
         for (byte_slice) |*byte| {
             *byte = undefined;
@@ -51,23 +55,30 @@ pub const Allocator = struct {
         return ([]align(alignment) T)(@alignCast(alignment, byte_slice));
     }
 
-    fn realloc(self: &Allocator, comptime T: type, old_mem: []T, n: usize) %[]T {
+    fn realloc(self: &Allocator, comptime T: type, old_mem: []T, n: usize) ![]T {
         return self.alignedRealloc(T, @alignOf(T), @alignCast(@alignOf(T), old_mem), n);
     }
 
     fn alignedRealloc(self: &Allocator, comptime T: type, comptime alignment: u29,
-        old_mem: []align(alignment) T, n: usize) %[]align(alignment) T
+        old_mem: []align(alignment) T, n: usize) ![]align(alignment) T
     {
         if (old_mem.len == 0) {
             return self.alloc(T, n);
         }
+        if (n == 0) {
+            self.free(old_mem);
+            return (&align(alignment) T)(undefined)[0..0];
+        }
 
         const old_byte_slice = ([]u8)(old_mem);
-        const byte_count = try math.mul(usize, @sizeOf(T), n);
+        const byte_count = math.mul(usize, @sizeOf(T), n) catch return Error.OutOfMemory;
         const byte_slice = try self.reallocFn(self, old_byte_slice, byte_count, alignment);
-        // This loop should get optimized out in ReleaseFast mode
-        for (byte_slice[old_byte_slice.len..]) |*byte| {
-            *byte = undefined;
+        assert(byte_slice.len == byte_count);
+        if (n > old_mem.len) {
+            // This loop should get optimized out in ReleaseFast mode
+            for (byte_slice[old_byte_slice.len..]) |*byte| {
+                *byte = undefined;
+            }
         }
         return ([]T)(@alignCast(alignment, byte_slice));
     }
@@ -94,6 +105,7 @@ pub const Allocator = struct {
         const byte_count = @sizeOf(T) * n;
 
         const byte_slice = self.reallocFn(self, ([]u8)(old_mem), byte_count, alignment) catch unreachable;
+        assert(byte_slice.len == byte_count);
         return ([]align(alignment) T)(@alignCast(alignment, byte_slice));
     }
 
@@ -105,52 +117,6 @@ pub const Allocator = struct {
         self.freeFn(self, non_const_ptr[0..bytes.len]);
     }
 };
-
-pub const FixedBufferAllocator = struct {
-    allocator: Allocator,
-    end_index: usize,
-    buffer: []u8,
-
-    pub fn init(buffer: []u8) FixedBufferAllocator {
-        return FixedBufferAllocator {
-            .allocator = Allocator {
-                .allocFn = alloc,
-                .reallocFn = realloc,
-                .freeFn = free,
-            },
-            .buffer = buffer,
-            .end_index = 0,
-        };
-    }
-
-    fn alloc(allocator: &Allocator, n: usize, alignment: u29) %[]u8 {
-        const self = @fieldParentPtr(FixedBufferAllocator, "allocator", allocator);
-        const addr = @ptrToInt(&self.buffer[self.end_index]);
-        const rem = @rem(addr, alignment);
-        const march_forward_bytes = if (rem == 0) 0 else (alignment - rem);
-        const adjusted_index = self.end_index + march_forward_bytes;
-        const new_end_index = adjusted_index + n;
-        if (new_end_index > self.buffer.len) {
-            return error.OutOfMemory;
-        }
-        const result = self.buffer[adjusted_index .. new_end_index];
-        self.end_index = new_end_index;
-        return result;
-    }
-
-    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) %[]u8 {
-        if (new_size <= old_mem.len) {
-            return old_mem[0..new_size];
-        } else {
-            const result = try alloc(allocator, new_size, alignment);
-            copy(u8, result, old_mem);
-            return result;
-        }
-    }
-
-    fn free(allocator: &Allocator, bytes: []u8) void { }
-};
-
 
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
@@ -197,7 +163,7 @@ pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
 }
 
 /// Copies ::m to newly allocated memory. Caller is responsible to free it.
-pub fn dupe(allocator: &Allocator, comptime T: type, m: []const T) %[]T {
+pub fn dupe(allocator: &Allocator, comptime T: type, m: []const T) ![]T {
     const new_buf = try allocator.alloc(T, m.len);
     copy(T, new_buf, m);
     return new_buf;
@@ -428,7 +394,7 @@ const SplitIterator = struct {
 
 /// Naively combines a series of strings with a separator.
 /// Allocates memory for the result, which must be freed by the caller.
-pub fn join(allocator: &Allocator, sep: u8, strings: ...) %[]u8 {
+pub fn join(allocator: &Allocator, sep: u8, strings: ...) ![]u8 {
     comptime assert(strings.len >= 1);
     var total_strings_len: usize = strings.len; // 1 sep per string
     {

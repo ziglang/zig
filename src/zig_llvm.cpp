@@ -43,30 +43,7 @@
 
 #include <stdlib.h>
 
-#if defined(_MSC_VER)
-#define ATTRIBUTE_RETURNS_NOALIAS __declspec(restrict)
-#else
-#define ATTRIBUTE_RETURNS_NOALIAS __attribute__((__malloc__))
-#endif
-
 using namespace llvm;
-
-template<typename T, typename... Args>
-ATTRIBUTE_RETURNS_NOALIAS static inline T * create(Args... args) {
-    T * ptr = reinterpret_cast<T*>(malloc(sizeof(T)));
-    if (ptr == nullptr)
-        return nullptr;
-    new (ptr) T(args...);
-    return ptr;
-}
-
-template<typename T>
-static inline void destroy(T * ptr) {
-    if (ptr != nullptr) {
-        ptr[0].~T();
-    }
-    free(ptr);
-}
 
 void ZigLLVMInitializeLoopStrengthReducePass(LLVMPassRegistryRef R) {
     initializeLoopStrengthReducePass(*unwrap(R));
@@ -116,7 +93,11 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
 
     Module* module = unwrap(module_ref);
 
-    PassManagerBuilder *PMBuilder = create<PassManagerBuilder>();
+    PassManagerBuilder *PMBuilder = new(std::nothrow) PassManagerBuilder();
+    if (PMBuilder == nullptr) {
+        *error_message = strdup("memory allocation failure");
+        return true;
+    }
     PMBuilder->OptLevel = target_machine->getOptLevel();
     PMBuilder->SizeLevel = 0;
 
@@ -150,7 +131,8 @@ bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMM
 
     // Set up the per-function pass manager.
     legacy::FunctionPassManager FPM = legacy::FunctionPassManager(module);
-    FPM.add(create<TargetLibraryInfoWrapperPass>(tlii));
+    auto tliwp = new(std::nothrow) TargetLibraryInfoWrapperPass(tlii);
+    FPM.add(tliwp);
     FPM.add(createTargetTransformInfoWrapperPass(target_machine->getTargetIRAnalysis()));
     if (assertions_on) {
         FPM.add(createVerifierPass());
@@ -437,15 +419,18 @@ unsigned ZigLLVMTag_DW_structure_type(void) {
     return dwarf::DW_TAG_structure_type;
 }
 
+unsigned ZigLLVMTag_DW_enumeration_type(void) {
+    return dwarf::DW_TAG_enumeration_type;
+}
+
 unsigned ZigLLVMTag_DW_union_type(void) {
     return dwarf::DW_TAG_union_type;
 }
 
 ZigLLVMDIBuilder *ZigLLVMCreateDIBuilder(LLVMModuleRef module, bool allow_unresolved) {
-    DIBuilder *di_builder = reinterpret_cast<DIBuilder*>(malloc(sizeof(DIBuilder)));
+    DIBuilder *di_builder = new(std::nothrow) DIBuilder(*unwrap(module), allow_unresolved);
     if (di_builder == nullptr)
         return nullptr;
-    new (di_builder) DIBuilder(*unwrap(module), allow_unresolved);
     return reinterpret_cast<ZigLLVMDIBuilder *>(di_builder);
 }
 

@@ -77,7 +77,7 @@ fn callMain() u8 {
         },
         builtin.TypeId.Int => {
             if (@typeOf(root.main).ReturnType.bit_count != 8) {
-                @compileError("expected return type of main to be 'u8', 'noreturn', 'void', or '%void'");
+                @compileError("expected return type of main to be 'u8', 'noreturn', 'void', or '!void'");
             }
             return root.main();
         },
@@ -91,6 +91,6 @@ fn callMain() u8 {
             };
             return 0;
         },
-        else => @compileError("expected return type of main to be 'u8', 'noreturn', 'void', or '%void'"),
+        else => @compileError("expected return type of main to be 'u8', 'noreturn', 'void', or '!void'"),
     }
 }

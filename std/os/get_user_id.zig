@@ -9,7 +9,7 @@ pub const UserInfo = struct {
 };
 
 /// POSIX function which gets a uid from username.
-pub fn getUserInfo(name: []const u8) %UserInfo {
+pub fn getUserInfo(name: []const u8) !UserInfo {
     return switch (builtin.os) {
         Os.linux, Os.macosx, Os.ios => posixGetUserInfo(name),
         else => @compileError("Unsupported OS"),
@@ -24,13 +24,10 @@ const State = enum {
     ReadGroupId,
 };
 
-error UserNotFound;
-error CorruptPasswordFile;
-
 // TODO this reads /etc/passwd. But sometimes the user/id mapping is in something else
 // like NIS, AD, etc. See `man nss` or look at an strace for `id myuser`.
 
-pub fn posixGetUserInfo(name: []const u8) %UserInfo {
+pub fn posixGetUserInfo(name: []const u8) !UserInfo {
     var in_stream = try io.InStream.open("/etc/passwd", null);
     defer in_stream.close();
 

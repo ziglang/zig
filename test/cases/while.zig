@@ -50,7 +50,7 @@ fn runContinueAndBreakTest() void {
 test "return with implicit cast from while loop" {
     returnWithImplicitCastFromWhileLoopTest() catch unreachable;
 }
-fn returnWithImplicitCastFromWhileLoopTest() %void {
+fn returnWithImplicitCastFromWhileLoopTest() error!void {
     while (true) {
         return;
     }
@@ -116,8 +116,7 @@ test "while with error union condition" {
 }
 
 var numbers_left: i32 = undefined;
-error OutOfNumbers;
-fn getNumberOrErr() %i32 {
+fn getNumberOrErr() error!i32 {
     return if (numbers_left == 0)
         error.OutOfNumbers
     else x: {
@@ -205,8 +204,7 @@ fn testContinueOuter() void {
 
 fn returnNull() ?i32 { return null; }
 fn returnMaybe(x: i32) ?i32 { return x; }
-error YouWantedAnError;
-fn returnError() %i32 { return error.YouWantedAnError; }
-fn returnSuccess(x: i32) %i32 { return x; }
+fn returnError() error!i32 { return error.YouWantedAnError; }
+fn returnSuccess(x: i32) error!i32 { return x; }
 fn returnFalse() bool { return false; }
 fn returnTrue() bool { return true; }

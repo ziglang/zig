@@ -66,6 +66,7 @@ static int usage(const char *arg0) {
         "  --msvc-lib-dir [path]        (windows) directory where vcruntime.lib resides\n"
         "  --kernel32-lib-dir [path]    (windows) directory where kernel32.lib resides\n"
         "  --library [lib]              link against lib\n"
+        "  --forbid-library [lib]       make it an error to link against lib\n"
         "  --library-path [dir]         add a directory to the library search path\n"
         "  --linker-script [path]       use a custom linker script\n"
         "  --object [obj]               add object file to build\n"
@@ -309,6 +310,7 @@ int main(int argc, char **argv) {
     ZigList<const char *> llvm_argv = {0};
     ZigList<const char *> lib_dirs = {0};
     ZigList<const char *> link_libs = {0};
+    ZigList<const char *> forbidden_link_libs = {0};
     ZigList<const char *> frameworks = {0};
     int err;
     const char *target_arch = nullptr;
@@ -339,6 +341,7 @@ int main(int argc, char **argv) {
         const char *zig_exe_path = arg0;
         const char *build_file = "build.zig";
         bool asked_for_help = false;
+        bool asked_to_init = false;
 
         init_all_targets();
 
@@ -349,6 +352,9 @@ int main(int argc, char **argv) {
         for (int i = 2; i < argc; i += 1) {
             if (strcmp(argv[i], "--help") == 0) {
                 asked_for_help = true;
+                args.append(argv[i]);
+            } else if (strcmp(argv[i], "--init") == 0) {
+                asked_to_init = true;
                 args.append(argv[i]);
             } else if (i + 1 < argc && strcmp(argv[i], "--build-file") == 0) {
                 build_file = argv[i + 1];
@@ -414,6 +420,7 @@ int main(int argc, char **argv) {
                         "\n"
                         "General Options:\n"
                         "  --help                 Print this help and exit\n"
+                        "  --init                 Generate a build.zig template\n"
                         "  --build-file [file]    Override path to build.zig\n"
                         "  --cache-dir [path]     Override path to cache directory\n"
                         "  --verbose              Print commands before executing them\n"
@@ -426,7 +433,6 @@ int main(int argc, char **argv) {
                         "  --prefix [path]        Override default install prefix\n"
                         "\n"
                         "Project-specific options become available when the build file is found.\n"
-                        "Run this command with no options to generate a build.zig template.\n"
                         "\n"
                         "Advanced Options:\n"
                         "  --build-file [file]    Override path to build.zig\n"
@@ -439,17 +445,26 @@ int main(int argc, char **argv) {
                         "  --verbose-cimport      Enable compiler debug output for C imports\n"
                         "\n"
                 , zig_exe_path);
-                return 0;
-            }
-            Buf *build_template_path = buf_alloc();
-            os_path_join(special_dir, buf_create_from_str("build_file_template.zig"), build_template_path);
+                return EXIT_SUCCESS;
+            } else if (asked_to_init) {
+                Buf *build_template_path = buf_alloc();
+                os_path_join(special_dir, buf_create_from_str("build_file_template.zig"), build_template_path);
 
-            if ((err = os_copy_file(build_template_path, &build_file_abs))) {
-                fprintf(stderr, "Unable to write build.zig template: %s\n", err_str(err));
-            } else {
-                fprintf(stderr, "Wrote build.zig template\n");
+                if ((err = os_copy_file(build_template_path, &build_file_abs))) {
+                    fprintf(stderr, "Unable to write build.zig template: %s\n", err_str(err));
+                } else {
+                    fprintf(stderr, "Wrote build.zig template\n");
+                }
+                return EXIT_SUCCESS;
             }
-            return 1;
+
+            fprintf(stderr,
+                    "No 'build.zig' file found.\n"
+                    "Initialize a 'build.zig' template file with `zig build --init`,\n"
+                    "or build an executable directly with `zig build-exe $FILENAME.zig`.\n"
+                    "See: `zig build --help` or `zig help` for more options.\n"
+                   );
+            return EXIT_FAILURE;
         }
 
         PackageTableEntry *build_pkg = codegen_create_package(g, buf_ptr(&build_file_dirname),
@@ -592,6 +607,8 @@ int main(int argc, char **argv) {
                     lib_dirs.append(argv[i]);
                 } else if (strcmp(arg, "--library") == 0) {
                     link_libs.append(argv[i]);
+                } else if (strcmp(arg, "--forbid-library") == 0) {
+                    forbidden_link_libs.append(argv[i]);
                 } else if (strcmp(arg, "--object") == 0) {
                     objects.append(argv[i]);
                 } else if (strcmp(arg, "--assembly") == 0) {
@@ -803,6 +820,10 @@ int main(int argc, char **argv) {
             for (size_t i = 0; i < link_libs.length; i += 1) {
                 LinkLib *link_lib = codegen_add_link_lib(g, buf_create_from_str(link_libs.at(i)));
                 link_lib->provided_explicitly = true;
+            }
+            for (size_t i = 0; i < forbidden_link_libs.length; i += 1) {
+                Buf *forbidden_link_lib = buf_create_from_str(forbidden_link_libs.at(i));
+                codegen_add_forbidden_lib(g, forbidden_link_lib);
             }
             for (size_t i = 0; i < frameworks.length; i += 1) {
                 codegen_add_framework(g, frameworks.at(i));
