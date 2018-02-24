@@ -107,6 +107,11 @@ pub const Rand = struct {
         }
     }
 
+    pub fn choose(r: &Rand, comptime T: type, choices: []const T) T {
+        const ix = r.range(usize, 0, choices.len);
+        return choices[ix];
+    }
+
     /// Get a floating point value in the range 0.0..1.0.
     pub fn float(r: &Rand, comptime T: type) T {
         // TODO Implement this way instead:

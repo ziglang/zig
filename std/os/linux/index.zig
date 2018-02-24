@@ -114,6 +114,30 @@ pub const O_PATH = arch.O_PATH;
 pub const O_TMPFILE = arch.O_TMPFILE;
 pub const O_NDELAY = arch.O_NDELAY;
 
+pub const F_DUPFD = arch.F_DUPFD;
+pub const F_GETFD = arch.F_GETFD;
+pub const F_SETFD = arch.F_SETFD;
+pub const F_GETFL = arch.F_GETFL;
+pub const F_SETFL = arch.F_SETFL;
+
+pub const F_SETOWN = arch.F_SETOWN;
+pub const F_GETOWN = arch.F_GETOWN;
+pub const F_SETSIG = arch.F_SETSIG;
+pub const F_GETSIG = arch.F_GETSIG;
+
+pub const F_GETLK = arch.F_GETLK;
+pub const F_SETLK = arch.F_SETLK;
+pub const F_SETLKW = arch.F_SETLKW;
+
+pub const F_SETOWN_EX = arch.F_SETOWN_EX;
+pub const F_GETOWN_EX = arch.F_GETOWN_EX;
+
+pub const F_GETOWNER_UIDS = arch.F_GETOWNER_UIDS;
+
+pub const SOL_SOCKET = arch.SOL_SOCKET;
+
+pub const SO_REUSEADDR = arch.SO_REUSEADDR;
+
 pub const SEEK_SET = 0;
 pub const SEEK_CUR = 1;
 pub const SEEK_END = 2;
@@ -370,6 +394,10 @@ pub const TFD_CLOEXEC = O_CLOEXEC;
 pub const TFD_TIMER_ABSTIME = 1;
 pub const TFD_TIMER_CANCEL_ON_SET = (1 << 1);
 
+pub const EFD_SEMAPHORE = 1;
+pub const EFD_CLOEXEC = O_CLOEXEC;
+pub const EFD_NONBLOCK = O_NONBLOCK;
+
 fn unsigned(s: i32) u32 { return @bitCast(u32, s); }
 fn signed(s: u32) i32 { return @bitCast(i32, s); }
 pub fn WEXITSTATUS(s: i32) i32 { return signed((unsigned(s) & 0xff00) >> 8); }
@@ -378,7 +406,6 @@ pub fn WSTOPSIG(s: i32) i32 { return WEXITSTATUS(s); }
 pub fn WIFEXITED(s: i32) bool { return WTERMSIG(s) == 0; }
 pub fn WIFSTOPPED(s: i32) bool { return (u16)(((unsigned(s)&0xffff)*%0x10001)>>8) > 0x7f00; }
 pub fn WIFSIGNALED(s: i32) bool { return (unsigned(s)&0xffff)-%1 < 0xff; }
-
 
 pub const winsize = extern struct {
     ws_row: u16,
@@ -796,6 +823,18 @@ pub fn timerfd_gettime(fd: i32, curr_value: &itimerspec) usize {
 
 pub fn timerfd_settime(fd: i32, flags: u32, new_value: &const itimerspec, old_value: ?&itimerspec) usize {
     return arch.syscall4(arch.SYS_timerfd_settime, usize(fd), usize(flags), @ptrToInt(new_value), @ptrToInt(old_value));
+}
+
+pub fn eventfd(initval: u32, flags: u32) usize {
+    return arch.syscall2(arch.SYS_eventfd, usize(initval), usize(flags));
+}
+
+pub fn fcntl_no_arg(fd: i32, cmd: i32) usize {
+    return arch.syscall2(arch.SYS_fcntl, usize(fd), usize(cmd));
+}
+
+pub fn fcntl_arg(fd: i32, cmd: i32, arg: usize) usize {
+    return arch.syscall3(arch.SYS_fcntl, usize(fd), usize(cmd), arg);
 }
 
 test "import linux test" {
