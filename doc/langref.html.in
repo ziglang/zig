@@ -2782,30 +2782,96 @@ test "fn reflection" {
       {#header_close#}
       {#header_close#}
       {#header_open|Errors#}
+      {#header_open|Error Set Type#}
       <p>
-      One of the distinguishing features of Zig is its exception handling strategy.
+      An error set is like an {#link|enum#}.
+      However, each error name across the entire compilation gets assigned an unsigned integer
+      greater than 0. You are allowed to declare the same error name more than once, and if you do, it
+      gets assigned the same integer value.
       </p>
       <p>
-      TODO rewrite the errors section to take into account error sets
+      The number of unique error values across the entire compilation should determine the size of the error set type.
+      However right now it is hard coded to be a <code>u16</code>. See <a href="https://github.com/zig-lang/zig/issues/786">#768</a>.
       </p>
       <p>
-      These error values are assigned an unsigned integer value greater than 0 at
-      compile time. You are allowed to declare the same error value more than once,
-      and if you do, it gets assigned the same integer value.
+      You can implicitly cast an error from a subset to its superset:
+      </p>
+      {#code_begin|test#}
+const std = @import("std");
+
+const FileOpenError = error {
+    AccessDenied,
+    OutOfMemory,
+    FileNotFound,
+};
+
+const AllocationError = error {
+    OutOfMemory,
+};
+
+test "implicit cast subset to superset" {
+    const err = foo(AllocationError.OutOfMemory);
+    std.debug.assert(err == FileOpenError.OutOfMemory);
+}
+
+fn foo(err: AllocationError) FileOpenError {
+    return err;
+}
+      {#code_end#}
+      <p>
+      But you cannot implicitly cast an error from a superset to a subset:
+      </p>
+      {#code_begin|test_err|not a member of destination error set#}
+const FileOpenError = error {
+    AccessDenied,
+    OutOfMemory,
+    FileNotFound,
+};
+
+const AllocationError = error {
+    OutOfMemory,
+};
+
+test "implicit cast superset to subset" {
+    foo(FileOpenError.OutOfMemory) catch {};
+}
+
+fn foo(err: FileOpenError) AllocationError {
+    return err;
+}
+      {#code_end#}
+      <p>
+      There is a shortcut for declaring an error set with only 1 value, and then getting that value:
+      </p>
+      {#code_begin|syntax#}
+const err = error.FileNotFound;
+      {#code_end#}
+      <p>This is equivalent to:</p>
+      {#code_begin|syntax#}
+const err = (error {FileNotFound}).FileNotFound;
+      {#code_end#}
+      <p>
+      This becomes useful when using {#link|Inferred Error Sets#}.
+      </p>
+      {#header_open|The Global Error Set#}
+      <p><code>error</code> refers to the global error set.
+      This is the error set that contains all errors in the entire compilation unit.
+      It is a superset of all other error sets and a subset of none of them.
       </p>
       <p>
-      You can refer to these error values with the error namespace such as
-      <code>error.FileNotFound</code>.
+      You can implicitly cast any error set to the global one, and you can explicitly
+      cast an error of global error set to a non-global one. This inserts a language-level
+      assert to make sure the error value is in fact in the destination error set.
       </p>
       <p>
-      Each error value across the entire compilation unit gets a unique integer,
-      and this determines the size of the error set type.
+      The global error set should generally be avoided when possible, because it prevents
+      the compiler from knowing what errors are possible at compile-time. Knowing
+      the error set at compile-time is better for generated documentationt and for
+      helpful error messages such as forgetting a possible error value in a {#link|switch#}.
       </p>
-      <p>
-      The error set type is one of the error values, and in the same way that pointers
-      cannot be null, a error set instance is always an error.
-      </p>
-      {#code_begin|syntax#}const pure_error = error.FileNotFound;{#code_end#}
+      {#header_close#}
+      {#header_close#}
+      {#header_open|Error Union Type#}
       <p>
       Most of the time you will not find yourself using an error set type. Instead,
       likely you will be using the error union type. This is when you take an error set
@@ -2918,7 +2984,6 @@ fn doAThing(str: []u8) !void {
       a panic in Debug and ReleaseSafe modes and undefined behavior in ReleaseFast mode. So, while we're debugging the
       application, if there <em>was</em> a surprise error here, the application would crash
       appropriately.
-      TODO: mention error return traces
       </p>
       <p>
       Finally, you may want to take a different action for every situation. For that, we combine
@@ -2986,7 +3051,7 @@ fn createFoo(param: i32) !Foo {
         </li>
       </ul>
       {#see_also|defer|if|switch#}
-      {#header_open|Error Union Type#}
+
       <p>An error union is created with the <code>!</code> binary operator.
       You can use compile-time reflection to access the child type of an error union:</p>
       {#code_begin|test#}
@@ -3008,8 +3073,12 @@ test "error union" {
     comptime assert(@typeOf(foo).ErrorSet == error);
 }
       {#code_end#}
+      <p>TODO the <code>||</code> operator for error sets</p>
+      {#header_open|Inferred Error Sets#}
+      <p>TODO</p>
       {#header_close#}
-      {#header_open|Error Set Type#}
+      {#header_close#}
+      {#header_open|Error Return Traces#}
       <p>TODO</p>
       {#header_close#}
       {#header_close#}
