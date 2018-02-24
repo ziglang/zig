@@ -11,17 +11,20 @@ error Unsupported;
 // XXX: make reasonable values for these
 // XXX: make the size class list a comptime argument to a function that
 // generates the type instead of being a global list
-const SIZE_CLASSES = []usize { 8, 64, 1024, 4096 };
+const DEFAULT_SIZE_CLASSES = []usize { 8, 64, 1024, 4096 };
+const MAX_SIZE_CLASSES : usize = 64;
 
 // XXX: same deal with configurability
-const POOL_COUNTS: usize = 16 * 1024;
+const DEFAULT_POOL_COUNTS: usize = 16 * 1024;
 
 pub const GpAlloc = struct {
     allocator: mem.Allocator,
 
     // each of these memory pools actually returns slices of the corresponding
     // size class
-    pools: [SIZE_CLASSES.len]mp.RawMemoryPool,
+    pools: [MAX_SIZE_CLASSES]mp.RawMemoryPool,
+    size_classes: [MAX_SIZE_CLASSES]usize,
+    n_classes: usize,
 
     const Self = this;
 
@@ -32,8 +35,9 @@ pub const GpAlloc = struct {
     };
 
     fn get_size_class(self: &Self, size: usize) ?usize {
-        for (SIZE_CLASSES) |size_class, i| {
-            if (size_class >= size) {
+        var i: usize = 0;
+        while (i < self.n_classes) : (i += 1) {
+            if (self.size_classes[i] >= size) {
                 return i;
             }
         }
@@ -110,7 +114,11 @@ pub const GpAlloc = struct {
 
     // XXX: allow user to configure maximum memory usage at creation time
     // XXX: provide option to grow pools on demand
-    pub fn init() %Self {
+    pub fn init(size_classes: []const usize, pool_counts: usize) %Self {
+        if (size_classes.len > MAX_SIZE_CLASSES) {
+            return error.Unsupported;
+        }
+
         const undef_pool: mp.RawMemoryPool = undefined;
         var res = Self {
             .allocator = mem.Allocator{
@@ -118,19 +126,27 @@ pub const GpAlloc = struct {
                 .reallocFn = realloc,
                 .freeFn = free
             },
-            .pools = []mp.RawMemoryPool { undef_pool } ** SIZE_CLASSES.len
+            .pools = []mp.RawMemoryPool { undef_pool } ** MAX_SIZE_CLASSES,
+            .size_classes = []usize { 0 } ** MAX_SIZE_CLASSES,
+            .n_classes = size_classes.len
         };
 
         const pool_base: usize = @ptrToInt(&res.pools);
-        for (SIZE_CLASSES) |size_class, i| {
+        for (size_classes) |size_class, i| {
+            res.size_classes[i] = size_class;
             res.pools[i] = try mp.RawMemoryPool.init(
-                size_class + @sizeOf(AllocMd), POOL_COUNTS);
+                size_class + @sizeOf(AllocMd),pool_counts);
             errdefer {
                 res.pools[i].deinit() %% {};
             }
         }
 
         return res;
+    }
+
+    pub fn default() %Self {
+        return Self.init(DEFAULT_SIZE_CLASSES[0..DEFAULT_SIZE_CLASSES.len],
+            DEFAULT_POOL_COUNTS);
     }
 };
 
@@ -148,7 +164,7 @@ const N_ALLOC: usize = 4096;
 const N_ROUNDS: usize = N_ALLOC * 2;
 
 test "memory_available" {
-    var gp_allocator = GpAlloc.init() catch unreachable;
+    var gp_allocator = GpAlloc.default() catch unreachable;
     var allocator = &gp_allocator.allocator;
 
     // pick a fixed size so we always draw from the same size class
@@ -160,7 +176,7 @@ test "memory_available" {
     var i: usize = 0;
 
     // we should be able to allocate each of the items in the size pool
-    while (i < POOL_COUNTS) : (i += 1) {
+    while (i < DEFAULT_POOL_COUNTS) : (i += 1) {
         last_alloc = allocator.alloc(Foo, 1) catch unreachable;
     }
 
@@ -188,7 +204,7 @@ test "memory_available" {
 // allocate and free a bunch of memory over and over and make sure that we never
 // hand out overlapping chunks
 test "no_overlap" {
-    var gp_allocator = GpAlloc.init() catch unreachable;
+    var gp_allocator = GpAlloc.default() catch unreachable;
     var allocator = &gp_allocator.allocator;
 
     const base_allocation = TestAllocation {
