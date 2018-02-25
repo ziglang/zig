@@ -11775,6 +11775,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         if (call_instruction->is_async) {
             IrInstruction *result = ir_analyze_async_call(ira, call_instruction, impl_fn, impl_fn->type_entry, fn_ref, casted_args, impl_param_count, async_allocator_inst);
             ir_link_new_instruction(result, &call_instruction->base);
+            ir_add_alloca(ira, result, result->value.type);
             return ir_finish_anal(ira, result->value.type);
         }
 
@@ -11862,6 +11863,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
         IrInstruction *result = ir_analyze_async_call(ira, call_instruction, fn_entry, fn_type, fn_ref, casted_args, call_param_count, async_allocator_inst);
         ir_link_new_instruction(result, &call_instruction->base);
+        ir_add_alloca(ira, result, result->value.type);
         return ir_finish_anal(ira, result->value.type);
     }
 

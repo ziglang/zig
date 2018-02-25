@@ -2521,13 +2521,12 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     }
 
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
-    if (fn_type_id->cc == CallingConventionAsync) {
-        zig_panic("TODO codegen async function call");
-    }
 
     TypeTableEntry *src_return_type = fn_type_id->return_type;
     bool ret_has_bits = type_has_bits(src_return_type);
-    bool first_arg_ret = ret_has_bits && handle_is_ptr(src_return_type);
+
+    bool first_arg_ret = ret_has_bits && handle_is_ptr(src_return_type) &&
+            calling_convention_does_first_arg_return(fn_type->data.fn.fn_type_id.cc);
     bool prefix_arg_err_ret_stack = g->have_err_ret_tracing && (src_return_type->id == TypeTableEntryIdErrorUnion || src_return_type->id == TypeTableEntryIdErrorSet);
     size_t actual_param_count = instruction->arg_count + (first_arg_ret ? 1 : 0) + (prefix_arg_err_ret_stack ? 1 : 0);
     bool is_var_args = fn_type_id->is_var_args;
@@ -2539,6 +2538,15 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     }
     if (prefix_arg_err_ret_stack) {
         gen_param_values[gen_param_index] = g->cur_err_ret_trace_val;
+        gen_param_index += 1;
+    }
+    if (instruction->is_async) {
+        gen_param_values[gen_param_index] = ir_llvm_value(g, instruction->async_allocator);
+        gen_param_index += 1;
+
+        LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_err_index, "");
+        LLVMBuildStore(g->builder, LLVMConstNull(g->builtin_types.entry_global_error_set->type_ref), err_val_ptr);
+        gen_param_values[gen_param_index] = err_val_ptr;
         gen_param_index += 1;
     }
     for (size_t call_i = 0; call_i < instruction->arg_count; call_i += 1) {
@@ -2576,6 +2584,12 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         if (gen_info->is_byval && g->zig_target.os != OsWindows) {
             addLLVMCallsiteAttr(result, (unsigned)gen_info->gen_index, "byval");
         }
+    }
+
+    if (instruction->is_async) {
+        LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_payload_index, "");
+        LLVMBuildStore(g->builder, result, payload_ptr);
+        return instruction->tmp_ptr;
     }
 
     if (src_return_type->id == TypeTableEntryIdUnreachable) {

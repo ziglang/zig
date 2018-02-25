@@ -986,20 +986,25 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     if (!skip_debug_info) {
         bool first_arg_return = calling_convention_does_first_arg_return(fn_type_id->cc) &&
             handle_is_ptr(fn_type_id->return_type);
+        bool is_async = fn_type_id->cc == CallingConventionAsync;
         bool prefix_arg_error_return_trace = g->have_err_ret_tracing &&
             (fn_type_id->return_type->id == TypeTableEntryIdErrorUnion || 
             fn_type_id->return_type->id == TypeTableEntryIdErrorSet);
         // +1 for maybe making the first argument the return value
-        // +1 for maybe last argument the error return trace
-        LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(2 + fn_type_id->param_count);
+        // +1 for maybe first argument the error return trace
+        // +2 for maybe arguments async allocator and error code pointer
+        LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(4 + fn_type_id->param_count);
         // +1 because 0 is the return type and
         // +1 for maybe making first arg ret val and
-        // +1 for maybe last argument the error return trace
-        ZigLLVMDIType **param_di_types = allocate<ZigLLVMDIType*>(3 + fn_type_id->param_count);
+        // +1 for maybe first argument the error return trace
+        // +2 for maybe arguments async allocator and error code pointer
+        ZigLLVMDIType **param_di_types = allocate<ZigLLVMDIType*>(5 + fn_type_id->param_count);
         param_di_types[0] = fn_type_id->return_type->di_type;
         size_t gen_param_index = 0;
         TypeTableEntry *gen_return_type;
-        if (!type_has_bits(fn_type_id->return_type)) {
+        if (is_async) {
+            gen_return_type = get_pointer_to_type(g, g->builtin_types.entry_u8, false);
+        } else if (!type_has_bits(fn_type_id->return_type)) {
             gen_return_type = g->builtin_types.entry_void;
         } else if (first_arg_return) {
             TypeTableEntry *gen_type = get_pointer_to_type(g, fn_type_id->return_type, false);
@@ -1019,6 +1024,25 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             gen_param_index += 1;
             // after the gen_param_index += 1 because 0 is the return type
             param_di_types[gen_param_index] = gen_type->di_type;
+        }
+        if (is_async) {
+            {
+                // async allocator param
+                TypeTableEntry *gen_type = fn_type_id->async_allocator_type;
+                gen_param_types[gen_param_index] = gen_type->type_ref;
+                gen_param_index += 1;
+                // after the gen_param_index += 1 because 0 is the return type
+                param_di_types[gen_param_index] = gen_type->di_type;
+            }
+
+            {
+                // error code pointer
+                TypeTableEntry *gen_type = get_pointer_to_type(g, g->builtin_types.entry_global_error_set, false);
+                gen_param_types[gen_param_index] = gen_type->type_ref;
+                gen_param_index += 1;
+                // after the gen_param_index += 1 because 0 is the return type
+                param_di_types[gen_param_index] = gen_type->di_type;
+            }
         }
 
         fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(fn_type_id->param_count);
