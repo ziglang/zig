@@ -5776,3 +5776,7 @@ bool type_is_global_error_set(TypeTableEntry *err_set_type) {
     assert(err_set_type->data.error_set.infer_fn == nullptr);
     return err_set_type->data.error_set.err_count == UINT32_MAX;
 }
+
+uint32_t get_coro_frame_align_bytes(CodeGen *g) {
+    return g->pointer_size_bytes * 2;
+}

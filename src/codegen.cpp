@@ -942,6 +942,24 @@ static LLVMValueRef get_coro_destroy_fn_val(CodeGen *g) {
     return g->coro_destroy_fn_val;
 }
 
+static LLVMValueRef get_coro_id_fn_val(CodeGen *g) {
+    if (g->coro_id_fn_val)
+        return g->coro_id_fn_val;
+
+    LLVMTypeRef param_types[] = {
+        LLVMInt32Type(),
+        LLVMPointerType(LLVMInt8Type(), 0),
+        LLVMPointerType(LLVMInt8Type(), 0),
+        LLVMPointerType(LLVMInt8Type(), 0),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(ZigLLVMTokenTypeInContext(LLVMGetGlobalContext()), param_types, 4, false);
+    Buf *name = buf_sprintf("llvm.coro.id");
+    g->coro_id_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->coro_id_fn_val));
+
+    return g->coro_id_fn_val;
+}
+
 static LLVMValueRef get_return_address_fn_val(CodeGen *g) {
     if (g->return_address_fn_val)
         return g->return_address_fn_val;
@@ -3730,7 +3748,17 @@ static LLVMValueRef ir_render_panic(CodeGen *g, IrExecutable *executable, IrInst
 }
 
 static LLVMValueRef ir_render_coro_id(CodeGen *g, IrExecutable *executable, IrInstructionCoroId *instruction) {
-    zig_panic("TODO ir_render_coro_id");
+    LLVMValueRef promise_ptr = ir_llvm_value(g, instruction->promise_ptr);
+    LLVMValueRef align_val = LLVMConstInt(LLVMInt32Type(), get_coro_frame_align_bytes(g), false);
+    LLVMValueRef null = LLVMConstIntToPtr(LLVMConstNull(g->builtin_types.entry_usize->type_ref),
+            LLVMPointerType(LLVMInt8Type(), 0));
+    LLVMValueRef params[] = {
+        align_val,
+        promise_ptr,
+        null,
+        null,
+    };
+    return LLVMBuildCall(g->builder, get_coro_id_fn_val(g), params, 4, "");
 }
 
 static LLVMValueRef ir_render_coro_alloc(CodeGen *g, IrExecutable *executable, IrInstructionCoroAlloc *instruction) {

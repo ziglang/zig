@@ -6027,7 +6027,8 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         IrInstruction *alloc_fn_ptr = ir_build_field_ptr(irb, scope, node, irb->exec->implicit_allocator_ptr,
                 alloc_field_name);
         IrInstruction *alloc_fn = ir_build_load_ptr(irb, scope, node, alloc_fn_ptr);
-        IrInstruction *alignment = ir_build_const_u29(irb, scope, node, irb->codegen->pointer_size_bytes * 2);
+        IrInstruction *alignment = ir_build_const_u29(irb, scope, node,
+                get_coro_frame_align_bytes(irb->codegen));
         size_t arg_count = 3;
         IrInstruction **args = allocate<IrInstruction *>(arg_count);
         args[0] = irb->exec->implicit_allocator_ptr; // self
