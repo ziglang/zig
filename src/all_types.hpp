@@ -1617,6 +1617,7 @@ struct CodeGen {
     LLVMValueRef coro_suspend_fn_val;
     LLVMValueRef coro_end_fn_val;
     LLVMValueRef coro_free_fn_val;
+    LLVMValueRef coro_resume_fn_val;
     bool error_during_imports;
 
     const char **clang_argv;

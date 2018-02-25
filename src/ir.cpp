@@ -6143,14 +6143,19 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
 
         ir_set_cursor_at_end_and_append_block(irb, end_free_block);
         IrBasicBlock *resume_block = ir_create_basic_block(irb, scope, "Resume");
-        ir_build_cond_br(irb, scope, node, resume_awaiter, resume_block, suspend_block, const_bool_false);
+        IrBasicBlock *return_block = ir_create_basic_block(irb, scope, "Return");
+        ir_build_cond_br(irb, scope, node, resume_awaiter, resume_block, return_block, const_bool_false);
 
         ir_set_cursor_at_end_and_append_block(irb, resume_block);
         IrInstruction *unwrapped_await_handle_ptr = ir_build_unwrap_maybe(irb, scope, node,
                 irb->exec->coro_awaiter_field_ptr, false);
         IrInstruction *awaiter_handle = ir_build_load_ptr(irb, scope, node, unwrapped_await_handle_ptr);
         ir_build_coro_resume(irb, scope, node, awaiter_handle);
-        ir_build_br(irb, scope, node, suspend_block, const_bool_false);
+        ir_build_br(irb, scope, node, return_block, const_bool_false);
+
+        ir_set_cursor_at_end_and_append_block(irb, return_block);
+        IrInstruction *undef = ir_build_const_undefined(irb, scope, node);
+        ir_build_return(irb, scope, node, undef);
     }
 
     return true;

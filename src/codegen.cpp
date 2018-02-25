@@ -1051,6 +1051,21 @@ static LLVMValueRef get_coro_free_fn_val(CodeGen *g) {
     return g->coro_free_fn_val;
 }
 
+static LLVMValueRef get_coro_resume_fn_val(CodeGen *g) {
+    if (g->coro_resume_fn_val)
+        return g->coro_resume_fn_val;
+
+    LLVMTypeRef param_types[] = {
+        LLVMPointerType(LLVMInt8Type(), 0),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), param_types, 1, false);
+    Buf *name = buf_sprintf("llvm.coro.resume");
+    g->coro_resume_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->coro_resume_fn_val));
+
+    return g->coro_resume_fn_val;
+}
+
 static LLVMValueRef get_return_address_fn_val(CodeGen *g) {
     if (g->return_address_fn_val)
         return g->return_address_fn_val;
@@ -3935,7 +3950,8 @@ static LLVMValueRef ir_render_coro_free(CodeGen *g, IrExecutable *executable, Ir
 }
 
 static LLVMValueRef ir_render_coro_resume(CodeGen *g, IrExecutable *executable, IrInstructionCoroResume *instruction) {
-    zig_panic("TODO ir_render_coro_resume");
+    LLVMValueRef awaiter_handle = ir_llvm_value(g, instruction->awaiter_handle);
+    return LLVMBuildCall(g->builder, get_coro_resume_fn_val(g), &awaiter_handle, 1, "");
 }
 
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
