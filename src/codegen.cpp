@@ -3811,8 +3811,24 @@ static LLVMValueRef ir_render_coro_begin(CodeGen *g, IrExecutable *executable, I
     zig_panic("TODO ir_render_coro_begin");
 }
 
-static LLVMValueRef ir_render_coro_alloc_fail(CodeGen *g, IrExecutable *executable, IrInstructionCoroAllocFail *instruction) {
-    zig_panic("TODO ir_render_coro_alloc_fail");
+static LLVMValueRef ir_render_coro_alloc_fail(CodeGen *g, IrExecutable *executable,
+        IrInstructionCoroAllocFail *instruction)
+{
+    TypeTableEntry *src_return_type = g->cur_fn->type_entry->data.fn.fn_type_id.return_type;
+    bool prefix_arg_err_ret_stack = get_prefix_arg_err_ret_stack(g, src_return_type);
+    size_t err_code_ptr_arg_index = prefix_arg_err_ret_stack ? 2 : 1;
+    LLVMValueRef err_code_ptr_val = LLVMGetParam(g->cur_fn_val, err_code_ptr_arg_index);
+    LLVMValueRef err_code = ir_llvm_value(g, instruction->err_val);
+    LLVMBuildStore(g->builder, err_code, err_code_ptr_val);
+
+    LLVMValueRef return_value;
+    if (ir_want_runtime_safety(g, &instruction->base)) {
+        return_value = LLVMConstNull(LLVMPointerType(LLVMInt8Type(), 0));
+    } else {
+        return_value = LLVMGetUndef(LLVMPointerType(LLVMInt8Type(), 0));
+    }
+    LLVMBuildRet(g->builder, return_value);
+    return nullptr;
 }
 
 static LLVMValueRef ir_render_coro_suspend(CodeGen *g, IrExecutable *executable, IrInstructionCoroSuspend *instruction) {
