@@ -1003,6 +1003,22 @@ static LLVMValueRef get_coro_begin_fn_val(CodeGen *g) {
     return g->coro_begin_fn_val;
 }
 
+static LLVMValueRef get_coro_suspend_fn_val(CodeGen *g) {
+    if (g->coro_suspend_fn_val)
+        return g->coro_suspend_fn_val;
+
+    LLVMTypeRef param_types[] = {
+        ZigLLVMTokenTypeInContext(LLVMGetGlobalContext()),
+        LLVMInt1Type(),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMInt8Type(), param_types, 2, false);
+    Buf *name = buf_sprintf("llvm.coro.suspend");
+    g->coro_suspend_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->coro_suspend_fn_val));
+
+    return g->coro_suspend_fn_val;
+}
+
 static LLVMValueRef get_return_address_fn_val(CodeGen *g) {
     if (g->return_address_fn_val)
         return g->return_address_fn_val;
@@ -3854,7 +3870,18 @@ static LLVMValueRef ir_render_coro_alloc_fail(CodeGen *g, IrExecutable *executab
 }
 
 static LLVMValueRef ir_render_coro_suspend(CodeGen *g, IrExecutable *executable, IrInstructionCoroSuspend *instruction) {
-    zig_panic("TODO ir_render_coro_suspend");
+    LLVMValueRef save_point;
+    if (instruction->save_point == nullptr) {
+        save_point = LLVMConstNull(ZigLLVMTokenTypeInContext(LLVMGetGlobalContext()));
+    } else {
+        save_point = ir_llvm_value(g, instruction->save_point);
+    }
+    LLVMValueRef is_final = ir_llvm_value(g, instruction->is_final);
+    LLVMValueRef params[] = {
+        save_point,
+        is_final,
+    };
+    return LLVMBuildCall(g->builder, get_coro_suspend_fn_val(g), params, 2, "");
 }
 
 static LLVMValueRef ir_render_coro_end(CodeGen *g, IrExecutable *executable, IrInstructionCoroEnd *instruction) {
