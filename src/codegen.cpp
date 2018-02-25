@@ -2568,6 +2568,11 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrI
     }
 }
 
+static bool get_prefix_arg_err_ret_stack(CodeGen *g, TypeTableEntry *src_return_type) {
+    return g->have_err_ret_tracing &&
+        (src_return_type->id == TypeTableEntryIdErrorUnion || src_return_type->id == TypeTableEntryIdErrorSet);
+}
+
 static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstructionCall *instruction) {
     LLVMValueRef fn_val;
     TypeTableEntry *fn_type;
@@ -2587,7 +2592,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
 
     bool first_arg_ret = ret_has_bits && handle_is_ptr(src_return_type) &&
             calling_convention_does_first_arg_return(fn_type->data.fn.fn_type_id.cc);
-    bool prefix_arg_err_ret_stack = g->have_err_ret_tracing && (src_return_type->id == TypeTableEntryIdErrorUnion || src_return_type->id == TypeTableEntryIdErrorSet);
+    bool prefix_arg_err_ret_stack = get_prefix_arg_err_ret_stack(g, src_return_type);
     size_t actual_param_count = instruction->arg_count + (first_arg_ret ? 1 : 0) + (prefix_arg_err_ret_stack ? 1 : 0);
     bool is_var_args = fn_type_id->is_var_args;
     LLVMValueRef *gen_param_values = allocate<LLVMValueRef>(actual_param_count);
@@ -3178,8 +3183,13 @@ static LLVMValueRef ir_render_cancel(CodeGen *g, IrExecutable *executable, IrIns
     return nullptr;
 }
 
-static LLVMValueRef ir_render_get_implicit_allocator(CodeGen *g, IrExecutable *executable, IrInstructionGetImplicitAllocator *instruction) {
-    zig_panic("TODO ir_render_get_implicit_allocator");
+static LLVMValueRef ir_render_get_implicit_allocator(CodeGen *g, IrExecutable *executable,
+        IrInstructionGetImplicitAllocator *instruction)
+{
+    TypeTableEntry *src_return_type = g->cur_fn->type_entry->data.fn.fn_type_id.return_type;
+    bool prefix_arg_err_ret_stack = get_prefix_arg_err_ret_stack(g, src_return_type);
+    size_t allocator_arg_index = prefix_arg_err_ret_stack ? 1 : 0;
+    return LLVMGetParam(g->cur_fn_val, allocator_arg_index);
 }
 
 static LLVMAtomicOrdering to_LLVMAtomicOrdering(AtomicOrder atomic_order) {
