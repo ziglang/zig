@@ -1019,6 +1019,22 @@ static LLVMValueRef get_coro_suspend_fn_val(CodeGen *g) {
     return g->coro_suspend_fn_val;
 }
 
+static LLVMValueRef get_coro_end_fn_val(CodeGen *g) {
+    if (g->coro_end_fn_val)
+        return g->coro_end_fn_val;
+
+    LLVMTypeRef param_types[] = {
+        LLVMPointerType(LLVMInt8Type(), 0),
+        LLVMInt1Type(),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMInt1Type(), param_types, 2, false);
+    Buf *name = buf_sprintf("llvm.coro.end");
+    g->coro_end_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->coro_end_fn_val));
+
+    return g->coro_end_fn_val;
+}
+
 static LLVMValueRef get_return_address_fn_val(CodeGen *g) {
     if (g->return_address_fn_val)
         return g->return_address_fn_val;
@@ -3885,7 +3901,11 @@ static LLVMValueRef ir_render_coro_suspend(CodeGen *g, IrExecutable *executable,
 }
 
 static LLVMValueRef ir_render_coro_end(CodeGen *g, IrExecutable *executable, IrInstructionCoroEnd *instruction) {
-    zig_panic("TODO ir_render_coro_end");
+    LLVMValueRef params[] = {
+        LLVMConstNull(LLVMPointerType(LLVMInt8Type(), 0)),
+        LLVMConstNull(LLVMInt1Type()),
+    };
+    return LLVMBuildCall(g->builder, get_coro_end_fn_val(g), params, 2, "");
 }
 
 static LLVMValueRef ir_render_coro_free(CodeGen *g, IrExecutable *executable, IrInstructionCoroFree *instruction) {
