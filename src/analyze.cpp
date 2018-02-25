@@ -4191,8 +4191,7 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
              return type_has_bits(type_entry->data.error_union.payload_type);
         case TypeTableEntryIdMaybe:
              return type_has_bits(type_entry->data.maybe.child_type) &&
-                    type_entry->data.maybe.child_type->id != TypeTableEntryIdPointer &&
-                    type_entry->data.maybe.child_type->id != TypeTableEntryIdFn;
+                    !type_is_codegen_pointer(type_entry->data.maybe.child_type);
         case TypeTableEntryIdUnion:
              assert(type_entry->data.unionation.complete);
              if (type_entry->data.unionation.gen_field_count == 0)
