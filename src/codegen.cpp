@@ -927,6 +927,21 @@ static LLVMValueRef get_memcpy_fn_val(CodeGen *g) {
     return g->memcpy_fn_val;
 }
 
+static LLVMValueRef get_coro_destroy_fn_val(CodeGen *g) {
+    if (g->coro_destroy_fn_val)
+        return g->coro_destroy_fn_val;
+
+    LLVMTypeRef param_types[] = {
+        LLVMPointerType(LLVMInt8Type(), 0),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), param_types, 1, false);
+    Buf *name = buf_sprintf("llvm.coro.destroy");
+    g->coro_destroy_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->coro_destroy_fn_val));
+
+    return g->coro_destroy_fn_val;
+}
+
 static LLVMValueRef get_return_address_fn_val(CodeGen *g) {
     if (g->return_address_fn_val)
         return g->return_address_fn_val;
@@ -3113,7 +3128,9 @@ static LLVMValueRef ir_render_error_return_trace(CodeGen *g, IrExecutable *execu
 }
 
 static LLVMValueRef ir_render_cancel(CodeGen *g, IrExecutable *executable, IrInstructionCancel *instruction) {
-    zig_panic("TODO ir_render_cancel");
+    LLVMValueRef target_handle = ir_llvm_value(g, instruction->target);
+    LLVMBuildCall(g->builder, get_coro_destroy_fn_val(g), &target_handle, 1, "");
+    return nullptr;
 }
 
 static LLVMValueRef ir_render_get_implicit_allocator(CodeGen *g, IrExecutable *executable, IrInstructionGetImplicitAllocator *instruction) {
