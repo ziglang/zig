@@ -960,6 +960,33 @@ static LLVMValueRef get_coro_id_fn_val(CodeGen *g) {
     return g->coro_id_fn_val;
 }
 
+static LLVMValueRef get_coro_alloc_fn_val(CodeGen *g) {
+    if (g->coro_alloc_fn_val)
+        return g->coro_alloc_fn_val;
+
+    LLVMTypeRef param_types[] = {
+        ZigLLVMTokenTypeInContext(LLVMGetGlobalContext()),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMInt1Type(), param_types, 1, false);
+    Buf *name = buf_sprintf("llvm.coro.alloc");
+    g->coro_alloc_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->coro_alloc_fn_val));
+
+    return g->coro_alloc_fn_val;
+}
+
+static LLVMValueRef get_coro_size_fn_val(CodeGen *g) {
+    if (g->coro_size_fn_val)
+        return g->coro_size_fn_val;
+
+    LLVMTypeRef fn_type = LLVMFunctionType(g->builtin_types.entry_usize->type_ref, nullptr, 0, false);
+    Buf *name = buf_sprintf("llvm.coro.size.i%d", g->pointer_size_bytes * 8);
+    g->coro_size_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->coro_size_fn_val));
+
+    return g->coro_size_fn_val;
+}
+
 static LLVMValueRef get_return_address_fn_val(CodeGen *g) {
     if (g->return_address_fn_val)
         return g->return_address_fn_val;
@@ -3762,11 +3789,12 @@ static LLVMValueRef ir_render_coro_id(CodeGen *g, IrExecutable *executable, IrIn
 }
 
 static LLVMValueRef ir_render_coro_alloc(CodeGen *g, IrExecutable *executable, IrInstructionCoroAlloc *instruction) {
-    zig_panic("TODO ir_render_coro_alloc");
+    LLVMValueRef token = ir_llvm_value(g, instruction->coro_id);
+    return LLVMBuildCall(g->builder, get_coro_alloc_fn_val(g), &token, 1, "");
 }
 
 static LLVMValueRef ir_render_coro_size(CodeGen *g, IrExecutable *executable, IrInstructionCoroSize *instruction) {
-    zig_panic("TODO ir_render_coro_size");
+    return LLVMBuildCall(g->builder, get_coro_size_fn_val(g), nullptr, 0, "");
 }
 
 static LLVMValueRef ir_render_coro_begin(CodeGen *g, IrExecutable *executable, IrInstructionCoroBegin *instruction) {
