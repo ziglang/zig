@@ -401,6 +401,8 @@ enum NodeType {
     NodeTypeTestExpr,
     NodeTypeErrorSetDecl,
     NodeTypeCancel,
+    NodeTypeAwaitExpr,
+    NodeTypeSuspend,
 };
 
 struct AstNodeRoot {
@@ -859,6 +861,15 @@ struct AstNodeErrorType {
 struct AstNodeVarLiteral {
 };
 
+struct AstNodeAwaitExpr {
+    AstNode *expr;
+};
+
+struct AstNodeSuspend {
+    AstNode *block;
+    AstNode *promise_symbol;
+};
+
 struct AstNode {
     enum NodeType type;
     size_t line;
@@ -917,6 +928,8 @@ struct AstNode {
         AstNodeVarLiteral var_literal;
         AstNodeErrorSetDecl err_set_decl;
         AstNodeCancelExpr cancel_expr;
+        AstNodeAwaitExpr await_expr;
+        AstNodeSuspend suspend;
     } data;
 };
 

@@ -5687,7 +5687,7 @@ AssignmentExpression = UnwrapExpression AssignmentOperator UnwrapExpression | Un
 
 AssignmentOperator = "=" | "*=" | "/=" | "%=" | "+=" | "-=" | "&lt;&lt;=" | "&gt;&gt;=" | "&amp;=" | "^=" | "|=" | "*%=" | "+%=" | "-%="
 
-BlockExpression(body) = Block | IfExpression(body) | IfErrorExpression(body) | TestExpression(body) | WhileExpression(body) | ForExpression(body) | SwitchExpression | CompTimeExpression(body)
+BlockExpression(body) = Block | IfExpression(body) | IfErrorExpression(body) | TestExpression(body) | WhileExpression(body) | ForExpression(body) | SwitchExpression | CompTimeExpression(body) | SuspendExpression(body)
 
 CompTimeExpression(body) = "comptime" body
 
@@ -5705,6 +5705,8 @@ ReturnExpression = "return" option(Expression)
 
 TryExpression = "try" Expression
 
+AwaitExpression = "await" Expression
+
 BreakExpression = "break" option(":" Symbol) option(Expression)
 
 CancelExpression = "cancel" Expression;
@@ -5712,6 +5714,8 @@ CancelExpression = "cancel" Expression;
 Defer(body) = ("defer" | "deferror") body
 
 IfExpression(body) = "if" "(" Expression ")" body option("else" BlockExpression(body))
+
+SuspendExpression(body) = "suspend" option(("|" Symbol "|" body))
 
 IfErrorExpression(body) = "if" "(" Expression ")" option("|" option("*") Symbol "|") body "else" "|" Symbol "|" BlockExpression(body)
 
@@ -5763,7 +5767,7 @@ ContainerInitBody = list(StructLiteralField, ",") | list(Expression, ",")
 
 StructLiteralField = "." Symbol "=" Expression
 
-PrefixOp = "!" | "-" | "~" | "*" | ("&amp;" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "??" | "-%" | "try"
+PrefixOp = "!" | "-" | "~" | "*" | ("&amp;" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "??" | "-%" | "try" | "await"
 
 PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ContainerDecl | ("continue" option(":" Symbol)) | ErrorSetDecl
 
@@ -5771,7 +5775,7 @@ ArrayType : "[" option(Expression) "]" option("align" "(" Expression option(":" 
 
 GroupedExpression = "(" Expression ")"
 
-KeywordLiteral = "true" | "false" | "null" | "undefined" | "error" | "this" | "unreachable"
+KeywordLiteral = "true" | "false" | "null" | "undefined" | "error" | "this" | "unreachable" | "suspend"
 
 ErrorSetDecl = "error" "{" list(Symbol, ",") "}"
 

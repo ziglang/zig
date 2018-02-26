@@ -221,6 +221,7 @@ static AstNode *ast_parse_grouped_expr(ParseContext *pc, size_t *token_index, bo
 static AstNode *ast_parse_container_decl(ParseContext *pc, size_t *token_index, bool mandatory);
 static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bool mandatory);
 static AstNode *ast_parse_try_expr(ParseContext *pc, size_t *token_index);
+static AstNode *ast_parse_await_expr(ParseContext *pc, size_t *token_index);
 static AstNode *ast_parse_symbol(ParseContext *pc, size_t *token_index);
 
 static void ast_expect_token(ParseContext *pc, Token *token, TokenId token_id) {
@@ -651,6 +652,41 @@ static AstNode *ast_parse_asm_expr(ParseContext *pc, size_t *token_index, bool m
 }
 
 /*
+SuspendExpression(body) = "suspend" "|" Symbol "|" body
+*/
+static AstNode *ast_parse_suspend_block(ParseContext *pc, size_t *token_index, bool mandatory) {
+    size_t orig_token_index = *token_index;
+
+    Token *suspend_token = &pc->tokens->at(*token_index);
+    if (suspend_token->id == TokenIdKeywordSuspend) {
+        *token_index += 1;
+    } else if (mandatory) {
+        ast_expect_token(pc, suspend_token, TokenIdKeywordSuspend);
+        zig_unreachable();
+    } else {
+        return nullptr;
+    }
+
+    Token *bar_token = &pc->tokens->at(*token_index);
+    if (bar_token->id == TokenIdBinOr) {
+        *token_index += 1;
+    } else if (mandatory) {
+        ast_expect_token(pc, suspend_token, TokenIdBinOr);
+        zig_unreachable();
+    } else {
+        *token_index = orig_token_index;
+        return nullptr;
+    }
+
+    AstNode *node = ast_create_node(pc, NodeTypeSuspend, suspend_token);
+    node->data.suspend.promise_symbol = ast_parse_symbol(pc, token_index);
+    ast_eat_token(pc, token_index, TokenIdBinOr);
+    node->data.suspend.block = ast_parse_block(pc, token_index, true);
+
+    return node;
+}
+
+/*
 CompTimeExpression(body) = "comptime" body
 */
 static AstNode *ast_parse_comptime_expr(ParseContext *pc, size_t *token_index, bool require_block_body, bool mandatory) {
@@ -674,7 +710,7 @@ static AstNode *ast_parse_comptime_expr(ParseContext *pc, size_t *token_index, b
 
 /*
 PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ContainerDecl | ("continue" option(":" Symbol)) | ErrorSetDecl
-KeywordLiteral = "true" | "false" | "null" | "undefined" | "error" | "this" | "unreachable"
+KeywordLiteral = "true" | "false" | "null" | "undefined" | "error" | "this" | "unreachable" | "suspend"
 ErrorSetDecl = "error" "{" list(Symbol, ",") "}"
 */
 static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
@@ -736,6 +772,10 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bo
         return node;
     } else if (token->id == TokenIdKeywordUnreachable) {
         AstNode *node = ast_create_node(pc, NodeTypeUnreachable, token);
+        *token_index += 1;
+        return node;
+    } else if (token->id == TokenIdKeywordSuspend) {
+        AstNode *node = ast_create_node(pc, NodeTypeSuspend, token);
         *token_index += 1;
         return node;
     } else if (token->id == TokenIdKeywordError) {
@@ -1067,7 +1107,7 @@ static AstNode *ast_parse_addr_of(ParseContext *pc, size_t *token_index) {
 
 /*
 PrefixOpExpression = PrefixOp ErrorSetExpr | SuffixOpExpression
-PrefixOp = "!" | "-" | "~" | "*" | ("&" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "??" | "-%" | "try"
+PrefixOp = "!" | "-" | "~" | "*" | ("&" option("align" "(" Expression option(":" Integer ":" Integer) ")" ) option("const") option("volatile")) | "?" | "??" | "-%" | "try" | "await"
 */
 static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -1076,6 +1116,9 @@ static AstNode *ast_parse_prefix_op_expr(ParseContext *pc, size_t *token_index, 
     }
     if (token->id == TokenIdKeywordTry) {
         return ast_parse_try_expr(pc, token_index);
+    }
+    if (token->id == TokenIdKeywordAwait) {
+        return ast_parse_await_expr(pc, token_index);
     }
     PrefixOp prefix_op = tok_to_prefix_op(token);
     if (prefix_op == PrefixOpInvalid) {
@@ -1531,6 +1574,23 @@ static AstNode *ast_parse_try_expr(ParseContext *pc, size_t *token_index) {
     AstNode *node = ast_create_node(pc, NodeTypeReturnExpr, token);
     node->data.return_expr.kind = ReturnKindError;
     node->data.return_expr.expr = ast_parse_expression(pc, token_index, true);
+
+    return node;
+}
+
+/*
+AwaitExpression : "await" Expression
+*/
+static AstNode *ast_parse_await_expr(ParseContext *pc, size_t *token_index) {
+    Token *token = &pc->tokens->at(*token_index);
+
+    if (token->id != TokenIdKeywordAwait) {
+        return nullptr;
+    }
+    *token_index += 1;
+
+    AstNode *node = ast_create_node(pc, NodeTypeAwaitExpr, token);
+    node->data.await_expr.expr = ast_parse_expression(pc, token_index, true);
 
     return node;
 }
@@ -2044,7 +2104,7 @@ static AstNode *ast_parse_switch_expr(ParseContext *pc, size_t *token_index, boo
 }
 
 /*
-BlockExpression(body) = Block | IfExpression(body) | TryExpression(body) | TestExpression(body) | WhileExpression(body) | ForExpression(body) | SwitchExpression | CompTimeExpression(body)
+BlockExpression(body) = Block | IfExpression(body) | IfErrorExpression(body) | TestExpression(body) | WhileExpression(body) | ForExpression(body) | SwitchExpression | CompTimeExpression(body) | SuspendExpression(body)
 */
 static AstNode *ast_parse_block_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -2072,6 +2132,10 @@ static AstNode *ast_parse_block_expr(ParseContext *pc, size_t *token_index, bool
     AstNode *comptime_node = ast_parse_comptime_expr(pc, token_index, false, false);
     if (comptime_node)
         return comptime_node;
+
+    AstNode *suspend_node = ast_parse_suspend_block(pc, token_index, false);
+    if (suspend_node)
+        return suspend_node;
 
     if (mandatory)
         ast_invalid_token_error(pc, token);
@@ -2255,6 +2319,8 @@ static bool statement_terminates_without_semicolon(AstNode *node) {
             return node->data.comptime_expr.expr->type == NodeTypeBlock;
         case NodeTypeDefer:
             return node->data.defer.expr->type == NodeTypeBlock;
+        case NodeTypeSuspend:
+            return node->data.suspend.block != nullptr && node->data.suspend.block->type == NodeTypeBlock;
         case NodeTypeSwitchExpr:
         case NodeTypeBlock:
             return true;
@@ -2993,6 +3059,13 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             break;
         case NodeTypeCancel:
             visit_field(&node->data.cancel_expr.expr, visit, context);
+            break;
+        case NodeTypeAwaitExpr:
+            visit_field(&node->data.await_expr.expr, visit, context);
+            break;
+        case NodeTypeSuspend:
+            visit_field(&node->data.suspend.promise_symbol, visit, context);
+            visit_field(&node->data.suspend.block, visit, context);
             break;
     }
 }

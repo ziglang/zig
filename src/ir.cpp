@@ -5834,6 +5834,22 @@ static IrInstruction *ir_gen_cancel(IrBuilder *irb, Scope *parent_scope, AstNode
     return ir_build_cancel(irb, parent_scope, node, target_inst);
 }
 
+static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
+    assert(node->type == NodeTypeAwaitExpr);
+
+    IrInstruction *target_inst = ir_gen_node(irb, node->data.await_expr.expr, parent_scope);
+    if (target_inst == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+
+    zig_panic("TODO: generate await expr");
+}
+
+static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
+    assert(node->type == NodeTypeSuspend);
+
+    zig_panic("TODO: generate suspend");
+}
+
 static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scope,
         LVal lval)
 {
@@ -5932,6 +5948,10 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_err_set_decl(irb, scope, node), lval);
         case NodeTypeCancel:
             return ir_lval_wrap(irb, scope, ir_gen_cancel(irb, scope, node), lval);
+        case NodeTypeAwaitExpr:
+            return ir_lval_wrap(irb, scope, ir_gen_await_expr(irb, scope, node), lval);
+        case NodeTypeSuspend:
+            return ir_lval_wrap(irb, scope, ir_gen_suspend(irb, scope, node), lval);
     }
     zig_unreachable();
 }
