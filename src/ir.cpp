@@ -5995,19 +5995,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         return_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
         IrInstruction *promise_init = ir_build_const_promise_init(irb, scope, node, return_type);
         ir_build_var_decl(irb, scope, node, promise_var, nullptr, nullptr, promise_init);
-
         coro_promise_ptr = ir_build_var_ptr(irb, scope, node, promise_var, false, false);
-        Buf *awaiter_handle_field_name = buf_create_from_str(AWAITER_HANDLE_FIELD_NAME);
-        irb->exec->coro_awaiter_field_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr,
-                awaiter_handle_field_name);
-        if (type_has_bits(return_type)) {
-            Buf *result_field_name = buf_create_from_str(RESULT_FIELD_NAME);
-            coro_result_field_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr, result_field_name);
-            result_ptr_field_name = buf_create_from_str(RESULT_PTR_FIELD_NAME);
-            irb->exec->coro_result_ptr_field_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr,
-                    result_ptr_field_name);
-            ir_build_store_ptr(irb, scope, node, irb->exec->coro_result_ptr_field_ptr, coro_result_field_ptr);
-        }
 
         u8_ptr_type = ir_build_const_type(irb, scope, node,
                 get_pointer_to_type(irb->codegen, irb->codegen->builtin_types.entry_u8, false));
@@ -6075,6 +6063,19 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
                 unwrapped_mem_ptr_incoming_blocks, unwrapped_mem_ptr_incoming_values);
 
         irb->exec->coro_handle = ir_build_coro_begin(irb, scope, node, coro_id, coro_mem);
+
+        Buf *awaiter_handle_field_name = buf_create_from_str(AWAITER_HANDLE_FIELD_NAME);
+        irb->exec->coro_awaiter_field_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr,
+                awaiter_handle_field_name);
+        if (type_has_bits(return_type)) {
+            Buf *result_field_name = buf_create_from_str(RESULT_FIELD_NAME);
+            coro_result_field_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr, result_field_name);
+            result_ptr_field_name = buf_create_from_str(RESULT_PTR_FIELD_NAME);
+            irb->exec->coro_result_ptr_field_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr,
+                    result_ptr_field_name);
+            ir_build_store_ptr(irb, scope, node, irb->exec->coro_result_ptr_field_ptr, coro_result_field_ptr);
+        }
+
 
         irb->exec->coro_early_final = ir_create_basic_block(irb, scope, "CoroEarlyFinal");
         irb->exec->coro_normal_final = ir_create_basic_block(irb, scope, "CoroNormalFinal");
