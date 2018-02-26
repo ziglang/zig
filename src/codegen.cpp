@@ -1066,6 +1066,21 @@ static LLVMValueRef get_coro_resume_fn_val(CodeGen *g) {
     return g->coro_resume_fn_val;
 }
 
+static LLVMValueRef get_coro_save_fn_val(CodeGen *g) {
+    if (g->coro_save_fn_val)
+        return g->coro_save_fn_val;
+
+    LLVMTypeRef param_types[] = {
+        LLVMPointerType(LLVMInt8Type(), 0),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(ZigLLVMTokenTypeInContext(LLVMGetGlobalContext()), param_types, 1, false);
+    Buf *name = buf_sprintf("llvm.coro.save");
+    g->coro_save_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->coro_save_fn_val));
+
+    return g->coro_save_fn_val;
+}
+
 static LLVMValueRef get_return_address_fn_val(CodeGen *g) {
     if (g->return_address_fn_val)
         return g->return_address_fn_val;
@@ -3954,6 +3969,11 @@ static LLVMValueRef ir_render_coro_resume(CodeGen *g, IrExecutable *executable, 
     return LLVMBuildCall(g->builder, get_coro_resume_fn_val(g), &awaiter_handle, 1, "");
 }
 
+static LLVMValueRef ir_render_coro_save(CodeGen *g, IrExecutable *executable, IrInstructionCoroSave *instruction) {
+    LLVMValueRef coro_handle = ir_llvm_value(g, instruction->coro_handle);
+    return LLVMBuildCall(g->builder, get_coro_save_fn_val(g), &coro_handle, 1, "");
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -4157,6 +4177,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_coro_free(g, executable, (IrInstructionCoroFree *)instruction);
         case IrInstructionIdCoroResume:
             return ir_render_coro_resume(g, executable, (IrInstructionCoroResume *)instruction);
+        case IrInstructionIdCoroSave:
+            return ir_render_coro_save(g, executable, (IrInstructionCoroSave *)instruction);
     }
     zig_unreachable();
 }

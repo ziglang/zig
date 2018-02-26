@@ -1090,6 +1090,12 @@ static void ir_print_coro_resume(IrPrint *irp, IrInstructionCoroResume *instruct
     fprintf(irp->f, ")");
 }
 
+static void ir_print_coro_save(IrPrint *irp, IrInstructionCoroSave *instruction) {
+    fprintf(irp->f, "@coroSave(");
+    ir_print_other_instruction(irp, instruction->coro_handle);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1442,6 +1448,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdCoroResume:
             ir_print_coro_resume(irp, (IrInstructionCoroResume *)instruction);
+            break;
+        case IrInstructionIdCoroSave:
+            ir_print_coro_save(irp, (IrInstructionCoroSave *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

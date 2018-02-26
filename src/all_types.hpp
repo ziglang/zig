@@ -63,6 +63,8 @@ struct IrExecutable {
     IrInstruction *implicit_allocator_ptr;
     IrBasicBlock *coro_early_final;
     IrBasicBlock *coro_normal_final;
+    IrBasicBlock *coro_suspend_block;
+    IrBasicBlock *coro_final_cleanup_block;
 };
 
 enum OutType {
@@ -1631,6 +1633,7 @@ struct CodeGen {
     LLVMValueRef coro_end_fn_val;
     LLVMValueRef coro_free_fn_val;
     LLVMValueRef coro_resume_fn_val;
+    LLVMValueRef coro_save_fn_val;
     bool error_during_imports;
 
     const char **clang_argv;
@@ -2000,6 +2003,7 @@ enum IrInstructionId {
     IrInstructionIdCoroEnd,
     IrInstructionIdCoroFree,
     IrInstructionIdCoroResume,
+    IrInstructionIdCoroSave,
 };
 
 struct IrInstruction {
@@ -2900,6 +2904,12 @@ struct IrInstructionCoroResume {
     IrInstruction base;
 
     IrInstruction *awaiter_handle;
+};
+
+struct IrInstructionCoroSave {
+    IrInstruction base;
+
+    IrInstruction *coro_handle;
 };
 
 static const size_t slice_ptr_index = 0;
