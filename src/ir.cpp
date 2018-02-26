@@ -6095,7 +6095,6 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
     IrInstruction *coro_id;
     IrInstruction *coro_promise_ptr;
     IrInstruction *coro_result_field_ptr;
-    IrInstruction *coro_need_dyn_alloc;
     TypeTableEntry *return_type;
     Buf *result_ptr_field_name;
     if (is_async) {
@@ -6113,15 +6112,6 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
                 get_pointer_to_type(irb->codegen, irb->codegen->builtin_types.entry_u8, false));
         IrInstruction *promise_as_u8_ptr = ir_build_ptr_cast(irb, scope, node, u8_ptr_type, coro_promise_ptr);
         coro_id = ir_build_coro_id(irb, scope, node, promise_as_u8_ptr);
-        coro_need_dyn_alloc = ir_build_coro_alloc(irb, scope, node, coro_id);
-        IrInstruction *zero = ir_build_const_usize(irb, scope, node, 0);
-        IrInstruction *null_ptr = ir_build_int_to_ptr(irb, scope, node, u8_ptr_type, zero);
-
-        IrBasicBlock *dyn_alloc_block = ir_create_basic_block(irb, scope, "DynAlloc");
-        IrBasicBlock *coro_begin_block = ir_create_basic_block(irb, scope, "CoroBegin");
-        ir_build_cond_br(irb, scope, node, coro_need_dyn_alloc, dyn_alloc_block, coro_begin_block, const_bool_false);
-
-        ir_set_cursor_at_end_and_append_block(irb, dyn_alloc_block);
         IrInstruction *coro_size = ir_build_coro_size(irb, scope, node);
         irb->exec->implicit_allocator_ptr = ir_build_get_implicit_allocator(irb, scope, node, ImplicitAllocatorIdContext);
         IrInstruction *alloc_fn = ir_build_get_implicit_allocator(irb, scope, node, ImplicitAllocatorIdAlloc);
@@ -6144,31 +6134,11 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         ir_build_coro_alloc_fail(irb, scope, node, err_val);
 
         ir_set_cursor_at_end_and_append_block(irb, alloc_ok_block);
-        IrInstruction *unwrapped_mem_ptr = ir_build_unwrap_err_payload(irb, scope, node, alloc_result_ptr, false);
+        coro_unwrapped_mem_ptr = ir_build_unwrap_err_payload(irb, scope, node, alloc_result_ptr, false);
         Buf *ptr_field_name = buf_create_from_str("ptr");
-        IrInstruction *coro_mem_ptr_field = ir_build_field_ptr(irb, scope, node, unwrapped_mem_ptr,
+        IrInstruction *coro_mem_ptr_field = ir_build_field_ptr(irb, scope, node, coro_unwrapped_mem_ptr,
                 ptr_field_name);
-        IrInstruction *coro_mem_ptr = ir_build_load_ptr(irb, scope, node, coro_mem_ptr_field);
-        ir_build_br(irb, scope, node, coro_begin_block, const_bool_false);
-
-        ir_set_cursor_at_end_and_append_block(irb, coro_begin_block);
-
-        IrBasicBlock **coro_mem_incoming_blocks = allocate<IrBasicBlock *>(2);
-        IrInstruction **coro_mem_incoming_values = allocate<IrInstruction *>(2);
-        coro_mem_incoming_blocks[0] = entry_block;
-        coro_mem_incoming_values[0] = null_ptr;
-        coro_mem_incoming_blocks[1] = alloc_ok_block;
-        coro_mem_incoming_values[1] = coro_mem_ptr;
-        IrInstruction *coro_mem = ir_build_phi(irb, scope, node, 2, coro_mem_incoming_blocks, coro_mem_incoming_values);
-
-        IrBasicBlock **unwrapped_mem_ptr_incoming_blocks = allocate<IrBasicBlock *>(2);
-        IrInstruction **unwrapped_mem_ptr_incoming_values = allocate<IrInstruction *>(2);
-        unwrapped_mem_ptr_incoming_blocks[0] = entry_block;
-        unwrapped_mem_ptr_incoming_values[0] = ir_build_const_undefined(irb, scope, node);
-        unwrapped_mem_ptr_incoming_blocks[1] = alloc_ok_block;
-        unwrapped_mem_ptr_incoming_values[1] = unwrapped_mem_ptr;
-        coro_unwrapped_mem_ptr = ir_build_phi(irb, scope, node, 2,
-                unwrapped_mem_ptr_incoming_blocks, unwrapped_mem_ptr_incoming_values);
+        IrInstruction *coro_mem = ir_build_load_ptr(irb, scope, node, coro_mem_ptr_field);
 
         irb->exec->coro_handle = ir_build_coro_begin(irb, scope, node, coro_id, coro_mem);
 
@@ -6245,20 +6215,14 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         incoming_blocks[1] = irb->exec->coro_normal_final;
         incoming_values[1] = const_bool_true;
         IrInstruction *resume_awaiter = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
-        IrBasicBlock *dyn_free_block = ir_create_basic_block(irb, scope, "DynFree");
-        IrBasicBlock *end_free_block = ir_create_basic_block(irb, scope, "EndFree");
-        ir_build_cond_br(irb, scope, node, coro_need_dyn_alloc, dyn_free_block, end_free_block, const_bool_false);
 
-        ir_set_cursor_at_end_and_append_block(irb, dyn_free_block);
         IrInstruction *free_fn = ir_build_get_implicit_allocator(irb, scope, node, ImplicitAllocatorIdFree);
         size_t arg_count = 2;
         IrInstruction **args = allocate<IrInstruction *>(arg_count);
         args[0] = irb->exec->implicit_allocator_ptr; // self
         args[1] = ir_build_load_ptr(irb, scope, node, coro_unwrapped_mem_ptr); // old_mem
         ir_build_call(irb, scope, node, nullptr, free_fn, arg_count, args, false, FnInlineAuto, false, nullptr, nullptr, nullptr);
-        ir_build_br(irb, scope, node, end_free_block, const_bool_false);
 
-        ir_set_cursor_at_end_and_append_block(irb, end_free_block);
         IrBasicBlock *resume_block = ir_create_basic_block(irb, scope, "Resume");
         IrBasicBlock *return_block = ir_create_basic_block(irb, scope, "Return");
         ir_build_cond_br(irb, scope, node, resume_awaiter, resume_block, return_block, const_bool_false);
