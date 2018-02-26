@@ -942,7 +942,7 @@ static IrInstruction *ir_build_const_promise_init(IrBuilder *irb, Scope *scope, 
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
     const_instruction->base.value.type = struct_type;
     const_instruction->base.value.special = ConstValSpecialStatic;
-    const_instruction->base.value.data.x_struct.fields = allocate<ConstExprValue>(2);
+    const_instruction->base.value.data.x_struct.fields = allocate<ConstExprValue>(field_count);
     const_instruction->base.value.data.x_struct.fields[0].type = awaiter_handle_type;
     const_instruction->base.value.data.x_struct.fields[0].special = ConstValSpecialStatic;
     const_instruction->base.value.data.x_struct.fields[0].data.x_maybe = nullptr;
