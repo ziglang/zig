@@ -927,6 +927,20 @@ static const char *calling_convention_fn_type_str(CallingConvention cc) {
     zig_unreachable();
 }
 
+static bool calling_convention_allows_zig_types(CallingConvention cc) {
+    switch (cc) {
+        case CallingConventionUnspecified:
+        case CallingConventionAsync:
+            return true;
+        case CallingConventionC:
+        case CallingConventionCold:
+        case CallingConventionNaked:
+        case CallingConventionStdcall:
+            return false;
+    }
+    zig_unreachable();
+}
+
 TypeTableEntry *get_ptr_to_stack_trace_type(CodeGen *g) {
     if (g->stack_trace_type == nullptr) {
         ConstExprValue *stack_trace_type_val = get_builtin_value(g, "StackTrace");
@@ -1380,7 +1394,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         bool param_is_var_args = param_node->data.param_decl.is_var_args;
 
         if (param_is_comptime) {
-            if (fn_type_id.cc != CallingConventionUnspecified) {
+            if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
                 add_node_error(g, param_node,
                         buf_sprintf("comptime parameter not allowed in function with calling convention '%s'",
                             calling_convention_name(fn_type_id.cc)));
@@ -1391,7 +1405,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             if (fn_type_id.cc == CallingConventionC) {
                 fn_type_id.param_count = fn_type_id.next_param_index;
                 continue;
-            } else if (fn_type_id.cc == CallingConventionUnspecified) {
+            } else if (calling_convention_allows_zig_types(fn_type_id.cc)) {
                 return get_generic_fn_type(g, &fn_type_id);
             } else {
                 add_node_error(g, param_node,
@@ -1405,7 +1419,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         if (type_is_invalid(type_entry)) {
             return g->builtin_types.entry_invalid;
         }
-        if (fn_type_id.cc != CallingConventionUnspecified) {
+        if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
             type_ensure_zero_bits_known(g, type_entry);
             if (!type_has_bits(type_entry)) {
                 add_node_error(g, param_node->data.param_decl.type,
@@ -1415,7 +1429,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             }
         }
 
-        if (fn_type_id.cc != CallingConventionUnspecified && !type_allowed_in_extern(g, type_entry)) {
+        if (!calling_convention_allows_zig_types(fn_type_id.cc) && !type_allowed_in_extern(g, type_entry)) {
             add_node_error(g, param_node->data.param_decl.type,
                     buf_sprintf("parameter of type '%s' not allowed in function with calling convention '%s'",
                         buf_ptr(&type_entry->name),
@@ -1435,7 +1449,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
                     buf_sprintf("parameter of type '%s' not allowed", buf_ptr(&type_entry->name)));
                 return g->builtin_types.entry_invalid;
             case TypeTableEntryIdVar:
-                if (fn_type_id.cc != CallingConventionUnspecified) {
+                if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
                     add_node_error(g, param_node->data.param_decl.type,
                             buf_sprintf("parameter of type 'var' not allowed in function with calling convention '%s'",
                                 calling_convention_name(fn_type_id.cc)));
@@ -1467,7 +1481,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             case TypeTableEntryIdFn:
             case TypeTableEntryIdPromise:
                 ensure_complete_type(g, type_entry);
-                if (fn_type_id.cc == CallingConventionUnspecified && !type_is_copyable(g, type_entry)) {
+                if (calling_convention_allows_zig_types(fn_type_id.cc) && !type_is_copyable(g, type_entry)) {
                     add_node_error(g, param_node->data.param_decl.type,
                         buf_sprintf("type '%s' is not copyable; cannot pass by value", buf_ptr(&type_entry->name)));
                     return g->builtin_types.entry_invalid;
@@ -1498,7 +1512,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         fn_type_id.return_type = specified_return_type;
     }
 
-    if (fn_type_id.cc != CallingConventionUnspecified && !type_allowed_in_extern(g, fn_type_id.return_type)) {
+    if (!calling_convention_allows_zig_types(fn_type_id.cc) && !type_allowed_in_extern(g, fn_type_id.return_type)) {
         add_node_error(g, fn_proto->return_type,
                 buf_sprintf("return type '%s' not allowed in function with calling convention '%s'",
                     buf_ptr(&fn_type_id.return_type->name),
@@ -1525,7 +1539,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdVar:
         case TypeTableEntryIdMetaType:
-            if (fn_type_id.cc != CallingConventionUnspecified) {
+            if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
                 add_node_error(g, fn_proto->return_type,
                     buf_sprintf("return type '%s' not allowed in function with calling convention '%s'",
                     buf_ptr(&fn_type_id.return_type->name),
