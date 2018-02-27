@@ -547,7 +547,10 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     } else if (handle_is_ptr(return_type) &&
             calling_convention_does_first_arg_return(fn_type->data.fn.fn_type_id.cc))
     {
-        addLLVMArgAttr(fn_table_entry->llvm_value, 0, "sret");
+        // We do not add the sret attribute, because it would require the return type to be void,
+        // and we want the return value to return the sret pointer, to work around LLVM Coroutine
+        // transformation passes not understanding the data dependency.
+        //addLLVMArgAttr(fn_table_entry->llvm_value, 0, "sret");
         addLLVMArgAttr(fn_table_entry->llvm_value, 0, "nonnull");
     }
 
@@ -1616,7 +1619,9 @@ static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrIns
         if (calling_convention_does_first_arg_return(g->cur_fn->type_entry->data.fn.fn_type_id.cc)) {
             assert(g->cur_ret_ptr);
             gen_assign_raw(g, g->cur_ret_ptr, get_pointer_to_type(g, return_type, false), value);
-            LLVMBuildRetVoid(g->builder);
+            // as a workaround for LLVM coroutines not understanding instruction dependencies,
+            // we return the sret pointer argument instead of returning void
+            LLVMBuildRet(g->builder, g->cur_ret_ptr);
         } else {
             LLVMValueRef by_val_value = gen_load_untyped(g, value, 0, false, "");
             LLVMBuildRet(g->builder, by_val_value);
@@ -2775,7 +2780,9 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     } else if (!ret_has_bits) {
         return nullptr;
     } else if (first_arg_ret) {
-        return instruction->tmp_ptr;
+        // instead of returning instruction->tmp_ptr here, we trust that the function returned the first arg.
+        // this is a workaround for llvm coroutines not understanding the data dependency
+        return result;
     } else {
         return result;
     }
