@@ -1461,6 +1461,14 @@ struct LinkLib {
     bool provided_explicitly;
 };
 
+struct WorkaroundStructGEPId {
+    LLVMTypeRef struct_ptr_type;
+    uint32_t index;
+};
+
+uint32_t workaround_struct_gep_hash(WorkaroundStructGEPId x);
+bool workaround_struct_gep_eq(WorkaroundStructGEPId a, WorkaroundStructGEPId b);
+
 struct CodeGen {
     LLVMModuleRef module;
     ZigList<ErrorMsg*> errors;
@@ -1491,7 +1499,7 @@ struct CodeGen {
     HashMap<Buf *, AstNode *, buf_hash, buf_eql_buf> exported_symbol_names;
     HashMap<Buf *, Tld *, buf_hash, buf_eql_buf> external_prototypes;
     HashMap<Buf *, ConstExprValue *, buf_hash, buf_eql_buf> string_literals_table;
-
+    HashMap<WorkaroundStructGEPId, LLVMValueRef, workaround_struct_gep_hash, workaround_struct_gep_eq> workaround_struct_gep_table;
 
     ZigList<ImportTableEntry *> import_queue;
     size_t import_queue_index;
@@ -1603,6 +1611,7 @@ struct CodeGen {
     LLVMValueRef cur_ret_ptr;
     LLVMValueRef cur_fn_val;
     LLVMValueRef cur_err_ret_trace_val;
+    bool cur_workaround_gep_on;
     bool c_want_stdint;
     bool c_want_stdbool;
     AstNode *root_export_decl;
