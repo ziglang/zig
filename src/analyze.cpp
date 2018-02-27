@@ -5821,11 +5821,3 @@ bool type_is_global_error_set(TypeTableEntry *err_set_type) {
 uint32_t get_coro_frame_align_bytes(CodeGen *g) {
     return g->pointer_size_bytes * 2;
 }
-
-uint32_t workaround_struct_gep_hash(WorkaroundStructGEPId x) {
-    return ptr_hash(x.struct_ptr_type) ^ x.index;
-}
-
-bool workaround_struct_gep_eq(WorkaroundStructGEPId a, WorkaroundStructGEPId b) {
-    return a.struct_ptr_type == b.struct_ptr_type && a.index == b.index;
-}

@@ -88,7 +88,6 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
     g->exported_symbol_names.init(8);
     g->external_prototypes.init(8);
     g->string_literals_table.init(16);
-    g->workaround_struct_gep_table.init(8);
     g->is_test_build = false;
     g->want_h_file = (out_type == OutTypeObj || out_type == OutTypeLib);
     buf_resize(&g->global_asm, 0);
@@ -2782,52 +2781,6 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     }
 }
 
-static LLVMValueRef get_workaround_struct_gep_fn_val(CodeGen *g, LLVMTypeRef struct_ptr_type, uint32_t index) {
-    WorkaroundStructGEPId hash_id = {struct_ptr_type, index};
-    auto existing_entry = g->workaround_struct_gep_table.maybe_get(hash_id);
-    if (existing_entry)
-        return existing_entry->value;
-
-    LLVMTypeRef arg_types[] = {
-        struct_ptr_type,
-    };
-    LLVMTypeRef result_type = LLVMStructGetTypeAtIndex(LLVMGetElementType(struct_ptr_type), index);
-    LLVMTypeRef fn_type_ref = LLVMFunctionType(LLVMPointerType(result_type, 0), arg_types, 1, false);
-
-    Buf *fn_name = get_mangled_name(g, buf_create_from_str("__zig_workaround_llvm_struct_gep"), false);
-    LLVMValueRef fn_val = LLVMAddFunction(g->module, buf_ptr(fn_name), fn_type_ref);
-    LLVMSetLinkage(fn_val, LLVMInternalLinkage);
-    LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
-    addLLVMFnAttr(fn_val, "nounwind");
-    addLLVMArgAttr(fn_val, (unsigned)0, "nonnull");
-
-    LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn_val, "Entry");
-    LLVMBasicBlockRef prev_block = LLVMGetInsertBlock(g->builder);
-    LLVMValueRef prev_debug_location = LLVMGetCurrentDebugLocation(g->builder);
-    LLVMPositionBuilderAtEnd(g->builder, entry_block);
-    ZigLLVMClearCurrentDebugLocation(g->builder);
-
-    LLVMValueRef result = LLVMBuildStructGEP(g->builder, LLVMGetParam(fn_val, 0), index, "");
-    LLVMBuildRet(g->builder, result);
-
-    LLVMPositionBuilderAtEnd(g->builder, prev_block);
-    LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
-
-    g->workaround_struct_gep_table.put(hash_id, fn_val);
-    return fn_val;
-}
-
-static LLVMValueRef gen_workaround_struct_gep(CodeGen *g, LLVMValueRef struct_ptr, uint32_t field_index) {
-    if (g->cur_workaround_gep_on) {
-        // We need to generate a normal StructGEP but due to llvm bugs we have to workaround it by
-        // putting the GEP in a function call
-        LLVMValueRef fn_val = get_workaround_struct_gep_fn_val(g, LLVMTypeOf(struct_ptr), field_index);
-        return LLVMBuildCall(g->builder, fn_val, &struct_ptr, 1, "");
-    } else {
-        return LLVMBuildStructGEP(g->builder, struct_ptr, field_index, "");
-    }
-}
-
 static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executable,
     IrInstructionStructFieldPtr *instruction)
 {
@@ -2846,7 +2799,7 @@ static LLVMValueRef ir_render_struct_field_ptr(CodeGen *g, IrExecutable *executa
     }
 
     assert(field->gen_index != SIZE_MAX);
-    return gen_workaround_struct_gep(g, struct_ptr, field->gen_index);
+    return LLVMBuildStructGEP(g->builder, struct_ptr, (unsigned)field->gen_index, "");
 }
 
 static LLVMValueRef ir_render_union_field_ptr(CodeGen *g, IrExecutable *executable,
@@ -3702,7 +3655,7 @@ static LLVMValueRef ir_render_test_err(CodeGen *g, IrExecutable *executable, IrI
 
     LLVMValueRef err_val;
     if (type_has_bits(payload_type)) {
-        LLVMValueRef err_val_ptr = gen_workaround_struct_gep(g, err_union_handle, err_union_err_index);
+        LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, err_union_handle, err_union_err_index, "");
         err_val = gen_load_untyped(g, err_val_ptr, 0, false, "");
     } else {
         err_val = err_union_handle;
@@ -3721,12 +3674,7 @@ static LLVMValueRef ir_render_unwrap_err_code(CodeGen *g, IrExecutable *executab
     LLVMValueRef err_union_handle = get_handle_value(g, err_union_ptr, err_union_type, ptr_type);
 
     if (type_has_bits(payload_type)) {
-        LLVMValueRef err_val_ptr;
-        if (g->cur_workaround_gep_on) {
-            err_val_ptr = gen_workaround_struct_gep(g, err_union_handle, err_union_err_index);
-        } else {
-            err_val_ptr = LLVMBuildStructGEP(g->builder, err_union_handle, err_union_err_index, "");
-        }
+        LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, err_union_handle, err_union_err_index, "");
         return gen_load_untyped(g, err_val_ptr, 0, false, "");
     } else {
         return err_union_handle;
@@ -3748,7 +3696,7 @@ static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutable *execu
     if (ir_want_runtime_safety(g, &instruction->base) && instruction->safety_check_on && g->errors_by_index.length > 1) {
         LLVMValueRef err_val;
         if (type_has_bits(payload_type)) {
-            LLVMValueRef err_val_ptr = gen_workaround_struct_gep(g, err_union_handle, err_union_err_index);
+            LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, err_union_handle, err_union_err_index, "");
             err_val = gen_load_untyped(g, err_val_ptr, 0, false, "");
         } else {
             err_val = err_union_handle;
@@ -3766,11 +3714,7 @@ static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutable *execu
     }
 
     if (type_has_bits(payload_type)) {
-        if (g->cur_workaround_gep_on) {
-            return gen_workaround_struct_gep(g, err_union_handle, err_union_payload_index);
-        } else {
-            return LLVMBuildStructGEP(g->builder, err_union_handle, err_union_payload_index, "");
-        }
+        return LLVMBuildStructGEP(g->builder, err_union_handle, err_union_payload_index, "");
     } else {
         return nullptr;
     }
@@ -3990,7 +3934,6 @@ static LLVMValueRef ir_render_coro_begin(CodeGen *g, IrExecutable *executable, I
         coro_id,
         coro_mem_ptr,
     };
-    g->cur_workaround_gep_on = false;
     return LLVMBuildCall(g->builder, get_coro_begin_fn_val(g), params, 2, "");
 }
 
@@ -5130,7 +5073,6 @@ static void do_code_gen(CodeGen *g) {
         LLVMValueRef fn = fn_llvm_value(g, fn_table_entry);
         g->cur_fn = fn_table_entry;
         g->cur_fn_val = fn;
-        g->cur_workaround_gep_on = fn_table_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
         TypeTableEntry *return_type = fn_table_entry->type_entry->data.fn.fn_type_id.return_type;
         if (handle_is_ptr(return_type)) {
             g->cur_ret_ptr = LLVMGetParam(fn, 0);
