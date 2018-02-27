@@ -2667,6 +2667,18 @@ static bool get_prefix_arg_err_ret_stack(CodeGen *g, TypeTableEntry *src_return_
         (src_return_type->id == TypeTableEntryIdErrorUnion || src_return_type->id == TypeTableEntryIdErrorSet);
 }
 
+static size_t get_async_allocator_arg_index(CodeGen *g, TypeTableEntry *src_return_type) {
+    // 0             1             2     3    4        5
+    // err_ret_stack allocator_ptr alloc free err_code other_args...
+    return get_prefix_arg_err_ret_stack(g, src_return_type) ? 1 : 0;
+}
+
+static size_t get_async_err_code_arg_index(CodeGen *g, TypeTableEntry *src_return_type) {
+    // 0             1             2     3    4        5
+    // err_ret_stack allocator_ptr alloc free err_code other_args...
+    return 3 + get_async_allocator_arg_index(g, src_return_type);
+}
+
 static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstructionCall *instruction) {
     LLVMValueRef fn_val;
     TypeTableEntry *fn_type;
@@ -2687,7 +2699,8 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     bool first_arg_ret = ret_has_bits && handle_is_ptr(src_return_type) &&
             calling_convention_does_first_arg_return(fn_type->data.fn.fn_type_id.cc);
     bool prefix_arg_err_ret_stack = get_prefix_arg_err_ret_stack(g, src_return_type);
-    size_t actual_param_count = instruction->arg_count + (first_arg_ret ? 1 : 0) + (prefix_arg_err_ret_stack ? 1 : 0);
+    // +4 for the async args
+    size_t actual_param_count = instruction->arg_count + (first_arg_ret ? 1 : 0) + (prefix_arg_err_ret_stack ? 1 : 0) + 4;
     bool is_var_args = fn_type_id->is_var_args;
     LLVMValueRef *gen_param_values = allocate<LLVMValueRef>(actual_param_count);
     size_t gen_param_index = 0;
@@ -2701,6 +2714,12 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     }
     if (instruction->is_async) {
         gen_param_values[gen_param_index] = ir_llvm_value(g, instruction->async_allocator);
+        gen_param_index += 1;
+
+        gen_param_values[gen_param_index] = ir_llvm_value(g, instruction->alloc_fn);
+        gen_param_index += 1;
+
+        gen_param_values[gen_param_index] = ir_llvm_value(g, instruction->free_fn);
         gen_param_index += 1;
 
         LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_err_index, "");
@@ -3281,9 +3300,16 @@ static LLVMValueRef ir_render_get_implicit_allocator(CodeGen *g, IrExecutable *e
         IrInstructionGetImplicitAllocator *instruction)
 {
     TypeTableEntry *src_return_type = g->cur_fn->type_entry->data.fn.fn_type_id.return_type;
-    bool prefix_arg_err_ret_stack = get_prefix_arg_err_ret_stack(g, src_return_type);
-    size_t allocator_arg_index = prefix_arg_err_ret_stack ? 1 : 0;
-    return LLVMGetParam(g->cur_fn_val, allocator_arg_index);
+    size_t allocator_arg_index = get_async_allocator_arg_index(g, src_return_type);
+    switch (instruction->id) {
+        case ImplicitAllocatorIdContext:
+            return LLVMGetParam(g->cur_fn_val, allocator_arg_index + 0);
+        case ImplicitAllocatorIdAlloc:
+            return LLVMGetParam(g->cur_fn_val, allocator_arg_index + 1);
+        case ImplicitAllocatorIdFree:
+            return LLVMGetParam(g->cur_fn_val, allocator_arg_index + 2);
+    }
+    zig_unreachable();
 }
 
 static LLVMAtomicOrdering to_LLVMAtomicOrdering(AtomicOrder atomic_order) {
@@ -3915,8 +3941,7 @@ static LLVMValueRef ir_render_coro_alloc_fail(CodeGen *g, IrExecutable *executab
         IrInstructionCoroAllocFail *instruction)
 {
     TypeTableEntry *src_return_type = g->cur_fn->type_entry->data.fn.fn_type_id.return_type;
-    bool prefix_arg_err_ret_stack = get_prefix_arg_err_ret_stack(g, src_return_type);
-    size_t err_code_ptr_arg_index = prefix_arg_err_ret_stack ? 2 : 1;
+    size_t err_code_ptr_arg_index = get_async_err_code_arg_index(g, src_return_type);
     LLVMValueRef err_code_ptr_val = LLVMGetParam(g->cur_fn_val, err_code_ptr_arg_index);
     LLVMValueRef err_code = ir_llvm_value(g, instruction->err_val);
     LLVMBuildStore(g->builder, err_code, err_code_ptr_val);

@@ -2208,7 +2208,10 @@ struct IrInstructionCall {
     LLVMValueRef tmp_ptr;
     FnInline fn_inline;
     bool is_async;
+
     IrInstruction *async_allocator;
+    IrInstruction *alloc_fn;
+    IrInstruction *free_fn;
 };
 
 struct IrInstructionConst {
@@ -2849,8 +2852,16 @@ struct IrInstructionCancel {
     IrInstruction *target;
 };
 
+enum ImplicitAllocatorId {
+    ImplicitAllocatorIdContext,
+    ImplicitAllocatorIdAlloc,
+    ImplicitAllocatorIdFree,
+};
+
 struct IrInstructionGetImplicitAllocator {
     IrInstruction base;
+
+    ImplicitAllocatorId id;
 };
 
 struct IrInstructionCoroId {
