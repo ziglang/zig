@@ -2673,15 +2673,15 @@ static bool get_prefix_arg_err_ret_stack(CodeGen *g, TypeTableEntry *src_return_
 }
 
 static size_t get_async_allocator_arg_index(CodeGen *g, TypeTableEntry *src_return_type) {
-    // 0             1             2     3    4        5
-    // err_ret_stack allocator_ptr alloc free err_code other_args...
+    // 0             1             2        3
+    // err_ret_stack allocator_ptr err_code other_args...
     return get_prefix_arg_err_ret_stack(g, src_return_type) ? 1 : 0;
 }
 
 static size_t get_async_err_code_arg_index(CodeGen *g, TypeTableEntry *src_return_type) {
-    // 0             1             2     3    4        5
-    // err_ret_stack allocator_ptr alloc free err_code other_args...
-    return 3 + get_async_allocator_arg_index(g, src_return_type);
+    // 0             1             2        3
+    // err_ret_stack allocator_ptr err_code other_args...
+    return 1 + get_async_allocator_arg_index(g, src_return_type);
 }
 
 static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstructionCall *instruction) {
@@ -2704,8 +2704,8 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     bool first_arg_ret = ret_has_bits && handle_is_ptr(src_return_type) &&
             calling_convention_does_first_arg_return(fn_type->data.fn.fn_type_id.cc);
     bool prefix_arg_err_ret_stack = get_prefix_arg_err_ret_stack(g, src_return_type);
-    // +4 for the async args
-    size_t actual_param_count = instruction->arg_count + (first_arg_ret ? 1 : 0) + (prefix_arg_err_ret_stack ? 1 : 0) + 4;
+    // +2 for the async args
+    size_t actual_param_count = instruction->arg_count + (first_arg_ret ? 1 : 0) + (prefix_arg_err_ret_stack ? 1 : 0) + 2;
     bool is_var_args = fn_type_id->is_var_args;
     LLVMValueRef *gen_param_values = allocate<LLVMValueRef>(actual_param_count);
     size_t gen_param_index = 0;
@@ -2719,12 +2719,6 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     }
     if (instruction->is_async) {
         gen_param_values[gen_param_index] = ir_llvm_value(g, instruction->async_allocator);
-        gen_param_index += 1;
-
-        gen_param_values[gen_param_index] = ir_llvm_value(g, instruction->alloc_fn);
-        gen_param_index += 1;
-
-        gen_param_values[gen_param_index] = ir_llvm_value(g, instruction->free_fn);
         gen_param_index += 1;
 
         LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_err_index, "");
@@ -3308,15 +3302,7 @@ static LLVMValueRef ir_render_get_implicit_allocator(CodeGen *g, IrExecutable *e
 {
     TypeTableEntry *src_return_type = g->cur_fn->type_entry->data.fn.fn_type_id.return_type;
     size_t allocator_arg_index = get_async_allocator_arg_index(g, src_return_type);
-    switch (instruction->id) {
-        case ImplicitAllocatorIdContext:
-            return LLVMGetParam(g->cur_fn_val, allocator_arg_index + 0);
-        case ImplicitAllocatorIdAlloc:
-            return LLVMGetParam(g->cur_fn_val, allocator_arg_index + 1);
-        case ImplicitAllocatorIdFree:
-            return LLVMGetParam(g->cur_fn_val, allocator_arg_index + 2);
-    }
-    zig_unreachable();
+    return LLVMGetParam(g->cur_fn_val, allocator_arg_index);
 }
 
 static LLVMAtomicOrdering to_LLVMAtomicOrdering(AtomicOrder atomic_order) {

@@ -1006,13 +1006,13 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             fn_type_id->return_type->id == TypeTableEntryIdErrorSet);
         // +1 for maybe making the first argument the return value
         // +1 for maybe first argument the error return trace
-        // +4 for maybe arguments async allocator and error code pointer
-        LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(6 + fn_type_id->param_count);
+        // +2 for maybe arguments async allocator and error code pointer
+        LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(4 + fn_type_id->param_count);
         // +1 because 0 is the return type and
         // +1 for maybe making first arg ret val and
         // +1 for maybe first argument the error return trace
-        // +4 for maybe arguments async allocator and error code pointer
-        ZigLLVMDIType **param_di_types = allocate<ZigLLVMDIType*>(7 + fn_type_id->param_count);
+        // +2 for maybe arguments async allocator and error code pointer
+        ZigLLVMDIType **param_di_types = allocate<ZigLLVMDIType*>(5 + fn_type_id->param_count);
         param_di_types[0] = fn_type_id->return_type->di_type;
         size_t gen_param_index = 0;
         TypeTableEntry *gen_return_type;
@@ -1046,32 +1046,6 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             {
                 // async allocator param
                 TypeTableEntry *gen_type = fn_type_id->async_allocator_type;
-                gen_param_types[gen_param_index] = gen_type->type_ref;
-                gen_param_index += 1;
-                // after the gen_param_index += 1 because 0 is the return type
-                param_di_types[gen_param_index] = gen_type->di_type;
-            }
-
-            {
-                // async alloc fn param
-                assert(fn_type_id->async_allocator_type->id == TypeTableEntryIdPointer);
-                TypeTableEntry *struct_type = fn_type_id->async_allocator_type->data.pointer.child_type;
-                TypeStructField *alloc_fn_field = find_struct_type_field(struct_type, buf_create_from_str("allocFn"));
-                assert(alloc_fn_field->type_entry->id == TypeTableEntryIdFn);
-                TypeTableEntry *gen_type = alloc_fn_field->type_entry;
-                gen_param_types[gen_param_index] = gen_type->type_ref;
-                gen_param_index += 1;
-                // after the gen_param_index += 1 because 0 is the return type
-                param_di_types[gen_param_index] = gen_type->di_type;
-            }
-
-            {
-                // async free fn param
-                assert(fn_type_id->async_allocator_type->id == TypeTableEntryIdPointer);
-                TypeTableEntry *struct_type = fn_type_id->async_allocator_type->data.pointer.child_type;
-                TypeStructField *free_fn_field = find_struct_type_field(struct_type, buf_create_from_str("freeFn"));
-                assert(free_fn_field->type_entry->id == TypeTableEntryIdFn);
-                TypeTableEntry *gen_type = free_fn_field->type_entry;
                 gen_param_types[gen_param_index] = gen_type->type_ref;
                 gen_param_index += 1;
                 // after the gen_param_index += 1 because 0 is the return type

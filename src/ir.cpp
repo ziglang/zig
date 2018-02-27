@@ -1066,7 +1066,7 @@ static IrInstruction *ir_build_union_field_ptr_from(IrBuilder *irb, IrInstructio
 
 static IrInstruction *ir_build_call(IrBuilder *irb, Scope *scope, AstNode *source_node,
         FnTableEntry *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
-        bool is_comptime, FnInline fn_inline, bool is_async, IrInstruction *async_allocator, IrInstruction *alloc_fn, IrInstruction *free_fn)
+        bool is_comptime, FnInline fn_inline, bool is_async, IrInstruction *async_allocator)
 {
     IrInstructionCall *call_instruction = ir_build_instruction<IrInstructionCall>(irb, scope, source_node);
     call_instruction->fn_entry = fn_entry;
@@ -1077,8 +1077,6 @@ static IrInstruction *ir_build_call(IrBuilder *irb, Scope *scope, AstNode *sourc
     call_instruction->arg_count = arg_count;
     call_instruction->is_async = is_async;
     call_instruction->async_allocator = async_allocator;
-    call_instruction->alloc_fn = alloc_fn;
-    call_instruction->free_fn = free_fn;
 
     if (fn_ref)
         ir_ref_instruction(fn_ref, irb->current_basic_block);
@@ -1086,20 +1084,16 @@ static IrInstruction *ir_build_call(IrBuilder *irb, Scope *scope, AstNode *sourc
         ir_ref_instruction(args[i], irb->current_basic_block);
     if (async_allocator)
         ir_ref_instruction(async_allocator, irb->current_basic_block);
-    if (alloc_fn)
-        ir_ref_instruction(alloc_fn, irb->current_basic_block);
-    if (free_fn)
-        ir_ref_instruction(free_fn, irb->current_basic_block);
 
     return &call_instruction->base;
 }
 
 static IrInstruction *ir_build_call_from(IrBuilder *irb, IrInstruction *old_instruction,
         FnTableEntry *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
-        bool is_comptime, FnInline fn_inline, bool is_async, IrInstruction *async_allocator, IrInstruction *alloc_fn, IrInstruction *free_fn)
+        bool is_comptime, FnInline fn_inline, bool is_async, IrInstruction *async_allocator)
 {
     IrInstruction *new_instruction = ir_build_call(irb, old_instruction->scope,
-            old_instruction->source_node, fn_entry, fn_ref, arg_count, args, is_comptime, fn_inline, is_async, async_allocator, alloc_fn, free_fn);
+            old_instruction->source_node, fn_entry, fn_ref, arg_count, args, is_comptime, fn_inline, is_async, async_allocator);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
 }
@@ -2501,9 +2495,8 @@ static IrInstruction *ir_build_cancel(IrBuilder *irb, Scope *scope, AstNode *sou
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_get_implicit_allocator(IrBuilder *irb, Scope *scope, AstNode *source_node, ImplicitAllocatorId id) {
+static IrInstruction *ir_build_get_implicit_allocator(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     IrInstructionGetImplicitAllocator *instruction = ir_build_instruction<IrInstructionGetImplicitAllocator>(irb, scope, source_node);
-    instruction->id = id;
 
     return &instruction->base;
 }
@@ -3977,7 +3970,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 }
                 FnInline fn_inline = (builtin_fn->id == BuiltinFnIdInlineCall) ? FnInlineAlways : FnInlineNever;
 
-                return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, fn_inline, false, nullptr, nullptr, nullptr);
+                return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, fn_inline, false, nullptr);
             }
         case BuiltinFnIdTypeId:
             {
@@ -4113,25 +4106,15 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
 
     bool is_async = node->data.fn_call_expr.is_async;
     IrInstruction *async_allocator = nullptr;
-    IrInstruction *alloc_fn = nullptr;
-    IrInstruction *free_fn = nullptr;
     if (is_async) {
         if (node->data.fn_call_expr.async_allocator) {
             async_allocator = ir_gen_node(irb, node->data.fn_call_expr.async_allocator, scope);
             if (async_allocator == irb->codegen->invalid_instruction)
                 return async_allocator;
-
-            Buf *alloc_field_name = buf_create_from_str(ASYNC_ALLOC_FIELD_NAME);
-            IrInstruction *alloc_fn_ptr = ir_build_field_ptr(irb, scope, node, async_allocator, alloc_field_name);
-            alloc_fn = ir_build_load_ptr(irb, scope, node, alloc_fn_ptr);
-
-            Buf *free_field_name = buf_create_from_str(ASYNC_FREE_FIELD_NAME);
-            IrInstruction *free_fn_ptr = ir_build_field_ptr(irb, scope, node, async_allocator, free_field_name);
-            free_fn = ir_build_load_ptr(irb, scope, node, free_fn_ptr);
         }
     }
 
-    return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, FnInlineAuto, is_async, async_allocator, alloc_fn, free_fn);
+    return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, FnInlineAuto, is_async, async_allocator);
 }
 
 static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
@@ -6113,16 +6096,20 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         IrInstruction *promise_as_u8_ptr = ir_build_ptr_cast(irb, scope, node, u8_ptr_type, coro_promise_ptr);
         coro_id = ir_build_coro_id(irb, scope, node, promise_as_u8_ptr);
         IrInstruction *coro_size = ir_build_coro_size(irb, scope, node);
-        irb->exec->implicit_allocator_ptr = ir_build_get_implicit_allocator(irb, scope, node, ImplicitAllocatorIdContext);
-        IrInstruction *alloc_fn = ir_build_get_implicit_allocator(irb, scope, node, ImplicitAllocatorIdAlloc);
-        IrInstruction *alignment = ir_build_const_u29(irb, scope, node, get_coro_frame_align_bytes(irb->codegen));
+        irb->exec->implicit_allocator_ptr = ir_build_get_implicit_allocator(irb, scope, node);
+        Buf *alloc_field_name = buf_create_from_str(ASYNC_ALLOC_FIELD_NAME);
+        IrInstruction *alloc_fn_ptr = ir_build_field_ptr(irb, scope, node, irb->exec->implicit_allocator_ptr,
+                alloc_field_name);
+        IrInstruction *alloc_fn = ir_build_load_ptr(irb, scope, node, alloc_fn_ptr);
+        IrInstruction *alignment = ir_build_const_u29(irb, scope, node,
+                get_coro_frame_align_bytes(irb->codegen));
         size_t arg_count = 3;
         IrInstruction **args = allocate<IrInstruction *>(arg_count);
         args[0] = irb->exec->implicit_allocator_ptr; // self
         args[1] = coro_size; // byte_count
         args[2] = alignment; // alignment
         IrInstruction *alloc_result = ir_build_call(irb, scope, node, nullptr, alloc_fn, arg_count, args, false,
-                FnInlineAuto, false, nullptr, nullptr, nullptr);
+                FnInlineAuto, false, nullptr);
         IrInstruction *alloc_result_ptr = ir_build_ref(irb, scope, node, alloc_result, true, false);
         IrInstruction *alloc_result_is_err = ir_build_test_err(irb, scope, node, alloc_result);
         IrBasicBlock *alloc_err_block = ir_create_basic_block(irb, scope, "AllocError");
@@ -6216,12 +6203,15 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         incoming_values[1] = const_bool_true;
         IrInstruction *resume_awaiter = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
 
-        IrInstruction *free_fn = ir_build_get_implicit_allocator(irb, scope, node, ImplicitAllocatorIdFree);
+        Buf *free_field_name = buf_create_from_str(ASYNC_FREE_FIELD_NAME);
+        IrInstruction *free_fn_ptr = ir_build_field_ptr(irb, scope, node, irb->exec->implicit_allocator_ptr,
+                free_field_name);
+        IrInstruction *free_fn = ir_build_load_ptr(irb, scope, node, free_fn_ptr);
         size_t arg_count = 2;
         IrInstruction **args = allocate<IrInstruction *>(arg_count);
         args[0] = irb->exec->implicit_allocator_ptr; // self
         args[1] = ir_build_load_ptr(irb, scope, node, coro_unwrapped_mem_ptr); // old_mem
-        ir_build_call(irb, scope, node, nullptr, free_fn, arg_count, args, false, FnInlineAuto, false, nullptr, nullptr, nullptr);
+        ir_build_call(irb, scope, node, nullptr, free_fn, arg_count, args, false, FnInlineAuto, false, nullptr);
 
         IrBasicBlock *resume_block = ir_create_basic_block(irb, scope, "Resume");
         IrBasicBlock *return_block = ir_create_basic_block(irb, scope, "Return");
@@ -11240,7 +11230,7 @@ static TypeTableEntry *ir_analyze_instruction_error_union(IrAnalyze *ira,
     return ira->codegen->builtin_types.entry_type;
 }
 
-IrInstruction *ir_get_implicit_allocator(IrAnalyze *ira, IrInstruction *source_instr, ImplicitAllocatorId id) {
+IrInstruction *ir_get_implicit_allocator(IrAnalyze *ira, IrInstruction *source_instr) {
     FnTableEntry *parent_fn_entry = exec_fn_entry(ira->new_irb.exec);
     if (parent_fn_entry == nullptr) {
         ir_add_error(ira, source_instr, buf_sprintf("no implicit allocator available"));
@@ -11254,39 +11244,27 @@ IrInstruction *ir_get_implicit_allocator(IrAnalyze *ira, IrInstruction *source_i
     }
 
     assert(parent_fn_type->async_allocator_type != nullptr);
-    IrInstruction *result = ir_build_get_implicit_allocator(&ira->new_irb, source_instr->scope, source_instr->source_node, id);
-    switch (id) {
-        case ImplicitAllocatorIdContext:
-            result->value.type = parent_fn_type->async_allocator_type;
-            break;
-        case ImplicitAllocatorIdAlloc:
-            {
-                assert(parent_fn_type->async_allocator_type->id == TypeTableEntryIdPointer);
-                TypeTableEntry *struct_type = parent_fn_type->async_allocator_type->data.pointer.child_type;
-                TypeStructField *alloc_fn_field = find_struct_type_field(struct_type, buf_create_from_str(ASYNC_ALLOC_FIELD_NAME));
-                assert(alloc_fn_field->type_entry->id == TypeTableEntryIdFn);
-                result->value.type = alloc_fn_field->type_entry;
-                break;
-            }
-        case ImplicitAllocatorIdFree:
-            {
-                assert(parent_fn_type->async_allocator_type->id == TypeTableEntryIdPointer);
-                TypeTableEntry *struct_type = parent_fn_type->async_allocator_type->data.pointer.child_type;
-                TypeStructField *free_fn_field = find_struct_type_field(struct_type, buf_create_from_str(ASYNC_FREE_FIELD_NAME));
-                assert(free_fn_field->type_entry->id == TypeTableEntryIdFn);
-                result->value.type = free_fn_field->type_entry;
-                break;
-            }
-    }
+    IrInstruction *result = ir_build_get_implicit_allocator(&ira->new_irb, source_instr->scope, source_instr->source_node);
+    result->value.type = parent_fn_type->async_allocator_type;
     return result;
 }
 
 static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCall *call_instruction, FnTableEntry *fn_entry, TypeTableEntry *fn_type,
-    IrInstruction *fn_ref, IrInstruction **casted_args, size_t arg_count, IrInstruction *async_allocator_inst, IrInstruction *alloc_fn, IrInstruction *free_fn)
+    IrInstruction *fn_ref, IrInstruction **casted_args, size_t arg_count, IrInstruction *async_allocator_inst)
 {
+    Buf *alloc_field_name = buf_create_from_str(ASYNC_ALLOC_FIELD_NAME);
+    //Buf *free_field_name = buf_create_from_str("freeFn");
     assert(async_allocator_inst->value.type->id == TypeTableEntryIdPointer);
+    TypeTableEntry *container_type = async_allocator_inst->value.type->data.pointer.child_type;
+    IrInstruction *field_ptr_inst = ir_analyze_container_field_ptr(ira, alloc_field_name, &call_instruction->base,
+            async_allocator_inst, container_type);
+    if (type_is_invalid(field_ptr_inst->value.type)) {
+        return ira->codegen->invalid_instruction;
+    }
+    TypeTableEntry *ptr_to_alloc_fn_type = field_ptr_inst->value.type;
+    assert(ptr_to_alloc_fn_type->id == TypeTableEntryIdPointer);
 
-    TypeTableEntry *alloc_fn_type = alloc_fn->value.type;
+    TypeTableEntry *alloc_fn_type = ptr_to_alloc_fn_type->data.pointer.child_type;
     if (alloc_fn_type->id != TypeTableEntryIdFn) {
         ir_add_error(ira, &call_instruction->base,
                 buf_sprintf("expected allocation function, found '%s'", buf_ptr(&alloc_fn_type->name)));
@@ -11305,7 +11283,7 @@ static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCall *c
     TypeTableEntry *async_return_type = get_error_union_type(ira->codegen, alloc_fn_error_set_type, promise_type);
 
     IrInstruction *result = ir_build_call(&ira->new_irb, call_instruction->base.scope, call_instruction->base.source_node,
-        fn_entry, fn_ref, arg_count, casted_args, false, FnInlineAuto, true, async_allocator_inst, alloc_fn, free_fn);
+        fn_entry, fn_ref, arg_count, casted_args, false, FnInlineAuto, true, async_allocator_inst);
     result->value.type = async_return_type;
     return result;
 }
@@ -11828,7 +11806,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             }
             IrInstruction *uncasted_async_allocator_inst;
             if (call_instruction->async_allocator == nullptr) {
-                uncasted_async_allocator_inst = ir_get_implicit_allocator(ira, &call_instruction->base, ImplicitAllocatorIdContext);
+                uncasted_async_allocator_inst = ir_get_implicit_allocator(ira, &call_instruction->base);
                 if (type_is_invalid(uncasted_async_allocator_inst->value.type))
                     return ira->codegen->builtin_types.entry_invalid;
             } else {
@@ -11872,16 +11850,8 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
         size_t impl_param_count = impl_fn->type_entry->data.fn.fn_type_id.param_count;
         if (call_instruction->is_async) {
-            IrInstruction *alloc_fn = call_instruction->alloc_fn->other;
-            if (type_is_invalid(alloc_fn->value.type))
-                return ira->codegen->builtin_types.entry_invalid;
-
-            IrInstruction *free_fn = call_instruction->free_fn->other;
-            if (type_is_invalid(free_fn->value.type))
-                return ira->codegen->builtin_types.entry_invalid;
-
             IrInstruction *result = ir_analyze_async_call(ira, call_instruction, impl_fn, impl_fn->type_entry, fn_ref, casted_args, impl_param_count,
-                    async_allocator_inst, alloc_fn, free_fn);
+                    async_allocator_inst);
             ir_link_new_instruction(result, &call_instruction->base);
             ir_add_alloca(ira, result, result->value.type);
             return ir_finish_anal(ira, result->value.type);
@@ -11890,7 +11860,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         assert(async_allocator_inst == nullptr);
         IrInstruction *new_call_instruction = ir_build_call_from(&ira->new_irb, &call_instruction->base,
                 impl_fn, nullptr, impl_param_count, casted_args, false, fn_inline,
-                call_instruction->is_async, nullptr, nullptr, nullptr);
+                call_instruction->is_async, nullptr);
 
         ir_add_alloca(ira, new_call_instruction, return_type);
 
@@ -11957,31 +11927,13 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
     if (call_instruction->is_async) {
         IrInstruction *uncasted_async_allocator_inst;
-        IrInstruction *uncasted_alloc_fn_inst;
-        IrInstruction *uncasted_free_fn_inst;
         if (call_instruction->async_allocator == nullptr) {
-            uncasted_async_allocator_inst = ir_get_implicit_allocator(ira, &call_instruction->base, ImplicitAllocatorIdContext);
+            uncasted_async_allocator_inst = ir_get_implicit_allocator(ira, &call_instruction->base);
             if (type_is_invalid(uncasted_async_allocator_inst->value.type))
-                return ira->codegen->builtin_types.entry_invalid;
-
-            uncasted_alloc_fn_inst = ir_get_implicit_allocator(ira, &call_instruction->base, ImplicitAllocatorIdAlloc);
-            if (type_is_invalid(uncasted_alloc_fn_inst->value.type))
-                return ira->codegen->builtin_types.entry_invalid;
-
-            uncasted_free_fn_inst = ir_get_implicit_allocator(ira, &call_instruction->base, ImplicitAllocatorIdFree);
-            if (type_is_invalid(uncasted_free_fn_inst->value.type))
                 return ira->codegen->builtin_types.entry_invalid;
         } else {
             uncasted_async_allocator_inst = call_instruction->async_allocator->other;
             if (type_is_invalid(uncasted_async_allocator_inst->value.type))
-                return ira->codegen->builtin_types.entry_invalid;
-
-            uncasted_alloc_fn_inst = call_instruction->alloc_fn->other;
-            if (type_is_invalid(uncasted_alloc_fn_inst->value.type))
-                return ira->codegen->builtin_types.entry_invalid;
-
-            uncasted_free_fn_inst = call_instruction->free_fn->other;
-            if (type_is_invalid(uncasted_free_fn_inst->value.type))
                 return ira->codegen->builtin_types.entry_invalid;
 
         }
@@ -11990,7 +11942,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             return ira->codegen->builtin_types.entry_invalid;
 
         IrInstruction *result = ir_analyze_async_call(ira, call_instruction, fn_entry, fn_type, fn_ref, casted_args, call_param_count,
-                async_allocator_inst, uncasted_alloc_fn_inst, uncasted_free_fn_inst);
+                async_allocator_inst);
         ir_link_new_instruction(result, &call_instruction->base);
         ir_add_alloca(ira, result, result->value.type);
         return ir_finish_anal(ira, result->value.type);
@@ -11998,7 +11950,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
 
 
     IrInstruction *new_call_instruction = ir_build_call_from(&ira->new_irb, &call_instruction->base,
-            fn_entry, fn_ref, call_param_count, casted_args, false, fn_inline, false, nullptr, nullptr, nullptr);
+            fn_entry, fn_ref, call_param_count, casted_args, false, fn_inline, false, nullptr);
 
     ir_add_alloca(ira, new_call_instruction, return_type);
     return ir_finish_anal(ira, return_type);
@@ -17238,7 +17190,7 @@ static TypeTableEntry *ir_analyze_instruction_coro_begin(IrAnalyze *ira, IrInstr
 }
 
 static TypeTableEntry *ir_analyze_instruction_get_implicit_allocator(IrAnalyze *ira, IrInstructionGetImplicitAllocator *instruction) {
-    IrInstruction *result = ir_get_implicit_allocator(ira, &instruction->base, instruction->id);
+    IrInstruction *result = ir_get_implicit_allocator(ira, &instruction->base);
     ir_link_new_instruction(result, &instruction->base);
     return result->value.type;
 }
