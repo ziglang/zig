@@ -1026,10 +1026,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             gen_param_index += 1;
             // after the gen_param_index += 1 because 0 is the return type
             param_di_types[gen_param_index] = gen_type->di_type;
-
-            // as a workaround for LLVM coroutines not understanding instruction dependencies,
-            // we return the sret pointer argument instead of returning void
-            gen_return_type = gen_type;
+            gen_return_type = g->builtin_types.entry_void;
         } else {
             gen_return_type = fn_type_id->return_type;
         }
