@@ -11,6 +11,7 @@ comptime {
     _ = @import("cases/bugs/656.zig");
     _ = @import("cases/cast.zig");
     _ = @import("cases/const_slice_child.zig");
+    _ = @import("cases/coroutines.zig");
     _ = @import("cases/defer.zig");
     _ = @import("cases/enum.zig");
     _ = @import("cases/enum_with_members.zig");
@@ -34,8 +35,8 @@ comptime {
     _ = @import("cases/sizeof_and_typeof.zig");
     _ = @import("cases/slice.zig");
     _ = @import("cases/struct.zig");
-    _ = @import("cases/struct_contains_slice_of_itself.zig");
     _ = @import("cases/struct_contains_null_ptr_itself.zig");
+    _ = @import("cases/struct_contains_slice_of_itself.zig");
     _ = @import("cases/switch.zig");
     _ = @import("cases/switch_prong_err_enum.zig");
     _ = @import("cases/switch_prong_implicit_cast.zig");
