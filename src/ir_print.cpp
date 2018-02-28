@@ -1027,7 +1027,16 @@ static void ir_print_cancel(IrPrint *irp, IrInstructionCancel *instruction) {
 }
 
 static void ir_print_get_implicit_allocator(IrPrint *irp, IrInstructionGetImplicitAllocator *instruction) {
-    fprintf(irp->f, "@getImplicitAllocator()");
+    fprintf(irp->f, "@getImplicitAllocator(");
+    switch (instruction->id) {
+        case ImplicitAllocatorIdArg:
+            fprintf(irp->f, "Arg");
+            break;
+        case ImplicitAllocatorIdLocalVar:
+            fprintf(irp->f, "LocalVar");
+            break;
+    }
+    fprintf(irp->f, ")");
 }
 
 static void ir_print_coro_id(IrPrint *irp, IrInstructionCoroId *instruction) {

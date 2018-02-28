@@ -60,11 +60,11 @@ struct IrExecutable {
     IrInstruction *coro_handle;
     IrInstruction *coro_awaiter_field_ptr;
     IrInstruction *coro_result_ptr_field_ptr;
-    IrInstruction *implicit_allocator_ptr;
     IrBasicBlock *coro_early_final;
     IrBasicBlock *coro_normal_final;
     IrBasicBlock *coro_suspend_block;
     IrBasicBlock *coro_final_cleanup_block;
+    VariableTableEntry *coro_allocator_var;
 };
 
 enum OutType {
@@ -2852,8 +2852,15 @@ struct IrInstructionCancel {
     IrInstruction *target;
 };
 
+enum ImplicitAllocatorId {
+    ImplicitAllocatorIdArg,
+    ImplicitAllocatorIdLocalVar,
+};
+
 struct IrInstructionGetImplicitAllocator {
     IrInstruction base;
+
+    ImplicitAllocatorId id;
 };
 
 struct IrInstructionCoroId {

@@ -3294,6 +3294,7 @@ static LLVMValueRef ir_render_cancel(CodeGen *g, IrExecutable *executable, IrIns
 static LLVMValueRef ir_render_get_implicit_allocator(CodeGen *g, IrExecutable *executable,
         IrInstructionGetImplicitAllocator *instruction)
 {
+    assert(instruction->id == ImplicitAllocatorIdArg);
     size_t allocator_arg_index = get_async_allocator_arg_index(g, &g->cur_fn->type_entry->data.fn.fn_type_id);
     return LLVMGetParam(g->cur_fn_val, allocator_arg_index);
 }

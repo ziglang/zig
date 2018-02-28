@@ -114,6 +114,8 @@ static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruc
 static ErrorMsg *exec_add_error_node(CodeGen *codegen, IrExecutable *exec, AstNode *source_node, Buf *msg);
 static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_name,
     IrInstruction *source_instr, IrInstruction *container_ptr, TypeTableEntry *container_type);
+static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
+        VariableTableEntry *var, bool is_const_ptr, bool is_volatile_ptr);
 
 ConstExprValue *const_ptr_pointee(CodeGen *g, ConstExprValue *const_val) {
     assert(const_val->type->id == TypeTableEntryIdPointer);
@@ -2491,8 +2493,11 @@ static IrInstruction *ir_build_cancel(IrBuilder *irb, Scope *scope, AstNode *sou
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_get_implicit_allocator(IrBuilder *irb, Scope *scope, AstNode *source_node) {
+static IrInstruction *ir_build_get_implicit_allocator(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        ImplicitAllocatorId id)
+{
     IrInstructionGetImplicitAllocator *instruction = ir_build_instruction<IrInstructionGetImplicitAllocator>(irb, scope, source_node);
+    instruction->id = id;
 
     return &instruction->base;
 }
@@ -6081,15 +6086,13 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
 
     FnTableEntry *fn_entry = exec_fn_entry(irb->exec);
     bool is_async = fn_entry != nullptr && fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
+    IrInstruction *coro_id;
     IrInstruction *u8_ptr_type;
     IrInstruction *const_bool_false;
-    IrInstruction *coro_size;
-    IrInstruction *coro_id;
-    IrInstruction *coro_promise_ptr;
     IrInstruction *coro_result_field_ptr;
-    IrInstruction *coro_mem_ptr;
     TypeTableEntry *return_type;
     Buf *result_ptr_field_name;
+    VariableTableEntry *coro_size_var;
     if (is_async) {
         // create the coro promise
         const_bool_false = ir_build_const_bool(irb, scope, node, false);
@@ -6099,17 +6102,21 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         return_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
         IrInstruction *promise_init = ir_build_const_promise_init(irb, scope, node, return_type);
         ir_build_var_decl(irb, scope, node, promise_var, nullptr, nullptr, promise_init);
-        coro_promise_ptr = ir_build_var_ptr(irb, scope, node, promise_var, false, false);
+        IrInstruction *coro_promise_ptr = ir_build_var_ptr(irb, scope, node, promise_var, false, false);
 
         u8_ptr_type = ir_build_const_type(irb, scope, node,
                 get_pointer_to_type(irb->codegen, irb->codegen->builtin_types.entry_u8, false));
         IrInstruction *promise_as_u8_ptr = ir_build_ptr_cast(irb, scope, node, u8_ptr_type, coro_promise_ptr);
         coro_id = ir_build_coro_id(irb, scope, node, promise_as_u8_ptr);
-        coro_size = ir_build_coro_size(irb, scope, node);
-        irb->exec->implicit_allocator_ptr = ir_build_get_implicit_allocator(irb, scope, node);
+        coro_size_var = ir_create_var(irb, node, scope, nullptr, false, false, true, const_bool_false);
+        IrInstruction *coro_size = ir_build_coro_size(irb, scope, node);
+        ir_build_var_decl(irb, scope, node, coro_size_var, nullptr, nullptr, coro_size);
+        IrInstruction *implicit_allocator_ptr = ir_build_get_implicit_allocator(irb, scope, node,
+                ImplicitAllocatorIdArg);
+        irb->exec->coro_allocator_var = ir_create_var(irb, node, scope, nullptr, true, true, true, const_bool_false);
+        ir_build_var_decl(irb, scope, node, irb->exec->coro_allocator_var, nullptr, nullptr, implicit_allocator_ptr);
         Buf *alloc_field_name = buf_create_from_str(ASYNC_ALLOC_FIELD_NAME);
-        IrInstruction *alloc_fn_ptr = ir_build_field_ptr(irb, scope, node, irb->exec->implicit_allocator_ptr,
-                alloc_field_name);
+        IrInstruction *alloc_fn_ptr = ir_build_field_ptr(irb, scope, node, implicit_allocator_ptr, alloc_field_name);
         IrInstruction *alloc_fn = ir_build_load_ptr(irb, scope, node, alloc_fn_ptr);
         IrInstruction *maybe_coro_mem_ptr = ir_build_coro_alloc_helper(irb, scope, node, alloc_fn, coro_size);
         IrInstruction *alloc_result_is_ok = ir_build_test_nonnull(irb, scope, node, maybe_coro_mem_ptr);
@@ -6122,7 +6129,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         ir_build_return(irb, scope, node, undef);
 
         ir_set_cursor_at_end_and_append_block(irb, alloc_ok_block);
-        coro_mem_ptr = ir_build_ptr_cast(irb, scope, node, u8_ptr_type, maybe_coro_mem_ptr);
+        IrInstruction *coro_mem_ptr = ir_build_ptr_cast(irb, scope, node, u8_ptr_type, maybe_coro_mem_ptr);
         irb->exec->coro_handle = ir_build_coro_begin(irb, scope, node, coro_id, coro_mem_ptr);
 
         Buf *awaiter_handle_field_name = buf_create_from_str(AWAITER_HANDLE_FIELD_NAME);
@@ -6200,15 +6207,20 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         IrInstruction *resume_awaiter = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
 
         Buf *free_field_name = buf_create_from_str(ASYNC_FREE_FIELD_NAME);
-        IrInstruction *free_fn_ptr = ir_build_field_ptr(irb, scope, node, irb->exec->implicit_allocator_ptr,
-                free_field_name);
+        IrInstruction *implicit_allocator_ptr = ir_build_get_implicit_allocator(irb, scope, node,
+                ImplicitAllocatorIdLocalVar);
+        IrInstruction *free_fn_ptr = ir_build_field_ptr(irb, scope, node, implicit_allocator_ptr, free_field_name);
         IrInstruction *free_fn = ir_build_load_ptr(irb, scope, node, free_fn_ptr);
         IrInstruction *zero = ir_build_const_usize(irb, scope, node, 0);
+        IrInstruction *coro_mem_ptr_maybe = ir_build_coro_free(irb, scope, node, coro_id, irb->exec->coro_handle);
+        IrInstruction *coro_mem_ptr = ir_build_ptr_cast(irb, scope, node, u8_ptr_type, coro_mem_ptr_maybe);
         IrInstruction *coro_mem_ptr_ref = ir_build_ref(irb, scope, node, coro_mem_ptr, true, false);
+        IrInstruction *coro_size_ptr = ir_build_var_ptr(irb, scope, node, coro_size_var, true, false);
+        IrInstruction *coro_size = ir_build_load_ptr(irb, scope, node, coro_size_ptr);
         IrInstruction *mem_slice = ir_build_slice(irb, scope, node, coro_mem_ptr_ref, zero, coro_size, false);
         size_t arg_count = 2;
         IrInstruction **args = allocate<IrInstruction *>(arg_count);
-        args[0] = irb->exec->implicit_allocator_ptr; // self
+        args[0] = implicit_allocator_ptr; // self
         args[1] = mem_slice; // old_mem
         ir_build_call(irb, scope, node, nullptr, free_fn, arg_count, args, false, FnInlineAuto, false, nullptr);
 
@@ -11229,7 +11241,7 @@ static TypeTableEntry *ir_analyze_instruction_error_union(IrAnalyze *ira,
     return ira->codegen->builtin_types.entry_type;
 }
 
-IrInstruction *ir_get_implicit_allocator(IrAnalyze *ira, IrInstruction *source_instr) {
+IrInstruction *ir_get_implicit_allocator(IrAnalyze *ira, IrInstruction *source_instr, ImplicitAllocatorId id) {
     FnTableEntry *parent_fn_entry = exec_fn_entry(ira->new_irb.exec);
     if (parent_fn_entry == nullptr) {
         ir_add_error(ira, source_instr, buf_sprintf("no implicit allocator available"));
@@ -11243,9 +11255,26 @@ IrInstruction *ir_get_implicit_allocator(IrAnalyze *ira, IrInstruction *source_i
     }
 
     assert(parent_fn_type->async_allocator_type != nullptr);
-    IrInstruction *result = ir_build_get_implicit_allocator(&ira->new_irb, source_instr->scope, source_instr->source_node);
-    result->value.type = parent_fn_type->async_allocator_type;
-    return result;
+
+    switch (id) {
+        case ImplicitAllocatorIdArg:
+            {
+                IrInstruction *result = ir_build_get_implicit_allocator(&ira->new_irb, source_instr->scope,
+                        source_instr->source_node, ImplicitAllocatorIdArg);
+                result->value.type = parent_fn_type->async_allocator_type;
+                return result;
+            }
+        case ImplicitAllocatorIdLocalVar:
+            {
+                VariableTableEntry *coro_allocator_var = ira->old_irb.exec->coro_allocator_var;
+                assert(coro_allocator_var != nullptr);
+                IrInstruction *var_ptr_inst = ir_get_var_ptr(ira, source_instr, coro_allocator_var, true, false);
+                IrInstruction *result = ir_get_deref(ira, source_instr, var_ptr_inst);
+                assert(result->value.type != nullptr);
+                return result;
+            }
+    }
+    zig_unreachable();
 }
 
 static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCall *call_instruction, FnTableEntry *fn_entry, TypeTableEntry *fn_type,
@@ -11805,7 +11834,8 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             }
             IrInstruction *uncasted_async_allocator_inst;
             if (call_instruction->async_allocator == nullptr) {
-                uncasted_async_allocator_inst = ir_get_implicit_allocator(ira, &call_instruction->base);
+                uncasted_async_allocator_inst = ir_get_implicit_allocator(ira, &call_instruction->base,
+                        ImplicitAllocatorIdLocalVar);
                 if (type_is_invalid(uncasted_async_allocator_inst->value.type))
                     return ira->codegen->builtin_types.entry_invalid;
             } else {
@@ -11927,7 +11957,8 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
     if (call_instruction->is_async) {
         IrInstruction *uncasted_async_allocator_inst;
         if (call_instruction->async_allocator == nullptr) {
-            uncasted_async_allocator_inst = ir_get_implicit_allocator(ira, &call_instruction->base);
+            uncasted_async_allocator_inst = ir_get_implicit_allocator(ira, &call_instruction->base,
+                    ImplicitAllocatorIdLocalVar);
             if (type_is_invalid(uncasted_async_allocator_inst->value.type))
                 return ira->codegen->builtin_types.entry_invalid;
         } else {
@@ -17189,7 +17220,7 @@ static TypeTableEntry *ir_analyze_instruction_coro_begin(IrAnalyze *ira, IrInstr
 }
 
 static TypeTableEntry *ir_analyze_instruction_get_implicit_allocator(IrAnalyze *ira, IrInstructionGetImplicitAllocator *instruction) {
-    IrInstruction *result = ir_get_implicit_allocator(ira, &instruction->base);
+    IrInstruction *result = ir_get_implicit_allocator(ira, &instruction->base, instruction->id);
     ir_link_new_instruction(result, &instruction->base);
     return result->value.type;
 }
