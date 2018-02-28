@@ -1670,6 +1670,9 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
     if (struct_type->data.structure.is_invalid)
         return;
 
+    if (struct_type->data.structure.zero_bits_loop_flag)
+      return;
+
     AstNode *decl_node = struct_type->data.structure.decl_node;
 
     if (struct_type->data.structure.embedded_in_current) {
@@ -1682,7 +1685,6 @@ static void resolve_struct_type(CodeGen *g, TypeTableEntry *struct_type) {
         return;
     }
 
-    assert(!struct_type->data.structure.zero_bits_loop_flag);
     assert(struct_type->data.structure.fields);
     assert(decl_node->type == NodeTypeContainerDecl);
 
