@@ -8830,7 +8830,8 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
             }
         } else if (wanted_child_type->id == TypeTableEntryIdPointer &&
                    wanted_child_type->data.pointer.is_const &&
-                   is_container(actual_type)) {
+                   (actual_type->id == TypeTableEntryIdPointer || is_container(actual_type)))
+        {
             IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_child_type, value);
             if (type_is_invalid(cast1->value.type))
                 return ira->codegen->invalid_instruction;

@@ -103,6 +103,37 @@ const Enum = enum {
     }
 };
 
+test "implicitly cast indirect pointer to maybe-indirect pointer" {
+    const S = struct {
+        const Self = this;
+        x: u8,
+        fn constConst(p: &const &const Self) u8 {
+            return (*p).x;
+        }
+        fn maybeConstConst(p: ?&const &const Self) u8 {
+            return (*??p).x;
+        }
+        fn constConstConst(p: &const &const &const Self) u8 {
+            return (**p).x;
+        }
+        fn maybeConstConstConst(p: ?&const &const &const Self) u8 {
+            return (**??p).x;
+        }
+    };
+    const s = S { .x = 42 };
+    const p = &s;
+    const q = &p;
+    const r = &q;
+    assert(42 == S.constConst(p));
+    assert(42 == S.constConst(q));
+    assert(42 == S.maybeConstConst(p));
+    assert(42 == S.maybeConstConst(q));
+    assert(42 == S.constConstConst(q));
+    assert(42 == S.constConstConst(r));
+    assert(42 == S.maybeConstConstConst(q));
+    assert(42 == S.maybeConstConstConst(r));
+}
+
 test "explicit cast from integer to error type" {
     testCastIntToErr(error.ItBroke);
     comptime testCastIntToErr(error.ItBroke);
