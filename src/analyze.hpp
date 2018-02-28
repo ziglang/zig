@@ -192,5 +192,6 @@ void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry);
 TypeTableEntry *get_auto_err_set_type(CodeGen *g, FnTableEntry *fn_entry);
 
 uint32_t get_coro_frame_align_bytes(CodeGen *g);
+bool fn_type_can_fail(FnTypeId *fn_type_id);
 
 #endif

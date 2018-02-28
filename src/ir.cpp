@@ -695,6 +695,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionCoroSave *) {
     return IrInstructionIdCoroSave;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCoroAllocHelper *) {
+    return IrInstructionIdCoroAllocHelper;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -824,14 +828,6 @@ static IrInstruction *ir_build_const_null(IrBuilder *irb, Scope *scope, AstNode 
 static IrInstruction *ir_build_const_usize(IrBuilder *irb, Scope *scope, AstNode *source_node, uint64_t value) {
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
     const_instruction->base.value.type = irb->codegen->builtin_types.entry_usize;
-    const_instruction->base.value.special = ConstValSpecialStatic;
-    bigint_init_unsigned(&const_instruction->base.value.data.x_bigint, value);
-    return &const_instruction->base;
-}
-
-static IrInstruction *ir_build_const_u29(IrBuilder *irb, Scope *scope, AstNode *source_node, uint32_t value) {
-    IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
-    const_instruction->base.value.type = irb->codegen->builtin_types.entry_u29;
     const_instruction->base.value.special = ConstValSpecialStatic;
     bigint_init_unsigned(&const_instruction->base.value.data.x_bigint, value);
     return &const_instruction->base;
@@ -2596,6 +2592,19 @@ static IrInstruction *ir_build_coro_save(IrBuilder *irb, Scope *scope, AstNode *
     instruction->coro_handle = coro_handle;
 
     ir_ref_instruction(coro_handle, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_coro_alloc_helper(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *alloc_fn, IrInstruction *coro_size)
+{
+    IrInstructionCoroAllocHelper *instruction = ir_build_instruction<IrInstructionCoroAllocHelper>(irb, scope, source_node);
+    instruction->alloc_fn = alloc_fn;
+    instruction->coro_size = coro_size;
+
+    ir_ref_instruction(alloc_fn, irb->current_basic_block);
+    ir_ref_instruction(coro_size, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -6074,10 +6083,11 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
     bool is_async = fn_entry != nullptr && fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
     IrInstruction *u8_ptr_type;
     IrInstruction *const_bool_false;
-    IrInstruction *coro_unwrapped_mem_ptr;
+    IrInstruction *coro_size;
     IrInstruction *coro_id;
     IrInstruction *coro_promise_ptr;
     IrInstruction *coro_result_field_ptr;
+    IrInstruction *coro_mem_ptr;
     TypeTableEntry *return_type;
     Buf *result_ptr_field_name;
     if (is_async) {
@@ -6095,39 +6105,25 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
                 get_pointer_to_type(irb->codegen, irb->codegen->builtin_types.entry_u8, false));
         IrInstruction *promise_as_u8_ptr = ir_build_ptr_cast(irb, scope, node, u8_ptr_type, coro_promise_ptr);
         coro_id = ir_build_coro_id(irb, scope, node, promise_as_u8_ptr);
-        IrInstruction *coro_size = ir_build_coro_size(irb, scope, node);
+        coro_size = ir_build_coro_size(irb, scope, node);
         irb->exec->implicit_allocator_ptr = ir_build_get_implicit_allocator(irb, scope, node);
         Buf *alloc_field_name = buf_create_from_str(ASYNC_ALLOC_FIELD_NAME);
         IrInstruction *alloc_fn_ptr = ir_build_field_ptr(irb, scope, node, irb->exec->implicit_allocator_ptr,
                 alloc_field_name);
         IrInstruction *alloc_fn = ir_build_load_ptr(irb, scope, node, alloc_fn_ptr);
-        IrInstruction *alignment = ir_build_const_u29(irb, scope, node,
-                get_coro_frame_align_bytes(irb->codegen));
-        size_t arg_count = 3;
-        IrInstruction **args = allocate<IrInstruction *>(arg_count);
-        args[0] = irb->exec->implicit_allocator_ptr; // self
-        args[1] = coro_size; // byte_count
-        args[2] = alignment; // alignment
-        IrInstruction *alloc_result = ir_build_call(irb, scope, node, nullptr, alloc_fn, arg_count, args, false,
-                FnInlineAuto, false, nullptr);
-        IrInstruction *alloc_result_ptr = ir_build_ref(irb, scope, node, alloc_result, true, false);
-        IrInstruction *alloc_result_is_err = ir_build_test_err(irb, scope, node, alloc_result);
+        IrInstruction *maybe_coro_mem_ptr = ir_build_coro_alloc_helper(irb, scope, node, alloc_fn, coro_size);
+        IrInstruction *alloc_result_is_ok = ir_build_test_nonnull(irb, scope, node, maybe_coro_mem_ptr);
         IrBasicBlock *alloc_err_block = ir_create_basic_block(irb, scope, "AllocError");
         IrBasicBlock *alloc_ok_block = ir_create_basic_block(irb, scope, "AllocOk");
-        ir_build_cond_br(irb, scope, node, alloc_result_is_err, alloc_err_block, alloc_ok_block, const_bool_false);
+        ir_build_cond_br(irb, scope, node, alloc_result_is_ok, alloc_ok_block, alloc_err_block, const_bool_false);
 
         ir_set_cursor_at_end_and_append_block(irb, alloc_err_block);
-        IrInstruction *err_val = ir_build_unwrap_err_code(irb, scope, node, alloc_result_ptr);
-        ir_build_coro_alloc_fail(irb, scope, node, err_val);
+        IrInstruction *undef = ir_build_const_undefined(irb, scope, node);
+        ir_build_return(irb, scope, node, undef);
 
         ir_set_cursor_at_end_and_append_block(irb, alloc_ok_block);
-        coro_unwrapped_mem_ptr = ir_build_unwrap_err_payload(irb, scope, node, alloc_result_ptr, false);
-        Buf *ptr_field_name = buf_create_from_str("ptr");
-        IrInstruction *coro_mem_ptr_field = ir_build_field_ptr(irb, scope, node, coro_unwrapped_mem_ptr,
-                ptr_field_name);
-        IrInstruction *coro_mem = ir_build_load_ptr(irb, scope, node, coro_mem_ptr_field);
-
-        irb->exec->coro_handle = ir_build_coro_begin(irb, scope, node, coro_id, coro_mem);
+        coro_mem_ptr = ir_build_ptr_cast(irb, scope, node, u8_ptr_type, maybe_coro_mem_ptr);
+        irb->exec->coro_handle = ir_build_coro_begin(irb, scope, node, coro_id, coro_mem_ptr);
 
         Buf *awaiter_handle_field_name = buf_create_from_str(AWAITER_HANDLE_FIELD_NAME);
         irb->exec->coro_awaiter_field_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr,
@@ -6207,10 +6203,13 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         IrInstruction *free_fn_ptr = ir_build_field_ptr(irb, scope, node, irb->exec->implicit_allocator_ptr,
                 free_field_name);
         IrInstruction *free_fn = ir_build_load_ptr(irb, scope, node, free_fn_ptr);
+        IrInstruction *zero = ir_build_const_usize(irb, scope, node, 0);
+        IrInstruction *coro_mem_ptr_ref = ir_build_ref(irb, scope, node, coro_mem_ptr, true, false);
+        IrInstruction *mem_slice = ir_build_slice(irb, scope, node, coro_mem_ptr_ref, zero, coro_size, false);
         size_t arg_count = 2;
         IrInstruction **args = allocate<IrInstruction *>(arg_count);
         args[0] = irb->exec->implicit_allocator_ptr; // self
-        args[1] = ir_build_load_ptr(irb, scope, node, coro_unwrapped_mem_ptr); // old_mem
+        args[1] = mem_slice; // old_mem
         ir_build_call(irb, scope, node, nullptr, free_fn, arg_count, args, false, FnInlineAuto, false, nullptr);
 
         IrBasicBlock *resume_block = ir_create_basic_block(irb, scope, "Resume");
@@ -11844,7 +11843,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         }
 
         TypeTableEntry *return_type = impl_fn->type_entry->data.fn.fn_type_id.return_type;
-        if (return_type->id == TypeTableEntryIdErrorSet || return_type->id == TypeTableEntryIdErrorUnion) {
+        if (fn_type_can_fail(&impl_fn->type_entry->data.fn.fn_type_id)) {
             parent_fn_entry->calls_errorable_function = true;
         }
 
@@ -11870,7 +11869,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
     FnTableEntry *parent_fn_entry = exec_fn_entry(ira->new_irb.exec);
     assert(fn_type_id->return_type != nullptr);
     assert(parent_fn_entry != nullptr);
-    if (fn_type_id->return_type->id == TypeTableEntryIdErrorSet || fn_type_id->return_type->id == TypeTableEntryIdErrorUnion) {
+    if (fn_type_can_fail(fn_type_id)) {
         parent_fn_entry->calls_errorable_function = true;
     }
 
@@ -17274,6 +17273,23 @@ static TypeTableEntry *ir_analyze_instruction_coro_save(IrAnalyze *ira, IrInstru
     return result->value.type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_coro_alloc_helper(IrAnalyze *ira, IrInstructionCoroAllocHelper *instruction) {
+    IrInstruction *alloc_fn = instruction->alloc_fn->other;
+    if (type_is_invalid(alloc_fn->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *coro_size = instruction->coro_size->other;
+    if (type_is_invalid(coro_size->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *result = ir_build_coro_alloc_helper(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, alloc_fn, coro_size);
+    ir_link_new_instruction(result, &instruction->base);
+    TypeTableEntry *u8_ptr_type = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_u8, false);
+    result->value.type = get_maybe_type(ira->codegen, u8_ptr_type);
+    return result->value.type;
+}
+
 
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
@@ -17501,6 +17517,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_coro_resume(ira, (IrInstructionCoroResume *)instruction);
         case IrInstructionIdCoroSave:
             return ir_analyze_instruction_coro_save(ira, (IrInstructionCoroSave *)instruction);
+        case IrInstructionIdCoroAllocHelper:
+            return ir_analyze_instruction_coro_alloc_helper(ira, (IrInstructionCoroAllocHelper *)instruction);
     }
     zig_unreachable();
 }
@@ -17624,6 +17642,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCoroEnd:
         case IrInstructionIdCoroResume:
         case IrInstructionIdCoroSave:
+        case IrInstructionIdCoroAllocHelper:
             return true;
 
         case IrInstructionIdPhi:

@@ -1001,9 +1001,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
         bool first_arg_return = calling_convention_does_first_arg_return(fn_type_id->cc) &&
             handle_is_ptr(fn_type_id->return_type);
         bool is_async = fn_type_id->cc == CallingConventionAsync;
-        bool prefix_arg_error_return_trace = g->have_err_ret_tracing &&
-            (fn_type_id->return_type->id == TypeTableEntryIdErrorUnion || 
-            fn_type_id->return_type->id == TypeTableEntryIdErrorSet);
+        bool prefix_arg_error_return_trace = g->have_err_ret_tracing && fn_type_can_fail(fn_type_id);
         // +1 for maybe making the first argument the return value
         // +1 for maybe first argument the error return trace
         // +2 for maybe arguments async allocator and error code pointer
@@ -5794,4 +5792,10 @@ bool type_is_global_error_set(TypeTableEntry *err_set_type) {
 
 uint32_t get_coro_frame_align_bytes(CodeGen *g) {
     return g->pointer_size_bytes * 2;
+}
+
+bool fn_type_can_fail(FnTypeId *fn_type_id) {
+    TypeTableEntry *return_type = fn_type_id->return_type;
+    return return_type->id == TypeTableEntryIdErrorUnion || return_type->id == TypeTableEntryIdErrorSet ||
+        fn_type_id->cc == CallingConventionAsync;
 }

@@ -1634,6 +1634,7 @@ struct CodeGen {
     LLVMValueRef coro_free_fn_val;
     LLVMValueRef coro_resume_fn_val;
     LLVMValueRef coro_save_fn_val;
+    LLVMValueRef coro_alloc_helper_fn_val;
     bool error_during_imports;
 
     const char **clang_argv;
@@ -2004,6 +2005,7 @@ enum IrInstructionId {
     IrInstructionIdCoroFree,
     IrInstructionIdCoroResume,
     IrInstructionIdCoroSave,
+    IrInstructionIdCoroAllocHelper,
 };
 
 struct IrInstruction {
@@ -2911,6 +2913,13 @@ struct IrInstructionCoroSave {
     IrInstruction base;
 
     IrInstruction *coro_handle;
+};
+
+struct IrInstructionCoroAllocHelper {
+    IrInstruction base;
+
+    IrInstruction *alloc_fn;
+    IrInstruction *coro_size;
 };
 
 static const size_t slice_ptr_index = 0;
