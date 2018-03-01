@@ -1081,6 +1081,23 @@ static LLVMValueRef get_coro_save_fn_val(CodeGen *g) {
     return g->coro_save_fn_val;
 }
 
+static LLVMValueRef get_coro_promise_fn_val(CodeGen *g) {
+    if (g->coro_promise_fn_val)
+        return g->coro_promise_fn_val;
+
+    LLVMTypeRef param_types[] = {
+        LLVMPointerType(LLVMInt8Type(), 0),
+        LLVMInt32Type(),
+        LLVMInt1Type(),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMPointerType(LLVMInt8Type(), 0), param_types, 3, false);
+    Buf *name = buf_sprintf("llvm.coro.promise");
+    g->coro_promise_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->coro_promise_fn_val));
+
+    return g->coro_promise_fn_val;
+}
+
 static LLVMValueRef get_return_address_fn_val(CodeGen *g) {
     if (g->return_address_fn_val)
         return g->return_address_fn_val;
@@ -4002,6 +4019,16 @@ static LLVMValueRef ir_render_coro_save(CodeGen *g, IrExecutable *executable, Ir
     return LLVMBuildCall(g->builder, get_coro_save_fn_val(g), &coro_handle, 1, "");
 }
 
+static LLVMValueRef ir_render_coro_promise(CodeGen *g, IrExecutable *executable, IrInstructionCoroPromise *instruction) {
+    LLVMValueRef coro_handle = ir_llvm_value(g, instruction->coro_handle);
+    LLVMValueRef params[] = {
+        coro_handle,
+        LLVMConstInt(LLVMInt32Type(), get_coro_frame_align_bytes(g), false),
+        LLVMConstNull(LLVMInt1Type()),
+    };
+    return LLVMBuildCall(g->builder, get_coro_promise_fn_val(g), params, 3, "");
+}
+
 static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_fn_type_ref, TypeTableEntry *fn_type) {
     if (g->coro_alloc_helper_fn_val != nullptr)
         return g->coro_alloc_helper_fn_val;
@@ -4064,7 +4091,7 @@ static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_f
     LLVMValueRef coro_size = LLVMGetParam(fn_val, next_arg);
     next_arg += 1;
     LLVMValueRef alignment_val = LLVMConstInt(g->builtin_types.entry_u29->type_ref,
-            2 * g->pointer_size_bytes, false);
+            get_coro_frame_align_bytes(g), false);
 
     ZigList<LLVMValueRef> args = {};
     args.append(sret_ptr);
@@ -4218,6 +4245,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdTagType:
         case IrInstructionIdExport:
         case IrInstructionIdErrorUnion:
+        case IrInstructionIdPromiseResultType:
             zig_unreachable();
 
         case IrInstructionIdReturn:
@@ -4360,6 +4388,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_coro_resume(g, executable, (IrInstructionCoroResume *)instruction);
         case IrInstructionIdCoroSave:
             return ir_render_coro_save(g, executable, (IrInstructionCoroSave *)instruction);
+        case IrInstructionIdCoroPromise:
+            return ir_render_coro_promise(g, executable, (IrInstructionCoroPromise *)instruction);
         case IrInstructionIdCoroAllocHelper:
             return ir_render_coro_alloc_helper(g, executable, (IrInstructionCoroAllocHelper *)instruction);
         case IrInstructionIdAtomicRmw:

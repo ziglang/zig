@@ -36,6 +36,7 @@ TypeTableEntry *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, 
 TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *field_names[],
         TypeTableEntry *field_types[], size_t field_count);
 TypeTableEntry *get_promise_type(CodeGen *g, TypeTableEntry *result_type);
+TypeTableEntry *get_promise_frame_type(CodeGen *g, TypeTableEntry *return_type);
 TypeTableEntry *get_test_fn_type(CodeGen *g);
 bool handle_is_ptr(TypeTableEntry *type_entry);
 void find_libc_include_path(CodeGen *g);

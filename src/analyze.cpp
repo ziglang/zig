@@ -457,6 +457,23 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
     return get_pointer_to_type_extra(g, child_type, is_const, false, get_abi_alignment(g, child_type), 0, 0);
 }
 
+TypeTableEntry *get_promise_frame_type(CodeGen *g, TypeTableEntry *return_type) {
+    if (return_type->promise_frame_parent != nullptr) {
+        return return_type->promise_frame_parent;
+    }
+
+    TypeTableEntry *awaiter_handle_type = get_maybe_type(g, g->builtin_types.entry_promise);
+    TypeTableEntry *result_ptr_type = get_pointer_to_type(g, return_type, false);
+    const char *field_names[] = {AWAITER_HANDLE_FIELD_NAME, RESULT_FIELD_NAME, RESULT_PTR_FIELD_NAME};
+    TypeTableEntry *field_types[] = {awaiter_handle_type, return_type, result_ptr_type};
+    size_t field_count = type_has_bits(result_ptr_type) ? 3 : 1;
+    Buf *name = buf_sprintf("AsyncFramePromise(%s)", buf_ptr(&return_type->name));
+    TypeTableEntry *entry = get_struct_type(g, buf_ptr(name), field_names, field_types, field_count);
+
+    return_type->promise_frame_parent = entry;
+    return entry;
+}
+
 TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
     if (child_type->maybe_parent) {
         TypeTableEntry *entry = child_type->maybe_parent;
@@ -5800,3 +5817,4 @@ bool fn_type_can_fail(FnTypeId *fn_type_id) {
     return return_type->id == TypeTableEntryIdErrorUnion || return_type->id == TypeTableEntryIdErrorSet ||
         fn_type_id->cc == CallingConventionAsync;
 }
+

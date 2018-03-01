@@ -1192,6 +1192,7 @@ struct TypeTableEntry {
     TypeTableEntry *pointer_parent[2]; // [0 - mut, 1 - const]
     TypeTableEntry *maybe_parent;
     TypeTableEntry *promise_parent;
+    TypeTableEntry *promise_frame_parent;
     // If we generate a constant name value for this type, we memoize it here.
     // The type of this is array
     ConstExprValue *cached_const_name_val;
@@ -1641,6 +1642,7 @@ struct CodeGen {
     LLVMValueRef coro_free_fn_val;
     LLVMValueRef coro_resume_fn_val;
     LLVMValueRef coro_save_fn_val;
+    LLVMValueRef coro_promise_fn_val;
     LLVMValueRef coro_alloc_helper_fn_val;
     bool error_during_imports;
 
@@ -2025,8 +2027,10 @@ enum IrInstructionId {
     IrInstructionIdCoroFree,
     IrInstructionIdCoroResume,
     IrInstructionIdCoroSave,
+    IrInstructionIdCoroPromise,
     IrInstructionIdCoroAllocHelper,
     IrInstructionIdAtomicRmw,
+    IrInstructionIdPromiseResultType,
 };
 
 struct IrInstruction {
@@ -2943,6 +2947,12 @@ struct IrInstructionCoroSave {
     IrInstruction *coro_handle;
 };
 
+struct IrInstructionCoroPromise {
+    IrInstruction base;
+
+    IrInstruction *coro_handle;
+};
+
 struct IrInstructionCoroAllocHelper {
     IrInstruction base;
 
@@ -2962,6 +2972,12 @@ struct IrInstructionAtomicRmw {
     AtomicOrder resolved_ordering;
 };
 
+struct IrInstructionPromiseResultType {
+    IrInstruction base;
+
+    IrInstruction *promise_type;
+};
+
 static const size_t slice_ptr_index = 0;
 static const size_t slice_len_index = 1;
 
@@ -2970,6 +2986,13 @@ static const size_t maybe_null_index = 1;
 
 static const size_t err_union_err_index = 0;
 static const size_t err_union_payload_index = 1;
+
+#define ASYNC_ALLOC_FIELD_NAME "allocFn"
+#define ASYNC_FREE_FIELD_NAME "freeFn"
+#define AWAITER_HANDLE_FIELD_NAME "awaiter_handle"
+#define RESULT_FIELD_NAME "result"
+#define RESULT_PTR_FIELD_NAME "result_ptr"
+
 
 enum FloatMode {
     FloatModeOptimized,

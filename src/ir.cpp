@@ -45,12 +45,6 @@ static LVal make_lval_addr(bool is_const, bool is_volatile) {
     return { true, is_const, is_volatile };
 }
 
-static const char * ASYNC_ALLOC_FIELD_NAME = "allocFn";
-static const char * ASYNC_FREE_FIELD_NAME = "freeFn";
-static const char * AWAITER_HANDLE_FIELD_NAME = "awaiter_handle";
-static const char * RESULT_FIELD_NAME = "result";
-static const char * RESULT_PTR_FIELD_NAME = "result_ptr";
-
 enum ConstCastResultId {
     ConstCastResultIdOk,
     ConstCastResultIdErrSet,
@@ -697,12 +691,20 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionCoroSave *) {
     return IrInstructionIdCoroSave;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCoroPromise *) {
+    return IrInstructionIdCoroPromise;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionCoroAllocHelper *) {
     return IrInstructionIdCoroAllocHelper;
 }
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionAtomicRmw *) {
     return IrInstructionIdAtomicRmw;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionPromiseResultType *) {
+    return IrInstructionIdPromiseResultType;
 }
 
 template<typename T>
@@ -937,25 +939,19 @@ static IrInstruction *ir_build_const_c_str_lit(IrBuilder *irb, Scope *scope, Ast
 static IrInstruction *ir_build_const_promise_init(IrBuilder *irb, Scope *scope, AstNode *source_node,
         TypeTableEntry *return_type)
 {
-    TypeTableEntry *awaiter_handle_type = get_maybe_type(irb->codegen, irb->codegen->builtin_types.entry_promise);
-    TypeTableEntry *result_ptr_type = get_pointer_to_type(irb->codegen, return_type, false);
-    const char *field_names[] = {AWAITER_HANDLE_FIELD_NAME, RESULT_FIELD_NAME, RESULT_PTR_FIELD_NAME};
-    TypeTableEntry *field_types[] = {awaiter_handle_type, return_type, result_ptr_type};
-    size_t field_count = type_has_bits(result_ptr_type) ? 3 : 1;
-    TypeTableEntry *struct_type = get_struct_type(irb->codegen, "AsyncFramePromise", field_names, field_types,
-            field_count);
+    TypeTableEntry *struct_type = get_promise_frame_type(irb->codegen, return_type);
 
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
     const_instruction->base.value.type = struct_type;
     const_instruction->base.value.special = ConstValSpecialStatic;
-    const_instruction->base.value.data.x_struct.fields = allocate<ConstExprValue>(field_count);
-    const_instruction->base.value.data.x_struct.fields[0].type = awaiter_handle_type;
+    const_instruction->base.value.data.x_struct.fields = allocate<ConstExprValue>(struct_type->data.structure.src_field_count);
+    const_instruction->base.value.data.x_struct.fields[0].type = struct_type->data.structure.fields[0].type_entry;
     const_instruction->base.value.data.x_struct.fields[0].special = ConstValSpecialStatic;
     const_instruction->base.value.data.x_struct.fields[0].data.x_maybe = nullptr;
-    if (field_count == 3) {
+    if (struct_type->data.structure.src_field_count > 1) {
         const_instruction->base.value.data.x_struct.fields[1].type = return_type;
         const_instruction->base.value.data.x_struct.fields[1].special = ConstValSpecialUndef;
-        const_instruction->base.value.data.x_struct.fields[2].type = result_ptr_type;
+        const_instruction->base.value.data.x_struct.fields[2].type = struct_type->data.structure.fields[2].type_entry;
         const_instruction->base.value.data.x_struct.fields[2].special = ConstValSpecialUndef;
     }
     return &const_instruction->base;
@@ -2605,6 +2601,17 @@ static IrInstruction *ir_build_coro_save(IrBuilder *irb, Scope *scope, AstNode *
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_coro_promise(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *coro_handle)
+{
+    IrInstructionCoroPromise *instruction = ir_build_instruction<IrInstructionCoroPromise>(irb, scope, source_node);
+    instruction->coro_handle = coro_handle;
+
+    ir_ref_instruction(coro_handle, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_build_coro_alloc_helper(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *alloc_fn, IrInstruction *coro_size)
 {
@@ -2636,6 +2643,17 @@ static IrInstruction *ir_build_atomic_rmw(IrBuilder *irb, Scope *scope, AstNode 
     if (op != nullptr) ir_ref_instruction(op, irb->current_basic_block);
     ir_ref_instruction(operand, irb->current_basic_block);
     if (ordering != nullptr) ir_ref_instruction(ordering, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_promise_result_type(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *promise_type)
+{
+    IrInstructionPromiseResultType *instruction = ir_build_instruction<IrInstructionPromiseResultType>(irb, scope, source_node);
+    instruction->promise_type = promise_type;
+
+    ir_ref_instruction(promise_type, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -5944,7 +5962,93 @@ static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *parent_scope, Ast
     if (target_inst == irb->codegen->invalid_instruction)
         return irb->codegen->invalid_instruction;
 
-    zig_panic("TODO: generate await expr");
+    FnTableEntry *fn_entry = exec_fn_entry(irb->exec);
+    if (!fn_entry) {
+        add_node_error(irb->codegen, node, buf_sprintf("await outside function definition"));
+        return irb->codegen->invalid_instruction;
+    }
+    if (fn_entry->type_entry->data.fn.fn_type_id.cc != CallingConventionAsync) {
+        add_node_error(irb->codegen, node, buf_sprintf("await in non-async function"));
+        return irb->codegen->invalid_instruction;
+    }
+
+    ScopeDeferExpr *scope_defer_expr = get_scope_defer_expr(parent_scope);
+    if (scope_defer_expr) {
+        if (!scope_defer_expr->reported_err) {
+            add_node_error(irb->codegen, node, buf_sprintf("cannot await inside defer expression"));
+            scope_defer_expr->reported_err = true;
+        }
+        return irb->codegen->invalid_instruction;
+    }
+
+    Scope *outer_scope = irb->exec->begin_scope;
+
+    IrInstruction *coro_promise_ptr = ir_build_coro_promise(irb, parent_scope, node, target_inst);
+    Buf *result_ptr_field_name = buf_create_from_str(RESULT_PTR_FIELD_NAME);
+    IrInstruction *result_ptr_field_ptr = ir_build_field_ptr(irb, parent_scope, node, coro_promise_ptr, result_ptr_field_name);
+
+    Buf *awaiter_handle_field_name = buf_create_from_str(AWAITER_HANDLE_FIELD_NAME);
+    IrInstruction *awaiter_field_ptr = ir_build_field_ptr(irb, parent_scope, node, coro_promise_ptr,
+            awaiter_handle_field_name);
+
+    IrInstruction *const_bool_false = ir_build_const_bool(irb, parent_scope, node, false);
+    VariableTableEntry *result_var = ir_create_var(irb, node, parent_scope, nullptr,
+            false, false, true, const_bool_false);
+    IrInstruction *undefined_value = ir_build_const_undefined(irb, parent_scope, node);
+    IrInstruction *target_promise_type = ir_build_typeof(irb, parent_scope, node, target_inst);
+    IrInstruction *promise_result_type = ir_build_promise_result_type(irb, parent_scope, node, target_promise_type);
+    ir_build_var_decl(irb, parent_scope, node, result_var, promise_result_type, nullptr, undefined_value);
+    IrInstruction *my_result_var_ptr = ir_build_var_ptr(irb, parent_scope, node, result_var, false, false);
+    ir_build_store_ptr(irb, parent_scope, node, result_ptr_field_ptr, my_result_var_ptr);
+    IrInstruction *save_token = ir_build_coro_save(irb, parent_scope, node, irb->exec->coro_handle);
+    IrInstruction *promise_type_val = ir_build_const_type(irb, parent_scope, node,
+            get_maybe_type(irb->codegen, irb->codegen->builtin_types.entry_promise));
+    IrInstruction *maybe_await_handle = ir_build_atomic_rmw(irb, parent_scope, node, 
+            promise_type_val, awaiter_field_ptr, nullptr, irb->exec->coro_handle, nullptr,
+            AtomicRmwOp_xchg, AtomicOrderSeqCst);
+    IrInstruction *is_non_null = ir_build_test_nonnull(irb, parent_scope, node, maybe_await_handle);
+    IrBasicBlock *yes_suspend_block = ir_create_basic_block(irb, parent_scope, "YesSuspend");
+    IrBasicBlock *no_suspend_block = ir_create_basic_block(irb, parent_scope, "NoSuspend");
+    IrBasicBlock *merge_block = ir_create_basic_block(irb, parent_scope, "Merge");
+    ir_build_cond_br(irb, parent_scope, node, is_non_null, no_suspend_block, yes_suspend_block, const_bool_false);
+
+    ir_set_cursor_at_end_and_append_block(irb, no_suspend_block);
+    Buf *result_field_name = buf_create_from_str(RESULT_FIELD_NAME);
+    IrInstruction *promise_result_ptr = ir_build_field_ptr(irb, parent_scope, node, coro_promise_ptr, result_field_name);
+    IrInstruction *no_suspend_result = ir_build_load_ptr(irb, parent_scope, node, promise_result_ptr);
+    ir_build_cancel(irb, parent_scope, node, target_inst);
+    ir_build_br(irb, parent_scope, node, merge_block, const_bool_false);
+
+    ir_set_cursor_at_end_and_append_block(irb, yes_suspend_block);
+    ir_build_coro_resume(irb, parent_scope, node, target_inst);
+    IrInstruction *suspend_code = ir_build_coro_suspend(irb, parent_scope, node, save_token, const_bool_false);
+    IrBasicBlock *cleanup_block = ir_create_basic_block(irb, parent_scope, "SuspendCleanup");
+    IrBasicBlock *resume_block = ir_create_basic_block(irb, parent_scope, "SuspendResume");
+
+    IrInstructionSwitchBrCase *cases = allocate<IrInstructionSwitchBrCase>(2);
+    cases[0].value = ir_build_const_u8(irb, parent_scope, node, 0);
+    cases[0].block = resume_block;
+    cases[1].value = ir_build_const_u8(irb, parent_scope, node, 1);
+    cases[1].block = cleanup_block;
+    ir_build_switch_br(irb, parent_scope, node, suspend_code, irb->exec->coro_suspend_block,
+            2, cases, const_bool_false);
+
+    ir_set_cursor_at_end_and_append_block(irb, cleanup_block);
+    ir_gen_defers_for_block(irb, parent_scope, outer_scope, true);
+    ir_build_br(irb, parent_scope, node, irb->exec->coro_final_cleanup_block, const_bool_false);
+
+    ir_set_cursor_at_end_and_append_block(irb, resume_block);
+    IrInstruction *yes_suspend_result = ir_build_load_ptr(irb, parent_scope, node, my_result_var_ptr);
+    ir_build_br(irb, parent_scope, node, merge_block, const_bool_false);
+
+    ir_set_cursor_at_end_and_append_block(irb, merge_block);
+    IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2);
+    IrInstruction **incoming_values = allocate<IrInstruction *>(2);
+    incoming_blocks[0] = resume_block;
+    incoming_values[0] = yes_suspend_result;
+    incoming_blocks[1] = no_suspend_block;
+    incoming_values[1] = no_suspend_result;
+    return ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values);
 }
 
 static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
@@ -17399,6 +17503,29 @@ static TypeTableEntry *ir_analyze_instruction_coro_save(IrAnalyze *ira, IrInstru
     return result->value.type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_coro_promise(IrAnalyze *ira, IrInstructionCoroPromise *instruction) {
+    IrInstruction *coro_handle = instruction->coro_handle->other;
+    if (type_is_invalid(coro_handle->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (coro_handle->value.type->id != TypeTableEntryIdPromise ||
+        coro_handle->value.type->data.promise.result_type == nullptr)
+    {
+        ir_add_error(ira, &instruction->base, buf_sprintf("expected promise->T, found '%s'",
+                    buf_ptr(&coro_handle->value.type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    TypeTableEntry *coro_frame_type = get_promise_frame_type(ira->codegen,
+            coro_handle->value.type->data.promise.result_type);
+
+    IrInstruction *result = ir_build_coro_promise(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, coro_handle);
+    ir_link_new_instruction(result, &instruction->base);
+    result->value.type = get_pointer_to_type(ira->codegen, coro_frame_type, false);
+    return result->value.type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_coro_alloc_helper(IrAnalyze *ira, IrInstructionCoroAllocHelper *instruction) {
     IrInstruction *alloc_fn = instruction->alloc_fn->other;
     if (type_is_invalid(alloc_fn->value.type))
@@ -17490,6 +17617,22 @@ static TypeTableEntry *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstr
     ir_link_new_instruction(result, &instruction->base);
     result->value.type = operand_type;
     return result->value.type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_promise_result_type(IrAnalyze *ira, IrInstructionPromiseResultType *instruction) {
+    TypeTableEntry *promise_type = ir_resolve_type(ira, instruction->promise_type->other);
+    if (type_is_invalid(promise_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (promise_type->id != TypeTableEntryIdPromise || promise_type->data.promise.result_type == nullptr) {
+        ir_add_error(ira, &instruction->base, buf_sprintf("expected promise->T, found '%s'",
+                    buf_ptr(&promise_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+    out_val->data.x_type = promise_type->data.promise.result_type;
+    return ira->codegen->builtin_types.entry_type;
 }
 
 
@@ -17719,10 +17862,14 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_coro_resume(ira, (IrInstructionCoroResume *)instruction);
         case IrInstructionIdCoroSave:
             return ir_analyze_instruction_coro_save(ira, (IrInstructionCoroSave *)instruction);
+        case IrInstructionIdCoroPromise:
+            return ir_analyze_instruction_coro_promise(ira, (IrInstructionCoroPromise *)instruction);
         case IrInstructionIdCoroAllocHelper:
             return ir_analyze_instruction_coro_alloc_helper(ira, (IrInstructionCoroAllocHelper *)instruction);
         case IrInstructionIdAtomicRmw:
             return ir_analyze_instruction_atomic_rmw(ira, (IrInstructionAtomicRmw *)instruction);
+        case IrInstructionIdPromiseResultType:
+            return ir_analyze_instruction_promise_result_type(ira, (IrInstructionPromiseResultType *)instruction);
     }
     zig_unreachable();
 }
@@ -17927,6 +18074,8 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCoroSuspend:
         case IrInstructionIdCoroFree:
         case IrInstructionIdAtomicRmw:
+        case IrInstructionIdCoroPromise:
+        case IrInstructionIdPromiseResultType:
             return false;
 
         case IrInstructionIdAsm:

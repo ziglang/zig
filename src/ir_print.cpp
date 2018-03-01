@@ -839,7 +839,11 @@ static void ir_print_ptr_to_int(IrPrint *irp, IrInstructionPtrToInt *instruction
 
 static void ir_print_int_to_ptr(IrPrint *irp, IrInstructionIntToPtr *instruction) {
     fprintf(irp->f, "@intToPtr(");
-    ir_print_other_instruction(irp, instruction->dest_type);
+    if (instruction->dest_type == nullptr) {
+        fprintf(irp->f, "(null)");
+    } else {
+        ir_print_other_instruction(irp, instruction->dest_type);
+    }
     fprintf(irp->f, ",");
     ir_print_other_instruction(irp, instruction->target);
     fprintf(irp->f, ")");
@@ -1102,6 +1106,18 @@ static void ir_print_coro_resume(IrPrint *irp, IrInstructionCoroResume *instruct
 static void ir_print_coro_save(IrPrint *irp, IrInstructionCoroSave *instruction) {
     fprintf(irp->f, "@coroSave(");
     ir_print_other_instruction(irp, instruction->coro_handle);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_coro_promise(IrPrint *irp, IrInstructionCoroPromise *instruction) {
+    fprintf(irp->f, "@coroPromise(");
+    ir_print_other_instruction(irp, instruction->coro_handle);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_promise_result_type(IrPrint *irp, IrInstructionPromiseResultType *instruction) {
+    fprintf(irp->f, "@PromiseResultType(");
+    ir_print_other_instruction(irp, instruction->promise_type);
     fprintf(irp->f, ")");
 }
 
@@ -1500,6 +1516,12 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdAtomicRmw:
             ir_print_atomic_rmw(irp, (IrInstructionAtomicRmw *)instruction);
+            break;
+        case IrInstructionIdCoroPromise:
+            ir_print_coro_promise(irp, (IrInstructionCoroPromise *)instruction);
+            break;
+        case IrInstructionIdPromiseResultType:
+            ir_print_promise_result_type(irp, (IrInstructionPromiseResultType *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

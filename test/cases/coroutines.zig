@@ -4,7 +4,7 @@ const assert = std.debug.assert;
 var x: i32 = 1;
 
 test "create a coroutine and cancel it" {
-    const p = try (async(std.debug.global_allocator) simpleAsyncFn());
+    const p = try async(std.debug.global_allocator) simpleAsyncFn();
     cancel p;
     assert(x == 2);
 }
@@ -17,7 +17,7 @@ async fn simpleAsyncFn() void {
 
 test "coroutine suspend, resume, cancel" {
     seq('a');
-    const p = (async(std.debug.global_allocator) testAsyncSeq()) catch unreachable;
+    const p = try async(std.debug.global_allocator) testAsyncSeq();
     seq('c');
     resume p;
     seq('f');
@@ -43,7 +43,7 @@ fn seq(c: u8) void {
 }
 
 test "coroutine suspend with block" {
-    const p = (async(std.debug.global_allocator) testSuspendBlock()) catch unreachable;
+    const p = try async(std.debug.global_allocator) testSuspendBlock();
     std.debug.assert(!result);
     resume a_promise;
     std.debug.assert(result);
