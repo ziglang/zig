@@ -4026,7 +4026,8 @@ static LLVMValueRef ir_render_coro_promise(CodeGen *g, IrExecutable *executable,
         LLVMConstInt(LLVMInt32Type(), get_coro_frame_align_bytes(g), false),
         LLVMConstNull(LLVMInt1Type()),
     };
-    return LLVMBuildCall(g->builder, get_coro_promise_fn_val(g), params, 3, "");
+    LLVMValueRef uncasted_result = LLVMBuildCall(g->builder, get_coro_promise_fn_val(g), params, 3, "");
+    return LLVMBuildBitCast(g->builder, uncasted_result, instruction->base.value.type->type_ref, "");
 }
 
 static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_fn_type_ref, TypeTableEntry *fn_type) {
