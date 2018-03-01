@@ -1113,6 +1113,32 @@ static void ir_print_coro_alloc_helper(IrPrint *irp, IrInstructionCoroAllocHelpe
     fprintf(irp->f, ")");
 }
 
+static void ir_print_atomic_rmw(IrPrint *irp, IrInstructionAtomicRmw *instruction) {
+    fprintf(irp->f, "@atomicRmw(");
+    if (instruction->operand_type != nullptr) {
+        ir_print_other_instruction(irp, instruction->operand_type);
+    } else {
+        fprintf(irp->f, "[TODO print]");
+    }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->ptr);
+    fprintf(irp->f, ",");
+    if (instruction->op != nullptr) {
+        ir_print_other_instruction(irp, instruction->op);
+    } else {
+        fprintf(irp->f, "[TODO print]");
+    }
+    fprintf(irp->f, ",");
+    ir_print_other_instruction(irp, instruction->operand);
+    fprintf(irp->f, ",");
+    if (instruction->ordering != nullptr) {
+        ir_print_other_instruction(irp, instruction->ordering);
+    } else {
+        fprintf(irp->f, "[TODO print]");
+    }
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1471,6 +1497,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdCoroAllocHelper:
             ir_print_coro_alloc_helper(irp, (IrInstructionCoroAllocHelper *)instruction);
+            break;
+        case IrInstructionIdAtomicRmw:
+            ir_print_atomic_rmw(irp, (IrInstructionAtomicRmw *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

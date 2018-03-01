@@ -701,6 +701,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionCoroAllocHelper 
     return IrInstructionIdCoroAllocHelper;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionAtomicRmw *) {
+    return IrInstructionIdAtomicRmw;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -2614,6 +2618,28 @@ static IrInstruction *ir_build_coro_alloc_helper(IrBuilder *irb, Scope *scope, A
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_atomic_rmw(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *operand_type, IrInstruction *ptr, IrInstruction *op, IrInstruction *operand,
+        IrInstruction *ordering, AtomicRmwOp resolved_op, AtomicOrder resolved_ordering)
+{
+    IrInstructionAtomicRmw *instruction = ir_build_instruction<IrInstructionAtomicRmw>(irb, scope, source_node);
+    instruction->operand_type = operand_type;
+    instruction->ptr = ptr;
+    instruction->op = op;
+    instruction->operand = operand;
+    instruction->ordering = ordering;
+    instruction->resolved_op = resolved_op;
+    instruction->resolved_ordering = resolved_ordering;
+
+    if (operand_type != nullptr) ir_ref_instruction(operand_type, irb->current_basic_block);
+    ir_ref_instruction(ptr, irb->current_basic_block);
+    if (op != nullptr) ir_ref_instruction(op, irb->current_basic_block);
+    ir_ref_instruction(operand, irb->current_basic_block);
+    if (ordering != nullptr) ir_ref_instruction(ordering, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope, size_t *results) {
     results[ReturnKindUnconditional] = 0;
     results[ReturnKindError] = 0;
@@ -4093,6 +4119,38 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
         case BuiltinFnIdErrorReturnTrace:
             {
                 return ir_build_error_return_trace(irb, scope, node);
+            }
+        case BuiltinFnIdAtomicRmw:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
+                IrInstruction *arg2_value = ir_gen_node(irb, arg2_node, scope);
+                if (arg2_value == irb->codegen->invalid_instruction)
+                    return arg2_value;
+
+                AstNode *arg3_node = node->data.fn_call_expr.params.at(3);
+                IrInstruction *arg3_value = ir_gen_node(irb, arg3_node, scope);
+                if (arg3_value == irb->codegen->invalid_instruction)
+                    return arg3_value;
+
+                AstNode *arg4_node = node->data.fn_call_expr.params.at(4);
+                IrInstruction *arg4_value = ir_gen_node(irb, arg4_node, scope);
+                if (arg4_value == irb->codegen->invalid_instruction)
+                    return arg4_value;
+
+                return ir_build_atomic_rmw(irb, scope, node, arg0_value, arg1_value, arg2_value, arg3_value,
+                        arg4_value,
+                        // these 2 values don't mean anything since we passed non-null values for other args
+                        AtomicRmwOp_xchg, AtomicOrderMonotonic);
             }
     }
     zig_unreachable();
@@ -9727,6 +9785,26 @@ static bool ir_resolve_atomic_order(IrAnalyze *ira, IrInstruction *value, Atomic
         return false;
 
     *out = (AtomicOrder)bigint_as_unsigned(&const_val->data.x_enum_tag);
+    return true;
+}
+
+static bool ir_resolve_atomic_rmw_op(IrAnalyze *ira, IrInstruction *value, AtomicRmwOp *out) {
+    if (type_is_invalid(value->value.type))
+        return false;
+
+    ConstExprValue *atomic_rmw_op_val = get_builtin_value(ira->codegen, "AtomicRmwOp");
+    assert(atomic_rmw_op_val->type->id == TypeTableEntryIdMetaType);
+    TypeTableEntry *atomic_rmw_op_type = atomic_rmw_op_val->data.x_type;
+
+    IrInstruction *casted_value = ir_implicit_cast(ira, value, atomic_rmw_op_type);
+    if (type_is_invalid(casted_value->value.type))
+        return false;
+
+    ConstExprValue *const_val = ir_resolve_const(ira, casted_value, UndefBad);
+    if (!const_val)
+        return false;
+
+    *out = (AtomicRmwOp)bigint_as_unsigned(&const_val->data.x_enum_tag);
     return true;
 }
 
@@ -17316,6 +17394,74 @@ static TypeTableEntry *ir_analyze_instruction_coro_alloc_helper(IrAnalyze *ira, 
     return result->value.type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstructionAtomicRmw *instruction) {
+    TypeTableEntry *operand_type = ir_resolve_type(ira, instruction->operand_type->other);
+    if (type_is_invalid(operand_type)) {
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+    if (operand_type->id == TypeTableEntryIdInt) {
+        if (operand_type->data.integral.bit_count < 8) {
+            ir_add_error(ira, &instruction->base,
+                buf_sprintf("expected integer type 8 bits or larger, found %" PRIu32 "-bit integer type",
+                    operand_type->data.integral.bit_count));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        if (operand_type->data.integral.bit_count > ira->codegen->pointer_size_bytes * 8) {
+            ir_add_error(ira, &instruction->base,
+                buf_sprintf("expected integer type pointer size or smaller, found %" PRIu32 "-bit integer type",
+                    operand_type->data.integral.bit_count));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        if (!is_power_of_2(operand_type->data.integral.bit_count)) {
+            ir_add_error(ira, &instruction->base,
+                buf_sprintf("%" PRIu32 "-bit integer type is not a power of 2", operand_type->data.integral.bit_count));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+    } else if (get_codegen_ptr_type(operand_type) == nullptr) {
+        ir_add_error(ira, &instruction->base,
+            buf_sprintf("expected integer or pointer type, found '%s'", buf_ptr(&operand_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    IrInstruction *ptr_inst = instruction->ptr->other;
+    if (type_is_invalid(ptr_inst->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    TypeTableEntry *ptr_type = get_pointer_to_type(ira->codegen, operand_type, false);
+    IrInstruction *casted_ptr = ir_implicit_cast(ira, ptr_inst, ptr_type);
+    if (type_is_invalid(casted_ptr->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    AtomicRmwOp op;
+    if (!ir_resolve_atomic_rmw_op(ira, instruction->op->other, &op)) {
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    IrInstruction *operand = instruction->operand->other;
+    if (type_is_invalid(operand->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *casted_operand = ir_implicit_cast(ira, operand, operand_type);
+    if (type_is_invalid(casted_ptr->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    AtomicOrder ordering;
+    if (!ir_resolve_atomic_order(ira, instruction->ordering->other, &ordering))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (instr_is_comptime(casted_operand) && instr_is_comptime(casted_ptr) && casted_ptr->value.data.x_ptr.mut == ConstPtrMutComptimeVar)
+    {
+        zig_panic("TODO compile-time execution of atomicRmw");
+    }
+
+    IrInstruction *result = ir_build_atomic_rmw(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, nullptr, casted_ptr, nullptr, casted_operand, nullptr,
+            op, ordering);
+    ir_link_new_instruction(result, &instruction->base);
+    result->value.type = operand_type;
+    return result->value.type;
+}
+
 
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
@@ -17545,6 +17691,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_coro_save(ira, (IrInstructionCoroSave *)instruction);
         case IrInstructionIdCoroAllocHelper:
             return ir_analyze_instruction_coro_alloc_helper(ira, (IrInstructionCoroAllocHelper *)instruction);
+        case IrInstructionIdAtomicRmw:
+            return ir_analyze_instruction_atomic_rmw(ira, (IrInstructionAtomicRmw *)instruction);
     }
     zig_unreachable();
 }
@@ -17748,6 +17896,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCoroSize:
         case IrInstructionIdCoroSuspend:
         case IrInstructionIdCoroFree:
+        case IrInstructionIdAtomicRmw:
             return false;
 
         case IrInstructionIdAsm:

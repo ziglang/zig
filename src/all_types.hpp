@@ -1338,6 +1338,7 @@ enum BuiltinFnId {
     BuiltinFnIdArgType,
     BuiltinFnIdExport,
     BuiltinFnIdErrorReturnTrace,
+    BuiltinFnIdAtomicRmw,
 };
 
 struct BuiltinFnEntry {
@@ -1857,6 +1858,19 @@ enum AtomicOrder {
     AtomicOrderSeqCst,
 };
 
+// synchronized with the code in define_builtin_compile_vars
+enum AtomicRmwOp {
+    AtomicRmwOp_xchg,
+    AtomicRmwOp_add,
+    AtomicRmwOp_sub,
+    AtomicRmwOp_and,
+    AtomicRmwOp_nand,
+    AtomicRmwOp_or,
+    AtomicRmwOp_xor,
+    AtomicRmwOp_max,
+    AtomicRmwOp_min,
+};
+
 // A basic block contains no branching. Branches send control flow
 // to another basic block.
 // Phi instructions must be first in a basic block.
@@ -2006,6 +2020,7 @@ enum IrInstructionId {
     IrInstructionIdCoroResume,
     IrInstructionIdCoroSave,
     IrInstructionIdCoroAllocHelper,
+    IrInstructionIdAtomicRmw,
 };
 
 struct IrInstruction {
@@ -2927,6 +2942,18 @@ struct IrInstructionCoroAllocHelper {
 
     IrInstruction *alloc_fn;
     IrInstruction *coro_size;
+};
+
+struct IrInstructionAtomicRmw {
+    IrInstruction base;
+
+    IrInstruction *operand_type;
+    IrInstruction *ptr;
+    IrInstruction *op;
+    AtomicRmwOp resolved_op;
+    IrInstruction *operand;
+    IrInstruction *ordering;
+    AtomicOrder resolved_ordering;
 };
 
 static const size_t slice_ptr_index = 0;

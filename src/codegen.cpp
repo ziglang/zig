@@ -3311,6 +3311,23 @@ static LLVMAtomicOrdering to_LLVMAtomicOrdering(AtomicOrder atomic_order) {
     zig_unreachable();
 }
 
+static LLVMAtomicRMWBinOp to_LLVMAtomicRMWBinOp(AtomicRmwOp op, bool is_signed) {
+    switch (op) {
+        case AtomicRmwOp_xchg: return LLVMAtomicRMWBinOpXchg;
+        case AtomicRmwOp_add: return LLVMAtomicRMWBinOpAdd;
+        case AtomicRmwOp_sub: return LLVMAtomicRMWBinOpSub;
+        case AtomicRmwOp_and: return LLVMAtomicRMWBinOpAnd;
+        case AtomicRmwOp_nand: return LLVMAtomicRMWBinOpNand;
+        case AtomicRmwOp_or: return LLVMAtomicRMWBinOpOr;
+        case AtomicRmwOp_xor: return LLVMAtomicRMWBinOpXor;
+        case AtomicRmwOp_max:
+            return is_signed ? LLVMAtomicRMWBinOpMax : LLVMAtomicRMWBinOpUMax;
+        case AtomicRmwOp_min:
+            return is_signed ? LLVMAtomicRMWBinOpMin : LLVMAtomicRMWBinOpUMin;
+    }
+    zig_unreachable();
+}
+
 static LLVMValueRef ir_render_cmpxchg(CodeGen *g, IrExecutable *executable, IrInstructionCmpxchg *instruction) {
     LLVMValueRef ptr_val = ir_llvm_value(g, instruction->ptr);
     LLVMValueRef cmp_val = ir_llvm_value(g, instruction->cmp_value);
@@ -4111,6 +4128,22 @@ static LLVMValueRef ir_render_coro_alloc_helper(CodeGen *g, IrExecutable *execut
             get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
 }
 
+static LLVMValueRef ir_render_atomic_rmw(CodeGen *g, IrExecutable *executable,
+        IrInstructionAtomicRmw *instruction)
+{
+    bool is_signed;
+    if (instruction->operand->value.type->id == TypeTableEntryIdInt) {
+        is_signed = instruction->operand->value.type->data.integral.is_signed;
+    } else {
+        is_signed = false;
+    }
+    LLVMAtomicRMWBinOp op = to_LLVMAtomicRMWBinOp(instruction->resolved_op, is_signed);
+    LLVMAtomicOrdering ordering = to_LLVMAtomicOrdering(instruction->resolved_ordering);
+    LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
+    LLVMValueRef operand = ir_llvm_value(g, instruction->operand);
+    return LLVMBuildAtomicRMW(g->builder, op, ptr, operand, ordering, false);
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -4318,6 +4351,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_coro_save(g, executable, (IrInstructionCoroSave *)instruction);
         case IrInstructionIdCoroAllocHelper:
             return ir_render_coro_alloc_helper(g, executable, (IrInstructionCoroAllocHelper *)instruction);
+        case IrInstructionIdAtomicRmw:
+            return ir_render_atomic_rmw(g, executable, (IrInstructionAtomicRmw *)instruction);
     }
     zig_unreachable();
 }
@@ -5810,6 +5845,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdArgType, "ArgType", 2);
     create_builtin_fn(g, BuiltinFnIdExport, "export", 3);
     create_builtin_fn(g, BuiltinFnIdErrorReturnTrace, "errorReturnTrace", 0);
+    create_builtin_fn(g, BuiltinFnIdAtomicRmw, "atomicRmw", 5);
 }
 
 static const char *bool_to_str(bool b) {
@@ -5937,6 +5973,20 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "    Release,\n"
             "    AcqRel,\n"
             "    SeqCst,\n"
+            "};\n\n");
+    }
+    {
+        buf_appendf(contents,
+            "pub const AtomicRmwOp = enum {\n"
+            "    Xchg,\n"
+            "    Add,\n"
+            "    Sub,\n"
+            "    And,\n"
+            "    Nand,\n"
+            "    Or,\n"
+            "    Xor,\n"
+            "    Max,\n"
+            "    Min,\n"
             "};\n\n");
     }
     {
