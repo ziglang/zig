@@ -59,3 +59,42 @@ async fn testSuspendBlock() void {
     }
     result = true;
 }
+
+var await_a_promise: promise = undefined;
+var await_final_result: i32 = 0;
+
+test "coroutine await" {
+    await_seq('a');
+    const p = async(std.debug.global_allocator) await_amain() catch unreachable;
+    await_seq('f');
+    resume await_a_promise;
+    await_seq('i');
+    assert(await_final_result == 1234);
+    assert(std.mem.eql(u8, await_points, "abcdefghi"));
+}
+
+async fn await_amain() void {
+    await_seq('b');
+    const p = async await_another() catch unreachable;
+    await_seq('e');
+    await_final_result = await p;
+    await_seq('h');
+}
+
+async fn await_another() i32 {
+    await_seq('c');
+    suspend |p| {
+        await_seq('d');
+        await_a_promise = p;
+    }
+    await_seq('g');
+    return 1234;
+}
+
+var await_points = []u8{0} ** "abcdefghi".len;
+var await_seq_index: usize = 0;
+
+fn await_seq(c: u8) void {
+    await_points[await_seq_index] = c;
+    await_seq_index += 1;
+}
