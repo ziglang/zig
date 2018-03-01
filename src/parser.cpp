@@ -1639,6 +1639,24 @@ static AstNode *ast_parse_cancel_expr(ParseContext *pc, size_t *token_index) {
 }
 
 /*
+ResumeExpression = "resume" Expression;
+*/
+static AstNode *ast_parse_resume_expr(ParseContext *pc, size_t *token_index) {
+    Token *token = &pc->tokens->at(*token_index);
+
+    if (token->id != TokenIdKeywordResume) {
+        return nullptr;
+    }
+    *token_index += 1;
+
+    AstNode *node = ast_create_node(pc, NodeTypeResume, token);
+
+    node->data.resume_expr.expr = ast_parse_expression(pc, token_index, false);
+
+    return node;
+}
+
+/*
 Defer(body) = ("defer" | "errdefer") body
 */
 static AstNode *ast_parse_defer_expr(ParseContext *pc, size_t *token_index) {
@@ -2266,7 +2284,7 @@ static AstNode *ast_parse_block_or_expression(ParseContext *pc, size_t *token_in
 }
 
 /*
-Expression = TryExpression | ReturnExpression | BreakExpression | AssignmentExpression | CancelExpression
+Expression = TryExpression | ReturnExpression | BreakExpression | AssignmentExpression | CancelExpression | ResumeExpression
 */
 static AstNode *ast_parse_expression(ParseContext *pc, size_t *token_index, bool mandatory) {
     Token *token = &pc->tokens->at(*token_index);
@@ -2286,6 +2304,10 @@ static AstNode *ast_parse_expression(ParseContext *pc, size_t *token_index, bool
     AstNode *cancel_expr = ast_parse_cancel_expr(pc, token_index);
     if (cancel_expr)
         return cancel_expr;
+
+    AstNode *resume_expr = ast_parse_resume_expr(pc, token_index);
+    if (resume_expr)
+        return resume_expr;
 
     AstNode *ass_expr = ast_parse_ass_expr(pc, token_index, false);
     if (ass_expr)
@@ -3059,6 +3081,9 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             break;
         case NodeTypeCancel:
             visit_field(&node->data.cancel_expr.expr, visit, context);
+            break;
+        case NodeTypeResume:
+            visit_field(&node->data.resume_expr.expr, visit, context);
             break;
         case NodeTypeAwaitExpr:
             visit_field(&node->data.await_expr.expr, visit, context);

@@ -14,3 +14,30 @@ async fn simpleAsyncFn() void {
     suspend;
     x += 1;
 }
+
+test "coroutine suspend, resume, cancel" {
+    seq('a');
+    const p = (async(std.debug.global_allocator) testAsyncSeq()) catch unreachable;
+    seq('c');
+    resume p;
+    seq('f');
+    cancel p;
+    seq('g');
+
+    assert(std.mem.eql(u8, points, "abcdefg"));
+}
+
+async fn testAsyncSeq() void {
+    defer seq('e');
+
+    seq('b');
+    suspend;
+    seq('d');
+}
+var points = []u8{0} ** "abcdefg".len;
+var index: usize = 0;
+
+fn seq(c: u8) void {
+    points[index] = c;
+    index += 1;
+}

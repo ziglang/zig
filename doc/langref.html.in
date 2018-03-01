@@ -5682,7 +5682,7 @@ ErrorSetExpr = (PrefixOpExpression "!" PrefixOpExpression) | PrefixOpExpression
 
 BlockOrExpression = Block | Expression
 
-Expression = TryExpression | ReturnExpression | BreakExpression | AssignmentExpression | CancelExpression
+Expression = TryExpression | ReturnExpression | BreakExpression | AssignmentExpression | CancelExpression | ResumeExpression
 
 AsmExpression = "asm" option("volatile") "(" String option(AsmOutput) ")"
 
@@ -5729,6 +5729,8 @@ AwaitExpression = "await" Expression
 BreakExpression = "break" option(":" Symbol) option(Expression)
 
 CancelExpression = "cancel" Expression;
+
+ResumeExpression = "resume" Expression;
 
 Defer(body) = ("defer" | "deferror") body
 

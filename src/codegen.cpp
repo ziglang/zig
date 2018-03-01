@@ -4004,7 +4004,7 @@ static LLVMValueRef ir_render_coro_save(CodeGen *g, IrExecutable *executable, Ir
 
 static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_fn_type_ref, TypeTableEntry *fn_type) {
     if (g->coro_alloc_helper_fn_val != nullptr)
-        return g->coro_alloc_fn_val;
+        return g->coro_alloc_helper_fn_val;
 
     assert(fn_type->id == TypeTableEntryIdFn);
 

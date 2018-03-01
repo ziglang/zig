@@ -5927,6 +5927,16 @@ static IrInstruction *ir_gen_cancel(IrBuilder *irb, Scope *parent_scope, AstNode
     return ir_build_cancel(irb, parent_scope, node, target_inst);
 }
 
+static IrInstruction *ir_gen_resume(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
+    assert(node->type == NodeTypeResume);
+
+    IrInstruction *target_inst = ir_gen_node(irb, node->data.resume_expr.expr, parent_scope);
+    if (target_inst == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+
+    return ir_build_coro_resume(irb, parent_scope, node, target_inst);
+}
+
 static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
     assert(node->type == NodeTypeAwaitExpr);
 
@@ -6101,6 +6111,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_err_set_decl(irb, scope, node), lval);
         case NodeTypeCancel:
             return ir_lval_wrap(irb, scope, ir_gen_cancel(irb, scope, node), lval);
+        case NodeTypeResume:
+            return ir_lval_wrap(irb, scope, ir_gen_resume(irb, scope, node), lval);
         case NodeTypeAwaitExpr:
             return ir_lval_wrap(irb, scope, ir_gen_await_expr(irb, scope, node), lval);
         case NodeTypeSuspend:
@@ -17364,8 +17376,12 @@ static TypeTableEntry *ir_analyze_instruction_coro_resume(IrAnalyze *ira, IrInst
     if (type_is_invalid(awaiter_handle->value.type))
         return ira->codegen->builtin_types.entry_invalid;
 
+    IrInstruction *casted_target = ir_implicit_cast(ira, awaiter_handle, ira->codegen->builtin_types.entry_promise);
+    if (type_is_invalid(casted_target->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
     IrInstruction *result = ir_build_coro_resume(&ira->new_irb, instruction->base.scope,
-            instruction->base.source_node, awaiter_handle);
+            instruction->base.source_node, casted_target);
     ir_link_new_instruction(result, &instruction->base);
     result->value.type = ira->codegen->builtin_types.entry_void;
     return result->value.type;

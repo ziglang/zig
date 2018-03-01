@@ -246,6 +246,8 @@ static const char *node_type_str(NodeType node_type) {
             return "ErrorSetDecl";
         case NodeTypeCancel:
             return "Cancel";
+        case NodeTypeResume:
+            return "Resume";
         case NodeTypeAwaitExpr:
             return "AwaitExpr";
         case NodeTypeSuspend:
@@ -1047,6 +1049,12 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             {
                 fprintf(ar->f, "cancel ");
                 render_node_grouped(ar, node->data.cancel_expr.expr);
+                break;
+            }
+        case NodeTypeResume:
+            {
+                fprintf(ar->f, "resume ");
+                render_node_grouped(ar, node->data.resume_expr.expr);
                 break;
             }
         case NodeTypeAwaitExpr:

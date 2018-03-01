@@ -403,6 +403,7 @@ enum NodeType {
     NodeTypeTestExpr,
     NodeTypeErrorSetDecl,
     NodeTypeCancel,
+    NodeTypeResume,
     NodeTypeAwaitExpr,
     NodeTypeSuspend,
 };
@@ -849,6 +850,10 @@ struct AstNodeCancelExpr {
     AstNode *expr;
 };
 
+struct AstNodeResumeExpr {
+    AstNode *expr;
+};
+
 struct AstNodeContinueExpr {
     Buf *name;
 };
@@ -930,6 +935,7 @@ struct AstNode {
         AstNodeVarLiteral var_literal;
         AstNodeErrorSetDecl err_set_decl;
         AstNodeCancelExpr cancel_expr;
+        AstNodeResumeExpr resume_expr;
         AstNodeAwaitExpr await_expr;
         AstNodeSuspend suspend;
     } data;
