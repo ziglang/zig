@@ -2727,7 +2727,13 @@ static IrInstruction *ir_gen_async_return(IrBuilder *irb, Scope *scope, AstNode 
         IrInstruction *result_ptr = ir_build_load_ptr(irb, scope, node, irb->exec->coro_result_ptr_field_ptr);
         ir_build_store_ptr(irb, scope, node, result_ptr, return_value);
     }
-    IrInstruction *maybe_await_handle = ir_build_load_ptr(irb, scope, node, irb->exec->coro_awaiter_field_ptr);
+    IrInstruction *promise_type_val = ir_build_const_type(irb, scope, node,
+            get_maybe_type(irb->codegen, irb->codegen->builtin_types.entry_promise));
+    // TODO replace replacement_value with @intToPtr(?promise, 0x1) when it doesn't crash zig
+    IrInstruction *replacement_value = irb->exec->coro_handle;
+    IrInstruction *maybe_await_handle = ir_build_atomic_rmw(irb, scope, node,
+            promise_type_val, irb->exec->coro_awaiter_field_ptr, nullptr, replacement_value, nullptr,
+            AtomicRmwOp_xchg, AtomicOrderSeqCst);
     IrInstruction *is_non_null = ir_build_test_nonnull(irb, scope, node, maybe_await_handle);
     IrInstruction *is_comptime = ir_build_const_bool(irb, scope, node, false);
     return ir_build_cond_br(irb, scope, node, is_non_null, irb->exec->coro_normal_final, irb->exec->coro_early_final,
@@ -17433,8 +17439,12 @@ static TypeTableEntry *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstr
         return ira->codegen->builtin_types.entry_invalid;
 
     AtomicRmwOp op;
-    if (!ir_resolve_atomic_rmw_op(ira, instruction->op->other, &op)) {
-        return ira->codegen->builtin_types.entry_invalid;
+    if (instruction->op == nullptr) {
+        op = instruction->resolved_op;
+    } else {
+        if (!ir_resolve_atomic_rmw_op(ira, instruction->op->other, &op)) {
+            return ira->codegen->builtin_types.entry_invalid;
+        }
     }
 
     IrInstruction *operand = instruction->operand->other;
@@ -17446,8 +17456,12 @@ static TypeTableEntry *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstr
         return ira->codegen->builtin_types.entry_invalid;
 
     AtomicOrder ordering;
-    if (!ir_resolve_atomic_order(ira, instruction->ordering->other, &ordering))
-        return ira->codegen->builtin_types.entry_invalid;
+    if (instruction->ordering == nullptr) {
+        ordering = instruction->resolved_ordering;
+    } else {
+        if (!ir_resolve_atomic_order(ira, instruction->ordering->other, &ordering))
+            return ira->codegen->builtin_types.entry_invalid;
+    }
 
     if (instr_is_comptime(casted_operand) && instr_is_comptime(casted_ptr) && casted_ptr->value.data.x_ptr.mut == ConstPtrMutComptimeVar)
     {

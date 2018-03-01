@@ -4132,8 +4132,9 @@ static LLVMValueRef ir_render_atomic_rmw(CodeGen *g, IrExecutable *executable,
         IrInstructionAtomicRmw *instruction)
 {
     bool is_signed;
-    if (instruction->operand->value.type->id == TypeTableEntryIdInt) {
-        is_signed = instruction->operand->value.type->data.integral.is_signed;
+    TypeTableEntry *operand_type = instruction->operand->value.type;
+    if (operand_type->id == TypeTableEntryIdInt) {
+        is_signed = operand_type->data.integral.is_signed;
     } else {
         is_signed = false;
     }
@@ -4141,7 +4142,17 @@ static LLVMValueRef ir_render_atomic_rmw(CodeGen *g, IrExecutable *executable,
     LLVMAtomicOrdering ordering = to_LLVMAtomicOrdering(instruction->resolved_ordering);
     LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
     LLVMValueRef operand = ir_llvm_value(g, instruction->operand);
-    return LLVMBuildAtomicRMW(g->builder, op, ptr, operand, ordering, false);
+
+    if (get_codegen_ptr_type(operand_type) == nullptr) {
+        return LLVMBuildAtomicRMW(g->builder, op, ptr, operand, ordering, false);
+    }
+
+    // it's a pointer but we need to treat it as an int
+    LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, ptr,
+        LLVMPointerType(g->builtin_types.entry_usize->type_ref, 0), "");
+    LLVMValueRef casted_operand = LLVMBuildPtrToInt(g->builder, operand, g->builtin_types.entry_usize->type_ref, "");
+    LLVMValueRef uncasted_result = LLVMBuildAtomicRMW(g->builder, op, casted_ptr, casted_operand, ordering, false);
+    return LLVMBuildIntToPtr(g->builder, uncasted_result, operand_type->type_ref, "");
 }
 
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
