@@ -98,3 +98,35 @@ fn await_seq(c: u8) void {
     await_points[await_seq_index] = c;
     await_seq_index += 1;
 }
+
+
+var early_final_result: i32 = 0;
+
+test "coroutine await early return" {
+    early_seq('a');
+    const p = async(std.debug.global_allocator) early_amain() catch unreachable;
+    early_seq('f');
+    assert(early_final_result == 1234);
+    assert(std.mem.eql(u8, early_points, "abcdef"));
+}
+
+async fn early_amain() void {
+    early_seq('b');
+    const p = async early_another() catch unreachable;
+    early_seq('d');
+    early_final_result = await p;
+    early_seq('e');
+}
+
+async fn early_another() i32 {
+    early_seq('c');
+    return 1234;
+}
+
+var early_points = []u8{0} ** "abcdef".len;
+var early_seq_index: usize = 0;
+
+fn early_seq(c: u8) void {
+    early_points[early_seq_index] = c;
+    early_seq_index += 1;
+}
