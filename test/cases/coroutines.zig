@@ -41,3 +41,21 @@ fn seq(c: u8) void {
     points[index] = c;
     index += 1;
 }
+
+test "coroutine suspend with block" {
+    const p = (async(std.debug.global_allocator) testSuspendBlock()) catch unreachable;
+    std.debug.assert(!result);
+    resume a_promise;
+    std.debug.assert(result);
+    cancel p;
+}
+
+var a_promise: promise = undefined;
+var result = false;
+
+async fn testSuspendBlock() void {
+    suspend |p| {
+        a_promise = p;
+    }
+    result = true;
+}
