@@ -98,21 +98,18 @@ pub fn assertOrPanic(ok: bool) void {
     }
 }
 
-var panicking = false;
+var panicking: u8 = 0; // TODO make this a bool
 /// This is the default panic implementation.
 pub fn panic(comptime format: []const u8, args: ...) noreturn {
-    // TODO an intrinsic that labels this as unlikely to be reached
+    @setCold(true);
 
-    // TODO
-    // if (@atomicRmw(AtomicOp.XChg, &panicking, true, AtomicOrder.SeqCst)) { }
-    if (panicking) {
+    if (@atomicRmw(u8, &panicking, builtin.AtomicRmwOp.Xchg, 1, builtin.AtomicOrder.SeqCst) == 1) {
         // Panicked during a panic.
+
         // TODO detect if a different thread caused the panic, because in that case
         // we would want to return here instead of calling abort, so that the thread
         // which first called panic can finish printing a stack trace.
         os.abort();
-    } else {
-        panicking = true;
     }
 
     const stderr = getStderrStream() catch os.abort();
@@ -123,10 +120,11 @@ pub fn panic(comptime format: []const u8, args: ...) noreturn {
 }
 
 pub fn panicWithTrace(trace: &const builtin.StackTrace, comptime format: []const u8, args: ...) noreturn {
-    if (panicking) {
+    @setCold(true);
+
+    if (@atomicRmw(u8, &panicking, builtin.AtomicRmwOp.Xchg, 1, builtin.AtomicOrder.SeqCst) == 1) {
+        // See TODO in above function
         os.abort();
-    } else {
-        panicking = true;
     }
     const stderr = getStderrStream() catch os.abort();
     stderr.print(format ++ "\n", args) catch os.abort();

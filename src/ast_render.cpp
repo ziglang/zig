@@ -244,6 +244,14 @@ static const char *node_type_str(NodeType node_type) {
             return "TestExpr";
         case NodeTypeErrorSetDecl:
             return "ErrorSetDecl";
+        case NodeTypeCancel:
+            return "Cancel";
+        case NodeTypeResume:
+            return "Resume";
+        case NodeTypeAwaitExpr:
+            return "AwaitExpr";
+        case NodeTypeSuspend:
+            return "Suspend";
     }
     zig_unreachable();
 }
@@ -1035,6 +1043,35 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 ar->indent -= ar->indent_size;
                 print_indent(ar);
                 fprintf(ar->f, "}");
+                break;
+            }
+        case NodeTypeCancel:
+            {
+                fprintf(ar->f, "cancel ");
+                render_node_grouped(ar, node->data.cancel_expr.expr);
+                break;
+            }
+        case NodeTypeResume:
+            {
+                fprintf(ar->f, "resume ");
+                render_node_grouped(ar, node->data.resume_expr.expr);
+                break;
+            }
+        case NodeTypeAwaitExpr:
+            {
+                fprintf(ar->f, "await ");
+                render_node_grouped(ar, node->data.await_expr.expr);
+                break;
+            }
+        case NodeTypeSuspend:
+            {
+                fprintf(ar->f, "suspend");
+                if (node->data.suspend.block != nullptr) {
+                    fprintf(ar->f, " |");
+                    render_node_grouped(ar, node->data.suspend.promise_symbol);
+                    fprintf(ar->f, "| ");
+                    render_node_grouped(ar, node->data.suspend.block);
+                }
                 break;
             }
         case NodeTypeFnDecl:

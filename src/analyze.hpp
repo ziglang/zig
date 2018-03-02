@@ -35,6 +35,8 @@ TypeTableEntry *get_bound_fn_type(CodeGen *g, FnTableEntry *fn_entry);
 TypeTableEntry *get_opaque_type(CodeGen *g, Scope *scope, AstNode *source_node, const char *name);
 TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *field_names[],
         TypeTableEntry *field_types[], size_t field_count);
+TypeTableEntry *get_promise_type(CodeGen *g, TypeTableEntry *result_type);
+TypeTableEntry *get_promise_frame_type(CodeGen *g, TypeTableEntry *return_type);
 TypeTableEntry *get_test_fn_type(CodeGen *g);
 bool handle_is_ptr(TypeTableEntry *type_entry);
 void find_libc_include_path(CodeGen *g);
@@ -50,6 +52,7 @@ VariableTableEntry *find_variable(CodeGen *g, Scope *orig_context, Buf *name);
 Tld *find_decl(CodeGen *g, Scope *scope, Buf *name);
 void resolve_top_level_decl(CodeGen *g, Tld *tld, bool pointer_only, AstNode *source_node);
 bool type_is_codegen_pointer(TypeTableEntry *type);
+
 TypeTableEntry *get_codegen_ptr_type(TypeTableEntry *type);
 uint32_t get_ptr_align(TypeTableEntry *type);
 TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEntry *type_entry);
@@ -92,7 +95,6 @@ void eval_min_max_value(CodeGen *g, TypeTableEntry *type_entry, ConstExprValue *
 void eval_min_max_value_int(CodeGen *g, TypeTableEntry *int_type, BigInt *bigint, bool is_max);
 
 void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val);
-void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entry, VariableTableEntry **arg_vars);
 void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_type_node);
 
 ScopeBlock *create_block_scope(AstNode *node, Scope *parent);
@@ -189,5 +191,8 @@ TypeTableEntry *get_ptr_to_stack_trace_type(CodeGen *g);
 void analyze_fn_body(CodeGen *g, FnTableEntry *fn_table_entry);
 
 TypeTableEntry *get_auto_err_set_type(CodeGen *g, FnTableEntry *fn_entry);
+
+uint32_t get_coro_frame_align_bytes(CodeGen *g);
+bool fn_type_can_fail(FnTypeId *fn_type_id);
 
 #endif

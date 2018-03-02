@@ -3090,4 +3090,16 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
     ,
         ".tmp_source.zig:11:20: error: runtime cast to union 'Value' which has non-void fields",
         ".tmp_source.zig:3:5: note: field 'A' has type 'i32'");
+
+    cases.add("self-referencing function pointer field",
+        \\const S = struct {
+        \\    f: fn(_: S) void,
+        \\};
+        \\fn f(_: S) void {
+        \\}
+        \\export fn entry() void {
+        \\    var _ = S { .f = f };
+        \\}
+    ,
+        ".tmp_source.zig:4:9: error: type 'S' is not copyable; cannot pass by value");
 }

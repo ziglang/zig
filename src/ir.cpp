@@ -65,6 +65,7 @@ enum ConstCastResultId {
     ConstCastResultIdFnArgNoAlias,
     ConstCastResultIdType,
     ConstCastResultIdUnresolvedInferredErrSet,
+    ConstCastResultIdAsyncAllocatorType,
 };
 
 struct ConstCastErrSetMismatch {
@@ -92,6 +93,7 @@ struct ConstCastOnly {
         ConstCastOnly *error_union_payload;
         ConstCastOnly *error_union_error_set;
         ConstCastOnly *return_type;
+        ConstCastOnly *async_allocator_type;
         ConstCastArg fn_arg;
         ConstCastArgNoAlias arg_no_alias;
     } data;
@@ -104,6 +106,10 @@ static TypeTableEntry *ir_analyze_instruction(IrAnalyze *ira, IrInstruction *ins
 static IrInstruction *ir_implicit_cast(IrAnalyze *ira, IrInstruction *value, TypeTableEntry *expected_type);
 static IrInstruction *ir_get_deref(IrAnalyze *ira, IrInstruction *source_instruction, IrInstruction *ptr);
 static ErrorMsg *exec_add_error_node(CodeGen *codegen, IrExecutable *exec, AstNode *source_node, Buf *msg);
+static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_name,
+    IrInstruction *source_instr, IrInstruction *container_ptr, TypeTableEntry *container_type);
+static IrInstruction *ir_get_var_ptr(IrAnalyze *ira, IrInstruction *instruction,
+        VariableTableEntry *var, bool is_const_ptr, bool is_volatile_ptr);
 
 ConstExprValue *const_ptr_pointee(CodeGen *g, ConstExprValue *const_val) {
     assert(const_val->type->id == TypeTableEntryIdPointer);
@@ -637,6 +643,70 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionErrorUnion *) {
     return IrInstructionIdErrorUnion;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCancel *) {
+    return IrInstructionIdCancel;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionGetImplicitAllocator *) {
+    return IrInstructionIdGetImplicitAllocator;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCoroId *) {
+    return IrInstructionIdCoroId;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCoroAlloc *) {
+    return IrInstructionIdCoroAlloc;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCoroSize *) {
+    return IrInstructionIdCoroSize;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCoroBegin *) {
+    return IrInstructionIdCoroBegin;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCoroAllocFail *) {
+    return IrInstructionIdCoroAllocFail;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCoroSuspend *) {
+    return IrInstructionIdCoroSuspend;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCoroEnd *) {
+    return IrInstructionIdCoroEnd;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCoroFree *) {
+    return IrInstructionIdCoroFree;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCoroResume *) {
+    return IrInstructionIdCoroResume;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCoroSave *) {
+    return IrInstructionIdCoroSave;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCoroPromise *) {
+    return IrInstructionIdCoroPromise;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionCoroAllocHelper *) {
+    return IrInstructionIdCoroAllocHelper;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionAtomicRmw *) {
+    return IrInstructionIdAtomicRmw;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionPromiseResultType *) {
+    return IrInstructionIdPromiseResultType;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -708,14 +778,6 @@ static IrInstruction *ir_build_return(IrBuilder *irb, Scope *scope, AstNode *sou
     return &return_instruction->base;
 }
 
-static IrInstruction *ir_build_return_from(IrBuilder *irb, IrInstruction *old_instruction,
-        IrInstruction *return_value)
-{
-    IrInstruction *new_instruction = ir_build_return(irb, old_instruction->scope, old_instruction->source_node, return_value);
-    ir_link_new_instruction(new_instruction, old_instruction);
-    return new_instruction;
-}
-
 static IrInstruction *ir_create_const(IrBuilder *irb, Scope *scope, AstNode *source_node,
     TypeTableEntry *type_entry)
 {
@@ -774,6 +836,14 @@ static IrInstruction *ir_build_const_null(IrBuilder *irb, Scope *scope, AstNode 
 static IrInstruction *ir_build_const_usize(IrBuilder *irb, Scope *scope, AstNode *source_node, uint64_t value) {
     IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
     const_instruction->base.value.type = irb->codegen->builtin_types.entry_usize;
+    const_instruction->base.value.special = ConstValSpecialStatic;
+    bigint_init_unsigned(&const_instruction->base.value.data.x_bigint, value);
+    return &const_instruction->base;
+}
+
+static IrInstruction *ir_build_const_u8(IrBuilder *irb, Scope *scope, AstNode *source_node, uint8_t value) {
+    IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
+    const_instruction->base.value.type = irb->codegen->builtin_types.entry_u8;
     const_instruction->base.value.special = ConstValSpecialStatic;
     bigint_init_unsigned(&const_instruction->base.value.data.x_bigint, value);
     return &const_instruction->base;
@@ -866,6 +936,27 @@ static IrInstruction *ir_build_const_c_str_lit(IrBuilder *irb, Scope *scope, Ast
     return &const_instruction->base;
 }
 
+static IrInstruction *ir_build_const_promise_init(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        TypeTableEntry *return_type)
+{
+    TypeTableEntry *struct_type = get_promise_frame_type(irb->codegen, return_type);
+
+    IrInstructionConst *const_instruction = ir_build_instruction<IrInstructionConst>(irb, scope, source_node);
+    const_instruction->base.value.type = struct_type;
+    const_instruction->base.value.special = ConstValSpecialStatic;
+    const_instruction->base.value.data.x_struct.fields = allocate<ConstExprValue>(struct_type->data.structure.src_field_count);
+    const_instruction->base.value.data.x_struct.fields[0].type = struct_type->data.structure.fields[0].type_entry;
+    const_instruction->base.value.data.x_struct.fields[0].special = ConstValSpecialStatic;
+    const_instruction->base.value.data.x_struct.fields[0].data.x_maybe = nullptr;
+    if (struct_type->data.structure.src_field_count > 1) {
+        const_instruction->base.value.data.x_struct.fields[1].type = return_type;
+        const_instruction->base.value.data.x_struct.fields[1].special = ConstValSpecialUndef;
+        const_instruction->base.value.data.x_struct.fields[2].type = struct_type->data.structure.fields[2].type_entry;
+        const_instruction->base.value.data.x_struct.fields[2].special = ConstValSpecialUndef;
+    }
+    return &const_instruction->base;
+}
+
 static IrInstruction *ir_build_bin_op(IrBuilder *irb, Scope *scope, AstNode *source_node, IrBinOp op_id,
         IrInstruction *op1, IrInstruction *op2, bool safety_check_on)
 {
@@ -950,15 +1041,6 @@ static IrInstruction *ir_build_struct_field_ptr(IrBuilder *irb, Scope *scope, As
     return &instruction->base;
 }
 
-static IrInstruction *ir_build_struct_field_ptr_from(IrBuilder *irb, IrInstruction *old_instruction,
-    IrInstruction *struct_ptr, TypeStructField *type_struct_field)
-{
-    IrInstruction *new_instruction = ir_build_struct_field_ptr(irb, old_instruction->scope,
-            old_instruction->source_node, struct_ptr, type_struct_field);
-    ir_link_new_instruction(new_instruction, old_instruction);
-    return new_instruction;
-}
-
 static IrInstruction *ir_build_union_field_ptr(IrBuilder *irb, Scope *scope, AstNode *source_node,
     IrInstruction *union_ptr, TypeUnionField *field)
 {
@@ -982,7 +1064,7 @@ static IrInstruction *ir_build_union_field_ptr_from(IrBuilder *irb, IrInstructio
 
 static IrInstruction *ir_build_call(IrBuilder *irb, Scope *scope, AstNode *source_node,
         FnTableEntry *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
-        bool is_comptime, FnInline fn_inline)
+        bool is_comptime, FnInline fn_inline, bool is_async, IrInstruction *async_allocator)
 {
     IrInstructionCall *call_instruction = ir_build_instruction<IrInstructionCall>(irb, scope, source_node);
     call_instruction->fn_entry = fn_entry;
@@ -991,21 +1073,25 @@ static IrInstruction *ir_build_call(IrBuilder *irb, Scope *scope, AstNode *sourc
     call_instruction->fn_inline = fn_inline;
     call_instruction->args = args;
     call_instruction->arg_count = arg_count;
+    call_instruction->is_async = is_async;
+    call_instruction->async_allocator = async_allocator;
 
     if (fn_ref)
         ir_ref_instruction(fn_ref, irb->current_basic_block);
     for (size_t i = 0; i < arg_count; i += 1)
         ir_ref_instruction(args[i], irb->current_basic_block);
+    if (async_allocator)
+        ir_ref_instruction(async_allocator, irb->current_basic_block);
 
     return &call_instruction->base;
 }
 
 static IrInstruction *ir_build_call_from(IrBuilder *irb, IrInstruction *old_instruction,
         FnTableEntry *fn_entry, IrInstruction *fn_ref, size_t arg_count, IrInstruction **args,
-        bool is_comptime, FnInline fn_inline)
+        bool is_comptime, FnInline fn_inline, bool is_async, IrInstruction *async_allocator)
 {
     IrInstruction *new_instruction = ir_build_call(irb, old_instruction->scope,
-            old_instruction->source_node, fn_entry, fn_ref, arg_count, args, is_comptime, fn_inline);
+            old_instruction->source_node, fn_entry, fn_ref, arg_count, args, is_comptime, fn_inline, is_async, async_allocator);
     ir_link_new_instruction(new_instruction, old_instruction);
     return new_instruction;
 }
@@ -2396,6 +2482,182 @@ static IrInstruction *ir_build_error_union(IrBuilder *irb, Scope *scope, AstNode
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_cancel(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *target)
+{
+    IrInstructionCancel *instruction = ir_build_instruction<IrInstructionCancel>(irb, scope, source_node);
+    instruction->target = target;
+
+    ir_ref_instruction(target, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_get_implicit_allocator(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        ImplicitAllocatorId id)
+{
+    IrInstructionGetImplicitAllocator *instruction = ir_build_instruction<IrInstructionGetImplicitAllocator>(irb, scope, source_node);
+    instruction->id = id;
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_coro_id(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *promise_ptr) {
+    IrInstructionCoroId *instruction = ir_build_instruction<IrInstructionCoroId>(irb, scope, source_node);
+    instruction->promise_ptr = promise_ptr;
+
+    ir_ref_instruction(promise_ptr, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_coro_alloc(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *coro_id) {
+    IrInstructionCoroAlloc *instruction = ir_build_instruction<IrInstructionCoroAlloc>(irb, scope, source_node);
+    instruction->coro_id = coro_id;
+
+    ir_ref_instruction(coro_id, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_coro_size(IrBuilder *irb, Scope *scope, AstNode *source_node) {
+    IrInstructionCoroSize *instruction = ir_build_instruction<IrInstructionCoroSize>(irb, scope, source_node);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_coro_begin(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *coro_id, IrInstruction *coro_mem_ptr) {
+    IrInstructionCoroBegin *instruction = ir_build_instruction<IrInstructionCoroBegin>(irb, scope, source_node);
+    instruction->coro_id = coro_id;
+    instruction->coro_mem_ptr = coro_mem_ptr;
+
+    ir_ref_instruction(coro_id, irb->current_basic_block);
+    ir_ref_instruction(coro_mem_ptr, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_coro_alloc_fail(IrBuilder *irb, Scope *scope, AstNode *source_node, IrInstruction *err_val) {
+    IrInstructionCoroAllocFail *instruction = ir_build_instruction<IrInstructionCoroAllocFail>(irb, scope, source_node);
+    instruction->base.value.type = irb->codegen->builtin_types.entry_unreachable;
+    instruction->base.value.special = ConstValSpecialStatic;
+    instruction->err_val = err_val;
+
+    ir_ref_instruction(err_val, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_coro_suspend(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *save_point, IrInstruction *is_final)
+{
+    IrInstructionCoroSuspend *instruction = ir_build_instruction<IrInstructionCoroSuspend>(irb, scope, source_node);
+    instruction->save_point = save_point;
+    instruction->is_final = is_final;
+
+    if (save_point != nullptr) ir_ref_instruction(save_point, irb->current_basic_block);
+    ir_ref_instruction(is_final, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_coro_end(IrBuilder *irb, Scope *scope, AstNode *source_node) {
+    IrInstructionCoroEnd *instruction = ir_build_instruction<IrInstructionCoroEnd>(irb, scope, source_node);
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_coro_free(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *coro_id, IrInstruction *coro_handle)
+{
+    IrInstructionCoroFree *instruction = ir_build_instruction<IrInstructionCoroFree>(irb, scope, source_node);
+    instruction->coro_id = coro_id;
+    instruction->coro_handle = coro_handle;
+
+    ir_ref_instruction(coro_id, irb->current_basic_block);
+    ir_ref_instruction(coro_handle, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_coro_resume(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *awaiter_handle)
+{
+    IrInstructionCoroResume *instruction = ir_build_instruction<IrInstructionCoroResume>(irb, scope, source_node);
+    instruction->awaiter_handle = awaiter_handle;
+
+    ir_ref_instruction(awaiter_handle, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_coro_save(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *coro_handle)
+{
+    IrInstructionCoroSave *instruction = ir_build_instruction<IrInstructionCoroSave>(irb, scope, source_node);
+    instruction->coro_handle = coro_handle;
+
+    ir_ref_instruction(coro_handle, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_coro_promise(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *coro_handle)
+{
+    IrInstructionCoroPromise *instruction = ir_build_instruction<IrInstructionCoroPromise>(irb, scope, source_node);
+    instruction->coro_handle = coro_handle;
+
+    ir_ref_instruction(coro_handle, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_coro_alloc_helper(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *alloc_fn, IrInstruction *coro_size)
+{
+    IrInstructionCoroAllocHelper *instruction = ir_build_instruction<IrInstructionCoroAllocHelper>(irb, scope, source_node);
+    instruction->alloc_fn = alloc_fn;
+    instruction->coro_size = coro_size;
+
+    ir_ref_instruction(alloc_fn, irb->current_basic_block);
+    ir_ref_instruction(coro_size, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_atomic_rmw(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *operand_type, IrInstruction *ptr, IrInstruction *op, IrInstruction *operand,
+        IrInstruction *ordering, AtomicRmwOp resolved_op, AtomicOrder resolved_ordering)
+{
+    IrInstructionAtomicRmw *instruction = ir_build_instruction<IrInstructionAtomicRmw>(irb, scope, source_node);
+    instruction->operand_type = operand_type;
+    instruction->ptr = ptr;
+    instruction->op = op;
+    instruction->operand = operand;
+    instruction->ordering = ordering;
+    instruction->resolved_op = resolved_op;
+    instruction->resolved_ordering = resolved_ordering;
+
+    if (operand_type != nullptr) ir_ref_instruction(operand_type, irb->current_basic_block);
+    ir_ref_instruction(ptr, irb->current_basic_block);
+    if (op != nullptr) ir_ref_instruction(op, irb->current_basic_block);
+    ir_ref_instruction(operand, irb->current_basic_block);
+    if (ordering != nullptr) ir_ref_instruction(ordering, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_promise_result_type(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *promise_type)
+{
+    IrInstructionPromiseResultType *instruction = ir_build_instruction<IrInstructionPromiseResultType>(irb, scope, source_node);
+    instruction->promise_type = promise_type;
+
+    ir_ref_instruction(promise_type, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope, size_t *results) {
     results[ReturnKindUnconditional] = 0;
     results[ReturnKindError] = 0;
@@ -2468,6 +2730,36 @@ static ScopeDeferExpr *get_scope_defer_expr(Scope *scope) {
     return nullptr;
 }
 
+static IrInstruction *ir_gen_async_return(IrBuilder *irb, Scope *scope, AstNode *node, IrInstruction *return_value,
+    bool is_generated_code)
+{
+    FnTableEntry *fn_entry = exec_fn_entry(irb->exec);
+    bool is_async = fn_entry != nullptr && fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
+    if (!is_async) {
+        IrInstruction *return_inst = ir_build_return(irb, scope, node, return_value);
+        return_inst->is_gen = is_generated_code;
+        return return_inst;
+    }
+
+    if (irb->exec->coro_result_ptr_field_ptr) {
+        IrInstruction *result_ptr = ir_build_load_ptr(irb, scope, node, irb->exec->coro_result_ptr_field_ptr);
+        ir_build_store_ptr(irb, scope, node, result_ptr, return_value);
+    }
+    IrInstruction *promise_type_val = ir_build_const_type(irb, scope, node,
+            get_maybe_type(irb->codegen, irb->codegen->builtin_types.entry_promise));
+    // TODO replace replacement_value with @intToPtr(?promise, 0x1) when it doesn't crash zig
+    IrInstruction *replacement_value = irb->exec->coro_handle;
+    IrInstruction *maybe_await_handle = ir_build_atomic_rmw(irb, scope, node,
+            promise_type_val, irb->exec->coro_awaiter_field_ptr, nullptr, replacement_value, nullptr,
+            AtomicRmwOp_xchg, AtomicOrderSeqCst);
+    ir_build_store_ptr(irb, scope, node, irb->exec->await_handle_var_ptr, maybe_await_handle);
+    IrInstruction *is_non_null = ir_build_test_nonnull(irb, scope, node, maybe_await_handle);
+    IrInstruction *is_comptime = ir_build_const_bool(irb, scope, node, false);
+    return ir_build_cond_br(irb, scope, node, is_non_null, irb->exec->coro_normal_final, irb->exec->coro_early_final,
+            is_comptime);
+    // the above blocks are rendered by ir_gen after the rest of codegen
+}
+
 static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval) {
     assert(node->type == NodeTypeReturnExpr);
 
@@ -2517,18 +2809,22 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                     }
 
                     ir_mark_gen(ir_build_cond_br(irb, scope, node, is_err, err_block, ok_block, is_comptime));
+                    IrBasicBlock *ret_stmt_block = ir_create_basic_block(irb, scope, "RetStmt");
 
                     ir_set_cursor_at_end_and_append_block(irb, err_block);
                     ir_gen_defers_for_block(irb, scope, outer_scope, true);
-                    ir_build_return(irb, scope, node, return_value);
+                    ir_build_br(irb, scope, node, ret_stmt_block, is_comptime);
 
                     ir_set_cursor_at_end_and_append_block(irb, ok_block);
                     ir_gen_defers_for_block(irb, scope, outer_scope, false);
-                    return ir_build_return(irb, scope, node, return_value);
+                    ir_build_br(irb, scope, node, ret_stmt_block, is_comptime);
+
+                    ir_set_cursor_at_end_and_append_block(irb, ret_stmt_block);
+                    return ir_gen_async_return(irb, scope, node, return_value, false);
                 } else {
                     // generate unconditional defers
                     ir_gen_defers_for_block(irb, scope, outer_scope, false);
-                    return ir_build_return(irb, scope, node, return_value);
+                    return ir_gen_async_return(irb, scope, node, return_value, false);
                 }
             }
         case ReturnKindError:
@@ -2548,7 +2844,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 ir_set_cursor_at_end_and_append_block(irb, return_block);
                 ir_gen_defers_for_block(irb, scope, outer_scope, true);
                 IrInstruction *err_val = ir_build_unwrap_err_code(irb, scope, node, err_union_ptr);
-                ir_build_return(irb, scope, node, err_val);
+                ir_gen_async_return(irb, scope, node, err_val, false);
 
                 ir_set_cursor_at_end_and_append_block(irb, continue_block);
                 IrInstruction *unwrapped_ptr = ir_build_unwrap_err_payload(irb, scope, node, err_union_ptr, false);
@@ -3739,7 +4035,7 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
                 }
                 FnInline fn_inline = (builtin_fn->id == BuiltinFnIdInlineCall) ? FnInlineAlways : FnInlineNever;
 
-                return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, fn_inline);
+                return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, fn_inline, false, nullptr);
             }
         case BuiltinFnIdTypeId:
             {
@@ -3849,6 +4145,38 @@ static IrInstruction *ir_gen_builtin_fn_call(IrBuilder *irb, Scope *scope, AstNo
             {
                 return ir_build_error_return_trace(irb, scope, node);
             }
+        case BuiltinFnIdAtomicRmw:
+            {
+                AstNode *arg0_node = node->data.fn_call_expr.params.at(0);
+                IrInstruction *arg0_value = ir_gen_node(irb, arg0_node, scope);
+                if (arg0_value == irb->codegen->invalid_instruction)
+                    return arg0_value;
+
+                AstNode *arg1_node = node->data.fn_call_expr.params.at(1);
+                IrInstruction *arg1_value = ir_gen_node(irb, arg1_node, scope);
+                if (arg1_value == irb->codegen->invalid_instruction)
+                    return arg1_value;
+
+                AstNode *arg2_node = node->data.fn_call_expr.params.at(2);
+                IrInstruction *arg2_value = ir_gen_node(irb, arg2_node, scope);
+                if (arg2_value == irb->codegen->invalid_instruction)
+                    return arg2_value;
+
+                AstNode *arg3_node = node->data.fn_call_expr.params.at(3);
+                IrInstruction *arg3_value = ir_gen_node(irb, arg3_node, scope);
+                if (arg3_value == irb->codegen->invalid_instruction)
+                    return arg3_value;
+
+                AstNode *arg4_node = node->data.fn_call_expr.params.at(4);
+                IrInstruction *arg4_value = ir_gen_node(irb, arg4_node, scope);
+                if (arg4_value == irb->codegen->invalid_instruction)
+                    return arg4_value;
+
+                return ir_build_atomic_rmw(irb, scope, node, arg0_value, arg1_value, arg2_value, arg3_value,
+                        arg4_value,
+                        // these 2 values don't mean anything since we passed non-null values for other args
+                        AtomicRmwOp_xchg, AtomicOrderMonotonic);
+            }
     }
     zig_unreachable();
 }
@@ -3873,7 +4201,17 @@ static IrInstruction *ir_gen_fn_call(IrBuilder *irb, Scope *scope, AstNode *node
             return args[i];
     }
 
-    return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, FnInlineAuto);
+    bool is_async = node->data.fn_call_expr.is_async;
+    IrInstruction *async_allocator = nullptr;
+    if (is_async) {
+        if (node->data.fn_call_expr.async_allocator) {
+            async_allocator = ir_gen_node(irb, node->data.fn_call_expr.async_allocator, scope);
+            if (async_allocator == irb->codegen->invalid_instruction)
+                return async_allocator;
+        }
+    }
+
+    return ir_build_call(irb, scope, node, nullptr, fn_ref, arg_count, args, false, FnInlineAuto, is_async, async_allocator);
 }
 
 static IrInstruction *ir_gen_if_bool_expr(IrBuilder *irb, Scope *scope, AstNode *node) {
@@ -5604,6 +5942,187 @@ static IrInstruction *ir_gen_fn_proto(IrBuilder *irb, Scope *parent_scope, AstNo
     return ir_build_fn_proto(irb, parent_scope, node, param_types, align_value, return_type, is_var_args);
 }
 
+static IrInstruction *ir_gen_cancel(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
+    assert(node->type == NodeTypeCancel);
+
+    IrInstruction *target_inst = ir_gen_node(irb, node->data.cancel_expr.expr, parent_scope);
+    if (target_inst == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+
+    return ir_build_cancel(irb, parent_scope, node, target_inst);
+}
+
+static IrInstruction *ir_gen_resume(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
+    assert(node->type == NodeTypeResume);
+
+    IrInstruction *target_inst = ir_gen_node(irb, node->data.resume_expr.expr, parent_scope);
+    if (target_inst == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+
+    return ir_build_coro_resume(irb, parent_scope, node, target_inst);
+}
+
+static IrInstruction *ir_gen_await_expr(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
+    assert(node->type == NodeTypeAwaitExpr);
+
+    IrInstruction *target_inst = ir_gen_node(irb, node->data.await_expr.expr, parent_scope);
+    if (target_inst == irb->codegen->invalid_instruction)
+        return irb->codegen->invalid_instruction;
+
+    FnTableEntry *fn_entry = exec_fn_entry(irb->exec);
+    if (!fn_entry) {
+        add_node_error(irb->codegen, node, buf_sprintf("await outside function definition"));
+        return irb->codegen->invalid_instruction;
+    }
+    if (fn_entry->type_entry->data.fn.fn_type_id.cc != CallingConventionAsync) {
+        add_node_error(irb->codegen, node, buf_sprintf("await in non-async function"));
+        return irb->codegen->invalid_instruction;
+    }
+
+    ScopeDeferExpr *scope_defer_expr = get_scope_defer_expr(parent_scope);
+    if (scope_defer_expr) {
+        if (!scope_defer_expr->reported_err) {
+            add_node_error(irb->codegen, node, buf_sprintf("cannot await inside defer expression"));
+            scope_defer_expr->reported_err = true;
+        }
+        return irb->codegen->invalid_instruction;
+    }
+
+    Scope *outer_scope = irb->exec->begin_scope;
+
+    IrInstruction *coro_promise_ptr = ir_build_coro_promise(irb, parent_scope, node, target_inst);
+    Buf *result_ptr_field_name = buf_create_from_str(RESULT_PTR_FIELD_NAME);
+    IrInstruction *result_ptr_field_ptr = ir_build_field_ptr(irb, parent_scope, node, coro_promise_ptr, result_ptr_field_name);
+
+    Buf *awaiter_handle_field_name = buf_create_from_str(AWAITER_HANDLE_FIELD_NAME);
+    IrInstruction *awaiter_field_ptr = ir_build_field_ptr(irb, parent_scope, node, coro_promise_ptr,
+            awaiter_handle_field_name);
+
+    IrInstruction *const_bool_false = ir_build_const_bool(irb, parent_scope, node, false);
+    VariableTableEntry *result_var = ir_create_var(irb, node, parent_scope, nullptr,
+            false, false, true, const_bool_false);
+    IrInstruction *undefined_value = ir_build_const_undefined(irb, parent_scope, node);
+    IrInstruction *target_promise_type = ir_build_typeof(irb, parent_scope, node, target_inst);
+    IrInstruction *promise_result_type = ir_build_promise_result_type(irb, parent_scope, node, target_promise_type);
+    ir_build_var_decl(irb, parent_scope, node, result_var, promise_result_type, nullptr, undefined_value);
+    IrInstruction *my_result_var_ptr = ir_build_var_ptr(irb, parent_scope, node, result_var, false, false);
+    ir_build_store_ptr(irb, parent_scope, node, result_ptr_field_ptr, my_result_var_ptr);
+    IrInstruction *save_token = ir_build_coro_save(irb, parent_scope, node, irb->exec->coro_handle);
+    IrInstruction *promise_type_val = ir_build_const_type(irb, parent_scope, node,
+            get_maybe_type(irb->codegen, irb->codegen->builtin_types.entry_promise));
+    IrInstruction *maybe_await_handle = ir_build_atomic_rmw(irb, parent_scope, node, 
+            promise_type_val, awaiter_field_ptr, nullptr, irb->exec->coro_handle, nullptr,
+            AtomicRmwOp_xchg, AtomicOrderSeqCst);
+    IrInstruction *is_non_null = ir_build_test_nonnull(irb, parent_scope, node, maybe_await_handle);
+    IrBasicBlock *yes_suspend_block = ir_create_basic_block(irb, parent_scope, "YesSuspend");
+    IrBasicBlock *no_suspend_block = ir_create_basic_block(irb, parent_scope, "NoSuspend");
+    IrBasicBlock *merge_block = ir_create_basic_block(irb, parent_scope, "Merge");
+    ir_build_cond_br(irb, parent_scope, node, is_non_null, no_suspend_block, yes_suspend_block, const_bool_false);
+
+    ir_set_cursor_at_end_and_append_block(irb, no_suspend_block);
+    Buf *result_field_name = buf_create_from_str(RESULT_FIELD_NAME);
+    IrInstruction *promise_result_ptr = ir_build_field_ptr(irb, parent_scope, node, coro_promise_ptr, result_field_name);
+    IrInstruction *no_suspend_result = ir_build_load_ptr(irb, parent_scope, node, promise_result_ptr);
+    ir_build_cancel(irb, parent_scope, node, target_inst);
+    ir_build_br(irb, parent_scope, node, merge_block, const_bool_false);
+
+    ir_set_cursor_at_end_and_append_block(irb, yes_suspend_block);
+    IrInstruction *suspend_code = ir_build_coro_suspend(irb, parent_scope, node, save_token, const_bool_false);
+    IrBasicBlock *cleanup_block = ir_create_basic_block(irb, parent_scope, "SuspendCleanup");
+    IrBasicBlock *resume_block = ir_create_basic_block(irb, parent_scope, "SuspendResume");
+
+    IrInstructionSwitchBrCase *cases = allocate<IrInstructionSwitchBrCase>(2);
+    cases[0].value = ir_build_const_u8(irb, parent_scope, node, 0);
+    cases[0].block = resume_block;
+    cases[1].value = ir_build_const_u8(irb, parent_scope, node, 1);
+    cases[1].block = cleanup_block;
+    ir_build_switch_br(irb, parent_scope, node, suspend_code, irb->exec->coro_suspend_block,
+            2, cases, const_bool_false);
+
+    ir_set_cursor_at_end_and_append_block(irb, cleanup_block);
+    ir_gen_defers_for_block(irb, parent_scope, outer_scope, true);
+    ir_build_br(irb, parent_scope, node, irb->exec->coro_final_cleanup_block, const_bool_false);
+
+    ir_set_cursor_at_end_and_append_block(irb, resume_block);
+    IrInstruction *yes_suspend_result = ir_build_load_ptr(irb, parent_scope, node, my_result_var_ptr);
+    ir_build_br(irb, parent_scope, node, merge_block, const_bool_false);
+
+    ir_set_cursor_at_end_and_append_block(irb, merge_block);
+    IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2);
+    IrInstruction **incoming_values = allocate<IrInstruction *>(2);
+    incoming_blocks[0] = resume_block;
+    incoming_values[0] = yes_suspend_result;
+    incoming_blocks[1] = no_suspend_block;
+    incoming_values[1] = no_suspend_result;
+    return ir_build_phi(irb, parent_scope, node, 2, incoming_blocks, incoming_values);
+}
+
+static IrInstruction *ir_gen_suspend(IrBuilder *irb, Scope *parent_scope, AstNode *node) {
+    assert(node->type == NodeTypeSuspend);
+
+    FnTableEntry *fn_entry = exec_fn_entry(irb->exec);
+    if (!fn_entry) {
+        add_node_error(irb->codegen, node, buf_sprintf("suspend outside function definition"));
+        return irb->codegen->invalid_instruction;
+    }
+    if (fn_entry->type_entry->data.fn.fn_type_id.cc != CallingConventionAsync) {
+        add_node_error(irb->codegen, node, buf_sprintf("suspend in non-async function"));
+        return irb->codegen->invalid_instruction;
+    }
+
+    ScopeDeferExpr *scope_defer_expr = get_scope_defer_expr(parent_scope);
+    if (scope_defer_expr) {
+        if (!scope_defer_expr->reported_err) {
+            add_node_error(irb->codegen, node, buf_sprintf("cannot suspend inside defer expression"));
+            scope_defer_expr->reported_err = true;
+        }
+        return irb->codegen->invalid_instruction;
+    }
+
+    Scope *outer_scope = irb->exec->begin_scope;
+
+
+    IrInstruction *suspend_code;
+    IrInstruction *const_bool_false = ir_build_const_bool(irb, parent_scope, node, false);
+    if (node->data.suspend.block == nullptr) {
+        suspend_code = ir_build_coro_suspend(irb, parent_scope, node, nullptr, const_bool_false);
+    } else {
+        assert(node->data.suspend.promise_symbol != nullptr);
+        assert(node->data.suspend.promise_symbol->type == NodeTypeSymbol);
+        Buf *promise_symbol_name = node->data.suspend.promise_symbol->data.symbol_expr.symbol;
+        Scope *child_scope;
+        if (!buf_eql_str(promise_symbol_name, "_")) {
+            VariableTableEntry *promise_var = ir_create_var(irb, node, parent_scope, promise_symbol_name,
+                    true, true, false, const_bool_false);
+            ir_build_var_decl(irb, parent_scope, node, promise_var, nullptr, nullptr, irb->exec->coro_handle);
+            child_scope = promise_var->child_scope;
+        } else {
+            child_scope = parent_scope;
+        }
+        IrInstruction *save_token = ir_build_coro_save(irb, child_scope, node, irb->exec->coro_handle);
+        ir_gen_node(irb, node->data.suspend.block, child_scope);
+        suspend_code = ir_build_coro_suspend(irb, parent_scope, node, save_token, const_bool_false);
+    }
+
+    IrBasicBlock *cleanup_block = ir_create_basic_block(irb, parent_scope, "SuspendCleanup");
+    IrBasicBlock *resume_block = ir_create_basic_block(irb, parent_scope, "SuspendResume");
+
+    IrInstructionSwitchBrCase *cases = allocate<IrInstructionSwitchBrCase>(2);
+    cases[0].value = ir_build_const_u8(irb, parent_scope, node, 0);
+    cases[0].block = resume_block;
+    cases[1].value = ir_build_const_u8(irb, parent_scope, node, 1);
+    cases[1].block = cleanup_block;
+    ir_build_switch_br(irb, parent_scope, node, suspend_code, irb->exec->coro_suspend_block,
+            2, cases, const_bool_false);
+
+    ir_set_cursor_at_end_and_append_block(irb, cleanup_block);
+    ir_gen_defers_for_block(irb, parent_scope, outer_scope, true);
+    ir_build_br(irb, parent_scope, node, irb->exec->coro_final_cleanup_block, const_bool_false);
+
+    ir_set_cursor_at_end_and_append_block(irb, resume_block);
+    return ir_build_const_void(irb, parent_scope, node);
+}
+
 static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scope,
         LVal lval)
 {
@@ -5700,6 +6219,14 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_fn_proto(irb, scope, node), lval);
         case NodeTypeErrorSetDecl:
             return ir_lval_wrap(irb, scope, ir_gen_err_set_decl(irb, scope, node), lval);
+        case NodeTypeCancel:
+            return ir_lval_wrap(irb, scope, ir_gen_cancel(irb, scope, node), lval);
+        case NodeTypeResume:
+            return ir_lval_wrap(irb, scope, ir_gen_resume(irb, scope, node), lval);
+        case NodeTypeAwaitExpr:
+            return ir_lval_wrap(irb, scope, ir_gen_await_expr(irb, scope, node), lval);
+        case NodeTypeSuspend:
+            return ir_lval_wrap(irb, scope, ir_gen_suspend(irb, scope, node), lval);
     }
     zig_unreachable();
 }
@@ -5728,6 +6255,7 @@ static void invalidate_exec(IrExecutable *exec) {
         invalidate_exec(exec->source_exec);
 }
 
+
 bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_executable) {
     assert(node->owner);
 
@@ -5742,13 +6270,162 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
     // Entry block gets a reference because we enter it to begin.
     ir_ref_bb(irb->current_basic_block);
 
+    FnTableEntry *fn_entry = exec_fn_entry(irb->exec);
+    bool is_async = fn_entry != nullptr && fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
+    IrInstruction *coro_id;
+    IrInstruction *u8_ptr_type;
+    IrInstruction *const_bool_false;
+    IrInstruction *coro_result_field_ptr;
+    TypeTableEntry *return_type;
+    Buf *result_ptr_field_name;
+    VariableTableEntry *coro_size_var;
+    if (is_async) {
+        // create the coro promise
+        const_bool_false = ir_build_const_bool(irb, scope, node, false);
+        VariableTableEntry *promise_var = ir_create_var(irb, node, scope, nullptr, false, false, true, const_bool_false);
+
+        return_type = fn_entry->type_entry->data.fn.fn_type_id.return_type;
+        IrInstruction *promise_init = ir_build_const_promise_init(irb, scope, node, return_type);
+        ir_build_var_decl(irb, scope, node, promise_var, nullptr, nullptr, promise_init);
+        IrInstruction *coro_promise_ptr = ir_build_var_ptr(irb, scope, node, promise_var, false, false);
+
+        VariableTableEntry *await_handle_var = ir_create_var(irb, node, scope, nullptr, false, false, true, const_bool_false);
+        IrInstruction *null_value = ir_build_const_null(irb, scope, node);
+        IrInstruction *await_handle_type_val = ir_build_const_type(irb, scope, node,
+                get_maybe_type(irb->codegen, irb->codegen->builtin_types.entry_promise));
+        ir_build_var_decl(irb, scope, node, await_handle_var, await_handle_type_val, nullptr, null_value);
+        irb->exec->await_handle_var_ptr = ir_build_var_ptr(irb, scope, node,
+                await_handle_var, false, false);
+
+        u8_ptr_type = ir_build_const_type(irb, scope, node,
+                get_pointer_to_type(irb->codegen, irb->codegen->builtin_types.entry_u8, false));
+        IrInstruction *promise_as_u8_ptr = ir_build_ptr_cast(irb, scope, node, u8_ptr_type, coro_promise_ptr);
+        coro_id = ir_build_coro_id(irb, scope, node, promise_as_u8_ptr);
+        coro_size_var = ir_create_var(irb, node, scope, nullptr, false, false, true, const_bool_false);
+        IrInstruction *coro_size = ir_build_coro_size(irb, scope, node);
+        ir_build_var_decl(irb, scope, node, coro_size_var, nullptr, nullptr, coro_size);
+        IrInstruction *implicit_allocator_ptr = ir_build_get_implicit_allocator(irb, scope, node,
+                ImplicitAllocatorIdArg);
+        irb->exec->coro_allocator_var = ir_create_var(irb, node, scope, nullptr, true, true, true, const_bool_false);
+        ir_build_var_decl(irb, scope, node, irb->exec->coro_allocator_var, nullptr, nullptr, implicit_allocator_ptr);
+        Buf *alloc_field_name = buf_create_from_str(ASYNC_ALLOC_FIELD_NAME);
+        IrInstruction *alloc_fn_ptr = ir_build_field_ptr(irb, scope, node, implicit_allocator_ptr, alloc_field_name);
+        IrInstruction *alloc_fn = ir_build_load_ptr(irb, scope, node, alloc_fn_ptr);
+        IrInstruction *maybe_coro_mem_ptr = ir_build_coro_alloc_helper(irb, scope, node, alloc_fn, coro_size);
+        IrInstruction *alloc_result_is_ok = ir_build_test_nonnull(irb, scope, node, maybe_coro_mem_ptr);
+        IrBasicBlock *alloc_err_block = ir_create_basic_block(irb, scope, "AllocError");
+        IrBasicBlock *alloc_ok_block = ir_create_basic_block(irb, scope, "AllocOk");
+        ir_build_cond_br(irb, scope, node, alloc_result_is_ok, alloc_ok_block, alloc_err_block, const_bool_false);
+
+        ir_set_cursor_at_end_and_append_block(irb, alloc_err_block);
+        IrInstruction *undef = ir_build_const_undefined(irb, scope, node);
+        ir_build_return(irb, scope, node, undef);
+
+        ir_set_cursor_at_end_and_append_block(irb, alloc_ok_block);
+        IrInstruction *coro_mem_ptr = ir_build_ptr_cast(irb, scope, node, u8_ptr_type, maybe_coro_mem_ptr);
+        irb->exec->coro_handle = ir_build_coro_begin(irb, scope, node, coro_id, coro_mem_ptr);
+
+        Buf *awaiter_handle_field_name = buf_create_from_str(AWAITER_HANDLE_FIELD_NAME);
+        irb->exec->coro_awaiter_field_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr,
+                awaiter_handle_field_name);
+        if (type_has_bits(return_type)) {
+            Buf *result_field_name = buf_create_from_str(RESULT_FIELD_NAME);
+            coro_result_field_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr, result_field_name);
+            result_ptr_field_name = buf_create_from_str(RESULT_PTR_FIELD_NAME);
+            irb->exec->coro_result_ptr_field_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr,
+                    result_ptr_field_name);
+            ir_build_store_ptr(irb, scope, node, irb->exec->coro_result_ptr_field_ptr, coro_result_field_ptr);
+        }
+
+
+        irb->exec->coro_early_final = ir_create_basic_block(irb, scope, "CoroEarlyFinal");
+        irb->exec->coro_normal_final = ir_create_basic_block(irb, scope, "CoroNormalFinal");
+        irb->exec->coro_suspend_block = ir_create_basic_block(irb, scope, "Suspend");
+        irb->exec->coro_final_cleanup_block = ir_create_basic_block(irb, scope, "FinalCleanup");
+    }
+
     IrInstruction *result = ir_gen_node_extra(irb, node, scope, LVAL_NONE);
     assert(result);
     if (irb->exec->invalid)
         return false;
 
     if (!instr_is_unreachable(result)) {
-        ir_mark_gen(ir_build_return(irb, scope, result->source_node, result));
+        ir_gen_async_return(irb, scope, result->source_node, result, true);
+    }
+
+    if (is_async) {
+        IrBasicBlock *invalid_resume_block = ir_create_basic_block(irb, scope, "InvalidResume");
+        IrBasicBlock *check_free_block = ir_create_basic_block(irb, scope, "CheckFree");
+
+        ir_set_cursor_at_end_and_append_block(irb, irb->exec->coro_early_final);
+        IrInstruction *const_bool_true = ir_build_const_bool(irb, scope, node, true);
+        IrInstruction *suspend_code = ir_build_coro_suspend(irb, scope, node, nullptr, const_bool_true);
+        IrInstructionSwitchBrCase *cases = allocate<IrInstructionSwitchBrCase>(2);
+        cases[0].value = ir_build_const_u8(irb, scope, node, 0);
+        cases[0].block = invalid_resume_block;
+        cases[1].value = ir_build_const_u8(irb, scope, node, 1);
+        cases[1].block = irb->exec->coro_final_cleanup_block;
+        ir_build_switch_br(irb, scope, node, suspend_code, irb->exec->coro_suspend_block, 2, cases, const_bool_false);
+
+        ir_set_cursor_at_end_and_append_block(irb, irb->exec->coro_suspend_block);
+        ir_build_coro_end(irb, scope, node);
+        ir_build_return(irb, scope, node, irb->exec->coro_handle);
+
+        ir_set_cursor_at_end_and_append_block(irb, invalid_resume_block);
+        ir_build_unreachable(irb, scope, node);
+
+        ir_set_cursor_at_end_and_append_block(irb, irb->exec->coro_normal_final);
+        ir_build_br(irb, scope, node, check_free_block, const_bool_false);
+
+        ir_set_cursor_at_end_and_append_block(irb, irb->exec->coro_final_cleanup_block);
+        if (type_has_bits(return_type)) {
+            IrInstruction *result_ptr = ir_build_load_ptr(irb, scope, node, irb->exec->coro_result_ptr_field_ptr);
+            IrInstruction *result_ptr_as_u8_ptr = ir_build_ptr_cast(irb, scope, node, u8_ptr_type, result_ptr);
+            IrInstruction *return_value_ptr_as_u8_ptr = ir_build_ptr_cast(irb, scope, node, u8_ptr_type,
+                    coro_result_field_ptr);
+            IrInstruction *return_type_inst = ir_build_const_type(irb, scope, node,
+                    fn_entry->type_entry->data.fn.fn_type_id.return_type);
+            IrInstruction *size_of_ret_val = ir_build_size_of(irb, scope, node, return_type_inst);
+            ir_build_memcpy(irb, scope, node, result_ptr_as_u8_ptr, return_value_ptr_as_u8_ptr, size_of_ret_val);
+        }
+        ir_build_br(irb, scope, node, check_free_block, const_bool_false);
+
+        ir_set_cursor_at_end_and_append_block(irb, check_free_block);
+        IrBasicBlock **incoming_blocks = allocate<IrBasicBlock *>(2);
+        IrInstruction **incoming_values = allocate<IrInstruction *>(2);
+        incoming_blocks[0] = irb->exec->coro_final_cleanup_block;
+        incoming_values[0] = const_bool_false;
+        incoming_blocks[1] = irb->exec->coro_normal_final;
+        incoming_values[1] = const_bool_true;
+        IrInstruction *resume_awaiter = ir_build_phi(irb, scope, node, 2, incoming_blocks, incoming_values);
+
+        Buf *free_field_name = buf_create_from_str(ASYNC_FREE_FIELD_NAME);
+        IrInstruction *implicit_allocator_ptr = ir_build_get_implicit_allocator(irb, scope, node,
+                ImplicitAllocatorIdLocalVar);
+        IrInstruction *free_fn_ptr = ir_build_field_ptr(irb, scope, node, implicit_allocator_ptr, free_field_name);
+        IrInstruction *free_fn = ir_build_load_ptr(irb, scope, node, free_fn_ptr);
+        IrInstruction *zero = ir_build_const_usize(irb, scope, node, 0);
+        IrInstruction *coro_mem_ptr_maybe = ir_build_coro_free(irb, scope, node, coro_id, irb->exec->coro_handle);
+        IrInstruction *coro_mem_ptr = ir_build_ptr_cast(irb, scope, node, u8_ptr_type, coro_mem_ptr_maybe);
+        IrInstruction *coro_mem_ptr_ref = ir_build_ref(irb, scope, node, coro_mem_ptr, true, false);
+        IrInstruction *coro_size_ptr = ir_build_var_ptr(irb, scope, node, coro_size_var, true, false);
+        IrInstruction *coro_size = ir_build_load_ptr(irb, scope, node, coro_size_ptr);
+        IrInstruction *mem_slice = ir_build_slice(irb, scope, node, coro_mem_ptr_ref, zero, coro_size, false);
+        size_t arg_count = 2;
+        IrInstruction **args = allocate<IrInstruction *>(arg_count);
+        args[0] = implicit_allocator_ptr; // self
+        args[1] = mem_slice; // old_mem
+        ir_build_call(irb, scope, node, nullptr, free_fn, arg_count, args, false, FnInlineAuto, false, nullptr);
+
+        IrBasicBlock *resume_block = ir_create_basic_block(irb, scope, "Resume");
+        ir_build_cond_br(irb, scope, node, resume_awaiter, resume_block, irb->exec->coro_suspend_block, const_bool_false);
+
+        ir_set_cursor_at_end_and_append_block(irb, resume_block);
+        IrInstruction *unwrapped_await_handle_ptr = ir_build_unwrap_maybe(irb, scope, node,
+                irb->exec->await_handle_var_ptr, false);
+        IrInstruction *awaiter_handle = ir_build_load_ptr(irb, scope, node, unwrapped_await_handle_ptr);
+        ir_build_coro_resume(irb, scope, node, awaiter_handle);
+        ir_build_br(irb, scope, node, irb->exec->coro_suspend_block, const_bool_false);
     }
 
     return true;
@@ -6705,6 +7382,12 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
         return result;
     }
 
+    if (expected_type == ira->codegen->builtin_types.entry_promise &&
+        actual_type->id == TypeTableEntryIdPromise)
+    {
+        return result;
+    }
+
     // fn
     if (expected_type->id == TypeTableEntryIdFn &&
         actual_type->id == TypeTableEntryIdFn)
@@ -6733,6 +7416,16 @@ static ConstCastOnly types_match_const_cast_only(IrAnalyze *ira, TypeTableEntry 
                 result.id = ConstCastResultIdFnReturnType;
                 result.data.return_type = allocate_nonzero<ConstCastOnly>(1);
                 *result.data.return_type = child;
+                return result;
+            }
+        }
+        if (!expected_type->data.fn.is_generic && expected_type->data.fn.fn_type_id.cc == CallingConventionAsync) {
+            ConstCastOnly child = types_match_const_cast_only(ira, actual_type->data.fn.fn_type_id.async_allocator_type,
+                    expected_type->data.fn.fn_type_id.async_allocator_type, source_node);
+            if (child.id != ConstCastResultIdOk) {
+                result.id = ConstCastResultIdAsyncAllocatorType;
+                result.data.async_allocator_type = allocate_nonzero<ConstCastOnly>(1);
+                *result.data.async_allocator_type = child;
                 return result;
             }
         }
@@ -8817,16 +9510,30 @@ static IrInstruction *ir_analyze_cast(IrAnalyze *ira, IrInstruction *source_inst
 
     // explicit cast from child type of maybe type to maybe type
     if (wanted_type->id == TypeTableEntryIdMaybe) {
-        if (types_match_const_cast_only(ira, wanted_type->data.maybe.child_type, actual_type, source_node).id == ConstCastResultIdOk) {
+        TypeTableEntry *wanted_child_type = wanted_type->data.maybe.child_type;
+        if (types_match_const_cast_only(ira, wanted_child_type, actual_type, source_node).id == ConstCastResultIdOk) {
             return ir_analyze_maybe_wrap(ira, source_instr, value, wanted_type);
         } else if (actual_type->id == TypeTableEntryIdNumLitInt ||
                    actual_type->id == TypeTableEntryIdNumLitFloat)
         {
-            if (ir_num_lit_fits_in_other_type(ira, value, wanted_type->data.maybe.child_type, true)) {
+            if (ir_num_lit_fits_in_other_type(ira, value, wanted_child_type, true)) {
                 return ir_analyze_maybe_wrap(ira, source_instr, value, wanted_type);
             } else {
                 return ira->codegen->invalid_instruction;
             }
+        } else if (wanted_child_type->id == TypeTableEntryIdPointer &&
+                   wanted_child_type->data.pointer.is_const &&
+                   (actual_type->id == TypeTableEntryIdPointer || is_container(actual_type)))
+        {
+            IrInstruction *cast1 = ir_analyze_cast(ira, source_instr, wanted_child_type, value);
+            if (type_is_invalid(cast1->value.type))
+                return ira->codegen->invalid_instruction;
+
+            IrInstruction *cast2 = ir_analyze_cast(ira, source_instr, wanted_type, cast1);
+            if (type_is_invalid(cast2->value.type))
+                return ira->codegen->invalid_instruction;
+
+            return cast2;
         }
     }
 
@@ -9230,6 +9937,26 @@ static bool ir_resolve_atomic_order(IrAnalyze *ira, IrInstruction *value, Atomic
     return true;
 }
 
+static bool ir_resolve_atomic_rmw_op(IrAnalyze *ira, IrInstruction *value, AtomicRmwOp *out) {
+    if (type_is_invalid(value->value.type))
+        return false;
+
+    ConstExprValue *atomic_rmw_op_val = get_builtin_value(ira->codegen, "AtomicRmwOp");
+    assert(atomic_rmw_op_val->type->id == TypeTableEntryIdMetaType);
+    TypeTableEntry *atomic_rmw_op_type = atomic_rmw_op_val->data.x_type;
+
+    IrInstruction *casted_value = ir_implicit_cast(ira, value, atomic_rmw_op_type);
+    if (type_is_invalid(casted_value->value.type))
+        return false;
+
+    ConstExprValue *const_val = ir_resolve_const(ira, casted_value, UndefBad);
+    if (!const_val)
+        return false;
+
+    *out = (AtomicRmwOp)bigint_as_unsigned(&const_val->data.x_enum_tag);
+    return true;
+}
+
 static bool ir_resolve_global_linkage(IrAnalyze *ira, IrInstruction *value, GlobalLinkageId *out) {
     if (type_is_invalid(value->value.type))
         return false;
@@ -9328,8 +10055,11 @@ static TypeTableEntry *ir_analyze_instruction_return(IrAnalyze *ira,
         ir_add_error(ira, casted_value, buf_sprintf("function returns address of local variable"));
         return ir_unreach_error(ira);
     }
-    ir_build_return_from(&ira->new_irb, &return_instruction->base, casted_value);
-    return ir_finish_anal(ira, ira->codegen->builtin_types.entry_unreachable);
+    IrInstruction *result = ir_build_return(&ira->new_irb, return_instruction->base.scope,
+            return_instruction->base.source_node, casted_value);
+    result->value.type = ira->codegen->builtin_types.entry_unreachable;
+    ir_link_new_instruction(result, &return_instruction->base);
+    return ir_finish_anal(ira, result->value.type);
 }
 
 static TypeTableEntry *ir_analyze_instruction_const(IrAnalyze *ira, IrInstructionConst *const_instruction) {
@@ -9554,6 +10284,7 @@ static TypeTableEntry *ir_analyze_bin_op_cmp(IrAnalyze *ira, IrInstructionBinOp 
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdPromise:
             if (!is_equality_cmp) {
                 ir_add_error_node(ira, source_node,
                     buf_sprintf("operator not allowed for type '%s'", buf_ptr(&resolved_type->name)));
@@ -10383,6 +11114,7 @@ static VarClassRequired get_var_class_required(TypeTableEntry *type_entry) {
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdFn:
+        case TypeTableEntryIdPromise:
             return VarClassRequiredAny;
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
@@ -10559,6 +11291,11 @@ static TypeTableEntry *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructi
                         buf_sprintf("exported function must specify calling convention"));
                     add_error_note(ira->codegen, msg, fn_entry->proto_node, buf_sprintf("declared here"));
                 } break;
+                case CallingConventionAsync: {
+                    ErrorMsg *msg = ir_add_error(ira, target,
+                        buf_sprintf("exported function cannot be async"));
+                    add_error_note(ira->codegen, msg, fn_entry->proto_node, buf_sprintf("declared here"));
+                } break;
                 case CallingConventionC:
                 case CallingConventionNaked:
                 case CallingConventionCold:
@@ -10648,6 +11385,7 @@ static TypeTableEntry *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructi
                 case TypeTableEntryIdBoundFn:
                 case TypeTableEntryIdArgTuple:
                 case TypeTableEntryIdOpaque:
+                case TypeTableEntryIdPromise:
                     ir_add_error(ira, target,
                         buf_sprintf("invalid export target '%s'", buf_ptr(&type_value->name)));
                     break;
@@ -10672,6 +11410,7 @@ static TypeTableEntry *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructi
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdPromise:
             ir_add_error(ira, target,
                     buf_sprintf("invalid export target type '%s'", buf_ptr(&target->value.type->name)));
             break;
@@ -10722,6 +11461,81 @@ static TypeTableEntry *ir_analyze_instruction_error_union(IrAnalyze *ira,
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
     out_val->data.x_type = result_type;
     return ira->codegen->builtin_types.entry_type;
+}
+
+IrInstruction *ir_get_implicit_allocator(IrAnalyze *ira, IrInstruction *source_instr, ImplicitAllocatorId id) {
+    FnTableEntry *parent_fn_entry = exec_fn_entry(ira->new_irb.exec);
+    if (parent_fn_entry == nullptr) {
+        ir_add_error(ira, source_instr, buf_sprintf("no implicit allocator available"));
+        return ira->codegen->invalid_instruction;
+    }
+
+    FnTypeId *parent_fn_type = &parent_fn_entry->type_entry->data.fn.fn_type_id;
+    if (parent_fn_type->cc != CallingConventionAsync) {
+        ir_add_error(ira, source_instr, buf_sprintf("async function call from non-async caller requires allocator parameter"));
+        return ira->codegen->invalid_instruction;
+    }
+
+    assert(parent_fn_type->async_allocator_type != nullptr);
+
+    switch (id) {
+        case ImplicitAllocatorIdArg:
+            {
+                IrInstruction *result = ir_build_get_implicit_allocator(&ira->new_irb, source_instr->scope,
+                        source_instr->source_node, ImplicitAllocatorIdArg);
+                result->value.type = parent_fn_type->async_allocator_type;
+                return result;
+            }
+        case ImplicitAllocatorIdLocalVar:
+            {
+                VariableTableEntry *coro_allocator_var = ira->old_irb.exec->coro_allocator_var;
+                assert(coro_allocator_var != nullptr);
+                IrInstruction *var_ptr_inst = ir_get_var_ptr(ira, source_instr, coro_allocator_var, true, false);
+                IrInstruction *result = ir_get_deref(ira, source_instr, var_ptr_inst);
+                assert(result->value.type != nullptr);
+                return result;
+            }
+    }
+    zig_unreachable();
+}
+
+static IrInstruction *ir_analyze_async_call(IrAnalyze *ira, IrInstructionCall *call_instruction, FnTableEntry *fn_entry, TypeTableEntry *fn_type,
+    IrInstruction *fn_ref, IrInstruction **casted_args, size_t arg_count, IrInstruction *async_allocator_inst)
+{
+    Buf *alloc_field_name = buf_create_from_str(ASYNC_ALLOC_FIELD_NAME);
+    //Buf *free_field_name = buf_create_from_str("freeFn");
+    assert(async_allocator_inst->value.type->id == TypeTableEntryIdPointer);
+    TypeTableEntry *container_type = async_allocator_inst->value.type->data.pointer.child_type;
+    IrInstruction *field_ptr_inst = ir_analyze_container_field_ptr(ira, alloc_field_name, &call_instruction->base,
+            async_allocator_inst, container_type);
+    if (type_is_invalid(field_ptr_inst->value.type)) {
+        return ira->codegen->invalid_instruction;
+    }
+    TypeTableEntry *ptr_to_alloc_fn_type = field_ptr_inst->value.type;
+    assert(ptr_to_alloc_fn_type->id == TypeTableEntryIdPointer);
+
+    TypeTableEntry *alloc_fn_type = ptr_to_alloc_fn_type->data.pointer.child_type;
+    if (alloc_fn_type->id != TypeTableEntryIdFn) {
+        ir_add_error(ira, &call_instruction->base,
+                buf_sprintf("expected allocation function, found '%s'", buf_ptr(&alloc_fn_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+
+    TypeTableEntry *alloc_fn_return_type = alloc_fn_type->data.fn.fn_type_id.return_type;
+    if (alloc_fn_return_type->id != TypeTableEntryIdErrorUnion) {
+        ir_add_error(ira, fn_ref,
+            buf_sprintf("expected allocation function to return error union, but it returns '%s'", buf_ptr(&alloc_fn_return_type->name)));
+        return ira->codegen->invalid_instruction;
+    }
+    TypeTableEntry *alloc_fn_error_set_type = alloc_fn_return_type->data.error_union.err_set_type;
+    TypeTableEntry *return_type = fn_type->data.fn.fn_type_id.return_type;
+    TypeTableEntry *promise_type = get_promise_type(ira->codegen, return_type);
+    TypeTableEntry *async_return_type = get_error_union_type(ira->codegen, alloc_fn_error_set_type, promise_type);
+
+    IrInstruction *result = ir_build_call(&ira->new_irb, call_instruction->base.scope, call_instruction->base.source_node,
+        fn_entry, fn_ref, arg_count, casted_args, false, FnInlineAuto, true, async_allocator_inst);
+    result->value.type = async_return_type;
+    return result;
 }
 
 static bool ir_analyze_fn_call_inline_arg(IrAnalyze *ira, AstNode *fn_proto_node,
@@ -10938,6 +11752,20 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         }
         return ira->codegen->builtin_types.entry_invalid;
     }
+    if (fn_type_id->cc == CallingConventionAsync && !call_instruction->is_async) {
+        ErrorMsg *msg = ir_add_error(ira, fn_ref, buf_sprintf("must use async keyword to call async function"));
+        if (fn_proto_node) {
+            add_error_note(ira->codegen, msg, fn_proto_node, buf_sprintf("declared here"));
+        }
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+    if (fn_type_id->cc != CallingConventionAsync && call_instruction->is_async) {
+        ErrorMsg *msg = ir_add_error(ira, fn_ref, buf_sprintf("cannot use async keyword to call non-async function"));
+        if (fn_proto_node) {
+            add_error_note(ira->codegen, msg, fn_proto_node, buf_sprintf("declared here"));
+        }
+        return ira->codegen->builtin_types.entry_invalid;
+    }
 
 
     if (fn_type_id->is_var_args) {
@@ -11062,6 +11890,11 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
         if (!fn_entry) {
             ir_add_error(ira, call_instruction->fn_ref,
                 buf_sprintf("calling a generic function requires compile-time known function value"));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        if (call_instruction->is_async && fn_type_id->is_var_args) {
+            ir_add_error(ira, call_instruction->fn_ref,
+                buf_sprintf("compiler bug: TODO: implement var args async functions. https://github.com/zig-lang/zig/issues/557"));
             return ira->codegen->builtin_types.entry_invalid;
         }
 
@@ -11212,6 +12045,36 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
                 return ir_analyze_fn_call(ira, call_instruction, fn_entry, fn_type, fn_ref, first_arg_ptr, true, FnInlineAuto);
             }
         }
+        IrInstruction *async_allocator_inst = nullptr;
+        if (call_instruction->is_async) {
+            AstNode *async_allocator_type_node = fn_proto_node->data.fn_proto.async_allocator_type;
+            if (async_allocator_type_node != nullptr) {
+                TypeTableEntry *async_allocator_type = analyze_type_expr(ira->codegen, impl_fn->child_scope, async_allocator_type_node);
+                if (type_is_invalid(async_allocator_type))
+                    return ira->codegen->builtin_types.entry_invalid;
+                inst_fn_type_id.async_allocator_type = async_allocator_type;
+            }
+            IrInstruction *uncasted_async_allocator_inst;
+            if (call_instruction->async_allocator == nullptr) {
+                uncasted_async_allocator_inst = ir_get_implicit_allocator(ira, &call_instruction->base,
+                        ImplicitAllocatorIdLocalVar);
+                if (type_is_invalid(uncasted_async_allocator_inst->value.type))
+                    return ira->codegen->builtin_types.entry_invalid;
+            } else {
+                uncasted_async_allocator_inst = call_instruction->async_allocator->other;
+                if (type_is_invalid(uncasted_async_allocator_inst->value.type))
+                    return ira->codegen->builtin_types.entry_invalid;
+            }
+            if (inst_fn_type_id.async_allocator_type == nullptr) {
+                IrInstruction *casted_inst = ir_implicit_byval_const_ref_cast(ira, uncasted_async_allocator_inst);
+                if (type_is_invalid(casted_inst->value.type))
+                    return ira->codegen->builtin_types.entry_invalid;
+                inst_fn_type_id.async_allocator_type = casted_inst->value.type;
+            }
+            async_allocator_inst = ir_implicit_cast(ira, uncasted_async_allocator_inst, inst_fn_type_id.async_allocator_type);
+            if (type_is_invalid(async_allocator_inst->value.type))
+                return ira->codegen->builtin_types.entry_invalid;
+        }
 
         auto existing_entry = ira->codegen->generic_table.put_unique(generic_id, impl_fn);
         if (existing_entry) {
@@ -11231,16 +12094,26 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             ira->codegen->fn_defs.append(impl_fn);
         }
 
-        size_t impl_param_count = impl_fn->type_entry->data.fn.fn_type_id.param_count;
-        IrInstruction *new_call_instruction = ir_build_call_from(&ira->new_irb, &call_instruction->base,
-                impl_fn, nullptr, impl_param_count, casted_args, false, fn_inline);
-
         TypeTableEntry *return_type = impl_fn->type_entry->data.fn.fn_type_id.return_type;
-        ir_add_alloca(ira, new_call_instruction, return_type);
-
-        if (return_type->id == TypeTableEntryIdErrorSet || return_type->id == TypeTableEntryIdErrorUnion) {
+        if (fn_type_can_fail(&impl_fn->type_entry->data.fn.fn_type_id)) {
             parent_fn_entry->calls_errorable_function = true;
         }
+
+        size_t impl_param_count = impl_fn->type_entry->data.fn.fn_type_id.param_count;
+        if (call_instruction->is_async) {
+            IrInstruction *result = ir_analyze_async_call(ira, call_instruction, impl_fn, impl_fn->type_entry, fn_ref, casted_args, impl_param_count,
+                    async_allocator_inst);
+            ir_link_new_instruction(result, &call_instruction->base);
+            ir_add_alloca(ira, result, result->value.type);
+            return ir_finish_anal(ira, result->value.type);
+        }
+
+        assert(async_allocator_inst == nullptr);
+        IrInstruction *new_call_instruction = ir_build_call_from(&ira->new_irb, &call_instruction->base,
+                impl_fn, nullptr, impl_param_count, casted_args, false, fn_inline,
+                call_instruction->is_async, nullptr);
+
+        ir_add_alloca(ira, new_call_instruction, return_type);
 
         return ir_finish_anal(ira, return_type);
     }
@@ -11248,7 +12121,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
     FnTableEntry *parent_fn_entry = exec_fn_entry(ira->new_irb.exec);
     assert(fn_type_id->return_type != nullptr);
     assert(parent_fn_entry != nullptr);
-    if (fn_type_id->return_type->id == TypeTableEntryIdErrorSet || fn_type_id->return_type->id == TypeTableEntryIdErrorUnion) {
+    if (fn_type_can_fail(fn_type_id)) {
         parent_fn_entry->calls_errorable_function = true;
     }
 
@@ -11303,8 +12176,33 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
     if (type_is_invalid(return_type))
         return ira->codegen->builtin_types.entry_invalid;
 
+    if (call_instruction->is_async) {
+        IrInstruction *uncasted_async_allocator_inst;
+        if (call_instruction->async_allocator == nullptr) {
+            uncasted_async_allocator_inst = ir_get_implicit_allocator(ira, &call_instruction->base,
+                    ImplicitAllocatorIdLocalVar);
+            if (type_is_invalid(uncasted_async_allocator_inst->value.type))
+                return ira->codegen->builtin_types.entry_invalid;
+        } else {
+            uncasted_async_allocator_inst = call_instruction->async_allocator->other;
+            if (type_is_invalid(uncasted_async_allocator_inst->value.type))
+                return ira->codegen->builtin_types.entry_invalid;
+
+        }
+        IrInstruction *async_allocator_inst = ir_implicit_cast(ira, uncasted_async_allocator_inst, fn_type_id->async_allocator_type);
+        if (type_is_invalid(async_allocator_inst->value.type))
+            return ira->codegen->builtin_types.entry_invalid;
+
+        IrInstruction *result = ir_analyze_async_call(ira, call_instruction, fn_entry, fn_type, fn_ref, casted_args, call_param_count,
+                async_allocator_inst);
+        ir_link_new_instruction(result, &call_instruction->base);
+        ir_add_alloca(ira, result, result->value.type);
+        return ir_finish_anal(ira, result->value.type);
+    }
+
+
     IrInstruction *new_call_instruction = ir_build_call_from(&ira->new_irb, &call_instruction->base,
-            fn_entry, fn_ref, call_param_count, casted_args, false, fn_inline);
+            fn_entry, fn_ref, call_param_count, casted_args, false, fn_inline, false, nullptr);
 
     ir_add_alloca(ira, new_call_instruction, return_type);
     return ir_finish_anal(ira, return_type);
@@ -11430,6 +12328,7 @@ static TypeTableEntry *ir_analyze_maybe(IrAnalyze *ira, IrInstructionUnOp *un_op
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdPromise:
             {
                 ConstExprValue *out_val = ir_build_const_from(ira, &un_op_instruction->base);
                 out_val->data.x_type = get_maybe_type(ira->codegen, type_entry);
@@ -11998,8 +12897,8 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
     return return_type;
 }
 
-static TypeTableEntry *ir_analyze_container_member_access_inner(IrAnalyze *ira,
-    TypeTableEntry *bare_struct_type, Buf *field_name, IrInstructionFieldPtr *field_ptr_instruction,
+static IrInstruction *ir_analyze_container_member_access_inner(IrAnalyze *ira,
+    TypeTableEntry *bare_struct_type, Buf *field_name, IrInstruction *source_instr,
     IrInstruction *container_ptr, TypeTableEntry *container_type)
 {
     if (!is_slice(bare_struct_type)) {
@@ -12007,17 +12906,17 @@ static TypeTableEntry *ir_analyze_container_member_access_inner(IrAnalyze *ira,
         auto entry = container_scope->decl_table.maybe_get(field_name);
         Tld *tld = entry ? entry->value : nullptr;
         if (tld && tld->id == TldIdFn) {
-            resolve_top_level_decl(ira->codegen, tld, false, field_ptr_instruction->base.source_node);
+            resolve_top_level_decl(ira->codegen, tld, false, source_instr->source_node);
             if (tld->resolution == TldResolutionInvalid)
-                return ira->codegen->builtin_types.entry_invalid;
+                return ira->codegen->invalid_instruction;
             TldFn *tld_fn = (TldFn *)tld;
             FnTableEntry *fn_entry = tld_fn->fn_entry;
             if (type_is_invalid(fn_entry->type_entry))
-                return ira->codegen->builtin_types.entry_invalid;
+                return ira->codegen->invalid_instruction;
 
-            IrInstruction *bound_fn_value = ir_build_const_bound_fn(&ira->new_irb, field_ptr_instruction->base.scope,
-                field_ptr_instruction->base.source_node, fn_entry, container_ptr);
-            return ir_analyze_ref(ira, &field_ptr_instruction->base, bound_fn_value, true, false);
+            IrInstruction *bound_fn_value = ir_build_const_bound_fn(&ira->new_irb, source_instr->scope,
+                source_instr->source_node, fn_entry, container_ptr);
+            return ir_get_ref(ira, source_instr, bound_fn_value, true, false);
         }
     }
     const char *prefix_name;
@@ -12032,19 +12931,19 @@ static TypeTableEntry *ir_analyze_container_member_access_inner(IrAnalyze *ira,
     } else {
         prefix_name = "";
     }
-    ir_add_error_node(ira, field_ptr_instruction->base.source_node,
+    ir_add_error_node(ira, source_instr->source_node,
         buf_sprintf("no member named '%s' in %s'%s'", buf_ptr(field_name), prefix_name, buf_ptr(&bare_struct_type->name)));
-    return ira->codegen->builtin_types.entry_invalid;
+    return ira->codegen->invalid_instruction;
 }
 
 
-static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_name,
-    IrInstructionFieldPtr *field_ptr_instruction, IrInstruction *container_ptr, TypeTableEntry *container_type)
+static IrInstruction *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field_name,
+    IrInstruction *source_instr, IrInstruction *container_ptr, TypeTableEntry *container_type)
 {
     TypeTableEntry *bare_type = container_ref_type(container_type);
     ensure_complete_type(ira->codegen, bare_type);
     if (type_is_invalid(bare_type))
-        return ira->codegen->builtin_types.entry_invalid;
+        return ira->codegen->invalid_instruction;
 
     assert(container_ptr->value.type->id == TypeTableEntryIdPointer);
     bool is_const = container_ptr->value.type->data.pointer.is_const;
@@ -12061,46 +12960,51 @@ static TypeTableEntry *ir_analyze_container_field_ptr(IrAnalyze *ira, Buf *field
             if (instr_is_comptime(container_ptr)) {
                 ConstExprValue *ptr_val = ir_resolve_const(ira, container_ptr, UndefBad);
                 if (!ptr_val)
-                    return ira->codegen->builtin_types.entry_invalid;
+                    return ira->codegen->invalid_instruction;
 
                 if (ptr_val->data.x_ptr.special != ConstPtrSpecialHardCodedAddr) {
                     ConstExprValue *struct_val = const_ptr_pointee(ira->codegen, ptr_val);
                     if (type_is_invalid(struct_val->type))
-                        return ira->codegen->builtin_types.entry_invalid;
+                        return ira->codegen->invalid_instruction;
                     ConstExprValue *field_val = &struct_val->data.x_struct.fields[field->src_index];
                     TypeTableEntry *ptr_type = get_pointer_to_type_extra(ira->codegen, field_val->type,
                             is_const, is_volatile, align_bytes,
                             (uint32_t)(ptr_bit_offset + field->packed_bits_offset),
                             (uint32_t)unaligned_bit_count_for_result_type);
-                    ConstExprValue *const_val = ir_build_const_from(ira, &field_ptr_instruction->base);
+                    IrInstruction *result = ir_get_const(ira, source_instr);
+                    ConstExprValue *const_val = &result->value;
                     const_val->data.x_ptr.special = ConstPtrSpecialBaseStruct;
                     const_val->data.x_ptr.mut = container_ptr->value.data.x_ptr.mut;
                     const_val->data.x_ptr.data.base_struct.struct_val = struct_val;
                     const_val->data.x_ptr.data.base_struct.field_index = field->src_index;
-                    return ptr_type;
+                    const_val->type = ptr_type;
+                    return result;
                 }
             }
-            ir_build_struct_field_ptr_from(&ira->new_irb, &field_ptr_instruction->base, container_ptr, field);
-            return get_pointer_to_type_extra(ira->codegen, field->type_entry, is_const, is_volatile,
+            IrInstruction *result = ir_build_struct_field_ptr(&ira->new_irb, source_instr->scope, source_instr->source_node,
+                    container_ptr, field);
+            result->value.type = get_pointer_to_type_extra(ira->codegen, field->type_entry, is_const, is_volatile,
                     align_bytes,
                     (uint32_t)(ptr_bit_offset + field->packed_bits_offset),
                     (uint32_t)unaligned_bit_count_for_result_type);
+            return result;
         } else {
             return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
-                field_ptr_instruction, container_ptr, container_type);
+                source_instr, container_ptr, container_type);
         }
     } else if (bare_type->id == TypeTableEntryIdEnum) {
         return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
-            field_ptr_instruction, container_ptr, container_type);
+            source_instr, container_ptr, container_type);
     } else if (bare_type->id == TypeTableEntryIdUnion) {
         TypeUnionField *field = find_union_type_field(bare_type, field_name);
         if (field) {
-            ir_build_union_field_ptr_from(&ira->new_irb, &field_ptr_instruction->base, container_ptr, field);
-            return get_pointer_to_type_extra(ira->codegen, field->type_entry, is_const, is_volatile,
+            IrInstruction *result = ir_build_union_field_ptr(&ira->new_irb, source_instr->scope, source_instr->source_node, container_ptr, field);
+            result->value.type = get_pointer_to_type_extra(ira->codegen, field->type_entry, is_const, is_volatile,
                     get_abi_alignment(ira->codegen, field->type_entry), 0, 0);
+            return result;
         } else {
             return ir_analyze_container_member_access_inner(ira, bare_type, field_name,
-                field_ptr_instruction, container_ptr, container_type);
+                source_instr, container_ptr, container_type);
         }
     } else {
         zig_unreachable();
@@ -12210,9 +13114,13 @@ static TypeTableEntry *ir_analyze_instruction_field_ptr(IrAnalyze *ira, IrInstru
         if (container_type->id == TypeTableEntryIdPointer) {
             TypeTableEntry *bare_type = container_ref_type(container_type);
             IrInstruction *container_child = ir_get_deref(ira, &field_ptr_instruction->base, container_ptr);
-            return ir_analyze_container_field_ptr(ira, field_name, field_ptr_instruction, container_child, bare_type);
+            IrInstruction *result = ir_analyze_container_field_ptr(ira, field_name, &field_ptr_instruction->base, container_child, bare_type);
+            ir_link_new_instruction(result, &field_ptr_instruction->base);
+            return result->value.type;
         } else {
-            return ir_analyze_container_field_ptr(ira, field_name, field_ptr_instruction, container_ptr, container_type);
+            IrInstruction *result = ir_analyze_container_field_ptr(ira, field_name, &field_ptr_instruction->base, container_ptr, container_type);
+            ir_link_new_instruction(result, &field_ptr_instruction->base);
+            return result->value.type;
         }
     } else if (container_type->id == TypeTableEntryIdArray) {
         if (buf_eql_str(field_name, "len")) {
@@ -12659,6 +13567,7 @@ static TypeTableEntry *ir_analyze_instruction_typeof(IrAnalyze *ira, IrInstructi
         case TypeTableEntryIdFn:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdPromise:
             {
                 ConstExprValue *out_val = ir_build_const_from(ira, &typeof_instruction->base);
                 out_val->data.x_type = type_entry;
@@ -12926,6 +13835,7 @@ static TypeTableEntry *ir_analyze_instruction_slice_type(IrAnalyze *ira,
         case TypeTableEntryIdFn:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdPromise:
             {
                 type_ensure_zero_bits_known(ira->codegen, child_type);
                 TypeTableEntry *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, child_type,
@@ -13034,6 +13944,7 @@ static TypeTableEntry *ir_analyze_instruction_array_type(IrAnalyze *ira,
         case TypeTableEntryIdFn:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdPromise:
             {
                 TypeTableEntry *result_type = get_array_type(ira->codegen, child_type, size);
                 ConstExprValue *out_val = ir_build_const_from(ira, &array_type_instruction->base);
@@ -13085,6 +13996,7 @@ static TypeTableEntry *ir_analyze_instruction_size_of(IrAnalyze *ira,
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
+        case TypeTableEntryIdPromise:
             {
                 uint64_t size_in_bytes = type_size(ira->codegen, type_entry);
                 ConstExprValue *out_val = ir_build_const_from(ira, &size_of_instruction->base);
@@ -13414,6 +14326,7 @@ static TypeTableEntry *ir_analyze_instruction_switch_target(IrAnalyze *ira,
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdPointer:
+        case TypeTableEntryIdPromise:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdErrorSet:
@@ -14002,6 +14915,7 @@ static TypeTableEntry *ir_analyze_min_max(IrAnalyze *ira, IrInstruction *source_
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdPointer:
+        case TypeTableEntryIdPromise:
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdNumLitFloat:
@@ -15262,6 +16176,7 @@ static TypeTableEntry *ir_analyze_instruction_align_of(IrAnalyze *ira, IrInstruc
         case TypeTableEntryIdInt:
         case TypeTableEntryIdFloat:
         case TypeTableEntryIdPointer:
+        case TypeTableEntryIdPromise:
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdMaybe:
@@ -15890,12 +16805,12 @@ static TypeTableEntry *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, IrInstruc
     if (type_is_invalid(src_type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (!type_is_codegen_pointer(src_type)) {
+    if (get_codegen_ptr_type(src_type) == nullptr) {
         ir_add_error(ira, ptr, buf_sprintf("expected pointer, found '%s'", buf_ptr(&src_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    if (!type_is_codegen_pointer(dest_type)) {
+    if (get_codegen_ptr_type(dest_type) == nullptr) {
         ir_add_error(ira, dest_type_value,
                 buf_sprintf("expected pointer, found '%s'", buf_ptr(&dest_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
@@ -15957,6 +16872,7 @@ static void buf_write_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue
         case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdPromise:
             zig_unreachable();
         case TypeTableEntryIdVoid:
             return;
@@ -16024,6 +16940,7 @@ static void buf_read_value_bytes(CodeGen *codegen, uint8_t *buf, ConstExprValue 
         case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdPromise:
             zig_unreachable();
         case TypeTableEntryIdVoid:
             return;
@@ -16080,9 +16997,9 @@ static TypeTableEntry *ir_analyze_instruction_bit_cast(IrAnalyze *ira, IrInstruc
     ensure_complete_type(ira->codegen, dest_type);
     ensure_complete_type(ira->codegen, src_type);
 
-    if (type_is_codegen_pointer(src_type)) {
+    if (get_codegen_ptr_type(src_type) != nullptr) {
         ir_add_error(ira, value,
-            buf_sprintf("unable to @bitCast from type '%s'", buf_ptr(&src_type->name)));
+            buf_sprintf("unable to @bitCast from pointer type '%s'", buf_ptr(&src_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
 
@@ -16107,9 +17024,9 @@ static TypeTableEntry *ir_analyze_instruction_bit_cast(IrAnalyze *ira, IrInstruc
             break;
     }
 
-    if (type_is_codegen_pointer(dest_type)) {
+    if (get_codegen_ptr_type(dest_type) != nullptr) {
         ir_add_error(ira, dest_type_value,
-                buf_sprintf("unable to @bitCast to type '%s'", buf_ptr(&dest_type->name)));
+                buf_sprintf("unable to @bitCast to pointer type '%s'", buf_ptr(&dest_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
 
@@ -16170,7 +17087,7 @@ static TypeTableEntry *ir_analyze_instruction_int_to_ptr(IrAnalyze *ira, IrInstr
     if (type_is_invalid(dest_type))
         return ira->codegen->builtin_types.entry_invalid;
 
-    if (!type_is_codegen_pointer(dest_type)) {
+    if (get_codegen_ptr_type(dest_type) == nullptr) {
         ir_add_error(ira, dest_type_value, buf_sprintf("expected pointer, found '%s'", buf_ptr(&dest_type->name)));
         return ira->codegen->builtin_types.entry_invalid;
     }
@@ -16276,12 +17193,7 @@ static TypeTableEntry *ir_analyze_instruction_ptr_to_int(IrAnalyze *ira, IrInstr
 
     TypeTableEntry *usize = ira->codegen->builtin_types.entry_usize;
 
-    if (!(target->value.type->id == TypeTableEntryIdPointer ||
-          target->value.type->id == TypeTableEntryIdFn ||
-        (target->value.type->id == TypeTableEntryIdMaybe &&
-        (target->value.type->data.maybe.child_type->id == TypeTableEntryIdPointer ||
-        target->value.type->data.maybe.child_type->id == TypeTableEntryIdFn))))
-    {
+    if (get_codegen_ptr_type(target->value.type) == nullptr) {
         ir_add_error(ira, target,
                 buf_sprintf("expected pointer, found '%s'", buf_ptr(&target->value.type->name)));
         return ira->codegen->builtin_types.entry_invalid;
@@ -16464,6 +17376,292 @@ static TypeTableEntry *ir_analyze_instruction_tag_type(IrAnalyze *ira, IrInstruc
         return ira->codegen->builtin_types.entry_invalid;
     }
 }
+
+static TypeTableEntry *ir_analyze_instruction_cancel(IrAnalyze *ira, IrInstructionCancel *instruction) {
+    IrInstruction *target_inst = instruction->target->other;
+    if (type_is_invalid(target_inst->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+    IrInstruction *casted_target = ir_implicit_cast(ira, target_inst, ira->codegen->builtin_types.entry_promise);
+    if (type_is_invalid(casted_target->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *result = ir_build_cancel(&ira->new_irb, instruction->base.scope, instruction->base.source_node, casted_target);
+    result->value.type = ira->codegen->builtin_types.entry_void;
+    result->value.special = ConstValSpecialStatic;
+    ir_link_new_instruction(result, &instruction->base);
+    return result->value.type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_coro_id(IrAnalyze *ira, IrInstructionCoroId *instruction) {
+    IrInstruction *promise_ptr = instruction->promise_ptr->other;
+    if (type_is_invalid(promise_ptr->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *result = ir_build_coro_id(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
+            promise_ptr);
+    ir_link_new_instruction(result, &instruction->base);
+    result->value.type = ira->codegen->builtin_types.entry_usize;
+    return result->value.type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_coro_alloc(IrAnalyze *ira, IrInstructionCoroAlloc *instruction) {
+    IrInstruction *coro_id = instruction->coro_id->other;
+    if (type_is_invalid(coro_id->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *result = ir_build_coro_alloc(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
+            coro_id);
+    ir_link_new_instruction(result, &instruction->base);
+    result->value.type = ira->codegen->builtin_types.entry_bool;
+    return result->value.type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_coro_size(IrAnalyze *ira, IrInstructionCoroSize *instruction) {
+    IrInstruction *result = ir_build_coro_size(&ira->new_irb, instruction->base.scope, instruction->base.source_node);
+    ir_link_new_instruction(result, &instruction->base);
+    result->value.type = ira->codegen->builtin_types.entry_usize;
+    return result->value.type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_coro_begin(IrAnalyze *ira, IrInstructionCoroBegin *instruction) {
+    IrInstruction *coro_id = instruction->coro_id->other;
+    if (type_is_invalid(coro_id->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *coro_mem_ptr = instruction->coro_mem_ptr->other;
+    if (type_is_invalid(coro_mem_ptr->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
+    assert(fn_entry != nullptr);
+    IrInstruction *result = ir_build_coro_begin(&ira->new_irb, instruction->base.scope, instruction->base.source_node,
+            coro_id, coro_mem_ptr);
+    ir_link_new_instruction(result, &instruction->base);
+    result->value.type = get_promise_type(ira->codegen, fn_entry->type_entry->data.fn.fn_type_id.return_type);
+    return result->value.type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_get_implicit_allocator(IrAnalyze *ira, IrInstructionGetImplicitAllocator *instruction) {
+    IrInstruction *result = ir_get_implicit_allocator(ira, &instruction->base, instruction->id);
+    ir_link_new_instruction(result, &instruction->base);
+    return result->value.type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_coro_alloc_fail(IrAnalyze *ira, IrInstructionCoroAllocFail *instruction) {
+    IrInstruction *err_val = instruction->err_val->other;
+    if (type_is_invalid(err_val->value.type))
+        return ir_unreach_error(ira);
+
+    IrInstruction *result = ir_build_coro_alloc_fail(&ira->new_irb, instruction->base.scope, instruction->base.source_node, err_val);
+    ir_link_new_instruction(result, &instruction->base);
+    result->value.type = ira->codegen->builtin_types.entry_unreachable;
+    return ir_finish_anal(ira, result->value.type);
+}
+
+static TypeTableEntry *ir_analyze_instruction_coro_suspend(IrAnalyze *ira, IrInstructionCoroSuspend *instruction) {
+    IrInstruction *save_point = nullptr;
+    if (instruction->save_point != nullptr) {
+        save_point = instruction->save_point->other;
+        if (type_is_invalid(save_point->value.type))
+            return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    IrInstruction *is_final = instruction->is_final->other;
+    if (type_is_invalid(is_final->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *result = ir_build_coro_suspend(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, save_point, is_final);
+    ir_link_new_instruction(result, &instruction->base);
+    result->value.type = ira->codegen->builtin_types.entry_u8;
+    return result->value.type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_coro_end(IrAnalyze *ira, IrInstructionCoroEnd *instruction) {
+    IrInstruction *result = ir_build_coro_end(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node);
+    ir_link_new_instruction(result, &instruction->base);
+    result->value.type = ira->codegen->builtin_types.entry_void;
+    return result->value.type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_coro_free(IrAnalyze *ira, IrInstructionCoroFree *instruction) {
+    IrInstruction *coro_id = instruction->coro_id->other;
+    if (type_is_invalid(coro_id->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *coro_handle = instruction->coro_handle->other;
+    if (type_is_invalid(coro_handle->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *result = ir_build_coro_free(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, coro_id, coro_handle);
+    ir_link_new_instruction(result, &instruction->base);
+    TypeTableEntry *ptr_type = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_u8, false);
+    result->value.type = get_maybe_type(ira->codegen, ptr_type);
+    return result->value.type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_coro_resume(IrAnalyze *ira, IrInstructionCoroResume *instruction) {
+    IrInstruction *awaiter_handle = instruction->awaiter_handle->other;
+    if (type_is_invalid(awaiter_handle->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *casted_target = ir_implicit_cast(ira, awaiter_handle, ira->codegen->builtin_types.entry_promise);
+    if (type_is_invalid(casted_target->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *result = ir_build_coro_resume(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, casted_target);
+    ir_link_new_instruction(result, &instruction->base);
+    result->value.type = ira->codegen->builtin_types.entry_void;
+    return result->value.type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_coro_save(IrAnalyze *ira, IrInstructionCoroSave *instruction) {
+    IrInstruction *coro_handle = instruction->coro_handle->other;
+    if (type_is_invalid(coro_handle->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *result = ir_build_coro_save(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, coro_handle);
+    ir_link_new_instruction(result, &instruction->base);
+    result->value.type = ira->codegen->builtin_types.entry_usize;
+    return result->value.type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_coro_promise(IrAnalyze *ira, IrInstructionCoroPromise *instruction) {
+    IrInstruction *coro_handle = instruction->coro_handle->other;
+    if (type_is_invalid(coro_handle->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (coro_handle->value.type->id != TypeTableEntryIdPromise ||
+        coro_handle->value.type->data.promise.result_type == nullptr)
+    {
+        ir_add_error(ira, &instruction->base, buf_sprintf("expected promise->T, found '%s'",
+                    buf_ptr(&coro_handle->value.type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    TypeTableEntry *coro_frame_type = get_promise_frame_type(ira->codegen,
+            coro_handle->value.type->data.promise.result_type);
+
+    IrInstruction *result = ir_build_coro_promise(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, coro_handle);
+    ir_link_new_instruction(result, &instruction->base);
+    result->value.type = get_pointer_to_type(ira->codegen, coro_frame_type, false);
+    return result->value.type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_coro_alloc_helper(IrAnalyze *ira, IrInstructionCoroAllocHelper *instruction) {
+    IrInstruction *alloc_fn = instruction->alloc_fn->other;
+    if (type_is_invalid(alloc_fn->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *coro_size = instruction->coro_size->other;
+    if (type_is_invalid(coro_size->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *result = ir_build_coro_alloc_helper(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, alloc_fn, coro_size);
+    ir_link_new_instruction(result, &instruction->base);
+    TypeTableEntry *u8_ptr_type = get_pointer_to_type(ira->codegen, ira->codegen->builtin_types.entry_u8, false);
+    result->value.type = get_maybe_type(ira->codegen, u8_ptr_type);
+    return result->value.type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_atomic_rmw(IrAnalyze *ira, IrInstructionAtomicRmw *instruction) {
+    TypeTableEntry *operand_type = ir_resolve_type(ira, instruction->operand_type->other);
+    if (type_is_invalid(operand_type)) {
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+    if (operand_type->id == TypeTableEntryIdInt) {
+        if (operand_type->data.integral.bit_count < 8) {
+            ir_add_error(ira, &instruction->base,
+                buf_sprintf("expected integer type 8 bits or larger, found %" PRIu32 "-bit integer type",
+                    operand_type->data.integral.bit_count));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        if (operand_type->data.integral.bit_count > ira->codegen->pointer_size_bytes * 8) {
+            ir_add_error(ira, &instruction->base,
+                buf_sprintf("expected integer type pointer size or smaller, found %" PRIu32 "-bit integer type",
+                    operand_type->data.integral.bit_count));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+        if (!is_power_of_2(operand_type->data.integral.bit_count)) {
+            ir_add_error(ira, &instruction->base,
+                buf_sprintf("%" PRIu32 "-bit integer type is not a power of 2", operand_type->data.integral.bit_count));
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+    } else if (get_codegen_ptr_type(operand_type) == nullptr) {
+        ir_add_error(ira, &instruction->base,
+            buf_sprintf("expected integer or pointer type, found '%s'", buf_ptr(&operand_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    IrInstruction *ptr_inst = instruction->ptr->other;
+    if (type_is_invalid(ptr_inst->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    TypeTableEntry *ptr_type = get_pointer_to_type(ira->codegen, operand_type, false);
+    IrInstruction *casted_ptr = ir_implicit_cast(ira, ptr_inst, ptr_type);
+    if (type_is_invalid(casted_ptr->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    AtomicRmwOp op;
+    if (instruction->op == nullptr) {
+        op = instruction->resolved_op;
+    } else {
+        if (!ir_resolve_atomic_rmw_op(ira, instruction->op->other, &op)) {
+            return ira->codegen->builtin_types.entry_invalid;
+        }
+    }
+
+    IrInstruction *operand = instruction->operand->other;
+    if (type_is_invalid(operand->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    IrInstruction *casted_operand = ir_implicit_cast(ira, operand, operand_type);
+    if (type_is_invalid(casted_ptr->value.type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    AtomicOrder ordering;
+    if (instruction->ordering == nullptr) {
+        ordering = instruction->resolved_ordering;
+    } else {
+        if (!ir_resolve_atomic_order(ira, instruction->ordering->other, &ordering))
+            return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    if (instr_is_comptime(casted_operand) && instr_is_comptime(casted_ptr) && casted_ptr->value.data.x_ptr.mut == ConstPtrMutComptimeVar)
+    {
+        zig_panic("TODO compile-time execution of atomicRmw");
+    }
+
+    IrInstruction *result = ir_build_atomic_rmw(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node, nullptr, casted_ptr, nullptr, casted_operand, nullptr,
+            op, ordering);
+    ir_link_new_instruction(result, &instruction->base);
+    result->value.type = operand_type;
+    return result->value.type;
+}
+
+static TypeTableEntry *ir_analyze_instruction_promise_result_type(IrAnalyze *ira, IrInstructionPromiseResultType *instruction) {
+    TypeTableEntry *promise_type = ir_resolve_type(ira, instruction->promise_type->other);
+    if (type_is_invalid(promise_type))
+        return ira->codegen->builtin_types.entry_invalid;
+
+    if (promise_type->id != TypeTableEntryIdPromise || promise_type->data.promise.result_type == nullptr) {
+        ir_add_error(ira, &instruction->base, buf_sprintf("expected promise->T, found '%s'",
+                    buf_ptr(&promise_type->name)));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
+    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+    out_val->data.x_type = promise_type->data.promise.result_type;
+    return ira->codegen->builtin_types.entry_type;
+}
+
 
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
@@ -16667,6 +17865,38 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_error_return_trace(ira, (IrInstructionErrorReturnTrace *)instruction);
         case IrInstructionIdErrorUnion:
             return ir_analyze_instruction_error_union(ira, (IrInstructionErrorUnion *)instruction);
+        case IrInstructionIdCancel:
+            return ir_analyze_instruction_cancel(ira, (IrInstructionCancel *)instruction);
+        case IrInstructionIdCoroId:
+            return ir_analyze_instruction_coro_id(ira, (IrInstructionCoroId *)instruction);
+        case IrInstructionIdCoroAlloc:
+            return ir_analyze_instruction_coro_alloc(ira, (IrInstructionCoroAlloc *)instruction);
+        case IrInstructionIdCoroSize:
+            return ir_analyze_instruction_coro_size(ira, (IrInstructionCoroSize *)instruction);
+        case IrInstructionIdCoroBegin:
+            return ir_analyze_instruction_coro_begin(ira, (IrInstructionCoroBegin *)instruction);
+        case IrInstructionIdGetImplicitAllocator:
+            return ir_analyze_instruction_get_implicit_allocator(ira, (IrInstructionGetImplicitAllocator *)instruction);
+        case IrInstructionIdCoroAllocFail:
+            return ir_analyze_instruction_coro_alloc_fail(ira, (IrInstructionCoroAllocFail *)instruction);
+        case IrInstructionIdCoroSuspend:
+            return ir_analyze_instruction_coro_suspend(ira, (IrInstructionCoroSuspend *)instruction);
+        case IrInstructionIdCoroEnd:
+            return ir_analyze_instruction_coro_end(ira, (IrInstructionCoroEnd *)instruction);
+        case IrInstructionIdCoroFree:
+            return ir_analyze_instruction_coro_free(ira, (IrInstructionCoroFree *)instruction);
+        case IrInstructionIdCoroResume:
+            return ir_analyze_instruction_coro_resume(ira, (IrInstructionCoroResume *)instruction);
+        case IrInstructionIdCoroSave:
+            return ir_analyze_instruction_coro_save(ira, (IrInstructionCoroSave *)instruction);
+        case IrInstructionIdCoroPromise:
+            return ir_analyze_instruction_coro_promise(ira, (IrInstructionCoroPromise *)instruction);
+        case IrInstructionIdCoroAllocHelper:
+            return ir_analyze_instruction_coro_alloc_helper(ira, (IrInstructionCoroAllocHelper *)instruction);
+        case IrInstructionIdAtomicRmw:
+            return ir_analyze_instruction_atomic_rmw(ira, (IrInstructionAtomicRmw *)instruction);
+        case IrInstructionIdPromiseResultType:
+            return ir_analyze_instruction_promise_result_type(ira, (IrInstructionPromiseResultType *)instruction);
     }
     zig_unreachable();
 }
@@ -16696,7 +17926,10 @@ TypeTableEntry *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutabl
     IrAnalyze *ira = allocate<IrAnalyze>(1);
     old_exec->analysis = ira;
     ira->codegen = codegen;
-    ira->explicit_return_type = expected_type;
+
+    FnTableEntry *fn_entry = exec_fn_entry(old_exec);
+    bool is_async = fn_entry != nullptr && fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
+    ira->explicit_return_type = is_async ? get_promise_type(codegen, expected_type) : expected_type;
 
     ira->old_irb.codegen = codegen;
     ira->old_irb.exec = old_exec;
@@ -16780,7 +18013,16 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdPtrTypeOf:
         case IrInstructionIdSetAlignStack:
         case IrInstructionIdExport:
+        case IrInstructionIdCancel:
+        case IrInstructionIdCoroId:
+        case IrInstructionIdCoroBegin:
+        case IrInstructionIdCoroAllocFail:
+        case IrInstructionIdCoroEnd:
+        case IrInstructionIdCoroResume:
+        case IrInstructionIdCoroSave:
+        case IrInstructionIdCoroAllocHelper:
             return true;
+
         case IrInstructionIdPhi:
         case IrInstructionIdUnOp:
         case IrInstructionIdBinOp:
@@ -16853,7 +18095,16 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdTagType:
         case IrInstructionIdErrorReturnTrace:
         case IrInstructionIdErrorUnion:
+        case IrInstructionIdGetImplicitAllocator:
+        case IrInstructionIdCoroAlloc:
+        case IrInstructionIdCoroSize:
+        case IrInstructionIdCoroSuspend:
+        case IrInstructionIdCoroFree:
+        case IrInstructionIdAtomicRmw:
+        case IrInstructionIdCoroPromise:
+        case IrInstructionIdPromiseResultType:
             return false;
+
         case IrInstructionIdAsm:
             {
                 IrInstructionAsm *asm_instruction = (IrInstructionAsm *)instruction;

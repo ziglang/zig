@@ -230,6 +230,7 @@ bool type_is_complete(TypeTableEntry *type_entry) {
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdPromise:
             return true;
     }
     zig_unreachable();
@@ -267,6 +268,7 @@ bool type_has_zero_bits_known(TypeTableEntry *type_entry) {
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdPromise:
             return true;
     }
     zig_unreachable();
@@ -337,6 +339,32 @@ static bool is_slice(TypeTableEntry *type) {
 
 TypeTableEntry *get_smallest_unsigned_int_type(CodeGen *g, uint64_t x) {
     return get_int_type(g, false, bits_needed_for_unsigned(x));
+}
+
+TypeTableEntry *get_promise_type(CodeGen *g, TypeTableEntry *result_type) {
+    if (result_type != nullptr && result_type->promise_parent != nullptr) {
+        return result_type->promise_parent;
+    } else if (result_type == nullptr && g->builtin_types.entry_promise != nullptr) {
+        return g->builtin_types.entry_promise;
+    }
+
+    TypeTableEntry *u8_ptr_type = get_pointer_to_type(g, g->builtin_types.entry_u8, false);
+    TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdPromise);
+    entry->type_ref = u8_ptr_type->type_ref;
+    entry->zero_bits = false;
+    entry->data.promise.result_type = result_type;
+    buf_init_from_str(&entry->name, "promise");
+    if (result_type != nullptr) {
+        buf_appendf(&entry->name, "->%s", buf_ptr(&result_type->name));
+    }
+    entry->di_type = u8_ptr_type->di_type;
+
+    if (result_type != nullptr) {
+        result_type->promise_parent = entry;
+    } else if (result_type == nullptr) {
+        g->builtin_types.entry_promise = entry;
+    }
+    return entry;
 }
 
 TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type, bool is_const,
@@ -429,6 +457,23 @@ TypeTableEntry *get_pointer_to_type(CodeGen *g, TypeTableEntry *child_type, bool
     return get_pointer_to_type_extra(g, child_type, is_const, false, get_abi_alignment(g, child_type), 0, 0);
 }
 
+TypeTableEntry *get_promise_frame_type(CodeGen *g, TypeTableEntry *return_type) {
+    if (return_type->promise_frame_parent != nullptr) {
+        return return_type->promise_frame_parent;
+    }
+
+    TypeTableEntry *awaiter_handle_type = get_maybe_type(g, g->builtin_types.entry_promise);
+    TypeTableEntry *result_ptr_type = get_pointer_to_type(g, return_type, false);
+    const char *field_names[] = {AWAITER_HANDLE_FIELD_NAME, RESULT_FIELD_NAME, RESULT_PTR_FIELD_NAME};
+    TypeTableEntry *field_types[] = {awaiter_handle_type, return_type, result_ptr_type};
+    size_t field_count = type_has_bits(result_ptr_type) ? 3 : 1;
+    Buf *name = buf_sprintf("AsyncFramePromise(%s)", buf_ptr(&return_type->name));
+    TypeTableEntry *entry = get_struct_type(g, buf_ptr(name), field_names, field_types, field_count);
+
+    return_type->promise_frame_parent = entry;
+    return entry;
+}
+
 TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
     if (child_type->maybe_parent) {
         TypeTableEntry *entry = child_type->maybe_parent;
@@ -447,9 +492,7 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
         if (child_type->zero_bits) {
             entry->type_ref = LLVMInt1Type();
             entry->di_type = g->builtin_types.entry_bool->di_type;
-        } else if (child_type->id == TypeTableEntryIdPointer ||
-            child_type->id == TypeTableEntryIdFn)
-        {
+        } else if (type_is_codegen_pointer(child_type)) {
             // this is an optimization but also is necessary for calling C
             // functions where all pointers are maybe pointers
             // function types are technically pointers
@@ -884,6 +927,7 @@ static const char *calling_convention_name(CallingConvention cc) {
         case CallingConventionCold: return "coldcc";
         case CallingConventionNaked: return "nakedcc";
         case CallingConventionStdcall: return "stdcallcc";
+        case CallingConventionAsync: return "async";
     }
     zig_unreachable();
 }
@@ -895,6 +939,21 @@ static const char *calling_convention_fn_type_str(CallingConvention cc) {
         case CallingConventionCold: return "coldcc ";
         case CallingConventionNaked: return "nakedcc ";
         case CallingConventionStdcall: return "stdcallcc ";
+        case CallingConventionAsync: return "async ";
+    }
+    zig_unreachable();
+}
+
+static bool calling_convention_allows_zig_types(CallingConvention cc) {
+    switch (cc) {
+        case CallingConventionUnspecified:
+        case CallingConventionAsync:
+            return true;
+        case CallingConventionC:
+        case CallingConventionCold:
+        case CallingConventionNaked:
+        case CallingConventionStdcall:
+            return false;
     }
     zig_unreachable();
 }
@@ -924,8 +983,13 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
 
     // populate the name of the type
     buf_resize(&fn_type->name, 0);
-    const char *cc_str = calling_convention_fn_type_str(fn_type->data.fn.fn_type_id.cc);
-    buf_appendf(&fn_type->name, "%sfn(", cc_str);
+    if (fn_type->data.fn.fn_type_id.cc == CallingConventionAsync) {
+        buf_appendf(&fn_type->name, "async(%s) ", buf_ptr(&fn_type_id->async_allocator_type->name));
+    } else {
+        const char *cc_str = calling_convention_fn_type_str(fn_type->data.fn.fn_type_id.cc);
+        buf_appendf(&fn_type->name, "%s", cc_str);
+    }
+    buf_appendf(&fn_type->name, "fn(");
     for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
         FnTypeParamInfo *param_info = &fn_type_id->param_info[i];
 
@@ -953,20 +1017,23 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     if (!skip_debug_info) {
         bool first_arg_return = calling_convention_does_first_arg_return(fn_type_id->cc) &&
             handle_is_ptr(fn_type_id->return_type);
-        bool prefix_arg_error_return_trace = g->have_err_ret_tracing &&
-            (fn_type_id->return_type->id == TypeTableEntryIdErrorUnion || 
-            fn_type_id->return_type->id == TypeTableEntryIdErrorSet);
+        bool is_async = fn_type_id->cc == CallingConventionAsync;
+        bool prefix_arg_error_return_trace = g->have_err_ret_tracing && fn_type_can_fail(fn_type_id);
         // +1 for maybe making the first argument the return value
-        // +1 for maybe last argument the error return trace
-        LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(2 + fn_type_id->param_count);
+        // +1 for maybe first argument the error return trace
+        // +2 for maybe arguments async allocator and error code pointer
+        LLVMTypeRef *gen_param_types = allocate<LLVMTypeRef>(4 + fn_type_id->param_count);
         // +1 because 0 is the return type and
         // +1 for maybe making first arg ret val and
-        // +1 for maybe last argument the error return trace
-        ZigLLVMDIType **param_di_types = allocate<ZigLLVMDIType*>(3 + fn_type_id->param_count);
+        // +1 for maybe first argument the error return trace
+        // +2 for maybe arguments async allocator and error code pointer
+        ZigLLVMDIType **param_di_types = allocate<ZigLLVMDIType*>(5 + fn_type_id->param_count);
         param_di_types[0] = fn_type_id->return_type->di_type;
         size_t gen_param_index = 0;
         TypeTableEntry *gen_return_type;
-        if (!type_has_bits(fn_type_id->return_type)) {
+        if (is_async) {
+            gen_return_type = get_pointer_to_type(g, g->builtin_types.entry_u8, false);
+        } else if (!type_has_bits(fn_type_id->return_type)) {
             gen_return_type = g->builtin_types.entry_void;
         } else if (first_arg_return) {
             TypeTableEntry *gen_type = get_pointer_to_type(g, fn_type_id->return_type, false);
@@ -987,6 +1054,25 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             // after the gen_param_index += 1 because 0 is the return type
             param_di_types[gen_param_index] = gen_type->di_type;
         }
+        if (is_async) {
+            {
+                // async allocator param
+                TypeTableEntry *gen_type = fn_type_id->async_allocator_type;
+                gen_param_types[gen_param_index] = gen_type->type_ref;
+                gen_param_index += 1;
+                // after the gen_param_index += 1 because 0 is the return type
+                param_di_types[gen_param_index] = gen_type->di_type;
+            }
+
+            {
+                // error code pointer
+                TypeTableEntry *gen_type = get_pointer_to_type(g, g->builtin_types.entry_global_error_set, false);
+                gen_param_types[gen_param_index] = gen_type->type_ref;
+                gen_param_index += 1;
+                // after the gen_param_index += 1 because 0 is the return type
+                param_di_types[gen_param_index] = gen_type->di_type;
+            }
+        }
 
         fn_type->data.fn.gen_param_info = allocate<FnGenParamInfo>(fn_type_id->param_count);
         for (size_t i = 0; i < fn_type_id->param_count; i += 1) {
@@ -997,7 +1083,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             gen_param_info->src_index = i;
             gen_param_info->gen_index = SIZE_MAX;
 
-            ensure_complete_type(g, type_entry);
+            type_ensure_zero_bits_known(g, type_entry);
             if (type_has_bits(type_entry)) {
                 TypeTableEntry *gen_type;
                 if (handle_is_ptr(type_entry)) {
@@ -1096,7 +1182,16 @@ TypeTableEntry *analyze_type_expr(CodeGen *g, Scope *scope, AstNode *node) {
 TypeTableEntry *get_generic_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     TypeTableEntry *fn_type = new_type_table_entry(TypeTableEntryIdFn);
     fn_type->is_copyable = false;
-    buf_init_from_str(&fn_type->name, "fn(");
+    buf_resize(&fn_type->name, 0);
+    if (fn_type->data.fn.fn_type_id.cc == CallingConventionAsync) {
+        const char *async_allocator_type_str = (fn_type->data.fn.fn_type_id.async_allocator_type == nullptr) ?
+            "var" : buf_ptr(&fn_type_id->async_allocator_type->name);
+        buf_appendf(&fn_type->name, "async(%s) ", async_allocator_type_str);
+    } else {
+        const char *cc_str = calling_convention_fn_type_str(fn_type->data.fn.fn_type_id.cc);
+        buf_appendf(&fn_type->name, "%s", cc_str);
+    }
+    buf_appendf(&fn_type->name, "fn(");
     size_t i = 0;
     for (; i < fn_type_id->next_param_index; i += 1) {
         const char *comma_str = (i == 0) ? "" : ",";
@@ -1201,6 +1296,7 @@ static bool type_allowed_in_packed_struct(TypeTableEntry *type_entry) {
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdPromise:
             return false;
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdBool:
@@ -1217,7 +1313,7 @@ static bool type_allowed_in_packed_struct(TypeTableEntry *type_entry) {
         case TypeTableEntryIdMaybe:
             {
                 TypeTableEntry *child_type = type_entry->data.maybe.child_type;
-                return child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn;
+                return type_is_codegen_pointer(child_type);
             }
         case TypeTableEntryIdEnum:
             return type_entry->data.enumeration.decl_node->data.container_decl.init_arg_expr != nullptr;
@@ -1241,6 +1337,7 @@ static bool type_allowed_in_extern(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdPromise:
             return false;
         case TypeTableEntryIdOpaque:
         case TypeTableEntryIdUnreachable:
@@ -1312,7 +1409,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         bool param_is_var_args = param_node->data.param_decl.is_var_args;
 
         if (param_is_comptime) {
-            if (fn_type_id.cc != CallingConventionUnspecified) {
+            if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
                 add_node_error(g, param_node,
                         buf_sprintf("comptime parameter not allowed in function with calling convention '%s'",
                             calling_convention_name(fn_type_id.cc)));
@@ -1323,7 +1420,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             if (fn_type_id.cc == CallingConventionC) {
                 fn_type_id.param_count = fn_type_id.next_param_index;
                 continue;
-            } else if (fn_type_id.cc == CallingConventionUnspecified) {
+            } else if (calling_convention_allows_zig_types(fn_type_id.cc)) {
                 return get_generic_fn_type(g, &fn_type_id);
             } else {
                 add_node_error(g, param_node,
@@ -1337,7 +1434,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         if (type_is_invalid(type_entry)) {
             return g->builtin_types.entry_invalid;
         }
-        if (fn_type_id.cc != CallingConventionUnspecified) {
+        if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
             type_ensure_zero_bits_known(g, type_entry);
             if (!type_has_bits(type_entry)) {
                 add_node_error(g, param_node->data.param_decl.type,
@@ -1347,7 +1444,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             }
         }
 
-        if (fn_type_id.cc != CallingConventionUnspecified && !type_allowed_in_extern(g, type_entry)) {
+        if (!calling_convention_allows_zig_types(fn_type_id.cc) && !type_allowed_in_extern(g, type_entry)) {
             add_node_error(g, param_node->data.param_decl.type,
                     buf_sprintf("parameter of type '%s' not allowed in function with calling convention '%s'",
                         buf_ptr(&type_entry->name),
@@ -1367,7 +1464,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
                     buf_sprintf("parameter of type '%s' not allowed", buf_ptr(&type_entry->name)));
                 return g->builtin_types.entry_invalid;
             case TypeTableEntryIdVar:
-                if (fn_type_id.cc != CallingConventionUnspecified) {
+                if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
                     add_node_error(g, param_node->data.param_decl.type,
                             buf_sprintf("parameter of type 'var' not allowed in function with calling convention '%s'",
                                 calling_convention_name(fn_type_id.cc)));
@@ -1381,7 +1478,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             case TypeTableEntryIdBoundFn:
             case TypeTableEntryIdMetaType:
                 add_node_error(g, param_node->data.param_decl.type,
-                    buf_sprintf("parameter of type '%s' must be declared inline",
+                    buf_sprintf("parameter of type '%s' must be declared comptime",
                     buf_ptr(&type_entry->name)));
                 return g->builtin_types.entry_invalid;
             case TypeTableEntryIdVoid:
@@ -1397,8 +1494,9 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
             case TypeTableEntryIdEnum:
             case TypeTableEntryIdUnion:
             case TypeTableEntryIdFn:
+            case TypeTableEntryIdPromise:
                 ensure_complete_type(g, type_entry);
-                if (fn_type_id.cc == CallingConventionUnspecified && !type_is_copyable(g, type_entry)) {
+                if (calling_convention_allows_zig_types(fn_type_id.cc) && !type_is_copyable(g, type_entry)) {
                     add_node_error(g, param_node->data.param_decl.type,
                         buf_sprintf("type '%s' is not copyable; cannot pass by value", buf_ptr(&type_entry->name)));
                     return g->builtin_types.entry_invalid;
@@ -1429,7 +1527,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         fn_type_id.return_type = specified_return_type;
     }
 
-    if (fn_type_id.cc != CallingConventionUnspecified && !type_allowed_in_extern(g, fn_type_id.return_type)) {
+    if (!calling_convention_allows_zig_types(fn_type_id.cc) && !type_allowed_in_extern(g, fn_type_id.return_type)) {
         add_node_error(g, fn_proto->return_type,
                 buf_sprintf("return type '%s' not allowed in function with calling convention '%s'",
                     buf_ptr(&fn_type_id.return_type->name),
@@ -1456,7 +1554,7 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdVar:
         case TypeTableEntryIdMetaType:
-            if (fn_type_id.cc != CallingConventionUnspecified) {
+            if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
                 add_node_error(g, fn_proto->return_type,
                     buf_sprintf("return type '%s' not allowed in function with calling convention '%s'",
                     buf_ptr(&fn_type_id.return_type->name),
@@ -1478,7 +1576,18 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
+        case TypeTableEntryIdPromise:
             break;
+    }
+
+    if (fn_type_id.cc == CallingConventionAsync) {
+        if (fn_proto->async_allocator_type == nullptr) {
+            return get_generic_fn_type(g, &fn_type_id);
+        }
+        fn_type_id.async_allocator_type = analyze_type_expr(g, child_scope, fn_proto->async_allocator_type);
+        if (type_is_invalid(fn_type_id.async_allocator_type)) {
+            return g->builtin_types.entry_invalid;
+        }
     }
 
     return get_fn_type(g, &fn_type_id);
@@ -1614,6 +1723,8 @@ TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *f
         field->type_entry = field_types[i];
         field->src_index = i;
         field->gen_index = i;
+
+        assert(type_has_bits(field->type_entry));
 
         auto prev_entry = struct_type->data.structure.fields_by_name.put_unique(field->name, field);
         assert(prev_entry == nullptr);
@@ -2129,6 +2240,7 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
 
     if (enum_type->data.enumeration.zero_bits_loop_flag) {
         enum_type->data.enumeration.zero_bits_known = true;
+        enum_type->data.enumeration.zero_bits_loop_flag = false;
         return;
     }
 
@@ -2283,6 +2395,7 @@ static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type) {
         // the alignment is pointer width, then assert that the first field is within that
         // alignment
         struct_type->data.structure.zero_bits_known = true;
+        struct_type->data.structure.zero_bits_loop_flag = false;
         if (struct_type->data.structure.abi_alignment == 0) {
             if (struct_type->data.structure.layout == ContainerLayoutPacked) {
                 struct_type->data.structure.abi_alignment = 1;
@@ -3117,6 +3230,10 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeIfErrorExpr:
         case NodeTypeTestExpr:
         case NodeTypeErrorSetDecl:
+        case NodeTypeCancel:
+        case NodeTypeResume:
+        case NodeTypeAwaitExpr:
+        case NodeTypeSuspend:
             zig_unreachable();
     }
 }
@@ -3172,6 +3289,7 @@ TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEnt
         case TypeTableEntryIdUnion:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdPromise:
             return type_entry;
     }
     zig_unreachable();
@@ -3550,6 +3668,7 @@ static bool is_container(TypeTableEntry *type_entry) {
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdPromise:
             return false;
     }
     zig_unreachable();
@@ -3600,6 +3719,7 @@ void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdVar:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdPromise:
             zig_unreachable();
     }
 }
@@ -3607,15 +3727,17 @@ void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry) {
 TypeTableEntry *get_codegen_ptr_type(TypeTableEntry *type) {
     if (type->id == TypeTableEntryIdPointer) return type;
     if (type->id == TypeTableEntryIdFn) return type;
+    if (type->id == TypeTableEntryIdPromise) return type;
     if (type->id == TypeTableEntryIdMaybe) {
         if (type->data.maybe.child_type->id == TypeTableEntryIdPointer) return type->data.maybe.child_type;
         if (type->data.maybe.child_type->id == TypeTableEntryIdFn) return type->data.maybe.child_type;
+        if (type->data.maybe.child_type->id == TypeTableEntryIdPromise) return type->data.maybe.child_type;
     }
     return nullptr;
 }
 
 bool type_is_codegen_pointer(TypeTableEntry *type) {
-    return get_codegen_ptr_type(type) != nullptr;
+    return get_codegen_ptr_type(type) == type;
 }
 
 uint32_t get_ptr_align(TypeTableEntry *type) {
@@ -3624,6 +3746,8 @@ uint32_t get_ptr_align(TypeTableEntry *type) {
         return ptr_type->data.pointer.alignment;
     } else if (ptr_type->id == TypeTableEntryIdFn) {
         return (ptr_type->data.fn.fn_type_id.alignment == 0) ? 1 : ptr_type->data.fn.fn_type_id.alignment;
+    } else if (ptr_type->id == TypeTableEntryIdPromise) {
+        return 1;
     } else {
         zig_unreachable();
     }
@@ -3638,7 +3762,7 @@ AstNode *get_param_decl_node(FnTableEntry *fn_entry, size_t index) {
         return nullptr;
 }
 
-void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entry, VariableTableEntry **arg_vars) {
+static void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entry, VariableTableEntry **arg_vars) {
     TypeTableEntry *fn_type = fn_table_entry->type_entry;
     assert(!fn_type->data.fn.is_generic);
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
@@ -3659,7 +3783,7 @@ void define_local_param_variables(CodeGen *g, FnTableEntry *fn_table_entry, Vari
         TypeTableEntry *param_type = param_info->type;
         bool is_noalias = param_info->is_noalias;
 
-        if (is_noalias && !type_is_codegen_pointer(param_type)) {
+        if (is_noalias && get_codegen_ptr_type(param_type) == nullptr) {
             add_node_error(g, param_decl_node, buf_sprintf("noalias on non-pointer parameter"));
         }
 
@@ -4092,6 +4216,7 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
         case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdEnum:
+        case TypeTableEntryIdPromise:
              return false;
         case TypeTableEntryIdArray:
         case TypeTableEntryIdStruct:
@@ -4100,8 +4225,7 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
              return type_has_bits(type_entry->data.error_union.payload_type);
         case TypeTableEntryIdMaybe:
              return type_has_bits(type_entry->data.maybe.child_type) &&
-                    type_entry->data.maybe.child_type->id != TypeTableEntryIdPointer &&
-                    type_entry->data.maybe.child_type->id != TypeTableEntryIdFn;
+                    !type_is_codegen_pointer(type_entry->data.maybe.child_type);
         case TypeTableEntryIdUnion:
              assert(type_entry->data.unionation.complete);
              if (type_entry->data.unionation.gen_field_count == 0)
@@ -4203,6 +4327,7 @@ uint32_t fn_type_id_hash(FnTypeId *id) {
     result += ((uint32_t)(id->cc)) * (uint32_t)3349388391;
     result += id->is_var_args ? (uint32_t)1931444534 : 0;
     result += hash_ptr(id->return_type);
+    result += hash_ptr(id->async_allocator_type);
     result += id->alignment * 0xd3b3f3e2;
     for (size_t i = 0; i < id->param_count; i += 1) {
         FnTypeParamInfo *info = &id->param_info[i];
@@ -4217,7 +4342,8 @@ bool fn_type_id_eql(FnTypeId *a, FnTypeId *b) {
         a->return_type != b->return_type ||
         a->is_var_args != b->is_var_args ||
         a->param_count != b->param_count ||
-        a->alignment != b->alignment)
+        a->alignment != b->alignment ||
+        a->async_allocator_type != b->async_allocator_type)
     {
         return false;
     }
@@ -4339,6 +4465,9 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
                 }
                 zig_unreachable();
             }
+        case TypeTableEntryIdPromise:
+            // TODO better hashing algorithm
+            return 223048345;
         case TypeTableEntryIdUndefLit:
             return 162837799;
         case TypeTableEntryIdNullLit:
@@ -4498,6 +4627,7 @@ bool type_requires_comptime(TypeTableEntry *type_entry) {
         case TypeTableEntryIdPointer:
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdPromise:
             return false;
     }
     zig_unreachable();
@@ -4967,6 +5097,7 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdVar:
+        case TypeTableEntryIdPromise:
             zig_unreachable();
     }
     zig_unreachable();
@@ -5241,6 +5372,8 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
                 buf_appendf(buf, "(args value)");
                 return;
             }
+        case TypeTableEntryIdPromise:
+            zig_unreachable();
     }
     zig_unreachable();
 }
@@ -5302,6 +5435,7 @@ uint32_t type_id_hash(TypeId x) {
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdPromise:
             zig_unreachable();
         case TypeTableEntryIdErrorUnion:
             return hash_ptr(x.data.error_union.err_set_type) ^ hash_ptr(x.data.error_union.payload_type);
@@ -5339,6 +5473,7 @@ bool type_id_eql(TypeId a, TypeId b) {
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdPromise:
         case TypeTableEntryIdErrorSet:
         case TypeTableEntryIdEnum:
         case TypeTableEntryIdUnion:
@@ -5466,6 +5601,7 @@ static const TypeTableEntryId all_type_ids[] = {
     TypeTableEntryIdBoundFn,
     TypeTableEntryIdArgTuple,
     TypeTableEntryIdOpaque,
+    TypeTableEntryIdPromise,
 };
 
 TypeTableEntryId type_id_at_index(size_t index) {
@@ -5530,6 +5666,8 @@ size_t type_id_index(TypeTableEntryId id) {
             return 22;
         case TypeTableEntryIdOpaque:
             return 23;
+        case TypeTableEntryIdPromise:
+            return 24;
     }
     zig_unreachable();
 }
@@ -5587,6 +5725,8 @@ const char *type_id_name(TypeTableEntryId id) {
             return "ArgTuple";
         case TypeTableEntryIdOpaque:
             return "Opaque";
+        case TypeTableEntryIdPromise:
+            return "Promise";
     }
     zig_unreachable();
 }
@@ -5669,3 +5809,14 @@ bool type_is_global_error_set(TypeTableEntry *err_set_type) {
     assert(err_set_type->data.error_set.infer_fn == nullptr);
     return err_set_type->data.error_set.err_count == UINT32_MAX;
 }
+
+uint32_t get_coro_frame_align_bytes(CodeGen *g) {
+    return g->pointer_size_bytes * 2;
+}
+
+bool fn_type_can_fail(FnTypeId *fn_type_id) {
+    TypeTableEntry *return_type = fn_type_id->return_type;
+    return return_type->id == TypeTableEntryIdErrorUnion || return_type->id == TypeTableEntryIdErrorSet ||
+        fn_type_id->cc == CallingConventionAsync;
+}
+
