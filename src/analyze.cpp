@@ -1083,7 +1083,7 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
             gen_param_info->src_index = i;
             gen_param_info->gen_index = SIZE_MAX;
 
-            ensure_complete_type(g, type_entry);
+            type_ensure_zero_bits_known(g, type_entry);
             if (type_has_bits(type_entry)) {
                 TypeTableEntry *gen_type;
                 if (handle_is_ptr(type_entry)) {
@@ -2240,6 +2240,7 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
 
     if (enum_type->data.enumeration.zero_bits_loop_flag) {
         enum_type->data.enumeration.zero_bits_known = true;
+        enum_type->data.enumeration.zero_bits_loop_flag = false;
         return;
     }
 
@@ -2394,6 +2395,7 @@ static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type) {
         // the alignment is pointer width, then assert that the first field is within that
         // alignment
         struct_type->data.structure.zero_bits_known = true;
+        struct_type->data.structure.zero_bits_loop_flag = false;
         if (struct_type->data.structure.abi_alignment == 0) {
             if (struct_type->data.structure.layout == ContainerLayoutPacked) {
                 struct_type->data.structure.abi_alignment = 1;

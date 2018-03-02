@@ -32,6 +32,108 @@ fn funcWithConstPtrPtr(x: &const &i32) void {
     **x += 1;
 }
 
+test "implicitly cast a container to a const pointer of it" {
+    const z = Struct(void) { .x = void{} };
+    assert(0 == @sizeOf(@typeOf(z)));
+    assert(void{} == Struct(void).pointer(z).x);
+    assert(void{} == Struct(void).pointer(&z).x);
+    assert(void{} == Struct(void).maybePointer(z).x);
+    assert(void{} == Struct(void).maybePointer(&z).x);
+    assert(void{} == Struct(void).maybePointer(null).x);
+    const s = Struct(u8) { .x = 42 };
+    assert(0 != @sizeOf(@typeOf(s)));
+    assert(42 == Struct(u8).pointer(s).x);
+    assert(42 == Struct(u8).pointer(&s).x);
+    assert(42 == Struct(u8).maybePointer(s).x);
+    assert(42 == Struct(u8).maybePointer(&s).x);
+    assert(0 == Struct(u8).maybePointer(null).x);
+    const u = Union { .x = 42 };
+    assert(42 == Union.pointer(u).x);
+    assert(42 == Union.pointer(&u).x);
+    assert(42 == Union.maybePointer(u).x);
+    assert(42 == Union.maybePointer(&u).x);
+    assert(0 == Union.maybePointer(null).x);
+    const e = Enum.Some;
+    assert(Enum.Some == Enum.pointer(e));
+    assert(Enum.Some == Enum.pointer(&e));
+    assert(Enum.Some == Enum.maybePointer(e));
+    assert(Enum.Some == Enum.maybePointer(&e));
+    assert(Enum.None == Enum.maybePointer(null));
+}
+
+fn Struct(comptime T: type) type {
+    return struct {
+        const Self = this;
+        x: T,
+
+        fn pointer(self: &const Self) Self {
+            return *self;
+        }
+
+        fn maybePointer(self: ?&const Self) Self {
+            const none = Self { .x = if (T == void) void{} else 0 };
+            return *(self ?? &none);
+        }
+    };
+}
+
+const Union = union {
+    x: u8,
+
+    fn pointer(self: &const Union) Union {
+        return *self;
+    }
+
+    fn maybePointer(self: ?&const Union) Union {
+        const none = Union { .x = 0 };
+        return *(self ?? &none);
+    }
+};
+
+const Enum = enum {
+    None,
+    Some,
+
+    fn pointer(self: &const Enum) Enum {
+        return *self;
+    }
+
+    fn maybePointer(self: ?&const Enum) Enum {
+        return *(self ?? &Enum.None);
+    }
+};
+
+test "implicitly cast indirect pointer to maybe-indirect pointer" {
+    const S = struct {
+        const Self = this;
+        x: u8,
+        fn constConst(p: &const &const Self) u8 {
+            return (*p).x;
+        }
+        fn maybeConstConst(p: ?&const &const Self) u8 {
+            return (*??p).x;
+        }
+        fn constConstConst(p: &const &const &const Self) u8 {
+            return (**p).x;
+        }
+        fn maybeConstConstConst(p: ?&const &const &const Self) u8 {
+            return (**??p).x;
+        }
+    };
+    const s = S { .x = 42 };
+    const p = &s;
+    const q = &p;
+    const r = &q;
+    assert(42 == S.constConst(p));
+    assert(42 == S.constConst(q));
+    assert(42 == S.maybeConstConst(p));
+    assert(42 == S.maybeConstConst(q));
+    assert(42 == S.constConstConst(q));
+    assert(42 == S.constConstConst(r));
+    assert(42 == S.maybeConstConstConst(q));
+    assert(42 == S.maybeConstConstConst(r));
+}
+
 test "explicit cast from integer to error type" {
     testCastIntToErr(error.ItBroke);
     comptime testCastIntToErr(error.ItBroke);

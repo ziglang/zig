@@ -32,9 +32,6 @@ pub const ChildProcess = struct {
 
     pub argv: []const []const u8,
 
-    /// Possibly called from a signal handler. Must set this before calling `spawn`.
-    pub onTerm: ?fn(&ChildProcess)void,
-
     /// Leave as null to use the current env map using the supplied allocator.
     pub env_map: ?&const BufMap,
 
@@ -102,7 +99,6 @@ pub const ChildProcess = struct {
             .err_pipe = undefined,
             .llnode = undefined,
             .term = null,
-            .onTerm = null,
             .env_map = null,
             .cwd = null,
             .uid = if (is_windows) {} else null,
@@ -124,7 +120,6 @@ pub const ChildProcess = struct {
         self.gid = user_info.gid;
     }
 
-    /// onTerm can be called before `spawn` returns.
     /// On success must call `kill` or `wait`.
     pub fn spawn(self: &ChildProcess) !void {
         if (is_windows) {
@@ -165,9 +160,6 @@ pub const ChildProcess = struct {
     }
 
     pub fn killPosix(self: &ChildProcess) !Term {
-        block_SIGCHLD();
-        defer restore_SIGCHLD();
-
         if (self.term) |term| {
             self.cleanupStreams();
             return term;
@@ -246,9 +238,6 @@ pub const ChildProcess = struct {
     }
 
     fn waitPosix(self: &ChildProcess) !Term {
-        block_SIGCHLD();
-        defer restore_SIGCHLD();
-
         if (self.term) |term| {
             self.cleanupStreams();
             return term;
@@ -298,10 +287,6 @@ pub const ChildProcess = struct {
 
     fn handleWaitResult(self: &ChildProcess, status: i32) void {
         self.term = self.cleanupAfterWait(status);
-
-        if (self.onTerm) |onTerm| {
-            onTerm(self);
-        }
     }
 
     fn cleanupStreams(self: &ChildProcess) void {
@@ -347,9 +332,6 @@ pub const ChildProcess = struct {
     }
 
     fn spawnPosix(self: &ChildProcess) !void {
-        // TODO atomically set a flag saying that we already did this
-        install_SIGCHLD_handler();
-
         const stdin_pipe = if (self.stdin_behavior == StdIo.Pipe) try makePipe() else undefined;
         errdefer if (self.stdin_behavior == StdIo.Pipe) { destroyPipe(stdin_pipe); };
 
@@ -387,11 +369,9 @@ pub const ChildProcess = struct {
         const err_pipe = try makePipe();
         errdefer destroyPipe(err_pipe);
 
-        block_SIGCHLD();
         const pid_result = posix.fork();
         const pid_err = posix.getErrno(pid_result);
         if (pid_err > 0) {
-            restore_SIGCHLD();
             return switch (pid_err) {
                 posix.EAGAIN, posix.ENOMEM, posix.ENOSYS => error.SystemResources,
                 else => os.unexpectedErrorPosix(pid_err),
@@ -399,7 +379,6 @@ pub const ChildProcess = struct {
         }
         if (pid_result == 0) {
             // we are the child
-            restore_SIGCHLD();
 
             setUpChildIo(self.stdin_behavior, stdin_pipe[0], posix.STDIN_FILENO, dev_null_fd) catch
                 |err| forkChildErrReport(err_pipe[1], err);
@@ -450,8 +429,6 @@ pub const ChildProcess = struct {
 
         // TODO make this atomic so it works even with threads
         children_nodes.prepend(&self.llnode);
-
-        restore_SIGCHLD();
 
         if (self.stdin_behavior == StdIo.Pipe) { os.close(stdin_pipe[0]); }
         if (self.stdout_behavior == StdIo.Pipe) { os.close(stdout_pipe[1]); }
@@ -823,31 +800,4 @@ fn handleTerm(pid: i32, status: i32) void {
             return;
         }
     }
-}
-
-const sigchld_set = x: {
-    var signal_set = posix.empty_sigset;
-    posix.sigaddset(&signal_set, posix.SIGCHLD);
-    break :x signal_set;
-};
-
-fn block_SIGCHLD() void {
-    const err = posix.getErrno(posix.sigprocmask(posix.SIG_BLOCK, &sigchld_set, null));
-    assert(err == 0);
-}
-
-fn restore_SIGCHLD() void {
-    const err = posix.getErrno(posix.sigprocmask(posix.SIG_UNBLOCK, &sigchld_set, null));
-    assert(err == 0);
-}
-
-const sigchld_action = posix.Sigaction {
-    .handler = sigchld_handler,
-    .mask = posix.empty_sigset,
-    .flags = posix.SA_RESTART | posix.SA_NOCLDSTOP,
-};
-
-fn install_SIGCHLD_handler() void {
-    const err = posix.getErrno(posix.sigaction(posix.SIGCHLD, &sigchld_action, null));
-    assert(err == 0);
 }
