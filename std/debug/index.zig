@@ -791,13 +791,20 @@ fn getLineNumberInfo(st: &ElfStackTrace, compile_unit: &const CompileUnit, targe
         }
 
         const version = try in_stream.readInt(st.elf.endian, u16);
-        if (version != 2) return error.InvalidDebugInfo;
+        // TODO support 3 and 5
+        if (version != 2 and version != 4) return error.InvalidDebugInfo;
 
-        const prologue_length = try in_stream.readInt(st.elf.endian, u32);
+        const prologue_length = if (is_64) try in_stream.readInt(st.elf.endian, u64)
+            else try in_stream.readInt(st.elf.endian, u32);
         const prog_start_offset = (try in_file.getPos()) + prologue_length;
 
         const minimum_instruction_length = try in_stream.readByte();
         if (minimum_instruction_length == 0) return error.InvalidDebugInfo;
+
+        if (version >= 4) {
+            // maximum_operations_per_instruction
+            _ = try in_stream.readByte();
+        }
 
         const default_is_stmt = (try in_stream.readByte()) != 0;
         const line_base = try in_stream.readByteSigned();
