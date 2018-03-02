@@ -381,6 +381,8 @@ static LLVMCallConv get_llvm_cc(CodeGen *g, CallingConvention cc) {
             } else {
                 return LLVMCCallConv;
             }
+        case CallingConventionAsync:
+            return LLVMFastCallConv;
     }
     zig_unreachable();
 }
@@ -410,10 +412,10 @@ static uint32_t get_err_ret_trace_arg_index(CodeGen *g, FnTableEntry *fn_table_e
         return UINT32_MAX;
     }
     TypeTableEntry *fn_type = fn_table_entry->type_entry;
-    TypeTableEntry *return_type = fn_type->data.fn.fn_type_id.return_type;
-    if (return_type->id != TypeTableEntryIdErrorUnion && return_type->id != TypeTableEntryIdErrorSet) {
+    if (!fn_type_can_fail(&fn_type->data.fn.fn_type_id)) {
         return UINT32_MAX;
     }
+    TypeTableEntry *return_type = fn_type->data.fn.fn_type_id.return_type;
     bool first_arg_ret = type_has_bits(return_type) && handle_is_ptr(return_type);
     return first_arg_ret ? 1 : 0;
 }
@@ -540,7 +542,7 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
 
     if (!type_has_bits(return_type)) {
         // nothing to do
-    } else if (return_type->id == TypeTableEntryIdPointer || return_type->id == TypeTableEntryIdFn) {
+    } else if (type_is_codegen_pointer(return_type)) {
         addLLVMAttr(fn_table_entry->llvm_value, 0, "nonnull");
     } else if (handle_is_ptr(return_type) &&
             calling_convention_does_first_arg_return(fn_type->data.fn.fn_type_id.cc))
@@ -923,6 +925,177 @@ static LLVMValueRef get_memcpy_fn_val(CodeGen *g) {
     assert(LLVMGetIntrinsicID(g->memcpy_fn_val));
 
     return g->memcpy_fn_val;
+}
+
+static LLVMValueRef get_coro_destroy_fn_val(CodeGen *g) {
+    if (g->coro_destroy_fn_val)
+        return g->coro_destroy_fn_val;
+
+    LLVMTypeRef param_types[] = {
+        LLVMPointerType(LLVMInt8Type(), 0),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), param_types, 1, false);
+    Buf *name = buf_sprintf("llvm.coro.destroy");
+    g->coro_destroy_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->coro_destroy_fn_val));
+
+    return g->coro_destroy_fn_val;
+}
+
+static LLVMValueRef get_coro_id_fn_val(CodeGen *g) {
+    if (g->coro_id_fn_val)
+        return g->coro_id_fn_val;
+
+    LLVMTypeRef param_types[] = {
+        LLVMInt32Type(),
+        LLVMPointerType(LLVMInt8Type(), 0),
+        LLVMPointerType(LLVMInt8Type(), 0),
+        LLVMPointerType(LLVMInt8Type(), 0),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(ZigLLVMTokenTypeInContext(LLVMGetGlobalContext()), param_types, 4, false);
+    Buf *name = buf_sprintf("llvm.coro.id");
+    g->coro_id_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->coro_id_fn_val));
+
+    return g->coro_id_fn_val;
+}
+
+static LLVMValueRef get_coro_alloc_fn_val(CodeGen *g) {
+    if (g->coro_alloc_fn_val)
+        return g->coro_alloc_fn_val;
+
+    LLVMTypeRef param_types[] = {
+        ZigLLVMTokenTypeInContext(LLVMGetGlobalContext()),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMInt1Type(), param_types, 1, false);
+    Buf *name = buf_sprintf("llvm.coro.alloc");
+    g->coro_alloc_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->coro_alloc_fn_val));
+
+    return g->coro_alloc_fn_val;
+}
+
+static LLVMValueRef get_coro_size_fn_val(CodeGen *g) {
+    if (g->coro_size_fn_val)
+        return g->coro_size_fn_val;
+
+    LLVMTypeRef fn_type = LLVMFunctionType(g->builtin_types.entry_usize->type_ref, nullptr, 0, false);
+    Buf *name = buf_sprintf("llvm.coro.size.i%d", g->pointer_size_bytes * 8);
+    g->coro_size_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->coro_size_fn_val));
+
+    return g->coro_size_fn_val;
+}
+
+static LLVMValueRef get_coro_begin_fn_val(CodeGen *g) {
+    if (g->coro_begin_fn_val)
+        return g->coro_begin_fn_val;
+
+    LLVMTypeRef param_types[] = {
+        ZigLLVMTokenTypeInContext(LLVMGetGlobalContext()),
+        LLVMPointerType(LLVMInt8Type(), 0),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMPointerType(LLVMInt8Type(), 0), param_types, 2, false);
+    Buf *name = buf_sprintf("llvm.coro.begin");
+    g->coro_begin_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->coro_begin_fn_val));
+
+    return g->coro_begin_fn_val;
+}
+
+static LLVMValueRef get_coro_suspend_fn_val(CodeGen *g) {
+    if (g->coro_suspend_fn_val)
+        return g->coro_suspend_fn_val;
+
+    LLVMTypeRef param_types[] = {
+        ZigLLVMTokenTypeInContext(LLVMGetGlobalContext()),
+        LLVMInt1Type(),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMInt8Type(), param_types, 2, false);
+    Buf *name = buf_sprintf("llvm.coro.suspend");
+    g->coro_suspend_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->coro_suspend_fn_val));
+
+    return g->coro_suspend_fn_val;
+}
+
+static LLVMValueRef get_coro_end_fn_val(CodeGen *g) {
+    if (g->coro_end_fn_val)
+        return g->coro_end_fn_val;
+
+    LLVMTypeRef param_types[] = {
+        LLVMPointerType(LLVMInt8Type(), 0),
+        LLVMInt1Type(),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMInt1Type(), param_types, 2, false);
+    Buf *name = buf_sprintf("llvm.coro.end");
+    g->coro_end_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->coro_end_fn_val));
+
+    return g->coro_end_fn_val;
+}
+
+static LLVMValueRef get_coro_free_fn_val(CodeGen *g) {
+    if (g->coro_free_fn_val)
+        return g->coro_free_fn_val;
+
+    LLVMTypeRef param_types[] = {
+        ZigLLVMTokenTypeInContext(LLVMGetGlobalContext()),
+        LLVMPointerType(LLVMInt8Type(), 0),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMPointerType(LLVMInt8Type(), 0), param_types, 2, false);
+    Buf *name = buf_sprintf("llvm.coro.free");
+    g->coro_free_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->coro_free_fn_val));
+
+    return g->coro_free_fn_val;
+}
+
+static LLVMValueRef get_coro_resume_fn_val(CodeGen *g) {
+    if (g->coro_resume_fn_val)
+        return g->coro_resume_fn_val;
+
+    LLVMTypeRef param_types[] = {
+        LLVMPointerType(LLVMInt8Type(), 0),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMVoidType(), param_types, 1, false);
+    Buf *name = buf_sprintf("llvm.coro.resume");
+    g->coro_resume_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->coro_resume_fn_val));
+
+    return g->coro_resume_fn_val;
+}
+
+static LLVMValueRef get_coro_save_fn_val(CodeGen *g) {
+    if (g->coro_save_fn_val)
+        return g->coro_save_fn_val;
+
+    LLVMTypeRef param_types[] = {
+        LLVMPointerType(LLVMInt8Type(), 0),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(ZigLLVMTokenTypeInContext(LLVMGetGlobalContext()), param_types, 1, false);
+    Buf *name = buf_sprintf("llvm.coro.save");
+    g->coro_save_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->coro_save_fn_val));
+
+    return g->coro_save_fn_val;
+}
+
+static LLVMValueRef get_coro_promise_fn_val(CodeGen *g) {
+    if (g->coro_promise_fn_val)
+        return g->coro_promise_fn_val;
+
+    LLVMTypeRef param_types[] = {
+        LLVMPointerType(LLVMInt8Type(), 0),
+        LLVMInt32Type(),
+        LLVMInt1Type(),
+    };
+    LLVMTypeRef fn_type = LLVMFunctionType(LLVMPointerType(LLVMInt8Type(), 0), param_types, 3, false);
+    Buf *name = buf_sprintf("llvm.coro.promise");
+    g->coro_promise_fn_val = LLVMAddFunction(g->module, buf_ptr(name), fn_type);
+    assert(LLVMGetIntrinsicID(g->coro_promise_fn_val));
+
+    return g->coro_promise_fn_val;
 }
 
 static LLVMValueRef get_return_address_fn_val(CodeGen *g) {
@@ -2506,6 +2679,25 @@ static LLVMValueRef ir_render_elem_ptr(CodeGen *g, IrExecutable *executable, IrI
     }
 }
 
+static bool get_prefix_arg_err_ret_stack(CodeGen *g, FnTypeId *fn_type_id) {
+    return g->have_err_ret_tracing &&
+        (fn_type_id->return_type->id == TypeTableEntryIdErrorUnion ||
+         fn_type_id->return_type->id == TypeTableEntryIdErrorSet ||
+         fn_type_id->cc == CallingConventionAsync);
+}
+
+static size_t get_async_allocator_arg_index(CodeGen *g, FnTypeId *fn_type_id) {
+    // 0             1             2        3
+    // err_ret_stack allocator_ptr err_code other_args...
+    return get_prefix_arg_err_ret_stack(g, fn_type_id) ? 1 : 0;
+}
+
+static size_t get_async_err_code_arg_index(CodeGen *g, FnTypeId *fn_type_id) {
+    // 0             1             2        3
+    // err_ret_stack allocator_ptr err_code other_args...
+    return 1 + get_async_allocator_arg_index(g, fn_type_id);
+}
+
 static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstructionCall *instruction) {
     LLVMValueRef fn_val;
     TypeTableEntry *fn_type;
@@ -2519,11 +2711,15 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     }
 
     FnTypeId *fn_type_id = &fn_type->data.fn.fn_type_id;
+
     TypeTableEntry *src_return_type = fn_type_id->return_type;
     bool ret_has_bits = type_has_bits(src_return_type);
-    bool first_arg_ret = ret_has_bits && handle_is_ptr(src_return_type);
-    bool prefix_arg_err_ret_stack = g->have_err_ret_tracing && (src_return_type->id == TypeTableEntryIdErrorUnion || src_return_type->id == TypeTableEntryIdErrorSet);
-    size_t actual_param_count = instruction->arg_count + (first_arg_ret ? 1 : 0) + (prefix_arg_err_ret_stack ? 1 : 0);
+
+    bool first_arg_ret = ret_has_bits && handle_is_ptr(src_return_type) &&
+            calling_convention_does_first_arg_return(fn_type->data.fn.fn_type_id.cc);
+    bool prefix_arg_err_ret_stack = get_prefix_arg_err_ret_stack(g, fn_type_id);
+    // +2 for the async args
+    size_t actual_param_count = instruction->arg_count + (first_arg_ret ? 1 : 0) + (prefix_arg_err_ret_stack ? 1 : 0) + 2;
     bool is_var_args = fn_type_id->is_var_args;
     LLVMValueRef *gen_param_values = allocate<LLVMValueRef>(actual_param_count);
     size_t gen_param_index = 0;
@@ -2533,6 +2729,14 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
     }
     if (prefix_arg_err_ret_stack) {
         gen_param_values[gen_param_index] = g->cur_err_ret_trace_val;
+        gen_param_index += 1;
+    }
+    if (instruction->is_async) {
+        gen_param_values[gen_param_index] = ir_llvm_value(g, instruction->async_allocator);
+        gen_param_index += 1;
+
+        LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_err_index, "");
+        gen_param_values[gen_param_index] = err_val_ptr;
         gen_param_index += 1;
     }
     for (size_t call_i = 0; call_i < instruction->arg_count; call_i += 1) {
@@ -2570,6 +2774,12 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         if (gen_info->is_byval && g->zig_target.os != OsWindows) {
             addLLVMCallsiteAttr(result, (unsigned)gen_info->gen_index, "byval");
         }
+    }
+
+    if (instruction->is_async) {
+        LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, instruction->tmp_ptr, err_union_payload_index, "");
+        LLVMBuildStore(g->builder, result, payload_ptr);
+        return instruction->tmp_ptr;
     }
 
     if (src_return_type->id == TypeTableEntryIdUnreachable) {
@@ -2783,7 +2993,7 @@ static LLVMValueRef gen_non_null_bit(CodeGen *g, TypeTableEntry *maybe_type, LLV
     if (child_type->zero_bits) {
         return maybe_handle;
     } else {
-        bool maybe_is_ptr = (child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn);
+        bool maybe_is_ptr = type_is_codegen_pointer(child_type);
         if (maybe_is_ptr) {
             return LLVMBuildICmp(g->builder, LLVMIntNE, maybe_handle, LLVMConstNull(maybe_type->type_ref), "");
         } else {
@@ -2823,7 +3033,7 @@ static LLVMValueRef ir_render_unwrap_maybe(CodeGen *g, IrExecutable *executable,
     if (child_type->zero_bits) {
         return nullptr;
     } else {
-        bool maybe_is_ptr = (child_type->id == TypeTableEntryIdPointer || child_type->id == TypeTableEntryIdFn);
+        bool maybe_is_ptr = type_is_codegen_pointer(child_type);
         if (maybe_is_ptr) {
             return maybe_ptr;
         } else {
@@ -3046,6 +3256,10 @@ static LLVMValueRef ir_render_align_cast(CodeGen *g, IrExecutable *executable, I
     {
         align_bytes = target_type->data.maybe.child_type->data.fn.fn_type_id.alignment;
         ptr_val = target_val;
+    } else if (target_type->id == TypeTableEntryIdMaybe &&
+            target_type->data.maybe.child_type->id == TypeTableEntryIdPromise)
+    {
+        zig_panic("TODO audit this function");
     } else if (target_type->id == TypeTableEntryIdStruct && target_type->data.structure.is_slice) {
         TypeTableEntry *slice_ptr_type = target_type->data.structure.fields[slice_ptr_index].type_entry;
         align_bytes = slice_ptr_type->data.pointer.alignment;
@@ -3088,6 +3302,20 @@ static LLVMValueRef ir_render_error_return_trace(CodeGen *g, IrExecutable *execu
     return g->cur_err_ret_trace_val;
 }
 
+static LLVMValueRef ir_render_cancel(CodeGen *g, IrExecutable *executable, IrInstructionCancel *instruction) {
+    LLVMValueRef target_handle = ir_llvm_value(g, instruction->target);
+    LLVMBuildCall(g->builder, get_coro_destroy_fn_val(g), &target_handle, 1, "");
+    return nullptr;
+}
+
+static LLVMValueRef ir_render_get_implicit_allocator(CodeGen *g, IrExecutable *executable,
+        IrInstructionGetImplicitAllocator *instruction)
+{
+    assert(instruction->id == ImplicitAllocatorIdArg);
+    size_t allocator_arg_index = get_async_allocator_arg_index(g, &g->cur_fn->type_entry->data.fn.fn_type_id);
+    return LLVMGetParam(g->cur_fn_val, allocator_arg_index);
+}
+
 static LLVMAtomicOrdering to_LLVMAtomicOrdering(AtomicOrder atomic_order) {
     switch (atomic_order) {
         case AtomicOrderUnordered: return LLVMAtomicOrderingUnordered;
@@ -3096,6 +3324,23 @@ static LLVMAtomicOrdering to_LLVMAtomicOrdering(AtomicOrder atomic_order) {
         case AtomicOrderRelease: return LLVMAtomicOrderingRelease;
         case AtomicOrderAcqRel: return LLVMAtomicOrderingAcquireRelease;
         case AtomicOrderSeqCst: return LLVMAtomicOrderingSequentiallyConsistent;
+    }
+    zig_unreachable();
+}
+
+static LLVMAtomicRMWBinOp to_LLVMAtomicRMWBinOp(AtomicRmwOp op, bool is_signed) {
+    switch (op) {
+        case AtomicRmwOp_xchg: return LLVMAtomicRMWBinOpXchg;
+        case AtomicRmwOp_add: return LLVMAtomicRMWBinOpAdd;
+        case AtomicRmwOp_sub: return LLVMAtomicRMWBinOpSub;
+        case AtomicRmwOp_and: return LLVMAtomicRMWBinOpAnd;
+        case AtomicRmwOp_nand: return LLVMAtomicRMWBinOpNand;
+        case AtomicRmwOp_or: return LLVMAtomicRMWBinOpOr;
+        case AtomicRmwOp_xor: return LLVMAtomicRMWBinOpXor;
+        case AtomicRmwOp_max:
+            return is_signed ? LLVMAtomicRMWBinOpMax : LLVMAtomicRMWBinOpUMax;
+        case AtomicRmwOp_min:
+            return is_signed ? LLVMAtomicRMWBinOpMin : LLVMAtomicRMWBinOpUMin;
     }
     zig_unreachable();
 }
@@ -3508,9 +3753,7 @@ static LLVMValueRef ir_render_maybe_wrap(CodeGen *g, IrExecutable *executable, I
     }
 
     LLVMValueRef payload_val = ir_llvm_value(g, instruction->value);
-    if (child_type->id == TypeTableEntryIdPointer ||
-        child_type->id == TypeTableEntryIdFn)
-    {
+    if (type_is_codegen_pointer(child_type)) {
         return payload_val;
     }
 
@@ -3682,6 +3925,264 @@ static LLVMValueRef ir_render_panic(CodeGen *g, IrExecutable *executable, IrInst
     return nullptr;
 }
 
+static LLVMValueRef ir_render_coro_id(CodeGen *g, IrExecutable *executable, IrInstructionCoroId *instruction) {
+    LLVMValueRef promise_ptr = ir_llvm_value(g, instruction->promise_ptr);
+    LLVMValueRef align_val = LLVMConstInt(LLVMInt32Type(), get_coro_frame_align_bytes(g), false);
+    LLVMValueRef null = LLVMConstIntToPtr(LLVMConstNull(g->builtin_types.entry_usize->type_ref),
+            LLVMPointerType(LLVMInt8Type(), 0));
+    LLVMValueRef params[] = {
+        align_val,
+        promise_ptr,
+        null,
+        null,
+    };
+    return LLVMBuildCall(g->builder, get_coro_id_fn_val(g), params, 4, "");
+}
+
+static LLVMValueRef ir_render_coro_alloc(CodeGen *g, IrExecutable *executable, IrInstructionCoroAlloc *instruction) {
+    LLVMValueRef token = ir_llvm_value(g, instruction->coro_id);
+    return LLVMBuildCall(g->builder, get_coro_alloc_fn_val(g), &token, 1, "");
+}
+
+static LLVMValueRef ir_render_coro_size(CodeGen *g, IrExecutable *executable, IrInstructionCoroSize *instruction) {
+    return LLVMBuildCall(g->builder, get_coro_size_fn_val(g), nullptr, 0, "");
+}
+
+static LLVMValueRef ir_render_coro_begin(CodeGen *g, IrExecutable *executable, IrInstructionCoroBegin *instruction) {
+    LLVMValueRef coro_id = ir_llvm_value(g, instruction->coro_id);
+    LLVMValueRef coro_mem_ptr = ir_llvm_value(g, instruction->coro_mem_ptr);
+    LLVMValueRef params[] = {
+        coro_id,
+        coro_mem_ptr,
+    };
+    return LLVMBuildCall(g->builder, get_coro_begin_fn_val(g), params, 2, "");
+}
+
+static LLVMValueRef ir_render_coro_alloc_fail(CodeGen *g, IrExecutable *executable,
+        IrInstructionCoroAllocFail *instruction)
+{
+    size_t err_code_ptr_arg_index = get_async_err_code_arg_index(g, &g->cur_fn->type_entry->data.fn.fn_type_id);
+    LLVMValueRef err_code_ptr_val = LLVMGetParam(g->cur_fn_val, err_code_ptr_arg_index);
+    LLVMValueRef err_code = ir_llvm_value(g, instruction->err_val);
+    LLVMBuildStore(g->builder, err_code, err_code_ptr_val);
+
+    LLVMValueRef return_value;
+    if (ir_want_runtime_safety(g, &instruction->base)) {
+        return_value = LLVMConstNull(LLVMPointerType(LLVMInt8Type(), 0));
+    } else {
+        return_value = LLVMGetUndef(LLVMPointerType(LLVMInt8Type(), 0));
+    }
+    LLVMBuildRet(g->builder, return_value);
+    return nullptr;
+}
+
+static LLVMValueRef ir_render_coro_suspend(CodeGen *g, IrExecutable *executable, IrInstructionCoroSuspend *instruction) {
+    LLVMValueRef save_point;
+    if (instruction->save_point == nullptr) {
+        save_point = LLVMConstNull(ZigLLVMTokenTypeInContext(LLVMGetGlobalContext()));
+    } else {
+        save_point = ir_llvm_value(g, instruction->save_point);
+    }
+    LLVMValueRef is_final = ir_llvm_value(g, instruction->is_final);
+    LLVMValueRef params[] = {
+        save_point,
+        is_final,
+    };
+    return LLVMBuildCall(g->builder, get_coro_suspend_fn_val(g), params, 2, "");
+}
+
+static LLVMValueRef ir_render_coro_end(CodeGen *g, IrExecutable *executable, IrInstructionCoroEnd *instruction) {
+    LLVMValueRef params[] = {
+        LLVMConstNull(LLVMPointerType(LLVMInt8Type(), 0)),
+        LLVMConstNull(LLVMInt1Type()),
+    };
+    return LLVMBuildCall(g->builder, get_coro_end_fn_val(g), params, 2, "");
+}
+
+static LLVMValueRef ir_render_coro_free(CodeGen *g, IrExecutable *executable, IrInstructionCoroFree *instruction) {
+    LLVMValueRef coro_id = ir_llvm_value(g, instruction->coro_id);
+    LLVMValueRef coro_handle = ir_llvm_value(g, instruction->coro_handle);
+    LLVMValueRef params[] = {
+        coro_id,
+        coro_handle,
+    };
+    return LLVMBuildCall(g->builder, get_coro_free_fn_val(g), params, 2, "");
+}
+
+static LLVMValueRef ir_render_coro_resume(CodeGen *g, IrExecutable *executable, IrInstructionCoroResume *instruction) {
+    LLVMValueRef awaiter_handle = ir_llvm_value(g, instruction->awaiter_handle);
+    return LLVMBuildCall(g->builder, get_coro_resume_fn_val(g), &awaiter_handle, 1, "");
+}
+
+static LLVMValueRef ir_render_coro_save(CodeGen *g, IrExecutable *executable, IrInstructionCoroSave *instruction) {
+    LLVMValueRef coro_handle = ir_llvm_value(g, instruction->coro_handle);
+    return LLVMBuildCall(g->builder, get_coro_save_fn_val(g), &coro_handle, 1, "");
+}
+
+static LLVMValueRef ir_render_coro_promise(CodeGen *g, IrExecutable *executable, IrInstructionCoroPromise *instruction) {
+    LLVMValueRef coro_handle = ir_llvm_value(g, instruction->coro_handle);
+    LLVMValueRef params[] = {
+        coro_handle,
+        LLVMConstInt(LLVMInt32Type(), get_coro_frame_align_bytes(g), false),
+        LLVMConstNull(LLVMInt1Type()),
+    };
+    LLVMValueRef uncasted_result = LLVMBuildCall(g->builder, get_coro_promise_fn_val(g), params, 3, "");
+    return LLVMBuildBitCast(g->builder, uncasted_result, instruction->base.value.type->type_ref, "");
+}
+
+static LLVMValueRef get_coro_alloc_helper_fn_val(CodeGen *g, LLVMTypeRef alloc_fn_type_ref, TypeTableEntry *fn_type) {
+    if (g->coro_alloc_helper_fn_val != nullptr)
+        return g->coro_alloc_helper_fn_val;
+
+    assert(fn_type->id == TypeTableEntryIdFn);
+
+    TypeTableEntry *ptr_to_err_code_type = get_pointer_to_type(g, g->builtin_types.entry_global_error_set, false);
+
+    LLVMTypeRef alloc_raw_fn_type_ref = LLVMGetElementType(alloc_fn_type_ref);
+    LLVMTypeRef *alloc_fn_arg_types = allocate<LLVMTypeRef>(LLVMCountParamTypes(alloc_raw_fn_type_ref));
+    LLVMGetParamTypes(alloc_raw_fn_type_ref, alloc_fn_arg_types);
+
+    ZigList<LLVMTypeRef> arg_types = {};
+    arg_types.append(alloc_fn_type_ref);
+    if (g->have_err_ret_tracing) {
+        arg_types.append(alloc_fn_arg_types[1]);
+    }
+    arg_types.append(alloc_fn_arg_types[g->have_err_ret_tracing ? 2 : 1]);
+    arg_types.append(ptr_to_err_code_type->type_ref);
+    arg_types.append(g->builtin_types.entry_usize->type_ref);
+
+    LLVMTypeRef fn_type_ref = LLVMFunctionType(LLVMPointerType(LLVMInt8Type(), 0),
+            arg_types.items, arg_types.length, false);
+
+    Buf *fn_name = get_mangled_name(g, buf_create_from_str("__zig_coro_alloc_helper"), false);
+    LLVMValueRef fn_val = LLVMAddFunction(g->module, buf_ptr(fn_name), fn_type_ref);
+    LLVMSetLinkage(fn_val, LLVMInternalLinkage);
+    LLVMSetFunctionCallConv(fn_val, get_llvm_cc(g, CallingConventionUnspecified));
+    addLLVMFnAttr(fn_val, "nounwind");
+    addLLVMArgAttr(fn_val, (unsigned)0, "nonnull");
+    addLLVMArgAttr(fn_val, (unsigned)1, "nonnull");
+
+    LLVMBasicBlockRef prev_block = LLVMGetInsertBlock(g->builder);
+    LLVMValueRef prev_debug_location = LLVMGetCurrentDebugLocation(g->builder);
+    FnTableEntry *prev_cur_fn = g->cur_fn;
+    LLVMValueRef prev_cur_fn_val = g->cur_fn_val;
+
+    LLVMBasicBlockRef entry_block = LLVMAppendBasicBlock(fn_val, "Entry");
+    LLVMPositionBuilderAtEnd(g->builder, entry_block);
+    ZigLLVMClearCurrentDebugLocation(g->builder);
+    g->cur_fn = nullptr;
+    g->cur_fn_val = fn_val;
+
+    LLVMValueRef sret_ptr = LLVMBuildAlloca(g->builder, LLVMGetElementType(alloc_fn_arg_types[0]), "");
+
+    size_t next_arg = 0;
+    LLVMValueRef alloc_fn_val = LLVMGetParam(fn_val, next_arg);
+    next_arg += 1;
+
+    LLVMValueRef stack_trace_val;
+    if (g->have_err_ret_tracing) {
+        stack_trace_val = LLVMGetParam(fn_val, next_arg);
+        next_arg += 1;
+    }
+
+    LLVMValueRef allocator_val = LLVMGetParam(fn_val, next_arg);
+    next_arg += 1;
+    LLVMValueRef err_code_ptr = LLVMGetParam(fn_val, next_arg);
+    next_arg += 1;
+    LLVMValueRef coro_size = LLVMGetParam(fn_val, next_arg);
+    next_arg += 1;
+    LLVMValueRef alignment_val = LLVMConstInt(g->builtin_types.entry_u29->type_ref,
+            get_coro_frame_align_bytes(g), false);
+
+    ZigList<LLVMValueRef> args = {};
+    args.append(sret_ptr);
+    if (g->have_err_ret_tracing) {
+        args.append(stack_trace_val);
+    }
+    args.append(allocator_val);
+    args.append(coro_size);
+    args.append(alignment_val);
+    ZigLLVMBuildCall(g->builder, alloc_fn_val, args.items, args.length,
+            get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
+    LLVMValueRef err_val_ptr = LLVMBuildStructGEP(g->builder, sret_ptr, err_union_err_index, "");
+    LLVMValueRef err_val = LLVMBuildLoad(g->builder, err_val_ptr, "");
+    LLVMBuildStore(g->builder, err_val, err_code_ptr);
+    LLVMValueRef ok_bit = LLVMBuildICmp(g->builder, LLVMIntEQ, err_val, LLVMConstNull(LLVMTypeOf(err_val)), "");
+    LLVMBasicBlockRef ok_block = LLVMAppendBasicBlock(fn_val, "AllocOk");
+    LLVMBasicBlockRef fail_block = LLVMAppendBasicBlock(fn_val, "AllocFail");
+    LLVMBuildCondBr(g->builder, ok_bit, ok_block, fail_block);
+
+    LLVMPositionBuilderAtEnd(g->builder, ok_block);
+    LLVMValueRef payload_ptr = LLVMBuildStructGEP(g->builder, sret_ptr, err_union_payload_index, "");
+    TypeTableEntry *u8_ptr_type = get_pointer_to_type(g, g->builtin_types.entry_u8, false);
+    TypeTableEntry *slice_type = get_slice_type(g, u8_ptr_type);
+    size_t ptr_field_index = slice_type->data.structure.fields[slice_ptr_index].gen_index;
+    LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, payload_ptr, ptr_field_index, "");
+    LLVMValueRef ptr_val = LLVMBuildLoad(g->builder, ptr_field_ptr, "");
+    LLVMBuildRet(g->builder, ptr_val);
+
+    LLVMPositionBuilderAtEnd(g->builder, fail_block);
+    LLVMBuildRet(g->builder, LLVMConstNull(LLVMPointerType(LLVMInt8Type(), 0)));
+
+    g->cur_fn = prev_cur_fn;
+    g->cur_fn_val = prev_cur_fn_val;
+    LLVMPositionBuilderAtEnd(g->builder, prev_block);
+    LLVMSetCurrentDebugLocation(g->builder, prev_debug_location);
+
+    g->coro_alloc_helper_fn_val = fn_val;
+    return fn_val;
+}
+
+static LLVMValueRef ir_render_coro_alloc_helper(CodeGen *g, IrExecutable *executable,
+        IrInstructionCoroAllocHelper *instruction)
+{
+    LLVMValueRef alloc_fn = ir_llvm_value(g, instruction->alloc_fn);
+    LLVMValueRef coro_size = ir_llvm_value(g, instruction->coro_size);
+    LLVMValueRef fn_val = get_coro_alloc_helper_fn_val(g, LLVMTypeOf(alloc_fn), instruction->alloc_fn->value.type);
+    size_t err_code_ptr_arg_index = get_async_err_code_arg_index(g, &g->cur_fn->type_entry->data.fn.fn_type_id);
+    size_t allocator_arg_index = get_async_allocator_arg_index(g, &g->cur_fn->type_entry->data.fn.fn_type_id);
+
+    ZigList<LLVMValueRef> params = {};
+    params.append(alloc_fn);
+    uint32_t err_ret_trace_arg_index = get_err_ret_trace_arg_index(g, g->cur_fn);
+    if (err_ret_trace_arg_index != UINT32_MAX) {
+        params.append(LLVMGetParam(g->cur_fn_val, err_ret_trace_arg_index));
+    }
+    params.append(LLVMGetParam(g->cur_fn_val, allocator_arg_index));
+    params.append(LLVMGetParam(g->cur_fn_val, err_code_ptr_arg_index));
+    params.append(coro_size);
+
+    return ZigLLVMBuildCall(g->builder, fn_val, params.items, params.length,
+            get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
+}
+
+static LLVMValueRef ir_render_atomic_rmw(CodeGen *g, IrExecutable *executable,
+        IrInstructionAtomicRmw *instruction)
+{
+    bool is_signed;
+    TypeTableEntry *operand_type = instruction->operand->value.type;
+    if (operand_type->id == TypeTableEntryIdInt) {
+        is_signed = operand_type->data.integral.is_signed;
+    } else {
+        is_signed = false;
+    }
+    LLVMAtomicRMWBinOp op = to_LLVMAtomicRMWBinOp(instruction->resolved_op, is_signed);
+    LLVMAtomicOrdering ordering = to_LLVMAtomicOrdering(instruction->resolved_ordering);
+    LLVMValueRef ptr = ir_llvm_value(g, instruction->ptr);
+    LLVMValueRef operand = ir_llvm_value(g, instruction->operand);
+
+    if (get_codegen_ptr_type(operand_type) == nullptr) {
+        return LLVMBuildAtomicRMW(g->builder, op, ptr, operand, ordering, false);
+    }
+
+    // it's a pointer but we need to treat it as an int
+    LLVMValueRef casted_ptr = LLVMBuildBitCast(g->builder, ptr,
+        LLVMPointerType(g->builtin_types.entry_usize->type_ref, 0), "");
+    LLVMValueRef casted_operand = LLVMBuildPtrToInt(g->builder, operand, g->builtin_types.entry_usize->type_ref, "");
+    LLVMValueRef uncasted_result = LLVMBuildAtomicRMW(g->builder, op, casted_ptr, casted_operand, ordering, false);
+    return LLVMBuildIntToPtr(g->builder, uncasted_result, operand_type->type_ref, "");
+}
+
 static void set_debug_location(CodeGen *g, IrInstruction *instruction) {
     AstNode *source_node = instruction->source_node;
     Scope *scope = instruction->scope;
@@ -3745,7 +4246,9 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdTagType:
         case IrInstructionIdExport:
         case IrInstructionIdErrorUnion:
+        case IrInstructionIdPromiseResultType:
             zig_unreachable();
+
         case IrInstructionIdReturn:
             return ir_render_return(g, executable, (IrInstructionReturn *)instruction);
         case IrInstructionIdDeclVar:
@@ -3862,12 +4365,43 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_align_cast(g, executable, (IrInstructionAlignCast *)instruction);
         case IrInstructionIdErrorReturnTrace:
             return ir_render_error_return_trace(g, executable, (IrInstructionErrorReturnTrace *)instruction);
+        case IrInstructionIdCancel:
+            return ir_render_cancel(g, executable, (IrInstructionCancel *)instruction);
+        case IrInstructionIdGetImplicitAllocator:
+            return ir_render_get_implicit_allocator(g, executable, (IrInstructionGetImplicitAllocator *)instruction);
+        case IrInstructionIdCoroId:
+            return ir_render_coro_id(g, executable, (IrInstructionCoroId *)instruction);
+        case IrInstructionIdCoroAlloc:
+            return ir_render_coro_alloc(g, executable, (IrInstructionCoroAlloc *)instruction);
+        case IrInstructionIdCoroSize:
+            return ir_render_coro_size(g, executable, (IrInstructionCoroSize *)instruction);
+        case IrInstructionIdCoroBegin:
+            return ir_render_coro_begin(g, executable, (IrInstructionCoroBegin *)instruction);
+        case IrInstructionIdCoroAllocFail:
+            return ir_render_coro_alloc_fail(g, executable, (IrInstructionCoroAllocFail *)instruction);
+        case IrInstructionIdCoroSuspend:
+            return ir_render_coro_suspend(g, executable, (IrInstructionCoroSuspend *)instruction);
+        case IrInstructionIdCoroEnd:
+            return ir_render_coro_end(g, executable, (IrInstructionCoroEnd *)instruction);
+        case IrInstructionIdCoroFree:
+            return ir_render_coro_free(g, executable, (IrInstructionCoroFree *)instruction);
+        case IrInstructionIdCoroResume:
+            return ir_render_coro_resume(g, executable, (IrInstructionCoroResume *)instruction);
+        case IrInstructionIdCoroSave:
+            return ir_render_coro_save(g, executable, (IrInstructionCoroSave *)instruction);
+        case IrInstructionIdCoroPromise:
+            return ir_render_coro_promise(g, executable, (IrInstructionCoroPromise *)instruction);
+        case IrInstructionIdCoroAllocHelper:
+            return ir_render_coro_alloc_helper(g, executable, (IrInstructionCoroAllocHelper *)instruction);
+        case IrInstructionIdAtomicRmw:
+            return ir_render_atomic_rmw(g, executable, (IrInstructionAtomicRmw *)instruction);
     }
     zig_unreachable();
 }
 
 static void ir_render(CodeGen *g, FnTableEntry *fn_entry) {
     assert(fn_entry);
+
     IrExecutable *executable = &fn_entry->analyzed_executable;
     assert(executable->basic_block_list.length > 0);
     for (size_t block_i = 0; block_i < executable->basic_block_list.length; block_i += 1) {
@@ -4009,6 +4543,7 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Con
         case TypeTableEntryIdPointer:
         case TypeTableEntryIdFn:
         case TypeTableEntryIdMaybe:
+        case TypeTableEntryIdPromise:
             {
                 LLVMValueRef ptr_val = gen_const_val(g, const_val, "");
                 LLVMValueRef ptr_size_int_val = LLVMConstPtrToInt(ptr_val, g->builtin_types.entry_usize->type_ref);
@@ -4104,9 +4639,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                 TypeTableEntry *child_type = type_entry->data.maybe.child_type;
                 if (child_type->zero_bits) {
                     return LLVMConstInt(LLVMInt1Type(), const_val->data.x_maybe ? 1 : 0, false);
-                } else if (child_type->id == TypeTableEntryIdPointer ||
-                    child_type->id == TypeTableEntryIdFn)
-                {
+                } else if (type_is_codegen_pointer(child_type)) {
                     if (const_val->data.x_maybe) {
                         return gen_const_val(g, const_val->data.x_maybe, "");
                     } else {
@@ -4426,6 +4959,7 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
         case TypeTableEntryIdVar:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdPromise:
             zig_unreachable();
 
     }
@@ -5235,6 +5769,7 @@ static void define_builtin_types(CodeGen *g) {
 
     g->builtin_types.entry_u8 = get_int_type(g, false, 8);
     g->builtin_types.entry_u16 = get_int_type(g, false, 16);
+    g->builtin_types.entry_u29 = get_int_type(g, false, 29);
     g->builtin_types.entry_u32 = get_int_type(g, false, 32);
     g->builtin_types.entry_u64 = get_int_type(g, false, 64);
     g->builtin_types.entry_u128 = get_int_type(g, false, 128);
@@ -5269,6 +5804,10 @@ static void define_builtin_types(CodeGen *g) {
         g->err_enumerators.append(ZigLLVMCreateDebugEnumerator(g->dbuilder, "(none)", 0));
         g->errors_by_index.append(nullptr);
 
+        g->primitive_type_table.put(&entry->name, entry);
+    }
+    {
+        TypeTableEntry *entry = get_promise_type(g, nullptr);
         g->primitive_type_table.put(&entry->name, entry);
     }
 
@@ -5348,6 +5887,7 @@ static void define_builtin_fns(CodeGen *g) {
     create_builtin_fn(g, BuiltinFnIdArgType, "ArgType", 2);
     create_builtin_fn(g, BuiltinFnIdExport, "export", 3);
     create_builtin_fn(g, BuiltinFnIdErrorReturnTrace, "errorReturnTrace", 0);
+    create_builtin_fn(g, BuiltinFnIdAtomicRmw, "atomicRmw", 5);
 }
 
 static const char *bool_to_str(bool b) {
@@ -5475,6 +6015,20 @@ static void define_builtin_compile_vars(CodeGen *g) {
             "    Release,\n"
             "    AcqRel,\n"
             "    SeqCst,\n"
+            "};\n\n");
+    }
+    {
+        buf_appendf(contents,
+            "pub const AtomicRmwOp = enum {\n"
+            "    Xchg,\n"
+            "    Add,\n"
+            "    Sub,\n"
+            "    And,\n"
+            "    Nand,\n"
+            "    Or,\n"
+            "    Xor,\n"
+            "    Max,\n"
+            "    Min,\n"
             "};\n\n");
     }
     {
@@ -5898,6 +6452,7 @@ static void prepend_c_type_to_decl_list(CodeGen *g, GenH *gen_h, TypeTableEntry 
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdErrorUnion:
         case TypeTableEntryIdErrorSet:
+        case TypeTableEntryIdPromise:
             zig_unreachable();
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdUnreachable:
@@ -6027,9 +6582,7 @@ static void get_c_type(CodeGen *g, GenH *gen_h, TypeTableEntry *type_entry, Buf 
                 if (child_type->zero_bits) {
                     buf_init_from_str(out_buf, "bool");
                     return;
-                } else if (child_type->id == TypeTableEntryIdPointer ||
-                    child_type->id == TypeTableEntryIdFn)
-                {
+                } else if (type_is_codegen_pointer(child_type)) {
                     return get_c_type(g, gen_h, child_type, out_buf);
                 } else {
                     zig_unreachable();
@@ -6084,6 +6637,7 @@ static void get_c_type(CodeGen *g, GenH *gen_h, TypeTableEntry *type_entry, Buf 
         case TypeTableEntryIdNullLit:
         case TypeTableEntryIdVar:
         case TypeTableEntryIdArgTuple:
+        case TypeTableEntryIdPromise:
             zig_unreachable();
     }
 }
@@ -6244,6 +6798,7 @@ static void gen_h_file(CodeGen *g) {
             case TypeTableEntryIdArgTuple:
             case TypeTableEntryIdMaybe:
             case TypeTableEntryIdFn:
+            case TypeTableEntryIdPromise:
                 zig_unreachable();
             case TypeTableEntryIdEnum:
                 assert(type_entry->data.enumeration.layout == ContainerLayoutExtern);

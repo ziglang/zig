@@ -1,3 +1,5 @@
+const builtin = @import("builtin");
+
 comptime {
     _ = @import("cases/align.zig");
     _ = @import("cases/alignof.zig");
@@ -34,8 +36,8 @@ comptime {
     _ = @import("cases/sizeof_and_typeof.zig");
     _ = @import("cases/slice.zig");
     _ = @import("cases/struct.zig");
-    _ = @import("cases/struct_contains_slice_of_itself.zig");
     _ = @import("cases/struct_contains_null_ptr_itself.zig");
+    _ = @import("cases/struct_contains_slice_of_itself.zig");
     _ = @import("cases/switch.zig");
     _ = @import("cases/switch_prong_err_enum.zig");
     _ = @import("cases/switch_prong_implicit_cast.zig");
@@ -47,4 +49,15 @@ comptime {
     _ = @import("cases/var_args.zig");
     _ = @import("cases/void.zig");
     _ = @import("cases/while.zig");
+
+
+    // LLVM 5.0.1, 6.0.0, and trunk crash when attempting to optimize coroutine code.
+    // So, Zig does not support ReleaseFast or ReleaseSafe for coroutines yet.
+    // Luckily, Clang users are running into the same crashes, so folks from the LLVM
+    // community are working on fixes. If we're really lucky they'll be fixed in 6.0.1.
+    // Otherwise we can hope for 7.0.0.
+    if (builtin.mode == builtin.Mode.Debug) {
+        _ = @import("cases/coroutines.zig");
+    }
+
 }
