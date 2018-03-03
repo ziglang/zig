@@ -489,6 +489,10 @@ static LLVMValueRef fn_llvm_value(CodeGen *g, FnTableEntry *fn_table_entry) {
     } else {
         LLVMSetFunctionCallConv(fn_table_entry->llvm_value, get_llvm_cc(g, fn_type->data.fn.fn_type_id.cc));
     }
+    if (fn_type->data.fn.fn_type_id.cc == CallingConventionAsync) {
+        addLLVMFnAttr(fn_table_entry->llvm_value, "optnone");
+        addLLVMFnAttr(fn_table_entry->llvm_value, "noinline");
+    }
 
     bool want_cold = fn_table_entry->is_cold || fn_type->data.fn.fn_type_id.cc == CallingConventionCold;
     if (want_cold) {
