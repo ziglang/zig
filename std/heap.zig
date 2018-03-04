@@ -226,7 +226,7 @@ pub const ArenaAllocator = struct {
         return buf_node;
     }
 
-    fn alloc(allocator: &Allocator, n: usize, alignment: u29) ![]u8 {
+    fn alloc(allocator: &Allocator, n: usize, alignment: u29) mem.Allocator.Error![]u8 {
         const self = @fieldParentPtr(ArenaAllocator, "allocator", allocator);
 
         var cur_node = if (self.buffer_list.last) |last_node| last_node else try self.createNode(0, n + alignment);
@@ -247,7 +247,7 @@ pub const ArenaAllocator = struct {
         }
     }
 
-    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) ![]u8 {
+    fn realloc(allocator: &Allocator, old_mem: []u8, new_size: usize, alignment: u29) mem.Allocator.Error![]u8 {
         if (new_size <= old_mem.len) {
             return old_mem[0..new_size];
         } else {
