@@ -6,10 +6,10 @@ pub const Buffer = @import("buffer.zig").Buffer;
 pub const BufferOutStream = @import("buffer.zig").BufferOutStream;
 pub const HashMap = @import("hash_map.zig").HashMap;
 pub const LinkedList = @import("linked_list.zig").LinkedList;
-pub const MemoryPool = @import("mem_pool.zig").MemoryPool;
 pub const SimpleServer = @import("simple_server.zig").SimpleServer;
 pub const IntrusiveLinkedList = @import("linked_list.zig").IntrusiveLinkedList;
 
+pub const allocators = @import("allocators/index.zig");
 pub const base64 = @import("base64.zig");
 pub const build = @import("build.zig");
 pub const c = @import("c/index.zig");
@@ -43,6 +43,7 @@ test "std" {
     _ = @import("hash_map.zig");
     _ = @import("linked_list.zig");
 
+    _ = @import("allocators/index.zig");
     _ = @import("base64.zig");
     _ = @import("build.zig");
     _ = @import("c/index.zig");

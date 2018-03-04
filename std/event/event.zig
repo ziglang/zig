@@ -9,8 +9,6 @@ const event_os = switch (builtin.os) {
     else => @compileError("unsupported event os"),
 };
 
-error OsError;
-
 // All structs in this file are thin wrappers around the OS-specific versions
 // of the equivalent structs.  In some cases the internal OS implementations
 // rely on the fact that these two data types are identical, so there should

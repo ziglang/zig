@@ -1,29 +1,13 @@
 const builtin = @import("builtin");
-const ll = @import("linked_list.zig");
-const mem = @import("mem.zig");
-const linux = @import("os/linux/index.zig");
-
-fn raw_alloc_linux(bytes: usize) !usize {
-    const ret = linux.mmap(null, bytes, linux.PROT_READ | linux.PROT_WRITE,
-        linux.MAP_SHARED | linux.MAP_ANONYMOUS, -1, 0);
-    const err = linux.getErrno(ret);
-
-    return switch (err) {
-        0 => ret,
-        linux.ENOMEM => error.OutOfMemory,
-        else => error.Unexpected
-    };
-}
-
-const raw_alloc = switch (builtin.os) {
-    builtin.Os.linux => raw_alloc_linux,
-    else => @compileError("memory pools not supported on this OS")
-};
+const ll = @import("../linked_list.zig");
+const mem = @import("../mem.zig");
+const linux = @import("../os/linux/index.zig");
 
 pub const RawMemoryPool = struct {
     free_list: ll.LinkedList(void),
     n: usize,
-    pool: usize,
+    pool: []u8,
+    base_alloc: &mem.Allocator,
 
     const Self = this;
 
@@ -31,21 +15,24 @@ pub const RawMemoryPool = struct {
         linkage: ll.LinkedList(void).Node
     };
 
-    pub fn init(obj_size: usize, n: usize) !Self {
+    pub fn init(obj_size: usize, n: usize, base_alloc: &mem.Allocator) !Self {
         // XXX: best way to check for overflow here?
         const node_size = obj_size + @sizeOf(MemNode);
         const total_size = node_size * n;
-        const raw_mem = try raw_alloc(total_size);
+
+        const raw_mem = try base_alloc.alloc(u8, total_size);
 
         var pool = Self {
             .free_list = ll.LinkedList(void).init(),
             .n = n,
-            .pool = raw_mem
+            .pool = raw_mem,
+            .base_alloc = base_alloc
         };
 
         var i: usize = 0;
+        const pool_base = @ptrToInt(pool.pool.ptr);
         while (i < n) : (i += 1) {
-            var node = @intToPtr(&MemNode, pool.pool + i * node_size);
+            var node = @intToPtr(&MemNode, pool_base + i * node_size);
 
             node.linkage = ll.LinkedList(void).Node.init({});
 

@@ -1,18 +1,17 @@
 const builtin = @import("builtin");
-const debug = @import("debug/index.zig");
+const debug = @import("../debug/index.zig");
 const assert = debug.assert;
-const ll = @import("linked_list.zig");
-const mem = @import("mem.zig");
-const mp = @import("mem_pool.zig");
-const rand = @import("rand.zig");
+const ll = @import("../linked_list.zig");
+const mem = @import("../mem.zig");
+const rand = @import("../rand.zig");
+
+const allocs = @import("index.zig");
+const mp = allocs.mem_pool;
+const raw_alloc = allocs.raw_alloc;
 
 // XXX: make reasonable values for these
-// XXX: make the size class list a comptime argument to a function that
-// generates the type instead of being a global list
 const DEFAULT_SIZE_CLASSES = []usize { 8, 64, 1024, 4096 };
 const MAX_SIZE_CLASSES : usize = 64;
-
-// XXX: same deal with configurability
 const DEFAULT_POOL_COUNTS: usize = 16 * 1024;
 
 pub const GpAlloc = struct {
@@ -23,6 +22,7 @@ pub const GpAlloc = struct {
     pools: [MAX_SIZE_CLASSES]mp.RawMemoryPool,
     size_classes: [MAX_SIZE_CLASSES]usize,
     n_classes: usize,
+    base_alloc: &mem.Allocator,
 
     const Self = this;
 
@@ -50,15 +50,6 @@ pub const GpAlloc = struct {
         return &self.pools[size_class];
     }
 
-    fn raw_alloc(self: &mem.Allocator, n: usize) ![]u8 {
-        // XXX: mmap
-        return error.Unsupported;
-    }
-
-    fn raw_free(self: &mem.Allocator, bytes: []u8) void {
-        // XXX: munmap
-    }
-
     fn alloc(allocator: &mem.Allocator, n: usize,
             alignment: u29) mem.Allocator.Error![]u8 {
         var self = @fieldParentPtr(GpAlloc, "allocator", allocator);
@@ -67,17 +58,17 @@ pub const GpAlloc = struct {
 
     // This is mainly split out for testing purposes
     fn alloc_impl(self: &Self, n: usize, alignment: u29) ![]u8 {
-        // XXX: if this request is too big for any of the pre-defined pools then
-        // just create a separate buffer juts for it
+        // XXX: account for alignment
+
+        // if this request is too big for any of the pre-defined pools then
+        // fall back to the base allocator
         var size_class = self.get_size_class(n) ?? {
-            return raw_alloc(&self.allocator, n);
+            return self.base_alloc.alloc(u8, n);
         };
 
         var pool = &self.pools[size_class];
 
         const mem_base = try pool.alloc();
-
-        // XXX: account for alignment
 
         // mark the prefix metadata with the size class where this memory should
         // be returned to when it's freed
@@ -97,13 +88,14 @@ pub const GpAlloc = struct {
 
     fn free(allocator: &mem.Allocator, bytes: []u8) void {
         var self = @fieldParentPtr(GpAlloc, "allocator", allocator);
-        var payload = @ptrToInt(bytes.ptr);
         const size_class = self.get_size_class(bytes.len) ?? {
-            raw_free(allocator, bytes);
+            self.base_alloc.free(bytes);
             return;
         };
 
+        var payload = @ptrToInt(bytes.ptr);
         var md = @intToPtr(&AllocMd, payload - @sizeOf(AllocMd));
+
         if (builtin.mode == builtin.Mode.Debug) {
             assert(md.size_class == size_class);
         }
@@ -114,7 +106,8 @@ pub const GpAlloc = struct {
 
     // XXX: allow user to configure maximum memory usage at creation time
     // XXX: provide option to grow pools on demand
-    pub fn init(size_classes: []const usize, pool_counts: usize) !Self {
+    pub fn init(size_classes: []const usize, pool_counts: usize,
+            base_alloc: &mem.Allocator) !Self {
         if (size_classes.len > MAX_SIZE_CLASSES) {
             return error.OutOfMemory;
         }
@@ -128,14 +121,15 @@ pub const GpAlloc = struct {
             },
             .pools = []mp.RawMemoryPool { undef_pool } ** MAX_SIZE_CLASSES,
             .size_classes = []usize { 0 } ** MAX_SIZE_CLASSES,
-            .n_classes = size_classes.len
+            .n_classes = size_classes.len,
+            .base_alloc = base_alloc
         };
 
         const pool_base: usize = @ptrToInt(&res.pools);
         for (size_classes) |size_class, i| {
             res.size_classes[i] = size_class;
             res.pools[i] = try mp.RawMemoryPool.init(
-                size_class + @sizeOf(AllocMd),pool_counts);
+                size_class + @sizeOf(AllocMd),pool_counts, base_alloc);
             errdefer {
                 res.pools[i].deinit() catch unreachable;
             }
@@ -144,9 +138,9 @@ pub const GpAlloc = struct {
         return res;
     }
 
-    pub fn default() !Self {
+    pub fn default(base_alloc: &mem.Allocator) !Self {
         return Self.init(DEFAULT_SIZE_CLASSES[0..DEFAULT_SIZE_CLASSES.len],
-            DEFAULT_POOL_COUNTS);
+            DEFAULT_POOL_COUNTS, base_alloc);
     }
 };
 
@@ -164,7 +158,8 @@ const N_ALLOC: usize = 4096;
 const N_ROUNDS: usize = N_ALLOC * 2;
 
 test "memory_available" {
-    var gp_allocator = GpAlloc.default() catch unreachable;
+    var raw_allocator = raw_alloc.RawAllocator.init();
+    var gp_allocator = GpAlloc.default(&raw_allocator.allocator) catch unreachable;
     var allocator = &gp_allocator.allocator;
 
     // pick a fixed size so we always draw from the same size class
@@ -204,7 +199,8 @@ test "memory_available" {
 // allocate and free a bunch of memory over and over and make sure that we never
 // hand out overlapping chunks
 test "no_overlap" {
-    var gp_allocator = GpAlloc.default() catch unreachable;
+    var raw_allocator = raw_alloc.RawAllocator.init();
+    var gp_allocator = GpAlloc.default(&raw_allocator.allocator) catch unreachable;
     var allocator = &gp_allocator.allocator;
 
     const base_allocation = TestAllocation {
