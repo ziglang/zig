@@ -124,7 +124,7 @@ libc. Create demo games using Zig.
 ##### POSIX
 
  * cmake >= 2.8.5
- * gcc >= 5.0.0 or clang >= 3.6.0
+ * g++ >= 5.0.0 or clang >= 3.6.0
  * LLVM, Clang, LLD libraries == 5.0.1, compiled with the same gcc or clang version above
 
 ##### Windows
