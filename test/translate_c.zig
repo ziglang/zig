@@ -1083,6 +1083,21 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\}
     );
 
+    cases.add("bool not",
+        \\int foo(int x) {
+        \\    return !(x == 0);
+        \\    return !x;
+        \\}
+    ,
+        \\pub fn foo(x: c_int) c_int {
+        \\    return !(x == 0);
+        \\    return !__to_bool_expr: {
+        \\        const _tmp = x;
+        \\        break :__to_bool_expr @bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0;
+        \\    };
+        \\}
+    );
+
     cases.add("primitive types included in defined symbols",
         \\int foo(int u32) {
         \\    return u32;
@@ -1110,7 +1125,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
     );
 
     cases.add("macro pointer cast",
-        \\#define NRF_GPIO ((NRF_GPIO_Type *) NRF_GPIO_BASE) 
+        \\#define NRF_GPIO ((NRF_GPIO_Type *) NRF_GPIO_BASE)
     ,
         \\pub const NRF_GPIO = if (@typeId(@typeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Pointer) @ptrCast(&NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeId(@typeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Int) @intToPtr(&NRF_GPIO_Type, NRF_GPIO_BASE) else (&NRF_GPIO_Type)(NRF_GPIO_BASE);
     );

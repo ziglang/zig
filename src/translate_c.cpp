@@ -118,7 +118,7 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
 static TransScope *trans_stmt(Context *c, TransScope *scope, const Stmt *stmt, AstNode **out_node);
 static AstNode *trans_expr(Context *c, ResultUsed result_used, TransScope *scope, const Expr *expr, TransLRValue lrval);
 static AstNode *trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc);
-
+static AstNode *trans_to_bool_expr(Context *c, TransScope *scope, AstNode *expr);
 
 ATTRIBUTE_PRINTF(3, 4)
 static void emit_warning(Context *c, const SourceLocation &sl, const char *format, ...) {
@@ -632,7 +632,7 @@ static bool c_is_signed_integer(Context *c, QualType qt) {
         case BuiltinType::Int128:
         case BuiltinType::WChar_S:
             return true;
-        default: 
+        default:
             return false;
     }
 }
@@ -653,7 +653,7 @@ static bool c_is_unsigned_integer(Context *c, QualType qt) {
         case BuiltinType::UInt128:
         case BuiltinType::WChar_U:
             return true;
-        default: 
+        default:
             return false;
     }
 }
@@ -678,7 +678,7 @@ static bool c_is_float(Context *c, QualType qt) {
         case BuiltinType::Float128:
         case BuiltinType::LongDouble:
             return true;
-        default: 
+        default:
             return false;
     }
 }
@@ -1389,7 +1389,7 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
         if (result_used == ResultUsedYes) {
             // break :x *_ref
             child_scope->node->data.block.statements.append(
-                trans_create_node_break(c, label_name, 
+                trans_create_node_break(c, label_name,
                     trans_create_node_prefix_op(c, PrefixOpDereference,
                         trans_create_node_symbol(c, tmp_var_name))));
         }
@@ -1918,7 +1918,7 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
                 switch (stmt->getOpcode()) {
                     case UO_LNot:
                         // TODO: Handle int, float, pointer negation
-                        return trans_create_node_prefix_op(c, PrefixOpBoolNot, sub_node);
+                        return trans_create_node_prefix_op(c, PrefixOpBoolNot, trans_to_bool_expr(c, scope, sub_node));
                     case UO_Not:
                         return trans_create_node_prefix_op(c, PrefixOpBinNot, sub_node);
                     default:
@@ -2291,7 +2291,7 @@ static AstNode *trans_while_loop(Context *c, TransScope *scope, const WhileStmt 
 
     TransScope *body_scope = trans_stmt(c, &while_scope->base, stmt->getBody(),
             &while_scope->node->data.while_expr.body);
-    if (body_scope == nullptr) 
+    if (body_scope == nullptr)
         return nullptr;
 
     return while_scope->node;
