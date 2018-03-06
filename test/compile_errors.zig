@@ -2440,7 +2440,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\const Derp = @OpaqueType();
         \\extern fn bar(d: &Derp) void;
         \\export fn foo() void {
-        \\    const x = u8(1);
+        \\    var x = u8(1);
         \\    bar(@ptrCast(&c_void, &x));
         \\}
     ,
