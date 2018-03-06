@@ -96,7 +96,7 @@ pub fn utf8ValidateSlice(s: []const u8) bool {
     return true;
 }
 
-/// Utf8View makes it easy to iterate the code points of a utf-8 encoded string.
+/// Utf8View iterates the code points of a utf-8 encoded string.
 ///
 /// ```
 /// var utf8 = (try std.unicode.Utf8View.init("hi there")).iterator();
