@@ -761,7 +761,7 @@ static FloatAbi get_float_abi(ZigTarget *target) {
     {
         return FloatAbiHard;
     } else {
-        zig_panic("TODO: user needs to input if they want hard or soft floating point");
+        return FloatAbiSoft;
     }
 }
 
