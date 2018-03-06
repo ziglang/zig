@@ -96,7 +96,15 @@ pub fn utf8ValidateSlice(s: []const u8) bool {
     return true;
 }
 
-const Utf8View = struct {
+/// Utf8View makes it easy to iterate the code points of a utf-8 encoded string.
+///
+/// ```
+/// var utf8 = (try std.unicode.Utf8View.init("hi there")).iterator();
+/// while (utf8.nextCodepointSlice()) |codepoint| {
+///   std.debug.warn("got codepoint {}\n", codepoint);
+/// }
+/// ```
+pub const Utf8View = struct {
     bytes: []const u8,
 
     pub fn init(s: []const u8) !Utf8View {
@@ -124,7 +132,7 @@ const Utf8View = struct {
         }
     }
 
-    pub fn Iterator(s: &const Utf8View) Utf8Iterator {
+    pub fn iterator(s: &const Utf8View) Utf8Iterator {
         return Utf8Iterator {
             .bytes = s.bytes,
             .i = 0,
@@ -165,13 +173,13 @@ const Utf8Iterator = struct {
 test "utf8 iterator on ascii" {
     const s = Utf8View.initComptime("abc");
 
-    var it1 = s.Iterator();
+    var it1 = s.iterator();
     debug.assert(std.mem.eql(u8, "a", ??it1.nextCodepointSlice()));
     debug.assert(std.mem.eql(u8, "b", ??it1.nextCodepointSlice()));
     debug.assert(std.mem.eql(u8, "c", ??it1.nextCodepointSlice()));
     debug.assert(it1.nextCodepointSlice() == null);
 
-    var it2 = s.Iterator();
+    var it2 = s.iterator();
     debug.assert(??it2.nextCodepoint() == 'a');
     debug.assert(??it2.nextCodepoint() == 'b');
     debug.assert(??it2.nextCodepoint() == 'c');
@@ -189,13 +197,13 @@ test "utf8 view bad" {
 test "utf8 view ok" {
     const s = Utf8View.initComptime("東京市");
 
-    var it1 = s.Iterator();
+    var it1 = s.iterator();
     debug.assert(std.mem.eql(u8, "東", ??it1.nextCodepointSlice()));
     debug.assert(std.mem.eql(u8, "京", ??it1.nextCodepointSlice()));
     debug.assert(std.mem.eql(u8, "市", ??it1.nextCodepointSlice()));
     debug.assert(it1.nextCodepointSlice() == null);
 
-    var it2 = s.Iterator();
+    var it2 = s.iterator();
     debug.assert(??it2.nextCodepoint() == 0x6771);
     debug.assert(??it2.nextCodepoint() == 0x4eac);
     debug.assert(??it2.nextCodepoint() == 0x5e02);
