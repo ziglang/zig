@@ -1124,15 +1124,62 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    }
         \\}
     ,
-        \\pub fn if_int(i: c_int) c_int {
-        \\    {
-        \\        const _tmp = i;
-        \\        if (@bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0) {
-        \\            return 0;
-        \\        } else {
-        \\            return 1;
-        \\        };
-        \\    };
+       \\pub fn if_int(i: c_int) c_int {
+       \\    if (__to_bool_expr: {
+       \\        const _tmp = i;
+       \\        break :__to_bool_expr @bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0;
+       \\    }) {
+       \\        return 0;
+       \\    } else {
+       \\        return 1;
+       \\    };
+       \\}
+    );
+
+    cases.add("while on int",
+        \\int while_int(int i) {
+        \\    while (i) {
+        \\        return 0;
+        \\    }
         \\}
+    ,
+       \\pub fn while_int(i: c_int) c_int {
+       \\    while (__to_bool_expr: {
+       \\        const _tmp = i;
+       \\        break :__to_bool_expr @bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0;
+       \\    }) {
+       \\        return 0;
+       \\    };
+       \\}
+    );
+
+    cases.add("for on int",
+        \\int for_int(int i) {
+        \\    for (;i;) {
+        \\        return 0;
+        \\    }
+        \\
+        \\    for (int j = 4;j;j--) {
+        \\        return 0;
+        \\    }
+        \\}
+    ,
+       \\pub fn for_int(i: c_int) c_int {
+       \\    while (__to_bool_expr: {
+       \\        const _tmp = i;
+       \\        break :__to_bool_expr @bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0;
+       \\    }) {
+       \\        return 0;
+       \\    };
+       \\    {
+       \\        var j: c_int = 4;
+       \\        while (__to_bool_expr: {
+       \\            const _tmp = j;
+       \\            break :__to_bool_expr @bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0;
+       \\        }) : (j -= 1) {
+       \\            return 0;
+       \\        };
+       \\    };
+       \\}
     );
 }
