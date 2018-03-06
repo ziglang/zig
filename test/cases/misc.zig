@@ -261,7 +261,7 @@ test "generic malloc free" {
     const a = memAlloc(u8, 10) catch unreachable;
     memFree(u8, a);
 }
-const some_mem : [100]u8 = undefined;
+var some_mem : [100]u8 = undefined;
 fn memAlloc(comptime T: type, n: usize) error![]T {
     return @ptrCast(&T, &some_mem[0])[0..n];
 }

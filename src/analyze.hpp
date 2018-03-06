@@ -55,6 +55,7 @@ bool type_is_codegen_pointer(TypeTableEntry *type);
 
 TypeTableEntry *get_codegen_ptr_type(TypeTableEntry *type);
 uint32_t get_ptr_align(TypeTableEntry *type);
+bool get_ptr_const(TypeTableEntry *type);
 TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEntry *type_entry);
 TypeTableEntry *container_ref_type(TypeTableEntry *type_entry);
 bool type_is_complete(TypeTableEntry *type_entry);

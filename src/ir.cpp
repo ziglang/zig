@@ -16816,6 +16816,11 @@ static TypeTableEntry *ir_analyze_instruction_ptr_cast(IrAnalyze *ira, IrInstruc
         return ira->codegen->builtin_types.entry_invalid;
     }
 
+    if (get_ptr_const(src_type) && !get_ptr_const(dest_type)) {
+        ir_add_error(ira, &instruction->base, buf_sprintf("cast discards const qualifier"));
+        return ira->codegen->builtin_types.entry_invalid;
+    }
+
     if (instr_is_comptime(ptr)) {
         ConstExprValue *val = ir_resolve_const(ira, ptr, UndefOk);
         if (!val)

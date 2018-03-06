@@ -50,9 +50,7 @@ pub const BufSet = struct {
     }
 
     fn free(self: &BufSet, value: []const u8) void {
-        // remove the const
-        const mut_value = @ptrCast(&u8, value.ptr)[0..value.len];
-        self.hash_map.allocator.free(mut_value);
+        self.hash_map.allocator.free(value);
     }
 
     fn copy(self: &BufSet, value: []const u8) ![]const u8 {

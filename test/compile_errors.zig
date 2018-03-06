@@ -1,6 +1,14 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("@ptrCast discards const qualifier",
+        \\export fn entry() void {
+        \\    const x: i32 = 1234;
+        \\    const y = @ptrCast(&i32, &x);
+        \\}
+    ,
+        ".tmp_source.zig:3:15: error: cast discards const qualifier");
+
     cases.add("comptime slice of undefined pointer non-zero len",
         \\export fn entry() void {
         \\    const slice = (&i32)(undefined)[0..1];

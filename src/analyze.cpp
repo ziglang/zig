@@ -3753,6 +3753,19 @@ uint32_t get_ptr_align(TypeTableEntry *type) {
     }
 }
 
+bool get_ptr_const(TypeTableEntry *type) {
+    TypeTableEntry *ptr_type = get_codegen_ptr_type(type);
+    if (ptr_type->id == TypeTableEntryIdPointer) {
+        return ptr_type->data.pointer.is_const;
+    } else if (ptr_type->id == TypeTableEntryIdFn) {
+        return true;
+    } else if (ptr_type->id == TypeTableEntryIdPromise) {
+        return true;
+    } else {
+        zig_unreachable();
+    }
+}
+
 AstNode *get_param_decl_node(FnTableEntry *fn_entry, size_t index) {
     if (fn_entry->param_source_nodes)
         return fn_entry->param_source_nodes[index];
