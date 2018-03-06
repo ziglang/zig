@@ -15821,9 +15821,13 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
     TypeTableEntry *return_type;
 
     if (array_type->id == TypeTableEntryIdArray) {
+        uint32_t byte_alignment = ptr_type->data.pointer.alignment;
+        if (array_type->data.array.len == 0 && byte_alignment == 0) {
+            byte_alignment = get_abi_alignment(ira->codegen, array_type->data.array.child_type);
+        }
         TypeTableEntry *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, array_type->data.array.child_type,
             ptr_type->data.pointer.is_const, ptr_type->data.pointer.is_volatile,
-            ptr_type->data.pointer.alignment, 0, 0);
+            byte_alignment, 0, 0);
         return_type = get_slice_type(ira->codegen, slice_ptr_type);
     } else if (array_type->id == TypeTableEntryIdPointer) {
         TypeTableEntry *slice_ptr_type = get_pointer_to_type_extra(ira->codegen, array_type->data.pointer.child_type,
