@@ -1907,17 +1907,23 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
                     return nullptr;
                 }
             }
+        case UO_LNot:
         case UO_Not:
             {
                 Expr *op_expr = stmt->getSubExpr();
                 AstNode *sub_node = trans_expr(c, ResultUsedYes, scope, op_expr, TransRValue);
                 if (sub_node == nullptr)
                     return nullptr;
-                return trans_create_node_prefix_op(c, PrefixOpBinNot, sub_node);
+
+                switch (stmt->getOpcode()) {
+                    case UO_LNot:
+                        return trans_create_node_prefix_op(c, PrefixOpBoolNot, sub_node);
+                    case UO_Not:
+                        return trans_create_node_prefix_op(c, PrefixOpBinNot, sub_node);
+                    default:
+                        zig_unreachable();
+                }
             }
-        case UO_LNot:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_LNot");
-            return nullptr;
         case UO_Real:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_Real");
             return nullptr;
