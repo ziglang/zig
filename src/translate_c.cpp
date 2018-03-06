@@ -1917,7 +1917,6 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
 
                 switch (stmt->getOpcode()) {
                     case UO_LNot:
-                        // TODO: Handle int, float, pointer negation
                         return trans_create_node_prefix_op(c, PrefixOpBoolNot, trans_to_bool_expr(c, scope, sub_node));
                     case UO_Not:
                         return trans_create_node_prefix_op(c, PrefixOpBinNot, sub_node);
