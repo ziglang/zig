@@ -118,7 +118,7 @@ static int trans_stmt_extra(Context *c, TransScope *scope, const Stmt *stmt,
 static TransScope *trans_stmt(Context *c, TransScope *scope, const Stmt *stmt, AstNode **out_node);
 static AstNode *trans_expr(Context *c, ResultUsed result_used, TransScope *scope, const Expr *expr, TransLRValue lrval);
 static AstNode *trans_qual_type(Context *c, QualType qt, const SourceLocation &source_loc);
-
+static AstNode *trans_to_bool_expr(Context *c, TransScope *scope, AstNode *expr);
 
 ATTRIBUTE_PRINTF(3, 4)
 static void emit_warning(Context *c, const SourceLocation &sl, const char *format, ...) {
@@ -632,7 +632,7 @@ static bool c_is_signed_integer(Context *c, QualType qt) {
         case BuiltinType::Int128:
         case BuiltinType::WChar_S:
             return true;
-        default: 
+        default:
             return false;
     }
 }
@@ -653,7 +653,7 @@ static bool c_is_unsigned_integer(Context *c, QualType qt) {
         case BuiltinType::UInt128:
         case BuiltinType::WChar_U:
             return true;
-        default: 
+        default:
             return false;
     }
 }
@@ -678,7 +678,7 @@ static bool c_is_float(Context *c, QualType qt) {
         case BuiltinType::Float128:
         case BuiltinType::LongDouble:
             return true;
-        default: 
+        default:
             return false;
     }
 }
@@ -1389,7 +1389,7 @@ static AstNode *trans_create_compound_assign_shift(Context *c, ResultUsed result
         if (result_used == ResultUsedYes) {
             // break :x *_ref
             child_scope->node->data.block.statements.append(
-                trans_create_node_break(c, label_name, 
+                trans_create_node_break(c, label_name,
                     trans_create_node_prefix_op(c, PrefixOpDereference,
                         trans_create_node_symbol(c, tmp_var_name))));
         }
@@ -1907,17 +1907,23 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
                     return nullptr;
                 }
             }
+        case UO_LNot:
         case UO_Not:
             {
                 Expr *op_expr = stmt->getSubExpr();
                 AstNode *sub_node = trans_expr(c, ResultUsedYes, scope, op_expr, TransRValue);
                 if (sub_node == nullptr)
                     return nullptr;
-                return trans_create_node_prefix_op(c, PrefixOpBinNot, sub_node);
+
+                switch (stmt->getOpcode()) {
+                    case UO_LNot:
+                        return trans_create_node_prefix_op(c, PrefixOpBoolNot, trans_to_bool_expr(c, scope, sub_node));
+                    case UO_Not:
+                        return trans_create_node_prefix_op(c, PrefixOpBinNot, sub_node);
+                    default:
+                        zig_unreachable();
+                }
             }
-        case UO_LNot:
-            emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_LNot");
-            return nullptr;
         case UO_Real:
             emit_warning(c, stmt->getLocStart(), "TODO handle C translation UO_Real");
             return nullptr;
@@ -2197,16 +2203,94 @@ static int trans_local_declaration(Context *c, TransScope *scope, const DeclStmt
     return ErrorNone;
 }
 
+static AstNode *trans_to_bool_expr(Context *c, TransScope *scope, AstNode *expr) {
+    switch (expr->type) {
+        case NodeTypeBinOpExpr:
+            switch (expr->data.bin_op_expr.bin_op) {
+                case BinOpTypeBoolOr:
+                case BinOpTypeBoolAnd:
+                case BinOpTypeCmpEq:
+                case BinOpTypeCmpNotEq:
+                case BinOpTypeCmpLessThan:
+                case BinOpTypeCmpGreaterThan:
+                case BinOpTypeCmpLessOrEq:
+                case BinOpTypeCmpGreaterOrEq:
+                    return expr;
+                default:
+                    goto convert_to_bitcast;
+            }
+
+        case NodeTypePrefixOpExpr:
+            switch (expr->data.prefix_op_expr.prefix_op) {
+                case PrefixOpBoolNot:
+                    return expr;
+                default:
+                    goto convert_to_bitcast;
+            }
+
+        case NodeTypeBoolLiteral:
+            return expr;
+
+        default: {
+            // In Zig, float, int and pointer does not implicitly cast to bool.
+            // To make it work, we bitcast any value we get to an int of the right size
+            // and comp it to 0
+            // TODO: This doesn't work for pointers, as they become nullable on
+            //       translate
+            // c: expr
+            // zig: __to_bool_expr: {
+            // zig:     const _tmp = cond;
+            // zig:     break :__to_bool_expr @bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0;
+            // zig: }
+            convert_to_bitcast:
+            TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
+            Buf *label_name = buf_create_from_str("__to_bool_expr");
+            child_scope->node->data.block.name = label_name;
+
+            // const _tmp = cond;
+            // TODO: avoid name collisions with generated variable names
+            Buf *tmp_var_name = buf_create_from_str("_tmp");
+            AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr, expr);
+            child_scope->node->data.block.statements.append(tmp_var_decl);
+
+            // @sizeOf(@typeOf(_tmp)) * 8
+            AstNode *typeof_tmp = trans_create_node_builtin_fn_call_str(c, "typeOf");
+            typeof_tmp->data.fn_call_expr.params.append(trans_create_node_symbol(c, tmp_var_name));
+            AstNode *sizeof_tmp = trans_create_node_builtin_fn_call_str(c, "sizeOf");
+            sizeof_tmp->data.fn_call_expr.params.append(typeof_tmp);
+            AstNode *sizeof_tmp_in_bits = trans_create_node_bin_op(
+                    c, sizeof_tmp, BinOpTypeMult,
+                    trans_create_node_unsigned_negative(c, 8, false));
+
+            // @IntType(false, @sizeOf(@typeOf(_tmp)) * 8)
+            AstNode *int_type = trans_create_node_builtin_fn_call_str(c, "IntType");
+            int_type->data.fn_call_expr.params.append(trans_create_node_bool(c, false));
+            int_type->data.fn_call_expr.params.append(sizeof_tmp_in_bits);
+
+            // @bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp)
+            AstNode *bit_cast = trans_create_node_builtin_fn_call_str(c, "bitCast");
+            bit_cast->data.fn_call_expr.params.append(int_type);
+            bit_cast->data.fn_call_expr.params.append(trans_create_node_symbol(c, tmp_var_name));
+
+            // break :__to_bool_expr @bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0
+            AstNode *not_eql_zero = trans_create_node_bin_op(c, bit_cast, BinOpTypeCmpNotEq, trans_create_node_unsigned_negative(c, 0, false));
+            child_scope->node->data.block.statements.append(trans_create_node_break(c, label_name, not_eql_zero));
+
+            return child_scope->node;
+        }
+    }
+}
+
 static AstNode *trans_while_loop(Context *c, TransScope *scope, const WhileStmt *stmt) {
     TransScopeWhile *while_scope = trans_scope_while_create(c, scope);
 
-    while_scope->node->data.while_expr.condition = trans_expr(c, ResultUsedYes, scope, stmt->getCond(), TransRValue);
+    while_scope->node->data.while_expr.condition = trans_to_bool_expr(c, scope, trans_expr(c, ResultUsedYes, scope, stmt->getCond(), TransRValue));
     if (while_scope->node->data.while_expr.condition == nullptr)
         return nullptr;
 
     TransScope *body_scope = trans_stmt(c, &while_scope->base, stmt->getBody(),
             &while_scope->node->data.while_expr.body);
-    if (body_scope == nullptr) 
+    if (body_scope == nullptr)
         return nullptr;
 
     return while_scope->node;
@@ -2231,83 +2315,8 @@ static AstNode *trans_if_statement(Context *c, TransScope *scope, const IfStmt *
     if (condition_node == nullptr)
         return nullptr;
 
-    switch (condition_node->type) {
-        case NodeTypeBinOpExpr:
-            switch (condition_node->data.bin_op_expr.bin_op) {
-                case BinOpTypeBoolOr:
-                case BinOpTypeBoolAnd:
-                case BinOpTypeCmpEq:
-                case BinOpTypeCmpNotEq:
-                case BinOpTypeCmpLessThan:
-                case BinOpTypeCmpGreaterThan:
-                case BinOpTypeCmpLessOrEq:
-                case BinOpTypeCmpGreaterOrEq:
-                    if_node->data.if_bool_expr.condition = condition_node;
-                    return if_node;
-                default:
-                    goto convert_to_bitcast;
-            }
-
-        case NodeTypePrefixOpExpr:
-            switch (condition_node->data.prefix_op_expr.prefix_op) {
-                case PrefixOpBoolNot:
-                    if_node->data.if_bool_expr.condition = condition_node;
-                    return if_node;
-                default:
-                    goto convert_to_bitcast;
-            }
-
-        case NodeTypeBoolLiteral:
-            if_node->data.if_bool_expr.condition = condition_node;
-            return if_node;
-
-        default: {
-        // In Zig, float, int and pointer does not work in if statements.
-        // To make it work, we bitcast any value we get to an int of the right size
-        // and comp it to 0
-        // TODO: This doesn't work for pointers, as they become nullable on
-        //       translate
-        // c: if (cond) { }
-        // zig: {
-        // zig:     const _tmp = cond;
-        // zig:     if (@bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0) { }
-        // zig: }
-        convert_to_bitcast:
-            TransScopeBlock *child_scope = trans_scope_block_create(c, scope);
-
-            // const _tmp = cond;
-            // TODO: avoid name collisions with generated variable names
-            Buf* tmp_var_name = buf_create_from_str("_tmp");
-            AstNode *tmp_var_decl = trans_create_node_var_decl_local(c, true, tmp_var_name, nullptr, condition_node);
-            child_scope->node->data.block.statements.append(tmp_var_decl);
-
-            // @sizeOf(@typeOf(_tmp)) * 8
-            AstNode *typeof_tmp = trans_create_node_builtin_fn_call_str(c, "typeOf");
-            typeof_tmp->data.fn_call_expr.params.append(trans_create_node_symbol(c, tmp_var_name));
-            AstNode *sizeof_tmp = trans_create_node_builtin_fn_call_str(c, "sizeOf");
-            sizeof_tmp->data.fn_call_expr.params.append(typeof_tmp);
-            AstNode *sizeof_tmp_in_bits = trans_create_node_bin_op(
-                c, sizeof_tmp, BinOpTypeMult,
-                trans_create_node_unsigned_negative(c, 8, false));
-
-            // @IntType(false, @sizeOf(@typeOf(_tmp)) * 8)
-            AstNode *int_type = trans_create_node_builtin_fn_call_str(c, "IntType");
-            int_type->data.fn_call_expr.params.append(trans_create_node_bool(c, false));
-            int_type->data.fn_call_expr.params.append(sizeof_tmp_in_bits);
-
-            // @bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp)
-            AstNode *bit_cast = trans_create_node_builtin_fn_call_str(c, "bitCast");
-            bit_cast->data.fn_call_expr.params.append(int_type);
-            bit_cast->data.fn_call_expr.params.append(trans_create_node_symbol(c, tmp_var_name));
-
-            // if (@bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0) { }
-            AstNode *not_eql_zero = trans_create_node_bin_op(c, bit_cast, BinOpTypeCmpNotEq, trans_create_node_unsigned_negative(c, 0, false));
-            if_node->data.if_bool_expr.condition = not_eql_zero;
-            child_scope->node->data.block.statements.append(if_node);
-
-            return child_scope->node;
-        }
-    }
+    if_node->data.if_bool_expr.condition = trans_to_bool_expr(c, scope, condition_node);
+    return if_node;
 }
 
 static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *scope, const CallExpr *stmt) {
@@ -2496,6 +2505,8 @@ static AstNode *trans_for_loop(Context *c, TransScope *parent_scope, const ForSt
                 &while_scope->node->data.while_expr.condition);
         if (end_cond_scope == nullptr)
             return nullptr;
+
+        while_scope->node->data.while_expr.condition = trans_to_bool_expr(c, cond_scope, while_scope->node->data.while_expr.condition);
     }
 
     const Stmt *inc_stmt = stmt->getInc();
