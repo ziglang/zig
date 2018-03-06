@@ -1,6 +1,13 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("var not allowed in structs",
+        \\export fn entry() void {
+        \\   var s = (struct{v: var}){.v=i32(10)};
+        \\}
+    ,
+        ".tmp_source.zig:2:23: error: invalid token: 'var'");
+
     cases.add("@ptrCast discards const qualifier",
         \\export fn entry() void {
         \\    const x: i32 = 1234;

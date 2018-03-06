@@ -4508,7 +4508,6 @@ static LLVMValueRef pack_const_int(CodeGen *g, LLVMTypeRef big_int_type_ref, Con
     assert(!type_entry->zero_bits);
     switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
-        case TypeTableEntryIdVar:
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdUnreachable:
         case TypeTableEntryIdNumLitFloat:
@@ -4960,7 +4959,6 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
-        case TypeTableEntryIdVar:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
         case TypeTableEntryIdPromise:
@@ -5610,11 +5608,6 @@ static void define_builtin_types(CodeGen *g) {
         buf_init_from_str(&entry->name, "(null)");
         entry->zero_bits = true;
         g->builtin_types.entry_null = entry;
-    }
-    {
-        TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdVar);
-        buf_init_from_str(&entry->name, "(var)");
-        g->builtin_types.entry_var = entry;
     }
     {
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdArgTuple);
@@ -6444,7 +6437,6 @@ static void prepend_c_type_to_decl_list(CodeGen *g, GenH *gen_h, TypeTableEntry 
 
     switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
-        case TypeTableEntryIdVar:
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
@@ -6639,7 +6631,6 @@ static void get_c_type(CodeGen *g, GenH *gen_h, TypeTableEntry *type_entry, Buf 
         case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdUndefLit:
         case TypeTableEntryIdNullLit:
-        case TypeTableEntryIdVar:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdPromise:
             zig_unreachable();
@@ -6781,7 +6772,6 @@ static void gen_h_file(CodeGen *g) {
         TypeTableEntry *type_entry = gen_h->types_to_declare.at(type_i);
         switch (type_entry->id) {
             case TypeTableEntryIdInvalid:
-            case TypeTableEntryIdVar:
             case TypeTableEntryIdMetaType:
             case TypeTableEntryIdVoid:
             case TypeTableEntryIdBool:
