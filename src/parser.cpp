@@ -2315,7 +2315,7 @@ static AstNode *ast_parse_expression(ParseContext *pc, size_t *token_index, bool
     return nullptr;
 }
 
-static bool statement_terminates_without_semicolon(AstNode *node) {
+bool statement_terminates_without_semicolon(AstNode *node) {
     switch (node->type) {
         case NodeTypeIfBoolExpr:
             if (node->data.if_bool_expr.else_node)

@@ -351,7 +351,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    var i: c_int = 0;
         \\    while (a > c_uint(0)) {
         \\        a >>= @import("std").math.Log2Int(c_uint)(1);
-        \\    };
+        \\    }
         \\    return i;
         \\}
     );
@@ -498,7 +498,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    var i: c_int = 0;
         \\    while (a > c_uint(0)) {
         \\        a >>= u5(1);
-        \\    };
+        \\    }
         \\    return i;
         \\}
     );
@@ -867,12 +867,12 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    while (true) {
         \\        a -= 1;
         \\        if (!(a != 0)) break;
-        \\    };
+        \\    }
         \\    var b: c_int = 2;
         \\    while (true) {
         \\        b -= 1;
         \\        if (!(b != 0)) break;
-        \\    };
+        \\    }
         \\}
     );
 
@@ -962,8 +962,8 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\pub fn foo() void {
         \\    {
         \\        var i: c_int = 0;
-        \\        while (i < 10) : (i += 1) {};
-        \\    };
+        \\        while (i < 10) : (i += 1) {}
+        \\    }
         \\}
     );
 
@@ -973,7 +973,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\}
     ,
         \\pub fn foo() void {
-        \\    while (true) {};
+        \\    while (true) {}
         \\}
     );
 
@@ -987,7 +987,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\pub fn foo() void {
         \\    while (true) {
         \\        break;
-        \\    };
+        \\    }
         \\}
     );
 
@@ -1001,7 +1001,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\pub fn foo() void {
         \\    while (true) {
         \\        continue;
-        \\    };
+        \\    }
         \\}
     );
 
@@ -1058,7 +1058,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    {
         \\        var x_0: c_int = 2;
         \\        x_0 += 1;
-        \\    };
+        \\    }
         \\    return x;
         \\}
     );
@@ -1147,7 +1147,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
        \\        return 0;
        \\    } else {
        \\        return 1;
-       \\    };
+       \\    }
        \\}
     );
 
@@ -1164,7 +1164,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
        \\        break :__to_bool_expr @bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0;
        \\    }) {
        \\        return 0;
-       \\    };
+       \\    }
        \\}
     );
 
@@ -1185,7 +1185,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
        \\        break :__to_bool_expr @bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0;
        \\    }) {
        \\        return 0;
-       \\    };
+       \\    }
        \\    {
        \\        var j: c_int = 4;
        \\        while (__to_bool_expr: {
@@ -1193,8 +1193,8 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
        \\            break :__to_bool_expr @bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0;
        \\        }) : (j -= 1) {
        \\            return 0;
-       \\        };
-       \\    };
+       \\        }
+       \\    }
        \\}
     );
 }

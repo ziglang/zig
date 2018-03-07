@@ -490,7 +490,10 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 AstNode *statement = node->data.block.statements.at(i);
                 print_indent(ar);
                 render_node_grouped(ar, statement);
-                fprintf(ar->f, ";");
+
+                if (!statement_terminates_without_semicolon(statement))
+                    fprintf(ar->f, ";");
+
                 fprintf(ar->f, "\n");
             }
             ar->indent -= ar->indent_size;

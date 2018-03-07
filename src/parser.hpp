@@ -23,4 +23,6 @@ void ast_print(AstNode *node, int indent);
 
 void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *context), void *context);
 
+bool statement_terminates_without_semicolon(AstNode *node);
+
 #endif
