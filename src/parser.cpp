@@ -1037,6 +1037,7 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, 
 
     Token *async_token = &pc->tokens->at(*token_index);
     if (async_token->id == TokenIdKeywordAsync) {
+        size_t token_index_of_async = *token_index;
         *token_index += 1;
 
         AstNode *allocator_expr_node = nullptr;
@@ -2922,9 +2923,6 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
         case NodeTypeFnDef:
             visit_field(&node->data.fn_def.fn_proto, visit, context);
             visit_field(&node->data.fn_def.body, visit, context);
-            break;
-        case NodeTypeFnDecl:
-            visit_field(&node->data.fn_decl.fn_proto, visit, context);
             break;
         case NodeTypeParamDecl:
             visit_field(&node->data.param_decl.type, visit, context);

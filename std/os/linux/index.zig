@@ -101,17 +101,6 @@ pub const SIG_BLOCK   = 0;
 pub const SIG_UNBLOCK = 1;
 pub const SIG_SETMASK = 2;
 
-pub const SOCK_STREAM = 1;
-pub const SOCK_DGRAM = 2;
-pub const SOCK_RAW = 3;
-pub const SOCK_RDM = 4;
-pub const SOCK_SEQPACKET = 5;
-pub const SOCK_DCCP = 6;
-pub const SOCK_PACKET = 10;
-pub const SOCK_CLOEXEC = 0o2000000;
-pub const SOCK_NONBLOCK = 0o4000;
-
-
 pub const PROTO_ip = 0o000;
 pub const PROTO_icmp = 0o001;
 pub const PROTO_igmp = 0o002;
@@ -148,6 +137,20 @@ pub const PROTO_ipip = 0o136;
 pub const PROTO_encap = 0o142;
 pub const PROTO_pim = 0o147;
 pub const PROTO_raw = 0o377;
+
+pub const SHUT_RD = 0;
+pub const SHUT_WR = 1;
+pub const SHUT_RDWR = 2;
+
+pub const SOCK_STREAM = 1;
+pub const SOCK_DGRAM = 2;
+pub const SOCK_RAW = 3;
+pub const SOCK_RDM = 4;
+pub const SOCK_SEQPACKET = 5;
+pub const SOCK_DCCP = 6;
+pub const SOCK_PACKET = 10;
+pub const SOCK_CLOEXEC = 0o2000000;
+pub const SOCK_NONBLOCK = 0o4000;
 
 pub const PF_UNSPEC = 0;
 pub const PF_LOCAL = 1;
@@ -193,7 +196,10 @@ pub const PF_CAIF = 37;
 pub const PF_ALG = 38;
 pub const PF_NFC = 39;
 pub const PF_VSOCK = 40;
-pub const PF_MAX = 41;
+pub const PF_KCM = 41;
+pub const PF_QIPCRTR = 42;
+pub const PF_SMC = 43;
+pub const PF_MAX = 44;
 
 pub const AF_UNSPEC = PF_UNSPEC;
 pub const AF_LOCAL = PF_LOCAL;
@@ -239,7 +245,136 @@ pub const AF_CAIF = PF_CAIF;
 pub const AF_ALG = PF_ALG;
 pub const AF_NFC = PF_NFC;
 pub const AF_VSOCK = PF_VSOCK;
+pub const AF_KCM = PF_KCM;
+pub const AF_QIPCRTR = PF_QIPCRTR;
+pub const AF_SMC = PF_SMC;
 pub const AF_MAX = PF_MAX;
+
+pub const SO_DEBUG = 1;
+pub const SO_REUSEADDR = 2;
+pub const SO_TYPE = 3;
+pub const SO_ERROR = 4;
+pub const SO_DONTROUTE = 5;
+pub const SO_BROADCAST = 6;
+pub const SO_SNDBUF = 7;
+pub const SO_RCVBUF = 8;
+pub const SO_KEEPALIVE = 9;
+pub const SO_OOBINLINE = 10;
+pub const SO_NO_CHECK = 11;
+pub const SO_PRIORITY = 12;
+pub const SO_LINGER = 13;
+pub const SO_BSDCOMPAT = 14;
+pub const SO_REUSEPORT = 15;
+pub const SO_PASSCRED = 16;
+pub const SO_PEERCRED = 17;
+pub const SO_RCVLOWAT = 18;
+pub const SO_SNDLOWAT = 19;
+pub const SO_RCVTIMEO = 20;
+pub const SO_SNDTIMEO = 21;
+pub const SO_ACCEPTCONN = 30;
+pub const SO_SNDBUFFORCE = 32;
+pub const SO_RCVBUFFORCE = 33;
+pub const SO_PROTOCOL = 38;
+pub const SO_DOMAIN = 39;
+
+pub const SO_SECURITY_AUTHENTICATION = 22;
+pub const SO_SECURITY_ENCRYPTION_TRANSPORT = 23;
+pub const SO_SECURITY_ENCRYPTION_NETWORK = 24;
+
+pub const SO_BINDTODEVICE = 25;
+
+pub const SO_ATTACH_FILTER = 26;
+pub const SO_DETACH_FILTER = 27;
+pub const SO_GET_FILTER = SO_ATTACH_FILTER;
+
+pub const SO_PEERNAME = 28;
+pub const SO_TIMESTAMP = 29;
+pub const SCM_TIMESTAMP = SO_TIMESTAMP;
+
+pub const SO_PEERSEC = 31;
+pub const SO_PASSSEC = 34;
+pub const SO_TIMESTAMPNS = 35;
+pub const SCM_TIMESTAMPNS = SO_TIMESTAMPNS;
+pub const SO_MARK = 36;
+pub const SO_TIMESTAMPING = 37;
+pub const SCM_TIMESTAMPING = SO_TIMESTAMPING;
+pub const SO_RXQ_OVFL = 40;
+pub const SO_WIFI_STATUS = 41;
+pub const SCM_WIFI_STATUS = SO_WIFI_STATUS;
+pub const SO_PEEK_OFF = 42;
+pub const SO_NOFCS = 43;
+pub const SO_LOCK_FILTER = 44;
+pub const SO_SELECT_ERR_QUEUE = 45;
+pub const SO_BUSY_POLL = 46;
+pub const SO_MAX_PACING_RATE = 47;
+pub const SO_BPF_EXTENSIONS = 48;
+pub const SO_INCOMING_CPU = 49;
+pub const SO_ATTACH_BPF = 50;
+pub const SO_DETACH_BPF = SO_DETACH_FILTER;
+pub const SO_ATTACH_REUSEPORT_CBPF = 51;
+pub const SO_ATTACH_REUSEPORT_EBPF = 52;
+pub const SO_CNX_ADVICE = 53;
+pub const SCM_TIMESTAMPING_OPT_STATS = 54;
+pub const SO_MEMINFO = 55;
+pub const SO_INCOMING_NAPI_ID = 56;
+pub const SO_COOKIE = 57;
+pub const SCM_TIMESTAMPING_PKTINFO = 58;
+pub const SO_PEERGROUPS = 59;
+pub const SO_ZEROCOPY = 60;
+
+pub const SOL_SOCKET = 1;
+
+pub const SOL_IP = 0;
+pub const SOL_IPV6 = 41;
+pub const SOL_ICMPV6 = 58;
+
+pub const SOL_RAW = 255;
+pub const SOL_DECNET = 261;
+pub const SOL_X25 = 262;
+pub const SOL_PACKET = 263;
+pub const SOL_ATM = 264;
+pub const SOL_AAL = 265;
+pub const SOL_IRDA = 266;
+pub const SOL_NETBEUI = 267;
+pub const SOL_LLC = 268;
+pub const SOL_DCCP = 269;
+pub const SOL_NETLINK = 270;
+pub const SOL_TIPC = 271;
+pub const SOL_RXRPC = 272;
+pub const SOL_PPPOL2TP = 273;
+pub const SOL_BLUETOOTH = 274;
+pub const SOL_PNPIPE = 275;
+pub const SOL_RDS = 276;
+pub const SOL_IUCV = 277;
+pub const SOL_CAIF = 278;
+pub const SOL_ALG = 279;
+pub const SOL_NFC = 280;
+pub const SOL_KCM = 281;
+pub const SOL_TLS = 282;
+
+pub const SOMAXCONN = 128;
+
+pub const MSG_OOB = 0x0001;
+pub const MSG_PEEK = 0x0002;
+pub const MSG_DONTROUTE = 0x0004;
+pub const MSG_CTRUNC = 0x0008;
+pub const MSG_PROXY = 0x0010;
+pub const MSG_TRUNC = 0x0020;
+pub const MSG_DONTWAIT = 0x0040;
+pub const MSG_EOR = 0x0080;
+pub const MSG_WAITALL = 0x0100;
+pub const MSG_FIN = 0x0200;
+pub const MSG_SYN = 0x0400;
+pub const MSG_CONFIRM = 0x0800;
+pub const MSG_RST = 0x1000;
+pub const MSG_ERRQUEUE = 0x2000;
+pub const MSG_NOSIGNAL = 0x4000;
+pub const MSG_MORE = 0x8000;
+pub const MSG_WAITFORONE = 0x10000;
+pub const MSG_BATCH = 0x40000;
+pub const MSG_ZEROCOPY = 0x4000000;
+pub const MSG_FASTOPEN = 0x20000000;
+pub const MSG_CMSG_CLOEXEC = 0x40000000;
 
 pub const DT_UNKNOWN = 0;
 pub const DT_FIFO = 1;
@@ -599,30 +734,27 @@ pub fn sigismember(set: &const sigset_t, sig: u6) bool {
     return ((*set)[usize(s) / usize.bit_count] & (usize(1) << (s & (usize.bit_count - 1)))) != 0;
 }
 
-
+pub const in_port_t = u16;
 pub const sa_family_t = u16;
 pub const socklen_t = u32;
-pub const in_addr = u32;
-pub const in6_addr = [16]u8;
 
-pub const sockaddr = extern struct {
-    family: sa_family_t,
-    port: u16,
-    data: [12]u8,
+pub const sockaddr = extern union {
+    in: sockaddr_in,
+    in6: sockaddr_in6,
 };
 
 pub const sockaddr_in = extern struct {
     family: sa_family_t,
-    port: u16,
-    addr: in_addr,
+    port: in_port_t,
+    addr: u32,
     zero: [8]u8,
 };
 
 pub const sockaddr_in6 = extern struct {
     family: sa_family_t,
-    port: u16,
+    port: in_port_t,
     flowinfo: u32,
-    addr: in6_addr,
+    addr: [16]u8,
     scope_id: u32,
 };
 
@@ -639,8 +771,8 @@ pub fn getpeername(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t) us
     return syscall3(SYS_getpeername, usize(fd), @ptrToInt(addr), @ptrToInt(len));
 }
 
-pub fn socket(domain: i32, socket_type: i32, protocol: i32) usize {
-    return syscall3(SYS_socket, usize(domain), usize(socket_type), usize(protocol));
+pub fn socket(domain: u32, socket_type: u32, protocol: u32) usize {
+    return syscall3(SYS_socket, domain, socket_type, protocol);
 }
 
 pub fn setsockopt(fd: i32, level: i32, optname: i32, optval: &const u8, optlen: socklen_t) usize {
@@ -677,8 +809,8 @@ pub fn bind(fd: i32, addr: &const sockaddr, len: socklen_t) usize {
     return syscall3(SYS_bind, usize(fd), @ptrToInt(addr), usize(len));
 }
 
-pub fn listen(fd: i32, backlog: i32) usize {
-    return syscall2(SYS_listen, usize(fd), usize(backlog));
+pub fn listen(fd: i32, backlog: u32) usize {
+    return syscall2(SYS_listen, usize(fd), backlog);
 }
 
 pub fn sendto(fd: i32, buf: &const u8, len: usize, flags: u32, addr: ?&const sockaddr, alen: socklen_t) usize {
@@ -696,34 +828,6 @@ pub fn accept(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t) usize {
 pub fn accept4(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t, flags: u32) usize {
     return syscall4(SYS_accept4, usize(fd), @ptrToInt(addr), @ptrToInt(len), flags);
 }
-
-// error NameTooLong;
-// error SystemResources;
-// error Io;
-// 
-// pub fn if_nametoindex(name: []u8) !u32 {
-//     var ifr: ifreq = undefined;
-// 
-//     if (name.len >= ifr.ifr_name.len) {
-//         return error.NameTooLong;
-//     }
-// 
-//     const socket_ret = socket(AF_UNIX, SOCK_DGRAM|SOCK_CLOEXEC, 0);
-//     const socket_err = getErrno(socket_ret);
-//     if (socket_err > 0) {
-//         return error.SystemResources;
-//     }
-//     const socket_fd = i32(socket_ret);
-//     @memcpy(&ifr.ifr_name[0], &name[0], name.len);
-//     ifr.ifr_name[name.len] = 0;
-//     const ioctl_ret = ioctl(socket_fd, SIOCGIFINDEX, &ifr);
-//     close(socket_fd);
-//     const ioctl_err = getErrno(ioctl_ret);
-//     if (ioctl_err > 0) {
-//         return error.Io;
-//     }
-//     return ifr.ifr_ifindex;
-// }
 
 pub fn fstat(fd: i32, stat_buf: &Stat) usize {
     return syscall2(SYS_fstat, usize(fd), @ptrToInt(stat_buf));
@@ -749,7 +853,7 @@ pub fn epoll_create1(flags: usize) usize {
     return syscall1(SYS_epoll_create1, flags);
 }
 
-pub fn epoll_ctl(epoll_fd: i32, op: i32, fd: i32, ev: &epoll_event) usize {
+pub fn epoll_ctl(epoll_fd: i32, op: u32, fd: i32, ev: &epoll_event) usize {
     return syscall4(SYS_epoll_ctl, usize(epoll_fd), usize(op), usize(fd), @ptrToInt(ev));
 }
 

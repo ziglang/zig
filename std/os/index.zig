@@ -4,6 +4,19 @@ const Os = builtin.Os;
 const is_windows = builtin.os == Os.windows;
 const os = this;
 
+test "std.os" {
+    _ = @import("child_process.zig");
+    _ = @import("darwin.zig");
+    _ = @import("darwin_errno.zig");
+    _ = @import("get_user_id.zig");
+    _ = @import("linux/errno.zig");
+    _ = @import("linux/index.zig");
+    _ = @import("linux/x86_64.zig");
+    _ = @import("path.zig");
+    _ = @import("test.zig");
+    _ = @import("windows/index.zig");
+}
+
 pub const windows = @import("windows/index.zig");
 pub const darwin = @import("darwin.zig");
 pub const linux = @import("linux/index.zig");
@@ -14,6 +27,7 @@ pub const posix = switch(builtin.os) {
     Os.zen => zen,
     else => @compileError("Unsupported OS"),
 };
+pub const net = @import("net.zig");
 
 pub const ChildProcess = @import("child_process.zig").ChildProcess;
 pub const path = @import("path.zig");
@@ -173,6 +187,13 @@ pub fn exit(status: u8) noreturn {
     }
 }
 
+/// When a file descriptor is closed on linux, it pops the first
+/// node from this queue and resumes it.
+/// Async functions which get the EMFILE error code can suspend,
+/// putting their coroutine handle into this list.
+/// TODO make this an atomic linked list
+pub var emfile_promise_queue = std.LinkedList(promise).init();
+
 /// Closes the file handle. Keeps trying if it gets interrupted by a signal.
 pub fn close(handle: FileHandle) void {
     if (is_windows) {
@@ -180,10 +201,12 @@ pub fn close(handle: FileHandle) void {
     } else {
         while (true) {
             const err = posix.getErrno(posix.close(handle));
-            if (err == posix.EINTR) {
-                continue;
-            } else {
-                return;
+            switch (err) {
+                posix.EINTR => continue,
+                else => {
+                    if (emfile_promise_queue.popFirst()) |p| resume p.data;
+                    return;
+                },
             }
         }
     }
@@ -1753,27 +1776,16 @@ fn testWindowsCmdLine(input_cmd_line: &const u8, expected_args: []const []const 
     assert(it.next(debug.global_allocator) == null);
 }
 
-test "std.os" {
-    _ = @import("child_process.zig");
-    _ = @import("darwin_errno.zig");
-    _ = @import("darwin.zig");
-    _ = @import("get_user_id.zig");
-    _ = @import("linux/errno.zig");
-    //_ = @import("linux_i386.zig");
-    _ = @import("linux/x86_64.zig");
-    _ = @import("linux/index.zig");
-    _ = @import("path.zig");
-    _ = @import("windows/index.zig");
-    _ = @import("test.zig");
-}
-
-
 // TODO make this a build variable that you can set
 const unexpected_error_tracing = false;
+const UnexpectedError = error {
+    /// The Operating System returned an undocumented error code.
+    Unexpected,
+};
 
 /// Call this when you made a syscall or something that sets errno
 /// and you get an unexpected error.
-pub fn unexpectedErrorPosix(errno: usize) (error{Unexpected}) {
+pub fn unexpectedErrorPosix(errno: usize) UnexpectedError {
     if (unexpected_error_tracing) {
         debug.warn("unexpected errno: {}\n", errno);
         debug.dumpCurrentStackTrace(null);
@@ -1783,7 +1795,7 @@ pub fn unexpectedErrorPosix(errno: usize) (error{Unexpected}) {
 
 /// Call this when you made a windows DLL call or something that does SetLastError
 /// and you get an unexpected error.
-pub fn unexpectedErrorWindows(err: windows.DWORD) (error{Unexpected}) {
+pub fn unexpectedErrorWindows(err: windows.DWORD) UnexpectedError {
     if (unexpected_error_tracing) {
         debug.warn("unexpected GetLastError(): {}\n", err);
         debug.dumpCurrentStackTrace(null);
@@ -1895,6 +1907,325 @@ pub fn isTty(handle: FileHandle) bool {
             return c.isatty(handle) != 0;
         } else {
             return posix.isatty(handle);
+        }
+    }
+}
+
+pub const PosixSocketError = error {
+    /// Permission to create a socket of the specified type and/or
+    /// pro‐tocol is denied.
+    PermissionDenied,
+
+    /// The implementation does not support the specified address family.
+    AddressFamilyNotSupported,
+
+    /// Unknown protocol, or protocol family not available.
+    ProtocolFamilyNotAvailable,
+
+    /// The per-process limit on the number of open file descriptors has been reached.
+    ProcessFdQuotaExceeded,
+
+    /// The system-wide limit on the total number of open files has been reached.
+    SystemFdQuotaExceeded,
+
+    /// Insufficient memory is available. The socket cannot be created until sufficient
+    /// resources are freed.
+    SystemResources,
+
+    /// The protocol type or the specified protocol is not supported within this domain.
+    ProtocolNotSupported,
+};
+
+pub fn posixSocket(domain: u32, socket_type: u32, protocol: u32) !i32 {
+    const rc = posix.socket(domain, socket_type, protocol);
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return i32(rc),
+        posix.EACCES => return PosixSocketError.PermissionDenied,
+        posix.EAFNOSUPPORT => return PosixSocketError.AddressFamilyNotSupported,
+        posix.EINVAL => return PosixSocketError.ProtocolFamilyNotAvailable,
+        posix.EMFILE => return PosixSocketError.ProcessFdQuotaExceeded,
+        posix.ENFILE => return PosixSocketError.SystemFdQuotaExceeded,
+        posix.ENOBUFS, posix.ENOMEM => return PosixSocketError.SystemResources,
+        posix.EPROTONOSUPPORT => return PosixSocketError.ProtocolNotSupported,
+        else => return unexpectedErrorPosix(err),
+    }
+}
+
+pub const PosixBindError = error {
+    /// The address is protected, and the user is not the superuser.
+    /// For UNIX domain sockets: Search permission is denied on  a  component 
+    /// of  the  path  prefix.
+    AccessDenied,
+
+    /// The given address is already in use, or in the case of Internet domain sockets,
+    /// The  port number was specified as zero in the socket
+    /// address structure, but, upon attempting to bind to  an  ephemeral  port,  it  was
+    /// determined  that  all  port  numbers in the ephemeral port range are currently in
+    /// use.  See the discussion of /proc/sys/net/ipv4/ip_local_port_range ip(7).
+    AddressInUse,
+
+    /// sockfd is not a valid file descriptor.
+    InvalidFileDescriptor,
+
+    /// The socket is already bound to an address, or addrlen is wrong, or addr is not
+    /// a valid address for this socket's domain.
+    InvalidSocketOrAddress,
+
+    /// The file descriptor sockfd does not refer to a socket.
+    FileDescriptorNotASocket,
+
+    /// A nonexistent interface was requested or the requested address was not local.
+    AddressNotAvailable,
+            
+    /// addr points outside the user's accessible address space.
+    PageFault,
+
+    /// Too many symbolic links were encountered in resolving addr.
+    SymLinkLoop,
+
+    /// addr is too long.
+    NameTooLong,
+
+    /// A component in the directory prefix of the socket pathname does not exist.
+    FileNotFound,
+
+    /// Insufficient kernel memory was available.
+    SystemResources,
+
+    /// A component of the path prefix is not a directory.
+    NotDir,
+
+    /// The socket inode would reside on a read-only filesystem.
+    ReadOnlyFileSystem,
+
+    Unexpected,
+};
+
+/// addr is `&const T` where T is one of the sockaddr
+pub fn posixBind(fd: i32, addr: &const posix.sockaddr) PosixBindError!void {
+    const rc = posix.bind(fd, addr, @sizeOf(posix.sockaddr));
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return,
+        posix.EACCES => return PosixBindError.AccessDenied,
+        posix.EADDRINUSE => return PosixBindError.AddressInUse,
+        posix.EBADF => return PosixBindError.InvalidFileDescriptor,
+        posix.EINVAL => return PosixBindError.InvalidSocketOrAddress,
+        posix.ENOTSOCK => return PosixBindError.FileDescriptorNotASocket,
+        posix.EADDRNOTAVAIL => return PosixBindError.AddressNotAvailable,
+        posix.EFAULT => return PosixBindError.PageFault,
+        posix.ELOOP => return PosixBindError.SymLinkLoop,
+        posix.ENAMETOOLONG => return PosixBindError.NameTooLong,
+        posix.ENOENT => return PosixBindError.FileNotFound,
+        posix.ENOMEM => return PosixBindError.SystemResources,
+        posix.ENOTDIR => return PosixBindError.NotDir,
+        posix.EROFS => return PosixBindError.ReadOnlyFileSystem,
+        else => return unexpectedErrorPosix(err),
+    }
+}
+
+const PosixListenError = error {
+    /// Another socket is already listening on the same port.
+    /// For Internet domain sockets, the  socket referred to by sockfd had not previously
+    /// been bound to an address and, upon attempting to bind it to an ephemeral port, it
+    /// was determined that all port numbers in the ephemeral port range are currently in
+    /// use.  See the discussion of /proc/sys/net/ipv4/ip_local_port_range in ip(7).
+    AddressInUse,
+
+    /// The argument sockfd is not a valid file descriptor.
+    InvalidFileDescriptor,
+
+    /// The file descriptor sockfd does not refer to a socket.
+    FileDescriptorNotASocket,
+
+    /// The socket is not of a type that supports the listen() operation.
+    OperationNotSupported,
+
+    Unexpected,
+};
+
+pub fn posixListen(sockfd: i32, backlog: u32) PosixListenError!void {
+    const rc = posix.listen(sockfd, backlog);
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return,
+        posix.EADDRINUSE => return PosixListenError.AddressInUse,
+        posix.EBADF => return PosixListenError.InvalidFileDescriptor,
+        posix.ENOTSOCK => return PosixListenError.FileDescriptorNotASocket,
+        posix.EOPNOTSUPP => return PosixListenError.OperationNotSupported,
+        else => return unexpectedErrorPosix(err),
+    }
+}
+
+pub const PosixAcceptError = error {
+    /// The  socket  is marked nonblocking and no connections are present to be accepted.
+    WouldBlock,
+
+    /// sockfd is not an open file descriptor.
+    FileDescriptorClosed,
+
+    ConnectionAborted,
+              
+    /// The addr argument is not in a writable part of the user address space.
+    PageFault,
+
+    /// Socket  is  not  listening for connections, or addrlen is invalid (e.g., is negative),
+    /// or invalid value in flags.
+    InvalidSyscall,
+
+    /// The per-process limit on the number of open file descriptors has been reached.
+    ProcessFdQuotaExceeded,
+
+    /// The system-wide limit on the total number of open files has been reached.
+    SystemFdQuotaExceeded,
+    
+    /// Not enough free memory.  This often means that the memory allocation  is  limited
+    /// by the socket buffer limits, not by the system memory.
+    SystemResources,
+
+    /// The file descriptor sockfd does not refer to a socket.
+    FileDescriptorNotASocket,
+
+    /// The referenced socket is not of type SOCK_STREAM.
+    OperationNotSupported,
+
+    ProtocolFailure,
+
+    /// Firewall rules forbid connection.
+    BlockedByFirewall,
+
+    Unexpected,
+};
+
+pub fn posixAccept(fd: i32, addr: &posix.sockaddr, flags: u32) PosixAcceptError!i32 {
+    while (true) {
+        var sockaddr_size = u32(@sizeOf(posix.sockaddr));
+        const rc = posix.accept4(fd, addr, &sockaddr_size, flags);
+        const err = posix.getErrno(rc);
+        switch (err) {
+            0 => return i32(rc),
+            posix.EINTR => continue,
+            else => return unexpectedErrorPosix(err),
+
+            posix.EAGAIN => return PosixAcceptError.WouldBlock,
+            posix.EBADF => return PosixAcceptError.FileDescriptorClosed,
+            posix.ECONNABORTED => return PosixAcceptError.ConnectionAborted,
+            posix.EFAULT => return PosixAcceptError.PageFault,
+            posix.EINVAL => return PosixAcceptError.InvalidSyscall,
+            posix.EMFILE => return PosixAcceptError.ProcessFdQuotaExceeded,
+            posix.ENFILE => return PosixAcceptError.SystemFdQuotaExceeded,
+            posix.ENOBUFS, posix.ENOMEM => return PosixAcceptError.SystemResources,
+            posix.ENOTSOCK => return PosixAcceptError.FileDescriptorNotASocket,
+            posix.EOPNOTSUPP => return PosixAcceptError.OperationNotSupported,
+            posix.EPROTO => return PosixAcceptError.ProtocolFailure,
+            posix.EPERM => return PosixAcceptError.BlockedByFirewall,
+        }
+    }
+}
+
+pub const LinuxEpollCreateError = error {
+    /// Invalid value specified in flags.
+    InvalidSyscall,
+
+    /// The  per-user   limit   on   the   number   of   epoll   instances   imposed   by
+    /// /proc/sys/fs/epoll/max_user_instances  was encountered.  See epoll(7) for further
+    /// details.
+    /// Or, The per-process limit on the number of open file descriptors has been reached.
+    ProcessFdQuotaExceeded,
+
+    /// The system-wide limit on the total number of open files has been reached.
+    SystemFdQuotaExceeded,
+
+    /// There was insufficient memory to create the kernel object.
+    SystemResources,
+
+    Unexpected,
+};
+
+pub fn linuxEpollCreate(flags: u32) LinuxEpollCreateError!i32 {
+    const rc = posix.epoll_create1(flags);
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return i32(rc),
+        else => return unexpectedErrorPosix(err),
+
+        posix.EINVAL => return LinuxEpollCreateError.InvalidSyscall,
+        posix.EMFILE => return LinuxEpollCreateError.ProcessFdQuotaExceeded,
+        posix.ENFILE => return LinuxEpollCreateError.SystemFdQuotaExceeded,
+        posix.ENOMEM => return LinuxEpollCreateError.SystemResources,
+    }
+}
+
+pub const LinuxEpollCtlError = error {
+    /// epfd or fd is not a valid file descriptor.
+    InvalidFileDescriptor,
+
+    /// op was EPOLL_CTL_ADD, and the supplied file descriptor fd is  already  registered
+    /// with this epoll instance.
+    FileDescriptorAlreadyPresentInSet,
+
+    /// epfd is not an epoll file descriptor, or fd is the same as epfd, or the requested
+    /// operation op is not supported by this interface, or
+    /// An invalid event type was specified along with EPOLLEXCLUSIVE in events, or
+    /// op was EPOLL_CTL_MOD and events included EPOLLEXCLUSIVE, or
+    /// op was EPOLL_CTL_MOD and the EPOLLEXCLUSIVE flag has previously been  applied  to
+    /// this epfd, fd pair, or
+    /// EPOLLEXCLUSIVE was specified in event and fd refers to an epoll instance.
+    InvalidSyscall,
+
+    /// fd refers to an epoll instance and this EPOLL_CTL_ADD operation would result in a
+    /// circular loop of epoll instances monitoring one another.
+    OperationCausesCircularLoop,
+
+    /// op was EPOLL_CTL_MOD or EPOLL_CTL_DEL, and fd is not registered with  this  epoll
+    /// instance.
+    FileDescriptorNotRegistered,
+
+    /// There was insufficient memory to handle the requested op control operation.
+    SystemResources,
+
+    /// The  limit  imposed  by /proc/sys/fs/epoll/max_user_watches was encountered while
+    /// trying to register (EPOLL_CTL_ADD) a new file descriptor on  an  epoll  instance.
+    /// See epoll(7) for further details.
+    UserResourceLimitReached,
+
+    /// The target file fd does not support epoll.  This error can occur if fd refers to,
+    /// for example, a regular file or a directory.
+    FileDescriptorIncompatibleWithEpoll,
+
+    Unexpected,
+};
+
+pub fn linuxEpollCtl(epfd: i32, op: u32, fd: i32, event: &linux.epoll_event) LinuxEpollCtlError!void {
+    const rc = posix.epoll_ctl(epfd, op, fd, event);
+    const err = posix.getErrno(rc);
+    switch (err) {
+        0 => return,
+        else => return unexpectedErrorPosix(err),
+
+        posix.EBADF => return LinuxEpollCtlError.InvalidFileDescriptor,
+        posix.EEXIST => return LinuxEpollCtlError.FileDescriptorAlreadyPresentInSet,
+        posix.EINVAL => return LinuxEpollCtlError.InvalidSyscall,
+        posix.ELOOP => return LinuxEpollCtlError.OperationCausesCircularLoop,
+        posix.ENOENT => return LinuxEpollCtlError.FileDescriptorNotRegistered,
+        posix.ENOMEM => return LinuxEpollCtlError.SystemResources,
+        posix.ENOSPC => return LinuxEpollCtlError.UserResourceLimitReached,
+        posix.EPERM => return LinuxEpollCtlError.FileDescriptorIncompatibleWithEpoll,
+    }
+}
+
+pub fn linuxEpollWait(epfd: i32, events: []linux.epoll_event, timeout: i32) usize {
+    while (true) {
+        const rc = posix.epoll_wait(epfd, &events[0], u32(events.len), timeout);
+        const err = posix.getErrno(rc);
+        switch (err) {
+            0 => return rc,
+            posix.EINTR => continue,
+            posix.EBADF => unreachable,
+            posix.EFAULT => unreachable,
+            posix.EINVAL => unreachable,
+            else => unreachable,
         }
     }
 }

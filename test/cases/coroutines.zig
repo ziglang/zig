@@ -133,6 +133,7 @@ fn early_seq(c: u8) void {
     early_points[early_seq_index] = c;
     early_seq_index += 1;
 }
+<<<<<<< HEAD
 
 test "coro allocation failure" {
     var failing_allocator = std.debug.FailingAllocator.init(std.debug.global_allocator, 0);
@@ -223,4 +224,18 @@ async fn printTrace(p: promise->error!void) void {
             @panic("expected return trace");
         }
     };
+}
+
+test "coroutine in a struct field" {
+    const Foo = struct {
+        bar: async fn() void,
+    };
+    var foo = Foo {
+        .bar = simpleAsyncFn2,
+    };
+    cancel try async<std.debug.global_allocator> foo.bar();
+}
+
+async fn simpleAsyncFn2() void {
+    suspend;
 }
