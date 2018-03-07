@@ -1,6 +1,17 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("returning error from void async function",
+        \\const std = @import("std");
+        \\export fn entry() void {
+        \\    const p = async(std.debug.global_allocator) amain() catch unreachable;
+        \\}
+        \\async fn amain() void {
+        \\    return error.ShouldBeCompileError;
+        \\}
+    ,
+        ".tmp_source.zig:6:17: error: expected type 'void', found 'error{ShouldBeCompileError}'");
+
     cases.add("var not allowed in structs",
         \\export fn entry() void {
         \\   var s = (struct{v: var}){.v=i32(10)};

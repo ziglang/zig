@@ -464,9 +464,8 @@ TypeTableEntry *get_promise_frame_type(CodeGen *g, TypeTableEntry *return_type) 
     TypeTableEntry *result_ptr_type = get_pointer_to_type(g, return_type, false);
     const char *field_names[] = {AWAITER_HANDLE_FIELD_NAME, RESULT_FIELD_NAME, RESULT_PTR_FIELD_NAME};
     TypeTableEntry *field_types[] = {awaiter_handle_type, return_type, result_ptr_type};
-    size_t field_count = type_has_bits(result_ptr_type) ? 3 : 1;
     Buf *name = buf_sprintf("AsyncFramePromise(%s)", buf_ptr(&return_type->name));
-    TypeTableEntry *entry = get_struct_type(g, buf_ptr(name), field_names, field_types, field_count);
+    TypeTableEntry *entry = get_struct_type(g, buf_ptr(name), field_names, field_types, 3);
 
     return_type->promise_frame_parent = entry;
     return entry;
@@ -1715,7 +1714,7 @@ TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *f
     buf_init_from_str(&struct_type->name, type_name);
 
     struct_type->data.structure.src_field_count = field_count;
-    struct_type->data.structure.gen_field_count = field_count;
+    struct_type->data.structure.gen_field_count = 0;
     struct_type->data.structure.zero_bits_known = true;
     struct_type->data.structure.complete = true;
     struct_type->data.structure.fields = allocate<TypeStructField>(field_count);
@@ -1724,22 +1723,26 @@ TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *f
     ZigLLVMDIType **di_element_types = allocate<ZigLLVMDIType*>(field_count);
     LLVMTypeRef *element_types = allocate<LLVMTypeRef>(field_count);
     for (size_t i = 0; i < field_count; i += 1) {
-        element_types[i] = field_types[i]->type_ref;
+        element_types[struct_type->data.structure.gen_field_count] = field_types[i]->type_ref;
 
         TypeStructField *field = &struct_type->data.structure.fields[i];
         field->name = buf_create_from_str(field_names[i]);
         field->type_entry = field_types[i];
         field->src_index = i;
-        field->gen_index = i;
 
-        assert(type_has_bits(field->type_entry));
+        if (type_has_bits(field->type_entry)) {
+            field->gen_index = struct_type->data.structure.gen_field_count;
+            struct_type->data.structure.gen_field_count += 1;
+        } else {
+            field->gen_index = SIZE_MAX;
+        }
 
         auto prev_entry = struct_type->data.structure.fields_by_name.put_unique(field->name, field);
         assert(prev_entry == nullptr);
     }
 
     struct_type->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), type_name);
-    LLVMStructSetBody(struct_type->type_ref, element_types, field_count, false);
+    LLVMStructSetBody(struct_type->type_ref, element_types, struct_type->data.structure.gen_field_count, false);
 
     struct_type->di_type = ZigLLVMCreateReplaceableCompositeType(g->dbuilder,
         ZigLLVMTag_DW_structure_type(), type_name,
@@ -1747,11 +1750,14 @@ TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *f
 
     for (size_t i = 0; i < field_count; i += 1) {
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
+        if (type_struct_field->gen_index == SIZE_MAX) {
+            continue;
+        }
         TypeTableEntry *field_type = type_struct_field->type_entry;
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, field_type->type_ref);
         uint64_t debug_align_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, field_type->type_ref);
-        uint64_t debug_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, struct_type->type_ref, i);
-        di_element_types[i] = ZigLLVMCreateDebugMemberType(g->dbuilder,
+        uint64_t debug_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, struct_type->type_ref, type_struct_field->gen_index);
+        di_element_types[type_struct_field->gen_index] = ZigLLVMCreateDebugMemberType(g->dbuilder,
                 ZigLLVMTypeToScope(struct_type->di_type), buf_ptr(type_struct_field->name),
                 nullptr, 0,
                 debug_size_in_bits,
@@ -1759,7 +1765,7 @@ TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *f
                 debug_offset_in_bits,
                 0, field_type->di_type);
 
-        assert(di_element_types[i]);
+        assert(di_element_types[type_struct_field->gen_index]);
     }
 
     uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, struct_type->type_ref);
@@ -1770,7 +1776,7 @@ TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *f
             debug_size_in_bits,
             debug_align_in_bits,
             0,
-            nullptr, di_element_types, field_count, 0, nullptr, "");
+            nullptr, di_element_types, struct_type->data.structure.gen_field_count, 0, nullptr, "");
 
     ZigLLVMReplaceTemporary(g->dbuilder, struct_type->di_type, replacement_di_type);
     struct_type->di_type = replacement_di_type;

@@ -948,12 +948,10 @@ static IrInstruction *ir_build_const_promise_init(IrBuilder *irb, Scope *scope, 
     const_instruction->base.value.data.x_struct.fields[0].type = struct_type->data.structure.fields[0].type_entry;
     const_instruction->base.value.data.x_struct.fields[0].special = ConstValSpecialStatic;
     const_instruction->base.value.data.x_struct.fields[0].data.x_maybe = nullptr;
-    if (struct_type->data.structure.src_field_count > 1) {
-        const_instruction->base.value.data.x_struct.fields[1].type = return_type;
-        const_instruction->base.value.data.x_struct.fields[1].special = ConstValSpecialUndef;
-        const_instruction->base.value.data.x_struct.fields[2].type = struct_type->data.structure.fields[2].type_entry;
-        const_instruction->base.value.data.x_struct.fields[2].special = ConstValSpecialUndef;
-    }
+    const_instruction->base.value.data.x_struct.fields[1].type = return_type;
+    const_instruction->base.value.data.x_struct.fields[1].special = ConstValSpecialUndef;
+    const_instruction->base.value.data.x_struct.fields[2].type = struct_type->data.structure.fields[2].type_entry;
+    const_instruction->base.value.data.x_struct.fields[2].special = ConstValSpecialUndef;
     return &const_instruction->base;
 }
 
@@ -2741,10 +2739,8 @@ static IrInstruction *ir_gen_async_return(IrBuilder *irb, Scope *scope, AstNode 
         return return_inst;
     }
 
-    if (irb->exec->coro_result_ptr_field_ptr) {
-        IrInstruction *result_ptr = ir_build_load_ptr(irb, scope, node, irb->exec->coro_result_ptr_field_ptr);
-        ir_build_store_ptr(irb, scope, node, result_ptr, return_value);
-    }
+    IrInstruction *result_ptr = ir_build_load_ptr(irb, scope, node, irb->exec->coro_result_ptr_field_ptr);
+    ir_build_store_ptr(irb, scope, node, result_ptr, return_value);
     IrInstruction *promise_type_val = ir_build_const_type(irb, scope, node,
             get_maybe_type(irb->codegen, irb->codegen->builtin_types.entry_promise));
     // TODO replace replacement_value with @intToPtr(?promise, 0x1) when it doesn't crash zig
@@ -6328,14 +6324,11 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         Buf *awaiter_handle_field_name = buf_create_from_str(AWAITER_HANDLE_FIELD_NAME);
         irb->exec->coro_awaiter_field_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr,
                 awaiter_handle_field_name);
-        if (type_has_bits(return_type)) {
-            Buf *result_field_name = buf_create_from_str(RESULT_FIELD_NAME);
-            coro_result_field_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr, result_field_name);
-            result_ptr_field_name = buf_create_from_str(RESULT_PTR_FIELD_NAME);
-            irb->exec->coro_result_ptr_field_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr,
-                    result_ptr_field_name);
-            ir_build_store_ptr(irb, scope, node, irb->exec->coro_result_ptr_field_ptr, coro_result_field_ptr);
-        }
+        Buf *result_field_name = buf_create_from_str(RESULT_FIELD_NAME);
+        coro_result_field_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr, result_field_name);
+        result_ptr_field_name = buf_create_from_str(RESULT_PTR_FIELD_NAME);
+        irb->exec->coro_result_ptr_field_ptr = ir_build_field_ptr(irb, scope, node, coro_promise_ptr, result_ptr_field_name);
+        ir_build_store_ptr(irb, scope, node, irb->exec->coro_result_ptr_field_ptr, coro_result_field_ptr);
 
 
         irb->exec->coro_early_final = ir_create_basic_block(irb, scope, "CoroEarlyFinal");
