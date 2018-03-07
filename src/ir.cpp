@@ -12019,7 +12019,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             inst_fn_type_id.alignment = align_bytes;
         }
 
-        {
+        if (fn_proto_node->data.fn_proto.return_var_token == nullptr) {
             AstNode *return_type_node = fn_proto_node->data.fn_proto.return_type;
             TypeTableEntry *specified_return_type = analyze_type_expr(ira->codegen, impl_fn->child_scope, return_type_node);
             if (type_is_invalid(specified_return_type))

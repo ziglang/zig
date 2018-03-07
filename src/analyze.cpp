@@ -1510,6 +1510,19 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         }
     }
 
+    if (fn_proto->return_var_token != nullptr) {
+        if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
+            add_node_error(g, fn_proto->return_type,
+                buf_sprintf("return type 'var' not allowed in function with calling convention '%s'",
+                calling_convention_name(fn_type_id.cc)));
+            return g->builtin_types.entry_invalid;
+        }
+        add_node_error(g, proto_node,
+            buf_sprintf("TODO implement inferred return types https://github.com/zig-lang/zig/issues/447"));
+        return g->builtin_types.entry_invalid;
+        //return get_generic_fn_type(g, &fn_type_id);
+    }
+
     TypeTableEntry *specified_return_type = analyze_type_expr(g, child_scope, fn_proto->return_type);
     if (type_is_invalid(specified_return_type)) {
         fn_type_id.return_type = g->builtin_types.entry_invalid;
@@ -1521,16 +1534,6 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         fn_type_id.return_type = get_error_union_type(g, inferred_err_set_type, specified_return_type);
     } else {
         fn_type_id.return_type = specified_return_type;
-    }
-
-    if (fn_proto->return_var_token != nullptr) {
-        if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
-            add_node_error(g, fn_proto->return_type,
-                buf_sprintf("return type 'var' not allowed in function with calling convention '%s'",
-                calling_convention_name(fn_type_id.cc)));
-            return g->builtin_types.entry_invalid;
-        }
-        return get_generic_fn_type(g, &fn_type_id);
     }
 
     if (!calling_convention_allows_zig_types(fn_type_id.cc) && !type_allowed_in_extern(g, fn_type_id.return_type)) {
