@@ -7,11 +7,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Error.h"
 #include "Symbols.h"
 #include "SyntheticSections.h"
 #include "Target.h"
 #include "Thunks.h"
+#include "lld/Common/ErrorHandler.h"
 #include "llvm/Object/ELF.h"
 #include "llvm/Support/Endian.h"
 
@@ -32,20 +32,23 @@ namespace {
 class AArch64 final : public TargetInfo {
 public:
   AArch64();
-  RelExpr getRelExpr(uint32_t Type, const SymbolBody &S,
+  RelExpr getRelExpr(RelType Type, const Symbol &S,
                      const uint8_t *Loc) const override;
-  bool isPicRel(uint32_t Type) const override;
-  void writeGotPlt(uint8_t *Buf, const SymbolBody &S) const override;
+  bool isPicRel(RelType Type) const override;
+  void writeGotPlt(uint8_t *Buf, const Symbol &S) const override;
   void writePltHeader(uint8_t *Buf) const override;
   void writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr, uint64_t PltEntryAddr,
                 int32_t Index, unsigned RelOff) const override;
-  bool usesOnlyLowPageBits(uint32_t Type) const override;
-  void relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const override;
-  RelExpr adjustRelaxExpr(uint32_t Type, const uint8_t *Data,
+  bool needsThunk(RelExpr Expr, RelType Type, const InputFile *File,
+                  uint64_t BranchAddr, const Symbol &S) const override;
+  bool inBranchRange(RelType Type, uint64_t Src, uint64_t Dst) const override;
+  bool usesOnlyLowPageBits(RelType Type) const override;
+  void relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const override;
+  RelExpr adjustRelaxExpr(RelType Type, const uint8_t *Data,
                           RelExpr Expr) const override;
-  void relaxTlsGdToLe(uint8_t *Loc, uint32_t Type, uint64_t Val) const override;
-  void relaxTlsGdToIe(uint8_t *Loc, uint32_t Type, uint64_t Val) const override;
-  void relaxTlsIeToLe(uint8_t *Loc, uint32_t Type, uint64_t Val) const override;
+  void relaxTlsGdToLe(uint8_t *Loc, RelType Type, uint64_t Val) const override;
+  void relaxTlsGdToIe(uint8_t *Loc, RelType Type, uint64_t Val) const override;
+  void relaxTlsIeToLe(uint8_t *Loc, RelType Type, uint64_t Val) const override;
 };
 } // namespace
 
@@ -66,13 +69,17 @@ AArch64::AArch64() {
   // It doesn't seem to be documented anywhere, but tls on aarch64 uses variant
   // 1 of the tls structures and the tcb size is 16.
   TcbSize = 16;
+  NeedsThunks = true;
+
+  // See comment in Arch/ARM.cpp for a more detailed explanation of
+  // ThunkSectionSpacing. For AArch64 the only branches we are permitted to
+  // Thunk have a range of +/- 128 MiB
+  ThunkSectionSpacing = (128 * 1024 * 1024) - 0x30000;
 }
 
-RelExpr AArch64::getRelExpr(uint32_t Type, const SymbolBody &S,
+RelExpr AArch64::getRelExpr(RelType Type, const Symbol &S,
                             const uint8_t *Loc) const {
   switch (Type) {
-  default:
-    return R_ABS;
   case R_AARCH64_TLSDESC_ADR_PAGE21:
     return R_TLSDESC_PAGE;
   case R_AARCH64_TLSDESC_LD64_LO12:
@@ -92,6 +99,7 @@ RelExpr AArch64::getRelExpr(uint32_t Type, const SymbolBody &S,
   case R_AARCH64_PREL32:
   case R_AARCH64_PREL64:
   case R_AARCH64_ADR_PREL_LO21:
+  case R_AARCH64_LD_PREL_LO19:
     return R_PC;
   case R_AARCH64_ADR_PREL_PG_HI21:
     return R_PAGE_PC;
@@ -103,10 +111,12 @@ RelExpr AArch64::getRelExpr(uint32_t Type, const SymbolBody &S,
     return R_GOT_PAGE_PC;
   case R_AARCH64_NONE:
     return R_NONE;
+  default:
+    return R_ABS;
   }
 }
 
-RelExpr AArch64::adjustRelaxExpr(uint32_t Type, const uint8_t *Data,
+RelExpr AArch64::adjustRelaxExpr(RelType Type, const uint8_t *Data,
                                  RelExpr Expr) const {
   if (Expr == R_RELAX_TLS_GD_TO_IE) {
     if (Type == R_AARCH64_TLSDESC_ADR_PAGE21)
@@ -116,7 +126,7 @@ RelExpr AArch64::adjustRelaxExpr(uint32_t Type, const uint8_t *Data,
   return Expr;
 }
 
-bool AArch64::usesOnlyLowPageBits(uint32_t Type) const {
+bool AArch64::usesOnlyLowPageBits(RelType Type) const {
   switch (Type) {
   default:
     return false;
@@ -134,11 +144,11 @@ bool AArch64::usesOnlyLowPageBits(uint32_t Type) const {
   }
 }
 
-bool AArch64::isPicRel(uint32_t Type) const {
+bool AArch64::isPicRel(RelType Type) const {
   return Type == R_AARCH64_ABS32 || Type == R_AARCH64_ABS64;
 }
 
-void AArch64::writeGotPlt(uint8_t *Buf, const SymbolBody &) const {
+void AArch64::writeGotPlt(uint8_t *Buf, const Symbol &) const {
   write64le(Buf, InX::Plt->getVA());
 }
 
@@ -180,6 +190,31 @@ void AArch64::writePlt(uint8_t *Buf, uint64_t GotPltEntryAddr,
   relocateOne(Buf + 8, R_AARCH64_ADD_ABS_LO12_NC, GotPltEntryAddr);
 }
 
+bool AArch64::needsThunk(RelExpr Expr, RelType Type, const InputFile *File,
+                         uint64_t BranchAddr, const Symbol &S) const {
+  // ELF for the ARM 64-bit architecture, section Call and Jump relocations
+  // only permits range extension thunks for R_AARCH64_CALL26 and
+  // R_AARCH64_JUMP26 relocation types.
+  if (Type != R_AARCH64_CALL26 && Type != R_AARCH64_JUMP26)
+    return false;
+  uint64_t Dst = (Expr == R_PLT_PC) ? S.getPltVA() : S.getVA();
+  return !inBranchRange(Type, BranchAddr, Dst);
+}
+
+bool AArch64::inBranchRange(RelType Type, uint64_t Src, uint64_t Dst) const {
+  if (Type != R_AARCH64_CALL26 && Type != R_AARCH64_JUMP26)
+    return true;
+  // The AArch64 call and unconditional branch instructions have a range of
+  // +/- 128 MiB.
+  uint64_t Range = 128 * 1024 * 1024;
+  if (Dst > Src) {
+    // Immediate of branch is signed.
+    Range -= 4;
+    return Dst - Src <= Range;
+  }
+  return Src - Dst <= Range;
+}
+
 static void write32AArch64Addr(uint8_t *L, uint64_t Imm) {
   uint32_t ImmLo = (Imm & 0x3) << 29;
   uint32_t ImmHi = (Imm & 0x1FFFFC) << 3;
@@ -201,7 +236,7 @@ static void or32AArch64Imm(uint8_t *L, uint64_t Imm) {
   or32le(L, (Imm & 0xFFF) << 10);
 }
 
-void AArch64::relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const {
+void AArch64::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
   switch (Type) {
   case R_AARCH64_ABS16:
   case R_AARCH64_PREL16:
@@ -232,12 +267,23 @@ void AArch64::relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const {
     checkInt<21>(Loc, Val, Type);
     write32AArch64Addr(Loc, Val);
     break;
-  case R_AARCH64_CALL26:
   case R_AARCH64_JUMP26:
+    // Normally we would just write the bits of the immediate field, however
+    // when patching instructions for the cpu errata fix -fix-cortex-a53-843419
+    // we want to replace a non-branch instruction with a branch immediate
+    // instruction. By writing all the bits of the instruction including the
+    // opcode and the immediate (0 001 | 01 imm26) we can do this
+    // transformation by placing a R_AARCH64_JUMP26 relocation at the offset of
+    // the instruction we want to patch.
+    write32le(Loc, 0x14000000);
+    LLVM_FALLTHROUGH;
+  case R_AARCH64_CALL26:
     checkInt<28>(Loc, Val, Type);
     or32le(Loc, (Val & 0x0FFFFFFC) >> 2);
     break;
   case R_AARCH64_CONDBR19:
+  case R_AARCH64_LD_PREL_LO19:
+    checkAlignment<4>(Loc, Val, Type);
     checkInt<21>(Loc, Val, Type);
     or32le(Loc, (Val & 0x1FFFFC) << 3);
     break;
@@ -251,15 +297,19 @@ void AArch64::relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const {
     or32AArch64Imm(Loc, getBits(Val, 0, 11));
     break;
   case R_AARCH64_LDST16_ABS_LO12_NC:
+    checkAlignment<2>(Loc, Val, Type);
     or32AArch64Imm(Loc, getBits(Val, 1, 11));
     break;
   case R_AARCH64_LDST32_ABS_LO12_NC:
+    checkAlignment<4>(Loc, Val, Type);
     or32AArch64Imm(Loc, getBits(Val, 2, 11));
     break;
   case R_AARCH64_LDST64_ABS_LO12_NC:
+    checkAlignment<8>(Loc, Val, Type);
     or32AArch64Imm(Loc, getBits(Val, 3, 11));
     break;
   case R_AARCH64_LDST128_ABS_LO12_NC:
+    checkAlignment<16>(Loc, Val, Type);
     or32AArch64Imm(Loc, getBits(Val, 4, 11));
     break;
   case R_AARCH64_MOVW_UABS_G0_NC:
@@ -291,7 +341,7 @@ void AArch64::relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const {
   }
 }
 
-void AArch64::relaxTlsGdToLe(uint8_t *Loc, uint32_t Type, uint64_t Val) const {
+void AArch64::relaxTlsGdToLe(uint8_t *Loc, RelType Type, uint64_t Val) const {
   // TLSDESC Global-Dynamic relocation are in the form:
   //   adrp    x0, :tlsdesc:v             [R_AARCH64_TLSDESC_ADR_PAGE21]
   //   ldr     x1, [x0, #:tlsdesc_lo12:v  [R_AARCH64_TLSDESC_LD64_LO12]
@@ -321,7 +371,7 @@ void AArch64::relaxTlsGdToLe(uint8_t *Loc, uint32_t Type, uint64_t Val) const {
   }
 }
 
-void AArch64::relaxTlsGdToIe(uint8_t *Loc, uint32_t Type, uint64_t Val) const {
+void AArch64::relaxTlsGdToIe(uint8_t *Loc, RelType Type, uint64_t Val) const {
   // TLSDESC Global-Dynamic relocation are in the form:
   //   adrp    x0, :tlsdesc:v             [R_AARCH64_TLSDESC_ADR_PAGE21]
   //   ldr     x1, [x0, #:tlsdesc_lo12:v  [R_AARCH64_TLSDESC_LD64_LO12]
@@ -352,7 +402,7 @@ void AArch64::relaxTlsGdToIe(uint8_t *Loc, uint32_t Type, uint64_t Val) const {
   }
 }
 
-void AArch64::relaxTlsIeToLe(uint8_t *Loc, uint32_t Type, uint64_t Val) const {
+void AArch64::relaxTlsIeToLe(uint8_t *Loc, RelType Type, uint64_t Val) const {
   checkUInt<32>(Loc, Val, Type);
 
   if (Type == R_AARCH64_TLSIE_ADR_GOTTPREL_PAGE21) {

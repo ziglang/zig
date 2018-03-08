@@ -1,0 +1,18 @@
+# RUN: llc -filetype=obj -mtriple=wasm32-unknown-unknown-wasm %p/Inputs/ret32.ll -o %t.ret32.o
+# RUN: llc -filetype=obj -mtriple=wasm32-unknown-unknown-wasm %p/Inputs/ret64.ll -o %t.ret64.o
+# RUN: lld -flavor wasm -r -o %t.wasm %t.ret32.o %t.ret64.o
+# RUN: obj2yaml %t.wasm | FileCheck %s
+
+CHECK: Sections:
+CHECK:   - Type:            TYPE
+CHECK:     Signatures:
+CHECK:       - Index:           0
+CHECK:         ReturnType:      I32
+CHECK:         ParamTypes:
+CHECK:           - F32
+CHECK:       - Index:           1
+CHECK:         ReturnType:      I64
+CHECK:         ParamTypes:
+CHECK:           - F64
+CHECK: - Type:            FUNCTION
+CHECK:   FunctionTypes: [ 0, 1 ]

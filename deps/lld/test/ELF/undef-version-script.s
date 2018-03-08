@@ -3,9 +3,6 @@
 # RUN: ld.lld --version-script %t.script -shared %t.o -o %t.so
 # RUN: llvm-readobj -dyn-symbols %t.so | FileCheck %s
 
-# This does not match gold's behavior because gold does not create undefined
-# symbols in dynsym without an appropriate (e.g. PLT) relocation in the input.
-
 # CHECK:      DynamicSymbols [
 # CHECK-NEXT:   Symbol {
 # CHECK-NEXT:     Name: @
@@ -38,3 +35,6 @@
 
 .global foo
 .weak bar
+.data
+  .dc.a foo
+  .dc.a bar

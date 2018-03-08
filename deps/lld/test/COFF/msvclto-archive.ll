@@ -9,14 +9,14 @@
 ; RUN: mkdir -p %t.dir
 ; RUN: llvm-mc -triple=x86_64-pc-windows-msvc -filetype=obj -o %t.dir/bitcode.obj %p/Inputs/msvclto.s
 ; RUN: lld-link %t-main1.a %t.dir/bitcode.obj /msvclto /out:%t.exe /opt:lldlto=1 /opt:icf \
-; RUN:   /entry:main /verbose > %t.log || true
+; RUN:   /entry:main /verbose 2> %t.log || true
 ; RUN: FileCheck -check-prefix=BC %s < %t.log
 ; BC-NOT: Creating a temporary archive for
 
 ; RUN: rm -f %t-main2.a
 ; RUN: llvm-ar cru %t-main2.a %t.dir/bitcode.obj
 ; RUN: lld-link %t.obj %t-main2.a /msvclto /out:%t.exe /opt:lldlto=1 /opt:icf \
-; RUN:   /entry:main /verbose > %t.log || true
+; RUN:   /entry:main /verbose 2> %t.log || true
 ; RUN: FileCheck -check-prefix=OBJ %s < %t.log
 ; OBJ-NOT: Creating a temporary archive
 
@@ -25,7 +25,7 @@
 ; RUN: rm -f %t-main3.a
 ; RUN: llvm-ar cruT %t-main3.a %t.dir/bitcode.obj
 ; RUN: lld-link %t.obj %t-main3.a /msvclto /out:%t.exe /opt:lldlto=1 /opt:icf \
-; RUN:   /entry:main /verbose > %t.log || true
+; RUN:   /entry:main /verbose 2> %t.log || true
 ; RUN: FileCheck -check-prefix=THIN %s < %t.log
 ; THIN: Creating a temporary archive
 

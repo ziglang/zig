@@ -1,0 +1,42 @@
+RUN: yaml2obj %S/Inputs/pdb-globals.yaml > %t.obj
+RUN: lld-link /debug /nodefaultlib /entry:main /out:%t.exe /pdb:%t.pdb %t.obj
+RUN: llvm-pdbutil dump -symbols -globals %t.pdb | FileCheck %s
+
+# Test that we correctly distribute symbols between the globals and module
+# symbol streams.  Specifically:
+#  * S_UDT, S_GDATA32, and S_CONSTANT end up in the globals stream, and are
+#    omitted from the module stream.
+#  * S_GPROC32 and S_LPROC32 end up in the symbols stream, but S_PROCREF and
+#    S_LPROCREF are added to the globals stream that refer to the module
+#    stream.
+#  * S_LDATA32 is copied byte for byte into both streams.
+
+
+CHECK-LABEL:                        Global Symbols
+CHECK-NEXT:  ============================================================
+CHECK-NEXT:   Records
+CHECK-NEXT:      160 | S_PROCREF [size = 28] `GlobalFunc`
+CHECK-NEXT:            module = 1, sum name = 0, offset = 52
+CHECK-NEXT:      188 | S_PROCREF [size = 20] `main`
+CHECK-NEXT:            module = 1, sum name = 0, offset = 108
+CHECK-NEXT:      208 | S_LPROCREF [size = 24] `LocalFunc`
+CHECK-NEXT:            module = 1, sum name = 0, offset = 292
+CHECK-NEXT:      312 | S_PROCREF [size = 40] `HelloPoint::HelloPoint`
+CHECK-NEXT:            module = 1, sum name = 0, offset = 376
+CHECK-NEXT:      232 | S_GDATA32 [size = 28] `__purecall`
+CHECK-NEXT:            type = 0x0403 (void*), addr = 0000:0000
+CHECK-NEXT:      260 | S_GDATA32 [size = 24] `GlobalVar`
+CHECK-NEXT:            type = 0x100B (const int*), addr = 0001:0000
+CHECK-NEXT:      284 | S_LDATA32 [size = 28] `ConstantVar`
+CHECK-NEXT:            type = 0x100A (const int), addr = 0002:0000
+
+CHECK-LABEL:                           Symbols
+CHECK-NEXT:  ============================================================
+CHECK-NEXT:    Mod 0000
+CHECK-NOT:              | S_GDATA32
+CHECK-NOT:              | S_UDT
+CHECK:               52 | S_GPROC32 [size = 52] `GlobalFunc`
+CHECK:              108 | S_GPROC32 [size = 44] `main`
+CHECK:              292 | S_LPROC32 [size = 52] `LocalFunc`
+CHECK:              348 | S_LDATA32 [size = 28] `ConstantVar`
+CHECK:              376 | S_GPROC32 [size = 64] `HelloPoint::HelloPoint`

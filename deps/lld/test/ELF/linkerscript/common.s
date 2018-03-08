@@ -4,8 +4,6 @@
 # RUN: ld.lld -o %t1 --script %t.script %t
 # RUN: llvm-readobj -s -t %t1 | FileCheck %s
 
-# q2 alignment is greater than q1, so it should have smaller offset
-# because of sorting
 # CHECK:       Section {
 # CHECK:         Index:
 # CHECK:         Name: .common
@@ -16,7 +14,7 @@
 # CHECK-NEXT:    ]
 # CHECK-NEXT:    Address: 0x200
 # CHECK-NEXT:    Offset: 0x
-# CHECK-NEXT:    Size: 256
+# CHECK-NEXT:    Size: 384
 # CHECK-NEXT:    Link: 0
 # CHECK-NEXT:    Info: 0
 # CHECK-NEXT:    AddressAlignment: 256
@@ -24,7 +22,7 @@
 # CHECK-NEXT:  }
 # CHECK:       Symbol {
 # CHECK:         Name: q1
-# CHECK-NEXT:    Value: 0x280
+# CHECK-NEXT:    Value: 0x200
 # CHECK-NEXT:    Size: 128
 # CHECK-NEXT:    Binding: Global
 # CHECK-NEXT:    Type: Object
@@ -33,7 +31,7 @@
 # CHECK-NEXT:  }
 # CHECK-NEXT:  Symbol {
 # CHECK-NEXT:    Name: q2
-# CHECK-NEXT:    Value: 0x200
+# CHECK-NEXT:    Value: 0x300
 # CHECK-NEXT:    Size: 128
 # CHECK-NEXT:    Binding: Global
 # CHECK-NEXT:    Type: Object

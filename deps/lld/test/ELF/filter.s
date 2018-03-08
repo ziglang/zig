@@ -2,9 +2,13 @@
 # RUN: ld.lld %t.o -shared -F foo.so -F boo.so -o %t1
 # RUN: llvm-readobj --dynamic-table %t1 | FileCheck %s
 
-# Test alias.
+# Test alias #1.
 # RUN: ld.lld %t.o -shared --filter=foo.so --filter=boo.so -o %t2
 # RUN: llvm-readobj --dynamic-table %t2 | FileCheck %s
+
+# Test alias #2.
+# RUN: ld.lld %t.o -shared --filter foo.so --filter boo.so -o %t3
+# RUN: llvm-readobj --dynamic-table %t3 | FileCheck %s
 
 # CHECK:      DynamicSection [
 # CHECK-NEXT: Tag                Type          Name/Value

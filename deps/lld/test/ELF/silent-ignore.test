@@ -1,0 +1,20 @@
+RUN: ld.lld --version \
+RUN:   -allow-shlib-undefined \
+RUN:   -cref \
+RUN:   -g \
+RUN:   -no-add-needed \
+RUN:   -no-allow-shlib-undefined \
+RUN:   -no-copy-dt-needed-entries \
+RUN:   -no-ctors-in-init-array \
+RUN:   -no-keep-memory \
+RUN:   -no-warn-common \
+RUN:   -no-warn-mismatch \
+RUN:   -sort-common \
+RUN:   -stats \
+RUN:   -warn-execstack \
+RUN:   -warn-once \
+RUN:   -warn-shared-textrel \
+RUN:   -EB \
+RUN:   -EL \
+RUN:   -Qy
+RUN: not ld.lld --version --not-an-ignored-argument

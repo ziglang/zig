@@ -9,6 +9,6 @@
 // CHECK-NEXT:   200000 42
 
 // RUN: not ld.lld -shared %t %t2 -o %t4 2>&1 | FileCheck --check-prefix=ERROR %s
-// ERROR: relocation R_X86_64_16 out of range
+// ERROR: relocation R_X86_64_16 out of range: 65536 is not in [0, 65535]
 
 .short foo

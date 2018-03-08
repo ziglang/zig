@@ -1,0 +1,106 @@
+# REQUIRES: arm
+# RUN: yaml2obj < %s > %t.obj
+# RUN: lld-link %t.obj %p/Inputs/library.lib /subsystem:console \
+# RUN:   /entry:mainCRTStartup /alternatename:__delayLoadHelper2=mainCRTStartup \
+# RUN:   /delayload:library.dll /out:%t.exe
+# RUN: llvm-readobj -coff-imports %t.exe | FileCheck -check-prefix=IMPORT %s
+# RUN: llvm-readobj -coff-basereloc %t.exe | FileCheck -check-prefix=BASEREL %s
+# RUN: llvm-objdump -d %t.exe | FileCheck -check-prefix=DISASM %s
+
+# IMPORT:      Format: COFF-ARM
+# IMPORT-NEXT: Arch: thumb
+# IMPORT-NEXT: AddressSize: 32bit
+# IMPORT-NEXT: DelayImport {
+# IMPORT-NEXT:   Name: library.dll
+# IMPORT-NEXT:   Attributes: 0x1
+# IMPORT-NEXT:   ModuleHandle: 0x3000
+# IMPORT-NEXT:   ImportAddressTable: 0x3008
+# IMPORT-NEXT:   ImportNameTable: 0x2040
+# IMPORT-NEXT:   BoundDelayImportTable: 0x0
+# IMPORT-NEXT:   UnloadDelayImportTable: 0x0
+# IMPORT-NEXT:   Import {
+# IMPORT-NEXT:     Symbol: function (0)
+# IMPORT-NEXT:     Address: 0x401019
+# IMPORT-NEXT:   }
+# IMPORT-NEXT: }
+#
+# BASEREL:      BaseReloc [
+# BASEREL-NEXT:   Entry {
+# BASEREL-NEXT:     Type: ARM_MOV32(T)
+# BASEREL-NEXT:     Address: 0x1000
+# BASEREL-NEXT:   }
+# BASEREL-NEXT:   Entry {
+# BASEREL-NEXT:     Type: ARM_MOV32(T)
+# BASEREL-NEXT:     Address: 0x100C
+# BASEREL-NEXT:   }
+# BASEREL-NEXT:   Entry {
+# BASEREL-NEXT:     Type: ARM_MOV32(T)
+# BASEREL-NEXT:     Address: 0x1018
+# BASEREL-NEXT:   }
+# BASEREL-NEXT:   Entry {
+# BASEREL-NEXT:     Type: ARM_MOV32(T)
+# BASEREL-NEXT:     Address: 0x102E
+# BASEREL-NEXT:   }
+# BASEREL-NEXT:   Entry {
+# BASEREL-NEXT:     Type: HIGHLOW
+# BASEREL-NEXT:     Address: 0x3008
+# BASEREL-NEXT:   }
+# BASEREL-NEXT:   Entry {
+# BASEREL-NEXT:     Type: ABSOLUTE
+# BASEREL-NEXT:     Address: 0x3000
+# BASEREL-NEXT:   }
+# BASEREL-NEXT: ]
+#
+# DISASM:      401018:       43 f2 08 0c     movw    r12, #12296
+# DISASM-NEXT: 40101c:       c0 f2 40 0c     movt    r12, #64
+# DISASM-NEXT: 401020:       2d e9 0f 48     push.w  {r0, r1, r2, r3, r11, lr}
+# DISASM-NEXT: 401024:       0d f2 10 0b     addw    r11, sp, #16
+# DISASM-NEXT: 401028:       2d ed 10 0b     vpush   {d0, d1, d2, d3, d4, d5, d6, d7}
+# DISASM-NEXT: 40102c:       61 46           mov     r1, r12
+# DISASM-NEXT: 40102e:       42 f2 00 00     movw    r0, #8192
+# DISASM-NEXT: 401032:       c0 f2 40 00     movt    r0, #64
+# DISASM-NEXT: 401036:       ff f7 e3 ff     bl      #-58
+# DISASM-NEXT: 40103a:       84 46           mov     r12, r0
+# DISASM-NEXT: 40103c:       bd ec 10 0b     vpop    {d0, d1, d2, d3, d4, d5, d6, d7}
+# DISASM-NEXT: 401040:       bd e8 0f 48     pop.w   {r0, r1, r2, r3, r11, lr}
+# DISASM-NEXT: 401044:       60 47           bx      r12
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_ARMNT
+  Characteristics: [  ]
+sections:
+  - Name:            .text
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_PURGEABLE, IMAGE_SCN_MEM_16BIT, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    SectionData:     40F20000C0F2000000680047
+    Relocations:
+      - VirtualAddress:  0
+        SymbolName:      __imp_function
+        Type:            IMAGE_REL_ARM_MOV32T
+symbols:
+  - Name:            .text
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          12
+      NumberOfRelocations: 1
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          1
+  - Name:            mainCRTStartup
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            __imp_function
+    Value:           0
+    SectionNumber:   0
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+...

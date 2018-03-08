@@ -10,13 +10,9 @@
 #ifndef LLD_ELF_MAPFILE_H
 #define LLD_ELF_MAPFILE_H
 
-#include <llvm/ADT/ArrayRef.h>
-
 namespace lld {
 namespace elf {
-struct OutputSectionCommand;
-template <class ELFT>
-void writeMapFile(llvm::ArrayRef<OutputSectionCommand *> Script);
+void writeMapFile();
 } // namespace elf
 } // namespace lld
 

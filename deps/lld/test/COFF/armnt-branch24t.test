@@ -30,7 +30,7 @@ sections:
     Relocations:
       - VirtualAddress:  6
         SymbolName:      identity
-        Type:            20
+        Type:            IMAGE_REL_ARM_BRANCH24T
 symbols:
   - Name:            .text
     Value:           0

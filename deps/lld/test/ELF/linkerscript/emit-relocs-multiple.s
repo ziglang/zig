@@ -5,7 +5,7 @@
 # RUN: llvm-readobj -r %t1 | FileCheck %s
 
 # CHECK:      Relocations [
-# CHECK-NEXT:   Section {{.*}} .rela.foo {
+# CHECK-NEXT:   Section {{.*}} .rela.zed {
 # CHECK-NEXT:     0x1 R_X86_64_32 .zed 0x0
 # CHECK-NEXT:     0x6 R_X86_64_32 .zed 0x5
 # CHECK-NEXT:   }

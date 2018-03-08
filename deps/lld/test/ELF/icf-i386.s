@@ -2,7 +2,7 @@
 # This test is to make sure that we can handle implicit addends properly.
 
 # RUN: llvm-mc -filetype=obj -triple=i386-unknown-linux %s -o %t
-# RUN: ld.lld %t -o %t2 --icf=all --verbose | FileCheck %s
+# RUN: ld.lld %t -o %t2 --icf=all --verbose 2>&1 | FileCheck %s
 
 # CHECK:     selected .text.f1
 # CHECK:       removed .text.f2

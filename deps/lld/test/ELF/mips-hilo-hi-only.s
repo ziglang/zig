@@ -18,7 +18,7 @@ _label:
 
 # CHECK:      Disassembly of section .text:
 # CHECK-NEXT: __start:
-# CHECK-NEXT:  20000:   3c 08 00 02   lui    $8, 2
+# CHECK-NEXT:  20000:   3c 08 00 03   lui    $8, 3
 #                                                ^-- %hi(__start) w/o addend
 # CHECK-NEXT   20004:   21 08 00 08   addi   $8, $8, 8
 #                                                    ^-- %lo(_label)

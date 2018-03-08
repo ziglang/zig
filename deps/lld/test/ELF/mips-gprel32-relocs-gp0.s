@@ -22,14 +22,14 @@
 # DSO: GP: 0x27FF0
 
 # DUMP: Contents of section .rodata:
-# DUMP:  00f4 ffff0004 ffff0008
-#             ^ 0x10004 + 0x7ff0 - 0x27ff0
-#                      ^ 0x10008 + 0x7ff0 - 0x27ff0
+# DUMP:  {{[0-9a-f]+}} ffff0004 ffff0008
+#                      ^ 0x10004 + 0x7ff0 - 0x27ff0
+#                               ^ 0x10008 + 0x7ff0 - 0x27ff0
 
 # DUMP: SYMBOL TABLE:
 # DUMP: 00010008         .text          00000000 bar
 # DUMP: 00010004         .text          00000000 foo
-# DUMP: 00027ff0         *ABS*          00000000 .hidden _gp
+# DUMP: 00027ff0         .got           00000000 .hidden _gp
 
 # ERR: error: {{.*}}mips-gp0-non-zero.o: unsupported non-zero ri_gp_value
 

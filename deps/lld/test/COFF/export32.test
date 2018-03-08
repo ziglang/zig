@@ -57,6 +57,11 @@
 # RUN: lld-link /out:%t.dll /dll %t.obj /def:%t.def
 # RUN: llvm-objdump -p %t.dll | FileCheck -check-prefix=CHECK5 %s
 
+# RUN: echo "EXPORTS exportfn1 @ 3" > %t.def
+# RUN: echo "fn2=exportfn2 @ 2" >> %t.def
+# RUN: lld-link /out:%t.dll /dll %t.obj /def:%t.def
+# RUN: llvm-objdump -p %t.dll | FileCheck -check-prefix=CHECK5 %s
+
 # CHECK5:      Export Table:
 # CHECK5:      DLL name: export32.test.tmp.dll
 # CHECK5:      Ordinal      RVA  Name

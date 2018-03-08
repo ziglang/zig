@@ -2,7 +2,7 @@
 
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %S/Inputs/icf-absolute.s -o %t2
-# RUN: ld.lld %t %t2 -o %t3 --icf=all --verbose | FileCheck %s
+# RUN: ld.lld %t %t2 -o %t3 --icf=all --verbose 2>&1 | FileCheck %s
 
 # CHECK: selected .text.f1
 # CHECK:   removed .text.f2

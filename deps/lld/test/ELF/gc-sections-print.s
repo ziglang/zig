@@ -5,6 +5,12 @@
 # PRINT:      removing unused section from '.text.x' in file
 # PRINT-NEXT: removing unused section from '.text.y' in file
 
+# RUN: ld.lld %t --gc-sections --print-gc-sections --no-print-gc-sections -o %t2 >& %t.log
+# RUN: echo >> %t.log
+# RUN: FileCheck -check-prefix=NOPRINT %s < %t.log
+
+# NOPRINT-NOT: removing
+
 .globl _start
 .protected a, x, y
 _start:

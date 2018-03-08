@@ -39,9 +39,9 @@
 # RUN: ld.lld -o %t1 --script %t.script %t
 # RUN: llvm-readobj -program-headers %t1 | FileCheck --check-prefix=DEFHDR %s
 
-## Check that error is reported when trying to use phdr which is not listed 
+## Check that error is reported when trying to use phdr which is not listed
 ## inside PHDRS {} block
-## TODO: If script doesn't contain PHDRS {} block then default phdr is always 
+## TODO: If script doesn't contain PHDRS {} block then default phdr is always
 ## created and error is not reported.
 # RUN: echo "PHDRS { all PT_LOAD; } \
 # RUN:       SECTIONS { .baz : {*(.foo.*)} :bar }" > %t.script

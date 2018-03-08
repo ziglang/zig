@@ -14,10 +14,10 @@
 # RUN: not lld-link /out:%t.exe %t.obj > %t.log 2>&1
 # RUN: FileCheck -check-prefix=WWINMAIN %s < %t.log
 
-# MAIN:     <root>: undefined symbol: mainCRTStartup
-# WMAIN:    <root>: undefined symbol: wmainCRTStartup
-# WINMAIN:  <root>: undefined symbol: WinMainCRTStartup
-# WWINMAIN: <root>: undefined symbol: wWinMainCRTStartup
+# MAIN:     error: <root>: undefined symbol: mainCRTStartup
+# WMAIN:    error: <root>: undefined symbol: wmainCRTStartup
+# WINMAIN:  error: <root>: undefined symbol: WinMainCRTStartup
+# WWINMAIN: error: <root>: undefined symbol: wWinMainCRTStartup
 
 --- !COFF
 header:

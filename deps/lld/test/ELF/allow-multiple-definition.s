@@ -8,6 +8,11 @@
 # RUN: llvm-objdump -d %t3 | FileCheck %s
 # RUN: llvm-objdump -d %t4 | FileCheck -check-prefix=REVERT %s
 
+# RUN: ld.lld -z muldefs %t1 %t2 -o %t3
+# RUN: ld.lld -z muldefs %t2 %t1 -o %t4
+# RUN: llvm-objdump -d %t3 | FileCheck %s
+# RUN: llvm-objdump -d %t4 | FileCheck -check-prefix=REVERT %s
+
 # inputs contain different constants for instuction movl.
 # Tests below checks that order of files in command line
 # affects on what symbol will be used.

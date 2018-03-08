@@ -6,7 +6,7 @@
 # RUN:         symbol2 = symbol + 0x1234; \
 # RUN:         symbol3 = symbol2; \
 # RUN:         symbol4 = symbol + -4; \
-# RUN:         symbol5 = symbol - ~ 0xfffb; \
+# RUN:         symbol5 = symbol - ~0xfffb; \
 # RUN:         symbol6 = symbol - ~(0xfff0 + 0xb); \
 # RUN:         symbol7 = symbol - ~ 0xfffb + 4; \
 # RUN:         symbol8 = ~ 0xffff + 4; \
@@ -15,6 +15,9 @@
 # RUN:         symbol11 = ((0x28000 + 0x1fff) & ~(0x1000 + -1)); \
 # RUN:         symbol12 = 0x1234; \
 # RUN:         symbol12 += 1; \
+# RUN:         symbol13 = !1; \
+# RUN:         symbol14 = !0; \
+# RUN:         symbol15 = 0!=1; \
 # RUN:         bar = 0x5678; \
 # RUN:         baz = 0x9abc; \
 # RUN:       }" > %t.script
@@ -39,6 +42,9 @@
 # CHECK-NEXT: fedcba9876543210 *ABS* 00000000 symbol10
 # CHECK-NEXT: 0000000000029000 *ABS* 00000000 symbol11
 # CHECK-NEXT: 0000000000001235 *ABS* 00000000 symbol12
+# CHECK-NEXT: 0000000000000000 *ABS* 00000000 symbol13
+# CHECK-NEXT: 0000000000000001 *ABS* 00000000 symbol14
+# CHECK-NEXT: 0000000000000001 *ABS* 00000000 symbol15
 
 # RUN: echo "SECTIONS { symbol2 = symbol; }" > %t2.script
 # RUN: not ld.lld -o %t2 --script %t2.script %t 2>&1 \

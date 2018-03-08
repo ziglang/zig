@@ -1,6 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
 # RUN: echo "SECTIONS { \
+# RUN:  _start = .; \
 # RUN:  plus = 1 + 2 + 3; \
 # RUN:  minus = 5 - 1; \
 # RUN:  div = 6 / 2; \
@@ -25,6 +26,10 @@
 # RUN:  commonpagesize = CONSTANT (COMMONPAGESIZE); \
 # RUN:  . = 0xfff0; \
 # RUN:  datasegmentalign = DATA_SEGMENT_ALIGN (0xffff, 0); \
+# RUN:  datasegmentalign2 = DATA_SEGMENT_ALIGN (0, 0); \
+# RUN:  _end = .; \
+# RUN:  minus_rel = _end - 0x10; \
+# RUN:  minus_abs = _end - _start; \
 # RUN: }" > %t.script
 # RUN: ld.lld %t --script %t.script -o %t2
 # RUN: llvm-objdump -t %t2 | FileCheck %s
@@ -51,6 +56,9 @@
 # CHECK: 00000000001000 *ABS* 00000000 maxpagesize
 # CHECK: 00000000001000 *ABS* 00000000 commonpagesize
 # CHECK: 0000000000ffff *ABS* 00000000 datasegmentalign
+# CHECK: 0000000000fff0 *ABS* 00000000 datasegmentalign2
+# CHECK: 0000000000ffe0 .text 00000000 minus_rel
+# CHECK: 0000000000fff0 *ABS* 00000000 minus_abs
 
 ## Mailformed number error.
 # RUN: echo "SECTIONS { . = 0x12Q41; }" > %t.script

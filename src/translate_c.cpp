@@ -760,6 +760,8 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                         return trans_create_node_symbol_str(c, "f64");
                     case BuiltinType::Float128:
                         return trans_create_node_symbol_str(c, "f128");
+                    case BuiltinType::Float16:
+                        return trans_create_node_symbol_str(c, "f16");
                     case BuiltinType::LongDouble:
                         return trans_create_node_symbol_str(c, "c_longdouble");
                     case BuiltinType::WChar_U:
@@ -1062,6 +1064,7 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
         case Type::Pipe:
         case Type::ObjCTypeParam:
         case Type::DeducedTemplateSpecialization:
+        case Type::DependentAddressSpace:
             emit_warning(c, source_loc, "unsupported type: '%s'", ty->getTypeClassName());
             return nullptr;
     }
@@ -1251,6 +1254,9 @@ static AstNode *trans_binary_operator(Context *c, ResultUsed result_used, TransS
             return nullptr;
         case BO_PtrMemI:
             emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_PtrMemI");
+            return nullptr;
+        case BO_Cmp:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C binary operators: BO_Cmp");
             return nullptr;
         case BO_Mul:
             return trans_create_bin_op(c, scope, stmt->getLHS(),
@@ -1512,6 +1518,9 @@ static AstNode *trans_compound_assign_operator(Context *c, ResultUsed result_use
             return nullptr;
         case BO_RemAssign:
             emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_RemAssign");
+            return nullptr;
+        case BO_Cmp:
+            emit_warning(c, stmt->getLocStart(), "TODO handle more C compound assign operators: BO_Cmp");
             return nullptr;
         case BO_AddAssign:
             if (qual_type_has_wrapping_overflow(c, stmt->getType()))

@@ -45,7 +45,7 @@
 
 # RUN: echo "INCLUDE /no/such/file" > %t7
 # RUN: not ld.lld %t7 no-such-file 2>&1 | FileCheck -check-prefix=ERR7 %s
-# ERR7: cannot open /no/such/file
+# ERR7: cannot find linker script /no/such/file
 # ERR7: cannot open no-such-file:
 
 # RUN: echo "OUTPUT_FORMAT(x y z)" > %t8

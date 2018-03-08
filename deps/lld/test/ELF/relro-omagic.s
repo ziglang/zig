@@ -1,7 +1,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/shared.s -o %t2.o
 # RUN: ld.lld -shared %t2.o -o %t2.so -soname relro-omagic.s.tmp2.so
-# RUN: ld.lld -N %t.o %t2.so -o %t
+# RUN: ld.lld --hash-style=sysv -N %t.o %t2.so -o %t
 # RUN: llvm-objdump -section-headers %t | FileCheck --check-prefix=NORELRO %s
 # RUN: llvm-readobj --program-headers %t | FileCheck --check-prefix=NOPHDRS %s
 

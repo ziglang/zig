@@ -1,10 +1,11 @@
 # RUN: yaml2obj < %s > %t.obj
 # RUN: not lld-link /out:%t.exe /entry:main %t.obj >& %t.log
-# RUN: FileCheck %s < %t.log
+# RUN: FileCheck -check-prefix=ERROR %s < %t.log
 # RUN: lld-link /out:%t.exe /entry:main %t.obj /force >& %t.log
-# RUN: FileCheck %s < %t.log
+# RUN: FileCheck -check-prefix=WARN %s < %t.log
 
-# CHECK: .obj: undefined symbol: foo
+# ERROR: error: {{.*}}.obj: undefined symbol: foo
+# WARN: warning: {{.*}}.obj: undefined symbol: foo
 
 --- !COFF
 header:

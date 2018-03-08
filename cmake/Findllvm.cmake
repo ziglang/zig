@@ -8,12 +8,12 @@
 # LLVM_LIBDIRS
 
 find_program(LLVM_CONFIG_EXE
-    NAMES llvm-config-5.0 llvm-config
+    NAMES llvm-config-6.0 llvm-config
     PATHS
         "/mingw64/bin"
         "/c/msys64/mingw64/bin"
         "c:/msys64/mingw64/bin"
-        "C:/Libraries/llvm-5.0.0/bin")
+        "C:/Libraries/llvm-6.0.0/bin")
 
 if(NOT(CMAKE_BUILD_TYPE STREQUAL "Debug"))
   execute_process(
@@ -62,7 +62,7 @@ execute_process(
 set(LLVM_LIBRARIES ${LLVM_LIBRARIES} ${LLVM_SYSTEM_LIBS})
 
 if(NOT LLVM_LIBRARIES)
-  find_library(LLVM_LIBRARIES NAMES LLVM LLVM-5.0 LLVM-5)
+  find_library(LLVM_LIBRARIES NAMES LLVM LLVM-6.0 LLVM-6)
 endif()
 
 link_directories("${CMAKE_PREFIX_PATH}/lib")

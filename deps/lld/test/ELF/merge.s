@@ -29,7 +29,7 @@ zed:
 // CHECK-NEXT:    Link: 0
 // CHECK-NEXT:    Info: 0
 // CHECK-NEXT:    AddressAlignment: 4
-// CHECK-NEXT:    EntrySize: 0
+// CHECK-NEXT:    EntrySize: 4
 // CHECK-NEXT:    SectionData (
 // CHECK-NEXT:      0000: 10000000 42000000
 // CHECK-NEXT:    )

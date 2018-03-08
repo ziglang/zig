@@ -1,0 +1,3 @@
+.global foobar
+foobar:
+        nop

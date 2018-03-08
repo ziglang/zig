@@ -50,9 +50,9 @@
 # RUN: echo ".temp : { *(.temp) } }" >> %t.script
 # RUN: not ld.lld -shared %t -o %t1 --script %t.script 2>&1 | \
 # RUN:   FileCheck -check-prefix=ERR6 -strict-whitespace %s
-# ERR6:      error: {{.*}}.script:1:
-# ERR6-NEXT: error: {{.*}}.script:1: UNKNOWN_TAG {
-# ERR6-NEXT: error: {{.*}}.script:1: ^
+# ERR6:      error: {{.*}}.script:1: unknown directive: UNKNOWN_TAG
+# ERR6-NEXT: >>> UNKNOWN_TAG {
+# ERR6-NEXT: >>> ^
 
 ## One more check that text of lines and pointer to 'bad' token are working ok.
 # RUN: echo "SECTIONS {" > %t.script
@@ -62,8 +62,8 @@
 # RUN: not ld.lld -shared %t -o %t1 --script %t.script 2>&1 | \
 # RUN:   FileCheck -check-prefix=ERR7 -strict-whitespace %s
 # ERR7:      error: {{.*}}.script:4: malformed number: .temp
-# ERR7-NEXT: error: {{.*}}.script:4: boom .temp : { *(.temp) } }
-# ERR7-NEXT: error: {{.*}}.script:4:      ^
+# ERR7-NEXT: >>> boom .temp : { *(.temp) } }
+# ERR7-NEXT: >>>      ^
 
 ## Check tokenize() error
 # RUN: echo "SECTIONS {}" > %t.script
@@ -89,8 +89,8 @@
 # RUN: not ld.lld -shared %t -o %t1 --script %t.script 2>&1 | \
 # RUN:   FileCheck -check-prefix=ERR10 -strict-whitespace %s
 # ERR10:      error: {{.*}}.script.inc:4: malformed number: .temp
-# ERR10-NEXT: error: {{.*}}.script.inc:4: boom .temp : { *(.temp) } }
-# ERR10-NEXT: error: {{.*}}.script.inc:4:      ^
+# ERR10-NEXT: >>> boom .temp : { *(.temp) } }
+# ERR10-NEXT: >>>      ^
 
 ## Check error reporting in script with INCLUDE directive.
 # RUN: echo "SECTIONS {" > %t.script.inc

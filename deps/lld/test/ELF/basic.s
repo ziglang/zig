@@ -28,7 +28,7 @@ _start:
 # CHECK-NEXT:   Version: 1
 # CHECK-NEXT:   Entry: [[ENTRY:0x[0-9A-F]+]]
 # CHECK-NEXT:   ProgramHeaderOffset: 0x40
-# CHECK-NEXT:   SectionHeaderOffset: 0x1080
+# CHECK-NEXT:   SectionHeaderOffset: 0x2070
 # CHECK-NEXT:   Flags [ (0x0)
 # CHECK-NEXT:   ]
 # CHECK-NEXT:   HeaderSize: 64
@@ -78,12 +78,12 @@ _start:
 # CHECK-NEXT:       SHF_STRINGS (0x20)
 # CHECK-NEXT:     ]
 # CHECK-NEXT:     Address: 0x0
-# CHECK-NEXT:     Offset: 0x1010
+# CHECK-NEXT:     Offset: 0x2000
 # CHECK-NEXT:     Size: 8
 # CHECK-NEXT:     Link: 0
 # CHECK-NEXT:     Info: 0
 # CHECK-NEXT:     AddressAlignment: 1
-# CHECK-NEXT:     EntrySize: 0
+# CHECK-NEXT:     EntrySize: 1
 # CHECK-NEXT:   }
 # CHECK-NEXT:   Section {
 # CHECK-NEXT:     Index: 3
@@ -92,7 +92,7 @@ _start:
 # CHECK-NEXT:     Flags [ (0x0)
 # CHECK-NEXT:     ]
 # CHECK-NEXT:     Address: 0x0
-# CHECK-NEXT:     Offset: 0x1018
+# CHECK-NEXT:     Offset: 0x2008
 # CHECK-NEXT:     Size: 48
 # CHECK-NEXT:     Link: 5
 # CHECK-NEXT:     Info: 1
@@ -106,7 +106,7 @@ _start:
 # CHECK-NEXT:     Flags [ (0x0)
 # CHECK-NEXT:     ]
 # CHECK-NEXT:     Address: 0x0
-# CHECK-NEXT:     Offset: 0x1048
+# CHECK-NEXT:     Offset: 0x2038
 # CHECK-NEXT:     Size: 42
 # CHECK-NEXT:     Link: 0
 # CHECK-NEXT:     Info: 0
@@ -120,7 +120,7 @@ _start:
 # CHECK-NEXT:     Flags [ (0x0)
 # CHECK-NEXT:     ]
 # CHECK-NEXT:     Address: 0x0
-# CHECK-NEXT:     Offset: 0x1072
+# CHECK-NEXT:     Offset: 0x2062
 # CHECK-NEXT:     Size: 8
 # CHECK-NEXT:     Link: 0
 # CHECK-NEXT:     Info: 0
@@ -178,8 +178,8 @@ _start:
 # CHECK-NEXT:     Offset: 0x1000
 # CHECK-NEXT:     VirtualAddress: 0x201000
 # CHECK-NEXT:     PhysicalAddress: 0x201000
-# CHECK-NEXT:     FileSize: 16
-# CHECK-NEXT:     MemSize: 16
+# CHECK-NEXT:     FileSize: 4096
+# CHECK-NEXT:     MemSize: 4096
 # CHECK-NEXT:     Flags [ (0x5)
 # CHECK-NEXT:       PF_R (0x4)
 # CHECK-NEXT:       PF_X (0x1)
@@ -246,7 +246,9 @@ _start:
 # UNKNOWN_EMUL: unknown emulation: wrong_emul_fbsd
 
 # RUN: not ld.lld %t --lto-partitions=0 2>&1 | FileCheck --check-prefix=NOTHREADS %s
+# RUN: not ld.lld %t --plugin-opt=lto-partitions=0 2>&1 | FileCheck --check-prefix=NOTHREADS %s
 # NOTHREADS: --lto-partitions: number of threads must be > 0
 
 # RUN: not ld.lld %t --thinlto-jobs=0 2>&1 | FileCheck --check-prefix=NOTHREADSTHIN %s
+# RUN: not ld.lld %t --plugin-opt=jobs=0 2>&1 | FileCheck --check-prefix=NOTHREADSTHIN %s
 # NOTHREADSTHIN: --thinlto-jobs: number of threads must be > 0

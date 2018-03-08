@@ -9,6 +9,9 @@
 // CHECK: >>> referenced by {{.*}}.o:(.text+0x1)
 // CHECK: symbol 'zed' defined in {{.*}}.so has no type
 
+// RUN: not ld.lld --noinhibit-exec %t.o %t2.so -o %t 2>&1 | FileCheck %s --check-prefix=NOINHIBIT
+// NOINHIBIT: warning: symbol 'zed' defined in {{.*}}.so has no type
+
 .global _start
 _start:
 call bar

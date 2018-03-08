@@ -2,7 +2,7 @@
 // RUN: llvm-mc -filetype=obj -triple=thumbv7a-none-linux-gnueabi %s -o %t2
 // RUN: ld.lld %t1 %t2 -o %t
 // RUN: llvm-objdump -triple=thumbv7a-none-linux-gnueabi -d %t | FileCheck %s
-// RUN: ld.lld -shared %t1 %t2 -o %t3
+// RUN: ld.lld --hash-style=sysv -shared %t1 %t2 -o %t3
 // RUN: llvm-objdump -triple=thumbv7a-none-linux-gnueabi -d %t3 | FileCheck -check-prefix=DSOTHUMB %s
 // RUN: llvm-objdump -triple=armv7a-none-linux-gnueabi -d %t3 | FileCheck -check-prefix=DSOARM %s
 // RUN: llvm-readobj -s -r %t3 | FileCheck -check-prefix=DSOREL %s
@@ -43,50 +43,54 @@ _start:
 // .text is Thumb and .plt is ARM, llvm-objdump can currently only disassemble
 // as ARM or Thumb. Work around by disassembling twice.
 // DSOTHUMB: Disassembly of section .text:
-// DSOTHUMB: func1:
-// DSOTHUMB-NEXT:    1000:       70 47   bx      lr
+// DSOTHUMB-NEXT: func1:
+// DSOTHUMB-NEXT:     1000:     70 47   bx      lr
 // DSOTHUMB: func2:
-// DSOTHUMB-NEXT:    1002:       70 47   bx      lr
+// DSOTHUMB-NEXT:     1002:     70 47   bx      lr
 // DSOTHUMB: func3:
-// DSOTHUMB-NEXT:    1004:       70 47   bx      lr
-// DSOTHUMB-NEXT:    1006:       d4 d4
+// DSOTHUMB-NEXT:     1004:     70 47   bx      lr
+// DSOTHUMB-NEXT:     1006:     d4 d4   bmi     #-88
 // DSOTHUMB: _start:
-// 0x1008 + 0x28 + 4 = 0x1034 = PLT func1
-// DSOTHUMB-NEXT:    1008:       00 f0 14 e8     blx     #40
-// 0x100c + 0x34 + 4 = 0x1044 = PLT func2
-// DSOTHUMB-NEXT:    100c:       00 f0 1a e8     blx     #52
-// 0x1010 + 0x40 + 4 = 0x1054 = PLT func3
-// DSOTHUMB-NEXT:    1010:       00 f0 20 e8     blx     #64
+// 0x1008 + 0x34 + 4 = 0x1040 = PLT func1
+// DSOTHUMB-NEXT:     1008:     00 f0 1a e8     blx     #52
+// 0x100c + 0x40 + 4 = 0x1050 = PLT func2
+// DSOTHUMB-NEXT:     100c:     00 f0 20 e8     blx     #64
+// 0x1010 + 0x4C + 4 = 0x1060 = PLT func3
+// DSOTHUMB-NEXT:     1010:     00 f0 26 e8     blx     #76
 // DSOARM: Disassembly of section .plt:
 // DSOARM-NEXT: $a:
-// DSOARM-NEXT:    1020:       04 e0 2d e5     str     lr, [sp, #-4]!
-// DSOARM-NEXT:    1024:       04 e0 9f e5     ldr     lr, [pc, #4]
-// DSOARM-NEXT:    1028:       0e e0 8f e0     add     lr, pc, lr
-// DSOARM-NEXT:    102c:       08 f0 be e5     ldr     pc, [lr, #8]!
+// DSOARM-NEXT:     1020:       04 e0 2d e5     str     lr, [sp, #-4]!
+// (0x1024 + 8) + (0 RoR 12) + (0 RoR 20) + (0xfdc) = 0x2008 = .got.plt[3]
+// DSOARM-NEXT:     1024:       00 e6 8f e2     add     lr, pc, #0, #12
+// DSOARM-NEXT:     1028:       00 ea 8e e2     add     lr, lr, #0, #20
+// DSOARM-NEXT:     102c:       dc ff be e5     ldr     pc, [lr, #4060]!
 // DSOARM: $d:
-// DSOARM-NEXT:    1030:       d0 0f 00 00      .word   0x00000fd0
-// 0x1028 + 8 + 0fd0 = 0x2000
+
+// DSOARM-NEXT:     1030:       d4 d4 d4 d4     .word   0xd4d4d4d4
+// DSOARM-NEXT:     1034:       d4 d4 d4 d4     .word   0xd4d4d4d4
+// DSOARM-NEXT:     1038:       d4 d4 d4 d4     .word   0xd4d4d4d4
+// DSOARM-NEXT:     103c:       d4 d4 d4 d4     .word   0xd4d4d4d4
 // DSOARM: $a:
-// DSOARM-NEXT:    1034:       04 c0 9f e5     ldr     r12, [pc, #4]
-// DSOARM-NEXT:    1038:       0f c0 8c e0     add     r12, r12, pc
-// DSOARM-NEXT:    103c:       00 f0 9c e5     ldr     pc, [r12]
+// (0x1040 + 8) + (0 RoR 12) + (0 RoR 20) + (0xfc4) = 0x200c
+// DSOARM-NEXT:     1040:       00 c6 8f e2     add     r12, pc, #0, #12
+// DSOARM-NEXT:     1044:       00 ca 8c e2     add     r12, r12, #0, #20
+// DSOARM-NEXT:     1048:       c4 ff bc e5     ldr     pc, [r12, #4036]!
 // DSOARM: $d:
-// DSOARM-NEXT:    1040:       cc 0f 00 00     .word   0x00000fcc
-// 0x1038 + 8 + 0fcc = 0x200c
+// DSOARM-NEXT:     104c:       d4 d4 d4 d4     .word   0xd4d4d4d4
 // DSOARM: $a:
-// DSOARM-NEXT:    1044:       04 c0 9f e5     ldr     r12, [pc, #4]
-// DSOARM-NEXT:    1048:       0f c0 8c e0     add     r12, r12, pc
-// DSOARM-NEXT:    104c:       00 f0 9c e5     ldr     pc, [r12]
+// (0x1050 + 8) + (0 RoR 12) + (0 RoR 20) + (0xfb8) = 0x2010
+// DSOARM-NEXT:     1050:       00 c6 8f e2     add     r12, pc, #0, #12
+// DSOARM-NEXT:     1054:       00 ca 8c e2     add     r12, r12, #0, #20
+// DSOARM-NEXT:     1058:       b8 ff bc e5     ldr     pc, [r12, #4024]!
 // DSOARM: $d:
-// DSOARM-NEXT:    1050:       c0 0f 00 00     .word   0x00000fc0
-// 0x1048 + 8 + 0fc0 = 0x2010
+// DSOARM-NEXT:     105c:       d4 d4 d4 d4     .word   0xd4d4d4d4
 // DSOARM: $a:
-// DSOARM-NEXT:    1054:       04 c0 9f e5     ldr     r12, [pc, #4]
-// DSOARM-NEXT:    1058:       0f c0 8c e0     add     r12, r12, pc
-// DSOARM-NEXT:    105c:       00 f0 9c e5     ldr     pc, [r12]
+// (0x1060 + 8) + (0 RoR 12) + (0 RoR 20) + (0xfac) = 0x2014
+// DSOARM-NEXT:     1060:       00 c6 8f e2     add     r12, pc, #0, #12
+// DSOARM-NEXT:     1064:       00 ca 8c e2     add     r12, r12, #0, #20
+// DSOARM-NEXT:     1068:       ac ff bc e5     ldr     pc, [r12, #4012]!
 // DSOARM: $d:
-// DSOARM-NEXT:    1060:       b4 0f 00 00     .word   0x00000fb4
-// 0x1058 + 8 + 0fb4 = 0x2014
+// DSOARM-NEXT:     106c:       d4 d4 d4 d4     .word   0xd4d4d4d4
 
 // DSOREL:    Name: .got.plt
 // DSOREL-NEXT:    Type: SHT_PROGBITS

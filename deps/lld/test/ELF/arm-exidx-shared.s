@@ -1,5 +1,5 @@
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %s -o %t
-// RUN: ld.lld %t --shared -o %t2 2>&1
+// RUN: ld.lld --hash-style=sysv %t --shared -o %t2 2>&1
 // RUN: llvm-readobj --relocations %t2 | FileCheck %s
 // RUN: llvm-objdump -s -triple=armv7a-none-linux-gnueabi %t2 | FileCheck -check-prefix=CHECK-EXTAB %s
 // REQUIRES: arm
@@ -41,5 +41,5 @@ __aeabi_unwind_cpp_pr0:
 // CHECK-NEXT:     0x200C R_ARM_JUMP_SLOT __gxx_personality_v0
 
 // CHECK-EXTAB: Contents of section .ARM.extab:
-// 014c + 0ed8 = 0x1024 = __gxx_personality_v0(PLT)
-// CHECK-EXTAB-NEXT:  014c d80e0000 b0b0b000 00000000
+// 014c + 0ee4 = 0x1030 = __gxx_personality_v0(PLT)
+// CHECK-EXTAB-NEXT:  014c e40e0000 b0b0b000 00000000

@@ -3,7 +3,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux \
 # RUN:   %p/Inputs/relocation-copy-align-common.s -o %t2.o
 # RUN: ld.lld -shared %t2.o -o %t.so
-# RUN: ld.lld %t.o %t.so -o %t3
+# RUN: ld.lld --hash-style=sysv %t.o %t.so -o %t3
 # RUN: llvm-readobj -s -r --expand-relocs %t3 | FileCheck %s
 
 # CHECK:      Section {

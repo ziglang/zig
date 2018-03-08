@@ -1,0 +1,6 @@
+RUN: llc -filetype=obj -mtriple=wasm32-unknown-unknown-wasm %p/Inputs/ret32.ll -o %t.ret32.o
+RUN: lld -flavor wasm --strip-debug --entry=ret32 -o %t.wasm %t.ret32.o
+RUN: obj2yaml %t.wasm | FileCheck %s
+
+# Check that there is no name section
+CHECK-NOT:   Name:    name

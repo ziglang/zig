@@ -9,3 +9,4 @@ foo:
 .global bar
 .type bar, @function
 bar:
+retq

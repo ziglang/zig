@@ -17,5 +17,4 @@ add_lld_library(lldReaderWriter
 
   LINK_LIBS
     lldCore
-    lldYAML
   )

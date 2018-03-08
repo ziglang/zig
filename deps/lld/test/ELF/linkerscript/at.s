@@ -13,31 +13,6 @@
 
 # CHECK:      ProgramHeaders [
 # CHECK-NEXT:   ProgramHeader {
-# CHECK-NEXT:     Type: PT_PHDR
-# CHECK-NEXT:     Offset: 0x40
-# CHECK-NEXT:     VirtualAddress: 0x40
-# CHECK-NEXT:     PhysicalAddress: 0x40
-# CHECK-NEXT:     FileSize:
-# CHECK-NEXT:     MemSize:
-# CHECK-NEXT:     Flags [
-# CHECK-NEXT:       PF_R
-# CHECK-NEXT:     ]
-# CHECK-NEXT:     Alignment: 8
-# CHECK-NEXT:   }
-# CHECK-NEXT:   ProgramHeader {
-# CHECK-NEXT:     Type: PT_LOAD
-# CHECK-NEXT:     Offset: 0x0
-# CHECK-NEXT:     VirtualAddress: 0x0
-# CHECK-NEXT:     PhysicalAddress: 0x0
-# CHECK-NEXT:     FileSize:
-# CHECK-NEXT:     MemSize:
-# CHECK-NEXT:     Flags [
-# CHECK-NEXT:       PF_R
-# CHECK-NEXT:       PF_X
-# CHECK-NEXT:     ]
-# CHECK-NEXT:     Alignment:
-# CHECK-NEXT:   }
-# CHECK-NEXT:   ProgramHeader {
 # CHECK-NEXT:     Type: PT_LOAD
 # CHECK-NEXT:     Offset: 0x1000
 # CHECK-NEXT:     VirtualAddress: 0x1000

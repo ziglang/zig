@@ -21,3 +21,5 @@
 # RUN: not ld.lld -pie -o %t --script %t.script %t.o 2>&1 | \
 # RUN:   FileCheck -check-prefix=DYNSTR %s
 # DYNSTR: discarding .dynstr section is not allowed
+
+.comm foo,4,4

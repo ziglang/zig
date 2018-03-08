@@ -7,9 +7,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Error.h"
 #include "Symbols.h"
 #include "Target.h"
+#include "lld/Common/ErrorHandler.h"
 #include "llvm/Support/Endian.h"
 
 using namespace llvm;
@@ -22,16 +22,32 @@ namespace {
 class PPC final : public TargetInfo {
 public:
   PPC() { GotBaseSymOff = 0x8000; }
-  void relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const override;
-  RelExpr getRelExpr(uint32_t Type, const SymbolBody &S,
+  void relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const override;
+  RelExpr getRelExpr(RelType Type, const Symbol &S,
                      const uint8_t *Loc) const override;
 };
 } // namespace
 
-void PPC::relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const {
+RelExpr PPC::getRelExpr(RelType Type, const Symbol &S,
+                        const uint8_t *Loc) const {
+  switch (Type) {
+  case R_PPC_REL24:
+  case R_PPC_REL32:
+    return R_PC;
+  case R_PPC_PLTREL24:
+    return R_PLT_PC;
+  default:
+    return R_ABS;
+  }
+}
+
+void PPC::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
   switch (Type) {
   case R_PPC_ADDR16_HA:
     write16be(Loc, (Val + 0x8000) >> 16);
+    break;
+  case R_PPC_ADDR16_HI:
+    write16be(Loc, Val >> 16);
     break;
   case R_PPC_ADDR16_LO:
     write16be(Loc, Val);
@@ -40,22 +56,12 @@ void PPC::relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const {
   case R_PPC_REL32:
     write32be(Loc, Val);
     break;
+  case R_PPC_PLTREL24:
   case R_PPC_REL24:
     write32be(Loc, read32be(Loc) | (Val & 0x3FFFFFC));
     break;
   default:
     error(getErrorLocation(Loc) + "unrecognized reloc " + Twine(Type));
-  }
-}
-
-RelExpr PPC::getRelExpr(uint32_t Type, const SymbolBody &S,
-                        const uint8_t *Loc) const {
-  switch (Type) {
-  case R_PPC_REL24:
-  case R_PPC_REL32:
-    return R_PC;
-  default:
-    return R_ABS;
   }
 }
 

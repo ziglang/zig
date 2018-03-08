@@ -1,0 +1,70 @@
+# REQUIRES: aarch64
+
+# RUN: yaml2obj < %s > %t.obj
+# RUN: lld-link /out:%t.dll /dll %t.obj /export:exportfn1 /export:exportfn2 /implib:%t.lib
+# RUN: llvm-objdump -p %t.dll | FileCheck %s
+# RUN: llvm-objdump -r %t.lib | FileCheck %s -check-prefix=RELOCS
+
+# CHECK:      Export Table:
+# CHECK:      DLL name: export-arm64.yaml.tmp.dll
+# CHECK:      Ordinal      RVA  Name
+# CHECK-NEXT:       0        0
+# CHECK-NEXT:       1   0x1008  exportfn1
+# CHECK-NEXT:       2   0x1010  exportfn2
+# CHECK-NEXT:       3   0x1018  exportfn3
+
+# RELOCS: IMAGE_REL_ARM64_ADDR32NB .idata$6
+# RELOCS: IMAGE_REL_ARM64_ADDR32NB .idata$4
+# RELOCS: IMAGE_REL_ARM64_ADDR32NB .idata$5
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_ARM64
+  Characteristics: []
+sections:
+  - Name:            .text
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_PURGEABLE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Alignment:       4
+    SectionData:     e0031f2ac0035fd6e0031f2ac0035fd6e0031f2ac0035fd6e0031f2ac0035fd6
+  - Name:            .drectve
+    Characteristics: [ IMAGE_SCN_LNK_INFO, IMAGE_SCN_LNK_REMOVE ]
+    Alignment:       1
+    SectionData:     2f6578706f72743a6578706f7274666e3300  # /export:exportfn3
+symbols:
+  - Name:            .text
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          32
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          1
+  - Name:            _DllMainCRTStartup
+    Value:           0
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            exportfn1
+    Value:           8
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            exportfn2
+    Value:           16
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+  - Name:            exportfn3
+    Value:           24
+    SectionNumber:   1
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_FUNCTION
+    StorageClass:    IMAGE_SYM_CLASS_EXTERNAL
+...

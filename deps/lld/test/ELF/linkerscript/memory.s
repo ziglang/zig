@@ -21,8 +21,8 @@
 # RUN:   rom (rx) : org = (0x80 * 0x1000 * 0x1000), len = 64M \
 # RUN: } \
 # RUN: SECTIONS { \
-# RUN:   .text : { *(.text) } > rom \
-# RUN:   .data : { *(.data) } > ram \
+# RUN:   .text : { *(.text) } >rom \
+# RUN:   .data : { *(.data) } >ram \
 # RUN: }" > %t.script
 # RUN: ld.lld -o %t1 --script %t.script %t
 # RUN: llvm-objdump -section-headers %t1 | FileCheck -check-prefix=RAMROM %s

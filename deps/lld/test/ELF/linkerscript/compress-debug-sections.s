@@ -10,12 +10,12 @@
 
 # RUN: echo "SECTIONS { }" > %t.script
 # RUN: ld.lld -O0 %t1.o %t2.o %t.script -o %t1 --compress-debug-sections=zlib
-# RUN: llvm-dwarfdump %t1 | FileCheck %s
+# RUN: llvm-dwarfdump -a %t1 | FileCheck %s
 # RUN: llvm-readobj -s %t1 | FileCheck %s --check-prefix=ZLIBFLAGS
 
 # RUN: echo "SECTIONS { .debug_str 0 : { *(.debug_str) } }" > %t2.script
 # RUN: ld.lld -O0 %t1.o %t2.o %t2.script -o %t2 --compress-debug-sections=zlib
-# RUN: llvm-dwarfdump %t2 | FileCheck %s
+# RUN: llvm-dwarfdump -a %t2 | FileCheck %s
 # RUN: llvm-readobj -s %t2 | FileCheck %s --check-prefix=ZLIBFLAGS
 
 # CHECK:       .debug_str contents:

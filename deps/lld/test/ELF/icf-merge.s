@@ -2,13 +2,13 @@
 
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %S/Inputs/icf-merge.s -o %t1
-# RUN: ld.lld %t %t1 -o %t1.out --icf=all --verbose | FileCheck %s
+# RUN: ld.lld %t %t1 -o %t1.out --icf=all --verbose 2>&1 | FileCheck %s
 
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %S/Inputs/icf-merge2.s -o %t2
-# RUN: ld.lld %t %t2 -o %t3.out --icf=all --verbose | FileCheck --check-prefix=NOMERGE %s
+# RUN: ld.lld %t %t2 -o %t3.out --icf=all --verbose 2>&1 | FileCheck --check-prefix=NOMERGE %s
 
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %S/Inputs/icf-merge3.s -o %t3
-# RUN: ld.lld %t %t3 -o %t3.out --icf=all --verbose | FileCheck --check-prefix=NOMERGE %s
+# RUN: ld.lld %t %t3 -o %t3.out --icf=all --verbose 2>&1 | FileCheck --check-prefix=NOMERGE %s
 
 # CHECK: selected .text.f1
 # CHECK:   removed .text.f2

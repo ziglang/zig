@@ -19,9 +19,9 @@
 
 ## With relro or without DATA_SEGMENT_RELRO_END just aligns to
 ## page boundary.
-# RUN: ld.lld -z norelro %t1.o %t2.so --script %t.script -o %t
+# RUN: ld.lld --hash-style=sysv -z norelro %t1.o %t2.so --script %t.script -o %t
 # RUN: llvm-readobj -s %t | FileCheck %s
-# RUN: ld.lld -z relro %t1.o %t2.so --script %t.script -o %t2
+# RUN: ld.lld --hash-style=sysv -z relro %t1.o %t2.so --script %t.script -o %t2
 # RUN: llvm-readobj -s %t2 | FileCheck %s
 
 # CHECK:       Section {

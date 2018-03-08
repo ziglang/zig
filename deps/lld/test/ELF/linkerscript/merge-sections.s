@@ -36,7 +36,7 @@
 # RUN: llvm-readobj -s -t %t2 | FileCheck %s --check-prefix=GC
 
 # GC:        Name: .foo
-# GC-NEXT:   Type: SHT_PROGBITS
+# GC-NEXT:   Type: SHT_NOBITS
 # GC-NEXT:   Flags [
 # GC-NEXT:     SHF_ALLOC
 # GC-NEXT:   ]

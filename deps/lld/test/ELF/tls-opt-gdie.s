@@ -1,7 +1,7 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/tls-opt-gdie.s -o %tso.o
 // RUN: ld.lld -shared %tso.o -o %t.so
-// RUN: ld.lld %t.o %t.so -o %t1
+// RUN: ld.lld --hash-style=sysv %t.o %t.so -o %t1
 // RUN: llvm-readobj -s -r %t1 | FileCheck --check-prefix=RELOC %s
 // RUN: llvm-objdump -d %t1 | FileCheck --check-prefix=DISASM %s
 

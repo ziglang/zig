@@ -2,11 +2,11 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 
 # RUN: echo "SECTIONS {foo 0 : {*(foo*)} }" > %t.script
-# RUN: ld.lld -o %t --script %t.script %t.o -shared
+# RUN: ld.lld --hash-style=sysv -o %t --script %t.script %t.o -shared
 # RUN: llvm-readobj -elf-output-style=GNU -l %t | FileCheck %s
 
 # RUN: echo "SECTIONS {foo : {*(foo*)} }" > %t.script
-# RUN: ld.lld -o %t --script %t.script %t.o -shared
+# RUN: ld.lld --hash-style=sysv -o %t --script %t.script %t.o -shared
 # RUN: llvm-readobj -elf-output-style=GNU -l %t | FileCheck %s
 
 # There is not enough address space available for the header, so just start the PT_LOAD

@@ -42,6 +42,12 @@
 # RUN: ld.lld --version-script %t.script --dynamic-list %t.list %t.o %t2.so -o %t2
 # RUN: llvm-readobj %t2 > /dev/null
 
+## Check that we can handle multiple "--version-script" options.
+# RUN: echo "VERSION_1.0 { global : foo1; local : *; };" > %t7a.script
+# RUN: echo "VERSION_2.0 { global: foo3; local: *; };" > %t7b.script
+# RUN: ld.lld --version-script %t7a.script --version-script %t7b.script -shared %t.o %t2.so -o %t7.so
+# RUN: llvm-readobj -dyn-symbols %t7.so | FileCheck --check-prefix=VERDSO %s
+
 # DSO:      DynamicSymbols [
 # DSO-NEXT:   Symbol {
 # DSO-NEXT:     Name: @
@@ -142,12 +148,12 @@
 # VERDSO-NEXT: ]
 
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
-# RUN: ld.lld -shared %t.o %t2.so -o %t.so
+# RUN: ld.lld --hash-style=sysv -shared %t.o %t2.so -o %t.so
 # RUN: llvm-readobj -dyn-symbols %t.so | FileCheck --check-prefix=ALL %s
 
 # RUN: echo "{ global: foo1; foo3; };" > %t2.script
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
-# RUN: ld.lld --version-script %t2.script -shared %t.o %t2.so -o %t.so
+# RUN: ld.lld --hash-style=sysv --version-script %t2.script -shared %t.o %t2.so -o %t.so
 # RUN: llvm-readobj -dyn-symbols %t.so | FileCheck --check-prefix=ALL %s
 
 # ALL:      DynamicSymbols [

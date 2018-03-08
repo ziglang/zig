@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t.o
 # RUN: ld.lld --gdb-index %t.o -o %t
-# RUN: llvm-dwarfdump -debug-dump=gdb_index %t | FileCheck %s
+# RUN: llvm-dwarfdump -gdb-index %t | FileCheck %s
 
 ## Testcase is based on output produced by gcc version 5.4.1 20160904
 ## it has duplicate entries in .debug_gnu_pubtypes which seems to be

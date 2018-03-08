@@ -6,7 +6,7 @@
 # RUN:   .text : { *(.text) } \
 # RUN:   .foo : {foo1 = .;  *(.foo.*) foo2 = .;  *(.bar) foo3 = .;} \
 # RUN: }" > %t.script
-# RUN: ld.lld -o %t1 --script %t.script %t -shared
+# RUN: ld.lld --hash-style=sysv -o %t1 --script %t.script %t -shared
 # RUN: llvm-readobj -t %t1 | FileCheck %s
 
 # CHECK:      Name: foo1

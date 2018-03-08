@@ -1,7 +1,7 @@
 // RUN: llvm-mc -filetype=obj -triple=armv7a-none-linux-gnueabi %p/Inputs/arm-tls-get-addr.s -o %t1
 // RUN: ld.lld %t1 --shared -o %t1.so
 // RUN: llvm-mc %s -o %t.o -filetype=obj -triple=armv7a-linux-gnueabi
-// RUN: ld.lld %t1.so %t.o -o %t
+// RUN: ld.lld --hash-style=sysv %t1.so %t.o -o %t
 // RUN: llvm-objdump -s %t | FileCheck %s
 // REQUIRES: arm
 

@@ -1,0 +1,3 @@
+# RUN: yaml2obj < %p/Inputs/armnt-executable.obj.yaml > %t.obj
+# RUN: not lld-link /out:%t.exe /entry:mainCRTStartup /subsystem:console %t.obj /dynamicbase:no 2>&1 | FileCheck %s
+# CHECK: dynamicbase:no is not compatible with arm

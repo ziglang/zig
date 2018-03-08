@@ -21,7 +21,7 @@ RUN: yaml2obj %S/Inputs/pdb-type-server-simple-a.yaml -o a.obj
 RUN: yaml2obj %S/Inputs/pdb-type-server-simple-b.yaml -o b.obj
 RUN: llvm-pdbutil yaml2pdb %S/Inputs/pdb-type-server-simple-ts.yaml -pdb ts.pdb
 RUN: lld-link a.obj b.obj -entry:main -debug -out:t.exe -pdb:t.pdb -nodefaultlib
-RUN: llvm-pdbutil dump -symbols -types -ids %t/t.pdb | FileCheck %s
+RUN: llvm-pdbutil dump -symbols -types -ids -globals %t/t.pdb | FileCheck %s
 
 
 CHECK-LABEL: Types (TPI Stream)
@@ -59,23 +59,29 @@ CHECK:            {{.*}}: `a.c`
 CHECK:   [[B_BUILD:[^ ]*]] | LF_BUILDINFO [size = 28]
 CHECK:            {{.*}}: `b.c`
 
+CHECK-LABEL:                       Global Symbols
+CHECK:       ============================================================
+CHECK-NEXT:    Records
+CHECK-NEXT:        36 | S_PROCREF [size = 20] `main`
+CHECK-NEXT:             module = 1, sum name = 0, offset = 104
+CHECK-NEXT:        56 | S_PROCREF [size = 16] `g`
+CHECK-NEXT:             module = 2, sum name = 0, offset = 104
+
 CHECK-LABEL:                           Symbols
 CHECK: ============================================================
 CHECK-LABEL:   Mod 0000 | `{{.*}}a.obj`:
 CHECK:        4 | S_OBJNAME [size = 40] sig=0, `C:\src\llvm-project\build\a.obj`
-CHECK:      104 | S_GPROC32_ID [size = 44] `main`
+CHECK:      104 | S_GPROC32 [size = 44] `main`
 CHECK:            parent = 0, end = 196, addr = 0002:0000, code size = 27
 CHECK:            type = {{.*}}, debug start = 4, debug end = 22, flags = none
-CHECK:      200 | S_UDT [size = 12] `Foo`
-CHECK:            original type = [[FOO_COMPLETE]]
-CHECK:      212 | S_BUILDINFO [size = 8] BuildId = `[[A_BUILD]]`
+CHECK:      200 | S_BUILDINFO [size = 8] BuildId = `[[A_BUILD]]`
 CHECK-LABEL:   Mod 0001 | `{{.*}}b.obj`:
 CHECK:        4 | S_OBJNAME [size = 40] sig=0, `C:\src\llvm-project\build\b.obj`
 CHECK:       44 | S_COMPILE3 [size = 60]
 CHECK:            machine = intel x86-x64, Ver = Microsoft (R) Optimizing Compiler, language = c
 CHECK:            frontend = 19.0.24215.1, backend = 19.0.24215.1
 CHECK:            flags = security checks | hot patchable
-CHECK:      104 | S_GPROC32_ID [size = 44] `g`
+CHECK:      104 | S_GPROC32 [size = 44] `g`
 CHECK:            parent = 0, end = 196, addr = 0002:0032, code size = 13
 CHECK:            type = {{.*}}, debug start = 5, debug end = 12, flags = none
 CHECK:      148 | S_FRAMEPROC [size = 32]
@@ -83,9 +89,7 @@ CHECK:            size = 0, padding size = 0, offset to padding = 0
 CHECK:            bytes of callee saved registers = 0, exception handler addr = 0000:0000
 CHECK:            flags = has async eh | opt speed
 CHECK:      180 | S_REGREL32 [size = 16] `p`
-CHECK:            type = [[FOO_PTR]] (Foo*), register = rsp, offset = 8
+CHECK:            type = [[FOO_PTR]] (Foo*), register = RSP, offset = 8
 CHECK:      196 | S_END [size = 4]
-CHECK:      200 | S_UDT [size = 12] `Foo`
-CHECK:            original type = [[FOO_COMPLETE]]
-CHECK:      212 | S_BUILDINFO [size = 8] BuildId = `[[B_BUILD]]`
+CHECK:      200 | S_BUILDINFO [size = 8] BuildId = `[[B_BUILD]]`
 CHECK-LABEL:   Mod 0002 | `* Linker *`:

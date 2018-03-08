@@ -1,7 +1,7 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux -o %t %s
 # RUN: ld.lld --gdb-index --gc-sections -o %t2 %t
-# RUN: llvm-dwarfdump -debug-dump=gdb_index %t2 | FileCheck %s
+# RUN: llvm-dwarfdump -gdb-index %t2 | FileCheck %s
 
 # CHECK: Address area offset = 0x28, has 1 entries:
 # CHECK-NEXT:    Low/High address = [0x201000, 0x201001) (Size: 0x1), CU id = 0

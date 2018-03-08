@@ -26,16 +26,16 @@ if(MSVC)
 else()
   find_path(CLANG_INCLUDE_DIRS NAMES clang/Frontend/ASTUnit.h
       PATHS
-          /usr/lib/llvm/5/include
-          /usr/lib/llvm-5.0/include
+          /usr/lib/llvm/6/include
+          /usr/lib/llvm-6.0/include
           /mingw64/include)
 
       macro(FIND_AND_ADD_CLANG_LIB _libname_)
       string(TOUPPER ${_libname_} _prettylibname_)
       find_library(CLANG_${_prettylibname_}_LIB NAMES ${_libname_}
           PATHS
-              /usr/lib/llvm/5/lib
-              /usr/lib/llvm-5.0/lib
+              /usr/lib/llvm/6/lib
+              /usr/lib/llvm-6.0/lib
               /mingw64/lib
               /c/msys64/mingw64/lib
               c:\\msys64\\mingw64\\lib)

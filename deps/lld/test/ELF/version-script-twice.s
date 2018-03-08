@@ -7,7 +7,11 @@
 
         .weak	openat
 openat:
+
+        .global openat@FBSD_1.1
 openat@FBSD_1.1 = openat
+
+         .global openat@@FBSD_1.2
 openat@@FBSD_1.2 = openat
 
 # CHECK-DAG: openat@FBSD_1.1

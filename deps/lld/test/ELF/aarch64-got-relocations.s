@@ -1,6 +1,6 @@
 # REQUIRES: aarch64
 # RUN: llvm-mc -filetype=obj -triple=aarch64-unknown-cloudabi %s -o %t.o
-# RUN: ld.lld -pie %t.o -o %t
+# RUN: ld.lld --hash-style=sysv -pie %t.o -o %t
 # RUN: llvm-readobj -r %t | FileCheck %s
 
 # If we're addressing a global relatively through the GOT, we still need to

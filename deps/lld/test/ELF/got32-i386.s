@@ -20,4 +20,4 @@ _start:
 # CHECK:  .got 00000004 0000000000012000
 
 # RUN: not ld.lld %t.o -o %t -pie 2>&1 | FileCheck %s --check-prefix=ERR
-# ERR: relocation R_386_GOT32 against 'foo' without base register can not be used when PIC enabled
+# ERR: error: can't create dynamic relocation R_386_GOT32 against symbol: foo in readonly segment; recompile object files with -fPIC

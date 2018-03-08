@@ -5,14 +5,22 @@
 
 # RUN: env LIB=%t/a lld-link /out:%t.exe /entry:main /verbose \
 # RUN:   std64.lib /subsystem:console %p/Inputs/hello64.obj \
-# RUN:   /libpath:%t/b /libpath:%t/c > %t.log
+# RUN:   /libpath:%t/b /libpath:%t/c 2> %t.log
 # RUN: FileCheck -check-prefix=CHECK1 %s < %t.log
 
 CHECK1: b{{[/\\]}}std64.lib
 
 # RUN: lld-link /out:%t.exe /entry:main /verbose \
 # RUN:   std64.lib /subsystem:console %p/Inputs/hello64.obj \
-# RUN:   /libpath:%t/a /libpath:%t/b /libpath:%t/c > %t.log
+# RUN:   /libpath:%t/a /libpath:%t/b /libpath:%t/c 2> %t.log
 # RUN: FileCheck -check-prefix=CHECK2 %s < %t.log
 
 CHECK2: a{{[/\\]}}std64.lib
+
+# RUN: lld-link /out:%t.exe /entry:main /verbose \
+# RUN:   %t/a/std64.lib /subsystem:console %p/Inputs/hello64.obj \
+# RUN:   /libpath:%t/b /verbose > %t.log 2>&1
+# RUN: FileCheck -check-prefix=CHECK3 %s < %t.log
+
+CHECK3:     Reading {{.*}}a/std64.lib
+CHECK3-NOT: Reading {{.*}}b/std64.lib

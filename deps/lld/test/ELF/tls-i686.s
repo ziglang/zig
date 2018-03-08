@@ -1,7 +1,7 @@
 // REQUIRES: x86
 // RUN: llvm-mc -filetype=obj -triple=i686-pc-linux %s -o %t
 // RUN: ld.lld %t -o %tout
-// RUN: ld.lld %t -shared -o %tsharedout
+// RUN: ld.lld --hash-style=sysv %t -shared -o %tsharedout
 // RUN: llvm-objdump -d %tout | FileCheck %s --check-prefix=DIS
 // RUN: llvm-readobj -r %tout | FileCheck %s --check-prefix=RELOC
 // RUN: llvm-objdump -d %tsharedout | FileCheck %s --check-prefix=DISSHARED

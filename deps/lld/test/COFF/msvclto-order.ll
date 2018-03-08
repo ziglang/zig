@@ -5,7 +5,7 @@
 ; RUN: llc -filetype=obj %S/Inputs/msvclto-order-b.ll -o %T/msvclto-order-b.obj
 ; RUN: llvm-ar crs %T/msvclto-order-b.lib %T/msvclto-order-b.obj
 ; RUN: lld-link /verbose /msvclto /out:%t.exe /entry:main %t.obj \
-; RUN:     %T/msvclto-order-a.lib %T/msvclto-order-b.lib > %t.log || true
+; RUN:     %T/msvclto-order-a.lib %T/msvclto-order-b.lib 2> %t.log || true
 ; RUN: FileCheck %s < %t.log
 
 ; CHECK: : link.exe

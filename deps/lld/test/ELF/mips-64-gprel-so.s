@@ -12,7 +12,7 @@
 # CHECK-NEXT:    10004:    03 99 e0 2d    daddu   $gp, $gp, $25
 # CHECK-NEXT:    10008:    67 9c 7f f0    daddiu  $gp, $gp, 32752
 
-# CHECK: 0000000000027ff0   *ABS*   00000000 .hidden _gp
+# CHECK: 0000000000027ff0   .got    00000000 .hidden _gp
 # CHECK: 0000000000010000   .text   00000000 foo
 
   .text

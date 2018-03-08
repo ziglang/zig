@@ -1,7 +1,7 @@
 // RUN: llvm-mc -filetype=obj -triple=i686-pc-linux %S/Inputs/shared2-x86-64.s -o %t1.o
 // RUN: ld.lld %t1.o --shared -o %t.so
 // RUN: llvm-mc -filetype=obj -triple=i686-pc-linux %s -o %t.o
-// RUN: ld.lld %t.so %t.o -o %tout
+// RUN: ld.lld --hash-style=sysv %t.so %t.o -o %tout
 // RUN: llvm-objdump -d %tout | FileCheck %s --check-prefix=DISASM
 // RUN: llvm-objdump -s %tout | FileCheck %s --check-prefix=GOTPLT
 // RUN: llvm-readobj -r -dynamic-table %tout | FileCheck %s

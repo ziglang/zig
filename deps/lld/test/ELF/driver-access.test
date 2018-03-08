@@ -7,7 +7,7 @@
 # RUN: mkdir -p %t.dir
 # RUN: chmod 100 %t.dir
 # RUN: cd %t.dir
-# RUN: ld.lld %t.o -o %t.exe
+# RUN: ld.lld %t.o -o %t.exe -M
 # RUN: chmod 755 %t.dir
 
 .globl _start

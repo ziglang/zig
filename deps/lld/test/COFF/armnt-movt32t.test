@@ -27,7 +27,7 @@ sections:
     Relocations:
       - VirtualAddress:  0
         SymbolName:      buffer
-        Type:            17
+        Type:            IMAGE_REL_ARM_MOV32T
   - Name:            .rdata
     Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ ]
     Alignment:       1

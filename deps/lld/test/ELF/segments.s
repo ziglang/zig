@@ -1,6 +1,9 @@
 # REQUIRES: x86
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
+
 # RUN: ld.lld %t -o %t1
+# RUN: llvm-readobj --program-headers %t1 | FileCheck --check-prefix=ROSEGMENT %s
+# RUN: ld.lld --omagic --no-omagic %t -o %t1
 # RUN: llvm-readobj --program-headers %t1 | FileCheck --check-prefix=ROSEGMENT %s
 
 # ROSEGMENT:      ProgramHeader {
@@ -75,6 +78,8 @@
 # NOROSEGMENT-NEXT:   Type: PT_GNU_STACK
 
 # RUN: ld.lld -N %t -o %t3
+# RUN: llvm-readobj --program-headers %t3 | FileCheck --check-prefix=OMAGIC %s
+# RUN: ld.lld --omagic %t -o %t3
 # RUN: llvm-readobj --program-headers %t3 | FileCheck --check-prefix=OMAGIC %s
 
 # OMAGIC:     ProgramHeader {

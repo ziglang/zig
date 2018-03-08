@@ -12,6 +12,13 @@
 
 # RUN: echo "SECTIONS { \
 # RUN:          .text : { *(.text) } \
+# RUN:          _gp = 0x100 + ABSOLUTE(.); \
+# RUN:          .got  : { *(.got) } }" > %t.rel.script
+# RUN: ld.lld -shared -o %t.rel.so --script %t.rel.script %t.o
+# RUN: llvm-objdump -s -t %t.rel.so | FileCheck --check-prefix=REL %s
+
+# RUN: echo "SECTIONS { \
+# RUN:          .text : { *(.text) } \
 # RUN:          _gp = 0x200; \
 # RUN:          .got  : { *(.got) } }" > %t.abs.script
 # RUN: ld.lld -shared -o %t.abs.so --script %t.abs.script %t.o

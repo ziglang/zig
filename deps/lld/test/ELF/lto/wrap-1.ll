@@ -19,7 +19,7 @@
 
 ; Make sure that the 'r' (linker redefined) bit is set for bar and __wrap_bar
 ; in the resolutions file.
-; RESOLS: ,bar,r
+; RESOLS: ,bar,xr
 ; RESOLS: ,__wrap_bar,px
 ; RESOLS: ,__real_bar,pxr
 

@@ -1,0 +1,19 @@
+# Check that /debug creates %t.pdb.
+# RUN: rm -f %t.pdb
+# RUN: lld-link /debug /entry:main /out:%t.exe %p/Inputs/ret42.obj
+# RUN: ls %t.pdb
+
+# Check that /debug:dwarf does not create %t.pdb.
+# RUN: rm -f %t.pdb
+# RUN: lld-link /debug:dwarf /entry:main /out:%t.exe %p/Inputs/ret42.obj
+# RUN: not ls %t.pdb
+
+# Check that /debug:dwarf /debug creates %t.pdb.
+# RUN: rm -f %t.pdb
+# RUN: lld-link /debug:dwarf /debug /entry:main /out:%t.exe %p/Inputs/ret42.obj
+# RUN: ls %t.pdb
+
+# Check that /debug:dwarf /pdb:%t.pdb does not create %t.pdb.
+# RUN: rm -f %t.pdb
+# RUN: lld-link /debug:dwarf /pdb:%t.pdb /entry:main /out:%t.exe %p/Inputs/ret42.obj
+# RUN: not ls %t.pdb

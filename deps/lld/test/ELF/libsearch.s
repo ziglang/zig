@@ -60,6 +60,7 @@
 
 // Check long forms as well
 // RUN: ld.lld -o %t3 %t.o --library-path=%t.dir --library=ls
+// RUN: ld.lld -o %t3 %t.o --library-path %t.dir --library ls
 
 // Should not search for dynamic libraries if -Bstatic is specified
 // RUN: ld.lld -o %t3 %t.o -L%t.dir -Bstatic -lls

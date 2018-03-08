@@ -3,7 +3,7 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t.o
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %p/Inputs/relocation-copy.s -o %t2.o
 // RUN: ld.lld %t2.o -o %t2.so -shared
-// RUN: ld.lld %t.o %t2.so -o %t.exe
+// RUN: ld.lld --hash-style=sysv %t.o %t2.so -o %t.exe
 // RUN: llvm-readobj -s -section-data -r %t.exe | FileCheck %s
 
         .global _start

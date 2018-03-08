@@ -2,6 +2,9 @@
 
 # RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t
 
+# RUN: ld.lld --build-id %t -o %t2
+# RUN: llvm-readobj -s %t2 | FileCheck -check-prefix=ALIGN %s
+
 # RUN: ld.lld --build-id %t -o %t2 -threads
 # RUN: llvm-objdump -s %t2 | FileCheck -check-prefix=DEFAULT %s
 # RUN: ld.lld --build-id %t -o %t2 -no-threads
@@ -45,18 +48,30 @@ _start:
 .section .note.test, "a", @note
    .quad 42
 
+# ALIGN:      Name: .note.gnu.build-id
+# ALIGN-NEXT: Type: SHT_NOTE
+# ALIGN-NEXT: Flags [
+# ALIGN-NEXT:   SHF_ALLOC
+# ALIGN-NEXT: ]
+# ALIGN-NEXT: Address:
+# ALIGN-NEXT: Offset: [[_:0x[0-9A-Z]*(0|4|8|C)$]]
+# ALIGN-NEXT: Size:
+# ALIGN-NEXT: Link:
+# ALIGN-NEXT: Info:
+# ALIGN-NEXT: AddressAlignment: 4
+
 # DEFAULT:      Contents of section .note.test:
 # DEFAULT:      Contents of section .note.gnu.build-id:
 # DEFAULT-NEXT: 04000000 08000000 03000000 474e5500  ............GNU.
-# DEFAULT-NEXT: fd36edb1 f6ff02af
+# DEFAULT-NEXT: 894c04e8 fbf5556b
 
 # MD5:      Contents of section .note.gnu.build-id:
 # MD5-NEXT: 04000000 10000000 03000000 474e5500  ............GNU.
-# MD5-NEXT: fc
+# MD5-NEXT: 6a51bbd7 9e8ee3f9 2e02d213 711cfec9
 
 # SHA1:      Contents of section .note.gnu.build-id:
 # SHA1-NEXT: 04000000 14000000 03000000 474e5500  ............GNU.
-# SHA1-NEXT: 55b1eedb 03b588e1 09987d1d e9a79be7
+# SHA1-NEXT: 9a8618b1 d6fd0e5c eda73dd8 76de5596
 
 # UUID:      Contents of section .note.gnu.build-id:
 # UUID-NEXT: 04000000 10000000 03000000 474e5500  ............GNU.

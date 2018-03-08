@@ -1,7 +1,7 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t
 // RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %p/Inputs/shared.s -o %t2
 // RUN: ld.lld %t2 -o %t2.so -shared
-// RUN: ld.lld %t %t2.so -o %t3
+// RUN: ld.lld --hash-style=sysv %t %t2.so -o %t3
 // RUN: llvm-readobj -s  %t3 | FileCheck --check-prefix=SEC %s
 // RUN: llvm-objdump -s -d %t3 | FileCheck %s
 // REQUIRES: x86

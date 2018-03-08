@@ -2,7 +2,7 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t
 
 # RUN: echo "SECTIONS { .foo 0 : {*(foo)} }" > %t.script
-# RUN: ld.lld -o %t1 --script %t.script %t -shared
+# RUN: ld.lld --hash-style=sysv -o %t1 --script %t.script %t -shared
 # RUN: llvm-readobj -elf-output-style=GNU -s -l %t1 | FileCheck %s
 
 # Test that we create all necessary PT_LOAD. We use to stop at the first

@@ -26,7 +26,6 @@
 
 #include_next <new>
 
-// Device overrides for placement new and delete.
 #pragma push_macro("CUDA_NOEXCEPT")
 #if __cplusplus >= 201103L
 #define CUDA_NOEXCEPT noexcept
@@ -34,6 +33,55 @@
 #define CUDA_NOEXCEPT
 #endif
 
+// Device overrides for non-placement new and delete.
+__device__ inline void *operator new(__SIZE_TYPE__ size) {
+  if (size == 0) {
+    size = 1;
+  }
+  return ::malloc(size);
+}
+__device__ inline void *operator new(__SIZE_TYPE__ size,
+                                     const std::nothrow_t &) CUDA_NOEXCEPT {
+  return ::operator new(size);
+}
+
+__device__ inline void *operator new[](__SIZE_TYPE__ size) {
+  return ::operator new(size);
+}
+__device__ inline void *operator new[](__SIZE_TYPE__ size,
+                                       const std::nothrow_t &) {
+  return ::operator new(size);
+}
+
+__device__ inline void operator delete(void* ptr) CUDA_NOEXCEPT {
+  if (ptr) {
+    ::free(ptr);
+  }
+}
+__device__ inline void operator delete(void *ptr,
+                                       const std::nothrow_t &) CUDA_NOEXCEPT {
+  ::operator delete(ptr);
+}
+
+__device__ inline void operator delete[](void* ptr) CUDA_NOEXCEPT {
+  ::operator delete(ptr);
+}
+__device__ inline void operator delete[](void *ptr,
+                                         const std::nothrow_t &) CUDA_NOEXCEPT {
+  ::operator delete(ptr);
+}
+
+// Sized delete, C++14 only.
+#if __cplusplus >= 201402L
+__device__ void operator delete(void *ptr, __SIZE_TYPE__ size) CUDA_NOEXCEPT {
+  ::operator delete(ptr);
+}
+__device__ void operator delete[](void *ptr, __SIZE_TYPE__ size) CUDA_NOEXCEPT {
+  ::operator delete(ptr);
+}
+#endif
+
+// Device overrides for placement new and delete.
 __device__ inline void *operator new(__SIZE_TYPE__, void *__ptr) CUDA_NOEXCEPT {
   return __ptr;
 }
@@ -42,6 +90,7 @@ __device__ inline void *operator new[](__SIZE_TYPE__, void *__ptr) CUDA_NOEXCEPT
 }
 __device__ inline void operator delete(void *, void *) CUDA_NOEXCEPT {}
 __device__ inline void operator delete[](void *, void *) CUDA_NOEXCEPT {}
+
 #pragma pop_macro("CUDA_NOEXCEPT")
 
 #endif // include guard

@@ -1,0 +1,29 @@
+# RUN: yaml2obj < %p/Inputs/pdb1.yaml > %t1.obj
+# RUN: yaml2obj < %p/Inputs/pdb2.yaml > %t2.obj
+# RUN: lld-link /debug /pdb:%t.pdb /dll /out:%t.dll /entry:main /nodefaultlib \
+# RUN:   %t1.obj %t2.obj
+
+# RUN: llvm-pdbutil dump -symbols %t.pdb | FileCheck %s
+
+CHECK:                                Symbols
+CHECK-NEXT: ============================================================
+CHECK-LABEL:    Mod 0000 |
+CHECK:                92 | S_GPROC32 [size = 44] `main`
+CHECK-NEXT:                parent = 0, end = 168, addr = 0002:0000, code size = 14
+CHECK-NEXT:                type = `0x1004 (int (<no type>))`, debug start = 4, debug end = 9, flags = none
+CHECK-NEXT:          136 | S_FRAMEPROC [size = 32]
+CHECK-NEXT:                size = 40, padding size = 0, offset to padding = 0
+CHECK-NEXT:                bytes of callee saved registers = 0, exception handler addr = 0000:0000
+CHECK-NEXT:                flags = has async eh | opt speed
+CHECK-NEXT:          168 | S_END [size = 4]
+CHECK-LABEL:    Mod 0001 |
+CHECK:                92 | S_GPROC32 [size = 44] `foo`
+CHECK-NEXT:                parent = 0, end = 168, addr = 0002:0016, code size = 6
+CHECK-NEXT:                type = `0x1001 (int ())`, debug start = 0, debug end = 5, flags = none
+CHECK-NEXT:          136 | S_FRAMEPROC [size = 32]
+CHECK-NEXT:                size = 0, padding size = 0, offset to padding = 0
+CHECK-NEXT:                bytes of callee saved registers = 0, exception handler addr = 0000:0000
+CHECK-NEXT:                flags = has async eh | opt speed
+CHECK-NEXT:          168 | S_END [size = 4]
+CHECK-LABEL:    Mod 0002 |
+CHECK:                 4 | S_OBJNAME [size = 20] sig=0, `* Linker *`

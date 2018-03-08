@@ -1,7 +1,7 @@
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %s -o %t1.o
 // RUN: llvm-mc -filetype=obj -triple=x86_64-unknown-linux %p/Inputs/tls-got.s -o %t2.o
 // RUN: ld.lld -shared %t2.o -o %t2.so
-// RUN: ld.lld -e main %t1.o %t2.so -o %t3
+// RUN: ld.lld --hash-style=sysv -e main %t1.o %t2.so -o %t3
 // RUN: llvm-readobj -s -r %t3 | FileCheck %s
 // RUN: llvm-objdump -d %t3 | FileCheck --check-prefix=DISASM %s
 

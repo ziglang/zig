@@ -124,14 +124,14 @@ libc. Create demo games using Zig.
 ##### POSIX
 
  * cmake >= 2.8.5
- * g++ >= 5.0.0 or clang >= 3.6.0
- * LLVM, Clang, LLD development libraries == 5.0.1, compiled with the same gcc or clang version above
+ * gcc >= 5.0.0 or clang >= 3.6.0
+ * LLVM, Clang, LLD development libraries == 6.x, compiled with the same gcc or clang version above
 
 ##### Windows
 
  * cmake >= 2.8.5
  * Microsoft Visual Studio 2015
- * LLVM, Clang, LLD development libraries == 5.0.1, compiled with the same MSVC version above
+ * LLVM, Clang, LLD development libraries == 6.x, compiled with the same MSVC version above
 
 #### Instructions
 
@@ -155,11 +155,11 @@ make install
 `ZIG_LIBC_LIB_DIR` and `ZIG_LIBC_STATIC_LIB_DIR` are unused.
 
 ```
-brew install cmake llvm@5
-brew outdated llvm@5 || brew upgrade llvm@5
+brew install cmake llvm@6
+brew outdated llvm@6 || brew upgrade llvm@6
 mkdir build
 cd build
-cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@5/ -DCMAKE_INSTALL_PREFIX=$(pwd)
+cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@6/ -DCMAKE_INSTALL_PREFIX=$(pwd)
 make install
 ./zig build --build-file ../build.zig test
 ```

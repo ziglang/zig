@@ -6,14 +6,14 @@
 ; First force single-threaded mode
 ; RUN: rm -f %t.lto.o %t1.lto.o
 ; RUN: ld.lld -save-temps --thinlto-jobs=1 -shared %t.o %t2.o -o %t
-; RUN: llvm-nm %t.lto.o | FileCheck %s --check-prefix=NM1
-; RUN: llvm-nm %t1.lto.o | FileCheck %s --check-prefix=NM2
+; RUN: llvm-nm %t1.lto.o | FileCheck %s --check-prefix=NM1
+; RUN: llvm-nm %t2.lto.o | FileCheck %s --check-prefix=NM2
 
 ; Next force multi-threaded mode
 ; RUN: rm -f %t2.lto.o %t21.lto.o
 ; RUN: ld.lld -save-temps --thinlto-jobs=2 -shared %t.o %t2.o -o %t2
-; RUN: llvm-nm %t2.lto.o | FileCheck %s --check-prefix=NM1
-; RUN: llvm-nm %t21.lto.o | FileCheck %s --check-prefix=NM2
+; RUN: llvm-nm %t21.lto.o | FileCheck %s --check-prefix=NM1
+; RUN: llvm-nm %t22.lto.o | FileCheck %s --check-prefix=NM2
 
 ; NM1: T f
 ; NM1-NOT: U g

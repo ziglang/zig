@@ -33,7 +33,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "ScriptLexer.h"
-#include "Error.h"
+#include "lld/Common/ErrorHandler.h"
 #include "llvm/ADT/Twine.h"
 
 using namespace llvm;
@@ -75,19 +75,14 @@ ScriptLexer::ScriptLexer(MemoryBufferRef MB) { tokenize(MB); }
 
 // We don't want to record cascading errors. Keep only the first one.
 void ScriptLexer::setError(const Twine &Msg) {
-  if (Error)
+  if (errorCount())
     return;
-  Error = true;
 
-  if (!Pos) {
-    error(getCurrentLocation() + ": " + Msg);
-    return;
-  }
-
-  std::string S = getCurrentLocation() + ": ";
-  error(S + Msg);
-  error(S + getLine());
-  error(S + std::string(getColumnNumber(), ' ') + "^");
+  std::string S = (getCurrentLocation() + ": " + Msg).str();
+  if (Pos)
+    S += "\n>>> " + getLine().str() + "\n>>> " +
+         std::string(getColumnNumber(), ' ') + "^";
+  error(S);
 }
 
 // Split S into linker script tokens.
@@ -120,11 +115,19 @@ void ScriptLexer::tokenize(MemoryBufferRef MB) {
       continue;
     }
 
+    // ">foo" is parsed to ">" and "foo", but ">>" is parsed to ">>".
+    if (S.startswith("<<") || S.startswith("<=") || S.startswith(">>") ||
+        S.startswith(">=")) {
+      Vec.push_back(S.substr(0, 2));
+      S = S.substr(2);
+      continue;
+    }
+
     // Unquoted token. This is more relaxed than tokens in C-like language,
     // so that you can write "file-name.cpp" as one bare token, for example.
     size_t Pos = S.find_first_not_of(
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-        "0123456789_.$/\\~=+[]*?-!<>^:");
+        "0123456789_.$/\\~=+[]*?-!^:");
 
     // A character that cannot start a word (which is usually a
     // punctuation) forms a single character token.
@@ -164,18 +167,18 @@ StringRef ScriptLexer::skipSpace(StringRef S) {
 }
 
 // An erroneous token is handled as if it were the last token before EOF.
-bool ScriptLexer::atEOF() { return Error || Tokens.size() == Pos; }
+bool ScriptLexer::atEOF() { return errorCount() || Tokens.size() == Pos; }
 
 // Split a given string as an expression.
 // This function returns "3", "*" and "5" for "3*5" for example.
 static std::vector<StringRef> tokenizeExpr(StringRef S) {
-  StringRef Ops = "+-*/:"; // List of operators
+  StringRef Ops = "+-*/:!~"; // List of operators
 
   // Quoted strings are literal strings, so we don't want to split it.
   if (S.startswith("\""))
     return {S};
 
-  // Split S with +-*/ as separators.
+  // Split S with operators as separators.
   std::vector<StringRef> Ret;
   while (!S.empty()) {
     size_t E = S.find_first_of(Ops);
@@ -190,9 +193,14 @@ static std::vector<StringRef> tokenizeExpr(StringRef S) {
     if (E != 0)
       Ret.push_back(S.substr(0, E));
 
-    // Get the operator as a token.
-    Ret.push_back(S.substr(E, 1));
-    S = S.substr(E + 1);
+    // Get the operator as a token. Keep != as one token.
+    if (S.substr(E).startswith("!=")) {
+      Ret.push_back(S.substr(E, 2));
+      S = S.substr(E + 2);
+    } else {
+      Ret.push_back(S.substr(E, 1));
+      S = S.substr(E + 1);
+    }
   }
   return Ret;
 }
@@ -207,7 +215,7 @@ static std::vector<StringRef> tokenizeExpr(StringRef S) {
 //
 // This function may split the current token into multiple tokens.
 void ScriptLexer::maybeSplitExpr() {
-  if (!InExpr || Error || atEOF())
+  if (!InExpr || errorCount() || atEOF())
     return;
 
   std::vector<StringRef> V = tokenizeExpr(Tokens[Pos]);
@@ -220,7 +228,7 @@ void ScriptLexer::maybeSplitExpr() {
 StringRef ScriptLexer::next() {
   maybeSplitExpr();
 
-  if (Error)
+  if (errorCount())
     return "";
   if (atEOF()) {
     setError("unexpected EOF");
@@ -231,7 +239,7 @@ StringRef ScriptLexer::next() {
 
 StringRef ScriptLexer::peek() {
   StringRef Tok = next();
-  if (Error)
+  if (errorCount())
     return "";
   Pos = Pos - 1;
   return Tok;
@@ -260,7 +268,7 @@ bool ScriptLexer::consumeLabel(StringRef Tok) {
 void ScriptLexer::skip() { (void)next(); }
 
 void ScriptLexer::expect(StringRef Expect) {
-  if (Error)
+  if (errorCount())
     return;
   StringRef Tok = next();
   if (Tok != Expect)

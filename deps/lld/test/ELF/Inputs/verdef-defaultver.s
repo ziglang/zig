@@ -1,4 +1,7 @@
+.global b@V1
 b@V1 = b_1
+
+.global b@@V2
 b@@V2 = b_2
 
 .globl a

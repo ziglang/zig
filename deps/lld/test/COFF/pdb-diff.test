@@ -4,8 +4,11 @@ as the "baseline" for us to measure against.  Then we link the same object
 file with LLD and compare the two PDBs.  Since the baseline object file and
 PDB are already checked in, we just run LLD on the object file.
 
-RUN: lld-link /debug /pdb:%T/pdb-diff-lld.pdb /nodefaultlib /entry:main %S/Inputs/pdb-diff.obj
-RUN: llvm-pdbutil diff -result -values=false -left-bin-root=%S -right-bin-root=D:/src/llvm-mono/lld/test/COFF/ %T/pdb-diff-lld.pdb %S/Inputs/pdb-diff-cl.pdb | FileCheck %s
+RUN: rm -f %T/pdb-diff-lld.pdb %T/pdb-diff-lld.exe
+RUN: lld-link /debug /pdb:%T/pdb-diff-lld.pdb /out:%T/pdb-diff-lld.exe /nodefaultlib \
+RUN:   /entry:main %S/Inputs/pdb-diff.obj
+RUN: llvm-pdbutil diff -result -values=false -left-bin-root=%S -right-bin-root=D:/src/llvm-mono/lld/test/COFF/ \
+RUN:   %T/pdb-diff-lld.pdb %S/Inputs/pdb-diff-cl.pdb | FileCheck %s
 
 CHECK:        ----------------------
 CHECK-NEXT:   |  MSF Super Block   |
@@ -25,7 +28,7 @@ CHECK-NEXT:   |         Stream Directory         |
 CHECK-NEXT:   |------------------------------+---|
 CHECK-NEXT:   |                         File |   |
 CHECK-NEXT:   |------------------------------+---|
-CHECK-NEXT:   |                 Stream Count | D |
+CHECK-NEXT:   |                 Stream Count | I |
 CHECK-NEXT:   |------------------------------+---|
 CHECK-NEXT:   |            Old MSF Directory | I |
 CHECK-NEXT:   |------------------------------+---|
@@ -55,9 +58,9 @@ CHECK-NEXT:   |                     IPI Hash | {{[EI]}} |
 CHECK-NEXT:   |------------------------------+---|
 CHECK-NEXT:   |           Public Symbol Hash | {{[EI]}} |
 CHECK-NEXT:   |------------------------------+---|
-CHECK-NEXT:   |        Public Symbol Records | {{[EI]}} |
+CHECK-NEXT:   |           Global Symbol Hash | {{[EI]}} |
 CHECK-NEXT:   |------------------------------+---|
-CHECK-NEXT:   |           Global Symbol Hash | D |
+CHECK-NEXT:   |               Symbol Records | {{[EI]}} |
 CHECK-NEXT:   |------------------------------+---|
 CHECK-NEXT:   ------------------------------------
 CHECK-NEXT:   |           String Table           |
@@ -152,7 +155,7 @@ CHECK-NEXT:   |                           DBG (NewFPO) | {{[EI]}} |
 CHECK-NEXT:   |----------------------------------------+---|
 CHECK-NEXT:   |                   DBG (SectionHdrOrig) | I |
 CHECK-NEXT:   |----------------------------------------+---|
-CHECK-NEXT:   |                         Globals Stream | D |
+CHECK-NEXT:   |                         Globals Stream | {{[EI]}} |
 CHECK-NEXT:   |----------------------------------------+---|
 CHECK-NEXT:   |                         Publics Stream | {{[EI]}} |
 CHECK-NEXT:   |----------------------------------------+---|
@@ -186,7 +189,7 @@ CHECK-NEXT:   |                  - Pdb File Path Index | I |
 CHECK-NEXT:   |----------------------------------------+---|
 CHECK-NEXT:   |               - Source File Name Index | I |
 CHECK-NEXT:   |----------------------------------------+---|
-CHECK-NEXT:   |                     - Symbol Byte Size | D |
+CHECK-NEXT:   |                     - Symbol Byte Size |
 CHECK-NEXT:   |----------------------------------------+---|
 CHECK-NEXT:   |            Module "* Linker *"             |
 CHECK-NEXT:   |----------------------------------------+---|

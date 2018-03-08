@@ -39,10 +39,10 @@
 # GNU-NEXT:   EntrySize: 1
 # GNU-NEXT: }
 
-# RUN: ld.lld %t -o %t.so -shared
+# RUN: ld.lld --hash-style=sysv %t -o %t.so -shared
 # RUN: llvm-readobj -sections -section-data %t.so | FileCheck -check-prefix=DATA %s
 
-# RUN: ld.lld %t2 -o %t2.so -shared
+# RUN: ld.lld --hash-style=sysv %t2 -o %t2.so -shared
 # RUN: llvm-readobj -sections -section-data %t2.so | FileCheck -check-prefix=DATA %s
 
 # DATA:      Section {
@@ -59,13 +59,13 @@
 # DATA-NEXT:   Link: 0
 # DATA-NEXT:   Info: 0
 # DATA-NEXT:   AddressAlignment: 1
-# DATA-NEXT:   EntrySize: 0
+# DATA-NEXT:   EntrySize: 1
 # DATA-NEXT:   SectionData (
-# DATA-NEXT:     0000: 73686F72 7420756E 7369676E 65642069  |short unsigned i|
-# DATA-NEXT:     0010: 6E740075 6E736967 6E656420 696E7400  |nt.unsigned int.|
-# DATA-NEXT:     0020: 6C6F6E67 20756E73 69676E65 6420696E  |long unsigned in|
-# DATA-NEXT:     0030: 74006368 61720075 6E736967 6E656420  |t.char.unsigned |
-# DATA-NEXT:     0040: 63686172 00                          |char.|
+# DATA-NEXT:     0000: 6C6F6E67 20756E73 69676E65 6420696E  |long unsigned in|
+# DATA-NEXT:     0010: 7400756E 7369676E 65642063 68617200  |t.unsigned char.|
+# DATA-NEXT:     0020: 756E7369 676E6564 20696E74 00636861  |unsigned int.cha|
+# DATA-NEXT:     0030: 72007368 6F727420 756E7369 676E6564  |r.short unsigned|
+# DATA-NEXT:     0040: 20696E74 00                          | int.|
 # DATA-NEXT:   )
 # DATA-NEXT: }
 

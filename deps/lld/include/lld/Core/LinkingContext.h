@@ -62,7 +62,7 @@ public:
   /// of DefinedAtoms that should be marked live (along with all Atoms they
   /// reference). Only Atoms with scope scopeLinkageUnit or scopeGlobal can
   /// be kept live using this method.
-  const std::vector<StringRef> &deadStripRoots() const {
+  ArrayRef<StringRef> deadStripRoots() const {
     return _deadStripRoots;
   }
 
@@ -106,7 +106,7 @@ public:
   /// options which are used to configure LLVM's command line settings.
   /// For instance the -debug-only XXX option can be used to dynamically
   /// trace different parts of LLVM and lld.
-  const std::vector<const char *> &llvmOptions() const { return _llvmOptions; }
+  ArrayRef<const char *> llvmOptions() const { return _llvmOptions; }
 
   /// \name Methods used by Drivers to configure TargetInfo
   /// @{

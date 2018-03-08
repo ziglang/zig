@@ -35,6 +35,12 @@
 # RUN: llvm-readobj -h -mips-abi-flags %t.exe \
 # RUN:   | FileCheck -check-prefix=OCTEON %s
 
+# RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux %s -o %t.o
+# RUN: llvm-mc -filetype=obj -triple=mips-unknown-linux \
+# RUN:         -mattr=micromips %S/Inputs/mips-fpic.s -o %t-mm.o
+# RUN: ld.lld %t.o %t-mm.o -o %t.exe
+# RUN: llvm-readobj -h -mips-abi-flags %t.exe | FileCheck -check-prefix=MICRO %s
+
 # REQUIRES: mips
 
   .text
@@ -170,3 +176,26 @@ __start:
 # OCTEON-NEXT:   ]
 # OCTEON-NEXT:   Flags 2: 0x0
 # OCTEON-NEXT: }
+
+# MICRO:      Flags [
+# MICRO-NEXT:   EF_MIPS_ABI_O32
+# MICRO-NEXT:   EF_MIPS_ARCH_32
+# MICRO-NEXT:   EF_MIPS_CPIC
+# MICRO-NEXT:   EF_MIPS_MICROMIPS
+# MICRO-NEXT: ]
+# MICRO:      MIPS ABI Flags {
+# MICRO-NEXT:   Version: 0
+# MICRO-NEXT:   ISA: MIPS32
+# MICRO-NEXT:   ISA Extension: None
+# MICRO-NEXT:   ASEs [
+# MICRO-NEXT:     microMIPS
+# MICRO-NEXT:   ]
+# MICRO-NEXT:   FP ABI: Hard float (double precision)
+# MICRO-NEXT:   GPR size: 32
+# MICRO-NEXT:   CPR1 size: 32
+# MICRO-NEXT:   CPR2 size: 0
+# MICRO-NEXT:   Flags 1 [
+# MICRO-NEXT:     ODDSPREG
+# MICRO-NEXT:   ]
+# MICRO-NEXT:   Flags 2: 0x0
+# MICRO-NEXT: }

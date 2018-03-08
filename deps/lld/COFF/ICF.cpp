@@ -19,8 +19,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "Chunks.h"
-#include "Error.h"
 #include "Symbols.h"
+#include "lld/Common/ErrorHandler.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Parallel.h"
@@ -36,7 +36,7 @@ namespace coff {
 
 class ICF {
 public:
-  void run(const std::vector<Chunk *> &V);
+  void run(ArrayRef<Chunk *> V);
 
 private:
   void segregate(size_t Begin, size_t End, bool Constant);
@@ -61,12 +61,9 @@ private:
 
 // Returns a hash value for S.
 uint32_t ICF::getHash(SectionChunk *C) {
-  return hash_combine(C->getPermissions(),
-                      hash_value(C->SectionName),
-                      C->NumRelocs,
-                      C->getAlign(),
-                      uint32_t(C->Header->SizeOfRawData),
-                      C->Checksum);
+  return hash_combine(C->getPermissions(), C->SectionName, C->NumRelocs,
+                      C->Alignment, uint32_t(C->Header->SizeOfRawData),
+                      C->Checksum, C->getContents());
 }
 
 // Returns true if section S is subject of ICF.
@@ -76,12 +73,21 @@ uint32_t ICF::getHash(SectionChunk *C) {
 // 2017) says that /opt:icf folds both functions and read-only data.
 // Despite that, the MSVC linker folds only functions. We found
 // a few instances of programs that are not safe for data merging.
-// Therefore, we merge only functions just like the MSVC tool.
+// Therefore, we merge only functions just like the MSVC tool. However, we merge
+// identical .xdata sections, because the address of unwind information is
+// insignificant to the user program and the Visual C++ linker does this.
 bool ICF::isEligible(SectionChunk *C) {
-  bool Global = C->Sym && C->Sym->isExternal();
-  bool Executable = C->getPermissions() & llvm::COFF::IMAGE_SCN_MEM_EXECUTE;
+  // Non-comdat chunks, dead chunks, and writable chunks are not elegible.
   bool Writable = C->getPermissions() & llvm::COFF::IMAGE_SCN_MEM_WRITE;
-  return C->isCOMDAT() && C->isLive() && Global && Executable && !Writable;
+  if (!C->isCOMDAT() || !C->isLive() || Writable)
+    return false;
+
+  // Code sections are eligible.
+  if (C->getPermissions() & llvm::COFF::IMAGE_SCN_MEM_EXECUTE)
+    return true;
+
+  // .xdata unwind info sections are eligble.
+  return C->getSectionName().split('$').first == ".xdata";
 }
 
 // Split an equivalence class into smaller classes.
@@ -122,8 +128,8 @@ bool ICF::equalsConstant(const SectionChunk *A, const SectionChunk *B) {
         R1.VirtualAddress != R2.VirtualAddress) {
       return false;
     }
-    SymbolBody *B1 = A->File->getSymbolBody(R1.SymbolTableIndex);
-    SymbolBody *B2 = B->File->getSymbolBody(R2.SymbolTableIndex);
+    Symbol *B1 = A->File->getSymbol(R1.SymbolTableIndex);
+    Symbol *B2 = B->File->getSymbol(R2.SymbolTableIndex);
     if (B1 == B2)
       return true;
     if (auto *D1 = dyn_cast<DefinedRegular>(B1))
@@ -137,19 +143,17 @@ bool ICF::equalsConstant(const SectionChunk *A, const SectionChunk *B) {
 
   // Compare section attributes and contents.
   return A->getPermissions() == B->getPermissions() &&
-         A->SectionName == B->SectionName &&
-         A->getAlign() == B->getAlign() &&
+         A->SectionName == B->SectionName && A->Alignment == B->Alignment &&
          A->Header->SizeOfRawData == B->Header->SizeOfRawData &&
-         A->Checksum == B->Checksum &&
-         A->getContents() == B->getContents();
+         A->Checksum == B->Checksum && A->getContents() == B->getContents();
 }
 
 // Compare "moving" part of two sections, namely relocation targets.
 bool ICF::equalsVariable(const SectionChunk *A, const SectionChunk *B) {
   // Compare relocations.
   auto Eq = [&](const coff_relocation &R1, const coff_relocation &R2) {
-    SymbolBody *B1 = A->File->getSymbolBody(R1.SymbolTableIndex);
-    SymbolBody *B2 = B->File->getSymbolBody(R2.SymbolTableIndex);
+    Symbol *B1 = A->File->getSymbol(R1.SymbolTableIndex);
+    Symbol *B2 = B->File->getSymbol(R2.SymbolTableIndex);
     if (B1 == B2)
       return true;
     if (auto *D1 = dyn_cast<DefinedRegular>(B1))
@@ -202,7 +206,7 @@ void ICF::forEachClass(std::function<void(size_t, size_t)> Fn) {
 // Merge identical COMDAT sections.
 // Two sections are considered the same if their section headers,
 // contents and relocations are all the same.
-void ICF::run(const std::vector<Chunk *> &Vec) {
+void ICF::run(ArrayRef<Chunk *> Vec) {
   // Collect only mergeable sections and group by hash value.
   uint32_t NextId = 1;
   for (Chunk *C : Vec) {
@@ -215,9 +219,10 @@ void ICF::run(const std::vector<Chunk *> &Vec) {
   }
 
   // Initially, we use hash values to partition sections.
-  for (SectionChunk *SC : Chunks)
+  for_each(parallel::par, Chunks.begin(), Chunks.end(), [&](SectionChunk *SC) {
     // Set MSB to 1 to avoid collisions with non-hash classs.
     SC->Class[0] = getHash(SC) | (1 << 31);
+  });
 
   // From now on, sections in Chunks are ordered so that sections in
   // the same group are consecutive in the vector.
@@ -252,7 +257,7 @@ void ICF::run(const std::vector<Chunk *> &Vec) {
 }
 
 // Entry point to ICF.
-void doICF(const std::vector<Chunk *> &Chunks) { ICF().run(Chunks); }
+void doICF(ArrayRef<Chunk *> Chunks) { ICF().run(Chunks); }
 
 } // namespace coff
 } // namespace lld

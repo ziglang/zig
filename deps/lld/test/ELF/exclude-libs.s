@@ -22,6 +22,12 @@
 // RUN: ld.lld -shared %t.o %t.dir/exc.a -o %t.exe --exclude-libs=ALL
 // RUN: llvm-readobj -dyn-symbols %t.exe | FileCheck --check-prefix=EXCLUDE %s
 
+// RUN: ld.lld -shared --whole-archive %t.o %t.dir/exc.a -o %t.exe --exclude-libs foo,bar,exc.a
+// RUN: llvm-readobj -dyn-symbols %t.exe | FileCheck --check-prefix=EXCLUDE %s
+
+// RUN: ld.lld -shared --whole-archive %t.o %t.dir/exc.a -o %t.exe --exclude-libs=ALL
+// RUN: llvm-readobj -dyn-symbols %t.exe | FileCheck --check-prefix=EXCLUDE %s
+
 // DEFAULT: Name: fn
 // EXCLUDE-NOT: Name: fn
 

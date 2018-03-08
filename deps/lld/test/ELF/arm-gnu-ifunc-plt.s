@@ -1,7 +1,7 @@
 // RUN: llvm-mc -filetype=obj -triple=armv7a-linux-gnueabihf %S/Inputs/arm-shared.s -o %t1.o
 // RUN: ld.lld %t1.o --shared -o %t.so
 // RUN: llvm-mc -filetype=obj -triple=armv7a-linux-gnueabihf %s -o %t.o
-// RUN: ld.lld %t.so %t.o -o %tout
+// RUN: ld.lld --hash-style=sysv %t.so %t.o -o %tout
 // RUN: llvm-objdump -triple=armv7a-linux-gnueabihf -d %tout | FileCheck %s --check-prefix=DISASM
 // RUN: llvm-objdump -s %tout | FileCheck %s --check-prefix=GOTPLT
 // RUN: llvm-readobj -r -dynamic-table %tout | FileCheck %s
@@ -33,49 +33,49 @@
 // DISASM-NEXT:    11000:       1e ff 2f e1     bx      lr
 // DISASM: bar:
 // DISASM-NEXT:    11004:       1e ff 2f e1     bx      lr
-// DISASM:      _start:
+// DISASM: _start:
 // DISASM-NEXT:    11008:       14 00 00 eb     bl      #80
 // DISASM-NEXT:    1100c:       17 00 00 eb     bl      #92
-// DISASM:         11010:       00 00 00 00     .word   0x00000000
+// DISASM: $d.1:
+// DISASM-NEXT:    11010:       00 00 00 00     .word   0x00000000
 // DISASM-NEXT:    11014:       04 00 00 00     .word   0x00000004
-// DISASM:         11018:       05 00 00 eb     bl      #20
-// DISASM-NEXT:    1101c:       08 00 00 eb     bl      #32
+// DISASM:         11018:       08 00 00 eb     bl      #32
+// DISASM-NEXT:    1101c:       0b 00 00 eb     bl      #44
 // DISASM-NEXT: Disassembly of section .plt:
 // DISASM-NEXT: $a:
 // DISASM-NEXT:    11020:       04 e0 2d e5     str     lr, [sp, #-4]!
-// DISASM-NEXT:    11024:       04 e0 9f e5     ldr     lr, [pc, #4]
-// DISASM-NEXT:    11028:       0e e0 8f e0     add     lr, pc, lr
-// DISASM-NEXT:    1102c:       08 f0 be e5     ldr     pc, [lr, #8]!
+// DISASM-NEXT:    11024:       00 e6 8f e2     add     lr, pc, #0, #12
+// DISASM-NEXT:    11028:       00 ea 8e e2     add     lr, lr, #0, #20
+// DISASM-NEXT:    1102c:       dc ff be e5     ldr     pc, [lr, #4060]!
 // DISASM: $d:
-// DISASM-NEXT:    11030:       d0 0f 00 00     .word   0x00000fd0
+// DISASM-NEXT:    11030:       d4 d4 d4 d4     .word   0xd4d4d4d4
+// DISASM-NEXT:    11034:       d4 d4 d4 d4     .word   0xd4d4d4d4
+// DISASM-NEXT:    11038:       d4 d4 d4 d4     .word   0xd4d4d4d4
+// DISASM-NEXT:    1103c:       d4 d4 d4 d4     .word   0xd4d4d4d4
 // DISASM: $a:
-// DISASM-NEXT:    11034:       04 c0 9f e5     ldr     r12, [pc, #4]
-// DISASM-NEXT:    11038:       0f c0 8c e0     add     r12, r12, pc
-// DISASM-NEXT:    1103c:       00 f0 9c e5     ldr     pc, [r12]
+// DISASM-NEXT:    11040:       00 c6 8f e2     add     r12, pc, #0, #12
+// DISASM-NEXT:    11044:       00 ca 8c e2     add     r12, r12, #0, #20
+// DISASM-NEXT:    11048:       c4 ff bc e5     ldr     pc, [r12, #4036]!
 // DISASM: $d:
-// DISASM-NEXT:    11040:       cc 0f 00 00     .word   0x00000fcc
+// DISASM-NEXT:    1104c:       d4 d4 d4 d4     .word   0xd4d4d4d4
 // DISASM: $a:
-// DISASM-NEXT:    11044:       04 c0 9f e5     ldr     r12, [pc, #4]
-// DISASM-NEXT:    11048:       0f c0 8c e0     add     r12, r12, pc
-// DISASM-NEXT:    1104c:       00 f0 9c e5     ldr     pc, [r12]
+// DISASM-NEXT:    11050:       00 c6 8f e2     add     r12, pc, #0, #12
+// DISASM-NEXT:    11054:       00 ca 8c e2     add     r12, r12, #0, #20
+// DISASM-NEXT:    11058:       b8 ff bc e5     ldr     pc, [r12, #4024]!
 // DISASM: $d:
-// DISASM-NEXT:    11050:       c0 0f 00 00     .word   0x00000fc0
-// Alignment to 16 byte boundary not strictly necessary on ARM, but harmless
-// DISASM-NEXT:    11054:       d4 d4 d4 d4     .word   0xd4d4d4d4
-// DISASM-NEXT:    11058:       d4 d4 d4 d4     .word   0xd4d4d4d4
 // DISASM-NEXT:    1105c:       d4 d4 d4 d4     .word   0xd4d4d4d4
 // DISASM: $a:
-// DISASM-NEXT:    11060:       04 c0 9f e5     ldr     r12, [pc, #4]
-// DISASM-NEXT:    11064:       0f c0 8c e0     add     r12, r12, pc
-// DISASM-NEXT:    11068:       00 f0 9c e5     ldr     pc, [r12]
+// DISASM-NEXT:    11060:       00 c6 8f e2     add     r12, pc, #0, #12
+// DISASM-NEXT:    11064:       02 ca 8c e2     add     r12, r12, #8192
+// DISASM-NEXT:    11068:       18 f0 bc e5     ldr     pc, [r12, #24]!
 // DISASM: $d:
-// DISASM-NEXT:    1106c:       14 20 00 00     .word   0x00002014
+// DISASM-NEXT:    1106c:       d4 d4 d4 d4     .word   0xd4d4d4d4
 // DISASM: $a:
-// DISASM-NEXT:    11070:       04 c0 9f e5     ldr     r12, [pc, #4]
-// DISASM-NEXT:    11074:       0f c0 8c e0     add     r12, r12, pc
-// DISASM-NEXT:    11078:       00 f0 9c e5     ldr     pc, [r12]
+// DISASM-NEXT:    11070:       00 c6 8f e2     add     r12, pc, #0, #12
+// DISASM-NEXT:    11074:       02 ca 8c e2     add     r12, r12, #8192
+// DISASM-NEXT:    11078:       0c f0 bc e5     ldr     pc, [r12, #12]!
 // DISASM: $d:
-// DISASM-NEXT:    1107c:       08 20 00 00     .word   0x00002008
+// DISASM-NEXT:   1107c:	d4 d4 d4 d4 	.word	0xd4d4d4d4
 
 .syntax unified
 .text

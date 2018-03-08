@@ -10,7 +10,9 @@
 #ifndef LLD_READER_WRITER_MACHO_FLAT_NAMESPACE_FILE_H
 #define LLD_READER_WRITER_MACHO_FLAT_NAMESPACE_FILE_H
 
+#include "Atoms.h"
 #include "lld/Core/SharedLibraryFile.h"
+#include "lld/ReaderWriter/MachOLinkingContext.h"
 #include "llvm/Support/Debug.h"
 
 namespace lld {

@@ -1,0 +1,12 @@
+REQUIRES: x86, gnutar, manifest_tool
+
+RUN: rm -rf %t && mkdir %t && cd %t
+RUN: lld-link -entry:__ImageBase -nodefaultlib -linkrepro:%t -manifest:embed %p/Inputs/std32.lib -subsystem:console
+RUN: tar tf repro.tar | FileCheck --check-prefix=LIST %s
+RUN: tar xOf repro.tar repro/response.txt | FileCheck %s
+
+LIST: manifest.res
+
+CHECK-NOT: -manifest:
+CHECK: .manifest.res
+CHECK-NOT: -manifest:

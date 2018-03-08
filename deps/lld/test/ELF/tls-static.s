@@ -3,12 +3,20 @@
 // RUN: ld.lld -static %t -o %tout
 // RUN: ld.lld %t -o %tout
 // RUN: ld.lld -shared %tso -o %tshared
-// RUN: not ld.lld -static %t %tshared -o %tout 2>&1 | FileCheck %s
+// RUN: ld.lld -static %t %tshared -o %tout
 // REQUIRES: x86
 
 .global _start
 _start:
-  call __tls_get_addr
+  data16
+  leaq  foobar@TLSGD(%rip), %rdi
+  data16
+  data16
+  rex64
+  callq  __tls_get_addr@PLT
 
-// CHECK: error: undefined symbol: __tls_get_addr
-// CHECK: >>> referenced by {{.*}}:(.text+0x1)
+
+.section        .tdata,"awT",@progbits
+.global  foobar
+foobar:
+  .long   42

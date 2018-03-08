@@ -24,4 +24,4 @@ _start:
 //   | FileCheck %s --check-prefix=OVERFLOW
 // RUN: not ld.lld %t.o %t257.o -o %t2
 //   | FileCheck %s --check-prefix=OVERFLOW
-// OVERFLOW: Relocation R_AARCH64_ABS32 out of range
+// OVERFLOW: Relocation R_AARCH64_ABS32 out of range: 4294967296 is not in [-2147483648, 4294967295]

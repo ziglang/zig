@@ -1,6 +1,6 @@
 // REQUIRES: aarch64
 // RUN: llvm-mc %s -o %t.o -triple aarch64-pc-linux -filetype=obj
-// RUN: ld.lld %t.o -o %t.so -shared
+// RUN: ld.lld --hash-style=sysv %t.o -o %t.so -shared
 // RUN: llvm-readobj -s %t.so | FileCheck --check-prefix=SEC %s
 // RUN: llvm-objdump -d %t.so | FileCheck %s
 

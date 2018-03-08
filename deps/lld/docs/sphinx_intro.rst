@@ -57,41 +57,21 @@ to install it using:
 Building the documentation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-In order to build the documentation, all you should need to do is change to the
-``docs`` directory and invoke make as follows::
+In order to build the documentation need to add ``-DLLVM_ENABLE_SPHINX=ON`` to
+your ``cmake`` command.  Once you do this you can build the docs using
+``docs-lld-html`` build (``ninja`` or ``make``) target.
 
-  $ cd path/to/project/docs
-  $ make html
-
-Note that on Windows there is a ``make.bat`` command in the docs directory which
-supplies the same interface as the ``Makefile``.
-
-That command will invoke ``sphinx-build`` with the appropriate options for the
-project, and generate the HTML documentation in a ``_build`` subdirectory. You
-can browse it starting from the index page by visiting
-``_build/html/index.html``.
-
-Sphinx supports a wide variety of generation formats (including LaTeX, man
-pages, and plain text). The ``Makefile`` includes a number of convenience
-targets for invoking ``sphinx-build`` appropriately, the common ones are:
-
-  make html
-    Generate the HTML output.
-
-  make latexpdf
-    Generate LaTeX documentation and convert to a PDF.
-
-  make man
-    Generate man pages.
-
+That build target will invoke ``sphinx-build`` with the appropriate options for
+the project, and generate the HTML documentation in a ``tools/lld/docs/html``
+subdirectory.
 
 .. _writing_documentation:
 
 Writing documentation
 ~~~~~~~~~~~~~~~~~~~~~
 
-The documentation itself is written in the reStructuredText (ReST) format, and Sphinx
-defines additional tags to support features like cross-referencing.
+The documentation itself is written in the reStructuredText (ReST) format, and
+Sphinx defines additional tags to support features like cross-referencing.
 
 The ReST format itself is organized around documents mostly being readable
 plaintext documents. You should generally be able to write new documentation

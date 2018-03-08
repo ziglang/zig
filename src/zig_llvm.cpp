@@ -38,7 +38,7 @@
 #include <llvm/Transforms/IPO/AlwaysInliner.h>
 #include <llvm/Transforms/Scalar.h>
 
-#include <lld/Driver/Driver.h>
+#include <lld/Common/Driver.h>
 
 #include <new>
 
@@ -609,7 +609,7 @@ ZigLLVMDILocation *ZigLLVMGetDebugLoc(unsigned line, unsigned col, ZigLLVMDIScop
 void ZigLLVMSetFastMath(LLVMBuilderRef builder_wrapped, bool on_state) {
     if (on_state) {
         FastMathFlags fmf;
-        fmf.setUnsafeAlgebra();
+        fmf.setFast();
         unwrap(builder_wrapped)->setFastMathFlags(fmf);
     } else {
         unwrap(builder_wrapped)->clearFastMathFlags();
@@ -647,11 +647,13 @@ static_assert((Triple::ArchType)ZigLLVM_LastArchType == Triple::LastArchType, ""
 static_assert((Triple::VendorType)ZigLLVM_LastVendorType == Triple::LastVendorType, "");
 static_assert((Triple::OSType)ZigLLVM_LastOSType == Triple::LastOSType, "");
 static_assert((Triple::EnvironmentType)ZigLLVM_LastEnvironmentType == Triple::LastEnvironmentType, "");
+static_assert((Triple::SubArchType)ZigLLVM_KalimbaSubArch_v5 == Triple::KalimbaSubArch_v5, "");
 
 static_assert((Triple::ObjectFormatType)ZigLLVM_UnknownObjectFormat == Triple::UnknownObjectFormat, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_COFF == Triple::COFF, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_ELF == Triple::ELF, "");
 static_assert((Triple::ObjectFormatType)ZigLLVM_MachO == Triple::MachO, "");
+static_assert((Triple::ObjectFormatType)ZigLLVM_Wasm == Triple::Wasm, "");
 
 const char *ZigLLVMGetArchTypeName(ZigLLVM_ArchType arch) {
     return (const char*)Triple::getArchTypeName((Triple::ArchType)arch).bytes_begin();
@@ -690,6 +692,8 @@ const char *ZigLLVMGetSubArchTypeName(ZigLLVM_SubArchType sub_arch) {
     switch (sub_arch) {
         case ZigLLVM_NoSubArch:
             return "(none)";
+        case ZigLLVM_ARMSubArch_v8_3a:
+            return "v8_3a";
         case ZigLLVM_ARMSubArch_v8_2a:
             return "v8_2a";
         case ZigLLVM_ARMSubArch_v8_1a:

@@ -1,0 +1,21 @@
+RUN: rm -rf %t/lib
+RUN: mkdir -p %t/lib
+RUN: not ld.lld -### -m i386pep -lfoo -L%t/lib 2>&1 | FileCheck -check-prefix=LIB1 %s
+LIB1: unable to find library -lfoo
+
+RUN: echo > %t/lib/libfoo.dll.a
+RUN: ld.lld -### -m i386pep -lfoo -L%t/lib | FileCheck -check-prefix=LIB2 %s
+LIB2: libfoo.dll.a
+
+RUN: not ld.lld -### -m i386pep -Bstatic -lfoo -L%t/lib 2>&1 | FileCheck -check-prefix=LIB3 %s
+LIB3: unable to find library -lfoo
+
+RUN: echo > %t/lib/libfoo.a
+RUN: ld.lld -### -m i386pep -Bstatic -lfoo -L%t/lib | FileCheck -check-prefix=LIB4 %s
+LIB4: libfoo.a
+
+RUN: echo > %t/lib/libbar.dll.a
+RUN: echo > %t/lib/libbar.a
+RUN: ld.lld -### -m i386pep -Bstatic -lfoo -Bdynamic -lbar -L%t/lib | FileCheck -check-prefix=LIB5 %s
+LIB5:      libfoo.a
+LIB5-SAME: libbar.dll.a

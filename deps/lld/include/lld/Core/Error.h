@@ -14,7 +14,7 @@
 #ifndef LLD_CORE_ERROR_H
 #define LLD_CORE_ERROR_H
 
-#include "lld/Core/LLVM.h"
+#include "lld/Common/LLVM.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/Error.h"
 #include <system_error>

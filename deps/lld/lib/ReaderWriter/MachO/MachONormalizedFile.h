@@ -43,8 +43,8 @@
 #define LLD_READER_WRITER_MACHO_NORMALIZE_FILE_H
 
 #include "DebugInfo.h"
+#include "lld/Common/LLVM.h"
 #include "lld/Core/Error.h"
-#include "lld/Core/LLVM.h"
 #include "lld/ReaderWriter/MachOLinkingContext.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringRef.h"
@@ -124,15 +124,6 @@ struct Section {
   ArrayRef<uint8_t> content;
   Relocations     relocations;
   IndirectSymbols indirectSymbols;
-
-#ifndef NDEBUG
-  raw_ostream& operator<<(raw_ostream &OS) const {
-    dump(OS);
-    return OS;
-  }
-
-  void dump(raw_ostream &OS = llvm::dbgs()) const;
-#endif
 };
 
 

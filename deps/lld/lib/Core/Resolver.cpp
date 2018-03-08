@@ -7,13 +7,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "lld/Core/Atom.h"
+#include "lld/Core/Resolver.h"
+#include "lld/Common/LLVM.h"
 #include "lld/Core/ArchiveLibraryFile.h"
+#include "lld/Core/Atom.h"
 #include "lld/Core/File.h"
 #include "lld/Core/Instrumentation.h"
-#include "lld/Core/LLVM.h"
 #include "lld/Core/LinkingContext.h"
-#include "lld/Core/Resolver.h"
 #include "lld/Core/SharedLibraryFile.h"
 #include "lld/Core/SymbolTable.h"
 #include "lld/Core/UndefinedAtom.h"

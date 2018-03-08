@@ -10,7 +10,7 @@
 #ifndef LLD_CORE_SYMBOL_TABLE_H
 #define LLD_CORE_SYMBOL_TABLE_H
 
-#include "lld/Core/LLVM.h"
+#include "lld/Common/LLVM.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringExtras.h"
 #include <cstring>

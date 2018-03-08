@@ -1,8 +1,8 @@
 --- !COFF
-header:          
+header:
   Machine:         IMAGE_FILE_MACHINE_AMD64
   Characteristics: [  ]
-sections:        
+sections:
   - Name:            .drectve
     Characteristics: [ IMAGE_SCN_LNK_INFO, IMAGE_SCN_LNK_REMOVE ]
     Alignment:       1
@@ -10,15 +10,15 @@ sections:
   - Name:            '.debug$S'
     Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
     Alignment:       1
-    Subsections:     
+    Subsections:
       - !Symbols
-        Records:         
+        Records:
           - Kind:            S_OBJNAME
-            ObjNameSym:      
+            ObjNameSym:
               Signature:       0
               ObjectName:      'C:\src\llvm-project\build\pdb_lines_1.obj'
           - Kind:            S_COMPILE3
-            Compile3Sym:     
+            Compile3Sym:
               Flags:           [ SecurityChecks, HotPatch ]
               Machine:         X64
               FrontendMajor:   19
@@ -31,9 +31,9 @@ sections:
               BackendQFE:      1
               Version:         'Microsoft (R) Optimizing Compiler'
       - !Symbols
-        Records:         
+        Records:
           - Kind:            S_GPROC32_ID
-            ProcSym:         
+            ProcSym:
               PtrParent:       0
               PtrEnd:          0
               PtrNext:         0
@@ -45,7 +45,7 @@ sections:
               Flags:           [  ]
               DisplayName:     main
           - Kind:            S_FRAMEPROC
-            FrameProcSym:    
+            FrameProcSym:
               TotalFrameBytes: 40
               PaddingFrameBytes: 0
               OffsetToPadding: 0
@@ -54,15 +54,15 @@ sections:
               SectionIdOfExceptionHandler: 0
               Flags:           [ AsynchronousExceptionHandling, OptimizedForSpeed ]
           - Kind:            S_PROC_ID_END
-            ScopeEndSym:     
+            ScopeEndSym:
       - !Lines
         CodeSize:        19
         Flags:           [  ]
         RelocOffset:     0
         RelocSegment:    0
-        Blocks:          
+        Blocks:
           - FileName:        'c:\src\llvm-project\build\pdb_lines_1.c'
-            Lines:           
+            Lines:
               - Offset:          0
                 LineStart:       2
                 IsStatement:     true
@@ -79,9 +79,9 @@ sections:
                 LineStart:       5
                 IsStatement:     true
                 EndDelta:        0
-            Columns:         
+            Columns:
       - !FileChecksums
-        Checksums:       
+        Checksums:
           - FileName:        'c:\src\llvm-project\build\pdb_lines_1.c'
             Kind:            MD5
             Checksum:        4EB19DCD86C3BA2238A255C718572E7B
@@ -89,15 +89,15 @@ sections:
             Kind:            MD5
             Checksum:        061EB73ABB642532857A4F1D9CBAC323
       - !StringTable
-        Strings:         
+        Strings:
           - 'c:\src\llvm-project\build\pdb_lines_1.c'
           - 'c:\src\llvm-project\build\foo.h'
       - !Symbols
-        Records:         
+        Records:
           - Kind:            S_BUILDINFO
-            BuildInfoSym:    
+            BuildInfoSym:
               BuildId:         4111
-    Relocations:     
+    Relocations:
       - VirtualAddress:  164
         SymbolName:      main
         Type:            IMAGE_REL_AMD64_SECREL
@@ -113,81 +113,81 @@ sections:
   - Name:            '.debug$T'
     Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
     Alignment:       1
-    Types:           
+    Types:
       - Kind:            LF_ARGLIST
-        ArgList:         
+        ArgList:
           ArgIndices:      [  ]
       - Kind:            LF_PROCEDURE
-        Procedure:       
+        Procedure:
           ReturnType:      3
           CallConv:        NearC
           Options:         [ None ]
           ParameterCount:  0
           ArgumentList:    4096
       - Kind:            LF_POINTER
-        Pointer:         
+        Pointer:
           ReferentType:    4097
           Attrs:           65548
       - Kind:            LF_FUNC_ID
-        FuncId:          
+        FuncId:
           ParentScope:     0
           FunctionType:    4097
           Name:            foo
       - Kind:            LF_ARGLIST
-        ArgList:         
+        ArgList:
           ArgIndices:      [ 0 ]
       - Kind:            LF_PROCEDURE
-        Procedure:       
+        Procedure:
           ReturnType:      116
           CallConv:        NearC
           Options:         [ None ]
           ParameterCount:  0
           ArgumentList:    4100
       - Kind:            LF_FUNC_ID
-        FuncId:          
+        FuncId:
           ParentScope:     0
           FunctionType:    4101
           Name:            main
       - Kind:            LF_FUNC_ID
-        FuncId:          
+        FuncId:
           ParentScope:     0
           FunctionType:    4097
           Name:            bar
       - Kind:            LF_STRING_ID
-        StringId:        
+        StringId:
           Id:              0
           String:          'C:\src\llvm-project\build'
       - Kind:            LF_STRING_ID
-        StringId:        
+        StringId:
           Id:              0
           String:          'C:\PROGRA~2\MICROS~1.0\VC\Bin\amd64\cl.exe'
       - Kind:            LF_STRING_ID
-        StringId:        
+        StringId:
           Id:              0
           String:          '-c -Z7 -MT -IC:\PROGRA~2\MICROS~1.0\VC\include -IC:\PROGRA~2\MICROS~1.0\VC\atlmfc\include -IC:\PROGRA~2\WI3CF2~1\10\include\10.0.14393.0\ucrt -IC:\PROGRA~2\WI3CF2~1\10\include\10.0.14393.0\shared -IC:\PROGRA~2\WI3CF2~1\10\include\10.0.14393.0\um'
       - Kind:            LF_SUBSTR_LIST
-        StringList:      
+        StringList:
           StringIndices:   [ 4106 ]
       - Kind:            LF_STRING_ID
-        StringId:        
+        StringId:
           Id:              4107
           String:          ' -IC:\PROGRA~2\WI3CF2~1\10\include\10.0.14393.0\winrt -TC -X'
       - Kind:            LF_STRING_ID
-        StringId:        
+        StringId:
           Id:              0
           String:          pdb_lines_1.c
       - Kind:            LF_STRING_ID
-        StringId:        
+        StringId:
           Id:              0
           String:          'C:\src\llvm-project\build\vc140.pdb'
       - Kind:            LF_BUILDINFO
-        BuildInfo:       
+        BuildInfo:
           ArgIndices:      [ 4104, 4105, 4109, 4110, 4108 ]
   - Name:            '.text$mn'
     Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
     Alignment:       16
     SectionData:     4883EC28E800000000B82A0000004883C428C3
-    Relocations:     
+    Relocations:
       - VirtualAddress:  5
         SymbolName:      foo
         Type:            IMAGE_REL_AMD64_REL32
@@ -195,18 +195,18 @@ sections:
     Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
     Alignment:       16
     SectionData:     4883EC28E8000000004883C428C3
-    Relocations:     
+    Relocations:
       - VirtualAddress:  5
         SymbolName:      bar
         Type:            IMAGE_REL_AMD64_REL32
   - Name:            '.debug$S'
     Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_DISCARDABLE, IMAGE_SCN_MEM_READ ]
     Alignment:       1
-    Subsections:     
+    Subsections:
       - !Symbols
-        Records:         
+        Records:
           - Kind:            S_GPROC32_ID
-            ProcSym:         
+            ProcSym:
               PtrParent:       0
               PtrEnd:          0
               PtrNext:         0
@@ -218,7 +218,7 @@ sections:
               Flags:           [  ]
               DisplayName:     foo
           - Kind:            S_FRAMEPROC
-            FrameProcSym:    
+            FrameProcSym:
               TotalFrameBytes: 40
               PaddingFrameBytes: 0
               OffsetToPadding: 0
@@ -227,15 +227,15 @@ sections:
               SectionIdOfExceptionHandler: 0
               Flags:           [ MarkedInline, AsynchronousExceptionHandling, OptimizedForSpeed ]
           - Kind:            S_PROC_ID_END
-            ScopeEndSym:     
+            ScopeEndSym:
       - !Lines
         CodeSize:        14
         Flags:           [  ]
         RelocOffset:     0
         RelocSegment:    0
-        Blocks:          
+        Blocks:
           - FileName:        'c:\src\llvm-project\build\foo.h'
-            Lines:           
+            Lines:
               - Offset:          0
                 LineStart:       2
                 IsStatement:     true
@@ -248,8 +248,8 @@ sections:
                 LineStart:       4
                 IsStatement:     true
                 EndDelta:        0
-            Columns:         
-    Relocations:     
+            Columns:
+    Relocations:
       - VirtualAddress:  44
         SymbolName:      foo
         Type:            IMAGE_REL_AMD64_SECREL
@@ -270,7 +270,7 @@ sections:
     Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_LNK_COMDAT, IMAGE_SCN_MEM_READ ]
     Alignment:       4
     SectionData:     '000000000E00000000000000'
-    Relocations:     
+    Relocations:
       - VirtualAddress:  0
         SymbolName:      '$LN3'
         Type:            IMAGE_REL_AMD64_ADDR32NB
@@ -288,7 +288,7 @@ sections:
     Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ ]
     Alignment:       4
     SectionData:     '000000001300000000000000'
-    Relocations:     
+    Relocations:
       - VirtualAddress:  0
         SymbolName:      '$LN3'
         Type:            IMAGE_REL_AMD64_ADDR32NB
@@ -298,14 +298,14 @@ sections:
       - VirtualAddress:  8
         SymbolName:      '$unwind$main'
         Type:            IMAGE_REL_AMD64_ADDR32NB
-symbols:         
+symbols:
   - Name:            .drectve
     Value:           0
     SectionNumber:   1
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition: 
+    SectionDefinition:
       Length:          47
       NumberOfRelocations: 0
       NumberOfLinenumbers: 0
@@ -317,7 +317,7 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition: 
+    SectionDefinition:
       Length:          432
       NumberOfRelocations: 4
       NumberOfLinenumbers: 0
@@ -329,7 +329,7 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition: 
+    SectionDefinition:
       Length:          644
       NumberOfRelocations: 0
       NumberOfLinenumbers: 0
@@ -341,7 +341,7 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition: 
+    SectionDefinition:
       Length:          19
       NumberOfRelocations: 1
       NumberOfLinenumbers: 0
@@ -353,7 +353,7 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition: 
+    SectionDefinition:
       Length:          14
       NumberOfRelocations: 1
       NumberOfLinenumbers: 0
@@ -366,7 +366,7 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition: 
+    SectionDefinition:
       Length:          148
       NumberOfRelocations: 4
       NumberOfLinenumbers: 0
@@ -409,7 +409,7 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition: 
+    SectionDefinition:
       Length:          8
       NumberOfRelocations: 0
       NumberOfLinenumbers: 0
@@ -428,7 +428,7 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition: 
+    SectionDefinition:
       Length:          12
       NumberOfRelocations: 3
       NumberOfLinenumbers: 0
@@ -447,7 +447,7 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition: 
+    SectionDefinition:
       Length:          8
       NumberOfRelocations: 0
       NumberOfLinenumbers: 0
@@ -465,7 +465,7 @@ symbols:
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
-    SectionDefinition: 
+    SectionDefinition:
       Length:          12
       NumberOfRelocations: 3
       NumberOfLinenumbers: 0

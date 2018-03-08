@@ -26,10 +26,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Error.h"
 #include "InputFiles.h"
 #include "Symbols.h"
 #include "Target.h"
+#include "lld/Common/ErrorHandler.h"
 #include "llvm/Object/ELF.h"
 #include "llvm/Support/Endian.h"
 
@@ -43,24 +43,18 @@ using namespace lld::elf;
 namespace {
 class AVR final : public TargetInfo {
 public:
-  RelExpr getRelExpr(uint32_t Type, const SymbolBody &S,
+  RelExpr getRelExpr(RelType Type, const Symbol &S,
                      const uint8_t *Loc) const override;
-  void relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const override;
+  void relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const override;
 };
 } // namespace
 
-RelExpr AVR::getRelExpr(uint32_t Type, const SymbolBody &S,
+RelExpr AVR::getRelExpr(RelType Type, const Symbol &S,
                         const uint8_t *Loc) const {
-  switch (Type) {
-  case R_AVR_CALL:
-    return R_ABS;
-  default:
-    error(toString(S.File) + ": unknown relocation type: " + toString(Type));
-    return R_HINT;
-  }
+  return R_ABS;
 }
 
-void AVR::relocateOne(uint8_t *Loc, uint32_t Type, uint64_t Val) const {
+void AVR::relocateOne(uint8_t *Loc, RelType Type, uint64_t Val) const {
   switch (Type) {
   case R_AVR_CALL: {
     uint16_t Hi = Val >> 17;

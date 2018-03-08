@@ -2,11 +2,11 @@
 # RUN: llvm-mc -filetype=obj -triple=x86_64-pc-linux %s -o %t
 # RUN: echo "bar" > %t_retain.txt
 # RUN: echo "foo" >> %t_retain.txt
-# RUN: ld.lld -shared --retain-symbols-file=%t_retain.txt %t -o %t2
+# RUN: ld.lld --hash-style=sysv -shared --retain-symbols-file=%t_retain.txt %t -o %t2
 # RUN: llvm-readobj --dyn-symbols %t2 | FileCheck %s
 
 ## Check separate form.
-# RUN: ld.lld -shared --retain-symbols-file %t_retain.txt %t -o %t2
+# RUN: ld.lld --hash-style=sysv -shared --retain-symbols-file %t_retain.txt %t -o %t2
 # RUN: llvm-readobj --dyn-symbols %t2 | FileCheck %s
 
 # CHECK:      DynamicSymbols [

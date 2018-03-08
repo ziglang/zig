@@ -4,10 +4,10 @@
 # RUN:        .data_noload_a (NOLOAD) : { *(.data_noload_a) } \
 # RUN:        .data_noload_b (0x10000) (NOLOAD) : { *(.data_noload_b) } };" > %t.script
 # RUN: ld.lld -o %t --script %t.script %t.o
-# RUN: llvm-readobj --symbols -sections %t
+# RUN: llvm-readobj --symbols -sections %t | FileCheck %s
 
 # CHECK:      Section {
-# CHECK-NEXT:   Index: 2
+# CHECK:        Index: 2
 # CHECK-NEXT:   Name: .data_noload_a
 # CHECK-NEXT:   Type: SHT_NOBITS
 # CHECK-NEXT:   Flags [

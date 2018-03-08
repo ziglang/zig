@@ -1,4 +1,4 @@
-# REQUIRES: win_mt
+# REQUIRES: manifest_tool
 
 # RUN: yaml2obj %p/Inputs/ret42.yaml > %t.obj
 # RUN: lld-link /out:%t.exe /entry:main \
@@ -11,7 +11,7 @@
 TEST_EMBED:          ResourceTableRVA: 0x1000
 TEST_EMBED-NEXT:     ResourceTableSize: 0x298
 TEST_EMBED-DAG:      Resources [
-TEST_EMBED-NEXT:       Total Number of Resources: 1 
+TEST_EMBED-NEXT:       Total Number of Resources: 1
 TEST_EMBED-DAG:        Number of String Entries: 0
 TEST_EMBED-NEXT:       Number of ID Entries: 1
 TEST_EMBED-NEXT:       Type: kRT_MANIFEST (ID 24) [

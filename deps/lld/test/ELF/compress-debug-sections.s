@@ -15,11 +15,16 @@
 # ZLIBFLAGS-NEXT:    Flags [
 # ZLIBFLAGS-NEXT:      SHF_COMPRESSED
 
-# RUN: llvm-dwarfdump %t1 -debug-dump=str | \
+# RUN: llvm-dwarfdump %t1 -debug-str | \
 # RUN:   FileCheck %s --check-prefix=DEBUGSTR
 # DEBUGSTR:     .debug_str contents:
 # DEBUGSTR-NEXT:  AAAAAAAAAAAAAAAAAAAAAAAAAAA
 # DEBUGSTR-NEXT:  BBBBBBBBBBBBBBBBBBBBBBBBBBB
+
+## Test alias.
+# RUN: ld.lld %t.o -o %t2 --compress-debug-sections zlib
+# RUN: llvm-objdump -s %t2 | FileCheck %s --check-prefix=ZLIBCONTENT
+# RUN: llvm-readobj -s %t2 | FileCheck %s --check-prefix=ZLIBFLAGS
 
 # RUN: not ld.lld %t.o -o %t1 --compress-debug-sections=zlib-gabi 2>&1 | \
 # RUN:   FileCheck -check-prefix=ERR %s

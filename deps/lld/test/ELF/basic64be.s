@@ -175,7 +175,7 @@ _start:
 # CHECK-NEXT:     Link: 0
 # CHECK-NEXT:     Info: 0
 # CHECK-NEXT:     AddressAlignment: 1
-# CHECK-NEXT:     EntrySize: 0
+# CHECK-NEXT:     EntrySize: 1
 # CHECK-NEXT:     SectionData (
 # CHECK-NEXT:         0000: 4C4C4420 312E3000 |LLD 1.0.|
 # CHECK-NEXT:     )

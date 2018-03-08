@@ -1,0 +1,21 @@
+# RUN: yaml2obj < %s > %t.obj
+# RUN: lld-link /dll /noentry /out:%t.dll %t.obj
+# RUN: llvm-readobj -file-headers %t.dll | FileCheck %s
+
+# CHECK: MajorOperatingSystemVersion: 42
+# CHECK: MinorOperatingSystemVersion: 43
+# CHECK: MajorSubsystemVersion: 42
+# CHECK: MinorSubsystemVersion: 43
+# CHECK: Subsystem: IMAGE_SUBSYSTEM_WINDOWS_CUI
+
+--- !COFF
+header:
+  Machine:         IMAGE_FILE_MACHINE_I386
+  Characteristics: []
+sections:
+  - Name:            .drectve
+    Characteristics: [ IMAGE_SCN_LNK_INFO, IMAGE_SCN_LNK_REMOVE ]
+    Alignment:       1
+    SectionData:     2f73756273797374656d3a636f6e736f6c652c34322e343300 # /subsystem:console,42.43
+symbols:
+...

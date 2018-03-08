@@ -1,7 +1,10 @@
 # RUN: yaml2obj < %s > %t.obj
-# RUN: lld-link /debug /out:%t.exe /entry:main %t.obj
+# RUN: lld-link /out:%t.exe /entry:main %t.obj
 # RUN: llvm-readobj -sections %t.exe | FileCheck %s
+# RUN: lld-link /debug /out:%t2.exe /entry:main %t.obj
+# RUN: llvm-readobj -sections %t2.exe | FileCheck %s
 
+# CHECK: Name: .eh_fram (
 # CHECK: Name: .data_long_section_name
 # CHECK: Name: .text_long_section_name
 
@@ -11,10 +14,14 @@ header:
   Characteristics: [  ]
 sections:
   - Name:            .text_long_section_name
-    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ ]
+    Characteristics: [ IMAGE_SCN_CNT_CODE, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_DISCARDABLE ]
     Alignment:       4
     SectionData:     B82A000000C3
   - Name:            .data_long_section_name
+    Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE, IMAGE_SCN_MEM_DISCARDABLE ]
+    Alignment:       4
+    SectionData:     "00"
+  - Name:            .eh_frame
     Characteristics: [ IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE ]
     Alignment:       4
     SectionData:     "00"
@@ -40,6 +47,18 @@ symbols:
   - Name:            .data_long_section_name
     Value:           0
     SectionNumber:   2
+    SimpleType:      IMAGE_SYM_TYPE_NULL
+    ComplexType:     IMAGE_SYM_DTYPE_NULL
+    StorageClass:    IMAGE_SYM_CLASS_STATIC
+    SectionDefinition:
+      Length:          0
+      NumberOfRelocations: 0
+      NumberOfLinenumbers: 0
+      CheckSum:        0
+      Number:          0
+  - Name:            .eh_frame
+    Value:           0
+    SectionNumber:   3
     SimpleType:      IMAGE_SYM_TYPE_NULL
     ComplexType:     IMAGE_SYM_DTYPE_NULL
     StorageClass:    IMAGE_SYM_CLASS_STATIC
