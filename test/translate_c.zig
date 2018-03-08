@@ -1197,4 +1197,46 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
        \\    }
        \\}
     );
+
+    cases.add("for on int",
+        \\int switch_fn(int i) {
+        \\    int res = 0;
+        \\    switch (i) {
+        \\        case 0:
+        \\            res = 1;
+        \\        case 1:
+        \\            res = 2;
+        \\        default:
+        \\            res = 3 * i;
+        \\            break;
+        \\        case 2:
+        \\            res = 5;
+        \\    }
+        \\}
+    ,
+       \\pub fn switch_fn(i: c_int) c_int {
+       \\    var res: c_int = 0;
+       \\    __switch: {
+       \\        __case_2: {
+       \\            __default: {
+       \\                __case_1: {
+       \\                    __case_0: {
+       \\                        switch (i) {
+       \\                            0 => break :__case_0,
+       \\                            1 => break :__case_1,
+       \\                            else => break :__default,
+       \\                            2 => break :__case_2,
+       \\                        }
+       \\                    }
+       \\                    res = 1;
+       \\                }
+       \\                res = 2;
+       \\            }
+       \\            res = (3 * i);
+       \\            break :__switch;
+       \\        }
+       \\        res = 5;
+       \\    }
+       \\}
+    );
 }
