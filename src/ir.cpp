@@ -2647,6 +2647,17 @@ static IrInstruction *ir_build_coro_alloc_helper(IrBuilder *irb, Scope *scope, A
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_add_implicit_return_type(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *value)
+{
+    IrInstructionAddImplicitReturnType *instruction = ir_build_instruction<IrInstructionAddImplicitReturnType>(irb, scope, source_node);
+    instruction->value = value;
+
+    ir_ref_instruction(value, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static IrInstruction *ir_build_atomic_rmw(IrBuilder *irb, Scope *scope, AstNode *source_node,
         IrInstruction *operand_type, IrInstruction *ptr, IrInstruction *op, IrInstruction *operand,
         IrInstruction *ordering, AtomicRmwOp resolved_op, AtomicOrder resolved_ordering)

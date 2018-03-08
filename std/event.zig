@@ -168,10 +168,10 @@ test "listen on a port, send bytes, receive bytes" {
             var socket = *_socket; // TODO https://github.com/zig-lang/zig/issues/733
             defer socket.close();
             const next_handler = async errorableHandler(self, _addr, socket) catch |err| switch (err) {
-                error.OutOfMemory => return,
+                error.OutOfMemory => @panic("unable to handle connection: out of memory"),
             };
-            (await next_handler) catch |err| switch (err) {
-                
+            (await next_handler) catch |err| {
+                std.debug.panic("unable to handle connection: {}\n", err);
             };
             suspend |p| { cancel p; }
         }
@@ -184,7 +184,7 @@ test "listen on a port, send bytes, receive bytes" {
 
             var adapter = std.io.FileOutStream.init(&socket);
             var stream = &adapter.stream;
-            try stream.print("hello from server\n") catch unreachable;
+            try stream.print("hello from server\n");
         }
     };
 
