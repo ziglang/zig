@@ -451,6 +451,28 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\}
     );
 
+    cases.addC("logical and, logical or on none bool values",
+        \\int and_or_none_bool(int a, float b, void *c) {
+        \\    if (a && b) return 0;
+        \\    if (b && c) return 1;
+        \\    if (a && c) return 2;
+        \\    if (a || b) return 3;
+        \\    if (b || c) return 4;
+        \\    if (a || c) return 5;
+        \\    return 6;
+        \\}
+    ,
+        \\pub export fn and_or_none_bool(a: c_int, b: f32, c: ?&c_void) c_int {
+        \\    if ((a != 0) and (b != 0)) return 0;
+        \\    if ((b != 0) and (c != null)) return 1;
+        \\    if ((a != 0) and (c != null)) return 2;
+        \\    if ((a != 0) or (b != 0)) return 3;
+        \\    if ((b != 0) or (c != null)) return 4;
+        \\    if ((a != 0) or (c != null)) return 5;
+        \\    return 6;
+        \\}
+    );
+
     cases.addC("assign",
         \\int max(int a) {
         \\    int tmp;
@@ -1102,17 +1124,18 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
     );
 
     cases.add("bool not",
-        \\int foo(int x) {
-        \\    return !(x == 0);
-        \\    return !x;
+        \\int foo(int a, float b, void *c) {
+        \\    return !(a == 0);
+        \\    return !a;
+        \\    return !b;
+        \\    return !c;
         \\}
     ,
-        \\pub fn foo(x: c_int) c_int {
-        \\    return !(x == 0);
-        \\    return !__to_bool_expr: {
-        \\        const _tmp = x;
-        \\        break :__to_bool_expr @bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0;
-        \\    };
+        \\pub fn foo(a: c_int, b: f32, c: ?&c_void) c_int {
+        \\    return !(a == 0);
+        \\    return !(a != 0);
+        \\    return !(b != 0);
+        \\    return !(c != null);
         \\}
     );
 
@@ -1148,75 +1171,66 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\pub const NRF_GPIO = if (@typeId(@typeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Pointer) @ptrCast(&NRF_GPIO_Type, NRF_GPIO_BASE) else if (@typeId(@typeOf(NRF_GPIO_BASE)) == @import("builtin").TypeId.Int) @intToPtr(&NRF_GPIO_Type, NRF_GPIO_BASE) else (&NRF_GPIO_Type)(NRF_GPIO_BASE);
     );
 
-    cases.add("if on int",
-        \\int if_int(int i) {
-        \\    if (i) {
-        \\        return 0;
-        \\    } else {
-        \\        return 1;
-        \\    }
+    cases.add("if on none bool",
+        \\enum SomeEnum { A, B, C };
+        \\int if_none_bool(int a, float b, void *c, enum SomeEnum d) {
+        \\    if (a) return 0;
+        \\    if (b) return 1;
+        \\    if (c) return 2;
+        \\    if (d) return 3;
+        \\    return 4;
         \\}
     ,
-       \\pub fn if_int(i: c_int) c_int {
-       \\    if (__to_bool_expr: {
-       \\        const _tmp = i;
-       \\        break :__to_bool_expr @bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0;
-       \\    }) {
-       \\        return 0;
-       \\    } else {
-       \\        return 1;
-       \\    }
-       \\}
+        \\pub const A = enum_SomeEnum.A;
+        \\pub const B = enum_SomeEnum.B;
+        \\pub const C = enum_SomeEnum.C;
+        \\pub const enum_SomeEnum = extern enum {
+        \\    A,
+        \\    B,
+        \\    C,
+        \\};
+        \\pub fn if_none_bool(a: c_int, b: f32, c: ?&c_void, d: enum_SomeEnum) c_int {
+        \\    if (a != 0) return 0;
+        \\    if (b != 0) return 1;
+        \\    if (c != null) return 2;
+        \\    if (d != @bitCast(enum_SomeEnum, @TagType(enum_SomeEnum)(0))) return 3;
+        \\    return 4;
+        \\}
     );
 
-    cases.add("while on int",
-        \\int while_int(int i) {
-        \\    while (i) {
-        \\        return 0;
-        \\    }
+    cases.add("while on none bool",
+        \\int while_none_bool(int a, float b, void *c) {
+        \\    while (a) return 0;
+        \\    while (b) return 1;
+        \\    while (c) return 2;
+        \\    return 3;
         \\}
     ,
-       \\pub fn while_int(i: c_int) c_int {
-       \\    while (__to_bool_expr: {
-       \\        const _tmp = i;
-       \\        break :__to_bool_expr @bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0;
-       \\    }) {
-       \\        return 0;
-       \\    }
-       \\}
+        \\pub fn while_none_bool(a: c_int, b: f32, c: ?&c_void) c_int {
+        \\    while (a != 0) return 0;
+        \\    while (b != 0) return 1;
+        \\    while (c != null) return 2;
+        \\    return 3;
+        \\}
     );
 
-    cases.add("for on int",
-        \\int for_int(int i) {
-        \\    for (;i;) {
-        \\        return 0;
-        \\    }
-        \\
-        \\    for (int j = 4;j;j--) {
-        \\        return 0;
-        \\    }
+    cases.add("for on none bool",
+        \\int for_none_bool(int a, float b, void *c) {
+        \\    for (;a;) return 0;
+        \\    for (;b;) return 1;
+        \\    for (;c;) return 2;
+        \\    return 3;
         \\}
     ,
-       \\pub fn for_int(i: c_int) c_int {
-       \\    while (__to_bool_expr: {
-       \\        const _tmp = i;
-       \\        break :__to_bool_expr @bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0;
-       \\    }) {
-       \\        return 0;
-       \\    }
-       \\    {
-       \\        var j: c_int = 4;
-       \\        while (__to_bool_expr: {
-       \\            const _tmp = j;
-       \\            break :__to_bool_expr @bitCast(@IntType(false, @sizeOf(@typeOf(_tmp)) * 8), _tmp) != 0;
-       \\        }) : (j -= 1) {
-       \\            return 0;
-       \\        }
-       \\    }
-       \\}
+        \\pub fn for_none_bool(a: c_int, b: f32, c: ?&c_void) c_int {
+        \\    while (a != 0) return 0;
+        \\    while (b != 0) return 1;
+        \\    while (c != null) return 2;
+        \\    return 3;
+        \\}
     );
 
-    cases.add("for on int",
+    cases.add("switch on int",
         \\int switch_fn(int i) {
         \\    int res = 0;
         \\    switch (i) {
