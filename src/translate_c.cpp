@@ -2336,6 +2336,7 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
                 case BuiltinType::Char16:
                 case BuiltinType::Char32:
                 case BuiltinType::WChar_S:
+                case BuiltinType::Float16:
                     return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq, trans_create_node_unsigned_negative(c, 0, false));
                 case BuiltinType::NullPtr:
                     return trans_create_node_bin_op(c, res, BinOpTypeCmpNotEq, trans_create_node(c, NodeTypeNullLiteral));
@@ -2478,6 +2479,7 @@ static AstNode *trans_bool_expr(Context *c, ResultUsed result_used, TransScope *
         case Type::Pipe:
         case Type::ObjCTypeParam:
         case Type::DeducedTemplateSpecialization:
+        case Type::DependentAddressSpace:
             return res;
     }
     zig_unreachable();
