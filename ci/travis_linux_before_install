@@ -2,7 +2,7 @@
 
 set -x
 
-sudo sh -c 'echo "deb http://apt.llvm.org/trusty/ llvm-toolchain-trusty-5.0 main" >> /etc/apt/sources.list'
+sudo sh -c 'echo "deb http://apt.llvm.org/trusty/ llvm-toolchain-trusty-6.0 main" >> /etc/apt/sources.list'
 wget -O - http://apt.llvm.org/llvm-snapshot.gpg.key|sudo apt-key add -
 sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
 sudo apt-get update -q

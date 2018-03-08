@@ -3,8 +3,8 @@
 set -x
 set -e
 
-export CC=clang-5.0
-export CXX=clang++-5.0
+export CC=clang-6.0
+export CXX=clang++-6.0
 echo $PATH
 mkdir build
 cd build
