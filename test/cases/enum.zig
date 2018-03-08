@@ -387,3 +387,8 @@ const EnumWithTagValues = enum(u4) {
 test "enum with tag values don't require parens" {
     assert(u4(EnumWithTagValues.C) == 0b0100);
 }
+
+test "enum with 1 field but explicit tag type should still have the tag type" {
+    const Enum = enum(u8) { B = 2 };
+    comptime @import("std").debug.assert(@sizeOf(Enum) == @sizeOf(u8));
+}

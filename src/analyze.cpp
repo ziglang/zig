@@ -2393,7 +2393,7 @@ static void resolve_enum_zero_bits(CodeGen *g, TypeTableEntry *enum_type) {
     }
 
     enum_type->data.enumeration.zero_bits_loop_flag = false;
-    enum_type->zero_bits = (field_count < 2);
+    enum_type->zero_bits = !type_has_bits(tag_int_type);
     enum_type->data.enumeration.zero_bits_known = true;
 }
 
