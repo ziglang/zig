@@ -14137,6 +14137,14 @@ static IrInstruction *ir_analyze_union_tag(IrAnalyze *ira, IrInstruction *source
             buf_sprintf("expected enum or union type, found '%s'", buf_ptr(&value->value.type->name)));
         return ira->codegen->invalid_instruction;
     }
+    if (!value->value.type->data.unionation.have_explicit_tag_type && !source_instr->is_gen) {
+        ErrorMsg *msg = ir_add_error(ira, source_instr, buf_sprintf("union has no associated enum"));
+        if (value->value.type->data.unionation.decl_node != nullptr) {
+            add_error_note(ira->codegen, msg, value->value.type->data.unionation.decl_node,
+                    buf_sprintf("declared here"));
+        }
+        return ira->codegen->invalid_instruction;
+    }
 
     TypeTableEntry *tag_type = value->value.type->data.unionation.tag_type;
     assert(tag_type->id == TypeTableEntryIdEnum);

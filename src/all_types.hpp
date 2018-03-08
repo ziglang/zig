@@ -1096,6 +1096,8 @@ struct TypeTableEntryUnion {
     size_t gen_union_index;
     size_t gen_tag_index;
 
+    bool have_explicit_tag_type;
+
     uint32_t union_size_bytes;
     TypeTableEntry *most_aligned_union_member;
 

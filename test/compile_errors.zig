@@ -1,6 +1,19 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("@tagName used on union with no associated enum tag",
+        \\const FloatInt = extern union {
+        \\    Float: f32,
+        \\    Int: i32,
+        \\};
+        \\export fn entry() void {
+        \\    var fi = FloatInt{.Float = 123.45};
+        \\    var tagName = @tagName(fi);
+        \\}
+    ,
+        ".tmp_source.zig:7:19: error: union has no associated enum",
+        ".tmp_source.zig:1:18: note: declared here");
+
     cases.add("returning error from void async function",
         \\const std = @import("std");
         \\export fn entry() void {

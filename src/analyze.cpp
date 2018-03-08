@@ -2558,6 +2558,8 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
     HashMap<BigInt, AstNode *, bigint_hash, bigint_eql> occupied_tag_values = {};
 
     AstNode *enum_type_node = decl_node->data.container_decl.init_arg_expr;
+    union_type->data.unionation.have_explicit_tag_type = decl_node->data.container_decl.auto_enum ||
+        enum_type_node != nullptr;
     bool auto_layout = (union_type->data.unionation.layout == ContainerLayoutAuto);
     bool want_safety = (field_count >= 2) && (auto_layout || enum_type_node != nullptr);
     TypeTableEntry *tag_type;
