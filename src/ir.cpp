@@ -10595,9 +10595,9 @@ static TypeTableEntry *ir_analyze_bit_shift(IrAnalyze *ira, IrInstructionBinOp *
     if (instr_is_comptime(op1) && instr_is_comptime(casted_op2)) {
         ConstExprValue *op1_val = &op1->value;
         ConstExprValue *op2_val = &casted_op2->value;
-        ConstExprValue *out_val = &bin_op_instruction->base.value;
-
-        bin_op_instruction->base.other = &bin_op_instruction->base;
+        IrInstruction *result_instruction = ir_get_const(ira, &bin_op_instruction->base);
+        ir_link_new_instruction(result_instruction, &bin_op_instruction->base);
+        ConstExprValue *out_val = &result_instruction->value;
 
         int err;
         if ((err = ir_eval_math_op(op1->value.type, op1_val, op_id, op2_val, out_val))) {
@@ -10613,7 +10613,7 @@ static TypeTableEntry *ir_analyze_bit_shift(IrAnalyze *ira, IrInstructionBinOp *
             return ira->codegen->builtin_types.entry_invalid;
         }
 
-        ir_num_lit_fits_in_other_type(ira, &bin_op_instruction->base, op1->value.type, false);
+        ir_num_lit_fits_in_other_type(ira, result_instruction, op1->value.type, false);
         return op1->value.type;
     } else if (op1->value.type->id == TypeTableEntryIdNumLitInt) {
         ir_add_error(ira, &bin_op_instruction->base,
@@ -10765,9 +10765,9 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
     if (instr_is_comptime(casted_op1) && instr_is_comptime(casted_op2)) {
         ConstExprValue *op1_val = &casted_op1->value;
         ConstExprValue *op2_val = &casted_op2->value;
-        ConstExprValue *out_val = &bin_op_instruction->base.value;
-
-        bin_op_instruction->base.other = &bin_op_instruction->base;
+        IrInstruction *result_instruction = ir_get_const(ira, &bin_op_instruction->base);
+        ir_link_new_instruction(result_instruction, &bin_op_instruction->base);
+        ConstExprValue *out_val = &result_instruction->value;
 
         int err;
         if ((err = ir_eval_math_op(resolved_type, op1_val, op_id, op2_val, out_val))) {
@@ -10789,7 +10789,7 @@ static TypeTableEntry *ir_analyze_bin_op_math(IrAnalyze *ira, IrInstructionBinOp
             return ira->codegen->builtin_types.entry_invalid;
         }
 
-        ir_num_lit_fits_in_other_type(ira, &bin_op_instruction->base, resolved_type, false);
+        ir_num_lit_fits_in_other_type(ira, result_instruction, resolved_type, false);
         return resolved_type;
     }
 

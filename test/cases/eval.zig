@@ -395,3 +395,28 @@ test "comptime slice of undefined pointer of length 0" {
     const slice2 = (&i32)(undefined)[100..100];
     assert(slice2.len == 0);
 }
+
+fn copyWithPartialInline(s: []u32, b: []u8) void {
+    comptime var i: usize = 0;
+    inline while (i < 4) : (i += 1) {
+        s[i] = 0;
+        s[i] |= u32(b[i*4+0]) << 24;
+        s[i] |= u32(b[i*4+1]) << 16;
+        s[i] |= u32(b[i*4+2]) <<  8;
+        s[i] |= u32(b[i*4+3]) <<  0;
+    }
+}
+
+test "binary math operator in partially inlined function" {
+    var s: [4]u32 = undefined;
+    var b: [16]u8 = undefined;
+
+    for (b) |*r, i|
+        *r = u8(i + 1);
+
+    copyWithPartialInline(s[0..], b[0..]);
+    assert(s[0] == 0x1020304);
+    assert(s[1] == 0x5060708);
+    assert(s[2] == 0x90a0b0c);
+    assert(s[3] == 0xd0e0f10);
+}
