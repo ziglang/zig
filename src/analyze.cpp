@@ -200,7 +200,6 @@ static uint8_t bits_needed_for_unsigned(uint64_t x) {
 bool type_is_complete(TypeTableEntry *type_entry) {
     switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
-        case TypeTableEntryIdVar:
             zig_unreachable();
         case TypeTableEntryIdStruct:
             return type_entry->data.structure.complete;
@@ -239,7 +238,6 @@ bool type_is_complete(TypeTableEntry *type_entry) {
 bool type_has_zero_bits_known(TypeTableEntry *type_entry) {
     switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
-        case TypeTableEntryIdVar:
             zig_unreachable();
         case TypeTableEntryIdStruct:
             return type_entry->data.structure.zero_bits_known;
@@ -466,9 +464,8 @@ TypeTableEntry *get_promise_frame_type(CodeGen *g, TypeTableEntry *return_type) 
     TypeTableEntry *result_ptr_type = get_pointer_to_type(g, return_type, false);
     const char *field_names[] = {AWAITER_HANDLE_FIELD_NAME, RESULT_FIELD_NAME, RESULT_PTR_FIELD_NAME};
     TypeTableEntry *field_types[] = {awaiter_handle_type, return_type, result_ptr_type};
-    size_t field_count = type_has_bits(result_ptr_type) ? 3 : 1;
     Buf *name = buf_sprintf("AsyncFramePromise(%s)", buf_ptr(&return_type->name));
-    TypeTableEntry *entry = get_struct_type(g, buf_ptr(name), field_names, field_types, field_count);
+    TypeTableEntry *entry = get_struct_type(g, buf_ptr(name), field_names, field_types, 3);
 
     return_type->promise_frame_parent = entry;
     return entry;
@@ -1281,7 +1278,6 @@ static bool analyze_const_string(CodeGen *g, Scope *scope, AstNode *node, Buf **
 static bool type_allowed_in_packed_struct(TypeTableEntry *type_entry) {
     switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
-        case TypeTableEntryIdVar:
             zig_unreachable();
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdUnreachable:
@@ -1324,7 +1320,6 @@ static bool type_allowed_in_packed_struct(TypeTableEntry *type_entry) {
 static bool type_allowed_in_extern(CodeGen *g, TypeTableEntry *type_entry) {
     switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
-        case TypeTableEntryIdVar:
             zig_unreachable();
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdNumLitFloat:
@@ -1428,6 +1423,14 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
                             calling_convention_name(fn_type_id.cc)));
                 return g->builtin_types.entry_invalid;
             }
+        } else if (param_node->data.param_decl.var_token != nullptr) {
+            if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
+                add_node_error(g, param_node->data.param_decl.type,
+                        buf_sprintf("parameter of type 'var' not allowed in function with calling convention '%s'",
+                            calling_convention_name(fn_type_id.cc)));
+                return g->builtin_types.entry_invalid;
+            }
+            return get_generic_fn_type(g, &fn_type_id);
         }
 
         TypeTableEntry *type_entry = analyze_type_expr(g, child_scope, param_node->data.param_decl.type);
@@ -1463,14 +1466,6 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
                 add_node_error(g, param_node->data.param_decl.type,
                     buf_sprintf("parameter of type '%s' not allowed", buf_ptr(&type_entry->name)));
                 return g->builtin_types.entry_invalid;
-            case TypeTableEntryIdVar:
-                if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
-                    add_node_error(g, param_node->data.param_decl.type,
-                            buf_sprintf("parameter of type 'var' not allowed in function with calling convention '%s'",
-                                calling_convention_name(fn_type_id.cc)));
-                    return g->builtin_types.entry_invalid;
-                }
-                return get_generic_fn_type(g, &fn_type_id);
             case TypeTableEntryIdNumLitFloat:
             case TypeTableEntryIdNumLitInt:
             case TypeTableEntryIdNamespace:
@@ -1514,6 +1509,19 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         }
     }
 
+    if (fn_proto->return_var_token != nullptr) {
+        if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
+            add_node_error(g, fn_proto->return_type,
+                buf_sprintf("return type 'var' not allowed in function with calling convention '%s'",
+                calling_convention_name(fn_type_id.cc)));
+            return g->builtin_types.entry_invalid;
+        }
+        add_node_error(g, proto_node,
+            buf_sprintf("TODO implement inferred return types https://github.com/zig-lang/zig/issues/447"));
+        return g->builtin_types.entry_invalid;
+        //return get_generic_fn_type(g, &fn_type_id);
+    }
+
     TypeTableEntry *specified_return_type = analyze_type_expr(g, child_scope, fn_proto->return_type);
     if (type_is_invalid(specified_return_type)) {
         fn_type_id.return_type = g->builtin_types.entry_invalid;
@@ -1552,7 +1560,6 @@ static TypeTableEntry *analyze_fn_type(CodeGen *g, AstNode *proto_node, Scope *c
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
-        case TypeTableEntryIdVar:
         case TypeTableEntryIdMetaType:
             if (!calling_convention_allows_zig_types(fn_type_id.cc)) {
                 add_node_error(g, fn_proto->return_type,
@@ -1707,7 +1714,7 @@ TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *f
     buf_init_from_str(&struct_type->name, type_name);
 
     struct_type->data.structure.src_field_count = field_count;
-    struct_type->data.structure.gen_field_count = field_count;
+    struct_type->data.structure.gen_field_count = 0;
     struct_type->data.structure.zero_bits_known = true;
     struct_type->data.structure.complete = true;
     struct_type->data.structure.fields = allocate<TypeStructField>(field_count);
@@ -1716,22 +1723,26 @@ TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *f
     ZigLLVMDIType **di_element_types = allocate<ZigLLVMDIType*>(field_count);
     LLVMTypeRef *element_types = allocate<LLVMTypeRef>(field_count);
     for (size_t i = 0; i < field_count; i += 1) {
-        element_types[i] = field_types[i]->type_ref;
+        element_types[struct_type->data.structure.gen_field_count] = field_types[i]->type_ref;
 
         TypeStructField *field = &struct_type->data.structure.fields[i];
         field->name = buf_create_from_str(field_names[i]);
         field->type_entry = field_types[i];
         field->src_index = i;
-        field->gen_index = i;
 
-        assert(type_has_bits(field->type_entry));
+        if (type_has_bits(field->type_entry)) {
+            field->gen_index = struct_type->data.structure.gen_field_count;
+            struct_type->data.structure.gen_field_count += 1;
+        } else {
+            field->gen_index = SIZE_MAX;
+        }
 
         auto prev_entry = struct_type->data.structure.fields_by_name.put_unique(field->name, field);
         assert(prev_entry == nullptr);
     }
 
     struct_type->type_ref = LLVMStructCreateNamed(LLVMGetGlobalContext(), type_name);
-    LLVMStructSetBody(struct_type->type_ref, element_types, field_count, false);
+    LLVMStructSetBody(struct_type->type_ref, element_types, struct_type->data.structure.gen_field_count, false);
 
     struct_type->di_type = ZigLLVMCreateReplaceableCompositeType(g->dbuilder,
         ZigLLVMTag_DW_structure_type(), type_name,
@@ -1739,11 +1750,14 @@ TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *f
 
     for (size_t i = 0; i < field_count; i += 1) {
         TypeStructField *type_struct_field = &struct_type->data.structure.fields[i];
+        if (type_struct_field->gen_index == SIZE_MAX) {
+            continue;
+        }
         TypeTableEntry *field_type = type_struct_field->type_entry;
         uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, field_type->type_ref);
         uint64_t debug_align_in_bits = 8*LLVMABIAlignmentOfType(g->target_data_ref, field_type->type_ref);
-        uint64_t debug_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, struct_type->type_ref, i);
-        di_element_types[i] = ZigLLVMCreateDebugMemberType(g->dbuilder,
+        uint64_t debug_offset_in_bits = 8*LLVMOffsetOfElement(g->target_data_ref, struct_type->type_ref, type_struct_field->gen_index);
+        di_element_types[type_struct_field->gen_index] = ZigLLVMCreateDebugMemberType(g->dbuilder,
                 ZigLLVMTypeToScope(struct_type->di_type), buf_ptr(type_struct_field->name),
                 nullptr, 0,
                 debug_size_in_bits,
@@ -1751,7 +1765,7 @@ TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *f
                 debug_offset_in_bits,
                 0, field_type->di_type);
 
-        assert(di_element_types[i]);
+        assert(di_element_types[type_struct_field->gen_index]);
     }
 
     uint64_t debug_size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, struct_type->type_ref);
@@ -1762,7 +1776,7 @@ TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *f
             debug_size_in_bits,
             debug_align_in_bits,
             0,
-            nullptr, di_element_types, field_count, 0, nullptr, "");
+            nullptr, di_element_types, struct_type->data.structure.gen_field_count, 0, nullptr, "");
 
     ZigLLVMReplaceTemporary(g->dbuilder, struct_type->di_type, replacement_di_type);
     struct_type->di_type = replacement_di_type;
@@ -2544,6 +2558,8 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
     HashMap<BigInt, AstNode *, bigint_hash, bigint_eql> occupied_tag_values = {};
 
     AstNode *enum_type_node = decl_node->data.container_decl.init_arg_expr;
+    union_type->data.unionation.have_explicit_tag_type = decl_node->data.container_decl.auto_enum ||
+        enum_type_node != nullptr;
     bool auto_layout = (union_type->data.unionation.layout == ContainerLayoutAuto);
     bool want_safety = (field_count >= 2) && (auto_layout || enum_type_node != nullptr);
     TypeTableEntry *tag_type;
@@ -3226,7 +3242,6 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeStructValueField:
         case NodeTypeArrayType:
         case NodeTypeErrorType:
-        case NodeTypeVarLiteral:
         case NodeTypeIfErrorExpr:
         case NodeTypeTestExpr:
         case NodeTypeErrorSetDecl:
@@ -3262,7 +3277,6 @@ TypeTableEntry *validate_var_type(CodeGen *g, AstNode *source_node, TypeTableEnt
         case TypeTableEntryIdInvalid:
             return g->builtin_types.entry_invalid;
         case TypeTableEntryIdUnreachable:
-        case TypeTableEntryIdVar:
         case TypeTableEntryIdNumLitFloat:
         case TypeTableEntryIdNumLitInt:
         case TypeTableEntryIdUndefLit:
@@ -3641,7 +3655,6 @@ TypeEnumField *find_enum_field_by_tag(TypeTableEntry *enum_type, const BigInt *t
 static bool is_container(TypeTableEntry *type_entry) {
     switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
-        case TypeTableEntryIdVar:
             zig_unreachable();
         case TypeTableEntryIdStruct:
         case TypeTableEntryIdEnum:
@@ -3716,7 +3729,6 @@ void resolve_container_type(CodeGen *g, TypeTableEntry *type_entry) {
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdInvalid:
-        case TypeTableEntryIdVar:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
         case TypeTableEntryIdPromise:
@@ -3748,6 +3760,19 @@ uint32_t get_ptr_align(TypeTableEntry *type) {
         return (ptr_type->data.fn.fn_type_id.alignment == 0) ? 1 : ptr_type->data.fn.fn_type_id.alignment;
     } else if (ptr_type->id == TypeTableEntryIdPromise) {
         return 1;
+    } else {
+        zig_unreachable();
+    }
+}
+
+bool get_ptr_const(TypeTableEntry *type) {
+    TypeTableEntry *ptr_type = get_codegen_ptr_type(type);
+    if (ptr_type->id == TypeTableEntryIdPointer) {
+        return ptr_type->data.pointer.is_const;
+    } else if (ptr_type->id == TypeTableEntryIdFn) {
+        return true;
+    } else if (ptr_type->id == TypeTableEntryIdPromise) {
+        return true;
     } else {
         zig_unreachable();
     }
@@ -4203,7 +4228,6 @@ bool handle_is_ptr(TypeTableEntry *type_entry) {
         case TypeTableEntryIdNamespace:
         case TypeTableEntryIdBlock:
         case TypeTableEntryIdBoundFn:
-        case TypeTableEntryIdVar:
         case TypeTableEntryIdArgTuple:
         case TypeTableEntryIdOpaque:
              zig_unreachable();
@@ -4502,7 +4526,6 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdUnreachable:
-        case TypeTableEntryIdVar:
             zig_unreachable();
     }
     zig_unreachable();
@@ -4600,7 +4623,6 @@ bool type_has_bits(TypeTableEntry *type_entry) {
 bool type_requires_comptime(TypeTableEntry *type_entry) {
     switch (type_entry->id) {
         case TypeTableEntryIdInvalid:
-        case TypeTableEntryIdVar:
         case TypeTableEntryIdOpaque:
             zig_unreachable();
         case TypeTableEntryIdNumLitFloat:
@@ -5096,7 +5118,6 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
         case TypeTableEntryIdBoundFn:
         case TypeTableEntryIdInvalid:
         case TypeTableEntryIdUnreachable:
-        case TypeTableEntryIdVar:
         case TypeTableEntryIdPromise:
             zig_unreachable();
     }
@@ -5175,9 +5196,6 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
             zig_unreachable();
         case TypeTableEntryIdInvalid:
             buf_appendf(buf, "(invalid)");
-            return;
-        case TypeTableEntryIdVar:
-            buf_appendf(buf, "(var)");
             return;
         case TypeTableEntryIdVoid:
             buf_appendf(buf, "{}");
@@ -5414,7 +5432,6 @@ TypeTableEntry *make_int_type(CodeGen *g, bool is_signed, uint32_t size_in_bits)
 uint32_t type_id_hash(TypeId x) {
     switch (x.id) {
         case TypeTableEntryIdInvalid:
-        case TypeTableEntryIdVar:
         case TypeTableEntryIdOpaque:
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdVoid:
@@ -5461,7 +5478,6 @@ bool type_id_eql(TypeId a, TypeId b) {
         return false;
     switch (a.id) {
         case TypeTableEntryIdInvalid:
-        case TypeTableEntryIdVar:
         case TypeTableEntryIdMetaType:
         case TypeTableEntryIdVoid:
         case TypeTableEntryIdBool:
@@ -5616,7 +5632,6 @@ size_t type_id_len() {
 size_t type_id_index(TypeTableEntryId id) {
     switch (id) {
         case TypeTableEntryIdInvalid:
-        case TypeTableEntryIdVar:
             zig_unreachable();
         case TypeTableEntryIdMetaType:
             return 0;
@@ -5675,7 +5690,6 @@ size_t type_id_index(TypeTableEntryId id) {
 const char *type_id_name(TypeTableEntryId id) {
     switch (id) {
         case TypeTableEntryIdInvalid:
-        case TypeTableEntryIdVar:
             zig_unreachable();
         case TypeTableEntryIdMetaType:
             return "Type";

@@ -263,21 +263,14 @@ static AstNode *ast_parse_error_set_expr(ParseContext *pc, size_t *token_index, 
 }
 
 /*
-TypeExpr = ErrorSetExpr | "var"
+TypeExpr = ErrorSetExpr
 */
 static AstNode *ast_parse_type_expr(ParseContext *pc, size_t *token_index, bool mandatory) {
-    Token *token = &pc->tokens->at(*token_index);
-    if (token->id == TokenIdKeywordVar) {
-        AstNode *node = ast_create_node(pc, NodeTypeVarLiteral, token);
-        *token_index += 1;
-        return node;
-    } else {
-        return ast_parse_error_set_expr(pc, token_index, mandatory);
-    }
+    return ast_parse_error_set_expr(pc, token_index, mandatory);
 }
 
 /*
-ParamDecl = option("noalias" | "comptime") option(Symbol ":") (TypeExpr | "...")
+ParamDecl = option("noalias" | "comptime") option(Symbol ":") (TypeExpr | "var" | "...")
 */
 static AstNode *ast_parse_param_decl(ParseContext *pc, size_t *token_index) {
     Token *token = &pc->tokens->at(*token_index);
@@ -308,6 +301,9 @@ static AstNode *ast_parse_param_decl(ParseContext *pc, size_t *token_index) {
     if (ellipsis_tok->id == TokenIdEllipsis3) {
         *token_index += 1;
         node->data.param_decl.is_var_args = true;
+    } else if (ellipsis_tok->id == TokenIdKeywordVar) {
+        *token_index += 1;
+        node->data.param_decl.var_token = ellipsis_tok;
     } else {
         node->data.param_decl.type = ast_parse_type_expr(pc, token_index, true);
     }
@@ -2319,7 +2315,7 @@ static AstNode *ast_parse_expression(ParseContext *pc, size_t *token_index, bool
     return nullptr;
 }
 
-static bool statement_terminates_without_semicolon(AstNode *node) {
+bool statement_terminates_without_semicolon(AstNode *node) {
     switch (node->type) {
         case NodeTypeIfBoolExpr:
             if (node->data.if_bool_expr.else_node)
@@ -2421,7 +2417,7 @@ static AstNode *ast_parse_block(ParseContext *pc, size_t *token_index, bool mand
 }
 
 /*
-FnProto = option("nakedcc" | "stdcallcc" | "extern" | ("async" option("(" Expression ")"))) "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") option("!") TypeExpr
+FnProto = option("nakedcc" | "stdcallcc" | "extern" | ("async" option("(" Expression ")"))) "fn" option(Symbol) ParamDeclList option("align" "(" Expression ")") option("section" "(" Expression ")") option("!") (TypeExpr | "var")
 */
 static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool mandatory, VisibMod visib_mod) {
     Token *first_token = &pc->tokens->at(*token_index);
@@ -2507,19 +2503,25 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool m
         ast_eat_token(pc, token_index, TokenIdRParen);
         next_token = &pc->tokens->at(*token_index);
     }
-    if (next_token->id == TokenIdKeywordError) {
-        Token *maybe_lbrace_tok = &pc->tokens->at(*token_index + 1);
-        if (maybe_lbrace_tok->id == TokenIdLBrace) {
-            *token_index += 1;
-            node->data.fn_proto.return_type = ast_create_node(pc, NodeTypeErrorType, next_token);
-            return node;
-        }
-    } else if (next_token->id == TokenIdBang) {
+    if (next_token->id == TokenIdKeywordVar) {
+        node->data.fn_proto.return_var_token = next_token;
         *token_index += 1;
-        node->data.fn_proto.auto_err_set = true;
         next_token = &pc->tokens->at(*token_index);
+    } else {
+        if (next_token->id == TokenIdKeywordError) {
+            Token *maybe_lbrace_tok = &pc->tokens->at(*token_index + 1);
+            if (maybe_lbrace_tok->id == TokenIdLBrace) {
+                *token_index += 1;
+                node->data.fn_proto.return_type = ast_create_node(pc, NodeTypeErrorType, next_token);
+                return node;
+            }
+        } else if (next_token->id == TokenIdBang) {
+            *token_index += 1;
+            node->data.fn_proto.auto_err_set = true;
+            next_token = &pc->tokens->at(*token_index);
+        }
+        node->data.fn_proto.return_type = ast_parse_type_expr(pc, token_index, true);
     }
-    node->data.fn_proto.return_type = ast_parse_type_expr(pc, token_index, true);
 
     return node;
 }
@@ -3067,9 +3069,6 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_field(&node->data.array_type.align_expr, visit, context);
             break;
         case NodeTypeErrorType:
-            // none
-            break;
-        case NodeTypeVarLiteral:
             // none
             break;
         case NodeTypeAddrOfExpr:

@@ -11,8 +11,8 @@ pub fn udivmod(comptime DoubleInt: type, a: DoubleInt, b: DoubleInt, maybe_rem: 
     const SignedDoubleInt = @IntType(true, DoubleInt.bit_count);
     const Log2SingleInt = @import("../../math/index.zig").Log2Int(SingleInt);
 
-    const n = *@ptrCast(&[2]SingleInt, &a); // TODO issue #421
-    const d = *@ptrCast(&[2]SingleInt, &b); // TODO issue #421
+    const n = *@ptrCast(&const [2]SingleInt, &a); // TODO issue #421
+    const d = *@ptrCast(&const [2]SingleInt, &b); // TODO issue #421
     var q: [2]SingleInt = undefined;
     var r: [2]SingleInt = undefined;
     var sr: c_uint = undefined;

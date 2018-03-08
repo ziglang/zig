@@ -261,7 +261,7 @@ test "generic malloc free" {
     const a = memAlloc(u8, 10) catch unreachable;
     memFree(u8, a);
 }
-const some_mem : [100]u8 = undefined;
+var some_mem : [100]u8 = undefined;
 fn memAlloc(comptime T: type, n: usize) error![]T {
     return @ptrCast(&T, &some_mem[0])[0..n];
 }
@@ -649,4 +649,14 @@ test "packed struct, enum, union parameters in extern function" {
 }
 
 export fn testPackedStuff(a: &const PackedStruct, b: &const PackedUnion, c: PackedEnum) void {
+}
+
+
+test "slicing zero length array" {
+    const s1 = ""[0..];
+    const s2 = ([]u32{})[0..];
+    assert(s1.len == 0);
+    assert(s2.len == 0);
+    assert(mem.eql(u8, s1, ""));
+    assert(mem.eql(u32, s2, []u32{}));
 }

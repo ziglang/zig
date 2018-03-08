@@ -1,6 +1,45 @@
 const tests = @import("tests.zig");
 
 pub fn addCases(cases: &tests.CompileErrorContext) void {
+    cases.add("@tagName used on union with no associated enum tag",
+        \\const FloatInt = extern union {
+        \\    Float: f32,
+        \\    Int: i32,
+        \\};
+        \\export fn entry() void {
+        \\    var fi = FloatInt{.Float = 123.45};
+        \\    var tagName = @tagName(fi);
+        \\}
+    ,
+        ".tmp_source.zig:7:19: error: union has no associated enum",
+        ".tmp_source.zig:1:18: note: declared here");
+
+    cases.add("returning error from void async function",
+        \\const std = @import("std");
+        \\export fn entry() void {
+        \\    const p = async(std.debug.global_allocator) amain() catch unreachable;
+        \\}
+        \\async fn amain() void {
+        \\    return error.ShouldBeCompileError;
+        \\}
+    ,
+        ".tmp_source.zig:6:17: error: expected type 'void', found 'error{ShouldBeCompileError}'");
+
+    cases.add("var not allowed in structs",
+        \\export fn entry() void {
+        \\   var s = (struct{v: var}){.v=i32(10)};
+        \\}
+    ,
+        ".tmp_source.zig:2:23: error: invalid token: 'var'");
+
+    cases.add("@ptrCast discards const qualifier",
+        \\export fn entry() void {
+        \\    const x: i32 = 1234;
+        \\    const y = @ptrCast(&i32, &x);
+        \\}
+    ,
+        ".tmp_source.zig:3:15: error: cast discards const qualifier");
+
     cases.add("comptime slice of undefined pointer non-zero len",
         \\export fn entry() void {
         \\    const slice = (&i32)(undefined)[0..1];
@@ -2432,7 +2471,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\const Derp = @OpaqueType();
         \\extern fn bar(d: &Derp) void;
         \\export fn foo() void {
-        \\    const x = u8(1);
+        \\    var x = u8(1);
         \\    bar(@ptrCast(&c_void, &x));
         \\}
     ,

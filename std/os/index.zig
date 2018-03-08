@@ -1634,7 +1634,7 @@ pub fn argsFree(allocator: &mem.Allocator, args_alloc: []const []u8) void {
     for (args_alloc) |arg| {
         total_bytes += @sizeOf([]u8) + arg.len;
     }
-    const unaligned_allocated_buf = @ptrCast(&u8, args_alloc.ptr)[0..total_bytes];
+    const unaligned_allocated_buf = @ptrCast(&const u8, args_alloc.ptr)[0..total_bytes];
     const aligned_allocated_buf = @alignCast(@alignOf([]u8), unaligned_allocated_buf);
     return allocator.free(aligned_allocated_buf);
 }

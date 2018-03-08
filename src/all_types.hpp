@@ -16,6 +16,7 @@
 #include "bigint.hpp"
 #include "bigfloat.hpp"
 #include "target.hpp"
+#include "tokenizer.hpp"
 
 struct AstNode;
 struct ImportTableEntry;
@@ -399,7 +400,6 @@ enum NodeType {
     NodeTypeStructValueField,
     NodeTypeArrayType,
     NodeTypeErrorType,
-    NodeTypeVarLiteral,
     NodeTypeIfErrorExpr,
     NodeTypeTestExpr,
     NodeTypeErrorSetDecl,
@@ -427,6 +427,7 @@ struct AstNodeFnProto {
     Buf *name;
     ZigList<AstNode *> params;
     AstNode *return_type;
+    Token *return_var_token;
     bool is_var_args;
     bool is_extern;
     bool is_export;
@@ -456,6 +457,7 @@ struct AstNodeFnDecl {
 struct AstNodeParamDecl {
     Buf *name;
     AstNode *type;
+    Token *var_token;
     bool is_noalias;
     bool is_inline;
     bool is_var_args;
@@ -866,9 +868,6 @@ struct AstNodeUnreachableExpr {
 struct AstNodeErrorType {
 };
 
-struct AstNodeVarLiteral {
-};
-
 struct AstNodeAwaitExpr {
     AstNode *expr;
 };
@@ -933,7 +932,6 @@ struct AstNode {
         AstNodeUnreachableExpr unreachable_expr;
         AstNodeArrayType array_type;
         AstNodeErrorType error_type;
-        AstNodeVarLiteral var_literal;
         AstNodeErrorSetDecl err_set_decl;
         AstNodeCancelExpr cancel_expr;
         AstNodeResumeExpr resume_expr;
@@ -1098,6 +1096,8 @@ struct TypeTableEntryUnion {
     size_t gen_union_index;
     size_t gen_tag_index;
 
+    bool have_explicit_tag_type;
+
     uint32_t union_size_bytes;
     TypeTableEntry *most_aligned_union_member;
 
@@ -1134,7 +1134,6 @@ struct TypeTableEntryPromise {
 
 enum TypeTableEntryId {
     TypeTableEntryIdInvalid,
-    TypeTableEntryIdVar,
     TypeTableEntryIdMetaType,
     TypeTableEntryIdVoid,
     TypeTableEntryIdBool,

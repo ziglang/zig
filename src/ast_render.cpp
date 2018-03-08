@@ -236,8 +236,6 @@ static const char *node_type_str(NodeType node_type) {
             return "ArrayType";
         case NodeTypeErrorType:
             return "ErrorType";
-        case NodeTypeVarLiteral:
-            return "VarLiteral";
         case NodeTypeIfErrorExpr:
             return "IfErrorExpr";
         case NodeTypeTestExpr:
@@ -436,6 +434,8 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     }
                     if (param_decl->data.param_decl.is_var_args) {
                         fprintf(ar->f, "...");
+                    } else if (param_decl->data.param_decl.var_token != nullptr) {
+                        fprintf(ar->f, "var");
                     } else {
                         render_node_grouped(ar, param_decl->data.param_decl.type);
                     }
@@ -456,13 +456,17 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     fprintf(ar->f, ")");
                 }
 
-                AstNode *return_type_node = node->data.fn_proto.return_type;
-                assert(return_type_node != nullptr);
-                fprintf(ar->f, " ");
-                if (node->data.fn_proto.auto_err_set) {
-                    fprintf(ar->f, "!");
+                if (node->data.fn_proto.return_var_token != nullptr) {
+                    fprintf(ar->f, "var");
+                } else {
+                    AstNode *return_type_node = node->data.fn_proto.return_type;
+                    assert(return_type_node != nullptr);
+                    fprintf(ar->f, " ");
+                    if (node->data.fn_proto.auto_err_set) {
+                        fprintf(ar->f, "!");
+                    }
+                    render_node_grouped(ar, return_type_node);
                 }
-                render_node_grouped(ar, return_type_node);
                 break;
             }
         case NodeTypeFnDef:
@@ -486,7 +490,10 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 AstNode *statement = node->data.block.statements.at(i);
                 print_indent(ar);
                 render_node_grouped(ar, statement);
-                fprintf(ar->f, ";");
+
+                if (!statement_terminates_without_semicolon(statement))
+                    fprintf(ar->f, ";");
+
                 fprintf(ar->f, "\n");
             }
             ar->indent -= ar->indent_size;
@@ -767,9 +774,6 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
             }
         case NodeTypeErrorType:
             fprintf(ar->f, "error");
-            break;
-        case NodeTypeVarLiteral:
-            fprintf(ar->f, "var");
             break;
         case NodeTypeAsmExpr:
             {

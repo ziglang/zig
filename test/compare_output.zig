@@ -285,8 +285,8 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\const c = @cImport(@cInclude("stdlib.h"));
         \\
         \\export fn compare_fn(a: ?&const c_void, b: ?&const c_void) c_int {
-        \\    const a_int = @ptrCast(&align(1) i32, a ?? unreachable);
-        \\    const b_int = @ptrCast(&align(1) i32, b ?? unreachable);
+        \\    const a_int = @ptrCast(&align(1) const i32, a ?? unreachable);
+        \\    const b_int = @ptrCast(&align(1) const i32, b ?? unreachable);
         \\    if (*a_int < *b_int) {
         \\        return -1;
         \\    } else if (*a_int > *b_int) {
