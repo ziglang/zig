@@ -515,11 +515,19 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
 
     cases.addC("function call",
         \\static void bar(void) { }
-        \\void foo(void) { bar(); }
+        \\static int baz(void) { return 0; }
+        \\void foo(void) {
+        \\    bar();
+        \\    baz();
+        \\}
     ,
         \\pub fn bar() void {}
+        \\pub fn baz() c_int {
+        \\    return 0;
+        \\}
         \\pub export fn foo() void {
         \\    bar();
+        \\    _ = baz();
         \\}
     );
 
@@ -878,21 +886,31 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
 
     cases.addC("deref function pointer",
         \\void foo(void) {}
-        \\void baz(void) {}
+        \\int baz(void) { return 0; }
         \\void bar(void) {
         \\    void(*f)(void) = foo;
+        \\    int(*b)(void) = baz;
         \\    f();
         \\    (*(f))();
+        \\    foo();
+        \\    b();
+        \\    (*(b))();
         \\    baz();
         \\}
     ,
         \\pub export fn foo() void {}
-        \\pub export fn baz() void {}
+        \\pub export fn baz() c_int {
+        \\    return 0;
+        \\}
         \\pub export fn bar() void {
         \\    var f: ?extern fn() void = foo;
+        \\    var b: ?extern fn() c_int = baz;
         \\    (??f)();
         \\    (??f)();
-        \\    baz();
+        \\    foo();
+        \\    _ = (??b)();
+        \\    _ = (??b)();
+        \\    _ = baz();
         \\}
     );
 

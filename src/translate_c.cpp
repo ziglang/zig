@@ -500,15 +500,31 @@ static bool qual_type_is_ptr(QualType qt) {
     return ty->getTypeClass() == Type::Pointer;
 }
 
-static bool qual_type_is_fn_ptr(Context *c, QualType qt) {
+static const FunctionProtoType *qual_type_get_fn_proto(QualType qt, bool *is_ptr) {
     const Type *ty = qual_type_canon(qt);
-    if (ty->getTypeClass() != Type::Pointer) {
-        return false;
+    *is_ptr = false;
+
+    if (ty->getTypeClass() == Type::Pointer) {
+        *is_ptr = true;
+        const PointerType *pointer_ty = static_cast<const PointerType*>(ty);
+        QualType child_qt = pointer_ty->getPointeeType();
+        ty = child_qt.getTypePtr();
     }
-    const PointerType *pointer_ty = static_cast<const PointerType*>(ty);
-    QualType child_qt = pointer_ty->getPointeeType();
-    const Type *child_ty = child_qt.getTypePtr();
-    return child_ty->getTypeClass() == Type::FunctionProto;
+
+    if (ty->getTypeClass() == Type::FunctionProto) {
+        return static_cast<const FunctionProtoType*>(ty);
+    }
+
+    return nullptr;
+}
+
+static bool qual_type_is_fn_ptr(QualType qt) {
+    bool is_ptr;
+    if (qual_type_get_fn_proto(qt, &is_ptr)) {
+        return is_ptr;
+    }
+
+    return false;
 }
 
 static uint32_t qual_type_int_bit_width(Context *c, const QualType &qt, const SourceLocation &source_loc) {
@@ -1871,7 +1887,7 @@ static AstNode *trans_unary_operator(Context *c, ResultUsed result_used, TransSc
                 AstNode *value_node = trans_expr(c, result_used, scope, stmt->getSubExpr(), TransRValue);
                 if (value_node == nullptr)
                     return nullptr;
-                bool is_fn_ptr = qual_type_is_fn_ptr(c, stmt->getSubExpr()->getType());
+                bool is_fn_ptr = qual_type_is_fn_ptr(stmt->getSubExpr()->getType());
                 if (is_fn_ptr)
                     return value_node;
                 AstNode *unwrapped = trans_create_node_prefix_op(c, PrefixOpUnwrapMaybe, value_node);
@@ -2327,8 +2343,10 @@ static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *
     if (callee_raw_node == nullptr)
         return nullptr;
 
+    bool is_ptr = false;
+    const FunctionProtoType *fn_ty = qual_type_get_fn_proto(stmt->getCallee()->getType(), &is_ptr);
     AstNode *callee_node = nullptr;
-    if (qual_type_is_fn_ptr(c, stmt->getCallee()->getType())) {
+    if (is_ptr && fn_ty) {
         if (stmt->getCallee()->getStmtClass() == Stmt::ImplicitCastExprClass) {
             const ImplicitCastExpr *implicit_cast = static_cast<const ImplicitCastExpr *>(stmt->getCallee());
             if (implicit_cast->getCastKind() == CK_FunctionToPointerDecay) {
@@ -2358,6 +2376,10 @@ static AstNode *trans_call_expr(Context *c, ResultUsed result_used, TransScope *
             return nullptr;
 
         node->data.fn_call_expr.params.append(arg_node);
+    }
+
+    if (result_used == ResultUsedNo && fn_ty && !qual_type_canon(fn_ty->getReturnType())->isVoidType()) {
+        node = trans_create_node_bin_op(c, trans_create_node_symbol_str(c, "_"), BinOpTypeAssign, node);
     }
 
     return node;
