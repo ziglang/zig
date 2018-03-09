@@ -11830,12 +11830,15 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             return_type = specified_return_type;
         }
 
-        IrInstruction *result;
+        bool cacheable = fn_eval_cacheable(exec_scope);
+        IrInstruction *result = nullptr;
+        if (cacheable) {
+            auto entry = ira->codegen->memoized_fn_eval_table.maybe_get(exec_scope);
+            if (entry)
+                result = entry->value;
+        }
 
-        auto entry = ira->codegen->memoized_fn_eval_table.maybe_get(exec_scope);
-        if (entry) {
-            result = entry->value;
-        } else {
+        if (result == nullptr) {
             // Analyze the fn body block like any other constant expression.
             AstNode *body_node = fn_entry->body_node;
             result = ir_eval_const_value(ira->codegen, exec_scope, body_node, return_type,
@@ -11859,7 +11862,9 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
                 }
             }
 
-            ira->codegen->memoized_fn_eval_table.put(exec_scope, result);
+            if (cacheable) {
+                ira->codegen->memoized_fn_eval_table.put(exec_scope, result);
+            }
 
             if (type_is_invalid(result->value.type))
                 return ira->codegen->builtin_types.entry_invalid;

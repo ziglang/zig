@@ -964,8 +964,7 @@ fn u8desc(lhs: &const u8, rhs: &const u8) bool {
 
 test "stable sort" {
     testStableSort();
-    // TODO: uncomment this after https://github.com/zig-lang/zig/issues/639
-    //comptime testStableSort();
+    comptime testStableSort();
 }
 fn testStableSort() void {
     var expected = []IdAndValue {

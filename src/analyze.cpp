@@ -398,6 +398,7 @@ TypeTableEntry *get_pointer_to_type_extra(CodeGen *g, TypeTableEntry *child_type
 
     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdPointer);
     entry->is_copyable = true;
+    entry->can_mutate_state_through_it = is_const ? child_type->can_mutate_state_through_it : true;
 
     const char *const_str = is_const ? "const " : "";
     const char *volatile_str = is_volatile ? "volatile " : "";
@@ -482,6 +483,7 @@ TypeTableEntry *get_maybe_type(CodeGen *g, TypeTableEntry *child_type) {
         assert(child_type->type_ref || child_type->zero_bits);
         assert(child_type->di_type);
         entry->is_copyable = type_is_copyable(g, child_type);
+        entry->can_mutate_state_through_it = child_type->can_mutate_state_through_it;
 
         buf_resize(&entry->name, 0);
         buf_appendf(&entry->name, "?%s", buf_ptr(&child_type->name));
@@ -572,6 +574,7 @@ TypeTableEntry *get_error_union_type(CodeGen *g, TypeTableEntry *err_set_type, T
     entry->is_copyable = true;
     assert(payload_type->di_type);
     ensure_complete_type(g, payload_type);
+    entry->can_mutate_state_through_it = payload_type->can_mutate_state_through_it;
 
     buf_resize(&entry->name, 0);
     buf_appendf(&entry->name, "%s!%s", buf_ptr(&err_set_type->name), buf_ptr(&payload_type->name));
@@ -730,6 +733,7 @@ TypeTableEntry *get_slice_type(CodeGen *g, TypeTableEntry *ptr_type) {
 
     TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdStruct);
     entry->is_copyable = true;
+    entry->can_mutate_state_through_it = ptr_type->can_mutate_state_through_it;
 
     // replace the & with [] to go from a ptr type name to a slice type name
     buf_resize(&entry->name, 0);
@@ -1735,6 +1739,8 @@ TypeTableEntry *get_struct_type(CodeGen *g, const char *type_name, const char *f
             struct_type->data.structure.gen_field_count += 1;
         } else {
             field->gen_index = SIZE_MAX;
+            struct_type->can_mutate_state_through_it = struct_type->can_mutate_state_through_it ||
+                field->type_entry->can_mutate_state_through_it;
         }
 
         auto prev_entry = struct_type->data.structure.fields_by_name.put_unique(field->name, field);
@@ -2475,6 +2481,9 @@ static void resolve_struct_zero_bits(CodeGen *g, TypeTableEntry *struct_type) {
         if (!type_has_bits(field_type))
             continue;
 
+        struct_type->can_mutate_state_through_it = struct_type->can_mutate_state_through_it ||
+            field_type->can_mutate_state_through_it;
+
         if (gen_field_index == 0) {
             if (struct_type->data.structure.layout == ContainerLayoutPacked) {
                 struct_type->data.structure.abi_alignment = 1;
@@ -2662,6 +2671,8 @@ static void resolve_union_zero_bits(CodeGen *g, TypeTableEntry *union_type) {
             }
         }
         union_field->type_entry = field_type;
+        union_type->can_mutate_state_through_it = union_type->can_mutate_state_through_it ||
+            field_type->can_mutate_state_through_it;
 
         if (field_node->data.struct_field.value != nullptr && !decl_node->data.container_decl.auto_enum) {
             ErrorMsg *msg = add_node_error(g, field_node->data.struct_field.value,
@@ -4563,6 +4574,23 @@ bool generic_fn_type_id_eql(GenericFnTypeId *a, GenericFnTypeId *b) {
         }
     }
     return true;
+}
+
+bool fn_eval_cacheable(Scope *scope) {
+    while (scope) {
+        if (scope->id == ScopeIdVarDecl) {
+            ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;
+            if (var_scope->var->value->type->can_mutate_state_through_it)
+                return false;
+        } else if (scope->id == ScopeIdFnDef) {
+            return true;
+        } else {
+            zig_unreachable();
+        }
+
+        scope = scope->parent;
+    }
+    zig_unreachable();
 }
 
 uint32_t fn_eval_hash(Scope* scope) {

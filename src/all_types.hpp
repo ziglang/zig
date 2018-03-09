@@ -1168,9 +1168,16 @@ struct TypeTableEntry {
     LLVMTypeRef type_ref;
     ZigLLVMDIType *di_type;
 
-    bool zero_bits;
+    bool zero_bits; // this is denormalized data
     bool is_copyable;
     bool gen_h_loop_flag;
+
+    // This is denormalized data. The simplest type that has this
+    // flag set to true is a mutable pointer. A const pointer has
+    // the same value for this flag as the child type.
+    // If a struct has any fields that have this flag true, then
+    // the flag is true for the struct.
+    bool can_mutate_state_through_it;
 
     union {
         TypeTableEntryPointer pointer;

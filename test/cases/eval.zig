@@ -420,3 +420,31 @@ test "binary math operator in partially inlined function" {
     assert(s[2] == 0x90a0b0c);
     assert(s[3] == 0xd0e0f10);
 }
+
+
+test "comptime function with the same args is memoized" {
+    comptime {
+        assert(MakeType(i32) == MakeType(i32));
+        assert(MakeType(i32) != MakeType(f64));
+    }
+}
+
+fn MakeType(comptime T: type) type {
+    return struct {
+        field: T,
+    };
+}
+
+test "comptime function with mutable pointer is not memoized" {
+    comptime {
+        var x: i32 = 1;
+        const ptr = &x;
+        increment(ptr);
+        increment(ptr);
+        assert(x == 3);
+    }
+}
+
+fn increment(value: &i32) void {
+    *value += 1;
+}
