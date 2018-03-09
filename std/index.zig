@@ -50,6 +50,7 @@ test "std" {
     _ = @import("dwarf.zig");
     _ = @import("elf.zig");
     _ = @import("empty.zig");
+    //TODO_ = @import("event.zig");
     _ = @import("fmt/index.zig");
     _ = @import("hash/index.zig");
     _ = @import("io.zig");
@@ -58,7 +59,6 @@ test "std" {
     _ = @import("mem.zig");
     _ = @import("net.zig");
     _ = @import("heap.zig");
-    _ = @import("net.zig");
     _ = @import("os/index.zig");
     _ = @import("rand/index.zig");
     _ = @import("sort.zig");
