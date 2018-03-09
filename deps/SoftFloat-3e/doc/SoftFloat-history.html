@@ -1,0 +1,258 @@
+
+<HTML>
+
+<HEAD>
+<TITLE>Berkeley SoftFloat History</TITLE>
+</HEAD>
+
+<BODY>
+
+<H1>History of Berkeley SoftFloat, to Release 3e</H1>
+
+<P>
+John R. Hauser<BR>
+2018 January 20<BR>
+</P>
+
+
+<H3>Release 3e (2018 January)</H3>
+
+<UL>
+
+<LI>
+Changed the default numeric code for optional rounding mode <CODE>odd</CODE>
+(round to odd, also known as <EM>jamming</EM>) from 5 to 6.
+
+<LI>
+Modified the behavior of rounding mode <CODE>odd</CODE> when rounding to an
+integer value (either conversion to an integer format or a
+&lsquo;<CODE>roundToInt</CODE>&rsquo; function).
+Previously, for those cases only, rounding mode <CODE>odd</CODE> acted the same
+as rounding to minimum magnitude.
+Now all operations are rounded consistently.
+
+<LI>
+Fixed some errors in the specialization code modeling Intel x86 floating-point,
+specifically the integers returned on invalid operations and the propagation of
+NaN payloads in a few rare cases.
+
+<LI>
+Added specialization code modeling ARM floating-point, conforming to VFPv2 or
+later.
+
+<LI>
+Added an example target for ARM processors.
+
+<LI>
+Fixed a minor bug whereby function <CODE>f16_to_ui64</CODE> might return a
+different integer than expected in the case that the floating-point operand is
+negative.
+
+<LI>
+Added example target-specific optimization for GCC, employing GCC instrinsics
+and support for <NOBR>128-bit</NOBR> integer arithmetic.
+
+<LI>
+Made other minor improvements.
+
+</UL>
+
+
+<H3>Release 3d (2017 August)</H3>
+
+<UL>
+
+<LI>
+Fixed bugs in the square root functions for <NOBR>64-bit</NOBR>
+double-precision, <NOBR>80-bit</NOBR> double-extended-precision, and
+<NOBR>128-bit</NOBR> quadruple-precision.
+For <NOBR>64-bit</NOBR> double-precision (<CODE>f64_sqrt</CODE>), the result
+could sometimes be off by <NOBR>1 unit</NOBR> in the last place
+(<NOBR>1 ulp</NOBR>) from what it should be.
+For the larger formats, the square root could be wrong in a large portion of
+the less-significant bits.
+(A bug in <CODE>f128_sqrt</CODE> was first reported by Alexei Sibidanov.)
+
+</UL>
+
+
+<H3>Release 3c (2017 February)</H3>
+
+<UL>
+
+<LI>
+Added optional rounding mode <CODE>odd</CODE> (round to odd, also known as
+<EM>jamming</EM>).
+
+<LI>
+Corrected the documentation concerning non-canonical representations in
+<NOBR>80-bit</NOBR> double-extended-precision.
+
+</UL>
+
+
+<H3>Release 3b (2016 July)</H3>
+
+<UL>
+
+<LI>
+Implemented the common <NOBR>16-bit</NOBR> &ldquo;half-precision&rdquo;
+floating-point format (<CODE>float16_t</CODE>).
+
+<LI>
+Made the integer values returned on invalid conversions to integer formats
+be determined by the port-specific specialization instead of being the same for
+all ports.
+
+<LI>
+Added preprocessor macro <CODE>THREAD_LOCAL</CODE> to allow the floating-point
+state (modes and exception flags) to be made per-thread.
+
+<LI>
+Modified the provided Makefiles to allow some options to be overridden from the
+<CODE>make</CODE> command.
+
+<LI>
+Made other minor improvements.
+
+</UL>
+
+
+<H3>Release 3a (2015 October)</H3>
+
+<UL>
+
+<LI>
+Replaced the license text supplied by the University of California, Berkeley.
+
+</UL>
+
+
+<H3>Release 3 (2015 February)</H3>
+
+<UL>
+
+<LI>
+Complete rewrite, funded by the University of California, Berkeley, and
+consequently having a different use license than earlier releases.
+Major changes included renaming most types and functions, upgrading some
+algorithms, restructuring the source files, and making SoftFloat into a true
+library.
+
+<LI>
+Added functions to convert between floating-point and unsigned integers, both
+<NOBR>32-bit</NOBR> and <NOBR>64-bit</NOBR> (<CODE>uint32_t</CODE> and
+<CODE>uint64_t</CODE>).
+
+<LI>
+Added functions for fused multiply-add, for all supported floating-point
+formats except <NOBR>80-bit</NOBR> double-extended-precision.
+
+<LI>
+Added support for a fifth rounding mode, <CODE>near_maxMag</CODE> (round to
+nearest, with ties to maximum magnitude, away from zero).
+
+<LI>
+Dropped the <CODE>timesoftfloat</CODE> program (now part of the Berkeley
+TestFloat package).
+
+</UL>
+
+
+<H3>Release 2c (2015 January)</H3>
+
+<UL>
+
+<LI>
+Fixed mistakes affecting some <NOBR>64-bit</NOBR> processors.
+
+<LI>
+Further improved the documentation and the wording for the legal restrictions
+on using SoftFloat releases <NOBR>through 2c</NOBR> (not applicable to
+<NOBR>Release 3</NOBR> or later).
+
+</UL>
+
+
+<H3>Release 2b (2002 May)</H3>
+
+<UL>
+
+<LI>
+Made minor updates to the documentation, including improved wording for the
+legal restrictions on using SoftFloat.
+
+</UL>
+
+
+<H3>Release 2a (1998 December)</H3>
+
+<UL>
+
+<LI>
+Added functions to convert between <NOBR>64-bit</NOBR> integers
+(<CODE>int64</CODE>) and all supported floating-point formats.
+
+<LI>
+Fixed a bug in all <NOBR>64-bit</NOBR>-version square root functions except
+<CODE>float32_sqrt</CODE> that caused the result sometimes to be off by
+<NOBR>1 unit</NOBR> in the last place (<NOBR>1 ulp</NOBR>) from what it should
+be.
+(Bug discovered by Paul Donahue.)
+
+<LI>
+Improved the Makefiles.
+</UL>
+
+
+<H3>Release 2 (1997 June)</H3>
+
+<UL>
+
+<LI>
+Created the <NOBR>64-bit</NOBR> (<CODE>bits64</CODE>) version, adding the
+<CODE>floatx80</CODE> and <CODE>float128</CODE> formats.
+
+<LI>
+Changed the source directory structure, splitting the sources into a
+<CODE>bits32</CODE> and a <CODE>bits64</CODE> version.
+Renamed <CODE>environment.h</CODE> to <CODE>milieu.h</CODE> to avoid confusion
+with environment variables.
+
+<LI>
+Fixed a small error that caused <CODE>float64_round_to_int</CODE> often to
+round the wrong way in nearest/even mode when the operand was between
+2<SUP>20</SUP> and 2<SUP>21</SUP> and halfway between two integers.
+
+</UL>
+
+
+<H3>Release 1a (1996 July)</H3>
+
+<UL>
+
+<LI>
+Corrected a mistake that caused borderline underflow cases not to raise the
+underflow flag when they should have.
+(Problem reported by Doug Priest.)
+
+<LI>
+Added the <CODE>float_detect_tininess</CODE> variable to control whether
+tininess is detected before or after rounding.
+
+</UL>
+
+
+<H3>Release 1 (1996 July)</H3>
+
+<UL>
+
+<LI>
+Original release, based on work done for the International Computer Science
+Institute (ICSI) in Berkeley, California.
+
+</UL>
+
+
+</BODY>
+

@@ -1,0 +1,1527 @@
+
+<HTML>
+
+<HEAD>
+<TITLE>Berkeley SoftFloat Library Interface</TITLE>
+</HEAD>
+
+<BODY>
+
+<H1>Berkeley SoftFloat Release 3e: Library Interface</H1>
+
+<P>
+John R. Hauser<BR>
+2018 January 20<BR>
+</P>
+
+
+<H2>Contents</H2>
+
+<BLOCKQUOTE>
+<TABLE BORDER=0 CELLSPACING=0 CELLPADDING=0>
+<COL WIDTH=25>
+<COL WIDTH=*>
+<TR><TD COLSPAN=2>1. Introduction</TD></TR>
+<TR><TD COLSPAN=2>2. Limitations</TD></TR>
+<TR><TD COLSPAN=2>3. Acknowledgments and License</TD></TR>
+<TR><TD COLSPAN=2>4. Types and Functions</TD></TR>
+<TR><TD></TD><TD>4.1. Boolean and Integer Types</TD></TR>
+<TR><TD></TD><TD>4.2. Floating-Point Types</TD></TR>
+<TR><TD></TD><TD>4.3. Supported Floating-Point Functions</TD></TR>
+<TR>
+  <TD></TD>
+  <TD>4.4. Non-canonical Representations in <CODE>extFloat80_t</CODE></TD>
+</TR>
+<TR><TD></TD><TD>4.5. Conventions for Passing Arguments and Results</TD></TR>
+<TR><TD COLSPAN=2>5. Reserved Names</TD></TR>
+<TR><TD COLSPAN=2>6. Mode Variables</TD></TR>
+<TR><TD></TD><TD>6.1. Rounding Mode</TD></TR>
+<TR><TD></TD><TD>6.2. Underflow Detection</TD></TR>
+<TR>
+  <TD></TD>
+  <TD>6.3. Rounding Precision for the <NOBR>80-Bit</NOBR> Extended Format</TD>
+</TR>
+<TR><TD COLSPAN=2>7. Exceptions and Exception Flags</TD></TR>
+<TR><TD COLSPAN=2>8. Function Details</TD></TR>
+<TR><TD></TD><TD>8.1. Conversions from Integer to Floating-Point</TD></TR>
+<TR><TD></TD><TD>8.2. Conversions from Floating-Point to Integer</TD></TR>
+<TR><TD></TD><TD>8.3. Conversions Among Floating-Point Types</TD></TR>
+<TR><TD></TD><TD>8.4. Basic Arithmetic Functions</TD></TR>
+<TR><TD></TD><TD>8.5. Fused Multiply-Add Functions</TD></TR>
+<TR><TD></TD><TD>8.6. Remainder Functions</TD></TR>
+<TR><TD></TD><TD>8.7. Round-to-Integer Functions</TD></TR>
+<TR><TD></TD><TD>8.8. Comparison Functions</TD></TR>
+<TR><TD></TD><TD>8.9. Signaling NaN Test Functions</TD></TR>
+<TR><TD></TD><TD>8.10. Raise-Exception Function</TD></TR>
+<TR><TD COLSPAN=2>9. Changes from SoftFloat <NOBR>Release 2</NOBR></TD></TR>
+<TR><TD></TD><TD>9.1. Name Changes</TD></TR>
+<TR><TD></TD><TD>9.2. Changes to Function Arguments</TD></TR>
+<TR><TD></TD><TD>9.3. Added Capabilities</TD></TR>
+<TR><TD></TD><TD>9.4. Better Compatibility with the C Language</TD></TR>
+<TR><TD></TD><TD>9.5. New Organization as a Library</TD></TR>
+<TR><TD></TD><TD>9.6. Optimization Gains (and Losses)</TD></TR>
+<TR><TD COLSPAN=2>10. Future Directions</TD></TR>
+<TR><TD COLSPAN=2>11. Contact Information</TD></TR>
+</TABLE>
+</BLOCKQUOTE>
+
+
+<H2>1. Introduction</H2>
+
+<P>
+Berkeley SoftFloat is a software implementation of binary floating-point that
+conforms to the IEEE Standard for Floating-Point Arithmetic.
+The current release supports five binary formats:  <NOBR>16-bit</NOBR>
+half-precision, <NOBR>32-bit</NOBR> single-precision, <NOBR>64-bit</NOBR>
+double-precision, <NOBR>80-bit</NOBR> double-extended-precision, and
+<NOBR>128-bit</NOBR> quadruple-precision.
+The following functions are supported for each format:
+<UL>
+<LI>
+addition, subtraction, multiplication, division, and square root;
+<LI>
+fused multiply-add as defined by the IEEE Standard, except for
+<NOBR>80-bit</NOBR> double-extended-precision;
+<LI>
+remainder as defined by the IEEE Standard;
+<LI>
+round to integral value;
+<LI>
+comparisons;
+<LI>
+conversions to/from other supported formats; and
+<LI>
+conversions to/from <NOBR>32-bit</NOBR> and <NOBR>64-bit</NOBR> integers,
+signed and unsigned.
+</UL>
+All operations required by the original 1985 version of the IEEE Floating-Point
+Standard are implemented, except for conversions to and from decimal.
+</P>
+
+<P>
+This document gives information about the types defined and the routines
+implemented by SoftFloat.
+It does not attempt to define or explain the IEEE Floating-Point Standard.
+Information about the standard is available elsewhere.
+</P>
+
+<P>
+The current version of SoftFloat is <NOBR>Release 3e</NOBR>.
+This release modifies the behavior of the rarely used <I>odd</I> rounding mode
+(<I>round to odd</I>, also known as <I>jamming</I>), and also adds some new
+specialization and optimization examples for those compiling SoftFloat.
+</P>
+
+<P>
+The previous <NOBR>Release 3d</NOBR> fixed bugs that were found in the square
+root functions for the <NOBR>64-bit</NOBR>, <NOBR>80-bit</NOBR>, and
+<NOBR>128-bit</NOBR> floating-point formats.
+(Thanks to Alexei Sibidanov at the University of Victoria for reporting an
+incorrect result.)
+The bugs affected all prior <NOBR>Release-3</NOBR> versions of SoftFloat
+<NOBR>through 3c</NOBR>.
+The flaw in the <NOBR>64-bit</NOBR> floating-point square root function was of
+very minor impact, causing a <NOBR>1-ulp</NOBR> error (<NOBR>1 unit</NOBR> in
+the last place) a few times out of a billion.
+The bugs in the <NOBR>80-bit</NOBR> and <NOBR>128-bit</NOBR> square root
+functions were more serious.
+Although incorrect results again occurred only a few times out of a billion,
+when they did occur a large portion of the less-significant bits could be
+wrong.
+</P>
+
+<P>
+Among earlier releases, 3b was notable for adding support for the
+<NOBR>16-bit</NOBR> half-precision format.
+For more about the evolution of SoftFloat releases, see
+<A HREF="SoftFloat-history.html"><NOBR><CODE>SoftFloat-history.html</CODE></NOBR></A>.
+</P>
+
+<P>
+The functional interface of SoftFloat <NOBR>Release 3</NOBR> and later differs
+in many details from the releases that came before.
+For specifics of these differences, see <NOBR>section 9</NOBR> below,
+<I>Changes from SoftFloat <NOBR>Release 2</NOBR></I>.
+</P>
+
+
+<H2>2. Limitations</H2>
+
+<P>
+SoftFloat assumes the computer has an addressable byte size of 8 or
+<NOBR>16 bits</NOBR>.
+(Nearly all computers in use today have <NOBR>8-bit</NOBR> bytes.)
+</P>
+
+<P>
+SoftFloat is written in C and is designed to work with other C code.
+The C compiler used must conform at a minimum to the 1989 ANSI standard for the
+C language (same as the 1990 ISO standard) and must in addition support basic
+arithmetic on <NOBR>64-bit</NOBR> integers.
+Earlier releases of SoftFloat included implementations of <NOBR>32-bit</NOBR>
+single-precision and <NOBR>64-bit</NOBR> double-precision floating-point that
+did not require <NOBR>64-bit</NOBR> integers, but this option is not supported
+starting with <NOBR>Release 3</NOBR>.
+Since 1999, ISO standards for C have mandated compiler support for
+<NOBR>64-bit</NOBR> integers.
+A compiler conforming to the 1999 C Standard or later is recommended but not
+strictly required.
+</P>
+
+<P>
+Most operations not required by the original 1985 version of the IEEE
+Floating-Point Standard but added in the 2008 version are not yet supported in
+SoftFloat <NOBR>Release 3e</NOBR>.
+</P>
+
+
+<H2>3. Acknowledgments and License</H2>
+
+<P>
+The SoftFloat package was written by me, <NOBR>John R.</NOBR> Hauser.
+<NOBR>Release 3</NOBR> of SoftFloat was a completely new implementation
+supplanting earlier releases.
+The project to create <NOBR>Release 3</NOBR> (now <NOBR>through 3e</NOBR>) was
+done in the employ of the University of California, Berkeley, within the
+Department of Electrical Engineering and Computer Sciences, first for the
+Parallel Computing Laboratory (Par Lab) and then for the ASPIRE Lab.
+The work was officially overseen by Prof. Krste Asanovic, with funding provided
+by these sources:
+<BLOCKQUOTE>
+<TABLE>
+<COL>
+<COL WIDTH=10>
+<COL>
+<TR>
+<TD VALIGN=TOP><NOBR>Par Lab:</NOBR></TD>
+<TD></TD>
+<TD>
+Microsoft (Award #024263), Intel (Award #024894), and U.C. Discovery
+(Award #DIG07-10227), with additional support from Par Lab affiliates Nokia,
+NVIDIA, Oracle, and Samsung.
+</TD>
+</TR>
+<TR>
+<TD VALIGN=TOP><NOBR>ASPIRE Lab:</NOBR></TD>
+<TD></TD>
+<TD>
+DARPA PERFECT program (Award #HR0011-12-2-0016), with additional support from
+ASPIRE industrial sponsor Intel and ASPIRE affiliates Google, Nokia, NVIDIA,
+Oracle, and Samsung.
+</TD>
+</TR>
+</TABLE>
+</BLOCKQUOTE>
+</P>
+
+<P>
+The following applies to the whole of SoftFloat <NOBR>Release 3e</NOBR> as well
+as to each source file individually.
+</P>
+
+<P>
+Copyright 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018 The Regents of the
+University of California.
+All rights reserved.
+</P>
+
+<P>
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+<OL>
+
+<LI>
+<P>
+Redistributions of source code must retain the above copyright notice, this
+list of conditions, and the following disclaimer.
+</P>
+
+<LI>
+<P>
+Redistributions in binary form must reproduce the above copyright notice, this
+list of conditions, and the following disclaimer in the documentation and/or
+other materials provided with the distribution.
+</P>
+
+<LI>
+<P>
+Neither the name of the University nor the names of its contributors may be
+used to endorse or promote products derived from this software without specific
+prior written permission.
+</P>
+
+</OL>
+</P>
+
+<P>
+THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS &ldquo;AS IS&rdquo;,
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE, ARE
+DISCLAIMED.
+IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE
+OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+</P>
+
+
+<H2>4. Types and Functions</H2>
+
+<P>
+The types and functions of SoftFloat are declared in header file
+<CODE>softfloat.h</CODE>.
+</P>
+
+<H3>4.1. Boolean and Integer Types</H3>
+
+<P>
+Header file <CODE>softfloat.h</CODE> depends on standard headers
+<CODE>&lt;stdbool.h&gt;</CODE> and <CODE>&lt;stdint.h&gt;</CODE> to define type
+<CODE>bool</CODE> and several integer types.
+These standard headers have been part of the ISO C Standard Library since 1999.
+With any recent compiler, they are likely to be supported, even if the compiler
+does not claim complete conformance to the latest ISO C Standard.
+For older or nonstandard compilers, a port of SoftFloat may have substitutes
+for these headers.
+Header <CODE>softfloat.h</CODE> depends only on the name <CODE>bool</CODE> from
+<CODE>&lt;stdbool.h&gt;</CODE> and on these type names from
+<CODE>&lt;stdint.h&gt;</CODE>:
+<BLOCKQUOTE>
+<PRE>
+uint16_t
+uint32_t
+uint64_t
+int32_t
+int64_t
+uint_fast8_t
+uint_fast32_t
+uint_fast64_t
+int_fast32_t
+int_fast64_t
+</PRE>
+</BLOCKQUOTE>
+</P>
+
+
+<H3>4.2. Floating-Point Types</H3>
+
+<P>
+The <CODE>softfloat.h</CODE> header defines five floating-point types:
+<BLOCKQUOTE>
+<TABLE CELLSPACING=0 CELLPADDING=0>
+<TR>
+<TD><CODE>float16_t</CODE></TD>
+<TD><NOBR>16-bit</NOBR> half-precision binary format</TD>
+</TR>
+<TR>
+<TD><CODE>float32_t</CODE></TD>
+<TD><NOBR>32-bit</NOBR> single-precision binary format</TD>
+</TR>
+<TR>
+<TD><CODE>float64_t</CODE></TD>
+<TD><NOBR>64-bit</NOBR> double-precision binary format</TD>
+</TR>
+<TR>
+<TD><CODE>extFloat80_t&nbsp;&nbsp;&nbsp;</CODE></TD>
+<TD><NOBR>80-bit</NOBR> double-extended-precision binary format (old Intel or
+Motorola format)</TD>
+</TR>
+<TR>
+<TD><CODE>float128_t</CODE></TD>
+<TD><NOBR>128-bit</NOBR> quadruple-precision binary format</TD>
+</TR>
+</TABLE>
+</BLOCKQUOTE>
+The non-extended types are each exactly the size specified:
+<NOBR>16 bits</NOBR> for <CODE>float16_t</CODE>, <NOBR>32 bits</NOBR> for
+<CODE>float32_t</CODE>, <NOBR>64 bits</NOBR> for <CODE>float64_t</CODE>, and
+<NOBR>128 bits</NOBR> for <CODE>float128_t</CODE>.
+Aside from these size requirements, the definitions of all these types may
+differ for different ports of SoftFloat to specific systems.
+A given port of SoftFloat may or may not define some of the floating-point
+types as aliases for the C standard types <CODE>float</CODE>,
+<CODE>double</CODE>, and <CODE>long</CODE> <CODE>double</CODE>.
+</P>
+
+<P>
+Header file <CODE>softfloat.h</CODE> also defines a structure,
+<CODE>struct</CODE> <CODE>extFloat80M</CODE>, for the representation of
+<NOBR>80-bit</NOBR> double-extended-precision floating-point values in memory.
+This structure is the same size as type <CODE>extFloat80_t</CODE> and contains
+at least these two fields (not necessarily in this order):
+<BLOCKQUOTE>
+<PRE>
+uint16_t signExp;
+uint64_t signif;
+</PRE>
+</BLOCKQUOTE>
+Field <CODE>signExp</CODE> contains the sign and exponent of the floating-point
+value, with the sign in the most significant bit (<NOBR>bit 15</NOBR>) and the
+encoded exponent in the other <NOBR>15 bits</NOBR>.
+Field <CODE>signif</CODE> is the complete <NOBR>64-bit</NOBR> significand of
+the floating-point value.
+(In the usual encoding for <NOBR>80-bit</NOBR> extended floating-point, the
+leading <NOBR>1 bit</NOBR> of normalized numbers is not implicit but is stored
+in the most significant bit of the significand.)
+</P>
+
+<H3>4.3. Supported Floating-Point Functions</H3>
+
+<P>
+SoftFloat implements these arithmetic operations for its floating-point types:
+<UL>
+<LI>
+conversions between any two floating-point formats;
+<LI>
+for each floating-point format, conversions to and from signed and unsigned
+<NOBR>32-bit</NOBR> and <NOBR>64-bit</NOBR> integers;
+<LI>
+for each format, the usual addition, subtraction, multiplication, division, and
+square root operations;
+<LI>
+for each format except <CODE>extFloat80_t</CODE>, the fused multiply-add
+operation defined by the IEEE Standard;
+<LI>
+for each format, the floating-point remainder operation defined by the IEEE
+Standard;
+<LI>
+for each format, a &ldquo;round to integer&rdquo; operation that rounds to the
+nearest integer value in the same format; and
+<LI>
+comparisons between two values in the same floating-point format.
+</UL>
+</P>
+
+<P>
+The following operations required by the 2008 IEEE Floating-Point Standard are
+not supported in SoftFloat <NOBR>Release 3e</NOBR>:
+<UL>
+<LI>
+<B>nextUp</B>, <B>nextDown</B>, <B>minNum</B>, <B>maxNum</B>, <B>minNumMag</B>,
+<B>maxNumMag</B>, <B>scaleB</B>, and <B>logB</B>;
+<LI>
+conversions between floating-point formats and decimal or hexadecimal character
+sequences;
+<LI>
+all &ldquo;quiet-computation&rdquo; operations (<B>copy</B>, <B>negate</B>,
+<B>abs</B>, and <B>copySign</B>, which all involve only simple copying and/or
+manipulation of the floating-point sign bit); and
+<LI>
+all &ldquo;non-computational&rdquo; operations other than <B>isSignaling</B>
+(which is supported).
+</UL>
+</P>
+
+<H3>4.4. Non-canonical Representations in <CODE>extFloat80_t</CODE></H3>
+
+<P>
+Because the <NOBR>80-bit</NOBR> double-extended-precision format,
+<CODE>extFloat80_t</CODE>, stores an explicit leading significand bit, many
+finite floating-point numbers are encodable in this type in multiple equivalent
+forms.
+Of these multiple encodings, there is always a unique one with the least
+encoded exponent value, and this encoding is considered the <I>canonical</I>
+representation of the floating-point number.
+Any other equivalent representations (having a higher encoded exponent value)
+are <I>non-canonical</I>.
+For a value in the subnormal range (including zero), the canonical
+representation always has an encoded exponent of zero and a leading significand
+bit <NOBR>of 0</NOBR>.
+For finite values outside the subnormal range, the canonical representation
+always has an encoded exponent that is nonzero and a leading significand bit
+<NOBR>of 1</NOBR>.
+</P>
+
+<P>
+For an infinity or NaN, the leading significand bit is similarly expected to
+<NOBR>be 1</NOBR>.
+An infinity or NaN with a leading significand bit <NOBR>of 0</NOBR> is again
+considered non-canonical.
+Hence, altogether, to be canonical, a value of type <CODE>extFloat80_t</CODE>
+must have a leading significand bit <NOBR>of 1</NOBR>, unless the value is
+subnormal or zero, in which case the leading significand bit and the encoded
+exponent must both be zero.
+</P>
+
+<P>
+SoftFloat&rsquo;s functions are not guaranteed to operate as expected when
+inputs of type <CODE>extFloat80_t</CODE> are non-canonical.
+Assuming all of a function&rsquo;s <CODE>extFloat80_t</CODE> inputs (if any)
+are canonical, function outputs of type <CODE>extFloat80_t</CODE> will always
+be canonical.
+</P>
+
+<H3>4.5. Conventions for Passing Arguments and Results</H3>
+
+<P>
+Values that are at most <NOBR>64 bits</NOBR> in size (i.e., not the
+<NOBR>80-bit</NOBR> or <NOBR>128-bit</NOBR> floating-point formats) are in all
+cases passed as function arguments by value.
+Likewise, when an output of a function is no more than <NOBR>64 bits</NOBR>, it
+is always returned directly as the function result.
+Thus, for example, the SoftFloat function for adding two <NOBR>64-bit</NOBR>
+floating-point values has this simple signature:
+<BLOCKQUOTE>
+<CODE>float64_t f64_add( float64_t, float64_t );</CODE>
+</BLOCKQUOTE>
+</P>
+
+<P>
+The story is more complex when function inputs and outputs are
+<NOBR>80-bit</NOBR> and <NOBR>128-bit</NOBR> floating-point.
+For these types, SoftFloat always provides a function that passes these larger
+values into or out of the function indirectly, via pointers.
+For example, for adding two <NOBR>128-bit</NOBR> floating-point values,
+SoftFloat supplies this function:
+<BLOCKQUOTE>
+<CODE>void f128M_add( const float128_t *, const float128_t *, float128_t * );</CODE>
+</BLOCKQUOTE>
+The first two arguments point to the values to be added, and the last argument
+points to the location where the sum will be stored.
+The <CODE>M</CODE> in the name <CODE>f128M_add</CODE> is mnemonic for the fact
+that the <NOBR>128-bit</NOBR> inputs and outputs are &ldquo;in memory&rdquo;,
+pointed to by pointer arguments.
+</P>
+
+<P>
+All ports of SoftFloat implement these <I>pass-by-pointer</I> functions for
+types <CODE>extFloat80_t</CODE> and <CODE>float128_t</CODE>.
+At the same time, SoftFloat ports may also implement alternate versions of
+these same functions that pass <CODE>extFloat80_t</CODE> and
+<CODE>float128_t</CODE> by value, like the smaller formats.
+Thus, besides the function with name <CODE>f128M_add</CODE> shown above, a
+SoftFloat port may also supply an equivalent function with this signature:
+<BLOCKQUOTE>
+<CODE>float128_t f128_add( float128_t, float128_t );</CODE>
+</BLOCKQUOTE>
+</P>
+
+<P>
+As a general rule, on computers where the machine word size is
+<NOBR>32 bits</NOBR> or smaller, only the pass-by-pointer versions of functions
+(e.g., <CODE>f128M_add</CODE>) are provided for types <CODE>extFloat80_t</CODE>
+and <CODE>float128_t</CODE>, because passing such large types directly can have
+significant extra cost.
+On computers where the word size is <NOBR>64 bits</NOBR> or larger, both
+function versions (<CODE>f128M_add</CODE> and <CODE>f128_add</CODE>) are
+provided, because the cost of passing by value is then more reasonable.
+Applications that must be portable accross both classes of computers must use
+the pointer-based functions, as these are always implemented.
+However, if it is known that SoftFloat includes the by-value functions for all
+platforms of interest, programmers can use whichever version they prefer.
+</P>
+
+
+<H2>5. Reserved Names</H2>
+
+<P>
+In addition to the variables and functions documented here, SoftFloat defines
+some symbol names for its own private use.
+These private names always begin with the prefix
+&lsquo;<CODE>softfloat_</CODE>&rsquo;.
+When a program includes header <CODE>softfloat.h</CODE> or links with the
+SoftFloat library, all names with prefix &lsquo;<CODE>softfloat_</CODE>&rsquo;
+are reserved for possible use by SoftFloat.
+Applications that use SoftFloat should not define their own names with this
+prefix, and should reference only such names as are documented.
+</P>
+
+
+<H2>6. Mode Variables</H2>
+
+<P>
+The following global variables control rounding mode, underflow detection, and
+the <NOBR>80-bit</NOBR> extended format&rsquo;s rounding precision:
+<BLOCKQUOTE>
+<CODE>softfloat_roundingMode</CODE><BR>
+<CODE>softfloat_detectTininess</CODE><BR>
+<CODE>extF80_roundingPrecision</CODE>
+</BLOCKQUOTE>
+These mode variables are covered in the next several subsections.
+For some SoftFloat ports, these variables may be <I>per-thread</I> (declared
+<CODE>thread_local</CODE>), meaning that different execution threads have their
+own separate copies of the variables.
+</P>
+
+<H3>6.1. Rounding Mode</H3>
+
+<P>
+All five rounding modes defined by the 2008 IEEE Floating-Point Standard are
+implemented for all operations that require rounding.
+Some ports of SoftFloat may also implement the <I>round-to-odd</I> mode.
+</P>
+
+<P>
+The rounding mode is selected by the global variable
+<BLOCKQUOTE>
+<CODE>uint_fast8_t softfloat_roundingMode;</CODE>
+</BLOCKQUOTE>
+This variable may be set to one of the values
+<BLOCKQUOTE>
+<TABLE CELLSPACING=0 CELLPADDING=0>
+<TR>
+<TD><CODE>softfloat_round_near_even</CODE></TD>
+<TD>round to nearest, with ties to even</TD>
+</TR>
+<TR>
+<TD><CODE>softfloat_round_near_maxMag&nbsp;&nbsp;</CODE></TD>
+<TD>round to nearest, with ties to maximum magnitude (away from zero)</TD>
+</TR>
+<TR>
+<TD><CODE>softfloat_round_minMag</CODE></TD>
+<TD>round to minimum magnitude (toward zero)</TD>
+</TR>
+<TR>
+<TD><CODE>softfloat_round_min</CODE></TD>
+<TD>round to minimum (down)</TD>
+</TR>
+<TR>
+<TD><CODE>softfloat_round_max</CODE></TD>
+<TD>round to maximum (up)</TD>
+</TR>
+<TR>
+<TD><CODE>softfloat_round_odd</CODE></TD>
+<TD>round to odd (jamming), if supported by the SoftFloat port</TD>
+</TR>
+</TABLE>
+</BLOCKQUOTE>
+Variable <CODE>softfloat_roundingMode</CODE> is initialized to
+<CODE>softfloat_round_near_even</CODE>.
+</P>
+
+<P>
+When <CODE>softfloat_round_odd</CODE> is the rounding mode for a function that
+rounds to an integer value (either conversion to an integer format or a
+&lsquo;<CODE>roundToInt</CODE>&rsquo; function), if the input is not already an
+integer, the rounded result is the closest <EM>odd</EM> integer.
+For other operations, this rounding mode acts as though the floating-point
+result is first rounded to minimum magnitude, the same as
+<CODE>softfloat_round_minMag</CODE>, and then, if the result is inexact, the
+least-significant bit of the result is set <NOBR>to 1</NOBR>.
+Rounding to odd is also known as <EM>jamming</EM>.
+</P>
+
+<H3>6.2. Underflow Detection</H3>
+
+<P>
+In the terminology of the IEEE Standard, SoftFloat can detect tininess for
+underflow either before or after rounding.
+The choice is made by the global variable
+<BLOCKQUOTE>
+<CODE>uint_fast8_t softfloat_detectTininess;</CODE>
+</BLOCKQUOTE>
+which can be set to either
+<BLOCKQUOTE>
+<CODE>softfloat_tininess_beforeRounding</CODE><BR>
+<CODE>softfloat_tininess_afterRounding</CODE>
+</BLOCKQUOTE>
+Detecting tininess after rounding is usually better because it results in fewer
+spurious underflow signals.
+The other option is provided for compatibility with some systems.
+Like most systems (and as required by the newer 2008 IEEE Standard), SoftFloat
+always detects loss of accuracy for underflow as an inexact result.
+</P>
+
+<H3>6.3. Rounding Precision for the <NOBR>80-Bit</NOBR> Extended Format</H3>
+
+<P>
+For <CODE>extFloat80_t</CODE> only, the rounding precision of the basic
+arithmetic operations is controlled by the global variable
+<BLOCKQUOTE>
+<CODE>uint_fast8_t extF80_roundingPrecision;</CODE>
+</BLOCKQUOTE>
+The operations affected are:
+<BLOCKQUOTE>
+<CODE>extF80_add</CODE><BR>
+<CODE>extF80_sub</CODE><BR>
+<CODE>extF80_mul</CODE><BR>
+<CODE>extF80_div</CODE><BR>
+<CODE>extF80_sqrt</CODE>
+</BLOCKQUOTE>
+When <CODE>extF80_roundingPrecision</CODE> is set to its default value of 80,
+these operations are rounded to the full precision of the <NOBR>80-bit</NOBR>
+double-extended-precision format, like occurs for other formats.
+Setting <CODE>extF80_roundingPrecision</CODE> to 32 or to 64 causes the
+operations listed to be rounded to <NOBR>32-bit</NOBR> precision (equivalent to
+<CODE>float32_t</CODE>) or to <NOBR>64-bit</NOBR> precision (equivalent to
+<CODE>float64_t</CODE>), respectively.
+When rounding to reduced precision, additional bits in the result significand
+beyond the rounding point are set to zero.
+The consequences of setting <CODE>extF80_roundingPrecision</CODE> to a value
+other than 32, 64, or 80 is not specified.
+Operations other than the ones listed above are not affected by
+<CODE>extF80_roundingPrecision</CODE>.
+</P>
+
+
+<H2>7. Exceptions and Exception Flags</H2>
+
+<P>
+All five exception flags required by the IEEE Floating-Point Standard are
+implemented.
+Each flag is stored as a separate bit in the global variable
+<BLOCKQUOTE>
+<CODE>uint_fast8_t softfloat_exceptionFlags;</CODE>
+</BLOCKQUOTE>
+The positions of the exception flag bits within this variable are determined by
+the bit masks
+<BLOCKQUOTE>
+<CODE>softfloat_flag_inexact</CODE><BR>
+<CODE>softfloat_flag_underflow</CODE><BR>
+<CODE>softfloat_flag_overflow</CODE><BR>
+<CODE>softfloat_flag_infinite</CODE><BR>
+<CODE>softfloat_flag_invalid</CODE>
+</BLOCKQUOTE>
+Variable <CODE>softfloat_exceptionFlags</CODE> is initialized to all zeros,
+meaning no exceptions.
+</P>
+
+<P>
+For some SoftFloat ports, <CODE>softfloat_exceptionFlags</CODE> may be
+<I>per-thread</I> (declared <CODE>thread_local</CODE>), meaning that different
+execution threads have their own separate instances of it.
+</P>
+
+<P>
+An individual exception flag can be cleared with the statement
+<BLOCKQUOTE>
+<CODE>softfloat_exceptionFlags &= ~softfloat_flag_&lt;<I>exception</I>&gt;;</CODE>
+</BLOCKQUOTE>
+where <CODE>&lt;<I>exception</I>&gt;</CODE> is the appropriate name.
+To raise a floating-point exception, function <CODE>softfloat_raiseFlags</CODE>
+should normally be used.
+</P>
+
+<P>
+When SoftFloat detects an exception other than <I>inexact</I>, it calls
+<CODE>softfloat_raiseFlags</CODE>.
+The default version of this function simply raises the corresponding exception
+flags.
+Particular ports of SoftFloat may support alternate behavior, such as exception
+traps, by modifying the default <CODE>softfloat_raiseFlags</CODE>.
+A program may also supply its own <CODE>softfloat_raiseFlags</CODE> function to
+override the one from the SoftFloat library.
+</P>
+
+<P>
+Because inexact results occur frequently under most circumstances (and thus are
+hardly exceptional), SoftFloat does not ordinarily call
+<CODE>softfloat_raiseFlags</CODE> for <I>inexact</I> exceptions.
+It does always raise the <I>inexact</I> exception flag as required.
+</P>
+
+
+<H2>8. Function Details</H2>
+
+<P>
+In this section, <CODE>&lt;<I>float</I>&gt;</CODE> appears in function names as
+a substitute for one of these abbreviations:
+<BLOCKQUOTE>
+<TABLE CELLSPACING=0 CELLPADDING=0>
+<TR>
+<TD><CODE>f16</CODE></TD>
+<TD>indicates <CODE>float16_t</CODE>, passed by value</TD>
+</TR>
+<TR>
+<TD><CODE>f32</CODE></TD>
+<TD>indicates <CODE>float32_t</CODE>, passed by value</TD>
+</TR>
+<TR>
+<TD><CODE>f64</CODE></TD>
+<TD>indicates <CODE>float64_t</CODE>, passed by value</TD>
+</TR>
+<TR>
+<TD><CODE>extF80M&nbsp;&nbsp;&nbsp;</CODE></TD>
+<TD>indicates <CODE>extFloat80_t</CODE>, passed indirectly via pointers</TD>
+</TR>
+<TR>
+<TD><CODE>extF80</CODE></TD>
+<TD>indicates <CODE>extFloat80_t</CODE>, passed by value</TD>
+</TR>
+<TR>
+<TD><CODE>f128M</CODE></TD>
+<TD>indicates <CODE>float128_t</CODE>, passed indirectly via pointers</TD>
+</TR>
+<TR>
+<TD><CODE>f128</CODE></TD>
+<TD>indicates <CODE>float128_t</CODE>, passed by value</TD>
+</TR>
+</TABLE>
+</BLOCKQUOTE>
+The circumstances under which values of floating-point types
+<CODE>extFloat80_t</CODE> and <CODE>float128_t</CODE> may be passed either by
+value or indirectly via pointers was discussed earlier in
+<NOBR>section 4.5</NOBR>, <I>Conventions for Passing Arguments and Results</I>.
+</P>
+
+<H3>8.1. Conversions from Integer to Floating-Point</H3>
+
+<P>
+All conversions from a <NOBR>32-bit</NOBR> or <NOBR>64-bit</NOBR> integer,
+signed or unsigned, to a floating-point format are supported.
+Functions performing these conversions have these names:
+<BLOCKQUOTE>
+<CODE>ui32_to_&lt;<I>float</I>&gt;</CODE><BR>
+<CODE>ui64_to_&lt;<I>float</I>&gt;</CODE><BR>
+<CODE>i32_to_&lt;<I>float</I>&gt;</CODE><BR>
+<CODE>i64_to_&lt;<I>float</I>&gt;</CODE>
+</BLOCKQUOTE>
+Conversions from <NOBR>32-bit</NOBR> integers to <NOBR>64-bit</NOBR>
+double-precision and larger formats are always exact, and likewise conversions
+from <NOBR>64-bit</NOBR> integers to <NOBR>80-bit</NOBR>
+double-extended-precision and <NOBR>128-bit</NOBR> quadruple-precision are also
+always exact.
+</P>
+
+<P>
+Each conversion function takes one input of the appropriate type and generates
+one output.
+The following illustrates the signatures of these functions in cases when the
+floating-point result is passed either by value or via pointers:
+<BLOCKQUOTE>
+<PRE>
+float64_t i32_to_f64( int32_t <I>a</I> );
+</PRE>
+<PRE>
+void i32_to_f128M( int32_t <I>a</I>, float128_t *<I>destPtr</I> );
+</PRE>
+</BLOCKQUOTE>
+</P>
+
+<H3>8.2. Conversions from Floating-Point to Integer</H3>
+
+<P>
+Conversions from a floating-point format to a <NOBR>32-bit</NOBR> or
+<NOBR>64-bit</NOBR> integer, signed or unsigned, are supported with these
+functions:
+<BLOCKQUOTE>
+<CODE>&lt;<I>float</I>&gt;_to_ui32</CODE><BR>
+<CODE>&lt;<I>float</I>&gt;_to_ui64</CODE><BR>
+<CODE>&lt;<I>float</I>&gt;_to_i32</CODE><BR>
+<CODE>&lt;<I>float</I>&gt;_to_i64</CODE>
+</BLOCKQUOTE>
+The functions have signatures as follows, depending on whether the
+floating-point input is passed by value or via pointers:
+<BLOCKQUOTE>
+<PRE>
+int_fast32_t f64_to_i32( float64_t <I>a</I>, uint_fast8_t <I>roundingMode</I>, bool <I>exact</I> );
+</PRE>
+<PRE>
+int_fast32_t
+ f128M_to_i32( const float128_t *<I>aPtr</I>, uint_fast8_t <I>roundingMode</I>, bool <I>exact</I> );
+</PRE>
+</BLOCKQUOTE>
+</P>
+
+<P>
+The <CODE><I>roundingMode</I></CODE> argument specifies the rounding mode for
+the conversion.
+The variable that usually indicates rounding mode,
+<CODE>softfloat_roundingMode</CODE>, is ignored.
+Argument <CODE><I>exact</I></CODE> determines whether the <I>inexact</I>
+exception flag is raised if the conversion is not exact.
+If <CODE><I>exact</I></CODE> is <CODE>true</CODE>, the <I>inexact</I> flag may
+be raised;
+otherwise, it will not be, even if the conversion is inexact.
+</P>
+
+<P>
+A conversion from floating-point to integer format raises the <I>invalid</I>
+exception if the source value cannot be rounded to a representable integer of
+the desired size (32 or 64 bits).
+In such circumstances, the integer result returned is determined by the
+particular port of SoftFloat, although typically this value will be either the
+maximum or minimum value of the integer format.
+The functions that convert to integer types never raise the floating-point
+<I>overflow</I> exception.
+</P>
+
+<P>
+Because languages such <NOBR>as C</NOBR> require that conversions to integers
+be rounded toward zero, the following functions are provided for improved speed
+and convenience:
+<BLOCKQUOTE>
+<CODE>&lt;<I>float</I>&gt;_to_ui32_r_minMag</CODE><BR>
+<CODE>&lt;<I>float</I>&gt;_to_ui64_r_minMag</CODE><BR>
+<CODE>&lt;<I>float</I>&gt;_to_i32_r_minMag</CODE><BR>
+<CODE>&lt;<I>float</I>&gt;_to_i64_r_minMag</CODE>
+</BLOCKQUOTE>
+These functions round only toward zero (to minimum magnitude).
+The signatures for these functions are the same as above without the redundant
+<CODE><I>roundingMode</I></CODE> argument:
+<BLOCKQUOTE>
+<PRE>
+int_fast32_t f64_to_i32_r_minMag( float64_t <I>a</I>, bool <I>exact</I> );
+</PRE>
+<PRE>
+int_fast32_t f128M_to_i32_r_minMag( const float128_t *<I>aPtr</I>, bool <I>exact</I> );
+</PRE>
+</BLOCKQUOTE>
+</P>
+
+<H3>8.3. Conversions Among Floating-Point Types</H3>
+
+<P>
+Conversions between floating-point formats are done by functions with these
+names:
+<BLOCKQUOTE>
+<CODE>&lt;<I>float</I>&gt;_to_&lt;<I>float</I>&gt;</CODE>
+</BLOCKQUOTE>
+All combinations of source and result type are supported where the source and
+result are different formats.
+There are four different styles of signature for these functions, depending on
+whether the input and the output floating-point values are passed by value or
+via pointers:
+<BLOCKQUOTE>
+<PRE>
+float32_t f64_to_f32( float64_t <I>a</I> );
+</PRE>
+<PRE>
+float32_t f128M_to_f32( const float128_t *<I>aPtr</I> );
+</PRE>
+<PRE>
+void f32_to_f128M( float32_t <I>a</I>, float128_t *<I>destPtr</I> );
+</PRE>
+<PRE>
+void extF80M_to_f128M( const extFloat80_t *<I>aPtr</I>, float128_t *<I>destPtr</I> );
+</PRE>
+</BLOCKQUOTE>
+</P>
+
+<P>
+Conversions from a smaller to a larger floating-point format are always exact
+and so require no rounding.
+</P>
+
+<H3>8.4. Basic Arithmetic Functions</H3>
+
+<P>
+The following basic arithmetic functions are provided:
+<BLOCKQUOTE>
+<CODE>&lt;<I>float</I>&gt;_add</CODE><BR>
+<CODE>&lt;<I>float</I>&gt;_sub</CODE><BR>
+<CODE>&lt;<I>float</I>&gt;_mul</CODE><BR>
+<CODE>&lt;<I>float</I>&gt;_div</CODE><BR>
+<CODE>&lt;<I>float</I>&gt;_sqrt</CODE>
+</BLOCKQUOTE>
+Each floating-point operation takes two operands, except for <CODE>sqrt</CODE>
+(square root) which takes only one.
+The operands and result are all of the same floating-point format.
+Signatures for these functions take the following forms:
+<BLOCKQUOTE>
+<PRE>
+float64_t f64_add( float64_t <I>a</I>, float64_t <I>b</I> );
+</PRE>
+<PRE>
+void
+ f128M_add(
+     const float128_t *<I>aPtr</I>, const float128_t *<I>bPtr</I>, float128_t *<I>destPtr</I> );
+</PRE>
+<PRE>
+float64_t f64_sqrt( float64_t <I>a</I> );
+</PRE>
+<PRE>
+void f128M_sqrt( const float128_t *<I>aPtr</I>, float128_t *<I>destPtr</I> );
+</PRE>
+</BLOCKQUOTE>
+When floating-point values are passed indirectly through pointers, arguments
+<CODE><I>aPtr</I></CODE> and <CODE><I>bPtr</I></CODE> point to the input
+operands, and the last argument, <CODE><I>destPtr</I></CODE>, points to the
+location where the result is stored.
+</P>
+
+<P>
+Rounding of the <NOBR>80-bit</NOBR> double-extended-precision
+(<CODE>extFloat80_t</CODE>) functions is affected by variable
+<CODE>extF80_roundingPrecision</CODE>, as explained earlier in
+<NOBR>section 6.3</NOBR>,
+<I>Rounding Precision for the <NOBR>80-Bit</NOBR> Extended Format</I>.
+</P>
+
+<H3>8.5. Fused Multiply-Add Functions</H3>
+
+<P>
+The 2008 version of the IEEE Floating-Point Standard defines a <I>fused
+multiply-add</I> operation that does a combined multiplication and addition
+with only a single rounding.
+SoftFloat implements fused multiply-add with functions
+<BLOCKQUOTE>
+<CODE>&lt;<I>float</I>&gt;_mulAdd</CODE>
+</BLOCKQUOTE>
+Unlike other operations, fused multiple-add is not supported for the
+<NOBR>80-bit</NOBR> double-extended-precision format,
+<CODE>extFloat80_t</CODE>.
+</P>
+
+<P>
+Depending on whether floating-point values are passed by value or via pointers,
+the fused multiply-add functions have signatures of these forms:
+<BLOCKQUOTE>
+<PRE>
+float64_t f64_mulAdd( float64_t <I>a</I>, float64_t <I>b</I>, float64_t <I>c</I> );
+</PRE>
+<PRE>
+void
+ f128M_mulAdd(
+     const float128_t *<I>aPtr</I>,
+     const float128_t *<I>bPtr</I>,
+     const float128_t *<I>cPtr</I>,
+     float128_t *<I>destPtr</I>
+ );
+</PRE>
+</BLOCKQUOTE>
+The functions compute
+<NOBR>(<CODE><I>a</I></CODE> &times; <CODE><I>b</I></CODE>)
+ + <CODE><I>c</I></CODE></NOBR>
+with a single rounding.
+When floating-point values are passed indirectly through pointers, arguments
+<CODE><I>aPtr</I></CODE>, <CODE><I>bPtr</I></CODE>, and
+<CODE><I>cPtr</I></CODE> point to operands <CODE><I>a</I></CODE>,
+<CODE><I>b</I></CODE>, and <CODE><I>c</I></CODE> respectively, and
+<CODE><I>destPtr</I></CODE> points to the location where the result is stored.
+</P>
+
+<P>
+If one of the multiplication operands <CODE><I>a</I></CODE> and
+<CODE><I>b</I></CODE> is infinite and the other is zero, these functions raise
+the invalid exception even if operand <CODE><I>c</I></CODE> is a quiet NaN.
+</P>
+
+<H3>8.6. Remainder Functions</H3>
+
+<P>
+For each format, SoftFloat implements the remainder operation defined by the
+IEEE Floating-Point Standard.
+The remainder functions have names
+<BLOCKQUOTE>
+<CODE>&lt;<I>float</I>&gt;_rem</CODE>
+</BLOCKQUOTE>
+Each remainder operation takes two floating-point operands of the same format
+and returns a result in the same format.
+Depending on whether floating-point values are passed by value or via pointers,
+the remainder functions have signatures of these forms:
+<BLOCKQUOTE>
+<PRE>
+float64_t f64_rem( float64_t <I>a</I>, float64_t <I>b</I> );
+</PRE>
+<PRE>
+void
+ f128M_rem(
+     const float128_t *<I>aPtr</I>, const float128_t *<I>bPtr</I>, float128_t *<I>destPtr</I> );
+</PRE>
+</BLOCKQUOTE>
+When floating-point values are passed indirectly through pointers, arguments
+<CODE><I>aPtr</I></CODE> and <CODE><I>bPtr</I></CODE> point to operands
+<CODE><I>a</I></CODE> and <CODE><I>b</I></CODE> respectively, and
+<CODE><I>destPtr</I></CODE> points to the location where the result is stored.
+</P>
+
+<P>
+The IEEE Standard remainder operation computes the value
+<NOBR><CODE><I>a</I></CODE>
+ &minus; <I>n</I> &times; <CODE><I>b</I></CODE></NOBR>,
+where <I>n</I> is the integer closest to
+<NOBR><CODE><I>a</I></CODE> &divide; <CODE><I>b</I></CODE></NOBR>.
+If <NOBR><CODE><I>a</I></CODE> &divide; <CODE><I>b</I></CODE></NOBR> is exactly
+halfway between two integers, <I>n</I> is the <EM>even</EM> integer closest to
+<NOBR><CODE><I>a</I></CODE> &divide; <CODE><I>b</I></CODE></NOBR>.
+The IEEE Standard&rsquo;s remainder operation is always exact and so requires
+no rounding.
+</P>
+
+<P>
+Depending on the relative magnitudes of the operands, the remainder
+functions can take considerably longer to execute than the other SoftFloat
+functions.
+This is an inherent characteristic of the remainder operation itself and is not
+a flaw in the SoftFloat implementation.
+</P>
+
+<H3>8.7. Round-to-Integer Functions</H3>
+
+<P>
+For each format, SoftFloat implements the round-to-integer operation specified
+by the IEEE Floating-Point Standard.
+These functions are named
+<BLOCKQUOTE>
+<CODE>&lt;<I>float</I>&gt;_roundToInt</CODE>
+</BLOCKQUOTE>
+Each round-to-integer operation takes a single floating-point operand.
+This operand is rounded to an integer according to a specified rounding mode,
+and the resulting integer value is returned in the same floating-point format.
+(Note that the result is not an integer type.)
+</P>
+
+<P>
+The signatures of the round-to-integer functions are similar to those for
+conversions to an integer type:
+<BLOCKQUOTE>
+<PRE>
+float64_t f64_roundToInt( float64_t <I>a</I>, uint_fast8_t <I>roundingMode</I>, bool <I>exact</I> );
+</PRE>
+<PRE>
+void
+ f128M_roundToInt(
+     const float128_t *<I>aPtr</I>,
+     uint_fast8_t <I>roundingMode</I>,
+     bool <I>exact</I>,
+     float128_t *<I>destPtr</I>
+ );
+</PRE>
+</BLOCKQUOTE>
+When floating-point values are passed indirectly through pointers,
+<CODE><I>aPtr</I></CODE> points to the input operand and
+<CODE><I>destPtr</I></CODE> points to the location where the result is stored.
+</P>
+
+<P>
+The <CODE><I>roundingMode</I></CODE> argument specifies the rounding mode to
+apply.
+The variable that usually indicates rounding mode,
+<CODE>softfloat_roundingMode</CODE>, is ignored.
+Argument <CODE><I>exact</I></CODE> determines whether the <I>inexact</I>
+exception flag is raised if the conversion is not exact.
+If <CODE><I>exact</I></CODE> is <CODE>true</CODE>, the <I>inexact</I> flag may
+be raised;
+otherwise, it will not be, even if the conversion is inexact.
+</P>
+
+<H3>8.8. Comparison Functions</H3>
+
+<P>
+For each format, the following floating-point comparison functions are
+provided:
+<BLOCKQUOTE>
+<CODE>&lt;<I>float</I>&gt;_eq</CODE><BR>
+<CODE>&lt;<I>float</I>&gt;_le</CODE><BR>
+<CODE>&lt;<I>float</I>&gt;_lt</CODE>
+</BLOCKQUOTE>
+Each comparison takes two operands of the same type and returns a Boolean.
+The abbreviation <CODE>eq</CODE> stands for &ldquo;equal&rdquo; (=);
+<CODE>le</CODE> stands for &ldquo;less than or equal&rdquo; (&le;);
+and <CODE>lt</CODE> stands for &ldquo;less than&rdquo; (&lt;).
+Depending on whether the floating-point operands are passed by value or via
+pointers, the comparison functions have signatures of these forms:
+<BLOCKQUOTE>
+<PRE>
+bool f64_eq( float64_t <I>a</I>, float64_t <I>b</I> );
+</PRE>
+<PRE>
+bool f128M_eq( const float128_t *<I>aPtr</I>, const float128_t *<I>bPtr</I> );
+</PRE>
+</BLOCKQUOTE>
+</P>
+
+<P>
+The usual greater-than (&gt;), greater-than-or-equal (&ge;), and not-equal
+(&ne;) comparisons are easily obtained from the functions provided.
+The not-equal function is just the logical complement of the equal function.
+The greater-than-or-equal function is identical to the less-than-or-equal
+function with the arguments in reverse order, and likewise the greater-than
+function is identical to the less-than function with the arguments reversed.
+</P>
+
+<P>
+The IEEE Floating-Point Standard specifies that the less-than-or-equal and
+less-than comparisons by default raise the <I>invalid</I> exception if either
+operand is any kind of NaN.
+Equality comparisons, on the other hand, are defined by default to raise the
+<I>invalid</I> exception only for signaling NaNs, not quiet NaNs.
+For completeness, SoftFloat provides these complementary functions:
+<BLOCKQUOTE>
+<CODE>&lt;<I>float</I>&gt;_eq_signaling</CODE><BR>
+<CODE>&lt;<I>float</I>&gt;_le_quiet</CODE><BR>
+<CODE>&lt;<I>float</I>&gt;_lt_quiet</CODE>
+</BLOCKQUOTE>
+The <CODE>signaling</CODE> equality comparisons are identical to the default
+equality comparisons except that the <I>invalid</I> exception is raised for any
+NaN input, not just for signaling NaNs.
+Similarly, the <CODE>quiet</CODE> comparison functions are identical to their
+default counterparts except that the <I>invalid</I> exception is not raised for
+quiet NaNs.
+</P>
+
+<H3>8.9. Signaling NaN Test Functions</H3>
+
+<P>
+Functions for testing whether a floating-point value is a signaling NaN are
+provided with these names:
+<BLOCKQUOTE>
+<CODE>&lt;<I>float</I>&gt;_isSignalingNaN</CODE>
+</BLOCKQUOTE>
+The functions take one floating-point operand and return a Boolean indicating
+whether the operand is a signaling NaN.
+Accordingly, the functions have the forms
+<BLOCKQUOTE>
+<PRE>
+bool f64_isSignalingNaN( float64_t <I>a</I> );
+</PRE>
+<PRE>
+bool f128M_isSignalingNaN( const float128_t *<I>aPtr</I> );
+</PRE>
+</BLOCKQUOTE>
+</P>
+
+<H3>8.10. Raise-Exception Function</H3>
+
+<P>
+SoftFloat provides a single function for raising floating-point exceptions:
+<BLOCKQUOTE>
+<PRE>
+void softfloat_raiseFlags( uint_fast8_t <I>exceptions</I> );
+</PRE>
+</BLOCKQUOTE>
+The <CODE><I>exceptions</I></CODE> argument is a mask indicating the set of
+exceptions to raise.
+(See earlier section 7, <I>Exceptions and Exception Flags</I>.)
+In addition to setting the specified exception flags in variable
+<CODE>softfloat_exceptionFlags</CODE>, the <CODE>softfloat_raiseFlags</CODE>
+function may cause a trap or abort appropriate for the current system.
+</P>
+
+
+<H2>9. Changes from SoftFloat <NOBR>Release 2</NOBR></H2>
+
+<P>
+Apart from a change in the legal use license, <NOBR>Release 3</NOBR> of
+SoftFloat introduced numerous technical differences compared to earlier
+releases.
+</P>
+
+<H3>9.1. Name Changes</H3>
+
+<P>
+The most obvious and pervasive difference compared to <NOBR>Release 2</NOBR>
+is that the names of most functions and variables have changed, even when the
+behavior has not.
+First, the floating-point types, the mode variables, the exception flags
+variable, the function to raise exceptions, and various associated constants
+have been renamed as follows:
+<BLOCKQUOTE>
+<TABLE>
+<TR>
+<TD>old name, Release 2:</TD>
+<TD>new name, Release 3:</TD>
+</TR>
+<TR>
+<TD><CODE>float32</CODE></TD>
+<TD><CODE>float32_t</CODE></TD>
+</TR>
+<TR>
+<TD><CODE>float64</CODE></TD>
+<TD><CODE>float64_t</CODE></TD>
+</TR>
+<TR>
+<TD><CODE>floatx80</CODE></TD>
+<TD><CODE>extFloat80_t</CODE></TD>
+</TR>
+<TR>
+<TD><CODE>float128</CODE></TD>
+<TD><CODE>float128_t</CODE></TD>
+</TR>
+<TR>
+<TD><CODE>float_rounding_mode</CODE></TD>
+<TD><CODE>softfloat_roundingMode</CODE></TD>
+</TR>
+<TR>
+<TD><CODE>float_round_nearest_even</CODE></TD>
+<TD><CODE>softfloat_round_near_even</CODE></TD>
+</TR>
+<TR>
+<TD><CODE>float_round_to_zero</CODE></TD>
+<TD><CODE>softfloat_round_minMag</CODE></TD>
+</TR>
+<TR>
+<TD><CODE>float_round_down</CODE></TD>
+<TD><CODE>softfloat_round_min</CODE></TD>
+</TR>
+<TR>
+<TD><CODE>float_round_up</CODE></TD>
+<TD><CODE>softfloat_round_max</CODE></TD>
+</TR>
+<TR>
+<TD><CODE>float_detect_tininess</CODE></TD>
+<TD><CODE>softfloat_detectTininess</CODE></TD>
+</TR>
+<TR>
+<TD><CODE>float_tininess_before_rounding&nbsp;&nbsp;&nbsp;&nbsp;</CODE></TD>
+<TD><CODE>softfloat_tininess_beforeRounding</CODE></TD>
+</TR>
+<TR>
+<TD><CODE>float_tininess_after_rounding</CODE></TD>
+<TD><CODE>softfloat_tininess_afterRounding</CODE></TD>
+</TR>
+<TR>
+<TD><CODE>floatx80_rounding_precision</CODE></TD>
+<TD><CODE>extF80_roundingPrecision</CODE></TD>
+</TR>
+<TR>
+<TD><CODE>float_exception_flags</CODE></TD>
+<TD><CODE>softfloat_exceptionFlags</CODE></TD>
+</TR>
+<TR>
+<TD><CODE>float_flag_inexact</CODE></TD>
+<TD><CODE>softfloat_flag_inexact</CODE></TD>
+</TR>
+<TR>
+<TD><CODE>float_flag_underflow</CODE></TD>
+<TD><CODE>softfloat_flag_underflow</CODE></TD>
+</TR>
+<TR>
+<TD><CODE>float_flag_overflow</CODE></TD>
+<TD><CODE>softfloat_flag_overflow</CODE></TD>
+</TR>
+<TR>
+<TD><CODE>float_flag_divbyzero</CODE></TD>
+<TD><CODE>softfloat_flag_infinite</CODE></TD>
+</TR>
+<TR>
+<TD><CODE>float_flag_invalid</CODE></TD>
+<TD><CODE>softfloat_flag_invalid</CODE></TD>
+</TR>
+<TR>
+<TD><CODE>float_raise</CODE></TD>
+<TD><CODE>softfloat_raiseFlags</CODE></TD>
+</TR>
+</TABLE>
+</BLOCKQUOTE>
+</P>
+
+<P>
+Furthermore, <NOBR>Release 3</NOBR> adopted the following new abbreviations for
+function names:
+<BLOCKQUOTE>
+<TABLE>
+<TR>
+<TD>used in names in Release 2:<CODE>&nbsp;&nbsp;&nbsp;&nbsp;</CODE></TD>
+<TD>used in names in Release 3:</TD>
+</TR>
+<TR> <TD><CODE>int32</CODE></TD>    <TD><CODE>i32</CODE></TD>    </TR>
+<TR> <TD><CODE>int64</CODE></TD>    <TD><CODE>i64</CODE></TD>    </TR>
+<TR> <TD><CODE>float32</CODE></TD>  <TD><CODE>f32</CODE></TD>    </TR>
+<TR> <TD><CODE>float64</CODE></TD>  <TD><CODE>f64</CODE></TD>    </TR>
+<TR> <TD><CODE>floatx80</CODE></TD> <TD><CODE>extF80</CODE></TD> </TR>
+<TR> <TD><CODE>float128</CODE></TD> <TD><CODE>f128</CODE></TD>   </TR>
+</TABLE>
+</BLOCKQUOTE>
+Thus, for example, the function to add two <NOBR>32-bit</NOBR> floating-point
+numbers, previously called <CODE>float32_add</CODE> in <NOBR>Release 2</NOBR>,
+is now <CODE>f32_add</CODE>.
+Lastly, there have been a few other changes to function names:
+<BLOCKQUOTE>
+<TABLE>
+<TR>
+<TD>used in names in Release 2:<CODE>&nbsp;&nbsp;&nbsp;</CODE></TD>
+<TD>used in names in Release 3:<CODE>&nbsp;&nbsp;&nbsp;</CODE></TD>
+<TD>relevant functions:</TD>
+</TR>
+<TR>
+<TD><CODE>_round_to_zero</CODE></TD>
+<TD><CODE>_r_minMag</CODE></TD>
+<TD>conversions from floating-point to integer (<NOBR>section 8.2</NOBR>)</TD>
+</TR>
+<TR>
+<TD><CODE>round_to_int</CODE></TD>
+<TD><CODE>roundToInt</CODE></TD>
+<TD>round-to-integer functions (<NOBR>section 8.7</NOBR>)</TD>
+</TR>
+<TR>
+<TD><CODE>is_signaling_nan&nbsp;&nbsp;&nbsp;&nbsp;</CODE></TD>
+<TD><CODE>isSignalingNaN</CODE></TD>
+<TD>signaling NaN test functions (<NOBR>section 8.9</NOBR>)</TD>
+</TR>
+</TABLE>
+</BLOCKQUOTE>
+</P>
+
+<H3>9.2. Changes to Function Arguments</H3>
+
+<P>
+Besides simple name changes, some operations were given a different interface
+in <NOBR>Release 3</NOBR> than they had in <NOBR>Release 2</NOBR>:
+<UL>
+
+<LI>
+<P>
+Since <NOBR>Release 3</NOBR>, integer arguments and results of functions have
+standard types from header <CODE>&lt;stdint.h&gt;</CODE>, such as
+<CODE>uint32_t</CODE>, whereas previously their types could be defined
+differently for each port of SoftFloat, usually using traditional C types such
+as <CODE>unsigned</CODE> <CODE>int</CODE>.
+Likewise, functions in <NOBR>Release 3</NOBR> and later pass Booleans as
+standard type <CODE>bool</CODE> from <CODE>&lt;stdbool.h&gt;</CODE>, whereas
+previously these were again passed as a port-specific type (usually
+<CODE>int</CODE>).
+</P>
+
+<LI>
+<P>
+As explained earlier in <NOBR>section 4.5</NOBR>, <I>Conventions for Passing
+Arguments and Results</I>, SoftFloat functions in <NOBR>Release 3</NOBR> and
+later may pass <NOBR>80-bit</NOBR> and <NOBR>128-bit</NOBR> floating-point
+values through pointers, meaning that functions take pointer arguments and then
+read or write floating-point values at the locations indicated by the pointers.
+In <NOBR>Release 2</NOBR>, floating-point arguments and results were always
+passed by value, regardless of their size.
+</P>
+
+<LI>
+<P>
+Functions that round to an integer have additional
+<CODE><I>roundingMode</I></CODE> and <CODE><I>exact</I></CODE> arguments that
+they did not have in <NOBR>Release 2</NOBR>.
+Refer to sections 8.2 <NOBR>and 8.7</NOBR> for descriptions of these functions
+since <NOBR>Release 3</NOBR>.
+For <NOBR>Release 2</NOBR>, the rounding mode, when needed, was taken from the
+same global variable that affects the basic arithmetic operations (now called
+<CODE>softfloat_roundingMode</CODE> but previously known as
+<CODE>float_rounding_mode</CODE>).
+Also, for <NOBR>Release 2</NOBR>, if the original floating-point input was not
+an exact integer value, and if the <I>invalid</I> exception was not raised by
+the function, the <I>inexact</I> exception was always raised.
+<NOBR>Release 2</NOBR> had no option to suppress raising <I>inexact</I> in this
+case.
+Applications using SoftFloat <NOBR>Release 3</NOBR> or later can get the same
+effect as <NOBR>Release 2</NOBR> by passing variable
+<CODE>softfloat_roundingMode</CODE> for argument
+<CODE><I>roundingMode</I></CODE> and <CODE>true</CODE> for argument
+<CODE><I>exact</I></CODE>.
+</P>
+
+</UL>
+</P>
+
+<H3>9.3. Added Capabilities</H3>
+
+<P>
+With <NOBR>Release 3</NOBR>, some new features have been added that were not
+present in <NOBR>Release 2</NOBR>:
+<UL>
+
+<LI>
+<P>
+A port of SoftFloat can now define any of the floating-point types
+<CODE>float32_t</CODE>, <CODE>float64_t</CODE>, <CODE>extFloat80_t</CODE>, and
+<CODE>float128_t</CODE> as aliases for C&rsquo;s standard floating-point types
+<CODE>float</CODE>, <CODE>double</CODE>, and <CODE>long</CODE>
+<CODE>double</CODE>, using either <CODE>#define</CODE> or <CODE>typedef</CODE>.
+This potential convenience was not supported under <NOBR>Release 2</NOBR>.
+</P>
+
+<P>
+(Note, however, that there may be a performance cost to defining
+SoftFloat&rsquo;s floating-point types this way, depending on the platform and
+the applications using SoftFloat.
+Ports of SoftFloat may choose to forgo the convenience in favor of better
+speed.)
+</P>
+
+<P>
+<LI>
+As of <NOBR>Release 3b</NOBR>, <NOBR>16-bit</NOBR> half-precision,
+<CODE>float16_t</CODE>, is supported.
+</P>
+
+<P>
+<LI>
+Functions have been added for converting between the floating-point types and
+unsigned integers.
+<NOBR>Release 2</NOBR> supported only signed integers, not unsigned.
+</P>
+
+<P>
+<LI>
+Fused multiply-add functions have been added for all floating-point formats
+except <NOBR>80-bit</NOBR> double-extended-precision,
+<CODE>extFloat80_t</CODE>.
+</P>
+
+<P>
+<LI>
+New rounding modes are supported:
+<CODE>softfloat_round_near_maxMag</CODE> (round to nearest, with ties to
+maximum magnitude, away from zero), and, as of <NOBR>Release 3c</NOBR>,
+optional <CODE>softfloat_round_odd</CODE> (round to odd, also known as
+jamming).
+</P>
+
+</UL>
+</P>
+
+<H3>9.4. Better Compatibility with the C Language</H3>
+
+<P>
+<NOBR>Release 3</NOBR> of SoftFloat was written to conform better to the ISO C
+Standard&rsquo;s rules for portability.
+For example, older releases of SoftFloat employed type conversions in ways
+that, while commonly practiced, are not fully defined by the C Standard.
+Such problematic type conversions have generally been replaced by the use of
+unions, the behavior around which is more strictly regulated these days.
+</P>
+
+<H3>9.5. New Organization as a Library</H3>
+
+<P>
+Starting with <NOBR>Release 3</NOBR>, SoftFloat now builds as a library.
+Previously, SoftFloat compiled into a single, monolithic object file containing
+all the SoftFloat functions, with the consequence that a program linking with
+SoftFloat would get every SoftFloat function in its binary file even if only a
+few functions were actually used.
+With SoftFloat in the form of a library, a program that is linked by a standard
+linker will include only those functions of SoftFloat that it needs and no
+others.
+</P>
+
+<H3>9.6. Optimization Gains (and Losses)</H3>
+
+<P>
+Individual SoftFloat functions have been variously improved in
+<NOBR>Release 3</NOBR> compared to earlier releases.
+In particular, better, faster algorithms have been deployed for the operations
+of division, square root, and remainder.
+For functions operating on the larger <NOBR>80-bit</NOBR> and
+<NOBR>128-bit</NOBR> formats, <CODE>extFloat80_t</CODE> and
+<CODE>float128_t</CODE>, code size has also generally been reduced.
+</P>
+
+<P>
+However, because <NOBR>Release 2</NOBR> compiled all of SoftFloat together as a
+single object file, compilers could make optimizations across function calls
+when one SoftFloat function calls another.
+Now that the functions of SoftFloat are compiled separately and only afterward
+linked together into a program, there is not usually the same opportunity to
+optimize across function calls.
+Some loss of speed has been observed due to this change.
+</P>
+
+
+<H2>10. Future Directions</H2>
+
+<P>
+The following improvements are anticipated for future releases of SoftFloat:
+<UL>
+<LI>
+more functions from the 2008 version of the IEEE Floating-Point Standard;
+<LI>
+consistent, defined behavior for non-canonical representations of extended
+format <CODE>extFloat80_t</CODE> (discussed in <NOBR>section 4.4</NOBR>,
+<I>Non-canonical Representations in <CODE>extFloat80_t</CODE></I>).
+
+</UL>
+</P>
+
+
+<H2>11. Contact Information</H2>
+
+<P>
+At the time of this writing, the most up-to-date information about SoftFloat
+and the latest release can be found at the Web page
+<A HREF="http://www.jhauser.us/arithmetic/SoftFloat.html"><NOBR><CODE>http://www.jhauser.us/arithmetic/SoftFloat.html</CODE></NOBR></A>.
+</P>
+
+
+</BODY>
+
