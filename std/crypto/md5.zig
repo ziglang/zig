@@ -108,7 +108,6 @@ pub const Md5 = struct {
 
         var s: [16]u32 = undefined;
 
-        // ERROR: cannot unroll this at comptime
         var i: usize = 0;
         while (i < 16) : (i += 1) {
             // NOTE: Performing or's separately improves perf by ~10%

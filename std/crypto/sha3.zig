@@ -123,35 +123,34 @@ fn keccak_f(comptime F: usize, d: []u8) void {
         *r = mem.readIntLE(u64, d[8*i .. 8*i + 8]);
     }
 
-    var x: usize = 0;
-    var y: usize = 0;
-    // TODO: Cannot unroll all loops here due to comptime differences.
-    inline for (RC[0..no_rounds]) |round| {
+    comptime var x: usize = 0;
+    comptime var y: usize = 0;
+    for (RC[0..no_rounds]) |round| {
         // theta
-        x = 0; while (x < 5) : (x += 1) {
+        x = 0; inline while (x < 5) : (x += 1) {
             c[x] = s[x] ^ s[x+5] ^ s[x+10] ^ s[x+15] ^ s[x+20];
         }
-        x = 0; while (x < 5) : (x += 1) {
+        x = 0; inline while (x < 5) : (x += 1) {
             t[0] = c[M5[x+4]] ^ math.rotl(u64, c[M5[x+1]], usize(1));
-            y = 0; while (y < 5) : (y += 1) {
+            y = 0; inline while (y < 5) : (y += 1) {
                 s[x + y*5] ^= t[0];
             }
         }
 
         // rho+pi
         t[0] = s[1];
-        x = 0; while (x < 24) : (x += 1) {
+        x = 0; inline while (x < 24) : (x += 1) {
             c[0] = s[PIL[x]];
             s[PIL[x]] = math.rotl(u64, t[0], ROTC[x]);
             t[0] = c[0];
         }
 
         // chi
-        y = 0; while (y < 5) : (y += 1) {
-            x = 0; while (x < 5) : (x += 1) {
+        y = 0; inline while (y < 5) : (y += 1) {
+            x = 0; inline while (x < 5) : (x += 1) {
                 c[x] = s[x + y*5];
             }
-            x = 0; while (x < 5) : (x += 1) {
+            x = 0; inline while (x < 5) : (x += 1) {
                 s[x + y*5] = c[x] ^ (~c[M5[x+1]] & c[M5[x+2]]);
             }
         }

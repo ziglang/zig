@@ -156,7 +156,6 @@ fn Sha2_32(comptime params: Sha2Params32) type { return struct {
 
         var s: [64]u32 = undefined;
 
-        // ERROR: Cannot unroll at compile-time.
         var i: usize = 0;
         while (i < 16) : (i += 1) {
             s[i] = 0;
@@ -472,7 +471,6 @@ fn Sha2_64(comptime params: Sha2Params64) type { return struct {
 
         var s: [80]u64 = undefined;
 
-        // ERROR: Cannot unroll at compile-time.
         var i: usize = 0;
         while (i < 16) : (i += 1) {
             s[i] = 0;
