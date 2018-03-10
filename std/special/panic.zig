@@ -14,11 +14,8 @@ pub fn panic(msg: []const u8, error_return_trace: ?&builtin.StackTrace) noreturn
             while (true) {}
         },
         else => {
-            std.debug.stack_trace_start_address = @ptrToInt(@returnAddress());
-            if (error_return_trace) |trace| {
-                std.debug.panicWithTrace(trace, "{}", msg);
-            }
-            std.debug.panic("{}", msg);
+            const first_trace_addr = @ptrToInt(@returnAddress());
+            std.debug.panicExtra(error_return_trace, first_trace_addr, "{}", msg);
         },
     }
 }

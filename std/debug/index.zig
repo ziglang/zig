@@ -9,7 +9,6 @@ const macho = std.macho;
 const ArrayList = std.ArrayList;
 const builtin = @import("builtin");
 
-pub var stack_trace_start_address: ?usize = null;
 pub const FailingAllocator = @import("failing_allocator.zig").FailingAllocator;
 
 /// Tries to write to stderr, unbuffered, and ignores any error returned.
@@ -46,13 +45,13 @@ pub fn getSelfDebugInfo() !&ElfStackTrace {
 }
 
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
-pub fn dumpCurrentStackTrace() void {
+pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     const stderr = getStderrStream() catch return;
     const debug_info = getSelfDebugInfo() catch |err| {
         stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", @errorName(err)) catch return;
         return;
     };
-    writeCurrentStackTrace(stderr, global_allocator, debug_info, stderr_file.isTty()) catch |err| {
+    writeCurrentStackTrace(stderr, global_allocator, debug_info, stderr_file.isTty(), start_addr) catch |err| {
         stderr.print("Unable to dump stack trace: {}\n", @errorName(err)) catch return;
         return;
     };
@@ -97,9 +96,17 @@ pub fn assertOrPanic(ok: bool) void {
     }
 }
 
-var panicking: u8 = 0; // TODO make this a bool
-/// This is the default panic implementation.
 pub fn panic(comptime format: []const u8, args: ...) noreturn {
+    @setCold(true);
+    const first_trace_addr = @ptrToInt(@returnAddress());
+    panicExtra(null, first_trace_addr, format, args);
+}
+
+var panicking: u8 = 0; // TODO make this a bool
+
+pub fn panicExtra(trace: ?&const builtin.StackTrace, first_trace_addr: ?usize,
+    comptime format: []const u8, args: ...) noreturn
+{
     @setCold(true);
 
     if (@atomicRmw(u8, &panicking, builtin.AtomicRmwOp.Xchg, 1, builtin.AtomicOrder.SeqCst) == 1) {
@@ -110,25 +117,12 @@ pub fn panic(comptime format: []const u8, args: ...) noreturn {
         // which first called panic can finish printing a stack trace.
         os.abort();
     }
-
     const stderr = getStderrStream() catch os.abort();
     stderr.print(format ++ "\n", args) catch os.abort();
-    dumpCurrentStackTrace();
-
-    os.abort();
-}
-
-pub fn panicWithTrace(trace: &const builtin.StackTrace, comptime format: []const u8, args: ...) noreturn {
-    @setCold(true);
-
-    if (@atomicRmw(u8, &panicking, builtin.AtomicRmwOp.Xchg, 1, builtin.AtomicOrder.SeqCst) == 1) {
-        // See TODO in above function
-        os.abort();
+    if (trace) |t| {
+        dumpStackTrace(t);
     }
-    const stderr = getStderrStream() catch os.abort();
-    stderr.print(format ++ "\n", args) catch os.abort();
-    dumpStackTrace(trace);
-    dumpCurrentStackTrace();
+    dumpCurrentStackTrace(first_trace_addr);
 
     os.abort();
 }
@@ -161,18 +155,17 @@ pub fn writeStackTrace(stack_trace: &const builtin.StackTrace, out_stream: var, 
 }
 
 pub fn writeCurrentStackTrace(out_stream: var, allocator: &mem.Allocator,
-    debug_info: &ElfStackTrace, tty_color: bool) !void
+    debug_info: &ElfStackTrace, tty_color: bool, start_addr: ?usize) !void
 {
     const AddressState = union(enum) {
         NotLookingForStartAddress,
         LookingForStartAddress: usize,
-        FoundStartAddress,
     };
     // TODO: I want to express like this:
-    //var addr_state = if (stack_trace_start_address) |addr| AddressState { .LookingForStartAddress = addr }
+    //var addr_state = if (start_addr) |addr| AddressState { .LookingForStartAddress = addr }
     //    else AddressState.NotLookingForStartAddress;
     var addr_state: AddressState = undefined;
-    if (stack_trace_start_address) |addr| {
+    if (start_addr) |addr| {
         addr_state = AddressState { .LookingForStartAddress = addr };
     } else {
         addr_state = AddressState.NotLookingForStartAddress;
@@ -183,15 +176,14 @@ pub fn writeCurrentStackTrace(out_stream: var, allocator: &mem.Allocator,
         const return_address = *@intToPtr(&const usize, fp + @sizeOf(usize));
 
         switch (addr_state) {
-            AddressState.NotLookingForStartAddress => continue,
+            AddressState.NotLookingForStartAddress => {},
             AddressState.LookingForStartAddress => |addr| {
                 if (return_address == addr) {
-                    addr_state = AddressState.FoundStartAddress;
+                    addr_state = AddressState.NotLookingForStartAddress;
                 } else {
                     continue;
                 }
             },
-            AddressState.FoundStartAddress => {},
         }
         try printSourceAtAddress(debug_info, out_stream, return_address);
     }
