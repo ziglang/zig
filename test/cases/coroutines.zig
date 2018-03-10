@@ -130,3 +130,16 @@ fn early_seq(c: u8) void {
     early_points[early_seq_index] = c;
     early_seq_index += 1;
 }
+
+test "coro allocation failure" {
+    var failing_allocator = std.debug.FailingAllocator.init(std.debug.global_allocator, 0);
+    if (async(&failing_allocator.allocator) asyncFuncThatNeverGetsRun()) {
+        @panic("expected allocation failure");
+    } else |err| switch (err) {
+        error.OutOfMemory => {},
+    }
+}
+
+async fn asyncFuncThatNeverGetsRun() void {
+    @panic("coro frame allocation should fail");
+}
