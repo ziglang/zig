@@ -68,6 +68,7 @@ pub fn build(b: &Builder) !void {
 
         exe.linkSystemLibrary("pthread");
     } else if (exe.target.isDarwin()) {
+        exe.linkSystemLibrary("xml2");
         exe.linkSystemLibrary("c++");
     }
 
