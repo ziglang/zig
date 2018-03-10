@@ -61,6 +61,7 @@ struct IrExecutable {
     IrInstruction *coro_handle;
     IrInstruction *coro_awaiter_field_ptr; // this one is shared and in the promise
     IrInstruction *coro_result_ptr_field_ptr;
+    IrInstruction *coro_result_field_ptr;
     IrInstruction *await_handle_var_ptr; // this one is where we put the one we extracted from the promise
     IrBasicBlock *coro_early_final;
     IrBasicBlock *coro_normal_final;
@@ -1281,7 +1282,7 @@ struct FnTableEntry {
     bool is_cold;
 
     ZigList<FnExport> export_list;
-    bool calls_errorable_function;
+    bool calls_or_awaits_errorable_fn;
 };
 
 uint32_t fn_table_entry_hash(FnTableEntry*);
@@ -2038,6 +2039,7 @@ enum IrInstructionId {
     IrInstructionIdCoroAllocHelper,
     IrInstructionIdAtomicRmw,
     IrInstructionIdPromiseResultType,
+    IrInstructionIdAwaitBookkeeping,
 };
 
 struct IrInstruction {
@@ -2983,6 +2985,12 @@ struct IrInstructionPromiseResultType {
     IrInstruction base;
 
     IrInstruction *promise_type;
+};
+
+struct IrInstructionAwaitBookkeeping {
+    IrInstruction base;
+
+    IrInstruction *promise_result_type;
 };
 
 static const size_t slice_ptr_index = 0;

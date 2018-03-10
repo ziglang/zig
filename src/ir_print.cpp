@@ -1155,6 +1155,12 @@ static void ir_print_atomic_rmw(IrPrint *irp, IrInstructionAtomicRmw *instructio
     fprintf(irp->f, ")");
 }
 
+static void ir_print_await_bookkeeping(IrPrint *irp, IrInstructionAwaitBookkeeping *instruction) {
+    fprintf(irp->f, "@awaitBookkeeping(");
+    ir_print_other_instruction(irp, instruction->promise_result_type);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1522,6 +1528,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdPromiseResultType:
             ir_print_promise_result_type(irp, (IrInstructionPromiseResultType *)instruction);
+            break;
+        case IrInstructionIdAwaitBookkeeping:
+            ir_print_await_bookkeeping(irp, (IrInstructionAwaitBookkeeping *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

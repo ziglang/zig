@@ -5856,9 +5856,11 @@ uint32_t get_coro_frame_align_bytes(CodeGen *g) {
     return g->pointer_size_bytes * 2;
 }
 
+bool type_can_fail(TypeTableEntry *type_entry) {
+    return type_entry->id == TypeTableEntryIdErrorUnion || type_entry->id == TypeTableEntryIdErrorSet;
+}
+
 bool fn_type_can_fail(FnTypeId *fn_type_id) {
-    TypeTableEntry *return_type = fn_type_id->return_type;
-    return return_type->id == TypeTableEntryIdErrorUnion || return_type->id == TypeTableEntryIdErrorSet ||
-        fn_type_id->cc == CallingConventionAsync;
+    return type_can_fail(fn_type_id->return_type) || fn_type_id->cc == CallingConventionAsync;
 }
 

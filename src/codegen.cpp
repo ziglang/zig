@@ -4251,6 +4251,7 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
         case IrInstructionIdExport:
         case IrInstructionIdErrorUnion:
         case IrInstructionIdPromiseResultType:
+        case IrInstructionIdAwaitBookkeeping:
             zig_unreachable();
 
         case IrInstructionIdReturn:
@@ -5279,7 +5280,7 @@ static void do_code_gen(CodeGen *g) {
         uint32_t err_ret_trace_arg_index = get_err_ret_trace_arg_index(g, fn_table_entry);
         if (err_ret_trace_arg_index != UINT32_MAX) {
             g->cur_err_ret_trace_val = LLVMGetParam(fn, err_ret_trace_arg_index);
-        } else if (g->have_err_ret_tracing && fn_table_entry->calls_errorable_function) {
+        } else if (g->have_err_ret_tracing && fn_table_entry->calls_or_awaits_errorable_fn) {
             // TODO call graph analysis to find out what this number needs to be for every function
             static const size_t stack_trace_ptr_count = 30;
 
