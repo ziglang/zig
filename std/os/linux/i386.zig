@@ -421,62 +421,62 @@ pub const F_GETOWN_EX = 16;
 pub const F_GETOWNER_UIDS = 17;
 
 pub inline fn syscall0(number: usize) usize {
-    asm volatile ("int $0x80"
+    return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize)
-        : [number] "{eax}" (number))
+        : [number] "{eax}" (number));
 }
 
 pub inline fn syscall1(number: usize, arg1: usize) usize {
-    asm volatile ("int $0x80"
+    return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize)
         : [number] "{eax}" (number),
-            [arg1] "{ebx}" (arg1))
+            [arg1] "{ebx}" (arg1));
 }
 
 pub inline fn syscall2(number: usize, arg1: usize, arg2: usize) usize {
-    asm volatile ("int $0x80"
+    return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize)
         : [number] "{eax}" (number),
             [arg1] "{ebx}" (arg1),
-            [arg2] "{ecx}" (arg2))
+            [arg2] "{ecx}" (arg2));
 }
 
 pub inline fn syscall3(number: usize, arg1: usize, arg2: usize, arg3: usize) usize {
-    asm volatile ("int $0x80"
+    return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize)
         : [number] "{eax}" (number),
             [arg1] "{ebx}" (arg1),
             [arg2] "{ecx}" (arg2),
-            [arg3] "{edx}" (arg3))
+            [arg3] "{edx}" (arg3));
 }
 
 pub inline fn syscall4(number: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
-    asm volatile ("int $0x80"
+    return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize)
         : [number] "{eax}" (number),
             [arg1] "{ebx}" (arg1),
             [arg2] "{ecx}" (arg2),
             [arg3] "{edx}" (arg3),
-            [arg4] "{esi}" (arg4))
+            [arg4] "{esi}" (arg4));
 }
 
 pub inline fn syscall5(number: usize, arg1: usize, arg2: usize, arg3: usize,
-    arg4: usize, arg5: usize) -> usize
+    arg4: usize, arg5: usize) usize
 {
-    asm volatile ("int $0x80"
+    return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize)
         : [number] "{eax}" (number),
             [arg1] "{ebx}" (arg1),
             [arg2] "{ecx}" (arg2),
             [arg3] "{edx}" (arg3),
             [arg4] "{esi}" (arg4),
-            [arg5] "{edi}" (arg5))
+            [arg5] "{edi}" (arg5));
 }
 
 pub inline fn syscall6(number: usize, arg1: usize, arg2: usize, arg3: usize,
-    arg4: usize, arg5: usize, arg6: usize) -> usize
+    arg4: usize, arg5: usize, arg6: usize) usize
 {
-    asm volatile ("int $0x80"
+    return asm volatile ("int $0x80"
         : [ret] "={eax}" (-> usize)
         : [number] "{eax}" (number),
             [arg1] "{ebx}" (arg1),
@@ -484,7 +484,7 @@ pub inline fn syscall6(number: usize, arg1: usize, arg2: usize, arg3: usize,
             [arg3] "{edx}" (arg3),
             [arg4] "{esi}" (arg4),
             [arg5] "{edi}" (arg5),
-            [arg6] "{ebp}" (arg6))
+            [arg6] "{ebp}" (arg6));
 }
 
 pub nakedcc fn restore() void {
@@ -494,12 +494,12 @@ pub nakedcc fn restore() void {
         \\int $0x80
         :
         :
-        : "rcx", "r11")
+        : "rcx", "r11");
 }
 
 pub nakedcc fn restore_rt() void {
     asm volatile ("int $0x80"
         :
         : [number] "{eax}" (usize(SYS_rt_sigreturn))
-        : "rcx", "r11")
+        : "rcx", "r11");
 }
