@@ -68,7 +68,6 @@ pub fn build(b: &Builder) !void {
 
         exe.linkSystemLibrary("pthread");
     } else if (exe.target.isDarwin()) {
-        exe.linkSystemLibrary("xml2");
         exe.linkSystemLibrary("c++");
     }
 
@@ -76,6 +75,9 @@ pub fn build(b: &Builder) !void {
         exe.addObjectFile(dia_guids_lib);
     }
 
+    if (exe.target.getOs() != builtin.Os.windows) {
+        exe.linkSystemLibrary("xml2");
+    }
     exe.linkSystemLibrary("c");
 
     b.default_step.dependOn(&exe.step);
