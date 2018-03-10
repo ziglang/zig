@@ -274,11 +274,10 @@ test "basic linked list test" {
     assert (list.len == 2);
 }
 
-const link = "link";
-const ElementList = IntrusiveLinkedList(Element, link);
+const ElementList = IntrusiveLinkedList(Element, "link");
 const Element = struct {
     value: u32,
-    link: IntrusiveLinkedList(Element, link).Node,
+    link: IntrusiveLinkedList(Element, "link").Node,
 };
 
 test "basic intrusive linked list test" {
