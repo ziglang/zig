@@ -9,6 +9,7 @@ const macho = std.macho;
 const ArrayList = std.ArrayList;
 const builtin = @import("builtin");
 
+pub var stack_trace_start_address: ?usize = null;
 pub const FailingAllocator = @import("failing_allocator.zig").FailingAllocator;
 
 /// Tries to write to stderr, unbuffered, and ignores any error returned.
@@ -51,8 +52,7 @@ pub fn dumpCurrentStackTrace() void {
         stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", @errorName(err)) catch return;
         return;
     };
-    defer debug_info.close();
-    writeCurrentStackTrace(stderr, global_allocator, debug_info, stderr_file.isTty(), 1) catch |err| {
+    writeCurrentStackTrace(stderr, global_allocator, debug_info, stderr_file.isTty()) catch |err| {
         stderr.print("Unable to dump stack trace: {}\n", @errorName(err)) catch return;
         return;
     };
@@ -65,7 +65,6 @@ pub fn dumpStackTrace(stack_trace: &const builtin.StackTrace) void {
         stderr.print("Unable to dump stack trace: Unable to open debug info: {}\n", @errorName(err)) catch return;
         return;
     };
-    defer debug_info.close();
     writeStackTrace(stack_trace, stderr, global_allocator, debug_info, stderr_file.isTty()) catch |err| {
         stderr.print("Unable to dump stack trace: {}\n", @errorName(err)) catch return;
         return;
@@ -162,18 +161,38 @@ pub fn writeStackTrace(stack_trace: &const builtin.StackTrace, out_stream: var, 
 }
 
 pub fn writeCurrentStackTrace(out_stream: var, allocator: &mem.Allocator,
-    debug_info: &ElfStackTrace, tty_color: bool, ignore_frame_count: usize) !void
+    debug_info: &ElfStackTrace, tty_color: bool) !void
 {
-    var ignored_count: usize = 0;
+    const AddressState = union(enum) {
+        NotLookingForStartAddress,
+        LookingForStartAddress: usize,
+        FoundStartAddress,
+    };
+    // TODO: I want to express like this:
+    //var addr_state = if (stack_trace_start_address) |addr| AddressState { .LookingForStartAddress = addr }
+    //    else AddressState.NotLookingForStartAddress;
+    var addr_state: AddressState = undefined;
+    if (stack_trace_start_address) |addr| {
+        addr_state = AddressState { .LookingForStartAddress = addr };
+    } else {
+        addr_state = AddressState.NotLookingForStartAddress;
+    }
 
     var fp = @ptrToInt(@frameAddress());
     while (fp != 0) : (fp = *@intToPtr(&const usize, fp)) {
-        if (ignored_count < ignore_frame_count) {
-            ignored_count += 1;
-            continue;
-        }
-
         const return_address = *@intToPtr(&const usize, fp + @sizeOf(usize));
+
+        switch (addr_state) {
+            AddressState.NotLookingForStartAddress => continue,
+            AddressState.LookingForStartAddress => |addr| {
+                if (return_address == addr) {
+                    addr_state = AddressState.FoundStartAddress;
+                } else {
+                    continue;
+                }
+            },
+            AddressState.FoundStartAddress => {},
+        }
         try printSourceAtAddress(debug_info, out_stream, return_address);
     }
 }

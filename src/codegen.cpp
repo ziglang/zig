@@ -3299,8 +3299,8 @@ static LLVMValueRef ir_render_align_cast(CodeGen *g, IrExecutable *executable, I
 static LLVMValueRef ir_render_error_return_trace(CodeGen *g, IrExecutable *executable,
         IrInstructionErrorReturnTrace *instruction)
 {
-    TypeTableEntry *ptr_to_stack_trace_type = get_ptr_to_stack_trace_type(g);
     if (g->cur_err_ret_trace_val == nullptr) {
+        TypeTableEntry *ptr_to_stack_trace_type = get_ptr_to_stack_trace_type(g);
         return LLVMConstNull(ptr_to_stack_trace_type->type_ref);
     }
     return g->cur_err_ret_trace_val;
@@ -3925,7 +3925,7 @@ static LLVMValueRef ir_render_container_init_list(CodeGen *g, IrExecutable *exec
 }
 
 static LLVMValueRef ir_render_panic(CodeGen *g, IrExecutable *executable, IrInstructionPanic *instruction) {
-    gen_panic(g, ir_llvm_value(g, instruction->msg), nullptr);
+    gen_panic(g, ir_llvm_value(g, instruction->msg), g->cur_err_ret_trace_val);
     return nullptr;
 }
 
