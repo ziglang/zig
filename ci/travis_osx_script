@@ -5,7 +5,7 @@ set -e
 
 mkdir build
 cd build
-cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@5/ -DCMAKE_INSTALL_PREFIX=$(pwd)
+cmake .. -DCMAKE_PREFIX_PATH=/usr/local/opt/llvm@6/ -DCMAKE_INSTALL_PREFIX=$(pwd)
 make VERBOSE=1
 make install
 
