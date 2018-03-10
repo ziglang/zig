@@ -179,9 +179,7 @@ pub fn writeCurrentStackTrace(out_stream: var, allocator: &mem.Allocator,
 }
 
 fn printSourceAtAddress(debug_info: &ElfStackTrace, out_stream: var, address: usize) !void {
-    // TODO we really should be able to convert @sizeOf(usize) * 2 to a string literal
-    // at compile time. I'll call it issue #313
-    const ptr_hex = if (@sizeOf(usize) == 4) "0x{x8}" else "0x{x16}";
+    const ptr_hex = "0x{x}";
 
     switch (builtin.os) {
         builtin.Os.windows => return error.UnsupportedDebugInfo,
