@@ -709,7 +709,7 @@ target_link_libraries(zig LINK_PUBLIC
     ${LLVM_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
-if(APPLE)
+if(NOT MSVC)
     target_link_libraries(zig LINK_PUBLIC xml2)
 endif()
 if(ZIG_DIA_GUIDS_LIB)
