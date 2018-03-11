@@ -11,17 +11,17 @@ comptime {
     const strong_linkage = builtin.GlobalLinkage.Strong;
     if (builtin.link_libc) {
         @export("main", main, strong_linkage);
-    } else if (builtin.os == builtin.Os.zen) {
-        @export("main", zenMain, strong_linkage);
     } else if (builtin.os == builtin.Os.windows) {
         @export("WinMainCRTStartup", WinMainCRTStartup, strong_linkage);
+    } else if (builtin.os == builtin.Os.zen) {
+        @export("_start", zen_start, strong_linkage);
     } else {
         @export("_start", _start, strong_linkage);
     }
 }
 
-extern fn zenMain() noreturn {
-    std.os.posix.exit(callMain());
+extern fn zen_start() noreturn {
+    std.os.posix.exit(@inlineCall(callMain));
 }
 
 nakedcc fn _start() noreturn {
