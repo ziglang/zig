@@ -12127,6 +12127,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             impl_fn->ir_executable.parent_exec = ira->new_irb.exec;
             impl_fn->analyzed_executable.source_node = call_instruction->base.source_node;
             impl_fn->analyzed_executable.parent_exec = ira->new_irb.exec;
+            impl_fn->analyzed_executable.is_generic_instantiation = true;
 
             ira->codegen->fn_defs.append(impl_fn);
         }
@@ -15234,7 +15235,7 @@ static TypeTableEntry *ir_analyze_instruction_type_id(IrAnalyze *ira,
 static TypeTableEntry *ir_analyze_instruction_set_eval_branch_quota(IrAnalyze *ira,
         IrInstructionSetEvalBranchQuota *instruction)
 {
-    if (ira->new_irb.exec->parent_exec != nullptr) {
+    if (ira->new_irb.exec->parent_exec != nullptr && !ira->new_irb.exec->is_generic_instantiation) {
         ir_add_error(ira, &instruction->base,
                 buf_sprintf("@setEvalBranchQuota must be called from the top of the comptime stack"));
         return ira->codegen->builtin_types.entry_invalid;

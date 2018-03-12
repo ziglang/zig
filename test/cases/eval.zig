@@ -448,3 +448,24 @@ test "comptime function with mutable pointer is not memoized" {
 fn increment(value: &i32) void {
     *value += 1;
 }
+
+fn generateTable(comptime T: type) [1010]T {
+    var res : [1010]T = undefined;
+    var i : usize = 0;
+    while (i < 1010) : (i += 1) {
+        res[i] = T(i);
+    }
+    return res;
+}
+
+fn doesAlotT(comptime T: type, value: usize) T {
+    @setEvalBranchQuota(5000);
+    const table = comptime blk: {
+        break :blk generateTable(T);
+    };
+    return table[value];
+}
+
+test "@setEvalBranchQuota at same scope as generic function call" {
+    assert(doesAlotT(u32, 2) == 2);
+}

@@ -49,6 +49,7 @@ struct IrExecutable {
     size_t backward_branch_quota;
     bool invalid;
     bool is_inline;
+    bool is_generic_instantiation;
     FnTableEntry *fn_entry;
     Buf *c_import_buf;
     AstNode *source_node;
