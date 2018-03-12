@@ -486,3 +486,20 @@ test "comptime slice of pointer preserves comptime var" {
         assert(buff[0..][0..][0] == 1);
     }
 }
+
+const SingleFieldStruct = struct {
+    x: i32,
+
+    fn read_x(self: &const SingleFieldStruct) i32 {
+        return self.x;
+    }
+};
+test "const ptr to comptime mutable data is not memoized" {
+
+    comptime {
+        var foo = SingleFieldStruct {.x = 1};
+        assert(foo.read_x() == 1);
+        foo.x = 2;
+        assert(foo.read_x() == 2);
+    }
+}
