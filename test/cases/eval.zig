@@ -469,3 +469,20 @@ fn doesAlotT(comptime T: type, value: usize) T {
 test "@setEvalBranchQuota at same scope as generic function call" {
     assert(doesAlotT(u32, 2) == 2);
 }
+
+test "comptime slice of slice preserves comptime var" {
+    comptime {
+        var buff: [10]u8 = undefined;
+        buff[0..][0..][0] = 1;
+        assert(buff[0..][0..][0] == 1);
+    }
+}
+
+test "comptime slice of pointer preserves comptime var" {
+    comptime {
+        var buff: [10]u8 = undefined;
+        var a = &buff[0];
+        a[0..1][0] = 1;
+        assert(buff[0..][0..][0] == 1);
+    }
+}

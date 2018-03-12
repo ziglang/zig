@@ -15995,6 +15995,10 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
             init_const_ptr_array(ira->codegen, ptr_val, array_val, index, is_const);
             if (array_type->id == TypeTableEntryIdArray) {
                 ptr_val->data.x_ptr.mut = ptr_ptr->value.data.x_ptr.mut;
+            } else if (is_slice(array_type)) {
+                ptr_val->data.x_ptr.mut = parent_ptr->data.x_ptr.mut;
+            } else if (array_type->id == TypeTableEntryIdPointer) {
+                ptr_val->data.x_ptr.mut = parent_ptr->data.x_ptr.mut;
             }
         } else if (ptr_is_undef) {
             ptr_val->type = get_pointer_to_type(ira->codegen, parent_ptr->type->data.pointer.child_type,
