@@ -4631,7 +4631,51 @@ static bool can_mutate_comptime_var_state(ConstExprValue *value) {
     zig_unreachable();
 }
 
-bool fn_eval_cacheable(Scope *scope) {
+static bool return_type_is_cacheable(TypeTableEntry *return_type) {
+    switch (return_type->id) {
+        case TypeTableEntryIdInvalid:
+            zig_unreachable();
+        case TypeTableEntryIdMetaType:
+        case TypeTableEntryIdVoid:
+        case TypeTableEntryIdBool:
+        case TypeTableEntryIdUnreachable:
+        case TypeTableEntryIdInt:
+        case TypeTableEntryIdFloat:
+        case TypeTableEntryIdNumLitFloat:
+        case TypeTableEntryIdNumLitInt:
+        case TypeTableEntryIdUndefLit:
+        case TypeTableEntryIdNullLit:
+        case TypeTableEntryIdNamespace:
+        case TypeTableEntryIdBoundFn:
+        case TypeTableEntryIdFn:
+        case TypeTableEntryIdBlock:
+        case TypeTableEntryIdOpaque:
+        case TypeTableEntryIdPromise:
+        case TypeTableEntryIdErrorSet:
+        case TypeTableEntryIdEnum:
+        case TypeTableEntryIdPointer:
+            return true;
+
+        case TypeTableEntryIdArray:
+        case TypeTableEntryIdStruct:
+        case TypeTableEntryIdUnion:
+            return false;
+
+        case TypeTableEntryIdMaybe:
+            return return_type_is_cacheable(return_type->data.maybe.child_type);
+
+        case TypeTableEntryIdErrorUnion:
+            return return_type_is_cacheable(return_type->data.error_union.payload_type);
+
+        case TypeTableEntryIdArgTuple:
+            zig_panic("TODO var args at comptime is currently not supported");
+    }
+    zig_unreachable();
+}
+
+bool fn_eval_cacheable(Scope *scope, TypeTableEntry *return_type) {
+    if (!return_type_is_cacheable(return_type))
+        return false;
     while (scope) {
         if (scope->id == ScopeIdVarDecl) {
             ScopeVarDecl *var_scope = (ScopeVarDecl *)scope;

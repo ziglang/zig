@@ -11878,7 +11878,7 @@ static TypeTableEntry *ir_analyze_fn_call(IrAnalyze *ira, IrInstructionCall *cal
             return_type = specified_return_type;
         }
 
-        bool cacheable = fn_eval_cacheable(exec_scope);
+        bool cacheable = fn_eval_cacheable(exec_scope, return_type);
         IrInstruction *result = nullptr;
         if (cacheable) {
             auto entry = ira->codegen->memoized_fn_eval_table.maybe_get(exec_scope);

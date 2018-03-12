@@ -369,7 +369,7 @@ fn calcDecodedSizeExactUnsafe(source: []const u8, pad_char: u8) usize {
 
 
 test "base64" {
-    @setEvalBranchQuota(5000);
+    @setEvalBranchQuota(8000);
     testBase64() catch unreachable;
     comptime (testBase64() catch unreachable);
 }
