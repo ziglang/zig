@@ -970,7 +970,11 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     if (table_entry) {
         return table_entry->value;
     }
-    ensure_complete_type(g, fn_type_id->return_type);
+    if (fn_type_id->return_type != nullptr) {
+        ensure_complete_type(g, fn_type_id->return_type);
+    } else {
+        zig_panic("TODO implement inferred return types https://github.com/zig-lang/zig/issues/447");
+    }
 
     TypeTableEntry *fn_type = new_type_table_entry(TypeTableEntryIdFn);
     fn_type->is_copyable = true;
