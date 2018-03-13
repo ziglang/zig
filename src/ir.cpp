@@ -713,6 +713,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionAwaitBookkeeping
     return IrInstructionIdAwaitBookkeeping;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionSaveErrRetAddr *) {
+    return IrInstructionIdSaveErrRetAddr;
+}
+
 template<typename T>
 static T *ir_create_instruction(IrBuilder *irb, Scope *scope, AstNode *source_node) {
     T *special_instruction = allocate<T>(1);
@@ -2678,6 +2682,11 @@ static IrInstruction *ir_build_await_bookkeeping(IrBuilder *irb, Scope *scope, A
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_save_err_ret_addr(IrBuilder *irb, Scope *scope, AstNode *source_node) {
+    IrInstructionSaveErrRetAddr *instruction = ir_build_instruction<IrInstructionSaveErrRetAddr>(irb, scope, source_node);
+    return &instruction->base;
+}
+
 static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope, size_t *results) {
     results[ReturnKindUnconditional] = 0;
     results[ReturnKindError] = 0;
@@ -2750,16 +2759,16 @@ static ScopeDeferExpr *get_scope_defer_expr(Scope *scope) {
     return nullptr;
 }
 
+static bool exec_is_async(IrExecutable *exec) {
+    FnTableEntry *fn_entry = exec_fn_entry(exec);
+    return fn_entry != nullptr && fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
+}
+
 static IrInstruction *ir_gen_async_return(IrBuilder *irb, Scope *scope, AstNode *node, IrInstruction *return_value,
     bool is_generated_code)
 {
-    FnTableEntry *fn_entry = exec_fn_entry(irb->exec);
-    bool is_async = fn_entry != nullptr && fn_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
+    bool is_async = exec_is_async(irb->exec);
     if (!is_async) {
-        //if (irb->codegen->have_err_ret_tracing) {
-        //    IrInstruction *stack_trace_ptr = ir_build_error_return_trace_nonnull(irb, scope, node);
-        //    ir_build_save_err_ret_addr(irb, scope, node, stack_trace_ptr);
-        //}
         IrInstruction *return_inst = ir_build_return(irb, scope, node, return_value);
         return_inst->is_gen = is_generated_code;
         return return_inst;
@@ -2781,21 +2790,33 @@ static IrInstruction *ir_gen_async_return(IrBuilder *irb, Scope *scope, AstNode 
     // the above blocks are rendered by ir_gen after the rest of codegen
 }
 
-//static void ir_gen_save_err_ret_addr(IrBuilder *irb, Scope *scope, AstNode *node, bool is_async) {
-//    if (!irb->codegen->have_err_ret_tracing)
-//        return;
-//
-//    if (is_async) {
-//        IrInstruction *err_ret_addr_ptr = ir_build_load_ptr(irb, scope, node, irb->exec->coro_err_ret_addr_ptr);
-//        IrInstruction *return_address_ptr = ir_build_return_address(irb, scope, node);
-//        IrInstruction *return_address_usize = ir_build_ptr_to_int(irb, scope, node, return_address_ptr);
-//        ir_build_store_ptr(irb, scope, node, err_ret_addr_ptr, return_address_usize);
-//        return;
-//    }
-//
-//    IrInstruction *stack_trace_ptr = ir_build_error_return_trace_nonnull(irb, scope, node);
-//    ir_build_save_err_ret_addr(irb, scope, node, stack_trace_ptr);
-//}
+static bool exec_have_err_ret_trace(CodeGen *g, IrExecutable *exec) {
+    if (!g->have_err_ret_tracing)
+        return false;
+    FnTableEntry *fn_entry = exec_fn_entry(exec);
+    if (fn_entry == nullptr)
+        return false;
+    if (exec->is_inline)
+        return false;
+    return type_can_fail(fn_entry->type_entry->data.fn.fn_type_id.return_type);
+}
+
+static void ir_gen_save_err_ret_addr(IrBuilder *irb, Scope *scope, AstNode *node) {
+    if (!exec_have_err_ret_trace(irb->codegen, irb->exec))
+        return;
+
+    bool is_async = exec_is_async(irb->exec);
+
+    if (is_async) {
+        //IrInstruction *err_ret_addr_ptr = ir_build_load_ptr(irb, scope, node, irb->exec->coro_err_ret_addr_ptr);
+        //IrInstruction *return_address_ptr = ir_build_instr_addr(irb, scope, node);
+        //IrInstruction *return_address_usize = ir_build_ptr_to_int(irb, scope, node, return_address_ptr);
+        //ir_build_store_ptr(irb, scope, node, err_ret_addr_ptr, return_address_usize);
+        return;
+    }
+
+    ir_build_save_err_ret_addr(irb, scope, node);
+}
 
 static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node, LVal lval) {
     assert(node->type == NodeTypeReturnExpr);
@@ -2856,7 +2877,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                     if (have_err_defers) {
                         ir_gen_defers_for_block(irb, scope, outer_scope, true);
                     }
-                    //ir_gen_save_err_ret_addr(irb, scope, node, is_async);
+                    ir_gen_save_err_ret_addr(irb, scope, node);
                     ir_build_br(irb, scope, node, ret_stmt_block, is_comptime);
 
                     ir_set_cursor_at_end_and_append_block(irb, ok_block);
@@ -2895,6 +2916,7 @@ static IrInstruction *ir_gen_return(IrBuilder *irb, Scope *scope, AstNode *node,
                 ir_set_cursor_at_end_and_append_block(irb, return_block);
                 ir_gen_defers_for_block(irb, scope, outer_scope, true);
                 IrInstruction *err_val = ir_build_unwrap_err_code(irb, scope, node, err_union_ptr);
+                ir_gen_save_err_ret_addr(irb, scope, node);
                 ir_gen_async_return(irb, scope, node, err_val, false);
 
                 ir_set_cursor_at_end_and_append_block(irb, continue_block);
@@ -6406,6 +6428,7 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         return false;
 
     if (!instr_is_unreachable(result)) {
+        // no need for save_err_ret_addr because this cannot return error
         ir_gen_async_return(irb, scope, result->source_node, result, true);
     }
 
@@ -11464,13 +11487,17 @@ static TypeTableEntry *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructi
     return ira->codegen->builtin_types.entry_void;
 }
 
+static bool exec_has_err_ret_trace(CodeGen *g, IrExecutable *exec) {
+    FnTableEntry *fn_entry = exec_fn_entry(exec);
+    return fn_entry != nullptr && fn_entry->calls_or_awaits_errorable_fn && g->have_err_ret_tracing;
+}
+
 static TypeTableEntry *ir_analyze_instruction_error_return_trace(IrAnalyze *ira,
         IrInstructionErrorReturnTrace *instruction)
 {
-    FnTableEntry *fn_entry = exec_fn_entry(ira->new_irb.exec);
     TypeTableEntry *ptr_to_stack_trace_type = get_ptr_to_stack_trace_type(ira->codegen);
     TypeTableEntry *nullable_type = get_maybe_type(ira->codegen, ptr_to_stack_trace_type);
-    if (fn_entry == nullptr || !fn_entry->calls_or_awaits_errorable_fn || !ira->codegen->have_err_ret_tracing) {
+    if (!exec_has_err_ret_trace(ira->codegen, ira->new_irb.exec)) {
         ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
         out_val->data.x_maybe = nullptr;
         return nullable_type;
@@ -17775,6 +17802,14 @@ static TypeTableEntry *ir_analyze_instruction_await_bookkeeping(IrAnalyze *ira, 
     return out_val->type;
 }
 
+static TypeTableEntry *ir_analyze_instruction_save_err_ret_addr(IrAnalyze *ira, IrInstructionSaveErrRetAddr *instruction) {
+    IrInstruction *result = ir_build_save_err_ret_addr(&ira->new_irb, instruction->base.scope,
+            instruction->base.source_node);
+    ir_link_new_instruction(result, &instruction->base);
+    result->value.type = ira->codegen->builtin_types.entry_void;
+    return result->value.type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstruction *instruction) {
     switch (instruction->id) {
         case IrInstructionIdInvalid:
@@ -18012,6 +18047,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_promise_result_type(ira, (IrInstructionPromiseResultType *)instruction);
         case IrInstructionIdAwaitBookkeeping:
             return ir_analyze_instruction_await_bookkeeping(ira, (IrInstructionAwaitBookkeeping *)instruction);
+        case IrInstructionIdSaveErrRetAddr:
+            return ir_analyze_instruction_save_err_ret_addr(ira, (IrInstructionSaveErrRetAddr *)instruction);
     }
     zig_unreachable();
 }
@@ -18137,6 +18174,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCoroSave:
         case IrInstructionIdCoroAllocHelper:
         case IrInstructionIdAwaitBookkeeping:
+        case IrInstructionIdSaveErrRetAddr:
             return true;
 
         case IrInstructionIdPhi:

@@ -2034,6 +2034,7 @@ enum IrInstructionId {
     IrInstructionIdAtomicRmw,
     IrInstructionIdPromiseResultType,
     IrInstructionIdAwaitBookkeeping,
+    IrInstructionIdSaveErrRetAddr,
 };
 
 struct IrInstruction {
@@ -2986,6 +2987,10 @@ struct IrInstructionAwaitBookkeeping {
     IrInstruction base;
 
     IrInstruction *promise_result_type;
+};
+
+struct IrInstructionSaveErrRetAddr {
+    IrInstruction base;
 };
 
 static const size_t slice_ptr_index = 0;

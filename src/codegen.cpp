@@ -1607,32 +1607,25 @@ static LLVMValueRef ir_llvm_value(CodeGen *g, IrInstruction *instruction) {
     return instruction->llvm_value;
 }
 
+static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutable *executable,
+        IrInstructionSaveErrRetAddr *save_err_ret_addr_instruction)
+{
+    assert(g->have_err_ret_tracing);
+
+    LLVMValueRef return_err_fn = get_return_err_fn(g);
+    LLVMValueRef args[] = {
+        g->cur_err_ret_trace_val,
+    };
+    LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, return_err_fn, args, 1,
+            get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
+    LLVMSetTailCall(call_instruction, true);
+    return call_instruction;
+}
+
 static LLVMValueRef ir_render_return(CodeGen *g, IrExecutable *executable, IrInstructionReturn *return_instruction) {
     LLVMValueRef value = ir_llvm_value(g, return_instruction->value);
     TypeTableEntry *return_type = return_instruction->value->value.type;
 
-    if (g->have_err_ret_tracing) {
-        bool is_err_return = false;
-        if (return_type->id == TypeTableEntryIdErrorUnion) {
-            if (return_instruction->value->value.special == ConstValSpecialStatic) {
-                is_err_return = return_instruction->value->value.data.x_err_union.err != nullptr;
-            } else if (return_instruction->value->value.special == ConstValSpecialRuntime) {
-                is_err_return = return_instruction->value->value.data.rh_error_union == RuntimeHintErrorUnionError;
-                // TODO: emit a branch to check if the return value is an error
-            }
-        } else if (return_type->id == TypeTableEntryIdErrorSet) {
-            is_err_return = true;
-        }
-        if (is_err_return) {
-            LLVMValueRef return_err_fn = get_return_err_fn(g);
-            LLVMValueRef args[] = {
-                g->cur_err_ret_trace_val,
-            };
-            LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, return_err_fn, args, 1,
-                    get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
-            LLVMSetTailCall(call_instruction, true);
-        }
-    }
     if (handle_is_ptr(return_type)) {
         if (calling_convention_does_first_arg_return(g->cur_fn->type_entry->data.fn.fn_type_id.cc)) {
             assert(g->cur_ret_ptr);
@@ -4400,6 +4393,8 @@ static LLVMValueRef ir_render_instruction(CodeGen *g, IrExecutable *executable, 
             return ir_render_coro_alloc_helper(g, executable, (IrInstructionCoroAllocHelper *)instruction);
         case IrInstructionIdAtomicRmw:
             return ir_render_atomic_rmw(g, executable, (IrInstructionAtomicRmw *)instruction);
+        case IrInstructionIdSaveErrRetAddr:
+            return ir_render_save_err_ret_addr(g, executable, (IrInstructionSaveErrRetAddr *)instruction);
     }
     zig_unreachable();
 }

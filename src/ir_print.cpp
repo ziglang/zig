@@ -1161,6 +1161,10 @@ static void ir_print_await_bookkeeping(IrPrint *irp, IrInstructionAwaitBookkeepi
     fprintf(irp->f, ")");
 }
 
+static void ir_print_save_err_ret_addr(IrPrint *irp, IrInstructionSaveErrRetAddr *instruction) {
+    fprintf(irp->f, "@saveErrRetAddr()");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1531,6 +1535,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdAwaitBookkeeping:
             ir_print_await_bookkeeping(irp, (IrInstructionAwaitBookkeeping *)instruction);
+            break;
+        case IrInstructionIdSaveErrRetAddr:
+            ir_print_save_err_ret_addr(irp, (IrInstructionSaveErrRetAddr *)instruction);
             break;
     }
     fprintf(irp->f, "\n");
