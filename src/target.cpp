@@ -503,10 +503,27 @@ void get_target_triple(Buf *triple, const ZigTarget *target) {
     get_arch_name(arch_name, &target->arch);
 
     buf_resize(triple, 0);
-    buf_appendf(triple, "%s-%s-%s-%s", arch_name,
-            ZigLLVMGetVendorTypeName(target->vendor),
-            ZigLLVMGetOSTypeName(get_llvm_os_type(target->os)),
-            ZigLLVMGetEnvironmentTypeName(target->env_type));
+
+    // LLVM WebAssembly output support requires the target to be activated at
+    // build type with -DCMAKE_LLVM_EXPIERMENTAL_TARGETS_TO_BUILD=WebAssembly.
+    //
+    // LLVM determines the output format based on the environment suffix,
+    // defaulting to an object based on the architecture. The default format in
+    // LLVM 6 sets the wasm arch output incorrectly to ELF. We need to
+    // explicitly set this ourself in order for it to work.
+    //
+    // This is fixed in LLVM 7 and you will be able to get wasm output by
+    // using the target triple `wasm32-unknown-unknown-unknown`.
+    if (!strncmp(arch_name, "wasm", 4)) {
+        buf_appendf(triple, "%s-%s-%s-wasm", arch_name,
+                ZigLLVMGetVendorTypeName(target->vendor),
+                ZigLLVMGetOSTypeName(get_llvm_os_type(target->os)));
+    } else {
+        buf_appendf(triple, "%s-%s-%s-%s", arch_name,
+                ZigLLVMGetVendorTypeName(target->vendor),
+                ZigLLVMGetOSTypeName(get_llvm_os_type(target->os)),
+                ZigLLVMGetEnvironmentTypeName(target->env_type));
+    }
 }
 
 static bool is_os_darwin(ZigTarget *target) {
