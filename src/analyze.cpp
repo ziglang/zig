@@ -4447,6 +4447,10 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
         case TypeTableEntryIdArgTuple:
             return (uint32_t)const_val->data.x_arg_tuple.start_index * (uint32_t)281907309 +
                 (uint32_t)const_val->data.x_arg_tuple.end_index * (uint32_t)2290442768;
+        case TypeTableEntryIdFn:
+            assert(const_val->data.x_ptr.mut == ConstPtrMutComptimeConst);
+            assert(const_val->data.x_ptr.special == ConstPtrSpecialFunction);
+            return 3677364617 ^ hash_ptr(const_val->data.x_ptr.data.fn.fn_entry);
         case TypeTableEntryIdPointer:
             {
                 uint32_t hash_val = 0;
@@ -4486,6 +4490,10 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
                     case ConstPtrSpecialDiscard:
                         hash_val += 2010123162;
                         return hash_val;
+                    case ConstPtrSpecialFunction:
+                        hash_val += (uint32_t)2590901619;
+                        hash_val += hash_ptr(const_val->data.x_ptr.data.fn.fn_entry);
+                        return hash_val;
                 }
                 zig_unreachable();
             }
@@ -4517,8 +4525,6 @@ static uint32_t hash_const_val(ConstExprValue *const_val) {
         case TypeTableEntryIdErrorSet:
             assert(const_val->data.x_err_set != nullptr);
             return const_val->data.x_err_set->value ^ 2630160122;
-        case TypeTableEntryIdFn:
-            return 4133894920 ^ hash_ptr(const_val->data.x_fn.fn_entry);
         case TypeTableEntryIdNamespace:
             return hash_ptr(const_val->data.x_import);
         case TypeTableEntryIdBlock:
@@ -5150,8 +5156,6 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
             return true;
         case TypeTableEntryIdErrorSet:
             return a->data.x_err_set->value == b->data.x_err_set->value;
-        case TypeTableEntryIdFn:
-            return a->data.x_fn.fn_entry == b->data.x_fn.fn_entry;
         case TypeTableEntryIdBool:
             return a->data.x_bool == b->data.x_bool;
         case TypeTableEntryIdFloat:
@@ -5172,6 +5176,7 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
         case TypeTableEntryIdNumLitInt:
             return bigint_cmp(&a->data.x_bigint, &b->data.x_bigint) == CmpEQ;
         case TypeTableEntryIdPointer:
+        case TypeTableEntryIdFn:
             if (a->data.x_ptr.special != b->data.x_ptr.special)
                 return false;
             if (a->data.x_ptr.mut != b->data.x_ptr.mut)
@@ -5211,6 +5216,8 @@ bool const_values_equal(ConstExprValue *a, ConstExprValue *b) {
                     return true;
                 case ConstPtrSpecialDiscard:
                     return true;
+                case ConstPtrSpecialFunction:
+                    return a->data.x_ptr.data.fn.fn_entry == b->data.x_ptr.data.fn.fn_entry;
             }
             zig_unreachable();
         case TypeTableEntryIdArray:
@@ -5371,6 +5378,14 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
                 buf_appendf(buf, "%s", value);
                 return;
             }
+        case TypeTableEntryIdFn:
+            {
+                assert(const_val->data.x_ptr.mut == ConstPtrMutComptimeConst);
+                assert(const_val->data.x_ptr.special == ConstPtrSpecialFunction);
+                FnTableEntry *fn_entry = const_val->data.x_ptr.data.fn.fn_entry;
+                buf_appendf(buf, "%s", buf_ptr(&fn_entry->symbol_name));
+                return;
+            }
         case TypeTableEntryIdPointer:
             switch (const_val->data.x_ptr.special) {
                 case ConstPtrSpecialInvalid:
@@ -5396,14 +5411,14 @@ void render_const_value(CodeGen *g, Buf *buf, ConstExprValue *const_val) {
                 case ConstPtrSpecialDiscard:
                     buf_append_str(buf, "&_");
                     return;
+                case ConstPtrSpecialFunction:
+                    {
+                        FnTableEntry *fn_entry = const_val->data.x_ptr.data.fn.fn_entry;
+                        buf_appendf(buf, "@ptrCast(%s, %s)", buf_ptr(&const_val->type->name), buf_ptr(&fn_entry->symbol_name));
+                        return;
+                    }
             }
             zig_unreachable();
-        case TypeTableEntryIdFn:
-            {
-                FnTableEntry *fn_entry = const_val->data.x_fn.fn_entry;
-                buf_appendf(buf, "%s", buf_ptr(&fn_entry->symbol_name));
-                return;
-            }
         case TypeTableEntryIdBlock:
             {
                 AstNode *node = const_val->data.x_block->source_node;

@@ -660,3 +660,10 @@ test "slicing zero length array" {
     assert(mem.eql(u8, s1, ""));
     assert(mem.eql(u32, s2, []u32{}));
 }
+
+
+const addr1 = @ptrCast(&const u8, emptyFn);
+test "comptime cast fn to ptr" {
+    const addr2 = @ptrCast(&const u8, emptyFn);
+    comptime assert(addr1 == addr2);
+}

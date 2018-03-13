@@ -144,6 +144,8 @@ enum ConstPtrSpecial {
     // This means that the pointer represents memory of assigning to _.
     // That is, storing discards the data, and loading is invalid.
     ConstPtrSpecialDiscard,
+    // This is actually a function.
+    ConstPtrSpecialFunction,
 };
 
 enum ConstPtrMut {
@@ -180,6 +182,9 @@ struct ConstPtrValue {
         struct {
             uint64_t addr;
         } hard_coded_addr;
+        struct {
+            FnTableEntry *fn_entry;
+        } fn;
     } data;
 };
 
@@ -222,10 +227,6 @@ enum RuntimeHintPtr {
     RuntimeHintPtrNonStack,
 };
 
-struct ConstFn {
-    FnTableEntry *fn_entry;
-};
-
 struct ConstGlobalRefs {
     LLVMValueRef llvm_value;
     LLVMValueRef llvm_global;
@@ -244,7 +245,6 @@ struct ConstExprValue {
         double x_f64;
         float128_t x_f128;
         bool x_bool;
-        ConstFn x_fn;
         ConstBoundFnValue x_bound_fn;
         TypeTableEntry *x_type;
         ConstExprValue *x_maybe;

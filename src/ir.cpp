@@ -130,6 +130,8 @@ ConstExprValue *const_ptr_pointee(CodeGen *g, ConstExprValue *const_val) {
             zig_unreachable();
         case ConstPtrSpecialDiscard:
             zig_unreachable();
+        case ConstPtrSpecialFunction:
+            zig_unreachable();
     }
     zig_unreachable();
 }
@@ -875,7 +877,9 @@ static IrInstruction *ir_create_const_fn(IrBuilder *irb, Scope *scope, AstNode *
     IrInstructionConst *const_instruction = ir_create_instruction<IrInstructionConst>(irb, scope, source_node);
     const_instruction->base.value.type = fn_entry->type_entry;
     const_instruction->base.value.special = ConstValSpecialStatic;
-    const_instruction->base.value.data.x_fn.fn_entry = fn_entry;
+    const_instruction->base.value.data.x_ptr.data.fn.fn_entry = fn_entry;
+    const_instruction->base.value.data.x_ptr.mut = ConstPtrMutComptimeConst;
+    const_instruction->base.value.data.x_ptr.special = ConstPtrSpecialFunction;
     return &const_instruction->base;
 }
 
@@ -8723,7 +8727,8 @@ static FnTableEntry *ir_resolve_fn(IrAnalyze *ira, IrInstruction *fn_value) {
     if (!const_val)
         return nullptr;
 
-    return const_val->data.x_fn.fn_entry;
+    assert(const_val->data.x_ptr.special == ConstPtrSpecialFunction);
+    return const_val->data.x_ptr.data.fn.fn_entry;
 }
 
 static IrInstruction *ir_analyze_maybe_wrap(IrAnalyze *ira, IrInstruction *source_instr, IrInstruction *value, TypeTableEntry *wanted_type) {
@@ -11311,7 +11316,8 @@ static TypeTableEntry *ir_analyze_instruction_export(IrAnalyze *ira, IrInstructi
         case TypeTableEntryIdUnreachable:
             zig_unreachable();
         case TypeTableEntryIdFn: {
-            FnTableEntry *fn_entry = target->value.data.x_fn.fn_entry;
+            assert(target->value.data.x_ptr.special == ConstPtrSpecialFunction);
+            FnTableEntry *fn_entry = target->value.data.x_ptr.data.fn.fn_entry;
             CallingConvention cc = fn_entry->type_entry->data.fn.fn_type_id.cc;
             switch (cc) {
                 case CallingConventionUnspecified: {
@@ -12852,6 +12858,8 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                         zig_panic("TODO elem ptr on a const inner struct");
                     case ConstPtrSpecialHardCodedAddr:
                         zig_unreachable();
+                    case ConstPtrSpecialFunction:
+                        zig_panic("TODO element ptr of a function casted to a ptr");
                 }
                 if (new_index >= mem_size) {
                     ir_add_error_node(ira, elem_ptr_instruction->base.source_node,
@@ -12901,6 +12909,8 @@ static TypeTableEntry *ir_analyze_instruction_elem_ptr(IrAnalyze *ira, IrInstruc
                         zig_panic("TODO elem ptr on a slice backed by const inner struct");
                     case ConstPtrSpecialHardCodedAddr:
                         zig_unreachable();
+                    case ConstPtrSpecialFunction:
+                        zig_panic("TODO elem ptr on a slice that was ptrcast from a function");
                 }
                 return return_type;
             } else if (array_type->id == TypeTableEntryIdArray) {
@@ -13101,7 +13111,9 @@ static TypeTableEntry *ir_analyze_decl_ref(IrAnalyze *ira, IrInstruction *source
             ConstExprValue *const_val = create_const_vals(1);
             const_val->special = ConstValSpecialStatic;
             const_val->type = fn_entry->type_entry;
-            const_val->data.x_fn.fn_entry = fn_entry;
+            const_val->data.x_ptr.data.fn.fn_entry = fn_entry;
+            const_val->data.x_ptr.special = ConstPtrSpecialFunction;
+            const_val->data.x_ptr.mut = ConstPtrMutComptimeConst;
 
             if (tld_fn->extern_lib_name != nullptr) {
                 add_link_lib_symbol(ira, tld_fn->extern_lib_name, &fn_entry->symbol_name, source_instruction->source_node);
@@ -13771,7 +13783,8 @@ static TypeTableEntry *ir_analyze_instruction_set_float_mode(IrAnalyze *ira,
         fast_math_off_ptr = &block_scope->fast_math_off;
         fast_math_set_node_ptr = &block_scope->fast_math_set_node;
     } else if (target_type->id == TypeTableEntryIdFn) {
-        FnTableEntry *target_fn = target_val->data.x_fn.fn_entry;
+        assert(target_val->data.x_ptr.special == ConstPtrSpecialFunction);
+        FnTableEntry *target_fn = target_val->data.x_ptr.data.fn.fn_entry;
         assert(target_fn->def_scope);
         fast_math_off_ptr = &target_fn->def_scope->fast_math_off;
         fast_math_set_node_ptr = &target_fn->def_scope->fast_math_set_node;
@@ -15673,6 +15686,8 @@ static TypeTableEntry *ir_analyze_instruction_memset(IrAnalyze *ira, IrInstructi
                 zig_panic("TODO memset on const inner struct");
             case ConstPtrSpecialHardCodedAddr:
                 zig_unreachable();
+            case ConstPtrSpecialFunction:
+                zig_panic("TODO memset on ptr cast from function");
         }
 
         size_t count = bigint_as_unsigned(&casted_count->value.data.x_bigint);
@@ -15769,6 +15784,8 @@ static TypeTableEntry *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructi
                 zig_panic("TODO memcpy on const inner struct");
             case ConstPtrSpecialHardCodedAddr:
                 zig_unreachable();
+            case ConstPtrSpecialFunction:
+                zig_panic("TODO memcpy on ptr cast from function");
         }
 
         if (dest_start + count > dest_end) {
@@ -15803,6 +15820,8 @@ static TypeTableEntry *ir_analyze_instruction_memcpy(IrAnalyze *ira, IrInstructi
                 zig_panic("TODO memcpy on const inner struct");
             case ConstPtrSpecialHardCodedAddr:
                 zig_unreachable();
+            case ConstPtrSpecialFunction:
+                zig_panic("TODO memcpy on ptr cast from function");
         }
 
         if (src_start + count > src_end) {
@@ -15925,6 +15944,8 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
                     abs_offset = 0;
                     rel_end = SIZE_MAX;
                     break;
+                case ConstPtrSpecialFunction:
+                    zig_panic("TODO slice of ptr cast from function");
             }
         } else if (is_slice(array_type)) {
             ConstExprValue *slice_ptr = const_ptr_pointee(ira->codegen, &ptr_ptr->value);
@@ -15952,6 +15973,8 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
                     abs_offset = 0;
                     rel_end = bigint_as_unsigned(&len_val->data.x_bigint);
                     break;
+                case ConstPtrSpecialFunction:
+                    zig_panic("TODO slice of slice cast from function");
             }
         } else {
             zig_unreachable();
@@ -16021,6 +16044,9 @@ static TypeTableEntry *ir_analyze_instruction_slice(IrAnalyze *ira, IrInstructio
                     parent_ptr->type->data.pointer.child_type,
                     parent_ptr->data.x_ptr.data.hard_coded_addr.addr + start_scalar,
                     slice_is_const(return_type));
+                break;
+            case ConstPtrSpecialFunction:
+                zig_panic("TODO");
         }
 
         ConstExprValue *len_val = &out_val->data.x_struct.fields[slice_len_index];
