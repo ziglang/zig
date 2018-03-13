@@ -4840,7 +4840,9 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
         case TypeTableEntryIdEnum:
             return bigint_to_llvm_const(type_entry->type_ref, &const_val->data.x_enum_tag);
         case TypeTableEntryIdFn:
-            return fn_llvm_value(g, const_val->data.x_fn.fn_entry);
+            assert(const_val->data.x_ptr.special == ConstPtrSpecialFunction);
+            assert(const_val->data.x_ptr.mut == ConstPtrMutComptimeConst);
+            return fn_llvm_value(g, const_val->data.x_ptr.data.fn.fn_entry);
         case TypeTableEntryIdPointer:
             {
                 render_const_val_global(g, const_val, name);
@@ -4909,6 +4911,8 @@ static LLVMValueRef gen_const_val(CodeGen *g, ConstExprValue *const_val, const c
                             render_const_val_global(g, const_val, "");
                             return const_val->global_refs->llvm_value;
                         }
+                    case ConstPtrSpecialFunction:
+                        return LLVMConstBitCast(fn_llvm_value(g, const_val->data.x_ptr.data.fn.fn_entry), const_val->type->type_ref);
                 }
             }
             zig_unreachable();
@@ -6313,7 +6317,9 @@ static void create_test_compile_var_and_add_test_runner(CodeGen *g) {
         ConstExprValue *fn_field = &this_val->data.x_struct.fields[1];
         fn_field->type = fn_type;
         fn_field->special = ConstValSpecialStatic;
-        fn_field->data.x_fn.fn_entry = test_fn_entry;
+        fn_field->data.x_ptr.special = ConstPtrSpecialFunction;
+        fn_field->data.x_ptr.mut = ConstPtrMutComptimeConst;
+        fn_field->data.x_ptr.data.fn.fn_entry = test_fn_entry;
     }
 
     ConstExprValue *test_fn_slice = create_const_slice(g, test_fn_array, 0, g->test_fns.length, true);
