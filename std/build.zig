@@ -1627,6 +1627,7 @@ pub const TestStep = struct {
     filter: ?[]const u8,
     target: Target,
     exec_cmd_args: ?[]const ?[]const u8,
+    include_dirs: ArrayList([]const u8),
 
     pub fn init(builder: &Builder, root_src: []const u8) TestStep {
         const step_name = builder.fmt("test {}", root_src);
@@ -1641,11 +1642,16 @@ pub const TestStep = struct {
             .link_libs = BufSet.init(builder.allocator),
             .target = Target { .Native = {} },
             .exec_cmd_args = null,
+            .include_dirs = ArrayList([]const u8).init(builder.allocator),
         };
     }
 
     pub fn setVerbose(self: &TestStep, value: bool) void {
         self.verbose = value;
+    }
+
+    pub fn addIncludeDir(self: &TestStep, path: []const u8) void {
+        self.include_dirs.append(path) catch unreachable;
     }
 
     pub fn setBuildMode(self: &TestStep, mode: builtin.Mode) void {
@@ -1744,6 +1750,11 @@ pub const TestStep = struct {
                     try zig_args.append("--test-cmd-bin");
                 }
             }
+        }
+
+        for (self.include_dirs.toSliceConst()) |include_path| {
+            try zig_args.append("-isystem");
+            try zig_args.append(builder.pathFromRoot(include_path));
         }
 
         for (builder.include_paths.toSliceConst()) |include_path| {
