@@ -15222,6 +15222,12 @@ static TypeTableEntry *ir_analyze_instruction_offset_of(IrAnalyze *ira,
         return ira->codegen->builtin_types.entry_invalid;
     }
 
+    if (field->type_entry->zero_bits) {
+      ir_add_error(ira, field_name_value,
+                   buf_sprintf("zero-bit field '%s' in struct '%s' has no offset",
+                               buf_ptr(field_name), buf_ptr(&container_type->name)));
+      return ira->codegen->builtin_types.entry_invalid;
+    }
     size_t byte_offset = LLVMOffsetOfElement(ira->codegen->target_data_ref, container_type->type_ref, field->gen_index);
     ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
     bigint_init_unsigned(&out_val->data.x_bigint, byte_offset);
