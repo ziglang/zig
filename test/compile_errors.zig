@@ -3150,5 +3150,5 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\    const fieldOffset = @offsetOf(Empty, "val");
         \\}
     ,
-        ".tmp_source.zig:5:42: error: zero-bit field 'val' has no offset in struct 'Empty'");
+        ".tmp_source.zig:5:42: error: zero-bit field 'val' in struct 'Empty' has no offset");
 }

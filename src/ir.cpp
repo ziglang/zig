@@ -15222,7 +15222,7 @@ static TypeTableEntry *ir_analyze_instruction_offset_of(IrAnalyze *ira,
         return ira->codegen->builtin_types.entry_invalid;
     }
 
-    if (field->type_entry->zero_bits) {
+    if (!type_has_bits(field->type_entry)) {
         ir_add_error(ira, field_name_value,
                      buf_sprintf("zero-bit field '%s' in struct '%s' has no offset",
                                  buf_ptr(field_name), buf_ptr(&container_type->name)));
