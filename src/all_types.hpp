@@ -1260,11 +1260,7 @@ struct FnTableEntry {
     IrExecutable analyzed_executable;
     size_t prealloc_bbc;
     AstNode **param_source_nodes;
-    Buf **param_names;
     uint32_t align_bytes;
-
-    AstNode *fn_no_inline_set_node;
-    AstNode *fn_static_eval_set_node;
 
     ZigList<IrInstruction *> alloca_list;
     ZigList<VariableTableEntry *> variable_list;
