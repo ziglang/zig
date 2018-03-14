@@ -3141,4 +3141,14 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
         \\}
     ,
         ".tmp_source.zig:4:9: error: type 'S' is not copyable; cannot pass by value");
+
+    cases.add("taking offset of void field in struct",
+        \\const Empty = struct {
+        \\    val: void,
+        \\};
+        \\export fn foo() void {
+        \\    const fieldOffset = @offsetOf(Empty, "val");
+        \\}
+    ,
+        ".tmp_source.zig:5:42: error: zero-bit field 'val' has no offset in struct 'Empty'");
 }
