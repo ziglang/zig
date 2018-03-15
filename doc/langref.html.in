@@ -4491,6 +4491,12 @@ test "call foo" {
       This function is only valid within function scope.
       </p>
       {#header_close#}
+      {#header_open|@setAlignStack#}
+      <pre><code class="zig">@setAlignStack(comptime alignment: u29)</code></pre>
+      <p>
+      Ensures that a function will have a stack alignment of at least <code>alignment</code> bytes.
+      </p>
+      {#header_close#}
       {#header_open|@setCold#}
       <pre><code class="zig">@setCold(is_cold: bool)</code></pre>
       <p>
