@@ -1,19 +1,45 @@
+///////////////////////////
+////  IPC structures   ////
+///////////////////////////
+
+pub const Message = struct {
+    from:    MailboxId,
+    to:      MailboxId,
+    payload: usize,
+
+    pub fn from(mailbox_id: MailboxId) Message {
+        return Message {
+            .from    = mailbox_id,
+            .to      = undefined,
+            .payload = undefined,
+        };
+    }
+};
+
+pub const MailboxId = union(enum) {
+    Me,
+    Kernel,
+    Port:   u16,
+    //Thread: u16,
+};
+
+
 //////////////////////////////
 ////  Reserved mailboxes  ////
 //////////////////////////////
 
-pub const MBOX_TERMINAL = 1;
+pub const MBOX_TERMINAL = MailboxId { .Port = 0 };
 
 
 ///////////////////////////
 ////  Syscall numbers  ////
 ///////////////////////////
 
-pub const SYS_exit = 0;
-pub const SYS_createMailbox = 1;
-pub const SYS_send = 2;
-pub const SYS_receive = 3;
-pub const SYS_map = 4;
+pub const SYS_exit         = 0;
+pub const SYS_createPort   = 1;
+pub const SYS_send         = 2;
+pub const SYS_receive      = 3;
+pub const SYS_map          = 4;
 pub const SYS_createThread = 5;
 
 
@@ -26,16 +52,16 @@ pub fn exit(status: i32) noreturn {
     unreachable;
 }
 
-pub fn createMailbox(id: u16) void {
-    _ = syscall1(SYS_createMailbox, id);
+pub fn createPort(id: u16) void {
+    _ = syscall1(SYS_createPort, id);
 }
 
-pub fn send(mailbox_id: u16, data: usize) void {
-    _ = syscall2(SYS_send, mailbox_id, data);
+pub fn send(message: &const Message) void {
+    _ = syscall1(SYS_send, @ptrToInt(message));
 }
 
-pub fn receive(mailbox_id: u16) usize {
-    return syscall1(SYS_receive, mailbox_id);
+pub fn receive(destination: &Message) void {
+    _ = syscall1(SYS_receive, @ptrToInt(destination));
 }
 
 pub fn map(v_addr: usize, p_addr: usize, size: usize, writable: bool) bool {
