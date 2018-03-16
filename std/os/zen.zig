@@ -7,11 +7,19 @@ pub const Message = struct {
     receiver: MailboxId,
     payload:  usize,
 
-    pub fn withReceiver(mailbox_id: &const MailboxId) Message {
+    pub fn from(mailbox_id: &const MailboxId) Message {
         return Message {
             .sender   = undefined,
             .receiver = *mailbox_id,
             .payload  = undefined,
+        };
+    }
+
+    pub fn to(mailbox_id: &const MailboxId, payload: usize) Message {
+        return Message {
+            .sender   = MailboxId.This,
+            .receiver = *mailbox_id,
+            .payload  = payload,
         };
     }
 };
@@ -29,9 +37,38 @@ pub const MailboxId = union(enum) {
 ///////////////////////////////////////
 
 pub const Service = struct {
-    pub const Terminal = MailboxId { .Port = 0 };
-    pub const Keyboard = MailboxId { .Port = 1 };
+    pub const Keyboard = MailboxId { .Port = 0 };
+    pub const Terminal = MailboxId { .Port = 1 };
 };
+
+
+////////////////////////
+////  POSIX things  ////
+////////////////////////
+
+// Standard streams.
+pub const  STDIN_FILENO = 0;
+pub const STDOUT_FILENO = 1;
+pub const STDERR_FILENO = 2;
+
+// FIXME: let's borrow Linux's error numbers for now.
+pub const getErrno = @import("linux/index.zig").getErrno;
+use @import("linux/errno.zig");
+
+// TODO: implement this correctly.
+pub fn write(fd: i32, buf: &const u8, count: usize) usize {
+    switch (fd) {
+        STDIN_FILENO => unreachable,
+        STDOUT_FILENO, STDERR_FILENO => {
+            var i: usize = 0;
+            while (i < count) : (i += 1) {
+                send(Message.to(Service.Terminal, buf[i]));
+            }
+        },
+        else => unreachable,
+    }
+    return count;
+}
 
 
 ///////////////////////////
