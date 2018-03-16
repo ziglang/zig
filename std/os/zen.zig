@@ -28,7 +28,7 @@ pub const MailboxId = union(enum) {
     This,
     Kernel,
     Port:   u16,
-    //Thread: u16,
+    Thread: u16,
 };
 
 
@@ -96,8 +96,11 @@ pub fn exit(status: i32) noreturn {
     unreachable;
 }
 
-pub fn createPort(id: u16) void {
-    _ = syscall1(Syscall.createPort, id);
+pub fn createPort(mailbox_id: &const MailboxId) void {
+    _ = switch (*mailbox_id) {
+        MailboxId.Port => |id| syscall1(Syscall.createPort, id),
+        else => unreachable,
+    };
 }
 
 pub fn send(message: &const Message) void {
