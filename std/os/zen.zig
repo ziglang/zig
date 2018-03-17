@@ -32,11 +32,11 @@ pub const MailboxId = union(enum) {
 };
 
 
-///////////////////////////////////////
-////  Ports reserved for services  ////
-///////////////////////////////////////
+//////////////////////////////////////
+////  Ports reserved for servers  ////
+//////////////////////////////////////
 
-pub const Service = struct {
+pub const Server = struct {
     pub const Keyboard = MailboxId { .Port = 0 };
     pub const Terminal = MailboxId { .Port = 1 };
 };
@@ -62,7 +62,7 @@ pub fn write(fd: i32, buf: &const u8, count: usize) usize {
         STDOUT_FILENO, STDERR_FILENO => {
             var i: usize = 0;
             while (i < count) : (i += 1) {
-                send(Message.to(Service.Terminal, buf[i]));
+                send(Message.to(Server.Terminal, buf[i]));
             }
         },
         else => unreachable,
