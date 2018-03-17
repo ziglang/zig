@@ -66,7 +66,7 @@ if(NOT LLVM_LIBRARIES)
 endif()
 
 link_directories("${CMAKE_PREFIX_PATH}/lib")
-
+link_directories("${LLVM_LIBDIRS}")
 
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(LLVM DEFAULT_MSG LLVM_LIBRARIES LLVM_INCLUDE_DIRS)
