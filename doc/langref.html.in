@@ -5733,7 +5733,7 @@ VariableDeclaration = ("var" | "const") Symbol option(":" TypeExpr) option("alig
 
 ContainerMember = (ContainerField | FnDef | GlobalVarDecl)
 
-ContainerField = Symbol option(":" PrefixOpExpression option("=" PrefixOpExpression ","
+ContainerField = Symbol option(":" PrefixOpExpression option("=" PrefixOpExpression)) ","
 
 UseDecl = "use" Expression ";"
 
@@ -5833,7 +5833,7 @@ BinaryAndExpression = BitShiftExpression "&amp;" BinaryAndExpression | BitShiftE
 
 BitShiftExpression = AdditionExpression BitShiftOperator BitShiftExpression | AdditionExpression
 
-BitShiftOperator = "&lt;&lt;" | "&gt;&gt;" | "&lt;&lt;"
+BitShiftOperator = "&lt;&lt;" | "&gt;&gt;"
 
 AdditionExpression = MultiplyExpression AdditionOperator AdditionExpression | MultiplyExpression
 
