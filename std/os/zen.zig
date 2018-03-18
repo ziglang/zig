@@ -5,26 +5,39 @@
 pub const Message = struct {
     sender:   MailboxId,
     receiver: MailboxId,
+    type:     usize,
     payload:  usize,
 
     pub fn from(mailbox_id: &const MailboxId) Message {
         return Message {
-            .sender   = undefined,
+            .sender   = MailboxId.Undefined,
             .receiver = *mailbox_id,
-            .payload  = undefined,
+            .type     = 0,
+            .payload  = 0,
         };
     }
 
-    pub fn to(mailbox_id: &const MailboxId, payload: usize) Message {
+    pub fn to(mailbox_id: &const MailboxId, msg_type: usize) Message {
         return Message {
             .sender   = MailboxId.This,
             .receiver = *mailbox_id,
+            .type     = msg_type,
+            .payload  = 0,
+        };
+    }
+
+    pub fn withData(mailbox_id: &const MailboxId, msg_type: usize, payload: usize) Message {
+        return Message {
+            .sender   = MailboxId.This,
+            .receiver = *mailbox_id,
+            .type     = msg_type,
             .payload  = payload,
         };
     }
 };
 
 pub const MailboxId = union(enum) {
+    Undefined,
     This,
     Kernel,
     Port:   u16,
@@ -56,13 +69,31 @@ pub const getErrno = @import("linux/index.zig").getErrno;
 use @import("linux/errno.zig");
 
 // TODO: implement this correctly.
+pub fn read(fd: i32, buf: &u8, count: usize) usize {
+    switch (fd) {
+        STDIN_FILENO => {
+            var i: usize = 0;
+            while (i < count) : (i += 1) {
+                send(Message.to(Server.Keyboard, 0));
+
+                var message = Message.from(MailboxId.This);
+                receive(&message);
+
+                buf[i] = u8(message.payload);
+            }
+        },
+        else => unreachable,
+    }
+    return count;
+}
+
+// TODO: implement this correctly.
 pub fn write(fd: i32, buf: &const u8, count: usize) usize {
     switch (fd) {
-        STDIN_FILENO => unreachable,
         STDOUT_FILENO, STDERR_FILENO => {
             var i: usize = 0;
             while (i < count) : (i += 1) {
-                send(Message.to(Server.Terminal, buf[i]));
+                send(Message.withData(Server.Terminal, 1, buf[i]));
             }
         },
         else => unreachable,
