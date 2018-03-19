@@ -5733,7 +5733,7 @@ VariableDeclaration = ("var" | "const") Symbol option(":" TypeExpr) option("alig
 
 ContainerMember = (ContainerField | FnDef | GlobalVarDecl)
 
-ContainerField = Symbol option(":" PrefixOpExpression option("=" PrefixOpExpression)) ","
+ContainerField = Symbol option(":" PrefixOpExpression) option("=" PrefixOpExpression) ","
 
 UseDecl = "use" Expression ";"
 
@@ -5751,9 +5751,7 @@ Block = option(Symbol ":") "{" many(Statement) "}"
 
 Statement = LocalVarDecl ";" | Defer(Block) | Defer(Expression) ";" | BlockExpression(Block) | Expression ";" | ";"
 
-TypeExpr = ErrorSetExpr
-
-ErrorSetExpr = (PrefixOpExpression "!" PrefixOpExpression) | PrefixOpExpression
+TypeExpr = (PrefixOpExpression "!" PrefixOpExpression) | PrefixOpExpression
 
 BlockOrExpression = Block | Expression
 
@@ -5845,7 +5843,7 @@ CurlySuffixExpression = TypeExpr option(ContainerInitExpression)
 
 MultiplyOperator = "||" | "*" | "/" | "%" | "**" | "*%"
 
-PrefixOpExpression = PrefixOp ErrorSetExpr | SuffixOpExpression
+PrefixOpExpression = PrefixOp TypeExpr | SuffixOpExpression
 
 SuffixOpExpression = ("async" option("(" Expression ")") PrimaryExpression FnCallExpression) | PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
 
