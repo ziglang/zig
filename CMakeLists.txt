@@ -49,6 +49,22 @@ option(ZIG_FORCE_EXTERNAL_LLD "If your system has the LLD patches use it instead
 find_package(llvm)
 find_package(clang)
 
+if(NOT MSVC)
+    find_library(LIBXML2 NAMES xml2 libxml2)
+    if(${LIBXML2} STREQUAL "LIBXML2-NOTFOUND")
+        message(FATAL_ERROR "Could not find libxml2")
+    else()
+        message("${LIBXML2} found")
+    endif()
+
+    find_library(ZLIB NAMES z zlib libz)
+    if(${ZLIB} STREQUAL "ZLIB-NOTFOUND")
+        message(FATAL_ERROR "Could not find zlib")
+    else()
+        message("${ZLIB} found")
+    endif()
+endif()
+
 set(ZIG_CPP_LIB_DIR "${CMAKE_BINARY_DIR}/zig_cpp")
 
 if(ZIG_FORCE_EXTERNAL_LLD)
@@ -710,7 +726,7 @@ target_link_libraries(zig LINK_PUBLIC
     ${CMAKE_THREAD_LIBS_INIT}
 )
 if(NOT MSVC)
-    target_link_libraries(zig LINK_PUBLIC xml2)
+    target_link_libraries(zig LINK_PUBLIC ${LIBXML2})
 endif()
 if(ZIG_DIA_GUIDS_LIB)
     target_link_libraries(zig LINK_PUBLIC ${ZIG_DIA_GUIDS_LIB})
