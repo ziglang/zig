@@ -354,7 +354,7 @@ pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) bool
     return if (needle.len > haystack.len) false else eql(T, haystack[0 .. needle.len], needle);
 }
 
-const SplitIterator = struct {
+pub const SplitIterator = struct {
     buffer: []const u8,
     split_bytes: []const u8, 
     index: usize,
