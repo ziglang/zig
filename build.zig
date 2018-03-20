@@ -64,6 +64,14 @@ pub fn build(b: &Builder) !void {
     if (exe.target.getOs() == builtin.Os.linux) {
         const libstdcxx_path_padded = try b.exec([][]const u8{cxx_compiler, "-print-file-name=libstdc++.a"});
         const libstdcxx_path = ??mem.split(libstdcxx_path_padded, "\r\n").next();
+        if (mem.eql(u8, libstdcxx_path, "libstdc++.a")) {
+            warn(
+                \\Unable to determine path to libstdc++.a
+                \\On Fedora, install libstdc++-static and try again.
+                \\
+            );
+            return error.RequiredLibraryNotFound;
+        }
         exe.addObjectFile(libstdcxx_path);
 
         exe.linkSystemLibrary("pthread");
