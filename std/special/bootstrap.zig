@@ -84,8 +84,10 @@ fn callMain() u8 {
         builtin.TypeId.ErrorUnion => {
             root.main() catch |err| {
                 std.debug.warn("error: {}\n", @errorName(err));
-                if (@errorReturnTrace()) |trace| {
-                    std.debug.dumpStackTrace(trace);
+                if (builtin.os != builtin.Os.zen) {
+                    if (@errorReturnTrace()) |trace| {
+                        std.debug.dumpStackTrace(trace);
+                    }
                 }
                 return 1;
             };

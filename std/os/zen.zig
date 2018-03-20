@@ -107,14 +107,17 @@ pub fn write(fd: i32, buf: &const u8, count: usize) usize {
 ///////////////////////////
 
 pub const Syscall = enum(usize) {
-    exit         = 0,
-    createPort   = 1,
-    send         = 2,
-    receive      = 3,
-    subscribeIRQ = 4,
-    inb          = 5,
-    map          = 6,
-    createThread = 7,
+    exit          = 0,
+    createPort    = 1,
+    send          = 2,
+    receive       = 3,
+    subscribeIRQ  = 4,
+    inb           = 5,
+    map           = 6,
+    createThread  = 7,
+    createProcess = 8,
+    wait          = 9,
+    portReady     = 10,
 };
 
 
@@ -158,6 +161,17 @@ pub fn createThread(function: fn()void) u16 {
     return u16(syscall1(Syscall.createThread, @ptrToInt(function)));
 }
 
+pub fn createProcess(elf_addr: usize) u16 {
+    return u16(syscall1(Syscall.createProcess, elf_addr));
+}
+
+pub fn wait(tid: u16) void {
+    _ = syscall1(Syscall.wait, tid);
+}
+
+pub fn portReady(port: u16) bool {
+    return syscall1(Syscall.portReady, port) != 0;
+}
 
 /////////////////////////
 ////  Syscall stubs  ////

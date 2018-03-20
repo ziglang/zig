@@ -115,6 +115,14 @@ pub fn getRandomBytes(buf: []u8) !void {
                 };
             }
         },
+        Os.zen => {
+            const randomness = []u8 {42, 1, 7, 12, 22, 17, 99, 16, 26, 87, 41, 45};
+            var i: usize = 0;
+            while (i < buf.len) : (i += 1) {
+                if (i > randomness.len) return error.Unknown;
+                buf[i] = randomness[i];
+            }
+        },
         else => @compileError("Unsupported OS"),
     }
 }
