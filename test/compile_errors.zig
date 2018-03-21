@@ -17,7 +17,7 @@ pub fn addCases(cases: &tests.CompileErrorContext) void {
     cases.add("returning error from void async function",
         \\const std = @import("std");
         \\export fn entry() void {
-        \\    const p = async(std.debug.global_allocator) amain() catch unreachable;
+        \\    const p = async<std.debug.global_allocator> amain() catch unreachable;
         \\}
         \\async fn amain() void {
         \\    return error.ShouldBeCompileError;

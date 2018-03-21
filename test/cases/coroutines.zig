@@ -4,7 +4,7 @@ const assert = std.debug.assert;
 var x: i32 = 1;
 
 test "create a coroutine and cancel it" {
-    const p = try async(std.debug.global_allocator) simpleAsyncFn();
+    const p = try async<std.debug.global_allocator> simpleAsyncFn();
     cancel p;
     assert(x == 2);
 }
@@ -17,7 +17,7 @@ async fn simpleAsyncFn() void {
 
 test "coroutine suspend, resume, cancel" {
     seq('a');
-    const p = try async(std.debug.global_allocator) testAsyncSeq();
+    const p = try async<std.debug.global_allocator> testAsyncSeq();
     seq('c');
     resume p;
     seq('f');
@@ -43,7 +43,7 @@ fn seq(c: u8) void {
 }
 
 test "coroutine suspend with block" {
-    const p = try async(std.debug.global_allocator) testSuspendBlock();
+    const p = try async<std.debug.global_allocator> testSuspendBlock();
     std.debug.assert(!result);
     resume a_promise;
     std.debug.assert(result);
@@ -65,7 +65,7 @@ var await_final_result: i32 = 0;
 
 test "coroutine await" {
     await_seq('a');
-    const p = async(std.debug.global_allocator) await_amain() catch unreachable;
+    const p = async<std.debug.global_allocator> await_amain() catch unreachable;
     await_seq('f');
     resume await_a_promise;
     await_seq('i');
@@ -104,7 +104,7 @@ var early_final_result: i32 = 0;
 
 test "coroutine await early return" {
     early_seq('a');
-    const p = async(std.debug.global_allocator) early_amain() catch unreachable;
+    const p = async<std.debug.global_allocator> early_amain() catch unreachable;
     early_seq('f');
     assert(early_final_result == 1234);
     assert(std.mem.eql(u8, early_points, "abcdef"));
@@ -133,7 +133,7 @@ fn early_seq(c: u8) void {
 
 test "coro allocation failure" {
     var failing_allocator = std.debug.FailingAllocator.init(std.debug.global_allocator, 0);
-    if (async(&failing_allocator.allocator) asyncFuncThatNeverGetsRun()) {
+    if (async<&failing_allocator.allocator> asyncFuncThatNeverGetsRun()) {
         @panic("expected allocation failure");
     } else |err| switch (err) {
         error.OutOfMemory => {},
@@ -142,4 +142,17 @@ test "coro allocation failure" {
 
 async fn asyncFuncThatNeverGetsRun() void {
     @panic("coro frame allocation should fail");
+}
+
+test "async function with dot syntax" {
+    const S = struct {
+        var y: i32 = 1;
+        async fn foo() void {
+            y += 1;
+            suspend;
+        }
+    };
+    const p = try async<std.debug.global_allocator> S.foo();
+    cancel p;
+    assert(S.y == 2);
 }

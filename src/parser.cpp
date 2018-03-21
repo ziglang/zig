@@ -956,7 +956,7 @@ static AstNode *ast_parse_curly_suffix_expr(ParseContext *pc, size_t *token_inde
 }
 
 /*
-SuffixOpExpression = ("async" option("(" Expression ")") PrimaryExpression FnCallExpression) | PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
+SuffixOpExpression = ("async" option("<" SuffixOpExpression ">") SuffixOpExpression FnCallExpression) | PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
 FnCallExpression : token(LParen) list(Expression, token(Comma)) token(RParen)
 ArrayAccessExpression : token(LBracket) Expression token(RBracket)
 SliceExpression = "[" Expression ".." option(Expression) "]"
@@ -972,19 +972,20 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, 
 
         AstNode *allocator_expr_node = nullptr;
         Token *async_lparen_tok = &pc->tokens->at(*token_index);
-        if (async_lparen_tok->id == TokenIdLParen) {
+        if (async_lparen_tok->id == TokenIdCmpLessThan) {
             *token_index += 1;
-            allocator_expr_node = ast_parse_expression(pc, token_index, true);
-            ast_eat_token(pc, token_index, TokenIdRParen);
+            allocator_expr_node = ast_parse_prefix_op_expr(pc, token_index, true);
+            ast_eat_token(pc, token_index, TokenIdCmpGreaterThan);
         }
 
-        AstNode *fn_ref_expr_node = ast_parse_primary_expr(pc, token_index, true);
-        Token *lparen_tok = ast_eat_token(pc, token_index, TokenIdLParen);
-        AstNode *node = ast_create_node(pc, NodeTypeFnCallExpr, lparen_tok);
+        Token *fncall_token = &pc->tokens->at(*token_index);
+        AstNode *node = ast_parse_suffix_op_expr(pc, token_index, true);
+        if (node->type != NodeTypeFnCallExpr) {
+            ast_error(pc, fncall_token, "expected function call, found '%s'", token_name(fncall_token->id));
+        }
         node->data.fn_call_expr.is_async = true;
         node->data.fn_call_expr.async_allocator = allocator_expr_node;
-        node->data.fn_call_expr.fn_ref_expr = fn_ref_expr_node;
-        ast_parse_fn_call_param_list(pc, token_index, &node->data.fn_call_expr.params);
+        assert(node->data.fn_call_expr.fn_ref_expr != nullptr);
 
         primary_expr = node;
     } else {
