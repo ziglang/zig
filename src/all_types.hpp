@@ -76,6 +76,7 @@ enum OutType {
     OutTypeExe,
     OutTypeLib,
     OutTypeObj,
+    OutTypeMetadata,
 };
 
 enum ConstParentId {
@@ -1259,11 +1260,7 @@ struct FnTableEntry {
     IrExecutable analyzed_executable;
     size_t prealloc_bbc;
     AstNode **param_source_nodes;
-    Buf **param_names;
     uint32_t align_bytes;
-
-    AstNode *fn_no_inline_set_node;
-    AstNode *fn_static_eval_set_node;
 
     ZigList<IrInstruction *> alloca_list;
     ZigList<VariableTableEntry *> variable_list;
@@ -1490,9 +1487,13 @@ struct CodeGen {
 
     // reminder: hash tables must be initialized before use
     HashMap<Buf *, ImportTableEntry *, buf_hash, buf_eql_buf> import_table;
+    // build in compiler functions, ie, `@memberName`, `@compileLog`
     HashMap<Buf *, BuiltinFnEntry *, buf_hash, buf_eql_buf> builtin_fn_table;
+    // types, ie, `u8`, `usize`, `void`
     HashMap<Buf *, TypeTableEntry *, buf_hash, buf_eql_buf> primitive_type_table;
+    // types, ie, `@typeOf(Allocator_alloc).ReturnType.ErrorSet![]Nlist64`
     HashMap<TypeId, TypeTableEntry *, type_id_hash, type_id_eql> type_table;
+    // function types, ie, `fn(&File) bool`
     HashMap<FnTypeId *, TypeTableEntry *, fn_type_id_hash, fn_type_id_eql> fn_type_table;
     HashMap<Buf *, ErrorTableEntry *, buf_hash, buf_eql_buf> error_table;
     HashMap<GenericFnTypeId *, FnTableEntry *, generic_fn_type_id_hash, generic_fn_type_id_eql> generic_table;

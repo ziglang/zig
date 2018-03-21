@@ -1,3 +1,5 @@
+.vscode
 zig-cache/
 build/
 build-*/
+compile_commands.json

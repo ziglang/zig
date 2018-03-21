@@ -11,6 +11,7 @@
 #include "config.h"
 #include "error.hpp"
 #include "link.hpp"
+#include "metadata_render.hpp"
 #include "os.hpp"
 #include "target.hpp"
 
@@ -26,6 +27,7 @@ static int usage(const char *arg0) {
         "  translate-c [source]         convert c code to zig code\n"
         "  targets                      list available compilation targets\n"
         "  test [source]                create and run a test build\n"
+        "  metadata [source]            emit high-level information about the ast\n"
         "  version                      print version number and exit\n"
         "  zen                          print zen of zig and exit\n"
         "Compile Options:\n"
@@ -232,6 +234,7 @@ enum Cmd {
     CmdZen,
     CmdTranslateC,
     CmdTargets,
+    CmdMetadata,
 };
 
 static const char *default_zig_cache_name = "zig-cache";
@@ -667,6 +670,9 @@ int main(int argc, char **argv) {
             } else if (strcmp(arg, "test") == 0) {
                 cmd = CmdTest;
                 out_type = OutTypeExe;
+            } else if (strcmp(arg, "metadata") == 0) {
+                cmd = CmdMetadata;
+                out_type = OutTypeMetadata;
             } else if (strcmp(arg, "targets") == 0) {
                 cmd = CmdTargets;
             } else {
@@ -678,6 +684,7 @@ int main(int argc, char **argv) {
                 case CmdBuild:
                 case CmdTranslateC:
                 case CmdTest:
+                case CmdMetadata:
                     if (!in_file) {
                         in_file = arg;
                     } else {
@@ -735,11 +742,12 @@ int main(int argc, char **argv) {
     case CmdBuild:
     case CmdTranslateC:
     case CmdTest:
+    case CmdMetadata:
         {
             if (cmd == CmdBuild && !in_file && objects.length == 0 && asm_files.length == 0) {
                 fprintf(stderr, "Expected source file argument or at least one --object or --assembly argument.\n");
                 return usage(arg0);
-            } else if ((cmd == CmdTranslateC || cmd == CmdTest) && !in_file) {
+            } else if ((cmd == CmdTranslateC || cmd == CmdTest || cmd == CmdMetadata) && !in_file) {
                 fprintf(stderr, "Expected source file argument.\n");
                 return usage(arg0);
             } else if (cmd == CmdBuild && out_type == OutTypeObj && objects.length != 0) {
@@ -749,7 +757,7 @@ int main(int argc, char **argv) {
 
             assert(cmd != CmdBuild || out_type != OutTypeUnknown);
 
-            bool need_name = (cmd == CmdBuild || cmd == CmdTranslateC);
+            bool need_name = (cmd == CmdBuild || cmd == CmdTranslateC || cmd == CmdMetadata);
 
             Buf *in_file_buf = nullptr;
 
@@ -925,6 +933,17 @@ int main(int argc, char **argv) {
                     codegen_print_timing_report(g, stdout);
                 }
                 return (term.how == TerminationIdClean) ? term.code : -1;
+            } else if (cmd == CmdMetadata) {
+                codegen_set_emit_file_type(g, emit_file_type);
+                for (size_t i = 0; i < objects.length; i += 1) {
+                    codegen_add_object(g, buf_create_from_str(objects.at(i)));
+                }
+                for (size_t i = 0; i < asm_files.length; i += 1) {
+                    codegen_add_assembly(g, buf_create_from_str(asm_files.at(i)));
+                }
+                codegen_build(g);
+                metadata_print(g, stdout, g->root_import->root, in_file);
+                return EXIT_SUCCESS;
             } else {
                 zig_unreachable();
             }

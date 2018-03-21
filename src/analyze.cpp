@@ -3072,11 +3072,11 @@ static void add_top_level_decl(CodeGen *g, ScopeDecls *decls_scope, Tld *tld) {
         assert(tld->source_node->type == NodeTypeFnProto);
         is_export = tld->source_node->data.fn_proto.is_export;
     }
-    if (is_export) {
+    if (is_export || g->out_type == OutTypeMetadata) {
         g->resolve_queue.append(tld);
 
         auto entry = g->exported_symbol_names.put_unique(tld->name, tld->source_node);
-        if (entry) {
+        if (is_export && entry) {
             AstNode *other_source_node = entry->value;
             ErrorMsg *msg = add_node_error(g, tld->source_node,
                     buf_sprintf("exported symbol collision: '%s'", buf_ptr(tld->name)));

@@ -5142,6 +5142,11 @@ static void ensure_cache_dir(CodeGen *g) {
 }
 
 static void report_errors_and_maybe_exit(CodeGen *g) {
+    // Do not report errors for metadata invocations, since it resolves all
+    // top-level decls.
+    if (g->out_type == OutTypeMetadata)
+        return;
+
     if (g->errors.length != 0) {
         for (size_t i = 0; i < g->errors.length; i += 1) {
             ErrorMsg *err = g->errors.at(i);
@@ -6889,7 +6894,8 @@ void codegen_build(CodeGen *g) {
 
     gen_global_asm(g);
     gen_root_source(g);
-    do_code_gen(g);
+    if (g->out_type != OutTypeMetadata)
+        do_code_gen(g);
     gen_h_file(g);
 }
 
