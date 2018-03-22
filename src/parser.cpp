@@ -955,6 +955,66 @@ static AstNode *ast_parse_curly_suffix_expr(ParseContext *pc, size_t *token_inde
     }
 }
 
+static AstNode *ast_parse_fn_proto_partial(ParseContext *pc, size_t *token_index, Token *fn_token,
+        AstNode *async_allocator_type_node, CallingConvention cc, bool is_extern, VisibMod visib_mod)
+{
+    AstNode *node = ast_create_node(pc, NodeTypeFnProto, fn_token);
+    node->data.fn_proto.visib_mod = visib_mod;
+    node->data.fn_proto.cc = cc;
+    node->data.fn_proto.is_extern = is_extern;
+    node->data.fn_proto.async_allocator_type = async_allocator_type_node;
+
+    Token *fn_name = &pc->tokens->at(*token_index);
+
+    if (fn_name->id == TokenIdSymbol) {
+        *token_index += 1;
+        node->data.fn_proto.name = token_buf(fn_name);
+    } else {
+        node->data.fn_proto.name = nullptr;
+    }
+
+    ast_parse_param_decl_list(pc, token_index, &node->data.fn_proto.params, &node->data.fn_proto.is_var_args);
+
+    Token *next_token = &pc->tokens->at(*token_index);
+    if (next_token->id == TokenIdKeywordAlign) {
+        *token_index += 1;
+        ast_eat_token(pc, token_index, TokenIdLParen);
+
+        node->data.fn_proto.align_expr = ast_parse_expression(pc, token_index, true);
+        ast_eat_token(pc, token_index, TokenIdRParen);
+        next_token = &pc->tokens->at(*token_index);
+    }
+    if (next_token->id == TokenIdKeywordSection) {
+        *token_index += 1;
+        ast_eat_token(pc, token_index, TokenIdLParen);
+
+        node->data.fn_proto.section_expr = ast_parse_expression(pc, token_index, true);
+        ast_eat_token(pc, token_index, TokenIdRParen);
+        next_token = &pc->tokens->at(*token_index);
+    }
+    if (next_token->id == TokenIdKeywordVar) {
+        node->data.fn_proto.return_var_token = next_token;
+        *token_index += 1;
+        next_token = &pc->tokens->at(*token_index);
+    } else {
+        if (next_token->id == TokenIdKeywordError) {
+            Token *maybe_lbrace_tok = &pc->tokens->at(*token_index + 1);
+            if (maybe_lbrace_tok->id == TokenIdLBrace) {
+                *token_index += 1;
+                node->data.fn_proto.return_type = ast_create_node(pc, NodeTypeErrorType, next_token);
+                return node;
+            }
+        } else if (next_token->id == TokenIdBang) {
+            *token_index += 1;
+            node->data.fn_proto.auto_err_set = true;
+            next_token = &pc->tokens->at(*token_index);
+        }
+        node->data.fn_proto.return_type = ast_parse_type_expr(pc, token_index, true);
+    }
+
+    return node;
+}
+
 /*
 SuffixOpExpression = ("async" option("<" SuffixOpExpression ">") SuffixOpExpression FnCallExpression) | PrimaryExpression option(FnCallExpression | ArrayAccessExpression | FieldAccessExpression | SliceExpression)
 FnCallExpression : token(LParen) list(Expression, token(Comma)) token(RParen)
@@ -979,6 +1039,11 @@ static AstNode *ast_parse_suffix_op_expr(ParseContext *pc, size_t *token_index, 
         }
 
         Token *fncall_token = &pc->tokens->at(*token_index);
+        if (fncall_token->id == TokenIdKeywordFn) {
+            *token_index += 1;
+            return ast_parse_fn_proto_partial(pc, token_index, fncall_token, allocator_expr_node, CallingConventionAsync,
+                    false, VisibModPrivate);
+        }
         AstNode *node = ast_parse_suffix_op_expr(pc, token_index, true);
         if (node->type != NodeTypeFnCallExpr) {
             ast_error(pc, fncall_token, "expected function call, found '%s'", token_name(fncall_token->id));
@@ -2434,9 +2499,10 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool m
     } else if (first_token->id == TokenIdKeywordAsync) {
         *token_index += 1;
         Token *next_token = &pc->tokens->at(*token_index);
-        if (next_token->id == TokenIdLParen) {
+        if (next_token->id == TokenIdCmpLessThan) {
+            *token_index += 1;
             async_allocator_type_node = ast_parse_type_expr(pc, token_index, true);
-            ast_eat_token(pc, token_index, TokenIdRParen);
+            ast_eat_token(pc, token_index, TokenIdCmpGreaterThan);
         }
         fn_token = ast_eat_token(pc, token_index, TokenIdKeywordFn);
         cc = CallingConventionAsync;
@@ -2470,61 +2536,7 @@ static AstNode *ast_parse_fn_proto(ParseContext *pc, size_t *token_index, bool m
         return nullptr;
     }
 
-    AstNode *node = ast_create_node(pc, NodeTypeFnProto, fn_token);
-    node->data.fn_proto.visib_mod = visib_mod;
-    node->data.fn_proto.cc = cc;
-    node->data.fn_proto.is_extern = is_extern;
-    node->data.fn_proto.async_allocator_type = async_allocator_type_node;
-
-    Token *fn_name = &pc->tokens->at(*token_index);
-
-    if (fn_name->id == TokenIdSymbol) {
-        *token_index += 1;
-        node->data.fn_proto.name = token_buf(fn_name);
-    } else {
-        node->data.fn_proto.name = nullptr;
-    }
-
-    ast_parse_param_decl_list(pc, token_index, &node->data.fn_proto.params, &node->data.fn_proto.is_var_args);
-
-    Token *next_token = &pc->tokens->at(*token_index);
-    if (next_token->id == TokenIdKeywordAlign) {
-        *token_index += 1;
-        ast_eat_token(pc, token_index, TokenIdLParen);
-
-        node->data.fn_proto.align_expr = ast_parse_expression(pc, token_index, true);
-        ast_eat_token(pc, token_index, TokenIdRParen);
-        next_token = &pc->tokens->at(*token_index);
-    }
-    if (next_token->id == TokenIdKeywordSection) {
-        *token_index += 1;
-        ast_eat_token(pc, token_index, TokenIdLParen);
-
-        node->data.fn_proto.section_expr = ast_parse_expression(pc, token_index, true);
-        ast_eat_token(pc, token_index, TokenIdRParen);
-        next_token = &pc->tokens->at(*token_index);
-    }
-    if (next_token->id == TokenIdKeywordVar) {
-        node->data.fn_proto.return_var_token = next_token;
-        *token_index += 1;
-        next_token = &pc->tokens->at(*token_index);
-    } else {
-        if (next_token->id == TokenIdKeywordError) {
-            Token *maybe_lbrace_tok = &pc->tokens->at(*token_index + 1);
-            if (maybe_lbrace_tok->id == TokenIdLBrace) {
-                *token_index += 1;
-                node->data.fn_proto.return_type = ast_create_node(pc, NodeTypeErrorType, next_token);
-                return node;
-            }
-        } else if (next_token->id == TokenIdBang) {
-            *token_index += 1;
-            node->data.fn_proto.auto_err_set = true;
-            next_token = &pc->tokens->at(*token_index);
-        }
-        node->data.fn_proto.return_type = ast_parse_type_expr(pc, token_index, true);
-    }
-
-    return node;
+    return ast_parse_fn_proto_partial(pc, token_index, fn_token, async_allocator_type_node, cc, is_extern, visib_mod);
 }
 
 /*

@@ -985,7 +985,8 @@ TypeTableEntry *get_fn_type(CodeGen *g, FnTypeId *fn_type_id) {
     // populate the name of the type
     buf_resize(&fn_type->name, 0);
     if (fn_type->data.fn.fn_type_id.cc == CallingConventionAsync) {
-        buf_appendf(&fn_type->name, "async(%s) ", buf_ptr(&fn_type_id->async_allocator_type->name));
+        assert(fn_type_id->async_allocator_type != nullptr);
+        buf_appendf(&fn_type->name, "async<%s> ", buf_ptr(&fn_type_id->async_allocator_type->name));
     } else {
         const char *cc_str = calling_convention_fn_type_str(fn_type->data.fn.fn_type_id.cc);
         buf_appendf(&fn_type->name, "%s", cc_str);
