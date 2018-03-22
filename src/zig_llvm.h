@@ -333,7 +333,6 @@ enum ZigLLVM_OSType {
     ZigLLVM_RTEMS,
     ZigLLVM_NaCl,       // Native Client
     ZigLLVM_CNK,        // BG/P Compute-Node Kernel
-    ZigLLVM_Bitrig,
     ZigLLVM_AIX,
     ZigLLVM_CUDA,       // NVIDIA CUDA
     ZigLLVM_NVCL,       // NVIDIA OpenCL
@@ -344,10 +343,12 @@ enum ZigLLVM_OSType {
     ZigLLVM_WatchOS,    // Apple watchOS
     ZigLLVM_Mesa3D,
     ZigLLVM_Contiki,
+    ZigLLVM_AMDPAL,     // AMD PAL Runtime
 
-    ZigLLVM_LastOSType = ZigLLVM_Contiki
+    ZigLLVM_LastOSType = ZigLLVM_AMDPAL
 };
 
+// Synchronize with target.cpp::environ_list
 enum ZigLLVM_EnvironmentType {
     ZigLLVM_UnknownEnvironment,
 
@@ -368,7 +369,6 @@ enum ZigLLVM_EnvironmentType {
     ZigLLVM_MSVC,
     ZigLLVM_Itanium,
     ZigLLVM_Cygnus,
-    ZigLLVM_AMDOpenCL,
     ZigLLVM_CoreCLR,
     ZigLLVM_OpenCL,
     ZigLLVM_Simulator,

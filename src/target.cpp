@@ -148,7 +148,6 @@ static const Os os_list[] = {
     OsRTEMS,
     OsNaCl,       // Native Client
     OsCNK,        // BG/P Compute-Node Kernel
-    OsBitrig,
     OsAIX,
     OsCUDA,       // NVIDIA CUDA
     OsNVCL,       // NVIDIA OpenCL
@@ -159,6 +158,7 @@ static const Os os_list[] = {
     OsWatchOS,    // Apple watchOS
     OsMesa3D,
     OsContiki,
+    OsAMDPAL,
     OsZen,
 };
 
@@ -181,7 +181,6 @@ static const ZigLLVM_EnvironmentType environ_list[] = {
     ZigLLVM_MSVC,
     ZigLLVM_Itanium,
     ZigLLVM_Cygnus,
-    ZigLLVM_AMDOpenCL,
     ZigLLVM_CoreCLR,
     ZigLLVM_OpenCL,
     ZigLLVM_Simulator,
@@ -280,8 +279,6 @@ static ZigLLVM_OSType get_llvm_os_type(Os os_type) {
             return ZigLLVM_NaCl;
         case OsCNK:
             return ZigLLVM_CNK;
-        case OsBitrig:
-            return ZigLLVM_Bitrig;
         case OsAIX:
             return ZigLLVM_AIX;
         case OsCUDA:
@@ -302,6 +299,8 @@ static ZigLLVM_OSType get_llvm_os_type(Os os_type) {
             return ZigLLVM_Mesa3D;
         case OsContiki:
             return ZigLLVM_Contiki;
+        case OsAMDPAL:
+            return ZigLLVM_AMDPAL;
     }
     zig_unreachable();
 }
@@ -349,8 +348,6 @@ static Os get_zig_os_type(ZigLLVM_OSType os_type) {
             return OsNaCl;
         case ZigLLVM_CNK:
             return OsCNK;
-        case ZigLLVM_Bitrig:
-            return OsBitrig;
         case ZigLLVM_AIX:
             return OsAIX;
         case ZigLLVM_CUDA:
@@ -371,6 +368,8 @@ static Os get_zig_os_type(ZigLLVM_OSType os_type) {
             return OsMesa3D;
         case ZigLLVM_Contiki:
             return OsContiki;
+        case ZigLLVM_AMDPAL:
+            return OsAMDPAL;
     }
     zig_unreachable();
 }
@@ -400,7 +399,6 @@ const char *get_target_os_name(Os os_type) {
         case OsRTEMS:
         case OsNaCl:       // Native Client
         case OsCNK:        // BG/P Compute-Node Kernel
-        case OsBitrig:
         case OsAIX:
         case OsCUDA:       // NVIDIA CUDA
         case OsNVCL:       // NVIDIA OpenCL
@@ -411,6 +409,7 @@ const char *get_target_os_name(Os os_type) {
         case OsWatchOS:    // Apple watchOS
         case OsMesa3D:
         case OsContiki:
+        case OsAMDPAL:
             return ZigLLVMGetOSTypeName(get_llvm_os_type(os_type));
     }
     zig_unreachable();
@@ -749,7 +748,6 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsRTEMS:
         case OsNaCl:
         case OsCNK:
-        case OsBitrig:
         case OsAIX:
         case OsCUDA:
         case OsNVCL:
@@ -761,6 +759,7 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsMesa3D:
         case OsFuchsia:
         case OsContiki:
+        case OsAMDPAL:
             zig_panic("TODO c type size in bits for this target");
     }
     zig_unreachable();
