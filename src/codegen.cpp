@@ -6592,6 +6592,7 @@ static void get_c_type(CodeGen *g, GenH *gen_h, TypeTableEntry *type_entry, Buf 
                 }
             }
         case TypeTableEntryIdStruct:
+        case TypeTableEntryIdOpaque:
             {
                 buf_init_from_str(out_buf, "struct ");
                 buf_append_buf(out_buf, &type_entry->name);
@@ -6607,11 +6608,6 @@ static void get_c_type(CodeGen *g, GenH *gen_h, TypeTableEntry *type_entry, Buf 
             {
                 buf_init_from_str(out_buf, "enum ");
                 buf_append_buf(out_buf, &type_entry->name);
-                return;
-            }
-        case TypeTableEntryIdOpaque:
-            {
-                buf_init_from_buf(out_buf, &type_entry->name);
                 return;
             }
         case TypeTableEntryIdArray:
