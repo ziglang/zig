@@ -5681,10 +5681,6 @@ uint32_t zig_llvm_fn_key_hash(ZigLLVMFnKey x) {
             return ((uint32_t)(x.data.overflow_arithmetic.bit_count) * 87135777) +
                 ((uint32_t)(x.data.overflow_arithmetic.add_sub_mul) * 31640542) +
                 ((uint32_t)(x.data.overflow_arithmetic.is_signed) ? 1062315172 : 314955820);
-        case ZigLLVMFnIdMemcpy:
-            return x.data.memcpy.dest_align * 2325524557 + x.data.memcpy.src_align * 519976394;
-        case ZigLLVMFnIdMemset:
-            return x.data.memset.dest_align * 388171592;
     }
     zig_unreachable();
 }
@@ -5704,11 +5700,6 @@ bool zig_llvm_fn_key_eql(ZigLLVMFnKey a, ZigLLVMFnKey b) {
             return (a.data.overflow_arithmetic.bit_count == b.data.overflow_arithmetic.bit_count) &&
                 (a.data.overflow_arithmetic.add_sub_mul == b.data.overflow_arithmetic.add_sub_mul) &&
                 (a.data.overflow_arithmetic.is_signed == b.data.overflow_arithmetic.is_signed);
-        case ZigLLVMFnIdMemcpy:
-            return (a.data.memcpy.dest_align == b.data.memcpy.dest_align) &&
-                   (a.data.memcpy.src_align == b.data.memcpy.src_align);
-        case ZigLLVMFnIdMemset:
-            return (a.data.memset.dest_align == b.data.memset.dest_align);
     }
     zig_unreachable();
 }

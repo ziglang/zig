@@ -1415,8 +1415,6 @@ enum ZigLLVMFnId {
     ZigLLVMFnIdOverflowArithmetic,
     ZigLLVMFnIdFloor,
     ZigLLVMFnIdCeil,
-    ZigLLVMFnIdMemcpy,
-    ZigLLVMFnIdMemset,
 };
 
 enum AddSubMul {
@@ -1443,13 +1441,6 @@ struct ZigLLVMFnKey {
             uint32_t bit_count;
             bool is_signed;
         } overflow_arithmetic;
-        struct {
-            uint32_t dest_align;
-            uint32_t src_align;
-        } memcpy;
-        struct {
-            uint32_t dest_align;
-        } memset;
     } data;
 };
 
