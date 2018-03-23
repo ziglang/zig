@@ -1415,6 +1415,8 @@ enum ZigLLVMFnId {
     ZigLLVMFnIdOverflowArithmetic,
     ZigLLVMFnIdFloor,
     ZigLLVMFnIdCeil,
+    ZigLLVMFnIdMemcpy,
+    ZigLLVMFnIdMemset,
 };
 
 enum AddSubMul {
@@ -1441,6 +1443,13 @@ struct ZigLLVMFnKey {
             uint32_t bit_count;
             bool is_signed;
         } overflow_arithmetic;
+        struct {
+            uint32_t dest_align;
+            uint32_t src_align;
+        } memcpy;
+        struct {
+            uint32_t dest_align;
+        } memset;
     } data;
 };
 
@@ -1629,8 +1638,6 @@ struct CodeGen {
     ImportTableEntry *root_import;
     ImportTableEntry *bootstrap_import;
     ImportTableEntry *test_runner_import;
-    LLVMValueRef memcpy_fn_val;
-    LLVMValueRef memset_fn_val;
     LLVMValueRef trap_fn_val;
     LLVMValueRef return_address_fn_val;
     LLVMValueRef frame_address_fn_val;
