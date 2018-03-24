@@ -705,7 +705,7 @@ static AstNode *ast_parse_comptime_expr(ParseContext *pc, size_t *token_index, b
 }
 
 /*
-PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ContainerDecl | ("continue" option(":" Symbol)) | ErrorSetDecl
+PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ContainerDecl | ("continue" option(":" Symbol)) | ErrorSetDecl | PromiseType
 KeywordLiteral = "true" | "false" | "null" | "undefined" | "error" | "this" | "unreachable" | "suspend"
 ErrorSetDecl = "error" "{" list(Symbol, ",") "}"
 */
@@ -773,6 +773,15 @@ static AstNode *ast_parse_primary_expr(ParseContext *pc, size_t *token_index, bo
     } else if (token->id == TokenIdKeywordSuspend) {
         AstNode *node = ast_create_node(pc, NodeTypeSuspend, token);
         *token_index += 1;
+        return node;
+    } else if (token->id == TokenIdKeywordPromise) {
+        AstNode *node = ast_create_node(pc, NodeTypePromiseType, token);
+        *token_index += 1;
+        Token *arrow_tok = &pc->tokens->at(*token_index);
+        if (arrow_tok->id == TokenIdArrow) {
+            *token_index += 1;
+            node->data.promise_type.payload_type = ast_parse_type_expr(pc, token_index, true);
+        }
         return node;
     } else if (token->id == TokenIdKeywordError) {
         Token *next_token = &pc->tokens->at(*token_index + 1);
@@ -3080,6 +3089,9 @@ void ast_visit_node_children(AstNode *node, void (*visit)(AstNode **, void *cont
             visit_field(&node->data.array_type.size, visit, context);
             visit_field(&node->data.array_type.child_type, visit, context);
             visit_field(&node->data.array_type.align_expr, visit, context);
+            break;
+        case NodeTypePromiseType:
+            visit_field(&node->data.promise_type.payload_type, visit, context);
             break;
         case NodeTypeErrorType:
             // none

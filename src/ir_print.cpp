@@ -404,6 +404,14 @@ static void ir_print_array_type(IrPrint *irp, IrInstructionArrayType *instructio
     ir_print_other_instruction(irp, instruction->child_type);
 }
 
+static void ir_print_promise_type(IrPrint *irp, IrInstructionPromiseType *instruction) {
+    fprintf(irp->f, "promise");
+    if (instruction->payload_type != nullptr) {
+        fprintf(irp->f, "->");
+        ir_print_other_instruction(irp, instruction->payload_type);
+    }
+}
+
 static void ir_print_slice_type(IrPrint *irp, IrInstructionSliceType *instruction) {
     const char *const_kw = instruction->is_const ? "const " : "";
     fprintf(irp->f, "[]%s", const_kw);
@@ -1262,6 +1270,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdArrayType:
             ir_print_array_type(irp, (IrInstructionArrayType *)instruction);
+            break;
+        case IrInstructionIdPromiseType:
+            ir_print_promise_type(irp, (IrInstructionPromiseType *)instruction);
             break;
         case IrInstructionIdSliceType:
             ir_print_slice_type(irp, (IrInstructionSliceType *)instruction);

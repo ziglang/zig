@@ -409,6 +409,7 @@ enum NodeType {
     NodeTypeResume,
     NodeTypeAwaitExpr,
     NodeTypeSuspend,
+    NodeTypePromiseType,
 };
 
 struct AstNodeRoot {
@@ -879,6 +880,10 @@ struct AstNodeSuspend {
     AstNode *promise_symbol;
 };
 
+struct AstNodePromiseType {
+    AstNode *payload_type; // can be NULL
+};
+
 struct AstNode {
     enum NodeType type;
     size_t line;
@@ -939,6 +944,7 @@ struct AstNode {
         AstNodeResumeExpr resume_expr;
         AstNodeAwaitExpr await_expr;
         AstNodeSuspend suspend;
+        AstNodePromiseType promise_type;
     } data;
 };
 
@@ -1947,6 +1953,7 @@ enum IrInstructionId {
     IrInstructionIdSetRuntimeSafety,
     IrInstructionIdSetFloatMode,
     IrInstructionIdArrayType,
+    IrInstructionIdPromiseType,
     IrInstructionIdSliceType,
     IrInstructionIdAsm,
     IrInstructionIdSizeOf,
@@ -2363,6 +2370,12 @@ struct IrInstructionArrayType {
 
     IrInstruction *size;
     IrInstruction *child_type;
+};
+
+struct IrInstructionPromiseType {
+    IrInstruction base;
+
+    IrInstruction *payload_type;
 };
 
 struct IrInstructionSliceType {

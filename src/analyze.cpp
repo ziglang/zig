@@ -3254,6 +3254,7 @@ void scan_decls(CodeGen *g, ScopeDecls *decls_scope, AstNode *node) {
         case NodeTypeResume:
         case NodeTypeAwaitExpr:
         case NodeTypeSuspend:
+        case NodeTypePromiseType:
             zig_unreachable();
     }
 }

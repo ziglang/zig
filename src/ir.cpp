@@ -349,6 +349,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionArrayType *) {
     return IrInstructionIdArrayType;
 }
 
+static constexpr IrInstructionId ir_instruction_id(IrInstructionPromiseType *) {
+    return IrInstructionIdPromiseType;
+}
+
 static constexpr IrInstructionId ir_instruction_id(IrInstructionSliceType *) {
     return IrInstructionIdSliceType;
 }
@@ -1465,6 +1469,17 @@ static IrInstruction *ir_build_array_type(IrBuilder *irb, Scope *scope, AstNode 
 
     ir_ref_instruction(size, irb->current_basic_block);
     ir_ref_instruction(child_type, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
+static IrInstruction *ir_build_promise_type(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *payload_type)
+{
+    IrInstructionPromiseType *instruction = ir_build_instruction<IrInstructionPromiseType>(irb, scope, source_node);
+    instruction->payload_type = payload_type;
+
+    if (payload_type != nullptr) ir_ref_instruction(payload_type, irb->current_basic_block);
 
     return &instruction->base;
 }
@@ -5074,6 +5089,22 @@ static IrInstruction *ir_gen_array_type(IrBuilder *irb, Scope *scope, AstNode *n
     }
 }
 
+static IrInstruction *ir_gen_promise_type(IrBuilder *irb, Scope *scope, AstNode *node) {
+    assert(node->type == NodeTypePromiseType);
+
+    AstNode *payload_type_node = node->data.promise_type.payload_type;
+    IrInstruction *payload_type_value = nullptr;
+
+    if (payload_type_node != nullptr) {
+        payload_type_value = ir_gen_node(irb, payload_type_node, scope);
+        if (payload_type_value == irb->codegen->invalid_instruction)
+            return payload_type_value;
+
+    }
+
+    return ir_build_promise_type(irb, scope, node, payload_type_value);
+}
+
 static IrInstruction *ir_gen_undefined_literal(IrBuilder *irb, Scope *scope, AstNode *node) {
     assert(node->type == NodeTypeUndefinedLiteral);
     return ir_build_const_undefined(irb, scope, node);
@@ -6282,6 +6313,8 @@ static IrInstruction *ir_gen_node_raw(IrBuilder *irb, AstNode *node, Scope *scop
             return ir_lval_wrap(irb, scope, ir_gen_bool_literal(irb, scope, node), lval);
         case NodeTypeArrayType:
             return ir_lval_wrap(irb, scope, ir_gen_array_type(irb, scope, node), lval);
+        case NodeTypePromiseType:
+            return ir_lval_wrap(irb, scope, ir_gen_promise_type(irb, scope, node), lval);
         case NodeTypeStringLiteral:
             return ir_lval_wrap(irb, scope, ir_gen_string_literal(irb, scope, node), lval);
         case NodeTypeUndefinedLiteral:
@@ -14069,6 +14102,24 @@ static TypeTableEntry *ir_analyze_instruction_array_type(IrAnalyze *ira,
     zig_unreachable();
 }
 
+static TypeTableEntry *ir_analyze_instruction_promise_type(IrAnalyze *ira, IrInstructionPromiseType *instruction) {
+    TypeTableEntry *promise_type;
+
+    if (instruction->payload_type == nullptr) {
+        promise_type = ira->codegen->builtin_types.entry_promise;
+    } else {
+        TypeTableEntry *payload_type = ir_resolve_type(ira, instruction->payload_type->other);
+        if (type_is_invalid(payload_type))
+            return ira->codegen->builtin_types.entry_invalid;
+
+        promise_type = get_promise_type(ira->codegen, payload_type);
+    }
+
+    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+    out_val->data.x_type = promise_type;
+    return ira->codegen->builtin_types.entry_type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_size_of(IrAnalyze *ira,
         IrInstructionSizeOf *size_of_instruction)
 {
@@ -17907,6 +17958,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_asm(ira, (IrInstructionAsm *)instruction);
         case IrInstructionIdArrayType:
             return ir_analyze_instruction_array_type(ira, (IrInstructionArrayType *)instruction);
+        case IrInstructionIdPromiseType:
+            return ir_analyze_instruction_promise_type(ira, (IrInstructionPromiseType *)instruction);
         case IrInstructionIdSizeOf:
             return ir_analyze_instruction_size_of(ira, (IrInstructionSizeOf *)instruction);
         case IrInstructionIdTestNonNull:
@@ -18232,6 +18285,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdStructFieldPtr:
         case IrInstructionIdUnionFieldPtr:
         case IrInstructionIdArrayType:
+        case IrInstructionIdPromiseType:
         case IrInstructionIdSliceType:
         case IrInstructionIdSizeOf:
         case IrInstructionIdTestNonNull:

@@ -5,6 +5,7 @@ var x: i32 = 1;
 
 test "create a coroutine and cancel it" {
     const p = try async<std.debug.global_allocator> simpleAsyncFn();
+    comptime assert(@typeOf(p) == promise->void);
     cancel p;
     assert(x == 2);
 }

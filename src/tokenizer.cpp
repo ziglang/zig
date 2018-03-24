@@ -135,6 +135,7 @@ static const struct ZigKeyword zig_keywords[] = {
     {"null", TokenIdKeywordNull},
     {"or", TokenIdKeywordOr},
     {"packed", TokenIdKeywordPacked},
+    {"promise", TokenIdKeywordPromise},
     {"pub", TokenIdKeywordPub},
     {"resume", TokenIdKeywordResume},
     {"return", TokenIdKeywordReturn},
@@ -1558,6 +1559,7 @@ const char * token_name(TokenId id) {
         case TokenIdKeywordNull: return "null";
         case TokenIdKeywordOr: return "or";
         case TokenIdKeywordPacked: return "packed";
+        case TokenIdKeywordPromise: return "promise";
         case TokenIdKeywordPub: return "pub";
         case TokenIdKeywordReturn: return "return";
         case TokenIdKeywordSection: return "section";

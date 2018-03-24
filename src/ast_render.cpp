@@ -250,6 +250,8 @@ static const char *node_type_str(NodeType node_type) {
             return "AwaitExpr";
         case NodeTypeSuspend:
             return "Suspend";
+        case NodeTypePromiseType:
+            return "PromiseType";
     }
     zig_unreachable();
 }
@@ -779,6 +781,15 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                     fprintf(ar->f, "const ");
                 }
                 render_node_ungrouped(ar, node->data.array_type.child_type);
+                break;
+            }
+        case NodeTypePromiseType:
+            {
+                fprintf(ar->f, "promise");
+                if (node->data.promise_type.payload_type != nullptr) {
+                    fprintf(ar->f, "->");
+                    render_node_grouped(ar, node->data.promise_type.payload_type);
+                }
                 break;
             }
         case NodeTypeErrorType:
