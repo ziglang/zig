@@ -1,7 +1,7 @@
 const std = @import("../../index.zig");
 const assert = std.debug.assert;
 const builtin = @import("builtin");
-const arch = switch (builtin.arch) {
+pub use switch (builtin.arch) {
     builtin.Arch.x86_64 => @import("x86_64.zig"),
     builtin.Arch.i386 => @import("i386.zig"),
     else => @compileError("unsupported arch"),
@@ -92,27 +92,6 @@ pub const SIGUNUSED = SIGSYS;
 pub const O_RDONLY = 0o0;
 pub const O_WRONLY = 0o1;
 pub const O_RDWR   = 0o2;
-
-pub const O_CREAT = arch.O_CREAT;
-pub const O_EXCL = arch.O_EXCL;
-pub const O_NOCTTY = arch.O_NOCTTY;
-pub const O_TRUNC = arch.O_TRUNC;
-pub const O_APPEND = arch.O_APPEND;
-pub const O_NONBLOCK = arch.O_NONBLOCK;
-pub const O_DSYNC = arch.O_DSYNC;
-pub const O_SYNC = arch.O_SYNC;
-pub const O_RSYNC = arch.O_RSYNC;
-pub const O_DIRECTORY = arch.O_DIRECTORY;
-pub const O_NOFOLLOW = arch.O_NOFOLLOW;
-pub const O_CLOEXEC = arch.O_CLOEXEC;
-
-pub const O_ASYNC = arch.O_ASYNC;
-pub const O_DIRECT = arch.O_DIRECT;
-pub const O_LARGEFILE = arch.O_LARGEFILE;
-pub const O_NOATIME = arch.O_NOATIME;
-pub const O_PATH = arch.O_PATH;
-pub const O_TMPFILE = arch.O_TMPFILE;
-pub const O_NDELAY = arch.O_NDELAY;
 
 pub const SEEK_SET = 0;
 pub const SEEK_CUR = 1;
@@ -394,65 +373,65 @@ pub fn getErrno(r: usize) usize {
 }
 
 pub fn dup2(old: i32, new: i32) usize {
-    return arch.syscall2(arch.SYS_dup2, usize(old), usize(new));
+    return syscall2(SYS_dup2, usize(old), usize(new));
 }
 
 pub fn chdir(path: &const u8) usize {
-    return arch.syscall1(arch.SYS_chdir, @ptrToInt(path));
+    return syscall1(SYS_chdir, @ptrToInt(path));
 }
 
 pub fn execve(path: &const u8, argv: &const ?&const u8, envp: &const ?&const u8) usize {
-    return arch.syscall3(arch.SYS_execve, @ptrToInt(path), @ptrToInt(argv), @ptrToInt(envp));
+    return syscall3(SYS_execve, @ptrToInt(path), @ptrToInt(argv), @ptrToInt(envp));
 }
 
 pub fn fork() usize {
-    return arch.syscall0(arch.SYS_fork);
+    return syscall0(SYS_fork);
 }
 
 pub fn getcwd(buf: &u8, size: usize) usize {
-    return arch.syscall2(arch.SYS_getcwd, @ptrToInt(buf), size);
+    return syscall2(SYS_getcwd, @ptrToInt(buf), size);
 }
 
 pub fn getdents(fd: i32, dirp: &u8, count: usize) usize {
-    return arch.syscall3(arch.SYS_getdents, usize(fd), @ptrToInt(dirp), count);
+    return syscall3(SYS_getdents, usize(fd), @ptrToInt(dirp), count);
 }
 
 pub fn isatty(fd: i32) bool {
     var wsz: winsize = undefined;
-    return arch.syscall3(arch.SYS_ioctl, usize(fd), TIOCGWINSZ, @ptrToInt(&wsz)) == 0;
+    return syscall3(SYS_ioctl, usize(fd), TIOCGWINSZ, @ptrToInt(&wsz)) == 0;
 }
 
 pub fn readlink(noalias path: &const u8, noalias buf_ptr: &u8, buf_len: usize) usize {
-    return arch.syscall3(arch.SYS_readlink, @ptrToInt(path), @ptrToInt(buf_ptr), buf_len);
+    return syscall3(SYS_readlink, @ptrToInt(path), @ptrToInt(buf_ptr), buf_len);
 }
 
 pub fn mkdir(path: &const u8, mode: u32) usize {
-    return arch.syscall2(arch.SYS_mkdir, @ptrToInt(path), mode);
+    return syscall2(SYS_mkdir, @ptrToInt(path), mode);
 }
 
 pub fn mmap(address: ?&u8, length: usize, prot: usize, flags: usize, fd: i32, offset: isize) usize {
-    return arch.syscall6(arch.SYS_mmap, @ptrToInt(address), length, prot, flags, usize(fd),
+    return syscall6(SYS_mmap, @ptrToInt(address), length, prot, flags, usize(fd),
         @bitCast(usize, offset));
 }
 
 pub fn munmap(address: &u8, length: usize) usize {
-    return arch.syscall2(arch.SYS_munmap, @ptrToInt(address), length);
+    return syscall2(SYS_munmap, @ptrToInt(address), length);
 }
 
 pub fn read(fd: i32, buf: &u8, count: usize) usize {
-    return arch.syscall3(arch.SYS_read, usize(fd), @ptrToInt(buf), count);
+    return syscall3(SYS_read, usize(fd), @ptrToInt(buf), count);
 }
 
 pub fn rmdir(path: &const u8) usize {
-    return arch.syscall1(arch.SYS_rmdir, @ptrToInt(path));
+    return syscall1(SYS_rmdir, @ptrToInt(path));
 }
 
 pub fn symlink(existing: &const u8, new: &const u8) usize {
-    return arch.syscall2(arch.SYS_symlink, @ptrToInt(existing), @ptrToInt(new));
+    return syscall2(SYS_symlink, @ptrToInt(existing), @ptrToInt(new));
 }
 
 pub fn pread(fd: i32, buf: &u8, count: usize, offset: usize) usize {
-    return arch.syscall4(arch.SYS_pread, usize(fd), @ptrToInt(buf), count, offset);
+    return syscall4(SYS_pread, usize(fd), @ptrToInt(buf), count, offset);
 }
 
 pub fn pipe(fd: &[2]i32) usize {
@@ -460,84 +439,84 @@ pub fn pipe(fd: &[2]i32) usize {
 }
 
 pub fn pipe2(fd: &[2]i32, flags: usize) usize {
-    return arch.syscall2(arch.SYS_pipe2, @ptrToInt(fd), flags);
+    return syscall2(SYS_pipe2, @ptrToInt(fd), flags);
 }
 
 pub fn write(fd: i32, buf: &const u8, count: usize) usize {
-    return arch.syscall3(arch.SYS_write, usize(fd), @ptrToInt(buf), count);
+    return syscall3(SYS_write, usize(fd), @ptrToInt(buf), count);
 }
 
 pub fn pwrite(fd: i32, buf: &const u8, count: usize, offset: usize) usize {
-    return arch.syscall4(arch.SYS_pwrite, usize(fd), @ptrToInt(buf), count, offset);
+    return syscall4(SYS_pwrite, usize(fd), @ptrToInt(buf), count, offset);
 }
 
 pub fn rename(old: &const u8, new: &const u8) usize {
-    return arch.syscall2(arch.SYS_rename, @ptrToInt(old), @ptrToInt(new));
+    return syscall2(SYS_rename, @ptrToInt(old), @ptrToInt(new));
 }
 
 pub fn open(path: &const u8, flags: u32, perm: usize) usize {
-    return arch.syscall3(arch.SYS_open, @ptrToInt(path), flags, perm);
+    return syscall3(SYS_open, @ptrToInt(path), flags, perm);
 }
 
 pub fn create(path: &const u8, perm: usize) usize {
-    return arch.syscall2(arch.SYS_creat, @ptrToInt(path), perm);
+    return syscall2(SYS_creat, @ptrToInt(path), perm);
 }
 
 pub fn openat(dirfd: i32, path: &const u8, flags: usize, mode: usize) usize {
-    return arch.syscall4(arch.SYS_openat, usize(dirfd), @ptrToInt(path), flags, mode);
+    return syscall4(SYS_openat, usize(dirfd), @ptrToInt(path), flags, mode);
 }
 
 pub fn close(fd: i32) usize {
-    return arch.syscall1(arch.SYS_close, usize(fd));
+    return syscall1(SYS_close, usize(fd));
 }
 
 pub fn lseek(fd: i32, offset: isize, ref_pos: usize) usize {
-    return arch.syscall3(arch.SYS_lseek, usize(fd), @bitCast(usize, offset), ref_pos);
+    return syscall3(SYS_lseek, usize(fd), @bitCast(usize, offset), ref_pos);
 }
 
 pub fn exit(status: i32) noreturn {
-    _ = arch.syscall1(arch.SYS_exit, @bitCast(usize, isize(status)));
+    _ = syscall1(SYS_exit, @bitCast(usize, isize(status)));
     unreachable;
 }
 
 pub fn getrandom(buf: &u8, count: usize, flags: u32) usize {
-    return arch.syscall3(arch.SYS_getrandom, @ptrToInt(buf), count, usize(flags));
+    return syscall3(SYS_getrandom, @ptrToInt(buf), count, usize(flags));
 }
 
 pub fn kill(pid: i32, sig: i32) usize {
-    return arch.syscall2(arch.SYS_kill, @bitCast(usize, isize(pid)), usize(sig));
+    return syscall2(SYS_kill, @bitCast(usize, isize(pid)), usize(sig));
 }
 
 pub fn unlink(path: &const u8) usize {
-    return arch.syscall1(arch.SYS_unlink, @ptrToInt(path));
+    return syscall1(SYS_unlink, @ptrToInt(path));
 }
 
 pub fn waitpid(pid: i32, status: &i32, options: i32) usize {
-    return arch.syscall4(arch.SYS_wait4, @bitCast(usize, isize(pid)), @ptrToInt(status), @bitCast(usize, isize(options)), 0);
+    return syscall4(SYS_wait4, @bitCast(usize, isize(pid)), @ptrToInt(status), @bitCast(usize, isize(options)), 0);
 }
 
 pub fn nanosleep(req: &const timespec, rem: ?&timespec) usize {
-    return arch.syscall2(arch.SYS_nanosleep, @ptrToInt(req), @ptrToInt(rem));
+    return syscall2(SYS_nanosleep, @ptrToInt(req), @ptrToInt(rem));
 }
 
 pub fn setuid(uid: u32) usize {
-    return arch.syscall1(arch.SYS_setuid, uid);
+    return syscall1(SYS_setuid, uid);
 }
 
 pub fn setgid(gid: u32) usize {
-    return arch.syscall1(arch.SYS_setgid, gid);
+    return syscall1(SYS_setgid, gid);
 }
 
 pub fn setreuid(ruid: u32, euid: u32) usize {
-    return arch.syscall2(arch.SYS_setreuid, ruid, euid);
+    return syscall2(SYS_setreuid, ruid, euid);
 }
 
 pub fn setregid(rgid: u32, egid: u32) usize {
-    return arch.syscall2(arch.SYS_setregid, rgid, egid);
+    return syscall2(SYS_setregid, rgid, egid);
 }
 
 pub fn sigprocmask(flags: u32, noalias set: &const sigset_t, noalias oldset: ?&sigset_t) usize {
-    return arch.syscall4(arch.SYS_rt_sigprocmask, flags, @ptrToInt(set), @ptrToInt(oldset), NSIG/8);
+    return syscall4(SYS_rt_sigprocmask, flags, @ptrToInt(set), @ptrToInt(oldset), NSIG/8);
 }
 
 pub fn sigaction(sig: u6, noalias act: &const Sigaction, noalias oact: ?&Sigaction) usize {
@@ -548,11 +527,11 @@ pub fn sigaction(sig: u6, noalias act: &const Sigaction, noalias oact: ?&Sigacti
         .handler = act.handler,
         .flags = act.flags | SA_RESTORER,
         .mask = undefined,
-        .restorer = @ptrCast(extern fn()void, arch.restore_rt),
+        .restorer = @ptrCast(extern fn()void, restore_rt),
     };
     var ksa_old: k_sigaction = undefined;
     @memcpy(@ptrCast(&u8, &ksa.mask), @ptrCast(&const u8, &act.mask), 8);
-    const result = arch.syscall4(arch.SYS_rt_sigaction, sig, @ptrToInt(&ksa), @ptrToInt(&ksa_old), @sizeOf(@typeOf(ksa.mask)));
+    const result = syscall4(SYS_rt_sigaction, sig, @ptrToInt(&ksa), @ptrToInt(&ksa_old), @sizeOf(@typeOf(ksa.mask)));
     const err = getErrno(result);
     if (err != 0) {
         return result;
@@ -592,22 +571,22 @@ pub const empty_sigset = []usize{0} ** sigset_t.len;
 pub fn raise(sig: i32) usize {
     var set: sigset_t = undefined;
     blockAppSignals(&set);
-    const tid = i32(arch.syscall0(arch.SYS_gettid));
-    const ret = arch.syscall2(arch.SYS_tkill, usize(tid), usize(sig));
+    const tid = i32(syscall0(SYS_gettid));
+    const ret = syscall2(SYS_tkill, usize(tid), usize(sig));
     restoreSignals(&set);
     return ret;
 }
 
 fn blockAllSignals(set: &sigset_t) void {
-    _ = arch.syscall4(arch.SYS_rt_sigprocmask, SIG_BLOCK, @ptrToInt(&all_mask), @ptrToInt(set), NSIG/8);
+    _ = syscall4(SYS_rt_sigprocmask, SIG_BLOCK, @ptrToInt(&all_mask), @ptrToInt(set), NSIG/8);
 }
 
 fn blockAppSignals(set: &sigset_t) void {
-    _ = arch.syscall4(arch.SYS_rt_sigprocmask, SIG_BLOCK, @ptrToInt(&app_mask), @ptrToInt(set), NSIG/8);
+    _ = syscall4(SYS_rt_sigprocmask, SIG_BLOCK, @ptrToInt(&app_mask), @ptrToInt(set), NSIG/8);
 }
 
 fn restoreSignals(set: &sigset_t) void {
-    _ = arch.syscall4(arch.SYS_rt_sigprocmask, SIG_SETMASK, @ptrToInt(set), 0, NSIG/8);
+    _ = syscall4(SYS_rt_sigprocmask, SIG_SETMASK, @ptrToInt(set), 0, NSIG/8);
 }
 
 pub fn sigaddset(set: &sigset_t, sig: u6) void {
@@ -653,61 +632,61 @@ pub const iovec = extern struct {
 };
 
 pub fn getsockname(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t) usize {
-    return arch.syscall3(arch.SYS_getsockname, usize(fd), @ptrToInt(addr), @ptrToInt(len));
+    return syscall3(SYS_getsockname, usize(fd), @ptrToInt(addr), @ptrToInt(len));
 }
 
 pub fn getpeername(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t) usize {
-    return arch.syscall3(arch.SYS_getpeername, usize(fd), @ptrToInt(addr), @ptrToInt(len));
+    return syscall3(SYS_getpeername, usize(fd), @ptrToInt(addr), @ptrToInt(len));
 }
 
 pub fn socket(domain: i32, socket_type: i32, protocol: i32) usize {
-    return arch.syscall3(arch.SYS_socket, usize(domain), usize(socket_type), usize(protocol));
+    return syscall3(SYS_socket, usize(domain), usize(socket_type), usize(protocol));
 }
 
 pub fn setsockopt(fd: i32, level: i32, optname: i32, optval: &const u8, optlen: socklen_t) usize {
-    return arch.syscall5(arch.SYS_setsockopt, usize(fd), usize(level), usize(optname), usize(optval), @ptrToInt(optlen));
+    return syscall5(SYS_setsockopt, usize(fd), usize(level), usize(optname), usize(optval), @ptrToInt(optlen));
 }
 
 pub fn getsockopt(fd: i32, level: i32, optname: i32, noalias optval: &u8, noalias optlen: &socklen_t) usize {
-    return arch.syscall5(arch.SYS_getsockopt, usize(fd), usize(level), usize(optname), @ptrToInt(optval), @ptrToInt(optlen));
+    return syscall5(SYS_getsockopt, usize(fd), usize(level), usize(optname), @ptrToInt(optval), @ptrToInt(optlen));
 }
 
-pub fn sendmsg(fd: i32, msg: &const arch.msghdr, flags: u32) usize {
-    return arch.syscall3(arch.SYS_sendmsg, usize(fd), @ptrToInt(msg), flags);
+pub fn sendmsg(fd: i32, msg: &const msghdr, flags: u32) usize {
+    return syscall3(SYS_sendmsg, usize(fd), @ptrToInt(msg), flags);
 }
 
 pub fn connect(fd: i32, addr: &const sockaddr, len: socklen_t) usize {
-    return arch.syscall3(arch.SYS_connect, usize(fd), @ptrToInt(addr), usize(len));
+    return syscall3(SYS_connect, usize(fd), @ptrToInt(addr), usize(len));
 }
 
-pub fn recvmsg(fd: i32, msg: &arch.msghdr, flags: u32) usize {
-    return arch.syscall3(arch.SYS_recvmsg, usize(fd), @ptrToInt(msg), flags);
+pub fn recvmsg(fd: i32, msg: &msghdr, flags: u32) usize {
+    return syscall3(SYS_recvmsg, usize(fd), @ptrToInt(msg), flags);
 }
 
 pub fn recvfrom(fd: i32, noalias buf: &u8, len: usize, flags: u32,
     noalias addr: ?&sockaddr, noalias alen: ?&socklen_t) usize
 {
-    return arch.syscall6(arch.SYS_recvfrom, usize(fd), @ptrToInt(buf), len, flags, @ptrToInt(addr), @ptrToInt(alen));
+    return syscall6(SYS_recvfrom, usize(fd), @ptrToInt(buf), len, flags, @ptrToInt(addr), @ptrToInt(alen));
 }
 
 pub fn shutdown(fd: i32, how: i32) usize {
-    return arch.syscall2(arch.SYS_shutdown, usize(fd), usize(how));
+    return syscall2(SYS_shutdown, usize(fd), usize(how));
 }
 
 pub fn bind(fd: i32, addr: &const sockaddr, len: socklen_t) usize {
-    return arch.syscall3(arch.SYS_bind, usize(fd), @ptrToInt(addr), usize(len));
+    return syscall3(SYS_bind, usize(fd), @ptrToInt(addr), usize(len));
 }
 
 pub fn listen(fd: i32, backlog: i32) usize {
-    return arch.syscall2(arch.SYS_listen, usize(fd), usize(backlog));
+    return syscall2(SYS_listen, usize(fd), usize(backlog));
 }
 
 pub fn sendto(fd: i32, buf: &const u8, len: usize, flags: u32, addr: ?&const sockaddr, alen: socklen_t) usize {
-    return arch.syscall6(arch.SYS_sendto, usize(fd), @ptrToInt(buf), len, flags, @ptrToInt(addr), usize(alen));
+    return syscall6(SYS_sendto, usize(fd), @ptrToInt(buf), len, flags, @ptrToInt(addr), usize(alen));
 }
 
 pub fn socketpair(domain: i32, socket_type: i32, protocol: i32, fd: [2]i32) usize {
-    return arch.syscall4(arch.SYS_socketpair, usize(domain), usize(socket_type), usize(protocol), @ptrToInt(&fd[0]));
+    return syscall4(SYS_socketpair, usize(domain), usize(socket_type), usize(protocol), @ptrToInt(&fd[0]));
 }
 
 pub fn accept(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t) usize {
@@ -715,7 +694,7 @@ pub fn accept(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t) usize {
 }
 
 pub fn accept4(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t, flags: u32) usize {
-    return arch.syscall4(arch.SYS_accept4, usize(fd), @ptrToInt(addr), @ptrToInt(len), flags);
+    return syscall4(SYS_accept4, usize(fd), @ptrToInt(addr), @ptrToInt(len), flags);
 }
 
 // error NameTooLong;
@@ -746,11 +725,8 @@ pub fn accept4(fd: i32, noalias addr: &sockaddr, noalias len: &socklen_t, flags:
 //     return ifr.ifr_ifindex;
 // }
 
-pub const Stat = arch.Stat;
-pub const timespec = arch.timespec;
-
 pub fn fstat(fd: i32, stat_buf: &Stat) usize {
-    return arch.syscall2(arch.SYS_fstat, usize(fd), @ptrToInt(stat_buf));
+    return syscall2(SYS_fstat, usize(fd), @ptrToInt(stat_buf));
 }
 
 pub const epoll_data = extern union {
@@ -770,19 +746,19 @@ pub fn epoll_create() usize {
 }
 
 pub fn epoll_create1(flags: usize) usize {
-    return arch.syscall1(arch.SYS_epoll_create1, flags);
+    return syscall1(SYS_epoll_create1, flags);
 }
 
 pub fn epoll_ctl(epoll_fd: i32, op: i32, fd: i32, ev: &epoll_event) usize {
-    return arch.syscall4(arch.SYS_epoll_ctl, usize(epoll_fd), usize(op), usize(fd), @ptrToInt(ev));
+    return syscall4(SYS_epoll_ctl, usize(epoll_fd), usize(op), usize(fd), @ptrToInt(ev));
 }
 
 pub fn epoll_wait(epoll_fd: i32, events: &epoll_event, maxevents: u32, timeout: i32) usize {
-    return arch.syscall4(arch.SYS_epoll_wait, usize(epoll_fd), @ptrToInt(events), usize(maxevents), usize(timeout));
+    return syscall4(SYS_epoll_wait, usize(epoll_fd), @ptrToInt(events), usize(maxevents), usize(timeout));
 }
 
 pub fn timerfd_create(clockid: i32, flags: u32) usize {
-    return arch.syscall2(arch.SYS_timerfd_create, usize(clockid), usize(flags));
+    return syscall2(SYS_timerfd_create, usize(clockid), usize(flags));
 }
 
 pub const itimerspec = extern struct {
@@ -791,11 +767,11 @@ pub const itimerspec = extern struct {
 };
 
 pub fn timerfd_gettime(fd: i32, curr_value: &itimerspec) usize {
-    return arch.syscall2(arch.SYS_timerfd_gettime, usize(fd), @ptrToInt(curr_value));
+    return syscall2(SYS_timerfd_gettime, usize(fd), @ptrToInt(curr_value));
 }
 
 pub fn timerfd_settime(fd: i32, flags: u32, new_value: &const itimerspec, old_value: ?&itimerspec) usize {
-    return arch.syscall4(arch.SYS_timerfd_settime, usize(fd), usize(flags), @ptrToInt(new_value), @ptrToInt(old_value));
+    return syscall4(SYS_timerfd_settime, usize(fd), usize(flags), @ptrToInt(new_value), @ptrToInt(old_value));
 }
 
 test "import linux test" {
