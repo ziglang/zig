@@ -1251,7 +1251,10 @@ struct FnTableEntry {
     ScopeBlock *def_scope; // parent is child_scope
     Buf symbol_name;
     TypeTableEntry *type_entry; // function type
-    TypeTableEntry *implicit_return_type;
+    // in the case of normal functions this is the implicit return type
+    // in the case of async functions this is the implicit return type according to the
+    // zig source code, not according to zig ir
+    TypeTableEntry *src_implicit_return_type;
     bool is_test;
     FnInline fn_inline;
     FnAnalState anal_state;
@@ -2035,6 +2038,7 @@ enum IrInstructionId {
     IrInstructionIdPromiseResultType,
     IrInstructionIdAwaitBookkeeping,
     IrInstructionIdSaveErrRetAddr,
+    IrInstructionIdAddImplicitReturnType,
 };
 
 struct IrInstruction {
@@ -2991,6 +2995,12 @@ struct IrInstructionAwaitBookkeeping {
 
 struct IrInstructionSaveErrRetAddr {
     IrInstruction base;
+};
+
+struct IrInstructionAddImplicitReturnType {
+    IrInstruction base;
+
+    IrInstruction *value;
 };
 
 static const size_t slice_ptr_index = 0;

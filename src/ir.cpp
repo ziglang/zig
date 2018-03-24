@@ -34,7 +34,7 @@ struct IrAnalyze {
     size_t old_bb_index;
     size_t instruction_index;
     TypeTableEntry *explicit_return_type;
-    ZigList<IrInstruction *> implicit_return_type_list;
+    ZigList<IrInstruction *> src_implicit_return_type_list;
     IrBasicBlock *const_predecessor_bb;
 };
 
@@ -715,6 +715,10 @@ static constexpr IrInstructionId ir_instruction_id(IrInstructionAwaitBookkeeping
 
 static constexpr IrInstructionId ir_instruction_id(IrInstructionSaveErrRetAddr *) {
     return IrInstructionIdSaveErrRetAddr;
+}
+
+static constexpr IrInstructionId ir_instruction_id(IrInstructionAddImplicitReturnType *) {
+    return IrInstructionIdAddImplicitReturnType;
 }
 
 template<typename T>
@@ -2687,6 +2691,17 @@ static IrInstruction *ir_build_save_err_ret_addr(IrBuilder *irb, Scope *scope, A
     return &instruction->base;
 }
 
+static IrInstruction *ir_build_add_implicit_return_type(IrBuilder *irb, Scope *scope, AstNode *source_node,
+        IrInstruction *value)
+{
+    IrInstructionAddImplicitReturnType *instruction = ir_build_instruction<IrInstructionAddImplicitReturnType>(irb, scope, source_node);
+    instruction->value = value;
+
+    ir_ref_instruction(value, irb->current_basic_block);
+
+    return &instruction->base;
+}
+
 static void ir_count_defers(IrBuilder *irb, Scope *inner_scope, Scope *outer_scope, size_t *results) {
     results[ReturnKindUnconditional] = 0;
     results[ReturnKindError] = 0;
@@ -2767,6 +2782,8 @@ static bool exec_is_async(IrExecutable *exec) {
 static IrInstruction *ir_gen_async_return(IrBuilder *irb, Scope *scope, AstNode *node, IrInstruction *return_value,
     bool is_generated_code)
 {
+    ir_mark_gen(ir_build_add_implicit_return_type(irb, scope, node, return_value));
+
     bool is_async = exec_is_async(irb->exec);
     if (!is_async) {
         IrInstruction *return_inst = ir_build_return(irb, scope, node, return_value);
@@ -6399,6 +6416,8 @@ bool ir_gen(CodeGen *codegen, AstNode *node, Scope *scope, IrExecutable *ir_exec
         ir_build_cond_br(irb, scope, node, alloc_result_is_ok, alloc_ok_block, alloc_err_block, const_bool_false);
 
         ir_set_cursor_at_end_and_append_block(irb, alloc_err_block);
+        // we can return undefined here, because the caller passes a pointer to the error struct field
+        // in the error union result, and we populate it in case of allocation failure.
         IrInstruction *undef = ir_build_const_undefined(irb, scope, node);
         ir_build_return(irb, scope, node, undef);
 
@@ -10108,13 +10127,26 @@ static Buf *ir_resolve_str(IrAnalyze *ira, IrInstruction *value) {
     return result;
 }
 
+static TypeTableEntry *ir_analyze_instruction_add_implicit_return_type(IrAnalyze *ira,
+        IrInstructionAddImplicitReturnType *instruction)
+{
+    IrInstruction *value = instruction->value->other;
+    if (type_is_invalid(value->value.type))
+        return ir_unreach_error(ira);
+
+    ira->src_implicit_return_type_list.append(value);
+
+    ConstExprValue *out_val = ir_build_const_from(ira, &instruction->base);
+    out_val->type = ira->codegen->builtin_types.entry_void;
+    return out_val->type;
+}
+
 static TypeTableEntry *ir_analyze_instruction_return(IrAnalyze *ira,
     IrInstructionReturn *return_instruction)
 {
     IrInstruction *value = return_instruction->value->other;
     if (type_is_invalid(value->value.type))
         return ir_unreach_error(ira);
-    ira->implicit_return_type_list.append(value);
 
     IrInstruction *casted_value = ir_implicit_cast(ira, value, ira->explicit_return_type);
     if (casted_value == ira->codegen->invalid_instruction)
@@ -18049,6 +18081,8 @@ static TypeTableEntry *ir_analyze_instruction_nocast(IrAnalyze *ira, IrInstructi
             return ir_analyze_instruction_await_bookkeeping(ira, (IrInstructionAwaitBookkeeping *)instruction);
         case IrInstructionIdSaveErrRetAddr:
             return ir_analyze_instruction_save_err_ret_addr(ira, (IrInstructionSaveErrRetAddr *)instruction);
+        case IrInstructionIdAddImplicitReturnType:
+            return ir_analyze_instruction_add_implicit_return_type(ira, (IrInstructionAddImplicitReturnType *)instruction);
     }
     zig_unreachable();
 }
@@ -18122,11 +18156,11 @@ TypeTableEntry *ir_analyze(CodeGen *codegen, IrExecutable *old_exec, IrExecutabl
 
     if (new_exec->invalid) {
         return ira->codegen->builtin_types.entry_invalid;
-    } else if (ira->implicit_return_type_list.length == 0) {
+    } else if (ira->src_implicit_return_type_list.length == 0) {
         return codegen->builtin_types.entry_unreachable;
     } else {
-        return ir_resolve_peer_types(ira, expected_type_source_node, ira->implicit_return_type_list.items,
-                ira->implicit_return_type_list.length);
+        return ir_resolve_peer_types(ira, expected_type_source_node, ira->src_implicit_return_type_list.items,
+                ira->src_implicit_return_type_list.length);
     }
 }
 
@@ -18175,6 +18209,7 @@ bool ir_has_side_effects(IrInstruction *instruction) {
         case IrInstructionIdCoroAllocHelper:
         case IrInstructionIdAwaitBookkeeping:
         case IrInstructionIdSaveErrRetAddr:
+        case IrInstructionIdAddImplicitReturnType:
             return true;
 
         case IrInstructionIdPhi:

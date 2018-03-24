@@ -658,6 +658,15 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
                 if (node->data.fn_call_expr.is_builtin) {
                     fprintf(ar->f, "@");
                 }
+                if (node->data.fn_call_expr.is_async) {
+                    fprintf(ar->f, "async");
+                    if (node->data.fn_call_expr.async_allocator != nullptr) {
+                        fprintf(ar->f, "<");
+                        render_node_extra(ar, node->data.fn_call_expr.async_allocator, true);
+                        fprintf(ar->f, ">");
+                    }
+                    fprintf(ar->f, " ");
+                }
                 AstNode *fn_ref_node = node->data.fn_call_expr.fn_ref_expr;
                 bool grouped = (fn_ref_node->type != NodeTypePrefixOpExpr && fn_ref_node->type != NodeTypeAddrOfExpr);
                 render_node_extra(ar, fn_ref_node, grouped);
@@ -1023,7 +1032,7 @@ static void render_node_extra(AstRender *ar, AstNode *node, bool grouped) {
         case NodeTypeUnwrapErrorExpr:
             {
                 render_node_ungrouped(ar, node->data.unwrap_err_expr.op1);
-                fprintf(ar->f, " %%%% ");
+                fprintf(ar->f, " catch ");
                 if (node->data.unwrap_err_expr.symbol) {
                     Buf *var_name = node->data.unwrap_err_expr.symbol->data.symbol_expr.symbol;
                     fprintf(ar->f, "|%s| ", buf_ptr(var_name));

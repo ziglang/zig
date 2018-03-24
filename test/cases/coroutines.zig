@@ -176,3 +176,14 @@ async<&std.mem.Allocator> fn simpleAsyncFn2(y: &i32) void {
     *y += 1;
     suspend;
 }
+
+test "async fn with inferred error set" {
+    const p = (async<std.debug.global_allocator> failing()) catch unreachable;
+    resume p;
+    cancel p;
+}
+
+async fn failing() !void {
+    suspend;
+    return error.Fail;
+}

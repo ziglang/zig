@@ -201,9 +201,9 @@ static void ir_print_call(IrPrint *irp, IrInstructionCall *call_instruction) {
     if (call_instruction->is_async) {
         fprintf(irp->f, "async");
         if (call_instruction->async_allocator != nullptr) {
-            fprintf(irp->f, "(");
+            fprintf(irp->f, "<");
             ir_print_other_instruction(irp, call_instruction->async_allocator);
-            fprintf(irp->f, ")");
+            fprintf(irp->f, ">");
         }
         fprintf(irp->f, " ");
     }
@@ -1165,6 +1165,12 @@ static void ir_print_save_err_ret_addr(IrPrint *irp, IrInstructionSaveErrRetAddr
     fprintf(irp->f, "@saveErrRetAddr()");
 }
 
+static void ir_print_add_implicit_return_type(IrPrint *irp, IrInstructionAddImplicitReturnType *instruction) {
+    fprintf(irp->f, "@addImplicitReturnType(");
+    ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
 static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
     ir_print_prefix(irp, instruction);
     switch (instruction->id) {
@@ -1538,6 +1544,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdSaveErrRetAddr:
             ir_print_save_err_ret_addr(irp, (IrInstructionSaveErrRetAddr *)instruction);
+            break;
+        case IrInstructionIdAddImplicitReturnType:
+            ir_print_add_implicit_return_type(irp, (IrInstructionAddImplicitReturnType *)instruction);
             break;
     }
     fprintf(irp->f, "\n");

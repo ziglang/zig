@@ -3865,7 +3865,7 @@ void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_typ
 
     TypeTableEntry *block_return_type = ir_analyze(g, &fn_table_entry->ir_executable,
             &fn_table_entry->analyzed_executable, fn_type_id->return_type, return_type_node);
-    fn_table_entry->implicit_return_type = block_return_type;
+    fn_table_entry->src_implicit_return_type = block_return_type;
 
     if (type_is_invalid(block_return_type) || fn_table_entry->analyzed_executable.invalid) {
         assert(g->errors.length > 0);
@@ -3877,10 +3877,10 @@ void analyze_fn_ir(CodeGen *g, FnTableEntry *fn_table_entry, AstNode *return_typ
         TypeTableEntry *return_err_set_type = fn_type_id->return_type->data.error_union.err_set_type;
         if (return_err_set_type->data.error_set.infer_fn != nullptr) {
             TypeTableEntry *inferred_err_set_type;
-            if (fn_table_entry->implicit_return_type->id == TypeTableEntryIdErrorSet) {
-                inferred_err_set_type = fn_table_entry->implicit_return_type;
-            } else if (fn_table_entry->implicit_return_type->id == TypeTableEntryIdErrorUnion) {
-                inferred_err_set_type = fn_table_entry->implicit_return_type->data.error_union.err_set_type;
+            if (fn_table_entry->src_implicit_return_type->id == TypeTableEntryIdErrorSet) {
+                inferred_err_set_type = fn_table_entry->src_implicit_return_type;
+            } else if (fn_table_entry->src_implicit_return_type->id == TypeTableEntryIdErrorUnion) {
+                inferred_err_set_type = fn_table_entry->src_implicit_return_type->data.error_union.err_set_type;
             } else {
                 add_node_error(g, return_type_node,
                         buf_sprintf("function with inferred error set must return at least one possible error"));
