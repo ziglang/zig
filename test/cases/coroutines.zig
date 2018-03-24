@@ -56,6 +56,7 @@ var result = false;
 
 async fn testSuspendBlock() void {
     suspend |p| {
+        comptime assert(@typeOf(p) == promise->void);
         a_promise = p;
     }
     result = true;
