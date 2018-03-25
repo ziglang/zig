@@ -170,6 +170,12 @@ Scope *create_comptime_scope(AstNode *node, Scope *parent) {
     return &scope->base;
 }
 
+Scope *create_coro_prelude_scope(AstNode *node, Scope *parent) {
+    ScopeCoroPrelude *scope = allocate<ScopeCoroPrelude>(1);
+    init_scope(&scope->base, ScopeIdCoroPrelude, node, parent);
+    return &scope->base;
+}
+
 ImportTableEntry *get_scope_import(Scope *scope) {
     while (scope) {
         if (scope->id == ScopeIdDecls) {
@@ -3592,6 +3598,7 @@ FnTableEntry *scope_get_fn_if_root(Scope *scope) {
             case ScopeIdCImport:
             case ScopeIdLoop:
             case ScopeIdCompTime:
+            case ScopeIdCoroPrelude:
                 scope = scope->parent;
                 continue;
             case ScopeIdFnDef:

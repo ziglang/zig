@@ -1621,7 +1621,8 @@ struct CodeGen {
     FnTableEntry *panic_fn;
     LLVMValueRef cur_ret_ptr;
     LLVMValueRef cur_fn_val;
-    LLVMValueRef cur_err_ret_trace_val;
+    LLVMValueRef cur_err_ret_trace_val_arg;
+    LLVMValueRef cur_err_ret_trace_val_stack;
     bool c_want_stdint;
     bool c_want_stdbool;
     AstNode *root_export_decl;
@@ -1760,6 +1761,7 @@ enum ScopeId {
     ScopeIdLoop,
     ScopeIdFnDef,
     ScopeIdCompTime,
+    ScopeIdCoroPrelude,
 };
 
 struct Scope {
@@ -1865,6 +1867,12 @@ struct ScopeFnDef {
     Scope base;
 
     FnTableEntry *fn_entry;
+};
+
+// This scope is created to indicate that the code in the scope
+// is auto-generated coroutine prelude stuff.
+struct ScopeCoroPrelude {
+    Scope base;
 };
 
 // synchronized with code in define_builtin_compile_vars

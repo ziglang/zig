@@ -281,4 +281,34 @@ pub fn addCases(cases: &tests.CompareOutputContext) void {
         \\    f.float = 12.34;
         \\}
     );
+
+    // This case makes sure that the code compiles and runs. There is not actually a special
+    // runtime safety check having to do specifically with error return traces across suspend points.
+    cases.addRuntimeSafety("error return trace across suspend points",
+        \\const std = @import("std");
+        \\
+        \\pub fn panic(message: []const u8, stack_trace: ?&@import("builtin").StackTrace) noreturn {
+        \\    std.os.exit(126);
+        \\}
+        \\
+        \\pub fn main() void {
+        \\    const p = nonFailing();
+        \\    resume p;
+        \\    const p2 = async<std.debug.global_allocator> printTrace(p) catch unreachable;
+        \\    cancel p2;
+        \\}
+        \\
+        \\fn nonFailing() promise->error!void {
+        \\    return async<std.debug.global_allocator> failing() catch unreachable;
+        \\}
+        \\
+        \\async fn failing() error!void {
+        \\    suspend;
+        \\    return error.Fail;
+        \\}
+        \\
+        \\async fn printTrace(p: promise->error!void) void {
+        \\    (await p) catch unreachable;
+        \\}
+    );
 }

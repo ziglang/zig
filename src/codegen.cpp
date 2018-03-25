@@ -653,6 +653,7 @@ static ZigLLVMDIScope *get_di_scope(CodeGen *g, Scope *scope) {
         case ScopeIdDeferExpr:
         case ScopeIdLoop:
         case ScopeIdCompTime:
+        case ScopeIdCoroPrelude:
             return get_di_scope(g, scope->parent);
     }
     zig_unreachable();
@@ -1318,9 +1319,34 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     return fn_val;
 }
 
-static void gen_safety_crash_for_err(CodeGen *g, LLVMValueRef err_val) {
+static bool is_coro_prelude_scope(Scope *scope) {
+    while (scope != nullptr) {
+        if (scope->id == ScopeIdCoroPrelude) {
+            return true;
+        } else if (scope->id == ScopeIdFnDef) {
+            break;
+        }
+        scope = scope->parent;
+    }
+    return false;
+}
+
+static LLVMValueRef get_cur_err_ret_trace_val(CodeGen *g, Scope *scope) {
+    if (!g->have_err_ret_tracing) {
+        return nullptr;
+    }
+    if (g->cur_fn->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync) {
+        return is_coro_prelude_scope(scope) ? g->cur_err_ret_trace_val_arg : g->cur_err_ret_trace_val_stack;
+    }
+    if (g->cur_err_ret_trace_val_stack != nullptr) {
+        return g->cur_err_ret_trace_val_stack;
+    }
+    return g->cur_err_ret_trace_val_arg;
+}
+
+static void gen_safety_crash_for_err(CodeGen *g, LLVMValueRef err_val, Scope *scope) {
     LLVMValueRef safety_crash_err_fn = get_safety_crash_err_fn(g);
-    LLVMValueRef err_ret_trace_val = g->cur_err_ret_trace_val;
+    LLVMValueRef err_ret_trace_val = get_cur_err_ret_trace_val(g, scope);
     if (err_ret_trace_val == nullptr) {
         TypeTableEntry *ptr_to_stack_trace_type = get_ptr_to_stack_trace_type(g);
         err_ret_trace_val = LLVMConstNull(ptr_to_stack_trace_type->type_ref);
@@ -1614,7 +1640,7 @@ static LLVMValueRef ir_render_save_err_ret_addr(CodeGen *g, IrExecutable *execut
 
     LLVMValueRef return_err_fn = get_return_err_fn(g);
     LLVMValueRef args[] = {
-        g->cur_err_ret_trace_val,
+        get_cur_err_ret_trace_val(g, save_err_ret_addr_instruction->base.scope),
     };
     LLVMValueRef call_instruction = ZigLLVMBuildCall(g->builder, return_err_fn, args, 1,
             get_llvm_cc(g, CallingConventionUnspecified), ZigLLVM_FnInlineAuto, "");
@@ -2725,7 +2751,7 @@ static LLVMValueRef ir_render_call(CodeGen *g, IrExecutable *executable, IrInstr
         gen_param_index += 1;
     }
     if (prefix_arg_err_ret_stack) {
-        gen_param_values[gen_param_index] = g->cur_err_ret_trace_val;
+        gen_param_values[gen_param_index] = get_cur_err_ret_trace_val(g, instruction->base.scope);
         gen_param_index += 1;
     }
     if (instruction->is_async) {
@@ -3292,11 +3318,12 @@ static LLVMValueRef ir_render_align_cast(CodeGen *g, IrExecutable *executable, I
 static LLVMValueRef ir_render_error_return_trace(CodeGen *g, IrExecutable *executable,
         IrInstructionErrorReturnTrace *instruction)
 {
-    if (g->cur_err_ret_trace_val == nullptr) {
+    LLVMValueRef cur_err_ret_trace_val = get_cur_err_ret_trace_val(g, instruction->base.scope);
+    if (cur_err_ret_trace_val == nullptr) {
         TypeTableEntry *ptr_to_stack_trace_type = get_ptr_to_stack_trace_type(g);
         return LLVMConstNull(ptr_to_stack_trace_type->type_ref);
     }
-    return g->cur_err_ret_trace_val;
+    return cur_err_ret_trace_val;
 }
 
 static LLVMValueRef ir_render_cancel(CodeGen *g, IrExecutable *executable, IrInstructionCancel *instruction) {
@@ -3726,7 +3753,7 @@ static LLVMValueRef ir_render_unwrap_err_payload(CodeGen *g, IrExecutable *execu
         LLVMBuildCondBr(g->builder, cond_val, ok_block, err_block);
 
         LLVMPositionBuilderAtEnd(g->builder, err_block);
-        gen_safety_crash_for_err(g, err_val);
+        gen_safety_crash_for_err(g, err_val, instruction->base.scope);
 
         LLVMPositionBuilderAtEnd(g->builder, ok_block);
     }
@@ -3918,7 +3945,7 @@ static LLVMValueRef ir_render_container_init_list(CodeGen *g, IrExecutable *exec
 }
 
 static LLVMValueRef ir_render_panic(CodeGen *g, IrExecutable *executable, IrInstructionPanic *instruction) {
-    gen_panic(g, ir_llvm_value(g, instruction->msg), g->cur_err_ret_trace_val);
+    gen_panic(g, ir_llvm_value(g, instruction->msg), get_cur_err_ret_trace_val(g, instruction->base.scope));
     return nullptr;
 }
 
@@ -5279,9 +5306,17 @@ static void do_code_gen(CodeGen *g) {
         clear_debug_source_node(g);
 
         uint32_t err_ret_trace_arg_index = get_err_ret_trace_arg_index(g, fn_table_entry);
-        if (err_ret_trace_arg_index != UINT32_MAX) {
-            g->cur_err_ret_trace_val = LLVMGetParam(fn, err_ret_trace_arg_index);
-        } else if (g->have_err_ret_tracing && fn_table_entry->calls_or_awaits_errorable_fn) {
+        bool have_err_ret_trace_arg = err_ret_trace_arg_index != UINT32_MAX;
+        if (have_err_ret_trace_arg) {
+            g->cur_err_ret_trace_val_arg = LLVMGetParam(fn, err_ret_trace_arg_index);
+        } else {
+            g->cur_err_ret_trace_val_arg = nullptr;
+        }
+
+        bool is_async = fn_table_entry->type_entry->data.fn.fn_type_id.cc == CallingConventionAsync;
+        bool have_err_ret_trace_stack = g->have_err_ret_tracing && fn_table_entry->calls_or_awaits_errorable_fn &&
+            (is_async || !have_err_ret_trace_arg);
+        if (have_err_ret_trace_stack) {
             // TODO call graph analysis to find out what this number needs to be for every function
             static const size_t stack_trace_ptr_count = 30;
 
@@ -5289,13 +5324,13 @@ static void do_code_gen(CodeGen *g) {
             TypeTableEntry *array_type = get_array_type(g, usize, stack_trace_ptr_count);
             LLVMValueRef err_ret_array_val = build_alloca(g, array_type, "error_return_trace_addresses",
                     get_abi_alignment(g, array_type));
-            g->cur_err_ret_trace_val = build_alloca(g, g->stack_trace_type, "error_return_trace", get_abi_alignment(g, g->stack_trace_type));
+            g->cur_err_ret_trace_val_stack = build_alloca(g, g->stack_trace_type, "error_return_trace", get_abi_alignment(g, g->stack_trace_type));
             size_t index_field_index = g->stack_trace_type->data.structure.fields[0].gen_index;
-            LLVMValueRef index_field_ptr = LLVMBuildStructGEP(g->builder, g->cur_err_ret_trace_val, (unsigned)index_field_index, "");
+            LLVMValueRef index_field_ptr = LLVMBuildStructGEP(g->builder, g->cur_err_ret_trace_val_stack, (unsigned)index_field_index, "");
             gen_store_untyped(g, LLVMConstNull(usize->type_ref), index_field_ptr, 0, false);
 
             size_t addresses_field_index = g->stack_trace_type->data.structure.fields[1].gen_index;
-            LLVMValueRef addresses_field_ptr = LLVMBuildStructGEP(g->builder, g->cur_err_ret_trace_val, (unsigned)addresses_field_index, "");
+            LLVMValueRef addresses_field_ptr = LLVMBuildStructGEP(g->builder, g->cur_err_ret_trace_val_stack, (unsigned)addresses_field_index, "");
 
             TypeTableEntry *slice_type = g->stack_trace_type->data.structure.fields[1].type_entry;
             size_t ptr_field_index = slice_type->data.structure.fields[slice_ptr_index].gen_index;
@@ -5311,7 +5346,7 @@ static void do_code_gen(CodeGen *g) {
             LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, addresses_field_ptr, (unsigned)len_field_index, "");
             gen_store(g, LLVMConstInt(usize->type_ref, stack_trace_ptr_count, false), len_field_ptr, get_pointer_to_type(g, usize, false));
         } else {
-            g->cur_err_ret_trace_val = nullptr;
+            g->cur_err_ret_trace_val_stack = nullptr;
         }
 
         // allocate temporary stack data
