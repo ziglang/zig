@@ -1690,7 +1690,7 @@ const unexpected_error_tracing = false;
 pub fn unexpectedErrorPosix(errno: usize) (error{Unexpected}) {
     if (unexpected_error_tracing) {
         debug.warn("unexpected errno: {}\n", errno);
-        debug.dumpStackTrace();
+        debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
 }
@@ -1700,7 +1700,7 @@ pub fn unexpectedErrorPosix(errno: usize) (error{Unexpected}) {
 pub fn unexpectedErrorWindows(err: windows.DWORD) (error{Unexpected}) {
     if (unexpected_error_tracing) {
         debug.warn("unexpected GetLastError(): {}\n", err);
-        debug.dumpStackTrace();
+        debug.dumpCurrentStackTrace(null);
     }
     return error.Unexpected;
 }
