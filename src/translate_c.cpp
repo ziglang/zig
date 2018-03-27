@@ -729,8 +729,9 @@ static AstNode *trans_type(Context *c, const Type *ty, const SourceLocation &sou
                     case BuiltinType::Bool:
                         return trans_create_node_symbol_str(c, "bool");
                     case BuiltinType::Char_U:
-                    case BuiltinType::UChar:
                     case BuiltinType::Char_S:
+                        return trans_create_node_symbol_str(c, "c_char");
+                    case BuiltinType::UChar:
                         return trans_create_node_symbol_str(c, "u8");
                     case BuiltinType::SChar:
                         return trans_create_node_symbol_str(c, "i8");

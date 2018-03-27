@@ -536,6 +536,67 @@ static bool is_os_darwin(ZigTarget *target) {
     }
 }
 
+// see https://wiki.debian.org/ArchitectureSpecificsMemo
+bool target_is_char_signed(ZigTarget *target) {
+    switch (target->arch.arch) {
+        case ZigLLVM_mips:
+        case ZigLLVM_mipsel:
+        case ZigLLVM_mips64:
+        case ZigLLVM_mips64el:
+        case ZigLLVM_x86:
+        case ZigLLVM_x86_64:
+            return true;
+
+        case ZigLLVM_arm:
+        case ZigLLVM_ppc:
+        case ZigLLVM_ppc64:
+        case ZigLLVM_ppc64le:
+            return false;
+
+        case ZigLLVM_armeb:
+        case ZigLLVM_aarch64:
+        case ZigLLVM_aarch64_be:
+        case ZigLLVM_arc:
+        case ZigLLVM_avr:
+        case ZigLLVM_bpfel:
+        case ZigLLVM_bpfeb:
+        case ZigLLVM_hexagon:
+        case ZigLLVM_msp430:
+        case ZigLLVM_nios2:
+        case ZigLLVM_r600:
+        case ZigLLVM_amdgcn:
+        case ZigLLVM_riscv32:
+        case ZigLLVM_riscv64:
+        case ZigLLVM_sparc:
+        case ZigLLVM_sparcv9:
+        case ZigLLVM_sparcel:
+        case ZigLLVM_systemz:
+        case ZigLLVM_tce:
+        case ZigLLVM_tcele:
+        case ZigLLVM_thumb:
+        case ZigLLVM_thumbeb:
+        case ZigLLVM_xcore:
+        case ZigLLVM_nvptx:
+        case ZigLLVM_nvptx64:
+        case ZigLLVM_le32:
+        case ZigLLVM_le64:
+        case ZigLLVM_amdil:
+        case ZigLLVM_amdil64:
+        case ZigLLVM_hsail:
+        case ZigLLVM_hsail64:
+        case ZigLLVM_spir:
+        case ZigLLVM_spir64:
+        case ZigLLVM_kalimba:
+        case ZigLLVM_shave:
+        case ZigLLVM_lanai:
+        case ZigLLVM_wasm32:
+        case ZigLLVM_wasm64:
+        case ZigLLVM_renderscript32:
+        case ZigLLVM_renderscript64:
+            zig_panic("TODO c char sign for this target");
+    }
+}
+
 void resolve_target_object_format(ZigTarget *target) {
     if (target->oformat != ZigLLVM_UnknownObjectFormat) {
         return;
@@ -684,6 +745,8 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
     switch (target->os) {
         case OsFreestanding:
             switch (id) {
+                case CIntTypeChar:
+                    return 8;
                 case CIntTypeShort:
                 case CIntTypeUShort:
                     return 16;
@@ -703,6 +766,8 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
         case OsMacOSX:
         case OsZen:
             switch (id) {
+                case CIntTypeChar:
+                    return 8;
                 case CIntTypeShort:
                 case CIntTypeUShort:
                     return 16;
@@ -720,6 +785,8 @@ uint32_t target_c_type_size_in_bits(const ZigTarget *target, CIntType id) {
             }
         case OsWindows:
             switch (id) {
+                case CIntTypeChar:
+                    return 8;
                 case CIntTypeShort:
                 case CIntTypeUShort:
                     return 16;
