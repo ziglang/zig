@@ -4287,17 +4287,15 @@ static ZigWindowsSDK *get_windows_sdk(CodeGen *g) {
 
 void find_libc_include_path(CodeGen *g) {
     if (!g->libc_include_dir || buf_len(g->libc_include_dir) == 0) {
-        ZigWindowsSDK *sdk = get_windows_sdk(g);
 
         if (g->zig_target.os == OsWindows) {
+            ZigWindowsSDK *sdk = get_windows_sdk(g);
             if (os_get_win32_ucrt_include_path(sdk, g->libc_include_dir)) {
                 zig_panic("Unable to determine libc include path.");
             }
         }
-    }
 
-    // TODO find libc at runtime for other operating systems
-    if(!g->libc_include_dir || buf_len(g->libc_include_dir) == 0) {
+        // TODO find libc at runtime for other operating systems
         zig_panic("Unable to determine libc include path.");
     }
 }
