@@ -452,10 +452,11 @@ int main(int argc, char **argv) {
 
                 if ((err = os_copy_file(build_template_path, &build_file_abs))) {
                     fprintf(stderr, "Unable to write build.zig template: %s\n", err_str(err));
+                    return EXIT_FAILURE;
                 } else {
                     fprintf(stderr, "Wrote build.zig template\n");
+                    return EXIT_SUCCESS;
                 }
-                return EXIT_SUCCESS;
             }
 
             fprintf(stderr,
