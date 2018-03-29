@@ -26,16 +26,16 @@ pub const DefaultPrng = Xoroshiro128;
 // When you need cryptographically secure random numbers
 pub const DefaultCsprng = Isaac64;
 
-pub const Rand = struct {
-    fillFn: fn(r: &Rand, buf: []u8) void,
+pub const Random = struct {
+    fillFn: fn(r: &Random, buf: []u8) void,
 
     /// Read random bytes into the specified buffer until fill.
-    pub fn bytes(r: &Rand, buf: []u8) void {
+    pub fn bytes(r: &Random, buf: []u8) void {
         r.fillFn(r, buf);
     }
 
     /// Return a random integer/boolean type.
-    pub fn scalar(r: &Rand, comptime T: type) T {
+    pub fn scalar(r: &Random, comptime T: type) T {
         var rand_bytes: [@sizeOf(T)]u8 = undefined;
         r.bytes(rand_bytes[0..]);
 
@@ -49,7 +49,7 @@ pub const Rand = struct {
 
     /// Get a random unsigned integer with even distribution between `start`
     /// inclusive and `end` exclusive.
-    pub fn range(r: &Rand, comptime T: type, start: T, end: T) T {
+    pub fn range(r: &Random, comptime T: type, start: T, end: T) T {
         assert(start <= end);
         if (T.is_signed) {
             const uint = @IntType(false, T.bit_count);
@@ -91,7 +91,7 @@ pub const Rand = struct {
     }
 
     /// Return a floating point value evenly distributed in the range [0, 1).
-    pub fn float(r: &Rand, comptime T: type) T {
+    pub fn float(r: &Random, comptime T: type) T {
         // Generate a uniform value between [1, 2) and scale down to [0, 1).
         // Note: The lowest mantissa bit is always set to 0 so we only use half the available range.
         switch (T) {
@@ -110,18 +110,18 @@ pub const Rand = struct {
     }
 
     /// Return a floating point value normally distributed in the range [0, 1].
-    pub fn floatNorm(r: &Rand, comptime T: type) T {
+    pub fn floatNorm(r: &Random, comptime T: type) T {
         // TODO(tiehuis): See https://www.doornik.com/research/ziggurat.pdf
         @compileError("floatNorm is unimplemented");
     }
 
     /// Return a exponentially distributed float between (0, @maxValue(f64))
-    pub fn floatExp(r: &Rand, comptime T: type) T {
+    pub fn floatExp(r: &Random, comptime T: type) T {
         @compileError("floatExp is unimplemented");
     }
 
     /// Shuffle a slice into a random order.
-    pub fn shuffle(r: &Rand, comptime T: type, buf: []T) void {
+    pub fn shuffle(r: &Random, comptime T: type, buf: []T) void {
         if (buf.len < 2) {
             return;
         }
@@ -178,14 +178,14 @@ test "splitmix64 sequence" {
 pub const Pcg = struct {
     const default_multiplier = 6364136223846793005;
 
-    random: Rand,
+    random: Random,
 
     s: u64,
     i: u64,
 
     pub fn init(init_s: u64) Pcg {
         var pcg = Pcg {
-            .random = Rand { .fillFn = fill },
+            .random = Random { .fillFn = fill },
             .s = undefined,
             .i = undefined,
         };
@@ -218,7 +218,7 @@ pub const Pcg = struct {
         self.s = self.s *% default_multiplier +% self.i;
     }
 
-    fn fill(r: &Rand, buf: []u8) void {
+    fn fill(r: &Random, buf: []u8) void {
         const self = @fieldParentPtr(Pcg, "random", r);
 
         var i: usize = 0;
@@ -269,13 +269,13 @@ test "pcg sequence" {
 //
 // PRNG
 pub const Xoroshiro128 = struct {
-    random: Rand,
+    random: Random,
 
     s: [2]u64,
 
     pub fn init(init_s: u64) Xoroshiro128 {
         var x = Xoroshiro128 {
-            .random = Rand { .fillFn = fill },
+            .random = Random { .fillFn = fill },
             .s = undefined,
         };
 
@@ -328,7 +328,7 @@ pub const Xoroshiro128 = struct {
         self.s[1] = gen.next();
     }
 
-    fn fill(r: &Rand, buf: []u8) void {
+    fn fill(r: &Random, buf: []u8) void {
         const self = @fieldParentPtr(Xoroshiro128, "random", r);
 
         var i: usize = 0;
@@ -397,7 +397,7 @@ test "xoroshiro sequence" {
 // Follows the general idea of the implementation from here with a few shortcuts.
 // https://doc.rust-lang.org/rand/src/rand/prng/isaac64.rs.html
 pub const Isaac64 = struct {
-    random: Rand,
+    random: Random,
 
     r: [256]u64,
     m: [256]u64,
@@ -408,7 +408,7 @@ pub const Isaac64 = struct {
 
     pub fn init(init_s: u64) Isaac64 {
         var isaac = Isaac64 {
-            .random = Rand { .fillFn = fill },
+            .random = Random { .fillFn = fill },
             .r = undefined,
             .m = undefined,
             .a = undefined,
@@ -522,7 +522,7 @@ pub const Isaac64 = struct {
         self.i = self.r.len;    // trigger refill on first value
     }
 
-    fn fill(r: &Rand, buf: []u8) void {
+    fn fill(r: &Random, buf: []u8) void {
         const self = @fieldParentPtr(Isaac64, "random", r);
 
         var i: usize = 0;
@@ -577,8 +577,8 @@ test "isaac64 sequence" {
     }
 }
 
-// Actual Rand helper function tests, pcg engine is assumed correct.
-test "Rand float" {
+// Actual Random helper function tests, pcg engine is assumed correct.
+test "Random float" {
     var prng = DefaultPrng.init(0);
 
     var i: usize = 0;
@@ -593,18 +593,18 @@ test "Rand float" {
     }
 }
 
-test "Rand scalar" {
+test "Random scalar" {
     var prng = DefaultPrng.init(0);
     const s = prng .random.scalar(u64);
 }
 
-test "Rand bytes" {
+test "Random bytes" {
     var prng = DefaultPrng.init(0);
     var buf: [2048]u8 = undefined;
     prng.random.bytes(buf[0..]);
 }
 
-test "Rand shuffle" {
+test "Random shuffle" {
     var prng = DefaultPrng.init(0);
 
     var seq = []const u8 { 0, 1, 2, 3, 4 };
@@ -629,14 +629,14 @@ fn sumArray(s: []const u8) u32 {
     return r;
 }
 
-test "Rand range" {
+test "Random range" {
     var prng = DefaultPrng.init(0);
     testRange(&prng.random, -4, 3);
     testRange(&prng.random, -4, -1);
     testRange(&prng.random, 10, 14);
 }
 
-fn testRange(r: &Rand, start: i32, end: i32) void {
+fn testRange(r: &Random, start: i32, end: i32) void {
     const count = usize(end - start);
     var values_buffer = []bool{false} ** 20;
     const values = values_buffer[0..count];
