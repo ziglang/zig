@@ -1,7 +1,7 @@
 const std = @import("index.zig");
 const io = std.io;
 const allocator = std.debug.global_allocator;
-const Rand = std.rand.Rand;
+const DefaultPrng = std.rand.DefaultPrng;
 const assert = std.debug.assert;
 const mem = std.mem;
 const os = std.os;
@@ -9,8 +9,8 @@ const builtin = @import("builtin");
 
 test "write a file, read it, then delete it" {
     var data: [1024]u8 = undefined;
-    var rng = Rand.init(1234);
-    rng.fillBytes(data[0..]);
+    var prng = DefaultPrng.init(1234);
+    prng.random.bytes(data[0..]);
     const tmp_file_name = "temp_test_file.txt";
     {
         var file = try os.File.openWrite(allocator, tmp_file_name);

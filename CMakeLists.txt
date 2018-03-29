@@ -509,7 +509,7 @@ set(ZIG_STD_FILES
     "os/windows/index.zig"
     "os/windows/util.zig"
     "os/zen.zig"
-    "rand.zig"
+    "rand/index.zig"
     "sort.zig"
     "special/bootstrap.zig"
     "special/bootstrap_lib.zig"
