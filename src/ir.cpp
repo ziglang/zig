@@ -11058,6 +11058,24 @@ static TypeTableEntry *ir_analyze_array_cat(IrAnalyze *ira, IrInstructionBinOp *
         result_type = get_array_type(ira->codegen, child_type, new_len);
 
         out_array_val = out_val;
+    } else if (is_slice(op1_type) || is_slice(op2_type)) {
+        TypeTableEntry *ptr_type = get_pointer_to_type(ira->codegen, child_type, true);
+        result_type = get_slice_type(ira->codegen, ptr_type);
+        out_array_val = create_const_vals(1);
+        out_array_val->special = ConstValSpecialStatic;
+        out_array_val->type = get_array_type(ira->codegen, child_type, new_len);
+
+        out_val->data.x_struct.fields = create_const_vals(2);
+
+        out_val->data.x_struct.fields[slice_ptr_index].type = ptr_type;
+        out_val->data.x_struct.fields[slice_ptr_index].special = ConstValSpecialStatic;
+        out_val->data.x_struct.fields[slice_ptr_index].data.x_ptr.special = ConstPtrSpecialBaseArray;
+        out_val->data.x_struct.fields[slice_ptr_index].data.x_ptr.data.base_array.array_val = out_array_val;
+        out_val->data.x_struct.fields[slice_ptr_index].data.x_ptr.data.base_array.elem_index = 0;
+
+        out_val->data.x_struct.fields[slice_len_index].type = ira->codegen->builtin_types.entry_usize;
+        out_val->data.x_struct.fields[slice_len_index].special = ConstValSpecialStatic;
+        bigint_init_unsigned(&out_val->data.x_struct.fields[slice_len_index].data.x_bigint, new_len);
     } else {
         new_len += 1; // null byte
 

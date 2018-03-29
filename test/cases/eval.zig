@@ -1,4 +1,5 @@
-const assert = @import("std").debug.assert;
+const std = @import("std");
+const assert = std.debug.assert;
 const builtin = @import("builtin");
 
 test "compile time recursion" {
@@ -501,5 +502,14 @@ test "const ptr to comptime mutable data is not memoized" {
         assert(foo.read_x() == 1);
         foo.x = 2;
         assert(foo.read_x() == 2);
+    }
+}
+
+test "array concat of slices gives slice" {
+    comptime {
+        var a: []const u8 = "aoeu";
+        var b: []const u8 = "asdf";
+        const c = a ++ b;
+        assert(std.mem.eql(u8, c, "aoeuasdf"));
     }
 }
