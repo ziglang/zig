@@ -1656,6 +1656,8 @@ struct CodeGen {
     LLVMValueRef coro_save_fn_val;
     LLVMValueRef coro_promise_fn_val;
     LLVMValueRef coro_alloc_helper_fn_val;
+    LLVMValueRef merge_err_ret_traces_fn_val;
+    LLVMValueRef add_error_return_trace_addr_fn_val;
     bool error_during_imports;
 
     const char **clang_argv;
@@ -2054,6 +2056,7 @@ enum IrInstructionId {
     IrInstructionIdAwaitBookkeeping,
     IrInstructionIdSaveErrRetAddr,
     IrInstructionIdAddImplicitReturnType,
+    IrInstructionIdMergeErrRetTraces,
 };
 
 struct IrInstruction {
@@ -2892,6 +2895,11 @@ struct IrInstructionExport {
 
 struct IrInstructionErrorReturnTrace {
     IrInstruction base;
+
+    enum Nullable {
+        Null,
+        NonNull,
+    } nullable;
 };
 
 struct IrInstructionErrorUnion {
@@ -3024,6 +3032,13 @@ struct IrInstructionAddImplicitReturnType {
     IrInstruction *value;
 };
 
+struct IrInstructionMergeErrRetTraces {
+    IrInstruction base;
+
+    IrInstruction *coro_promise_ptr;
+    TypeStructField *resolved_field;
+};
+
 static const size_t slice_ptr_index = 0;
 static const size_t slice_len_index = 1;
 
@@ -3033,11 +3048,15 @@ static const size_t maybe_null_index = 1;
 static const size_t err_union_err_index = 0;
 static const size_t err_union_payload_index = 1;
 
+// TODO call graph analysis to find out what this number needs to be for every function
+static const size_t stack_trace_ptr_count = 30;
+
 #define ASYNC_ALLOC_FIELD_NAME "allocFn"
 #define ASYNC_FREE_FIELD_NAME "freeFn"
 #define AWAITER_HANDLE_FIELD_NAME "awaiter_handle"
 #define RESULT_FIELD_NAME "result"
 #define RESULT_PTR_FIELD_NAME "result_ptr"
+#define ERR_RET_TRACE_PTR_FIELD_NAME "err_ret_trace_ptr"
 
 
 enum FloatMode {

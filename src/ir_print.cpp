@@ -1024,7 +1024,16 @@ static void ir_print_export(IrPrint *irp, IrInstructionExport *instruction) {
 }
 
 static void ir_print_error_return_trace(IrPrint *irp, IrInstructionErrorReturnTrace *instruction) {
-    fprintf(irp->f, "@errorReturnTrace()");
+    fprintf(irp->f, "@errorReturnTrace(");
+    switch (instruction->nullable) {
+        case IrInstructionErrorReturnTrace::Null:
+            fprintf(irp->f, "Null");
+            break;
+        case IrInstructionErrorReturnTrace::NonNull:
+            fprintf(irp->f, "NonNull");
+            break;
+    }
+    fprintf(irp->f, ")");
 }
 
 static void ir_print_error_union(IrPrint *irp, IrInstructionErrorUnion *instruction) {
@@ -1176,6 +1185,16 @@ static void ir_print_save_err_ret_addr(IrPrint *irp, IrInstructionSaveErrRetAddr
 static void ir_print_add_implicit_return_type(IrPrint *irp, IrInstructionAddImplicitReturnType *instruction) {
     fprintf(irp->f, "@addImplicitReturnType(");
     ir_print_other_instruction(irp, instruction->value);
+    fprintf(irp->f, ")");
+}
+
+static void ir_print_merge_err_ret_traces(IrPrint *irp, IrInstructionMergeErrRetTraces *instruction) {
+    fprintf(irp->f, "@mergeErrRetTraces(");
+    ir_print_other_instruction(irp, instruction->coro_promise_ptr);
+    fprintf(irp->f, ",");
+    if (instruction->resolved_field != nullptr) {
+        fprintf(irp->f, "field '%s'", buf_ptr(instruction->resolved_field->name));
+    }
     fprintf(irp->f, ")");
 }
 
@@ -1558,6 +1577,9 @@ static void ir_print_instruction(IrPrint *irp, IrInstruction *instruction) {
             break;
         case IrInstructionIdAddImplicitReturnType:
             ir_print_add_implicit_return_type(irp, (IrInstructionAddImplicitReturnType *)instruction);
+            break;
+        case IrInstructionIdMergeErrRetTraces:
+            ir_print_merge_err_ret_traces(irp, (IrInstructionMergeErrRetTraces *)instruction);
             break;
     }
     fprintf(irp->f, "\n");
