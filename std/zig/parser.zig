@@ -428,6 +428,29 @@ pub const Parser = struct {
                             try stack.append(State.ExpectOperand);
                             continue;
 
+                    } else if (token.id == Token.Id.LParen) {
+                        self.putBackToken(token);
+
+                        const node = try arena.create(ast.NodeCall);
+                        *node = ast.NodeCall {
+                            .base = self.initNode(ast.Node.Id.Call),
+                            .callee = stack.pop().Operand,
+                            .params = ArrayList(&ast.Node).init(arena),
+                            .rparen_token = undefined,
+                        };
+                        try stack.append(State {
+                            .Operand = &node.base
+                        });
+                        try stack.append(State.AfterOperand);
+                        try stack.append(State {.ExprListItemOrEnd = &node.params });
+                        try stack.append(State {
+                            .ExpectTokenSave = ExpectTokenSave {
+                                .id = Token.Id.LParen,
+                                .ptr = &node.rparen_token,
+                            },
+                        });
+                        continue;
+
                     // TODO: Parse postfix operator
                     } else {
                         // no postfix/infix operator after this operand.
@@ -1325,6 +1348,21 @@ pub const Parser = struct {
                             }
                         }
                     },
+                    ast.Node.Id.Call => {
+                        const call = @fieldParentPtr(ast.NodeCall, "base", base);
+                        try stack.append(RenderState { .Text = ")"});
+                        var i = call.params.len;
+                        while (i != 0) {
+                            i -= 1;
+                            const param_node = call.params.at(i);
+                            try stack.append(RenderState { .Expression = param_node});
+                            if (i != 0) {
+                                try stack.append(RenderState { .Text = ", " });
+                            }
+                        }
+                        try stack.append(RenderState { .Text = "("});
+                        try stack.append(RenderState { .Expression = call.callee });
+                    },
                     ast.Node.Id.FnProto => @panic("TODO fn proto in an expression"),
                     ast.Node.Id.LineComment => @panic("TODO render line comment in an expression"),
 
@@ -1607,6 +1645,16 @@ test "zig fmt" {
         \\    _ = i < i;
         \\    _ = i and i;
         \\    _ = i or i;
+        \\}
+        \\
+    );
+
+    try testCanonical(
+        \\test "test calls" {
+        \\    a();
+        \\    a(1);
+        \\    a(1, 2);
+        \\    a(1, 2) + a(1, 2);
         \\}
         \\
     );
