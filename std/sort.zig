@@ -67,7 +67,7 @@ const Iterator = struct {
             self.numerator -= self.denominator;
             self.decimal += 1;
         }
-        
+
         return Range {.start = start, .end = self.decimal};
     }
 
@@ -82,7 +82,7 @@ const Iterator = struct {
             self.numerator_step -= self.denominator;
             self.decimal_step += 1;
         }
-        
+
         return (self.decimal_step < self.size);
     }
 
@@ -219,7 +219,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                     var B1 = iterator.nextRange();
                     var A2 = iterator.nextRange();
                     var B2 = iterator.nextRange();
-                    
+
                     if (lessThan(items[B1.end - 1], items[A1.start])) {
                         // the two ranges are in reverse order, so copy them in reverse order into the cache
                         mem.copy(T, cache[B1.length()..], items[A1.start..A1.end]);
@@ -230,13 +230,13 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                     } else {
                         // if A1, B1, A2, and B2 are all in order, skip doing anything else
                         if (!lessThan(items[B2.start], items[A2.end - 1]) and !lessThan(items[A2.start], items[B1.end - 1])) continue;
-                        
+
                         // copy A1 and B1 into the cache in the same order
                         mem.copy(T, cache[0..], items[A1.start..A1.end]);
                         mem.copy(T, cache[A1.length()..], items[B1.start..B1.end]);
                     }
                     A1 = Range.init(A1.start, B1.end);
-                    
+
                     // merge A2 and B2 into the cache
                     if (lessThan(items[B2.end - 1], items[A2.start])) {
                         // the two ranges are in reverse order, so copy them in reverse order into the cache
@@ -251,11 +251,11 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                         mem.copy(T, cache[A1.length() + A2.length()..], items[B2.start..B2.end]);
                     }
                     A2 = Range.init(A2.start, B2.end);
-                    
+
                     // merge A1 and A2 from the cache into the items
                     const A3 = Range.init(0, A1.length());
                     const B3 = Range.init(A1.length(), A1.length() + A2.length());
-                    
+
                     if (lessThan(cache[B3.end - 1], cache[A3.start])) {
                         // the two ranges are in reverse order, so copy them in reverse order into the items
                         mem.copy(T, items[A1.start + A2.length()..], cache[A3.start..A3.end]);
@@ -269,17 +269,17 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                         mem.copy(T, items[A1.start + A1.length()..], cache[B3.start..B3.end]);
                     }
                 }
-                
+
                 // we merged two levels at the same time, so we're done with this level already
                 // (iterator.nextLevel() is called again at the bottom of this outer merge loop)
                 _ = iterator.nextLevel();
-                
+
             } else {
                 iterator.begin();
                 while (!iterator.finished()) {
                     var A = iterator.nextRange();
                     var B = iterator.nextRange();
-                    
+
                     if (lessThan(items[B.end - 1], items[A.start])) {
                         // the two ranges are in reverse order, so a simple rotation should fix it
                         mem.rotate(T, items[A.start..B.end], A.length());
@@ -301,10 +301,10 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
             // 6. merge each A block with any B values that follow, using the cache or the second internal buffer
             // 7. sort the second internal buffer if it exists
             // 8. redistribute the two internal buffers back into the items
-            
+
             var block_size: usize = math.sqrt(iterator.length());
             var buffer_size = iterator.length()/block_size + 1;
-            
+
             // as an optimization, we really only need to pull out the internal buffers once for each level of merges
             // after that we can reuse the same buffers over and over, then redistribute it when we're finished with this level
             var A: Range = undefined;
@@ -322,11 +322,11 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
 
             var buffer1 = Range.init(0, 0);
             var buffer2 = Range.init(0, 0);
-            
+
             // find two internal buffers of size 'buffer_size' each
             find = buffer_size + buffer_size;
             var find_separately = false;
-            
+
             if (block_size <= cache.len) {
                 // if every A block fits into the cache then we won't need the second internal buffer,
                 // so we really only need to find 'buffer_size' unique values
@@ -336,21 +336,21 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                 find = buffer_size;
                 find_separately = true;
             }
-            
+
             // we need to find either a single contiguous space containing 2√A unique values (which will be split up into two buffers of size √A each),
             // or we need to find one buffer of < 2√A unique values, and a second buffer of √A unique values,
             // OR if we couldn't find that many unique values, we need the largest possible buffer we can get
-            
+
             // in the case where it couldn't find a single buffer of at least √A unique values,
             // all of the Merge steps must be replaced by a different merge algorithm (MergeInPlace)
             iterator.begin();
             while (!iterator.finished()) {
                 A = iterator.nextRange();
                 B = iterator.nextRange();
-                
+
                 // just store information about where the values will be pulled from and to,
                 // as well as how many values there are, to create the two internal buffers
-                
+
                 // check A for the number of unique values we need to fill an internal buffer
                 // these values will be pulled out to the start of A
                 last = A.start;
@@ -360,7 +360,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                     if (index == A.end) break;
                 }
                 index = last;
-                
+
                 if (count >= buffer_size) {
                     // keep track of the range within the items where we'll need to "pull out" these values to create the internal buffer
                     pull[pull_index] = Pull {
@@ -370,7 +370,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                         .to = A.start,
                     };
                     pull_index = 1;
-                    
+
                     if (count == buffer_size + buffer_size) {
                         // we were able to find a single contiguous section containing 2√A unique values,
                         // so this section can be used to contain both of the internal buffers we'll need
@@ -405,7 +405,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                         .to = A.start,
                     };
                 }
-                
+
                 // check B for the number of unique values we need to fill an internal buffer
                 // these values will be pulled out to the end of B
                 last = B.end - 1;
@@ -415,7 +415,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                     if (index == B.start) break;
                 }
                 index = last;
-                
+
                 if (count >= buffer_size) {
                     // keep track of the range within the items where we'll need to "pull out" these values to create the internal buffe
                     pull[pull_index] = Pull {
@@ -425,7 +425,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                         .to = B.end,
                     };
                     pull_index = 1;
-                    
+
                     if (count == buffer_size + buffer_size) {
                         // we were able to find a single contiguous section containing 2√A unique values,
                         // so this section can be used to contain both of the internal buffers we'll need
@@ -449,7 +449,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                         // buffer2 will be pulled out from a 'B' subarray, so if the first buffer was pulled out from the corresponding 'A' subarray,
                         // we need to adjust the end point for that A subarray so it knows to stop redistributing its values before reaching buffer2
                         if (pull[0].range.start == A.start) pull[0].range.end -= pull[1].count;
-                        
+
                         // we found a second buffer in an 'B' subarray containing √A unique values, so we're done!
                         buffer2 = Range.init(B.end - count, B.end);
                         break;
@@ -465,12 +465,12 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                     };
                 }
             }
-            
+
             // pull out the two ranges so we can use them as internal buffers
             pull_index = 0;
             while (pull_index < 2) : (pull_index += 1) {
                 const length = pull[pull_index].count;
-                
+
                 if (pull[pull_index].to < pull[pull_index].from) {
                     // we're pulling the values out to the left, which means the start of an A subarray
                     index = pull[pull_index].from;
@@ -493,27 +493,27 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                     }
                 }
             }
-            
+
             // adjust block_size and buffer_size based on the values we were able to pull out
             buffer_size = buffer1.length();
             block_size = iterator.length()/buffer_size + 1;
-            
+
             // the first buffer NEEDS to be large enough to tag each of the evenly sized A blocks,
             // so this was originally here to test the math for adjusting block_size above
             // assert((iterator.length() + 1)/block_size <= buffer_size);
-            
+
             // now that the two internal buffers have been created, it's time to merge each A+B combination at this level of the merge sort!
             iterator.begin();
             while (!iterator.finished()) {
                 A = iterator.nextRange();
                 B = iterator.nextRange();
-                
+
                 // remove any parts of A or B that are being used by the internal buffers
                 start = A.start;
                 if (start == pull[0].range.start) {
                     if (pull[0].from > pull[0].to) {
                         A.start += pull[0].count;
-                        
+
                         // if the internal buffer takes up the entire A or B subarray, then there's nothing to merge
                         // this only happens for very small subarrays, like √4 = 2, 2 * (2 internal buffers) = 4,
                         // which also only happens when cache.len is small or 0 since it'd otherwise use MergeExternal
@@ -532,25 +532,25 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                         if (B.length() == 0) continue;
                     }
                 }
-                
+
                 if (lessThan(items[B.end - 1], items[A.start])) {
                     // the two ranges are in reverse order, so a simple rotation should fix it
                     mem.rotate(T, items[A.start..B.end], A.length());
                 } else if (lessThan(items[A.end], items[A.end - 1])) {
                     // these two ranges weren't already in order, so we'll need to merge them!
                     var findA: usize = undefined;
-                    
+
                     // break the remainder of A into blocks. firstA is the uneven-sized first A block
                     var blockA = Range.init(A.start, A.end);
                     var firstA = Range.init(A.start, A.start + blockA.length() % block_size);
-                    
+
                     // swap the first value of each A block with the value in buffer1
                     var indexA = buffer1.start;
                     index = firstA.end;
                     while (index < blockA.end) : ({indexA += 1; index += block_size;}) {
                         mem.swap(T, &items[indexA], &items[index]);
                     }
-                    
+
                     // start rolling the A blocks through the B blocks!
                     // whenever we leave an A block behind, we'll need to merge the previous A block with any B blocks that follow it, so track that information as well
                     var lastA = firstA;
@@ -558,7 +558,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                     var blockB = Range.init(B.start, B.start + math.min(block_size, B.length()));
                     blockA.start += firstA.length();
                     indexA = buffer1.start;
-                    
+
                     // if the first unevenly sized A block fits into the cache, copy it there for when we go to Merge it
                     // otherwise, if the second buffer is available, block swap the contents into that
                     if (lastA.length() <= cache.len) {
@@ -566,7 +566,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                     } else if (buffer2.length() > 0) {
                         blockSwap(T, items, lastA.start, buffer2.start, lastA.length());
                     }
-                    
+
                     if (blockA.length() > 0) {
                         while (true) {
                             // if there's a previous B block and the first value of the minimum A block is <= the last value of the previous B block,
@@ -575,7 +575,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                                 // figure out where to split the previous B block, and rotate it at the split
                                 const B_split = binaryFirst(T, items, items[indexA], lastB, lessThan);
                                 const B_remaining = lastB.end - B_split;
-                                
+
                                 // swap the minimum A block to the beginning of the rolling A blocks
                                 var minA = blockA.start;
                                 findA = minA + block_size;
@@ -585,16 +585,16 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                                     }
                                 }
                                 blockSwap(T, items, blockA.start, minA, block_size);
-                                
+
                                 // swap the first item of the previous A block back with its original value, which is stored in buffer1
                                 mem.swap(T, &items[blockA.start], &items[indexA]);
                                 indexA += 1;
-                                
+
                                 // locally merge the previous A block with the B values that follow it
                                 // if lastA fits into the external cache we'll use that (with MergeExternal),
                                 // or if the second internal buffer exists we'll use that (with MergeInternal),
                                 // or failing that we'll use a strictly in-place merge algorithm (MergeInPlace)
-                                
+
                                 if (lastA.length() <= cache.len) {
                                     mergeExternal(T, items, lastA, Range.init(lastA.end, B_split), lessThan, cache[0..]);
                                 } else if (buffer2.length() > 0) {
@@ -602,7 +602,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                                 } else {
                                     mergeInPlace(T, items, lastA, Range.init(lastA.end, B_split), lessThan);
                                 }
-                                
+
                                 if (buffer2.length() > 0 or block_size <= cache.len) {
                                     // copy the previous A block into the cache or buffer2, since that's where we need it to be when we go to merge it anyway
                                     if (block_size <= cache.len) {
@@ -610,7 +610,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                                     } else {
                                         blockSwap(T, items, blockA.start, buffer2.start, block_size);
                                     }
-                                    
+
                                     // this is equivalent to rotating, but faster
                                     // the area normally taken up by the A block is either the contents of buffer2, or data we don't need anymore since we memcopied it
                                     // either way, we don't need to retain the order of those items, so instead of rotating we can just block swap B to where it belongs
@@ -619,21 +619,21 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                                     // we are unable to use the 'buffer2' trick to speed up the rotation operation since buffer2 doesn't exist, so perform a normal rotation
                                     mem.rotate(T, items[B_split..blockA.start + block_size], blockA.start - B_split);
                                 }
-                                
+
                                 // update the range for the remaining A blocks, and the range remaining from the B block after it was split
                                 lastA = Range.init(blockA.start - B_remaining, blockA.start - B_remaining + block_size);
                                 lastB = Range.init(lastA.end, lastA.end + B_remaining);
-                                
+
                                 // if there are no more A blocks remaining, this step is finished!
                                 blockA.start += block_size;
                                 if (blockA.length() == 0)
                                     break;
-                                
+
                             } else if (blockB.length() < block_size) {
                                 // move the last B block, which is unevenly sized, to before the remaining A blocks, by using a rotation
                                 // the cache is disabled here since it might contain the contents of the previous A block
                                 mem.rotate(T, items[blockA.start..blockB.end], blockB.start - blockA.start);
-                                
+
                                 lastB = Range.init(blockA.start, blockA.start + blockB.length());
                                 blockA.start += blockB.length();
                                 blockA.end += blockB.length();
@@ -642,11 +642,11 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                                 // roll the leftmost A block to the end by swapping it with the next B block
                                 blockSwap(T, items, blockA.start, blockB.start, block_size);
                                 lastB = Range.init(blockA.start, blockA.start + block_size);
-                                
+
                                 blockA.start += block_size;
                                 blockA.end += block_size;
                                 blockB.start += block_size;
-                                
+
                                 if (blockB.end > B.end - block_size) {
                                     blockB.end = B.end;
                                 } else {
@@ -655,7 +655,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                             }
                         }
                     }
-                    
+
                     // merge the last A block with the remaining B values
                     if (lastA.length() <= cache.len) {
                         mergeExternal(T, items, lastA, Range.init(lastA.end, B.end), lessThan, cache[0..]);
@@ -666,14 +666,14 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                     }
                 }
             }
-            
+
             // when we're finished with this merge step we should have the one or two internal buffers left over, where the second buffer is all jumbled up
             // insertion sort the second buffer, then redistribute the buffers back into the items using the opposite process used for creating the buffer
-            
+
             // while an unstable sort like quicksort could be applied here, in benchmarks it was consistently slightly slower than a simple insertion sort,
             // even for tens of millions of items. this may be because insertion sort is quite fast when the data is already somewhat sorted, like it is here
             insertionSort(T, items[buffer2.start..buffer2.end], lessThan);
-            
+
             pull_index = 0;
             while (pull_index < 2) : (pull_index += 1) {
                 var unique = pull[pull_index].count * 2;
@@ -702,7 +702,7 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
                 }
             }
         }
-        
+
         // double the size of each A and B subarray that will be merged in the next level
         if (!iterator.nextLevel()) break;
     }
@@ -711,37 +711,37 @@ pub fn sort(comptime T: type, items: []T, lessThan: fn(lhs: &const T, rhs: &cons
 // merge operation without a buffer
 fn mergeInPlace(comptime T: type, items: []T, A_arg: &const Range, B_arg: &const Range, lessThan: fn(&const T,&const T)bool) void {
     if (A_arg.length() == 0 or B_arg.length() == 0) return;
-    
+
     // this just repeatedly binary searches into B and rotates A into position.
     // the paper suggests using the 'rotation-based Hwang and Lin algorithm' here,
     // but I decided to stick with this because it had better situational performance
-    // 
+    //
     // (Hwang and Lin is designed for merging subarrays of very different sizes,
     // but WikiSort almost always uses subarrays that are roughly the same size)
-    // 
+    //
     // normally this is incredibly suboptimal, but this function is only called
     // when none of the A or B blocks in any subarray contained 2√A unique values,
     // which places a hard limit on the number of times this will ACTUALLY need
     // to binary search and rotate.
-    // 
+    //
     // according to my analysis the worst case is √A rotations performed on √A items
     // once the constant factors are removed, which ends up being O(n)
-    // 
+    //
     // again, this is NOT a general-purpose solution – it only works well in this case!
     // kind of like how the O(n^2) insertion sort is used in some places
 
     var A = *A_arg;
     var B = *B_arg;
-    
+
     while (true) {
         // find the first place in B where the first item in A needs to be inserted
         const mid = binaryFirst(T, items, items[A.start], B, lessThan);
-        
+
         // rotate A into place
         const amount = mid - A.end;
         mem.rotate(T, items[A.start..mid], A.length());
         if (B.end == mid) break;
-        
+
         // calculate the new A and B ranges
         B.start = mid;
         A = Range.init(A.start + amount, B.start);
@@ -757,7 +757,7 @@ fn mergeInternal(comptime T: type, items: []T, A: &const Range, B: &const Range,
     var A_count: usize = 0;
     var B_count: usize = 0;
     var insert: usize = 0;
-    
+
     if (B.length() > 0 and A.length() > 0) {
         while (true) {
             if (!lessThan(items[B.start + B_count], items[buffer.start + A_count])) {
@@ -773,7 +773,7 @@ fn mergeInternal(comptime T: type, items: []T, A: &const Range, B: &const Range,
             }
         }
     }
-    
+
     // swap the remainder of A into the final array
     blockSwap(T, items, buffer.start + A_count, A.start + insert, A.length() - A_count);
 }
@@ -790,56 +790,56 @@ fn blockSwap(comptime T: type, items: []T, start1: usize, start2: usize, block_s
 fn findFirstForward(comptime T: type, items: []T, value: &const T, range: &const Range, lessThan: fn(&const T,&const T)bool, unique: usize) usize {
     if (range.length() == 0) return range.start;
     const skip = math.max(range.length()/unique, usize(1));
-    
+
     var index = range.start + skip;
     while (lessThan(items[index - 1], value)) : (index += skip) {
         if (index >= range.end - skip) {
             return binaryFirst(T, items, value, Range.init(index, range.end), lessThan);
         }
     }
-    
+
     return binaryFirst(T, items, value, Range.init(index - skip, index), lessThan);
 }
 
 fn findFirstBackward(comptime T: type, items: []T, value: &const T, range: &const Range, lessThan: fn(&const T,&const T)bool, unique: usize) usize {
     if (range.length() == 0) return range.start;
     const skip = math.max(range.length()/unique, usize(1));
-    
+
     var index = range.end - skip;
     while (index > range.start and !lessThan(items[index - 1], value)) : (index -= skip) {
         if (index < range.start + skip) {
             return binaryFirst(T, items, value, Range.init(range.start, index), lessThan);
         }
     }
-    
+
     return binaryFirst(T, items, value, Range.init(index, index + skip), lessThan);
 }
 
 fn findLastForward(comptime T: type, items: []T, value: &const T, range: &const Range, lessThan: fn(&const T,&const T)bool, unique: usize) usize {
     if (range.length() == 0) return range.start;
     const skip = math.max(range.length()/unique, usize(1));
-    
+
     var index = range.start + skip;
     while (!lessThan(value, items[index - 1])) : (index += skip) {
         if (index >= range.end - skip) {
             return binaryLast(T, items, value, Range.init(index, range.end), lessThan);
         }
     }
-    
+
     return binaryLast(T, items, value, Range.init(index - skip, index), lessThan);
 }
 
 fn findLastBackward(comptime T: type, items: []T, value: &const T, range: &const Range, lessThan: fn(&const T,&const T)bool, unique: usize) usize {
     if (range.length() == 0) return range.start;
     const skip = math.max(range.length()/unique, usize(1));
-    
+
     var index = range.end - skip;
     while (index > range.start and lessThan(value, items[index - 1])) : (index -= skip) {
         if (index < range.start + skip) {
             return binaryLast(T, items, value, Range.init(range.start, index), lessThan);
         }
     }
-    
+
     return binaryLast(T, items, value, Range.init(index, index + skip), lessThan);
 }
 
@@ -885,7 +885,7 @@ fn mergeInto(comptime T: type, from: []T, A: &const Range, B: &const Range, less
     const A_last = A.end;
     const B_last = B.end;
     var insert_index: usize = 0;
-    
+
     while (true) {
         if (!lessThan(from[B_index], from[A_index])) {
             into[insert_index] = from[A_index];
@@ -916,7 +916,7 @@ fn mergeExternal(comptime T: type, items: []T, A: &const Range, B: &const Range,
     var insert_index: usize = A.start;
     const A_last = A.length();
     const B_last = B.end;
-    
+
     if (B.length() > 0 and A.length() > 0) {
         while (true) {
             if (!lessThan(items[B_index], cache[A_index])) {
@@ -932,7 +932,7 @@ fn mergeExternal(comptime T: type, items: []T, A: &const Range, B: &const Range,
             }
         }
     }
-    
+
     // copy the remainder of A into the final array
     mem.copy(T, items[insert_index..], cache[A_index..A_last]);
 }
@@ -1081,17 +1081,17 @@ test "another sort case" {
 }
 
 test "sort fuzz testing" {
-    var rng = std.rand.Rand.init(0x12345678);
+    var prng = std.rand.DefaultPrng.init(0x12345678);
     const test_case_count = 10;
     var i: usize = 0;
     while (i < test_case_count) : (i += 1) {
-        fuzzTest(&rng);
+        fuzzTest(&prng.random);
     }
 }
 
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
-fn fuzzTest(rng: &std.rand.Rand) void {
+fn fuzzTest(rng: &std.rand.Random) void {
     const array_size = rng.range(usize, 0, 1000);
     var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
     var array = fixed_allocator.allocator.alloc(IdAndValue, array_size) catch unreachable;
