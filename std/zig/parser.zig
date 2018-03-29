@@ -371,6 +371,13 @@ pub const Parser = struct {
                             try stack.append(State.AfterOperand);
                             continue;
                         },
+                        Token.Id.Keyword_undefined => {
+                            try stack.append(State {
+                                .Operand = &(try self.createUndefined(arena, token)).base
+                            });
+                            try stack.append(State.AfterOperand);
+                            continue;
+                        },
                         Token.Id.Builtin => {
                             const node = try arena.create(ast.NodeBuiltinCall);
                             *node = ast.NodeBuiltinCall {
@@ -414,56 +421,41 @@ pub const Parser = struct {
                     // or a postfix operator (like () or {}),
                     // otherwise this expression is done (like on a ; or else).
                     var token = self.getNextToken();
-                    switch (token.id) {
-                        Token.Id.EqualEqual => {
+                    if (tokenIdToInfixOp(token.id)) |infix_id| {
                             try stack.append(State {
-                                .InfixOp = try self.createInfixOp(arena, token, ast.NodeInfixOp.InfixOp.EqualEqual)
+                                .InfixOp = try self.createInfixOp(arena, token, infix_id)
                             });
                             try stack.append(State.ExpectOperand);
                             continue;
-                        },
-                        Token.Id.BangEqual => {
-                            try stack.append(State {
-                                .InfixOp = try self.createInfixOp(arena, token, ast.NodeInfixOp.InfixOp.BangEqual)
-                            });
-                            try stack.append(State.ExpectOperand);
-                            continue;
-                        },
-                        Token.Id.Period => {
-                            try stack.append(State {
-                                .InfixOp = try self.createInfixOp(arena, token, ast.NodeInfixOp.InfixOp.Period)
-                            });
-                            try stack.append(State.ExpectOperand);
-                            continue;
-                        },
-                        else => {
-                            // no postfix/infix operator after this operand.
-                            self.putBackToken(token);
-                            // reduce the stack
-                            var expression: &ast.Node = stack.pop().Operand;
-                            while (true) {
-                                switch (stack.pop()) {
-                                    State.Expression => |dest_ptr| {
-                                        // we're done
-                                        try dest_ptr.store(expression);
-                                        break;
-                                    },
-                                    State.InfixOp => |infix_op| {
-                                        infix_op.rhs = expression;
-                                        infix_op.lhs = stack.pop().Operand;
-                                        expression = &infix_op.base;
-                                        continue;
-                                    },
-                                    State.PrefixOp => |prefix_op| {
-                                        prefix_op.rhs = expression;
-                                        expression = &prefix_op.base;
-                                        continue;
-                                    },
-                                    else => unreachable,
-                                }
+
+                    // TODO: Parse postfix operator
+                    } else {
+                        // no postfix/infix operator after this operand.
+                        self.putBackToken(token);
+                        // reduce the stack
+                        var expression: &ast.Node = stack.pop().Operand;
+                        while (true) {
+                            switch (stack.pop()) {
+                                State.Expression => |dest_ptr| {
+                                    // we're done
+                                    try dest_ptr.store(expression);
+                                    break;
+                                },
+                                State.InfixOp => |infix_op| {
+                                    infix_op.rhs = expression;
+                                    infix_op.lhs = stack.pop().Operand;
+                                    expression = &infix_op.base;
+                                    continue;
+                                },
+                                State.PrefixOp => |prefix_op| {
+                                    prefix_op.rhs = expression;
+                                    expression = &prefix_op.base;
+                                    continue;
+                                },
+                                else => unreachable,
                             }
-                            continue;
-                        },
+                        }
+                        continue;
                     }
                 },
 
@@ -706,6 +698,53 @@ pub const Parser = struct {
         }
     }
 
+    fn tokenIdToInfixOp(id: &const Token.Id) ?ast.NodeInfixOp.InfixOp {
+        return switch (*id) {
+            Token.Id.Ampersand => ast.NodeInfixOp.InfixOp.BitAnd,
+            Token.Id.AmpersandEqual => ast.NodeInfixOp.InfixOp.AssignBitAnd,
+            Token.Id.AngleBracketAngleBracketLeft => ast.NodeInfixOp.InfixOp.BitShiftLeft,
+            Token.Id.AngleBracketAngleBracketLeftEqual => ast.NodeInfixOp.InfixOp.AssignBitShiftLeft,
+            Token.Id.AngleBracketAngleBracketRight => ast.NodeInfixOp.InfixOp.BitShiftRight,
+            Token.Id.AngleBracketAngleBracketRightEqual => ast.NodeInfixOp.InfixOp.AssignBitShiftRight,
+            Token.Id.AngleBracketLeft => ast.NodeInfixOp.InfixOp.LessThan,
+            Token.Id.AngleBracketLeftEqual => ast.NodeInfixOp.InfixOp.LessOrEqual,
+            Token.Id.AngleBracketRight => ast.NodeInfixOp.InfixOp.GreaterThan,
+            Token.Id.AngleBracketRightEqual => ast.NodeInfixOp.InfixOp.GreaterOrEqual,
+            Token.Id.Asterisk => ast.NodeInfixOp.InfixOp.Mult,
+            Token.Id.AsteriskAsterisk => ast.NodeInfixOp.InfixOp.ArrayMult,
+            Token.Id.AsteriskEqual => ast.NodeInfixOp.InfixOp.AssignTimes,
+            Token.Id.AsteriskPercent => ast.NodeInfixOp.InfixOp.MultWrap,
+            Token.Id.AsteriskPercentEqual => ast.NodeInfixOp.InfixOp.AssignTimesWarp,
+            Token.Id.Bang => ast.NodeInfixOp.InfixOp.ErrorUnion,
+            Token.Id.BangEqual => ast.NodeInfixOp.InfixOp.BangEqual,
+            Token.Id.Caret => ast.NodeInfixOp.InfixOp.BitXor,
+            Token.Id.CaretEqual => ast.NodeInfixOp.InfixOp.AssignBitXor,
+            Token.Id.Equal => ast.NodeInfixOp.InfixOp.Assign,
+            Token.Id.EqualEqual => ast.NodeInfixOp.InfixOp.EqualEqual,
+            Token.Id.Keyword_and => ast.NodeInfixOp.InfixOp.BoolAnd,
+            Token.Id.Keyword_or => ast.NodeInfixOp.InfixOp.BoolOr,
+            Token.Id.Minus => ast.NodeInfixOp.InfixOp.Sub,
+            Token.Id.MinusEqual => ast.NodeInfixOp.InfixOp.AssignMinus,
+            Token.Id.MinusPercent => ast.NodeInfixOp.InfixOp.SubWrap,
+            Token.Id.MinusPercentEqual => ast.NodeInfixOp.InfixOp.AssignMinusWrap,
+            Token.Id.Percent => ast.NodeInfixOp.InfixOp.Mod,
+            Token.Id.PercentEqual => ast.NodeInfixOp.InfixOp.AssignMod,
+            Token.Id.Period => ast.NodeInfixOp.InfixOp.Period,
+            Token.Id.Pipe => ast.NodeInfixOp.InfixOp.BitOr,
+            Token.Id.PipeEqual => ast.NodeInfixOp.InfixOp.AssignBitOr,
+            Token.Id.PipePipe => ast.NodeInfixOp.InfixOp.MergeErrorSets,
+            Token.Id.Plus => ast.NodeInfixOp.InfixOp.Add,
+            Token.Id.PlusEqual => ast.NodeInfixOp.InfixOp.AssignPlus,
+            Token.Id.PlusPercent => ast.NodeInfixOp.InfixOp.AddWrap,
+            Token.Id.PlusPercentEqual => ast.NodeInfixOp.InfixOp.AssignPlusWrap,
+            Token.Id.PlusPlus => ast.NodeInfixOp.InfixOp.ArrayCat,
+            Token.Id.QuestionMarkQuestionMark => ast.NodeInfixOp.InfixOp.UnwrapMaybe,
+            Token.Id.Slash => ast.NodeInfixOp.InfixOp.Div,
+            Token.Id.SlashEqual => ast.NodeInfixOp.InfixOp.AssignDiv,
+            else => null,
+        };
+    }
+
     fn initNode(self: &Parser, id: ast.Node.Id) ast.Node {
         if (self.pending_line_comment_node) |comment_node| {
             self.pending_line_comment_node = null;
@@ -862,6 +901,16 @@ pub const Parser = struct {
 
         *node = ast.NodeFloatLiteral {
             .base = self.initNode(ast.Node.Id.FloatLiteral),
+            .token = *token,
+        };
+        return node;
+    }
+
+    fn createUndefined(self: &Parser, arena: &mem.Allocator, token: &const Token) !&ast.NodeUndefinedLiteral {
+        const node = try arena.create(ast.NodeUndefinedLiteral);
+
+        *node = ast.NodeUndefinedLiteral {
+            .base = self.initNode(ast.Node.Id.UndefinedLiteral),
             .token = *token,
         };
         return node;
@@ -1173,17 +1222,51 @@ pub const Parser = struct {
                     ast.Node.Id.InfixOp => {
                         const prefix_op_node = @fieldParentPtr(ast.NodeInfixOp, "base", base);
                         try stack.append(RenderState { .Expression = prefix_op_node.rhs });
-                        switch (prefix_op_node.op) {
-                            ast.NodeInfixOp.InfixOp.EqualEqual => {
-                                try stack.append(RenderState { .Text = " == "});
-                            },
-                            ast.NodeInfixOp.InfixOp.BangEqual => {
-                                try stack.append(RenderState { .Text = " != "});
-                            },
-                            ast.NodeInfixOp.InfixOp.Period => {
-                                try stack.append(RenderState { .Text = "."});
-                            },
-                        }
+                        const text = switch (prefix_op_node.op) {
+                            ast.NodeInfixOp.InfixOp.Add => " + ",
+                            ast.NodeInfixOp.InfixOp.AddWrap => " +% ",
+                            ast.NodeInfixOp.InfixOp.ArrayCat => " ++ ",
+                            ast.NodeInfixOp.InfixOp.ArrayMult => " ** ",
+                            ast.NodeInfixOp.InfixOp.Assign => " = ",
+                            ast.NodeInfixOp.InfixOp.AssignBitAnd => " &= ",
+                            ast.NodeInfixOp.InfixOp.AssignBitOr => " |= ",
+                            ast.NodeInfixOp.InfixOp.AssignBitShiftLeft => " <<= ",
+                            ast.NodeInfixOp.InfixOp.AssignBitShiftRight => " >>= ",
+                            ast.NodeInfixOp.InfixOp.AssignBitXor => " ^= ",
+                            ast.NodeInfixOp.InfixOp.AssignDiv => " /= ",
+                            ast.NodeInfixOp.InfixOp.AssignMinus => " -= ",
+                            ast.NodeInfixOp.InfixOp.AssignMinusWrap => " -%= ",
+                            ast.NodeInfixOp.InfixOp.AssignMod => " %= ",
+                            ast.NodeInfixOp.InfixOp.AssignPlus => " += ",
+                            ast.NodeInfixOp.InfixOp.AssignPlusWrap => " +%= ",
+                            ast.NodeInfixOp.InfixOp.AssignTimes => " *= ",
+                            ast.NodeInfixOp.InfixOp.AssignTimesWarp => " *%= ",
+                            ast.NodeInfixOp.InfixOp.BangEqual => " != ",
+                            ast.NodeInfixOp.InfixOp.BitAnd => " & ",
+                            ast.NodeInfixOp.InfixOp.BitOr => " | ",
+                            ast.NodeInfixOp.InfixOp.BitShiftLeft => " << ",
+                            ast.NodeInfixOp.InfixOp.BitShiftRight => " >> ",
+                            ast.NodeInfixOp.InfixOp.BitXor => " ^ ",
+                            ast.NodeInfixOp.InfixOp.BoolAnd => " and ",
+                            ast.NodeInfixOp.InfixOp.BoolOr => " or ",
+                            ast.NodeInfixOp.InfixOp.Div => " / ",
+                            ast.NodeInfixOp.InfixOp.EqualEqual => " == ",
+                            ast.NodeInfixOp.InfixOp.ErrorUnion => "!",
+                            ast.NodeInfixOp.InfixOp.GreaterOrEqual => " >= ",
+                            ast.NodeInfixOp.InfixOp.GreaterThan => " > ",
+                            ast.NodeInfixOp.InfixOp.LessOrEqual => " <= ",
+                            ast.NodeInfixOp.InfixOp.LessThan => " < ",
+                            ast.NodeInfixOp.InfixOp.MergeErrorSets => " || ",
+                            ast.NodeInfixOp.InfixOp.Mod => " % ",
+                            ast.NodeInfixOp.InfixOp.Mult => " * ",
+                            ast.NodeInfixOp.InfixOp.MultWrap => " *% ",
+                            ast.NodeInfixOp.InfixOp.Period => ".",
+                            ast.NodeInfixOp.InfixOp.Sub => " - ",
+                            ast.NodeInfixOp.InfixOp.SubWrap => " -% ",
+                            ast.NodeInfixOp.InfixOp.UnwrapMaybe => " ?? ",
+                        };
+
+                        try stack.append(RenderState { .Text = text });
                         try stack.append(RenderState { .Expression = prefix_op_node.lhs });
                     },
                     ast.Node.Id.PrefixOp => {
@@ -1223,6 +1306,10 @@ pub const Parser = struct {
                     ast.Node.Id.StringLiteral => {
                         const string_literal = @fieldParentPtr(ast.NodeStringLiteral, "base", base);
                         try stream.print("{}", self.tokenizer.getTokenSlice(string_literal.token));
+                    },
+                    ast.Node.Id.UndefinedLiteral => {
+                        const undefined_literal = @fieldParentPtr(ast.NodeUndefinedLiteral, "base", base);
+                        try stream.print("{}", self.tokenizer.getTokenSlice(undefined_literal.token));
                     },
                     ast.Node.Id.BuiltinCall => {
                         const builtin_call = @fieldParentPtr(ast.NodeBuiltinCall, "base", base);
@@ -1470,6 +1557,56 @@ test "zig fmt" {
         \\test "test name" {
         \\    const a = 1;
         \\    var b = 1;
+        \\}
+        \\
+    );
+
+    try testCanonical(
+        \\test "operators" {
+        \\    var i = undefined;
+        \\    i = 2;
+        \\    i *= 2;
+        \\    i |= 2;
+        \\    i ^= 2;
+        \\    i <<= 2;
+        \\    i >>= 2;
+        \\    i &= 2;
+        \\    i *= 2;
+        \\    i *%= 2;
+        \\    i -= 2;
+        \\    i -%= 2;
+        \\    i += 2;
+        \\    i +%= 2;
+        \\    i /= 2;
+        \\    i %= 2;
+        \\    _ = i == i;
+        \\    _ = i != i;
+        \\    _ = i != i;
+        \\    _ = i.i;
+        \\    _ = i || i;
+        \\    _ = i!i;
+        \\    _ = i ** i;
+        \\    _ = i ++ i;
+        \\    _ = i ?? i;
+        \\    _ = i % i;
+        \\    _ = i / i;
+        \\    _ = i *% i;
+        \\    _ = i * i;
+        \\    _ = i -% i;
+        \\    _ = i - i;
+        \\    _ = i +% i;
+        \\    _ = i + i;
+        \\    _ = i << i;
+        \\    _ = i >> i;
+        \\    _ = i & i;
+        \\    _ = i ^ i;
+        \\    _ = i | i;
+        \\    _ = i >= i;
+        \\    _ = i <= i;
+        \\    _ = i > i;
+        \\    _ = i < i;
+        \\    _ = i and i;
+        \\    _ = i or i;
         \\}
         \\
     );

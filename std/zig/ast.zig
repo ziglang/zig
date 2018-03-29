@@ -20,6 +20,7 @@ pub const Node = struct {
         IntegerLiteral,
         FloatLiteral,
         StringLiteral,
+        UndefinedLiteral,
         BuiltinCall,
         LineComment,
         TestDecl,
@@ -38,6 +39,7 @@ pub const Node = struct {
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).iterate(index),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).iterate(index),
             Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).iterate(index),
+            Id.UndefinedLiteral => @fieldParentPtr(NodeUndefinedLiteral, "base", base).iterate(index),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).iterate(index),
             Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).iterate(index),
             Id.TestDecl => @fieldParentPtr(NodeTestDecl, "base", base).iterate(index),
@@ -57,6 +59,7 @@ pub const Node = struct {
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).firstToken(),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).firstToken(),
             Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).firstToken(),
+            Id.UndefinedLiteral => @fieldParentPtr(NodeUndefinedLiteral, "base", base).firstToken(),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).firstToken(),
             Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).firstToken(),
             Id.TestDecl => @fieldParentPtr(NodeTestDecl, "base", base).firstToken(),
@@ -76,6 +79,7 @@ pub const Node = struct {
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).lastToken(),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).lastToken(),
             Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).lastToken(),
+            Id.UndefinedLiteral => @fieldParentPtr(NodeUndefinedLiteral, "base", base).lastToken(),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).lastToken(),
             Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).lastToken(),
             Id.TestDecl => @fieldParentPtr(NodeTestDecl, "base", base).lastToken(),
@@ -309,9 +313,47 @@ pub const NodeInfixOp = struct {
     rhs: &Node,
 
     const InfixOp = enum {
-        EqualEqual,
+        Add,
+        AddWrap,
+        ArrayCat,
+        ArrayMult,
+        Assign,
+        AssignBitAnd,
+        AssignBitOr,
+        AssignBitShiftLeft,
+        AssignBitShiftRight,
+        AssignBitXor,
+        AssignDiv,
+        AssignMinus,
+        AssignMinusWrap,
+        AssignMod,
+        AssignPlus,
+        AssignPlusWrap,
+        AssignTimes,
+        AssignTimesWarp,
         BangEqual,
+        BitAnd,
+        BitOr,
+        BitShiftLeft,
+        BitShiftRight,
+        BitXor,
+        BoolAnd,
+        BoolOr,
+        Div,
+        EqualEqual,
+        ErrorUnion,
+        GreaterOrEqual,
+        GreaterThan,
+        LessOrEqual,
+        LessThan,
+        MergeErrorSets,
+        Mod,
+        Mult,
+        MultWrap,
         Period,
+        Sub,
+        SubWrap,
+        UnwrapMaybe,
     };
 
     pub fn iterate(self: &NodeInfixOp, index: usize) ?&Node {
@@ -460,6 +502,23 @@ pub const NodeStringLiteral = struct {
     }
 
     pub fn lastToken(self: &NodeStringLiteral) Token {
+        return self.token;
+    }
+};
+
+pub const NodeUndefinedLiteral = struct {
+    base: Node,
+    token: Token,
+
+    pub fn iterate(self: &NodeUndefinedLiteral, index: usize) ?&Node {
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeUndefinedLiteral) Token {
+        return self.token;
+    }
+
+    pub fn lastToken(self: &NodeUndefinedLiteral) Token {
         return self.token;
     }
 };
