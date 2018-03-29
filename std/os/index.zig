@@ -1134,7 +1134,7 @@ pub const Dir = struct {
             SymLink,
             File,
             UnixDomainSocket,
-            Wht, // TODO wtf is this
+            Whiteout,
             Unknown,
         };
     };
@@ -1223,7 +1223,7 @@ pub const Dir = struct {
                 posix.DT_LNK => Entry.Kind.SymLink,
                 posix.DT_REG => Entry.Kind.File,
                 posix.DT_SOCK => Entry.Kind.UnixDomainSocket,
-                posix.DT_WHT => Entry.Kind.Wht,
+                posix.DT_WHT => Entry.Kind.Whiteout,
                 else => Entry.Kind.Unknown,
             };
             return Entry {
@@ -1759,11 +1759,12 @@ test "std.os" {
     _ = @import("linux/index.zig");
     _ = @import("path.zig");
     _ = @import("windows/index.zig");
+    _ = @import("test.zig");
 }
 
 
 // TODO make this a build variable that you can set
-const unexpected_error_tracing = true;
+const unexpected_error_tracing = false;
 
 /// Call this when you made a syscall or something that sets errno
 /// and you get an unexpected error.
