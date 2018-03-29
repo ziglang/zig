@@ -171,6 +171,22 @@ pub const Parser = struct {
                             stack.append(State { .TopLevelExtern = token }) catch unreachable;
                             continue;
                         },
+                        Token.Id.Keyword_test => {
+                            stack.append(State.TopLevel) catch unreachable;
+
+                            const name_token = self.getNextToken();
+                            if (name_token.id != Token.Id.StringLiteral)
+                                return self.parseError(token, "expected {}, found {}", @tagName(Token.Id.StringLiteral), @tagName(name_token.id));
+
+                            const lbrace = self.getNextToken();
+                            if (lbrace.id != Token.Id.LBrace)
+                                return self.parseError(token, "expected {}, found {}", @tagName(Token.Id.LBrace), @tagName(name_token.id));
+
+                            const block = try self.createBlock(arena, token);
+                            const test_decl = try self.createAttachTestDecl(arena, &root_node.decls, token, name_token, block);
+                            try stack.append(State { .Block = block });
+                            continue;
+                        },
                         Token.Id.Eof => {
                             root_node.eof_token = token;
                             return Tree {.root_node = root_node, .arena_allocator = arena_allocator};
@@ -733,6 +749,20 @@ pub const Parser = struct {
         return node;
     }
 
+    fn createTestDecl(self: &Parser, arena: &mem.Allocator, test_token: &const Token, name_token: &const Token,
+        block: &ast.NodeBlock) !&ast.NodeTestDecl
+    {
+        const node = try arena.create(ast.NodeTestDecl);
+
+        *node = ast.NodeTestDecl {
+            .base = self.initNode(ast.Node.Id.TestDecl),
+            .test_token = *test_token,
+            .name_token = *name_token,
+            .body_node = &block.base,
+        };
+        return node;
+    }
+
     fn createFnProto(self: &Parser, arena: &mem.Allocator, fn_token: &const Token, extern_token: &const ?Token,
         cc_token: &const ?Token, visib_token: &const ?Token, inline_token: &const ?Token) !&ast.NodeFnProto
     {
@@ -863,6 +893,14 @@ pub const Parser = struct {
         extern_token: &const ?Token) !&ast.NodeVarDecl
     {
         const node = try self.createVarDecl(arena, visib_token, mut_token, comptime_token, extern_token);
+        try list.append(&node.base);
+        return node;
+    }
+
+    fn createAttachTestDecl(self: &Parser, arena: &mem.Allocator, list: &ArrayList(&ast.Node),
+        test_token: &const Token, name_token: &const Token, block: &ast.NodeBlock) !&ast.NodeTestDecl
+    {
+        const node = try self.createTestDecl(arena, test_token, name_token, block);
         try list.append(&node.base);
         return node;
     }
@@ -1032,7 +1070,11 @@ pub const Parser = struct {
                         ast.Node.Id.VarDecl => {
                             const var_decl = @fieldParentPtr(ast.NodeVarDecl, "base", decl);
                             try stack.append(RenderState { .VarDecl = var_decl});
-
+                        },
+                        ast.Node.Id.TestDecl => {
+                            const test_decl = @fieldParentPtr(ast.NodeTestDecl, "base", decl);
+                            try stream.print("test {} ", self.tokenizer.getTokenSlice(test_decl.name_token));
+                            try stack.append(RenderState { .Expression = test_decl.body_node });
                         },
                         else => unreachable,
                     }
@@ -1201,6 +1243,7 @@ pub const Parser = struct {
 
                     ast.Node.Id.Root,
                     ast.Node.Id.VarDecl,
+                    ast.Node.Id.TestDecl,
                     ast.Node.Id.ParamDecl => unreachable,
                 },
                 RenderState.FnProtoRParen => |fn_proto| {
@@ -1419,6 +1462,14 @@ test "zig fmt" {
         \\fn f1(a: bool, b: bool) bool {
         \\    a != b;
         \\    return a == b;
+        \\}
+        \\
+    );
+
+    try testCanonical(
+        \\test "test name" {
+        \\    const a = 1;
+        \\    var b = 1;
         \\}
         \\
     );

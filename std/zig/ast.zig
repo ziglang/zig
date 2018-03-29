@@ -22,6 +22,7 @@ pub const Node = struct {
         StringLiteral,
         BuiltinCall,
         LineComment,
+        TestDecl,
     };
 
     pub fn iterate(base: &Node, index: usize) ?&Node {
@@ -39,6 +40,7 @@ pub const Node = struct {
             Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).iterate(index),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).iterate(index),
             Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).iterate(index),
+            Id.TestDecl => @fieldParentPtr(NodeTestDecl, "base", base).iterate(index),
         };
     }
 
@@ -57,6 +59,7 @@ pub const Node = struct {
             Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).firstToken(),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).firstToken(),
             Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).firstToken(),
+            Id.TestDecl => @fieldParentPtr(NodeTestDecl, "base", base).firstToken(),
         };
     }
 
@@ -75,6 +78,7 @@ pub const Node = struct {
             Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).lastToken(),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).lastToken(),
             Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).lastToken(),
+            Id.TestDecl => @fieldParentPtr(NodeTestDecl, "base", base).lastToken(),
         };
     }
 };
@@ -476,3 +480,28 @@ pub const NodeLineComment = struct {
         return self.lines.at(self.lines.len - 1);
     }
 };
+
+pub const NodeTestDecl = struct {
+    base: Node,
+    test_token: Token,
+    name_token: Token,
+    body_node: &Node,
+
+    pub fn iterate(self: &NodeTestDecl, index: usize) ?&Node {
+        var i = index;
+
+        if (i < 1) return self.body_node;
+        i -= 1;
+
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeTestDecl) Token {
+        return self.test_token;
+    }
+
+    pub fn lastToken(self: &NodeTestDecl) Token {
+        return self.body_node.lastToken();
+    }
+};
+
