@@ -195,13 +195,6 @@ static int find_zig_lib_dir(Buf *out_path) {
         }
     }
 
-    if (ZIG_INSTALL_PREFIX != nullptr) {
-        if (test_zig_install_prefix(buf_create_from_str(ZIG_INSTALL_PREFIX), out_path)) {
-            return 0;
-        }
-    }
-
-
     return ErrorFileNotFound;
 }
 

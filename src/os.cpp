@@ -57,10 +57,6 @@ static clock_serv_t cclock;
 #include <errno.h>
 #include <time.h>
 
-// these implementations are lazy. But who cares, we'll make a robust
-// implementation in the zig standard library and then this code all gets
-// deleted when we self-host. it works for now.
-
 #if defined(ZIG_OS_POSIX)
 static void populate_termination(Termination *term, int status) {
     if (WIFEXITED(status)) {
@@ -929,7 +925,18 @@ int os_self_exe_path(Buf *out_path) {
 #elif defined(ZIG_OS_DARWIN)
     return ErrorFileNotFound;
 #elif defined(ZIG_OS_LINUX)
-    return ErrorFileNotFound;
+    buf_resize(out_path, 256);
+    for (;;) {
+        ssize_t amt = readlink("/proc/self/exe", buf_ptr(out_path), buf_len(out_path));
+        if (amt == -1) {
+            return ErrorUnexpected;
+        }
+        if (amt == (ssize_t)buf_len(out_path)) {
+            buf_resize(out_path, buf_len(out_path) * 2);
+            continue;
+        }
+        return 0;
+    }
 #endif
     return ErrorFileNotFound;
 }
