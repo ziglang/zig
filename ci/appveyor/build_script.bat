@@ -20,9 +20,7 @@ call "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" x86_
 
 mkdir %ZIGBUILDDIR%
 cd %ZIGBUILDDIR%
-cmake.exe .. -Thost=x64 -G"Visual Studio 14 2015 Win64" "-DCMAKE_INSTALL_PREFIX=%ZIGBUILDDIR%" "-DCMAKE_PREFIX_PATH=%ZIGPREFIXPATH%" -DCMAKE_BUILD_TYPE=Release "-DZIG_LIBC_INCLUDE_DIR=C:\Program Files (x86)\Windows Kits\10\Include\10.0.10240.0\ucrt" "-DZIG_LIBC_LIB_DIR=C:\Program Files (x86)\Windows Kits\10\bin\x64\ucrt" "-DZIG_LIBC_STATIC_LIB_DIR=C:\Program Files (x86)\Windows Kits\10\Lib\10.0.10240.0\ucrt\x64" || exit /b
+cmake.exe .. -Thost=x64 -G"Visual Studio 14 2015 Win64" "-DCMAKE_INSTALL_PREFIX=%ZIGBUILDDIR%" "-DCMAKE_PREFIX_PATH=%ZIGPREFIXPATH%" -DCMAKE_BUILD_TYPE=Release || exit /b
 msbuild /p:Configuration=Release INSTALL.vcxproj || exit /b
 
 bin\zig.exe build --build-file ..\build.zig test || exit /b
-
-@echo "MSVC build succeeded"
