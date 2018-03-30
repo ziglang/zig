@@ -86,6 +86,7 @@ pub const Parser = struct {
         AfterOperand,
         InfixOp: &ast.NodeInfixOp,
         PrefixOp: &ast.NodePrefixOp,
+        SuffixOp: &ast.Node,
         AddrOfModifiers: &ast.NodePrefixOp.AddrOfInfo,
         TypeExpr: DestPtr,
         VarDecl: &ast.NodeVarDecl,
@@ -434,13 +435,11 @@ pub const Parser = struct {
                         const node = try arena.create(ast.NodeCall);
                         *node = ast.NodeCall {
                             .base = self.initNode(ast.Node.Id.Call),
-                            .callee = stack.pop().Operand,
+                            .callee = undefined,
                             .params = ArrayList(&ast.Node).init(arena),
                             .rparen_token = undefined,
                         };
-                        try stack.append(State {
-                            .Operand = &node.base
-                        });
+                        try stack.append(State { .SuffixOp = &node.base });
                         try stack.append(State.AfterOperand);
                         try stack.append(State {.ExprListItemOrEnd = &node.params });
                         try stack.append(State {
@@ -455,8 +454,8 @@ pub const Parser = struct {
                     } else {
                         // no postfix/infix operator after this operand.
                         self.putBackToken(token);
-                        // reduce the stack
-                        var expression: &ast.Node = stack.pop().Operand;
+
+                        var expression = popSuffixOp(&stack);
                         while (true) {
                             switch (stack.pop()) {
                                 State.Expression => |dest_ptr| {
@@ -466,7 +465,7 @@ pub const Parser = struct {
                                 },
                                 State.InfixOp => |infix_op| {
                                     infix_op.rhs = expression;
-                                    infix_op.lhs = stack.pop().Operand;
+                                    infix_op.lhs = popSuffixOp(&stack);
                                     expression = &infix_op.base;
                                     continue;
                                 },
@@ -716,9 +715,37 @@ pub const Parser = struct {
                 // These are data, not control flow.
                 State.InfixOp => unreachable,
                 State.PrefixOp => unreachable,
+                State.SuffixOp => unreachable,
                 State.Operand => unreachable,
             }
         }
+    }
+
+    fn popSuffixOp(stack: &ArrayList(State)) &ast.Node {
+        var expression: &ast.Node = undefined;
+        var left_leaf_ptr: &&ast.Node = &expression;
+        while (true) {
+            switch (stack.pop()) {
+                State.SuffixOp => |suffix_op| {
+                    switch (suffix_op.id) {
+                        ast.Node.Id.Call => {
+                            const call = @fieldParentPtr(ast.NodeCall, "base", suffix_op);
+                            *left_leaf_ptr = &call.base;
+                            left_leaf_ptr = &call.callee;
+                            continue;
+                        },
+                        else => unreachable,
+                    }
+                },
+                State.Operand => |operand| {
+                    *left_leaf_ptr = operand;
+                    break;
+                },
+                else => unreachable,
+            }
+        }
+
+        return expression;
     }
 
     fn tokenIdToInfixOp(id: &const Token.Id) ?ast.NodeInfixOp.InfixOp {
