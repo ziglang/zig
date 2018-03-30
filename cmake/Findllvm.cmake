@@ -15,7 +15,7 @@ find_program(LLVM_CONFIG_EXE
         "c:/msys64/mingw64/bin"
         "C:/Libraries/llvm-6.0.0/bin")
 
-if(NOT(CMAKE_BUILD_TYPE STREQUAL "Debug"))
+if(NOT(CMAKE_BUILD_TYPE STREQUAL "Debug") OR ZIG_STATIC)
   execute_process(
       COMMAND ${LLVM_CONFIG_EXE} --libfiles --link-static
       OUTPUT_VARIABLE LLVM_LIBRARIES_SPACES
