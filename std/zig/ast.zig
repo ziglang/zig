@@ -432,9 +432,15 @@ pub const NodePrefixOp = struct {
     rhs: &Node,
 
     const PrefixOp = union(enum) {
+        AddrOf: AddrOfInfo,
+        BitNot,
+        BoolNot,
+        Deref,
+        Negation,
+        NegationWrap,
         Return,
         Try,
-        AddrOf: AddrOfInfo,
+        UnwrapMaybe,
     };
     const AddrOfInfo = struct {
         align_expr: ?&Node,
@@ -448,14 +454,20 @@ pub const NodePrefixOp = struct {
         var i = index;
 
         switch (self.op) {
-            PrefixOp.Return,
-            PrefixOp.Try => {},
             PrefixOp.AddrOf => |addr_of_info| {
                 if (addr_of_info.align_expr) |align_expr| {
                     if (i < 1) return align_expr;
                     i -= 1;
                 }
             },
+            PrefixOp.BitNot,
+            PrefixOp.BoolNot,
+            PrefixOp.Deref,
+            PrefixOp.Negation,
+            PrefixOp.NegationWrap,
+            PrefixOp.Return,
+            PrefixOp.Try,
+            PrefixOp.UnwrapMaybe => {},
         }
 
         if (i < 1) return self.rhs;

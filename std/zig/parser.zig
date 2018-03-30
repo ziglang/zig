@@ -336,6 +336,42 @@ pub const Parser = struct {
                             try stack.append(State.ExpectOperand);
                             continue;
                         },
+                        Token.Id.Minus => {
+                            try stack.append(State { .PrefixOp = try self.createPrefixOp(arena, token,
+                                ast.NodePrefixOp.PrefixOp.Negation) });
+                            try stack.append(State.ExpectOperand);
+                            continue;
+                        },
+                        Token.Id.MinusPercent => {
+                            try stack.append(State { .PrefixOp = try self.createPrefixOp(arena, token,
+                                ast.NodePrefixOp.PrefixOp.NegationWrap) });
+                            try stack.append(State.ExpectOperand);
+                            continue;
+                        },
+                        Token.Id.Tilde => {
+                            try stack.append(State { .PrefixOp = try self.createPrefixOp(arena, token,
+                                ast.NodePrefixOp.PrefixOp.BitNot) });
+                            try stack.append(State.ExpectOperand);
+                            continue;
+                        },
+                        Token.Id.QuestionMarkQuestionMark => {
+                            try stack.append(State { .PrefixOp = try self.createPrefixOp(arena, token,
+                                ast.NodePrefixOp.PrefixOp.UnwrapMaybe) });
+                            try stack.append(State.ExpectOperand);
+                            continue;
+                        },
+                        Token.Id.Bang => {
+                            try stack.append(State { .PrefixOp = try self.createPrefixOp(arena, token,
+                                ast.NodePrefixOp.PrefixOp.BoolNot) });
+                            try stack.append(State.ExpectOperand);
+                            continue;
+                        },
+                        Token.Id.Asterisk => {
+                            try stack.append(State { .PrefixOp = try self.createPrefixOp(arena, token,
+                                ast.NodePrefixOp.PrefixOp.Deref) });
+                            try stack.append(State.ExpectOperand);
+                            continue;
+                        },
                         Token.Id.Ampersand => {
                             const prefix_op = try self.createPrefixOp(arena, token, ast.NodePrefixOp.PrefixOp{
                                 .AddrOf = ast.NodePrefixOp.AddrOfInfo {
@@ -1323,12 +1359,6 @@ pub const Parser = struct {
                         const prefix_op_node = @fieldParentPtr(ast.NodePrefixOp, "base", base);
                         try stack.append(RenderState { .Expression = prefix_op_node.rhs });
                         switch (prefix_op_node.op) {
-                            ast.NodePrefixOp.PrefixOp.Return => {
-                                try stream.write("return ");
-                            },
-                            ast.NodePrefixOp.PrefixOp.Try => {
-                                try stream.write("try ");
-                            },
                             ast.NodePrefixOp.PrefixOp.AddrOf => |addr_of_info| {
                                 try stream.write("&");
                                 if (addr_of_info.volatile_token != null) {
@@ -1343,6 +1373,14 @@ pub const Parser = struct {
                                     try stack.append(RenderState { .Expression = align_expr});
                                 }
                             },
+                            ast.NodePrefixOp.PrefixOp.BitNot => try stream.write("~"),
+                            ast.NodePrefixOp.PrefixOp.BoolNot => try stream.write("!"),
+                            ast.NodePrefixOp.PrefixOp.Deref => try stream.write("*"),
+                            ast.NodePrefixOp.PrefixOp.Negation => try stream.write("-"),
+                            ast.NodePrefixOp.PrefixOp.NegationWrap => try stream.write("-%"),
+                            ast.NodePrefixOp.PrefixOp.Return => try stream.write("return "),
+                            ast.NodePrefixOp.PrefixOp.Try => try stream.write("try "),
+                            ast.NodePrefixOp.PrefixOp.UnwrapMaybe => try stream.write("??"),
                         }
                     },
                     ast.Node.Id.IntegerLiteral => {
@@ -1627,7 +1665,7 @@ test "zig fmt" {
     );
 
     try testCanonical(
-        \\test "operators" {
+        \\test "infix operators" {
         \\    var i = undefined;
         \\    i = 2;
         \\    i *= 2;
@@ -1672,6 +1710,13 @@ test "zig fmt" {
         \\    _ = i < i;
         \\    _ = i and i;
         \\    _ = i or i;
+        \\}
+        \\
+    );
+
+    try testCanonical(
+        \\test "prefix operators" {
+        \\    --%~??!*&0;
         \\}
         \\
     );

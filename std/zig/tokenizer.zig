@@ -125,6 +125,7 @@ pub const Token = struct {
         AngleBracketRightEqual,
         AngleBracketAngleBracketRight,
         AngleBracketAngleBracketRightEqual,
+        Tilde,
         IntegerLiteral,
         FloatLiteral,
         LineComment,
@@ -358,6 +359,11 @@ pub const Tokenizer = struct {
                     },
                     '}' => {
                         result.id = Token.Id.RBrace;
+                        self.index += 1;
+                        break;
+                    },
+                    '~' => {
+                        result.id = Token.Id.Tilde;
                         self.index += 1;
                         break;
                     },
