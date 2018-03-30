@@ -1649,6 +1649,13 @@ test "zig fmt" {
     );
 
     try testCanonical(
+        \\extern fn f1(s: [][]align(1) []const []volatile u8) c_int;
+        \\extern fn f2(s: []align(1) const []align(1) volatile []const volatile u8) c_int;
+        \\extern fn f3(s: []align(1) const volatile u8) c_int;
+        \\
+    );
+
+    try testCanonical(
         \\fn f1(a: bool, b: bool) bool {
         \\    a != b;
         \\    return a == b;
@@ -1716,7 +1723,7 @@ test "zig fmt" {
 
     try testCanonical(
         \\test "prefix operators" {
-        \\    --%~??!*&0;
+        \\    try return --%~??!*&0;
         \\}
         \\
     );
@@ -1730,4 +1737,145 @@ test "zig fmt" {
         \\}
         \\
     );
+
+    try testCanonical(
+        \\test "test index" {
+        \\    a[0];
+        \\    a[0 + 5];
+        \\    a[0..];
+        \\    a[0..5];
+        \\}
+        \\
+    );
+
+    try testCanonical(
+        \\test "test array" {
+        \\    const a : [2]u8 = [2]u8{ 1, 2 };
+        \\    const a : [2]u8 = []u8{ 1, 2 };
+        \\    const a : [0]u8 = []u8{};
+        \\}
+        \\
+    );
+
+// PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ContainerDecl | ("continue" option(":" Symbol)) | ErrorSetDecl | PromiseType
+    try testCanonical(
+        \\test "values" {
+        \\    1;
+        \\    1.0;
+        \\    "string";
+        \\    c"cstring";
+        \\    \\ Multi
+        \\    \\ line
+        \\    \\ string
+        \\    ;
+        \\    'c';
+        \\    true;
+        \\    false;
+        \\    null;
+        \\    undefined;
+        \\    error;
+        \\    this;
+        \\    unreachable;
+        \\    suspend;
+        \\}
+        \\
+    );
+
+    try testCanonical(
+        \\test "percendence" {
+        \\    a!b();
+        \\    (a!b)();
+        \\    !a!b;
+        \\    !(a!b);
+        \\    !a{};
+        \\    !(a{});
+        \\    a + b{};
+        \\    (a + b){};
+        \\    a << b + c;
+        \\    (a << b) + c;
+        \\    a & b << c;
+        \\    (a & b) << c;
+        \\    a ^ b & c;
+        \\    (a ^ b) & c;
+        \\    a | b ^ c;
+        \\    (a | b) ^ c;
+        \\    a == b | c;
+        \\    (a == b) | c;
+        \\    a and b == c;
+        \\    (a and b) == c;
+        \\    a or b and c;
+        \\    (a or b) and c;
+        \\    (a or b) and c;
+        \\    a = b or c;
+        \\    (a = b) or c;
+        \\}
+        \\
+    );
+
+    try testCanonical(
+        \\const S = struct {
+        \\    const Self = this;
+        \\    f1: u8,
+        \\
+        \\    fn method(self: &Self) Self {
+        \\        return *self;
+        \\    }
+        \\
+        \\    f2: u8,
+        \\};
+        \\
+        \\const Ps = packed struct {
+        \\    a: u8,
+        \\    b: u8,
+        \\
+        \\    c: u8,
+        \\};
+        \\
+        \\const Es = extern struct {
+        \\    a: u8,
+        \\    b: u8,
+        \\
+        \\    c: u8,
+        \\};
+        \\
+    );
+
+    try testCanonical(
+        \\const E = enum {
+        \\    Ok,
+        \\    SomethingElse = 0,
+        \\};
+        \\
+        \\const E2 = enum(u8) {
+        \\    Ok,
+        \\    SomethingElse = 255,
+        \\    SomethingThird,
+        \\};
+        \\
+        \\const Ee = extern enum {
+        \\    Ok,
+        \\    SomethingElse,
+        \\    SomethingThird,
+        \\};
+        \\
+        \\const Ep = packed enum {
+        \\    Ok,
+        \\    SomethingElse,
+        \\    SomethingThird,
+        \\};
+        \\
+    );
+
+    try testCanonical(
+        \\const a1 = []u8{ };
+        \\const a2 = []u8{ 1, 2, 3, 4 };
+        \\const s1 = S{ };
+        \\const s2 = S{ .a = 1, .b = 2, };
+        \\
+    );
+
+    try testCanonical(@embedFile("ast.zig"));
+    try testCanonical(@embedFile("index.zig"));
+    try testCanonical(@embedFile("parser.zig"));
+    try testCanonical(@embedFile("tokenizer.zig"));
 }
