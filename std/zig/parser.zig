@@ -1750,9 +1750,9 @@ test "zig fmt" {
 
     try testCanonical(
         \\test "test array" {
-        \\    const a : [2]u8 = [2]u8{ 1, 2 };
-        \\    const a : [2]u8 = []u8{ 1, 2 };
-        \\    const a : [0]u8 = []u8{};
+        \\    const a: [2]u8 = [2]u8{ 1, 2 };
+        \\    const a: [2]u8 = []u8{ 1, 2 };
+        \\    const a: [0]u8 = []u8{};
         \\}
         \\
     );
@@ -1782,7 +1782,7 @@ test "zig fmt" {
     );
 
     try testCanonical(
-        \\test "percendence" {
+        \\test "precendence" {
         \\    a!b();
         \\    (a!b)();
         \\    !a!b;
