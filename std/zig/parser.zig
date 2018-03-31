@@ -1557,7 +1557,7 @@ fn testCanonical(source: []const u8) !void {
     }
 }
 
-test "zig fmt" {
+test "zig fmt: get stdout or fail" {
     try testCanonical(
         \\const std = @import("std");
         \\
@@ -1568,7 +1568,9 @@ test "zig fmt" {
         \\}
         \\
     );
+}
 
+test "zig fmt: preserve spacing" {
     try testCanonical(
         \\const std = @import("std");
         \\
@@ -1581,25 +1583,33 @@ test "zig fmt" {
         \\}
         \\
     );
+}
 
+test "zig fmt: return types" {
     try testCanonical(
         \\pub fn main() !void {}
         \\pub fn main() var {}
         \\pub fn main() i32 {}
         \\
     );
+}
 
+test "zig fmt: imports" {
     try testCanonical(
         \\const std = @import("std");
         \\const std = @import();
         \\
     );
+}
 
+test "zig fmt: extern function" {
     try testCanonical(
         \\extern fn puts(s: &const u8) c_int;
         \\
     );
+}
 
+test "zig fmt: global declarations" {
     try testCanonical(
         \\const a = b;
         \\pub const a = b;
@@ -1611,66 +1621,71 @@ test "zig fmt" {
         \\pub var a: i32 = b;
         \\
     );
+}
 
+test "zig fmt: extern declaration" {
     try testCanonical(
         \\extern var foo: c_int;
         \\
     );
+}
 
-    try testCanonical(
+test "zig fmt: alignment" {
+        try testCanonical(
         \\var foo: c_int align(1);
         \\
     );
+}
 
+test "zig fmt: C main" {
     try testCanonical(
         \\fn main(argc: c_int, argv: &&u8) c_int {
         \\    const a = b;
         \\}
         \\
     );
+}
 
+test "zig fmt: return" {
     try testCanonical(
         \\fn foo(argc: c_int, argv: &&u8) c_int {
         \\    return 0;
         \\}
         \\
     );
+}
 
+test "zig fmt: pointer attributes" {
     try testCanonical(
         \\extern fn f1(s: &align(&u8) u8) c_int;
+        \\extern fn f2(s: &&align(1) &const &volatile u8) c_int;
+        \\extern fn f3(s: &align(1) const &align(1) volatile &const volatile u8) c_int;
+        \\extern fn f4(s: &align(1) const volatile u8) c_int;
         \\
     );
+}
 
+test "zig fmt: slice attributes" {
     try testCanonical(
-        \\extern fn f1(s: &&align(1) &const &volatile u8) c_int;
-        \\extern fn f2(s: &align(1) const &align(1) volatile &const volatile u8) c_int;
-        \\extern fn f3(s: &align(1) const volatile u8) c_int;
+        \\extern fn f1(s: &align(&u8) u8) c_int;
+        \\extern fn f2(s: &&align(1) &const &volatile u8) c_int;
+        \\extern fn f3(s: &align(1) const &align(1) volatile &const volatile u8) c_int;
+        \\extern fn f4(s: &align(1) const volatile u8) c_int;
         \\
     );
+}
 
-    try testCanonical(
-        \\extern fn f1(s: [][]align(1) []const []volatile u8) c_int;
-        \\extern fn f2(s: []align(1) const []align(1) volatile []const volatile u8) c_int;
-        \\extern fn f3(s: []align(1) const volatile u8) c_int;
-        \\
-    );
-
-    try testCanonical(
-        \\fn f1(a: bool, b: bool) bool {
-        \\    a != b;
-        \\    return a == b;
-        \\}
-        \\
-    );
-
-    try testCanonical(
+test "zig fmt: test declaration" {
+     try testCanonical(
         \\test "test name" {
         \\    const a = 1;
         \\    var b = 1;
         \\}
         \\
     );
+}
 
+test "zig fmt: infix operators" {
     try testCanonical(
         \\test "infix operators" {
         \\    var i = undefined;
@@ -1720,14 +1735,18 @@ test "zig fmt" {
         \\}
         \\
     );
+}
 
+test "zig fmt: prefix operators" {
     try testCanonical(
         \\test "prefix operators" {
         \\    try return --%~??!*&0;
         \\}
         \\
     );
+}
 
+test "zig fmt: call expression" {
     try testCanonical(
         \\test "test calls" {
         \\    a();
@@ -1737,27 +1756,9 @@ test "zig fmt" {
         \\}
         \\
     );
+}
 
-    try testCanonical(
-        \\test "test index" {
-        \\    a[0];
-        \\    a[0 + 5];
-        \\    a[0..];
-        \\    a[0..5];
-        \\}
-        \\
-    );
-
-    try testCanonical(
-        \\test "test array" {
-        \\    const a: [2]u8 = [2]u8{ 1, 2 };
-        \\    const a: [2]u8 = []u8{ 1, 2 };
-        \\    const a: [0]u8 = []u8{};
-        \\}
-        \\
-    );
-
-// PrimaryExpression = Integer | Float | String | CharLiteral | KeywordLiteral | GroupedExpression | BlockExpression(BlockOrExpression) | Symbol | ("@" Symbol FnCallExpression) | ArrayType | FnProto | AsmExpression | ContainerDecl | ("continue" option(":" Symbol)) | ErrorSetDecl | PromiseType
+test "zig fmt: values" {
     try testCanonical(
         \\test "values" {
         \\    1;
@@ -1780,9 +1781,34 @@ test "zig fmt" {
         \\}
         \\
     );
+}
 
+test "zig fmt: indexing" {
     try testCanonical(
-        \\test "precendence" {
+        \\test "test index" {
+        \\    a[0];
+        \\    a[0 + 5];
+        \\    a[0..];
+        \\    a[0..5];
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: arrays" {
+    try testCanonical(
+        \\test "test array" {
+        \\    const a: [2]u8 = [2]u8{ 1, 2 };
+        \\    const a: [2]u8 = []u8{ 1, 2 };
+        \\    const a: [0]u8 = []u8{};
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: precedence" {
+    try testCanonical(
+        \\test "precedence" {
         \\    a!b();
         \\    (a!b)();
         \\    !a!b;
@@ -1811,7 +1837,9 @@ test "zig fmt" {
         \\}
         \\
     );
+}
 
+test "zig fmt: struct declaration" {
     try testCanonical(
         \\const S = struct {
         \\    const Self = this;
@@ -1839,8 +1867,10 @@ test "zig fmt" {
         \\};
         \\
     );
+}
 
-    try testCanonical(
+test "zig fmt: enum declaration" {
+      try testCanonical(
         \\const E = enum {
         \\    Ok,
         \\    SomethingElse = 0,
@@ -1865,7 +1895,9 @@ test "zig fmt" {
         \\};
         \\
     );
+}
 
+test "zig fmt: container initializers" {
     try testCanonical(
         \\const a1 = []u8{ };
         \\const a2 = []u8{ 1, 2, 3, 4 };
@@ -1873,7 +1905,9 @@ test "zig fmt" {
         \\const s2 = S{ .a = 1, .b = 2, };
         \\
     );
+}
 
+test "zig fmt: zig fmt" {
     try testCanonical(@embedFile("ast.zig"));
     try testCanonical(@embedFile("index.zig"));
     try testCanonical(@embedFile("parser.zig"));
