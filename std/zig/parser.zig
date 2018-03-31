@@ -427,6 +427,30 @@ pub const Parser = struct {
                             try stack.append(State.AfterOperand);
                             continue;
                         },
+                        Token.Id.Keyword_true, Token.Id.Keyword_false => {
+                            const node = try arena.create(ast.NodeBoolLiteral);
+                            *node = ast.NodeBoolLiteral {
+                                .base = self.initNode(ast.Node.Id.BoolLiteral),
+                                .token = token,
+                            };
+                            try stack.append(State {
+                                .Operand = &node.base
+                            });
+                            try stack.append(State.AfterOperand);
+                            continue;
+                        },
+                        Token.Id.Keyword_null => {
+                            const node = try arena.create(ast.NodeNullLiteral);
+                            *node = ast.NodeNullLiteral {
+                                .base = self.initNode(ast.Node.Id.NullLiteral),
+                                .token = token,
+                            };
+                            try stack.append(State {
+                                .Operand = &node.base
+                            });
+                            try stack.append(State.AfterOperand);
+                            continue;
+                        },
                         Token.Id.Builtin => {
                             const node = try arena.create(ast.NodeBuiltinCall);
                             *node = ast.NodeBuiltinCall {
@@ -1466,6 +1490,14 @@ pub const Parser = struct {
                     ast.Node.Id.CharLiteral => {
                         const char_literal = @fieldParentPtr(ast.NodeCharLiteral, "base", base);
                         try stream.print("{}", self.tokenizer.getTokenSlice(char_literal.token));
+                    },
+                    ast.Node.Id.BoolLiteral => {
+                        const bool_literal = @fieldParentPtr(ast.NodeCharLiteral, "base", base);
+                        try stream.print("{}", self.tokenizer.getTokenSlice(bool_literal.token));
+                    },
+                    ast.Node.Id.NullLiteral => {
+                        const null_literal = @fieldParentPtr(ast.NodeNullLiteral, "base", base);
+                        try stream.print("{}", self.tokenizer.getTokenSlice(null_literal.token));
                     },
                     ast.Node.Id.MultilineStringLiteral => {
                         const multiline_str_literal = @fieldParentPtr(ast.NodeMultilineStringLiteral, "base", base);
