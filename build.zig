@@ -45,6 +45,11 @@ pub fn build(b: &Builder) !void {
 
     var exe = b.addExecutable("zig", "src-self-hosted/main.zig");
     exe.setBuildMode(mode);
+
+    // This is for finding /lib/libz.a on alpine linux.
+    // TODO turn this into -Dextra-lib-path=/lib option
+    exe.addLibPath("/lib");
+
     exe.addIncludeDir("src");
     exe.addIncludeDir(cmake_binary_dir);
     addCppLib(b, exe, cmake_binary_dir, "zig_cpp");
