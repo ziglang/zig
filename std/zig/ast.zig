@@ -624,7 +624,7 @@ pub const NodeLineComment = struct {
 pub const NodeTestDecl = struct {
     base: Node,
     test_token: Token,
-    name_token: Token,
+    name: &Node,
     body_node: &Node,
 
     pub fn iterate(self: &NodeTestDecl, index: usize) ?&Node {
@@ -644,4 +644,3 @@ pub const NodeTestDecl = struct {
         return self.body_node.lastToken();
     }
 };
-

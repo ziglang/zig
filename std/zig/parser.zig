@@ -55,6 +55,7 @@ pub const Parser = struct {
     const TopLevelDeclCtx = struct {
         visib_token: ?Token,
         extern_token: ?Token,
+        lib_name: ?&ast.Node,
     };
 
     const DestPtr = union(enum) {
@@ -183,8 +184,9 @@ pub const Parser = struct {
                             if (lbrace.id != Token.Id.LBrace)
                                 return self.parseError(token, "expected {}, found {}", @tagName(Token.Id.LBrace), @tagName(name_token.id));
 
+                            const name = try self.createStringLiteral(arena, name_token);
                             const block = try self.createBlock(arena, token);
-                            const test_decl = try self.createAttachTestDecl(arena, &root_node.decls, token, name_token, block);
+                            const test_decl = try self.createAttachTestDecl(arena, &root_node.decls, token, &name.base, block);
                             try stack.append(State { .Block = block });
                             continue;
                         },
@@ -202,10 +204,22 @@ pub const Parser = struct {
                 State.TopLevelExtern => |visib_token| {
                     const token = self.getNextToken();
                     if (token.id == Token.Id.Keyword_extern) {
+                        const lib_name_token = self.getNextToken();
+                        const lib_name = blk: {
+                            if (lib_name_token.id == Token.Id.StringLiteral) {
+                                const res = try self.createStringLiteral(arena, lib_name_token);
+                                break :blk &res.base;
+                            } else {
+                                self.putBackToken(lib_name_token);
+                                break :blk null;
+                            }
+                        };
+
                         stack.append(State {
                             .TopLevelDecl = TopLevelDeclCtx {
                                 .visib_token = visib_token,
                                 .extern_token = token,
+                                .lib_name = lib_name,
                             },
                         }) catch unreachable;
                         continue;
@@ -215,6 +229,7 @@ pub const Parser = struct {
                         .TopLevelDecl = TopLevelDeclCtx {
                             .visib_token = visib_token,
                             .extern_token = null,
+                            .lib_name = null,
                         },
                     }) catch unreachable;
                     continue;
@@ -226,7 +241,7 @@ pub const Parser = struct {
                             stack.append(State.TopLevel) catch unreachable;
                             // TODO shouldn't need these casts
                             const var_decl_node = try self.createAttachVarDecl(arena, &root_node.decls, ctx.visib_token,
-                                token, (?Token)(null), ctx.extern_token);
+                                token, (?Token)(null), ctx.extern_token, ctx.lib_name);
                             try stack.append(State { .VarDecl = var_decl_node });
                             continue;
                         },
@@ -234,20 +249,17 @@ pub const Parser = struct {
                             stack.append(State.TopLevel) catch unreachable;
                             // TODO shouldn't need these casts
                             const fn_proto = try self.createAttachFnProto(arena, &root_node.decls, token,
-                                ctx.extern_token, (?Token)(null), ctx.visib_token, (?Token)(null));
+                                ctx.extern_token, ctx.lib_name, (?Token)(null), ctx.visib_token, (?Token)(null));
                             try stack.append(State { .FnDef = fn_proto });
                             try stack.append(State { .FnProto = fn_proto });
                             continue;
-                        },
-                        Token.Id.StringLiteral => {
-                            @panic("TODO extern with string literal");
                         },
                         Token.Id.Keyword_nakedcc, Token.Id.Keyword_stdcallcc => {
                             stack.append(State.TopLevel) catch unreachable;
                             const fn_token = try self.eatToken(Token.Id.Keyword_fn);
                             // TODO shouldn't need this cast
                             const fn_proto = try self.createAttachFnProto(arena, &root_node.decls, fn_token,
-                                ctx.extern_token, (?Token)(token), (?Token)(null), (?Token)(null));
+                                ctx.extern_token, ctx.lib_name, (?Token)(token), (?Token)(null), (?Token)(null));
                             try stack.append(State { .FnDef = fn_proto });
                             try stack.append(State { .FnProto = fn_proto });
                             continue;
@@ -437,11 +449,7 @@ pub const Parser = struct {
                             continue;
                         },
                         Token.Id.StringLiteral => {
-                            const node = try arena.create(ast.NodeStringLiteral);
-                            *node = ast.NodeStringLiteral {
-                                .base = self.initNode(ast.Node.Id.StringLiteral),
-                                .token = token,
-                            };
+                            const node = try self.createStringLiteral(arena, token);
                             try stack.append(State {
                                 .Operand = &node.base
                             });
@@ -722,7 +730,7 @@ pub const Parser = struct {
                             if (mut_token.id == Token.Id.Keyword_var or mut_token.id == Token.Id.Keyword_const) {
                                 // TODO shouldn't need these casts
                                 const var_decl = try self.createAttachVarDecl(arena, &block.statements, (?Token)(null),
-                                    mut_token, (?Token)(comptime_token), (?Token)(null));
+                                    mut_token, (?Token)(comptime_token), (?Token)(null), null);
                                 try stack.append(State { .VarDecl = var_decl });
                                 continue;
                             }
@@ -736,7 +744,7 @@ pub const Parser = struct {
                         if (mut_token.id == Token.Id.Keyword_var or mut_token.id == Token.Id.Keyword_const) {
                             // TODO shouldn't need these casts
                             const var_decl = try self.createAttachVarDecl(arena, &block.statements, (?Token)(null),
-                                mut_token, (?Token)(null), (?Token)(null));
+                                mut_token, (?Token)(null), (?Token)(null), null);
                             try stack.append(State { .VarDecl = var_decl });
                             continue;
                         }
@@ -852,7 +860,7 @@ pub const Parser = struct {
     }
 
     fn createVarDecl(self: &Parser, arena: &mem.Allocator, visib_token: &const ?Token, mut_token: &const Token,
-        comptime_token: &const ?Token, extern_token: &const ?Token) !&ast.NodeVarDecl
+        comptime_token: &const ?Token, extern_token: &const ?Token, lib_name: ?&ast.Node) !&ast.NodeVarDecl
     {
         const node = try arena.create(ast.NodeVarDecl);
 
@@ -865,7 +873,7 @@ pub const Parser = struct {
             .type_node = null,
             .align_node = null,
             .init_node = null,
-            .lib_name = null,
+            .lib_name = lib_name,
             // initialized later
             .name_token = undefined,
             .eq_token = undefined,
@@ -874,7 +882,18 @@ pub const Parser = struct {
         return node;
     }
 
-    fn createTestDecl(self: &Parser, arena: &mem.Allocator, test_token: &const Token, name_token: &const Token,
+    fn createStringLiteral(self: &Parser, arena: &mem.Allocator, token: &const Token) !&ast.NodeStringLiteral {
+        const node = try arena.create(ast.NodeStringLiteral);
+
+        assert(token.id == Token.Id.StringLiteral);
+        *node = ast.NodeStringLiteral {
+            .base = self.initNode(ast.Node.Id.StringLiteral),
+            .token = *token,
+        };
+        return node;
+    }
+
+    fn createTestDecl(self: &Parser, arena: &mem.Allocator, test_token: &const Token, name: &ast.Node,
         block: &ast.NodeBlock) !&ast.NodeTestDecl
     {
         const node = try arena.create(ast.NodeTestDecl);
@@ -882,14 +901,14 @@ pub const Parser = struct {
         *node = ast.NodeTestDecl {
             .base = self.initNode(ast.Node.Id.TestDecl),
             .test_token = *test_token,
-            .name_token = *name_token,
+            .name = name,
             .body_node = &block.base,
         };
         return node;
     }
 
     fn createFnProto(self: &Parser, arena: &mem.Allocator, fn_token: &const Token, extern_token: &const ?Token,
-        cc_token: &const ?Token, visib_token: &const ?Token, inline_token: &const ?Token) !&ast.NodeFnProto
+        lib_name: ?&ast.Node, cc_token: &const ?Token, visib_token: &const ?Token, inline_token: &const ?Token) !&ast.NodeFnProto
     {
         const node = try arena.create(ast.NodeFnProto);
 
@@ -905,7 +924,7 @@ pub const Parser = struct {
             .inline_token = *inline_token,
             .cc_token = *cc_token,
             .body_node = null,
-            .lib_name = null,
+            .lib_name = lib_name,
             .align_expr = null,
         };
         return node;
@@ -1015,27 +1034,27 @@ pub const Parser = struct {
     }
 
     fn createAttachFnProto(self: &Parser, arena: &mem.Allocator, list: &ArrayList(&ast.Node), fn_token: &const Token,
-        extern_token: &const ?Token, cc_token: &const ?Token, visib_token: &const ?Token,
+        extern_token: &const ?Token, lib_name: ?&ast.Node, cc_token: &const ?Token, visib_token: &const ?Token,
         inline_token: &const ?Token) !&ast.NodeFnProto
     {
-        const node = try self.createFnProto(arena, fn_token, extern_token, cc_token, visib_token, inline_token);
+        const node = try self.createFnProto(arena, fn_token, extern_token, lib_name, cc_token, visib_token, inline_token);
         try list.append(&node.base);
         return node;
     }
 
     fn createAttachVarDecl(self: &Parser, arena: &mem.Allocator, list: &ArrayList(&ast.Node),
         visib_token: &const ?Token, mut_token: &const Token, comptime_token: &const ?Token,
-        extern_token: &const ?Token) !&ast.NodeVarDecl
+        extern_token: &const ?Token, lib_name: ?&ast.Node) !&ast.NodeVarDecl
     {
-        const node = try self.createVarDecl(arena, visib_token, mut_token, comptime_token, extern_token);
+        const node = try self.createVarDecl(arena, visib_token, mut_token, comptime_token, extern_token, lib_name);
         try list.append(&node.base);
         return node;
     }
 
     fn createAttachTestDecl(self: &Parser, arena: &mem.Allocator, list: &ArrayList(&ast.Node),
-        test_token: &const Token, name_token: &const Token, block: &ast.NodeBlock) !&ast.NodeTestDecl
+        test_token: &const Token, name: &ast.Node, block: &ast.NodeBlock) !&ast.NodeTestDecl
     {
-        const node = try self.createTestDecl(arena, test_token, name_token, block);
+        const node = try self.createTestDecl(arena, test_token, name, block);
         try list.append(&node.base);
         return node;
     }
@@ -1169,23 +1188,6 @@ pub const Parser = struct {
                     switch (decl.id) {
                         ast.Node.Id.FnProto => {
                             const fn_proto = @fieldParentPtr(ast.NodeFnProto, "base", decl);
-                            if (fn_proto.visib_token) |visib_token| {
-                                switch (visib_token.id) {
-                                    Token.Id.Keyword_pub => try stream.print("pub "),
-                                    Token.Id.Keyword_export => try stream.print("export "),
-                                    else => unreachable,
-                                }
-                            }
-                            if (fn_proto.extern_token) |extern_token| {
-                                try stream.print("{} ", self.tokenizer.getTokenSlice(extern_token));
-                            }
-                            try stream.print("fn");
-
-                            if (fn_proto.name_token) |name_token| {
-                                try stream.print(" {}", self.tokenizer.getTokenSlice(name_token));
-                            }
-
-                            try stream.print("(");
 
                             if (fn_proto.body_node == null) {
                                 try stack.append(RenderState { .Text = ";" });
@@ -1201,6 +1203,27 @@ pub const Parser = struct {
                                     try stack.append(RenderState { .Text = ", " });
                                 }
                             }
+
+                            try stack.append(RenderState { .Text = "(" });
+                            if (fn_proto.name_token) |name_token| {
+                                try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(name_token) });
+                            }
+
+                            try stack.append(RenderState { .Text = "fn " });
+                            if (fn_proto.lib_name) |lib_name| {
+                                try stack.append(RenderState { .Text = " " });
+                                try stack.append(RenderState { .Expression = lib_name });
+                            }
+                            if (fn_proto.extern_token) |extern_token| {
+                                try stack.append(RenderState { .Text = " " });
+                                try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(extern_token) });
+                            }
+
+                            if (fn_proto.visib_token) |visib_token| {
+                                assert(visib_token.id == Token.Id.Keyword_pub or visib_token.id == Token.Id.Keyword_export);
+                                try stack.append(RenderState { .Text = " " });
+                                try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(visib_token) });
+                            }
                         },
                         ast.Node.Id.VarDecl => {
                             const var_decl = @fieldParentPtr(ast.NodeVarDecl, "base", decl);
@@ -1208,29 +1231,16 @@ pub const Parser = struct {
                         },
                         ast.Node.Id.TestDecl => {
                             const test_decl = @fieldParentPtr(ast.NodeTestDecl, "base", decl);
-                            try stream.print("test {} ", self.tokenizer.getTokenSlice(test_decl.name_token));
+                            try stream.print("test ");
                             try stack.append(RenderState { .Expression = test_decl.body_node });
+                            try stack.append(RenderState { .Text = " " });
+                            try stack.append(RenderState { .Expression = test_decl.name });
                         },
                         else => unreachable,
                     }
                 },
 
                 RenderState.VarDecl => |var_decl| {
-                    if (var_decl.visib_token) |visib_token| {
-                        try stream.print("{} ", self.tokenizer.getTokenSlice(visib_token));
-                    }
-                    if (var_decl.extern_token) |extern_token| {
-                        try stream.print("{} ", self.tokenizer.getTokenSlice(extern_token));
-                        if (var_decl.lib_name != null) {
-                            @panic("TODO");
-                        }
-                    }
-                    if (var_decl.comptime_token) |comptime_token| {
-                        try stream.print("{} ", self.tokenizer.getTokenSlice(comptime_token));
-                    }
-                    try stream.print("{} ", self.tokenizer.getTokenSlice(var_decl.mut_token));
-                    try stream.print("{}", self.tokenizer.getTokenSlice(var_decl.name_token));
-
                     try stack.append(RenderState { .Text = ";" });
                     if (var_decl.init_node) |init_node| {
                         try stack.append(RenderState { .Expression = init_node });
@@ -1242,8 +1252,30 @@ pub const Parser = struct {
                         try stack.append(RenderState { .Text = " align(" });
                     }
                     if (var_decl.type_node) |type_node| {
-                        try stream.print(": ");
                         try stack.append(RenderState { .Expression = type_node });
+                        try stack.append(RenderState { .Text = ": " });
+                    }
+                    try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(var_decl.name_token) });
+                    try stack.append(RenderState { .Text = " " });
+                    try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(var_decl.mut_token) });
+
+                    if (var_decl.comptime_token) |comptime_token| {
+                        try stack.append(RenderState { .Text = " " });
+                        try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(comptime_token) });
+                    }
+
+                    if (var_decl.extern_token) |extern_token| {
+                        if (var_decl.lib_name != null) {
+                            try stack.append(RenderState { .Text = " " });
+                            try stack.append(RenderState { .Expression = ??var_decl.lib_name });
+                        }
+                        try stack.append(RenderState { .Text = " " });
+                        try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(extern_token) });
+                    }
+
+                    if (var_decl.visib_token) |visib_token| {
+                        try stack.append(RenderState { .Text = " " });
+                        try stack.append(RenderState { .Text = self.tokenizer.getTokenSlice(visib_token) });
                     }
                 },
 
@@ -1612,6 +1644,14 @@ test "zig fmt: global declarations" {
         \\pub const a: i32 = b;
         \\var a: i32 = b;
         \\pub var a: i32 = b;
+        \\extern const a: i32 = b;
+        \\pub extern const a: i32 = b;
+        \\extern var a: i32 = b;
+        \\pub extern var a: i32 = b;
+        \\extern "a" const a: i32 = b;
+        \\pub extern "a" const a: i32 = b;
+        \\extern "a" var a: i32 = b;
+        \\pub extern "a" var a: i32 = b;
         \\
     );
 }
@@ -2232,7 +2272,7 @@ test "zig fmt: coroutines" {
         \\    x += 1;
         \\    suspend |p| {
         \\    }
-        \\    const p = async simpleAsyncFn() cache unreachable;
+        \\    const p = async simpleAsyncFn() catch unreachable;
         \\    await p;
         \\}
         \\
