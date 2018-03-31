@@ -451,6 +451,42 @@ pub const Parser = struct {
                             try stack.append(State.AfterOperand);
                             continue;
                         },
+                        Token.Id.Keyword_this => {
+                            const node = try arena.create(ast.NodeThisLiteral);
+                            *node = ast.NodeThisLiteral {
+                                .base = self.initNode(ast.Node.Id.ThisLiteral),
+                                .token = token,
+                            };
+                            try stack.append(State {
+                                .Operand = &node.base
+                            });
+                            try stack.append(State.AfterOperand);
+                            continue;
+                        },
+                        Token.Id.Keyword_unreachable => {
+                            const node = try arena.create(ast.NodeUnreachable);
+                            *node = ast.NodeUnreachable {
+                                .base = self.initNode(ast.Node.Id.Unreachable),
+                                .token = token,
+                            };
+                            try stack.append(State {
+                                .Operand = &node.base
+                            });
+                            try stack.append(State.AfterOperand);
+                            continue;
+                        },
+                        Token.Id.Keyword_error => {
+                            const node = try arena.create(ast.NodeErrorType);
+                            *node = ast.NodeErrorType {
+                                .base = self.initNode(ast.Node.Id.ErrorType),
+                                .token = token,
+                            };
+                            try stack.append(State {
+                                .Operand = &node.base
+                            });
+                            try stack.append(State.AfterOperand);
+                            continue;
+                        },
                         Token.Id.Builtin => {
                             const node = try arena.create(ast.NodeBuiltinCall);
                             *node = ast.NodeBuiltinCall {
@@ -1498,6 +1534,18 @@ pub const Parser = struct {
                     ast.Node.Id.NullLiteral => {
                         const null_literal = @fieldParentPtr(ast.NodeNullLiteral, "base", base);
                         try stream.print("{}", self.tokenizer.getTokenSlice(null_literal.token));
+                    },
+                    ast.Node.Id.ThisLiteral => {
+                        const this_literal = @fieldParentPtr(ast.NodeThisLiteral, "base", base);
+                        try stream.print("{}", self.tokenizer.getTokenSlice(this_literal.token));
+                    },
+                    ast.Node.Id.Unreachable => {
+                        const unreachable_node = @fieldParentPtr(ast.NodeUnreachable, "base", base);
+                        try stream.print("{}", self.tokenizer.getTokenSlice(unreachable_node.token));
+                    },
+                    ast.Node.Id.ErrorType => {
+                        const error_type = @fieldParentPtr(ast.NodeErrorType, "base", base);
+                        try stream.print("{}", self.tokenizer.getTokenSlice(error_type.token));
                     },
                     ast.Node.Id.MultilineStringLiteral => {
                         const multiline_str_literal = @fieldParentPtr(ast.NodeMultilineStringLiteral, "base", base);
