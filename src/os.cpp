@@ -45,6 +45,7 @@ typedef SSIZE_T ssize_t;
 #if defined(__MACH__)
 #include <mach/clock.h>
 #include <mach/mach.h>
+#include <mach-o/dyld.h>
 #endif
 
 #if defined(ZIG_OS_WINDOWS)
@@ -923,7 +924,13 @@ int os_self_exe_path(Buf *out_path) {
     }
 
 #elif defined(ZIG_OS_DARWIN)
-    return ErrorFileNotFound;
+    uint32_t u32_len = 0;
+    int ret1 = _NSGetExecutablePath(nullptr, &u32_len);
+    assert(ret1 != 0);
+    buf_resize(out_path, u32_len);
+    int ret2 = _NSGetExecutablePath(buf_ptr(out_path), &u32_len);
+    assert(ret2 == 0);
+    return 0;
 #elif defined(ZIG_OS_LINUX)
     buf_resize(out_path, 256);
     for (;;) {
