@@ -456,6 +456,18 @@ pub const Parser = struct {
                             try stack.append(State.AfterOperand);
                             continue;
                         },
+                        Token.Id.CharLiteral => {
+                            const node = try arena.create(ast.NodeCharLiteral);
+                            *node = ast.NodeCharLiteral {
+                                .base = self.initNode(ast.Node.Id.CharLiteral),
+                                .token = token,
+                            };
+                            try stack.append(State {
+                                .Operand = &node.base
+                            });
+                            try stack.append(State.AfterOperand);
+                            continue;
+                        },
                         Token.Id.MultilineStringLiteralLine => {
                             const node = try arena.create(ast.NodeMultilineStringLiteral);
                             *node = ast.NodeMultilineStringLiteral {
@@ -1450,6 +1462,10 @@ pub const Parser = struct {
                     ast.Node.Id.StringLiteral => {
                         const string_literal = @fieldParentPtr(ast.NodeStringLiteral, "base", base);
                         try stream.print("{}", self.tokenizer.getTokenSlice(string_literal.token));
+                    },
+                    ast.Node.Id.CharLiteral => {
+                        const char_literal = @fieldParentPtr(ast.NodeCharLiteral, "base", base);
+                        try stream.print("{}", self.tokenizer.getTokenSlice(char_literal.token));
                     },
                     ast.Node.Id.MultilineStringLiteral => {
                         const multiline_str_literal = @fieldParentPtr(ast.NodeMultilineStringLiteral, "base", base);
