@@ -20,6 +20,7 @@ pub const Node = struct {
         IntegerLiteral,
         FloatLiteral,
         StringLiteral,
+        MultilineStringLiteral,
         UndefinedLiteral,
         BuiltinCall,
         Call,
@@ -40,6 +41,7 @@ pub const Node = struct {
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).iterate(index),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).iterate(index),
             Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).iterate(index),
+            Id.MultilineStringLiteral => @fieldParentPtr(NodeMultilineStringLiteral, "base", base).iterate(index),
             Id.UndefinedLiteral => @fieldParentPtr(NodeUndefinedLiteral, "base", base).iterate(index),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).iterate(index),
             Id.Call => @fieldParentPtr(NodeCall, "base", base).iterate(index),
@@ -61,6 +63,7 @@ pub const Node = struct {
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).firstToken(),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).firstToken(),
             Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).firstToken(),
+            Id.MultilineStringLiteral => @fieldParentPtr(NodeMultilineStringLiteral, "base", base).firstToken(),
             Id.UndefinedLiteral => @fieldParentPtr(NodeUndefinedLiteral, "base", base).firstToken(),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).firstToken(),
             Id.Call => @fieldParentPtr(NodeCall, "base", base).firstToken(),
@@ -82,6 +85,7 @@ pub const Node = struct {
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).lastToken(),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).lastToken(),
             Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).lastToken(),
+            Id.MultilineStringLiteral => @fieldParentPtr(NodeMultilineStringLiteral, "base", base).lastToken(),
             Id.UndefinedLiteral => @fieldParentPtr(NodeUndefinedLiteral, "base", base).lastToken(),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).lastToken(),
             Id.Call => @fieldParentPtr(NodeCall, "base", base).lastToken(),
@@ -584,6 +588,23 @@ pub const NodeStringLiteral = struct {
 
     pub fn lastToken(self: &NodeStringLiteral) Token {
         return self.token;
+    }
+};
+
+pub const NodeMultilineStringLiteral = struct {
+    base: Node,
+    tokens: ArrayList(Token),
+
+    pub fn iterate(self: &NodeMultilineStringLiteral, index: usize) ?&Node {
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeMultilineStringLiteral) Token {
+        return self.tokens.at(0);
+    }
+
+    pub fn lastToken(self: &NodeMultilineStringLiteral) Token {
+        return self.tokens.at(self.tokens.len - 1);
     }
 };
 

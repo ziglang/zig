@@ -456,6 +456,30 @@ pub const Parser = struct {
                             try stack.append(State.AfterOperand);
                             continue;
                         },
+                        Token.Id.MultilineStringLiteralLine => {
+                            const node = try arena.create(ast.NodeMultilineStringLiteral);
+                            *node = ast.NodeMultilineStringLiteral {
+                                .base = self.initNode(ast.Node.Id.MultilineStringLiteral),
+                                .tokens = ArrayList(Token).init(arena),
+                            };
+                            try node.tokens.append(token);
+
+                            while (true) {
+                                const multiline_str = self.getNextToken();
+                                if (multiline_str.id != Token.Id.MultilineStringLiteralLine) {
+                                    self.putBackToken(multiline_str);
+                                    break;
+                                }
+
+                                try node.tokens.append(multiline_str);
+                            }
+
+                            try stack.append(State {
+                                .Operand = &node.base
+                            });
+                            try stack.append(State.AfterOperand);
+                            continue;
+                        },
 
                         else => return self.parseError(token, "expected primary expression, found {}", @tagName(token.id)),
                     }
@@ -1427,6 +1451,20 @@ pub const Parser = struct {
                         const string_literal = @fieldParentPtr(ast.NodeStringLiteral, "base", base);
                         try stream.print("{}", self.tokenizer.getTokenSlice(string_literal.token));
                     },
+                    ast.Node.Id.MultilineStringLiteral => {
+                        const multiline_str_literal = @fieldParentPtr(ast.NodeMultilineStringLiteral, "base", base);
+                        try stream.print("\n");
+
+                        var i : usize = 0;
+                        indent += 4;
+                        while (i < multiline_str_literal.tokens.len) : (i += 1) {
+                            const t = multiline_str_literal.tokens.at(i);
+                            try stream.writeByteNTimes(' ', indent);
+                            try stream.print("{}", self.tokenizer.getTokenSlice(t));
+                        }
+                        try stream.writeByteNTimes(' ', indent);
+                        indent -= 4;
+                    },
                     ast.Node.Id.UndefinedLiteral => {
                         const undefined_literal = @fieldParentPtr(ast.NodeUndefinedLiteral, "base", base);
                         try stream.print("{}", self.tokenizer.getTokenSlice(undefined_literal.token));
@@ -1806,6 +1844,16 @@ test "zig fmt: extern function" {
     );
 }
 
+test "zig fmt: multiline string" {
+    try testCanonical(
+        \\const s = 
+        \\    \\ something
+        \\    \\ something else
+        \\    ;
+        \\
+    );
+}
+
 test "zig fmt: values" {
     try testCanonical(
         \\test "values" {
@@ -1813,10 +1861,6 @@ test "zig fmt: values" {
         \\    1.0;
         \\    "string";
         \\    c"cstring";
-        \\    \\ Multi
-        \\    \\ line
-        \\    \\ string
-        \\    ;
         \\    'c';
         \\    true;
         \\    false;
