@@ -14709,7 +14709,7 @@ static TypeTableEntry *ir_analyze_instruction_import(IrAnalyze *ira, IrInstructi
         return ira->codegen->builtin_types.entry_namespace;
     }
 
-    if ((err = os_fetch_file_path(abs_full_path, import_code))) {
+    if ((err = os_fetch_file_path(abs_full_path, import_code, true))) {
         if (err == ErrorFileNotFound) {
             ir_add_error_node(ira, source_node,
                     buf_sprintf("unable to find '%s'", buf_ptr(import_target_path)));
@@ -15570,7 +15570,7 @@ static TypeTableEntry *ir_analyze_instruction_embed_file(IrAnalyze *ira, IrInstr
     // load from file system into const expr
     Buf *file_contents = buf_alloc();
     int err;
-    if ((err = os_fetch_file_path(&file_path, file_contents))) {
+    if ((err = os_fetch_file_path(&file_path, file_contents, false))) {
         if (err == ErrorFileNotFound) {
             ir_add_error(ira, instruction->name, buf_sprintf("unable to find '%s'", buf_ptr(&file_path)));
             return ira->codegen->builtin_types.entry_invalid;

@@ -6286,7 +6286,7 @@ static ImportTableEntry *add_special_code(CodeGen *g, PackageTableEntry *package
         zig_panic("unable to open '%s': %s", buf_ptr(&path_to_code_src), err_str(err));
     }
     Buf *import_code = buf_alloc();
-    if ((err = os_fetch_file_path(abs_full_path, import_code))) {
+    if ((err = os_fetch_file_path(abs_full_path, import_code, false))) {
         zig_panic("unable to open '%s': %s", buf_ptr(&path_to_code_src), err_str(err));
     }
 
@@ -6374,7 +6374,7 @@ static void gen_root_source(CodeGen *g) {
     }
 
     Buf *source_code = buf_alloc();
-    if ((err = os_fetch_file_path(rel_full_path, source_code))) {
+    if ((err = os_fetch_file_path(rel_full_path, source_code, true))) {
         zig_panic("unable to open '%s': %s", buf_ptr(rel_full_path), err_str(err));
     }
 
@@ -6439,7 +6439,7 @@ static void gen_global_asm(CodeGen *g) {
     int err;
     for (size_t i = 0; i < g->assembly_files.length; i += 1) {
         Buf *asm_file = g->assembly_files.at(i);
-        if ((err = os_fetch_file_path(asm_file, &contents))) {
+        if ((err = os_fetch_file_path(asm_file, &contents,  false))) {
             zig_panic("Unable to read %s: %s", buf_ptr(asm_file), err_str(err));
         }
         buf_append_buf(&g->global_asm, &contents);

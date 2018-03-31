@@ -51,14 +51,16 @@ int os_path_real(Buf *rel_path, Buf *out_abs_path);
 void os_path_resolve(Buf *ref_path, Buf *target_path, Buf *out_abs_path);
 bool os_path_is_absolute(Buf *path);
 
+int os_get_global_cache_directory(Buf *out_tmp_path);
+
 int os_make_path(Buf *path);
 int os_make_dir(Buf *path);
 
 void os_write_file(Buf *full_path, Buf *contents);
 int os_copy_file(Buf *src_path, Buf *dest_path);
 
-int os_fetch_file(FILE *file, Buf *out_contents);
-int os_fetch_file_path(Buf *full_path, Buf *out_contents);
+int os_fetch_file(FILE *file, Buf *out_contents, bool skip_shebang);
+int os_fetch_file_path(Buf *full_path, Buf *out_contents, bool skip_shebang);
 
 int os_get_cwd(Buf *out_cwd);
 
