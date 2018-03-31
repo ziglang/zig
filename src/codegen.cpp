@@ -112,10 +112,10 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
         // that's for native compilation
         g->zig_target = *target;
         resolve_target_object_format(&g->zig_target);
-        g->dynamic_linker = buf_create_from_str("");
-        g->libc_lib_dir = buf_create_from_str("");
-        g->libc_static_lib_dir = buf_create_from_str("");
-        g->libc_include_dir = buf_create_from_str("");
+        g->dynamic_linker = nullptr;
+        g->libc_lib_dir = nullptr;
+        g->libc_static_lib_dir = nullptr;
+        g->libc_include_dir = nullptr;
         g->msvc_lib_dir = nullptr;
         g->kernel32_lib_dir = nullptr;
         g->each_lib_rpath = false;
@@ -123,16 +123,13 @@ CodeGen *codegen_create(Buf *root_src_path, const ZigTarget *target, OutType out
         // native compilation, we can rely on the configuration stuff
         g->is_native_target = true;
         get_native_target(&g->zig_target);
-        g->dynamic_linker = buf_create_from_str(ZIG_DYNAMIC_LINKER);
-        g->libc_lib_dir = buf_create_from_str(ZIG_LIBC_LIB_DIR);
-        g->libc_static_lib_dir = buf_create_from_str(ZIG_LIBC_STATIC_LIB_DIR);
-        g->libc_include_dir = buf_create_from_str(ZIG_LIBC_INCLUDE_DIR);
+        g->dynamic_linker = nullptr; // find it at runtime
+        g->libc_lib_dir = nullptr; // find it at runtime
+        g->libc_static_lib_dir = nullptr; // find it at runtime
+        g->libc_include_dir = nullptr; // find it at runtime
         g->msvc_lib_dir = nullptr; // find it at runtime
         g->kernel32_lib_dir = nullptr; // find it at runtime
-
-#ifdef ZIG_EACH_LIB_RPATH
         g->each_lib_rpath = true;
-#endif
 
         if (g->zig_target.os == OsMacOSX ||
             g->zig_target.os == OsIOS)

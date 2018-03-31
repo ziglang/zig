@@ -45,6 +45,7 @@ typedef SSIZE_T ssize_t;
 #if defined(__MACH__)
 #include <mach/clock.h>
 #include <mach/mach.h>
+#include <mach-o/dyld.h>
 #endif
 
 #if defined(ZIG_OS_WINDOWS)
@@ -56,10 +57,6 @@ static clock_serv_t cclock;
 #include <stdlib.h>
 #include <errno.h>
 #include <time.h>
-
-// these implementations are lazy. But who cares, we'll make a robust
-// implementation in the zig standard library and then this code all gets
-// deleted when we self-host. it works for now.
 
 #if defined(ZIG_OS_POSIX)
 static void populate_termination(Termination *term, int status) {
@@ -927,9 +924,26 @@ int os_self_exe_path(Buf *out_path) {
     }
 
 #elif defined(ZIG_OS_DARWIN)
-    return ErrorFileNotFound;
+    uint32_t u32_len = 0;
+    int ret1 = _NSGetExecutablePath(nullptr, &u32_len);
+    assert(ret1 != 0);
+    buf_resize(out_path, u32_len);
+    int ret2 = _NSGetExecutablePath(buf_ptr(out_path), &u32_len);
+    assert(ret2 == 0);
+    return 0;
 #elif defined(ZIG_OS_LINUX)
-    return ErrorFileNotFound;
+    buf_resize(out_path, 256);
+    for (;;) {
+        ssize_t amt = readlink("/proc/self/exe", buf_ptr(out_path), buf_len(out_path));
+        if (amt == -1) {
+            return ErrorUnexpected;
+        }
+        if (amt == (ssize_t)buf_len(out_path)) {
+            buf_resize(out_path, buf_len(out_path) * 2);
+            continue;
+        }
+        return 0;
+    }
 #endif
     return ErrorFileNotFound;
 }
