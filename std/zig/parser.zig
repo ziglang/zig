@@ -1602,13 +1602,6 @@ test "zig fmt: imports" {
     );
 }
 
-test "zig fmt: extern function" {
-    try testCanonical(
-        \\extern fn puts(s: &const u8) c_int;
-        \\
-    );
-}
-
 test "zig fmt: global declarations" {
     try testCanonical(
         \\const a = b;
@@ -1758,6 +1751,21 @@ test "zig fmt: call expression" {
     );
 }
 
+test "zig fmt: var args" {
+    try testCanonical(
+        \\fn print(args: ...) void {}
+        \\
+    );
+}
+
+test "zig fmt: extern function" {
+    try testCanonical(
+        \\extern fn puts(s: &const u8) c_int;
+        \\extern "c" fn puts(s: &const u8) c_int;
+        \\
+    );
+}
+
 test "zig fmt: values" {
     try testCanonical(
         \\test "values" {
@@ -1897,12 +1905,342 @@ test "zig fmt: enum declaration" {
     );
 }
 
+test "zig fmt: union declaration" {
+      try testCanonical(
+        \\const U = union {
+        \\    Int: u8,
+        \\    Float: f32,
+        \\    Bool: bool,
+        \\};
+        \\
+        \\const Ue = union(enum) {
+        \\    Int: u8,
+        \\    Float: f32,
+        \\    Bool: bool,
+        \\};
+        \\
+        \\const E = enum {
+        \\    Int,
+        \\    Float,
+        \\    Bool,
+        \\};
+        \\
+        \\const Ue2 = union(E) {
+        \\    Int: u8,
+        \\    Float: f32,
+        \\    Bool: bool,
+        \\};
+        \\
+        \\const Eu = extern union {
+        \\    Int: u8,
+        \\    Float: f32,
+        \\    Bool: bool,
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: container initializers" {
     try testCanonical(
         \\const a1 = []u8{ };
         \\const a2 = []u8{ 1, 2, 3, 4 };
         \\const s1 = S{ };
         \\const s2 = S{ .a = 1, .b = 2, };
+        \\
+    );
+}
+
+test "zig fmt: switch" {
+    try testCanonical(
+        \\test "switch" {
+        \\    switch (0) {
+        \\        0 => {},
+        \\        1 => unreachable,
+        \\        2, 3 => {},
+        \\        4 ... 7 => {},
+        \\        1 + 4 * 3 + 22 => {},
+        \\        else => {
+        \\            const a = 1;
+        \\            const b = a;
+        \\        },
+        \\    }
+        \\
+        \\    const res = switch (0) {
+        \\        0 => 0,
+        \\        1 => 2,
+        \\        else => 4,
+        \\    };
+        \\
+        \\    const Union = union(enum) {
+        \\        Int: i64,
+        \\        Float: f64,
+        \\    };
+        \\
+        \\    const u = Union { .Int = 0 };
+        \\    switch (u) {
+        \\        Union.Int => |int| {},
+        \\        Union.Float => |*float| unreachable,
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: while" {
+    try testCanonical(
+        \\test "while" {
+        \\    while (10 < 1) {
+        \\        unreachable;
+        \\    }
+        \\
+        \\    while (10 < 1)
+        \\        unreachable;
+        \\
+        \\    var i: usize = 0;
+        \\    while (i < 10) : (i += 1) {
+        \\        continue;
+        \\    }
+        \\
+        \\    i = 0;
+        \\    while (i < 10) : (i += 1)
+        \\        continue;
+        \\
+        \\    i = 0;
+        \\    var j usize = 0;
+        \\    while (i < 10) : ({ i += 1; j += 1; }) {
+        \\        continue;
+        \\    }
+        \\
+        \\    var a: ?u8 = 2;
+        \\    while (a) |v| : (a = null) {
+        \\        continue;
+        \\    }
+        \\
+        \\    while (a) |v| : (a = null)
+        \\        unreachable;
+        \\
+        \\    label: while (10 < 0) {
+        \\        unreachable;
+        \\    }
+        \\
+        \\    const res = while (0 < 10) {
+        \\        break 7;
+        \\    } else {
+        \\        unreachable;
+        \\    }
+        \\
+        \\    var a: error!u8 = 0;
+        \\    while (a) |v| {
+        \\        a = error.Err;
+        \\    } else |err| {
+        \\        i = 1;
+        \\    }
+        \\
+        \\    comptime var k: usize = 0;
+        \\    inline while (i < 10) (i += 1)
+        \\        j += 2;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: for" {
+    try testCanonical(
+        \\test "for" {
+        \\    const a = []u8{ 1, 2, 3 };
+        \\    for (a) |v| {
+        \\        continue;
+        \\    }
+        \\
+        \\    for (a) |v|
+        \\        continue;
+        \\
+        \\    for (a) |*v|
+        \\        continue;
+        \\
+        \\    for (a) |v, i| {
+        \\        continue;
+        \\    }
+        \\
+        \\    for (a) |v, i|
+        \\        continue;
+        \\
+        \\    const res = for (a) |v, i| {
+        \\        breal v;
+        \\    } else {
+        \\        unreachable;
+        \\    }
+        \\
+        \\    var num: usize = 0;
+        \\    inline for (a) |v, i| {
+        \\        num += v;
+        \\        num += i;
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: if" {
+    try testCanonical(
+        \\test "if" {
+        \\    if (10 < 0) {
+        \\        unreachable;
+        \\    }
+        \\
+        \\    if (10 < 0)
+        \\        unreachable;
+        \\
+        \\    if (10 < 0) {
+        \\        unreachable;
+        \\    } else {
+        \\        const a = 20;
+        \\    }
+        \\
+        \\    if (10 < 0) {
+        \\        unreachable;
+        \\    } else if (5 < 0) {
+        \\        unreachable;
+        \\    } else {
+        \\        const a = 20;
+        \\    }
+        \\
+        \\    const is_world_broken = if (10 < 0) true else false;
+        \\
+        \\    const a: ?u8 = 10;
+        \\    const b: ?u8 = null;
+        \\    if (a) |v| {
+        \\        const some = v;
+        \\    } else if (b) |*v| {
+        \\        unreachable;
+        \\    } else {
+        \\        const some = 10;
+        \\    }
+        \\
+        \\    const non_null_a = if (a) |v| v else 0;
+        \\
+        \\    const a_err: error!u8 = 0;
+        \\    if (a_err) |v| {
+        \\        const p = v;
+        \\    } else |err| {
+        \\        unreachable;
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: defer" {
+    try testCanonical(
+        \\test "defer" {
+        \\    var i: usize = 0;
+        \\    defer i = 1;
+        \\    defer {
+        \\        i += 2;
+        \\        i *= i;
+        \\    }
+        \\
+        \\    errdefer i += 3;
+        \\    errdefer {
+        \\        i += 2;
+        \\        i /= i;
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: catch" {
+    try testCanonical(
+        \\test "catch" {
+        \\    const a: error!u8 = 0;
+        \\    _ = a catch return;
+        \\    _ = a catch |err| return;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: comptime" {
+    try testCanonical(
+        \\fn a() u8 {
+        \\    return 5;
+        \\}
+        \\
+        \\fn b(comptime i: u8) u8 {
+        \\    return i;
+        \\}
+        \\
+        \\const av = comptime a();
+        \\const av2 = comptime blk: {
+        \\    var res = a();
+        \\    res *= b(2);
+        \\    break :blk res;
+        \\};
+        \\
+        \\comptime {
+        \\    _ = a();
+        \\}
+        \\
+        \\test "comptime" {
+        \\    const av3 = comptime a();
+        \\    const av4 = comptime blk: {
+        \\        var res = a();
+        \\        res *= a();
+        \\        break :blk res;
+        \\    };
+        \\
+        \\    comptime var i = 0;
+        \\    comptime {
+        \\        i = a();
+        \\        i += b(i);
+        \\    }
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: fn type" {
+    try testCanonical(
+        \\fn a(i: u8) u8 {
+        \\    return i + 1;
+        \\}
+        \\
+        \\const ap: fn(u8) u8 = a;
+        \\
+    );
+}
+
+test "zig fmt: inline asm" {
+    try testCanonical(
+        \\pub fn syscall1(number: usize, arg1: usize) usize {
+        \\    return asm volatile ("syscall"
+        \\        : [ret] "={rax}" (-> usize)
+        \\        : [number] "{rax}" (number),
+        \\            [arg1] "{rdi}" (arg1)
+        \\        : "rcx", "r11");
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: coroutines" {
+    try testCanonical(
+        \\async fn simpleAsyncFn() void {
+        \\    x += 1;
+        \\    suspend;
+        \\    x += 1;
+        \\    suspend |p| {
+        \\    }
+        \\    const p = async simpleAsyncFn() cache unreachable;
+        \\    await p;
+        \\}
+        \\
+        \\test "coroutine suspend, resume, cancel" {
+        \\    const p = try async<std.debug.global_allocator> testAsyncSeq();
+        \\    resume p;
+        \\    cancel p;
+        \\}
         \\
     );
 }
