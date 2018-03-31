@@ -61,6 +61,7 @@ struct ZigTarget {
 };
 
 enum CIntType {
+    CIntTypeChar,
     CIntTypeShort,
     CIntTypeUShort,
     CIntTypeInt,
@@ -102,6 +103,8 @@ int parse_target_environ(const char *str, ZigLLVM_EnvironmentType *env_type);
 void init_all_targets(void);
 
 void get_target_triple(Buf *triple, const ZigTarget *target);
+
+bool target_is_char_signed(ZigTarget *target);
 
 void resolve_target_object_format(ZigTarget *target);
 

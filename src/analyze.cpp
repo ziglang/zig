@@ -4831,22 +4831,22 @@ void init_const_c_str_lit(CodeGen *g, ConstExprValue *const_val, Buf *str) {
     size_t len_with_null = buf_len(str) + 1;
     ConstExprValue *array_val = create_const_vals(1);
     array_val->special = ConstValSpecialStatic;
-    array_val->type = get_array_type(g, g->builtin_types.entry_u8, len_with_null);
+    array_val->type = get_array_type(g, g->builtin_types.entry_c_int[CIntTypeChar], len_with_null);
     array_val->data.x_array.s_none.elements = create_const_vals(len_with_null);
     for (size_t i = 0; i < buf_len(str); i += 1) {
         ConstExprValue *this_char = &array_val->data.x_array.s_none.elements[i];
         this_char->special = ConstValSpecialStatic;
-        this_char->type = g->builtin_types.entry_u8;
+        this_char->type = g->builtin_types.entry_c_int[CIntTypeChar];
         bigint_init_unsigned(&this_char->data.x_bigint, (uint8_t)buf_ptr(str)[i]);
     }
     ConstExprValue *null_char = &array_val->data.x_array.s_none.elements[len_with_null - 1];
     null_char->special = ConstValSpecialStatic;
-    null_char->type = g->builtin_types.entry_u8;
+    null_char->type = g->builtin_types.entry_c_int[CIntTypeChar];
     bigint_init_unsigned(&null_char->data.x_bigint, 0);
 
     // then make the pointer point to it
     const_val->special = ConstValSpecialStatic;
-    const_val->type = get_pointer_to_type(g, g->builtin_types.entry_u8, true);
+    const_val->type = get_pointer_to_type(g, g->builtin_types.entry_c_int[CIntTypeChar], true);
     const_val->data.x_ptr.special = ConstPtrSpecialBaseArray;
     const_val->data.x_ptr.data.base_array.array_val = array_val;
     const_val->data.x_ptr.data.base_array.elem_index = 0;

@@ -5578,6 +5578,9 @@ struct CIntTypeInfo {
 };
 
 static const CIntTypeInfo c_int_type_infos[] = {
+    // Signedness of a c char is implementation-defined.
+    // Assume true (x86 default), but would be better as a target detail.
+    {CIntTypeChar, "c_char", true},
     {CIntTypeShort, "c_short", true},
     {CIntTypeUShort, "c_ushort", false},
     {CIntTypeInt, "c_int", true},
@@ -5666,7 +5669,7 @@ static void define_builtin_types(CodeGen *g) {
     for (size_t i = 0; i < array_length(c_int_type_infos); i += 1) {
         const CIntTypeInfo *info = &c_int_type_infos[i];
         uint32_t size_in_bits = target_c_type_size_in_bits(&g->zig_target, info->id);
-        bool is_signed = info->is_signed;
+        bool is_signed = info->id == CIntTypeChar ? target_is_char_signed(&g->zig_target) : info->is_signed;
 
         TypeTableEntry *entry = new_type_table_entry(TypeTableEntryIdInt);
         entry->type_ref = LLVMIntType(size_in_bits);
@@ -6455,6 +6458,7 @@ void codegen_add_object(CodeGen *g, Buf *object_path) {
 
 // Must be coordinated with with CIntType enum
 static const char *c_int_type_names[] = {
+    "char",
     "short",
     "unsigned short",
     "int",

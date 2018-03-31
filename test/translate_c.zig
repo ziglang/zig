@@ -8,9 +8,9 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\void bar(uint8_t a, uint16_t b, uint32_t c, uint64_t d);
         \\void baz(int8_t a, int16_t b, int32_t c, int64_t d);
     ,
-        \\pub extern fn foo(a: u8, b: u8, c: i8) c_int;
+        \\pub extern fn foo(a: c_char, b: u8, c: i8) c_int;
     ,
-        \\pub extern fn bar(a: u8, b: u16, c: u32, d: u64) void;
+        \\pub extern fn bar(a: c_char, b: u16, c: u32, d: u64) void;
     ,
         \\pub extern fn baz(a: i8, b: i16, c: i32, d: i64) void;
     );
@@ -67,7 +67,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
     ,
         \\const struct_Foo = extern struct {
         \\    x: c_int,
-        \\    y: ?&u8,
+        \\    y: ?&c_char,
         \\};
     ,
         \\pub const Foo = struct_Foo;
@@ -206,9 +206,9 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    return (??fn_ptr)();
         \\}
     ,
-        \\pub extern var fn_ptr2: ?extern fn(c_int, f32) u8;
+        \\pub extern var fn_ptr2: ?extern fn(c_int, f32) c_char;
     ,
-        \\pub inline fn bar(arg0: c_int, arg1: f32) u8 {
+        \\pub inline fn bar(arg0: c_int, arg1: f32) c_char {
         \\    return (??fn_ptr2)(arg0, arg1);
         \\}
     );
@@ -979,7 +979,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\    return "bar";
         \\}
     ,
-        \\pub fn foo() ?&const u8 {
+        \\pub fn foo() ?&const c_char {
         \\    return c"bar";
         \\}
     );
@@ -1152,7 +1152,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
     cases.add("const ptr initializer",
         \\static const char *v0 = "0.0.0";
     ,
-        \\pub var v0: ?&const u8 = c"0.0.0";
+        \\pub var v0: ?&const c_char = c"0.0.0";
     );
 
     cases.add("static incomplete array inside function",
@@ -1161,7 +1161,7 @@ pub fn addCases(cases: &tests.TranslateCContext) void {
         \\}
     ,
         \\pub fn foo() void {
-        \\    const v2: &const u8 = c"2.2.2";
+        \\    const v2: &const c_char = c"2.2.2";
         \\}
     );
 
