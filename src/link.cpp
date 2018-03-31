@@ -455,7 +455,9 @@ static void construct_linker_job_coff(LinkJob *lj) {
         lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->kernel32_lib_dir))));
 
         lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->libc_lib_dir))));
-        lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->libc_static_lib_dir))));
+        if (g->libc_static_lib_dir != nullptr) {
+            lj->args.append(buf_ptr(buf_sprintf("-LIBPATH:%s", buf_ptr(g->libc_static_lib_dir))));
+        }
     }
 
     if (lj->link_in_crt) {

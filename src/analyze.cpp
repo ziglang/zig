@@ -4378,6 +4378,7 @@ void find_libc_include_path(CodeGen *g) {
 
         if (g->zig_target.os == OsWindows) {
             ZigWindowsSDK *sdk = get_windows_sdk(g);
+            g->libc_include_dir = buf_alloc();
             if (os_get_win32_ucrt_include_path(sdk, g->libc_include_dir)) {
                 zig_panic("Unable to determine libc include path.");
             }
