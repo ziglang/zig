@@ -2873,7 +2873,7 @@ const err = (error {FileNotFound}).FileNotFound;
       {#header_close#}
       {#header_open|Error Union Type#}
       <p>
-      An error set type and normal type can be combined with the <code>!<code>
+      An error set type and normal type can be combined with the <code>!</code>
       binary operator to form an error union type. You are likely to use an
       error union type more often than an error set type by itself.
       </p>
