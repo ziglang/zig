@@ -91,6 +91,8 @@ pub const Token = struct {
         PercentEqual,
         LBrace,
         RBrace,
+        LBracket,
+        RBracket,
         Period,
         Ellipsis2,
         Ellipsis3,
@@ -324,6 +326,16 @@ pub const Tokenizer = struct {
                     },
                     ')' => {
                         result.id = Token.Id.RParen;
+                        self.index += 1;
+                        break;
+                    },
+                    '[' => {
+                        result.id = Token.Id.LBracket;
+                        self.index += 1;
+                        break;
+                    },
+                    ']' => {
+                        result.id = Token.Id.RBracket;
                         self.index += 1;
                         break;
                     },

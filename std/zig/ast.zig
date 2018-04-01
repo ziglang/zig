@@ -30,6 +30,8 @@ pub const Node = struct {
         ErrorType,
         BuiltinCall,
         Call,
+        ArrayAccess,
+        SliceExpression,
         LineComment,
         TestDecl,
     };
@@ -57,6 +59,8 @@ pub const Node = struct {
             Id.ErrorType => @fieldParentPtr(NodeErrorType, "base", base).iterate(index),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).iterate(index),
             Id.Call => @fieldParentPtr(NodeCall, "base", base).iterate(index),
+            Id.ArrayAccess => @fieldParentPtr(NodeArrayAccess, "base", base).iterate(index),
+            Id.SliceExpression => @fieldParentPtr(NodeSliceExpression, "base", base).iterate(index),
             Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).iterate(index),
             Id.TestDecl => @fieldParentPtr(NodeTestDecl, "base", base).iterate(index),
         };
@@ -85,6 +89,8 @@ pub const Node = struct {
             Id.ErrorType => @fieldParentPtr(NodeErrorType, "base", base).firstToken(),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).firstToken(),
             Id.Call => @fieldParentPtr(NodeCall, "base", base).firstToken(),
+            Id.ArrayAccess => @fieldParentPtr(NodeArrayAccess, "base", base).firstToken(),
+            Id.SliceExpression => @fieldParentPtr(NodeSliceExpression, "base", base).firstToken(),
             Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).firstToken(),
             Id.TestDecl => @fieldParentPtr(NodeTestDecl, "base", base).firstToken(),
         };
@@ -113,6 +119,8 @@ pub const Node = struct {
             Id.ErrorType => @fieldParentPtr(NodeErrorType, "base", base).lastToken(),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).lastToken(),
             Id.Call => @fieldParentPtr(NodeCall, "base", base).lastToken(),
+            Id.ArrayAccess => @fieldParentPtr(NodeArrayAccess, "base", base).lastToken(),
+            Id.SliceExpression => @fieldParentPtr(NodeSliceExpression, "base", base).lastToken(),
             Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).lastToken(),
             Id.TestDecl => @fieldParentPtr(NodeTestDecl, "base", base).lastToken(),
         };
@@ -595,6 +603,64 @@ pub const NodeCall = struct {
 
     pub fn lastToken(self: &NodeCall) Token {
         return self.rparen_token;
+    }
+};
+
+pub const NodeArrayAccess = struct {
+    base: Node,
+    expr: &Node,
+    index: &Node,
+    rbracket_token: Token,
+
+    pub fn iterate(self: &NodeArrayAccess, index: usize) ?&Node {
+        var i = index;
+
+        if (i < 1) return self.expr;
+        i -= 1;
+
+        if (i < 1) return self.index;
+        i -= 1;
+
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeArrayAccess) Token {
+        return self.expr.firstToken();
+    }
+
+    pub fn lastToken(self: &NodeArrayAccess) Token {
+        return self.rbracket_token;
+    }
+};
+
+pub const NodeSliceExpression = struct {
+    base: Node,
+    expr: &Node,
+    start: &Node,
+    end: ?&Node,
+    rbracket_token: Token,
+
+    pub fn iterate(self: &NodeSliceExpression, index: usize) ?&Node {
+        var i = index;
+
+        if (i < 1) return self.callee;
+        i -= 1;
+
+        if (i < 1) return self.start;
+        i -= 1;
+
+        if (i < 1) return self.end;
+        i -= 1;
+
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeSliceExpression) Token {
+        return self.expr.firstToken();
+    }
+
+    pub fn lastToken(self: &NodeSliceExpression) Token {
+        return self.rbracket_token;
     }
 };
 
