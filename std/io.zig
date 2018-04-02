@@ -478,3 +478,20 @@ test "import io tests" {
     }
 }
 
+pub fn readLine(buf: []u8) !usize {
+    var stdin = getStdIn() catch return error.StdInUnavailable;
+    var adapter = FileInStream.init(&stdin);
+    var stream = &adapter.stream;
+    var index: usize = 0;
+    while (true) {
+        const byte = stream.readByte() catch return error.EndOfFile;
+        switch (byte) {
+            '\n' => return index,
+            else => {
+                if (index == buf.len) return error.InputTooLong;
+                buf[index] = byte;
+                index += 1;
+            },
+        }
+    }
+}
