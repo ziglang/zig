@@ -594,6 +594,27 @@ pub const Parser = struct {
                             try stack.append(State.AfterOperand);
                             continue;
                         },
+                        Token.Id.LParen => {
+                            const node = try arena.create(ast.NodeGroupedExpression);
+                            *node = ast.NodeGroupedExpression {
+                                .base = self.initNode(ast.Node.Id.GroupedExpression),
+                                .lparen = token,
+                                .expr = undefined,
+                                .rparen = undefined,
+                            };
+                            try stack.append(State {
+                                .Operand = &node.base
+                            });
+                            try stack.append(State.AfterOperand);
+                            try stack.append(State {
+                                .ExpectTokenSave = ExpectTokenSave {
+                                    .id = Token.Id.RParen,
+                                    .ptr = &node.rparen,
+                                }
+                            });
+                            try stack.append(State { .Expression = DestPtr { .Field = &node.expr } });
+                            continue;
+                        },
 
                         else => return self.parseError(token, "expected primary expression, found {}", @tagName(token.id)),
                     }
@@ -1770,6 +1791,12 @@ pub const Parser = struct {
 
                         try stack.append(RenderState { .Expression = suffix_op.lhs });
                     },
+                    ast.Node.Id.GroupedExpression => {
+                        const grouped_expr = @fieldParentPtr(ast.NodeGroupedExpression, "base", base);
+                        try stack.append(RenderState { .Text = ")"});
+                        try stack.append(RenderState { .Expression = grouped_expr.expr });
+                        try stack.append(RenderState { .Text = "("});
+                    },
                     ast.Node.Id.FieldInitializer => {
                         const field_init = @fieldParentPtr(ast.NodeFieldInitializer, "base", base);
                         try stream.print(".{} = ", self.tokenizer.getTokenSlice(field_init.name_token));
@@ -2240,50 +2267,6 @@ test "zig fmt: indexing" {
     );
 }
 
-test "zig fmt: arrays" {
-    try testCanonical(
-        \\test "test array" {
-        \\    const a: [2]u8 = [2]u8{ 1, 2 };
-        \\    const a: [2]u8 = []u8{ 1, 2 };
-        \\    const a: [0]u8 = []u8{};
-        \\}
-        \\
-    );
-}
-
-test "zig fmt: precedence" {
-    try testCanonical(
-        \\test "precedence" {
-        \\    a!b();
-        \\    (a!b)();
-        \\    !a!b;
-        \\    !(a!b);
-        \\    !a{};
-        \\    !(a{});
-        \\    a + b{};
-        \\    (a + b){};
-        \\    a << b + c;
-        \\    (a << b) + c;
-        \\    a & b << c;
-        \\    (a & b) << c;
-        \\    a ^ b & c;
-        \\    (a ^ b) & c;
-        \\    a | b ^ c;
-        \\    (a | b) ^ c;
-        \\    a == b | c;
-        \\    (a == b) | c;
-        \\    a and b == c;
-        \\    (a and b) == c;
-        \\    a or b and c;
-        \\    (a or b) and c;
-        \\    (a or b) and c;
-        \\    a = b or c;
-        \\    (a = b) or c;
-        \\}
-        \\
-    );
-}
-
 test "zig fmt: struct declaration" {
     try testCanonical(
         \\const S = struct {
@@ -2677,6 +2660,50 @@ test "zig fmt: coroutines" {
         \\    const p = try async<std.debug.global_allocator> testAsyncSeq();
         \\    resume p;
         \\    cancel p;
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: arrays" {
+    try testCanonical(
+        \\test "test array" {
+        \\    const a: [2]u8 = [2]u8{ 1, 2 };
+        \\    const a: [2]u8 = []u8{ 1, 2 };
+        \\    const a: [0]u8 = []u8{};
+        \\}
+        \\
+    );
+}
+
+test "zig fmt: precedence" {
+    try testCanonical(
+        \\test "precedence" {
+        \\    a!b();
+        \\    (a!b)();
+        \\    !a!b;
+        \\    !(a!b);
+        \\    !a{};
+        \\    !(a{});
+        \\    a + b{};
+        \\    (a + b){};
+        \\    a << b + c;
+        \\    (a << b) + c;
+        \\    a & b << c;
+        \\    (a & b) << c;
+        \\    a ^ b & c;
+        \\    (a ^ b) & c;
+        \\    a | b ^ c;
+        \\    (a | b) ^ c;
+        \\    a == b | c;
+        \\    (a == b) | c;
+        \\    a and b == c;
+        \\    (a and b) == c;
+        \\    a or b and c;
+        \\    (a or b) and c;
+        \\    (a or b) and c;
+        \\    a = b or c;
+        \\    (a = b) or c;
         \\}
         \\
     );
