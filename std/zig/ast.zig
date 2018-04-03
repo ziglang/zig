@@ -475,9 +475,12 @@ pub const NodePrefixOp = struct {
         Negation,
         NegationWrap,
         Return,
+        ArrayType: &Node,
+        SliceType: AddrOfInfo,
         Try,
         UnwrapMaybe,
     };
+
     const AddrOfInfo = struct {
         align_expr: ?&Node,
         bit_offset_start_token: ?Token,
@@ -502,6 +505,8 @@ pub const NodePrefixOp = struct {
             PrefixOp.Negation,
             PrefixOp.NegationWrap,
             PrefixOp.Return,
+            PrefixOp.ArrayType,
+            PrefixOp.SliceType,
             PrefixOp.Try,
             PrefixOp.UnwrapMaybe => {},
         }

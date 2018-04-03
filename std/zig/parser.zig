@@ -385,6 +385,35 @@ pub const Parser = struct {
                             try stack.append(State.ExpectOperand);
                             continue;
                         },
+                        Token.Id.LBracket => {
+                            const rbracket_token = self.getNextToken();
+                            if (rbracket_token.id == Token.Id.RBracket) {
+                                const prefix_op = try self.createPrefixOp(arena, token, ast.NodePrefixOp.PrefixOp{
+                                    .SliceType = ast.NodePrefixOp.AddrOfInfo {
+                                        .align_expr = null,
+                                        .bit_offset_start_token = null,
+                                        .bit_offset_end_token = null,
+                                        .const_token = null,
+                                        .volatile_token = null,
+                                    }
+                                });
+                                try stack.append(State { .PrefixOp = prefix_op });
+                                try stack.append(State.ExpectOperand);
+                                try stack.append(State { .AddrOfModifiers = &prefix_op.op.AddrOf });
+                                continue;
+                            }
+
+                            self.putBackToken(rbracket_token);
+
+                            const prefix_op = try self.createPrefixOp(arena, token, ast.NodePrefixOp.PrefixOp{
+                                .ArrayType = undefined,
+                            });
+                            try stack.append(State { .PrefixOp = prefix_op });
+                            try stack.append(State.ExpectOperand);
+                            try stack.append(State { .ExpectToken = Token.Id.RBracket });
+                            try stack.append(State { .Expression = DestPtr { .Field = &prefix_op.op.ArrayType } });
+
+                        },
                         Token.Id.Ampersand => {
                             const prefix_op = try self.createPrefixOp(arena, token, ast.NodePrefixOp.PrefixOp{
                                 .AddrOf = ast.NodePrefixOp.AddrOfInfo {
@@ -1566,6 +1595,25 @@ pub const Parser = struct {
                                     try stack.append(RenderState { .Text = ") "});
                                     try stack.append(RenderState { .Expression = align_expr});
                                 }
+                            },
+                            ast.NodePrefixOp.PrefixOp.SliceType => |addr_of_info| {
+                                try stream.write("[]");
+                                if (addr_of_info.volatile_token != null) {
+                                    try stack.append(RenderState { .Text = "volatile "});
+                                }
+                                if (addr_of_info.const_token != null) {
+                                    try stack.append(RenderState { .Text = "const "});
+                                }
+                                if (addr_of_info.align_expr) |align_expr| {
+                                    try stream.print("align(");
+                                    try stack.append(RenderState { .Text = ") "});
+                                    try stack.append(RenderState { .Expression = align_expr});
+                                }
+                            },
+                            ast.NodePrefixOp.PrefixOp.ArrayType => |array_index| {
+                                try stack.append(RenderState { .Text = "]"});
+                                try stack.append(RenderState { .Expression = array_index});
+                                try stack.append(RenderState { .Text = "["});
                             },
                             ast.NodePrefixOp.PrefixOp.BitNot => try stream.write("~"),
                             ast.NodePrefixOp.PrefixOp.BoolNot => try stream.write("!"),
