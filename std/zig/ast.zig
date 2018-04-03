@@ -11,6 +11,7 @@ pub const Node = struct {
     pub const Id = enum {
         Root,
         VarDecl,
+        ContainerDecl,
         Identifier,
         FnProto,
         ParamDecl,
@@ -40,6 +41,7 @@ pub const Node = struct {
         return switch (base.id) {
             Id.Root => @fieldParentPtr(NodeRoot, "base", base).iterate(index),
             Id.VarDecl => @fieldParentPtr(NodeVarDecl, "base", base).iterate(index),
+            Id.ContainerDecl => @fieldParentPtr(NodeContainerDecl, "base", base).iterate(index),
             Id.Identifier => @fieldParentPtr(NodeIdentifier, "base", base).iterate(index),
             Id.FnProto => @fieldParentPtr(NodeFnProto, "base", base).iterate(index),
             Id.ParamDecl => @fieldParentPtr(NodeParamDecl, "base", base).iterate(index),
@@ -70,6 +72,7 @@ pub const Node = struct {
         return switch (base.id) {
             Id.Root => @fieldParentPtr(NodeRoot, "base", base).firstToken(),
             Id.VarDecl => @fieldParentPtr(NodeVarDecl, "base", base).firstToken(),
+            Id.ContainerDecl => @fieldParentPtr(NodeContainerDecl, "base", base).firstToken(),
             Id.Identifier => @fieldParentPtr(NodeIdentifier, "base", base).firstToken(),
             Id.FnProto => @fieldParentPtr(NodeFnProto, "base", base).firstToken(),
             Id.ParamDecl => @fieldParentPtr(NodeParamDecl, "base", base).firstToken(),
@@ -100,6 +103,7 @@ pub const Node = struct {
         return switch (base.id) {
             Id.Root => @fieldParentPtr(NodeRoot, "base", base).lastToken(),
             Id.VarDecl => @fieldParentPtr(NodeVarDecl, "base", base).lastToken(),
+            Id.ContainerDecl => @fieldParentPtr(NodeContainerDecl, "base", base).lastToken(),
             Id.Identifier => @fieldParentPtr(NodeIdentifier, "base", base).lastToken(),
             Id.FnProto => @fieldParentPtr(NodeFnProto, "base", base).lastToken(),
             Id.ParamDecl => @fieldParentPtr(NodeParamDecl, "base", base).lastToken(),
@@ -193,6 +197,69 @@ pub const NodeVarDecl = struct {
 
     pub fn lastToken(self: &NodeVarDecl) Token {
         return self.semicolon_token;
+    }
+};
+
+pub const NodeContainerDecl = struct {
+    base: Node,
+    kind_token: Token,
+    init_arg_expr: InitArg,
+    kind: Kind,
+    decls: ArrayList(&Node),
+    rbrace_token: Token,
+
+    // TODO: Different array lists for each kind.
+    const Kind = union(enum) {
+        Struct: ArrayList(&Node),
+        Enum: ArrayList(&Node),
+        Union: ArrayList(&Node),
+    };
+
+    const InitArg = union(enum) {
+        None,
+        Enum,
+        Type: &Node,
+    };
+
+    pub fn iterate(self: &NodeContainerDecl, index: usize) ?&Node {
+        var i = index;
+
+        switch (self.init_arg_expr) {
+            InitArg.Type => |t| {
+                if (i < 1) return t;
+                i -= 1;
+            },
+            InitArg.None,
+            InitArg.Enum => { }
+        }
+
+        if (i < self.decls.len) return self.decls.at(i);
+        i -= self.decls.len;
+
+        switch (self.kind) {
+            Kind.Struct => |fields| {
+                if (i < fields.len) return fields.at(i);
+                i -= fields.len;
+            },
+            Kind.Enum => |tags| {
+                if (i < tags.len) return tags.at(i);
+                i -= tags.len;
+            },
+            Kind.Union => |tags| {
+                if (i < tags.len) return tags.at(i);
+                i -= tags.len;
+            },
+        }
+
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeContainerDecl) Token {
+        return self.kind_token;
+    }
+
+    pub fn lastToken(self: &NodeContainerDecl) Token {
+        return self.rbrace_token;
     }
 };
 
@@ -611,7 +678,7 @@ pub const NodeSuffixOp = struct {
                 i -= exprs.len;
             },
             SuffixOp.StructInitializer => |fields| {
-                if (i < fields.len) return fields.at(i);
+                if (i < fields.len) return &fields.at(i).base;
                 i -= fields.len;
             },
         }

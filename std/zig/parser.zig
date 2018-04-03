@@ -1806,6 +1806,10 @@ pub const Parser = struct {
                         try stack.append(RenderState { .Expression = grouped_expr.expr });
                         try stack.append(RenderState { .Text = "("});
                     },
+                    ast.Node.Id.ContainerDecl => {
+                        const container_decl = @fieldParentPtr(ast.NodeGroupedExpression, "base", base);
+                        @panic("TODO: ContainerDecl");
+                    },
                     ast.Node.Id.FieldInitializer => {
                         const field_init = @fieldParentPtr(ast.NodeFieldInitializer, "base", base);
                         try stream.print(".{} = ", self.tokenizer.getTokenSlice(field_init.name_token));
