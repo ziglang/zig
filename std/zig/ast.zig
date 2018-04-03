@@ -17,6 +17,7 @@ pub const Node = struct {
         Block,
         InfixOp,
         PrefixOp,
+        SuffixOp,
         IntegerLiteral,
         FloatLiteral,
         StringLiteral,
@@ -29,9 +30,6 @@ pub const Node = struct {
         Unreachable,
         ErrorType,
         BuiltinCall,
-        Call,
-        ArrayAccess,
-        SliceExpression,
         LineComment,
         TestDecl,
     };
@@ -46,6 +44,7 @@ pub const Node = struct {
             Id.Block => @fieldParentPtr(NodeBlock, "base", base).iterate(index),
             Id.InfixOp => @fieldParentPtr(NodeInfixOp, "base", base).iterate(index),
             Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).iterate(index),
+            Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).iterate(index),
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).iterate(index),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).iterate(index),
             Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).iterate(index),
@@ -58,9 +57,6 @@ pub const Node = struct {
             Id.Unreachable => @fieldParentPtr(NodeUnreachable, "base", base).iterate(index),
             Id.ErrorType => @fieldParentPtr(NodeErrorType, "base", base).iterate(index),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).iterate(index),
-            Id.Call => @fieldParentPtr(NodeCall, "base", base).iterate(index),
-            Id.ArrayAccess => @fieldParentPtr(NodeArrayAccess, "base", base).iterate(index),
-            Id.SliceExpression => @fieldParentPtr(NodeSliceExpression, "base", base).iterate(index),
             Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).iterate(index),
             Id.TestDecl => @fieldParentPtr(NodeTestDecl, "base", base).iterate(index),
         };
@@ -76,6 +72,7 @@ pub const Node = struct {
             Id.Block => @fieldParentPtr(NodeBlock, "base", base).firstToken(),
             Id.InfixOp => @fieldParentPtr(NodeInfixOp, "base", base).firstToken(),
             Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).firstToken(),
+            Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).firstToken(),
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).firstToken(),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).firstToken(),
             Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).firstToken(),
@@ -88,9 +85,6 @@ pub const Node = struct {
             Id.ThisLiteral => @fieldParentPtr(NodeThisLiteral, "base", base).firstToken(),
             Id.ErrorType => @fieldParentPtr(NodeErrorType, "base", base).firstToken(),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).firstToken(),
-            Id.Call => @fieldParentPtr(NodeCall, "base", base).firstToken(),
-            Id.ArrayAccess => @fieldParentPtr(NodeArrayAccess, "base", base).firstToken(),
-            Id.SliceExpression => @fieldParentPtr(NodeSliceExpression, "base", base).firstToken(),
             Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).firstToken(),
             Id.TestDecl => @fieldParentPtr(NodeTestDecl, "base", base).firstToken(),
         };
@@ -106,6 +100,7 @@ pub const Node = struct {
             Id.Block => @fieldParentPtr(NodeBlock, "base", base).lastToken(),
             Id.InfixOp => @fieldParentPtr(NodeInfixOp, "base", base).lastToken(),
             Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).lastToken(),
+            Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).lastToken(),
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).lastToken(),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).lastToken(),
             Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).lastToken(),
@@ -118,9 +113,6 @@ pub const Node = struct {
             Id.Unreachable => @fieldParentPtr(NodeUnreachable, "base", base).lastToken(),
             Id.ErrorType => @fieldParentPtr(NodeErrorType, "base", base).lastToken(),
             Id.BuiltinCall => @fieldParentPtr(NodeBuiltinCall, "base", base).lastToken(),
-            Id.Call => @fieldParentPtr(NodeCall, "base", base).lastToken(),
-            Id.ArrayAccess => @fieldParentPtr(NodeArrayAccess, "base", base).lastToken(),
-            Id.SliceExpression => @fieldParentPtr(NodeSliceExpression, "base", base).lastToken(),
             Id.LineComment => @fieldParentPtr(NodeLineComment, "base", base).lastToken(),
             Id.TestDecl => @fieldParentPtr(NodeTestDecl, "base", base).lastToken(),
         };
@@ -493,11 +485,21 @@ pub const NodePrefixOp = struct {
         var i = index;
 
         switch (self.op) {
+            PrefixOp.SliceType => |addr_of_info| {
+                if (addr_of_info.align_expr) |align_expr| {
+                    if (i < 1) return align_expr;
+                    i -= 1;
+                }
+            },
             PrefixOp.AddrOf => |addr_of_info| {
                 if (addr_of_info.align_expr) |align_expr| {
                     if (i < 1) return align_expr;
                     i -= 1;
                 }
+            },
+            PrefixOp.ArrayType => |size_expr| {
+                if (i < 1) return size_expr;
+                i -= 1;
             },
             PrefixOp.BitNot,
             PrefixOp.BoolNot,
@@ -505,8 +507,6 @@ pub const NodePrefixOp = struct {
             PrefixOp.Negation,
             PrefixOp.NegationWrap,
             PrefixOp.Return,
-            PrefixOp.ArrayType,
-            PrefixOp.SliceType,
             PrefixOp.Try,
             PrefixOp.UnwrapMaybe => {},
         }
@@ -523,6 +523,76 @@ pub const NodePrefixOp = struct {
 
     pub fn lastToken(self: &NodePrefixOp) Token {
         return self.rhs.lastToken();
+    }
+};
+
+pub const NodeSuffixOp = struct {
+    base: Node,
+    lhs: &Node,
+    op: SuffixOp,
+    rtoken: Token,
+
+    const SuffixOp = union(enum) {
+        Call: CallInfo,
+        ArrayAccess: &Node,
+        Slice: SliceRange,
+        ArrayInitializer: ArrayList(&Node),
+        StructInitializer: ArrayList(&Node),
+    };
+
+    const CallInfo = struct {
+        params: ArrayList(&Node),
+        is_async: bool,
+    };
+
+    const SliceRange = struct {
+        start: &Node,
+        end: ?&Node,
+    };
+
+    pub fn iterate(self: &NodeSuffixOp, index: usize) ?&Node {
+        var i = index;
+
+        if (i < 1) return self.lhs;
+        i -= 1;
+
+        switch (self.op) {
+            SuffixOp.Call => |call_info| {
+                if (i < call_info.params.len) return call_info.params.at(i);
+                i -= call_info.params.len;
+            },
+            SuffixOp.ArrayAccess => |index_expr| {
+                if (i < 1) return index_expr;
+                i -= 1;
+            },
+            SuffixOp.Slice => |range| {
+                if (i < 1) return range.start;
+                i -= 1;
+
+                if (range.end) |end| {
+                    if (i < 1) return end;
+                    i -= 1;
+                }
+            },
+            SuffixOp.ArrayInitializer => |exprs| {
+                if (i < exprs.len) return exprs.at(i);
+                i -= exprs.len;
+            },
+            SuffixOp.StructInitializer => |fields| {
+                if (i < fields.len) return fields.at(i);
+                i -= fields.len;
+            },
+        }
+
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeSuffixOp) Token {
+        return self.lhs.firstToken();
+    }
+
+    pub fn lastToken(self: &NodeSuffixOp) Token {
+        return self.rtoken;
     }
 };
 
@@ -581,91 +651,6 @@ pub const NodeBuiltinCall = struct {
 
     pub fn lastToken(self: &NodeBuiltinCall) Token {
         return self.rparen_token;
-    }
-};
-
-pub const NodeCall = struct {
-    base: Node,
-    callee: &Node,
-    params: ArrayList(&Node),
-    rparen_token: Token,
-
-    pub fn iterate(self: &NodeCall, index: usize) ?&Node {
-        var i = index;
-
-        if (i < 1) return self.callee;
-        i -= 1;
-
-        if (i < self.params.len) return self.params.at(i);
-        i -= self.params.len;
-
-        return null;
-    }
-
-    pub fn firstToken(self: &NodeCall) Token {
-        return self.callee.firstToken();
-    }
-
-    pub fn lastToken(self: &NodeCall) Token {
-        return self.rparen_token;
-    }
-};
-
-pub const NodeArrayAccess = struct {
-    base: Node,
-    expr: &Node,
-    index: &Node,
-    rbracket_token: Token,
-
-    pub fn iterate(self: &NodeArrayAccess, index: usize) ?&Node {
-        var i = index;
-
-        if (i < 1) return self.expr;
-        i -= 1;
-
-        if (i < 1) return self.index;
-        i -= 1;
-
-        return null;
-    }
-
-    pub fn firstToken(self: &NodeArrayAccess) Token {
-        return self.expr.firstToken();
-    }
-
-    pub fn lastToken(self: &NodeArrayAccess) Token {
-        return self.rbracket_token;
-    }
-};
-
-pub const NodeSliceExpression = struct {
-    base: Node,
-    expr: &Node,
-    start: &Node,
-    end: ?&Node,
-    rbracket_token: Token,
-
-    pub fn iterate(self: &NodeSliceExpression, index: usize) ?&Node {
-        var i = index;
-
-        if (i < 1) return self.callee;
-        i -= 1;
-
-        if (i < 1) return self.start;
-        i -= 1;
-
-        if (i < 1) return self.end;
-        i -= 1;
-
-        return null;
-    }
-
-    pub fn firstToken(self: &NodeSliceExpression) Token {
-        return self.expr.firstToken();
-    }
-
-    pub fn lastToken(self: &NodeSliceExpression) Token {
-        return self.rbracket_token;
     }
 };
 
