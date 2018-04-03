@@ -1,3 +1,11 @@
+sudo: required
+services:
+  - docker
+addons:
+  artifacts:
+    working_dir: artifacts
+    target_paths:
+    - /builds
 os:
   - linux
   - osx

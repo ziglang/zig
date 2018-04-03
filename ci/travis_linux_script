@@ -9,24 +9,8 @@ echo $PATH
 mkdir build
 cd build
 cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd)
-make VERBOSE=1
-make install
+make -j2 install
 ./zig build --build-file ../build.zig test
 
-./zig test ../test/behavior.zig --target-os windows --target-arch i386 --target-environ msvc
-wine zig-cache/test.exe
-
-./zig test ../test/behavior.zig --target-os windows --target-arch i386 --target-environ msvc --release-fast
-wine zig-cache/test.exe
-
-./zig test ../test/behavior.zig --target-os windows --target-arch i386 --target-environ msvc --release-safe
-wine zig-cache/test.exe
-
-./zig test ../test/behavior.zig --target-os windows --target-arch x86_64 --target-environ msvc
-wine64 zig-cache/test.exe
-
-#./zig test ../test/behavior.zig --target-os windows --target-arch x86_64 --target-environ msvc --release-fast
-#wine64 test.exe
-#
-#./zig test ../test/behavior.zig --target-os windows --target-arch x86_64 --target-environ msvc --release-safe
-#wine64 test.exe
+mkdir $TRAVIS_BUILD_DIR/artifacts
+docker run -it --mount type=bind,source="$TRAVIS_BUILD_DIR/artifacts",target=/z ziglang/static-base:llvm6-1 -j2 $TRAVIS_COMMIT
