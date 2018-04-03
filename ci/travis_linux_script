@@ -12,5 +12,6 @@ cmake .. -DCMAKE_INSTALL_PREFIX=$(pwd)
 make -j2 install
 ./zig build --build-file ../build.zig test
 
-mkdir $TRAVIS_BUILD_DIR/artifacts
-docker run -it --mount type=bind,source="$TRAVIS_BUILD_DIR/artifacts",target=/z ziglang/static-base:llvm6-1 -j2 $TRAVIS_COMMIT
+cd $TRAVIS_BUILD_DIR
+git clean -fd
+docker run -it --mount type=bind,source="$TRAVIS_BUILD_DIR",target=/z ziglang/static-base:llvm6-1 -j2 $TRAVIS_COMMIT
