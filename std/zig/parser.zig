@@ -2360,16 +2360,6 @@ test "zig fmt: union declaration" {
     );
 }
 
-test "zig fmt: container initializers" {
-    try testCanonical(
-        \\const a1 = []u8{ };
-        \\const a2 = []u8{ 1, 2, 3, 4 };
-        \\const s1 = S{ };
-        \\const s2 = S{ .a = 1, .b = 2, };
-        \\
-    );
-}
-
 test "zig fmt: switch" {
     try testCanonical(
         \\test "switch" {
@@ -2672,6 +2662,16 @@ test "zig fmt: arrays" {
         \\    const a: [2]u8 = []u8{ 1, 2 };
         \\    const a: [0]u8 = []u8{};
         \\}
+        \\
+    );
+}
+
+test "zig fmt: container initializers" {
+    try testCanonical(
+        \\const a1 = []u8{ };
+        \\const a2 = []u8{ 1, 2, 3, 4 };
+        \\const s1 = S{ };
+        \\const s2 = S{ .a = 1, .b = 2, };
         \\
     );
 }
