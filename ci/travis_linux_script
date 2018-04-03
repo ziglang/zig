@@ -13,6 +13,6 @@ make -j2 install
 ./zig build --build-file ../build.zig test
 
 cd $TRAVIS_BUILD_DIR
+rm .gitignore
 git clean -fd
-rm -rf build
 docker run -it --mount type=bind,source="$TRAVIS_BUILD_DIR",target=/z ziglang/static-base:llvm6-1 -j2 $TRAVIS_COMMIT
