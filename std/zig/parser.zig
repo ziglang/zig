@@ -53,6 +53,7 @@ pub const Parser = struct {
     }
 
     const TopLevelDeclCtx = struct {
+        decls: &ArrayList(&ast.Node),
         visib_token: ?Token,
         extern_token: ?Token,
         lib_name: ?&ast.Node,
@@ -75,7 +76,6 @@ pub const Parser = struct {
     const ExpectTokenSave = struct {
         id: Token.Id,
         ptr: &Token,
-
     };
 
     fn ListState(comptime T: type) type {
@@ -88,7 +88,7 @@ pub const Parser = struct {
 
     const State = union(enum) {
         TopLevel,
-        TopLevelExtern: ?Token,
+        TopLevelExtern: TopLevelDeclCtx,
         TopLevelDecl: TopLevelDeclCtx,
         Expression: DestPtr,
         ExpectOperand,
@@ -182,7 +182,14 @@ pub const Parser = struct {
                     const token = self.getNextToken();
                     switch (token.id) {
                         Token.Id.Keyword_pub, Token.Id.Keyword_export => {
-                            stack.append(State { .TopLevelExtern = token }) catch unreachable;
+                            stack.append(State {
+                                .TopLevelExtern = TopLevelDeclCtx {
+                                    .decls = &root_node.decls,
+                                    .visib_token = token,
+                                    .extern_token = null,
+                                    .lib_name = null,
+                                }
+                            }) catch unreachable;
                             continue;
                         },
                         Token.Id.Keyword_test => {
@@ -208,12 +215,19 @@ pub const Parser = struct {
                         },
                         else => {
                             self.putBackToken(token);
-                            stack.append(State { .TopLevelExtern = null }) catch unreachable;
+                            stack.append(State {
+                                .TopLevelExtern = TopLevelDeclCtx {
+                                    .decls = &root_node.decls,
+                                    .visib_token = null,
+                                    .extern_token = null,
+                                    .lib_name = null,
+                                }
+                            }) catch unreachable;
                             continue;
                         },
                     }
                 },
-                State.TopLevelExtern => |visib_token| {
+                State.TopLevelExtern => |ctx| {
                     const token = self.getNextToken();
                     if (token.id == Token.Id.Keyword_extern) {
                         const lib_name_token = self.getNextToken();
@@ -229,7 +243,8 @@ pub const Parser = struct {
 
                         stack.append(State {
                             .TopLevelDecl = TopLevelDeclCtx {
-                                .visib_token = visib_token,
+                                .decls = ctx.decls,
+                                .visib_token = ctx.visib_token,
                                 .extern_token = token,
                                 .lib_name = lib_name,
                             },
@@ -237,13 +252,7 @@ pub const Parser = struct {
                         continue;
                     }
                     self.putBackToken(token);
-                    stack.append(State {
-                        .TopLevelDecl = TopLevelDeclCtx {
-                            .visib_token = visib_token,
-                            .extern_token = null,
-                            .lib_name = null,
-                        },
-                    }) catch unreachable;
+                    stack.append(State { .TopLevelDecl = ctx }) catch unreachable;
                     continue;
                 },
                 State.TopLevelDecl => |ctx| {
@@ -252,7 +261,7 @@ pub const Parser = struct {
                         Token.Id.Keyword_var, Token.Id.Keyword_const => {
                             stack.append(State.TopLevel) catch unreachable;
                             // TODO shouldn't need these casts
-                            const var_decl_node = try self.createAttachVarDecl(arena, &root_node.decls, ctx.visib_token,
+                            const var_decl_node = try self.createAttachVarDecl(arena, ctx.decls, ctx.visib_token,
                                 token, (?Token)(null), ctx.extern_token, ctx.lib_name);
                             try stack.append(State { .VarDecl = var_decl_node });
                             continue;
@@ -260,7 +269,7 @@ pub const Parser = struct {
                         Token.Id.Keyword_fn => {
                             stack.append(State.TopLevel) catch unreachable;
                             // TODO shouldn't need these casts
-                            const fn_proto = try self.createAttachFnProto(arena, &root_node.decls, token,
+                            const fn_proto = try self.createAttachFnProto(arena, ctx.decls, token,
                                 ctx.extern_token, ctx.lib_name, (?Token)(null), ctx.visib_token, (?Token)(null));
                             try stack.append(State { .FnDef = fn_proto });
                             try stack.append(State { .FnProto = fn_proto });
@@ -270,7 +279,7 @@ pub const Parser = struct {
                             stack.append(State.TopLevel) catch unreachable;
                             const fn_token = try self.eatToken(Token.Id.Keyword_fn);
                             // TODO shouldn't need this cast
-                            const fn_proto = try self.createAttachFnProto(arena, &root_node.decls, fn_token,
+                            const fn_proto = try self.createAttachFnProto(arena, ctx.decls, fn_token,
                                 ctx.extern_token, ctx.lib_name, (?Token)(token), (?Token)(null), (?Token)(null));
                             try stack.append(State { .FnDef = fn_proto });
                             try stack.append(State { .FnProto = fn_proto });
