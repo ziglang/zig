@@ -18,6 +18,7 @@ pub const Node = struct {
         InfixOp,
         PrefixOp,
         SuffixOp,
+        FieldInitializer,
         IntegerLiteral,
         FloatLiteral,
         StringLiteral,
@@ -45,6 +46,7 @@ pub const Node = struct {
             Id.InfixOp => @fieldParentPtr(NodeInfixOp, "base", base).iterate(index),
             Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).iterate(index),
             Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).iterate(index),
+            Id.FieldInitializer => @fieldParentPtr(NodeFieldInitializer, "base", base).iterate(index),
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).iterate(index),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).iterate(index),
             Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).iterate(index),
@@ -73,6 +75,7 @@ pub const Node = struct {
             Id.InfixOp => @fieldParentPtr(NodeInfixOp, "base", base).firstToken(),
             Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).firstToken(),
             Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).firstToken(),
+            Id.FieldInitializer => @fieldParentPtr(NodeFieldInitializer, "base", base).firstToken(),
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).firstToken(),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).firstToken(),
             Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).firstToken(),
@@ -101,6 +104,7 @@ pub const Node = struct {
             Id.InfixOp => @fieldParentPtr(NodeInfixOp, "base", base).lastToken(),
             Id.PrefixOp => @fieldParentPtr(NodePrefixOp, "base", base).lastToken(),
             Id.SuffixOp => @fieldParentPtr(NodeSuffixOp, "base", base).lastToken(),
+            Id.FieldInitializer => @fieldParentPtr(NodeFieldInitializer, "base", base).lastToken(),
             Id.IntegerLiteral => @fieldParentPtr(NodeIntegerLiteral, "base", base).lastToken(),
             Id.FloatLiteral => @fieldParentPtr(NodeFloatLiteral, "base", base).lastToken(),
             Id.StringLiteral => @fieldParentPtr(NodeStringLiteral, "base", base).lastToken(),
@@ -526,6 +530,30 @@ pub const NodePrefixOp = struct {
     }
 };
 
+pub const NodeFieldInitializer = struct {
+    base: Node,
+    dot_token: Token,
+    name_token: Token,
+    expr: &Node,
+
+    pub fn iterate(self: &NodeFieldInitializer, index: usize) ?&Node {
+        var i = index;
+
+        if (i < 1) return self.expr;
+        i -= 1;
+
+        return null;
+    }
+
+    pub fn firstToken(self: &NodeFieldInitializer) Token {
+        return self.dot_token;
+    }
+
+    pub fn lastToken(self: &NodeFieldInitializer) Token {
+        return self.expr.lastToken();
+    }
+};
+
 pub const NodeSuffixOp = struct {
     base: Node,
     lhs: &Node,
@@ -537,7 +565,7 @@ pub const NodeSuffixOp = struct {
         ArrayAccess: &Node,
         Slice: SliceRange,
         ArrayInitializer: ArrayList(&Node),
-        StructInitializer: ArrayList(&Node),
+        StructInitializer: ArrayList(&NodeFieldInitializer),
     };
 
     const CallInfo = struct {

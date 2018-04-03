@@ -77,6 +77,12 @@ pub const Parser = struct {
         ptr: &Token,
     };
 
+    const ExprListState = struct {
+        list: &ArrayList(&ast.Node),
+        end: Token.Id,
+        ptr: &Token,
+    };
+
     const State = union(enum) {
         TopLevel,
         TopLevelExtern: ?Token,
@@ -88,7 +94,7 @@ pub const Parser = struct {
         InfixOp: &ast.NodeInfixOp,
         PrefixOp: &ast.NodePrefixOp,
         SuffixOp: &ast.NodeSuffixOp,
-        SliceOrArrayAccess,
+        SliceOrArrayAccess: &ast.NodeSuffixOp,
         AddrOfModifiers: &ast.NodePrefixOp.AddrOfInfo,
         TypeExpr: DestPtr,
         VarDecl: &ast.NodeVarDecl,
@@ -104,8 +110,8 @@ pub const Parser = struct {
         FnDef: &ast.NodeFnProto,
         Block: &ast.NodeBlock,
         Statement: &ast.NodeBlock,
-        ExprListItemOrEnd: &ArrayList(&ast.Node),
-        ExprListCommaOrEnd: &ArrayList(&ast.Node),
+        ExprListItemOrEnd: ExprListState,
+        ExprListCommaOrEnd: ExprListState,
     };
 
     /// Returns an AST tree, allocated with the parser's allocator.
@@ -529,13 +535,14 @@ pub const Parser = struct {
                                 .Operand = &node.base
                             });
                             try stack.append(State.AfterOperand);
-                            try stack.append(State {.ExprListItemOrEnd = &node.params });
                             try stack.append(State {
-                                .ExpectTokenSave = ExpectTokenSave {
-                                    .id = Token.Id.LParen,
+                                .ExprListItemOrEnd = ExprListState {
+                                    .list = &node.params,
+                                    .end = Token.Id.RParen,
                                     .ptr = &node.rparen_token,
-                                },
+                                }
                             });
+                            try stack.append(State { .ExpectToken = Token.Id.LParen, });
                             continue;
                         },
                         Token.Id.StringLiteral => {
@@ -587,6 +594,46 @@ pub const Parser = struct {
                     }
                 },
 
+                State.SliceOrArrayAccess => |node| {
+                    var token = self.getNextToken();
+
+                    switch (token.id) {
+                        Token.Id.Ellipsis2 => {
+                            const start = node.op.ArrayAccess;
+                            node.op = ast.NodeSuffixOp.SuffixOp {
+                                .Slice = ast.NodeSuffixOp.SliceRange {
+                                    .start = start,
+                                    .end = undefined,
+                                }
+                            };
+                            try stack.append(State { .SuffixOp = node });
+                            try stack.append(State.AfterOperand);
+
+                            const rbracket_token = self.getNextToken();
+                            if (rbracket_token.id != Token.Id.RBracket) {
+                                self.putBackToken(rbracket_token);
+                                try stack.append(State {
+                                    .ExpectTokenSave = ExpectTokenSave {
+                                        .id = Token.Id.RBracket,
+                                        .ptr = &node.rtoken,
+                                    }
+                                });
+                                try stack.append(State { .Expression = DestPtr { .NullableField = &node.op.Slice.end } });
+                            } else {
+                                node.rtoken = rbracket_token;
+                            }
+                            continue;
+                        },
+                        Token.Id.RBracket => {
+                            node.rtoken = token;
+                            try stack.append(State { .SuffixOp = node });
+                            try stack.append(State.AfterOperand);
+                            continue;
+                        },
+                        else => return self.parseError(token, "expected ']' or '..', found {}", @tagName(token.id))
+                    }
+                },
+
                 State.AfterOperand => {
                     // we'll either get an infix operator (like != or ^),
                     // or a postfix operator (like () or {}),
@@ -610,7 +657,13 @@ pub const Parser = struct {
                         });
                         try stack.append(State { .SuffixOp = node });
                         try stack.append(State.AfterOperand);
-                        try stack.append(State {.ExprListItemOrEnd = &node.op.Call.params });
+                        try stack.append(State {
+                            .ExprListItemOrEnd = ExprListState {
+                                .list = &node.op.Call.params,
+                                .end = Token.Id.RParen,
+                                .ptr = &node.rtoken,
+                            }
+                        });
                         try stack.append(State {
                             .ExpectTokenSave = ExpectTokenSave {
                                 .id = Token.Id.LParen,
@@ -620,8 +673,17 @@ pub const Parser = struct {
                         continue;
 
                     } else if (token.id == Token.Id.LBracket) {
-                        try stack.append(State.SliceOrArrayAccess);
-                        try stack.append(State.ExpectOperand);
+                        const node = try arena.create(ast.NodeSuffixOp);
+                        *node = ast.NodeSuffixOp {
+                            .base = self.initNode(ast.Node.Id.SuffixOp),
+                            .lhs = undefined,
+                            .op = ast.NodeSuffixOp.SuffixOp {
+                                .ArrayAccess = undefined,
+                            },
+                            .rtoken = undefined,
+                        };
+                        try stack.append(State { .SliceOrArrayAccess = node });
+                        try stack.append(State { .Expression = DestPtr { .Field = &node.op.ArrayAccess }});
                         continue;
 
                     // TODO: Parse postfix operator
@@ -636,48 +698,6 @@ pub const Parser = struct {
                                     // we're done
                                     try dest_ptr.store(expression);
                                     break;
-                                },
-                                State.SliceOrArrayAccess => {
-                                    var rbracket_or_ellipsis2_token = self.getNextToken();
-
-                                    switch (rbracket_or_ellipsis2_token.id) {
-                                        Token.Id.Ellipsis2 => {
-                                            const node = try self.createSuffixOp(arena, ast.NodeSuffixOp.SuffixOp {
-                                                .Slice = ast.NodeSuffixOp.SliceRange {
-                                                    .start = expression,
-                                                    .end = null,
-                                                }
-                                            });
-
-                                            try stack.append(State { .SuffixOp = node });
-                                            try stack.append(State.AfterOperand);
-
-                                            const rbracket_token = self.getNextToken();
-                                            if (rbracket_token.id != Token.Id.RBracket) {
-                                                self.putBackToken(rbracket_token);
-                                                try stack.append(State {
-                                                    .ExpectTokenSave = ExpectTokenSave {
-                                                        .id = Token.Id.RBracket,
-                                                        .ptr = &node.rtoken,
-                                                    }
-                                                });
-                                                try stack.append(State { .Expression = DestPtr { .NullableField = &node.op.Slice.end } });
-                                            } else {
-                                                node.rtoken = rbracket_token;
-                                            }
-                                            break;
-                                        },
-                                        Token.Id.RBracket => {
-                                            const node = try self.createSuffixOp(arena, ast.NodeSuffixOp.SuffixOp {
-                                                .ArrayAccess = expression
-                                            });
-                                            node.rtoken = token;
-                                            try stack.append(State { .SuffixOp = node });
-                                            try stack.append(State.AfterOperand);
-                                            break;
-                                        },
-                                        else => return self.parseError(token, "expected ']' or '..', found {}", @tagName(token.id))
-                                    }
                                 },
                                 State.InfixOp => |infix_op| {
                                     infix_op.rhs = expression;
@@ -697,26 +717,31 @@ pub const Parser = struct {
                     }
                 },
 
-                State.ExprListItemOrEnd => |params| {
+                State.ExprListItemOrEnd => |expr_list_state| {
                     var token = self.getNextToken();
                     switch (token.id) {
                         Token.Id.RParen => continue,
                         else => {
                             self.putBackToken(token);
-                            stack.append(State { .ExprListCommaOrEnd = params }) catch unreachable;
-                            try stack.append(State { .Expression = DestPtr{.List = params} });
+                            stack.append(State { .ExprListCommaOrEnd = expr_list_state }) catch unreachable;
+                            try stack.append(State { .Expression = DestPtr{.List = expr_list_state.list} });
                         },
                     }
                 },
 
-                State.ExprListCommaOrEnd => |params| {
+                State.ExprListCommaOrEnd => |expr_list_state| {
                     var token = self.getNextToken();
                     switch (token.id) {
                         Token.Id.Comma => {
-                            stack.append(State { .ExprListItemOrEnd = params }) catch unreachable;
+                            stack.append(State { .ExprListItemOrEnd = expr_list_state }) catch unreachable;
                         },
-                        Token.Id.RParen => continue,
-                        else => return self.parseError(token, "expected ',' or ')', found {}", @tagName(token.id)),
+                        else => {
+                            const IdTag = @TagType(Token.Id);
+                            if (IdTag(expr_list_state.end) == token.id)
+                                continue;
+
+                            return self.parseError(token, "expected ',' or {}, found {}", @tagName(expr_list_state.end), @tagName(token.id));
+                        },
                     }
                 },
 
@@ -933,7 +958,6 @@ pub const Parser = struct {
                 State.PrefixOp => unreachable,
                 State.SuffixOp => unreachable,
                 State.Operand => unreachable,
-                State.SliceOrArrayAccess => unreachable,
             }
         }
     }
@@ -1648,6 +1672,11 @@ pub const Parser = struct {
                         }
 
                         try stack.append(RenderState { .Expression = suffix_op.lhs });
+                    },
+                    ast.Node.Id.FieldInitializer => {
+                        const field_init = @fieldParentPtr(ast.NodeFieldInitializer, "base", base);
+                        try stream.print(".{} = ", self.tokenizer.getTokenSlice(field_init.name_token));
+                        try stack.append(RenderState { .Expression = field_init.expr });
                     },
                     ast.Node.Id.IntegerLiteral => {
                         const integer_literal = @fieldParentPtr(ast.NodeIntegerLiteral, "base", base);
