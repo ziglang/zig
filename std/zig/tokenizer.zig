@@ -271,6 +271,7 @@ pub const Tokenizer = struct {
             self.pending_invalid_token = null;
             return token;
         }
+        const start_index = self.index;
         var state = State.Start;
         var result = Token {
             .id = Token.Id.Eof,
@@ -279,7 +280,7 @@ pub const Tokenizer = struct {
             .line = self.line,
             .column = self.column,
         };
-        while (self.index < self.buffer.len) {
+        while (self.index < self.buffer.len) : (self.index += 1) {
             const c = self.buffer[self.index];
             switch (state) {
                 State.Start => switch (c) {
@@ -877,14 +878,6 @@ pub const Tokenizer = struct {
                     else => break,
                 },
             }
-
-            self.index += 1;
-            if (c == '\n') {
-                self.line += 1;
-                self.column = 0;
-            } else {
-                self.column += 1;
-            }
         } else if (self.index == self.buffer.len) {
             switch (state) {
                 State.Start,
@@ -983,6 +976,16 @@ pub const Tokenizer = struct {
                 },
             }
         }
+
+        for (self.buffer[start_index..self.index]) |c| {
+            if (c == '\n') {
+                self.line += 1;
+                self.column = 0;
+            } else {
+                self.column += 1;
+            }
+        }
+
         if (result.id == Token.Id.Eof) {
             if (self.pending_invalid_token) |token| {
                 self.pending_invalid_token = null;
