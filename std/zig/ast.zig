@@ -532,7 +532,7 @@ pub const NodePrefixOp = struct {
 
 pub const NodeFieldInitializer = struct {
     base: Node,
-    dot_token: Token,
+    period_token: Token,
     name_token: Token,
     expr: &Node,
 
@@ -546,7 +546,7 @@ pub const NodeFieldInitializer = struct {
     }
 
     pub fn firstToken(self: &NodeFieldInitializer) Token {
-        return self.dot_token;
+        return self.period_token;
     }
 
     pub fn lastToken(self: &NodeFieldInitializer) Token {

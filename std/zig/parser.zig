@@ -75,13 +75,16 @@ pub const Parser = struct {
     const ExpectTokenSave = struct {
         id: Token.Id,
         ptr: &Token,
+
     };
 
-    const ExprListState = struct {
-        list: &ArrayList(&ast.Node),
-        end: Token.Id,
-        ptr: &Token,
-    };
+    fn ListState(comptime T: type) type {
+        return struct {
+            list: &ArrayList(T),
+            end: Token.Id,
+            ptr: &Token,
+        };
+    }
 
     const State = union(enum) {
         TopLevel,
@@ -110,8 +113,10 @@ pub const Parser = struct {
         FnDef: &ast.NodeFnProto,
         Block: &ast.NodeBlock,
         Statement: &ast.NodeBlock,
-        ExprListItemOrEnd: ExprListState,
-        ExprListCommaOrEnd: ExprListState,
+        ExprListItemOrEnd: ListState(&ast.Node),
+        ExprListCommaOrEnd: ListState(&ast.Node),
+        FieldInitListItemOrEnd: ListState(&ast.NodeFieldInitializer),
+        FieldInitListCommaOrEnd: ListState(&ast.NodeFieldInitializer),
     };
 
     /// Returns an AST tree, allocated with the parser's allocator.
@@ -536,7 +541,7 @@ pub const Parser = struct {
                             });
                             try stack.append(State.AfterOperand);
                             try stack.append(State {
-                                .ExprListItemOrEnd = ExprListState {
+                                .ExprListItemOrEnd = ListState(&ast.Node) {
                                     .list = &node.params,
                                     .end = Token.Id.RParen,
                                     .ptr = &node.rparen_token,
@@ -647,8 +652,6 @@ pub const Parser = struct {
                             continue;
 
                     } else if (token.id == Token.Id.LParen) {
-                        self.putBackToken(token);
-
                         const node = try self.createSuffixOp(arena, ast.NodeSuffixOp.SuffixOp {
                             .Call = ast.NodeSuffixOp.CallInfo {
                                 .params = ArrayList(&ast.Node).init(arena),
@@ -658,17 +661,11 @@ pub const Parser = struct {
                         try stack.append(State { .SuffixOp = node });
                         try stack.append(State.AfterOperand);
                         try stack.append(State {
-                            .ExprListItemOrEnd = ExprListState {
+                            .ExprListItemOrEnd = ListState(&ast.Node) {
                                 .list = &node.op.Call.params,
                                 .end = Token.Id.RParen,
                                 .ptr = &node.rtoken,
                             }
-                        });
-                        try stack.append(State {
-                            .ExpectTokenSave = ExpectTokenSave {
-                                .id = Token.Id.LParen,
-                                .ptr = &node.rtoken,
-                            },
                         });
                         continue;
 
@@ -685,6 +682,47 @@ pub const Parser = struct {
                         try stack.append(State { .SliceOrArrayAccess = node });
                         try stack.append(State { .Expression = DestPtr { .Field = &node.op.ArrayAccess }});
                         continue;
+
+                    // TODO: This is the initializer parsing code. It doesn't work because of
+                    //       the ambiguity between function bodies and initializers:
+                    //       fn main() void {} or fn main() (void {})
+                    } else if (false) { //(token.id == Token.Id.LBrace) {
+                        const next = self.getNextToken();
+
+                        switch (next.id) {
+                            Token.Id.Period => {
+                                self.putBackToken(token);
+
+                                const node = try self.createSuffixOp(arena, ast.NodeSuffixOp.SuffixOp {
+                                    .StructInitializer = ArrayList(&ast.NodeFieldInitializer).init(arena),
+                                });
+
+                                try stack.append(State {
+                                    .FieldInitListItemOrEnd = ListState(&ast.NodeFieldInitializer) {
+                                        .list = &node.op.StructInitializer,
+                                        .end = Token.Id.RBrace,
+                                        .ptr = &node.rtoken,
+                                    }
+                                });
+                                continue;
+                            },
+                            else => {
+                                self.putBackToken(token);
+
+                                const node = try self.createSuffixOp(arena, ast.NodeSuffixOp.SuffixOp {
+                                    .ArrayInitializer = ArrayList(&ast.Node).init(arena),
+                                });
+
+                                try stack.append(State {
+                                    .ExprListItemOrEnd = ListState(&ast.Node) {
+                                        .list = &node.op.ArrayInitializer,
+                                        .end = Token.Id.RBrace,
+                                        .ptr = &node.rtoken,
+                                    }
+                                });
+                                continue;
+                            },
+                        }
 
                     // TODO: Parse postfix operator
                     } else {
@@ -717,30 +755,89 @@ pub const Parser = struct {
                     }
                 },
 
-                State.ExprListItemOrEnd => |expr_list_state| {
+                State.ExprListItemOrEnd => |list_state| {
+                    var token = self.getNextToken();
+
+                    const IdTag = @TagType(Token.Id);
+                    if (IdTag(list_state.end) == token.id) {
+                        *list_state.ptr = token;
+                        continue;
+                    }
+
+                    self.putBackToken(token);
+                    stack.append(State { .ExprListCommaOrEnd = list_state }) catch unreachable;
+                    try stack.append(State { .Expression = DestPtr{.List = list_state.list} });
+                },
+
+                State.ExprListCommaOrEnd => |list_state| {
                     var token = self.getNextToken();
                     switch (token.id) {
-                        Token.Id.RParen => continue,
+                        Token.Id.Comma => {
+                            stack.append(State { .ExprListItemOrEnd = list_state }) catch unreachable;
+                        },
                         else => {
-                            self.putBackToken(token);
-                            stack.append(State { .ExprListCommaOrEnd = expr_list_state }) catch unreachable;
-                            try stack.append(State { .Expression = DestPtr{.List = expr_list_state.list} });
+                            const IdTag = @TagType(Token.Id);
+                            if (IdTag(list_state.end) == token.id) {
+                                *list_state.ptr = token;
+                                continue;
+                            }
+
+                            return self.parseError(token, "expected ',' or {}, found {}", @tagName(list_state.end), @tagName(token.id));
                         },
                     }
                 },
 
-                State.ExprListCommaOrEnd => |expr_list_state| {
+                State.FieldInitListItemOrEnd => |list_state| {
+                    var token = self.getNextToken();
+
+                    const IdTag = @TagType(Token.Id);
+                    if (IdTag(list_state.end) == token.id){
+                        *list_state.ptr = token;
+                        continue;
+                    }
+
+                    self.putBackToken(token);
+
+                    const node = try arena.create(ast.NodeFieldInitializer);
+                    *node = ast.NodeFieldInitializer {
+                        .base = self.initNode(ast.Node.Id.FieldInitializer),
+                        .period_token = undefined,
+                        .name_token = undefined,
+                        .expr = undefined,
+                    };
+                    try list_state.list.append(node);
+
+                    stack.append(State { .FieldInitListCommaOrEnd = list_state }) catch unreachable;
+                    try stack.append(State { .Expression = DestPtr{.Field = &node.expr} });
+                    try stack.append(State { .ExpectToken = Token.Id.Equal });
+                    try stack.append(State {
+                        .ExpectTokenSave = ExpectTokenSave {
+                            .id = Token.Id.Identifier,
+                            .ptr = &node.name_token,
+                        }
+                    });
+                    try stack.append(State {
+                        .ExpectTokenSave = ExpectTokenSave {
+                            .id = Token.Id.Period,
+                            .ptr = &node.period_token,
+                        }
+                    });
+                },
+
+                State.FieldInitListCommaOrEnd => |list_state| {
                     var token = self.getNextToken();
                     switch (token.id) {
                         Token.Id.Comma => {
-                            stack.append(State { .ExprListItemOrEnd = expr_list_state }) catch unreachable;
+                            stack.append(State { .FieldInitListItemOrEnd = list_state }) catch unreachable;
                         },
                         else => {
                             const IdTag = @TagType(Token.Id);
-                            if (IdTag(expr_list_state.end) == token.id)
+                            if (IdTag(list_state.end) == token.id) {
+                                *list_state.ptr = token;
                                 continue;
+                            }
 
-                            return self.parseError(token, "expected ',' or {}, found {}", @tagName(expr_list_state.end), @tagName(token.id));
+                            return self.parseError(token, "expected ',' or {}, found {}", @tagName(list_state.end), @tagName(token.id));
                         },
                     }
                 },
