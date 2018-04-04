@@ -1050,14 +1050,14 @@ const DeleteTreeError = error {
 };
 pub fn deleteTree(allocator: &Allocator, full_path: []const u8) DeleteTreeError!void {
     start_over: while (true) {
+        var got_access_denied = false;
         // First, try deleting the item as a file. This way we don't follow sym links.
         if (deleteFile(allocator, full_path)) {
             return;
         } else |err| switch (err) {
             error.FileNotFound => return,
-
-            error.AccessDenied,
             error.IsDir => {},
+            error.AccessDenied => got_access_denied = true,
 
             error.OutOfMemory,
             error.SymLinkLoop,
@@ -1072,7 +1072,12 @@ pub fn deleteTree(allocator: &Allocator, full_path: []const u8) DeleteTreeError!
         }
         {
             var dir = Dir.open(allocator, full_path) catch |err| switch (err) {
-                error.NotDir => continue :start_over,
+                error.NotDir => {
+                    if (got_access_denied) {
+                        return error.AccessDenied;
+                    }
+                    continue :start_over;
+                },
 
                 error.OutOfMemory,
                 error.AccessDenied,
