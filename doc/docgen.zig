@@ -55,7 +55,7 @@ pub fn main() !void {
         // TODO issue #709
         // disabled to pass CI tests, but obviously we want to implement this
         // and then remove this workaround
-        if (builtin.os == builtin.Os.linux) {
+        if (builtin.os != builtin.Os.windows) {
             os.deleteTree(allocator, tmp_dir_name) catch {};
         }
     }
