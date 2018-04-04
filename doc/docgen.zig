@@ -5,6 +5,7 @@ const os = std.os;
 const warn = std.debug.warn;
 const mem = std.mem;
 const assert = std.debug.assert;
+const string = std.stringUtils;
 
 const max_doc_file_size = 10 * 1024 * 1024;
 
@@ -309,7 +310,7 @@ const Node = union(enum) {
 const Toc = struct {
     nodes: []Node,
     toc: []u8,
-    urls: std.HashMap([]const u8, Token, mem.hash_slice_u8, mem.eql_slice_u8),
+    urls: std.HashMap([]const u8, Token, string.hash_str, string.str_eql),
 };
 
 const Action = enum {
@@ -318,7 +319,7 @@ const Action = enum {
 };
 
 fn genToc(allocator: &mem.Allocator, tokenizer: &Tokenizer) !Toc {
-    var urls = std.HashMap([]const u8, Token, mem.hash_slice_u8, mem.eql_slice_u8).init(allocator);
+    var urls = std.HashMap([]const u8, Token, string.hash_str, string.str_eql).init(allocator);
     errdefer urls.deinit();
 
     var header_stack_size: usize = 0;

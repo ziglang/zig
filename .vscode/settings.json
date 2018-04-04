@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "*.lex": "lex",
+        "*.y": "lex",
+        "__locale": "cpp"
+    }
+}

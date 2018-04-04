@@ -316,20 +316,6 @@ pub fn writeInt(buf: []u8, value: var, endian: builtin.Endian) void {
     assert(bits == 0);
 }
 
-
-pub fn hash_slice_u8(k: []const u8) u32 {
-    // FNV 32-bit hash
-    var h: u32 = 2166136261;
-    for (k) |b| {
-        h = (h ^ b) *% 16777619;
-    }
-    return h;
-}
-
-pub fn eql_slice_u8(a: []const u8, b: []const u8) bool {
-    return eql(u8, a, b);
-}
-
 /// Returns an iterator that iterates over the slices of `buffer` that are not
 /// any of the bytes in `split_bytes`.
 /// split("   abc def    ghi  ", " ")

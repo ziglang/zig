@@ -14,6 +14,7 @@ const Term = os.ChildProcess.Term;
 const BufSet = std.BufSet;
 const BufMap = std.BufMap;
 const fmt_lib = std.fmt;
+const string = std.stringUtils;
 
 pub const Builder = struct {
     uninstall_tls: TopLevelStep,
@@ -48,8 +49,8 @@ pub const Builder = struct {
     cache_root: []const u8,
     release_mode: ?builtin.Mode,
 
-    const UserInputOptionsMap = HashMap([]const u8, UserInputOption, mem.hash_slice_u8, mem.eql_slice_u8);
-    const AvailableOptionsMap = HashMap([]const u8, AvailableOption, mem.hash_slice_u8, mem.eql_slice_u8);
+    const UserInputOptionsMap = HashMap([]const u8, UserInputOption, string.hash_str, string.str_eql);
+    const AvailableOptionsMap = HashMap([]const u8, AvailableOption, string.hash_str, string.str_eql);
 
     const AvailableOption = struct {
         name: []const u8,

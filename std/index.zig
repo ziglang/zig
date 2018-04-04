@@ -30,6 +30,7 @@ pub const rand = @import("rand/index.zig");
 pub const sort = @import("sort.zig");
 pub const unicode = @import("unicode.zig");
 pub const zig = @import("zig/index.zig");
+pub const stringUtils = @import("string_utils.zig");
 
 test "std" {
     // run tests from these
@@ -62,4 +63,5 @@ test "std" {
     _ = @import("sort.zig");
     _ = @import("unicode.zig");
     _ = @import("zig/index.zig");
+    _ = @import("string_utils.zig");
 }

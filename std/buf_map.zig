@@ -1,13 +1,14 @@
 const HashMap = @import("hash_map.zig").HashMap;
 const mem = @import("mem.zig");
 const Allocator = mem.Allocator;
+const string = @import("string_utils.zig");
 
 /// BufMap copies keys and values before they go into the map, and
 /// frees them when they get removed.
 pub const BufMap = struct {
     hash_map: BufMapHashMap,
 
-    const BufMapHashMap = HashMap([]const u8, []const u8, mem.hash_slice_u8, mem.eql_slice_u8);
+    const BufMapHashMap = HashMap([]const u8, []const u8, string.hash_str, string.str_eql);
 
     pub fn init(allocator: &Allocator) BufMap {
         var self = BufMap {
